@@ -18,6 +18,8 @@ do the occasional **splice/split** editing. Hard requirements gathered from the 
   browser tabs).
 - **Drag-and-drop** page reorder **and** page-level **cut/copy/paste** between documents.
 - Merge/splice (append + insert at a position), reorder, delete, move/copy pages, Save/Save As.
+- **Undo/redo** for all page edits (Ctrl+Z / Ctrl+Y).
+- **Prompt to Save / Discard / Cancel on close** whenever a document has unsaved changes.
 - **Must work fully offline**; only **well-known, reputable** open-source libraries.
 - **Preserve the OCR text layer**, **bookmarks/outline**, and **form fields** through all edits.
 
@@ -61,12 +63,34 @@ read-only `fitz.Document` sources.
   ref; move also removes it from B. Nothing is rewritten until Save.
 - **Materialize-on-Save** (the only write): iterate the ordered list and copy contiguous
   same-source runs via `out.insert_pdf(src, from_page, to_page, start_at=-1, links=True,
-  annots=True, widgets=True, final=...)`, apply rotation overrides, **rebuild the outline**
+  annots=True, widgets=True, final=...)`, apply rotation overrides with `page.set_rotation()`
+  (absolute, not additive — set the final angle, don't accumulate), **rebuild the outline**
   (remap old→new page indices, drop bookmarks whose target page was deleted), then
   `out.save(path, garbage=4, deflate=True, clean=True)`. Object-level copies preserve the OCR
   text layer, annotations, and form fields by construction (never rasterize/flatten).
 
 This centralizes outline remapping in one place and makes every editing operation O(list-edit).
+
+### Undo/redo (cheap, because edits are list edits)
+
+Use PySide6's built-in **`QUndoStack` + `QUndoCommand`** (reputable, ships with Qt; wires
+directly to Ctrl+Z / Ctrl+Y menu actions and gives free "Undo *reorder*" labels). The stack is
+owned by the `MainWindow`; each mutating op (reorder, delete, insert/merge, rotate, paste) is a
+command that snapshots and restores `VirtualDocument.ordered[]` — cheap, since it's a list of
+small `PageRef` tuples — and updates the dirty flag. `redo()` re-applies; `undo()` restores the
+prior snapshot.
+
+- **Cross-window move = two independent commands on two stacks** (remove in B, insert in A).
+  This is a known, documented limitation: undoing the paste in window A does **not** restore the
+  page in window B. We surface it honestly rather than fake a global history.
+
+### Save-on-close prompt (unsaved-changes guard)
+
+`MainWindow.closeEvent` checks `VirtualDocument.dirty`; if dirty it shows a `QMessageBox` with
+**Save / Discard / Cancel**. Save runs the normal save path (Save As if untitled); Cancel calls
+`event.ignore()` to abort the close. The app only exits once every window has resolved its
+prompt (closing the last window does not bypass an unsaved one). Reuses the dirty tracking
+already held in `model/virtual_document.py`.
 
 ### Single-instance + one-window-per-document (the duplicate-tab fix)
 
@@ -93,9 +117,12 @@ Every launch is invoked by Explorer as `pythonw launcher.py "%1"`:
 - **Lazy/virtualized rendering** (only pages intersecting the viewport + small prefetch),
   bounded LRU pixmap cache keyed by `(page, zoom_bucket, rotation)`.
 - Zoom + **fit-width/fit-page** (scalar into the matrix), **rotate view**.
-- **Text selection/copy:** cache `page.get_text("words")` boxes; on mouse drag, hit-test and
-  select the contiguous run in reading order, paint highlight rects, copy joined text to the
-  clipboard. **Search:** `page.search_for(query)` → highlight + next/prev navigation.
+- **Text selection/copy:** cache `page.get_text("words")` — each tuple is
+  `(x0,y0,x1,y1, word, block_no, line_no, word_no)`, so reading order comes from the data: index
+  words by `(block_no, line_no, word_no)`. Mouse-down hit-tests to an anchor word index,
+  drag hit-tests to a cursor index, and the selection is the inclusive range between them in that
+  order. Paint highlight rects over the selected boxes; copy the joined words to the clipboard.
+  **Search:** `page.search_for(query)` → highlight + next/prev navigation.
 - **Thumbnail sidebar** bound to the `ordered[]` list — doubles as jump-to-page (View mode) and
   drag-reorder/delete/cross-window drag (Organize mode). Both views read the same model.
 - **Remember last page/zoom/scroll per document** in a small local JSON under
@@ -107,17 +134,25 @@ Every launch is invoked by Explorer as `pythonw launcher.py "%1"`:
 pdfproj/
   launcher.py                  # entrypoint: single-instance guard, normalize %1, hand-off/become server
   app.py                       # PdfApp(QApplication): path->window dict, raise/focus, page clipboard, QLocalServer
-  main_window.py               # MainWindow: View + Organize modes, toolbar/menu, holds a VirtualDocument
+  main_window.py               # MainWindow: View + Organize modes, toolbar/menu, holds a VirtualDocument;
+                               #   owns the QUndoStack (Ctrl+Z/Y) and the closeEvent save-on-close prompt
   viewer/pdf_view.py           # QGraphicsView continuous-scroll renderer (PyMuPDF pixmaps, lazy, zoom/fit/rotate)
   viewer/text_selection.py     # word-box selection overlay + clipboard copy (feature QPdfView lacks)
   viewer/search.py             # page.search_for highlighting + hit navigation
   organize/thumbnail_panel.py  # grid bound to ordered[]: drag-reorder, cross-window drag (QDrag MIME), cut/copy/paste, delete
   model/virtual_document.py    # VirtualDocument + PageRef; all list-edit ops, dirty tracking
+  model/edit_commands.py       # QUndoCommand subclasses (reorder/delete/insert/rotate/paste): snapshot+restore ordered[]
   model/edit_engine.py         # EditEngine interface; PyMuPDFEngine (default) + PyPdfEngine (fallback); materialize-on-save
   model/toc_remap.py           # outline snapshot + old->new page remap + drop-dangling
   store/settings.py            # per-document last page/zoom/geometry (JSON in %APPDATA%)
   util/paths.py                # normalize_path() shared by launcher and app
+  tests/conftest.py            # builds fixtures with fitz: A.pdf (text layer, bookmark, form field), B.pdf (same-name field)
+  tests/test_virtual_document.py  # reorder/delete/insert/move/copy + undo/redo restore ordered[]
+  tests/test_materialize.py       # materialize preserves OCR text, remaps TOC to new indices, drops dangling, keeps form fields
 ```
+
+Deferred (see Future enhancements): `model/links_remap.py` — generalize `toc_remap` to internal
+GoTo link annotations.
 
 ## Build order (phased)
 
@@ -130,7 +165,11 @@ pdfproj/
 4. **Text selection + search** — drag-select/copy and find-in-document.
 5. **Edit engine + virtual-document model** — merge/insert, reorder, delete, move/copy across
    windows, with OCR/bookmark/form preservation via materialize-on-save.
-6. **Save / Save As + default-app association** — atomic `os.replace` for Save; set the app as
+6. **Undo/redo + unsaved-changes prompt** — `QUndoStack` commands for every page edit; the
+   `closeEvent` Save/Discard/Cancel guard.
+7. **Headless model tests** — pytest over the GUI-free model/edit-engine layer (can land as early
+   as step 5; no Qt display required). See Verification.
+8. **Save / Save As + default-app association** — atomic `os.replace` for Save; set the app as
    the default `.pdf` handler (Settings → Default apps), association target a small `.bat`/shim
    running `pythonw launcher.py "%1"`. (Optional later: `pyinstaller --noconsole --onefile` —
    **must be built on Windows**, cannot be cross-built from WSL.)
@@ -158,6 +197,24 @@ position, reorder, delete a page, Save As `out.pdf`. Then:
   function). Static audit: no `requests`/`urllib`/`socket` outbound calls; libraries limited to
   PySide6, PyMuPDF, pypdf.
 
+### Headless pytest (automated, model/save layer)
+
+The model and edit engine are GUI-free, so they test **headless** (no Qt display) — runnable in
+CI and web sessions, unlike the GUI/single-instance/focus checks above (those stay manual on
+Windows). `tests/conftest.py` builds the fixtures programmatically with `fitz` (no binaries
+checked in): `A.pdf` with an inserted text layer, a bookmark (`set_toc`), and a form widget;
+`B.pdf` with a form field of the **same name**. Then:
+
+- `test_virtual_document.py` — reorder/delete/insert/move/copy produce the expected `ordered[]`,
+  and each op's undo/redo restores the exact prior list.
+- `test_materialize.py` — after materialize-on-save: `doc[i].get_text("text")` is non-empty on
+  moved pages; `get_toc(simple=False)` entries point at **new** indices and dangling bookmarks
+  are dropped; `[w.field_name for p in doc for w in p.widgets()]` retains both fields. The
+  duplicate-name outcome is asserted (or `xfail`-documented if the installed PyMuPDF doesn't
+  auto-rename), feeding the open item below.
+
+Run with `py -3.12 -m pytest -q` (or `pytest` in the project venv).
+
 ## Open items / risks to confirm during implementation
 
 - Verify, on the installed PyMuPDF version, that `insert_pdf(..., widgets=True)` carries form
@@ -167,3 +224,20 @@ position, reorder, delete a page, Save As `out.pdf`. Then:
 - Text-selection overlay across page boundaries in continuous scroll needs care (anchor/cursor
   hit-testing in scene coordinates); this is the most involved viewer piece and can land in a
   follow-up pass after basic view/scroll/zoom works.
+
+## Future enhancements (deferred)
+
+Out of scope for the first build, captured so they can be picked up cleanly later:
+
+- **Encrypted / password-protected PDFs:** on open, detect `doc.needs_pass`, prompt the user,
+  and call `doc.authenticate(pw)` before registering the source. Materialize-on-save already
+  writes a fresh document, so output is unencrypted unless we later add re-encryption.
+- **Internal GoTo-link remap:** `LINK` annotations that jump to another page break on
+  reorder/delete exactly like the outline does. Generalize `model/toc_remap.py` into
+  `model/links_remap.py` — same old→new index map, drop links whose target page was deleted —
+  and apply it during materialize. (Today `insert_pdf(links=True)` copies links but does not
+  fix cross-run targets.)
+- **Duplicate form-field rename + multi-level outline:** promote the two TOC/forms items from
+  "Open items" above into real handling once the fixture tests confirm the installed PyMuPDF's
+  behavior (auto-rename colliding root field names; remap named/explicit destinations across
+  multi-level outlines).
