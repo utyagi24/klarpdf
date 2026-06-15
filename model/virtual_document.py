@@ -1,0 +1,181 @@
+"""Virtual-document / edit-list model (lossless).
+
+PLAN.md, "Key design idea": never mutate the on-disk PDF while editing. A ``VirtualDocument``
+holds an ordered list of :class:`PageRef` (``source_id`` + ``source_page_index`` +
+``rotation_override``) plus a registry of open read-only source ``fitz.Document`` objects. Every
+edit — reorder, delete, merge/insert, rotate, cross-window paste — is a cheap list edit on
+``ordered``. Nothing is written until :mod:`model.edit_engine` materialises on Save.
+
+This module is GUI-free and headless-testable (no Qt). The undo/redo wiring lives in
+:mod:`model.edit_commands`, which snapshots/restores this object's state.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, replace
+from typing import Iterable
+
+import pymupdf as fitz
+
+from util.paths import normalize_path
+
+# A snapshot is the full mutable state captured for undo: the ordered list + dirty flag.
+# PageRefs are frozen, so a shallow tuple copy is a safe, cheap point-in-time snapshot.
+State = tuple
+
+
+@dataclass(frozen=True, slots=True)
+class PageRef:
+    """A reference to one source page. Immutable so snapshots are cheap and safe.
+
+    ``rotation_override`` is an **absolute** final angle (0/90/180/270) or ``None`` to inherit
+    the source page's own rotation. Rotating produces a *new* PageRef (see ``with_rotation``).
+    """
+
+    source_id: str
+    source_page_index: int
+    rotation_override: int | None = None
+
+    def with_rotation(self, angle: int | None) -> "PageRef":
+        if angle is not None:
+            angle %= 360
+            if angle % 90 != 0:
+                raise ValueError(f"rotation must be a multiple of 90, got {angle}")
+        return replace(self, rotation_override=angle)
+
+
+class VirtualDocument:
+    """An ordered list of page references over a set of read-only source documents."""
+
+    def __init__(self) -> None:
+        self.sources: dict[str, fitz.Document] = {}
+        self.ordered: list[PageRef] = []
+        self.path: str | None = None
+        self.dirty: bool = False
+        # The document this virtual doc was opened from. Its outline is the one we rebuild on
+        # save (merged-in sources contribute no outline, matching insert_pdf's behaviour).
+        self.origin_source_id: str | None = None
+        self._origin_toc: list = []
+
+    # ---- construction / sources -------------------------------------------------
+
+    @classmethod
+    def from_path(cls, path: str) -> "VirtualDocument":
+        """Open ``path`` as the origin document and seed ``ordered`` with all its pages."""
+        vd = cls()
+        source_id = vd.open_source(path)
+        vd.origin_source_id = source_id
+        vd.path = path
+        vd._origin_toc = vd.sources[source_id].get_toc(simple=False)
+        vd.ordered = [PageRef(source_id, i) for i in range(vd.sources[source_id].page_count)]
+        vd.dirty = False
+        return vd
+
+    def open_source(self, path: str) -> str:
+        """Open and register a source by path (idempotent). Returns its source id."""
+        source_id = normalize_path(path)
+        if source_id not in self.sources:
+            self.sources[source_id] = fitz.open(path)
+        return source_id
+
+    def register_source(self, source_id: str, doc: fitz.Document) -> None:
+        """Register an already-open source document (e.g. shared from another window)."""
+        self.sources.setdefault(source_id, doc)
+
+    # ---- queries ----------------------------------------------------------------
+
+    @property
+    def page_count(self) -> int:
+        return len(self.ordered)
+
+    def ref_at(self, index: int) -> PageRef:
+        return self.ordered[index]
+
+    def build_index_map(self) -> dict[int, int]:
+        """Map origin page index (0-based) -> output index (0-based) for surviving pages.
+
+        Only pages from the origin source appear (others carry no outline). If a duplicated
+        origin page survives more than once, the first occurrence wins — outline targets are
+        single-valued.
+        """
+        index_map: dict[int, int] = {}
+        for new_index, ref in enumerate(self.ordered):
+            if ref.source_id == self.origin_source_id:
+                index_map.setdefault(ref.source_page_index, new_index)
+        return index_map
+
+    def remapped_toc(self) -> list:
+        from model.toc_remap import remap_toc
+
+        return remap_toc(self._origin_toc, self.build_index_map())
+
+    # ---- snapshot / restore (used by edit_commands for undo/redo) ---------------
+
+    def snapshot(self) -> State:
+        return (tuple(self.ordered), self.dirty)
+
+    def restore(self, state: State) -> None:
+        ordered, dirty = state
+        self.ordered = list(ordered)
+        self.dirty = dirty
+
+    # ---- list edits (each marks the document dirty) -----------------------------
+
+    def move_page(self, from_index: int, to_index: int) -> None:
+        """Move the page at ``from_index`` so it lands at ``to_index`` in the new order."""
+        ref = self.ordered.pop(from_index)
+        self.ordered.insert(to_index, ref)
+        self.dirty = True
+
+    def delete_page(self, index: int) -> None:
+        del self.ordered[index]
+        self.dirty = True
+
+    def delete_pages(self, indices: Iterable[int]) -> None:
+        for i in sorted(set(indices), reverse=True):
+            del self.ordered[i]
+        self.dirty = True
+
+    def insert_pages(self, at_index: int, refs: Iterable[PageRef]) -> None:
+        """Splice ``refs`` into ``ordered`` at ``at_index`` (merge / insert / paste)."""
+        refs = list(refs)
+        for r in refs:
+            if r.source_id not in self.sources:
+                raise KeyError(f"source {r.source_id!r} not registered; register it first")
+        self.ordered[at_index:at_index] = refs
+        self.dirty = True
+
+    def append_pages(self, refs: Iterable[PageRef]) -> None:
+        self.insert_pages(self.page_count, refs)
+
+    def set_rotation(self, index: int, angle: int | None) -> None:
+        """Set the **absolute** rotation override for the page at ``index``."""
+        self.ordered[index] = self.ordered[index].with_rotation(angle)
+        self.dirty = True
+
+    # ---- cross-window move / copy -----------------------------------------------
+
+    def import_pages(
+        self, at_index: int, other: "VirtualDocument", indices: Iterable[int]
+    ) -> list[PageRef]:
+        """Copy pages ``indices`` from another virtual document in at ``at_index``.
+
+        Registers the other document's source(s) here (cross-window paste), then splices the
+        same PageRefs — the lossless object-level copy happens later, at materialize. Returns
+        the inserted refs so the caller (a move) can delete the originals from ``other``.
+        """
+        refs = [other.ordered[i] for i in indices]
+        for r in refs:
+            self.register_source(r.source_id, other.sources[r.source_id])
+        self.insert_pages(at_index, refs)
+        return refs
+
+    # ---- dirty tracking ---------------------------------------------------------
+
+    def mark_clean(self) -> None:
+        self.dirty = False
+
+    def close(self) -> None:
+        for doc in self.sources.values():
+            doc.close()
+        self.sources.clear()

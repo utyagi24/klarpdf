@@ -1,0 +1,95 @@
+"""Undo/redo commands for page edits (PLAN.md, "Undo/redo").
+
+Each mutating op is a ``QUndoCommand`` that snapshots ``VirtualDocument`` state before applying
+and restores it on undo — cheap, because the state is just a tuple of small frozen ``PageRef``s
+plus the dirty flag. ``QUndoStack`` (owned by the MainWindow) wires these to Ctrl+Z / Ctrl+Y and
+supplies the "Undo *reorder*" labels for free.
+
+Qt's ``QUndoStack``/``QUndoCommand`` live in ``QtGui`` but need **no** ``QApplication`` and no
+display, so this module is headless-testable (verified in M1's tests).
+
+Cross-window move is two independent commands on two stacks (delete in B, insert in A) — a known,
+documented limitation: undoing the paste in A does not restore the page in B.
+"""
+
+from __future__ import annotations
+
+from typing import Iterable
+
+from PySide6.QtGui import QUndoCommand
+
+from model.virtual_document import PageRef, VirtualDocument
+
+
+class _SnapshotCommand(QUndoCommand):
+    """Base: snapshot-before / snapshot-after, restore either side on undo/redo.
+
+    Subclasses implement :meth:`_apply` (the concrete mutation). The first ``redo`` (Qt calls it
+    on push) captures the before/after states; subsequent redo/undo just restore them, so the
+    behaviour is identical no matter how complex the op.
+    """
+
+    def __init__(self, vdoc: VirtualDocument, text: str) -> None:
+        super().__init__(text)
+        self._vdoc = vdoc
+        self._before = None
+        self._after = None
+
+    def _apply(self) -> None:  # pragma: no cover - overridden
+        raise NotImplementedError
+
+    def redo(self) -> None:
+        if self._after is None:
+            self._before = self._vdoc.snapshot()
+            self._apply()
+            self._after = self._vdoc.snapshot()
+        else:
+            self._vdoc.restore(self._after)
+
+    def undo(self) -> None:
+        self._vdoc.restore(self._before)
+
+
+class MoveCommand(_SnapshotCommand):
+    def __init__(self, vdoc: VirtualDocument, from_index: int, to_index: int) -> None:
+        super().__init__(vdoc, f"Move page {from_index + 1} → {to_index + 1}")
+        self._from, self._to = from_index, to_index
+
+    def _apply(self) -> None:
+        self._vdoc.move_page(self._from, self._to)
+
+
+class DeleteCommand(_SnapshotCommand):
+    def __init__(self, vdoc: VirtualDocument, indices: Iterable[int]) -> None:
+        self._indices = sorted(set(indices))
+        label = (
+            f"Delete page {self._indices[0] + 1}"
+            if len(self._indices) == 1
+            else f"Delete {len(self._indices)} pages"
+        )
+        super().__init__(vdoc, label)
+
+    def _apply(self) -> None:
+        self._vdoc.delete_pages(self._indices)
+
+
+class InsertCommand(_SnapshotCommand):
+    """Insert/merge/paste refs at a position (refs' sources must already be registered)."""
+
+    def __init__(
+        self, vdoc: VirtualDocument, at_index: int, refs: Iterable[PageRef], text: str = "Insert pages"
+    ) -> None:
+        super().__init__(vdoc, text)
+        self._at, self._refs = at_index, list(refs)
+
+    def _apply(self) -> None:
+        self._vdoc.insert_pages(self._at, self._refs)
+
+
+class RotateCommand(_SnapshotCommand):
+    def __init__(self, vdoc: VirtualDocument, index: int, angle: int | None) -> None:
+        super().__init__(vdoc, f"Rotate page {index + 1}")
+        self._index, self._angle = index, angle
+
+    def _apply(self) -> None:
+        self._vdoc.set_rotation(self._index, self._angle)

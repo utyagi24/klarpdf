@@ -450,10 +450,16 @@ Run with `py -3.12 -m pytest -q` (or `pytest` in the project venv).
 
 ## Open items / risks to confirm during implementation
 
-- Verify, on the installed PyMuPDF version, that `insert_pdf(..., widgets=True)` carries form
-  fields and renames duplicate root field names (test with fixture `B.pdf`).
-- `insert_pdf` does **not** copy the source TOC — outline is rebuilt explicitly; confirm the
-  remap handles **multi-level** outlines and named/explicit destinations, not just simple links.
+- ✅ **Confirmed (M1, PyMuPDF 1.27.2.3):** `insert_pdf(..., widgets=True)` carries form fields,
+  and the default (`join_duplicates=0`) **auto-renames** the colliding root field — merging
+  `B.pdf`'s `name` field after `A.pdf`'s yields `name` + `name [NN]`, both preserved, neither
+  dropped/overwritten. So no `xfail` was needed. Asserted in `tests/test_materialize.py`
+  (`test_merge_preserves_both_form_fields_dedup`), cross-checked via pypdf `get_fields()`.
+- ✅ **Confirmed (M1):** `insert_pdf` does **not** copy the source TOC — `model/toc_remap.py`
+  rebuilds the outline explicitly, handling **multi-level** outlines (level-continuity repair /
+  orphan promotion on drop) and explicit destinations (dest-page remap). Covered by
+  `tests/test_toc_remap.py` + `tests/test_materialize.py`. Named-destination outlines remain
+  untested (the fixture uses page destinations); revisit if a real doc uses them.
 - Text-selection overlay across page boundaries in continuous scroll needs care (anchor/cursor
   hit-testing in scene coordinates); this is the most involved viewer piece and can land in a
   follow-up pass after basic view/scroll/zoom works.
