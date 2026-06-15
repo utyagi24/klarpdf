@@ -1,0 +1,13 @@
+[project]
+name = "pdfproj"
+version = "0.0.0"
+description = "Local, offline, native-Windows PDF viewer + page editor"
+requires-python = ">=3.12,<3.13"
+# Dependency VERSIONS have a single source of truth in requirements.in (compiled to
+# requirements.txt for the Windows ship and requirements-dev.txt for WSL dev). They are
+# intentionally NOT duplicated here. See PLAN.md "Packaging, dependencies & installer".
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-q"

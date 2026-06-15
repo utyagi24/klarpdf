@@ -3,9 +3,9 @@
 Live status of the build (milestone detail in `PLAN.md` §Execution). **One PR per milestone** — when
 it merges, check the box here in the same PR and append the PR link.
 
-**Status:** not started — repo holds planning docs only. **Next: M0.**
+**Status:** M0 (scaffold + WSL dev venv) in review. **Next: M1.**
 
-- [ ] **M0** Scaffold + WSL dev venv — *step 1 (WSL); WSL*
+- [x] **M0** Scaffold + WSL dev venv — *step 1 (WSL); WSL*
 - [ ] **M1** Correctness core: `model/` + headless tests green ⭐ — *steps 5, 7; WSL*
 - [ ] **M2** Viewer: render / scroll / zoom / rotate / thumbnails — *step 3; WSLg*
 - [ ] **M3** Selection + search — *step 4; WSLg*
