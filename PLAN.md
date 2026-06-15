@@ -1,5 +1,11 @@
 # Plan: Local, Offline, Native-Windows PDF Viewer + Page Editor (Python)
 
+> **Revision (2026-06-15)** — folded in two decisions without changing the product: a
+> **Development environment** section (Hybrid — build the cross-platform core + headless tests in
+> WSL, iterate the GUI via WSLg, use Windows only for packaging + shell-integration validation) and
+> a **Portability** section (Windows-first ship with near-zero-cost Linux-ready seams). The Build
+> order is now tagged WSL vs Windows.
+
 ## Context
 
 On macOS the user relied on **Preview** to view PDFs and to splice/split them — drag one
@@ -121,7 +127,8 @@ launcher.py "%1"` when running from source in dev):
   (case-insensitive on Windows, resolves symlinks/`..`).
 - **Windows focus quirk:** background processes can't always steal focus — on activate, restore
   if minimized, `raise_()` + `activateWindow()`, and use a brief
-  `WindowStaysOnTopHint` toggle as a reliable fallback (optionally `QApplication.alert`).
+  `WindowStaysOnTopHint` toggle as a reliable fallback (optionally `QApplication.alert`). This
+  logic lives behind `platform_integration.activate_window()` (Portability hedge #2).
 - Handle stale pipe after a crash and the near-simultaneous double-click race (retry connect once).
 
 ### Viewer (PyMuPDF, Option B)
@@ -139,8 +146,46 @@ launcher.py "%1"` when running from source in dev):
   **Search:** `page.search_for(query)` → highlight + next/prev navigation.
 - **Thumbnail sidebar** bound to the `ordered[]` list — doubles as jump-to-page (View mode) and
   drag-reorder/delete/cross-window drag (Organize mode). Both views read the same model.
-- **Remember last page/zoom/scroll per document** in a small local JSON under
-  `%APPDATA%\pdfproj\state.json` (auditable, offline), keyed by identity path.
+- **Remember last page/zoom/scroll per document** in a small local JSON under the QStandardPaths
+  app-config dir (`%APPDATA%\pdfproj` on Windows, `~/.config/pdfproj` on Linux; auditable, offline),
+  keyed by identity path. (Path resolved in `store/settings.py` — Portability hedge #1.)
+
+## Development environment (Hybrid: WSL + Windows)
+
+The owner develops in **WSL2** (Ubuntu, Python 3.12.3, with WSLg so GUIs display on Windows) but
+**ships Windows**. Most of this app is cross-platform; only packaging and Windows shell-integration
+truly require Windows. So development is **hybrid**, with **git as the bridge** between two
+checkouts — neither reaches across the filesystem boundary at runtime.
+
+- **WSL checkout** `/home/<you>/pdfproj` (native Linux fs, fast): canonical dev for all `model/`,
+  `viewer/`, `organize/` code, the headless tests, and GUI iteration via **WSLg**.
+- **Windows checkout** `C:\Users\<you>\pdfproj` (native NTFS, fast PyInstaller + correct shell
+  behavior): `git pull` here for **packaging + Windows-behavior validation only**.
+- Push from WSL → pull on Windows. **Do not** edit one checkout with the other OS's tools across
+  `\\wsl$` or `/mnt/c` (slow; line-ending/permission churn). A checked-in `.gitattributes`
+  (`*.py` LF; `*.ps1`/`*.iss` CRLF) keeps both checkouts clean.
+
+**What runs where** (see Build order for the per-step tags): ~80% is WSL-doable. The GUI-free
+`model/` + edit-engine and the **headless pytest suite** run in WSL today; the viewer/selection/
+thumbnail GUI iterates via WSLg. Only the **freeze + installer + registry** (step 9) is
+Windows-only, and the **single-instance / focus / file-association** behavior (step 2) must be
+**validated on Windows** — WSLg runs the *Linux* Qt build, so it smoke-tests logic but is not
+authoritative for Windows focus-stealing rules or the Explorer `%1` launch path.
+
+**Windows prerequisite (one-time):** install **Python 3.12.x from python.org** (add to PATH / `py`
+launcher). The Windows machine currently has only the **Microsoft Store stub** `python.exe`, which
+is not usable for the build. WSL already has 3.12.3.
+
+**Dependency discipline applies to the _shipped Windows build_, not WSL dev:**
+- The authoritative `requirements.txt` (exact `==` + `--hash=sha256`) and `vendor/wheels/` are the
+  **Windows** set (`win_amd64`), produced on Windows — the auditable ship artifact.
+- The **WSL dev venv** installs the **same pinned `==` versions** but **by version only, not by
+  hash**: the Windows lockfile's `--hash=sha256` lines pin specific *`win_amd64`* wheels, and pip on
+  Linux resolves *`manylinux`* wheels with different hashes, so `pip install --require-hashes -r
+  requirements.txt` would **fail on Linux by design**. Dev therefore installs from a small
+  unhashed `requirements-dev.txt` (or `pip install <pkg>==<ver> ...`) carrying the same versions —
+  derived from the same `requirements.in`. It is dev tooling, not shipped, so it need not be
+  hashed/vendored/offline; the offline+hashed guarantee is the Windows ship build's job.
 
 ## Packaging, dependencies & installer (offline, pinned, auditable)
 
@@ -195,12 +240,49 @@ widely used; script-driven) with a checked-in `packaging/installer.iss` that:
   the user confirms once via the first "Open With → Always" prompt or Settings → Default apps. The
   installer's finish page links straight to that Settings page.
 
+## Portability (Windows-first ship, Linux-ready seams)
+
+Decision: **ship Windows only** for the first release, but bake in **near-zero-cost seams** so a
+future Linux (or macOS) port is small. The architecture is *incidentally* portable — Qt + MuPDF are
+the cross-platform engine and the `model/` layer is GUI-free — so the reuse story is strong as long
+as OS-specific code stays quarantined.
+
+**Cheap hedges (do now, ≈zero cost):**
+1. `store/settings.py` uses `QStandardPaths.writableLocation(QStandardPaths.AppConfigLocation)`
+   instead of a literal `%APPDATA%\pdfproj` — Qt resolves it per-OS (AppData on Windows,
+   `~/.config` on Linux). No behavior change for the Windows ship, just the portable form.
+2. A thin **`platform_integration.py`** seam holds the only OS-specific app behaviors —
+   `single_instance_server_name()` and `activate_window(win)` (the `WindowStaysOnTopHint`/`alert`
+   focus shims). `app.py`/`launcher.py` call the abstraction; no `WindowStaysOnTopHint` inline.
+   Windows impl now; Linux stub later. A `register_file_association()` slot also lives here, but on
+   **Windows it is effectively unused** — the Inno Setup installer writes the `.pdf`/ProgID
+   association (see Packaging); the function exists mainly for a future Linux `xdg-mime` path and an
+   optional dev/source-run convenience, so the two sections don't contradict.
+3. **All OS coupling stays inside `packaging/` + `platform_integration.py`** — registry/`.iss`/
+   `.ps1` never leak into `launcher.py`/`app.py`.
+4. `util/paths.py` `normalize_path()` stays the **single identity chokepoint** so the
+   case-sensitivity switch (Windows case-fold vs Linux case-sensitive) is one function.
+
+**Reuse / rewrite map (if Linux is targeted later):**
+- **Reusable unchanged:** all `model/` (`virtual_document`, `edit_commands`, `edit_engine`,
+  `toc_remap`, materialize), all `viewer/`, `organize/thumbnail_panel`, `main_window.py`, the
+  `QUndoStack` undo/redo, all `tests/`, `requirements.in`.
+- **Small platform branches:** `util/paths.py` (case semantics), `store/settings.py` (config path,
+  solved by hedge #1), `app.py`/`launcher.py` focus/raise shims (Wayland forbids programmatic
+  activation) + the IPC socket path (same Qt API, different underlying transport).
+- **Full rewrite per OS:** `packaging/installer.iss` → AppImage/Flatpak/.deb; `build.ps1` →
+  `build.sh`; HKCU registry association → MIME + `.desktop` (`xdg-mime`); `vendor/wheels/` →
+  `manylinux` wheels; `pdfproj.spec` → Linux conditionals.
+- **Rule of thumb:** the *application* ports almost for free; the *installer + file-association +
+  window-manager glue* is rewritten per OS.
+
 ## Critical files to create
 
 ```
 pdfproj/
   launcher.py                  # entrypoint: single-instance guard, normalize %1, hand-off/become server
-  app.py                       # PdfApp(QApplication): path->window dict, raise/focus, page clipboard, QLocalServer
+  app.py                       # PdfApp(QApplication): path->window dict, page clipboard, QLocalServer; raise/focus via platform_integration
+  platform_integration.py      # OS seam (portability hedge): single-instance name, activate_window() focus shims; register_file_association() slot (Windows uses the installer, so unused there; for future Linux xdg-mime). Windows now / Linux stub later
   main_window.py               # MainWindow: View + Organize modes, toolbar/menu, holds a VirtualDocument;
                                #   owns the QUndoStack (Ctrl+Z/Y) and the closeEvent save-on-close prompt
   viewer/pdf_view.py           # QGraphicsView continuous-scroll renderer (PyMuPDF pixmaps, lazy, zoom/fit/rotate)
@@ -211,15 +293,17 @@ pdfproj/
   model/edit_commands.py       # QUndoCommand subclasses (reorder/delete/insert/rotate/paste): snapshot+restore ordered[]
   model/edit_engine.py         # EditEngine interface; PyMuPDFEngine (default) + PyPdfEngine (fallback); materialize-on-save
   model/toc_remap.py           # outline snapshot + old->new page remap + drop-dangling
-  store/settings.py            # per-document last page/zoom/geometry (JSON in %APPDATA%)
-  util/paths.py                # normalize_path() shared by launcher and app
+  store/settings.py            # per-document last page/zoom/geometry — JSON via QStandardPaths AppConfigLocation (%APPDATA% on Windows, ~/.config on Linux)
+  util/paths.py                # normalize_path() — SINGLE identity chokepoint (case-fold on Windows; one-line switch for Linux)
   tests/conftest.py            # builds fixtures with fitz: A.pdf (text layer, bookmark, form field), B.pdf (same-name field)
   tests/test_virtual_document.py  # reorder/delete/insert/move/copy + undo/redo restore ordered[]
   tests/test_materialize.py       # materialize preserves OCR text, remaps TOC to new indices, drops dangling, keeps form fields
-  requirements.in              # top-level pins (PySide6, PyMuPDF, pypdf) — the only file edited to change versions
-  requirements.txt             # locked: exact == for full tree + sha256 hash per wheel (pip-compile --generate-hashes)
-  vendor/wheels/               # downloaded pinned wheels (offline build); committed or attached to a release
+  requirements.in              # top-level FLOOR pins (e.g. PyMuPDF>=1.25.5); pip-compile makes the exact == lock. Only file edited to bump
+  requirements.txt             # locked Windows ship: exact == for full tree + sha256 hash per win_amd64 wheel (pip-compile --generate-hashes)
+  requirements-dev.txt         # WSL dev: same == versions, NO hashes (Linux manylinux wheels differ); version-only install for iteration + tests
+  vendor/wheels/               # downloaded pinned win_amd64 wheels (offline Windows build); committed or attached to a release
   DEPENDENCIES.md              # each lib: purpose, why reputable, license, exact version; + pinned Python/PyInstaller/Inno versions
+  .gitattributes               # *.py eol=lf; *.ps1/*.iss eol=crlf — clean across the WSL + Windows checkouts
   packaging/pdfproj.spec       # PyInstaller spec (--onedir --noconsole), icon, data files
   packaging/installer.iss      # Inno Setup: bundles dist/, [Registry] ProgID + .pdf assoc (HKCU), Start Menu, uninstaller
   packaging/build.ps1          # offline build: pip install --require-hashes --no-index, PyInstaller, ISCC — reproducible
@@ -230,28 +314,38 @@ GoTo link annotations.
 
 ## Build order (phased)
 
-1. **Setup + dependency lock (on Windows):** install **Python 3.12.x** from python.org (not the
-   Store stub; add to PATH). Author `requirements.in`, run `pip-compile --generate-hashes` to
-   produce the pinned, hashed `requirements.txt`, `pip download` the wheels into `vendor/wheels/`,
-   and write `DEPENDENCIES.md`. Create the dev venv from the lockfile offline:
-   `py -3.12 -m pip install --require-hashes --no-index --find-links vendor/wheels -r
-   requirements.txt`. Place the project on the **Windows filesystem** (e.g.
-   `C:\Users\<you>\pdfproj`) for fast native startup.
-2. **Single-instance launcher + window management** — the duplicate-tab fix and resident process.
-3. **Viewer** — render, continuous scroll, zoom/fit, rotate, thumbnail sidebar, last-page memory.
-4. **Text selection + search** — drag-select/copy and find-in-document.
-5. **Edit engine + virtual-document model** — merge/insert, reorder, delete, move/copy across
+Each step is tagged **(WSL)** / **(WSLg)** / **(Windows)** per the Development environment section.
+~80% runs in WSL; only step 9 is Windows-only, and step 2 needs a Windows validation pass.
+
+1. **Setup + dependency lock — (split: WSL + Windows).**
+   - *WSL (dev):* create a Python 3.12 venv and install the pinned versions (online once) for fast
+     iteration + headless tests. Canonical source is the WSL checkout `/home/<you>/pdfproj`.
+   - *Windows (ship lock):* install **Python 3.12.x** from python.org (not the Store stub; add to
+     PATH). Author `requirements.in`, run `pip-compile --generate-hashes` → the pinned, hashed
+     `requirements.txt`; `pip download --only-binary=:all:` the `win_amd64` wheels into
+     `vendor/wheels/`; write `DEPENDENCIES.md`. The offline build runs from the Windows checkout
+     `C:\Users\<you>\pdfproj` (via git): `py -3.12 -m pip install --require-hashes --no-index
+     --find-links vendor/wheels -r requirements.txt`.
+2. **Single-instance launcher + window management — (WSL; validate on Windows).** The duplicate-tab
+   fix and resident process. WSLg smoke-tests the `QLocalServer` handoff; Explorer `%1`, named-pipe
+   IPC, and the focus quirks are Windows-real → validate on Windows. Focus logic lives behind
+   `platform_integration.activate_window()`.
+3. **Viewer — (WSL via WSLg).** Render, continuous scroll, zoom/fit, rotate, thumbnail sidebar,
+   last-page memory.
+4. **Text selection + search — (WSL via WSLg).** Drag-select/copy and find-in-document.
+5. **Edit engine + virtual-document model — (WSL).** Merge/insert, reorder, delete, move/copy across
    windows, with OCR/bookmark/form preservation via materialize-on-save.
-6. **Undo/redo + unsaved-changes prompt** — `QUndoStack` commands for every page edit; the
-   `closeEvent` Save/Discard/Cancel guard.
-7. **Headless model tests** — pytest over the GUI-free model/edit-engine layer (can land as early
-   as step 5; no Qt display required). See Verification.
-8. **Save / Save As** — atomic `os.replace` for Save; Save As dialog.
-9. **Freeze + installer + registry** — `packaging/pdfproj.spec` (PyInstaller `--onedir
-   --noconsole`) → `packaging/installer.iss` (Inno Setup) bundling `dist/pdfproj/` and writing the
-   `HKCU` ProgID + `.pdf` Open-With association, with a working uninstaller. `packaging/build.ps1`
-   ties pin→freeze→install into one offline, reproducible command. **Must be built on Windows**
-   (cannot be cross-built from WSL). Setting it as *the* default is the user's one-time confirm.
+6. **Undo/redo + unsaved-changes prompt — (WSL via WSLg).** `QUndoStack` commands for every page
+   edit; the `closeEvent` Save/Discard/Cancel guard.
+7. **Headless model tests — (WSL).** pytest over the GUI-free model/edit-engine layer (can land as
+   early as step 5; no Qt display required). Runs in WSL and CI. See Verification.
+8. **Save / Save As — (WSL).** Atomic `os.replace` for Save (also atomic on Windows, same volume);
+   Save As dialog.
+9. **Freeze + installer + registry — (Windows ONLY).** `packaging/pdfproj.spec` (PyInstaller
+   `--onedir --noconsole`) → `packaging/installer.iss` (Inno Setup) bundling `dist/pdfproj/` and
+   writing the `HKCU` ProgID + `.pdf` Open-With association, with a working uninstaller.
+   `packaging/build.ps1` ties pin→freeze→install into one offline, reproducible command. **Cannot be
+   cross-built from WSL.** Setting it as *the* default is the user's one-time confirm.
 
 ## Verification (prove every hard constraint)
 
@@ -279,7 +373,7 @@ position, reorder, delete a page, Save As `out.pdf`. Then:
 ### Headless pytest (automated, model/save layer)
 
 The model and edit engine are GUI-free, so they test **headless** (no Qt display) — runnable in
-CI and web sessions, unlike the GUI/single-instance/focus checks above (those stay manual on
+WSL, CI, and web sessions, unlike the GUI/single-instance/focus checks above (those stay manual on
 Windows). `tests/conftest.py` builds the fixtures programmatically with `fitz` (no binaries
 checked in): `A.pdf` with an inserted text layer, a bookmark (`set_toc`), and a form widget;
 `B.pdf` with a form field of the **same name**. Then:
@@ -304,7 +398,8 @@ Run with `py -3.12 -m pytest -q` (or `pytest` in the project venv).
   downloads.
 - **Offline install on a clean machine:** on a Windows VM with **no Python and networking
   disabled**, run `setup.exe` → installs and launches; the dependency set bundled matches
-  `DEPENDENCIES.md`.
+  `DEPENDENCIES.md`. (**Windows 10 Home has no Windows Sandbox** — use a free VirtualBox VM, a spare
+  machine, or a fresh local user account with networking disabled.)
 - **Association via installer:** after install, `.pdf` shows **pdfproj** in Open With with the
   right icon/name; choosing it (and "Always") routes double-clicks through `pdfproj.exe "%1"`
   into the single-instance path. Uninstall removes the app **and** the `HKCU` ProgID keys.
