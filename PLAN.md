@@ -350,7 +350,8 @@ Each step is tagged **(WSL)** / **(WSLg)** / **(Windows)** per the Development e
 ## Execution (milestones, tracking & Windows handoff)
 
 The Build order above, operationalized: implemented value/risk-first, in shippable **milestones**,
-**one PR per milestone**. ~80% (M0–M5) is built and verified in WSL before anything touches Windows.
+**one PR per milestone**. M0–M5 — the bulk of the effort (~80% of the work) — is built and verified
+in WSL before anything touches Windows.
 
 | Milestone | Step(s) | Where | Done when |
 |---|---|---|---|
@@ -358,7 +359,7 @@ The Build order above, operationalized: implemented value/risk-first, in shippab
 | **M1** Correctness core ⭐ | 5 + 7 | WSL | `model/` + headless tests **green** — OCR/TOC/forms/undo preserved |
 | **M2** Viewer | 3 | WSLg | open a PDF; scroll, zoom/fit, rotate, thumbnails, last-page memory |
 | **M3** Selection + search | 4 | WSLg | drag-select → clipboard copy; find + next/prev |
-| **M4** Editing loop | 6 + 8 | WSLg | reorder/delete/merge + undo/redo; Save/Save As; dirty-close prompt |
+| **M4** Editing loop | 6 + 8 | WSLg | reorder/delete/merge + cross-window cut/copy/paste (organize panel) + undo/redo; Save/Save As; dirty-close prompt |
 | **M5** Single-instance | 2 (logic) | WSL | second launch hands off to first (WSLg smoke test) |
 | **M6** Windows ship lock | 1 (Win) | Windows | python.org 3.12; hashed `requirements.txt`; vendored `win_amd64` wheels; `DEPENDENCIES.md` |
 | **M7** Windows validation | 2 (validate) | Windows | single-instance/focus/Open-With behave on real Windows; GUI fidelity pass |
@@ -383,7 +384,9 @@ committed back, keeping the repo canonical).
 - *Per handoff:* `git pull` → `py -3.12 -m pytest -q` (the core passes on Windows Python too) →
   `packaging\build.ps1` → validate Windows-only behaviors → commit Windows artifacts back.
 - *De-risk early:* do a throwaway handoff right after **M1** (pull, run tests, trial a PyInstaller
-  freeze of a stub) to catch "works-in-WSL / breaks-on-Windows" issues long before M8.
+  freeze of a stub) to catch "works-in-WSL / breaks-on-Windows" issues long before M8. This needs
+  only python.org Python + PyInstaller on Windows (a subset of the one-time setup above) — Inno
+  Setup isn't required until M8.
 - *Who drives M6–M9:* PyInstaller/Inno + GUI/installer/clean-machine validation are native-Windows —
   either run the authored scripts there, or run Claude Code natively on Windows for that phase.
 

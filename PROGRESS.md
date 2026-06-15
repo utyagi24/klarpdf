@@ -9,7 +9,7 @@ it merges, check the box here in the same PR and append the PR link.
 - [ ] **M1** Correctness core: `model/` + headless tests green ⭐ — *steps 5, 7; WSL*
 - [ ] **M2** Viewer: render / scroll / zoom / rotate / thumbnails — *step 3; WSLg*
 - [ ] **M3** Selection + search — *step 4; WSLg*
-- [ ] **M4** Editing loop: undo/redo + Save/Save As + close-prompt — *steps 6, 8; WSLg*
+- [ ] **M4** Editing loop: cross-window cut/copy/paste + undo/redo + Save/Save As + close-prompt — *steps 6, 8; WSLg*
 - [ ] **M5** Single-instance launcher logic — *step 2; WSL (validate on Windows)*
 - [ ] **M6** Windows ship lock: python.org + hashed `win_amd64` wheels — *step 1 (Win); Windows*
 - [ ] **M7** Windows validation: instance / focus / Open-With + GUI fidelity — *step 2; Windows*
