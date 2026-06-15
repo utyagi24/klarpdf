@@ -157,7 +157,7 @@ The owner develops in **WSL2** (Ubuntu, Python 3.12.3, with WSLg so GUIs display
 truly require Windows. So development is **hybrid**, with **git as the bridge** between two
 checkouts — neither reaches across the filesystem boundary at runtime.
 
-- **WSL checkout** `/home/umesh/pdfproj` (native Linux fs, fast): canonical dev for all `model/`,
+- **WSL checkout** `/home/<you>/pdfproj` (native Linux fs, fast): canonical dev for all `model/`,
   `viewer/`, `organize/` code, the headless tests, and GUI iteration via **WSLg**.
 - **Windows checkout** `C:\Users\<you>\pdfproj` (native NTFS, fast PyInstaller + correct shell
   behavior): `git pull` here for **packaging + Windows-behavior validation only**.
@@ -179,8 +179,13 @@ is not usable for the build. WSL already has 3.12.3.
 **Dependency discipline applies to the _shipped Windows build_, not WSL dev:**
 - The authoritative `requirements.txt` (exact `==` + `--hash=sha256`) and `vendor/wheels/` are the
   **Windows** set (`win_amd64`), produced on Windows — the auditable ship artifact.
-- The **WSL dev venv** installs the **same pinned versions** (Linux wheels, online once) for fast
-  iteration + tests. It is dev tooling, not shipped, so it need not be vendored/offline.
+- The **WSL dev venv** installs the **same pinned `==` versions** but **by version only, not by
+  hash**: the Windows lockfile's `--hash=sha256` lines pin specific *`win_amd64`* wheels, and pip on
+  Linux resolves *`manylinux`* wheels with different hashes, so `pip install --require-hashes -r
+  requirements.txt` would **fail on Linux by design**. Dev therefore installs from a small
+  unhashed `requirements-dev.txt` (or `pip install <pkg>==<ver> ...`) carrying the same versions —
+  derived from the same `requirements.in`. It is dev tooling, not shipped, so it need not be
+  hashed/vendored/offline; the offline+hashed guarantee is the Windows ship build's job.
 
 ## Packaging, dependencies & installer (offline, pinned, auditable)
 
@@ -246,10 +251,13 @@ as OS-specific code stays quarantined.
 1. `store/settings.py` uses `QStandardPaths.writableLocation(QStandardPaths.AppConfigLocation)`
    instead of a literal `%APPDATA%\pdfproj` — Qt resolves it per-OS (AppData on Windows,
    `~/.config` on Linux). No behavior change for the Windows ship, just the portable form.
-2. A thin **`platform_integration.py`** seam holds the only three OS-specific behaviors —
-   `single_instance_server_name()`, `activate_window(win)` (the `WindowStaysOnTopHint`/`alert`
-   focus shims), and `register_file_association()`. `app.py`/`launcher.py` call the abstraction; no
-   `WindowStaysOnTopHint` inline. Windows impl now; Linux stub later.
+2. A thin **`platform_integration.py`** seam holds the only OS-specific app behaviors —
+   `single_instance_server_name()` and `activate_window(win)` (the `WindowStaysOnTopHint`/`alert`
+   focus shims). `app.py`/`launcher.py` call the abstraction; no `WindowStaysOnTopHint` inline.
+   Windows impl now; Linux stub later. A `register_file_association()` slot also lives here, but on
+   **Windows it is effectively unused** — the Inno Setup installer writes the `.pdf`/ProgID
+   association (see Packaging); the function exists mainly for a future Linux `xdg-mime` path and an
+   optional dev/source-run convenience, so the two sections don't contradict.
 3. **All OS coupling stays inside `packaging/` + `platform_integration.py`** — registry/`.iss`/
    `.ps1` never leak into `launcher.py`/`app.py`.
 4. `util/paths.py` `normalize_path()` stays the **single identity chokepoint** so the
@@ -274,7 +282,7 @@ as OS-specific code stays quarantined.
 pdfproj/
   launcher.py                  # entrypoint: single-instance guard, normalize %1, hand-off/become server
   app.py                       # PdfApp(QApplication): path->window dict, page clipboard, QLocalServer; raise/focus via platform_integration
-  platform_integration.py      # OS seam (portability hedge): single-instance name, activate_window() focus shims, register_file_association(); Windows now / Linux stub later
+  platform_integration.py      # OS seam (portability hedge): single-instance name, activate_window() focus shims; register_file_association() slot (Windows uses the installer, so unused there; for future Linux xdg-mime). Windows now / Linux stub later
   main_window.py               # MainWindow: View + Organize modes, toolbar/menu, holds a VirtualDocument;
                                #   owns the QUndoStack (Ctrl+Z/Y) and the closeEvent save-on-close prompt
   viewer/pdf_view.py           # QGraphicsView continuous-scroll renderer (PyMuPDF pixmaps, lazy, zoom/fit/rotate)
@@ -291,7 +299,8 @@ pdfproj/
   tests/test_virtual_document.py  # reorder/delete/insert/move/copy + undo/redo restore ordered[]
   tests/test_materialize.py       # materialize preserves OCR text, remaps TOC to new indices, drops dangling, keeps form fields
   requirements.in              # top-level FLOOR pins (e.g. PyMuPDF>=1.25.5); pip-compile makes the exact == lock. Only file edited to bump
-  requirements.txt             # locked: exact == for full tree + sha256 hash per wheel (pip-compile --generate-hashes)
+  requirements.txt             # locked Windows ship: exact == for full tree + sha256 hash per win_amd64 wheel (pip-compile --generate-hashes)
+  requirements-dev.txt         # WSL dev: same == versions, NO hashes (Linux manylinux wheels differ); version-only install for iteration + tests
   vendor/wheels/               # downloaded pinned win_amd64 wheels (offline Windows build); committed or attached to a release
   DEPENDENCIES.md              # each lib: purpose, why reputable, license, exact version; + pinned Python/PyInstaller/Inno versions
   .gitattributes               # *.py eol=lf; *.ps1/*.iss eol=crlf — clean across the WSL + Windows checkouts
@@ -310,7 +319,7 @@ Each step is tagged **(WSL)** / **(WSLg)** / **(Windows)** per the Development e
 
 1. **Setup + dependency lock — (split: WSL + Windows).**
    - *WSL (dev):* create a Python 3.12 venv and install the pinned versions (online once) for fast
-     iteration + headless tests. Canonical source is the WSL checkout `/home/umesh/pdfproj`.
+     iteration + headless tests. Canonical source is the WSL checkout `/home/<you>/pdfproj`.
    - *Windows (ship lock):* install **Python 3.12.x** from python.org (not the Store stub; add to
      PATH). Author `requirements.in`, run `pip-compile --generate-hashes` → the pinned, hashed
      `requirements.txt`; `pip download --only-binary=:all:` the `win_amd64` wheels into
