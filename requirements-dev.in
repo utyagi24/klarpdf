@@ -1,0 +1,6 @@
+# WSL dev dependencies = runtime + test tooling. Compiled (NO hashes) to requirements-dev.txt:
+#   pip-compile requirements-dev.in -o requirements-dev.txt
+# Hashes are omitted on purpose: Linux manylinux wheel hashes differ from the Windows win_amd64
+# hashes in requirements.txt, so --require-hashes can't be shared across platforms (PLAN.md).
+-r requirements.in
+pytest>=8

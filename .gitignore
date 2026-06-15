@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Virtual environments (the dev venv is local, never committed)
+.venv/
+venv/
+
+# Build artifacts (PyInstaller output, produced on Windows at M8)
+build/
+dist/
+
+# NOTE: vendor/wheels/ is intentionally committed (offline build) — do NOT ignore it.
+
+# OS cruft
+.DS_Store
+Thumbs.db
