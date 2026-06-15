@@ -1,0 +1,13 @@
+# Normalize line endings so the WSL and Windows checkouts stay clean (PLAN.md §Development env).
+* text=auto eol=lf
+*.py   text eol=lf
+*.ps1  text eol=crlf
+*.iss  text eol=crlf
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+
+# Binary assets — never normalize.
+*.pdf  binary
+*.whl  binary
+*.png  binary
+*.ico  binary
