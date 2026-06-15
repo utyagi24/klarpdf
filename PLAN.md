@@ -347,6 +347,49 @@ Each step is tagged **(WSL)** / **(WSLg)** / **(Windows)** per the Development e
    `packaging/build.ps1` ties pin→freeze→install into one offline, reproducible command. **Cannot be
    cross-built from WSL.** Setting it as *the* default is the user's one-time confirm.
 
+## Execution (milestones, tracking & Windows handoff)
+
+The Build order above, operationalized: implemented value/risk-first, in shippable **milestones**,
+**one PR per milestone**. M0–M5 — the bulk of the effort (~80% of the work) — is built and verified
+in WSL before anything touches Windows.
+
+| Milestone | Step(s) | Where | Done when |
+|---|---|---|---|
+| **M0** Scaffold + dev venv | 1 (WSL) | WSL | repo skeleton, `requirements.in` + `requirements-dev.txt`, WSL venv, `.gitattributes`, `pytest` collects |
+| **M1** Correctness core ⭐ | 5 + 7 | WSL | `model/` + headless tests **green** — OCR/TOC/forms/undo preserved |
+| **M2** Viewer | 3 | WSLg | open a PDF; scroll, zoom/fit, rotate, thumbnails, last-page memory |
+| **M3** Selection + search | 4 | WSLg | drag-select → clipboard copy; find + next/prev |
+| **M4** Editing loop | 6 + 8 | WSLg | reorder/delete/merge + cross-window cut/copy/paste (organize panel) + undo/redo; Save/Save As; dirty-close prompt |
+| **M5** Single-instance | 2 (logic) | WSL | second launch hands off to first (WSLg smoke test) |
+| **M6** Windows ship lock | 1 (Win) | Windows | python.org 3.12; hashed `requirements.txt`; vendored `win_amd64` wheels; `DEPENDENCIES.md` |
+| **M7** Windows validation | 2 (validate) | Windows | single-instance/focus/Open-With behave on real Windows; GUI fidelity pass |
+| **M8** Freeze + installer | 9 | Windows | `build.ps1` → PyInstaller → Inno Setup → `pdfproj-setup.exe` |
+| **M9** Verify + release | Verification § | Windows | offline + clean-machine install + no-network audit → tag release |
+
+⭐ **M1 is the keystone** — most of the correctness risk (lossless edits, TOC remap, dup form-field
+handling), GUI-free, fully testable in WSL/CI. The packaging scripts (`build.ps1`, `installer.iss`,
+`pdfproj.spec`) are *authored* during M0–M5 but only *executed* on Windows.
+
+**Progress tracking.** `PROGRESS.md` (repo root) is the durable, at-a-glance checklist; each
+milestone PR ticks its box and links the PR. `CLAUDE.md` routes any resuming agent: read
+`PROGRESS.md` first (current state), then this section + the relevant Build-order step.
+
+**Windows handoff.** git is the only bridge — never edit across `\\wsl$` / `/mnt/c`. Code flows
+**WSL → Windows** (push here, pull there); ship artifacts flow **Windows → repo** (the hashed
+`requirements.txt`, `vendor/wheels/`, `DEPENDENCIES.md`, and `setup.exe` are produced on Windows and
+committed back, keeping the repo canonical).
+- *One-time Windows setup (M5 → M6):* install **Python 3.12.x from python.org** (Store stub won't
+  build); install **git + an SSH key** (or HTTPS + `gh`) and `git clone` to `C:\Users\<you>\pdfproj`;
+  install **Inno Setup** (pin its version in `DEPENDENCIES.md`).
+- *Per handoff:* `git pull` → `py -3.12 -m pytest -q` (the core passes on Windows Python too) →
+  `packaging\build.ps1` → validate Windows-only behaviors → commit Windows artifacts back.
+- *De-risk early:* do a throwaway handoff right after **M1** (pull, run tests, trial a PyInstaller
+  freeze of a stub) to catch "works-in-WSL / breaks-on-Windows" issues long before M8. This needs
+  only python.org Python + PyInstaller on Windows (a subset of the one-time setup above) — Inno
+  Setup isn't required until M8.
+- *Who drives M6–M9:* PyInstaller/Inno + GUI/installer/clean-machine validation are native-Windows —
+  either run the authored scripts there, or run Claude Code natively on Windows for that phase.
+
 ## Verification (prove every hard constraint)
 
 Fixture: an **OCR'd `A.pdf`** with a text layer, a bookmark, and a form field; plus **`B.pdf`**
