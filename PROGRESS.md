@@ -10,7 +10,7 @@ it merges, check the box here in the same PR and append the PR link.
 - [x] **M2** Viewer: render / scroll / zoom / rotate / thumbnails — *step 3; WSLg* — [#6](https://github.com/utyagi24/pdfproj/pull/6)
 - [x] **M3** Selection + search — *step 4; WSLg* — [#7](https://github.com/utyagi24/pdfproj/pull/7)
 - [x] **M4** Editing loop: cross-window cut/copy/paste + undo/redo + Save/Save As + close-prompt — *steps 6, 8; WSLg* — [#8](https://github.com/utyagi24/pdfproj/pull/8)
-- [x] **M5** Single-instance launcher logic — *step 2; WSL (validate on Windows)* — [#PR](https://github.com/utyagi24/pdfproj/pull/PR)
+- [x] **M5** Single-instance launcher logic — *step 2; WSL (validate on Windows)* — [#9](https://github.com/utyagi24/pdfproj/pull/9)
 - [ ] **M6** Windows ship lock: python.org + hashed `win_amd64` wheels — *step 1 (Win); Windows*
 - [ ] **M7** Windows validation: instance / focus / Open-With + GUI fidelity — *step 2; Windows*
 - [ ] **M8** Freeze + installer → `pdfproj-setup.exe` — *step 9; Windows*
