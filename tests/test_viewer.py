@@ -85,6 +85,72 @@ def test_rotate_swaps_page_dimensions(qapp, vdoc):
     assert (round(w1, 3), round(h1, 3)) == (round(h0, 3), round(w0, 3))
 
 
+def test_per_page_rotation_swaps_only_that_page(qapp, vdoc):
+    view = PdfView(vdoc)
+    (w0, h0), (w1, h1) = (view._pages[0]["w"], view._pages[0]["h"]), (view._pages[1]["w"], view._pages[1]["h"])
+    vdoc.set_rotation(0, 90)  # rotate page 0 only (a per-page override)
+    view.reload()
+    assert (round(view._pages[0]["w"], 3), round(view._pages[0]["h"], 3)) == (round(h0, 3), round(w0, 3))
+    assert (round(view._pages[1]["w"], 3), round(view._pages[1]["h"], 3)) == (round(w1, 3), round(h1, 3))
+    assert view._render_pixmap(0) is not None  # the rotated page still renders
+
+
+def test_thumbnail_panel_accepts_page_drops(qapp, vdoc):
+    """Regression: item-view drops land on the VIEWPORT — it must accept them or the drag shows a
+    blocked cursor and never reaches our handlers — and our MIME must drive dragMove/drop."""
+    import json
+
+    from PySide6.QtCore import QByteArray, QMimeData, QPoint, QPointF, Qt
+    from PySide6.QtGui import QDragMoveEvent, QDropEvent
+
+    from organize.thumbnail_panel import _PAGES_MIME
+
+    panel = ThumbnailPanel(vdoc)
+    panel.source_key = "doc"
+    assert panel.viewport().acceptDrops() is True
+
+    mime = QMimeData()
+    mime.setData(_PAGES_MIME, QByteArray(json.dumps({"source": "other", "rows": [1]}).encode()))
+    acts = Qt.DropAction.MoveAction | Qt.DropAction.CopyAction
+    btn, mod = Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier
+
+    move = QDragMoveEvent(QPoint(5, 5), acts, mime, btn, mod)
+    panel.dragMoveEvent(move)
+    assert move.isAccepted()  # cursor reads "droppable", not blocked
+
+    got = []
+    panel.pagesDropped.connect(lambda s, r, b: got.append((s, r, b)))
+    panel.dropEvent(QDropEvent(QPointF(5, 5), acts, mime, btn, mod))
+    assert got and got[0][0] == "other" and got[0][1] == [1]
+
+
+def test_drop_slot_chosen_by_vertical_position(qapp, vdoc):
+    """Drop above the first thumbnail → index 0; below the last → append (single vertical column)."""
+    import json
+
+    from PySide6.QtCore import QByteArray, QMimeData, QPointF, Qt
+    from PySide6.QtGui import QDropEvent
+
+    from organize.thumbnail_panel import _PAGES_MIME
+
+    panel = ThumbnailPanel(vdoc)
+    panel.resize(180, 800)  # narrow → one thumbnail per row
+    panel.show()
+    qapp.processEvents()
+
+    def before_at(y):
+        mime = QMimeData()
+        mime.setData(_PAGES_MIME, QByteArray(json.dumps({"source": None, "rows": [0]}).encode()))
+        ev = QDropEvent(QPointF(10.0, float(y)), Qt.DropAction.MoveAction, mime,
+                        Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+        return panel._drop_before_index(ev)
+
+    top = panel.visualItemRect(panel.item(0)).top()
+    bottom = panel.visualItemRect(panel.item(vdoc.page_count - 1)).bottom()
+    assert before_at(top + 1) == 0                    # above the first page's centre → before all
+    assert before_at(bottom + 50) == vdoc.page_count  # below the last page → append
+
+
 def test_view_state_roundtrip(qapp, vdoc):
     view = PdfView(vdoc)
     view.set_zoom(1.7)
