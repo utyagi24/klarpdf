@@ -1,6 +1,9 @@
 # Top-level RUNTIME dependencies, floor pins. The ONLY file edited to bump versions (PLAN.md).
 #   Windows ship lock:  pip-compile --generate-hashes   -> requirements.txt      (win_amd64, hashed)
 #   WSL dev lock:        pip-compile requirements-dev.in -> requirements-dev.txt  (versions, no hashes)
-PySide6>=6.7
+# PySide6-Essentials, not the full PySide6 meta: the app imports only QtCore/QtGui/QtWidgets/
+# QtNetwork (all in Essentials). The ~161 MB Addons set (QtWebEngine/Charts/Multimedia/QtPdf…) is
+# unused — we render via PyMuPDF, not QtPdf — so excluding it shrinks the bundle + audit surface.
+PySide6-Essentials>=6.7
 PyMuPDF>=1.25.5
 pypdf>=4.0
