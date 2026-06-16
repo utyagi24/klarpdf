@@ -36,6 +36,22 @@ def test_view_lays_out_all_pages(qapp, vdoc):
     assert view._pages[1]["y"] >= view._pages[0]["y"] + view._pages[0]["h"]
 
 
+def test_pages_positioned_at_distinct_scene_coords(qapp, vdoc):
+    # Regression: every page's pixmap item must sit at its own scene position, not piled at
+    # the origin (which made all pages but the first look blank in the main view).
+    view = PdfView(vdoc)
+    view._render_visible()
+    scene_ys = []
+    for i, p in enumerate(view._pages):
+        sp = p["pix"].scenePos()
+        assert (sp.x(), sp.y()) == pytest.approx((p["x"], p["y"]))
+        if i > 0:
+            assert sp.y() > 0  # not stacked at the top-left origin
+        scene_ys.append(sp.y())
+    assert scene_ys == sorted(scene_ys)
+    assert len(set(scene_ys)) == len(scene_ys)  # all distinct
+
+
 def test_render_pixmap_non_null(qapp, vdoc):
     view = PdfView(vdoc)
     pm = view._render_pixmap(0)
