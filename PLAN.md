@@ -215,13 +215,18 @@ flowchart LR
   used, recorded in `DEPENDENCIES.md`.
 
 **2. Vendored wheels (offline build).** Run `pip download -r requirements.txt --only-binary=:all:
--d vendor/wheels` once on a connected machine; commit the wheels (or attach to a tagged release).
-After that the **build itself is fully offline** and reproducible from the repo alone.
+-d vendor/wheels` to fetch the `win_amd64` set. The wheels are **not committed** (binary bloat /
+GitHub's 100 MB-per-file limit); `vendor/wheels-sources.md` records each wheel's version + sha256 +
+source URL so the exact set is reproducible, and each release archives them as assets. Once
+fetched, the **build itself is fully offline** (`--no-index --require-hashes`) and reproducible
+from the lock alone.
 
 **3. Freeze (bundle Python + Qt + libs).** **PyInstaller** (pinned) with a checked-in
 `packaging/pdfproj.spec`, built `--onedir --noconsole` on Windows (cannot be cross-built from
 WSL). `--onedir` (vs `--onefile`) gives faster startup and a clean tree for the installer to lay
-down. Output `dist/pdfproj/` contains the embedded CPython, the PySide6/Qt runtime, and PyMuPDF —
+down; a secondary `--onefile` build also ships as a portable, run-anywhere `.exe` (see §5 — it
+trades slower per-launch startup and no auto-association for zero-install portability). Output
+`dist/pdfproj/` contains the embedded CPython, the PySide6/Qt runtime, and PyMuPDF —
 no system Python needed. (Dependency versions are reproducible via the hashes; note honestly that
 PyInstaller output is **not byte-identical** across builds due to timestamps — version-repro, not
 bit-repro.)
@@ -233,12 +238,34 @@ widely used; script-driven) with a checked-in `packaging/installer.iss` that:
 - `[Registry]` writes a **per-user ProgID** under `HKCU\Software\Classes` (no admin):
   `pdfproj.Document` with `shell\open\command = "{app}\pdfproj.exe" "%1"`, a `DefaultIcon`, a
   `FriendlyAppName`, and `.pdf\OpenWithProgids` so the app appears in **Open With**,
-- installs a Start-Menu shortcut, and registers an **uninstaller** that removes the app **and**
-  the registry keys.
+- installs a Start-Menu shortcut, and registers an **uninstaller** that removes the app, the
+  registry keys, **and the per-user config `%APPDATA%\pdfproj`** (an `[UninstallDelete]` wipe —
+  a clean removal was chosen over leaving the view-state JSON behind).
 - **Setting it as *the* default** is the one manual step Windows reserves to the user (the
   `UserChoice` hash is anti-hijack-protected): the installer adds the handler + Open-With entry;
   the user confirms once via the first "Open With → Always" prompt or Settings → Default apps. The
   installer's finish page links straight to that Settings page.
+
+**5. Build & release pipeline (GitHub Actions; manual + tag-triggered).** A checked-in
+`.github/workflows/release.yml` runs on a **`windows-latest`** runner, triggered both by
+**`workflow_dispatch`** (a "Run workflow" button in the Actions tab, also `gh workflow run`) and by
+a **`push` of a `v*` tag**. It drives the same one-command `packaging/build.ps1` (also runnable
+locally) end-to-end: re-fetch + hash-verify the `win_amd64` wheels from `requirements.txt` (not
+committed — see §2) → clean build venv (`--require-hashes --no-index`) + pinned PyInstaller → **two
+artifacts** from `packaging/pdfproj.spec`: the **`--onedir --noconsole`** tree for the installer and
+a portable **`--onefile` `pdfproj-portable.exe`** → Inno Setup (`ISCC installer.iss`) →
+`pdfproj-setup.exe` → smoke-test (launch + open a PDF).
+- **Versioning:** one source of truth (`version.py`) feeds the PyInstaller exe metadata, the Inno
+  `AppVersion`, and the git tag; a bump is an explicit edit + a new tag.
+- **Release:** on a `v*` tag the workflow publishes a **GitHub Release** attaching
+  `pdfproj-setup.exe`, the portable `pdfproj-portable.exe`, a **`SHA256SUMS`** file, and the
+  **vendored wheels** (each release archives its exact build inputs and carries the AGPL
+  "corresponding source" pointer at that tag). The runner re-fetches wheels from PyPI, so the
+  *runner* build is not offline — but the produced installer is fully self-contained, and the
+  authoritative **offline** build + clean-machine install stay verified locally (see Verification).
+- **Code signing** is a deferred enhancement: an Authenticode sign step (cert from GitHub Secrets)
+  slots in just before packaging; until then the unsigned `.exe` shows a one-time SmartScreen
+  "unknown publisher" prompt — acceptable for private/own-machine use.
 
 ## Portability (Windows-first ship, Linux-ready seams)
 
@@ -301,12 +328,15 @@ pdfproj/
   requirements.in              # top-level FLOOR pins (e.g. PyMuPDF>=1.25.5); pip-compile makes the exact == lock. Only file edited to bump
   requirements.txt             # locked Windows ship: exact == for full tree + sha256 hash per win_amd64 wheel (pip-compile --generate-hashes)
   requirements-dev.txt         # WSL dev: same == versions, NO hashes (Linux manylinux wheels differ); version-only install for iteration + tests
-  vendor/wheels/               # downloaded pinned win_amd64 wheels (offline Windows build); committed or attached to a release
+  vendor/wheels/               # pinned win_amd64 wheels (offline build) — NOT committed; re-fetched from the lock, archived as release assets
+  vendor/wheels-sources.md     # auditable record: version + sha256 + source URL per wheel (regenerated by vendor/gen-sources.py)
   DEPENDENCIES.md              # each lib: purpose, why reputable, license, exact version; + pinned Python/PyInstaller/Inno versions
   .gitattributes               # *.py eol=lf; *.ps1/*.iss eol=crlf — clean across the WSL + Windows checkouts
-  packaging/pdfproj.spec       # PyInstaller spec (--onedir --noconsole), icon, data files
-  packaging/installer.iss      # Inno Setup: bundles dist/, [Registry] ProgID + .pdf assoc (HKCU), Start Menu, uninstaller
-  packaging/build.ps1          # offline build: pip install --require-hashes --no-index, PyInstaller, ISCC — reproducible
+  version.py                   # single source of version → PyInstaller exe metadata, Inno AppVersion, git tag
+  packaging/pdfproj.spec       # PyInstaller spec → --onedir (installer) + --onefile (portable .exe), icon, data files
+  packaging/installer.iss      # Inno Setup: bundles dist/, [Registry] ProgID + .pdf assoc (HKCU), Start Menu, uninstaller (+ [UninstallDelete] %APPDATA%\pdfproj)
+  packaging/build.ps1          # offline build: --require-hashes --no-index, PyInstaller (onedir+onefile), ISCC — reproducible
+  .github/workflows/release.yml # CI: windows-latest; workflow_dispatch + v* tag → build.ps1 → GitHub Release (setup.exe + portable + SHA256SUMS + wheels)
 ```
 
 Deferred (see Future enhancements): `model/links_remap.py` — generalize `toc_remap` to internal
@@ -341,11 +371,14 @@ Each step is tagged **(WSL)** / **(WSLg)** / **(Windows)** per the Development e
    early as step 5; no Qt display required). Runs in WSL and CI. See Verification.
 8. **Save / Save As — (WSL).** Atomic `os.replace` for Save (also atomic on Windows, same volume);
    Save As dialog.
-9. **Freeze + installer + registry — (Windows ONLY).** `packaging/pdfproj.spec` (PyInstaller
-   `--onedir --noconsole`) → `packaging/installer.iss` (Inno Setup) bundling `dist/pdfproj/` and
-   writing the `HKCU` ProgID + `.pdf` Open-With association, with a working uninstaller.
-   `packaging/build.ps1` ties pin→freeze→install into one offline, reproducible command. **Cannot be
-   cross-built from WSL.** Setting it as *the* default is the user's one-time confirm.
+9. **Freeze + installer + release pipeline — (Windows ONLY).** `packaging/pdfproj.spec` (PyInstaller
+   `--onedir --noconsole` for the installer **plus a `--onefile` portable `.exe`**) →
+   `packaging/installer.iss` (Inno Setup) bundling `dist/pdfproj/`, writing the `HKCU` ProgID + `.pdf`
+   Open-With association, with an uninstaller that **also wipes `%APPDATA%\pdfproj`**.
+   `packaging/build.ps1` ties pin→freeze→install into one offline, reproducible command;
+   `.github/workflows/release.yml` runs it on `windows-latest` (`workflow_dispatch` + `v*` tag) and
+   publishes the GitHub Release (installer + portable + `SHA256SUMS` + wheels). **Cannot be cross-built
+   from WSL.** Setting it as *the* default is the user's one-time confirm. Code signing is deferred.
 
 ## Execution (milestones, tracking & Windows handoff)
 
@@ -363,8 +396,8 @@ in WSL before anything touches Windows.
 | **M5** Single-instance | 2 (logic) | WSL | second launch hands off to first (WSLg smoke test) |
 | **M6** Windows ship lock | 1 (Win) | Windows | python.org 3.12; hashed `requirements.txt`; vendored `win_amd64` wheels; `DEPENDENCIES.md` |
 | **M7** Windows validation | 2 (validate) | Windows | single-instance/focus/Open-With behave on real Windows; GUI fidelity pass |
-| **M8** Freeze + installer | 9 | Windows | `build.ps1` → PyInstaller → Inno Setup → `pdfproj-setup.exe` |
-| **M9** Verify + release | Verification § | Windows | offline + clean-machine install + no-network audit → tag release |
+| **M8** Freeze + installer + CI | 9 | Windows | `build.ps1` (+ `.github/workflows/release.yml`) → PyInstaller (onedir + onefile) → Inno Setup → `pdfproj-setup.exe` + portable `.exe` |
+| **M9** Verify + release | Verification § | Windows | offline build + clean-machine install + no-network audit; portable-exe check; uninstall wipes app + keys + `%APPDATA%` → tag `v*` → GitHub Release |
 
 ⭐ **M1 is the keystone** — most of the correctness risk (lossless edits, TOC remap, dup form-field
 handling), GUI-free, fully testable in WSL/CI. The packaging scripts (`build.ps1`, `installer.iss`,
@@ -445,7 +478,11 @@ Run with `py -3.12 -m pytest -q` (or `pytest` in the project venv).
   machine, or a fresh local user account with networking disabled.)
 - **Association via installer:** after install, `.pdf` shows **pdfproj** in Open With with the
   right icon/name; choosing it (and "Always") routes double-clicks through `pdfproj.exe "%1"`
-  into the single-instance path. Uninstall removes the app **and** the `HKCU` ProgID keys.
+  into the single-instance path. Uninstall removes the app, the `HKCU` ProgID keys, **and
+  `%APPDATA%\pdfproj`** — nothing left behind.
+- **Portable build:** `pdfproj-portable.exe` (the `--onefile` asset) launches from any folder on a
+  clean machine and opens a PDF with no install (slower first paint, no auto-association — both
+  expected).
 - **Offline runtime** (existing "No network" check) holds for the installed `.exe` too.
 
 ## Open items / risks to confirm during implementation
