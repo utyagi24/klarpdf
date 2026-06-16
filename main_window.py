@@ -14,7 +14,7 @@ import os
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QKeySequence
-from PySide6.QtWidgets import QDockWidget, QFileDialog, QMainWindow
+from PySide6.QtWidgets import QDockWidget, QFileDialog, QMainWindow, QVBoxLayout, QWidget
 
 from model.virtual_document import VirtualDocument
 from organize.thumbnail_panel import ThumbnailPanel
@@ -34,16 +34,21 @@ class MainWindow(QMainWindow):
 
         self.vdoc = VirtualDocument.from_path(path)
         self.view = PdfView(self.vdoc)
-        self.setCentralWidget(self.view)
 
         # Text selection + search overlays live on the view (M3).
         self.view.selection = TextSelection(self.view)
         self.view.search = SearchController(self.view)
-        self.find_bar = FindBar(self.view)
-        find_tb = self.addToolBar("Find")
-        find_tb.setMovable(False)
-        self.addToolBarBreak()
-        find_tb.addWidget(self.find_bar)
+        self.find_bar = FindBar(self.view)  # hidden until Ctrl+F
+
+        # Central column: find bar above the view. (A QToolBar host collapses to zero height
+        # while the bar is hidden and won't re-expand on show(), so use a real layout.)
+        central = QWidget()
+        col = QVBoxLayout(central)
+        col.setContentsMargins(0, 0, 0, 0)
+        col.setSpacing(0)
+        col.addWidget(self.find_bar)
+        col.addWidget(self.view, 1)
+        self.setCentralWidget(central)
 
         self.thumbs = ThumbnailPanel(self.vdoc)
         dock = QDockWidget("Pages", self)

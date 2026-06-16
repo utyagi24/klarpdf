@@ -19,6 +19,7 @@ from PySide6.QtGui import QBrush, QColor, QGuiApplication
 from PySide6.QtWidgets import QGraphicsRectItem
 
 _HIGHLIGHT = QColor(0, 120, 215, 80)  # translucent selection blue
+_DRAG_THRESHOLD = 4.0  # scene units the pointer must move before a drag counts as a selection
 
 
 class TextSelection:
@@ -29,6 +30,9 @@ class TextSelection:
         self._anchor: tuple[int, int] | None = None   # (page_index, word_order_index)
         self._cursor: tuple[int, int] | None = None
         self.active = False
+        self._press = None              # scene point where the press started
+        self._pending_anchor = None     # nearest word at press, promoted to anchor once dragging
+        self._moved = False             # has the drag passed the threshold yet?
 
     # ---- word data --------------------------------------------------------------
 
@@ -65,30 +69,46 @@ class TextSelection:
     # ---- mouse-driven lifecycle -------------------------------------------------
 
     def begin(self, scene_pt) -> bool:
-        """Start a selection at ``scene_pt``. Returns True if it consumed the event."""
+        """Handle a left-press. Clears any current selection (a click deselects, like Preview)
+        and arms a potential drag. Returns True if it consumed the event."""
         if self._view.rotation != 0:
             return False
-        hit = self._hit(scene_pt)
-        if hit is None:
-            self.clear()
-            return False
+        self.clear()  # press always deselects; a drag below rebuilds the selection
         self.active = True
-        self._anchor = self._cursor = hit
-        self.repaint()
+        self._press = scene_pt
+        self._pending_anchor = self._hit(scene_pt)  # nearest word, promoted only once dragging
+        self._moved = False
         return True
 
     def update_to(self, scene_pt) -> None:
+        if not self.active:
+            return
+        if not self._moved:
+            if self._press is None:
+                return
+            if abs(scene_pt.x() - self._press.x()) + abs(scene_pt.y() - self._press.y()) < _DRAG_THRESHOLD:
+                return  # a tiny jitter during a click is not a selection
         hit = self._hit(scene_pt)
+        if not self._moved:
+            anchor = self._pending_anchor if self._pending_anchor is not None else hit
+            if anchor is None:
+                return  # drag started off any page and hasn't reached one yet
+            self._anchor = anchor
+            self._moved = True
         if hit is not None:
             self._cursor = hit
-            self.repaint()
+        self.repaint()
 
     def finish(self) -> None:
+        # A press with no qualifying drag leaves anchor/cursor unset → nothing selected.
         self.active = False
 
     def clear(self) -> None:
         self._anchor = self._cursor = None
         self.active = False
+        self._press = None
+        self._pending_anchor = None
+        self._moved = False
         self._clear_items()
 
     # ---- selection content ------------------------------------------------------
