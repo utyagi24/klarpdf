@@ -4,6 +4,8 @@
 #
 #    pip-compile --output-file=requirements-dev.txt requirements-dev.in
 #
+colorama==0.4.6
+    # via pytest
 iniconfig==2.3.0
     # via pytest
 packaging==26.2
@@ -16,18 +18,9 @@ pymupdf==1.27.2.3
     # via -r requirements.in
 pypdf==6.13.2
     # via -r requirements.in
-pyside6==6.11.1
-    # via -r requirements.in
-pyside6-addons==6.11.1
-    # via pyside6
 pyside6-essentials==6.11.1
-    # via
-    #   pyside6
-    #   pyside6-addons
+    # via -r requirements.in
 pytest==9.1.0
     # via -r requirements-dev.in
 shiboken6==6.11.1
-    # via
-    #   pyside6
-    #   pyside6-addons
-    #   pyside6-essentials
+    # via pyside6-essentials
