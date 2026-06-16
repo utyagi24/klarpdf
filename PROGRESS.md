@@ -3,7 +3,7 @@
 Live status of the build (milestone detail in `PLAN.md` §Execution). **One PR per milestone** — when
 it merges, check the box here in the same PR and append the PR link.
 
-**Status:** M6 (Windows ship lock) in review. **Next: M7 (Windows validation).**
+**Status:** M7 (Windows validation) in review. **Next: M8 (Freeze + installer).**
 
 - [x] **M0** Scaffold + WSL dev venv — *step 1 (WSL); WSL* — [#4](https://github.com/utyagi24/pdfproj/pull/4)
 - [x] **M1** Correctness core: `model/` + headless tests green ⭐ — *steps 5, 7; WSL* — [#5](https://github.com/utyagi24/pdfproj/pull/5)
@@ -12,7 +12,7 @@ it merges, check the box here in the same PR and append the PR link.
 - [x] **M4** Editing loop: cross-window cut/copy/paste + undo/redo + Save/Save As + close-prompt — *steps 6, 8; WSLg* — [#8](https://github.com/utyagi24/pdfproj/pull/8)
 - [x] **M5** Single-instance launcher logic — *step 2; WSL (validate on Windows)* — [#9](https://github.com/utyagi24/pdfproj/pull/9)
 - [x] **M6** Windows ship lock: python.org + hashed `win_amd64` wheels — *step 1 (Win); Windows* — [#11](https://github.com/utyagi24/pdfproj/pull/11)
-- [ ] **M7** Windows validation: instance / focus / Open-With + GUI fidelity — *step 2; Windows*
+- [x] **M7** Windows validation: instance / focus + GUI fidelity (Open-With → M8/M9) — *step 2; Windows* — [#12](https://github.com/utyagi24/pdfproj/pull/12)
 - [ ] **M8** Freeze + installer → `pdfproj-setup.exe` — *step 9; Windows*
 - [ ] **M9** Verification matrix + release tag — *Verification §; Windows*
 

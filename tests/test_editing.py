@@ -13,6 +13,7 @@ from app import PdfApp
 from main_window import MainWindow
 from store.settings import Settings
 from tests.conftest import A_TEXT, B_TEXT
+from util.paths import normalize_path
 
 
 @pytest.fixture(scope="session")
@@ -96,6 +97,29 @@ def test_cross_window_copy_paste_then_save(app, a_pdf, b_pdf, tmp_path):
         assert B_TEXT[0] in doc[3].get_text("text")   # B's page came across losslessly
     finally:
         doc.close()
+
+
+# ---- drag-and-drop (drop-handler wiring; the mouse drag itself is verified manually) -------
+
+
+def test_drop_internal_reorders(app, a_pdf):
+    win = _win(app, a_pdf)
+    # A drag of page 0 dropped before the end, originating in this same window → reorder (move).
+    win._on_pages_dropped(win.thumbs.source_key, [0], 3)
+    assert _order(win) == [1, 2, 0]
+    win.undo_stack.undo()
+    assert _order(win) == [0, 1, 2]
+
+
+def test_drop_cross_window_copies(app, a_pdf, b_pdf):
+    src = app.open_document(b_pdf)  # open_document registers the window in app._windows
+    dst = app.open_document(a_pdf)
+    dst._on_pages_dropped(src.thumbs.source_key, [0], dst.vdoc.page_count)
+    assert dst.vdoc.page_count == 4                          # B's page 0 dragged in
+    assert src.vdoc.page_count == 2                          # source intact (copy, not move)
+    assert dst.vdoc.ordered[-1].source_id == normalize_path(b_pdf)
+    dst.undo_stack.undo()
+    assert dst.vdoc.page_count == 3
 
 
 def test_insert_from_file(app, a_pdf, b_pdf, monkeypatch):
