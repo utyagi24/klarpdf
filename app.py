@@ -23,6 +23,10 @@ class PdfApp(QApplication):
         self.setOrganizationName("pdfproj")
         self.settings = Settings()
         self._windows: dict[str, object] = {}
+        # Page clipboard for cross-window cut/copy/paste (PLAN.md): each entry is
+        # (source_id, source fitz.Document, source_page_index, rotation_override). Holding the
+        # source doc lets the paste target register it and splice the PageRef losslessly.
+        self.page_clipboard: list[tuple] = []
 
     def open_document(self, path: str):
         """Open ``path``, or raise its existing window if already open (no duplicate)."""
@@ -42,6 +46,11 @@ class PdfApp(QApplication):
 
     def forget_window(self, path: str) -> None:
         self._windows.pop(normalize_path(path), None)
+
+    def rename_window(self, old_path: str, new_path: str, window) -> None:
+        """Re-key a window after Save As, so one-window-per-document tracks the new identity."""
+        self._windows.pop(normalize_path(old_path), None)
+        self._windows[normalize_path(new_path)] = window
 
     @staticmethod
     def _raise(window) -> None:
