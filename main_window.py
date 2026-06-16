@@ -14,12 +14,14 @@ import os
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QKeySequence
-from PySide6.QtWidgets import QDockWidget, QFileDialog, QMainWindow
+from PySide6.QtWidgets import QDockWidget, QFileDialog, QMainWindow, QVBoxLayout, QWidget
 
 from model.virtual_document import VirtualDocument
 from organize.thumbnail_panel import ThumbnailPanel
 from store.settings import Settings
 from viewer.pdf_view import PdfView
+from viewer.search import FindBar, SearchController
+from viewer.text_selection import TextSelection
 
 
 class MainWindow(QMainWindow):
@@ -32,7 +34,21 @@ class MainWindow(QMainWindow):
 
         self.vdoc = VirtualDocument.from_path(path)
         self.view = PdfView(self.vdoc)
-        self.setCentralWidget(self.view)
+
+        # Text selection + search overlays live on the view (M3).
+        self.view.selection = TextSelection(self.view)
+        self.view.search = SearchController(self.view)
+        self.find_bar = FindBar(self.view)  # hidden until Ctrl+F
+
+        # Central column: find bar above the view. (A QToolBar host collapses to zero height
+        # while the bar is hidden and won't re-expand on show(), so use a real layout.)
+        central = QWidget()
+        col = QVBoxLayout(central)
+        col.setContentsMargins(0, 0, 0, 0)
+        col.setSpacing(0)
+        col.addWidget(self.find_bar)
+        col.addWidget(self.view, 1)
+        self.setCentralWidget(central)
 
         self.thumbs = ThumbnailPanel(self.vdoc)
         dock = QDockWidget("Pages", self)
@@ -53,6 +69,7 @@ class MainWindow(QMainWindow):
         bar = self.addToolBar("Main")
         menu = self.menuBar()
         file_menu = menu.addMenu("&File")
+        edit_menu = menu.addMenu("&Edit")
         view_menu = menu.addMenu("&View")
 
         def act(text, slot, shortcut=None, to_bar=True, to_menu=None):
@@ -69,6 +86,12 @@ class MainWindow(QMainWindow):
         act("Open…", self._open_dialog, QKeySequence.StandardKey.Open, to_bar=False, to_menu=file_menu)
         act("Close", self.close, QKeySequence.StandardKey.Close, to_bar=False, to_menu=file_menu)
 
+        act("Copy", self._copy_selection, QKeySequence.StandardKey.Copy, to_bar=False, to_menu=edit_menu)
+        edit_menu.addSeparator()
+        act("Find…", self._show_find, QKeySequence.StandardKey.Find, to_bar=False, to_menu=edit_menu)
+        act("Find Next", self.find_bar.find_next, QKeySequence.StandardKey.FindNext, to_bar=False, to_menu=edit_menu)
+        act("Find Previous", self.find_bar.find_prev, QKeySequence.StandardKey.FindPrevious, to_bar=False, to_menu=edit_menu)
+
         act("Zoom In", self.view.zoom_in, QKeySequence.StandardKey.ZoomIn, to_menu=view_menu)
         act("Zoom Out", self.view.zoom_out, QKeySequence.StandardKey.ZoomOut, to_menu=view_menu)
         act("Fit Width", self.view.fit_width, "Ctrl+1", to_menu=view_menu)
@@ -81,6 +104,12 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(self, "Open PDF", "", "PDF files (*.pdf)")
         if path:
             self._app.open_document(path)
+
+    def _copy_selection(self) -> None:
+        self.view.selection.copy()
+
+    def _show_find(self) -> None:
+        self.find_bar.show_bar()
 
     # ---- view-state persistence -------------------------------------------------
 
