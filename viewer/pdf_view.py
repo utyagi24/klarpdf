@@ -278,6 +278,15 @@ class PdfView(QGraphicsView):
         self._build_scene()
         self.goto_page(anchor)
 
+    def reload(self) -> None:
+        """Rebuild after the ordered list changed (edit). Page indices remap, so the pixmap
+        cache (keyed by ordered index) is dropped to avoid showing stale pages."""
+        self._cache.clear()
+        if self._current >= self._vdoc.page_count:
+            self._current = max(0, self._vdoc.page_count - 1)
+        self._build_scene()
+        self.goto_page(self._current)
+
     def goto_page(self, index: int) -> None:
         if not (0 <= index < len(self._pages)):
             return

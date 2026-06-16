@@ -10,7 +10,7 @@ from __future__ import annotations
 import pymupdf as fitz
 from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QIcon, QImage, QPixmap
-from PySide6.QtWidgets import QListWidget, QListWidgetItem
+from PySide6.QtWidgets import QAbstractItemView, QListWidget, QListWidgetItem
 
 from model.virtual_document import VirtualDocument
 
@@ -18,9 +18,12 @@ _THUMB_W = 140  # target thumbnail width in px
 
 
 class ThumbnailPanel(QListWidget):
-    """A vertical list of page thumbnails; click to jump, reflects the current page."""
+    """Page thumbnails bound to ordered[]: click jumps (View), drag reorders + multi-select
+    delete (Organize). Both modes read the one model."""
 
     pageActivated = Signal(int)
+    reorderRequested = Signal(object, int)  # (sorted source rows, before-index)
+    deleteRequested = Signal(object)        # (sorted rows)
 
     def __init__(self, vdoc: VirtualDocument, parent=None) -> None:
         super().__init__(parent)
@@ -35,8 +38,52 @@ class ThumbnailPanel(QListWidget):
         self.setUniformItemSizes(False)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
+        # Organize: multi-select + drag-reorder. We intercept the drop and drive the model via
+        # a command (then repopulate), so Qt's own item move is suppressed.
+        self.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+        self.setDefaultDropAction(Qt.DropAction.MoveAction)
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+
         self.currentRowChanged.connect(self._on_row_changed)
         self.populate()
+
+    def selected_rows(self) -> list[int]:
+        return sorted(i.row() for i in self.selectedIndexes())
+
+    def _drop_before_index(self, event) -> int:
+        """Translate a drop position into a 'before this row' insertion index."""
+        pos = event.position().toPoint()
+        item = self.itemAt(pos)
+        if item is None:
+            return self.count()
+        row = self.row(item)
+        rect = self.visualItemRect(item)
+        # Past the item's horizontal midpoint → insert after it (grid flows left-to-right).
+        if pos.x() > rect.center().x():
+            row += 1
+        return row
+
+    def startDrag(self, supported_actions) -> None:
+        # Force CopyAction so QAbstractItemView never auto-removes the dragged rows after the
+        # drop; the model command + repopulate are the single source of truth for the order.
+        super().startDrag(Qt.DropAction.CopyAction)
+
+    def dropEvent(self, event) -> None:
+        rows = self.selected_rows()
+        before = self._drop_before_index(event)
+        if rows:
+            self.reorderRequested.emit(rows, before)
+        event.accept()  # model + repopulate handle the actual move; suppress Qt's item shuffle
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+            rows = self.selected_rows()
+            if rows:
+                self.deleteRequested.emit(rows)
+                event.accept()
+                return
+        super().keyPressEvent(event)
 
     def _thumbnail(self, index: int) -> QIcon:
         ref = self._vdoc.ordered[index]
