@@ -170,6 +170,20 @@ class VirtualDocument:
         self.ordered[index] = self.ordered[index].with_rotation(angle)
         self.dirty = True
 
+    def rotate_pages(self, indices: Iterable[int], delta: int) -> None:
+        """Rotate each page in ``indices`` by ``delta`` degrees from its current angle.
+
+        The current angle is the page's existing override, or — when it has none — its source
+        page's own ``/Rotate``; the result is stored as a new **absolute** override. ``delta`` is
+        a relative quarter-turn (±90, 180, …); ``with_rotation`` enforces the multiple-of-90 rule.
+        """
+        for i in indices:
+            ref = self.ordered[i]
+            native = self.sources[ref.source_id][ref.source_page_index].rotation
+            current = native if ref.rotation_override is None else ref.rotation_override
+            self.ordered[i] = ref.with_rotation((current + delta) % 360)
+        self.dirty = True
+
     # ---- cross-window move / copy -----------------------------------------------
 
     def import_pages(

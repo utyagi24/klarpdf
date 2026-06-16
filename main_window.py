@@ -29,11 +29,17 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from model.edit_commands import DeleteCommand, InsertCommand, MovePagesCommand
+from model.edit_commands import (
+    DeleteCommand,
+    InsertCommand,
+    MovePagesCommand,
+    RotatePagesCommand,
+)
 from model.edit_engine import PyMuPDFEngine
 from model.virtual_document import PageRef, VirtualDocument
 from organize.thumbnail_panel import ThumbnailPanel
 from store.settings import Settings
+from util.paths import normalize_path
 from viewer.pdf_view import PdfView
 from viewer.search import FindBar, SearchController
 from viewer.text_selection import TextSelection
@@ -67,6 +73,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
 
         self.thumbs = ThumbnailPanel(self.vdoc)
+        self.thumbs.source_key = normalize_path(path)  # identity for cross-window drag/drop
         dock = QDockWidget("Pages", self)
         dock.setWidget(self.thumbs)
         dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
@@ -74,7 +81,7 @@ class MainWindow(QMainWindow):
 
         self.view.currentPageChanged.connect(self.thumbs.set_current)
         self.thumbs.pageActivated.connect(self.view.goto_page)
-        self.thumbs.reorderRequested.connect(self._reorder)
+        self.thumbs.pagesDropped.connect(self._on_pages_dropped)
         self.thumbs.deleteRequested.connect(self._delete_rows)
         self.thumbs.customContextMenuRequested.connect(self._page_context_menu)
 
@@ -141,8 +148,10 @@ class MainWindow(QMainWindow):
         act("Fit Width", self.view.fit_width, "Ctrl+1", to_menu=view_menu)
         act("Fit Page", self.view.fit_page, "Ctrl+2", to_menu=view_menu)
         view_menu.addSeparator()
-        act("Rotate Left", lambda: self.view.rotate_view(-90), "Ctrl+L", to_menu=view_menu)
-        act("Rotate Right", lambda: self.view.rotate_view(90), "Ctrl+R", to_menu=view_menu)
+        # Rotate the current/selected page(s) only — a real per-page edit (undoable, saved),
+        # not a whole-view spin. PdfView.rotate_view still exists for view-only rotation.
+        act("Rotate Left", lambda: self._rotate_pages(-90), "Ctrl+L", to_menu=view_menu)
+        act("Rotate Right", lambda: self._rotate_pages(90), "Ctrl+R", to_menu=view_menu)
 
     def _open_dialog(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Open PDF", "", "PDF files (*.pdf)")
@@ -174,6 +183,38 @@ class MainWindow(QMainWindow):
 
     def _reorder(self, rows, before_index: int) -> None:
         self.undo_stack.push(MovePagesCommand(self.vdoc, rows, before_index))
+
+    def _on_pages_dropped(self, source_key, rows, before_index: int) -> None:
+        """A drag dropped onto this window's Pages panel.
+
+        Same document → reorder (move). Another window → copy those pages in (a cross-window
+        *move* would need two undo stacks like cut/paste, so drag defaults to copy and leaves the
+        source intact). Refs splice in losslessly; the object-level copy happens at save.
+        """
+        rows = sorted({int(r) for r in rows})
+        if not rows:
+            return
+        if source_key == normalize_path(self.path):
+            self._reorder(rows, before_index)
+            return
+        src = self._app.window_for_key(source_key) if source_key else None
+        if src is None or src is self:
+            return
+        refs = []
+        for i in rows:
+            if 0 <= i < src.vdoc.page_count:
+                ref = src.vdoc.ordered[i]
+                self.vdoc.register_source(ref.source_id, src.vdoc.sources[ref.source_id])
+                refs.append(PageRef(ref.source_id, ref.source_page_index, ref.rotation_override))
+        if refs:
+            self.undo_stack.push(InsertCommand(self.vdoc, before_index, refs, text="Drag pages in"))
+
+    def _rotate_pages(self, delta: int) -> None:
+        """Rotate the selected pages — or the current page if none are selected — by ``delta``."""
+        rows = self.thumbs.selected_rows() or [self.view.current_page]
+        rows = [r for r in rows if 0 <= r < self.vdoc.page_count]
+        if rows:
+            self.undo_stack.push(RotatePagesCommand(self.vdoc, rows, delta))
 
     def _delete_rows(self, rows) -> None:
         if rows:
@@ -259,6 +300,7 @@ class MainWindow(QMainWindow):
         old = self.path
         self.vdoc.path = self.path = path
         self._app.rename_window(old, path, self)
+        self.thumbs.source_key = normalize_path(path)  # re-key for cross-window drag/drop
         self.setWindowTitle(f"{os.path.basename(path)} — pdfproj[*]")
         return True
 
