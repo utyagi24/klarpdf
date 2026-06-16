@@ -59,12 +59,25 @@ class PdfView(QGraphicsView):
 
     # ---- natural geometry -------------------------------------------------------
 
+    def _page_extra(self, index: int) -> int:
+        """Extra degrees to spin the natively-rendered page to reach its override (0 if none).
+
+        ``get_pixmap`` already renders a page at its own ``page.rotation``; a per-page override is
+        an *absolute* target angle, so the extra spin on top is ``override - native``.
+        """
+        ref = self._vdoc.ordered[index]
+        if ref.rotation_override is None:
+            return 0
+        native = self._vdoc.sources[ref.source_id][ref.source_page_index].rotation
+        return (ref.rotation_override - native) % 360
+
     def _natural_size(self, index: int) -> tuple[float, float]:
-        """Unscaled page size in points, with view rotation's axis swap applied."""
+        """Unscaled page size in points, with per-page rotation + view rotation axis swaps."""
         ref = self._vdoc.ordered[index]
         rect = self._vdoc.sources[ref.source_id][ref.source_page_index].rect
         w, h = rect.width, rect.height
-        return (h, w) if self._rotation in (90, 270) else (w, h)
+        total = (self._page_extra(index) + self._rotation) % 360
+        return (h, w) if total in (90, 270) else (w, h)
 
     def _build_scene(self) -> None:
         scene = self.scene()
@@ -159,7 +172,8 @@ class PdfView(QGraphicsView):
     # ---- rendering --------------------------------------------------------------
 
     def _render_pixmap(self, index: int) -> QPixmap | None:
-        key = (index, round(self._zoom, 4), self._rotation)
+        total = (self._page_extra(index) + self._rotation) % 360  # per-page override + view spin
+        key = (index, round(self._zoom, 4), total)
         hit = self._cache.get(key)
         if hit is not None:
             self._cache.move_to_end(key)
@@ -170,8 +184,8 @@ class PdfView(QGraphicsView):
             pm = page.get_pixmap(matrix=fitz.Matrix(self._zoom, self._zoom), alpha=False)
             img = QImage(pm.samples, pm.width, pm.height, pm.stride, QImage.Format.Format_RGB888)
             pixmap = QPixmap.fromImage(img.copy())  # copy: detach from pm.samples buffer
-            if self._rotation:
-                pixmap = pixmap.transformed(QTransform().rotate(self._rotation))
+            if total:
+                pixmap = pixmap.transformed(QTransform().rotate(total))
         except Exception:
             return None
         self._cache[key] = pixmap

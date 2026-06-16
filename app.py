@@ -141,6 +141,13 @@ class PdfApp(QApplication):
         self._raise(window)
         return window
 
+    def window_for_key(self, key: str | None):
+        """Return the open window registered under a normalized identity key, or None.
+
+        Used by cross-window drag/drop to resolve the source window from the dragged payload.
+        """
+        return self._windows.get(key) if key else None
+
     def forget_window(self, path: str) -> None:
         self._windows.pop(normalize_path(path), None)
 

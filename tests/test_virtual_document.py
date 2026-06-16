@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from PySide6.QtGui import QUndoStack
 
-from model.edit_commands import DeleteCommand, InsertCommand, MoveCommand, RotateCommand
+from model.edit_commands import (
+    DeleteCommand,
+    InsertCommand,
+    MoveCommand,
+    RotateCommand,
+    RotatePagesCommand,
+)
 from model.virtual_document import PageRef, VirtualDocument
 from util.paths import normalize_path
 
@@ -41,6 +47,30 @@ def test_set_rotation_rejects_non_multiples(a_pdf):
         pass
     else:
         raise AssertionError("expected ValueError for non-multiple-of-90 rotation")
+
+
+def test_rotate_pages_is_relative_to_current_angle(a_pdf):
+    vd = VirtualDocument.from_path(a_pdf)  # fixture pages have native rotation 0
+    vd.rotate_pages([0, 2], 90)
+    assert vd.ordered[0].rotation_override == 90
+    assert vd.ordered[2].rotation_override == 90
+    assert vd.ordered[1].rotation_override is None  # untouched
+    vd.rotate_pages([0], 90)  # 90 -> 180 (relative to current)
+    assert vd.ordered[0].rotation_override == 180
+    vd.rotate_pages([0], -90)  # 180 -> 90, and wraps via %360
+    assert vd.ordered[0].rotation_override == 90
+    assert vd.dirty is True
+
+
+def test_rotate_pages_command_roundtrip(a_pdf):
+    vd = VirtualDocument.from_path(a_pdf)
+    stack = QUndoStack()
+    stack.push(RotatePagesCommand(vd, [0, 1], 90))
+    assert [vd.ordered[i].rotation_override for i in (0, 1, 2)] == [90, 90, None]
+    stack.undo()
+    assert all(r.rotation_override is None for r in vd.ordered)
+    stack.redo()
+    assert [vd.ordered[i].rotation_override for i in (0, 1, 2)] == [90, 90, None]
 
 
 def test_merge_requires_registered_source(a_pdf, b_pdf):

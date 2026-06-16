@@ -106,3 +106,16 @@ class RotateCommand(_SnapshotCommand):
 
     def _apply(self) -> None:
         self._vdoc.set_rotation(self._index, self._angle)
+
+
+class RotatePagesCommand(_SnapshotCommand):
+    """Rotate one or more pages by a relative ``delta`` (each from its own current angle)."""
+
+    def __init__(self, vdoc: VirtualDocument, indices: Iterable[int], delta: int) -> None:
+        self._indices = sorted(set(indices))
+        self._delta = delta
+        label = "Rotate page" if len(self._indices) == 1 else f"Rotate {len(self._indices)} pages"
+        super().__init__(vdoc, label)
+
+    def _apply(self) -> None:
+        self._vdoc.rotate_pages(self._indices, self._delta)
