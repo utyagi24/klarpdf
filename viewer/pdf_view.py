@@ -75,11 +75,15 @@ class PdfView(QGraphicsView):
             w_pt, h_pt = self._natural_size(i)
             w, h = w_pt * self._zoom, h_pt * self._zoom
             x = (widest - w) / 2.0
-            bg = QGraphicsRectItem(QRectF(x, y, w, h))
+            # Geometry goes in the item POSITION (local rect at origin), so the child pixmap —
+            # placed at the parent's (0,0) — inherits the page's scene position. Encoding x/y in
+            # the rect instead leaves the item at (0,0) and piles every pixmap at the origin.
+            bg = QGraphicsRectItem(QRectF(0, 0, w, h))
+            bg.setPos(x, y)
             bg.setPen(page_pen)
             bg.setBrush(page_brush)
             scene.addItem(bg)
-            pix = QGraphicsPixmapItem(bg)  # child of bg → shares position
+            pix = QGraphicsPixmapItem(bg)  # child of bg → shares its position
             pix.setPos(0, 0)
             self._pages.append({"bg": bg, "pix": pix, "x": x, "y": y, "w": w, "h": h})
             y += h + _PAGE_GAP
