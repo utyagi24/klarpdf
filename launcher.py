@@ -1,9 +1,14 @@
-"""Entry point: launch pdfproj on a PDF path (or prompt for one).
+"""Entry point with the single-instance guard (PLAN.md, Single-instance).
 
-Explorer invokes this as ``pdfproj.exe "%1"`` (frozen) / ``pythonw launcher.py "%1"`` (dev). In
-M5 this grows the single-instance guard (normalize ``%1``, hand off to the resident instance via
-``QLocalServer`` if one exists, else become it — PLAN.md, Single-instance). For M2 it just starts
-the app and opens the requested document.
+Explorer invokes this as ``pdfproj.exe "%1"`` (frozen) / ``pythonw launcher.py "%1"`` (dev).
+Each launch:
+ 1. normalize ``%1`` and try to hand it to a resident instance (``QLocalSocket``);
+ 2. if one accepted it → exit with no UI (it raised/opened the window);
+ 3. otherwise become the resident instance (``QLocalServer.listen``) — re-trying a hand-off if we
+    lost a startup race — then open the document and run the event loop.
+
+Because the resident instance owns every document window, re-opening an already-open file just
+raises its window (one window per document) and the page clipboard spans all windows.
 
     python launcher.py path/to/file.pdf
 """
@@ -14,17 +19,33 @@ import sys
 
 from PySide6.QtWidgets import QFileDialog
 
-from app import PdfApp
+from app import PdfApp, send_path_to_running_instance
+from platform_integration import single_instance_server_name
+from util.paths import normalize_path
 
 
 def main(argv: list[str]) -> int:
     app = PdfApp(argv)
+    name = single_instance_server_name()
 
-    path = argv[1] if len(argv) > 1 else None
+    raw_path = argv[1] if len(argv) > 1 else None
+    norm_path = normalize_path(raw_path) if raw_path else None
+
+    # 1) A resident instance already running? Hand off and exit (no UI in this process).
+    if norm_path and send_path_to_running_instance(name, norm_path):
+        return 0
+
+    # 2) Become the resident instance. If listen fails we lost a race to another launch that
+    #    just became the server — hand off to it; only as a last resort run degraded.
+    if not app.start_server(name):
+        if norm_path and send_path_to_running_instance(name, norm_path):
+            return 0
+
+    path = raw_path
     if not path:
         path, _ = QFileDialog.getOpenFileName(None, "Open PDF", "", "PDF files (*.pdf)")
     if not path:
-        return 0  # user cancelled with no document to show
+        return 0  # nothing to show
 
     app.open_document(path)
     return app.exec()
