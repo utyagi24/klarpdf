@@ -51,7 +51,11 @@ def send_path_to_running_instance(name: str, path: str, retries: int = 1) -> boo
             ):
                 if qapp is not None:
                     qapp.processEvents()
-                sock.waitForDisconnected(10)
+                # processEvents() above may have completed the disconnect; re-check before
+                # waiting so we don't call waitForDisconnected() on an already-unconnected socket
+                # (Qt warns: "not allowed in UnconnectedState").
+                if sock.state() != QLocalSocket.LocalSocketState.UnconnectedState:
+                    sock.waitForDisconnected(10)
             sock.close()
             return True
     return False
