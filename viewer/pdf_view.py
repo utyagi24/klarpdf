@@ -16,7 +16,7 @@ from __future__ import annotations
 from collections import OrderedDict
 
 import pymupdf as fitz
-from PySide6.QtCore import QRectF, Qt, Signal
+from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QImage, QPen, QPixmap, QTransform
 from PySide6.QtWidgets import QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsScene, QGraphicsView
 
@@ -42,10 +42,15 @@ class PdfView(QGraphicsView):
         self._cache: "OrderedDict[tuple, QPixmap]" = OrderedDict()
         self._pages: list[dict] = []   # per page: {bg, pix, x, y, w, h}
         self._current = 0
+        # Overlay controllers (set by MainWindow in M3): text selection + search. They own
+        # their highlight items and expose repaint(), called after every scene rebuild.
+        self.selection = None
+        self.search = None
 
         self.setScene(QGraphicsScene(self))
         self.setBackgroundBrush(QBrush(QColor(0x30, 0x30, 0x30)))
-        self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+        # Left-drag selects text (M3), so no hand-drag panning; scroll via wheel/scrollbars.
+        self.setDragMode(QGraphicsView.DragMode.NoDrag)
         self.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
 
@@ -90,6 +95,59 @@ class PdfView(QGraphicsView):
 
         scene.setSceneRect(0, 0, widest + 2 * _PAGE_GAP, y)
         self._render_visible()
+        # scene.clear() above discarded any overlay items; repaint them from logical state.
+        for overlay in (self.selection, self.search):
+            if overlay is not None:
+                overlay.repaint()
+
+    # ---- overlay geometry helpers (used by selection + search) ------------------
+
+    def page_and_local_at(self, scene_pt) -> tuple[int | None, "QPointF | None"]:
+        """Map a scene point to ``(page_index, point-in-page-points)``.
+
+        Returns the page whose vertical band contains the point (x is not constrained, so a
+        drag that strays past a page's edge still resolves to a word on the nearest line).
+        ``(None, None)`` when the point falls in a gap above/below all pages. Only valid at
+        rotation 0 — callers gate on it.
+        """
+        for i, p in enumerate(self._pages):
+            if p["y"] <= scene_pt.y() <= p["y"] + p["h"]:
+                local = QPointF((scene_pt.x() - p["x"]) / self._zoom, (scene_pt.y() - p["y"]) / self._zoom)
+                return i, local
+        return None, None
+
+    def scene_rect_for_box(self, page_index: int, box: tuple) -> QRectF:
+        """Map a page-space box (points, x0,y0,x1,y1) to a scene rect (rotation 0)."""
+        p = self._pages[page_index]
+        x0, y0, x1, y1 = box
+        z = self._zoom
+        return QRectF(p["x"] + x0 * z, p["y"] + y0 * z, (x1 - x0) * z, (y1 - y0) * z)
+
+    def ensure_box_visible(self, page_index: int, box: tuple) -> None:
+        self.ensureVisible(self.scene_rect_for_box(page_index, box), 60, 60)
+
+    # ---- mouse → text selection -------------------------------------------------
+
+    def mousePressEvent(self, event) -> None:
+        if self.selection is not None and event.button() == Qt.MouseButton.LeftButton:
+            if self.selection.begin(self.mapToScene(event.position().toPoint())):
+                event.accept()
+                return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        if self.selection is not None and self.selection.active:
+            self.selection.update_to(self.mapToScene(event.position().toPoint()))
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        if self.selection is not None and self.selection.active:
+            self.selection.finish()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
 
     # ---- rendering --------------------------------------------------------------
 
