@@ -1,0 +1,80 @@
+# Build & release pipeline (PLAN.md, Packaging §5).
+#
+# Triggers:
+#   * workflow_dispatch  -> "Run workflow" button: builds and uploads the installer + portable exe
+#                           as downloadable run artifacts (no Release).
+#   * push of a v* tag   -> builds and publishes a GitHub Release with the same files.
+#
+# The runner re-fetches wheels from PyPI (it is online), so the *runner* build is not offline; the
+# authoritative offline build + clean-machine install stay verified locally. Code signing is a
+# deferred enhancement (an Authenticode step would slot in before the release step).
+
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Override version (default: version.py)"
+        required: false
+        default: ""
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write   # required to create the GitHub Release
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      - name: Resolve version
+        id: ver
+        shell: pwsh
+        run: |
+          $v = '${{ inputs.version }}'
+          if (-not $v) {
+            if ('${{ github.ref_type }}' -eq 'tag') { $v = '${{ github.ref_name }}'.TrimStart('v') }
+            else { $v = (python -c 'import version; print(version.__version__)').Trim() }
+          }
+          "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "version = $v"
+
+      - name: Build (freeze + installer + portable)
+        shell: pwsh
+        run: ./packaging/build.ps1 -Python python -Version '${{ steps.ver.outputs.version }}'
+
+      - name: Package vendored wheels
+        shell: pwsh
+        run: Compress-Archive -Path vendor/wheels/* -DestinationPath dist/vendor-wheels.zip -Force
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pdfproj-${{ steps.ver.outputs.version }}
+          if-no-files-found: error
+          path: |
+            dist/pdfproj-setup.exe
+            dist/pdfproj-portable.exe
+            dist/SHA256SUMS
+            dist/vendor-wheels.zip
+
+      - name: Publish GitHub Release
+        if: github.event_name == 'push' && github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/pdfproj-setup.exe
+            dist/pdfproj-portable.exe
+            dist/SHA256SUMS
+            dist/vendor-wheels.zip
