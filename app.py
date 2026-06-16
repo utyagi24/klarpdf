@@ -10,6 +10,8 @@ page clipboard works across all document windows.
 
 from __future__ import annotations
 
+import time
+
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication
 
@@ -32,11 +34,25 @@ def send_path_to_running_instance(name: str, path: str, retries: int = 1) -> boo
         sock.connectToServer(name)
         if sock.waitForConnected(_HANDOFF_TIMEOUT_MS):
             sock.write(path.encode("utf-8") + b"\n")
-            sock.flush()
-            sock.waitForBytesWritten(_HANDOFF_TIMEOUT_MS)
-            sock.disconnectFromServer()
-            if sock.state() != QLocalSocket.LocalSocketState.UnconnectedState:
-                sock.waitForDisconnected(_HANDOFF_TIMEOUT_MS)
+            sock.flush()  # push the bytes onto the pipe now; the pump below drives any remainder
+            # Keep our end open until the resident instance has read the path and closes the
+            # socket from its side. Closing first would let a Windows named pipe discard the
+            # still-unread bytes (Unix domain sockets preserve them after the writer closes — a
+            # WSL/Windows divergence we must not depend on). We *pump* the event loop rather than
+            # block on waitForDisconnected so the handoff also completes when the server shares
+            # our thread (the headless tests drive both ends in one process, where the server's
+            # slots only run when events are processed); in the real two-process launch this just
+            # drains this short-lived launcher's own events while the resident server reads.
+            qapp = QApplication.instance()
+            deadline = time.monotonic() + _HANDOFF_TIMEOUT_MS / 1000
+            while (
+                sock.state() != QLocalSocket.LocalSocketState.UnconnectedState
+                and time.monotonic() < deadline
+            ):
+                if qapp is not None:
+                    qapp.processEvents()
+                sock.waitForDisconnected(10)
+            sock.close()
             return True
     return False
 
@@ -81,6 +97,12 @@ class PdfApp(QApplication):
         self._incoming[sock] = b""
         sock.readyRead.connect(lambda: self._read_incoming(sock))
         sock.disconnected.connect(lambda: self._read_incoming(sock, final=True))
+        # The path may already be buffered by the time we attach the handlers — on Windows named
+        # pipes the bytes can land before readyRead is connected (the peer holds the connection
+        # open until we read, so they are never discarded). Drain whatever is present now rather
+        # than waiting for an edge that has already passed.
+        if sock.bytesAvailable():
+            self._read_incoming(sock)
 
     def _read_incoming(self, sock: QLocalSocket, final: bool = False) -> None:
         if sock not in self._incoming:
@@ -90,6 +112,9 @@ class PdfApp(QApplication):
         if b"\n" in buffer or final:
             del self._incoming[sock]
             line = buffer.split(b"\n", 1)[0].decode("utf-8", "replace").strip()
+            # Close from our side so the peer's waitForDisconnected returns promptly (it is still
+            # holding the connection open). Do this before the potentially slow open_document.
+            sock.disconnectFromServer()
             sock.deleteLater()
             if line:
                 self.open_document(line)  # dedupes + raises via _raise
