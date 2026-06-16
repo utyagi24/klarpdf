@@ -127,6 +127,23 @@ class VirtualDocument:
         self.ordered.insert(to_index, ref)
         self.dirty = True
 
+    def move_pages(self, src_indices: Iterable[int], before_index: int) -> None:
+        """Move pages ``src_indices`` so they sit just before ``before_index`` in the new order.
+
+        ``before_index`` is a position in the *current* list (0..page_count). Handles
+        non-contiguous multi-selection; moved pages keep their relative order.
+        """
+        src = sorted(set(src_indices))
+        if not src:
+            return
+        refs = [self.ordered[i] for i in src]
+        shift = sum(1 for i in src if i < before_index)
+        remaining = [r for i, r in enumerate(self.ordered) if i not in set(src)]
+        pos = max(0, min(before_index - shift, len(remaining)))
+        remaining[pos:pos] = refs
+        self.ordered = remaining
+        self.dirty = True
+
     def delete_page(self, index: int) -> None:
         del self.ordered[index]
         self.dirty = True

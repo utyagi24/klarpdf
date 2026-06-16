@@ -59,6 +59,19 @@ class MoveCommand(_SnapshotCommand):
         self._vdoc.move_page(self._from, self._to)
 
 
+class MovePagesCommand(_SnapshotCommand):
+    """Drag-reorder of one or more selected pages to a drop position."""
+
+    def __init__(self, vdoc: VirtualDocument, src_indices: Iterable[int], before_index: int) -> None:
+        self._src = sorted(set(src_indices))
+        self._before_index = before_index  # NB: _before is the base class's snapshot slot
+        label = "Move page" if len(self._src) == 1 else f"Move {len(self._src)} pages"
+        super().__init__(vdoc, label)
+
+    def _apply(self) -> None:
+        self._vdoc.move_pages(self._src, self._before_index)
+
+
 class DeleteCommand(_SnapshotCommand):
     def __init__(self, vdoc: VirtualDocument, indices: Iterable[int]) -> None:
         self._indices = sorted(set(indices))
