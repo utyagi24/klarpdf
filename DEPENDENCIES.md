@@ -4,30 +4,46 @@ Versions have a single source of truth: **`requirements.in`** (top-level floor p
 
 | Lock | For | Pinning | Produced |
 |---|---|---|---|
-| `requirements-dev.txt` | WSL dev + tests | exact `==`, **no hashes** | now (WSL), via `pip-compile requirements-dev.in` |
-| `requirements.txt` | Windows ship build | exact `==` + `sha256` per **win_amd64** wheel | M6 (Windows), via `pip-compile --generate-hashes` |
+| `requirements-dev.txt` | dev + tests (WSL/Windows) | exact `==`, **no hashes** | `pip-compile requirements-dev.in` |
+| `requirements.txt` | Windows ship build | exact `==` + `sha256` per wheel | **M6** (Windows), `pip-compile --generate-hashes` |
 
 `--require-hashes` is **not** shareable across platforms: Linux `manylinux` wheels and Windows
-`win_amd64` wheels have different hashes. So dev (Linux) installs by version only; the hashed,
-offline, vendored lock is the Windows ship build's job. See PLAN.md §Development environment.
+`win_amd64` wheels have different hashes. So dev installs by version only; the hashed, offline,
+vendored lock is the Windows ship build's job. See PLAN.md §Development environment.
+
+**Vendored wheels are not committed.** The `win_amd64` wheel set (~94 MB) is a local build input,
+re-fetched offline-thereafter with
+`pip download -r requirements.txt --only-binary=:all: -d vendor/wheels`.
+[`vendor/wheels-sources.md`](vendor/wheels-sources.md) records each wheel's exact version, `sha256`
+(same as `requirements.txt`), and source URL, so the set is reproducible and auditable without
+storing binaries in git (which also dodges GitHub's 100 MB/file limit). The **M8 installer bundles**
+the wheels, so target machines need no Python and no network.
 
 ## Runtime libraries (`requirements.in`)
-| Library | Purpose | License | Floor |
-|---|---|---|---|
-| **PySide6** | Qt6 GUI; drag/drop, clipboard, `QLocalServer` single-instance IPC | LGPL-3.0 | `>=6.7` |
-| **PyMuPDF** (`fitz`) | render pages/thumbnails + lossless object-level page editing | AGPL-3.0 (or Artifex commercial) | `>=1.25.5` |
-| **pypdf** | pure-Python fallback edit engine | BSD-3-Clause | `>=4.0` |
+| Library | Purpose | License | Floor | Locked |
+|---|---|---|---|---|
+| **PySide6-Essentials** | Qt6 GUI (QtCore/QtGui/QtWidgets) + `QtNetwork` single-instance IPC | LGPL-3.0 | `>=6.7` | `6.11.1` |
+| **PyMuPDF** (`fitz`) | render pages/thumbnails + lossless object-level page editing | AGPL-3.0 (or Artifex commercial) | `>=1.25.5` | `1.27.2.3` |
+| **pypdf** | pure-Python fallback edit engine | BSD-3-Clause | `>=4.0` | `6.13.2` |
+| _shiboken6_ (transitive) | PySide6 C++/Python binding runtime | LGPL-3.0 | — | `6.11.1` |
+
+> **Why Essentials, not the full `PySide6` meta:** the app imports only QtCore/QtGui/QtWidgets/
+> QtNetwork — all in Essentials. The ~161 MB Addons set (QtWebEngine/Charts/Multimedia/QtPdf…) is
+> unused — we render via PyMuPDF, not QtPdf — so excluding it shrinks the bundle, the installer, and
+> the audit surface. The bump path is unchanged: edit `requirements.in` → re-compile → re-vendor.
 
 > **PyMuPDF AGPL:** fine for private / own-machine builds; public distribution must offer the
 > corresponding source (this repo at the exact tag satisfies it). See PLAN.md AGPL note.
 
 ## Test / build toolchain
-| Tool | Purpose | Pinned where | Introduced |
+| Tool | Purpose | Version | Pinned where |
 |---|---|---|---|
-| **pytest** | headless model/save tests | `requirements-dev.txt` | M0 |
-| **pip-tools** (`pip-compile`) | generate the locked requirements | dev/build env | M0 |
-| **Python** | interpreter — 3.12.x exact | — | WSL 3.12.3 (M0); Windows python.org 3.12.x (M6) |
-| **PyInstaller** | freeze the Windows app | `requirements.txt` (build) | M6/M8 (Windows) |
-| **Inno Setup** | build the Windows installer | recorded here at M8 | M8 (Windows) |
+| **Python** | interpreter — 3.12.x exact | Windows **3.12.10** (python.org); WSL 3.12.3 | — |
+| **pip-tools** (`pip-compile`) | generate the locked requirements | **7.5.3** | dev/build env |
+| **pytest** | headless model/save tests | see `requirements-dev.txt` | `requirements-dev.txt` |
+| **PyInstaller** | freeze the Windows app | recorded at M8 | build lock (M8) |
+| **Inno Setup** | build the Windows installer | recorded at M8 | M8 |
 
-Exact resolved versions live in the lock files (`requirements-dev.txt` now; `requirements.txt` at M6).
+M6 produced the hashed `win_amd64` ship lock (`requirements.txt`) on python.org **3.12.10** with
+**pip-tools 7.5.3**. Exact resolved runtime versions are the **Locked** column above and the lock
+files; PyInstaller and Inno Setup versions are recorded here when M8 introduces them.
