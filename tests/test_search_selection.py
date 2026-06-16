@@ -77,6 +77,22 @@ def test_drag_across_a_word_selects_it(qapp, text_pdf):
     assert view.selection.selected_text() == "world"
 
 
+def test_double_click_selects_word(qapp, text_pdf):
+    view = _view(qapp, text_pdf)
+    assert view.selection.select_word_at(_scene_center(view, 0, "world")) is True
+    assert view.selection.selected_text() == "world"
+
+
+def test_double_click_off_word_clears(qapp, text_pdf):
+    view = _view(qapp, text_pdf)
+    view.selection.select_word_at(_scene_center(view, 0, "world"))
+    # A point far below the text (still on the page) is not on any word.
+    r = view.scene_rect_for_box(0, _word_box(view, 0, "world"))
+    off = QPointF(r.center().x(), r.center().y() + 200)
+    assert view.selection.select_word_at(off) is False
+    assert view.selection.selected_text() == ""
+
+
 def test_click_without_drag_selects_nothing(qapp, text_pdf):
     # Regression: a plain click must NOT select the nearest word.
     view = _view(qapp, text_pdf)

@@ -135,6 +135,13 @@ class PdfView(QGraphicsView):
                 return
         super().mousePressEvent(event)
 
+    def mouseDoubleClickEvent(self, event) -> None:
+        if self.selection is not None and event.button() == Qt.MouseButton.LeftButton:
+            if self.selection.select_word_at(self.mapToScene(event.position().toPoint())):
+                event.accept()
+                return
+        super().mouseDoubleClickEvent(event)
+
     def mouseMoveEvent(self, event) -> None:
         if self.selection is not None and self.selection.active:
             self.selection.update_to(self.mapToScene(event.position().toPoint()))

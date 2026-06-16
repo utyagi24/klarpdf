@@ -45,6 +45,17 @@ class TextSelection:
             self._words[page_index] = cached
         return cached
 
+    def _word_containing(self, scene_pt) -> tuple[int, int] | None:
+        """Exact hit: the word whose box contains the point, else None (no nearest-snap)."""
+        page_index, local = self._view.page_and_local_at(scene_pt)
+        if page_index is None:
+            return None
+        lx, ly = local.x(), local.y()
+        for i, w in enumerate(self._words_for(page_index)):
+            if w[0] <= lx <= w[2] and w[1] <= ly <= w[3]:
+                return (page_index, i)
+        return None
+
     def _hit(self, scene_pt) -> tuple[int, int] | None:
         page_index, local = self._view.page_and_local_at(scene_pt)
         if page_index is None:
@@ -102,6 +113,19 @@ class TextSelection:
     def finish(self) -> None:
         # A press with no qualifying drag leaves anchor/cursor unset → nothing selected.
         self.active = False
+
+    def select_word_at(self, scene_pt) -> bool:
+        """Double-click: select the whole word under the point (Preview-style). Clicking off
+        any word clears the selection. Returns True if it consumed the event."""
+        if self._view.rotation != 0:
+            return False
+        hit = self._word_containing(scene_pt)
+        self.clear()
+        if hit is None:
+            return False
+        self._anchor = self._cursor = hit
+        self.repaint()
+        return True
 
     def clear(self) -> None:
         self._anchor = self._cursor = None
