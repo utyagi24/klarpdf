@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 from PySide6.QtCore import QSize
+from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication
 
 from ui import icons
@@ -52,6 +53,49 @@ def test_missing_icon_is_empty_not_crash(qapp):
 
 def test_icon_is_cached(qapp):
     assert icons.icon("undo") is icons.icon("undo")  # lru_cache: one QIcon per name
+
+
+def _opaque_luminance(icon, size=48):
+    """Mean luminance of an icon's near-opaque pixels (its glyph strokes)."""
+    image = icon.pixmap(QSize(size, size)).toImage()
+    lums = []
+    for y in range(image.height()):
+        for x in range(image.width()):
+            c = image.pixelColor(x, y)
+            if c.alpha() > 200:
+                lums.append((c.red() + c.green() + c.blue()) // 3)
+    return lums
+
+
+def test_action_icons_tint_to_theme_text_colour(qapp):
+    """Regression: dark-theme glyphs must follow the (light) text colour, not stay near-black.
+
+    Reported bug — hard-coded dark strokes were nearly invisible on a dark toolbar.
+    """
+    original = qapp.palette()
+    try:
+        dark = QPalette(original)
+        dark.setColor(QPalette.ColorRole.ButtonText, QColor("white"))
+        qapp.setPalette(dark)
+        icons.refresh_for_theme()
+        lums = _opaque_luminance(icons.icon("undo"))
+        assert lums, "icon had no opaque pixels"
+        assert min(lums) > 180  # tinted toward white (was ~43 for #2b2b2b)
+    finally:
+        qapp.setPalette(original)
+        icons.refresh_for_theme()
+
+
+def test_app_icon_keeps_its_colours(qapp):
+    """The full-colour app mark must NOT be tinted to a flat silhouette."""
+    image = icons.app_icon().pixmap(QSize(64, 64)).toImage()
+    colours = {
+        (c.red(), c.green(), c.blue())
+        for y in range(image.height())
+        for x in range(image.width())
+        if (c := image.pixelColor(x, y)).alpha() > 200
+    }
+    assert len(colours) > 3  # multiple distinct colours survive (red band, white page, …)
 
 
 def test_app_ico_is_valid_multi_resolution():
