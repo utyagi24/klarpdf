@@ -19,8 +19,9 @@ a = Analysis(
     binaries=[],
     # Ship the hand-authored toolbar SVGs (rendered at runtime by ui/icons.py).
     datas=[(str(ROOT / "ui" / "icons"), "ui/icons")],
-    # QtSvg is imported by ui/icons.py; pin it so the freeze always carries the Svg module.
-    hiddenimports=["PySide6.QtSvg"],
+    # QtSvg renders the toolbar icons (ui/icons.py); QtPrintSupport drives the print dialog
+    # (viewer/printing.py). Pin both so the freeze always carries them + their plugins.
+    hiddenimports=["PySide6.QtSvg", "PySide6.QtPrintSupport"],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
