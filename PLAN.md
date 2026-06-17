@@ -1,5 +1,10 @@
 # Plan: Local, Offline, Native-Windows PDF Viewer + Page Editor (Python)
 
+> **Shipped (2026-06-17): `v0.1.0` released** — milestones M0–M9 complete; the offline Windows
+> installer is published ([release](https://github.com/utyagi24/pdfproj/releases/tag/v0.1.0)). This
+> plan stays the spec/source-of-truth; the next-release backlog is in §Future enhancements and
+> PROGRESS.md §Open follow-ups.
+
 > **Revision (2026-06-15)** — folded in two decisions without changing the product: a
 > **Development environment** section (Hybrid — build the cross-platform core + headless tests in
 > WSL, iterate the GUI via WSLg, use Windows only for packaging + shell-integration validation) and
