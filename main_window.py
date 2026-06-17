@@ -143,6 +143,8 @@ class MainWindow(QMainWindow):
         a_save = act("Save", self.save, QKeySequence.StandardKey.Save, icon="save", to_menu=file_menu)
         act("Save As…", self.save_as, QKeySequence.StandardKey.SaveAs, to_menu=file_menu)
         file_menu.addSeparator()
+        a_print = act("Print…", self._print, QKeySequence.StandardKey.Print, icon="print", to_menu=file_menu)
+        file_menu.addSeparator()
         act("Close", self.close, QKeySequence.StandardKey.Close, to_menu=file_menu)
 
         # Undo/Redo: QUndoStack supplies labelled actions ("Undo Move 2 pages") for free.
@@ -197,7 +199,7 @@ class MainWindow(QMainWindow):
         # separators — file · history · page edits · zoom/fit · rotate · search.
         groups = (
             [pages_toggle],
-            [a_open, a_save],
+            [a_open, a_save, a_print],
             [undo, redo],
             [a_cut, a_copy_pg, a_paste, a_delete, a_insert],
             [a_zout, self.zoom_widget, a_zin, a_fitw, a_fitp],
@@ -232,6 +234,11 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(self, "Open PDF", "", "PDF files (*.pdf)")
         if path:
             self._app.open_document(path)
+
+    def _print(self) -> None:
+        from viewer.printing import print_document
+
+        print_document(self.vdoc, self.view.current_page, self)
 
     def _copy_selection(self) -> None:
         self.view.selection.copy()
