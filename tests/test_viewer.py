@@ -188,7 +188,7 @@ def test_toolbar_grouped_with_feedback(qapp, a_pdf, tmp_path):
     w = qapp.open_document(a_pdf)
     bar = next(b for b in w.findChildren(QToolBar) if b.windowTitle() == "Main")
     separators = [a for a in bar.actions() if a.isSeparator()]
-    assert len(separators) == 5  # six functional groups → five dividers
+    assert len(separators) == 6  # seven functional groups → six dividers
     style = bar.styleSheet()
     assert ":hover" in style and ":pressed" in style  # visible click feedback
     assert "separator" in style  # group spacing
@@ -201,7 +201,7 @@ def test_pages_dock_locked_and_toggleable(qapp, a_pdf, tmp_path):
     Regression: it was a default QDockWidget — could tear off into its own window and, once
     closed, had no way back.
     """
-    from PySide6.QtWidgets import QDockWidget
+    from PySide6.QtWidgets import QDockWidget, QToolBar
 
     Feat = QDockWidget.DockWidgetFeature
     qapp.settings = Settings(tmp_path / "view_state.json")
@@ -213,6 +213,8 @@ def test_pages_dock_locked_and_toggleable(qapp, a_pdf, tmp_path):
     assert not (feats & Feat.DockWidgetMovable)      # cannot be dragged around
 
     toggle = dock.toggleViewAction()
+    bar = next(b for b in w.findChildren(QToolBar) if b.windowTitle() == "Main")
+    assert toggle in bar.actions()  # dedicated toolbar button wired to the same toggle
     assert toggle.isChecked()  # visible after open
     toggle.trigger()
     qapp.processEvents()
