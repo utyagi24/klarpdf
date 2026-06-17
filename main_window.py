@@ -44,6 +44,7 @@ from util.paths import normalize_path
 from viewer.pdf_view import PdfView
 from viewer.search import FindBar, SearchController
 from viewer.text_selection import TextSelection
+from viewer.zoom_widget import ZoomWidget
 
 
 class MainWindow(QMainWindow):
@@ -169,6 +170,9 @@ class MainWindow(QMainWindow):
         # View
         a_zout = act("Zoom Out", self.view.zoom_out, QKeySequence.StandardKey.ZoomOut, icon="zoom-out", to_menu=view_menu)
         a_zin = act("Zoom In", self.view.zoom_in, QKeySequence.StandardKey.ZoomIn, icon="zoom-in", to_menu=view_menu)
+        # Live magnification indicator + preset/typed zoom (1.0 == 100%).
+        self.zoom_widget = ZoomWidget(self.view)
+        act("Actual Size", self.view.actual_size, "Ctrl+0", to_menu=view_menu)  # reset to 100%
         a_fitw = act("Fit Width", self.view.fit_width, "Ctrl+1", icon="fit-width", to_menu=view_menu)
         a_fitp = act("Fit Page", self.view.fit_page, "Ctrl+2", icon="fit-page", to_menu=view_menu)
         view_menu.addSeparator()
@@ -183,15 +187,18 @@ class MainWindow(QMainWindow):
             [a_open, a_save],
             [undo, redo],
             [a_cut, a_copy_pg, a_paste, a_delete, a_insert],
-            [a_zout, a_zin, a_fitw, a_fitp],
+            [a_zout, self.zoom_widget, a_zin, a_fitw, a_fitp],
             [a_rotl, a_rotr],
             [a_find],
         )
         for gi, group in enumerate(groups):
             if gi:
                 bar.addSeparator()
-            for a in group:
-                bar.addAction(a)
+            for item in group:
+                if isinstance(item, QAction):
+                    bar.addAction(item)
+                else:
+                    bar.addWidget(item)  # e.g. the zoom % combo
 
     def _retint_icons(self) -> None:
         """Re-fetch every action's icon so it matches the current theme's text colour."""
