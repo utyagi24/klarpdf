@@ -78,16 +78,34 @@ def read_form_fields(vdoc) -> list[FormField]:
     return fields
 
 
+# Text-like fields whose "empty" means cleared (vs a checkbox's Off / a radio's deselect).
+_TEXTLIKE = frozenset(
+    {fitz.PDF_WIDGET_TYPE_TEXT, fitz.PDF_WIDGET_TYPE_COMBOBOX, fitz.PDF_WIDGET_TYPE_LISTBOX}
+)
+
+
 def apply_form_values(out_doc: fitz.Document, values: dict[str, object]) -> None:
     """Write ``values`` (field name → value) onto matching widgets in a materialised output.
 
     Called during materialise after ``insert_pdf(widgets=True)`` has copied the widgets. A value
     whose field no longer exists in the output (its page was deleted) is simply skipped.
+
+    Clearing a text-like field is special: PyMuPDF silently ignores ``field_value = ""`` (the
+    assignment doesn't persist), so an already-filled field could never be emptied. We instead
+    reset ``/V`` to an empty string and drop the stale ``/AP`` appearance via the xref, and do NOT
+    call ``update()`` afterwards (it would rewrite the old value back).
     """
     if not values:
         return
     for page in out_doc:
         for widget in page.widgets() or []:
-            if widget.field_name in values:
-                widget.field_value = values[widget.field_name]
+            name = widget.field_name
+            if name not in values:
+                continue
+            value = values[name]
+            if widget.field_type in _TEXTLIKE and (value is None or value == ""):
+                out_doc.xref_set_key(widget.xref, "V", "()")     # empty PDF string
+                out_doc.xref_set_key(widget.xref, "AP", "null")  # force a blank appearance
+            else:
+                widget.field_value = value
                 widget.update()

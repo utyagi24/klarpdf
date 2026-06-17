@@ -41,12 +41,18 @@ class PdfView(QGraphicsView):
         self._zoom = 1.0
         self._rotation = 0  # view rotation in degrees: 0/90/180/270
         self._cache: "OrderedDict[tuple, QPixmap]" = OrderedDict()
+        # Per-source fresh copies with form fills applied, for rendering filled pages (M14). Keyed
+        # by source id; rebuilt after each edit (reload clears them). Kept separate from the shared
+        # read-only sources, and NOT built via insert_pdf — repeated insert_pdf from one source
+        # drops widgets after the first call, so we use a fresh source copy and apply values to it.
+        self._fill_docs: dict[str, "fitz.Document"] = {}
         self._pages: list[dict] = []   # per page: {bg, pix, x, y, w, h}
         self._current = 0
-        # Overlay controllers (set by MainWindow in M3): text selection + search. They own
-        # their highlight items and expose repaint(), called after every scene rebuild.
+        # Overlay controllers (set by MainWindow): text selection + search (M3) + form fill (M14).
+        # They own their highlight items and expose repaint(), called after every scene rebuild.
         self.selection = None
         self.search = None
+        self.form = None
 
         self.setScene(QGraphicsScene(self))
         self.setBackgroundBrush(QBrush(QColor(0x30, 0x30, 0x30)))
@@ -110,7 +116,7 @@ class PdfView(QGraphicsView):
         scene.setSceneRect(0, 0, widest + 2 * _PAGE_GAP, y)
         self._render_visible()
         # scene.clear() above discarded any overlay items; repaint them from logical state.
-        for overlay in (self.selection, self.search):
+        for overlay in (self.form, self.selection, self.search):
             if overlay is not None:
                 overlay.repaint()
 
@@ -143,8 +149,13 @@ class PdfView(QGraphicsView):
     # ---- mouse → text selection -------------------------------------------------
 
     def mousePressEvent(self, event) -> None:
-        if self.selection is not None and event.button() == Qt.MouseButton.LeftButton:
-            if self.selection.begin(self.mapToScene(event.position().toPoint())):
+        if event.button() == Qt.MouseButton.LeftButton:
+            scene_pt = self.mapToScene(event.position().toPoint())
+            # A click on a form field starts filling it; otherwise it begins a text selection.
+            if self.form is not None and self.form.handle_press(scene_pt):
+                event.accept()
+                return
+            if self.selection is not None and self.selection.begin(scene_pt):
                 event.accept()
                 return
         super().mousePressEvent(event)
@@ -172,6 +183,36 @@ class PdfView(QGraphicsView):
 
     # ---- rendering --------------------------------------------------------------
 
+    def _filled_source_page(self, ref):
+        """The source page to render for ``ref`` — a fills-applied fresh copy if this page has a
+        filled field, else None (caller uses the shared source page).
+
+        A fresh in-memory source copy (``VirtualDocument.fresh_source``) with ``apply_form_values``
+        applied directly (no ``insert_pdf``) renders the entered values without mutating the shared
+        source AND avoids PyMuPDF's repeated-``insert_pdf`` widget loss. The fresh doc is cached per
+        source and dropped by :meth:`reload` after every edit.
+        """
+        values = self._vdoc.form_values
+        if not values:
+            return None
+        src = self._vdoc.sources[ref.source_id]
+        page = src[ref.source_page_index]
+        if not any(w.field_name in values for w in (page.widgets() or [])):
+            return None
+        doc = self._fill_docs.get(ref.source_id)
+        if doc is None:
+            from model.page_edits import apply_form_values
+
+            doc = self._vdoc.fresh_source(ref.source_id)  # fresh copy keeps widgets (graft quirk)
+            apply_form_values(doc, values)
+            self._fill_docs[ref.source_id] = doc
+        return doc[ref.source_page_index]
+
+    def _drop_fill_docs(self) -> None:
+        for doc in self._fill_docs.values():
+            doc.close()
+        self._fill_docs.clear()
+
     def _render_pixmap(self, index: int) -> QPixmap | None:
         total = (self._page_extra(index) + self._rotation) % 360  # per-page override + view spin
         key = (index, round(self._zoom, 4), total)
@@ -181,7 +222,8 @@ class PdfView(QGraphicsView):
             return hit
         ref = self._vdoc.ordered[index]
         try:
-            page = self._vdoc.sources[ref.source_id][ref.source_page_index]
+            filled = self._filled_source_page(ref)  # None unless this page has a filled field
+            page = filled if filled is not None else self._vdoc.sources[ref.source_id][ref.source_page_index]
             pm = page.get_pixmap(matrix=fitz.Matrix(self._zoom, self._zoom), alpha=False)
             img = QImage(pm.samples, pm.width, pm.height, pm.stride, QImage.Format.Format_RGB888)
             pixmap = QPixmap.fromImage(img.copy())  # copy: detach from pm.samples buffer
@@ -300,8 +342,10 @@ class PdfView(QGraphicsView):
 
     def reload(self) -> None:
         """Rebuild after the ordered list changed (edit). Page indices remap, so the pixmap
-        cache (keyed by ordered index) is dropped to avoid showing stale pages."""
+        cache (keyed by ordered index) is dropped to avoid showing stale pages; the form-fill
+        copies are dropped too so a changed field value re-renders."""
         self._cache.clear()
+        self._drop_fill_docs()
         if self._current >= self._vdoc.page_count:
             self._current = max(0, self._vdoc.page_count - 1)
         self._build_scene()
