@@ -195,6 +195,34 @@ def test_toolbar_grouped_with_feedback(qapp, a_pdf, tmp_path):
     w.close()
 
 
+def test_pages_dock_locked_and_toggleable(qapp, a_pdf, tmp_path):
+    """The Pages sidebar must stay docked (not floatable/movable) and be hide/show-able.
+
+    Regression: it was a default QDockWidget — could tear off into its own window and, once
+    closed, had no way back.
+    """
+    from PySide6.QtWidgets import QDockWidget
+
+    Feat = QDockWidget.DockWidgetFeature
+    qapp.settings = Settings(tmp_path / "view_state.json")
+    w = qapp.open_document(a_pdf)
+    dock = w.pages_dock
+    feats = dock.features()
+    assert feats & Feat.DockWidgetClosable          # can be hidden
+    assert not (feats & Feat.DockWidgetFloatable)    # cannot become its own window
+    assert not (feats & Feat.DockWidgetMovable)      # cannot be dragged around
+
+    toggle = dock.toggleViewAction()
+    assert toggle.isChecked()  # visible after open
+    toggle.trigger()
+    qapp.processEvents()
+    assert not dock.isVisible() and not toggle.isChecked()  # hidden
+    toggle.trigger()
+    qapp.processEvents()
+    assert dock.isVisible() and toggle.isChecked()  # restored
+    w.close()
+
+
 def test_app_open_document_dedupes(qapp, a_pdf, b_pdf, tmp_path):
     qapp.settings = Settings(tmp_path / "view_state.json")
     w1 = qapp.open_document(a_pdf)
