@@ -23,13 +23,13 @@ the wheels, so target machines need no Python and no network.
 ## Runtime libraries (`requirements.in`)
 | Library | Purpose | License | Floor | Locked |
 |---|---|---|---|---|
-| **PySide6-Essentials** | Qt6 GUI (QtCore/QtGui/QtWidgets) + `QtNetwork` single-instance IPC | LGPL-3.0 | `>=6.7` | `6.11.1` |
+| **PySide6-Essentials** | Qt6 GUI (QtCore/QtGui/QtWidgets/QtSvg) + `QtNetwork` single-instance IPC | LGPL-3.0 | `>=6.7` | `6.11.1` |
 | **PyMuPDF** (`fitz`) | render pages/thumbnails + lossless object-level page editing | AGPL-3.0 (or Artifex commercial) | `>=1.25.5` | `1.27.2.3` |
 | **pypdf** | pure-Python fallback edit engine | BSD-3-Clause | `>=4.0` | `6.13.2` |
 | _shiboken6_ (transitive) | PySide6 C++/Python binding runtime | LGPL-3.0 | — | `6.11.1` |
 
 > **Why Essentials, not the full `PySide6` meta:** the app imports only QtCore/QtGui/QtWidgets/
-> QtNetwork — all in Essentials. The ~161 MB Addons set (QtWebEngine/Charts/Multimedia/QtPdf…) is
+> QtSvg/QtNetwork — all in Essentials (`QtSvg` renders the M10 toolbar icons; no new package). The ~161 MB Addons set (QtWebEngine/Charts/Multimedia/QtPdf…) is
 > unused — we render via PyMuPDF, not QtPdf — so excluding it shrinks the bundle, the installer, and
 > the audit surface. The bump path is unchanged: edit `requirements.in` → re-compile → re-vendor.
 

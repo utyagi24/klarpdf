@@ -180,6 +180,21 @@ def test_thumbnail_panel_jump_and_highlight(qapp, vdoc):
     assert panel.currentRow() == 0
 
 
+def test_toolbar_grouped_with_feedback(qapp, a_pdf, tmp_path):
+    """Toolbar is split into functional groups (separators) and gives hover/press feedback."""
+    from PySide6.QtWidgets import QToolBar
+
+    qapp.settings = Settings(tmp_path / "view_state.json")
+    w = qapp.open_document(a_pdf)
+    bar = next(b for b in w.findChildren(QToolBar) if b.windowTitle() == "Main")
+    separators = [a for a in bar.actions() if a.isSeparator()]
+    assert len(separators) == 5  # six functional groups → five dividers
+    style = bar.styleSheet()
+    assert ":hover" in style and ":pressed" in style  # visible click feedback
+    assert "separator" in style  # group spacing
+    w.close()
+
+
 def test_app_open_document_dedupes(qapp, a_pdf, b_pdf, tmp_path):
     qapp.settings = Settings(tmp_path / "view_state.json")
     w1 = qapp.open_document(a_pdf)

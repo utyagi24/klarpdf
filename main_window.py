@@ -17,7 +17,7 @@ from __future__ import annotations
 import os
 import tempfile
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, QSize, Qt
 from PySide6.QtGui import QAction, QKeySequence, QUndoStack
 from PySide6.QtWidgets import (
     QDockWidget,
@@ -39,6 +39,7 @@ from model.edit_engine import PyMuPDFEngine
 from model.virtual_document import PageRef, VirtualDocument
 from organize.thumbnail_panel import ThumbnailPanel
 from store.settings import Settings
+from ui import icons
 from util.paths import normalize_path
 from viewer.pdf_view import PdfView
 from viewer.search import FindBar, SearchController
@@ -92,66 +93,120 @@ class MainWindow(QMainWindow):
 
         self._build_actions()
         self.setWindowTitle(f"{os.path.basename(path)} — pdfproj[*]")
+        self.setWindowIcon(icons.app_icon())
         self.resize(1000, 800)
 
     # ---- actions / menus --------------------------------------------------------
 
     def _build_actions(self) -> None:
         bar = self.addToolBar("Main")
+        bar.setMovable(False)
+        # Icon-only toolbar (the user's ask: icons instead of text). Each QAction's text becomes
+        # the button tooltip, so the labels stay discoverable on hover and in the menus.
+        bar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        bar.setIconSize(QSize(20, 20))
+        # Press/hover feedback + spacing between functional groups. Translucent grey reads on both
+        # light and dark themes, so this needs no per-theme rebuild. The separator gains margin so
+        # grouped buttons sit close while groups are clearly divided.
+        bar.setStyleSheet(
+            "QToolBar { spacing: 1px; padding: 2px; }"
+            "QToolButton { border: 1px solid transparent; border-radius: 4px; padding: 3px; }"
+            "QToolButton:hover { background-color: rgba(128, 128, 128, 46); }"
+            "QToolButton:pressed { background-color: rgba(128, 128, 128, 100); }"
+            "QToolButton:checked { background-color: rgba(128, 128, 128, 72); }"
+            "QToolBar::separator { width: 1px; margin: 5px 8px;"
+            " background-color: rgba(128, 128, 128, 90); }"
+        )
         menu = self.menuBar()
         file_menu = menu.addMenu("&File")
         edit_menu = menu.addMenu("&Edit")
         view_menu = menu.addMenu("&View")
 
-        def act(text, slot, shortcut=None, to_bar=True, to_menu=None):
+        def act(text, slot, shortcut=None, icon=None, to_menu=None):
             a = QAction(text, self)
             if shortcut:
                 a.setShortcut(shortcut if isinstance(shortcut, QKeySequence) else QKeySequence(shortcut))
+            if icon:
+                a.setIcon(icons.icon(icon))
+                a.setProperty("iconName", icon)  # so _retint_icons can re-tint on theme change
             a.triggered.connect(slot)
-            if to_bar:
-                bar.addAction(a)
             if to_menu is not None:
                 to_menu.addAction(a)
             return a
 
-        act("Open…", self._open_dialog, QKeySequence.StandardKey.Open, to_bar=False, to_menu=file_menu)
-        act("Save", self.save, QKeySequence.StandardKey.Save, to_bar=False, to_menu=file_menu)
-        act("Save As…", self.save_as, QKeySequence.StandardKey.SaveAs, to_bar=False, to_menu=file_menu)
+        # File
+        a_open = act("Open…", self._open_dialog, QKeySequence.StandardKey.Open, icon="open", to_menu=file_menu)
+        a_save = act("Save", self.save, QKeySequence.StandardKey.Save, icon="save", to_menu=file_menu)
+        act("Save As…", self.save_as, QKeySequence.StandardKey.SaveAs, to_menu=file_menu)
         file_menu.addSeparator()
-        act("Close", self.close, QKeySequence.StandardKey.Close, to_bar=False, to_menu=file_menu)
+        act("Close", self.close, QKeySequence.StandardKey.Close, to_menu=file_menu)
 
         # Undo/Redo: QUndoStack supplies labelled actions ("Undo Move 2 pages") for free.
         undo = self.undo_stack.createUndoAction(self, "&Undo")
         undo.setShortcut(QKeySequence.StandardKey.Undo)
+        undo.setIcon(icons.icon("undo"))
+        undo.setProperty("iconName", "undo")
         redo = self.undo_stack.createRedoAction(self, "&Redo")
         redo.setShortcut(QKeySequence.StandardKey.Redo)
+        redo.setIcon(icons.icon("redo"))
+        redo.setProperty("iconName", "redo")
         edit_menu.addAction(undo)
         edit_menu.addAction(redo)
-        bar.addAction(undo)
-        bar.addAction(redo)
         edit_menu.addSeparator()
         # Page ops act on the thumbnail selection. No accelerators here: Ctrl+C is text Copy and
-        # Delete is handled inside the panel; the context menu is the primary discoverable path.
-        act("Cut Pages", lambda: self._cut_pages(), to_bar=False, to_menu=edit_menu)
-        act("Copy Pages", lambda: self._copy_pages(), to_bar=False, to_menu=edit_menu)
-        act("Paste Pages", lambda: self._paste_pages(), to_bar=False, to_menu=edit_menu)
-        act("Delete Pages", lambda: self._delete_rows(self.thumbs.selected_rows()), to_bar=False, to_menu=edit_menu)
-        act("Insert Pages from File…", self._insert_from_file, to_bar=False, to_menu=edit_menu)
+        # Delete is handled inside the panel; the toolbar + context menu are the discoverable paths.
+        a_cut = act("Cut Pages", lambda: self._cut_pages(), icon="cut", to_menu=edit_menu)
+        a_copy_pg = act("Copy Pages", lambda: self._copy_pages(), icon="copy", to_menu=edit_menu)
+        a_paste = act("Paste Pages", lambda: self._paste_pages(), icon="paste", to_menu=edit_menu)
+        a_delete = act("Delete Pages", lambda: self._delete_rows(self.thumbs.selected_rows()), icon="delete", to_menu=edit_menu)
+        a_insert = act("Insert Pages from File…", self._insert_from_file, icon="insert", to_menu=edit_menu)
         edit_menu.addSeparator()
-        act("Copy", self._copy_selection, QKeySequence.StandardKey.Copy, to_bar=False, to_menu=edit_menu)
-        act("Find…", self._show_find, QKeySequence.StandardKey.Find, to_bar=False, to_menu=edit_menu)
-        act("Find Next", self.find_bar.find_next, QKeySequence.StandardKey.FindNext, to_bar=False, to_menu=edit_menu)
-        act("Find Previous", self.find_bar.find_prev, QKeySequence.StandardKey.FindPrevious, to_bar=False, to_menu=edit_menu)
+        act("Copy", self._copy_selection, QKeySequence.StandardKey.Copy, to_menu=edit_menu)
+        a_find = act("Find…", self._show_find, QKeySequence.StandardKey.Find, icon="find", to_menu=edit_menu)
+        act("Find Next", self.find_bar.find_next, QKeySequence.StandardKey.FindNext, to_menu=edit_menu)
+        act("Find Previous", self.find_bar.find_prev, QKeySequence.StandardKey.FindPrevious, to_menu=edit_menu)
 
-        act("Zoom In", self.view.zoom_in, QKeySequence.StandardKey.ZoomIn, to_menu=view_menu)
-        act("Zoom Out", self.view.zoom_out, QKeySequence.StandardKey.ZoomOut, to_menu=view_menu)
-        act("Fit Width", self.view.fit_width, "Ctrl+1", to_menu=view_menu)
-        act("Fit Page", self.view.fit_page, "Ctrl+2", to_menu=view_menu)
+        # View
+        a_zout = act("Zoom Out", self.view.zoom_out, QKeySequence.StandardKey.ZoomOut, icon="zoom-out", to_menu=view_menu)
+        a_zin = act("Zoom In", self.view.zoom_in, QKeySequence.StandardKey.ZoomIn, icon="zoom-in", to_menu=view_menu)
+        a_fitw = act("Fit Width", self.view.fit_width, "Ctrl+1", icon="fit-width", to_menu=view_menu)
+        a_fitp = act("Fit Page", self.view.fit_page, "Ctrl+2", icon="fit-page", to_menu=view_menu)
         view_menu.addSeparator()
         # Rotate the current/selected page(s) only — a real per-page edit (undoable, saved),
         # not a whole-view spin. PdfView.rotate_view still exists for view-only rotation.
-        act("Rotate Left", lambda: self._rotate_pages(-90), "Ctrl+L", to_menu=view_menu)
-        act("Rotate Right", lambda: self._rotate_pages(90), "Ctrl+R", to_menu=view_menu)
+        a_rotl = act("Rotate Left", lambda: self._rotate_pages(-90), "Ctrl+L", icon="rotate-left", to_menu=view_menu)
+        a_rotr = act("Rotate Right", lambda: self._rotate_pages(90), "Ctrl+R", icon="rotate-right", to_menu=view_menu)
+
+        # Toolbar: built explicitly (order independent of menu wiring), grouped functionally with
+        # separators — file · history · page edits · zoom/fit · rotate · search.
+        groups = (
+            [a_open, a_save],
+            [undo, redo],
+            [a_cut, a_copy_pg, a_paste, a_delete, a_insert],
+            [a_zout, a_zin, a_fitw, a_fitp],
+            [a_rotl, a_rotr],
+            [a_find],
+        )
+        for gi, group in enumerate(groups):
+            if gi:
+                bar.addSeparator()
+            for a in group:
+                bar.addAction(a)
+
+    def _retint_icons(self) -> None:
+        """Re-fetch every action's icon so it matches the current theme's text colour."""
+        for a in self.findChildren(QAction):
+            name = a.property("iconName")
+            if name:
+                a.setIcon(icons.icon(name))
+
+    def changeEvent(self, event) -> None:
+        # A runtime OS light/dark switch arrives as ApplicationPaletteChange; re-tint the toolbar
+        # glyphs so they don't vanish against the new background.
+        if event.type() == QEvent.Type.ApplicationPaletteChange:
+            icons.refresh_for_theme()
+            self._retint_icons()
+        super().changeEvent(event)
 
     def _open_dialog(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Open PDF", "", "PDF files (*.pdf)")

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- pdfproj app icon: a PDF document mark. Hand-authored (no external asset), so it is
+       auditable as source and rendered to packaging/pdfproj.ico by packaging/make_icon.py. -->
+  <defs>
+    <linearGradient id="page" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#eef1f5"/>
+    </linearGradient>
+  </defs>
+  <!-- page body with a folded top-right corner -->
+  <path d="M56 24h96l48 48v136a24 24 0 0 1-24 24H56a24 24 0 0 1-24-24V48a24 24 0 0 1 24-24z"
+        fill="url(#page)" stroke="#c2cad6" stroke-width="4" stroke-linejoin="round"/>
+  <path d="M152 24l48 48h-40a8 8 0 0 1-8-8z" fill="#c2cad6"/>
+  <!-- crimson PDF label band -->
+  <rect x="32" y="140" width="168" height="52" rx="10" fill="#c8102e"/>
+  <text x="116" y="178" font-family="Arial, Helvetica, sans-serif" font-size="40"
+        font-weight="700" fill="#ffffff" text-anchor="middle" letter-spacing="2">PDF</text>
+</svg>
