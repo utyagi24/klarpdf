@@ -34,6 +34,7 @@ from model.edit_commands import (
     InsertCommand,
     MovePagesCommand,
     RotatePagesCommand,
+    SetFieldValueCommand,
 )
 from model.edit_engine import PyMuPDFEngine
 from model.virtual_document import PageRef, VirtualDocument
@@ -41,6 +42,7 @@ from organize.thumbnail_panel import ThumbnailPanel
 from store.settings import Settings
 from ui import icons
 from util.paths import normalize_path
+from viewer.form_fill import FormFiller
 from viewer.pdf_view import PdfView
 from viewer.search import FindBar, SearchController
 from viewer.text_selection import TextSelection
@@ -59,9 +61,10 @@ class MainWindow(QMainWindow):
         self.view = PdfView(self.vdoc)
         self.undo_stack = QUndoStack(self)
 
-        # Text selection + search overlays live on the view (M3).
+        # Text selection + search overlays live on the view (M3); form-fill overlay (M14).
         self.view.selection = TextSelection(self.view)
         self.view.search = SearchController(self.view)
+        self.view.form = FormFiller(self.view, self._set_field_value)
         self.find_bar = FindBar(self.view)  # hidden until Ctrl+F
 
         # Central column: find bar above the view. (A QToolBar host collapses to zero height
@@ -317,6 +320,10 @@ class MainWindow(QMainWindow):
         rows = [r for r in rows if 0 <= r < self.vdoc.page_count]
         if rows:
             self.undo_stack.push(RotatePagesCommand(self.vdoc, rows, delta))
+
+    def _set_field_value(self, name: str, value) -> None:
+        """Fill an AcroForm field (from the inline editor) as an undoable command."""
+        self.undo_stack.push(SetFieldValueCommand(self.vdoc, name, value))
 
     def _delete_rows(self, rows) -> None:
         if rows:

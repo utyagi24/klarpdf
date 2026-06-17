@@ -43,10 +43,11 @@ class PdfView(QGraphicsView):
         self._cache: "OrderedDict[tuple, QPixmap]" = OrderedDict()
         self._pages: list[dict] = []   # per page: {bg, pix, x, y, w, h}
         self._current = 0
-        # Overlay controllers (set by MainWindow in M3): text selection + search. They own
-        # their highlight items and expose repaint(), called after every scene rebuild.
+        # Overlay controllers (set by MainWindow): text selection + search (M3) + form fill (M14).
+        # They own their highlight items and expose repaint(), called after every scene rebuild.
         self.selection = None
         self.search = None
+        self.form = None
 
         self.setScene(QGraphicsScene(self))
         self.setBackgroundBrush(QBrush(QColor(0x30, 0x30, 0x30)))
@@ -110,7 +111,7 @@ class PdfView(QGraphicsView):
         scene.setSceneRect(0, 0, widest + 2 * _PAGE_GAP, y)
         self._render_visible()
         # scene.clear() above discarded any overlay items; repaint them from logical state.
-        for overlay in (self.selection, self.search):
+        for overlay in (self.form, self.selection, self.search):
             if overlay is not None:
                 overlay.repaint()
 
@@ -143,8 +144,13 @@ class PdfView(QGraphicsView):
     # ---- mouse → text selection -------------------------------------------------
 
     def mousePressEvent(self, event) -> None:
-        if self.selection is not None and event.button() == Qt.MouseButton.LeftButton:
-            if self.selection.begin(self.mapToScene(event.position().toPoint())):
+        if event.button() == Qt.MouseButton.LeftButton:
+            scene_pt = self.mapToScene(event.position().toPoint())
+            # A click on a form field starts filling it; otherwise it begins a text selection.
+            if self.form is not None and self.form.handle_press(scene_pt):
+                event.accept()
+                return
+            if self.selection is not None and self.selection.begin(scene_pt):
                 event.accept()
                 return
         super().mousePressEvent(event)
@@ -172,6 +178,26 @@ class PdfView(QGraphicsView):
 
     # ---- rendering --------------------------------------------------------------
 
+    def _filled_page_doc(self, ref) -> "fitz.Document | None":
+        """A throwaway 1-page copy with form fills applied — or None if no fill touches this page.
+
+        Lets a filled field render with its entered value without mutating the shared source. The
+        edit-list reload() clears the pixmap cache on every fill, so this stays consistent.
+        """
+        values = self._vdoc.form_values
+        if not values:
+            return None
+        src = self._vdoc.sources[ref.source_id]
+        names = {w.field_name for w in (src[ref.source_page_index].widgets() or [])}
+        if names.isdisjoint(values):
+            return None
+        from model.page_edits import apply_form_values
+
+        tmp = fitz.open()
+        tmp.insert_pdf(src, from_page=ref.source_page_index, to_page=ref.source_page_index, widgets=True)
+        apply_form_values(tmp, values)
+        return tmp
+
     def _render_pixmap(self, index: int) -> QPixmap | None:
         total = (self._page_extra(index) + self._rotation) % 360  # per-page override + view spin
         key = (index, round(self._zoom, 4), total)
@@ -180,8 +206,10 @@ class PdfView(QGraphicsView):
             self._cache.move_to_end(key)
             return hit
         ref = self._vdoc.ordered[index]
+        tmp_doc = None
         try:
-            page = self._vdoc.sources[ref.source_id][ref.source_page_index]
+            tmp_doc = self._filled_page_doc(ref)  # None unless this page has a filled field
+            page = tmp_doc[0] if tmp_doc is not None else self._vdoc.sources[ref.source_id][ref.source_page_index]
             pm = page.get_pixmap(matrix=fitz.Matrix(self._zoom, self._zoom), alpha=False)
             img = QImage(pm.samples, pm.width, pm.height, pm.stride, QImage.Format.Format_RGB888)
             pixmap = QPixmap.fromImage(img.copy())  # copy: detach from pm.samples buffer
@@ -189,6 +217,9 @@ class PdfView(QGraphicsView):
                 pixmap = pixmap.transformed(QTransform().rotate(total))
         except Exception:
             return None
+        finally:
+            if tmp_doc is not None:
+                tmp_doc.close()
         self._cache[key] = pixmap
         self._cache.move_to_end(key)
         while len(self._cache) > _CACHE_LIMIT:
