@@ -4,12 +4,16 @@ Local, offline, **native-Windows** PDF viewer + page editor (Python · PySide6 �
 trustworthy replacement for macOS Preview's view + splice/split workflow on Windows. The source is
 the unit of audit; it ships as a pinned, fully offline Windows installer.
 
-**Status: `v0.1.0` shipped** — [download the installer or portable exe](https://github.com/utyagi24/pdfproj/releases/latest). Milestones **M0–M9 complete**.
+**Status: `v0.2.0` shipped** — [download the installer or portable exe](https://github.com/utyagi24/pdfproj/releases/latest). Milestones **M0–M15 complete**.
+
+**New in v0.2.0:** toolbar + app **icons** (theme-aware), a live **zoom %** indicator with Actual-Size
+reset, **printing** via the system dialog, a **File ▸ Open Recent** list, and **form filling** —
+click and fill AcroForm fields (text/checkbox/dropdown), saved losslessly.
 
 | Doc | What |
 |---|---|
 | [PLAN.md](PLAN.md) | Product spec, architecture, dependencies/packaging, portability, build order, **Execution**, verification |
-| [PROGRESS.md](PROGRESS.md) | Live milestone checklist (M0–M9) + **Open follow-ups** (next-release starting points) |
+| [PROGRESS.md](PROGRESS.md) | Live milestone checklist (M0–M15) + **Open follow-ups** + the v0.3.0 roadmap |
 | [CLAUDE.md](CLAUDE.md) | Orientation + conventions for contributors/agents |
 | [DEPENDENCIES.md](DEPENDENCIES.md) | Pinned libraries + build toolchain — exact versions, licenses |
 
@@ -33,7 +37,7 @@ sudo apt install -y python3.12-venv
 
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements-dev.txt
-pytest                          # 69 headless tests (offscreen Qt)
+pytest                          # 142 headless tests (offscreen Qt)
 pythonw launcher.py file.pdf    # run the GUI via WSLg
 ```
 
