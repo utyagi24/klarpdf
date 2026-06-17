@@ -2,8 +2,8 @@
 
 > **Shipped (2026-06-17): `v0.1.0` released** — milestones M0–M9 complete; the offline Windows
 > installer is published ([release](https://github.com/utyagi24/pdfproj/releases/tag/v0.1.0)). This
-> plan stays the spec/source-of-truth; the next-release backlog is in §Future enhancements and
-> PROGRESS.md §Open follow-ups.
+> plan stays the spec/source-of-truth. **Next:** the **v0.2.0 → v0.3.0** roadmap (M10–M18) is in
+> §Next-release roadmap below; anything still beyond it lives in §Future enhancements.
 
 > **Revision (2026-06-15)** — folded in two decisions without changing the product: a
 > **Development environment** section (Hybrid — build the cross-platform core + headless tests in
@@ -506,6 +506,98 @@ Run with `py -3.12 -m pytest -q` (or `pytest` in the project venv).
   hit-testing in scene coordinates); this is the most involved viewer piece and can land in a
   follow-up pass after basic view/scroll/zoom works.
 
+## Next-release roadmap (v0.2.0 → v0.3.0)
+
+Planned after v0.1.0. Same discipline as M0–M9 (one PR per milestone, `PROGRESS.md` tracks state).
+The work splits into a low-risk polish release and a keystone content-editing release. **A key
+property: none of it adds a third-party dependency** — annotations/redaction/forms are native
+PyMuPDF, printing is `QtPrintSupport` (already inside the vendored PySide6 wheel). So
+`requirements.in` is unchanged → **no re-compile, no re-vendor; the hashed offline lock stays
+exactly as shipped.** The only freeze change to verify is that `QtPrintSupport` + its print plugins
+survive PyInstaller (it is not in the spec `excludes`, so it ships today — confirm during M12).
+
+### The page-edit layer (the one new architectural concept)
+
+Icons, zoom %, recent docs, and printing bolt onto the existing UI/viewer cleanly. But form-fill,
+highlight, text-box, and redaction **edit content *inside* a page** — which the model has never
+done. The hard constraint: source `fitz.Document`s are **shared across windows** (cross-window
+paste registers another window's source in `model/virtual_document.py`), so we **must never mutate
+a source page in place** — it would corrupt the other window and any `VirtualDocument` referencing
+that page.
+
+The fix is to treat content edits exactly like the existing list edits — **immutable descriptors
+stored in the model, applied only at materialize, on the output copy:**
+
+- **Model (`model/page_edits.py`, new):** frozen descriptors (form-field values, annotations,
+  redaction rects) attached per page and snapshotted alongside `ordered[]`, so the existing
+  `QUndoStack` snapshot/restore in `model/edit_commands.py` keeps undo/redo working unchanged.
+  Sources stay read-only.
+- **Save (`model/edit_engine.py`):** after `insert_pdf` copies each page, a post-copy pass applies
+  that page's edits to the **output** page — `add_highlight_annot` / `add_freetext_annot`, set
+  `widget.field_value`, and `add_redact_annot` → `apply_redactions`. Materialize remains the only
+  write; sources are never touched.
+- **Preview (viewer):** highlight / text-box / redaction draw as Qt overlay items — the exact
+  pattern already in `viewer/text_selection.py` and `viewer/search.py`. Form-field **values** need
+  appearance fidelity, so a page that has edits renders from a throwaway in-memory single-page copy
+  (the pixmap cache key in `viewer/pdf_view.py` gains an edit-version component), keeping WYSIWYG
+  without reimplementing PDF appearance in Qt.
+- **Interaction (`viewer/tools.py`, new):** a mode controller (select / highlight / text-box /
+  redact / form) with text-selection as the default tool, so each tool stays quarantined instead of
+  bloating `PdfView`.
+
+v0.2.0 builds this layer with **form-fill as its first, simplest consumer**; v0.3.0's annotations
+and redaction slot into the same mechanism.
+
+### v0.2.0 — "Polish, Print & Forms"
+
+| Milestone | Feature | Where | Done when |
+|---|---|---|---|
+| **M10** Icons | App `.ico` (closes the open follow-up) + toolbar icons for undo/redo, zoom-in/out, cut/copy/paste. `QApplication.setWindowIcon`; wire `icon=` into `packaging/pdfproj.spec` and `SetupIconFile` into `packaging/installer.iss`. | WSLg + **Win** | App has a real icon (taskbar + installed); toolbar buttons are iconographic |
+| **M11** Zoom UX | `zoomChanged` signal from `PdfView`; live "150%" indicator (toolbar combo); **Actual Size / 100%** action (Ctrl+0); preset levels. Extends `PdfView.set_zoom`. | WSLg | Magnification % always visible; one click resets to 100% |
+| **M12** Printing | `QPrintDialog` + `QPrinter`; render each page via PyMuPDF at printer DPI, paint with `QPainter`; page-range + current-page. Confirm `QtPrintSupport` + plugins survive the freeze. | WSL logic; **Win** print validation | System print dialog prints the open doc correctly |
+| **M13** Recent documents | MRU list in `store/settings.py`; dynamic **File ▸ Open Recent** submenu (app-global, refreshed across windows); dedupe via `normalize_path`, drop missing files, "Clear Recent". Reopen routes through `app.open_document` (free single-instance dedupe). | WSL | Recent files listed; reopen in one click |
+| **M14** ⭐ Page-edit layer + form fill | The layer above; first consumer fills existing AcroForm fields (text/checkbox/radio/choice). New `model/page_edits.py`, `viewer/tools.py`; click-to-edit field UI; headless materialize tests. | WSL (model+tests) + WSLg | Fill a form's fields, save, reopen with values intact |
+| **M15** Verify + release | Headless suite green; Windows validation (print, icon, forms in the frozen build); tag **v0.2.0**. Opportunistically fold in the carried **CI Node-24 action bumps** + **code signing**. | **Win** | Matrix green → v0.2.0 released |
+
+### v0.3.0 — "Annotate & Redact" (keystone release)
+
+| Milestone | Feature | Where | Done when |
+|---|---|---|---|
+| **M16** ⭐ Annotations | Text **highlight** (reuse word-box selection → `add_highlight_annot`) + **text box** (`add_freetext_annot`), on the M14 layer; tool palette + interaction modes; headless materialize tests. | WSL + WSLg | Highlight text & drop a text box; both bake into the saved PDF |
+| **M17** ⭐ Redaction | Draw rect → mark → `apply_redactions` at save (**true destructive**). **Security verification:** assert the saved output has *no recoverable text/content* under the box (`fitz.get_text` + Poppler `pdftotext` cross-check, a different engine than the writer). Highest-risk milestone. | WSL (model+verify) + WSLg | Redacted content is provably gone, not merely covered |
+| **M18** Verify + release | Full annotation/redaction verification matrix + Windows validation; tag **v0.3.0**. | **Win** | Matrix green → v0.3.0 released |
+
+⭐ = keystone — most correctness/security risk, GUI-free core, fully headless-testable (the role M1
+played for v0.1.0).
+
+### Scope decisions (confirmed with the owner)
+
+- **Form filling:** fill **existing** AcroForm fields only — not a new-field designer.
+- **Redaction:** **true destructive** removal (`apply_redactions`), never visual-cover-only (which
+  leaves extractable text — a data-leak trap).
+- **Annotations:** **fire-and-forget at save** — they live in the edit-list while the doc is open
+  (full undo/redo) and bake into the saved PDF; pdfproj does not re-parse saved annotations back
+  into the model for round-trip re-editing (deferred — see Future enhancements).
+
+### New files (extends the Critical-files map)
+
+```
+model/page_edits.py            # frozen per-page edit descriptors (form values, annots, redactions); snapshotted with ordered[]
+viewer/tools.py                # interaction-mode controller: select / highlight / text-box / redact / form (select = default)
+viewer/printing.py             # QPrinter render: PyMuPDF pixmap per page at printer DPI → QPainter
+ui/icons/ + ui/icons.py        # bundled toolbar icon assets + a resolver
+packaging/pdfproj.ico          # app icon, referenced by pdfproj.spec (icon=) + installer.iss
+tests/test_page_edits.py       # descriptor snapshot/restore + undo/redo
+tests/test_form_fill_materialize.py   # filled field values survive materialize
+tests/test_annotations_materialize.py # highlight + free-text bake into output
+tests/test_redaction.py        # apply_redactions truly removes content (leak check)
+tests/test_recent.py           # MRU dedupe / drop-missing / cap
+```
+Extended in place: `model/edit_commands.py` (new commands), `model/edit_engine.py` (post-copy edit
+pass), `store/settings.py` (MRU), `main_window.py` (menus/toolbar/print), `viewer/pdf_view.py`
+(zoom signal + edit-aware render cache). **Portability** stays clean: only icon-in-installer touches
+OS, and that is already quarantined in `packaging/`; nothing new leaks into `app.py`/`launcher.py`.
+
 ## Future enhancements (deferred)
 
 Out of scope for the first build, captured so they can be picked up cleanly later:
@@ -522,3 +614,11 @@ Out of scope for the first build, captured so they can be picked up cleanly late
   "Open items" above into real handling once the fixture tests confirm the installed PyMuPDF's
   behavior (auto-rename colliding root field names; remap named/explicit destinations across
   multi-level outlines).
+- **Annotation round-trip editing:** v0.3.0 annotations are fire-and-forget (bake in at save). A
+  later pass could re-parse existing annotations from a source on open into `model/page_edits.py`
+  so saved highlights/text-boxes/redactions can be moved, re-edited, or removed in-app.
+- **New-field form designer:** v0.2.0 fills *existing* AcroForm fields only; adding brand-new
+  fields (layout, types, appearance streams) is a larger, separate effort.
+
+> Note: the view/print/annotate **product features** that earlier sat here are now scheduled in
+> §Next-release roadmap (v0.2.0 → v0.3.0); only the items above remain deferred.
