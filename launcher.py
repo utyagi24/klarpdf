@@ -24,7 +24,23 @@ from platform_integration import single_instance_server_name
 from util.paths import normalize_path
 
 
+def silence_mupdf_console_noise() -> None:
+    """Stop MuPDF printing non-fatal diagnostics to the console.
+
+    MuPDF writes messages like ``MuPDF error: format error: No common ancestor in structure tree``
+    straight to stderr when it opens/renders some tagged PDFs. They are harmless — the document
+    still opens and renders — but they clutter the console. Disable the *display* only; genuine
+    failures still raise Python exceptions (surfaced as dialogs), and the messages remain
+    retrievable via ``fitz.TOOLS.mupdf_warnings()`` for debugging.
+    """
+    import pymupdf as fitz
+
+    fitz.TOOLS.mupdf_display_errors(False)
+    fitz.TOOLS.mupdf_display_warnings(False)
+
+
 def main(argv: list[str]) -> int:
+    silence_mupdf_console_noise()
     app = PdfApp(argv)
     name = single_instance_server_name()
 
