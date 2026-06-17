@@ -41,6 +41,11 @@ class PdfView(QGraphicsView):
         self._zoom = 1.0
         self._rotation = 0  # view rotation in degrees: 0/90/180/270
         self._cache: "OrderedDict[tuple, QPixmap]" = OrderedDict()
+        # Per-source fresh copies with form fills applied, for rendering filled pages (M14). Keyed
+        # by source id; rebuilt after each edit (reload clears them). Kept separate from the shared
+        # read-only sources, and NOT built via insert_pdf — repeated insert_pdf from one source
+        # drops widgets after the first call, so we open the file fresh and apply values directly.
+        self._fill_docs: dict[str, "fitz.Document"] = {}
         self._pages: list[dict] = []   # per page: {bg, pix, x, y, w, h}
         self._current = 0
         # Overlay controllers (set by MainWindow): text selection + search (M3) + form fill (M14).
@@ -178,25 +183,38 @@ class PdfView(QGraphicsView):
 
     # ---- rendering --------------------------------------------------------------
 
-    def _filled_page_doc(self, ref) -> "fitz.Document | None":
-        """A throwaway 1-page copy with form fills applied — or None if no fill touches this page.
+    def _filled_source_page(self, ref):
+        """The source page to render for ``ref`` — a fills-applied fresh copy if this page has a
+        filled field, else None (caller uses the shared source page).
 
-        Lets a filled field render with its entered value without mutating the shared source. The
-        edit-list reload() clears the pixmap cache on every fill, so this stays consistent.
+        Opening the source file fresh and calling ``apply_form_values`` directly (no ``insert_pdf``)
+        renders the entered values without mutating the shared source AND avoids PyMuPDF's
+        repeated-``insert_pdf`` widget loss. The fresh doc is cached per source and dropped by
+        :meth:`reload` after every edit.
         """
         values = self._vdoc.form_values
         if not values:
             return None
         src = self._vdoc.sources[ref.source_id]
-        names = {w.field_name for w in (src[ref.source_page_index].widgets() or [])}
-        if names.isdisjoint(values):
+        path = src.name
+        if not path:  # streamed source with no file path — can't reopen; skip the fill render
             return None
-        from model.page_edits import apply_form_values
+        page = src[ref.source_page_index]
+        if not any(w.field_name in values for w in (page.widgets() or [])):
+            return None
+        doc = self._fill_docs.get(ref.source_id)
+        if doc is None:
+            from model.page_edits import apply_form_values
 
-        tmp = fitz.open()
-        tmp.insert_pdf(src, from_page=ref.source_page_index, to_page=ref.source_page_index, widgets=True)
-        apply_form_values(tmp, values)
-        return tmp
+            doc = fitz.open(path)
+            apply_form_values(doc, values)
+            self._fill_docs[ref.source_id] = doc
+        return doc[ref.source_page_index]
+
+    def _drop_fill_docs(self) -> None:
+        for doc in self._fill_docs.values():
+            doc.close()
+        self._fill_docs.clear()
 
     def _render_pixmap(self, index: int) -> QPixmap | None:
         total = (self._page_extra(index) + self._rotation) % 360  # per-page override + view spin
@@ -206,10 +224,9 @@ class PdfView(QGraphicsView):
             self._cache.move_to_end(key)
             return hit
         ref = self._vdoc.ordered[index]
-        tmp_doc = None
         try:
-            tmp_doc = self._filled_page_doc(ref)  # None unless this page has a filled field
-            page = tmp_doc[0] if tmp_doc is not None else self._vdoc.sources[ref.source_id][ref.source_page_index]
+            filled = self._filled_source_page(ref)  # None unless this page has a filled field
+            page = filled if filled is not None else self._vdoc.sources[ref.source_id][ref.source_page_index]
             pm = page.get_pixmap(matrix=fitz.Matrix(self._zoom, self._zoom), alpha=False)
             img = QImage(pm.samples, pm.width, pm.height, pm.stride, QImage.Format.Format_RGB888)
             pixmap = QPixmap.fromImage(img.copy())  # copy: detach from pm.samples buffer
@@ -217,9 +234,6 @@ class PdfView(QGraphicsView):
                 pixmap = pixmap.transformed(QTransform().rotate(total))
         except Exception:
             return None
-        finally:
-            if tmp_doc is not None:
-                tmp_doc.close()
         self._cache[key] = pixmap
         self._cache.move_to_end(key)
         while len(self._cache) > _CACHE_LIMIT:
@@ -331,8 +345,10 @@ class PdfView(QGraphicsView):
 
     def reload(self) -> None:
         """Rebuild after the ordered list changed (edit). Page indices remap, so the pixmap
-        cache (keyed by ordered index) is dropped to avoid showing stale pages."""
+        cache (keyed by ordered index) is dropped to avoid showing stale pages; the form-fill
+        copies are dropped too so a changed field value re-renders."""
         self._cache.clear()
+        self._drop_fill_docs()
         if self._current >= self._vdoc.page_count:
             self._current = max(0, self._vdoc.page_count - 1)
         self._build_scene()

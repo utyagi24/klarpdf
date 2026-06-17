@@ -113,3 +113,38 @@ def test_filled_page_renders_from_copy(win):
 def test_fields_are_highlighted(win):
     win.view.form.repaint()
     assert len(win.view.form._items) == 3  # one wash per fillable field
+
+
+def _interior_dark_pixels(win, name) -> int:
+    """Count dark pixels inside a field (inset past its border) in the rendered page pixmap.
+
+    The synthetic form's page is otherwise blank around the fields, so dark interior pixels mean
+    the entered value actually rendered.
+    """
+    f = _field(win, name)
+    pm = win.view._render_pixmap(f.page_index)
+    img = pm.toImage()
+    z = win.view.zoom
+    x0, y0, x1, y1 = (int(v * z) for v in f.rect)
+    count = 0
+    for y in range(y0 + 2, y1 - 2):
+        for x in range(x0 + 2, x1 - 2):
+            c = img.pixelColor(x, y)
+            if (c.red() + c.green() + c.blue()) // 3 < 160:
+                count += 1
+    return count
+
+
+def test_repeated_fills_keep_rendering(win):
+    """Regression: a filled field must keep rendering after *further* edits.
+
+    Repeated insert_pdf from one source dropped widgets after the first call, so only the first
+    fill ever showed; we now render from a fresh value-applied copy instead.
+    """
+    win._set_field_value("fullname", "ALPHA TEXT")
+    win.view.reload()
+    assert _interior_dark_pixels(win, "fullname") > 0  # first fill renders
+
+    win._set_field_value("color", "Blue")  # a SECOND edit — used to blank the first field
+    win.view.reload()
+    assert _interior_dark_pixels(win, "fullname") > 0  # still renders after more edits
