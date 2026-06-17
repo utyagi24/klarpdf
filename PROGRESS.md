@@ -29,7 +29,7 @@ core, fully headless-testable).
 
 **v0.2.0 — "Polish, Print & Forms"**
 
-- [ ] **M10** Icons — app `.ico` + toolbar icons (undo/redo, zoom, cut/copy/paste) — *WSLg + Windows (frozen-exe icon)*
+- [x] **M10** Icons — app `.ico` + toolbar icons (undo/redo, zoom, cut/copy/paste) — *WSLg + Windows (frozen-exe icon)* — PR pending (frozen-exe icon validated at M15)
 - [ ] **M11** Zoom UX — live magnification % indicator + Actual-Size / 100% reset (Ctrl+0) + presets — *WSLg*
 - [ ] **M12** Printing — `QtPrintSupport` system print dialog; PyMuPDF render at printer DPI — *WSL logic; Windows print validation*
 - [ ] **M13** Recent documents — MRU list + dynamic File ▸ Open Recent submenu — *WSL*

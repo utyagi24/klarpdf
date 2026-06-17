@@ -26,6 +26,7 @@ OutputBaseFilename=pdfproj-setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+SetupIconFile=pdfproj.ico
 UninstallDisplayIcon={app}\{#MyAppExe}
 
 [Files]
