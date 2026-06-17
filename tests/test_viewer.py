@@ -225,6 +225,25 @@ def test_pages_dock_locked_and_toggleable(qapp, a_pdf, tmp_path):
     w.close()
 
 
+def test_open_recent_menu_populates(qapp, a_pdf, b_pdf, tmp_path):
+    """Opening documents fills the File ▸ Open Recent submenu, newest first, across windows."""
+    import os
+
+    qapp.settings = Settings(tmp_path / "view_state.json")
+    w1 = qapp.open_document(a_pdf)
+    w2 = qapp.open_document(b_pdf)
+    w2._populate_recent_menu()  # normally driven by aboutToShow
+    labels = [a.text() for a in w2._recent_menu.actions() if a.text() and a.isEnabled()]
+    assert any(os.path.basename(b_pdf) in t for t in labels)
+    assert any(os.path.basename(a_pdf) in t for t in labels)
+    # b was opened last → it appears before a in the list.
+    b_pos = next(i for i, t in enumerate(labels) if os.path.basename(b_pdf) in t)
+    a_pos = next(i for i, t in enumerate(labels) if os.path.basename(a_pdf) in t)
+    assert b_pos < a_pos
+    w1.close()
+    w2.close()
+
+
 def test_app_open_document_dedupes(qapp, a_pdf, b_pdf, tmp_path):
     qapp.settings = Settings(tmp_path / "view_state.json")
     w1 = qapp.open_document(a_pdf)
