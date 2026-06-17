@@ -468,5 +468,6 @@ class MainWindow(QMainWindow):
         state = self.view.view_state()
         state.update({"win_w": self.width(), "win_h": self.height()})
         self._settings.set_doc_state(self.path, state)
+        self.view._drop_fill_docs()  # release the fresh-opened form-fill copies' file handles
         self._app.forget_window(self.path)
         super().closeEvent(event)
