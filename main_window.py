@@ -140,6 +140,9 @@ class MainWindow(QMainWindow):
 
         # File
         a_open = act("Open…", self._open_dialog, QKeySequence.StandardKey.Open, icon="open", to_menu=file_menu)
+        # Rebuilt each time it opens (aboutToShow), so it reflects MRU changes from other windows.
+        self._recent_menu = file_menu.addMenu("Open &Recent")
+        self._recent_menu.aboutToShow.connect(self._populate_recent_menu)
         a_save = act("Save", self.save, QKeySequence.StandardKey.Save, icon="save", to_menu=file_menu)
         act("Save As…", self.save_as, QKeySequence.StandardKey.SaveAs, to_menu=file_menu)
         file_menu.addSeparator()
@@ -234,6 +237,23 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(self, "Open PDF", "", "PDF files (*.pdf)")
         if path:
             self._app.open_document(path)
+
+    def _populate_recent_menu(self) -> None:
+        """(Re)build the Open Recent submenu from the shared MRU list."""
+        self._recent_menu.clear()
+        recents = self._settings.recent_files()
+        if not recents:
+            empty = self._recent_menu.addAction("(No recent documents)")
+            empty.setEnabled(False)
+            return
+        for i, path in enumerate(recents):
+            label = os.path.basename(path)
+            text = f"&{i + 1}  {label}" if i < 9 else label  # 1–9 get keyboard accelerators
+            action = self._recent_menu.addAction(text)
+            action.setToolTip(path)
+            action.triggered.connect(lambda checked=False, p=path: self._app.open_document(p))
+        self._recent_menu.addSeparator()
+        self._recent_menu.addAction("Clear Recent", self._settings.clear_recent)
 
     def _print(self) -> None:
         from viewer.printing import print_document
