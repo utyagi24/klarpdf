@@ -44,7 +44,7 @@ class PdfView(QGraphicsView):
         # Per-source fresh copies with form fills applied, for rendering filled pages (M14). Keyed
         # by source id; rebuilt after each edit (reload clears them). Kept separate from the shared
         # read-only sources, and NOT built via insert_pdf — repeated insert_pdf from one source
-        # drops widgets after the first call, so we open the file fresh and apply values directly.
+        # drops widgets after the first call, so we use a fresh source copy and apply values to it.
         self._fill_docs: dict[str, "fitz.Document"] = {}
         self._pages: list[dict] = []   # per page: {bg, pix, x, y, w, h}
         self._current = 0
@@ -187,18 +187,15 @@ class PdfView(QGraphicsView):
         """The source page to render for ``ref`` — a fills-applied fresh copy if this page has a
         filled field, else None (caller uses the shared source page).
 
-        Opening the source file fresh and calling ``apply_form_values`` directly (no ``insert_pdf``)
-        renders the entered values without mutating the shared source AND avoids PyMuPDF's
-        repeated-``insert_pdf`` widget loss. The fresh doc is cached per source and dropped by
-        :meth:`reload` after every edit.
+        A fresh in-memory source copy (``VirtualDocument.fresh_source``) with ``apply_form_values``
+        applied directly (no ``insert_pdf``) renders the entered values without mutating the shared
+        source AND avoids PyMuPDF's repeated-``insert_pdf`` widget loss. The fresh doc is cached per
+        source and dropped by :meth:`reload` after every edit.
         """
         values = self._vdoc.form_values
         if not values:
             return None
         src = self._vdoc.sources[ref.source_id]
-        path = src.name
-        if not path:  # streamed source with no file path — can't reopen; skip the fill render
-            return None
         page = src[ref.source_page_index]
         if not any(w.field_name in values for w in (page.widgets() or [])):
             return None
@@ -206,7 +203,7 @@ class PdfView(QGraphicsView):
         if doc is None:
             from model.page_edits import apply_form_values
 
-            doc = fitz.open(path)
+            doc = self._vdoc.fresh_source(ref.source_id)  # fresh copy keeps widgets (graft quirk)
             apply_form_values(doc, values)
             self._fill_docs[ref.source_id] = doc
         return doc[ref.source_page_index]
