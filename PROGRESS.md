@@ -4,8 +4,9 @@ Live status of the build (milestone detail in `PLAN.md` §Execution). **One PR p
 it merges, check the box here in the same PR and append the PR link.
 
 **Status:** ✅ **v0.1.0 shipped** (2026-06-17) — all milestones **M0–M9 complete**. Offline Windows
-installer released: <https://github.com/utyagi24/pdfproj/releases/tag/v0.1.0>. See **Open
-follow-ups** below for next-release starting points.
+installer released: <https://github.com/utyagi24/pdfproj/releases/tag/v0.1.0>. **Next up:** the
+**v0.2.0 → v0.3.0** roadmap (M10–M18) is planned below; see `PLAN.md` §Next-release roadmap for the
+spec + the page-edit-layer architecture. **Open follow-ups** (carried items) are at the bottom.
 
 - [x] **M0** Scaffold + WSL dev venv — *step 1 (WSL); WSL* — [#4](https://github.com/utyagi24/pdfproj/pull/4)
 - [x] **M1** Correctness core: `model/` + headless tests green ⭐ — *steps 5, 7; WSL* — [#5](https://github.com/utyagi24/pdfproj/pull/5)
@@ -20,9 +21,30 @@ follow-ups** below for next-release starting points.
 
 ⭐ M1 is the keystone — most correctness risk, GUI-free, fully testable in WSL/CI.
 
-## Open follow-ups (post-v0.1.0)
+## Next release — v0.2.0 → v0.3.0 (planned)
 
-Starting points for the next release — none block v0.1.0:
+Spec + architecture in `PLAN.md` §Next-release roadmap. Same conventions: **one PR per milestone**,
+tick the box here on merge. Numbering continues M10+. ⭐ marks the keystone (most risk, GUI-free
+core, fully headless-testable).
+
+**v0.2.0 — "Polish, Print & Forms"**
+
+- [ ] **M10** Icons — app `.ico` + toolbar icons (undo/redo, zoom, cut/copy/paste) — *WSLg + Windows (frozen-exe icon)*
+- [ ] **M11** Zoom UX — live magnification % indicator + Actual-Size / 100% reset (Ctrl+0) + presets — *WSLg*
+- [ ] **M12** Printing — `QtPrintSupport` system print dialog; PyMuPDF render at printer DPI — *WSL logic; Windows print validation*
+- [ ] **M13** Recent documents — MRU list + dynamic File ▸ Open Recent submenu — *WSL*
+- [ ] **M14** ⭐ Page-edit layer + form filling (fill existing AcroForm fields) — *WSL (model+tests) + WSLg*
+- [ ] **M15** Verify + release → tag **v0.2.0** (fold in CI Node-24 bumps + code signing) — *Windows*
+
+**v0.3.0 — "Annotate & Redact"** (keystone release)
+
+- [ ] **M16** ⭐ Annotations — text highlight + text-box (free-text) on the M14 layer — *WSL + WSLg*
+- [ ] **M17** ⭐ Redaction — true destructive `apply_redactions` + leak verification — *WSL (model+verify) + WSLg*
+- [ ] **M18** Verify + release → tag **v0.3.0** — *Windows*
+
+## Open follow-ups (carried)
+
+Carried items — land opportunistically in the release milestones above (M15/M18), none block work:
 
 - **Clean-machine install** — the one deferred M9 verification item: run `pdfproj-setup.exe` on a
   Windows VM with **no Python and networking disabled** (Win10 Home has no Sandbox → VirtualBox /
@@ -30,9 +52,11 @@ Starting points for the next release — none block v0.1.0:
 - **CI action versions** — bump the Node-20 GitHub Actions (`actions/checkout`, `setup-python`,
   `upload-artifact`, `softprops/action-gh-release`) to their Node-24 releases to clear the
   deprecation warning. Non-blocking; the release build succeeds today.
-- **App icon** — the frozen exe + installer use PyInstaller/Inno defaults; add a `.ico` and wire it
-  into `packaging/pdfproj.spec` (`icon=`) + `installer.iss` (`SetupIconFile` / `DefaultIcon`).
 - **Code signing** — deferred Authenticode step (removes the SmartScreen prompt); slots into
-  `release.yml` before packaging (PLAN.md §Packaging §5).
-- **Product features** — PLAN.md §Future enhancements: encrypted/password PDFs, internal GoTo-link
-  remap (`model/links_remap.py`), multi-level-outline / duplicate form-field hardening.
+  `release.yml` before packaging (PLAN.md §Packaging §5). Pairs naturally with M10's app icon → fold
+  into the **v0.2.0** release (M15).
+- **App icon** → now scheduled as **M10** (no longer a loose follow-up).
+- **Product features** (view/print/annotate) → now scheduled in **§Next-release roadmap** (M10–M18).
+  Still deferred beyond it: encrypted/password PDFs, internal GoTo-link remap
+  (`model/links_remap.py`), annotation round-trip editing, new-field form designer — PLAN.md
+  §Future enhancements.
