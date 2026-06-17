@@ -31,4 +31,10 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   spare machine / a fresh local user with networking disabled.
 
 ## Status
-Planning complete; implementation not started. See `PROGRESS.md` for the current milestone.
+**v0.1.0 shipped (2026-06-17)** — all milestones **M0–M9 complete**; the pinned, offline Windows
+installer is released: <https://github.com/utyagi24/pdfproj/releases/tag/v0.1.0>. The full
+view + splice/split workflow, single-instance + `.pdf` file-association, undo/redo, lossless
+materialize-on-save, and the freeze → installer → CI pipeline are built and verified (69 headless
+tests; real-Windows + frozen + CI validation). This file's spec/conventions and `PLAN.md` remain
+current. **Planning the next release?** Read `PROGRESS.md` (status + **Open follow-ups**), then
+`PLAN.md` §Future enhancements.
