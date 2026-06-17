@@ -105,6 +105,18 @@ class MainWindow(QMainWindow):
         # the button tooltip, so the labels stay discoverable on hover and in the menus.
         bar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         bar.setIconSize(QSize(20, 20))
+        # Press/hover feedback + spacing between functional groups. Translucent grey reads on both
+        # light and dark themes, so this needs no per-theme rebuild. The separator gains margin so
+        # grouped buttons sit close while groups are clearly divided.
+        bar.setStyleSheet(
+            "QToolBar { spacing: 1px; padding: 2px; }"
+            "QToolButton { border: 1px solid transparent; border-radius: 4px; padding: 3px; }"
+            "QToolButton:hover { background-color: rgba(128, 128, 128, 46); }"
+            "QToolButton:pressed { background-color: rgba(128, 128, 128, 100); }"
+            "QToolButton:checked { background-color: rgba(128, 128, 128, 72); }"
+            "QToolBar::separator { width: 1px; margin: 5px 8px;"
+            " background-color: rgba(128, 128, 128, 90); }"
+        )
         menu = self.menuBar()
         file_menu = menu.addMenu("&File")
         edit_menu = menu.addMenu("&Edit")
@@ -165,12 +177,12 @@ class MainWindow(QMainWindow):
         a_rotl = act("Rotate Left", lambda: self._rotate_pages(-90), "Ctrl+L", icon="rotate-left", to_menu=view_menu)
         a_rotr = act("Rotate Right", lambda: self._rotate_pages(90), "Ctrl+R", icon="rotate-right", to_menu=view_menu)
 
-        # Toolbar: built explicitly (order independent of menu wiring), grouped with separators.
+        # Toolbar: built explicitly (order independent of menu wiring), grouped functionally with
+        # separators — file · history · page edits · zoom/fit · rotate · search.
         groups = (
             [a_open, a_save],
             [undo, redo],
-            [a_cut, a_copy_pg, a_paste, a_delete],
-            [a_insert],
+            [a_cut, a_copy_pg, a_paste, a_delete, a_insert],
             [a_zout, a_zin, a_fitw, a_fitp],
             [a_rotl, a_rotr],
             [a_find],
