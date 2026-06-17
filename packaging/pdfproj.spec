@@ -11,13 +11,16 @@ repo root:  py -3.12 -m PyInstaller packaging/pdfproj.spec --noconfirm
 from pathlib import Path
 
 ROOT = Path(SPECPATH).resolve().parent  # spec lives in packaging/; ROOT is the repo root
+ICON = str(ROOT / "packaging" / "pdfproj.ico")  # embedded in both exes (M10)
 
 a = Analysis(
     [str(ROOT / "launcher.py")],
     pathex=[str(ROOT)],
     binaries=[],
-    datas=[],
-    hiddenimports=[],
+    # Ship the hand-authored toolbar SVGs (rendered at runtime by ui/icons.py).
+    datas=[(str(ROOT / "ui" / "icons"), "ui/icons")],
+    # QtSvg is imported by ui/icons.py; pin it so the freeze always carries the Svg module.
+    hiddenimports=["PySide6.QtSvg"],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -53,6 +56,7 @@ exe_onedir = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=ICON,
 )
 coll = COLLECT(
     exe_onedir,
@@ -83,4 +87,5 @@ exe_onefile = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=ICON,
 )

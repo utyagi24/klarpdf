@@ -68,6 +68,10 @@ class PdfApp(QApplication):
         # settings dir resolves to .config/pdfproj (Linux) / %APPDATA%\pdfproj (Windows).
         self.setApplicationName("pdfproj")
         self.setOrganizationName("pdfproj")
+        # App-level icon: taskbar grouping + the default for every window/dialog.
+        from ui import icons
+
+        self.setWindowIcon(icons.app_icon())
         self.settings = Settings()
         self._windows: dict[str, object] = {}
         # Page clipboard for cross-window cut/copy/paste (PLAN.md): each entry is
