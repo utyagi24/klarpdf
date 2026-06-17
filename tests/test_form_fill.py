@@ -152,6 +152,29 @@ def test_repeated_materialize_keeps_fields(vdoc, tmp_path):
             assert any(w.field_name == "fullname" and w.field_value == "TWICE" for w in widgets)
 
 
+def test_clear_prefilled_field_through_materialize(tmp_path):
+    """Regression (Issue One): an already-filled field must be clearable to empty.
+
+    PyMuPDF ignores field_value='' so a reopened saved file's fields couldn't be cleared (only
+    overwritten with spaces); apply_form_values now resets them via the xref.
+    """
+    path = str(tmp_path / "prefilled.pdf")
+    doc = fitz.open()
+    page = doc.new_page()
+    _add_widget(page, "t", fitz.PDF_WIDGET_TYPE_TEXT, (72, 72, 272, 92), value="PREFILLED")
+    doc.save(path)
+    doc.close()
+
+    vd = VirtualDocument.from_path(path)
+    assert read_form_fields(vd)[0].current_value == "PREFILLED"  # starts filled
+    vd.set_field_value("t", "")  # user clears it
+    out = str(tmp_path / "cleared.pdf")
+    PyMuPDFEngine().materialize(vd, out)
+    with fitz.open(out) as result:
+        vals = {w.field_name: w.field_value for p in result for w in (p.widgets() or [])}
+    assert vals["t"] == ""  # actually empty, not "PREFILLED" and not a space
+
+
 def test_inplace_save_not_blocked_by_file_lock(form_pdf):
     """Regression (Issue 1): the open document must not lock its file, so in-place Save's atomic
     os.replace succeeds on Windows (PermissionError otherwise)."""

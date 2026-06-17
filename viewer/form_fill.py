@@ -125,6 +125,16 @@ class FormFiller:
         editor.setFocus()
         editor.showPopup()
 
+    def commit_pending(self) -> None:
+        """Commit an open inline text editor now (called before Save).
+
+        Clicking the toolbar Save button does not move keyboard focus out of the editor, so its
+        ``editingFinished`` would not fire and the typed value would be lost; the File-menu Save
+        happens to move focus and commit. Forcing the commit here makes both paths consistent.
+        """
+        if isinstance(self._editor, QLineEdit):
+            self._editor.editingFinished.emit()
+
     def _close_editor(self) -> None:
         if self._editor is not None:
             self._editor.hide()
