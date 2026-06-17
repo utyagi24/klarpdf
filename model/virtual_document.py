@@ -52,6 +52,10 @@ class VirtualDocument:
         self.ordered: list[PageRef] = []
         self.path: str | None = None
         self.dirty: bool = False
+        # AcroForm field values the user has entered (field name -> value), applied to the output
+        # at materialise (model.page_edits). Document-level: AcroForm fields are name-identified
+        # across the whole doc. Part of the snapshot so undo/redo restores fills too.
+        self._form_values: dict[str, object] = {}
         # The document this virtual doc was opened from. Its outline is the one we rebuild on
         # save (merged-in sources contribute no outline, matching insert_pdf's behaviour).
         self.origin_source_id: str | None = None
@@ -112,11 +116,12 @@ class VirtualDocument:
     # ---- snapshot / restore (used by edit_commands for undo/redo) ---------------
 
     def snapshot(self) -> State:
-        return (tuple(self.ordered), self.dirty)
+        return (tuple(self.ordered), dict(self._form_values), self.dirty)
 
     def restore(self, state: State) -> None:
-        ordered, dirty = state
+        ordered, form_values, dirty = state
         self.ordered = list(ordered)
+        self._form_values = dict(form_values)
         self.dirty = dirty
 
     # ---- list edits (each marks the document dirty) -----------------------------
@@ -182,6 +187,25 @@ class VirtualDocument:
             native = self.sources[ref.source_id][ref.source_page_index].rotation
             current = native if ref.rotation_override is None else ref.rotation_override
             self.ordered[i] = ref.with_rotation((current + delta) % 360)
+        self.dirty = True
+
+    # ---- form field values (document-level; applied at materialise) -------------
+
+    @property
+    def form_values(self) -> dict[str, object]:
+        """Current AcroForm fills (field name -> value)."""
+        return dict(self._form_values)
+
+    def field_value(self, name: str):
+        """The user-entered value for ``name``, or ``None`` if unset."""
+        return self._form_values.get(name)
+
+    def set_field_value(self, name: str, value: object) -> None:
+        """Set (or clear, when ``value`` is None) an AcroForm field value."""
+        if value is None:
+            self._form_values.pop(name, None)
+        else:
+            self._form_values[name] = value
         self.dirty = True
 
     # ---- cross-window move / copy -----------------------------------------------
