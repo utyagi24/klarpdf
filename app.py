@@ -132,6 +132,7 @@ class PdfApp(QApplication):
     def open_document(self, path: str):
         """Open ``path``, or raise its existing window if already open (no duplicate)."""
         key = normalize_path(path)
+        self.settings.add_recent(path)  # record every open in the MRU (new or re-raised)
         existing = self._windows.get(key)
         if existing is not None:
             self._raise(existing)
@@ -159,6 +160,7 @@ class PdfApp(QApplication):
         """Re-key a window after Save As, so one-window-per-document tracks the new identity."""
         self._windows.pop(normalize_path(old_path), None)
         self._windows[normalize_path(new_path)] = window
+        self.settings.add_recent(new_path)  # the Save As target is now a recent document
 
     @staticmethod
     def _raise(window) -> None:
