@@ -13,6 +13,7 @@ This module is GUI-free and headless-testable (no Qt). The undo/redo wiring live
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import Iterable
 
 import pymupdf as fitz
@@ -76,15 +77,29 @@ class VirtualDocument:
         return vd
 
     def open_source(self, path: str) -> str:
-        """Open and register a source by path (idempotent). Returns its source id."""
+        """Open and register a source by path (idempotent). Returns its source id.
+
+        Opened from an **in-memory copy** of the file, never a live file handle: on Windows an open
+        handle blocks the atomic ``os.replace`` used by in-place Save, so holding the file open
+        would make saving over the currently-open document fail with "access denied".
+        """
         source_id = normalize_path(path)
         if source_id not in self.sources:
-            self.sources[source_id] = fitz.open(path)
+            self.sources[source_id] = fitz.open(stream=Path(path).read_bytes(), filetype="pdf")
         return source_id
 
     def register_source(self, source_id: str, doc: fitz.Document) -> None:
         """Register an already-open source document (e.g. shared from another window)."""
         self.sources.setdefault(source_id, doc)
+
+    def fresh_source(self, source_id: str) -> fitz.Document:
+        """A fresh, independent in-memory copy of a registered source.
+
+        Reusing one ``fitz`` source object across multiple ``insert_pdf`` calls drops its widgets
+        after the first call (a PyMuPDF graft-state quirk), which would silently strip form fields
+        from a second save and from re-rendered filled pages. A fresh copy resets that state.
+        """
+        return fitz.open(stream=self.sources[source_id].tobytes(), filetype="pdf")
 
     # ---- queries ----------------------------------------------------------------
 
