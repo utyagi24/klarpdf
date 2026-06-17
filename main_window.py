@@ -17,7 +17,7 @@ from __future__ import annotations
 import os
 import tempfile
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QEvent, QSize, Qt
 from PySide6.QtGui import QAction, QKeySequence, QUndoStack
 from PySide6.QtWidgets import (
     QDockWidget,
@@ -116,6 +116,7 @@ class MainWindow(QMainWindow):
                 a.setShortcut(shortcut if isinstance(shortcut, QKeySequence) else QKeySequence(shortcut))
             if icon:
                 a.setIcon(icons.icon(icon))
+                a.setProperty("iconName", icon)  # so _retint_icons can re-tint on theme change
             a.triggered.connect(slot)
             if to_menu is not None:
                 to_menu.addAction(a)
@@ -132,9 +133,11 @@ class MainWindow(QMainWindow):
         undo = self.undo_stack.createUndoAction(self, "&Undo")
         undo.setShortcut(QKeySequence.StandardKey.Undo)
         undo.setIcon(icons.icon("undo"))
+        undo.setProperty("iconName", "undo")
         redo = self.undo_stack.createRedoAction(self, "&Redo")
         redo.setShortcut(QKeySequence.StandardKey.Redo)
         redo.setIcon(icons.icon("redo"))
+        redo.setProperty("iconName", "redo")
         edit_menu.addAction(undo)
         edit_menu.addAction(redo)
         edit_menu.addSeparator()
@@ -177,6 +180,21 @@ class MainWindow(QMainWindow):
                 bar.addSeparator()
             for a in group:
                 bar.addAction(a)
+
+    def _retint_icons(self) -> None:
+        """Re-fetch every action's icon so it matches the current theme's text colour."""
+        for a in self.findChildren(QAction):
+            name = a.property("iconName")
+            if name:
+                a.setIcon(icons.icon(name))
+
+    def changeEvent(self, event) -> None:
+        # A runtime OS light/dark switch arrives as ApplicationPaletteChange; re-tint the toolbar
+        # glyphs so they don't vanish against the new background.
+        if event.type() == QEvent.Type.ApplicationPaletteChange:
+            icons.refresh_for_theme()
+            self._retint_icons()
+        super().changeEvent(event)
 
     def _open_dialog(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Open PDF", "", "PDF files (*.pdf)")
