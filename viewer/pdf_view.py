@@ -33,6 +33,7 @@ class PdfView(QGraphicsView):
     """Vertical continuous-scroll renderer over a VirtualDocument."""
 
     currentPageChanged = Signal(int)
+    zoomChanged = Signal(float)  # emitted whenever the zoom factor changes (1.0 == 100%)
 
     def __init__(self, vdoc: VirtualDocument, parent=None) -> None:
         super().__init__(parent)
@@ -262,12 +263,17 @@ class PdfView(QGraphicsView):
         self._build_scene()
         if keep_page:
             self.goto_page(anchor)
+        self.zoomChanged.emit(self._zoom)
 
     def zoom_in(self) -> None:
         self.set_zoom(self._zoom * _ZOOM_STEP)
 
     def zoom_out(self) -> None:
         self.set_zoom(self._zoom / _ZOOM_STEP)
+
+    def actual_size(self) -> None:
+        """Reset to 100% — 1 PDF point per pixel (no scaling)."""
+        self.set_zoom(1.0)
 
     def _fit_zoom(self, fit_height: bool) -> float:
         margin = 2 * _PAGE_GAP
@@ -324,3 +330,5 @@ class PdfView(QGraphicsView):
             self._zoom = float(zoom)
         self._build_scene()
         self.goto_page(int(state.get("page", 0)))
+        # apply_state sets _zoom directly (bypassing set_zoom), so announce it for the indicator.
+        self.zoomChanged.emit(self._zoom)
