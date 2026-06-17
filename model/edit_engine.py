@@ -74,6 +74,12 @@ class PyMuPDFEngine(EditEngine):
                 if ref.rotation_override is not None:
                     out[i].set_rotation(ref.rotation_override)
 
+            # Apply AcroForm fills onto the copied widgets (M14). Done here, on the output, so the
+            # shared read-only sources are never touched.
+            from model.page_edits import apply_form_values
+
+            apply_form_values(out, vdoc.form_values)
+
             out.set_toc(vdoc.remapped_toc())
             out.save(out_path, garbage=4, deflate=True, clean=True)
         finally:

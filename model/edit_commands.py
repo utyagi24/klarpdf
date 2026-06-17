@@ -119,3 +119,14 @@ class RotatePagesCommand(_SnapshotCommand):
 
     def _apply(self) -> None:
         self._vdoc.rotate_pages(self._indices, self._delta)
+
+
+class SetFieldValueCommand(_SnapshotCommand):
+    """Fill an AcroForm field (M14). Snapshot-based, so undo/redo restores the prior value."""
+
+    def __init__(self, vdoc: VirtualDocument, name: str, value: object) -> None:
+        super().__init__(vdoc, f"Fill field “{name}”")
+        self._name, self._value = name, value
+
+    def _apply(self) -> None:
+        self._vdoc.set_field_value(self._name, self._value)

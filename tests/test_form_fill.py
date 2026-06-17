@@ -1,0 +1,133 @@
+"""Form-fill model + materialise (PLAN.md, M14 — page-edit layer, first consumer).
+
+Headless: AcroForm field values are document-level state on the VirtualDocument, restored by
+undo/redo via the snapshot, and written onto the output at materialise — the shared read-only
+sources are never touched.
+"""
+
+from __future__ import annotations
+
+import pymupdf as fitz
+import pytest
+from PySide6.QtGui import QUndoStack
+
+from model.edit_commands import SetFieldValueCommand
+from model.edit_engine import PyMuPDFEngine
+from model.page_edits import apply_form_values, read_form_fields
+from model.virtual_document import VirtualDocument
+
+
+def _add_widget(page, name, wtype, rect, value=None, choices=None):
+    w = fitz.Widget()
+    w.field_name = name
+    w.field_type = wtype
+    w.rect = fitz.Rect(*rect)
+    if choices is not None:
+        w.choice_values = choices
+    if value is not None:
+        w.field_value = value
+    page.add_widget(w)
+
+
+@pytest.fixture
+def form_pdf(tmp_path) -> str:
+    """2-page form: page 0 has a text field + a dropdown; page 1 has a checkbox."""
+    path = str(tmp_path / "form.pdf")
+    doc = fitz.open()
+    p0 = doc.new_page()
+    _add_widget(p0, "fullname", fitz.PDF_WIDGET_TYPE_TEXT, (72, 72, 272, 92), value="")
+    _add_widget(p0, "color", fitz.PDF_WIDGET_TYPE_COMBOBOX, (72, 110, 272, 130),
+                value="Red", choices=["Red", "Green", "Blue"])
+    p1 = doc.new_page()
+    _add_widget(p1, "agree", fitz.PDF_WIDGET_TYPE_CHECKBOX, (72, 72, 92, 92))
+    doc.save(path)
+    doc.close()
+    return path
+
+
+@pytest.fixture
+def vdoc(form_pdf) -> VirtualDocument:
+    return VirtualDocument.from_path(form_pdf)
+
+
+def _materialize(vdoc, tmp_path) -> str:
+    out = str(tmp_path / "out.pdf")
+    PyMuPDFEngine().materialize(vdoc, out)
+    return out
+
+
+def _values(out_path) -> dict[str, object]:
+    with fitz.open(out_path) as doc:
+        return {w.field_name: w.field_value for page in doc for w in (page.widgets() or [])}
+
+
+def test_read_form_fields(vdoc):
+    fields = {f.name: f for f in read_form_fields(vdoc)}
+    assert set(fields) == {"fullname", "color", "agree"}
+    assert fields["fullname"].type == fitz.PDF_WIDGET_TYPE_TEXT
+    assert fields["color"].choices == ("Red", "Green", "Blue")
+    assert fields["fullname"].page_index == 0 and fields["agree"].page_index == 1
+    assert fields["fullname"].rect[0] == pytest.approx(72)
+
+
+def test_read_form_fields_tracks_page_reorder(vdoc):
+    vdoc.move_pages([1], 0)  # move the checkbox page to the front
+    fields = {f.name: f for f in read_form_fields(vdoc)}
+    assert fields["agree"].page_index == 0  # follows the live page order
+
+
+def test_fill_text_persists_through_materialize(vdoc, tmp_path):
+    vdoc.set_field_value("fullname", "Jane Doe")
+    assert _values(_materialize(vdoc, tmp_path))["fullname"] == "Jane Doe"
+
+
+def test_fill_checkbox_and_dropdown(vdoc, tmp_path):
+    vdoc.set_field_value("agree", True)
+    vdoc.set_field_value("color", "Blue")
+    out = _values(_materialize(vdoc, tmp_path))
+    assert out["agree"] == "Yes"  # checkbox on-state
+    assert out["color"] == "Blue"
+
+
+def test_unfilled_fields_keep_their_defaults(vdoc, tmp_path):
+    vdoc.set_field_value("fullname", "Only Name")
+    out = _values(_materialize(vdoc, tmp_path))
+    assert out["color"] == "Red"  # untouched default preserved
+    assert out["agree"] == "Off"
+
+
+def test_set_field_value_marks_dirty(vdoc):
+    assert vdoc.dirty is False
+    vdoc.set_field_value("fullname", "x")
+    assert vdoc.dirty is True
+
+
+def test_clearing_value_removes_it(vdoc):
+    vdoc.set_field_value("fullname", "x")
+    vdoc.set_field_value("fullname", None)
+    assert "fullname" not in vdoc.form_values
+
+
+def test_undo_redo_restores_fills(vdoc):
+    stack = QUndoStack()
+    stack.push(SetFieldValueCommand(vdoc, "fullname", "Jane"))
+    assert vdoc.field_value("fullname") == "Jane"
+    stack.undo()
+    assert vdoc.field_value("fullname") is None
+    stack.redo()
+    assert vdoc.field_value("fullname") == "Jane"
+
+
+def test_value_for_deleted_fields_page_is_skipped(vdoc, tmp_path):
+    vdoc.set_field_value("agree", True)  # agree is on page 1
+    vdoc.delete_page(1)                   # delete that page
+    out = _values(_materialize(vdoc, tmp_path))
+    assert "agree" not in out             # gone, and no error raised
+
+
+def test_snapshot_roundtrips_form_values(vdoc):
+    vdoc.set_field_value("fullname", "snap")
+    snap = vdoc.snapshot()
+    vdoc.set_field_value("fullname", "changed")
+    vdoc.restore(snap)
+    assert vdoc.field_value("fullname") == "snap"
