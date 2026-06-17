@@ -33,7 +33,7 @@ core, fully headless-testable).
 - [x] **M11** Zoom UX — live magnification % indicator + Actual-Size / 100% reset (Ctrl+0) + presets — *WSLg* — [#19](https://github.com/utyagi24/pdfproj/pull/19)
 - [x] **M12** Printing — `QtPrintSupport` system print dialog; PyMuPDF render at printer DPI — *WSL logic; Windows print validation* — [#21](https://github.com/utyagi24/pdfproj/pull/21) (physical-printer dialog = manual check)
 - [x] **M13** Recent documents — MRU list + dynamic File ▸ Open Recent submenu — *WSL* — [#22](https://github.com/utyagi24/pdfproj/pull/22)
-- [ ] **M14** ⭐ Page-edit layer + form filling (fill existing AcroForm fields) — *WSL (model+tests) + WSLg* — split into two PRs: **PR-A** model foundation + materialise + headless tests (PR pending); **PR-B** inline viewer fill (next)
+- [x] **M14** ⭐ Page-edit layer + form filling (fill existing AcroForm fields) — *WSL (model+tests) + WSLg* — [#24](https://github.com/utyagi24/pdfproj/pull/24) (model foundation) + PR-B inline viewer fill (PR pending)
 - [ ] **M15** Verify + release → tag **v0.2.0** (fold in CI Node-24 bumps + code signing) — *Windows*
 
 **v0.3.0 — "Annotate & Redact"** (keystone release)
