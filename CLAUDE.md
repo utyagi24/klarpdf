@@ -31,10 +31,13 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   spare machine / a fresh local user with networking disabled.
 
 ## Status
-**v0.1.0 shipped (2026-06-17)** — all milestones **M0–M9 complete**; the pinned, offline Windows
-installer is released: <https://github.com/utyagi24/pdfproj/releases/tag/v0.1.0>. The full
-view + splice/split workflow, single-instance + `.pdf` file-association, undo/redo, lossless
-materialize-on-save, and the freeze → installer → CI pipeline are built and verified (69 headless
-tests; real-Windows + frozen + CI validation). This file's spec/conventions and `PLAN.md` remain
-current. **Planning the next release?** Read `PROGRESS.md` (status + **Open follow-ups**), then
-`PLAN.md` §Future enhancements.
+**v0.2.0 shipped (2026-06-17)** — milestones **M0–M15 complete** (v0.1.0 = M0–M9; v0.2.0 = M10–M15).
+Releases: <https://github.com/utyagi24/pdfproj/releases/tag/v0.2.0> ·
+<https://github.com/utyagi24/pdfproj/releases/tag/v0.1.0>. On top of v0.1.0's view + splice/split +
+single-instance + undo/redo + lossless materialize-on-save + freeze→installer→CI pipeline, **v0.2.0**
+adds toolbar/app **icons**, a live **zoom %** indicator, **printing** (system dialog), **recent
+documents**, and **form filling** on a new **page-edit layer** (`model/page_edits.py` — immutable
+per-doc edit descriptors applied at materialize; sources stay read-only). 142 headless tests;
+real-Windows + frozen-build validation. **Next:** v0.3.0 "Annotate & Redact" (M16–M18). **Planning
+the next release?** Read `PROGRESS.md` (status + **Open follow-ups**), then `PLAN.md` §Next-release
+roadmap.
