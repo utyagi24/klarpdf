@@ -52,14 +52,22 @@ class PyMuPDFEngine(EditEngine):
 
     def materialize(self, vdoc: VirtualDocument, out_path: str) -> None:
         out = fitz.open()
+        # Fresh per-source copies: reusing a live source across insert_pdf calls (or across save
+        # attempts) drops its widgets after the first graft, which would strip form fields from the
+        # output. One fresh copy per source, reused across that source's runs, with final= freeing
+        # the graft maps on the last copy.
+        fresh: dict[str, fitz.Document] = {}
+
+        def source_copy(source_id: str) -> fitz.Document:
+            if source_id not in fresh:
+                fresh[source_id] = vdoc.fresh_source(source_id)
+            return fresh[source_id]
+
         try:
             runs = _contiguous_runs(vdoc.ordered)
             for i, (source_id, start, end) in enumerate(runs):
-                src = vdoc.sources[source_id]
-                # final=True only on the last copy, so per-source graft maps survive across
-                # multiple runs from the same source (PLAN.md / PyMuPDF docs).
                 out.insert_pdf(
-                    src,
+                    source_copy(source_id),
                     from_page=start,
                     to_page=end,
                     start_at=-1,
@@ -83,6 +91,8 @@ class PyMuPDFEngine(EditEngine):
             out.set_toc(vdoc.remapped_toc())
             out.save(out_path, garbage=4, deflate=True, clean=True)
         finally:
+            for doc in fresh.values():
+                doc.close()
             out.close()
 
 
