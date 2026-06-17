@@ -184,14 +184,19 @@ class MainWindow(QMainWindow):
         a_rotl = act("Rotate Left", lambda: self._rotate_pages(-90), "Ctrl+L", icon="rotate-left", to_menu=view_menu)
         a_rotr = act("Rotate Right", lambda: self._rotate_pages(90), "Ctrl+R", icon="rotate-right", to_menu=view_menu)
         view_menu.addSeparator()
-        # Checkable show/hide for the Pages sidebar — the way back after the user closes it.
+        # Checkable show/hide for the Pages sidebar — menu item + a dedicated toolbar button (its
+        # checked state mirrors the panel's visibility, with the :checked toolbar styling).
         pages_toggle = self.pages_dock.toggleViewAction()
         pages_toggle.setText("&Pages Sidebar")
+        pages_toggle.setIcon(icons.icon("sidebar"))
+        pages_toggle.setToolTip("Show/Hide the Pages sidebar")
+        pages_toggle.setProperty("iconName", "sidebar")  # re-tinted on theme change
         view_menu.addAction(pages_toggle)
 
         # Toolbar: built explicitly (order independent of menu wiring), grouped functionally with
         # separators — file · history · page edits · zoom/fit · rotate · search.
         groups = (
+            [pages_toggle],
             [a_open, a_save],
             [undo, redo],
             [a_cut, a_copy_pg, a_paste, a_delete, a_insert],

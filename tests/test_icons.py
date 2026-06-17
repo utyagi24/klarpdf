@@ -21,7 +21,7 @@ from ui import icons
 ACTION_ICONS = [
     "open", "save", "undo", "redo", "cut", "copy", "paste", "delete",
     "insert", "find", "zoom-in", "zoom-out", "fit-width", "fit-page",
-    "rotate-left", "rotate-right",
+    "rotate-left", "rotate-right", "sidebar",
 ]
 ICO_PATH = Path(__file__).resolve().parents[1] / "packaging" / "pdfproj.ico"
 
