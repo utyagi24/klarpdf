@@ -3,7 +3,9 @@
 Live status of the build (milestone detail in `PLAN.md` §Execution). **One PR per milestone** — when
 it merges, check the box here in the same PR and append the PR link.
 
-**Status:** M8 (Freeze + installer) in review. **Next: M9 (Verify + release).**
+**Status:** M0–M8 merged. **M9 (Verify + release) in progress** — verification matrix green
+(offline build, no-network audit + runtime check, CI) except the deferred clean-machine VM
+install; cutting **v0.1.0** as a draft Release.
 
 - [x] **M0** Scaffold + WSL dev venv — *step 1 (WSL); WSL* — [#4](https://github.com/utyagi24/pdfproj/pull/4)
 - [x] **M1** Correctness core: `model/` + headless tests green ⭐ — *steps 5, 7; WSL* — [#5](https://github.com/utyagi24/pdfproj/pull/5)
