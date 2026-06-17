@@ -103,6 +103,18 @@ def test_fill_is_undoable(win):
     assert win.vdoc.field_value("agree") is True
 
 
+def test_toolbar_save_commits_open_editor(win):
+    """Regression (Issue Two): Save must flush an inline editor that still has focus.
+
+    The toolbar Save button doesn't move focus out of the QLineEdit, so without an explicit
+    commit the typed value was lost; commit_pending (called by save()) fixes it.
+    """
+    win.view.form.handle_press(_center(win, "fullname"))
+    win.view.form._editor.setText("TOOLBAR SAVE")
+    win.view.form.commit_pending()  # what save()/save_as() invoke before writing
+    assert win.vdoc.field_value("fullname") == "TOOLBAR SAVE"
+
+
 def test_filled_page_renders_from_copy(win):
     win.vdoc.set_field_value("fullname", "Rendered")
     win.view.reload()

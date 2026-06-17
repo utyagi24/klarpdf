@@ -394,11 +394,15 @@ class MainWindow(QMainWindow):
     # ---- save (materialize-on-save) ---------------------------------------------
 
     def save(self) -> bool:
+        if self.view.form is not None:
+            self.view.form.commit_pending()  # flush an open inline field editor (toolbar Save)
         if self.vdoc.path is None:
             return self.save_as()
         return self._write_to(self.vdoc.path)
 
     def save_as(self) -> bool:
+        if self.view.form is not None:
+            self.view.form.commit_pending()
         path, _ = QFileDialog.getSaveFileName(self, "Save PDF As", self.vdoc.path or "", "PDF files (*.pdf)")
         if not path:
             return False
