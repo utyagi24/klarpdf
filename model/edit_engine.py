@@ -77,10 +77,14 @@ class PyMuPDFEngine(EditEngine):
                     final=(i == len(runs) - 1),
                 )
 
-            # Apply absolute rotation overrides (output page i == ordered[i]).
+            # Apply absolute rotation overrides + per-page annotations (output page i == ordered[i]).
+            from model.page_edits import apply_annotations
+
             for i, ref in enumerate(vdoc.ordered):
                 if ref.rotation_override is not None:
                     out[i].set_rotation(ref.rotation_override)
+                if ref.annotations:
+                    apply_annotations(out[i], ref.annotations)
 
             # Apply AcroForm fills onto the copied widgets (M14). Done here, on the output, so the
             # shared read-only sources are never touched.

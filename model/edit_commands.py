@@ -130,3 +130,14 @@ class SetFieldValueCommand(_SnapshotCommand):
 
     def _apply(self) -> None:
         self._vdoc.set_field_value(self._name, self._value)
+
+
+class AddAnnotationCommand(_SnapshotCommand):
+    """Add a highlight / text-box to a page (M20). Snapshot-based, so undo removes it."""
+
+    def __init__(self, vdoc: VirtualDocument, index: int, annotation) -> None:
+        super().__init__(vdoc, f"Add {type(annotation).__name__.lower()}")
+        self._index, self._annotation = index, annotation
+
+    def _apply(self) -> None:
+        self._vdoc.add_annotation(self._index, self._annotation)

@@ -31,11 +31,17 @@ class PageRef:
 
     ``rotation_override`` is an **absolute** final angle (0/90/180/270) or ``None`` to inherit
     the source page's own rotation. Rotating produces a *new* PageRef (see ``with_rotation``).
+
+    ``annotations`` is an immutable tuple of annotation descriptors (``model.page_edits`` —
+    highlight / text-box, v0.4.0) that live **on the page**: because they ride the PageRef, they
+    follow the page through reorder / delete / cross-window copy, and are snapshotted with
+    ``ordered[]`` for undo/redo. They are applied to the output page at materialize.
     """
 
     source_id: str
     source_page_index: int
     rotation_override: int | None = None
+    annotations: tuple = ()
 
     def with_rotation(self, angle: int | None) -> "PageRef":
         if angle is not None:
@@ -43,6 +49,9 @@ class PageRef:
             if angle % 90 != 0:
                 raise ValueError(f"rotation must be a multiple of 90, got {angle}")
         return replace(self, rotation_override=angle)
+
+    def with_annotations(self, annotations: tuple) -> "PageRef":
+        return replace(self, annotations=tuple(annotations))
 
 
 class VirtualDocument:
@@ -222,6 +231,25 @@ class VirtualDocument:
         else:
             self._form_values[name] = value
         self.dirty = True
+
+    # ---- per-page annotations (ride the PageRef; applied at materialise) ---------
+
+    def page_annotations(self, index: int) -> tuple:
+        """The annotation descriptors on the page at ``index``."""
+        return self.ordered[index].annotations
+
+    def add_annotation(self, index: int, annotation) -> None:
+        """Append an annotation descriptor to the page at ``index``."""
+        ref = self.ordered[index]
+        self.ordered[index] = ref.with_annotations(ref.annotations + (annotation,))
+        self.dirty = True
+
+    def clear_annotations(self, index: int) -> None:
+        """Remove all annotations from the page at ``index``."""
+        ref = self.ordered[index]
+        if ref.annotations:
+            self.ordered[index] = ref.with_annotations(())
+            self.dirty = True
 
     # ---- cross-window move / copy -----------------------------------------------
 
