@@ -188,7 +188,7 @@ def test_toolbar_grouped_with_feedback(qapp, a_pdf, tmp_path):
     w = qapp.open_document(a_pdf)
     bar = next(b for b in w.findChildren(QToolBar) if b.windowTitle() == "Main")
     separators = [a for a in bar.actions() if a.isSeparator()]
-    assert len(separators) == 6  # seven functional groups → six dividers
+    assert len(separators) == 7  # eight functional groups → seven dividers
     style = bar.styleSheet()
     assert ":hover" in style and ":pressed" in style  # visible click feedback
     assert "separator" in style  # group spacing
