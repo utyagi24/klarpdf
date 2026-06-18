@@ -4,18 +4,21 @@ Local, offline, **native-Windows** PDF viewer + page editor (Python · PySide6 �
 trustworthy replacement for macOS Preview's view + splice/split workflow on Windows. The source is
 the unit of audit; it ships as a pinned, fully offline Windows installer.
 
-**Status: `v0.3.0` shipped** — [download the installer or portable exe](https://github.com/utyagi24/pdfproj/releases/latest). Milestones **M0–M19 complete**.
+**Status: `v0.4.0` shipped** — [download the installer or portable exe](https://github.com/utyagi24/pdfproj/releases/latest). Milestones **M0–M22 complete**.
 
-**New in v0.3.0:** better **drag-and-drop** — a page-image cursor with a page-count badge and a clear
-drop-insertion marker; **drag a PDF in from File Explorer** to insert it between pages; and a
-**Grab/Select** viewer-mode toggle (hand-pan vs text selection).
+**New in v0.4.0 — Annotate & Redact:** text **highlight** and **text boxes** (drag to move,
+double-click to re-edit, auto-growing); and **true destructive redaction** — drag over text or over
+a block to permanently remove it at save (verified gone with a cross-engine check; a redacted save
+is a confirmed point of no return). Annotate/redact tools are **one-shot armed** gestures.
+**v0.3.0:** better **drag-and-drop**, **drag a PDF in from File Explorer**, and a **Grab/Select**
+viewer-mode toggle.
 **v0.2.0:** theme-aware **icons**, a live **zoom %** indicator, **printing**, **Open Recent**, and
 **form filling** (click and fill AcroForm fields, saved losslessly).
 
 | Doc | What |
 |---|---|
 | [PLAN.md](PLAN.md) | Product spec, architecture, dependencies/packaging, portability, build order, **Execution**, verification |
-| [PROGRESS.md](PROGRESS.md) | Live milestone checklist (M0–M19) + **Open follow-ups** + the v0.4.0 roadmap |
+| [PROGRESS.md](PROGRESS.md) | Live milestone checklist (M0–M22) + **Open follow-ups** |
 | [CLAUDE.md](CLAUDE.md) | Orientation + conventions for contributors/agents |
 | [DEPENDENCIES.md](DEPENDENCIES.md) | Pinned libraries + build toolchain — exact versions, licenses |
 
@@ -39,7 +42,7 @@ sudo apt install -y python3.12-venv
 
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements-dev.txt
-pytest                          # 157 headless tests (offscreen Qt)
+pytest                          # 232 headless tests (offscreen Qt)
 pythonw launcher.py file.pdf    # run the GUI via WSLg
 ```
 

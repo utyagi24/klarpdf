@@ -31,15 +31,21 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   spare machine / a fresh local user with networking disabled.
 
 ## Status
-**v0.3.0 shipped (2026-06-18)** — milestones **M0–M19 complete** (v0.1.0 = M0–M9; v0.2.0 = M10–M15;
-v0.3.0 = M16–M19). Releases: <https://github.com/utyagi24/pdfproj/releases/tag/v0.3.0> ·
+**v0.4.0 shipped** — milestones **M0–M22 complete** (v0.1.0 = M0–M9; v0.2.0 = M10–M15;
+v0.3.0 = M16–M19; v0.4.0 = M20–M22). Releases:
+<https://github.com/utyagi24/pdfproj/releases/tag/v0.4.0> ·
+<https://github.com/utyagi24/pdfproj/releases/tag/v0.3.0> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.2.0> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.1.0>. On top of v0.1.0 (view + splice/split +
 single-instance + undo/redo + lossless materialize-on-save + freeze→installer→CI), **v0.2.0** added
 **icons**, a **zoom %** indicator, **printing**, **recent documents**, and **form filling** on a new
 **page-edit layer** (`model/page_edits.py` — immutable per-doc edit descriptors applied at
-materialize; sources stay read-only); **v0.3.0** added **drag-and-drop visuals** (page-image cursor +
-insertion marker), **Explorer file-drop**, and a **Grab/Select** viewer-mode toggle
-(`viewer/tools.py`). 157 headless tests; real-Windows + frozen-build validation. **Next:** v0.4.0
-"Annotate & Redact" (M20–M22). **Planning the next release?** Read `PROGRESS.md` (status + **Open
-follow-ups**), then `PLAN.md` §Next-release roadmap.
+materialize; sources stay read-only); **v0.3.0** added **drag-and-drop visuals**, **Explorer
+file-drop**, and a **Grab/Select** viewer-mode toggle (`viewer/tools.py`); **v0.4.0** added
+**annotations** (highlight + movable/re-editable text boxes) and **true destructive redaction**
+(region + text-flow, `apply_redactions` with cross-engine leak verification and a redacted-save
+point-of-no-return) — all on the M14 page-edit layer, with annotate/redact exposed as **one-shot
+armed** tools (`viewer/tools.py` `ArmedTool`). 232 headless tests; real-Windows + frozen-build
+validation. **Next:** see `PLAN.md` §Future enhancements (annotation round-trip editing; text-box
+font/size/colour picker; encrypted PDFs; GoTo-link remap). **Planning the next release?** Read
+`PROGRESS.md` (status + **Open follow-ups**), then `PLAN.md` §Future enhancements.
