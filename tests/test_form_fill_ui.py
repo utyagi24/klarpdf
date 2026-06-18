@@ -115,6 +115,15 @@ def test_toolbar_save_commits_open_editor(win):
     assert win.vdoc.field_value("fullname") == "TOOLBAR SAVE"
 
 
+def test_inline_editor_follows_zoom(win):
+    """Regression: an open field editor must move/resize with the page on zoom, not be left behind."""
+    win.view.form.handle_press(_center(win, "fullname"))
+    before = win.view.form._editor.geometry()
+    win.view.set_zoom(win.view.zoom * 2)
+    assert win.view.form._editor is not None  # still open
+    assert win.view.form._editor.geometry() != before  # tracked the zoom
+
+
 def test_filled_page_renders_from_copy(win):
     win.vdoc.set_field_value("fullname", "Rendered")
     win.view.reload()

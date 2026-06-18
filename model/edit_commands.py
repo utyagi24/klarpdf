@@ -141,3 +141,14 @@ class AddAnnotationCommand(_SnapshotCommand):
 
     def _apply(self) -> None:
         self._vdoc.add_annotation(self._index, self._annotation)
+
+
+class RemoveAnnotationCommand(_SnapshotCommand):
+    """Remove a highlight / text-box from a page (M20). Snapshot-based, so undo restores it."""
+
+    def __init__(self, vdoc: VirtualDocument, index: int, annotation) -> None:
+        super().__init__(vdoc, f"Remove {type(annotation).__name__.lower()}")
+        self._index, self._annotation = index, annotation
+
+    def _apply(self) -> None:
+        self._vdoc.remove_annotation(self._index, self._annotation)
