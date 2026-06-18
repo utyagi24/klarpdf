@@ -84,6 +84,47 @@ _TEXTLIKE = frozenset(
 )
 
 
+# ---- annotations (per-page; ride the PageRef, applied at materialise — v0.4.0) ----
+#
+# Frozen + hashable so they can live inside a frozen PageRef and be snapshotted for undo/redo.
+# Geometry is in unrotated page points (the same space text selection + the viewer overlays use).
+
+
+@dataclass(frozen=True)
+class Highlight:
+    """A text highlight over one or more word boxes (non-destructive — the text stays intact)."""
+
+    rects: tuple[tuple[float, float, float, float], ...]
+    color: tuple[float, float, float] = (1.0, 0.86, 0.10)  # marker yellow
+
+
+@dataclass(frozen=True)
+class TextBox:
+    """A free-text note box."""
+
+    rect: tuple[float, float, float, float]
+    text: str
+    fontsize: float = 11.0
+    color: tuple[float, float, float] = (0.0, 0.0, 0.0)
+
+
+def apply_annotations(page: fitz.Page, annotations: tuple) -> None:
+    """Write a page's annotation descriptors onto a materialised output page."""
+    for annotation in annotations:
+        if isinstance(annotation, Highlight):
+            annot = page.add_highlight_annot([fitz.Rect(r) for r in annotation.rects])
+            annot.set_colors(stroke=annotation.color)
+            annot.update()
+        elif isinstance(annotation, TextBox):
+            annot = page.add_freetext_annot(
+                fitz.Rect(annotation.rect),
+                annotation.text,
+                fontsize=annotation.fontsize,
+                text_color=annotation.color,
+            )
+            annot.update()
+
+
 def apply_form_values(out_doc: fitz.Document, values: dict[str, object]) -> None:
     """Write ``values`` (field name → value) onto matching widgets in a materialised output.
 
