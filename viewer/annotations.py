@@ -143,6 +143,14 @@ class AnnotationOverlay:
         if text:
             self._on_add(page_index, TextBox(rect, text))
 
+    def reposition_editor(self) -> None:
+        """Keep an open text-box editor on its rect after a zoom / scroll."""
+        if self._editor is not None:
+            scene_rect = self._view.scene_rect_for_box(self._editor_page, self._editor_rect)
+            top_left = self._view.mapFromScene(scene_rect.topLeft())
+            bottom_right = self._view.mapFromScene(scene_rect.bottomRight())
+            self._editor.setGeometry(QRect(top_left, bottom_right))
+
     def _close_editor(self) -> None:
         if self._editor is not None:
             editor, self._editor = self._editor, None

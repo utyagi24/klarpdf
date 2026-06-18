@@ -164,6 +164,14 @@ class PdfView(QGraphicsView):
         for overlay in (self.annotations, self.form, self.selection, self.search):
             if overlay is not None:
                 overlay.repaint()
+        self._reposition_overlay_editors()  # an open inline editor follows the zoom
+
+    def _reposition_overlay_editors(self) -> None:
+        """Move any open inline editor (form field / text box) back onto its target after the view
+        geometry changes (zoom or scroll), so it doesn't get left behind."""
+        for overlay in (self.form, self.annotations):
+            if overlay is not None:
+                overlay.reposition_editor()
 
     # ---- overlay geometry helpers (used by selection + search) ------------------
 
@@ -350,6 +358,7 @@ class PdfView(QGraphicsView):
 
     def _on_scroll(self, _value: int) -> None:
         self._render_visible()
+        self._reposition_overlay_editors()  # keep an open inline editor on its field while scrolling
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)

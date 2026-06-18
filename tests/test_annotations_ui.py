@@ -63,6 +63,14 @@ def test_textbox_tool_places_annotation(win):
     assert any(isinstance(a, TextBox) and a.text == "Hello note" for a in annots)
 
 
+def test_textbox_editor_follows_zoom(win):
+    win.view.set_mode(InteractionMode.TEXTBOX)
+    win.view.annotations.place_textbox(win.view.scene_rect_for_box(0, (100, 120, 300, 160)).center())
+    before = win.view.annotations._editor.geometry()
+    win.view.set_zoom(win.view.zoom * 1.5)
+    assert win.view.annotations._editor.geometry() != before  # editor tracked the zoom
+
+
 def test_empty_textbox_adds_nothing(win):
     win.view.set_mode(InteractionMode.TEXTBOX)
     win.view.annotations.place_textbox(win.view.scene_rect_for_box(0, (100, 120, 300, 160)).center())

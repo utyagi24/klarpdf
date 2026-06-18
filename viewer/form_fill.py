@@ -35,6 +35,7 @@ class FormFiller:
         self._fields = read_form_fields(view._vdoc)
         self._items: list[QGraphicsRectItem] = []
         self._editor = None              # the live inline QLineEdit/QComboBox, if any
+        self._editor_field = None        # the field it edits — so it can follow zoom/scroll
 
     # ---- field lookup -----------------------------------------------------------
 
@@ -101,6 +102,7 @@ class FormFiller:
 
         editor.editingFinished.connect(commit)  # Enter or focus-out
         self._editor = editor
+        self._editor_field = field
         editor.show()
         editor.setFocus()
         editor.selectAll()
@@ -121,6 +123,7 @@ class FormFiller:
 
         editor.activated.connect(commit)
         self._editor = editor
+        self._editor_field = field
         editor.show()
         editor.setFocus()
         editor.showPopup()
@@ -135,11 +138,17 @@ class FormFiller:
         if isinstance(self._editor, QLineEdit):
             self._editor.editingFinished.emit()
 
+    def reposition_editor(self) -> None:
+        """Keep an open inline editor on its field after a zoom / scroll (the view geometry moved)."""
+        if self._editor is not None and self._editor_field is not None:
+            self._editor.setGeometry(self._editor_geometry(self._editor_field))
+
     def _close_editor(self) -> None:
         if self._editor is not None:
             self._editor.hide()
             self._editor.deleteLater()
             self._editor = None
+        self._editor_field = None
 
     # ---- discoverability highlights ---------------------------------------------
 
