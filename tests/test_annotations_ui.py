@@ -53,6 +53,22 @@ def test_highlight_with_no_selection_does_nothing(win):
     assert win.vdoc.page_annotations(0) == ()
 
 
+def test_highlight_unions_words_into_one_bar_per_line(win):
+    # Two words on line (block 0, line 0) and one on line (0, 1): expect two continuous bars,
+    # the first spanning both words (no inter-word gap).
+    words = [
+        (10, 10, 30, 20, "foo", 0, 0, 0),
+        (35, 10, 60, 20, "bar", 0, 0, 1),
+        (10, 30, 40, 40, "baz", 0, 1, 0),
+    ]
+    win.view.selection.selected_words = lambda: [(0, i, w) for i, w in enumerate(words)]
+    win._highlight_selection()
+    hl = next(a for a in win.vdoc.page_annotations(0) if isinstance(a, Highlight))
+    assert len(hl.rects) == 2                       # one bar per line, not per word
+    line0 = next(r for r in hl.rects if r[1] == 10)
+    assert line0[0] == 10 and line0[2] == 60        # unioned across both words on the line
+
+
 def test_textbox_tool_places_annotation(win):
     win.view.arm(ArmedTool.TEXTBOX)
     center = win.view.scene_rect_for_box(0, (100, 120, 300, 160)).center()
