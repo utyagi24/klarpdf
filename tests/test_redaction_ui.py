@@ -166,7 +166,7 @@ def test_redacted_save_is_point_of_no_return(win, monkeypatch):
     )
     word = _first_word(win)
     token = word[4]
-    win.vdoc.add_annotation(0, Redaction((tuple(word[:4]),)))
+    win._add_annotation(0, Redaction((tuple(word[:4]),)))  # created here → save commits
     assert win.save() is True
     assert win.undo_stack.count() == 0          # undo history cleared (nothing to revert)
     assert win.vdoc.has_redactions() is False   # descriptor gone from the model
@@ -181,6 +181,35 @@ def test_redacted_save_aborts_on_cancel(win, monkeypatch):
         QMessageBox, "warning", lambda *a, **k: QMessageBox.StandardButton.Cancel
     )
     word = _first_word(win)
-    win.vdoc.add_annotation(0, Redaction((tuple(word[:4]),)))
+    win._add_annotation(0, Redaction((tuple(word[:4]),)))  # created here → confirm fires
     assert win.save() is False                  # cancelled → not written
     assert win.vdoc.has_redactions() is True    # redaction still pending (nothing committed)
+
+
+def test_received_redaction_saves_without_point_of_no_return(qapp, a_pdf, b_pdf, tmp_path, monkeypatch):
+    """A page dragged in with a pre-made redaction commits on save with NO warning and NO undo loss
+    (it can only be undone by removing the whole page, so there's nothing to resurrect)."""
+    import pymupdf as fitz
+    from PySide6.QtWidgets import QMessageBox
+
+    warned = []
+    monkeypatch.setattr(QMessageBox, "warning",
+                        lambda *a, **k: warned.append(1) or QMessageBox.StandardButton.Save)
+    qapp.settings = Settings(tmp_path / "vs.json")
+    src = qapp.open_document(a_pdf)
+    dst = qapp.open_document(b_pdf)
+    try:
+        word = _first_word(src)
+        src._add_annotation(0, Redaction((tuple(word[:4]),)))   # created in src
+        dst._on_pages_dropped(src.thumbs.source_key, [0], 0)    # carried into dst (fused w/ insert)
+        before = dst.undo_stack.count()
+        assert dst.save() is True
+        assert not warned                          # no redaction warning on the recipient
+        assert dst.undo_stack.count() == before    # undo preserved (the page-add is still undoable)
+        with fitz.open(dst.path) as doc:
+            assert word[4] not in doc[0].get_text()  # the carried redaction still applied
+    finally:
+        src.undo_stack.setClean()
+        dst.undo_stack.setClean()
+        src.close()
+        dst.close()

@@ -66,6 +66,11 @@ class MainWindow(QMainWindow):
         self.vdoc = VirtualDocument.from_path(path)
         self.view = PdfView(self.vdoc)
         self.undo_stack = QUndoStack(self)
+        # True once a redaction is *created* in this window (region/text/selection tool), as opposed
+        # to one that merely rode in on a dragged/pasted page. Only a created redaction has an
+        # undo-reachable "page present but un-redacted" state, so only then does a save need the
+        # destructive point-of-no-return (scrub memory + clear undo). See _write_to.
+        self._redaction_created_here = False
 
         # Text selection + search overlays live on the view (M3); form-fill overlay (M14).
         self.view.selection = TextSelection(self.view)
@@ -250,12 +255,12 @@ class MainWindow(QMainWindow):
         # separators — file · history · page edits · zoom/fit · rotate · search.
         groups = (
             [pages_toggle],
-            [a_select, a_grab],
-            [a_textbox, a_highlight, a_redact_text, a_redact_block],
             [a_open, a_save, a_print],
+            [a_select, a_grab],
+            [a_zout, self.zoom_widget, a_zin, a_fitw, a_fitp],
             [undo, redo],
             [a_cut, a_copy_pg, a_paste, a_delete, a_insert],
-            [a_zout, self.zoom_widget, a_zin, a_fitw, a_fitp],
+            [a_textbox, a_highlight, a_redact_text, a_redact_block],
             [a_rotl, a_rotr],
             [a_find],
         )
@@ -400,6 +405,8 @@ class MainWindow(QMainWindow):
 
     def _add_annotation(self, index: int, annotation) -> None:
         """Add an annotation to a page (from the text-box / redact tools) as an undoable command."""
+        if isinstance(annotation, Redaction):
+            self._redaction_created_here = True  # a redaction made here → save commits irreversibly
         self.undo_stack.push(AddAnnotationCommand(self.vdoc, index, annotation))
 
     def _remove_annotation(self, index: int, annotation) -> None:
@@ -450,6 +457,7 @@ class MainWindow(QMainWindow):
         by_page = self._selection_line_bars()
         if not by_page:
             return
+        self._redaction_created_here = True  # created here → save commits irreversibly
         self.view.selection.clear()
         self.undo_stack.beginMacro("Redact selection")
         for page_index, rects in by_page.items():
@@ -568,12 +576,17 @@ class MainWindow(QMainWindow):
     def _write_to(self, target_path: str) -> bool:
         """Materialize to a temp file in the same directory, then atomically os.replace it in.
 
-        A save that applies redactions is a **point of no return**: redaction is destructive in the
-        output, but the in-memory sources still hold the original bytes, so an undo + re-save could
-        otherwise resurrect the removed content. We confirm first, and after writing reload from the
-        clean file + clear the undo history — the secret is then gone from disk *and* memory."""
-        redacting = self.vdoc.has_redactions()
-        if redacting and not self._confirm_redaction():
+        A save that commits a redaction **created here** is a *point of no return*: the redaction is
+        destructive in the output, but the in-memory sources still hold the original bytes, so an
+        undo + re-save could otherwise resurrect the removed content. We confirm first, and after
+        writing reload from the clean file + clear the undo history — the secret is then gone from
+        disk *and* memory.
+
+        A redaction that merely *rode in* on a dragged/pasted page is exempt: there it is fused with
+        the page-insert, so undo can only remove the whole page (no un-redacted-page state to
+        resurrect). Such a save just writes the clean file — no warning, no undo loss."""
+        committing = self.vdoc.has_redactions() and self._redaction_created_here
+        if committing and not self._confirm_redaction():
             return False
         directory = os.path.dirname(os.path.abspath(target_path)) or "."
         fd, tmp = tempfile.mkstemp(suffix=".pdf", dir=directory)
@@ -588,9 +601,10 @@ class MainWindow(QMainWindow):
             return False
         self.undo_stack.setClean()
         self.vdoc.mark_clean()
-        if redacting:
+        if committing:
             self.vdoc.reload_from_file(target_path)  # drop the un-redacted bytes from memory
             self.undo_stack.clear()                  # nothing left to undo back into a leak
+            self._redaction_created_here = False
             self.view.reload()
             self.thumbs.populate()
         return True
