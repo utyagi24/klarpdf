@@ -260,6 +260,18 @@ def test_cross_window_paste_carries_annotations(qapp, a_pdf, b_pdf, tmp_path):
         dst.close()
 
 
+def test_current_page_marker_survives_repopulate(win):
+    win.thumbs.set_current(1)
+    win.thumbs.populate()                 # an edit repopulates the list
+    assert win.thumbs.currentRow() == 1   # the marker stays on the current page
+
+
+def test_current_page_marker_survives_an_edit(win):
+    win.thumbs.set_current(1)
+    win._add_annotation(1, TextBox((100, 120, 300, 160), "edit"))  # pushes a command → repopulate
+    assert win.thumbs.currentRow() == 1   # still highlighted after the edit
+
+
 def test_placement_off_page_is_rejected(win):
     win.view.arm(ArmedTool.TEXTBOX)
     # A point in the vertical band of page 0 but far past its right edge (in the margin).
