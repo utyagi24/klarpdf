@@ -34,6 +34,7 @@ from model.edit_commands import (
     DeleteCommand,
     InsertCommand,
     MovePagesCommand,
+    RemoveAnnotationCommand,
     RotatePagesCommand,
     SetFieldValueCommand,
 )
@@ -69,7 +70,7 @@ class MainWindow(QMainWindow):
         self.view.selection = TextSelection(self.view)
         self.view.search = SearchController(self.view)
         self.view.form = FormFiller(self.view, self._set_field_value)
-        self.view.annotations = AnnotationOverlay(self.view, self._add_annotation)
+        self.view.annotations = AnnotationOverlay(self.view, self._add_annotation, self._remove_annotation)
         self.find_bar = FindBar(self.view)  # hidden until Ctrl+F
 
         # Central column: find bar above the view. (A QToolBar host collapses to zero height
@@ -350,6 +351,10 @@ class MainWindow(QMainWindow):
     def _add_annotation(self, index: int, annotation) -> None:
         """Add an annotation to a page (from the text-box tool) as an undoable command."""
         self.undo_stack.push(AddAnnotationCommand(self.vdoc, index, annotation))
+
+    def _remove_annotation(self, index: int, annotation) -> None:
+        """Remove an annotation (from the right-click menu) as an undoable command."""
+        self.undo_stack.push(RemoveAnnotationCommand(self.vdoc, index, annotation))
 
     def _highlight_selection(self) -> None:
         """Highlight the current text selection — one Highlight per page it spans (one undo)."""

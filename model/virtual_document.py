@@ -251,6 +251,14 @@ class VirtualDocument:
             self.ordered[index] = ref.with_annotations(())
             self.dirty = True
 
+    def remove_annotation(self, index: int, annotation) -> None:
+        """Remove one specific annotation instance from the page at ``index``."""
+        ref = self.ordered[index]
+        remaining = tuple(a for a in ref.annotations if a is not annotation)
+        if len(remaining) != len(ref.annotations):
+            self.ordered[index] = ref.with_annotations(remaining)
+            self.dirty = True
+
     # ---- cross-window move / copy -----------------------------------------------
 
     def import_pages(

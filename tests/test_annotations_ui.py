@@ -86,3 +86,21 @@ def test_overlay_paints_existing_annotations(win):
     win.vdoc.add_annotation(0, TextBox((72, 150, 300, 180), "note"))
     win.view.annotations.repaint()
     assert len(win.view.annotations._items) >= 2  # highlight rect + text-box box/text
+
+
+def test_annotation_at_hit_test_and_remove(win):
+    tb = TextBox((100, 120, 300, 160), "removable")
+    win.vdoc.add_annotation(0, tb)
+    win.view.annotations.repaint()
+    center = win.view.scene_rect_for_box(0, (100, 120, 300, 160)).center()
+    hit = win.view.annotations.annotation_at(center)
+    assert hit is not None and hit[1] is tb           # right-click finds the annotation
+    win.view.annotations.remove(hit[0], hit[1])       # what the context menu calls
+    assert tb not in win.vdoc.page_annotations(0)     # removed (undoable)
+
+
+def test_annotation_at_returns_none_off_annotation(win):
+    win.vdoc.add_annotation(0, TextBox((100, 120, 300, 160), "x"))
+    win.view.annotations.repaint()
+    off = win.view.scene_rect_for_box(0, (100, 400, 200, 430)).center()  # empty area
+    assert win.view.annotations.annotation_at(off) is None
