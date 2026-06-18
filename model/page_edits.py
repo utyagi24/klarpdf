@@ -2,7 +2,7 @@
 
 The virtual-document model so far only *reorders* read-only source pages. This module is the home
 for edits to page **content** — starting with **AcroForm field values** (M14) and extended with
-annotations / redactions in v0.3.0 (M16–M17).
+annotations (highlight / text-box, M20) and **destructive redaction** (M21) in v0.4.0.
 
 The hard constraint: source ``fitz.Document``s are shared across windows, so we never mutate them.
 Instead the edit state lives in :class:`~model.virtual_document.VirtualDocument` (snapshotted for
@@ -89,6 +89,12 @@ _TEXTLIKE = frozenset(
 # Frozen + hashable so they can live inside a frozen PageRef and be snapshotted for undo/redo.
 # Geometry is in unrotated page points (the same space text selection + the viewer overlays use).
 
+# Author tag stamped on every annotation pdfproj bakes in. It is the hook a future "round-trip"
+# milestone (re-open + edit/remove saved annotations — PLAN.md §Future enhancements) needs to tell
+# *our* annotations from ones other tools wrote, so it can read only ours back into the model and
+# strip-then-re-add them at save without duplicating. Costs nothing today.
+PDFPROJ_AUTHOR = "pdfproj"
+
 
 @dataclass(frozen=True)
 class Highlight:
@@ -100,29 +106,89 @@ class Highlight:
 
 @dataclass(frozen=True)
 class TextBox:
-    """A free-text note box."""
+    """A free-text note box.
+
+    ``fontname`` / ``fontsize`` / ``color`` are stored on the descriptor (not hard-coded at
+    materialise) so a future font/size/colour picker is pure UI wiring — the render + materialise
+    paths already honour whatever the descriptor carries. ``fontname`` is a PyMuPDF base-14 name
+    (``helv``, ``tiro``, ``cour``…); ``helv`` (Helvetica) is the default.
+    """
 
     rect: tuple[float, float, float, float]
     text: str
     fontsize: float = 11.0
     color: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    fontname: str = "helv"
+
+
+@dataclass(frozen=True)
+class Redaction:
+    """One or more regions to **destructively** remove (M21).
+
+    Unlike :class:`Highlight` / :class:`TextBox` (which merely overlay), a redaction deletes the
+    text / images / vector graphics under its rects at materialise via PyMuPDF's
+    ``apply_redactions`` — the content is *gone* from the output, not just covered. Each rect is
+    painted with an opaque ``fill`` (black by default).
+
+    ``rects`` is a tuple (mirroring :class:`Highlight`): a region drag is a single rect, while a
+    text-flow "Redact Selection" is one rect **per line** — unioned into a continuous bar so the
+    redaction reveals neither word boundaries nor word lengths (a known de-anonymisation leak).
+    Rides the PageRef like the others, so it follows the page through reorder and snapshots for
+    undo/redo.
+    """
+
+    rects: tuple[tuple[float, float, float, float], ...]
+    fill: tuple[float, float, float] = (0.0, 0.0, 0.0)
 
 
 def apply_annotations(page: fitz.Page, annotations: tuple) -> None:
-    """Write a page's annotation descriptors onto a materialised output page."""
+    """Write a page's *non-destructive* annotation descriptors onto a materialised output page.
+
+    Redaction descriptors are deliberately skipped here — they are handled separately by
+    :func:`apply_redactions`, which must run as its own destructive pass (see
+    :mod:`model.edit_engine`). Each baked annotation is tagged with :data:`PDFPROJ_AUTHOR`.
+    """
     for annotation in annotations:
         if isinstance(annotation, Highlight):
             annot = page.add_highlight_annot([fitz.Rect(r) for r in annotation.rects])
             annot.set_colors(stroke=annotation.color)
+            annot.set_info(title=PDFPROJ_AUTHOR)
             annot.update()
         elif isinstance(annotation, TextBox):
             annot = page.add_freetext_annot(
                 fitz.Rect(annotation.rect),
                 annotation.text,
                 fontsize=annotation.fontsize,
+                fontname=annotation.fontname,
                 text_color=annotation.color,
             )
+            annot.set_info(title=PDFPROJ_AUTHOR)
             annot.update()
+
+
+def apply_redactions(page: fitz.Page, annotations: tuple) -> None:
+    """Destructively remove every :class:`Redaction`'s regions from a materialised output page.
+
+    Adds a redaction annotation per rect (across all of the page's redactions), then commits them
+    in one ``page.apply_redactions()`` — which physically deletes the overlapped text/images/
+    graphics and leaves an opaque ``fill`` box. ``cross_out=False`` keeps each box a clean fill (no
+    crossing lines). A no-op when the page has no redactions, so it never rewrites an unredacted
+    page's content streams. (The redaction annotations are *consumed* by apply_redactions — nothing
+    to author-tag, and nothing left in the output that could be deleted to reveal the content.)
+    """
+    rects = [
+        rect
+        for annotation in annotations
+        if isinstance(annotation, Redaction)
+        for rect in annotation.rects
+    ]
+    if not rects:
+        return
+    for annotation in annotations:
+        if isinstance(annotation, Redaction):
+            for rect in annotation.rects:
+                page.add_redact_annot(fitz.Rect(rect), fill=annotation.fill, cross_out=False)
+    page.apply_redactions()
 
 
 def apply_form_values(out_doc: fitz.Document, values: dict[str, object]) -> None:

@@ -1,14 +1,18 @@
-"""Viewer interaction modes (PLAN.md, M18).
+"""Viewer interaction modes + one-shot tools (PLAN.md, M18 / M21).
 
-The viewer has one active mouse tool at a time:
+Two layers:
 
-* **SELECT** (default) — left-drag selects text and clicks fill form fields. Highlighting is a
-  *select-then-highlight* action in this mode (not a separate tool);
-* **GRAB** — left-drag pans the page (a hand tool) for the corner cases where select mode gets in
-  the way (M18);
-* **TEXTBOX** — left-click places a free-text note box (M20).
+* **Persistent modes** (:class:`InteractionMode`) — the standing behaviour of a left-drag:
+  - **SELECT** (default) — drag selects text; click fills a form field; an existing text box can be
+    dragged to move it or double-clicked to re-edit. Highlight / Redact-Selection are
+    select-then-act actions in this mode.
+  - **GRAB** — drag pans the page (a hand tool).
 
-Redaction (M21) will add another mode here.
+* **One-shot armed tools** (:class:`ArmedTool`) — an *insert* that fires once then reverts to
+  SELECT, instead of being a sticky mode (the user's model: click the toolbar button each time you
+  want to add one). While armed the view shows a crosshair and the button stays lit:
+  - **TEXTBOX** — the next click on a page places a free-text note box (M20);
+  - **REDACT** — the next left-drag marks a rectangle to destructively remove at save (M21).
 """
 
 from __future__ import annotations
@@ -19,4 +23,8 @@ from enum import Enum
 class InteractionMode(Enum):
     SELECT = "select"
     GRAB = "grab"
+
+
+class ArmedTool(Enum):
     TEXTBOX = "textbox"
+    REDACT = "redact"
