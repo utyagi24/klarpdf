@@ -38,6 +38,7 @@ single-instance + undo/redo + lossless materialize-on-save + freeze→installer�
 adds toolbar/app **icons**, a live **zoom %** indicator, **printing** (system dialog), **recent
 documents**, and **form filling** on a new **page-edit layer** (`model/page_edits.py` — immutable
 per-doc edit descriptors applied at materialize; sources stay read-only). 142 headless tests;
-real-Windows + frozen-build validation. **Next:** v0.3.0 "Annotate & Redact" (M16–M18). **Planning
-the next release?** Read `PROGRESS.md` (status + **Open follow-ups**), then `PLAN.md` §Next-release
-roadmap.
+real-Windows + frozen-build validation. **Next:** v0.3.0 "Interaction & Drag-and-Drop" (M16–M19 —
+better drag visuals, Explorer file-drop, grab/select mode), then v0.4.0 "Annotate & Redact"
+(M20–M22). **Planning the next release?** Read `PROGRESS.md` (status + **Open follow-ups**), then
+`PLAN.md` §Next-release roadmap.
