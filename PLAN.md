@@ -1,12 +1,13 @@
 # Plan: Local, Offline, Native-Windows PDF Viewer + Page Editor (Python)
 
-> **Shipped (2026-06-17): `v0.2.0` released** — milestones M0–M15 complete (v0.1.0 = M0–M9; v0.2.0 =
-> M10–M15: icons, zoom %, printing, recent docs, form filling on the page-edit layer). Releases:
+> **Shipped (2026-06-18): `v0.3.0` released** — milestones M0–M19 complete (v0.1.0 = M0–M9; v0.2.0 =
+> M10–M15: icons, zoom %, printing, recent docs, form filling; v0.3.0 = M16–M19: drag-and-drop
+> visuals, Explorer file-drop, grab/select mode). Releases:
+> [v0.3.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.3.0) ·
 > [v0.2.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.2.0) ·
 > [v0.1.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.1.0). This plan stays the
-> spec/source-of-truth. **Next:** **v0.3.0** "Interaction & Drag-and-Drop" (M16–M19), then **v0.4.0**
-> "Annotate & Redact" (M20–M22) — see §Next-release roadmap below; anything beyond lives in
-> §Future enhancements.
+> spec/source-of-truth. **Next:** **v0.4.0** "Annotate & Redact" (M20–M22) — see §Next-release
+> roadmap below; anything beyond lives in §Future enhancements.
 
 > **Revision (2026-06-15)** — folded in two decisions without changing the product: a
 > **Development environment** section (Hybrid — build the cross-platform core + headless tests in
