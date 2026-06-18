@@ -298,13 +298,21 @@ class ThumbnailPanel(QListWidget):
             return QIcon()
 
     def populate(self) -> None:
-        """(Re)build the thumbnail list from ``ordered[]``."""
+        """(Re)build the thumbnail list from ``ordered[]``.
+
+        Preserves the current-page marker across the rebuild: ``clear()`` would otherwise reset the
+        current row to -1, so an edit (which repopulates) would drop the highlight even though the
+        page didn't change. We capture the row first and restore it if it still exists.
+        """
+        current = self.currentRow()
         self._syncing = True
         self.clear()
         for i in range(self._vdoc.page_count):
             item = QListWidgetItem(self._thumbnail(i), str(i + 1))
             item.setTextAlignment(Qt.AlignmentFlag.AlignHCenter)
             self.addItem(item)
+        if 0 <= current < self.count():
+            self.setCurrentRow(current)
         self._syncing = False
 
     def set_current(self, index: int) -> None:
