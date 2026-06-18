@@ -152,3 +152,15 @@ class RemoveAnnotationCommand(_SnapshotCommand):
 
     def _apply(self) -> None:
         self._vdoc.remove_annotation(self._index, self._annotation)
+
+
+class ReplaceAnnotationCommand(_SnapshotCommand):
+    """Swap one annotation descriptor for an updated one in place — moving a text box or editing
+    its text (M21 follow-up). Snapshot-based, so it is one undo step and keeps z-order."""
+
+    def __init__(self, vdoc: VirtualDocument, index: int, old, new, text: str | None = None) -> None:
+        super().__init__(vdoc, text or f"Edit {type(old).__name__.lower()}")
+        self._index, self._old, self._new = index, old, new
+
+    def _apply(self) -> None:
+        self._vdoc.replace_annotation(self._index, self._old, self._new)

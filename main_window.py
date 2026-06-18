@@ -35,10 +35,11 @@ from model.edit_commands import (
     InsertCommand,
     MovePagesCommand,
     RemoveAnnotationCommand,
+    ReplaceAnnotationCommand,
     RotatePagesCommand,
     SetFieldValueCommand,
 )
-from model.page_edits import Highlight
+from model.page_edits import Highlight, Redaction
 from model.edit_engine import PyMuPDFEngine
 from model.virtual_document import PageRef, VirtualDocument
 from organize.thumbnail_panel import ThumbnailPanel
@@ -50,7 +51,7 @@ from viewer.form_fill import FormFiller
 from viewer.pdf_view import PdfView
 from viewer.search import FindBar, SearchController
 from viewer.text_selection import TextSelection
-from viewer.tools import InteractionMode
+from viewer.tools import ArmedTool, InteractionMode
 from viewer.zoom_widget import ZoomWidget
 
 
@@ -70,7 +71,11 @@ class MainWindow(QMainWindow):
         self.view.selection = TextSelection(self.view)
         self.view.search = SearchController(self.view)
         self.view.form = FormFiller(self.view, self._set_field_value)
-        self.view.annotations = AnnotationOverlay(self.view, self._add_annotation, self._remove_annotation)
+        self.view.annotations = AnnotationOverlay(
+            self.view, self._add_annotation, self._remove_annotation, self._replace_annotation
+        )
+        self.view.armedChanged.connect(self._on_armed_changed)
+        self.view.applyTextTool.connect(self._apply_text_tool)
         self.find_bar = FindBar(self.view)  # hidden until Ctrl+F
 
         # Central column: find bar above the view. (A QToolBar host collapses to zero height
@@ -184,8 +189,6 @@ class MainWindow(QMainWindow):
         a_find = act("Find…", self._show_find, QKeySequence.StandardKey.Find, icon="find", to_menu=edit_menu)
         act("Find Next", self.find_bar.find_next, QKeySequence.StandardKey.FindNext, to_menu=edit_menu)
         act("Find Previous", self.find_bar.find_prev, QKeySequence.StandardKey.FindPrevious, to_menu=edit_menu)
-        edit_menu.addSeparator()
-        a_highlight = act("Highlight Selection", self._highlight_selection, "Ctrl+H", icon="highlight", to_menu=edit_menu)
 
         # View
         a_zout = act("Zoom Out", self.view.zoom_out, QKeySequence.StandardKey.ZoomOut, icon="zoom-out", to_menu=view_menu)
@@ -201,17 +204,38 @@ class MainWindow(QMainWindow):
         a_rotl = act("Rotate Left", lambda: self._rotate_pages(-90), "Ctrl+L", icon="rotate-left", to_menu=view_menu)
         a_rotr = act("Rotate Right", lambda: self._rotate_pages(90), "Ctrl+R", icon="rotate-right", to_menu=view_menu)
         view_menu.addSeparator()
-        # Interaction mode: Select (default — text + form fill) vs Grab (hand-pan). Mutually
-        # exclusive; the checked toolbar button shows the active tool.
+        # Persistent interaction mode: Select (default — text/forms/move) vs Grab (hand-pan).
+        # Mutually exclusive; the checked toolbar button shows the active tool.
         mode_group = QActionGroup(self)
         mode_group.setExclusive(True)
         a_select = act("Select", lambda: self.view.set_mode(InteractionMode.SELECT), icon="select", to_menu=view_menu)
         a_grab = act("Grab", lambda: self.view.set_mode(InteractionMode.GRAB), icon="grab", to_menu=view_menu)
-        a_textbox = act("Text Box", lambda: self.view.set_mode(InteractionMode.TEXTBOX), icon="textbox", to_menu=view_menu)
-        for a in (a_select, a_grab, a_textbox):
+        for a in (a_select, a_grab):
             a.setCheckable(True)
             mode_group.addAction(a)
         a_select.setChecked(True)
+        self._a_select = a_select
+        view_menu.addSeparator()
+        # One-shot armed annotate/redact tools: click to arm (button lights), do one gesture, then
+        # it reverts to Select. Checkable only to reflect the armed state — NOT in the mode group.
+        # All four are consistent — arm, then a single gesture: TextBox = click; Highlight /
+        # Redact Text = drag over text; Redact Block = drag a rectangle.
+        a_textbox = act("Add Text Box", lambda: self._arm_tool(ArmedTool.TEXTBOX), icon="textbox", to_menu=view_menu)
+        a_textbox.setToolTip("Add Text Box — click a spot, then type (drag to move, double-click to edit)")
+        a_highlight = act("Highlight", lambda: self._arm_tool(ArmedTool.HIGHLIGHT), "Ctrl+H", icon="highlight", to_menu=view_menu)
+        a_highlight.setToolTip("Highlight — drag over text to highlight it")
+        a_redact_text = act("Redact Text", lambda: self._arm_tool(ArmedTool.REDACT_TEXT), "Ctrl+Shift+R", icon="redact-text", to_menu=view_menu)
+        a_redact_text.setToolTip("Redact Text — drag over text to permanently remove it at save")
+        a_redact_block = act("Redact Block", lambda: self._arm_tool(ArmedTool.REDACT_REGION), icon="redact", to_menu=view_menu)
+        a_redact_block.setToolTip("Redact Block — drag a box to permanently remove its contents at save")
+        self._armed_actions = {
+            ArmedTool.TEXTBOX: a_textbox,
+            ArmedTool.HIGHLIGHT: a_highlight,
+            ArmedTool.REDACT_TEXT: a_redact_text,
+            ArmedTool.REDACT_REGION: a_redact_block,
+        }
+        for a in self._armed_actions.values():
+            a.setCheckable(True)
         view_menu.addSeparator()
         # Checkable show/hide for the Pages sidebar — menu item + a dedicated toolbar button (its
         # checked state mirrors the panel's visibility, with the :checked toolbar styling).
@@ -226,13 +250,13 @@ class MainWindow(QMainWindow):
         # separators — file · history · page edits · zoom/fit · rotate · search.
         groups = (
             [pages_toggle],
-            [a_select, a_grab, a_textbox],
             [a_open, a_save, a_print],
+            [a_select, a_grab],
+            [a_zout, self.zoom_widget, a_zin, a_fitw, a_fitp],
             [undo, redo],
             [a_cut, a_copy_pg, a_paste, a_delete, a_insert],
-            [a_zout, self.zoom_widget, a_zin, a_fitw, a_fitp],
+            [a_textbox, a_highlight, a_redact_text, a_redact_block],
             [a_rotl, a_rotr],
-            [a_highlight],
             [a_find],
         )
         for gi, group in enumerate(groups):
@@ -333,7 +357,13 @@ class MainWindow(QMainWindow):
             if 0 <= i < src.vdoc.page_count:
                 ref = src.vdoc.ordered[i]
                 self.vdoc.register_source(ref.source_id, src.vdoc.sources[ref.source_id])
-                refs.append(PageRef(ref.source_id, ref.source_page_index, ref.rotation_override))
+                # Carry the page's unsaved per-page edits with it (annotations, redactions,
+                # rotation) — what's on the page travels to the destination. A carried redaction
+                # is the safe default: otherwise a redacted page could be dragged out and saved
+                # un-redacted (a leak). Form-field fills are document-level and stay behind.
+                refs.append(
+                    PageRef(ref.source_id, ref.source_page_index, ref.rotation_override, ref.annotations)
+                )
         if refs:
             self.undo_stack.push(InsertCommand(self.vdoc, before_index, refs, text="Drag pages in"))
 
@@ -348,26 +378,82 @@ class MainWindow(QMainWindow):
         """Fill an AcroForm field (from the inline editor) as an undoable command."""
         self.undo_stack.push(SetFieldValueCommand(self.vdoc, name, value))
 
+    def _arm_tool(self, tool: ArmedTool) -> None:
+        """Toolbar: arm a one-shot annotate/redact tool, or disarm it if already armed (toggle)."""
+        if self.view.armed is tool:
+            self.view.disarm()
+        else:
+            self.view.arm(tool)
+            self._a_select.setChecked(True)  # arming forces the SELECT base mode
+
+    def _on_armed_changed(self, tool) -> None:
+        """Light the matching tool button while it's armed (None → all off)."""
+        for armed_tool, action in self._armed_actions.items():
+            action.setChecked(armed_tool is tool)
+
+    def _apply_text_tool(self, tool) -> None:
+        """A drag-over-text armed tool was released on a selection → apply it (one undo)."""
+        if tool is ArmedTool.HIGHLIGHT:
+            self._highlight_selection()
+        elif tool is ArmedTool.REDACT_TEXT:
+            self._redact_selection()
+
     def _add_annotation(self, index: int, annotation) -> None:
-        """Add an annotation to a page (from the text-box tool) as an undoable command."""
+        """Add an annotation to a page (from the text-box / redact tools) as an undoable command."""
         self.undo_stack.push(AddAnnotationCommand(self.vdoc, index, annotation))
 
     def _remove_annotation(self, index: int, annotation) -> None:
         """Remove an annotation (from the right-click menu) as an undoable command."""
         self.undo_stack.push(RemoveAnnotationCommand(self.vdoc, index, annotation))
 
-    def _highlight_selection(self) -> None:
-        """Highlight the current text selection — one Highlight per page it spans (one undo)."""
+    def _replace_annotation(self, index: int, old, new, text=None) -> None:
+        """Swap an annotation for an updated one (moving / re-editing a text box) — one undo step."""
+        self.undo_stack.push(ReplaceAnnotationCommand(self.vdoc, index, old, new, text))
+
+    def _selection_line_bars(self) -> dict[int, list[tuple]]:
+        """Group the current text selection's word boxes into one unioned bar **per line, per page**.
+
+        A continuous strip (no inter-word gaps) is the natural look for a highlighter and, for
+        redaction, hides word boundaries/lengths (a de-anonymisation leak). Shared by highlight and
+        redaction so both behave identically; a mid-paragraph start/end covers exactly the selected
+        span across the wrapped lines. Returns ``{page_index: [line_rect, …]}`` (empty if nothing
+        selected)."""
         if self.view.selection is None:
-            return
-        by_page: dict[int, list[tuple]] = {}
+            return {}
+        bars: dict[tuple, list] = {}
         for page_index, _i, word in self.view.selection.selected_words():
-            by_page.setdefault(page_index, []).append(tuple(word[:4]))
+            key = (page_index, word[5], word[6])  # (page, block_no, line_no)
+            x0, y0, x1, y1 = word[:4]
+            if key in bars:
+                b = bars[key]
+                b[0], b[1], b[2], b[3] = min(b[0], x0), min(b[1], y0), max(b[2], x1), max(b[3], y1)
+            else:
+                bars[key] = [x0, y0, x1, y1]
+        by_page: dict[int, list[tuple]] = {}
+        for (page_index, _b, _l), rect in bars.items():
+            by_page.setdefault(page_index, []).append(tuple(rect))
+        return by_page
+
+    def _highlight_selection(self) -> None:
+        """Highlight the current text selection — one continuous bar per line (per page, one undo)."""
+        by_page = self._selection_line_bars()
         if not by_page:
             return
+        self.view.selection.clear()  # so the yellow bar shows, not the blue selection over it
         self.undo_stack.beginMacro("Highlight")
         for page_index, rects in by_page.items():
             self.undo_stack.push(AddAnnotationCommand(self.vdoc, page_index, Highlight(tuple(rects))))
+        self.undo_stack.endMacro()
+
+    def _redact_selection(self) -> None:
+        """Redact the current text selection — one continuous bar per line (per page, one undo)."""
+        by_page = self._selection_line_bars()
+        if not by_page:
+            return
+        self.view.selection.clear()
+        self.undo_stack.beginMacro("Redact selection")
+        for page_index, rects in by_page.items():
+            self.undo_stack.push(AddAnnotationCommand(self.vdoc, page_index, Redaction(tuple(rects))))
         self.undo_stack.endMacro()
 
     def _delete_rows(self, rows) -> None:
@@ -379,8 +465,10 @@ class MainWindow(QMainWindow):
         clipboard = []
         for i in rows:
             ref = self.vdoc.ordered[i]
+            # Carry the page's per-page edits (rotation + annotations/redactions) on the clipboard
+            # so a paste into another document keeps what's on the page.
             clipboard.append((ref.source_id, self.vdoc.sources[ref.source_id],
-                              ref.source_page_index, ref.rotation_override))
+                              ref.source_page_index, ref.rotation_override, ref.annotations))
         if clipboard:
             self._app.page_clipboard = clipboard
 
@@ -397,9 +485,9 @@ class MainWindow(QMainWindow):
             return
         before = self._insertion_index() if before_index is None else before_index
         refs = []
-        for source_id, doc, page_index, rotation in payloads:
+        for source_id, doc, page_index, rotation, annotations in payloads:
             self.vdoc.register_source(source_id, doc)
-            refs.append(PageRef(source_id, page_index, rotation))
+            refs.append(PageRef(source_id, page_index, rotation, annotations))
         self.undo_stack.push(InsertCommand(self.vdoc, before, refs, text="Paste pages"))
 
     def _insert_from_file(self) -> None:
@@ -478,7 +566,17 @@ class MainWindow(QMainWindow):
         return True
 
     def _write_to(self, target_path: str) -> bool:
-        """Materialize to a temp file in the same directory, then atomically os.replace it in."""
+        """Materialize to a temp file in the same directory, then atomically os.replace it in.
+
+        A save that applies **any** redaction is a *point of no return*: the redaction is destructive
+        in the output, but the in-memory sources still hold the original bytes, so removing the
+        redaction (right-click Remove, or undo) and re-saving could otherwise resurrect the removed
+        content — and a redaction can be removed in any document that holds it, including one that
+        received the page by drag/paste. We confirm first, and after writing reload from the clean
+        file + clear the undo history, so the secret is gone from disk *and* memory."""
+        committing = self.vdoc.has_redactions()
+        if committing and not self._confirm_redaction():
+            return False
         directory = os.path.dirname(os.path.abspath(target_path)) or "."
         fd, tmp = tempfile.mkstemp(suffix=".pdf", dir=directory)
         os.close(fd)
@@ -492,7 +590,24 @@ class MainWindow(QMainWindow):
             return False
         self.undo_stack.setClean()
         self.vdoc.mark_clean()
+        if committing:
+            self.vdoc.reload_from_file(target_path)  # drop the un-redacted bytes from memory
+            self.undo_stack.clear()                  # nothing left to undo/remove back into a leak
+            self.view.reload()
+            self.thumbs.populate()
         return True
+
+    def _confirm_redaction(self) -> bool:
+        return (
+            QMessageBox.warning(
+                self,
+                "Apply redactions?",
+                "Saving permanently removes the redacted content and cannot be undone.\n\nContinue?",
+                QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel,
+            )
+            == QMessageBox.StandardButton.Save
+        )
 
     # ---- view-state persistence + close prompt ----------------------------------
 

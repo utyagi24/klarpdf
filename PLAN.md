@@ -651,7 +651,16 @@ Out of scope for the first build, captured so they can be picked up cleanly late
   multi-level outlines).
 - **Annotation round-trip editing:** v0.4.0 annotations are fire-and-forget (bake in at save). A
   later pass could re-parse existing annotations from a source on open into `model/page_edits.py`
-  so saved highlights/text-boxes/redactions can be moved, re-edited, or removed in-app.
+  so saved highlights/text-boxes can be moved, re-edited, or removed in-app *after reopening* (today
+  they're inert once saved). The hard part is **de-duplication at re-save** — `insert_pdf(annots=
+  True)` already copies the existing annotation, so materialize must strip the managed annotations
+  from the copied page before re-applying from the model. The hook is in place: every pdfproj-baked
+  annotation carries the `PDFPROJ_AUTHOR` title (`model/page_edits.py`), so a round-trip pass can
+  tell our annotations from foreign ones and adopt/strip only ours. (Redaction is excluded — it is a
+  destructive point-of-no-return by design, not a re-editable overlay.)
+- **Text-box font / size / colour picker:** v0.4.0 text boxes render in a default font (Helvetica,
+  11 pt, black). The descriptor already carries `fontname` / `fontsize` / `color` and both the
+  render and materialize paths honour them, so adding a picker is pure UI wiring — no model change.
 - **New-field form designer:** v0.2.0 fills *existing* AcroForm fields only; adding brand-new
   fields (layout, types, appearance streams) is a larger, separate effort.
 - **Drop-to-open in the main view:** v0.3.0 scopes Explorer file-drop to the Pages sidebar

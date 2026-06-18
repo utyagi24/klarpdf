@@ -21,7 +21,7 @@ from PySide6.QtGui import QBrush, QColor, QImage, QPen, QPixmap, QTransform
 from PySide6.QtWidgets import QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsScene, QGraphicsView
 
 from model.virtual_document import VirtualDocument
-from viewer.tools import InteractionMode
+from viewer.tools import ArmedTool, InteractionMode
 
 _PAGE_GAP = 14          # px between pages in the strip
 _PREFETCH = 2           # pages to render above/below the viewport
@@ -35,6 +35,8 @@ class PdfView(QGraphicsView):
 
     currentPageChanged = Signal(int)
     zoomChanged = Signal(float)  # emitted whenever the zoom factor changes (1.0 == 100%)
+    armedChanged = Signal(object)  # the armed ArmedTool, or None — so the toolbar can light a button
+    applyTextTool = Signal(object)  # an ArmedTool (HIGHLIGHT/REDACT_TEXT) fired on a drag-over-text release
 
     def __init__(self, vdoc: VirtualDocument, parent=None) -> None:
         super().__init__(parent)
@@ -56,7 +58,10 @@ class PdfView(QGraphicsView):
         self.form = None
         self.annotations = None
 
-        self._mode = InteractionMode.SELECT  # SELECT (text/forms) vs GRAB (hand-pan) — M18
+        self._mode = InteractionMode.SELECT  # SELECT (text/forms/move) vs GRAB (hand-pan) — M18
+        # A one-shot armed insert tool (ArmedTool.TEXTBOX / .REDACT) — fires once then auto-reverts
+        # to SELECT (M21). None means no tool is armed.
+        self._armed: "ArmedTool | None" = None
         self.setScene(QGraphicsScene(self))
         self.setBackgroundBrush(QBrush(QColor(0x30, 0x30, 0x30)))
         # SELECT mode: left-drag selects text (M3), so no hand-drag panning; scroll via wheel/bars.
@@ -200,6 +205,59 @@ class PdfView(QGraphicsView):
         dx0, dy0, dx1, dy1 = self._box_to_display(w, h, self._display_rotation(page_index), box)
         return QRectF(p["x"] + dx0 * z, p["y"] + dy0 * z, (dx1 - dx0) * z, (dy1 - dy0) * z)
 
+    def local_box_from_scene_rect(self, page_index: int, scene_rect) -> tuple:
+        """Inverse of :meth:`scene_rect_for_box`: map a scene rect back to an unrotated page-local
+        box ``(x0,y0,x1,y1)``, clamped to the page. Used by the redaction rubber-band to record the
+        marked region in the coordinate space the materialise pass redacts in."""
+        p = self._pages[page_index]
+        z = self._zoom
+        w, h = self._unrotated_size(page_index)
+        rot = self._display_rotation(page_index)
+        corners = (
+            (scene_rect.left(), scene_rect.top()),
+            (scene_rect.right(), scene_rect.bottom()),
+        )
+        pts = [
+            self._point_to_source(w, h, rot, (sx - p["x"]) / z, (sy - p["y"]) / z)
+            for sx, sy in corners
+        ]
+        xs, ys = [pt[0] for pt in pts], [pt[1] for pt in pts]
+        return (max(0.0, min(xs)), max(0.0, min(ys)), min(w, max(xs)), min(h, max(ys)))
+
+    def page_transform(self, page_index: int) -> QTransform:
+        """The affine that maps a page's **unrotated** point coords → scene coords (origin offset +
+        zoom + per-page/view rotation). Lets an overlay item authored in page points (a text box and
+        its text) render rotated *with* the page, instead of axis-aligned in scene space."""
+        p = self._pages[page_index]
+        w, h = self._unrotated_size(page_index)
+        total = self._display_rotation(page_index)
+        tr = QTransform()
+        tr.translate(p["x"], p["y"])
+        tr.scale(self._zoom, self._zoom)
+        # Compose the same unrotated→display mapping as _box_to_display (Qt applies the last-added
+        # op to the point first), so a point (x,y) lands exactly where scene_rect_for_box puts it.
+        if total == 90:
+            tr.translate(h, 0)
+            tr.rotate(90)
+        elif total == 180:
+            tr.translate(w, h)
+            tr.rotate(180)
+        elif total == 270:
+            tr.translate(0, w)
+            tr.rotate(270)
+        return tr
+
+    def local_point_on_page(self, page_index: int, scene_pt) -> QPointF:
+        """Map a scene point to a specific page's **unrotated** point coords (rotation-aware, not
+        clamped). Unlike :meth:`page_and_local_at` it targets a fixed page, so a drag that strays
+        past the page edge still maps to that page's frame — used by the text-box move."""
+        p = self._pages[page_index]
+        dx = (scene_pt.x() - p["x"]) / self._zoom
+        dy = (scene_pt.y() - p["y"]) / self._zoom
+        w, h = self._unrotated_size(page_index)
+        lx, ly = self._point_to_source(w, h, self._display_rotation(page_index), dx, dy)
+        return QPointF(lx, ly)
+
     def ensure_box_visible(self, page_index: int, box: tuple) -> None:
         self.ensureVisible(self.scene_rect_for_box(page_index, box), 60, 60)
 
@@ -208,16 +266,31 @@ class PdfView(QGraphicsView):
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
             scene_pt = self.mapToScene(event.position().toPoint())
+            # An armed one-shot tool takes the click first. TEXTBOX disarms once a box is placed;
+            # a click off any page leaves it armed (a mis-click doesn't waste the arm). REDACT
+            # disarms on release (after the drag commits).
+            if self._armed is ArmedTool.TEXTBOX and self.annotations is not None:
+                if self.annotations.place_textbox(scene_pt):
+                    self.disarm()
+                event.accept()
+                return
+            if self._armed is ArmedTool.REDACT_REGION and self.annotations is not None:
+                self.annotations.begin_redaction(scene_pt)  # no-op off-page; stays armed
+                event.accept()
+                return
+            if self._armed is not None and self._armed.drags_text and self.selection is not None:
+                self.selection.begin(scene_pt)  # drag over text; applied (highlight/redact) on release
+                event.accept()
+                return
             if self._mode == InteractionMode.SELECT:
-                # A click on a form field starts filling it; otherwise it begins a text selection.
+                # Priority: fill a form field → move an existing text box → begin a text selection.
                 if self.form is not None and self.form.handle_press(scene_pt):
                     event.accept()
                     return
-                if self.selection is not None and self.selection.begin(scene_pt):
+                if self.annotations is not None and self.annotations.begin_move(scene_pt):
                     event.accept()
                     return
-            elif self._mode == InteractionMode.TEXTBOX and self.annotations is not None:
-                if self.annotations.place_textbox(scene_pt):
+                if self.selection is not None and self.selection.begin(scene_pt):
                     event.accept()
                     return
         # GRAB (and any unhandled click) → QGraphicsView; ScrollHandDrag pans in GRAB mode.
@@ -233,7 +306,11 @@ class PdfView(QGraphicsView):
 
                 page_index, annot = hit
                 menu = QMenu(self)
-                label = "Remove highlight" if type(annot).__name__ == "Highlight" else "Remove text box"
+                label = {
+                    "Highlight": "Remove highlight",
+                    "TextBox": "Remove text box",
+                    "Redaction": "Remove redaction",
+                }.get(type(annot).__name__, "Remove annotation")
                 action = menu.addAction(label)
                 if menu.exec(event.globalPos()) is action:
                     self.annotations.remove(page_index, annot)
@@ -242,25 +319,71 @@ class PdfView(QGraphicsView):
         super().contextMenuEvent(event)
 
     def mouseDoubleClickEvent(self, event) -> None:
-        if self.selection is not None and event.button() == Qt.MouseButton.LeftButton:
-            if self.selection.select_word_at(self.mapToScene(event.position().toPoint())):
+        if event.button() == Qt.MouseButton.LeftButton and self._armed is None:
+            scene_pt = self.mapToScene(event.position().toPoint())
+            # Double-click an existing text box → re-edit its text; otherwise select the word.
+            if self.annotations is not None and self.annotations.edit_textbox_at(scene_pt):
+                event.accept()
+                return
+            if self.selection is not None and self.selection.select_word_at(scene_pt):
                 event.accept()
                 return
         super().mouseDoubleClickEvent(event)
 
     def mouseMoveEvent(self, event) -> None:
-        if self.selection is not None and self.selection.active:
-            self.selection.update_to(self.mapToScene(event.position().toPoint()))
+        scene_pt = self.mapToScene(event.position().toPoint())
+        if self.annotations is not None and self.annotations.redacting:
+            self.annotations.update_redaction(scene_pt)
             event.accept()
             return
+        if self.annotations is not None and self.annotations.moving:
+            self.annotations.update_move(scene_pt)
+            event.accept()
+            return
+        if self.selection is not None and self.selection.active:
+            self.selection.update_to(scene_pt)
+            event.accept()
+            return
+        self._update_hover_cursor(scene_pt)
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:
+        if self.annotations is not None and self.annotations.redacting:
+            self.annotations.finish_redaction()
+            if self._armed is ArmedTool.REDACT_REGION:
+                self.disarm()  # one-shot: revert to SELECT after the drag commits
+            event.accept()
+            return
+        if self.annotations is not None and self.annotations.moving:
+            self.annotations.finish_move()
+            event.accept()
+            return
         if self.selection is not None and self.selection.active:
             self.selection.finish()
+            # An armed drag-over-text tool applies to what was just selected, then disarms — but a
+            # stray click that selected nothing leaves the tool armed (no wasted arm).
+            if self._armed is not None and self._armed.drags_text:
+                if self.selection.selected_words():
+                    self.applyTextTool.emit(self._armed)
+                    self.disarm()
             event.accept()
             return
         super().mouseReleaseEvent(event)
+
+    def keyPressEvent(self, event) -> None:
+        # Esc cancels an armed one-shot tool (back to plain Select).
+        if event.key() == Qt.Key.Key_Escape and self._armed is not None:
+            self.disarm()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def _update_hover_cursor(self, scene_pt) -> None:
+        """In SELECT mode, show a move cursor over a text box so it's clearly draggable."""
+        if self._armed is not None or self._mode != InteractionMode.SELECT or self.annotations is None:
+            return
+        over_box = self.annotations.textbox_at(scene_pt) is not None
+        self.viewport().setCursor(Qt.CursorShape.SizeAllCursor if over_box else Qt.CursorShape.ArrowCursor)
 
     # ---- rendering --------------------------------------------------------------
 
@@ -382,8 +505,14 @@ class PdfView(QGraphicsView):
     def mode(self) -> InteractionMode:
         return self._mode
 
+    @property
+    def armed(self) -> "ArmedTool | None":
+        return self._armed
+
     def set_mode(self, mode: InteractionMode) -> None:
-        """Switch the mouse tool: SELECT (text/forms) or GRAB (hand-pan)."""
+        """Switch the persistent mouse tool: SELECT (text/forms/move) or GRAB (hand-pan).
+        Switching modes also disarms any one-shot insert tool."""
+        self.disarm()
         if mode == self._mode:
             return
         self._mode = mode
@@ -393,6 +522,22 @@ class PdfView(QGraphicsView):
             self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)  # Qt shows the hand cursor
         else:
             self.setDragMode(QGraphicsView.DragMode.NoDrag)
+
+    def arm(self, tool: "ArmedTool") -> None:
+        """Arm a one-shot insert tool (Add Text Box / Redact Region). Forces SELECT as the base
+        mode, shows a crosshair, and announces the change so the toolbar can light the button."""
+        self.set_mode(InteractionMode.SELECT)  # NB: set_mode disarms first; we set _armed after
+        self._armed = tool
+        self.viewport().setCursor(Qt.CursorShape.CrossCursor)
+        self.armedChanged.emit(tool)
+
+    def disarm(self) -> None:
+        """Cancel any armed one-shot tool and return to plain SELECT behaviour."""
+        if self._armed is None:
+            return
+        self._armed = None
+        self.viewport().setCursor(Qt.CursorShape.ArrowCursor)
+        self.armedChanged.emit(None)
 
     def set_zoom(self, zoom: float, keep_page: bool = True) -> None:
         zoom = max(_MIN_ZOOM, min(_MAX_ZOOM, zoom))
