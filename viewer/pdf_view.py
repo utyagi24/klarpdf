@@ -81,20 +81,29 @@ class PdfView(QGraphicsView):
         native = self._vdoc.sources[ref.source_id][ref.source_page_index].rotation
         return (ref.rotation_override - native) % 360
 
-    def _source_size(self, index: int) -> tuple[float, float]:
-        """Unrotated page size in points (the space word boxes + widget rects live in)."""
+    def _unrotated_size(self, index: int) -> tuple[float, float]:
+        """Unrotated **MediaBox** size in points — the space word boxes + widget rects live in,
+        even for a page with a baked-in ``/Rotate`` (PyMuPDF reports those coords un-rotated, while
+        ``page.rect`` and ``get_pixmap`` are rotated)."""
         ref = self._vdoc.ordered[index]
-        rect = self._vdoc.sources[ref.source_id][ref.source_page_index].rect
-        return rect.width, rect.height
+        mediabox = self._vdoc.sources[ref.source_id][ref.source_page_index].mediabox
+        return mediabox.width, mediabox.height
 
-    def _total_rotation(self, index: int) -> int:
-        """Degrees the displayed page is spun beyond its source-coordinate space (per-page + view)."""
-        return (self._page_extra(index) + self._rotation) % 360
+    def _display_rotation(self, index: int) -> int:
+        """**Absolute** rotation of the displayed page vs its MediaBox: the per-page override if
+        set, else the source page's own ``/Rotate`` — plus the view rotation. Overlays rotate
+        boxes by this so they align whether the rotation is an in-session override or baked in."""
+        ref = self._vdoc.ordered[index]
+        if ref.rotation_override is not None:
+            base = ref.rotation_override
+        else:
+            base = self._vdoc.sources[ref.source_id][ref.source_page_index].rotation
+        return (base + self._rotation) % 360
 
     def _natural_size(self, index: int) -> tuple[float, float]:
-        """Unscaled page size in points, with per-page rotation + view rotation axis swaps."""
-        w, h = self._source_size(index)
-        return (h, w) if self._total_rotation(index) in (90, 270) else (w, h)
+        """Unscaled displayed page size in points (MediaBox with rotation axis swaps)."""
+        w, h = self._unrotated_size(index)
+        return (h, w) if self._display_rotation(index) in (90, 270) else (w, h)
 
     @staticmethod
     def _box_to_display(W: float, H: float, total: int, box: tuple) -> tuple:
@@ -169,8 +178,8 @@ class PdfView(QGraphicsView):
             if p["y"] <= scene_pt.y() <= p["y"] + p["h"]:
                 dx = (scene_pt.x() - p["x"]) / self._zoom
                 dy = (scene_pt.y() - p["y"]) / self._zoom
-                w, h = self._source_size(i)
-                lx, ly = self._point_to_source(w, h, self._total_rotation(i), dx, dy)
+                w, h = self._unrotated_size(i)
+                lx, ly = self._point_to_source(w, h, self._display_rotation(i), dx, dy)
                 return i, QPointF(lx, ly)
         return None, None
 
@@ -179,8 +188,8 @@ class PdfView(QGraphicsView):
         per-page rotation so overlays align with the displayed (spun) page."""
         p = self._pages[page_index]
         z = self._zoom
-        w, h = self._source_size(page_index)
-        dx0, dy0, dx1, dy1 = self._box_to_display(w, h, self._total_rotation(page_index), box)
+        w, h = self._unrotated_size(page_index)
+        dx0, dy0, dx1, dy1 = self._box_to_display(w, h, self._display_rotation(page_index), box)
         return QRectF(p["x"] + dx0 * z, p["y"] + dy0 * z, (dx1 - dx0) * z, (dy1 - dy0) * z)
 
     def ensure_box_visible(self, page_index: int, box: tuple) -> None:

@@ -177,6 +177,37 @@ def test_overlay_box_maps_through_per_page_rotation(qapp, vdoc):
     assert local.y() == pytest.approx((box[1] + box[3]) / 2, abs=2)
 
 
+def test_overlay_aligns_on_baked_in_rotation(qapp, tmp_path):
+    # Regression: a saved-then-reopened rotated page has /Rotate baked into native rotation (no
+    # override). PyMuPDF reports word/widget coords in the *MediaBox* (unrotated) space while the
+    # page renders rotated, so overlays must rotate boxes by the page's own /Rotate.
+    import pymupdf as fitz
+
+    path = str(tmp_path / "baked.pdf")
+    doc = fitz.open()
+    page = doc.new_page(width=400, height=600)
+    page.insert_text((50, 100), "HELLO", fontsize=14)
+    page.set_rotation(90)
+    doc.save(path)
+    doc.close()
+
+    vd = VirtualDocument.from_path(path)
+    view = PdfView(vd)
+    assert vd.sources[vd.ordered[0].source_id][0].rotation == 90  # baked in, no override
+    assert vd.ordered[0].rotation_override is None
+    assert view._pages[0]["w"] > view._pages[0]["h"]  # displays landscape
+
+    box = (50.0, 80.0, 150.0, 110.0)  # a MediaBox-space box
+    rect = view.scene_rect_for_box(0, box)
+    p = view._pages[0]
+    assert p["x"] <= rect.center().x() <= p["x"] + p["w"]  # lands on the (landscape) page
+    assert p["y"] <= rect.center().y() <= p["y"] + p["h"]
+    page_index, local = view.page_and_local_at(rect.center())
+    assert page_index == 0
+    assert local.x() == pytest.approx((box[0] + box[2]) / 2, abs=2)  # round-trips to MediaBox coords
+    assert local.y() == pytest.approx((box[1] + box[3]) / 2, abs=2)
+
+
 def test_view_state_roundtrip(qapp, vdoc):
     view = PdfView(vdoc)
     view.set_zoom(1.7)
