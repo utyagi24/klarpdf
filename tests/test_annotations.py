@@ -11,9 +11,13 @@ import pymupdf as fitz
 import pytest
 from PySide6.QtGui import QUndoStack
 
-from model.edit_commands import AddAnnotationCommand, RemoveAnnotationCommand
+from model.edit_commands import (
+    AddAnnotationCommand,
+    RemoveAnnotationCommand,
+    ReplaceAnnotationCommand,
+)
 from model.edit_engine import PyMuPDFEngine
-from model.page_edits import Highlight, TextBox
+from model.page_edits import PDFPROJ_AUTHOR, Highlight, TextBox
 from model.virtual_document import VirtualDocument
 
 
@@ -130,3 +134,54 @@ def test_snapshot_roundtrips_annotations(vdoc):
     vdoc.clear_annotations(0)
     vdoc.restore(snap)
     assert vdoc.page_annotations(0) == (h,)
+
+
+def test_replace_annotation_in_place_preserves_order(vdoc):
+    a = TextBox((10, 10, 100, 30), "a")
+    b = TextBox((10, 40, 100, 60), "b")
+    vdoc.add_annotation(0, a)
+    vdoc.add_annotation(0, b)
+    moved = TextBox((50, 10, 140, 30), "a")  # same logical box, new position
+    vdoc.replace_annotation(0, a, moved)
+    assert vdoc.page_annotations(0) == (moved, b)  # swapped in place, order kept
+
+
+def test_replace_annotation_command_undo_redo(vdoc):
+    stack = QUndoStack()
+    a = TextBox((10, 10, 100, 30), "old")
+    vdoc.add_annotation(0, a)
+    b = TextBox((10, 10, 100, 30), "new")
+    stack.push(ReplaceAnnotationCommand(vdoc, 0, a, b))
+    assert vdoc.page_annotations(0) == (b,)
+    stack.undo()
+    assert vdoc.page_annotations(0) == (a,)
+    stack.redo()
+    assert vdoc.page_annotations(0) == (b,)
+
+
+def test_textbox_fontname_is_carried_into_materialize(vdoc, tmp_path):
+    vdoc.add_annotation(0, TextBox((72, 150, 320, 180), "courier", fontname="cour"))
+    out = _materialize(vdoc, tmp_path)
+    assert "FreeText" in [t for t, _ in _annots(out, 0)]  # bakes in with the chosen font
+
+
+def test_textbox_on_rotated_page_materializes(vdoc, tmp_path):
+    """A text box on a per-page-rotated page bakes in and the page keeps its rotation — so PDF
+    /Rotate rotates the annotation with the page (the in-app preview rotation mirrors this)."""
+    vdoc.add_annotation(0, TextBox((72, 150, 320, 180), "rot"))
+    vdoc.set_rotation(0, 90)
+    out = _materialize(vdoc, tmp_path)
+    assert ("FreeText", "rot") in _annots(out, 0)
+    with fitz.open(out) as doc:
+        assert doc[0].rotation == 90
+
+
+def test_baked_annotations_are_author_tagged(vdoc, tmp_path):
+    """Highlights & text-boxes pdfproj writes carry the PDFPROJ_AUTHOR title — the hook a future
+    round-trip milestone needs to tell our annotations from foreign ones."""
+    vdoc.add_annotation(0, Highlight(_word_rects(vdoc, 0)))
+    vdoc.add_annotation(0, TextBox((72, 150, 320, 180), "note"))
+    out = _materialize(vdoc, tmp_path)
+    with fitz.open(out) as doc:
+        titles = {a.info.get("title", "") for a in doc[0].annots()}
+    assert titles == {PDFPROJ_AUTHOR}
