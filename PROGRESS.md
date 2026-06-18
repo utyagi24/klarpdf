@@ -9,9 +9,8 @@ v0.2.0 = M10–M15, v0.3.0 = M16–M19, v0.4.0 = M20–M22). Release:
 **highlight** + **text boxes** (move / re-edit / auto-grow), and **true destructive redaction**
 (region + text-flow) with cross-engine leak verification and a redacted-save "point of no return".
 Annotate/redact tools are **one-shot armed** gestures; cross-window page drag/paste **carries
-per-page edits**. **Next:** beyond v0.4.0 lives in `PLAN.md` §Future enhancements (annotation
-round-trip editing; font/size/colour picker; encrypted PDFs; GoTo-link remap). **Open follow-ups**
-(carried items) are at the bottom.
+per-page edits**. **Next:** **v0.5.0 → v0.7.0** planned (M23–M34) — see the roadmap below and
+`PLAN.md` §Next roadmap. **Open follow-ups** (carried items) are at the bottom.
 
 - [x] **M0** Scaffold + WSL dev venv — *step 1 (WSL); WSL* — [#4](https://github.com/utyagi24/pdfproj/pull/4)
 - [x] **M1** Correctness core: `model/` + headless tests green ⭐ — *steps 5, 7; WSL* — [#5](https://github.com/utyagi24/pdfproj/pull/5)
@@ -26,10 +25,11 @@ round-trip editing; font/size/colour picker; encrypted PDFs; GoTo-link remap). *
 
 ⭐ M1 is the keystone — most correctness risk, GUI-free, fully testable in WSL/CI.
 
-## Releases — v0.2.0 ✅ → v0.3.0 ✅ → v0.4.0 ✅
+## Releases — v0.2.0 ✅ → v0.3.0 ✅ → v0.4.0 ✅ → v0.5.0 → v0.6.0 → v0.7.0
 
-Spec + architecture in `PLAN.md` §Next-release roadmap. Same conventions: **one PR per milestone**,
-tick the box here on merge. ⭐ marks a keystone (most risk, GUI-free core, fully headless-testable).
+Spec + architecture in `PLAN.md` (§Shipped roadmap for v0.2–v0.4, §Next roadmap for v0.5–v0.7). Same
+conventions: **one PR per milestone**, tick the box here on merge. ⭐ marks a keystone (most risk,
+GUI-free core, fully headless-testable).
 
 **v0.2.0 ✅ — "Polish, Print & Forms"** (shipped)
 
@@ -53,6 +53,27 @@ tick the box here on merge. ⭐ marks a keystone (most risk, GUI-free core, full
 - [x] **M21** ⭐ Redaction — true destructive `apply_redactions` + leak verification (`fitz` + Poppler `pdftotext` cross-engine). Two entry points, one multi-rect `Redaction` descriptor: **Redact Region** (one-shot rubber-band, for images/logos) + **Redact Selection** (text-flow, one continuous bar per line). A redacted **Save is a point of no return** (confirm → write clean → reload from clean file → clear undo: secret gone from disk *and* RAM). Bundled text-box UX polish (one-shot armed inserts; drag-to-move; double-click re-edit; auto-grow W+H; clamp to page). Forward-compat hooks for future round-trip + font/size/colour picker (`TextBox.fontname`; pdfproj author-tag on baked annots). Annotate/redact tools unified as **one-shot armed** gestures (Text Box click; Highlight/Redact-Text drag-over-text — continuous bar per line; Redact-Block drag-rect), grouped together. Cross-window page drag/paste **carries per-page edits** (annotations + redactions + rotation). — *WSL (model+verify) + WSLg* — [#34](https://github.com/utyagi24/pdfproj/pull/34)
 - [x] **M22** Verify + release → tag **v0.4.0** (version bump + docs; 232 headless tests green) — *Windows* — [#35](https://github.com/utyagi24/pdfproj/pull/35)
 
+**v0.5.0 — "File Safety & Output"** (planned)
+
+- [ ] **M23** Revert / Reopen — discard all edits + reload from disk (reuse `reload_from_file` + clear undo, dirty-confirm) — *WSL + WSLg*
+- [ ] **M24** External-change warning — file-changed-on-disk detection (`QFileSystemWatcher`) → Reload / Keep prompt — *WSL (logic) + Windows*
+- [ ] **M25** Better printing + Print-to-PDF — print scaling/fit + `QPrinter` PDF destination ("Save as PDF") — *WSL logic; Windows print validation*
+- [ ] **M26** Verify + release → tag **v0.5.0** — *Windows*
+
+**v0.6.0 — "Rich Text & Live Preview"** (planned)
+
+- [ ] **M27** ⭐ Rich text boxes — font/size/colour + bold/italic/underline + box outline & fill (formatting bar on the inline editor) — *WSL (model+tests) + WSLg*
+- [ ] **M28** Live thumbnails — thumbnails reflect the page's edited state (annotations/redactions/fills) — *WSLg*
+- [ ] **M29** Dynamic theme icons — runtime OS light↔dark re-tint (verify/complete `refresh_for_theme`) — *WSLg + Windows*
+- [ ] **M30** Verify + release → tag **v0.6.0** — *Windows*
+
+**v0.7.0 — "Round-trip & Documents"** (planned)
+
+- [ ] **M31** ⭐ Annotation round-trip editing — reopen → move/edit/remove our `PDFPROJ_AUTHOR`-tagged annotations (strip-then-re-add at materialize) — *WSL (model+tests) + WSLg*
+- [ ] **M32** Encrypted / password PDFs — detect `needs_pass`, prompt, `authenticate` on open — *WSL + WSLg*
+- [ ] **M33** Internal GoTo-link remap — `toc_remap` → `links_remap` (fix cross-run link targets; clean headless keystone) — *WSL (model+tests)*
+- [ ] **M34** Verify + release → tag **v0.7.0** — *Windows*
+
 ## Open follow-ups (carried)
 
 Carried items — none block work:
@@ -66,8 +87,8 @@ Carried items — none block work:
   it stays deferred (still unsigned through v0.4.0); slots into `release.yml` before packaging
   (PLAN.md §Packaging §5). Carry to a future release once a cert is available.
 - **App icon** → ✅ shipped in **M10** (v0.2.0).
-- **Product features** → view/print/annotate/redact all shipped (M0–M22). Still deferred:
-  encrypted/password PDFs, internal GoTo-link remap (`model/links_remap.py`), annotation
-  round-trip editing (reopen-and-edit; hook in place — pdfproj author-tag), text-box font/size/
-  colour picker (`TextBox.fontname` already carried), new-field form designer — PLAN.md
-  §Future enhancements.
+- **Product features** → view/print/annotate/redact all shipped (M0–M22). The next tranche is
+  **scheduled** in §Next roadmap above (M23–M34): rich text, live thumbnails, theme icons, revert,
+  disk-change warning, print-to-PDF, annotation round-trip editing, encrypted PDFs, GoTo-link remap.
+  Still **deferred beyond** the roadmap (PLAN.md §Future enhancements): new-field form designer,
+  drop-to-open in the main view, re-encryption on save.
