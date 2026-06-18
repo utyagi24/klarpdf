@@ -18,7 +18,7 @@ import os
 import tempfile
 
 from PySide6.QtCore import QEvent, QSize, Qt
-from PySide6.QtGui import QAction, QKeySequence, QUndoStack
+from PySide6.QtGui import QAction, QActionGroup, QKeySequence, QUndoStack
 from PySide6.QtWidgets import (
     QDockWidget,
     QFileDialog,
@@ -46,6 +46,7 @@ from viewer.form_fill import FormFiller
 from viewer.pdf_view import PdfView
 from viewer.search import FindBar, SearchController
 from viewer.text_selection import TextSelection
+from viewer.tools import InteractionMode
 from viewer.zoom_widget import ZoomWidget
 
 
@@ -193,6 +194,17 @@ class MainWindow(QMainWindow):
         a_rotl = act("Rotate Left", lambda: self._rotate_pages(-90), "Ctrl+L", icon="rotate-left", to_menu=view_menu)
         a_rotr = act("Rotate Right", lambda: self._rotate_pages(90), "Ctrl+R", icon="rotate-right", to_menu=view_menu)
         view_menu.addSeparator()
+        # Interaction mode: Select (default — text + form fill) vs Grab (hand-pan). Mutually
+        # exclusive; the checked toolbar button shows the active tool.
+        mode_group = QActionGroup(self)
+        mode_group.setExclusive(True)
+        a_select = act("Select", lambda: self.view.set_mode(InteractionMode.SELECT), icon="select", to_menu=view_menu)
+        a_grab = act("Grab", lambda: self.view.set_mode(InteractionMode.GRAB), icon="grab", to_menu=view_menu)
+        for a in (a_select, a_grab):
+            a.setCheckable(True)
+            mode_group.addAction(a)
+        a_select.setChecked(True)
+        view_menu.addSeparator()
         # Checkable show/hide for the Pages sidebar — menu item + a dedicated toolbar button (its
         # checked state mirrors the panel's visibility, with the :checked toolbar styling).
         pages_toggle = self.pages_dock.toggleViewAction()
@@ -206,6 +218,7 @@ class MainWindow(QMainWindow):
         # separators — file · history · page edits · zoom/fit · rotate · search.
         groups = (
             [pages_toggle],
+            [a_select, a_grab],
             [a_open, a_save, a_print],
             [undo, redo],
             [a_cut, a_copy_pg, a_paste, a_delete, a_insert],
