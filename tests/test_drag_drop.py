@@ -8,14 +8,17 @@ QDrag.exec) is modal and can't run headless, so we test its pieces directly.
 from __future__ import annotations
 
 import json
+import os
 
+import pymupdf as fitz
 import pytest
-from PySide6.QtCore import QByteArray, QMimeData, QPoint, Qt
-from PySide6.QtGui import QDragLeaveEvent, QDragMoveEvent
+from PySide6.QtCore import QByteArray, QMimeData, QPoint, QPointF, Qt, QUrl
+from PySide6.QtGui import QDragLeaveEvent, QDragMoveEvent, QDropEvent
 
 from app import PdfApp
 from model.virtual_document import VirtualDocument
 from organize.thumbnail_panel import _PAGES_MIME, ThumbnailPanel
+from store.settings import Settings
 
 
 @pytest.fixture(scope="session")
@@ -85,3 +88,56 @@ def test_drop_clears_marker(panel):
                                Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier))
     assert panel._drop_row is None      # marker cleared after the drop
     assert got and got[0][1] == [1]     # drop still delivered
+
+
+# ---- M17: Explorer file drop ------------------------------------------------------
+
+def _file_mime(*paths: str) -> QMimeData:
+    mime = QMimeData()
+    mime.setUrls([QUrl.fromLocalFile(p) for p in paths])
+    return mime
+
+
+def test_pdf_url_filter_keeps_only_pdfs(panel, b_pdf, tmp_path):
+    txt = tmp_path / "note.txt"
+    txt.write_text("not a pdf")
+    mime = _file_mime(b_pdf, str(txt), "/no/such/file.pdf")
+    result = panel._dropped_pdf_paths(mime)  # local, existing, .pdf only
+    # QUrl.toLocalFile normalises separators (forward slashes on Windows), so compare normalised.
+    assert [os.path.normpath(p) for p in result] == [os.path.normpath(b_pdf)]
+
+
+def test_file_drag_is_accepted_and_marks_slot(panel, b_pdf):
+    mime = _file_mime(b_pdf)
+    event = QDragMoveEvent(QPoint(10, 5), Qt.DropAction.CopyAction, mime,
+                           Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+    event._mime = mime
+    panel.dragMoveEvent(event)
+    assert event.isAccepted() and panel._drop_row == 0  # droppable + marker at the top slot
+
+
+def test_file_drop_emits_filesDropped(panel, b_pdf):
+    got = []
+    panel.filesDropped.connect(lambda paths, before: got.append((paths, before)))
+    mime = _file_mime(b_pdf)
+    event = QDropEvent(QPointF(10, 5), Qt.DropAction.CopyAction, mime,
+                       Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+    event._mime = mime
+    panel.dropEvent(event)
+    assert len(got) == 1 and got[0][1] == 0  # dropped at the top → insert before page 0
+    assert [os.path.normpath(p) for p in got[0][0]] == [os.path.normpath(b_pdf)]
+    assert panel._drop_row is None
+
+
+def test_files_dropped_inserts_pages_and_undoes(qapp, a_pdf, b_pdf, tmp_path):
+    qapp.settings = Settings(tmp_path / "vs.json")
+    win = qapp.open_document(a_pdf)
+    base = win.vdoc.page_count
+    with fitz.open(b_pdf) as d:
+        added = d.page_count
+    win._on_files_dropped([b_pdf], 1)  # insert b's pages starting before index 1
+    assert win.vdoc.page_count == base + added
+    win.undo_stack.undo()
+    assert win.vdoc.page_count == base  # undoable
+    win.undo_stack.setClean()
+    win.close()
