@@ -6,8 +6,8 @@ it merges, check the box here in the same PR and append the PR link.
 **Status:** ✅ **v0.2.0 shipped** (2026-06-17) — milestones **M0–M15 complete** (v0.1.0 = M0–M9,
 v0.2.0 = M10–M15). Release: <https://github.com/utyagi24/pdfproj/releases/tag/v0.2.0>. v0.2.0 adds
 icons, a zoom % indicator, printing, recent documents, and form filling on the new page-edit layer.
-**Next up:** the **v0.3.0** "Annotate & Redact" milestones (M16–M18) below; see `PLAN.md`
-§Next-release roadmap. **Open follow-ups** (carried items) are at the bottom.
+**Next up:** **v0.3.0** "Interaction & Drag-and-Drop" (M16–M19), then **v0.4.0** "Annotate & Redact"
+(M20–M22) — see `PLAN.md` §Next-release roadmap. **Open follow-ups** (carried items) are at the bottom.
 
 - [x] **M0** Scaffold + WSL dev venv — *step 1 (WSL); WSL* — [#4](https://github.com/utyagi24/pdfproj/pull/4)
 - [x] **M1** Correctness core: `model/` + headless tests green ⭐ — *steps 5, 7; WSL* — [#5](https://github.com/utyagi24/pdfproj/pull/5)
@@ -22,13 +22,12 @@ icons, a zoom % indicator, printing, recent documents, and form filling on the n
 
 ⭐ M1 is the keystone — most correctness risk, GUI-free, fully testable in WSL/CI.
 
-## Next release — v0.2.0 → v0.3.0 (planned)
+## Releases — v0.2.0 ✅ → v0.3.0 → v0.4.0
 
 Spec + architecture in `PLAN.md` §Next-release roadmap. Same conventions: **one PR per milestone**,
-tick the box here on merge. Numbering continues M10+. ⭐ marks the keystone (most risk, GUI-free
-core, fully headless-testable).
+tick the box here on merge. ⭐ marks a keystone (most risk, GUI-free core, fully headless-testable).
 
-**v0.2.0 — "Polish, Print & Forms"**
+**v0.2.0 ✅ — "Polish, Print & Forms"** (shipped)
 
 - [x] **M10** Icons — app `.ico` + toolbar icons (undo/redo, zoom, cut/copy/paste) — *WSLg + Windows (frozen-exe icon)* — [#18](https://github.com/utyagi24/pdfproj/pull/18) (frozen-exe icon validated at M15)
 - [x] **M11** Zoom UX — live magnification % indicator + Actual-Size / 100% reset (Ctrl+0) + presets — *WSLg* — [#19](https://github.com/utyagi24/pdfproj/pull/19)
@@ -37,15 +36,22 @@ core, fully headless-testable).
 - [x] **M14** ⭐ Page-edit layer + form filling (fill existing AcroForm fields) — *WSL (model+tests) + WSLg* — [#24](https://github.com/utyagi24/pdfproj/pull/24) (model foundation) + [#25](https://github.com/utyagi24/pdfproj/pull/25) (inline fill)
 - [x] **M15** Verify + release → tag **v0.2.0** (CI Node-24 action bumps folded in; code signing still deferred) — *Windows* — [#26](https://github.com/utyagi24/pdfproj/pull/26)
 
-**v0.3.0 — "Annotate & Redact"** (keystone release)
+**v0.3.0 — "Interaction & Drag-and-Drop"** (next)
 
-- [ ] **M16** ⭐ Annotations — text highlight + text-box (free-text) on the M14 layer — *WSL + WSLg*
-- [ ] **M17** ⭐ Redaction — true destructive `apply_redactions` + leak verification — *WSL (model+verify) + WSLg*
-- [ ] **M18** Verify + release → tag **v0.3.0** — *Windows*
+- [ ] **M16** Drag visuals — page-thumbnail drag pixmap (+ "N pages" badge) + custom drop-insertion marker — *WSLg*
+- [ ] **M17** Explorer file drop — drag a `.pdf` from Explorer onto the Pages panel → insert at the drop slot — *WSL (logic) + WSLg*
+- [ ] **M18** Grab / Select mode — hand/pan vs text-selection toggle (default Select), toolbar + View menu — *WSLg*
+- [ ] **M19** Verify + release → tag **v0.3.0** — *Windows*
+
+**v0.4.0 — "Annotate & Redact"** (keystone release)
+
+- [ ] **M20** ⭐ Annotations — text highlight + text-box (free-text) on the M14 layer — *WSL + WSLg*
+- [ ] **M21** ⭐ Redaction — true destructive `apply_redactions` + leak verification — *WSL (model+verify) + WSLg*
+- [ ] **M22** Verify + release → tag **v0.4.0** — *Windows*
 
 ## Open follow-ups (carried)
 
-Carried items — land opportunistically in the release milestones above (M18), none block work:
+Carried items — land opportunistically in the release milestones above (M22), none block work:
 
 - **Clean-machine install** — the one deferred M9 verification item: run `pdfproj-setup.exe` on a
   Windows VM with **no Python and networking disabled** (Win10 Home has no Sandbox → VirtualBox /
@@ -54,9 +60,9 @@ Carried items — land opportunistically in the release milestones above (M18), 
   `upload-artifact@v7`, `softprops/action-gh-release@v3` (all Node-24).
 - **Code signing** — deferred Authenticode step (removes the SmartScreen prompt); needs a cert, so
   it stays deferred past v0.2.0; slots into `release.yml` before packaging (PLAN.md §Packaging §5).
-  Carry to the **v0.3.0** release (M18).
+  Carry to the **v0.4.0** release (M22).
 - **App icon** → ✅ shipped in **M10** (v0.2.0).
-- **Product features** (view/print/annotate) → now scheduled in **§Next-release roadmap** (M10–M18).
+- **Product features** (view/print/annotate) → now scheduled in **§Next-release roadmap** (M10–M22).
   Still deferred beyond it: encrypted/password PDFs, internal GoTo-link remap
   (`model/links_remap.py`), annotation round-trip editing, new-field form designer — PLAN.md
   §Future enhancements.
