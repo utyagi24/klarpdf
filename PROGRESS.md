@@ -3,10 +3,11 @@
 Live status of the build (milestone detail in `PLAN.md` §Execution). **One PR per milestone** — when
 it merges, check the box here in the same PR and append the PR link.
 
-**Status:** ✅ **v0.1.0 shipped** (2026-06-17) — all milestones **M0–M9 complete**. Offline Windows
-installer released: <https://github.com/utyagi24/pdfproj/releases/tag/v0.1.0>. **Next up:** the
-**v0.2.0 → v0.3.0** roadmap (M10–M18) is planned below; see `PLAN.md` §Next-release roadmap for the
-spec + the page-edit-layer architecture. **Open follow-ups** (carried items) are at the bottom.
+**Status:** ✅ **v0.2.0 shipped** (2026-06-17) — milestones **M0–M15 complete** (v0.1.0 = M0–M9,
+v0.2.0 = M10–M15). Release: <https://github.com/utyagi24/pdfproj/releases/tag/v0.2.0>. v0.2.0 adds
+icons, a zoom % indicator, printing, recent documents, and form filling on the new page-edit layer.
+**Next up:** the **v0.3.0** "Annotate & Redact" milestones (M16–M18) below; see `PLAN.md`
+§Next-release roadmap. **Open follow-ups** (carried items) are at the bottom.
 
 - [x] **M0** Scaffold + WSL dev venv — *step 1 (WSL); WSL* — [#4](https://github.com/utyagi24/pdfproj/pull/4)
 - [x] **M1** Correctness core: `model/` + headless tests green ⭐ — *steps 5, 7; WSL* — [#5](https://github.com/utyagi24/pdfproj/pull/5)
@@ -34,7 +35,7 @@ core, fully headless-testable).
 - [x] **M12** Printing — `QtPrintSupport` system print dialog; PyMuPDF render at printer DPI — *WSL logic; Windows print validation* — [#21](https://github.com/utyagi24/pdfproj/pull/21) (physical-printer dialog = manual check)
 - [x] **M13** Recent documents — MRU list + dynamic File ▸ Open Recent submenu — *WSL* — [#22](https://github.com/utyagi24/pdfproj/pull/22)
 - [x] **M14** ⭐ Page-edit layer + form filling (fill existing AcroForm fields) — *WSL (model+tests) + WSLg* — [#24](https://github.com/utyagi24/pdfproj/pull/24) (model foundation) + [#25](https://github.com/utyagi24/pdfproj/pull/25) (inline fill)
-- [ ] **M15** Verify + release → tag **v0.2.0** (fold in CI Node-24 bumps + code signing) — *Windows*
+- [x] **M15** Verify + release → tag **v0.2.0** (CI Node-24 action bumps folded in; code signing still deferred) — *Windows* — [#26](https://github.com/utyagi24/pdfproj/pull/26)
 
 **v0.3.0 — "Annotate & Redact"** (keystone release)
 
@@ -44,18 +45,17 @@ core, fully headless-testable).
 
 ## Open follow-ups (carried)
 
-Carried items — land opportunistically in the release milestones above (M15/M18), none block work:
+Carried items — land opportunistically in the release milestones above (M18), none block work:
 
 - **Clean-machine install** — the one deferred M9 verification item: run `pdfproj-setup.exe` on a
   Windows VM with **no Python and networking disabled** (Win10 Home has no Sandbox → VirtualBox /
   spare machine / fresh local user). Everything else in the Verification matrix is green.
-- **CI action versions** — bump the Node-20 GitHub Actions (`actions/checkout`, `setup-python`,
-  `upload-artifact`, `softprops/action-gh-release`) to their Node-24 releases to clear the
-  deprecation warning. Non-blocking; the release build succeeds today.
-- **Code signing** — deferred Authenticode step (removes the SmartScreen prompt); slots into
-  `release.yml` before packaging (PLAN.md §Packaging §5). Pairs naturally with M10's app icon → fold
-  into the **v0.2.0** release (M15).
-- **App icon** → now scheduled as **M10** (no longer a loose follow-up).
+- **CI action versions** → ✅ done in M15: `actions/checkout@v6`, `setup-python@v6`,
+  `upload-artifact@v7`, `softprops/action-gh-release@v3` (all Node-24).
+- **Code signing** — deferred Authenticode step (removes the SmartScreen prompt); needs a cert, so
+  it stays deferred past v0.2.0; slots into `release.yml` before packaging (PLAN.md §Packaging §5).
+  Carry to the **v0.3.0** release (M18).
+- **App icon** → ✅ shipped in **M10** (v0.2.0).
 - **Product features** (view/print/annotate) → now scheduled in **§Next-release roadmap** (M10–M18).
   Still deferred beyond it: encrypted/password PDFs, internal GoTo-link remap
   (`model/links_remap.py`), annotation round-trip editing, new-field form designer — PLAN.md
