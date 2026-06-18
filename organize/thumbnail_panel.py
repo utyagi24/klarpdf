@@ -238,19 +238,39 @@ class ThumbnailPanel(QListWidget):
 
     def paintEvent(self, event) -> None:
         super().paintEvent(event)  # items first
+        painter = QPainter(self.viewport())
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        self._paint_current_marker(painter)  # prominent "you are here" ring
+        self._paint_drop_marker(painter)
+        painter.end()
+
+    def _paint_current_marker(self, painter) -> None:
+        """A bold accent ring + tinted fill around the current page — the default item-selection
+        highlight is too faint to read at a glance in the sidebar."""
+        row = self.currentRow()
+        if not (0 <= row < self.count()):
+            return
+        rect = self.visualItemRect(self.item(row)).adjusted(1, 1, -1, -1)
+        fill = QColor(_ACCENT)
+        fill.setAlpha(38)
+        painter.setBrush(fill)
+        pen = QPen(_ACCENT)
+        pen.setWidth(3)
+        painter.setPen(pen)
+        painter.drawRoundedRect(QRectF(rect), 5, 5)
+
+    def _paint_drop_marker(self, painter) -> None:
         line = self._drop_marker_line()
         if line is None:
             return
         y, x0, x1 = line
-        painter = QPainter(self.viewport())
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         pen = QPen(_ACCENT)
         pen.setWidth(3)
         painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawLine(x0, y, x1, y)
         painter.drawLine(x0, y - 4, x0, y + 4)  # end ticks for visibility
         painter.drawLine(x1, y - 4, x1, y + 4)
-        painter.end()
 
     def keyPressEvent(self, event) -> None:
         if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
@@ -278,13 +298,21 @@ class ThumbnailPanel(QListWidget):
             return QIcon()
 
     def populate(self) -> None:
-        """(Re)build the thumbnail list from ``ordered[]``."""
+        """(Re)build the thumbnail list from ``ordered[]``.
+
+        Preserves the current-page marker across the rebuild: ``clear()`` would otherwise reset the
+        current row to -1, so an edit (which repopulates) would drop the highlight even though the
+        page didn't change. We capture the row first and restore it if it still exists.
+        """
+        current = self.currentRow()
         self._syncing = True
         self.clear()
         for i in range(self._vdoc.page_count):
             item = QListWidgetItem(self._thumbnail(i), str(i + 1))
             item.setTextAlignment(Qt.AlignmentFlag.AlignHCenter)
             self.addItem(item)
+        if 0 <= current < self.count():
+            self.setCurrentRow(current)
         self._syncing = False
 
     def set_current(self, index: int) -> None:

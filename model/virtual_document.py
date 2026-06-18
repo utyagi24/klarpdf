@@ -32,10 +32,11 @@ class PageRef:
     ``rotation_override`` is an **absolute** final angle (0/90/180/270) or ``None`` to inherit
     the source page's own rotation. Rotating produces a *new* PageRef (see ``with_rotation``).
 
-    ``annotations`` is an immutable tuple of annotation descriptors (``model.page_edits`` —
-    highlight / text-box, v0.4.0) that live **on the page**: because they ride the PageRef, they
-    follow the page through reorder / delete / cross-window copy, and are snapshotted with
-    ``ordered[]`` for undo/redo. They are applied to the output page at materialize.
+    ``annotations`` is an immutable tuple of page-edit descriptors (``model.page_edits`` —
+    highlight / text-box / redaction, v0.4.0) that live **on the page**: because they ride the
+    PageRef, they follow the page through reorder / delete / cross-window copy, and are snapshotted
+    with ``ordered[]`` for undo/redo. They are applied to the output page at materialize (the
+    highlight/text-box overlays non-destructively; a redaction destructively removes its region).
     """
 
     source_id: str
@@ -259,6 +260,19 @@ class VirtualDocument:
             self.ordered[index] = ref.with_annotations(remaining)
             self.dirty = True
 
+    def replace_annotation(self, index: int, old, new) -> None:
+        """Swap ``old`` for ``new`` **in place** on the page at ``index`` (preserving z-order).
+
+        Used when an annotation is mutated rather than added/removed — moving a text box or
+        re-editing its text replaces the (immutable) descriptor with an updated one without
+        disturbing the stacking order, so it reads as one undoable edit.
+        """
+        ref = self.ordered[index]
+        annotations = tuple(new if a is old else a for a in ref.annotations)
+        if annotations != ref.annotations:
+            self.ordered[index] = ref.with_annotations(annotations)
+            self.dirty = True
+
     # ---- cross-window move / copy -----------------------------------------------
 
     def import_pages(
@@ -275,6 +289,36 @@ class VirtualDocument:
             self.register_source(r.source_id, other.sources[r.source_id])
         self.insert_pages(at_index, refs)
         return refs
+
+    # ---- reload (point-of-no-return after a destructive save) -------------------
+
+    def reload_from_file(self, path: str) -> None:
+        """Re-seed this document **in place** from a freshly-saved file (the redaction commit).
+
+        After a save that applied redactions, the on-disk file is clean but the in-memory sources
+        still hold the original (un-redacted) bytes — so an undo + re-save could resurrect the
+        removed content. Reloading from the clean output drops those bytes from memory and resets
+        ``ordered`` to the saved page set; the caller then clears the undo stack, making the
+        redaction a true point of no return (the secret is gone from disk *and* RAM).
+
+        Mutates this same object (so the view / thumbnails / overlays keep their reference). The old
+        ``sources`` dict is **dropped, not closed**: some entries may be shared with other windows
+        (cross-window paste registers another window's source), and closing those would corrupt them.
+        """
+        self.sources = {}
+        source_id = self.open_source(path)
+        self.origin_source_id = source_id
+        self.path = path
+        self._origin_toc = self.sources[source_id].get_toc(simple=False)
+        self.ordered = [PageRef(source_id, i) for i in range(self.sources[source_id].page_count)]
+        self._form_values = {}
+        self.dirty = False
+
+    def has_redactions(self) -> bool:
+        """True if any page carries a redaction (so a save must commit it irreversibly)."""
+        from model.page_edits import Redaction
+
+        return any(isinstance(a, Redaction) for ref in self.ordered for a in ref.annotations)
 
     # ---- dirty tracking ---------------------------------------------------------
 
