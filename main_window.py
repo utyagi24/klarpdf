@@ -391,29 +391,16 @@ class MainWindow(QMainWindow):
         """Swap an annotation for an updated one (moving / re-editing a text box) — one undo step."""
         self.undo_stack.push(ReplaceAnnotationCommand(self.vdoc, index, old, new, text))
 
-    def _highlight_selection(self) -> None:
-        """Highlight the current text selection — one Highlight per page it spans (one undo)."""
-        if self.view.selection is None:
-            return
-        by_page: dict[int, list[tuple]] = {}
-        for page_index, _i, word in self.view.selection.selected_words():
-            by_page.setdefault(page_index, []).append(tuple(word[:4]))
-        if not by_page:
-            return
-        self.undo_stack.beginMacro("Highlight")
-        for page_index, rects in by_page.items():
-            self.undo_stack.push(AddAnnotationCommand(self.vdoc, page_index, Highlight(tuple(rects))))
-        self.undo_stack.endMacro()
+    def _selection_line_bars(self) -> dict[int, list[tuple]]:
+        """Group the current text selection's word boxes into one unioned bar **per line, per page**.
 
-    def _redact_selection(self) -> None:
-        """Redact the current text selection — one continuous bar per line (per page, one undo).
-
-        Word boxes on the same line are unioned into a single rect so the redaction reveals neither
-        word boundaries nor word lengths (a known de-anonymisation leak); a selection that starts or
-        ends mid-paragraph redacts exactly that span across the wrapped lines."""
+        A continuous strip (no inter-word gaps) is the natural look for a highlighter and, for
+        redaction, hides word boundaries/lengths (a de-anonymisation leak). Shared by highlight and
+        redaction so both behave identically; a mid-paragraph start/end covers exactly the selected
+        span across the wrapped lines. Returns ``{page_index: [line_rect, …]}`` (empty if nothing
+        selected)."""
         if self.view.selection is None:
-            return
-        # Union selected word boxes per (page, block, line) → one bar per line.
+            return {}
         bars: dict[tuple, list] = {}
         for page_index, _i, word in self.view.selection.selected_words():
             key = (page_index, word[5], word[6])  # (page, block_no, line_no)
@@ -423,11 +410,27 @@ class MainWindow(QMainWindow):
                 b[0], b[1], b[2], b[3] = min(b[0], x0), min(b[1], y0), max(b[2], x1), max(b[3], y1)
             else:
                 bars[key] = [x0, y0, x1, y1]
-        if not bars:
-            return
         by_page: dict[int, list[tuple]] = {}
         for (page_index, _b, _l), rect in bars.items():
             by_page.setdefault(page_index, []).append(tuple(rect))
+        return by_page
+
+    def _highlight_selection(self) -> None:
+        """Highlight the current text selection — one continuous bar per line (per page, one undo)."""
+        by_page = self._selection_line_bars()
+        if not by_page:
+            return
+        self.view.selection.clear()  # so the yellow bar shows, not the blue selection over it
+        self.undo_stack.beginMacro("Highlight")
+        for page_index, rects in by_page.items():
+            self.undo_stack.push(AddAnnotationCommand(self.vdoc, page_index, Highlight(tuple(rects))))
+        self.undo_stack.endMacro()
+
+    def _redact_selection(self) -> None:
+        """Redact the current text selection — one continuous bar per line (per page, one undo)."""
+        by_page = self._selection_line_bars()
+        if not by_page:
+            return
         self.view.selection.clear()
         self.undo_stack.beginMacro("Redact selection")
         for page_index, rects in by_page.items():
