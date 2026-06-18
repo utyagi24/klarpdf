@@ -11,7 +11,7 @@ import pymupdf as fitz
 import pytest
 from PySide6.QtGui import QUndoStack
 
-from model.edit_commands import AddAnnotationCommand
+from model.edit_commands import AddAnnotationCommand, RemoveAnnotationCommand
 from model.edit_engine import PyMuPDFEngine
 from model.page_edits import Highlight, TextBox
 from model.virtual_document import VirtualDocument
@@ -99,6 +99,27 @@ def test_undo_redo_restores_annotation(vdoc):
 def test_clear_annotations(vdoc):
     vdoc.add_annotation(0, TextBox((72, 150, 300, 180), "x"))
     vdoc.clear_annotations(0)
+    assert vdoc.page_annotations(0) == ()
+
+
+def test_remove_annotation_removes_only_that_one(vdoc):
+    a = TextBox((72, 150, 300, 180), "a")
+    b = TextBox((72, 200, 300, 230), "b")
+    vdoc.add_annotation(0, a)
+    vdoc.add_annotation(0, b)
+    vdoc.remove_annotation(0, a)
+    assert vdoc.page_annotations(0) == (b,)
+
+
+def test_remove_annotation_undo_redo(vdoc):
+    stack = QUndoStack()
+    a = TextBox((72, 150, 300, 180), "x")
+    vdoc.add_annotation(0, a)
+    stack.push(RemoveAnnotationCommand(vdoc, 0, a))
+    assert vdoc.page_annotations(0) == ()
+    stack.undo()
+    assert vdoc.page_annotations(0) == (a,)
+    stack.redo()
     assert vdoc.page_annotations(0) == ()
 
 

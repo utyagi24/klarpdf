@@ -27,9 +27,10 @@ class _TextBoxEditor(QPlainTextEdit):
 
 
 class AnnotationOverlay:
-    def __init__(self, view, on_add) -> None:
+    def __init__(self, view, on_add, on_remove=None) -> None:
         self._view = view
         self._on_add = on_add               # on_add(page_index, annotation) — pushes the command
+        self._on_remove = on_remove         # on_remove(page_index, annotation)
         self._items: list[QGraphicsRectItem] = []
         self._editor: _TextBoxEditor | None = None
         self._editor_page = 0
@@ -86,6 +87,26 @@ class AnnotationOverlay:
         text.setPos(rect.x() + 3, rect.y() + 2)
         text.setZValue(8)
         self._items.append(text)
+
+    # ---- removal (right-click) --------------------------------------------------
+
+    def annotation_at(self, scene_pt):
+        """The ``(page_index, annotation)`` whose painted area contains ``scene_pt``, else None.
+        Topmost (most recently added) wins. Uses the rotation-aware scene mapping, so it works on
+        rotated pages too."""
+        page_index, _ = self._view.page_and_local_at(scene_pt)
+        if page_index is None:
+            return None
+        for annot in reversed(self._view._vdoc.ordered[page_index].annotations):
+            boxes = annot.rects if isinstance(annot, Highlight) else (annot.rect,)
+            for box in boxes:
+                if self._view.scene_rect_for_box(page_index, box).contains(scene_pt):
+                    return page_index, annot
+        return None
+
+    def remove(self, page_index: int, annotation) -> None:
+        if self._on_remove is not None:
+            self._on_remove(page_index, annotation)
 
     # ---- text-box tool ----------------------------------------------------------
 

@@ -81,13 +81,46 @@ class PdfView(QGraphicsView):
         native = self._vdoc.sources[ref.source_id][ref.source_page_index].rotation
         return (ref.rotation_override - native) % 360
 
-    def _natural_size(self, index: int) -> tuple[float, float]:
-        """Unscaled page size in points, with per-page rotation + view rotation axis swaps."""
+    def _source_size(self, index: int) -> tuple[float, float]:
+        """Unrotated page size in points (the space word boxes + widget rects live in)."""
         ref = self._vdoc.ordered[index]
         rect = self._vdoc.sources[ref.source_id][ref.source_page_index].rect
-        w, h = rect.width, rect.height
-        total = (self._page_extra(index) + self._rotation) % 360
-        return (h, w) if total in (90, 270) else (w, h)
+        return rect.width, rect.height
+
+    def _total_rotation(self, index: int) -> int:
+        """Degrees the displayed page is spun beyond its source-coordinate space (per-page + view)."""
+        return (self._page_extra(index) + self._rotation) % 360
+
+    def _natural_size(self, index: int) -> tuple[float, float]:
+        """Unscaled page size in points, with per-page rotation + view rotation axis swaps."""
+        w, h = self._source_size(index)
+        return (h, w) if self._total_rotation(index) in (90, 270) else (w, h)
+
+    @staticmethod
+    def _box_to_display(W: float, H: float, total: int, box: tuple) -> tuple:
+        """Rotate a box (in unrotated WxH page points) into the displayed (spun) page space."""
+        x0, y0, x1, y1 = box
+        if total == 90:      # source (x,y) -> display (H - y, x)
+            pts = (H - y0, x0, H - y1, x1)
+        elif total == 180:
+            pts = (W - x0, H - y0, W - x1, H - y1)
+        elif total == 270:   # source (x,y) -> display (y, W - x)
+            pts = (y0, W - x0, y1, W - x1)
+        else:
+            pts = (x0, y0, x1, y1)
+        ax0, ay0, ax1, ay1 = pts
+        return (min(ax0, ax1), min(ay0, ay1), max(ax0, ax1), max(ay0, ay1))
+
+    @staticmethod
+    def _point_to_source(W: float, H: float, total: int, dx: float, dy: float) -> tuple:
+        """Inverse of :meth:`_box_to_display` for a single display-space point."""
+        if total == 90:
+            return dy, H - dx
+        if total == 180:
+            return W - dx, H - dy
+        if total == 270:
+            return W - dy, dx
+        return dx, dy
 
     def _build_scene(self) -> None:
         scene = self.scene()
@@ -126,25 +159,29 @@ class PdfView(QGraphicsView):
     # ---- overlay geometry helpers (used by selection + search) ------------------
 
     def page_and_local_at(self, scene_pt) -> tuple[int | None, "QPointF | None"]:
-        """Map a scene point to ``(page_index, point-in-page-points)``.
+        """Map a scene point to ``(page_index, point in unrotated page points)``.
 
-        Returns the page whose vertical band contains the point (x is not constrained, so a
-        drag that strays past a page's edge still resolves to a word on the nearest line).
-        ``(None, None)`` when the point falls in a gap above/below all pages. Only valid at
-        rotation 0 — callers gate on it.
+        Returns the page whose vertical band contains the point; the local point is mapped back
+        through any per-page rotation so it lands in the source coordinate space (where word boxes
+        and widget rects live). ``(None, None)`` when the point falls in a gap above/below all pages.
         """
         for i, p in enumerate(self._pages):
             if p["y"] <= scene_pt.y() <= p["y"] + p["h"]:
-                local = QPointF((scene_pt.x() - p["x"]) / self._zoom, (scene_pt.y() - p["y"]) / self._zoom)
-                return i, local
+                dx = (scene_pt.x() - p["x"]) / self._zoom
+                dy = (scene_pt.y() - p["y"]) / self._zoom
+                w, h = self._source_size(i)
+                lx, ly = self._point_to_source(w, h, self._total_rotation(i), dx, dy)
+                return i, QPointF(lx, ly)
         return None, None
 
     def scene_rect_for_box(self, page_index: int, box: tuple) -> QRectF:
-        """Map a page-space box (points, x0,y0,x1,y1) to a scene rect (rotation 0)."""
+        """Map a box in unrotated page points (x0,y0,x1,y1) to its scene rect, accounting for any
+        per-page rotation so overlays align with the displayed (spun) page."""
         p = self._pages[page_index]
-        x0, y0, x1, y1 = box
         z = self._zoom
-        return QRectF(p["x"] + x0 * z, p["y"] + y0 * z, (x1 - x0) * z, (y1 - y0) * z)
+        w, h = self._source_size(page_index)
+        dx0, dy0, dx1, dy1 = self._box_to_display(w, h, self._total_rotation(page_index), box)
+        return QRectF(p["x"] + dx0 * z, p["y"] + dy0 * z, (dx1 - dx0) * z, (dy1 - dy0) * z)
 
     def ensure_box_visible(self, page_index: int, box: tuple) -> None:
         self.ensureVisible(self.scene_rect_for_box(page_index, box), 60, 60)
@@ -168,6 +205,24 @@ class PdfView(QGraphicsView):
                     return
         # GRAB (and any unhandled click) → QGraphicsView; ScrollHandDrag pans in GRAB mode.
         super().mousePressEvent(event)
+
+    def contextMenuEvent(self, event) -> None:
+        # Right-click an annotation → Remove (works in any mode; the discoverable way to delete a
+        # highlight / text-box without undoing later edits).
+        if self.annotations is not None:
+            hit = self.annotations.annotation_at(self.mapToScene(event.pos()))
+            if hit is not None:
+                from PySide6.QtWidgets import QMenu
+
+                page_index, annot = hit
+                menu = QMenu(self)
+                label = "Remove highlight" if type(annot).__name__ == "Highlight" else "Remove text box"
+                action = menu.addAction(label)
+                if menu.exec(event.globalPos()) is action:
+                    self.annotations.remove(page_index, annot)
+                event.accept()
+                return
+        super().contextMenuEvent(event)
 
     def mouseDoubleClickEvent(self, event) -> None:
         if self.selection is not None and event.button() == Qt.MouseButton.LeftButton:

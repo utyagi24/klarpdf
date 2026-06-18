@@ -151,6 +151,32 @@ def test_drop_slot_chosen_by_vertical_position(qapp, vdoc):
     assert before_at(bottom + 50) == vdoc.page_count  # below the last page → append
 
 
+@pytest.mark.parametrize("total", [0, 90, 180, 270])
+def test_box_display_roundtrip(total):
+    # Pure geometry: a box mapped into the rotated display space and a point mapped back must
+    # land at the same place (so overlays align on a rotated page).
+    W, H = 600.0, 800.0
+    box = (10.0, 20.0, 110.0, 60.0)
+    d = PdfView._box_to_display(W, H, total, box)
+    cx, cy = (d[0] + d[2]) / 2, (d[1] + d[3]) / 2
+    sx, sy = PdfView._point_to_source(W, H, total, cx, cy)
+    assert sx == pytest.approx((box[0] + box[2]) / 2)
+    assert sy == pytest.approx((box[1] + box[3]) / 2)
+
+
+def test_overlay_box_maps_through_per_page_rotation(qapp, vdoc):
+    # Regression: a box's scene rect, mapped back via page_and_local_at, returns the unrotated
+    # source point — even when the page carries a rotation override (highlight/form alignment).
+    view = PdfView(vdoc)
+    box = (72.0, 72.0, 172.0, 92.0)
+    vdoc.set_rotation(0, 90)
+    view.reload()
+    page_index, local = view.page_and_local_at(view.scene_rect_for_box(0, box).center())
+    assert page_index == 0
+    assert local.x() == pytest.approx((box[0] + box[2]) / 2, abs=2)
+    assert local.y() == pytest.approx((box[1] + box[3]) / 2, abs=2)
+
+
 def test_view_state_roundtrip(qapp, vdoc):
     view = PdfView(vdoc)
     view.set_zoom(1.7)
