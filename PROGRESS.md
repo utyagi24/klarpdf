@@ -46,7 +46,7 @@ tick the box here on merge. ⭐ marks a keystone (most risk, GUI-free core, full
 
 **v0.4.0 — "Annotate & Redact"** (keystone release)
 
-- [ ] **M20** ⭐ Annotations — text highlight + text-box (free-text) on the M14 layer — *WSL + WSLg*
+- [ ] **M20** ⭐ Annotations — text highlight + text-box (free-text) on the M14 layer — *WSL + WSLg* — split: **PR-A** per-page annotation model + materialise + headless tests (PR pending); **PR-B** viewer highlight/text-box interaction (next)
 - [ ] **M21** ⭐ Redaction — true destructive `apply_redactions` + leak verification — *WSL (model+verify) + WSLg*
 - [ ] **M22** Verify + release → tag **v0.4.0** — *Windows*
 
