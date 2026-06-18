@@ -10,13 +10,25 @@ from __future__ import annotations
 import json
 
 import pymupdf as fitz
-from PySide6.QtCore import QByteArray, QMimeData, QSize, Qt, Signal
-from PySide6.QtGui import QDrag, QIcon, QImage, QPixmap, QTransform
+from PySide6.QtCore import QByteArray, QMimeData, QPoint, QRectF, QSize, Qt, Signal
+from PySide6.QtGui import (
+    QColor,
+    QDrag,
+    QFont,
+    QIcon,
+    QImage,
+    QPainter,
+    QPen,
+    QPixmap,
+    QTransform,
+)
 from PySide6.QtWidgets import QAbstractItemView, QListWidget, QListWidgetItem
 
 from model.virtual_document import VirtualDocument
 
 _THUMB_W = 140  # target thumbnail width in px
+_DRAG_W = 96    # width of the page image carried under the cursor while dragging
+_ACCENT = QColor(0, 120, 215)  # drop-marker + count-badge colour
 # Custom drag payload so a drop knows the source document + rows even across windows; the plain
 # QListWidget item-move MIME can't cross processes/windows and InternalMove can't leave the view.
 _PAGES_MIME = "application/x-pdfproj-pages"
@@ -53,7 +65,10 @@ class ThumbnailPanel(QListWidget):
         # above (and setDragDropMode) only flag the view, so the viewport silently rejects drops
         # and the cursor stays "blocked" — enable drops on the viewport explicitly.
         self.viewport().setAcceptDrops(True)
-        self.setDropIndicatorShown(True)
+        # We paint our own insertion marker (see paintEvent) — clearer than the default hairline,
+        # and the built-in one is unreliable for our custom-MIME drag anyway.
+        self.setDropIndicatorShown(False)
+        self._drop_row: int | None = None  # slot the marker is drawn before, while a drag is over
         self.setDragDropMode(QAbstractItemView.DragDropMode.DragDrop)
         self.setDefaultDropAction(Qt.DropAction.MoveAction)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -82,6 +97,46 @@ class ThumbnailPanel(QListWidget):
                 return row
         return self.count()
 
+    def _drag_pixmap(self, rows: list[int]) -> QPixmap:
+        """A page image to carry under the cursor: the first grabbed page, with a stacked-page hint
+        and an "N" count badge for a multi-page drag, so it's obvious a page is being dragged."""
+        size = QSize(_DRAG_W, int(_DRAG_W * 1.4))
+        thumb = self.item(rows[0]).icon().pixmap(size)
+        if thumb.isNull():
+            thumb = QPixmap(size)
+            thumb.fill(QColor("white"))
+        n = len(rows)
+        offset = 6 if n > 1 else 0  # a single offset page behind hints at a stack
+        pad = 2
+        canvas = QPixmap(thumb.width() + offset + pad * 2, thumb.height() + offset + pad * 2)
+        canvas.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(canvas)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        border = QPen(QColor(110, 110, 110))
+        if offset:
+            painter.setBrush(QColor(245, 245, 245))
+            painter.setPen(border)
+            painter.drawRect(QRectF(pad + offset, pad + offset, thumb.width(), thumb.height()))
+        painter.drawPixmap(pad, pad, thumb)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(border)
+        painter.drawRect(QRectF(pad, pad, thumb.width(), thumb.height()))
+        if n > 1:
+            d = 18
+            bx, by = canvas.width() - d - 1, 1
+            badge = QRectF(bx, by, d, d)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(_ACCENT)
+            painter.drawEllipse(badge)
+            painter.setPen(QColor("white"))
+            font = QFont()
+            font.setBold(True)
+            font.setPointSize(9)
+            painter.setFont(font)
+            painter.drawText(badge, Qt.AlignmentFlag.AlignCenter, str(n))
+        painter.end()
+        return canvas
+
     def startDrag(self, supported_actions) -> None:
         # Build our own drag carrying (source_key, rows). We never call super().startDrag, so
         # QAbstractItemView never moves/removes items — the model command + repopulate own the
@@ -94,6 +149,9 @@ class ThumbnailPanel(QListWidget):
         mime.setData(_PAGES_MIME, QByteArray(payload))
         drag = QDrag(self)
         drag.setMimeData(mime)
+        pixmap = self._drag_pixmap(rows)
+        drag.setPixmap(pixmap)
+        drag.setHotSpot(QPoint(pixmap.width() // 2, 12))  # page hangs just below the cursor
         drag.exec(Qt.DropAction.MoveAction | Qt.DropAction.CopyAction, Qt.DropAction.MoveAction)
 
     def dragEnterEvent(self, event) -> None:
@@ -104,11 +162,22 @@ class ThumbnailPanel(QListWidget):
 
     def dragMoveEvent(self, event) -> None:
         # Explicitly accept our payload on every move so the cursor reads "droppable" instead of
-        # the blocked icon (the default view logic rejects a non-item-model MIME like ours).
+        # the blocked icon (the default view logic rejects a non-item-model MIME like ours), and
+        # track the slot so paintEvent can show where the page will land.
         if event.mimeData().hasFormat(_PAGES_MIME):
+            self._set_drop_row(self._drop_before_index(event))
             event.acceptProposedAction()
         else:
             super().dragMoveEvent(event)
+
+    def dragLeaveEvent(self, event) -> None:
+        self._set_drop_row(None)
+        super().dragLeaveEvent(event)
+
+    def _set_drop_row(self, row: int | None) -> None:
+        if row != self._drop_row:
+            self._drop_row = row
+            self.viewport().update()  # repaint the insertion marker
 
     def dropEvent(self, event) -> None:
         md = event.mimeData()
@@ -119,14 +188,47 @@ class ThumbnailPanel(QListWidget):
             payload = json.loads(bytes(md.data(_PAGES_MIME).data()).decode("utf-8"))
             rows = [int(r) for r in payload.get("rows", [])]
         except (ValueError, TypeError, UnicodeDecodeError):
+            self._set_drop_row(None)
             return
         before = self._drop_before_index(event)
+        self._set_drop_row(None)
         if rows:
             self.pagesDropped.emit(payload.get("source"), rows, before)
         # The model command + repopulate apply the change; mark the drop a Copy so Qt's own move
         # machinery never removes rows behind our back.
         event.setDropAction(Qt.DropAction.CopyAction)
         event.accept()
+
+    # ---- insertion marker -------------------------------------------------------
+
+    def _drop_marker_line(self) -> tuple[int, int, int] | None:
+        """``(y, x0, x1)`` for the insertion line at the pending drop slot, or None."""
+        if self._drop_row is None or self.count() == 0:
+            return None
+        gap = self.spacing() // 2
+        if self._drop_row >= self.count():
+            rect = self.visualItemRect(self.item(self.count() - 1))
+            y = rect.bottom() + gap
+        else:
+            rect = self.visualItemRect(self.item(self._drop_row))
+            y = rect.top() - gap
+        return y, rect.left(), rect.right()
+
+    def paintEvent(self, event) -> None:
+        super().paintEvent(event)  # items first
+        line = self._drop_marker_line()
+        if line is None:
+            return
+        y, x0, x1 = line
+        painter = QPainter(self.viewport())
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        pen = QPen(_ACCENT)
+        pen.setWidth(3)
+        painter.setPen(pen)
+        painter.drawLine(x0, y, x1, y)
+        painter.drawLine(x0, y - 4, x0, y + 4)  # end ticks for visibility
+        painter.drawLine(x1, y - 4, x1, y + 4)
+        painter.end()
 
     def keyPressEvent(self, event) -> None:
         if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
