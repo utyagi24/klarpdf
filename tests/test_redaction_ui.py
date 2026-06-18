@@ -186,9 +186,9 @@ def test_redacted_save_aborts_on_cancel(win, monkeypatch):
     assert win.vdoc.has_redactions() is True    # redaction still pending (nothing committed)
 
 
-def test_received_redaction_saves_without_point_of_no_return(qapp, a_pdf, b_pdf, tmp_path, monkeypatch):
-    """A page dragged in with a pre-made redaction commits on save with NO warning and NO undo loss
-    (it can only be undone by removing the whole page, so there's nothing to resurrect)."""
+def test_received_redaction_save_is_also_point_of_no_return(qapp, a_pdf, b_pdf, tmp_path, monkeypatch):
+    """A carried redaction can be removed in the recipient (right-click Remove), so its save must
+    also confirm + commit as a point of no return — otherwise removing it and re-saving leaks."""
     import pymupdf as fitz
     from PySide6.QtWidgets import QMessageBox
 
@@ -201,13 +201,16 @@ def test_received_redaction_saves_without_point_of_no_return(qapp, a_pdf, b_pdf,
     try:
         word = _first_word(src)
         src._add_annotation(0, Redaction((tuple(word[:4]),)))   # created in src
-        dst._on_pages_dropped(src.thumbs.source_key, [0], 0)    # carried into dst (fused w/ insert)
-        before = dst.undo_stack.count()
+        dst._on_pages_dropped(src.thumbs.source_key, [0], 0)    # carried into dst
+        # The carried redaction is removable in the recipient → resurrection is possible there.
+        assert dst.view.annotations.annotation_at(
+            dst.view.scene_rect_for_box(0, tuple(word[:4])).center()) is not None
         assert dst.save() is True
-        assert not warned                          # no redaction warning on the recipient
-        assert dst.undo_stack.count() == before    # undo preserved (the page-add is still undoable)
+        assert warned                              # the recipient is warned too
+        assert dst.undo_stack.count() == 0         # committed: undo cleared, can't resurrect
+        assert dst.vdoc.has_redactions() is False
         with fitz.open(dst.path) as doc:
-            assert word[4] not in doc[0].get_text()  # the carried redaction still applied
+            assert word[4] not in doc[0].get_text()  # provably removed from the saved file
     finally:
         src.undo_stack.setClean()
         dst.undo_stack.setClean()
