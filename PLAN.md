@@ -1,13 +1,16 @@
 # Plan: Local, Offline, Native-Windows PDF Viewer + Page Editor (Python)
 
-> **Shipped (2026-06-18): `v0.3.0` released** — milestones M0–M19 complete (v0.1.0 = M0–M9; v0.2.0 =
-> M10–M15: icons, zoom %, printing, recent docs, form filling; v0.3.0 = M16–M19: drag-and-drop
-> visuals, Explorer file-drop, grab/select mode). Releases:
+> **Shipped: `v0.4.0` released** — milestones M0–M22 complete (v0.1.0 = M0–M9; v0.2.0 = M10–M15:
+> icons, zoom %, printing, recent docs, form filling; v0.3.0 = M16–M19: drag-and-drop visuals,
+> Explorer file-drop, grab/select mode; v0.4.0 = M20–M22: annotations — highlight + movable/
+> re-editable text boxes — and true destructive redaction (region + text-flow) with cross-engine
+> leak verification and a redacted-save point-of-no-return). Releases:
+> [v0.4.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.4.0) ·
 > [v0.3.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.3.0) ·
 > [v0.2.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.2.0) ·
 > [v0.1.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.1.0). This plan stays the
-> spec/source-of-truth. **Next:** **v0.4.0** "Annotate & Redact" (M20–M22) — see §Next-release
-> roadmap below; anything beyond lives in §Future enhancements.
+> spec/source-of-truth. **Next:** everything further lives in §Future enhancements (annotation
+> round-trip editing; text-box font/size/colour picker; encrypted PDFs; internal GoTo-link remap).
 
 > **Revision (2026-06-15)** — folded in two decisions without changing the product: a
 > **Development environment** section (Hybrid — build the cross-platform core + headless tests in
@@ -510,7 +513,7 @@ Run with `py -3.12 -m pytest -q` (or `pytest` in the project venv).
   hit-testing in scene coordinates); this is the most involved viewer piece and can land in a
   follow-up pass after basic view/scroll/zoom works.
 
-## Next-release roadmap (v0.2.0 ✅ → v0.3.0 → v0.4.0)
+## Next-release roadmap (v0.2.0 ✅ → v0.3.0 ✅ → v0.4.0 ✅)
 
 Same discipline as M0–M9 (one PR per milestone, `PROGRESS.md` tracks state). **A key property: none
 of it adds a third-party dependency** — annotations/redaction/forms are native PyMuPDF, printing is

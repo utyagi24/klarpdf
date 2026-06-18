@@ -3,12 +3,15 @@
 Live status of the build (milestone detail in `PLAN.md` §Execution). **One PR per milestone** — when
 it merges, check the box here in the same PR and append the PR link.
 
-**Status:** ✅ **v0.3.0 shipped** (2026-06-18) — milestones **M0–M19 complete** (v0.1.0 = M0–M9,
-v0.2.0 = M10–M15, v0.3.0 = M16–M19). Release:
-<https://github.com/utyagi24/pdfproj/releases/tag/v0.3.0>. v0.3.0 adds drag-and-drop visuals
-(page-image cursor + insertion marker), Explorer file-drop to insert at a slot, and a Grab/Select
-viewer-mode toggle. **Next up:** **v0.4.0** "Annotate & Redact" (M20–M22) — see `PLAN.md`
-§Next-release roadmap. **Open follow-ups** (carried items) are at the bottom.
+**Status:** ✅ **v0.4.0 shipped** — milestones **M0–M22 complete** (v0.1.0 = M0–M9,
+v0.2.0 = M10–M15, v0.3.0 = M16–M19, v0.4.0 = M20–M22). Release:
+<https://github.com/utyagi24/pdfproj/releases/tag/v0.4.0>. v0.4.0 "Annotate & Redact" adds text
+**highlight** + **text boxes** (move / re-edit / auto-grow), and **true destructive redaction**
+(region + text-flow) with cross-engine leak verification and a redacted-save "point of no return".
+Annotate/redact tools are **one-shot armed** gestures; cross-window page drag/paste **carries
+per-page edits**. **Next:** beyond v0.4.0 lives in `PLAN.md` §Future enhancements (annotation
+round-trip editing; font/size/colour picker; encrypted PDFs; GoTo-link remap). **Open follow-ups**
+(carried items) are at the bottom.
 
 - [x] **M0** Scaffold + WSL dev venv — *step 1 (WSL); WSL* — [#4](https://github.com/utyagi24/pdfproj/pull/4)
 - [x] **M1** Correctness core: `model/` + headless tests green ⭐ — *steps 5, 7; WSL* — [#5](https://github.com/utyagi24/pdfproj/pull/5)
@@ -23,7 +26,7 @@ viewer-mode toggle. **Next up:** **v0.4.0** "Annotate & Redact" (M20–M22) — 
 
 ⭐ M1 is the keystone — most correctness risk, GUI-free, fully testable in WSL/CI.
 
-## Releases — v0.2.0 ✅ → v0.3.0 ✅ → v0.4.0
+## Releases — v0.2.0 ✅ → v0.3.0 ✅ → v0.4.0 ✅
 
 Spec + architecture in `PLAN.md` §Next-release roadmap. Same conventions: **one PR per milestone**,
 tick the box here on merge. ⭐ marks a keystone (most risk, GUI-free core, fully headless-testable).
@@ -44,15 +47,15 @@ tick the box here on merge. ⭐ marks a keystone (most risk, GUI-free core, full
 - [x] **M18** Grab / Select mode — hand/pan vs text-selection toggle (default Select), toolbar + View menu — *WSLg* — [#30](https://github.com/utyagi24/pdfproj/pull/30)
 - [x] **M19** Verify + release → tag **v0.3.0** — *Windows* — [#31](https://github.com/utyagi24/pdfproj/pull/31)
 
-**v0.4.0 — "Annotate & Redact"** (keystone release)
+**v0.4.0 ✅ — "Annotate & Redact"** (keystone release, shipped)
 
-- [x] **M20** ⭐ Annotations — text highlight + text-box (free-text) on the M14 layer — *WSL + WSLg* — [#32](https://github.com/utyagi24/pdfproj/pull/32) (per-page model) + PR-B viewer highlight/text-box interaction (PR pending)
-- [x] **M21** ⭐ Redaction — true destructive `apply_redactions` + leak verification (`fitz` + Poppler `pdftotext` cross-engine). Two entry points, one multi-rect `Redaction` descriptor: **Redact Region** (one-shot rubber-band, for images/logos) + **Redact Selection** (text-flow, one continuous bar per line). A redacted **Save is a point of no return** (confirm → write clean → reload from clean file → clear undo: secret gone from disk *and* RAM). Bundled text-box UX polish (one-shot armed inserts; drag-to-move; double-click re-edit; auto-grow W+H; clamp to page). Forward-compat hooks for future round-trip + font/size/colour picker (`TextBox.fontname`; pdfproj author-tag on baked annots). Annotate/redact tools unified as **one-shot armed** gestures (Text Box click; Highlight/Redact-Text drag-over-text — continuous bar per line; Redact-Block drag-rect), grouped together. Cross-window page drag/paste **carries per-page edits** (annotations + redactions + rotation). 229 headless/offscreen tests. — *WSL (model+verify) + WSLg* — [#34](https://github.com/utyagi24/pdfproj/pull/34)
-- [ ] **M22** Verify + release → tag **v0.4.0** — *Windows*
+- [x] **M20** ⭐ Annotations — text highlight + text-box (free-text) on the M14 layer — *WSL + WSLg* — [#32](https://github.com/utyagi24/pdfproj/pull/32) (per-page model) + [#33](https://github.com/utyagi24/pdfproj/pull/33) (viewer highlight/text-box interaction)
+- [x] **M21** ⭐ Redaction — true destructive `apply_redactions` + leak verification (`fitz` + Poppler `pdftotext` cross-engine). Two entry points, one multi-rect `Redaction` descriptor: **Redact Region** (one-shot rubber-band, for images/logos) + **Redact Selection** (text-flow, one continuous bar per line). A redacted **Save is a point of no return** (confirm → write clean → reload from clean file → clear undo: secret gone from disk *and* RAM). Bundled text-box UX polish (one-shot armed inserts; drag-to-move; double-click re-edit; auto-grow W+H; clamp to page). Forward-compat hooks for future round-trip + font/size/colour picker (`TextBox.fontname`; pdfproj author-tag on baked annots). Annotate/redact tools unified as **one-shot armed** gestures (Text Box click; Highlight/Redact-Text drag-over-text — continuous bar per line; Redact-Block drag-rect), grouped together. Cross-window page drag/paste **carries per-page edits** (annotations + redactions + rotation). — *WSL (model+verify) + WSLg* — [#34](https://github.com/utyagi24/pdfproj/pull/34)
+- [x] **M22** Verify + release → tag **v0.4.0** (version bump + docs; 232 headless tests green) — *Windows* — [#35](https://github.com/utyagi24/pdfproj/pull/35)
 
 ## Open follow-ups (carried)
 
-Carried items — land opportunistically in the release milestones above (M22), none block work:
+Carried items — none block work:
 
 - **Clean-machine install** — the one deferred M9 verification item: run `pdfproj-setup.exe` on a
   Windows VM with **no Python and networking disabled** (Win10 Home has no Sandbox → VirtualBox /
@@ -60,10 +63,11 @@ Carried items — land opportunistically in the release milestones above (M22), 
 - **CI action versions** → ✅ done in M15: `actions/checkout@v6`, `setup-python@v6`,
   `upload-artifact@v7`, `softprops/action-gh-release@v3` (all Node-24).
 - **Code signing** — deferred Authenticode step (removes the SmartScreen prompt); needs a cert, so
-  it stays deferred past v0.2.0; slots into `release.yml` before packaging (PLAN.md §Packaging §5).
-  Carry to the **v0.4.0** release (M22).
+  it stays deferred (still unsigned through v0.4.0); slots into `release.yml` before packaging
+  (PLAN.md §Packaging §5). Carry to a future release once a cert is available.
 - **App icon** → ✅ shipped in **M10** (v0.2.0).
-- **Product features** (view/print/annotate) → now scheduled in **§Next-release roadmap** (M10–M22).
-  Still deferred beyond it: encrypted/password PDFs, internal GoTo-link remap
-  (`model/links_remap.py`), annotation round-trip editing, new-field form designer — PLAN.md
+- **Product features** → view/print/annotate/redact all shipped (M0–M22). Still deferred:
+  encrypted/password PDFs, internal GoTo-link remap (`model/links_remap.py`), annotation
+  round-trip editing (reopen-and-edit; hook in place — pdfproj author-tag), text-box font/size/
+  colour picker (`TextBox.fontname` already carried), new-field form designer — PLAN.md
   §Future enhancements.
