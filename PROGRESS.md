@@ -39,7 +39,7 @@ tick the box here on merge. ⭐ marks a keystone (most risk, GUI-free core, full
 **v0.3.0 — "Interaction & Drag-and-Drop"** (next)
 
 - [x] **M16** Drag visuals — page-thumbnail drag pixmap (+ "N pages" badge) + custom drop-insertion marker — *WSLg* — [#28](https://github.com/utyagi24/pdfproj/pull/28)
-- [ ] **M17** Explorer file drop — drag a `.pdf` from Explorer onto the Pages panel → insert at the drop slot — *WSL (logic) + WSLg*
+- [x] **M17** Explorer file drop — drag a `.pdf` from Explorer onto the Pages panel → insert at the drop slot — *WSL (logic) + WSLg* — PR pending
 - [ ] **M18** Grab / Select mode — hand/pan vs text-selection toggle (default Select), toolbar + View menu — *WSLg*
 - [ ] **M19** Verify + release → tag **v0.3.0** — *Windows*
 
