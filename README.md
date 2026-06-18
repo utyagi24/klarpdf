@@ -18,7 +18,7 @@ viewer-mode toggle.
 | Doc | What |
 |---|---|
 | [PLAN.md](PLAN.md) | Product spec, architecture, dependencies/packaging, portability, build order, **Execution**, verification |
-| [PROGRESS.md](PROGRESS.md) | Live milestone checklist (M0–M22) + **Open follow-ups** |
+| [PROGRESS.md](PROGRESS.md) | Live milestone checklist (M0–M22 shipped; v0.5.0–v0.7.0 roadmap) + **Open follow-ups** |
 | [CLAUDE.md](CLAUDE.md) | Orientation + conventions for contributors/agents |
 | [DEPENDENCIES.md](DEPENDENCIES.md) | Pinned libraries + build toolchain — exact versions, licenses |
 
