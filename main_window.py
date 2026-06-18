@@ -30,18 +30,22 @@ from PySide6.QtWidgets import (
 )
 
 from model.edit_commands import (
+    AddAnnotationCommand,
     DeleteCommand,
     InsertCommand,
     MovePagesCommand,
+    RemoveAnnotationCommand,
     RotatePagesCommand,
     SetFieldValueCommand,
 )
+from model.page_edits import Highlight
 from model.edit_engine import PyMuPDFEngine
 from model.virtual_document import PageRef, VirtualDocument
 from organize.thumbnail_panel import ThumbnailPanel
 from store.settings import Settings
 from ui import icons
 from util.paths import normalize_path
+from viewer.annotations import AnnotationOverlay
 from viewer.form_fill import FormFiller
 from viewer.pdf_view import PdfView
 from viewer.search import FindBar, SearchController
@@ -66,6 +70,7 @@ class MainWindow(QMainWindow):
         self.view.selection = TextSelection(self.view)
         self.view.search = SearchController(self.view)
         self.view.form = FormFiller(self.view, self._set_field_value)
+        self.view.annotations = AnnotationOverlay(self.view, self._add_annotation, self._remove_annotation)
         self.find_bar = FindBar(self.view)  # hidden until Ctrl+F
 
         # Central column: find bar above the view. (A QToolBar host collapses to zero height
@@ -179,6 +184,8 @@ class MainWindow(QMainWindow):
         a_find = act("Find…", self._show_find, QKeySequence.StandardKey.Find, icon="find", to_menu=edit_menu)
         act("Find Next", self.find_bar.find_next, QKeySequence.StandardKey.FindNext, to_menu=edit_menu)
         act("Find Previous", self.find_bar.find_prev, QKeySequence.StandardKey.FindPrevious, to_menu=edit_menu)
+        edit_menu.addSeparator()
+        a_highlight = act("Highlight Selection", self._highlight_selection, "Ctrl+H", icon="highlight", to_menu=edit_menu)
 
         # View
         a_zout = act("Zoom Out", self.view.zoom_out, QKeySequence.StandardKey.ZoomOut, icon="zoom-out", to_menu=view_menu)
@@ -200,7 +207,8 @@ class MainWindow(QMainWindow):
         mode_group.setExclusive(True)
         a_select = act("Select", lambda: self.view.set_mode(InteractionMode.SELECT), icon="select", to_menu=view_menu)
         a_grab = act("Grab", lambda: self.view.set_mode(InteractionMode.GRAB), icon="grab", to_menu=view_menu)
-        for a in (a_select, a_grab):
+        a_textbox = act("Text Box", lambda: self.view.set_mode(InteractionMode.TEXTBOX), icon="textbox", to_menu=view_menu)
+        for a in (a_select, a_grab, a_textbox):
             a.setCheckable(True)
             mode_group.addAction(a)
         a_select.setChecked(True)
@@ -218,12 +226,13 @@ class MainWindow(QMainWindow):
         # separators — file · history · page edits · zoom/fit · rotate · search.
         groups = (
             [pages_toggle],
-            [a_select, a_grab],
+            [a_select, a_grab, a_textbox],
             [a_open, a_save, a_print],
             [undo, redo],
             [a_cut, a_copy_pg, a_paste, a_delete, a_insert],
             [a_zout, self.zoom_widget, a_zin, a_fitw, a_fitp],
             [a_rotl, a_rotr],
+            [a_highlight],
             [a_find],
         )
         for gi, group in enumerate(groups):
@@ -338,6 +347,28 @@ class MainWindow(QMainWindow):
     def _set_field_value(self, name: str, value) -> None:
         """Fill an AcroForm field (from the inline editor) as an undoable command."""
         self.undo_stack.push(SetFieldValueCommand(self.vdoc, name, value))
+
+    def _add_annotation(self, index: int, annotation) -> None:
+        """Add an annotation to a page (from the text-box tool) as an undoable command."""
+        self.undo_stack.push(AddAnnotationCommand(self.vdoc, index, annotation))
+
+    def _remove_annotation(self, index: int, annotation) -> None:
+        """Remove an annotation (from the right-click menu) as an undoable command."""
+        self.undo_stack.push(RemoveAnnotationCommand(self.vdoc, index, annotation))
+
+    def _highlight_selection(self) -> None:
+        """Highlight the current text selection — one Highlight per page it spans (one undo)."""
+        if self.view.selection is None:
+            return
+        by_page: dict[int, list[tuple]] = {}
+        for page_index, _i, word in self.view.selection.selected_words():
+            by_page.setdefault(page_index, []).append(tuple(word[:4]))
+        if not by_page:
+            return
+        self.undo_stack.beginMacro("Highlight")
+        for page_index, rects in by_page.items():
+            self.undo_stack.push(AddAnnotationCommand(self.vdoc, page_index, Highlight(tuple(rects))))
+        self.undo_stack.endMacro()
 
     def _delete_rows(self, rows) -> None:
         if rows:
