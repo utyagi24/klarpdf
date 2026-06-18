@@ -36,6 +36,7 @@ class PdfView(QGraphicsView):
     currentPageChanged = Signal(int)
     zoomChanged = Signal(float)  # emitted whenever the zoom factor changes (1.0 == 100%)
     armedChanged = Signal(object)  # the armed ArmedTool, or None — so the toolbar can light a button
+    applyTextTool = Signal(object)  # an ArmedTool (HIGHLIGHT/REDACT_TEXT) fired on a drag-over-text release
 
     def __init__(self, vdoc: VirtualDocument, parent=None) -> None:
         super().__init__(parent)
@@ -273,8 +274,12 @@ class PdfView(QGraphicsView):
                     self.disarm()
                 event.accept()
                 return
-            if self._armed is ArmedTool.REDACT and self.annotations is not None:
+            if self._armed is ArmedTool.REDACT_REGION and self.annotations is not None:
                 self.annotations.begin_redaction(scene_pt)  # no-op off-page; stays armed
+                event.accept()
+                return
+            if self._armed is not None and self._armed.drags_text and self.selection is not None:
+                self.selection.begin(scene_pt)  # drag over text; applied (highlight/redact) on release
                 event.accept()
                 return
             if self._mode == InteractionMode.SELECT:
@@ -345,7 +350,7 @@ class PdfView(QGraphicsView):
     def mouseReleaseEvent(self, event) -> None:
         if self.annotations is not None and self.annotations.redacting:
             self.annotations.finish_redaction()
-            if self._armed is ArmedTool.REDACT:
+            if self._armed is ArmedTool.REDACT_REGION:
                 self.disarm()  # one-shot: revert to SELECT after the drag commits
             event.accept()
             return
@@ -355,6 +360,12 @@ class PdfView(QGraphicsView):
             return
         if self.selection is not None and self.selection.active:
             self.selection.finish()
+            # An armed drag-over-text tool applies to what was just selected, then disarms — but a
+            # stray click that selected nothing leaves the tool armed (no wasted arm).
+            if self._armed is not None and self._armed.drags_text:
+                if self.selection.selected_words():
+                    self.applyTextTool.emit(self._armed)
+                    self.disarm()
             event.accept()
             return
         super().mouseReleaseEvent(event)

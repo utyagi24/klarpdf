@@ -203,18 +203,61 @@ def test_textbox_editor_autogrows_width_with_long_line(win):
 
 
 def test_arming_lights_button_toggles_and_disarms_on_mode_switch(win):
+    acts = win._armed_actions
     win._arm_tool(ArmedTool.TEXTBOX)
     assert win.view.armed is ArmedTool.TEXTBOX
-    assert win._a_textbox.isChecked() and not win._a_redact.isChecked()
-    win._arm_tool(ArmedTool.REDACT)                       # arming the other swaps the lit button
-    assert win.view.armed is ArmedTool.REDACT
-    assert win._a_redact.isChecked() and not win._a_textbox.isChecked()
+    assert acts[ArmedTool.TEXTBOX].isChecked()
+    assert not any(a.isChecked() for t, a in acts.items() if t is not ArmedTool.TEXTBOX)
+    win._arm_tool(ArmedTool.REDACT_REGION)                # arming another swaps the lit button
+    assert win.view.armed is ArmedTool.REDACT_REGION
+    assert acts[ArmedTool.REDACT_REGION].isChecked() and not acts[ArmedTool.TEXTBOX].isChecked()
     win.view.set_mode(InteractionMode.SELECT)             # picking a mode disarms
     assert win.view.armed is None
-    assert not win._a_textbox.isChecked() and not win._a_redact.isChecked()
-    win._arm_tool(ArmedTool.TEXTBOX)
-    win._arm_tool(ArmedTool.TEXTBOX)                       # clicking the lit tool again disarms it
+    assert not any(a.isChecked() for a in acts.values())
+    win._arm_tool(ArmedTool.HIGHLIGHT)
+    win._arm_tool(ArmedTool.HIGHLIGHT)                     # clicking the lit tool again disarms it
     assert win.view.armed is None
+
+
+def _drag_over_first_word(win):
+    """Press-drag across page 0's first word via real mouse events; returns nothing (side effects
+    apply the armed tool on release)."""
+    box = _first_word_center(win)  # scene center of the first word
+    ref = win.vdoc.ordered[0]
+    page = win.vdoc.sources[ref.source_id][ref.source_page_index]
+    rect = win.view.scene_rect_for_box(0, page.get_text("words")[0][:4])
+    p0 = QPointF(win.view.mapFromScene(QPointF(rect.left() + 1, rect.center().y())))
+    p1 = QPointF(win.view.mapFromScene(QPointF(rect.right() - 1, rect.center().y())))
+    win.view.mousePressEvent(QMouseEvent(QEvent.Type.MouseButtonPress, p0, p0,
+        Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier))
+    win.view.mouseMoveEvent(QMouseEvent(QEvent.Type.MouseMove, p1, p1,
+        Qt.MouseButton.NoButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier))
+    win.view.mouseReleaseEvent(QMouseEvent(QEvent.Type.MouseButtonRelease, p1, p1,
+        Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier))
+
+
+def test_armed_highlight_drag_over_text_applies_and_disarms(win):
+    win.view.arm(ArmedTool.HIGHLIGHT)
+    _drag_over_first_word(win)
+    assert win.view.armed is None  # one-shot reverts to Select after the gesture
+    assert any(isinstance(a, Highlight) for a in win.vdoc.page_annotations(0))
+
+
+def test_cross_window_paste_carries_annotations(qapp, a_pdf, b_pdf, tmp_path):
+    qapp.settings = Settings(tmp_path / "vs.json")
+    src = qapp.open_document(a_pdf)
+    dst = qapp.open_document(b_pdf)
+    try:
+        src.vdoc.add_annotation(0, TextBox((72, 150, 300, 180), "carry me"))
+        src._copy_pages([0])
+        dst._paste_pages(0)
+        annots = dst.vdoc.page_annotations(0)
+        assert any(isinstance(a, TextBox) and a.text == "carry me" for a in annots)
+    finally:
+        src.undo_stack.setClean()
+        dst.undo_stack.setClean()
+        src.close()
+        dst.close()
 
 
 def test_placement_off_page_is_rejected(win):

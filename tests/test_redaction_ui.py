@@ -36,7 +36,7 @@ _BOX = (72, 66, 160, 86)  # a region over page-0 text, in unrotated page points
 
 
 def test_redact_drag_creates_redaction(win):
-    win.view.arm(ArmedTool.REDACT)
+    win.view.arm(ArmedTool.REDACT_REGION)
     rect = win.view.scene_rect_for_box(0, _BOX)
     ov = win.view.annotations
     assert ov.begin_redaction(rect.topLeft()) is True
@@ -49,12 +49,12 @@ def test_redact_drag_creates_redaction(win):
 
 
 def test_redact_begin_off_page_returns_false(win):
-    win.view.arm(ArmedTool.REDACT)
+    win.view.arm(ArmedTool.REDACT_REGION)
     assert win.view.annotations.begin_redaction(QPointF(5, 2)) is False  # the top gap
 
 
 def test_tiny_drag_adds_nothing(win):
-    win.view.arm(ArmedTool.REDACT)
+    win.view.arm(ArmedTool.REDACT_REGION)
     pt = win.view.scene_rect_for_box(0, _BOX).topLeft()
     ov = win.view.annotations
     ov.begin_redaction(pt)
@@ -64,7 +64,7 @@ def test_tiny_drag_adds_nothing(win):
 
 
 def test_armed_redact_press_routes_and_disarms_on_release(win):
-    win.view.arm(ArmedTool.REDACT)
+    win.view.arm(ArmedTool.REDACT_REGION)
     rect = win.view.scene_rect_for_box(0, _BOX)
     tl = QPointF(win.view.mapFromScene(rect.topLeft()))
     br = QPointF(win.view.mapFromScene(rect.bottomRight()))
@@ -121,6 +121,38 @@ def test_redact_selection_with_no_selection_does_nothing(win):
     win.view.selection.clear()
     win._redact_selection()
     assert win.vdoc.page_annotations(0) == ()
+
+
+def test_armed_redact_text_drag_applies_and_disarms(win):
+    win.view.arm(ArmedTool.REDACT_TEXT)
+    rect = win.view.scene_rect_for_box(0, _first_word(win)[:4])
+    p0 = QPointF(win.view.mapFromScene(QPointF(rect.left() + 1, rect.center().y())))
+    p1 = QPointF(win.view.mapFromScene(QPointF(rect.right() - 1, rect.center().y())))
+    win.view.mousePressEvent(QMouseEvent(QEvent.Type.MouseButtonPress, p0, p0,
+        Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier))
+    win.view.mouseMoveEvent(QMouseEvent(QEvent.Type.MouseMove, p1, p1,
+        Qt.MouseButton.NoButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier))
+    win.view.mouseReleaseEvent(QMouseEvent(QEvent.Type.MouseButtonRelease, p1, p1,
+        Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier))
+    assert win.view.armed is None  # drag-over-text redaction reverts to Select after applying
+    assert any(isinstance(a, Redaction) for a in win.vdoc.page_annotations(0))
+
+
+def test_cross_window_drag_carries_redaction(qapp, a_pdf, b_pdf, tmp_path):
+    """A redacted page dragged to another document carries its redaction (so it can't be saved
+    un-redacted in the destination — the safe default)."""
+    qapp.settings = Settings(tmp_path / "vs.json")
+    src = qapp.open_document(a_pdf)
+    dst = qapp.open_document(b_pdf)
+    try:
+        src.vdoc.add_annotation(0, Redaction(((72, 66, 160, 86),)))
+        dst._on_pages_dropped(src.thumbs.source_key, [0], 0)  # drop src page 0 into dst
+        assert any(isinstance(a, Redaction) for a in dst.vdoc.page_annotations(0))
+    finally:
+        src.undo_stack.setClean()
+        dst.undo_stack.setClean()
+        src.close()
+        dst.close()
 
 
 def test_redacted_save_is_point_of_no_return(win, monkeypatch):

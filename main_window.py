@@ -75,6 +75,7 @@ class MainWindow(QMainWindow):
             self.view, self._add_annotation, self._remove_annotation, self._replace_annotation
         )
         self.view.armedChanged.connect(self._on_armed_changed)
+        self.view.applyTextTool.connect(self._apply_text_tool)
         self.find_bar = FindBar(self.view)  # hidden until Ctrl+F
 
         # Central column: find bar above the view. (A QToolBar host collapses to zero height
@@ -188,11 +189,6 @@ class MainWindow(QMainWindow):
         a_find = act("Find…", self._show_find, QKeySequence.StandardKey.Find, icon="find", to_menu=edit_menu)
         act("Find Next", self.find_bar.find_next, QKeySequence.StandardKey.FindNext, to_menu=edit_menu)
         act("Find Previous", self.find_bar.find_prev, QKeySequence.StandardKey.FindPrevious, to_menu=edit_menu)
-        edit_menu.addSeparator()
-        a_highlight = act("Highlight Selection", self._highlight_selection, "Ctrl+H", icon="highlight", to_menu=edit_menu)
-        # Text-flow redaction: redact the current text selection (one continuous bar per line).
-        a_redact_sel = act("Redact Selection", self._redact_selection, "Ctrl+Shift+R", icon="redact-text", to_menu=edit_menu)
-        a_redact_sel.setToolTip("Redact Selection — permanently remove the selected text at save")
 
         # View
         a_zout = act("Zoom Out", self.view.zoom_out, QKeySequence.StandardKey.ZoomOut, icon="zoom-out", to_menu=view_menu)
@@ -220,15 +216,26 @@ class MainWindow(QMainWindow):
         a_select.setChecked(True)
         self._a_select = a_select
         view_menu.addSeparator()
-        # One-shot armed inserts: click to arm (button lights), the next gesture places one and
-        # reverts to Select. Checkable only to reflect the armed state — NOT in the mode group.
+        # One-shot armed annotate/redact tools: click to arm (button lights), do one gesture, then
+        # it reverts to Select. Checkable only to reflect the armed state — NOT in the mode group.
+        # All four are consistent — arm, then a single gesture: TextBox = click; Highlight /
+        # Redact Text = drag over text; Redact Block = drag a rectangle.
         a_textbox = act("Add Text Box", lambda: self._arm_tool(ArmedTool.TEXTBOX), icon="textbox", to_menu=view_menu)
         a_textbox.setToolTip("Add Text Box — click a spot, then type (drag to move, double-click to edit)")
-        a_redact = act("Redact Region", lambda: self._arm_tool(ArmedTool.REDACT), icon="redact", to_menu=view_menu)
-        a_redact.setToolTip("Redact Region — drag a box to permanently remove its contents at save")
-        for a in (a_textbox, a_redact):
+        a_highlight = act("Highlight", lambda: self._arm_tool(ArmedTool.HIGHLIGHT), "Ctrl+H", icon="highlight", to_menu=view_menu)
+        a_highlight.setToolTip("Highlight — drag over text to highlight it")
+        a_redact_text = act("Redact Text", lambda: self._arm_tool(ArmedTool.REDACT_TEXT), "Ctrl+Shift+R", icon="redact-text", to_menu=view_menu)
+        a_redact_text.setToolTip("Redact Text — drag over text to permanently remove it at save")
+        a_redact_block = act("Redact Block", lambda: self._arm_tool(ArmedTool.REDACT_REGION), icon="redact", to_menu=view_menu)
+        a_redact_block.setToolTip("Redact Block — drag a box to permanently remove its contents at save")
+        self._armed_actions = {
+            ArmedTool.TEXTBOX: a_textbox,
+            ArmedTool.HIGHLIGHT: a_highlight,
+            ArmedTool.REDACT_TEXT: a_redact_text,
+            ArmedTool.REDACT_REGION: a_redact_block,
+        }
+        for a in self._armed_actions.values():
             a.setCheckable(True)
-        self._a_textbox, self._a_redact = a_textbox, a_redact
         view_menu.addSeparator()
         # Checkable show/hide for the Pages sidebar — menu item + a dedicated toolbar button (its
         # checked state mirrors the panel's visibility, with the :checked toolbar styling).
@@ -244,13 +251,12 @@ class MainWindow(QMainWindow):
         groups = (
             [pages_toggle],
             [a_select, a_grab],
-            [a_textbox, a_redact],
+            [a_textbox, a_highlight, a_redact_text, a_redact_block],
             [a_open, a_save, a_print],
             [undo, redo],
             [a_cut, a_copy_pg, a_paste, a_delete, a_insert],
             [a_zout, self.zoom_widget, a_zin, a_fitw, a_fitp],
             [a_rotl, a_rotr],
-            [a_highlight, a_redact_sel],
             [a_find],
         )
         for gi, group in enumerate(groups):
@@ -351,7 +357,13 @@ class MainWindow(QMainWindow):
             if 0 <= i < src.vdoc.page_count:
                 ref = src.vdoc.ordered[i]
                 self.vdoc.register_source(ref.source_id, src.vdoc.sources[ref.source_id])
-                refs.append(PageRef(ref.source_id, ref.source_page_index, ref.rotation_override))
+                # Carry the page's unsaved per-page edits with it (annotations, redactions,
+                # rotation) — what's on the page travels to the destination. A carried redaction
+                # is the safe default: otherwise a redacted page could be dragged out and saved
+                # un-redacted (a leak). Form-field fills are document-level and stay behind.
+                refs.append(
+                    PageRef(ref.source_id, ref.source_page_index, ref.rotation_override, ref.annotations)
+                )
         if refs:
             self.undo_stack.push(InsertCommand(self.vdoc, before_index, refs, text="Drag pages in"))
 
@@ -367,7 +379,7 @@ class MainWindow(QMainWindow):
         self.undo_stack.push(SetFieldValueCommand(self.vdoc, name, value))
 
     def _arm_tool(self, tool: ArmedTool) -> None:
-        """Toolbar: arm a one-shot insert tool, or disarm it if it's already armed (toggle)."""
+        """Toolbar: arm a one-shot annotate/redact tool, or disarm it if already armed (toggle)."""
         if self.view.armed is tool:
             self.view.disarm()
         else:
@@ -375,9 +387,16 @@ class MainWindow(QMainWindow):
             self._a_select.setChecked(True)  # arming forces the SELECT base mode
 
     def _on_armed_changed(self, tool) -> None:
-        """Light the matching insert button while its tool is armed (None → both off)."""
-        self._a_textbox.setChecked(tool is ArmedTool.TEXTBOX)
-        self._a_redact.setChecked(tool is ArmedTool.REDACT)
+        """Light the matching tool button while it's armed (None → all off)."""
+        for armed_tool, action in self._armed_actions.items():
+            action.setChecked(armed_tool is tool)
+
+    def _apply_text_tool(self, tool) -> None:
+        """A drag-over-text armed tool was released on a selection → apply it (one undo)."""
+        if tool is ArmedTool.HIGHLIGHT:
+            self._highlight_selection()
+        elif tool is ArmedTool.REDACT_TEXT:
+            self._redact_selection()
 
     def _add_annotation(self, index: int, annotation) -> None:
         """Add an annotation to a page (from the text-box / redact tools) as an undoable command."""
@@ -446,8 +465,10 @@ class MainWindow(QMainWindow):
         clipboard = []
         for i in rows:
             ref = self.vdoc.ordered[i]
+            # Carry the page's per-page edits (rotation + annotations/redactions) on the clipboard
+            # so a paste into another document keeps what's on the page.
             clipboard.append((ref.source_id, self.vdoc.sources[ref.source_id],
-                              ref.source_page_index, ref.rotation_override))
+                              ref.source_page_index, ref.rotation_override, ref.annotations))
         if clipboard:
             self._app.page_clipboard = clipboard
 
@@ -464,9 +485,9 @@ class MainWindow(QMainWindow):
             return
         before = self._insertion_index() if before_index is None else before_index
         refs = []
-        for source_id, doc, page_index, rotation in payloads:
+        for source_id, doc, page_index, rotation, annotations in payloads:
             self.vdoc.register_source(source_id, doc)
-            refs.append(PageRef(source_id, page_index, rotation))
+            refs.append(PageRef(source_id, page_index, rotation, annotations))
         self.undo_stack.push(InsertCommand(self.vdoc, before, refs, text="Paste pages"))
 
     def _insert_from_file(self) -> None:
