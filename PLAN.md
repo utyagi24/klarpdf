@@ -1,9 +1,11 @@
 # Plan: Local, Offline, Native-Windows PDF Viewer + Page Editor (Python)
 
-> **Shipped (2026-06-17): `v0.1.0` released** — milestones M0–M9 complete; the offline Windows
-> installer is published ([release](https://github.com/utyagi24/pdfproj/releases/tag/v0.1.0)). This
-> plan stays the spec/source-of-truth. **Next:** the **v0.2.0 → v0.3.0** roadmap (M10–M18) is in
-> §Next-release roadmap below; anything still beyond it lives in §Future enhancements.
+> **Shipped (2026-06-17): `v0.2.0` released** — milestones M0–M15 complete (v0.1.0 = M0–M9; v0.2.0 =
+> M10–M15: icons, zoom %, printing, recent docs, form filling on the page-edit layer). Releases:
+> [v0.2.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.2.0) ·
+> [v0.1.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.1.0). This plan stays the
+> spec/source-of-truth. **Next:** the **v0.3.0** "Annotate & Redact" milestones (M16–M18) in
+> §Next-release roadmap below; anything beyond lives in §Future enhancements.
 
 > **Revision (2026-06-15)** — folded in two decisions without changing the product: a
 > **Development environment** section (Hybrid — build the cross-platform core + headless tests in
