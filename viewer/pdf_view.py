@@ -49,11 +49,12 @@ class PdfView(QGraphicsView):
         self._fill_docs: dict[str, "fitz.Document"] = {}
         self._pages: list[dict] = []   # per page: {bg, pix, x, y, w, h}
         self._current = 0
-        # Overlay controllers (set by MainWindow): text selection + search (M3) + form fill (M14).
-        # They own their highlight items and expose repaint(), called after every scene rebuild.
+        # Overlay controllers (set by MainWindow): text selection + search (M3), form fill (M14),
+        # annotations (M20). They own their items and expose repaint(), called after every rebuild.
         self.selection = None
         self.search = None
         self.form = None
+        self.annotations = None
 
         self._mode = InteractionMode.SELECT  # SELECT (text/forms) vs GRAB (hand-pan) — M18
         self.setScene(QGraphicsScene(self))
@@ -118,7 +119,7 @@ class PdfView(QGraphicsView):
         scene.setSceneRect(0, 0, widest + 2 * _PAGE_GAP, y)
         self._render_visible()
         # scene.clear() above discarded any overlay items; repaint them from logical state.
-        for overlay in (self.form, self.selection, self.search):
+        for overlay in (self.annotations, self.form, self.selection, self.search):
             if overlay is not None:
                 overlay.repaint()
 
@@ -151,16 +152,21 @@ class PdfView(QGraphicsView):
     # ---- mouse → text selection -------------------------------------------------
 
     def mousePressEvent(self, event) -> None:
-        # GRAB mode → fall through to QGraphicsView's ScrollHandDrag (pan); no text/form handling.
-        if self._mode == InteractionMode.SELECT and event.button() == Qt.MouseButton.LeftButton:
+        if event.button() == Qt.MouseButton.LeftButton:
             scene_pt = self.mapToScene(event.position().toPoint())
-            # A click on a form field starts filling it; otherwise it begins a text selection.
-            if self.form is not None and self.form.handle_press(scene_pt):
-                event.accept()
-                return
-            if self.selection is not None and self.selection.begin(scene_pt):
-                event.accept()
-                return
+            if self._mode == InteractionMode.SELECT:
+                # A click on a form field starts filling it; otherwise it begins a text selection.
+                if self.form is not None and self.form.handle_press(scene_pt):
+                    event.accept()
+                    return
+                if self.selection is not None and self.selection.begin(scene_pt):
+                    event.accept()
+                    return
+            elif self._mode == InteractionMode.TEXTBOX and self.annotations is not None:
+                if self.annotations.place_textbox(scene_pt):
+                    event.accept()
+                    return
+        # GRAB (and any unhandled click) → QGraphicsView; ScrollHandDrag pans in GRAB mode.
         super().mousePressEvent(event)
 
     def mouseDoubleClickEvent(self, event) -> None:
