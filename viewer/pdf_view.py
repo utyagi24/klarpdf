@@ -21,6 +21,7 @@ from PySide6.QtGui import QBrush, QColor, QImage, QPen, QPixmap, QTransform
 from PySide6.QtWidgets import QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsScene, QGraphicsView
 
 from model.virtual_document import VirtualDocument
+from viewer.tools import InteractionMode
 
 _PAGE_GAP = 14          # px between pages in the strip
 _PREFETCH = 2           # pages to render above/below the viewport
@@ -54,9 +55,10 @@ class PdfView(QGraphicsView):
         self.search = None
         self.form = None
 
+        self._mode = InteractionMode.SELECT  # SELECT (text/forms) vs GRAB (hand-pan) — M18
         self.setScene(QGraphicsScene(self))
         self.setBackgroundBrush(QBrush(QColor(0x30, 0x30, 0x30)))
-        # Left-drag selects text (M3), so no hand-drag panning; scroll via wheel/scrollbars.
+        # SELECT mode: left-drag selects text (M3), so no hand-drag panning; scroll via wheel/bars.
         self.setDragMode(QGraphicsView.DragMode.NoDrag)
         self.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
@@ -149,7 +151,8 @@ class PdfView(QGraphicsView):
     # ---- mouse → text selection -------------------------------------------------
 
     def mousePressEvent(self, event) -> None:
-        if event.button() == Qt.MouseButton.LeftButton:
+        # GRAB mode → fall through to QGraphicsView's ScrollHandDrag (pan); no text/form handling.
+        if self._mode == InteractionMode.SELECT and event.button() == Qt.MouseButton.LeftButton:
             scene_pt = self.mapToScene(event.position().toPoint())
             # A click on a form field starts filling it; otherwise it begins a text selection.
             if self.form is not None and self.form.handle_press(scene_pt):
@@ -295,6 +298,22 @@ class PdfView(QGraphicsView):
     @property
     def current_page(self) -> int:
         return self._current
+
+    @property
+    def mode(self) -> InteractionMode:
+        return self._mode
+
+    def set_mode(self, mode: InteractionMode) -> None:
+        """Switch the mouse tool: SELECT (text/forms) or GRAB (hand-pan)."""
+        if mode == self._mode:
+            return
+        self._mode = mode
+        if mode == InteractionMode.GRAB:
+            if self.selection is not None:
+                self.selection.clear()  # drop any in-progress selection when grabbing
+            self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)  # Qt shows the hand cursor
+        else:
+            self.setDragMode(QGraphicsView.DragMode.NoDrag)
 
     def set_zoom(self, zoom: float, keep_page: bool = True) -> None:
         zoom = max(_MIN_ZOOM, min(_MAX_ZOOM, zoom))
