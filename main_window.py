@@ -90,6 +90,7 @@ class MainWindow(QMainWindow):
         self.view.currentPageChanged.connect(self.thumbs.set_current)
         self.thumbs.pageActivated.connect(self.view.goto_page)
         self.thumbs.pagesDropped.connect(self._on_pages_dropped)
+        self.thumbs.filesDropped.connect(self._on_files_dropped)
         self.thumbs.deleteRequested.connect(self._delete_rows)
         self.thumbs.customContextMenuRequested.connect(self._page_context_menu)
 
@@ -366,6 +367,21 @@ class MainWindow(QMainWindow):
         refs = [PageRef(source_id, i) for i in range(doc.page_count)]
         self.undo_stack.push(InsertCommand(self.vdoc, self._insertion_index(), refs,
                                            text="Insert pages from file"))
+
+    def _on_files_dropped(self, paths, before_index: int) -> None:
+        """PDF(s) dragged from Explorer onto the Pages panel — insert their pages at the drop slot."""
+        refs = []
+        for path in paths:
+            try:
+                source_id = self.vdoc.open_source(path)  # raises on a non-PDF / unreadable file
+            except Exception as exc:  # skip the bad file, keep going with the rest
+                QMessageBox.warning(self, "Insert PDF", f"Could not open {os.path.basename(path)}:\n{exc}")
+                continue
+            doc = self.vdoc.sources[source_id]
+            refs.extend(PageRef(source_id, i) for i in range(doc.page_count))
+        if refs:
+            label = "Insert dropped PDF" if len(paths) == 1 else f"Insert {len(paths)} dropped PDFs"
+            self.undo_stack.push(InsertCommand(self.vdoc, before_index, refs, text=label))
 
     def _page_context_menu(self, pos) -> None:
         rows = self.thumbs.selected_rows()

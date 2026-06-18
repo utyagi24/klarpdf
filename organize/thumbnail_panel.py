@@ -8,6 +8,7 @@ keeping it bound to ``ordered[]`` now means both modes read one model.
 from __future__ import annotations
 
 import json
+import os
 
 import pymupdf as fitz
 from PySide6.QtCore import QByteArray, QMimeData, QPoint, QRectF, QSize, Qt, Signal
@@ -40,6 +41,7 @@ class ThumbnailPanel(QListWidget):
 
     pageActivated = Signal(int)
     pagesDropped = Signal(object, object, int)  # (source_key | None, rows, before-index)
+    filesDropped = Signal(object, int)          # (list[pdf paths], before-index) — from Explorer
     deleteRequested = Signal(object)            # (sorted rows)
 
     def __init__(self, vdoc: VirtualDocument, parent=None) -> None:
@@ -154,17 +156,30 @@ class ThumbnailPanel(QListWidget):
         drag.setHotSpot(QPoint(pixmap.width() // 2, 12))  # page hangs just below the cursor
         drag.exec(Qt.DropAction.MoveAction | Qt.DropAction.CopyAction, Qt.DropAction.MoveAction)
 
+    def _dropped_pdf_paths(self, mime) -> list[str]:
+        """Local ``.pdf`` files in a drag's URLs (e.g. dragged from Explorer), else ``[]``."""
+        paths = []
+        for url in mime.urls():
+            if url.isLocalFile():
+                path = url.toLocalFile()
+                if path.lower().endswith(".pdf") and os.path.isfile(path):
+                    paths.append(path)
+        return paths
+
+    def _accepts(self, mime) -> bool:
+        return mime.hasFormat(_PAGES_MIME) or bool(self._dropped_pdf_paths(mime))
+
     def dragEnterEvent(self, event) -> None:
-        if event.mimeData().hasFormat(_PAGES_MIME):
+        if self._accepts(event.mimeData()):
             event.acceptProposedAction()
         else:
             super().dragEnterEvent(event)
 
     def dragMoveEvent(self, event) -> None:
-        # Explicitly accept our payload on every move so the cursor reads "droppable" instead of
-        # the blocked icon (the default view logic rejects a non-item-model MIME like ours), and
-        # track the slot so paintEvent can show where the page will land.
-        if event.mimeData().hasFormat(_PAGES_MIME):
+        # Explicitly accept our payload (internal page drag OR an Explorer .pdf) on every move so
+        # the cursor reads "droppable" instead of the blocked icon (the default view logic rejects
+        # a non-item-model MIME), and track the slot so paintEvent shows where it will land.
+        if self._accepts(event.mimeData()):
             self._set_drop_row(self._drop_before_index(event))
             event.acceptProposedAction()
         else:
@@ -181,23 +196,30 @@ class ThumbnailPanel(QListWidget):
 
     def dropEvent(self, event) -> None:
         md = event.mimeData()
-        if not md.hasFormat(_PAGES_MIME):
-            super().dropEvent(event)
-            return
-        try:
-            payload = json.loads(bytes(md.data(_PAGES_MIME).data()).decode("utf-8"))
-            rows = [int(r) for r in payload.get("rows", [])]
-        except (ValueError, TypeError, UnicodeDecodeError):
-            self._set_drop_row(None)
-            return
         before = self._drop_before_index(event)
         self._set_drop_row(None)
-        if rows:
-            self.pagesDropped.emit(payload.get("source"), rows, before)
-        # The model command + repopulate apply the change; mark the drop a Copy so Qt's own move
-        # machinery never removes rows behind our back.
-        event.setDropAction(Qt.DropAction.CopyAction)
-        event.accept()
+
+        if md.hasFormat(_PAGES_MIME):  # internal page reorder / cross-window page drag
+            try:
+                payload = json.loads(bytes(md.data(_PAGES_MIME).data()).decode("utf-8"))
+                rows = [int(r) for r in payload.get("rows", [])]
+            except (ValueError, TypeError, UnicodeDecodeError):
+                return
+            if rows:
+                self.pagesDropped.emit(payload.get("source"), rows, before)
+            # The model command + repopulate apply the change; mark the drop a Copy so Qt's own
+            # move machinery never removes rows behind our back.
+            event.setDropAction(Qt.DropAction.CopyAction)
+            event.accept()
+            return
+
+        pdfs = self._dropped_pdf_paths(md)  # PDF(s) dragged in from Explorer
+        if pdfs:
+            self.filesDropped.emit(pdfs, before)
+            event.acceptProposedAction()
+            return
+
+        super().dropEvent(event)
 
     # ---- insertion marker -------------------------------------------------------
 
