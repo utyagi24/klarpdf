@@ -57,7 +57,7 @@ GUI-free core, fully headless-testable).
 
 - [ ] **M23** Revert / Reopen — discard all edits + reload from disk (reuse `reload_from_file` + clear undo, dirty-confirm) — *WSL + WSLg*
 - [ ] **M24** External-change warning — file-changed-on-disk detection (`QFileSystemWatcher`) → Reload / Keep prompt — *WSL (logic) + Windows*
-- [ ] **M25** Better printing + Print-to-PDF — print scaling/fit + `QPrinter` PDF destination ("Save as PDF") — *WSL logic; Windows print validation*
+- [ ] **M25** Better printing + preview + Print-to-PDF — **print preview** (`QPrintPreviewDialog` reusing `render_to_printer`; a separate dialog from the native print dialog's preview pane, whose "doesn't support print preview" placeholder is a Qt limitation) + print scaling/fit + `QPrinter` PDF destination ("Save as PDF"), all on one **edits-aware** render so preview/print/export show annotations / form values / redactions (today's path renders the raw source page + rotation only — a not-yet-saved redaction would otherwise print the original) — *WSL logic; Windows print validation*
 - [ ] **M26** Verify + release → tag **v0.5.0** — *Windows*
 
 **v0.6.0 — "Rich Text & Live Preview"** (planned)
@@ -89,6 +89,6 @@ Carried items — none block work:
 - **App icon** → ✅ shipped in **M10** (v0.2.0).
 - **Product features** → view/print/annotate/redact all shipped (M0–M22). The next tranche is
   **scheduled** in §Next roadmap above (M23–M34): rich text, live thumbnails, theme icons, revert,
-  disk-change warning, print-to-PDF, annotation round-trip editing, encrypted PDFs, GoTo-link remap.
+  disk-change warning, print preview + print-to-PDF, annotation round-trip editing, encrypted PDFs, GoTo-link remap.
   Still **deferred beyond** the roadmap (PLAN.md §Future enhancements): new-field form designer,
   drop-to-open in the main view, re-encryption on save.
