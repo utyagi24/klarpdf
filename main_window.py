@@ -174,8 +174,6 @@ class MainWindow(QMainWindow):
         self._a_revert.setEnabled(False)
         file_menu.addSeparator()
         a_print = act("Print…", self._print, QKeySequence.StandardKey.Print, icon="print", to_menu=file_menu)
-        act("Print Preview…", self._print_preview, to_menu=file_menu)
-        act("Save as PDF…", self._save_as_pdf, to_menu=file_menu)
         file_menu.addSeparator()
         act("Close", self.close, QKeySequence.StandardKey.Close, to_menu=file_menu)
 
@@ -326,25 +324,9 @@ class MainWindow(QMainWindow):
     def _print(self) -> None:
         from viewer.printing import print_document
 
-        self._commit_form()
-        print_document(self.vdoc, self.view.current_page, self)
-
-    def _print_preview(self) -> None:
-        from viewer.printing import print_preview
-
-        self._commit_form()
-        print_preview(self.vdoc, self.view.current_page, self)
-
-    def _save_as_pdf(self) -> None:
-        from viewer.printing import save_as_pdf
-
-        self._commit_form()
-        save_as_pdf(self.vdoc, self.view.current_page, self)
-
-    def _commit_form(self) -> None:
-        """Flush an open inline field editor so print/preview/export reflect a pending fill."""
         if self.view.form is not None:
-            self.view.form.commit_pending()
+            self.view.form.commit_pending()  # print what's on screen, incl. a pending fill
+        print_document(self.vdoc, self.view.current_page, self)
 
     def _copy_selection(self) -> None:
         self.view.selection.copy()
