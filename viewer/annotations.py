@@ -21,12 +21,14 @@ Rotation-0 only, like the other overlays.
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
 from PySide6.QtCore import QRect, QRectF, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QPen, QTransform
+from PySide6.QtGui import QBrush, QColor, QFontMetricsF, QPen, QTransform
 from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsSimpleTextItem, QPlainTextEdit
 
 from model.page_edits import Highlight, Redaction, TextBox
+from viewer.text_format_bar import TextBoxStyle, TextFormatBar, qt_font
 
 _TEXTBOX_DEFAULT = (200.0, 56.0)  # starting size for a new box, in page points (then auto-grows)
 _MIN_BOX_W, _MIN_BOX_H = 40.0, 20.0  # a text box never shrinks below this (page points)
@@ -48,11 +50,18 @@ class AnnotationOverlay:
         self._on_remove = on_remove         # on_remove(page_index, annotation)
         self._on_replace = on_replace       # on_replace(page_index, old, new) — move / re-edit
         self._items: list[QGraphicsRectItem] = []
-        # Inline editor (placing a new box, or re-editing an existing one).
+        # Inline editor (placing a new box, or re-editing an existing one) + its formatting bar.
         self._editor: _TextBoxEditor | None = None
         self._editor_page = 0
         self._editor_rect: tuple = (0, 0, 0, 0)
         self._editing: tuple | None = None  # (page_index, existing TextBox) when re-editing, else None
+        # The style stamped on the next new box — sticky across boxes (the last-used font/colour/etc.
+        # carries forward), and loaded from a box when it's re-edited. Edited via the format bar.
+        self._style = TextBoxStyle()
+        self._format_bar: TextFormatBar | None = None
+        # Suspends the editor's focus-out commit while a modal colour picker is up (the dialog steals
+        # focus, which would otherwise commit + close the box before the colour is applied).
+        self._suppress_commit = False
         # Live redaction rubber-band: a scene rect item dragged out over a page.
         self._redact_band: QGraphicsRectItem | None = None
         self._redact_page = 0
@@ -116,21 +125,22 @@ class AnnotationOverlay:
     def _paint_textbox(self, scene, page_index: int, annot: TextBox) -> None:
         # Author both the box and its text in **unrotated page points**, then apply the page's
         # transform so they rotate *with* the page (zoom + per-page/view rotation all in one matrix).
-        # The font uses pixelSize == fontsize (page points); the transform's zoom scales it to the
-        # same on-screen size as the rendered/saved box, so text never spills the box.
+        # WYSIWYG: the box shows exactly the fill + outline that bake at save — and nothing when
+        # neither is set (just the text, still hit-testable by its rect). The font uses pixelSize ==
+        # fontsize (page points); the transform's zoom scales it to the rendered/saved on-screen size.
         x0, y0, x1, y1 = annot.rect
         transform = self._view.page_transform(page_index)
         box = QGraphicsRectItem(QRectF(x0, y0, x1 - x0, y1 - y0))
         box.setTransform(transform)
-        box.setBrush(QColor(255, 255, 250, 235))
-        box.setPen(QPen(QColor(150, 150, 150)))
+        box.setBrush(QColor.fromRgbF(*annot.fill_color) if annot.fill_color is not None
+                     else QBrush(Qt.BrushStyle.NoBrush))
+        box.setPen(QPen(QColor(0, 0, 0), annot.border_width) if annot.border_width > 0
+                   else QPen(Qt.PenStyle.NoPen))
         box.setZValue(7)
         scene.addItem(box)
         self._items.append(box)
         text = QGraphicsSimpleTextItem(annot.text)
-        font = QFont()
-        font.setPixelSize(max(1, round(annot.fontsize)))
-        text.setFont(font)
+        text.setFont(qt_font(annot.fontname, annot.fontsize))
         text.setBrush(QColor.fromRgbF(*annot.color))
         text_transform = QTransform(transform)
         text_transform.translate(x0 + 2, y0 + 1)  # small inset, in unrotated page points
@@ -206,15 +216,18 @@ class AnnotationOverlay:
             return False
         page_index, box = hit
         self._editing = (page_index, box)
-        self._open_editor(page_index, box.rect, text=box.text, fontsize=box.fontsize)
+        self._open_editor(page_index, box.rect, text=box.text, style=TextBoxStyle.from_textbox(box))
         self._editor.selectAll()
         return True
 
-    def _open_editor(self, page_index: int, rect: tuple, text: str, fontsize: float = 11.0) -> None:
+    def _open_editor(self, page_index: int, rect: tuple, text: str,
+                     style: TextBoxStyle | None = None) -> None:
         self._close_editor()
+        if style is not None:           # re-edit loads the box's style; a new box keeps the sticky one
+            self._style = style
         self._editor_page = page_index
         self._editor_rect = rect
-        self._editor_fontsize = fontsize
+        self._editor_fontsize = self._style.fontsize
         editor = _TextBoxEditor(self._view.viewport())
         editor.setPlaceholderText("Note…")
         editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
@@ -225,7 +238,11 @@ class AnnotationOverlay:
         editor.committed.connect(self._commit_textbox)
         editor.textChanged.connect(self.reposition_editor)
         self._editor = editor
-        self.reposition_editor()  # size to initial content + place
+        self._apply_editor_style()
+        bar = self._ensure_format_bar()
+        bar.set_style(self._style)
+        bar.show()
+        self.reposition_editor()  # size to initial content; place the editor + bar
         editor.show()
         editor.setFocus()
 
@@ -243,8 +260,7 @@ class AnnotationOverlay:
         if editor is None:
             return
         z = self._view.zoom
-        font = editor.font()
-        font.setPixelSize(max(1, round(self._editor_fontsize * z)))
+        font = qt_font(self._style.fontname, self._editor_fontsize * z)  # family + zoomed size
         editor.setFont(font)
         pw, ph = self._view._unrotated_size(self._editor_page)
         x0, y0 = self._editor_rect[0], self._editor_rect[1]
@@ -270,32 +286,107 @@ class AnnotationOverlay:
         scene_rect = self._view.scene_rect_for_box(self._editor_page, self._editor_rect)
         top_left = self._view.mapFromScene(scene_rect.topLeft())
         bottom_right = self._view.mapFromScene(scene_rect.bottomRight())
-        editor.setGeometry(QRect(top_left, bottom_right))
+        geom = QRect(top_left, bottom_right)
+        editor.setGeometry(geom)
+        self._position_format_bar(geom)
 
     def _commit_textbox(self) -> None:
-        if self._editor is None:
+        if self._editor is None or self._suppress_commit:
             return
         text = self._editor.toPlainText().strip()
-        page_index, rect = self._editor_page, self._editor_rect
+        page_index, rect, style = self._editor_page, self._editor_rect, self._style
         editing, self._editing = self._editing, None
         self._close_editor()
         if editing is not None:
             _, old = editing
             if not text:
                 self.remove(page_index, old)  # emptied → delete the box
-            elif text != old.text:
-                # New rect too (the editor auto-grew to fit the new text). A no-op re-open that
-                # leaves the text unchanged commits nothing, even if the box auto-sized slightly.
-                new = TextBox(rect, text, old.fontsize, old.color, old.fontname)
+                return
+            # Re-commit when the text, the auto-grown rect, OR the style changed (a no-op re-open
+            # that touches nothing commits nothing). One descriptor compare covers all three.
+            new = self._textbox(rect, text, style)
+            if new != old:
                 self._replace(page_index, old, new, text="Edit text box")
         elif text:
-            self._on_add(page_index, TextBox(rect, text, fontsize=self._editor_fontsize))
+            self._on_add(page_index, self._textbox(rect, text, style))
+
+    @staticmethod
+    def _textbox(rect: tuple, text: str, style: TextBoxStyle) -> TextBox:
+        """Build a :class:`TextBox` from a geometry + text + the current :class:`TextBoxStyle`."""
+        return TextBox(rect, text, fontsize=style.fontsize, color=style.color,
+                       fontname=style.fontname, fill_color=style.fill_color,
+                       border_width=style.border_width)
+
+    # ---- formatting bar ---------------------------------------------------------
+
+    @property
+    def current_style(self) -> TextBoxStyle:
+        return self._style
+
+    def set_current_style(self, style: TextBoxStyle) -> None:
+        """Set the sticky style stamped on the next new box (and reflect it in the bar)."""
+        self._style = style
+        if self._format_bar is not None:
+            self._format_bar.set_style(style)
+
+    def _ensure_format_bar(self) -> TextFormatBar:
+        if self._format_bar is None:
+            self._format_bar = TextFormatBar(
+                self._view.viewport(), before_modal=self._begin_modal, after_modal=self._end_modal
+            )
+            self._format_bar.styleChanged.connect(self._on_style_changed)
+        return self._format_bar
+
+    def _on_style_changed(self, style: TextBoxStyle) -> None:
+        """The bar changed a style control while editing → restyle + re-size the live editor."""
+        self._style = style
+        self._editor_fontsize = style.fontsize
+        self._apply_editor_style()
+        self.reposition_editor()
+
+    def _apply_editor_style(self) -> None:
+        """Paint the live editor in the current colour / fill / outline (WYSIWYG). Font family +
+        size are applied in :meth:`reposition_editor` (they drive the auto-grow measurement)."""
+        editor = self._editor
+        if editor is None:
+            return
+        fg = QColor.fromRgbF(*self._style.color).name()
+        # No-fill still gets a near-opaque editor background so typing stays legible over the page;
+        # it does not bake (the committed box has no fill).
+        bg = (QColor.fromRgbF(*self._style.fill_color).name()
+              if self._style.fill_color is not None else "rgba(255,255,255,235)")
+        outline = "1px solid black" if self._style.border_width > 0 else "1px solid rgba(120,120,120,160)"
+        editor.setStyleSheet(f"QPlainTextEdit {{ color:{fg}; background:{bg}; border:{outline}; }}")
+
+    def _position_format_bar(self, editor_geom: QRect) -> None:
+        """Float the bar just above the editor (or below, if the box hugs the viewport's top edge),
+        kept within the viewport horizontally."""
+        bar = self._format_bar
+        if bar is None or not bar.isVisible():
+            return
+        bar.adjustSize()
+        y = editor_geom.top() - bar.height() - 2
+        if y < 0:
+            y = editor_geom.bottom() + 2
+        x = max(0, min(editor_geom.left(), self._view.viewport().width() - bar.width()))
+        bar.move(x, y)
+
+    def _begin_modal(self) -> None:
+        self._suppress_commit = True   # the colour dialog will steal focus — don't commit on it
+
+    def _end_modal(self) -> None:
+        self._suppress_commit = False
+        if self._editor is not None:
+            self._editor.setFocus()    # hand focus back so a later click-away still commits
 
     def _close_editor(self) -> None:
         if self._editor is not None:
             editor, self._editor = self._editor, None
             editor.hide()
             editor.deleteLater()
+        if self._format_bar is not None:
+            self._format_bar.hide()
+        self._suppress_commit = False
 
     # ---- text-box tool: move (drag an existing box) -----------------------------
 
@@ -348,7 +439,7 @@ class AnnotationOverlay:
         page_index, old, new_rect = self._move_page, self._move_box, self._move_rect
         self._move_box = self._move_anchor_local = None
         if old is not None and new_rect != old.rect:
-            new = TextBox(new_rect, old.text, old.fontsize, old.color, old.fontname)
+            new = replace(old, rect=new_rect)  # preserve text + all styling, just move it
             self._replace(page_index, old, new, text="Move text box")
 
     # ---- redaction tool (rubber-band drag) --------------------------------------
