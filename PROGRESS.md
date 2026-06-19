@@ -55,7 +55,7 @@ GUI-free core, fully headless-testable).
 
 **v0.5.0 — "File Safety & Output"** (planned)
 
-- [ ] **M23** Revert / Reopen — discard all edits + reload from disk (reuse `reload_from_file` + clear undo, dirty-confirm) — *WSL + WSLg*
+- [x] **M23** Revert / Reopen — discard all edits + reload from disk (reuse `reload_from_file` + clear undo, dirty-confirm) — *WSL + WSLg* — [#37](https://github.com/utyagi24/pdfproj/pull/37)
 - [ ] **M24** External-change warning — file-changed-on-disk detection (`QFileSystemWatcher`) → Reload / Keep prompt — *WSL (logic) + Windows*
 - [ ] **M25** Better printing + preview + Print-to-PDF — **print preview** (`QPrintPreviewDialog` reusing `render_to_printer`; a separate dialog from the native print dialog's preview pane, whose "doesn't support print preview" placeholder is a Qt limitation) + print scaling/fit + `QPrinter` PDF destination ("Save as PDF"), all on one **edits-aware** render so preview/print/export show annotations / form values / redactions (today's path renders the raw source page + rotation only — a not-yet-saved redaction would otherwise print the original) — *WSL logic; Windows print validation*
 - [ ] **M26** Verify + release → tag **v0.5.0** — *Windows*

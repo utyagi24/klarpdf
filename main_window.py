@@ -160,6 +160,10 @@ class MainWindow(QMainWindow):
         self._recent_menu.aboutToShow.connect(self._populate_recent_menu)
         a_save = act("Save", self.save, QKeySequence.StandardKey.Save, icon="save", to_menu=file_menu)
         act("Save As…", self.save_as, QKeySequence.StandardKey.SaveAs, to_menu=file_menu)
+        # Revert: discard all edits and reload from disk. Enabled only while there are unsaved
+        # changes (a clean doc has nothing to revert) — toggled in _on_clean_changed.
+        self._a_revert = act("Revert to Saved", self.revert, to_menu=file_menu)
+        self._a_revert.setEnabled(False)
         file_menu.addSeparator()
         a_print = act("Print…", self._print, QKeySequence.StandardKey.Print, icon="print", to_menu=file_menu)
         file_menu.addSeparator()
@@ -327,6 +331,7 @@ class MainWindow(QMainWindow):
 
     def _on_clean_changed(self, clean: bool) -> None:
         self.setWindowModified(not clean)
+        self._a_revert.setEnabled(not clean)
 
     def _insertion_index(self) -> int:
         """Where Paste / Insert land: after the last selected page, else at the end."""
@@ -591,10 +596,9 @@ class MainWindow(QMainWindow):
         self.undo_stack.setClean()
         self.vdoc.mark_clean()
         if committing:
-            self.vdoc.reload_from_file(target_path)  # drop the un-redacted bytes from memory
-            self.undo_stack.clear()                  # nothing left to undo/remove back into a leak
-            self.view.reload()
-            self.thumbs.populate()
+            # Drop the un-redacted bytes from memory + clear undo so nothing can be brought back
+            # into a leak. Same reload-in-place path as Revert.
+            self._reset_to_file(target_path)
         return True
 
     def _confirm_redaction(self) -> bool:
@@ -607,6 +611,41 @@ class MainWindow(QMainWindow):
                 QMessageBox.StandardButton.Cancel,
             )
             == QMessageBox.StandardButton.Save
+        )
+
+    def _reset_to_file(self, path: str) -> None:
+        """Reload the document from ``path`` in place, dropping all in-memory edits and the undo
+        history, then refresh every surface. Shared by the redaction commit (reload from the clean
+        output) and Revert (reload from the on-disk original); afterwards the document is clean."""
+        self.vdoc.reload_from_file(path)
+        self.undo_stack.clear()        # empties history; an empty stack is clean → title * clears
+        self.view.selection.clear()
+        self.view.search.clear()
+        self.view.reload()
+        self.thumbs.populate()
+
+    def revert(self) -> None:
+        """Discard all in-memory edits and reload the document from its on-disk file (M23).
+
+        Behind a confirm because it throws away unsaved changes and clears the undo history (it
+        cannot itself be undone). No-op for an untitled or already-clean document — the menu action
+        is disabled in both of those cases."""
+        if self.vdoc.path is None or self.undo_stack.isClean():
+            return
+        if self._confirm_revert():
+            self._reset_to_file(self.vdoc.path)
+
+    def _confirm_revert(self) -> bool:
+        return (
+            QMessageBox.warning(
+                self,
+                "Revert to saved",
+                f"Discard all changes to {os.path.basename(self.path)} and reload the saved "
+                f"file?\n\nThis cannot be undone.",
+                QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel,
+            )
+            == QMessageBox.StandardButton.Discard
         )
 
     # ---- view-state persistence + close prompt ----------------------------------
