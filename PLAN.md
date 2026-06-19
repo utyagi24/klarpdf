@@ -9,8 +9,9 @@
 > [v0.3.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.3.0) ·
 > [v0.2.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.2.0) ·
 > [v0.1.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.1.0). This plan stays the
-> spec/source-of-truth. **Next:** everything further lives in §Future enhancements (annotation
-> round-trip editing; text-box font/size/colour picker; encrypted PDFs; internal GoTo-link remap).
+> spec/source-of-truth. **Next:** **v0.5.0 → v0.7.0** planned — see §Next roadmap (file-safety &
+> output; rich text & live preview; round-trip & documents). Anything beyond lives in §Future
+> enhancements.
 
 > **Revision (2026-06-15)** — folded in two decisions without changing the product: a
 > **Development environment** section (Hybrid — build the cross-platform core + headless tests in
@@ -513,7 +514,7 @@ Run with `py -3.12 -m pytest -q` (or `pytest` in the project venv).
   hit-testing in scene coordinates); this is the most involved viewer piece and can land in a
   follow-up pass after basic view/scroll/zoom works.
 
-## Next-release roadmap (v0.2.0 ✅ → v0.3.0 ✅ → v0.4.0 ✅)
+## Shipped roadmap (v0.2.0 ✅ → v0.3.0 ✅ → v0.4.0 ✅)
 
 Same discipline as M0–M9 (one PR per milestone, `PROGRESS.md` tracks state). **A key property: none
 of it adds a third-party dependency** — annotations/redaction/forms are native PyMuPDF, printing is
@@ -636,39 +637,65 @@ descriptors + `model/edit_engine.py`'s post-copy pass; reuse `viewer/tools.py`; 
 `packaging/`; nothing new leaks into `app.py`/`launcher.py`, and all the v0.3.0/v0.4.0 work lives in
 the reusable cross-platform layer.
 
-## Future enhancements (deferred)
+## Next roadmap (v0.5.0 → v0.6.0 → v0.7.0)
 
-Out of scope for the first build, captured so they can be picked up cleanly later:
+Same discipline as the shipped releases: **one PR per milestone**, `PROGRESS.md` tracks state, ⭐
+marks a keystone (most risk, GUI-free core, fully headless-testable). **Still no third-party
+dependency** — every item is native PyMuPDF or Qt (already inside the vendored PySide6 / PyMuPDF
+wheels), so `requirements.in` stays unchanged and the hashed offline lock + vendored wheels remain
+exactly as shipped. (Owner-confirmed sequencing: discard-edits lands in **v0.5.0**; rich text in
+**v0.6.0**; "Save as PDF" = **print-to-PDF**.)
 
-- **Encrypted / password-protected PDFs:** on open, detect `doc.needs_pass`, prompt the user,
-  and call `doc.authenticate(pw)` before registering the source. Materialize-on-save already
-  writes a fresh document, so output is unencrypted unless we later add re-encryption.
-- **Internal GoTo-link remap:** `LINK` annotations that jump to another page break on
-  reorder/delete exactly like the outline does. Generalize `model/toc_remap.py` into
-  `model/links_remap.py` — same old→new index map, drop links whose target page was deleted —
-  and apply it during materialize. (Today `insert_pdf(links=True)` copies links but does not
-  fix cross-run targets.)
-- **Duplicate form-field rename + multi-level outline:** promote the two TOC/forms items from
-  "Open items" above into real handling once the fixture tests confirm the installed PyMuPDF's
-  behavior (auto-rename colliding root field names; remap named/explicit destinations across
-  multi-level outlines).
-- **Annotation round-trip editing:** v0.4.0 annotations are fire-and-forget (bake in at save). A
-  later pass could re-parse existing annotations from a source on open into `model/page_edits.py`
-  so saved highlights/text-boxes can be moved, re-edited, or removed in-app *after reopening* (today
-  they're inert once saved). The hard part is **de-duplication at re-save** — `insert_pdf(annots=
-  True)` already copies the existing annotation, so materialize must strip the managed annotations
-  from the copied page before re-applying from the model. The hook is in place: every pdfproj-baked
-  annotation carries the `PDFPROJ_AUTHOR` title (`model/page_edits.py`), so a round-trip pass can
-  tell our annotations from foreign ones and adopt/strip only ours. (Redaction is excluded — it is a
-  destructive point-of-no-return by design, not a re-editable overlay.)
-- **Text-box font / size / colour picker:** v0.4.0 text boxes render in a default font (Helvetica,
-  11 pt, black). The descriptor already carries `fontname` / `fontsize` / `color` and both the
-  render and materialize paths honour them, so adding a picker is pure UI wiring — no model change.
-- **New-field form designer:** v0.2.0 fills *existing* AcroForm fields only; adding brand-new
-  fields (layout, types, appearance streams) is a larger, separate effort.
-- **Drop-to-open in the main view:** v0.3.0 scopes Explorer file-drop to the Pages sidebar
+### v0.5.0 — "File Safety & Output"
+
+Trust/robustness around the on-disk file, plus printing & output improvements. Small and low-risk;
+reuses the `VirtualDocument.reload_from_file` plumbing built for the redaction commit and the
+existing `render_to_printer` print path.
+
+| Milestone | Feature | Where | Done when |
+|---|---|---|---|
+| **M23** Revert / Reopen | A **Revert** action: discard all edits and reload the document from disk (reuse `reload_from_file` + clear the undo stack, behind a dirty-confirm). | WSL + WSLg | Revert returns the doc to its on-disk state; undo history cleared |
+| **M24** External-change warning | Detect the open file changed on disk (mtime/size, or a content hash, via `QFileSystemWatcher`); warn before an overwriting Save and/or on window focus, offering **Reload** (→ M23 path) or **Keep**. | WSL (logic) + **Win** (watcher) | Editing a file changed underneath you warns before clobbering it |
+| **M25** Better printing + preview + Print-to-PDF | Three additions on one shared **edits-aware** `render_to_printer` path: **(1) Print preview** — a `QPrintPreviewDialog` whose `paintRequested` reuses `render_to_printer` (File ▸ Print Preview + preview-first from Print). It's a *separate* Qt dialog and does **not** populate the native print dialog's own preview pane — a Qt-on-Windows limitation that's the source of the "this app doesn't support print preview" placeholder. **(2) Scaling / fit-to-page** options (fit / actual-size / shrink-oversized-only / custom %). **(3) PDF destination** (`QPrinter.setOutputFormat(PdfFormat)`, "Save as PDF") that renders pages honouring print settings — a rasterised snapshot, distinct from the lossless object-level Save As. **Fix folded in:** route all three through an **edits-applied** render (annotations / form values / redactions) so preview/print/export match the viewer — today's path rasterises the raw source page + rotation only, so a not-yet-saved redaction would otherwise print the original content. | WSL logic; **Win** print validation | Print preview shows the document *with edits*, honouring fit/scale; print dialog offers fit/scale; "Save as PDF" writes a rendered PDF |
+| **M26** Verify + release | Headless suite green; Windows validation (watcher, revert, **print preview** + print-to-PDF in the frozen build); tag **v0.5.0**. | **Win** | Matrix green → v0.5.0 released |
+
+### v0.6.0 — "Rich Text & Live Preview"
+
+The annotation experience deepens, building directly on v0.4.0's text boxes.
+
+| Milestone | Feature | Where | Done when |
+|---|---|---|---|
+| **M27** ⭐ Rich text boxes | Text-box **font family / size / colour** + **bold / italic / underline** + **box outline & fill**, via a small formatting bar on the inline editor. Extends the `TextBox` descriptor (the `fontname` hook already exists) + `add_freetext_annot` (base-14 bold/italic variants, `text_color` / `fill_color` / `border_color` / `border_width`; underline via the `richtext` path). Headless materialize tests assert the styled annot. | WSL (model+tests) + WSLg | Style a text box (font/size/colour + B/I/U + outline); it bakes into the saved PDF |
+| **M28** Live thumbnails | Thumbnails reflect the page's **current edited state** (annotations / redactions / fills): render each from an edits-applied page copy (shares the per-page edit-render the viewer uses) with cache invalidation on every edit. | WSLg | A redacted/annotated page's thumbnail shows the edit |
+| **M29** Dynamic theme icons | Verify + complete the runtime OS **light↔dark** switch: `changeEvent` / `icons.refresh_for_theme` already re-tint toolbar glyphs on `ApplicationPaletteChange`; ensure it fires on a live Windows theme change (and the app/window icon follows). | WSLg + **Win** | Flipping the OS theme re-tints the toolbar without a restart |
+| **M30** Verify + release | Headless suite green; Windows validation; tag **v0.6.0**. | **Win** | Matrix green → v0.6.0 released |
+
+### v0.7.0 — "Round-trip & Documents"
+
+Re-editing saved annotations + deeper PDF-format support.
+
+| Milestone | Feature | Where | Done when |
+|---|---|---|---|
+| **M31** ⭐ Annotation round-trip editing | On open, re-parse **our** annotations (the `PDFPROJ_AUTHOR`-tagged highlights / text-boxes) from the source into `model/page_edits.py`; at materialize, **strip-then-re-add** the managed annotations on the copied page so they aren't duplicated. Saved highlights/text-boxes become movable / re-editable / removable after reopening. (Redaction stays a point-of-no-return — not re-editable.) | WSL (model+tests) + WSLg | Reopen a saved doc → move / edit / remove its pdfproj annotations |
+| **M32** Encrypted / password PDFs | On open, detect `doc.needs_pass`, prompt, `doc.authenticate(pw)` before registering the source. (Output stays unencrypted unless re-encryption is added later.) | WSL + WSLg | Open a password-protected PDF after entering its password |
+| **M33** Internal GoTo-link remap | Generalize `model/toc_remap.py` → `model/links_remap.py`: the same old→new page-index map applied to internal `LINK` GoTo annotations at materialize; drop links whose target page was deleted. Pure model — a clean headless keystone. | WSL (model+tests) | Reordered/deleted pages keep internal links pointing at the right page |
+| **M34** Verify + release | Headless suite green; Windows validation; tag **v0.7.0**. | **Win** | Matrix green → v0.7.0 released |
+
+## Future enhancements (deferred beyond the roadmap)
+
+Captured but not yet scheduled:
+
+- **New-field form designer:** form-fill (v0.2.0) edits *existing* AcroForm fields only; adding
+  brand-new fields (layout, types, appearance streams) is a larger, separate effort.
+- **Drop-to-open in the main view:** Explorer file-drop is scoped to the Pages sidebar
   (insert-at-slot). A later extension could accept a PDF dropped onto the main page area — insert at
   the current page, or open it as a new window when the view is empty.
+- **Re-encryption on save:** materialize writes an unencrypted document; re-encrypting the output
+  (carrying a password through) pairs with the M32 encrypted-PDF work if wanted.
+- **Resolved (no longer open):** duplicate form-field rename + multi-level outline remap are handled
+  today — `insert_pdf` auto-renames colliding root fields on merge (confirmed in M1) and
+  `model/toc_remap.py` does multi-level remap with orphan repair.
 
-> Note: the view/print/annotate **product features** that earlier sat here are now scheduled in
-> §Next-release roadmap (v0.2.0 → v0.3.0); only the items above remain deferred.
+> Note: the view/print/annotate/redact **product features** that earlier sat here all shipped
+> (M0–M22); the next tranche is scheduled in §Next roadmap (v0.5.0 → v0.7.0). Only the items above
+> remain deferred.
