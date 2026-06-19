@@ -9,10 +9,12 @@ from __future__ import annotations
 import pytest
 from PySide6.QtCore import QEvent, QPointF, Qt
 from PySide6.QtGui import QMouseEvent
+from PySide6.QtWidgets import QGraphicsRectItem
 
 from app import PdfApp
 from model.page_edits import Highlight, TextBox
 from store.settings import Settings
+from viewer.text_format_bar import TextBoxStyle, TextFormatBar
 from viewer.tools import ArmedTool, InteractionMode
 
 
@@ -333,3 +335,130 @@ def test_move_on_rotated_page_follows_cursor(win):
     new_center = win.view.scene_rect_for_box(0, moved.rect).center()
     assert new_center.y() > start.y() + 20          # followed the cursor downward …
     assert abs(new_center.x() - start.x()) < 20     # … and did not drift sideways
+
+
+# ---- M27 styled text boxes: the formatting bar + style threading ----------------
+#
+# Colour pickers are modal QColorDialogs (they can't run offscreen), so these drive style through
+# the overlay's current style + the bar's non-dialog controls (family / size / outline menus).
+
+_STYLED = TextBoxStyle(fontname="cour", fontsize=16.0, color=(1.0, 0.0, 0.0),
+                       fill_color=(0.2, 0.4, 0.9), border_width=1.0)
+
+
+def _place_box(win, text, box=(100, 120, 300, 160)):
+    win.view.arm(ArmedTool.TEXTBOX)
+    win.view.annotations.place_textbox(win.view.scene_rect_for_box(0, box).center())
+    win.view.annotations._editor.setPlainText(text)
+
+
+def test_new_box_bakes_the_current_style(win):
+    win.view.annotations.set_current_style(_STYLED)
+    _place_box(win, "styled")
+    win.view.annotations._commit_textbox()
+    box = next(a for a in win.vdoc.page_annotations(0) if isinstance(a, TextBox))
+    assert box.text == "styled"
+    assert (box.fontname, box.fontsize, box.color) == ("cour", 16.0, (1.0, 0.0, 0.0))
+    assert box.fill_color == (0.2, 0.4, 0.9) and box.border_width == 1.0
+
+
+def test_format_bar_shows_with_editor_and_hides_on_commit(win):
+    _place_box(win, "x")
+    ov = win.view.annotations
+    assert ov._format_bar is not None and not ov._format_bar.isHidden()  # bar up while editing
+    ov._commit_textbox()
+    assert ov._format_bar.isHidden()                                     # gone after commit
+
+
+def test_bar_controls_update_overlay_style_and_editor(win):
+    _place_box(win, "x")
+    ov, bar = win.view.annotations, win.view.annotations._format_bar
+    bar._set_family("cour")
+    bar._set_size(18)
+    bar._outline_btn.setChecked(True)
+    bar._toggle_outline()
+    assert ov.current_style.fontname == "cour"
+    assert ov.current_style.fontsize == 18.0
+    assert ov.current_style.border_width == 1.0
+    assert ov._editor.font().pixelSize() == max(1, round(18 * win.view.zoom))  # editor tracked size
+
+
+def test_reedit_loads_the_box_style_into_the_bar(win):
+    win.vdoc.add_annotation(0, TextBox((100, 120, 300, 160), "styled", fontsize=20, color=(0, 0, 1),
+                                       fontname="tiro", fill_color=(1, 1, 0), border_width=2.0))
+    win.view.annotations.repaint()
+    ov = win.view.annotations
+    ov.edit_textbox_at(win.view.scene_rect_for_box(0, (100, 120, 300, 160)).center())
+    loaded = TextBoxStyle(fontname="tiro", fontsize=20.0, color=(0, 0, 1),
+                          fill_color=(1, 1, 0), border_width=2.0)
+    assert ov.current_style == loaded
+    assert ov._format_bar.style() == loaded
+
+
+def test_style_only_change_on_reedit_is_committed(win):
+    win.vdoc.add_annotation(0, TextBox((100, 120, 300, 160), "keep"))  # plain, no outline
+    win.view.annotations.repaint()
+    ov = win.view.annotations
+    ov.edit_textbox_at(win.view.scene_rect_for_box(0, (100, 120, 300, 160)).center())
+    ov._format_bar._outline_btn.setChecked(True)
+    ov._format_bar._toggle_outline()       # change only the outline (text untouched)
+    ov._commit_textbox()
+    box = next(a for a in win.vdoc.page_annotations(0) if isinstance(a, TextBox))
+    assert box.text == "keep" and box.border_width == 1.0   # restyled despite the same text
+
+
+def test_move_preserves_style(win):
+    win.vdoc.add_annotation(0, TextBox((100, 120, 300, 160), "m", **{
+        "fontname": "cour", "fontsize": 14, "color": (0, 0, 1),
+        "fill_color": (0.9, 0.9, 0.2), "border_width": 1.5}))
+    win.view.annotations.repaint()
+    ov = win.view.annotations
+    start = win.view.scene_rect_for_box(0, (100, 120, 300, 160)).center()
+    ov.begin_move(start)
+    ov.update_move(QPointF(start.x() + 30 * win.view.zoom, start.y() + 20 * win.view.zoom))
+    ov.finish_move()
+    box = next(a for a in win.vdoc.page_annotations(0) if isinstance(a, TextBox))
+    assert box.rect != (100, 120, 300, 160)                # it moved …
+    assert (box.fontname, box.fill_color, box.border_width) == ("cour", (0.9, 0.9, 0.2), 1.5)  # … style kept
+
+
+def test_modal_colour_picker_suppresses_focus_out_commit(win):
+    _place_box(win, "z")
+    ov = win.view.annotations
+    ov._begin_modal()                       # a colour dialog is up → editor focus-out must not commit
+    ov._commit_textbox()
+    assert ov._editor is not None                       # editor still open
+    assert win.vdoc.page_annotations(0) == ()           # nothing committed
+    ov._end_modal()                         # dialog closed → focus back, commit re-enabled
+    ov._commit_textbox()
+    assert any(isinstance(a, TextBox) and a.text == "z" for a in win.vdoc.page_annotations(0))
+
+
+def test_wysiwyg_preview_paints_fill_and_outline(win):
+    win.vdoc.add_annotation(0, TextBox((100, 120, 300, 160), "p",
+                                       fill_color=(0.2, 0.4, 0.9), border_width=2.0))
+    win.view.annotations.repaint()
+    rects = [it for it in win.view.annotations._items if isinstance(it, QGraphicsRectItem)]
+    assert any(it.brush().style() != Qt.BrushStyle.NoBrush for it in rects)   # fill drawn
+    assert any(it.pen().style() != Qt.PenStyle.NoPen for it in rects)         # outline drawn
+
+
+# ---- the formatting bar in isolation (no MainWindow) ----------------------------
+
+
+def test_format_bar_roundtrips_style_through_controls(qapp):
+    bar = TextFormatBar(None)
+    bar.set_style(_STYLED)
+    assert bar.style() == _STYLED
+    assert bar._build() == _STYLED          # controls reconstruct the same style (no dialog)
+    bar.deleteLater()
+
+
+def test_format_bar_outline_toggle_emits_styled(qapp):
+    bar = TextFormatBar(None)
+    seen = []
+    bar.styleChanged.connect(seen.append)
+    bar._outline_btn.setChecked(True)
+    bar._toggle_outline()
+    assert seen and seen[-1].border_width == 1.0
+    bar.deleteLater()
