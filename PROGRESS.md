@@ -9,7 +9,7 @@ v0.2.0 = M10–M15, v0.3.0 = M16–M19, v0.4.0 = M20–M22). Release:
 **highlight** + **text boxes** (move / re-edit / auto-grow), and **true destructive redaction**
 (region + text-flow) with cross-engine leak verification and a redacted-save "point of no return".
 Annotate/redact tools are **one-shot armed** gestures; cross-window page drag/paste **carries
-per-page edits**. **Next:** **v0.5.0 → v0.7.0** planned (M23–M34) — see the roadmap below and
+per-page edits**. **Next:** **v0.5.0 → v0.8.0** planned (M23–M37) — see the roadmap below and
 `PLAN.md` §Next roadmap. **Open follow-ups** (carried items) are at the bottom.
 
 - [x] **M0** Scaffold + WSL dev venv — *step 1 (WSL); WSL* — [#4](https://github.com/utyagi24/pdfproj/pull/4)
@@ -25,9 +25,9 @@ per-page edits**. **Next:** **v0.5.0 → v0.7.0** planned (M23–M34) — see th
 
 ⭐ M1 is the keystone — most correctness risk, GUI-free, fully testable in WSL/CI.
 
-## Releases — v0.2.0 ✅ → v0.3.0 ✅ → v0.4.0 ✅ → v0.5.0 → v0.6.0 → v0.7.0
+## Releases — v0.2.0 ✅ → v0.3.0 ✅ → v0.4.0 ✅ → v0.5.0 → v0.6.0 → v0.7.0 → v0.8.0
 
-Spec + architecture in `PLAN.md` (§Shipped roadmap for v0.2–v0.4, §Next roadmap for v0.5–v0.7). Same
+Spec + architecture in `PLAN.md` (§Shipped roadmap for v0.2–v0.4, §Next roadmap for v0.5–v0.8). Same
 conventions: **one PR per milestone**, tick the box here on merge. ⭐ marks a keystone (most risk,
 GUI-free core, fully headless-testable).
 
@@ -57,7 +57,7 @@ GUI-free core, fully headless-testable).
 
 - [x] **M23** Revert / Reopen — discard all edits + reload from disk (reuse `reload_from_file` + clear undo, dirty-confirm) — *WSL + WSLg* — [#37](https://github.com/utyagi24/pdfproj/pull/37)
 - [x] **M24** External-change warning — file-changed-on-disk detection (`QFileSystemWatcher` + `(mtime, size)` signature) → Reload / Keep prompt (+ Overwrite / Reload / Cancel before an overwriting Save) — *WSL (logic) + Windows* — [#38](https://github.com/utyagi24/pdfproj/pull/38)
-- [x] **M25** Better printing + preview + Print-to-PDF — **print preview** (`QPrintPreviewDialog` reusing `render_to_printer`; a separate dialog from the native print dialog's preview pane, whose "doesn't support print preview" placeholder is a Qt limitation) + print scaling/fit + `QPrinter` PDF destination ("Save as PDF"), all on one **edits-aware** render so preview/print/export show annotations / form values / redactions (today's path renders the raw source page + rotation only — a not-yet-saved redaction would otherwise print the original) — *WSL logic; Windows print validation* — [#39](https://github.com/utyagi24/pdfproj/pull/39)
+- [x] **M25** Edits-aware printing — Print renders the same edits-applied output a Save would write (page order, rotation, form values, highlights, text boxes, redactions), so a not-yet-saved redaction no longer prints the original. Preview / "Save as PDF" / scale modes were dropped (the native dialog can't host them; a rasterised PDF is worse than Save As) — the page→image render is kept as the engine for the planned **image export** (M36). — *WSL logic; Windows print validation* — [#39](https://github.com/utyagi24/pdfproj/pull/39)
 - [ ] **M26** Verify + release → tag **v0.5.0** — *Windows*
 
 **v0.6.0 — "Rich Text & Live Preview"** (planned)
@@ -74,6 +74,12 @@ GUI-free core, fully headless-testable).
 - [ ] **M33** Internal GoTo-link remap — `toc_remap` → `links_remap` (fix cross-run link targets; clean headless keystone) — *WSL (model+tests)*
 - [ ] **M34** Verify + release → tag **v0.7.0** — *Windows*
 
+**v0.8.0 — "Images"** (planned)
+
+- [ ] **M35** Image import — drag a local image (jpg/png/…) from Explorer onto the Pages sidebar → insert as a new page (reuse M17 drop + PyMuPDF `convert_to_pdf`) — *WSL (logic) + WSLg*
+- [ ] **M36** Image export — export selected page(s) → PNG/JPEG at a chosen DPI (reuse M25 `render_output` + `_page_image`; edits-aware) — *WSL (render) + WSLg*
+- [ ] **M37** Verify + release → tag **v0.8.0** — *Windows*
+
 ## Open follow-ups (carried)
 
 Carried items — none block work:
@@ -88,7 +94,7 @@ Carried items — none block work:
   (PLAN.md §Packaging §5). Carry to a future release once a cert is available.
 - **App icon** → ✅ shipped in **M10** (v0.2.0).
 - **Product features** → view/print/annotate/redact all shipped (M0–M22). The next tranche is
-  **scheduled** in §Next roadmap above (M23–M34): rich text, live thumbnails, theme icons, revert,
-  disk-change warning, print preview + print-to-PDF, annotation round-trip editing, encrypted PDFs, GoTo-link remap.
+  **scheduled** in §Next roadmap above (M23–M37): rich text, live thumbnails, theme icons, revert,
+  disk-change warning, edits-aware printing, annotation round-trip editing, encrypted PDFs, GoTo-link remap, image import/export.
   Still **deferred beyond** the roadmap (PLAN.md §Future enhancements): new-field form designer,
   drop-to-open in the main view, re-encryption on save.

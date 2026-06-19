@@ -15,7 +15,7 @@ from PySide6.QtWidgets import QApplication
 
 from model.edit_engine import PyMuPDFEngine
 from model.virtual_document import VirtualDocument
-from viewer.printing import ScaleMode, _page_image, _scale_factor, render_to_printer, selected_pages
+from viewer.printing import _page_image, render_to_printer, selected_pages
 
 
 @pytest.fixture(scope="session")
@@ -113,16 +113,3 @@ def test_print_reflects_deleted_page(qapp, vdoc, tmp_path):
     assert render_to_printer(printer, vdoc, current_page=0) is True
     with fitz.open(out) as doc:
         assert doc.page_count == 2
-
-
-def test_scale_factor_modes():
-    """FIT fills the area (aspect kept); ACTUAL is 1:1 render-px->device-px (here dpi match);
-    SHRINK is ACTUAL but never enlarges past FIT."""
-    # Oversized image (100 px) in a smaller area (50 px) at matching 72 dpi.
-    assert _scale_factor(ScaleMode.FIT, 50, 50, 100, 100, 72, 72) == 0.5
-    assert _scale_factor(ScaleMode.ACTUAL, 50, 50, 100, 100, 72, 72) == 1.0
-    assert _scale_factor(ScaleMode.SHRINK, 50, 50, 100, 100, 72, 72) == 0.5  # oversized -> fit
-
-    # Undersized image (40 px) in a bigger area (50 px): SHRINK keeps actual size, FIT enlarges.
-    assert _scale_factor(ScaleMode.FIT, 50, 50, 40, 40, 72, 72) == 1.25
-    assert _scale_factor(ScaleMode.SHRINK, 50, 50, 40, 40, 72, 72) == 1.0  # not enlarged
