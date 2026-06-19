@@ -324,6 +324,8 @@ class MainWindow(QMainWindow):
     def _print(self) -> None:
         from viewer.printing import print_document
 
+        if self.view.form is not None:
+            self.view.form.commit_pending()  # print what's on screen, incl. a pending fill
         print_document(self.vdoc, self.view.current_page, self)
 
     def _copy_selection(self) -> None:

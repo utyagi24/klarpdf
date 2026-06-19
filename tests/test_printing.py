@@ -13,6 +13,7 @@ import pytest
 from PySide6.QtPrintSupport import QPrinter
 from PySide6.QtWidgets import QApplication
 
+from model.edit_engine import PyMuPDFEngine
 from model.virtual_document import VirtualDocument
 from viewer.printing import _page_image, render_to_printer, selected_pages
 
@@ -77,7 +78,38 @@ def test_print_current_page_only(qapp, vdoc, tmp_path):
 def test_print_honours_rotation_override(qapp, vdoc):
     """The rendered page image is rotated to match the page's override (swapped dimensions),
     so the print reflects what the viewer shows."""
-    upright = _page_image(vdoc, 0, zoom=1.0)
+    with PyMuPDFEngine().render_output(vdoc) as rendered:
+        upright = _page_image(rendered, 0, zoom=1.0)
     vdoc.set_rotation(0, 90)  # rotate page 0 a quarter turn
-    rotated = _page_image(vdoc, 0, zoom=1.0)
+    with PyMuPDFEngine().render_output(vdoc) as rendered:
+        rotated = _page_image(rendered, 0, zoom=1.0)
     assert (rotated.width(), rotated.height()) == (upright.height(), upright.width())
+
+
+# ---- edits-aware render (M25): print/preview/export show the page-edit layer ----
+
+
+def test_render_output_applies_edits(qapp, vdoc):
+    """render_output bakes the page-edit layer in (delete + redaction + highlight), so print /
+    preview / Save-as-PDF are WYSIWYG and a pending redaction prints as removed."""
+    from model.page_edits import Highlight, Redaction
+
+    word = vdoc.sources[vdoc.ordered[0].source_id][0].get_text("words")[0]  # (x0,y0,x1,y1,text,..)
+    vdoc.add_annotation(0, Redaction((tuple(word[:4]),)))  # destroy page 0's first word
+    vdoc.add_annotation(1, Highlight((tuple(word[:4]),)))  # highlight (non-destructive) on page 1
+    vdoc.delete_page(2)
+
+    with PyMuPDFEngine().render_output(vdoc) as rendered:
+        assert rendered.page_count == 2  # the delete is reflected
+        assert word[4] not in rendered[0].get_text("text")  # redaction destroyed the word
+        assert any(a.type[0] == fitz.PDF_ANNOT_HIGHLIGHT for a in rendered[1].annots())
+
+
+def test_print_reflects_deleted_page(qapp, vdoc, tmp_path):
+    """render_to_printer prints the edits-applied render, not the raw source pages."""
+    vdoc.delete_page(1)  # 3 -> 2 pages
+    out = str(tmp_path / "edited.pdf")
+    printer = _pdf_printer(out)
+    assert render_to_printer(printer, vdoc, current_page=0) is True
+    with fitz.open(out) as doc:
+        assert doc.page_count == 2

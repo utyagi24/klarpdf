@@ -1,13 +1,15 @@
-"""Basic printing via the system dialog (PLAN.md, M12).
+"""Printing render path (PLAN.md, M12 + M25).
 
-Renders each selected page to a raster image with PyMuPDF (at the printer resolution, capped to keep
-memory sane) and paints it, scaled to fit the printable area, onto a ``QPrinter`` through a
-``QPainter``. Honours the page's rotation override so the print matches what the viewer shows.
-Read-only: printing never mutates the document.
+Rendering is **edits-aware**: it rasterises the same in-memory output document a Save would write
+(:meth:`model.edit_engine.PyMuPDFEngine.render_output`), so the printout shows the page order,
+rotations, form values, highlights, text boxes, and (destructive) redactions exactly as they will
+be saved. A *pending* redaction therefore prints as removed without becoming a point of no return —
+the render copy is a throwaway; the shared sources and the undo stack are never touched.
 
-The flow splits into a thin dialog entry point (:func:`print_document`) and pure-ish helpers
-(:func:`selected_pages`, :func:`render_to_printer`) so the render path is testable headlessly by
-pointing a ``QPrinter`` at a PDF output file — no real printer or dialog required.
+The system print *dialog* can't run headless, but ``QPrinter`` can write to a PDF file, so the
+render path (:func:`render_to_printer` + :func:`selected_pages`) is exercised headlessly by
+pointing a ``QPrinter`` at a PDF output. The page->image step (:func:`_page_image`) is also the
+engine the planned image-export feature reuses.
 """
 
 from __future__ import annotations
@@ -16,9 +18,11 @@ from pathlib import Path
 
 import pymupdf as fitz
 from PySide6.QtCore import QRectF
-from PySide6.QtGui import QImage, QPainter, QTransform
+from PySide6.QtGui import QImage, QPainter
 from PySide6.QtPrintSupport import QAbstractPrintDialog, QPrintDialog, QPrinter
 from PySide6.QtWidgets import QDialog, QMessageBox
+
+from model.edit_engine import PyMuPDFEngine
 
 # Raster render cap: printers report 600–1200 dpi, but rasterising a full page at that is huge
 # (an A4 at 1200 dpi is ~70 MB) for no visible gain on a basic print. Render at most this, then let
@@ -27,13 +31,12 @@ _MAX_RENDER_DPI = 300
 
 
 def print_document(vdoc, current_page: int, parent=None) -> bool:
-    """Show the system print dialog for ``vdoc`` and print the chosen pages. Returns True if a job
-    was sent, False if the user cancelled."""
+    """Show the system print dialog and print the chosen pages. Returns True if a job was sent,
+    False if the user cancelled."""
     printer = QPrinter(QPrinter.PrinterMode.HighResolution)
     if vdoc.path:
         printer.setDocName(Path(vdoc.path).stem)
     printer.setFromTo(1, vdoc.page_count)  # advertise the valid range to the dialog
-
     dialog = QPrintDialog(printer, parent)
     dialog.setOption(QAbstractPrintDialog.PrintDialogOption.PrintPageRange, True)
     dialog.setOption(QAbstractPrintDialog.PrintDialogOption.PrintCurrentPage, True)
@@ -54,49 +57,54 @@ def selected_pages(printer: QPrinter, page_count: int, current_page: int) -> lis
     return list(range(page_count))  # AllPages (and Selection, which we treat as all)
 
 
-def _page_image(vdoc, index: int, zoom: float) -> QImage:
-    """Rasterise page ``index`` at ``zoom`` (1.0 == 72 dpi), applying any rotation override."""
-    ref = vdoc.ordered[index]
-    page = vdoc.sources[ref.source_id][ref.source_page_index]
+def render_to_printer(printer: QPrinter, vdoc, current_page: int, parent=None) -> bool:
+    """Paint the selected pages of ``vdoc`` (edits applied), fit to each printable page. Returns
+    False if the document could not be rendered or the job could not start."""
+    try:
+        rendered = PyMuPDFEngine().render_output(vdoc)
+    except Exception as exc:  # a malformed edit shouldn't crash the app mid-print
+        if parent is not None:
+            QMessageBox.critical(parent, "Print", f"Could not render the document:\n{exc}")
+        return False
+    try:
+        pages = selected_pages(printer, rendered.page_count, current_page)
+        if not pages:
+            return False
+        painter = QPainter()
+        if not painter.begin(printer):
+            if parent is not None:
+                QMessageBox.warning(parent, "Print", "Could not start the print job.")
+            return False
+        try:
+            painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+            zoom = min(printer.resolution(), _MAX_RENDER_DPI) / 72.0
+            area = QRectF(printer.pageLayout().paintRectPixels(printer.resolution()))
+            for i, index in enumerate(pages):
+                if i:
+                    printer.newPage()
+                _draw_centered(painter, area, _page_image(rendered, index, zoom))
+        finally:
+            painter.end()
+        return True
+    finally:
+        rendered.close()
+
+
+def _page_image(doc: fitz.Document, index: int, zoom: float) -> QImage:
+    """Rasterise ``doc[index]`` at ``zoom`` (1.0 == 72 dpi). The doc is the edits-applied render
+    output, so rotation and every page edit are already baked into the page."""
+    page = doc[index]
     pm = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
     # .copy() detaches from the PyMuPDF sample buffer, which is freed when pm goes out of scope.
-    img = QImage(pm.samples, pm.width, pm.height, pm.stride, QImage.Format.Format_RGB888).copy()
-    if ref.rotation_override is not None:
-        extra = (ref.rotation_override - page.rotation) % 360
-        if extra:
-            img = img.transformed(QTransform().rotate(extra))
-    return img
+    return QImage(pm.samples, pm.width, pm.height, pm.stride, QImage.Format.Format_RGB888).copy()
 
 
 def _draw_centered(painter: QPainter, area: QRectF, img: QImage) -> None:
     iw, ih = img.width(), img.height()
     if iw == 0 or ih == 0:
         return
-    scale = min(area.width() / iw, area.height() / ih)  # fit, preserve aspect
+    scale = min(area.width() / iw, area.height() / ih)  # fit to the printable area, keep aspect
     w, h = iw * scale, ih * scale
     x = area.x() + (area.width() - w) / 2
     y = area.y() + (area.height() - h) / 2
     painter.drawImage(QRectF(x, y, w, h), img)
-
-
-def render_to_printer(printer: QPrinter, vdoc, current_page: int, parent=None) -> bool:
-    """Paint the selected pages onto ``printer``. Returns False if the job could not start."""
-    pages = selected_pages(printer, vdoc.page_count, current_page)
-    if not pages:
-        return False
-    painter = QPainter()
-    if not painter.begin(printer):
-        if parent is not None:
-            QMessageBox.warning(parent, "Print", "Could not start the print job.")
-        return False
-    try:
-        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
-        zoom = min(printer.resolution(), _MAX_RENDER_DPI) / 72.0
-        area = QRectF(printer.pageLayout().paintRectPixels(printer.resolution()))
-        for i, index in enumerate(pages):
-            if i:
-                printer.newPage()
-            _draw_centered(painter, area, _page_image(vdoc, index, zoom))
-    finally:
-        painter.end()
-    return True
