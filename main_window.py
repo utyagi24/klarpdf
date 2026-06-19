@@ -43,6 +43,7 @@ from model.page_edits import Highlight, Redaction
 from model.edit_engine import PyMuPDFEngine
 from model.virtual_document import PageRef, VirtualDocument
 from organize.thumbnail_panel import ThumbnailPanel
+from store.file_watch import FileWatcher
 from store.settings import Settings
 from ui import icons
 from util.paths import normalize_path
@@ -109,6 +110,13 @@ class MainWindow(QMainWindow):
         # Bound methods (not lambdas) so Qt auto-disconnects when the window is destroyed.
         self.undo_stack.indexChanged.connect(self._on_doc_changed)
         self.undo_stack.cleanChanged.connect(self._on_clean_changed)
+
+        # M24: warn when the open file is changed on disk by another program. Watches self.path;
+        # the prompt / Reload policy lives in the handlers below.
+        self._external_prompt_open = False
+        self._watcher = FileWatcher(self)
+        self._watcher.watch(self.path)
+        self._watcher.changedOnDisk.connect(self._check_external_change)
 
         self._build_actions()
         self.setWindowTitle(f"{os.path.basename(path)} — pdfproj[*]")
@@ -285,6 +293,10 @@ class MainWindow(QMainWindow):
         if event.type() == QEvent.Type.ApplicationPaletteChange:
             icons.refresh_for_theme()
             self._retint_icons()
+        elif event.type() == QEvent.Type.ActivationChange and self.isActiveWindow():
+            # Returning to this window is when we surface an external change noticed in the
+            # background (and re-check, since a watcher event can be missed on some filesystems).
+            self._check_external_change()
         super().changeEvent(event)
 
     def _open_dialog(self) -> None:
@@ -551,7 +563,17 @@ class MainWindow(QMainWindow):
             self.view.form.commit_pending()  # flush an open inline field editor (toolbar Save)
         if self.vdoc.path is None:
             return self.save_as()
-        return self._write_to(self.vdoc.path)
+        if self._watcher.has_changed():  # the file changed on disk since we opened/last synced it
+            choice = self._confirm_overwrite_external()
+            if choice == "reload":
+                self._reload_external()
+                return False  # reloaded from disk; the in-place Save is superseded
+            if choice != "overwrite":
+                return False  # cancelled
+        if self._write_to(self.vdoc.path):
+            self._watcher.record_current()  # our own write is the new synced state, not a change
+            return True
+        return False
 
     def save_as(self) -> bool:
         if self.view.form is not None:
@@ -567,6 +589,7 @@ class MainWindow(QMainWindow):
         self.vdoc.path = self.path = path
         self._app.rename_window(old, path, self)
         self.thumbs.source_key = normalize_path(path)  # re-key for cross-window drag/drop
+        self._watcher.watch(path)  # follow the new file; its signature is now the synced state
         self.setWindowTitle(f"{os.path.basename(path)} — pdfproj[*]")
         return True
 
@@ -647,6 +670,73 @@ class MainWindow(QMainWindow):
             )
             == QMessageBox.StandardButton.Discard
         )
+
+    # ---- external on-disk change (M24) ------------------------------------------
+
+    def _check_external_change(self) -> None:
+        """Watcher signal / window-activation entry point. Prompt only while we are the active
+        window — a change noticed in the background waits until the user returns to this window."""
+        if self.isActiveWindow():
+            self._prompt_external_change()
+
+    def _prompt_external_change(self) -> None:
+        if self._external_prompt_open or not self._watcher.has_changed():
+            return
+        self._external_prompt_open = True  # guard: the watcher and activation can both fire
+        try:
+            if self._confirm_external_reload():
+                self._reload_external()
+            else:
+                self._watcher.record_current()  # Keep: acknowledge so we stop nagging
+        finally:
+            self._external_prompt_open = False
+
+    def _reload_external(self) -> None:
+        if not os.path.exists(self.path):
+            QMessageBox.warning(
+                self, "File changed on disk",
+                f"{os.path.basename(self.path)} no longer exists on disk. Keeping your version.",
+            )
+            self._watcher.record_current()  # acknowledge the removal so we stop nagging
+            return
+        self._reset_to_file(self.path)
+        self._watcher.record_current()
+
+    def _confirm_external_reload(self) -> bool:
+        """Reload from disk (True) vs Keep my version (False) when the file changed under us."""
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("File changed on disk")
+        text = f"{os.path.basename(self.path)} has been modified by another program."
+        if not self.undo_stack.isClean():
+            text += "\n\nReloading will discard your unsaved changes."
+        box.setText(text + "\n\nReload it from disk?")
+        reload_btn = box.addButton("Reload", QMessageBox.ButtonRole.AcceptRole)
+        keep_btn = box.addButton("Keep My Version", QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(keep_btn if not self.undo_stack.isClean() else reload_btn)
+        box.exec()
+        return box.clickedButton() is reload_btn
+
+    def _confirm_overwrite_external(self) -> str:
+        """Before an in-place Save when the file changed on disk: 'overwrite' / 'reload' / 'cancel'."""
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("File changed on disk")
+        box.setText(
+            f"{os.path.basename(self.path)} has been modified by another program since you opened "
+            "it.\n\nSaving now will overwrite those changes."
+        )
+        overwrite_btn = box.addButton("Overwrite", QMessageBox.ButtonRole.DestructiveRole)
+        reload_btn = box.addButton("Reload", QMessageBox.ButtonRole.AcceptRole)
+        cancel_btn = box.addButton(QMessageBox.StandardButton.Cancel)
+        box.setDefaultButton(cancel_btn)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is overwrite_btn:
+            return "overwrite"
+        if clicked is reload_btn:
+            return "reload"
+        return "cancel"
 
     # ---- view-state persistence + close prompt ----------------------------------
 
