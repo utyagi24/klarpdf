@@ -70,6 +70,7 @@ GUI-free core, fully headless-testable).
 **v0.7.0 — "Round-trip & Documents"** (planned)
 
 - [ ] **M31** ⭐ Annotation round-trip editing — reopen → move/edit/remove our `PDFPROJ_AUTHOR`-tagged annotations (strip-then-re-add at materialize) — *WSL (model+tests) + WSLg*
+- [ ] **M31.5** Export → PDF (flatten) — new **Export** action (`File ▸ Export`); bake annotations into page content (PyMuPDF `Document.bake()`, text-preserving — locks the marks, the opposite of M31's round-trip). Extensible: M36 adds an image format. — *WSL (model+tests) + WSLg*
 - [ ] **M32** Encrypted / password PDFs — detect `needs_pass`, prompt, `authenticate` on open — *WSL + WSLg*
 - [ ] **M33** Internal GoTo-link remap — `toc_remap` → `links_remap` (fix cross-run link targets; clean headless keystone) — *WSL (model+tests)*
 - [ ] **M34** Verify + release → tag **v0.7.0** — *Windows*
@@ -77,7 +78,7 @@ GUI-free core, fully headless-testable).
 **v0.8.0 — "Images"** (planned)
 
 - [ ] **M35** Image import — drag a local image (jpg/png/…) from Explorer onto the Pages sidebar → insert as a new page (reuse M17 drop + PyMuPDF `convert_to_pdf`) — *WSL (logic) + WSLg*
-- [ ] **M36** Image export — export selected page(s) → PNG/JPEG at a chosen DPI (reuse M25 `render_output` + `_page_image`; edits-aware) — *WSL (render) + WSLg*
+- [ ] **M36** Image export — **extend the M31.5 Export feature** to images: selected page(s) → PNG/JPEG at a chosen DPI (reuse M25 `render_output` + `_page_image`; edits-aware) — *WSL (render) + WSLg*
 - [ ] **M37** Verify + release → tag **v0.8.0** — *Windows*
 
 ## Open follow-ups (carried)

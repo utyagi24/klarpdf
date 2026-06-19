@@ -672,11 +672,12 @@ The annotation experience deepens, building directly on v0.4.0's text boxes.
 
 ### v0.7.0 — "Round-trip & Documents"
 
-Re-editing saved annotations + deeper PDF-format support.
+Re-editing saved annotations, a flatten **Export**, + deeper PDF-format support.
 
 | Milestone | Feature | Where | Done when |
 |---|---|---|---|
 | **M31** ⭐ Annotation round-trip editing | On open, re-parse **our** annotations (the `PDFPROJ_AUTHOR`-tagged highlights / text-boxes) from the source into `model/page_edits.py`; at materialize, **strip-then-re-add** the managed annotations on the copied page so they aren't duplicated. Saved highlights/text-boxes become movable / re-editable / removable after reopening. (Redaction stays a point-of-no-return — not re-editable.) | WSL (model+tests) + WSLg | Reopen a saved doc → move / edit / remove its pdfproj annotations |
+| **M31.5** Export → PDF (flatten) | Introduce an **Export** action (`File ▸ Export`) whose first format is a **flattened PDF**: bake the managed annotations into page content via PyMuPDF `Document.bake()` (text layer **preserved**, *not* rasterised) — a locked but still-searchable copy whose marks can't be moved/removed in any tool. The opt-out counterpart to M31's round-trip (Save As stays editable; Export → PDF locks). Built as an **extensible Export path** that **M36** grows to an image format. Headless test: the baked output merges the annotations (annot count drops) with the text layer intact. | WSL (model+tests) + WSLg | Export → PDF writes a flattened, text-preserving copy whose annotations are no longer editable |
 | **M32** Encrypted / password PDFs | On open, detect `doc.needs_pass`, prompt, `doc.authenticate(pw)` before registering the source. (Output stays unencrypted unless re-encryption is added later.) | WSL + WSLg | Open a password-protected PDF after entering its password |
 | **M33** Internal GoTo-link remap | Generalize `model/toc_remap.py` → `model/links_remap.py`: the same old→new page-index map applied to internal `LINK` GoTo annotations at materialize; drop links whose target page was deleted. Pure model — a clean headless keystone. | WSL (model+tests) | Reordered/deleted pages keep internal links pointing at the right page |
 | **M34** Verify + release | Headless suite green; Windows validation; tag **v0.7.0**. | **Win** | Matrix green → v0.7.0 released |
@@ -690,7 +691,7 @@ v0.7.0; pull earlier if image support is wanted sooner.
 | Milestone | Feature | Where | Done when |
 |---|---|---|---|
 | **M35** Image import | Drag a local image (`.jpg` / `.jpeg` / `.png` / …) from Explorer onto the Pages sidebar → insert as a new page, exactly like a dropped PDF. Reuses **M17**'s `text/uri-list` drop + insert plumbing; the only new bit is converting each image to a one-page PDF source (PyMuPDF `convert_to_pdf`), after which it's just another registered source. | WSL (logic) + WSLg | Drop a PNG/JPEG on the sidebar → it inserts as a page; Save bakes it in |
-| **M36** Image export | Export the selected page(s) to image files (`.png` / `.jpeg`) at a chosen DPI. Reuses the **M25** edits-aware render (`render_output` + `_page_image`), so each exported image shows annotations / fills / redactions; one file per page (or the current page). | WSL (render) + WSLg | Export pages → PNG/JPEG matching the on-screen (edited) pages |
+| **M36** Image export | **Extend the Export feature (M31.5)** to images: export the selected page(s) → image files (`.png` / `.jpeg`) at a chosen DPI, reusing the **M25** edits-aware render (`render_output` + `_page_image`) so each image shows annotations / fills / redactions; one file per page (or the current page). | WSL (render) + WSLg | Export → Image writes PNG/JPEG matching the on-screen (edited) pages |
 | **M37** Verify + release | Headless suite green; Windows validation (image drop-insert + image export in the frozen build); tag **v0.8.0**. | **Win** | Matrix green → v0.8.0 released |
 
 ## Future enhancements (deferred beyond the roadmap)
