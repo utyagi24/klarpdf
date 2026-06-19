@@ -1,16 +1,18 @@
 # Plan: Local, Offline, Native-Windows PDF Viewer + Page Editor (Python)
 
-> **Shipped: `v0.4.0` released** — milestones M0–M22 complete (v0.1.0 = M0–M9; v0.2.0 = M10–M15:
+> **Shipped: `v0.5.0` released** — milestones M0–M26 complete (v0.1.0 = M0–M9; v0.2.0 = M10–M15:
 > icons, zoom %, printing, recent docs, form filling; v0.3.0 = M16–M19: drag-and-drop visuals,
 > Explorer file-drop, grab/select mode; v0.4.0 = M20–M22: annotations — highlight + movable/
 > re-editable text boxes — and true destructive redaction (region + text-flow) with cross-engine
-> leak verification and a redacted-save point-of-no-return). Releases:
+> leak verification and a redacted-save point-of-no-return; v0.5.0 = M23–M26: revert, external-change
+> warning, edits-aware printing). Releases:
+> [v0.5.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.5.0) ·
 > [v0.4.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.4.0) ·
 > [v0.3.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.3.0) ·
 > [v0.2.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.2.0) ·
 > [v0.1.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.1.0). This plan stays the
-> spec/source-of-truth. **Next:** **v0.5.0 → v0.8.0** planned — see §Next roadmap (file-safety &
-> output; rich text & live preview; round-trip & documents; images). Anything beyond lives in §Future
+> spec/source-of-truth. **Next:** **v0.6.0 → v0.8.0** planned — see §Next roadmap (rich text & live
+> preview; round-trip & documents; images). Anything beyond lives in §Future
 > enhancements.
 
 > **Revision (2026-06-15)** — folded in two decisions without changing the product: a
