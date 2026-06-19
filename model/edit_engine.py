@@ -51,6 +51,27 @@ class PyMuPDFEngine(EditEngine):
     """Default engine. Lossless object-level page copy + outline rebuild via PyMuPDF."""
 
     def materialize(self, vdoc: VirtualDocument, out_path: str) -> None:
+        out = self._build_output(vdoc)
+        try:
+            out.save(out_path, garbage=4, deflate=True, clean=True)
+        finally:
+            out.close()
+
+    def render_output(self, vdoc: VirtualDocument) -> fitz.Document:
+        """The edits-applied output document, built **in memory and not saved** — page ``i``
+        corresponds to ``ordered[i]`` with rotation / redactions / annotations / form fills already
+        applied. Same build as :meth:`materialize`, so what gets rendered (print / preview /
+        print-to-PDF) matches exactly what a Save would write. The caller owns the returned document
+        and must close it.
+
+        Rendering off this throwaway copy keeps the destructive ``apply_redactions`` away from the
+        shared sources and the undo stack: printing a *pending* redaction shows it removed without
+        turning the print into a point of no return.
+        """
+        return self._build_output(vdoc)
+
+    def _build_output(self, vdoc: VirtualDocument) -> fitz.Document:
+        """Build the materialised output document (open, unsaved). Shared by save + render."""
         out = fitz.open()
         # Fresh per-source copies: reusing a live source across insert_pdf calls (or across save
         # attempts) drops its widgets after the first graft, which would strip form fields from the
@@ -97,11 +118,13 @@ class PyMuPDFEngine(EditEngine):
             apply_form_values(out, vdoc.form_values)
 
             out.set_toc(vdoc.remapped_toc())
-            out.save(out_path, garbage=4, deflate=True, clean=True)
+        except Exception:
+            out.close()
+            raise
         finally:
             for doc in fresh.values():
                 doc.close()
-            out.close()
+        return out
 
 
 class PyPdfEngine(EditEngine):
