@@ -3,13 +3,15 @@
 Live status of the build (milestone detail in `PLAN.md` §Execution). **One PR per milestone** — when
 it merges, check the box here in the same PR and append the PR link.
 
-**Status:** ✅ **v0.4.0 shipped** — milestones **M0–M22 complete** (v0.1.0 = M0–M9,
-v0.2.0 = M10–M15, v0.3.0 = M16–M19, v0.4.0 = M20–M22). Release:
-<https://github.com/utyagi24/pdfproj/releases/tag/v0.4.0>. v0.4.0 "Annotate & Redact" adds text
+**Status:** ✅ **v0.5.0 shipped** — milestones **M0–M26 complete** (v0.1.0 = M0–M9,
+v0.2.0 = M10–M15, v0.3.0 = M16–M19, v0.4.0 = M20–M22, v0.5.0 = M23–M26). Releases:
+<https://github.com/utyagi24/pdfproj/releases/tag/v0.5.0> ·
+<https://github.com/utyagi24/pdfproj/releases/tag/v0.4.0>. v0.5.0 "File Safety & Output" adds
+**Revert to Saved**, an **external-change warning**, and **edits-aware printing**. v0.4.0 "Annotate & Redact" adds text
 **highlight** + **text boxes** (move / re-edit / auto-grow), and **true destructive redaction**
 (region + text-flow) with cross-engine leak verification and a redacted-save "point of no return".
 Annotate/redact tools are **one-shot armed** gestures; cross-window page drag/paste **carries
-per-page edits**. **Next:** **v0.5.0 → v0.8.0** planned (M23–M37) — see the roadmap below and
+per-page edits**. **Next:** **v0.6.0 → v0.8.0** planned (M27–M37) — see the roadmap below and
 `PLAN.md` §Next roadmap. **Open follow-ups** (carried items) are at the bottom.
 
 - [x] **M0** Scaffold + WSL dev venv — *step 1 (WSL); WSL* — [#4](https://github.com/utyagi24/pdfproj/pull/4)
@@ -58,7 +60,7 @@ GUI-free core, fully headless-testable).
 - [x] **M23** Revert / Reopen — discard all edits + reload from disk (reuse `reload_from_file` + clear undo, dirty-confirm) — *WSL + WSLg* — [#37](https://github.com/utyagi24/pdfproj/pull/37)
 - [x] **M24** External-change warning — file-changed-on-disk detection (`QFileSystemWatcher` + `(mtime, size)` signature) → Reload / Keep prompt (+ Overwrite / Reload / Cancel before an overwriting Save) — *WSL (logic) + Windows* — [#38](https://github.com/utyagi24/pdfproj/pull/38)
 - [x] **M25** Edits-aware printing — Print renders the same edits-applied output a Save would write (page order, rotation, form values, highlights, text boxes, redactions), so a not-yet-saved redaction no longer prints the original. Preview / "Save as PDF" / scale modes were dropped (the native dialog can't host them; a rasterised PDF is worse than Save As) — the page→image render is kept as the engine for the planned **image export** (M36). — *WSL logic; Windows print validation* — [#39](https://github.com/utyagi24/pdfproj/pull/39)
-- [ ] **M26** Verify + release → tag **v0.5.0** — *Windows*
+- [x] **M26** Verify + release → tag **v0.5.0** — *Windows*
 
 **v0.6.0 — "Rich Text & Live Preview"** (planned)
 

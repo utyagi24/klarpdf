@@ -31,8 +31,9 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   spare machine / a fresh local user with networking disabled.
 
 ## Status
-**v0.4.0 shipped** — milestones **M0–M22 complete** (v0.1.0 = M0–M9; v0.2.0 = M10–M15;
-v0.3.0 = M16–M19; v0.4.0 = M20–M22). Releases:
+**v0.5.0 shipped** — milestones **M0–M26 complete** (v0.1.0 = M0–M9; v0.2.0 = M10–M15;
+v0.3.0 = M16–M19; v0.4.0 = M20–M22; v0.5.0 = M23–M26). Releases:
+<https://github.com/utyagi24/pdfproj/releases/tag/v0.5.0> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.4.0> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.3.0> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.2.0> ·
@@ -45,7 +46,10 @@ file-drop**, and a **Grab/Select** viewer-mode toggle (`viewer/tools.py`); **v0.
 **annotations** (highlight + movable/re-editable text boxes) and **true destructive redaction**
 (region + text-flow, `apply_redactions` with cross-engine leak verification and a redacted-save
 point-of-no-return) — all on the M14 page-edit layer, with annotate/redact exposed as **one-shot
-armed** tools (`viewer/tools.py` `ArmedTool`). 232 headless tests; real-Windows + frozen-build
-validation. **Next:** **v0.5.0 → v0.8.0** planned — `PLAN.md` §Next roadmap (file-safety & output;
-rich text & live preview; round-trip & documents; images). **Planning the next release?** Read `PROGRESS.md`
+armed** tools (`viewer/tools.py` `ArmedTool`); **v0.5.0** added **Revert to Saved**, an
+**external-change warning** (`QFileSystemWatcher`), and **edits-aware printing** (print/preview
+render the edited page — annotations / fills / redactions — via `render_output`). 248 headless
+tests; real-Windows + frozen-build
+validation. **Next:** **v0.6.0 → v0.8.0** planned — `PLAN.md` §Next roadmap (rich text & live preview;
+round-trip & documents; images). **Planning the next release?** Read `PROGRESS.md`
 (status + **Open follow-ups**), then `PLAN.md` §Next roadmap.

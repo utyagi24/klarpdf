@@ -4,9 +4,13 @@ Local, offline, **native-Windows** PDF viewer + page editor (Python · PySide6 �
 trustworthy replacement for macOS Preview's view + splice/split workflow on Windows. The source is
 the unit of audit; it ships as a pinned, fully offline Windows installer.
 
-**Status: `v0.4.0` shipped** — [download the installer or portable exe](https://github.com/utyagi24/pdfproj/releases/latest). Milestones **M0–M22 complete**.
+**Status: `v0.5.0` shipped** — [download the installer or portable exe](https://github.com/utyagi24/pdfproj/releases/latest). Milestones **M0–M26 complete**.
 
-**New in v0.4.0 — Annotate & Redact:** text **highlight** and **text boxes** (drag to move,
+**New in v0.5.0 — File Safety & Output:** **Revert to Saved** (discard edits, reload from disk); an
+**external-change warning** when another program modifies the open file (Reload / Keep, plus an
+overwrite guard before Save); and **edits-aware printing** — the printout now shows your annotations,
+form values, and redactions (a not-yet-saved redaction no longer prints the original).
+**v0.4.0 — Annotate & Redact:** text **highlight** and **text boxes** (drag to move,
 double-click to re-edit, auto-growing); and **true destructive redaction** — drag over text or over
 a block to permanently remove it at save (verified gone with a cross-engine check; a redacted save
 is a confirmed point of no return). Annotate/redact tools are **one-shot armed** gestures.
@@ -18,7 +22,7 @@ viewer-mode toggle.
 | Doc | What |
 |---|---|
 | [PLAN.md](PLAN.md) | Product spec, architecture, dependencies/packaging, portability, build order, **Execution**, verification |
-| [PROGRESS.md](PROGRESS.md) | Live milestone checklist (M0–M22 shipped; v0.5.0–v0.7.0 roadmap) + **Open follow-ups** |
+| [PROGRESS.md](PROGRESS.md) | Live milestone checklist (M0–M26 shipped; v0.6.0–v0.8.0 roadmap) + **Open follow-ups** |
 | [CLAUDE.md](CLAUDE.md) | Orientation + conventions for contributors/agents |
 | [DEPENDENCIES.md](DEPENDENCIES.md) | Pinned libraries + build toolchain — exact versions, licenses |
 
@@ -42,7 +46,7 @@ sudo apt install -y python3.12-venv
 
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements-dev.txt
-pytest                          # 232 headless tests (offscreen Qt)
+pytest                          # 248 headless tests (offscreen Qt)
 pythonw launcher.py file.pdf    # run the GUI via WSLg
 ```
 
