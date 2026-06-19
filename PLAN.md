@@ -648,15 +648,16 @@ exactly as shipped. (Owner-confirmed sequencing: discard-edits lands in **v0.5.0
 
 ### v0.5.0 — "File Safety & Output"
 
-Trust/robustness around the on-disk file, plus an output path. Small and low-risk; reuses the
-`VirtualDocument.reload_from_file` plumbing built for the redaction commit.
+Trust/robustness around the on-disk file, plus printing & output improvements. Small and low-risk;
+reuses the `VirtualDocument.reload_from_file` plumbing built for the redaction commit and the
+existing `render_to_printer` print path.
 
 | Milestone | Feature | Where | Done when |
 |---|---|---|---|
 | **M23** Revert / Reopen | A **Revert** action: discard all edits and reload the document from disk (reuse `reload_from_file` + clear the undo stack, behind a dirty-confirm). | WSL + WSLg | Revert returns the doc to its on-disk state; undo history cleared |
 | **M24** External-change warning | Detect the open file changed on disk (mtime/size, or a content hash, via `QFileSystemWatcher`); warn before an overwriting Save and/or on window focus, offering **Reload** (→ M23 path) or **Keep**. | WSL (logic) + **Win** (watcher) | Editing a file changed underneath you warns before clobbering it |
-| **M25** Better printing + Print-to-PDF | Print **scaling / fit-to-page** + a **PDF destination** on the print path (`QPrinter.setOutputFormat(PdfFormat)`) that renders pages honouring print settings — distinct from the lossless Save As. | WSL logic; **Win** print validation | Print dialog offers fit/scale; "Save as PDF" writes a rendered PDF |
-| **M26** Verify + release | Headless suite green; Windows validation (watcher, revert, print-to-PDF in the frozen build); tag **v0.5.0**. | **Win** | Matrix green → v0.5.0 released |
+| **M25** Better printing + preview + Print-to-PDF | Three additions on one shared **edits-aware** `render_to_printer` path: **(1) Print preview** — a `QPrintPreviewDialog` whose `paintRequested` reuses `render_to_printer` (File ▸ Print Preview + preview-first from Print). It's a *separate* Qt dialog and does **not** populate the native print dialog's own preview pane — a Qt-on-Windows limitation that's the source of the "this app doesn't support print preview" placeholder. **(2) Scaling / fit-to-page** options (fit / actual-size / shrink-oversized-only / custom %). **(3) PDF destination** (`QPrinter.setOutputFormat(PdfFormat)`, "Save as PDF") that renders pages honouring print settings — a rasterised snapshot, distinct from the lossless object-level Save As. **Fix folded in:** route all three through an **edits-applied** render (annotations / form values / redactions) so preview/print/export match the viewer — today's path rasterises the raw source page + rotation only, so a not-yet-saved redaction would otherwise print the original content. | WSL logic; **Win** print validation | Print preview shows the document *with edits*, honouring fit/scale; print dialog offers fit/scale; "Save as PDF" writes a rendered PDF |
+| **M26** Verify + release | Headless suite green; Windows validation (watcher, revert, **print preview** + print-to-PDF in the frozen build); tag **v0.5.0**. | **Win** | Matrix green → v0.5.0 released |
 
 ### v0.6.0 — "Rich Text & Live Preview"
 
