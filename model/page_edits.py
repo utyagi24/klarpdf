@@ -106,12 +106,21 @@ class Highlight:
 
 @dataclass(frozen=True)
 class TextBox:
-    """A free-text note box.
+    """A free-text note box, with optional styling baked at materialise (M27 — styled text boxes).
 
-    ``fontname`` / ``fontsize`` / ``color`` are stored on the descriptor (not hard-coded at
-    materialise) so a future font/size/colour picker is pure UI wiring — the render + materialise
-    paths already honour whatever the descriptor carries. ``fontname`` is a PyMuPDF base-14 name
-    (``helv``, ``tiro``, ``cour``…); ``helv`` (Helvetica) is the default.
+    Every style field rides the descriptor (not hard-coded at materialise), so it snapshots for
+    undo/redo and carries across windows exactly like the geometry:
+
+    * ``fontname`` — a PyMuPDF base-14 **family** selector: ``helv`` (Helvetica, the default),
+      ``tiro`` (Times), ``cour`` (Courier). On the FreeText *appearance* path a base-14 name encodes
+      only the family: PyMuPDF collapses the bold/italic variant names (``hebo`` / ``heit`` …) onto
+      the same ``/Helv`` font in the DA string and renders them identically, so weight/slant cannot
+      be carried this way (it would need the richtext path — out of scope for M27, see PLAN.md §M27).
+    * ``fontsize`` / ``color`` — point size + RGB text colour (baked into the annot's DA string).
+    * ``fill_color`` — the box's background fill (annot ``/C``); ``None`` = no fill (transparent).
+    * ``border_width`` — the box outline thickness in points (annot ``/BS /W``); ``0`` = no outline.
+      A drawn outline is black — the simple FreeText path carries no separate border colour (setting
+      ``border_color`` there raises; that, too, needs richtext).
     """
 
     rect: tuple[float, float, float, float]
@@ -119,6 +128,8 @@ class TextBox:
     fontsize: float = 11.0
     color: tuple[float, float, float] = (0.0, 0.0, 0.0)
     fontname: str = "helv"
+    fill_color: tuple[float, float, float] | None = None
+    border_width: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -161,6 +172,8 @@ def apply_annotations(page: fitz.Page, annotations: tuple) -> None:
                 fontsize=annotation.fontsize,
                 fontname=annotation.fontname,
                 text_color=annotation.color,
+                fill_color=annotation.fill_color,      # None → no background fill
+                border_width=annotation.border_width,  # 0 → no outline (black when > 0)
             )
             annot.set_info(title=PDFPROJ_AUTHOR)
             annot.update()
