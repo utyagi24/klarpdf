@@ -9,8 +9,8 @@
 > [v0.3.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.3.0) ·
 > [v0.2.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.2.0) ·
 > [v0.1.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.1.0). This plan stays the
-> spec/source-of-truth. **Next:** **v0.5.0 → v0.7.0** planned — see §Next roadmap (file-safety &
-> output; rich text & live preview; round-trip & documents). Anything beyond lives in §Future
+> spec/source-of-truth. **Next:** **v0.5.0 → v0.8.0** planned — see §Next roadmap (file-safety &
+> output; rich text & live preview; round-trip & documents; images). Anything beyond lives in §Future
 > enhancements.
 
 > **Revision (2026-06-15)** — folded in two decisions without changing the product: a
@@ -637,18 +637,18 @@ descriptors + `model/edit_engine.py`'s post-copy pass; reuse `viewer/tools.py`; 
 `packaging/`; nothing new leaks into `app.py`/`launcher.py`, and all the v0.3.0/v0.4.0 work lives in
 the reusable cross-platform layer.
 
-## Next roadmap (v0.5.0 → v0.6.0 → v0.7.0)
+## Next roadmap (v0.5.0 → v0.6.0 → v0.7.0 → v0.8.0)
 
 Same discipline as the shipped releases: **one PR per milestone**, `PROGRESS.md` tracks state, ⭐
 marks a keystone (most risk, GUI-free core, fully headless-testable). **Still no third-party
 dependency** — every item is native PyMuPDF or Qt (already inside the vendored PySide6 / PyMuPDF
 wheels), so `requirements.in` stays unchanged and the hashed offline lock + vendored wheels remain
 exactly as shipped. (Owner-confirmed sequencing: discard-edits lands in **v0.5.0**; rich text in
-**v0.6.0**; "Save as PDF" = **print-to-PDF**.)
+**v0.6.0**.)
 
 ### v0.5.0 — "File Safety & Output"
 
-Trust/robustness around the on-disk file, plus printing & output improvements. Small and low-risk;
+Trust/robustness around the on-disk file, plus edits-aware printing. Small and low-risk;
 reuses the `VirtualDocument.reload_from_file` plumbing built for the redaction commit and the
 existing `render_to_printer` print path.
 
@@ -656,8 +656,8 @@ existing `render_to_printer` print path.
 |---|---|---|---|
 | **M23** Revert / Reopen | A **Revert** action: discard all edits and reload the document from disk (reuse `reload_from_file` + clear the undo stack, behind a dirty-confirm). | WSL + WSLg | Revert returns the doc to its on-disk state; undo history cleared |
 | **M24** External-change warning | Detect the open file changed on disk (mtime/size, or a content hash, via `QFileSystemWatcher`); warn before an overwriting Save and/or on window focus, offering **Reload** (→ M23 path) or **Keep**. | WSL (logic) + **Win** (watcher) | Editing a file changed underneath you warns before clobbering it |
-| **M25** Better printing + preview + Print-to-PDF | Three additions on one shared **edits-aware** `render_to_printer` path: **(1) Print preview** — a `QPrintPreviewDialog` whose `paintRequested` reuses `render_to_printer` (File ▸ Print Preview + preview-first from Print). It's a *separate* Qt dialog and does **not** populate the native print dialog's own preview pane — a Qt-on-Windows limitation that's the source of the "this app doesn't support print preview" placeholder. **(2) Scaling / fit-to-page** options (fit / actual-size / shrink-oversized-only / custom %). **(3) PDF destination** (`QPrinter.setOutputFormat(PdfFormat)`, "Save as PDF") that renders pages honouring print settings — a rasterised snapshot, distinct from the lossless object-level Save As. **Fix folded in:** route all three through an **edits-applied** render (annotations / form values / redactions) so preview/print/export match the viewer — today's path rasterises the raw source page + rotation only, so a not-yet-saved redaction would otherwise print the original content. | WSL logic; **Win** print validation | Print preview shows the document *with edits*, honouring fit/scale; print dialog offers fit/scale; "Save as PDF" writes a rendered PDF |
-| **M26** Verify + release | Headless suite green; Windows validation (watcher, revert, **print preview** + print-to-PDF in the frozen build); tag **v0.5.0**. | **Win** | Matrix green → v0.5.0 released |
+| **M25** Edits-aware printing | Print renders from a shared **edits-applied** output (`PyMuPDFEngine.render_output` — materialize without the save), so the printout shows page order, rotation, form values, highlights, text boxes, and (destructive) redactions exactly as a Save would write them — closing a leak where a not-yet-saved redaction printed the *original*. (Preview, a "Save as PDF" destination, and scale modes were scoped out: the native Windows print dialog can't host a custom preview or destination, and a rasterised PDF is strictly worse than the lossless Save As. The page→image render — `render_output` + `_page_image` — is retained as the engine for the planned **image export**, M36.) | WSL (render) + **Win** print validation | Printing a redacted / annotated / filled doc shows the edits in the output |
+| **M26** Verify + release | Headless suite green; Windows validation (watcher, revert, edits-aware printing in the frozen build); tag **v0.5.0**. | **Win** | Matrix green → v0.5.0 released |
 
 ### v0.6.0 — "Rich Text & Live Preview"
 
@@ -672,14 +672,27 @@ The annotation experience deepens, building directly on v0.4.0's text boxes.
 
 ### v0.7.0 — "Round-trip & Documents"
 
-Re-editing saved annotations + deeper PDF-format support.
+Re-editing saved annotations, a flatten **Export**, + deeper PDF-format support.
 
 | Milestone | Feature | Where | Done when |
 |---|---|---|---|
 | **M31** ⭐ Annotation round-trip editing | On open, re-parse **our** annotations (the `PDFPROJ_AUTHOR`-tagged highlights / text-boxes) from the source into `model/page_edits.py`; at materialize, **strip-then-re-add** the managed annotations on the copied page so they aren't duplicated. Saved highlights/text-boxes become movable / re-editable / removable after reopening. (Redaction stays a point-of-no-return — not re-editable.) | WSL (model+tests) + WSLg | Reopen a saved doc → move / edit / remove its pdfproj annotations |
+| **M31.5** Export → PDF (flatten) | Introduce an **Export** action (`File ▸ Export`) whose first format is a **flattened PDF**: bake the managed annotations into page content via PyMuPDF `Document.bake()` (text layer **preserved**, *not* rasterised) — a locked but still-searchable copy whose marks can't be moved/removed in any tool. The opt-out counterpart to M31's round-trip (Save As stays editable; Export → PDF locks). Built as an **extensible Export path** that **M36** grows to an image format. Headless test: the baked output merges the annotations (annot count drops) with the text layer intact. | WSL (model+tests) + WSLg | Export → PDF writes a flattened, text-preserving copy whose annotations are no longer editable |
 | **M32** Encrypted / password PDFs | On open, detect `doc.needs_pass`, prompt, `doc.authenticate(pw)` before registering the source. (Output stays unencrypted unless re-encryption is added later.) | WSL + WSLg | Open a password-protected PDF after entering its password |
 | **M33** Internal GoTo-link remap | Generalize `model/toc_remap.py` → `model/links_remap.py`: the same old→new page-index map applied to internal `LINK` GoTo annotations at materialize; drop links whose target page was deleted. Pure model — a clean headless keystone. | WSL (model+tests) | Reordered/deleted pages keep internal links pointing at the right page |
 | **M34** Verify + release | Headless suite green; Windows validation; tag **v0.7.0**. | **Win** | Matrix green → v0.7.0 released |
+
+### v0.8.0 — "Images"
+
+Bring raster images into the page workflow, reusing existing seams — **no new dependency** (PyMuPDF
+converts images ↔ PDF pages; the drag/drop + render paths already exist). Sequencing: parked after
+v0.7.0; pull earlier if image support is wanted sooner.
+
+| Milestone | Feature | Where | Done when |
+|---|---|---|---|
+| **M35** Image import | Drag a local image (`.jpg` / `.jpeg` / `.png` / …) from Explorer onto the Pages sidebar → insert as a new page, exactly like a dropped PDF. Reuses **M17**'s `text/uri-list` drop + insert plumbing; the only new bit is converting each image to a one-page PDF source (PyMuPDF `convert_to_pdf`), after which it's just another registered source. | WSL (logic) + WSLg | Drop a PNG/JPEG on the sidebar → it inserts as a page; Save bakes it in |
+| **M36** Image export | **Extend the Export feature (M31.5)** to images: export the selected page(s) → image files (`.png` / `.jpeg`) at a chosen DPI, reusing the **M25** edits-aware render (`render_output` + `_page_image`) so each image shows annotations / fills / redactions; one file per page (or the current page). | WSL (render) + WSLg | Export → Image writes PNG/JPEG matching the on-screen (edited) pages |
+| **M37** Verify + release | Headless suite green; Windows validation (image drop-insert + image export in the frozen build); tag **v0.8.0**. | **Win** | Matrix green → v0.8.0 released |
 
 ## Future enhancements (deferred beyond the roadmap)
 
