@@ -46,6 +46,6 @@ file-drop**, and a **Grab/Select** viewer-mode toggle (`viewer/tools.py`); **v0.
 (region + text-flow, `apply_redactions` with cross-engine leak verification and a redacted-save
 point-of-no-return) — all on the M14 page-edit layer, with annotate/redact exposed as **one-shot
 armed** tools (`viewer/tools.py` `ArmedTool`). 232 headless tests; real-Windows + frozen-build
-validation. **Next:** **v0.5.0 → v0.7.0** planned — `PLAN.md` §Next roadmap (file-safety & output;
-rich text & live preview; round-trip & documents). **Planning the next release?** Read `PROGRESS.md`
+validation. **Next:** **v0.5.0 → v0.8.0** planned — `PLAN.md` §Next roadmap (file-safety & output;
+rich text & live preview; round-trip & documents; images). **Planning the next release?** Read `PROGRESS.md`
 (status + **Open follow-ups**), then `PLAN.md` §Next roadmap.
