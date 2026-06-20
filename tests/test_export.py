@@ -1,11 +1,15 @@
-"""Export → Flattened PDF (PLAN.md, M31.5). Headless.
+"""Export → Flattened PDF (M31.5) + Export → Image (M36). Headless.
 
-Export writes a *derived* copy via ``Document.bake()``: annotations and form widgets become
+Flatten writes a *derived* copy via ``Document.bake()``: annotations and form widgets become
 permanent page **content** — text-preserving (not rasterised) — so the marks can't be moved /
 removed / re-edited in any tool, the opposite of Save's editable, round-trippable output (M31).
+Image export rasterises the **edits-applied** render (``render_output``) to PNG / JPEG at a chosen
+DPI, one file per page.
 """
 
 from __future__ import annotations
+
+import os
 
 import pymupdf as fitz
 import pytest
@@ -14,7 +18,7 @@ import main_window as mw
 from app import PdfApp
 from main_window import MainWindow
 from model.edit_engine import PyMuPDFEngine
-from model.export import export_flattened_pdf
+from model.export import export_flattened_pdf, export_page_images
 from model.page_edits import Highlight, Redaction, TextBox
 from model.virtual_document import VirtualDocument
 from store.settings import Settings
@@ -191,3 +195,116 @@ def test_export_menu_action_cancelled_writes_nothing(app, a_pdf, tmp_path, monke
     monkeypatch.setattr(mw.QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: ("", "")))
     win._export_flattened_pdf()  # cancelling the dialog returns cleanly and writes nothing
     assert {p.name for p in tmp_path.glob("*.pdf")} == {"A.pdf"}  # only the fixture file exists
+
+
+# ---- M36: Export → Image ----------------------------------------------------
+
+
+def _dims(path) -> tuple[int, int]:
+    pix = fitz.Pixmap(path)
+    return pix.width, pix.height
+
+
+def _dark_fraction(path) -> float:
+    """Fraction of (sampled) near-black pixels — a large redaction makes this high."""
+    pix = fitz.Pixmap(path)
+    s, n = pix.samples, pix.n
+    dark = total = 0
+    for i in range(0, len(s) - n, n * 19):  # sample every 19th pixel
+        total += 1
+        if s[i] < 60 and s[i + 1] < 60 and s[i + 2] < 60:
+            dark += 1
+    return dark / max(1, total)
+
+
+def test_export_single_page_writes_the_exact_path(vdoc, tmp_path):
+    out = str(tmp_path / "shot.png")
+    written = export_page_images(vdoc, [0], out)
+    assert written == [out] and os.path.isfile(out)
+    assert _dims(out)[0] > 0  # a real raster
+
+
+def test_export_multiple_pages_appends_padded_page_numbers(vdoc, tmp_path):
+    base = str(tmp_path / "p.png")
+    written = export_page_images(vdoc, [0, 1], base)  # 2 pages → -1 / -2 (single-digit, no pad)
+    assert written == [str(tmp_path / "p-1.png"), str(tmp_path / "p-2.png")]
+    assert all(os.path.isfile(p) for p in written)
+
+
+def test_export_pads_to_widest_page_number_and_uses_doc_page_numbers(tmp_path):
+    src = str(tmp_path / "many.pdf")
+    doc = fitz.open()
+    for i in range(11):
+        doc.new_page().insert_text((72, 100), f"page {i}", fontsize=12)
+    doc.save(src)
+    doc.close()
+    v = VirtualDocument.from_path(src)
+    written = export_page_images(v, [0, 10], str(tmp_path / "m.png"))  # pages 1 and 11
+    assert written == [str(tmp_path / "m-01.png"), str(tmp_path / "m-11.png")]  # padded to width 2
+
+
+def test_export_jpeg_format_from_extension(vdoc, tmp_path):
+    out = str(tmp_path / "shot.jpg")
+    written = export_page_images(vdoc, [0], out)
+    assert written == [out] and os.path.isfile(out)
+    pix = fitz.Pixmap(out)  # decodes back → a valid JPEG
+    assert pix.width > 0
+
+
+def test_export_dpi_scales_pixel_dimensions(vdoc, tmp_path):
+    low = export_page_images(vdoc, [0], str(tmp_path / "lo.png"), dpi=72)[0]
+    high = export_page_images(vdoc, [0], str(tmp_path / "hi.png"), dpi=200)[0]
+    lw, lh = _dims(low)
+    hw, hh = _dims(high)
+    assert hw > lw and hh > lh  # more dpi → more pixels
+
+
+def test_export_image_is_edits_aware(vdoc, tmp_path):
+    """A large redaction bakes into the exported raster (render_output is the source), so the page
+    image is mostly dark — proving the export reflects edits, not the clean source."""
+    clean = export_page_images(vdoc, [0], str(tmp_path / "clean.png"))[0]
+    vdoc.add_annotation(0, Redaction(((0, 0, 1000, 1000),)))  # cover the whole page
+    redacted = export_page_images(vdoc, [0], str(tmp_path / "redacted.png"))[0]
+    assert _dark_fraction(redacted) > 0.9 > _dark_fraction(clean)
+
+
+def test_export_pending_redaction_not_committed(vdoc, tmp_path):
+    vdoc.add_annotation(0, Redaction(((60, 88, 540, 112),)))
+    export_page_images(vdoc, [0], str(tmp_path / "x.png"))
+    assert vdoc.has_redactions() is True  # exporting is a side artifact, like print
+
+
+def test_export_no_pages_writes_nothing(vdoc, tmp_path):
+    assert export_page_images(vdoc, [], str(tmp_path / "none.png")) == []
+    assert not list(tmp_path.glob("*.png"))
+
+
+def test_export_images_menu_writes_file_and_leaves_doc_untouched(app, a_pdf, tmp_path, monkeypatch):
+    win = MainWindow(app, a_pdf, app.settings)
+    win.vdoc.add_annotation(0, TextBox((72, 200, 320, 240), "shot"))
+    target = str(tmp_path / "shot.png")
+    monkeypatch.setattr(mw.QInputDialog, "getInt", staticmethod(lambda *a, **k: (120, True)))
+    monkeypatch.setattr(mw.QFileDialog, "getSaveFileName",
+                        staticmethod(lambda *a, **k: (target, "PNG image (*.png)")))
+    win._export_images()  # no thumbnail selection → exports the current page (0)
+    assert os.path.isfile(target)
+    assert win.vdoc.path == a_pdf and win.vdoc.page_annotations(0)  # working doc untouched
+
+
+def test_export_images_menu_appends_extension_for_jpeg(app, a_pdf, tmp_path, monkeypatch):
+    win = MainWindow(app, a_pdf, app.settings)
+    chosen = str(tmp_path / "noext")  # user typed no extension; JPEG filter selected
+    monkeypatch.setattr(mw.QInputDialog, "getInt", staticmethod(lambda *a, **k: (96, True)))
+    monkeypatch.setattr(mw.QFileDialog, "getSaveFileName",
+                        staticmethod(lambda *a, **k: (chosen, "JPEG image (*.jpg)")))
+    win._export_images()
+    assert os.path.isfile(chosen + ".jpg")  # extension forced to match the JPEG filter
+
+
+def test_export_images_menu_cancel_at_dpi_writes_nothing(app, a_pdf, tmp_path, monkeypatch):
+    win = MainWindow(app, a_pdf, app.settings)
+    monkeypatch.setattr(mw.QInputDialog, "getInt", staticmethod(lambda *a, **k: (150, False)))
+    monkeypatch.setattr(mw.QFileDialog, "getSaveFileName",
+                        staticmethod(lambda *a, **k: (str(tmp_path / "nope.png"), "PNG image (*.png)")))
+    win._export_images()  # cancelled at the DPI prompt → returns before the save dialog
+    assert not list(tmp_path.glob("*.png"))
