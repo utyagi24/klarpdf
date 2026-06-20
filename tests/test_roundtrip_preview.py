@@ -20,6 +20,7 @@ from model.page_edits import Highlight, TextBox, page_has_pdfproj_annotations
 from model.virtual_document import VirtualDocument
 from store.settings import Settings
 from viewer.pdf_view import PdfView
+from viewer.text_selection import TextSelection
 
 
 @pytest.fixture(scope="session")
@@ -188,3 +189,69 @@ def test_thumbnail_stays_baked_after_removing_last_annotation(qapp, baked_pdf, t
     finally:
         win.undo_stack.setClean()
         win.close()
+
+
+# ---- text selection excludes our annotation text ---------------------------
+
+
+def _selectable_words(view, page_index=0) -> list:
+    sel = TextSelection(view)
+    return [w[4] for w in sel._words_for(page_index)]
+
+
+def test_in_session_textbox_text_is_not_selectable(qapp, tmp_path):
+    """An in-session text box is a model overlay, not body text — its words never appear in the
+    selectable set (it isn't baked into the source the words are read from)."""
+    v = VirtualDocument.from_path(_clean_pdf(tmp_path))
+    v.add_annotation(0, TextBox(BOX, "INSESSIONNOTE"))
+    view = PdfView(v)
+    try:
+        words = _selectable_words(view)
+        assert "HELLO" in words                 # body text is selectable
+        assert "INSESSIONNOTE" not in words      # the box's text is not
+    finally:
+        view.deleteLater()
+
+
+def test_reopened_textbox_text_is_not_drag_selectable(qapp, tmp_path):
+    """After reopen the box is baked into the source — and get_text would include its text — but the
+    selection reads the stripped render page, so the box text is consistently not drag-selectable
+    (matching the in-session box), rather than selectable from its baked position."""
+    src = _clean_pdf(tmp_path, "body.pdf")
+    v0 = VirtualDocument.from_path(src)
+    v0.add_annotation(0, TextBox(BOX, "SECRETNOTE"))
+    out = str(tmp_path / "baked_sel.pdf")
+    PyMuPDFEngine().materialize(v0, out)
+
+    v = VirtualDocument.from_path(out)
+    assert any(isinstance(a, TextBox) for a in v.page_annotations(0))  # it did round-trip
+    view = PdfView(v)
+    try:
+        words = _selectable_words(view)
+        assert "HELLO" in words
+        assert "SECRETNOTE" not in words
+    finally:
+        view.deleteLater()
+
+
+def test_word_cache_invalidates_on_reorder(qapp, tmp_path):
+    """reload() invalidates the selection's word cache, so after a reorder index 0 yields the new
+    page's words — not the stale ones cached before the move."""
+    src = str(tmp_path / "two.pdf")
+    doc = fitz.open()
+    doc.new_page().insert_text((72, 100), "PAGEZERO alpha", fontsize=14)
+    doc.new_page().insert_text((72, 100), "PAGEONE beta", fontsize=14)
+    doc.save(src)
+    doc.close()
+
+    v = VirtualDocument.from_path(src)
+    view = PdfView(v)
+    view.selection = TextSelection(view)  # wire it as MainWindow does
+    try:
+        assert "PAGEZERO" in [w[4] for w in view.selection._words_for(0)]  # prime the cache
+        v.move_pages([0], 2)  # page 0 → the end; index 0 is now the old page 1
+        view.reload()
+        page0_words = [w[4] for w in view.selection._words_for(0)]
+        assert "PAGEONE" in page0_words and "PAGEZERO" not in page0_words
+    finally:
+        view.deleteLater()
