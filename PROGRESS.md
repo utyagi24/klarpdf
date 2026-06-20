@@ -103,4 +103,6 @@ Carried items — none block work:
   **scheduled** in §Next roadmap above (M23–M37): rich text, live thumbnails, theme icons, revert,
   disk-change warning, edits-aware printing, annotation round-trip editing, encrypted PDFs, GoTo-link remap, image import/export.
   Still **deferred beyond** the roadmap (PLAN.md §Future enhancements): new-field form designer,
-  drop-to-open in the main view, re-encryption on save.
+  drop-to-open in the main view, re-encryption on save, cross-app annotation editing (M31 round-trip
+  edits only pdfproj's own author-tagged marks; foreign annotations are shown but not editable — a
+  deliberate fidelity-safety boundary, see PLAN.md).
