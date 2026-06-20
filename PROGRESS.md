@@ -64,7 +64,7 @@ GUI-free core, fully headless-testable).
 
 **v0.6.0 — "Rich Text & Live Preview"** (planned)
 
-- [ ] **M27** ⭐ Styled text boxes — font family/size/colour + box fill + box outline (on/off, black), via a formatting bar on the inline editor. **B/I/U + coloured outline descoped** (owner call — base-14 bold/italic variant names don't render on PyMuPDF's FreeText appearance path; they'd force the heavier richtext path). Simple `add_freetext_annot` (`text_color`/`fill_color`/`border_width`), text stays in `/Contents`. — *WSL (model+tests) + WSLg*
+- [x] **M27** ⭐ Styled text boxes — font family/size/colour + box fill + box outline (on/off, black), via a formatting bar on the inline editor. **B/I/U + coloured outline descoped** (owner call — base-14 bold/italic variant names don't render on PyMuPDF's FreeText appearance path; they'd force the heavier richtext path). Simple `add_freetext_annot` (`text_color`/`fill_color`/`border_width`), text stays in `/Contents`. — *WSL (model+tests) + WSLg* — [#41](https://github.com/utyagi24/pdfproj/pull/41) (model) + [#42](https://github.com/utyagi24/pdfproj/pull/42) (viewer)
 - [ ] **M28** Live thumbnails — thumbnails reflect the page's edited state (annotations/redactions/fills) — *WSLg*
 - [ ] **M29** Dynamic theme icons — runtime OS light↔dark re-tint (verify/complete `refresh_for_theme`) — *WSLg + Windows*
 - [ ] **M30** Verify + release → tag **v0.6.0** — *Windows*
