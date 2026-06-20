@@ -31,9 +31,11 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   spare machine / a fresh local user with networking disabled.
 
 ## Status
-**v0.7.0 shipped** — milestones **M0–M31.5 + M34 complete** (v0.1.0 = M0–M9; v0.2.0 = M10–M15;
-v0.3.0 = M16–M19; v0.4.0 = M20–M22; v0.5.0 = M23–M26; v0.6.0 = M27–M30; v0.7.0 = M31 + M31.5 + M34).
+**v0.8.0 shipped** — milestones **M0–M37 complete** (v0.1.0 = M0–M9; v0.2.0 = M10–M15;
+v0.3.0 = M16–M19; v0.4.0 = M20–M22; v0.5.0 = M23–M26; v0.6.0 = M27–M30; v0.7.0 = M31 + M31.5 + M34;
+v0.8.0 = M35–M37).
 Releases:
+<https://github.com/utyagi24/pdfproj/releases/tag/v0.8.0> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.7.0> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.6.0> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.5.0> ·
@@ -60,7 +62,12 @@ round-trip editing** (reopen → move/edit/remove our `PDFPROJ_AUTHOR`-tagged hi
 `read_pdfproj_annotations` seeds the model on open, strip-then-re-add at materialize; the page render
 + text selection read the our-marks-stripped page so the editable overlay is authoritative) and a
 flatten **Export → PDF** (`File ▸ Export`; `model/export.py` bakes annotations + form widgets into
-page content via `Document.bake()`, text-preserving — the locked counterpart to round-trip). 317
-headless tests; real-Windows + frozen-build validation. **Next:** **v0.8.0** (images) → **v0.9.0**
-(encrypted PDFs + GoTo-link remap, re-scoped out of v0.7.0) — `PLAN.md` §Next roadmap. **Planning the
-next release?** Read `PROGRESS.md` (status + **Open follow-ups**), then `PLAN.md` §Next roadmap.
+page content via `Document.bake()`, text-preserving — the locked counterpart to round-trip);
+**v0.8.0** added **image import** (drag a PNG/JPEG from Explorer onto the Pages sidebar → a page,
+`VirtualDocument.open_image_source` via PyMuPDF `convert_to_pdf`) and **image export**
+(`File ▸ Export ▸ Image…`; `model/export.py:export_page_images` rasterises `render_output` → PNG/JPEG
+at a chosen DPI, edits-aware), plus UI polish (clearer multi-page selection, vertically-centred
+fitting page, centred text-box text). 341 headless tests; real-Windows + frozen-build validation.
+**Next:** **v0.9.0** (encrypted PDFs + GoTo-link remap, re-scoped out of v0.7.0) — `PLAN.md` §Next
+roadmap. **Planning the next release?** Read `PROGRESS.md` (status + **Open follow-ups**), then
+`PLAN.md` §Next roadmap.
