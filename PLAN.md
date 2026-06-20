@@ -709,6 +709,28 @@ Captured but not yet scheduled:
   the current page, or open it as a new window when the view is empty.
 - **Re-encryption on save:** materialize writes an unencrypted document; re-encrypting the output
   (carrying a password through) pairs with the M32 encrypted-PDF work if wanted.
+- **Cross-app annotation editing (foreign annotations):** annotation round-trip (M31) re-opens for
+  editing **only pdfproj's own** marks — those stamped with the `/T = "pdfproj"` author tag
+  (`PDFPROJ_AUTHOR`). A highlight / text-box written by another tool (Preview, Edge, Acrobat, …) is
+  **shown** (it stays baked in the page and renders normally) but **not editable**: the read-back in
+  `model/page_edits.py:read_pdfproj_annotations` skips any annotation whose title isn't ours, so it
+  never enters the editable model, and the viewer overlay / hit-testing only act on the model. This
+  is **deliberate**, not a bug: the strip-then-re-add at materialise rewrites a managed annotation
+  from our descriptor, and the `TextBox` / `Highlight` model is intentionally narrow (simple
+  `/Contents` text, one base-14 family `helv`/`tiro`/`cour`, one size + colour, a fill, a plain black
+  border). A foreign box can carry features we don't model — rich text (`/RC` + `/DS`), non-base-14
+  or embedded fonts, bold/italic faces, separate border colour, opacity (`/CA`), justification
+  (`/Q`), rotation, callout lines (`/IT FreeTextCallout` + `/CL`) — so adopting one into our model
+  and re-baking it would **silently drop** whatever we didn't capture. The author tag is exactly
+  what lets us strip-and-rewrite *our* marks while passing *theirs* through verbatim (byte-identical),
+  which is the safe default. Three options if cross-app editing is wanted later, cheapest first:
+  (1) **adopt-on-edit** — keep foreign marks display-only until the user explicitly edits one, then
+  tag + manage that single annotation (fidelity loss limited to deliberately-edited boxes; needs a
+  per-annotation identity — e.g. record the source xref on the descriptor — so materialise strips
+  exactly the adopted one and passes the rest through); (2) **move-only** for foreign boxes (rewrite
+  `/Rect` in place, regenerate appearance — no text/style edit); (3) **full model parity** (model
+  rich text / arbitrary fonts / opacity / etc. so anything round-trips losslessly — a large effort,
+  against the small-audited-model design). Recommended path is (1).
 - **Resolved (no longer open):** duplicate form-field rename + multi-level outline remap are handled
   today — `insert_pdf` auto-renames colliding root fields on merge (confirmed in M1) and
   `model/toc_remap.py` does multi-level remap with orphan repair.
