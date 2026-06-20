@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 from PySide6.QtCore import QEvent, QPointF, Qt
 from PySide6.QtGui import QMouseEvent
-from PySide6.QtWidgets import QGraphicsRectItem
+from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsSimpleTextItem
 
 from app import PdfApp
 from model.page_edits import Highlight, TextBox
@@ -191,6 +191,21 @@ def test_textbox_editor_autogrows_height_with_lines(win):
     ov._editor.setPlainText("l1\nl2\nl3\nl4\nl5\nl6")
     tall_h = ov._editor_rect[3] - ov._editor_rect[1]
     assert tall_h > short_h  # height grew to fit more lines
+
+
+def test_textbox_text_is_vertically_centered_in_the_box(win):
+    """#2: the text sits at the box's vertical centre, not pinned to the top. A tall box with short
+    text would put a top-aligned label near the top (~43% of the box height off-centre); centred,
+    the text centre is within a fraction of the box centre."""
+    win.vdoc.add_annotation(0, TextBox((100, 100, 320, 220), "Hi"))  # 120pt-tall box, one short line
+    ov = win.view.annotations
+    ov.repaint()
+    boxes = [it for it in ov._items if type(it) is QGraphicsRectItem]
+    texts = [it for it in ov._items if isinstance(it, QGraphicsSimpleTextItem)]
+    assert boxes and texts
+    box_rect = boxes[-1].sceneBoundingRect()
+    text_center_y = texts[-1].sceneBoundingRect().center().y()
+    assert abs(text_center_y - box_rect.center().y()) < 0.2 * box_rect.height()
 
 
 def test_textbox_editor_autogrows_width_with_long_line(win):
