@@ -615,10 +615,13 @@ class PdfView(QGraphicsView):
 
     def reload(self) -> None:
         """Rebuild after the ordered list changed (edit). Page indices remap, so the pixmap
-        cache (keyed by ordered index) is dropped to avoid showing stale pages; the form-fill
-        copies are dropped too so a changed field value re-renders."""
+        cache (keyed by ordered index) is dropped to avoid showing stale pages; the render
+        copies are dropped too so a changed field value / annotation re-renders, and the text
+        selection's word cache is invalidated (same reasons — remapped indices, stripped marks)."""
         self._cache.clear()
         self._drop_render_docs()
+        if self.selection is not None:
+            self.selection.invalidate()
         if self._current >= self._vdoc.page_count:
             self._current = max(0, self._vdoc.page_count - 1)
         self._build_scene()
