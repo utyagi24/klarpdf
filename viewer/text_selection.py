@@ -40,10 +40,26 @@ class TextSelection:
         cached = self._words.get(page_index)
         if cached is None:
             ref = self._view._vdoc.ordered[page_index]
-            page = self._view._vdoc.sources[ref.source_id][ref.source_page_index]
+            # Read words from the **edits-applied render page** the viewer actually shows (our baked
+            # annotations stripped, form fills applied) — not the raw source. get_text("words")
+            # includes a baked FreeText annotation's text at its baked position, so reading the raw
+            # source would (a) make a round-tripped text box's text drag-selectable as if it were
+            # body text — it is an annotation, edited by double-click — and (b) leave selectable
+            # words at a box's *old* position after it is moved (selecting apparent whitespace yet
+            # copying the box text). Stripping our marks keeps selection consistent with what is on
+            # screen, whether the box is in-session or round-tripped. None → render the shared source.
+            page = self._view._render_source_page(ref)
+            if page is None:
+                page = self._view._vdoc.sources[ref.source_id][ref.source_page_index]
             cached = sorted(page.get_text("words"), key=lambda w: (w[5], w[6], w[7]))
             self._words[page_index] = cached
         return cached
+
+    def invalidate(self) -> None:
+        """Drop the cached per-page word geometry. Called by the view on :meth:`PdfView.reload`
+        (after an edit), since a reorder / delete remaps page indices and an annotation strip or
+        form fill changes the extracted words — otherwise selection would hit stale word boxes."""
+        self._words.clear()
 
     def _word_containing(self, scene_pt) -> tuple[int, int] | None:
         """Exact hit: the word whose box contains the point, else None (no nearest-snap)."""

@@ -289,7 +289,15 @@ class ThumbnailPanel(QListWidget):
         a thumbnail shows exactly what a Save would write. The caller owns it and must close it.
         A malformed edit returns ``None`` rather than blanking the sidebar — the source render shows.
         """
-        has_edits = bool(self._vdoc.form_values) or any(r.annotations for r in self._vdoc.ordered)
+        # The third term keeps a document on the edits-applied path even after its last model
+        # annotation is removed: our marks are still baked into the source bytes, so the fast source
+        # render would show a just-deleted highlight / text-box until the next save. render_output
+        # strips our baked marks and re-adds only what the model still holds (M31).
+        has_edits = (
+            bool(self._vdoc.form_values)
+            or any(r.annotations for r in self._vdoc.ordered)
+            or self._vdoc.has_baked_pdfproj_annotations()
+        )
         if not has_edits:
             return None
         try:

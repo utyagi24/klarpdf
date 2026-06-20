@@ -44,11 +44,12 @@ class PdfView(QGraphicsView):
         self._zoom = 1.0
         self._rotation = 0  # view rotation in degrees: 0/90/180/270
         self._cache: "OrderedDict[tuple, QPixmap]" = OrderedDict()
-        # Per-source fresh copies with form fills applied, for rendering filled pages (M14). Keyed
-        # by source id; rebuilt after each edit (reload clears them). Kept separate from the shared
-        # read-only sources, and NOT built via insert_pdf — repeated insert_pdf from one source
-        # drops widgets after the first call, so we use a fresh source copy and apply values to it.
-        self._fill_docs: dict[str, "fitz.Document"] = {}
+        # Per-source fresh copies used to render edited pages: form fills applied (M14) and our
+        # baked annotations stripped (M31 — they redraw as editable overlays). Keyed by source id;
+        # rebuilt after each edit (reload clears them). Kept separate from the shared read-only
+        # sources, and NOT built via insert_pdf — repeated insert_pdf from one source drops widgets
+        # after the first call, so we use a fresh source copy and apply values / strip on it.
+        self._render_docs: dict[str, "fitz.Document"] = {}
         self._pages: list[dict] = []   # per page: {bg, pix, x, y, w, h}
         self._current = 0
         # Overlay controllers (set by MainWindow): text selection + search (M3), form fill (M14),
@@ -392,35 +393,59 @@ class PdfView(QGraphicsView):
 
     # ---- rendering --------------------------------------------------------------
 
-    def _filled_source_page(self, ref):
-        """The source page to render for ``ref`` — a fills-applied fresh copy if this page has a
-        filled field, else None (caller uses the shared source page).
+    def _render_source_page(self, ref):
+        """The source page to render for ``ref`` — a fresh per-source copy when this source needs a
+        display fixup, else ``None`` (caller renders the shared source directly, the fast path).
 
-        A fresh in-memory source copy (``VirtualDocument.fresh_source``) with ``apply_form_values``
-        applied directly (no ``insert_pdf``) renders the entered values without mutating the shared
-        source AND avoids PyMuPDF's repeated-``insert_pdf`` widget loss. The fresh doc is cached per
-        source and dropped by :meth:`reload` after every edit.
+        Two fixups, both on a fresh in-memory copy (``VirtualDocument.fresh_source``) so the shared
+        source — possibly referenced by another window — is never mutated:
+
+        * **form fills** — ``apply_form_values`` applied directly (no ``insert_pdf``, dodging
+          PyMuPDF's repeated-graft widget loss) so entered values render;
+        * **our baked annotations stripped** — a round-tripped highlight / text-box is baked into
+          the source page, so ``get_pixmap`` would render it *and* the editable overlay would draw
+          the model's copy on top: the original would show twice and a move / delete would only
+          shift / hide the overlay, leaving the baked one pinned. Stripping our marks here (foreign
+          annotations stay) makes the rendered pixmap the clean page and the overlay the single
+          source of truth — the same strip-then-redraw materialise does at save.
+
+        The copy is built (and the build-or-fast-path decision made) **once per source**, cached,
+        and dropped by :meth:`reload` after every edit — so per-page renders are a dict lookup, not
+        a re-scan. A cached ``None`` means "no copy needed; render the shared source".
         """
+        source_id = ref.source_id
+        if source_id not in self._render_docs:
+            self._render_docs[source_id] = self._build_render_doc(source_id)
+        doc = self._render_docs[source_id]
+        return None if doc is None else doc[ref.source_page_index]
+
+    def _build_render_doc(self, source_id: str):
+        """Build the per-source render copy, or ``None`` when the source needs no fixup (the fast
+        path). See :meth:`_render_source_page` for what the copy carries."""
         values = self._vdoc.form_values
-        if not values:
+        has_fills = bool(values) and any(
+            w.field_name in values
+            for page in self._vdoc.sources[source_id]
+            for w in (page.widgets() or [])
+        )
+        has_ours = self._vdoc.source_has_pdfproj_annotations(source_id)
+        if not has_fills and not has_ours:
             return None
-        src = self._vdoc.sources[ref.source_id]
-        page = src[ref.source_page_index]
-        if not any(w.field_name in values for w in (page.widgets() or [])):
-            return None
-        doc = self._fill_docs.get(ref.source_id)
-        if doc is None:
-            from model.page_edits import apply_form_values
+        from model.page_edits import apply_form_values, strip_pdfproj_annotations
 
-            doc = self._vdoc.fresh_source(ref.source_id)  # fresh copy keeps widgets (graft quirk)
+        doc = self._vdoc.fresh_source(source_id)  # fresh copy keeps widgets (graft quirk)
+        if has_fills:
             apply_form_values(doc, values)
-            self._fill_docs[ref.source_id] = doc
-        return doc[ref.source_page_index]
+        if has_ours:
+            for page in doc:
+                strip_pdfproj_annotations(page)
+        return doc
 
-    def _drop_fill_docs(self) -> None:
-        for doc in self._fill_docs.values():
-            doc.close()
-        self._fill_docs.clear()
+    def _drop_render_docs(self) -> None:
+        for doc in self._render_docs.values():
+            if doc is not None:  # a cached None means "fast path", nothing to close
+                doc.close()
+        self._render_docs.clear()
 
     def _render_pixmap(self, index: int) -> QPixmap | None:
         total = (self._page_extra(index) + self._rotation) % 360  # per-page override + view spin
@@ -431,8 +456,8 @@ class PdfView(QGraphicsView):
             return hit
         ref = self._vdoc.ordered[index]
         try:
-            filled = self._filled_source_page(ref)  # None unless this page has a filled field
-            page = filled if filled is not None else self._vdoc.sources[ref.source_id][ref.source_page_index]
+            render_page = self._render_source_page(ref)  # None → render the shared source (fast path)
+            page = render_page if render_page is not None else self._vdoc.sources[ref.source_id][ref.source_page_index]
             pm = page.get_pixmap(matrix=fitz.Matrix(self._zoom, self._zoom), alpha=False)
             img = QImage(pm.samples, pm.width, pm.height, pm.stride, QImage.Format.Format_RGB888)
             pixmap = QPixmap.fromImage(img.copy())  # copy: detach from pm.samples buffer
@@ -590,10 +615,13 @@ class PdfView(QGraphicsView):
 
     def reload(self) -> None:
         """Rebuild after the ordered list changed (edit). Page indices remap, so the pixmap
-        cache (keyed by ordered index) is dropped to avoid showing stale pages; the form-fill
-        copies are dropped too so a changed field value re-renders."""
+        cache (keyed by ordered index) is dropped to avoid showing stale pages; the render
+        copies are dropped too so a changed field value / annotation re-renders, and the text
+        selection's word cache is invalidated (same reasons — remapped indices, stripped marks)."""
         self._cache.clear()
-        self._drop_fill_docs()
+        self._drop_render_docs()
+        if self.selection is not None:
+            self.selection.invalidate()
         if self._current >= self._vdoc.page_count:
             self._current = max(0, self._vdoc.page_count - 1)
         self._build_scene()
