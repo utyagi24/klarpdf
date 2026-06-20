@@ -75,6 +75,10 @@ class MainWindow(QMainWindow):
         self.view.annotations = AnnotationOverlay(
             self.view, self._add_annotation, self._remove_annotation, self._replace_annotation
         )
+        # PdfView built its scene in __init__ (before this overlay existed), and the first show's
+        # fit/restore can early-return without a rebuild — so paint any annotations the document was
+        # opened with (round-tripped from a prior save, M31) now that the overlay is wired.
+        self.view.annotations.repaint()
         self.view.armedChanged.connect(self._on_armed_changed)
         self.view.applyTextTool.connect(self._apply_text_tool)
         self.find_bar = FindBar(self.view)  # hidden until Ctrl+F
