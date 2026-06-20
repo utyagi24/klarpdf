@@ -26,7 +26,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import QAbstractItemView, QListWidget, QListWidgetItem
 
 from model.edit_engine import PyMuPDFEngine
-from model.virtual_document import VirtualDocument
+from model.virtual_document import IMAGE_EXTENSIONS, VirtualDocument
 
 _THUMB_W = 140  # target thumbnail width in px
 _DRAG_W = 96    # width of the page image carried under the cursor while dragging
@@ -42,7 +42,7 @@ class ThumbnailPanel(QListWidget):
 
     pageActivated = Signal(int)
     pagesDropped = Signal(object, object, int)  # (source_key | None, rows, before-index)
-    filesDropped = Signal(object, int)          # (list[pdf paths], before-index) — from Explorer
+    filesDropped = Signal(object, int)          # (list[pdf/image paths], before-index) — from Explorer
     deleteRequested = Signal(object)            # (sorted rows)
 
     def __init__(self, vdoc: VirtualDocument, parent=None) -> None:
@@ -157,18 +157,20 @@ class ThumbnailPanel(QListWidget):
         drag.setHotSpot(QPoint(pixmap.width() // 2, 12))  # page hangs just below the cursor
         drag.exec(Qt.DropAction.MoveAction | Qt.DropAction.CopyAction, Qt.DropAction.MoveAction)
 
-    def _dropped_pdf_paths(self, mime) -> list[str]:
-        """Local ``.pdf`` files in a drag's URLs (e.g. dragged from Explorer), else ``[]``."""
+    def _dropped_file_paths(self, mime) -> list[str]:
+        """Local **PDF or image** files in a drag's URLs (e.g. dragged from Explorer), in URL order,
+        else ``[]``. Images (M35) insert as a page just like a dropped PDF (converted at open)."""
         paths = []
         for url in mime.urls():
             if url.isLocalFile():
                 path = url.toLocalFile()
-                if path.lower().endswith(".pdf") and os.path.isfile(path):
+                ext = os.path.splitext(path)[1].lower()
+                if (ext == ".pdf" or ext in IMAGE_EXTENSIONS) and os.path.isfile(path):
                     paths.append(path)
         return paths
 
     def _accepts(self, mime) -> bool:
-        return mime.hasFormat(_PAGES_MIME) or bool(self._dropped_pdf_paths(mime))
+        return mime.hasFormat(_PAGES_MIME) or bool(self._dropped_file_paths(mime))
 
     def dragEnterEvent(self, event) -> None:
         if self._accepts(event.mimeData()):
@@ -214,9 +216,9 @@ class ThumbnailPanel(QListWidget):
             event.accept()
             return
 
-        pdfs = self._dropped_pdf_paths(md)  # PDF(s) dragged in from Explorer
-        if pdfs:
-            self.filesDropped.emit(pdfs, before)
+        files = self._dropped_file_paths(md)  # PDF(s) / image(s) dragged in from Explorer
+        if files:
+            self.filesDropped.emit(files, before)
             event.acceptProposedAction()
             return
 
