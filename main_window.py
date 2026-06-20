@@ -41,7 +41,7 @@ from model.edit_commands import (
 )
 from model.page_edits import Highlight, Redaction
 from model.edit_engine import PyMuPDFEngine
-from model.virtual_document import PageRef, VirtualDocument
+from model.virtual_document import IMAGE_EXTENSIONS, PageRef, VirtualDocument
 from organize.thumbnail_panel import ThumbnailPanel
 from store.file_watch import FileWatcher
 from store.settings import Settings
@@ -530,18 +530,22 @@ class MainWindow(QMainWindow):
                                            text="Insert pages from file"))
 
     def _on_files_dropped(self, paths, before_index: int) -> None:
-        """PDF(s) dragged from Explorer onto the Pages panel — insert their pages at the drop slot."""
+        """PDF(s) and/or image(s) dragged from Explorer onto the Pages panel — insert at the drop
+        slot. An image (M35) is converted to a one-page PDF source; a PDF opens as-is."""
         refs = []
         for path in paths:
             try:
-                source_id = self.vdoc.open_source(path)  # raises on a non-PDF / unreadable file
+                if os.path.splitext(path)[1].lower() in IMAGE_EXTENSIONS:
+                    source_id = self.vdoc.open_image_source(path)  # raster image → 1-page PDF source
+                else:
+                    source_id = self.vdoc.open_source(path)  # raises on a non-PDF / unreadable file
             except Exception as exc:  # skip the bad file, keep going with the rest
-                QMessageBox.warning(self, "Insert PDF", f"Could not open {os.path.basename(path)}:\n{exc}")
+                QMessageBox.warning(self, "Insert file", f"Could not open {os.path.basename(path)}:\n{exc}")
                 continue
             doc = self.vdoc.sources[source_id]
             refs.extend(PageRef(source_id, i) for i in range(doc.page_count))
         if refs:
-            label = "Insert dropped PDF" if len(paths) == 1 else f"Insert {len(paths)} dropped PDFs"
+            label = "Insert dropped file" if len(paths) == 1 else f"Insert {len(paths)} dropped files"
             self.undo_stack.push(InsertCommand(self.vdoc, before_index, refs, text=label))
 
     def _page_context_menu(self, pos) -> None:
