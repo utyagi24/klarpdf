@@ -3,15 +3,18 @@
 Live status of the build (milestone detail in `PLAN.md` §Execution). **One PR per milestone** — when
 it merges, check the box here in the same PR and append the PR link.
 
-**Status:** ✅ **v0.5.0 shipped** — milestones **M0–M26 complete** (v0.1.0 = M0–M9,
-v0.2.0 = M10–M15, v0.3.0 = M16–M19, v0.4.0 = M20–M22, v0.5.0 = M23–M26). Releases:
-<https://github.com/utyagi24/pdfproj/releases/tag/v0.5.0> ·
-<https://github.com/utyagi24/pdfproj/releases/tag/v0.4.0>. v0.5.0 "File Safety & Output" adds
+**Status:** ✅ **v0.6.0 shipped** — milestones **M0–M30 complete** (v0.1.0 = M0–M9,
+v0.2.0 = M10–M15, v0.3.0 = M16–M19, v0.4.0 = M20–M22, v0.5.0 = M23–M26, v0.6.0 = M27–M30). Releases:
+<https://github.com/utyagi24/pdfproj/releases/tag/v0.6.0> ·
+<https://github.com/utyagi24/pdfproj/releases/tag/v0.5.0>. v0.6.0 "Rich Text & Live Preview" adds
+**styled text boxes** (font / size / colour + box fill + outline, via a formatting bar on the inline
+editor), **live thumbnails** (the Pages sidebar shows each page's edits), and **dynamic theme icons**
+(live OS light↔dark re-tint). v0.5.0 "File Safety & Output" adds
 **Revert to Saved**, an **external-change warning**, and **edits-aware printing**. v0.4.0 "Annotate & Redact" adds text
 **highlight** + **text boxes** (move / re-edit / auto-grow), and **true destructive redaction**
 (region + text-flow) with cross-engine leak verification and a redacted-save "point of no return".
 Annotate/redact tools are **one-shot armed** gestures; cross-window page drag/paste **carries
-per-page edits**. **Next:** **v0.6.0 → v0.8.0** planned (M27–M37) — see the roadmap below and
+per-page edits**. **Next:** **v0.7.0 → v0.8.0** planned (M31–M37) — see the roadmap below and
 `PLAN.md` §Next roadmap. **Open follow-ups** (carried items) are at the bottom.
 
 - [x] **M0** Scaffold + WSL dev venv — *step 1 (WSL); WSL* — [#4](https://github.com/utyagi24/pdfproj/pull/4)
@@ -27,7 +30,7 @@ per-page edits**. **Next:** **v0.6.0 → v0.8.0** planned (M27–M37) — see th
 
 ⭐ M1 is the keystone — most correctness risk, GUI-free, fully testable in WSL/CI.
 
-## Releases — v0.2.0 ✅ → v0.3.0 ✅ → v0.4.0 ✅ → v0.5.0 → v0.6.0 → v0.7.0 → v0.8.0
+## Releases — v0.2.0 ✅ → v0.3.0 ✅ → v0.4.0 ✅ → v0.5.0 ✅ → v0.6.0 ✅ → v0.7.0 → v0.8.0
 
 Spec + architecture in `PLAN.md` (§Shipped roadmap for v0.2–v0.4, §Next roadmap for v0.5–v0.8). Same
 conventions: **one PR per milestone**, tick the box here on merge. ⭐ marks a keystone (most risk,
@@ -62,12 +65,12 @@ GUI-free core, fully headless-testable).
 - [x] **M25** Edits-aware printing — Print renders the same edits-applied output a Save would write (page order, rotation, form values, highlights, text boxes, redactions), so a not-yet-saved redaction no longer prints the original. Preview / "Save as PDF" / scale modes were dropped (the native dialog can't host them; a rasterised PDF is worse than Save As) — the page→image render is kept as the engine for the planned **image export** (M36). — *WSL logic; Windows print validation* — [#39](https://github.com/utyagi24/pdfproj/pull/39)
 - [x] **M26** Verify + release → tag **v0.5.0** — *Windows* — [#40](https://github.com/utyagi24/pdfproj/pull/40)
 
-**v0.6.0 — "Rich Text & Live Preview"** (planned)
+**v0.6.0 ✅ — "Rich Text & Live Preview"** (shipped)
 
 - [x] **M27** ⭐ Styled text boxes — font family/size/colour + box fill + box outline (on/off, black), via a formatting bar on the inline editor. **B/I/U + coloured outline descoped** (owner call — base-14 bold/italic variant names don't render on PyMuPDF's FreeText appearance path; they'd force the heavier richtext path). Simple `add_freetext_annot` (`text_color`/`fill_color`/`border_width`), text stays in `/Contents`. — *WSL (model+tests) + WSLg* — [#41](https://github.com/utyagi24/pdfproj/pull/41) (model) + [#42](https://github.com/utyagi24/pdfproj/pull/42) (viewer)
 - [x] **M28** Live thumbnails — thumbnails reflect the page's edited state (annotations/redactions/fills), rendered from the shared `render_output` bake (only when the doc has edits; clean docs keep the fast source render) — *WSLg* — [#43](https://github.com/utyagi24/pdfproj/pull/43)
 - [x] **M29** Dynamic theme icons — runtime OS light↔dark re-tint. Verify revealed it never fired: `changeEvent` matched only `ApplicationPaletteChange`, but Qt delivers `PaletteChange`; now handles both, so the toolbar glyphs re-tint live (app icon is theme-agnostic) — *WSLg + Windows* — [#44](https://github.com/utyagi24/pdfproj/pull/44)
-- [ ] **M30** Verify + release → tag **v0.6.0** — *Windows*
+- [x] **M30** Verify + release → tag **v0.6.0** (version bump + docs; 285 headless tests green) — *Windows*
 
 **v0.7.0 — "Round-trip & Documents"** (planned)
 

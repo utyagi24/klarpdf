@@ -4,16 +4,19 @@ Local, offline, **native-Windows** PDF viewer + page editor (Python · PySide6 �
 trustworthy replacement for macOS Preview's view + splice/split workflow on Windows. The source is
 the unit of audit; it ships as a pinned, fully offline Windows installer.
 
-**Status: `v0.5.0` shipped** — [download the installer or portable exe](https://github.com/utyagi24/pdfproj/releases/latest). Milestones **M0–M26 complete**.
+**Status: `v0.6.0` shipped** — [download the installer or portable exe](https://github.com/utyagi24/pdfproj/releases/latest). Milestones **M0–M30 complete**.
 
-**New in v0.5.0 — File Safety & Output:** **Revert to Saved** (discard edits, reload from disk); an
+**New in v0.6.0 — Rich Text & Live Preview:** **styled text boxes** — set the font family, size, and
+colour, plus a box fill and outline, from a small formatting bar on the inline editor; **live
+thumbnails** — the Pages sidebar reflects each page's current edits (annotations, redactions, fills);
+and **dynamic theme icons** — the toolbar re-tints instantly when you switch Windows light↔dark.
+**v0.5.0 — File Safety & Output:** **Revert to Saved** (discard edits, reload from disk); an
 **external-change warning** when another program modifies the open file (Reload / Keep, plus an
-overwrite guard before Save); and **edits-aware printing** — the printout now shows your annotations,
+overwrite guard before Save); and **edits-aware printing** — the printout shows your annotations,
 form values, and redactions (a not-yet-saved redaction no longer prints the original).
-**v0.4.0 — Annotate & Redact:** text **highlight** and **text boxes** (drag to move,
-double-click to re-edit, auto-growing); and **true destructive redaction** — drag over text or over
-a block to permanently remove it at save (verified gone with a cross-engine check; a redacted save
-is a confirmed point of no return). Annotate/redact tools are **one-shot armed** gestures.
+**v0.4.0 — Annotate & Redact:** text **highlight** and **text boxes** (drag to move, double-click to
+re-edit); and **true destructive redaction** — drag over text or a block to permanently remove it at
+save (a cross-engine-verified, confirmed point of no return).
 **v0.3.0:** better **drag-and-drop**, **drag a PDF in from File Explorer**, and a **Grab/Select**
 viewer-mode toggle.
 **v0.2.0:** theme-aware **icons**, a live **zoom %** indicator, **printing**, **Open Recent**, and
@@ -22,7 +25,7 @@ viewer-mode toggle.
 | Doc | What |
 |---|---|
 | [PLAN.md](PLAN.md) | Product spec, architecture, dependencies/packaging, portability, build order, **Execution**, verification |
-| [PROGRESS.md](PROGRESS.md) | Live milestone checklist (M0–M26 shipped; v0.6.0–v0.8.0 roadmap) + **Open follow-ups** |
+| [PROGRESS.md](PROGRESS.md) | Live milestone checklist (M0–M30 shipped; v0.7.0–v0.8.0 roadmap) + **Open follow-ups** |
 | [CLAUDE.md](CLAUDE.md) | Orientation + conventions for contributors/agents |
 | [DEPENDENCIES.md](DEPENDENCIES.md) | Pinned libraries + build toolchain — exact versions, licenses |
 
@@ -46,7 +49,7 @@ sudo apt install -y python3.12-venv
 
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements-dev.txt
-pytest                          # 248 headless tests (offscreen Qt)
+pytest                          # 285 headless tests (offscreen Qt)
 pythonw launcher.py file.pdf    # run the GUI via WSLg
 ```
 
