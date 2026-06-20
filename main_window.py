@@ -288,9 +288,11 @@ class MainWindow(QMainWindow):
                 a.setIcon(icons.icon(name))
 
     def changeEvent(self, event) -> None:
-        # A runtime OS light/dark switch arrives as ApplicationPaletteChange; re-tint the toolbar
-        # glyphs so they don't vanish against the new background.
-        if event.type() == QEvent.Type.ApplicationPaletteChange:
+        # A runtime OS light/dark switch reaches a window as a PaletteChange (its *effective* palette
+        # changed) — the application also broadcasts ApplicationPaletteChange. Either way, re-tint the
+        # toolbar glyphs so they don't vanish against the new background. (Qt delivers PaletteChange,
+        # not ApplicationPaletteChange, to changeEvent, so the latter alone never fired — M29.)
+        if event.type() in (QEvent.Type.ApplicationPaletteChange, QEvent.Type.PaletteChange):
             icons.refresh_for_theme()
             self._retint_icons()
         elif event.type() == QEvent.Type.ActivationChange and self.isActiveWindow():
