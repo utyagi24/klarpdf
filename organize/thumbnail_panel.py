@@ -25,6 +25,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QAbstractItemView, QListWidget, QListWidgetItem
 
+from model.edit_engine import PyMuPDFEngine
 from model.virtual_document import VirtualDocument
 
 _THUMB_W = 140  # target thumbnail width in px
@@ -281,10 +282,46 @@ class ThumbnailPanel(QListWidget):
                 return
         super().keyPressEvent(event)
 
-    def _thumbnail(self, index: int) -> QIcon:
+    def _edited_render(self) -> "fitz.Document | None":
+        """The edits-applied output document (rotation + redactions + annotations + form fills baked
+        in) when the document has **any** page edit, else ``None`` so clean pages render straight from
+        the source — the fast path. Shares the ``render_output`` path that print / save use (M25), so
+        a thumbnail shows exactly what a Save would write. The caller owns it and must close it.
+        A malformed edit returns ``None`` rather than blanking the sidebar — the source render shows.
+        """
+        has_edits = bool(self._vdoc.form_values) or any(r.annotations for r in self._vdoc.ordered)
+        if not has_edits:
+            return None
+        try:
+            return PyMuPDFEngine().render_output(self._vdoc)
+        except Exception:
+            return None
+
+    def _thumbnail(self, index: int, baked=None) -> QIcon:
+        """Render page ``index`` to a thumbnail icon. ``baked`` is the edits-applied
+        :meth:`_edited_render` document to take the (already rotation/edit-baked) page from; ``None``
+        renders the raw source page, applying any rotation override via transform (the fast path)."""
         ref = self._vdoc.ordered[index]
+        if baked is not None:
+            try:
+                page = baked[index]  # page i == ordered[i], with rotation + every edit baked in
+                zoom = _THUMB_W / max(1.0, page.rect.width)
+                pm = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
+                img = QImage(pm.samples, pm.width, pm.height, pm.stride, QImage.Format.Format_RGB888)
+                return QIcon(QPixmap.fromImage(img.copy()))
+            except Exception:
+                pass  # fall through to a plain source render
         page = self._vdoc.sources[ref.source_id][ref.source_page_index]
-        zoom = _THUMB_W / max(1.0, page.rect.width)
+        # Size by the FINAL displayed width (after any rotation override), not the page's native
+        # rotated width: the override is applied as a pixmap rotation below, so a page whose override
+        # orientation differs from its baked-in /Rotate — e.g. a page saved rotated then rotated back
+        # to portrait — would otherwise be scaled to the wrong width and render narrower than its
+        # neighbours. (The baked path above is already correct: render_output bakes /Rotate, so the
+        # baked page.rect is the displayed size.)
+        final_rot = page.rotation if ref.rotation_override is None else ref.rotation_override
+        mediabox = page.mediabox
+        displayed_w = mediabox.height if final_rot % 180 else mediabox.width
+        zoom = _THUMB_W / max(1.0, displayed_w)
         try:
             pm = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
             img = QImage(pm.samples, pm.width, pm.height, pm.stride, QImage.Format.Format_RGB888)
@@ -298,7 +335,9 @@ class ThumbnailPanel(QListWidget):
             return QIcon()
 
     def populate(self) -> None:
-        """(Re)build the thumbnail list from ``ordered[]``.
+        """(Re)build the thumbnail list from ``ordered[]``, each thumbnail reflecting the page's
+        **current edited state** (annotations / redactions / fills), so the sidebar matches the page
+        and the saved output. Called after every edit (``MainWindow._on_doc_changed``).
 
         Preserves the current-page marker across the rebuild: ``clear()`` would otherwise reset the
         current row to -1, so an edit (which repopulates) would drop the highlight even though the
@@ -307,10 +346,15 @@ class ThumbnailPanel(QListWidget):
         current = self.currentRow()
         self._syncing = True
         self.clear()
-        for i in range(self._vdoc.page_count):
-            item = QListWidgetItem(self._thumbnail(i), str(i + 1))
-            item.setTextAlignment(Qt.AlignmentFlag.AlignHCenter)
-            self.addItem(item)
+        baked = self._edited_render()  # built once per rebuild; None when the doc has no edits
+        try:
+            for i in range(self._vdoc.page_count):
+                item = QListWidgetItem(self._thumbnail(i, baked), str(i + 1))
+                item.setTextAlignment(Qt.AlignmentFlag.AlignHCenter)
+                self.addItem(item)
+        finally:
+            if baked is not None:
+                baked.close()
         if 0 <= current < self.count():
             self.setCurrentRow(current)
         self._syncing = False
