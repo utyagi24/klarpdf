@@ -142,8 +142,14 @@ class AnnotationOverlay:
         text = QGraphicsSimpleTextItem(annot.text)
         text.setFont(qt_font(annot.fontname, annot.fontsize))
         text.setBrush(QColor.fromRgbF(*annot.color))
+        # Vertically centre the text within the box. The box auto-hugs the text, so a baked FreeText
+        # — which PyMuPDF top-aligns (no vertical-align on the simple appearance path) — lands in
+        # nearly the same place; centring here keeps the overlay tidy for any residual slack (e.g.
+        # the minimum box height). Horizontal inset stays a small fixed gap.
+        text_h = text.boundingRect().height()  # in page points (font pixelSize == fontsize)
+        ty = y0 + max(1.0, (y1 - y0 - text_h) / 2.0)
         text_transform = QTransform(transform)
-        text_transform.translate(x0 + 2, y0 + 1)  # small inset, in unrotated page points
+        text_transform.translate(x0 + 2, ty)
         text.setTransform(text_transform)
         text.setZValue(8)
         scene.addItem(text)
@@ -268,6 +274,11 @@ class AnnotationOverlay:
         avail_h = max(_MIN_BOX_H, ph - y0)
         fm = QFontMetricsF(font)
         pad = 2 * editor.document().documentMargin() + 2 * editor.frameWidth() + fm.averageCharWidth() + 4
+        # Height uses only the vertical chrome (frame + doc margin) — not the width pad's trailing
+        # cursor room — so the box hugs the text vertically instead of sitting much taller than it
+        # (which left the text lopsided at the top). The overlay then centres the text in this tight
+        # box, and a top-aligned baked FreeText lands in nearly the same place.
+        v_pad = 2 * editor.document().documentMargin() + 2 * editor.frameWidth()
         line_h = fm.lineSpacing()
         lines = editor.toPlainText().split("\n") or [""]
         longest_px = max((fm.horizontalAdvance(ln) for ln in lines), default=0.0)
@@ -281,7 +292,7 @@ class AnnotationOverlay:
             editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
             w_pt = max(_MIN_BOX_W, (longest_px + pad) / z)
             visual_lines = len(lines)
-        h_pt = min(avail_h, max(_MIN_BOX_H, (visual_lines * line_h + pad) / z))
+        h_pt = min(avail_h, max(_MIN_BOX_H, (visual_lines * line_h + v_pad) / z))
         self._editor_rect = (x0, y0, x0 + min(w_pt, avail_w), y0 + h_pt)
         scene_rect = self._view.scene_rect_for_box(self._editor_page, self._editor_rect)
         top_left = self._view.mapFromScene(scene_rect.topLeft())
