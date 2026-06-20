@@ -80,6 +80,9 @@ class ThumbnailPanel(QListWidget):
         self.source_key: str | None = None
 
         self.currentRowChanged.connect(self._on_row_changed)
+        # Repaint the whole viewport on any selection change so every selection marker (drawn in
+        # paintEvent) updates — Qt otherwise only invalidates individual changed item rects.
+        self.itemSelectionChanged.connect(self.viewport().update)
         self.populate()
 
     def selected_rows(self) -> list[int]:
@@ -243,9 +246,29 @@ class ThumbnailPanel(QListWidget):
         super().paintEvent(event)  # items first
         painter = QPainter(self.viewport())
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        self._paint_current_marker(painter)  # prominent "you are here" ring
+        self._paint_selection_markers(painter)  # clearly mark every selected page
+        self._paint_current_marker(painter)  # prominent "you are here" ring (on top of selection)
         self._paint_drop_marker(painter)
         painter.end()
+
+    def _paint_selection_markers(self, painter) -> None:
+        """A clear accent fill + border around **every** selected page. Qt's default multi-select
+        highlight is too faint to tell which pages are in the selection; this makes it obvious. The
+        current page is skipped here — its bolder ring (painted on top) keeps it distinct within a
+        multi-page selection."""
+        current = self.currentRow()
+        fill = QColor(_ACCENT)
+        fill.setAlpha(60)
+        pen = QPen(_ACCENT)
+        pen.setWidth(2)
+        for index in self.selectedIndexes():
+            row = index.row()
+            if row == current:
+                continue
+            rect = self.visualItemRect(self.item(row)).adjusted(1, 1, -1, -1)
+            painter.setBrush(fill)
+            painter.setPen(pen)
+            painter.drawRoundedRect(QRectF(rect), 5, 5)
 
     def _paint_current_marker(self, painter) -> None:
         """A bold accent ring + tinted fill around the current page — the default item-selection
