@@ -31,8 +31,10 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   spare machine / a fresh local user with networking disabled.
 
 ## Status
-**v0.6.0 shipped** — milestones **M0–M30 complete** (v0.1.0 = M0–M9; v0.2.0 = M10–M15;
-v0.3.0 = M16–M19; v0.4.0 = M20–M22; v0.5.0 = M23–M26; v0.6.0 = M27–M30). Releases:
+**v0.7.0 shipped** — milestones **M0–M31.5 + M34 complete** (v0.1.0 = M0–M9; v0.2.0 = M10–M15;
+v0.3.0 = M16–M19; v0.4.0 = M20–M22; v0.5.0 = M23–M26; v0.6.0 = M27–M30; v0.7.0 = M31 + M31.5 + M34).
+Releases:
+<https://github.com/utyagi24/pdfproj/releases/tag/v0.7.0> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.6.0> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.5.0> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.4.0> ·
@@ -53,8 +55,12 @@ render the edited page — annotations / fills / redactions — via `render_outp
 **styled text boxes** (font family / size / colour + box fill + box outline, via a formatting bar on
 the inline editor — `viewer/text_format_bar.py`), **live thumbnails** (the Pages sidebar renders each
 page's edited state via `render_output`), and **dynamic theme icons** (the toolbar re-tints on a live
-OS light↔dark switch — `changeEvent` handles `PaletteChange`). 285 headless
-tests; real-Windows + frozen-build
-validation. **Next:** **v0.7.0 → v0.8.0** planned — `PLAN.md` §Next roadmap (round-trip & documents;
-images). **Planning the next release?** Read `PROGRESS.md`
-(status + **Open follow-ups**), then `PLAN.md` §Next roadmap.
+OS light↔dark switch — `changeEvent` handles `PaletteChange`); **v0.7.0** added **annotation
+round-trip editing** (reopen → move/edit/remove our `PDFPROJ_AUTHOR`-tagged highlights & text boxes —
+`read_pdfproj_annotations` seeds the model on open, strip-then-re-add at materialize; the page render
++ text selection read the our-marks-stripped page so the editable overlay is authoritative) and a
+flatten **Export → PDF** (`File ▸ Export`; `model/export.py` bakes annotations + form widgets into
+page content via `Document.bake()`, text-preserving — the locked counterpart to round-trip). 317
+headless tests; real-Windows + frozen-build validation. **Next:** **v0.8.0** (images) → **v0.9.0**
+(encrypted PDFs + GoTo-link remap, re-scoped out of v0.7.0) — `PLAN.md` §Next roadmap. **Planning the
+next release?** Read `PROGRESS.md` (status + **Open follow-ups**), then `PLAN.md` §Next roadmap.
