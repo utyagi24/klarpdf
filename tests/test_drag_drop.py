@@ -102,7 +102,7 @@ def test_pdf_url_filter_keeps_only_pdfs(panel, b_pdf, tmp_path):
     txt = tmp_path / "note.txt"
     txt.write_text("not a pdf")
     mime = _file_mime(b_pdf, str(txt), "/no/such/file.pdf")
-    result = panel._dropped_pdf_paths(mime)  # local, existing, .pdf only
+    result = panel._dropped_file_paths(mime)  # local, existing, .pdf / image only
     # QUrl.toLocalFile normalises separators (forward slashes on Windows), so compare normalised.
     assert [os.path.normpath(p) for p in result] == [os.path.normpath(b_pdf)]
 
