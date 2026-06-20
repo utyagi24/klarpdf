@@ -24,6 +24,10 @@ from util.paths import normalize_path
 # PageRefs are frozen, so a shallow tuple copy is a safe, cheap point-in-time snapshot.
 State = tuple
 
+# Raster image formats we import as a one-page PDF page (M35). PyMuPDF opens each as a 1-page
+# document and converts it to PDF, after which it is just another read-only source.
+IMAGE_EXTENSIONS = frozenset({".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tif", ".tiff"})
+
 
 @dataclass(frozen=True, slots=True)
 class PageRef:
@@ -140,6 +144,22 @@ class VirtualDocument:
         source_id = normalize_path(path)
         if source_id not in self.sources:
             self.sources[source_id] = fitz.open(stream=Path(path).read_bytes(), filetype="pdf")
+        return source_id
+
+    def open_image_source(self, path: str) -> str:
+        """Open a raster image as a **one-page PDF** source (M35 image import) and register it.
+
+        PyMuPDF opens the image as a 1-page document; ``convert_to_pdf()`` renders it to PDF bytes,
+        which we register exactly like a PDF source (keyed by the image's normalized path) — so the
+        image is just another read-only source and flows through reorder / materialize / export
+        unchanged. Like :meth:`open_source`, the registered source is in-memory bytes, never a live
+        file handle, so the image file isn't held open (no Save-time lock). Idempotent.
+        """
+        source_id = normalize_path(path)
+        if source_id not in self.sources:
+            with fitz.open(path) as image:  # opens the raster image as a 1-page document
+                pdf_bytes = image.convert_to_pdf()
+            self.sources[source_id] = fitz.open(stream=pdf_bytes, filetype="pdf")
         return source_id
 
     def register_source(self, source_id: str, doc: fitz.Document) -> None:
