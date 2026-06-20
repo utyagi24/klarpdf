@@ -312,7 +312,16 @@ class ThumbnailPanel(QListWidget):
             except Exception:
                 pass  # fall through to a plain source render
         page = self._vdoc.sources[ref.source_id][ref.source_page_index]
-        zoom = _THUMB_W / max(1.0, page.rect.width)
+        # Size by the FINAL displayed width (after any rotation override), not the page's native
+        # rotated width: the override is applied as a pixmap rotation below, so a page whose override
+        # orientation differs from its baked-in /Rotate — e.g. a page saved rotated then rotated back
+        # to portrait — would otherwise be scaled to the wrong width and render narrower than its
+        # neighbours. (The baked path above is already correct: render_output bakes /Rotate, so the
+        # baked page.rect is the displayed size.)
+        final_rot = page.rotation if ref.rotation_override is None else ref.rotation_override
+        mediabox = page.mediabox
+        displayed_w = mediabox.height if final_rot % 180 else mediabox.width
+        zoom = _THUMB_W / max(1.0, displayed_w)
         try:
             pm = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
             img = QImage(pm.samples, pm.width, pm.height, pm.stride, QImage.Format.Format_RGB888)

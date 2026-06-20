@@ -114,6 +114,34 @@ def test_form_fill_marks_the_document_edited(win):
             baked.close()
 
 
+def test_thumbnail_width_stays_full_when_saved_rotated_page_is_rotated_back(qapp, tmp_path):
+    """Pre-existing rotation-sizing bug: a page saved with /Rotate=90 then rotated back to portrait
+    must size to the same width as a normal portrait page. The native pixmap is rotated by the
+    override, so the thumbnail must be sized by its *displayed* width, not the native page.rect width
+    (else it renders narrower than its neighbours)."""
+    import pymupdf as fitz
+
+    from model.virtual_document import VirtualDocument
+    from organize.thumbnail_panel import _THUMB_W, ThumbnailPanel
+
+    path = str(tmp_path / "rot.pdf")
+    doc = fitz.open()
+    doc.new_page(width=612, height=792).set_rotation(90)  # saved rotated → would display landscape
+    doc.new_page(width=612, height=792)                   # a normal portrait page
+    doc.save(path)
+    doc.close()
+    vdoc = VirtualDocument.from_path(path)
+    vdoc.set_rotation(0, 0)            # rotate page 0 back to portrait (absolute override 0)
+    panel = ThumbnailPanel(vdoc)
+    try:
+        back = panel.item(0).icon().pixmap(panel.iconSize())
+        norm = panel.item(1).icon().pixmap(panel.iconSize())
+        assert abs(back.width() - norm.width()) <= 1   # full width, not shrunk
+        assert back.height() > back.width()            # and portrait again
+    finally:
+        panel.deleteLater()
+
+
 def test_edit_then_undo_returns_thumbnail_to_clean(win):
     """The sidebar repopulates on every undo/redo, so removing the edit restores the clean render."""
     clean = _thumb(win.thumbs, 0)
