@@ -23,7 +23,7 @@ from __future__ import annotations
 import math
 from dataclasses import replace
 
-from PySide6.QtCore import QRect, QRectF, Qt, Signal
+from PySide6.QtCore import QRect, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QFontMetricsF, QPen, QTransform
 from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsSimpleTextItem, QPlainTextEdit
 
@@ -235,7 +235,7 @@ class AnnotationOverlay:
         editor.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         if text:
             editor.setPlainText(text)
-        editor.committed.connect(self._commit_textbox)
+        editor.committed.connect(self._on_editor_focus_out)
         editor.textChanged.connect(self.reposition_editor)
         self._editor = editor
         self._apply_editor_style()
@@ -290,25 +290,37 @@ class AnnotationOverlay:
         editor.setGeometry(geom)
         self._position_format_bar(geom)
 
+    def _on_editor_focus_out(self) -> None:
+        """The editor lost focus → maybe commit. **Deferred one event-loop tick** on purpose: when
+        focus moves to a formatting-bar menu, the focus-out fires *before* the menu's ``aboutToShow``
+        (and before a colour dialog opens), so the suppress flags / active-popup state aren't set
+        yet. Waiting a tick lets them settle, so :meth:`_commit_textbox` correctly skips a commit that
+        is really just the user reaching for the toolbar. The captured editor guards against the
+        session having been replaced in the meantime."""
+        editor = self._editor
+        QTimer.singleShot(0, lambda: self._commit_textbox() if self._editor is editor else None)
+
     def _commit_textbox(self) -> None:
-        if self._editor is None or self._suppress_commit:
+        if self._editor is None or self._suppress_commit or self._bar_is_interacting():
             return
-        text = self._editor.toPlainText().strip()
+        raw = self._editor.toPlainText()
+        text = raw.strip()  # only to decide empty-vs-not; the box keeps the verbatim text
         page_index, rect, style = self._editor_page, self._editor_rect, self._style
         editing, self._editing = self._editing, None
         self._close_editor()
         if editing is not None:
             _, old = editing
             if not text:
-                self.remove(page_index, old)  # emptied → delete the box
+                self.remove(page_index, old)  # emptied (only whitespace) → delete the box
                 return
             # Re-commit when the text, the auto-grown rect, OR the style changed (a no-op re-open
-            # that touches nothing commits nothing). One descriptor compare covers all three.
-            new = self._textbox(rect, text, style)
+            # that touches nothing commits nothing). One descriptor compare covers all three. The
+            # text is stored verbatim — leading/trailing spaces and newlines are preserved.
+            new = self._textbox(rect, raw, style)
             if new != old:
                 self._replace(page_index, old, new, text="Edit text box")
         elif text:
-            self._on_add(page_index, self._textbox(rect, text, style))
+            self._on_add(page_index, self._textbox(rect, raw, style))
 
     @staticmethod
     def _textbox(rect: tuple, text: str, style: TextBoxStyle) -> TextBox:
@@ -343,6 +355,11 @@ class AnnotationOverlay:
         self._editor_fontsize = style.fontsize
         self._apply_editor_style()
         self.reposition_editor()
+        # Clicking a focus-less bar control (notably the Outline / Fill toggles, which have no menu /
+        # dialog to hand focus back) drops the editor's keyboard focus — restore it so a later click
+        # on the page fires the editor's focus-out and commits + closes the bar.
+        if self._editor is not None:
+            self._editor.setFocus()
 
     def _apply_editor_style(self) -> None:
         """Paint the live editor in the current colour / fill / outline (WYSIWYG). Font family +
@@ -372,12 +389,43 @@ class AnnotationOverlay:
         bar.move(x, y)
 
     def _begin_modal(self) -> None:
-        self._suppress_commit = True   # the colour dialog will steal focus — don't commit on it
+        self._suppress_commit = True   # a colour dialog / menu will steal focus — don't commit on it
 
     def _end_modal(self) -> None:
         self._suppress_commit = False
         if self._editor is not None:
             self._editor.setFocus()    # hand focus back so a later click-away still commits
+
+    def _bar_is_interacting(self) -> bool:
+        """True while the format bar is mid-interaction — a font/size menu pop-up or a colour dialog
+        is open, focus sits in the bar, or the pointer is pressing a bar control. The editor's
+        focus-out must not commit the box then, or the style edit lands on the *next* box instead of
+        this one."""
+        from PySide6.QtWidgets import QApplication
+
+        if QApplication.activePopupWidget() is not None or QApplication.activeModalWidget() is not None:
+            return True
+        bar = self._format_bar
+        if bar is None or not bar.isVisible():
+            return False
+        focus = QApplication.focusWidget()
+        if focus is not None and (focus is bar or bar.isAncestorOf(focus)):
+            return True
+        return self._pointer_over_bar()
+
+    def _pointer_over_bar(self) -> bool:
+        """True when the mouse pointer is over the format bar. The colour / fill / outline buttons are
+        focus-less and open their dialog only on *release*, so on press the editor's focus-out fires
+        with no pop-up or modal up yet and ``suppress`` not set — the one reliable tell at that instant
+        is that the pointer is sitting on the bar."""
+        from PySide6.QtGui import QCursor
+        from PySide6.QtWidgets import QApplication
+
+        bar = self._format_bar
+        if bar is None or not bar.isVisible():
+            return False
+        widget = QApplication.widgetAt(QCursor.pos())
+        return widget is not None and (widget is bar or bar.isAncestorOf(widget))
 
     def _close_editor(self) -> None:
         if self._editor is not None:
@@ -389,6 +437,11 @@ class AnnotationOverlay:
         self._suppress_commit = False
 
     # ---- text-box tool: move (drag an existing box) -----------------------------
+
+    @property
+    def editing(self) -> bool:
+        """True while the inline text-box editor is open (placing or re-editing a box)."""
+        return self._editor is not None
 
     @property
     def moving(self) -> bool:
