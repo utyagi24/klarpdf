@@ -71,6 +71,12 @@ class VirtualDocument:
         # save (merged-in sources contribute no outline, matching insert_pdf's behaviour).
         self.origin_source_id: str | None = None
         self._origin_toc: list = []
+        # Cache: does a registered source carry baked pdfproj annotations? Keyed by source id;
+        # source bytes are immutable, so this never changes for a given source (cleared only when
+        # sources are reset in reload_from_file). Lets the viewer / thumbnails keep the fast
+        # straight-from-source render for clean documents and switch to the edits-applied copy
+        # (our marks stripped, redrawn editable) only for documents that actually have our marks.
+        self._source_has_ours: dict[str, bool] = {}
 
     # ---- construction / sources -------------------------------------------------
 
@@ -82,9 +88,47 @@ class VirtualDocument:
         vd.origin_source_id = source_id
         vd.path = path
         vd._origin_toc = vd.sources[source_id].get_toc(simple=False)
-        vd.ordered = [PageRef(source_id, i) for i in range(vd.sources[source_id].page_count)]
+        vd.ordered = vd._seed_ordered(source_id)
         vd.dirty = False
         return vd
+
+    def _seed_ordered(self, source_id: str) -> list[PageRef]:
+        """Build the initial page list for a freshly-opened origin source, seeding each page with
+        the pdfproj annotations baked into it (M31 round-trip read-back) so saved highlights /
+        text-boxes reopen as editable model descriptors. Used by ``from_path`` + ``reload_from_file``.
+        """
+        from model.page_edits import read_pdfproj_annotations
+
+        src = self.sources[source_id]
+        refs: list[PageRef] = []
+        had_ours = False
+        for i in range(src.page_count):
+            annotations = read_pdfproj_annotations(src[i])
+            had_ours = had_ours or bool(annotations)
+            refs.append(PageRef(source_id, i, annotations=annotations))
+        # Captured from the same read-back scan, so no second pass over the source pages.
+        self._source_has_ours[source_id] = had_ours
+        return refs
+
+    def source_has_pdfproj_annotations(self, source_id: str) -> bool:
+        """Whether ``source_id``'s pages carry baked pdfproj annotations (cached).
+
+        Pre-populated by :meth:`_seed_ordered` for the origin; computed lazily on miss for sources
+        registered later (a cross-window paste), so a pasted page that brought our marks along still
+        renders from the stripped copy rather than double-drawing the baked originals.
+        """
+        cached = self._source_has_ours.get(source_id)
+        if cached is None:
+            from model.page_edits import page_has_pdfproj_annotations
+
+            src = self.sources[source_id]
+            cached = any(page_has_pdfproj_annotations(src[i]) for i in range(src.page_count))
+            self._source_has_ours[source_id] = cached
+        return cached
+
+    def has_baked_pdfproj_annotations(self) -> bool:
+        """True if any registered source carries baked pdfproj annotations (doc-level)."""
+        return any(self.source_has_pdfproj_annotations(sid) for sid in self.sources)
 
     def open_source(self, path: str) -> str:
         """Open and register a source by path (idempotent). Returns its source id.
@@ -306,11 +350,12 @@ class VirtualDocument:
         (cross-window paste registers another window's source), and closing those would corrupt them.
         """
         self.sources = {}
+        self._source_has_ours = {}  # new file's bytes → recompute whether our marks are baked in
         source_id = self.open_source(path)
         self.origin_source_id = source_id
         self.path = path
         self._origin_toc = self.sources[source_id].get_toc(simple=False)
-        self.ordered = [PageRef(source_id, i) for i in range(self.sources[source_id].page_count)]
+        self.ordered = self._seed_ordered(source_id)  # re-read our annotations from the clean file
         self._form_values = {}
         self.dirty = False
 

@@ -99,14 +99,24 @@ class PyMuPDFEngine(EditEngine):
                 )
 
             # Apply absolute rotation overrides + per-page edits (output page i == ordered[i]).
-            # Redactions run first as a destructive pass (apply_redactions rewrites the page and
-            # would otherwise strip overlapping annotations); the non-destructive highlight/text-box
-            # overlays go on top afterwards.
-            from model.page_edits import apply_annotations, apply_redactions
+            # Round-trip (M31): insert_pdf(annots=True) copied every source annotation, including
+            # the pdfproj marks a prior save baked in. The model now owns those (read back on open,
+            # with any move / edit / removal applied), so strip the copies and re-add from the
+            # model — the model is the single source of truth. Stripping runs on *every* page (even
+            # one with no model annotations) so a removed mark is actually dropped; foreign
+            # annotations are preserved. Then redactions run first as a destructive pass
+            # (apply_redactions rewrites the page and would otherwise strip overlapping annotations);
+            # the non-destructive highlight/text-box overlays go on top afterwards.
+            from model.page_edits import (
+                apply_annotations,
+                apply_redactions,
+                strip_pdfproj_annotations,
+            )
 
             for i, ref in enumerate(vdoc.ordered):
                 if ref.rotation_override is not None:
                     out[i].set_rotation(ref.rotation_override)
+                strip_pdfproj_annotations(out[i])
                 if ref.annotations:
                     apply_redactions(out[i], ref.annotations)
                     apply_annotations(out[i], ref.annotations)

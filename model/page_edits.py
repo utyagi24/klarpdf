@@ -204,6 +204,133 @@ def apply_redactions(page: fitz.Page, annotations: tuple) -> None:
     page.apply_redactions()
 
 
+# ---- round-trip read-back (M31): reconstruct our own annotations from a saved page ----
+#
+# The inverse of :func:`apply_annotations`: re-parse the highlights / text-boxes a previous pdfproj
+# save baked in, back into the descriptors above, so a reopened document's annotations become
+# movable / re-editable / removable again. Only *our* annotations round-trip (matched by the
+# :data:`PDFPROJ_AUTHOR` title); foreign annotations and consumed redactions are left alone.
+# Geometry comes back in unrotated page points — the space the model + viewer overlays use.
+
+# A base-14 DA font name (``/Helv`` / ``/TiRo`` / ``/Cour``) → our :class:`TextBox` ``fontname``.
+_DA_FONT_TO_NAME = {"helv": "helv", "tiro": "tiro", "cour": "cour"}
+
+
+def _parse_freetext_da(da: str) -> tuple[float, tuple[float, float, float], str]:
+    """Parse a FreeText DA string → ``(fontsize, text_color, fontname)``.
+
+    A simple-appearance DA looks like ``1 0 0 rg /TiRo 14.0 Tf`` (RGB text) or ``0 g /Helv 11 Tf``
+    (grey). Anything we can't read falls back to the :class:`TextBox` defaults (11 pt, black, helv),
+    so a hand-edited or foreign-but-tagged DA never raises.
+    """
+    fontsize, color, fontname = 11.0, (0.0, 0.0, 0.0), "helv"
+    tokens = da.split()
+    for i, tok in enumerate(tokens):
+        if tok == "rg" and i >= 3:
+            try:
+                color = (float(tokens[i - 3]), float(tokens[i - 2]), float(tokens[i - 1]))
+            except ValueError:
+                pass
+        elif tok == "g" and i >= 1:
+            try:
+                gray = float(tokens[i - 1])
+                color = (gray, gray, gray)
+            except ValueError:
+                pass
+        elif tok == "Tf" and i >= 2:
+            try:
+                fontsize = float(tokens[i - 1])
+            except ValueError:
+                pass
+            fontname = _DA_FONT_TO_NAME.get(tokens[i - 2].lstrip("/").lower(), "helv")
+    return fontsize, color, fontname
+
+
+def _quads_to_rects(vertices) -> tuple[tuple[float, float, float, float], ...]:
+    """Group a highlight's quad-point list (4 points per marked span) into per-span bounding rects."""
+    rects = []
+    for i in range(0, len(vertices) - 3, 4):
+        quad = vertices[i : i + 4]
+        xs = [p[0] for p in quad]
+        ys = [p[1] for p in quad]
+        rects.append((min(xs), min(ys), max(xs), max(ys)))
+    return tuple(rects)
+
+
+def read_pdfproj_annotations(page: fitz.Page) -> tuple:
+    """Re-parse this page's pdfproj-authored highlights / text-boxes into model descriptors.
+
+    The inverse of :func:`apply_annotations`. Matches annotations by the :data:`PDFPROJ_AUTHOR`
+    title, so only marks pdfproj itself wrote come back into the editable model; foreign
+    annotations are ignored (and copied through verbatim at materialise). Redactions are
+    *destructive* and leave nothing tagged to read, so they never round-trip — a redacted save
+    stays a point of no return.
+    """
+    doc = page.parent
+    result: list = []
+    for annot in page.annots():
+        if annot.info.get("title") != PDFPROJ_AUTHOR:
+            continue
+        kind = annot.type[0]
+        if kind == fitz.PDF_ANNOT_HIGHLIGHT:
+            stroke = annot.colors.get("stroke")
+            color = tuple(stroke) if stroke else Highlight.color
+            result.append(Highlight(_quads_to_rects(annot.vertices), color=color))
+        elif kind == fitz.PDF_ANNOT_FREE_TEXT:
+            # PyMuPDF grows a FreeText /Rect by border_width/2 on each side when it bakes the
+            # outline (RD stays zero), so inset by that to recover the authored box — otherwise the
+            # box would creep outward by half the border on every save→reopen→save round-trip.
+            border_width = (annot.border or {}).get("width") or 0.0
+            inset = border_width / 2.0
+            r = annot.rect
+            rect = (r.x0 + inset, r.y0 + inset, r.x1 - inset, r.y1 - inset)
+            da = doc.xref_get_key(annot.xref, "DA")
+            fontsize, color, fontname = _parse_freetext_da(da[1] if da[0] == "string" else "")
+            # A FreeText's /C (the box fill) surfaces as the 'stroke' colour in PyMuPDF.
+            fill = annot.colors.get("stroke")
+            result.append(
+                TextBox(
+                    rect,
+                    annot.info.get("content", ""),
+                    fontsize=fontsize,
+                    color=color,
+                    fontname=fontname,
+                    fill_color=tuple(fill) if fill else None,
+                    border_width=border_width,
+                )
+            )
+    return tuple(result)
+
+
+def page_has_pdfproj_annotations(page: fitz.Page) -> bool:
+    """True if the page carries any baked pdfproj-authored (:data:`PDFPROJ_AUTHOR`-tagged) mark.
+
+    The viewer / thumbnails use this to decide whether a page must render from an edits-applied
+    copy — our baked annotations stripped and redrawn from the (editable) model — instead of
+    straight from the shared source, which would otherwise show the original mark twice (the baked
+    one pinned under the editable overlay).
+    """
+    return any(annot.info.get("title") == PDFPROJ_AUTHOR for annot in page.annots())
+
+
+def strip_pdfproj_annotations(page: fitz.Page) -> None:
+    """Delete this page's pdfproj-authored annotations (matched by :data:`PDFPROJ_AUTHOR`).
+
+    Used at materialise: ``insert_pdf(annots=True)`` copies every source annotation — *including*
+    the pdfproj marks a prior save baked in — so before re-adding them from the model (which now
+    owns them, with any move / edit / removal applied) we strip the copies, leaving the model the
+    single source of truth. Foreign annotations are preserved. Uses the documented
+    delete-while-iterating idiom (:meth:`Page.delete_annot` returns the next annot), and is a no-op
+    on a page with no pdfproj annotations (so clean pages are never rewritten).
+    """
+    annot = page.first_annot
+    while annot:
+        if annot.info.get("title") == PDFPROJ_AUTHOR:
+            annot = page.delete_annot(annot)
+        else:
+            annot = annot.next
+
+
 def apply_form_values(out_doc: fitz.Document, values: dict[str, object]) -> None:
     """Write ``values`` (field name → value) onto matching widgets in a materialised output.
 
