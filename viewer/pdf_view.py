@@ -67,7 +67,10 @@ class PdfView(QGraphicsView):
         self.setBackgroundBrush(QBrush(QColor(0x30, 0x30, 0x30)))
         # SELECT mode: left-drag selects text (M3), so no hand-drag panning; scroll via wheel/bars.
         self.setDragMode(QGraphicsView.DragMode.NoDrag)
-        self.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
+        # Centre the scene in the viewport. Qt only applies the alignment when the *whole* scene
+        # fits with no scrollbars — i.e. a short / zoomed-out page — so this centres that page both
+        # ways; a taller multi-page doc gets scrollbars and scrolls normally from the top, unaffected.
+        self.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignHCenter)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
 
         self._build_scene()
