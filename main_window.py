@@ -22,6 +22,7 @@ from PySide6.QtGui import QAction, QActionGroup, QKeySequence, QUndoStack
 from PySide6.QtWidgets import (
     QDockWidget,
     QFileDialog,
+    QInputDialog,
     QMainWindow,
     QMenu,
     QMessageBox,
@@ -176,6 +177,7 @@ class MainWindow(QMainWindow):
         # (flattened PDF); the submenu grows an image format in M36.
         export_menu = file_menu.addMenu("&Export")
         act("Flattened PDF…", self._export_flattened_pdf, to_menu=export_menu)
+        act("Image…", self._export_images, to_menu=export_menu)
         # Revert: discard all edits and reload from disk. Enabled only while there are unsaved
         # changes (a clean doc has nothing to revert) — toggled in _on_clean_changed.
         self._a_revert = act("Revert to Saved", self.revert, to_menu=file_menu)
@@ -672,6 +674,44 @@ class MainWindow(QMainWindow):
             if os.path.exists(tmp):
                 os.remove(tmp)
             QMessageBox.critical(self, "Export failed", str(exc))
+
+    def _export_images(self) -> None:
+        """Export → Image (M36): rasterise the selected page(s) — or the current page when nothing
+        is selected — to PNG / JPEG at a chosen DPI, one file per page. Edits-aware like the flatten
+        export (each image shows the annotations / fills / redactions a Save would write); a side
+        artifact that leaves the working document untouched. To export every page, select all in the
+        Pages sidebar (Ctrl+A) first."""
+        if self.view.form is not None:
+            self.view.form.commit_pending()
+        indices = self.thumbs.selected_rows() or [self.view.current_page]
+        dpi, ok = QInputDialog.getInt(self, "Export Image", "Resolution (DPI):", 150, 36, 600, 1)
+        if not ok:
+            return
+        default = ""
+        if self.vdoc.path:
+            default = os.path.splitext(self.vdoc.path)[0] + ".png"
+        path, selected = QFileDialog.getSaveFileName(
+            self, "Export Image", default, "PNG image (*.png);;JPEG image (*.jpg)"
+        )
+        if not path:
+            return
+        # Make the extension agree with the chosen filter, so the format is unambiguous.
+        jpeg = "jpg" in selected.lower() or path.lower().endswith((".jpg", ".jpeg"))
+        if jpeg and not path.lower().endswith((".jpg", ".jpeg")):
+            path += ".jpg"
+        elif not jpeg and not path.lower().endswith(".png"):
+            path += ".png"
+        try:
+            from model.export import export_page_images
+
+            written = export_page_images(self.vdoc, indices, path, dpi=dpi)
+        except Exception as exc:  # surface, don't crash
+            QMessageBox.critical(self, "Export failed", str(exc))
+            return
+        if len(written) > 1:
+            QMessageBox.information(
+                self, "Export Image", f"Exported {len(written)} pages to image files."
+            )
 
     def _confirm_redaction(self) -> bool:
         return (
