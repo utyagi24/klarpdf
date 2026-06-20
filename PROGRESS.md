@@ -75,7 +75,7 @@ GUI-free core, fully headless-testable).
 **v0.7.0 — "Round-trip & Documents"** (planned)
 
 - [x] **M31** ⭐ Annotation round-trip editing — reopen → move/edit/remove our `PDFPROJ_AUTHOR`-tagged annotations (strip-then-re-add at materialize) — *WSL (model+tests) + WSLg* — [#46](https://github.com/utyagi24/pdfproj/pull/46)
-- [ ] **M31.5** Export → PDF (flatten) — new **Export** action (`File ▸ Export`); bake annotations into page content (PyMuPDF `Document.bake()`, text-preserving — locks the marks, the opposite of M31's round-trip). Extensible: M36 adds an image format. — *WSL (model+tests) + WSLg*
+- [x] **M31.5** Export → PDF (flatten) — new **Export** action (`File ▸ Export`); bake annotations into page content (PyMuPDF `Document.bake()`, text-preserving — locks the marks, the opposite of M31's round-trip). Extensible: M36 adds an image format. — *WSL (model+tests) + WSLg* — [#48](https://github.com/utyagi24/pdfproj/pull/48)
 - [ ] **M32** Encrypted / password PDFs — detect `needs_pass`, prompt, `authenticate` on open — *WSL + WSLg*
 - [ ] **M33** Internal GoTo-link remap — `toc_remap` → `links_remap` (fix cross-run link targets; clean headless keystone) — *WSL (model+tests)*
 - [ ] **M34** Verify + release → tag **v0.7.0** — *Windows*
