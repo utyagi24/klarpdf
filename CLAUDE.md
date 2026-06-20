@@ -31,8 +31,9 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   spare machine / a fresh local user with networking disabled.
 
 ## Status
-**v0.5.0 shipped** — milestones **M0–M26 complete** (v0.1.0 = M0–M9; v0.2.0 = M10–M15;
-v0.3.0 = M16–M19; v0.4.0 = M20–M22; v0.5.0 = M23–M26). Releases:
+**v0.6.0 shipped** — milestones **M0–M30 complete** (v0.1.0 = M0–M9; v0.2.0 = M10–M15;
+v0.3.0 = M16–M19; v0.4.0 = M20–M22; v0.5.0 = M23–M26; v0.6.0 = M27–M30). Releases:
+<https://github.com/utyagi24/pdfproj/releases/tag/v0.6.0> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.5.0> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.4.0> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.3.0> ·
@@ -48,8 +49,12 @@ file-drop**, and a **Grab/Select** viewer-mode toggle (`viewer/tools.py`); **v0.
 point-of-no-return) — all on the M14 page-edit layer, with annotate/redact exposed as **one-shot
 armed** tools (`viewer/tools.py` `ArmedTool`); **v0.5.0** added **Revert to Saved**, an
 **external-change warning** (`QFileSystemWatcher`), and **edits-aware printing** (print/preview
-render the edited page — annotations / fills / redactions — via `render_output`). 248 headless
+render the edited page — annotations / fills / redactions — via `render_output`); **v0.6.0** added
+**styled text boxes** (font family / size / colour + box fill + box outline, via a formatting bar on
+the inline editor — `viewer/text_format_bar.py`), **live thumbnails** (the Pages sidebar renders each
+page's edited state via `render_output`), and **dynamic theme icons** (the toolbar re-tints on a live
+OS light↔dark switch — `changeEvent` handles `PaletteChange`). 285 headless
 tests; real-Windows + frozen-build
-validation. **Next:** **v0.6.0 → v0.8.0** planned — `PLAN.md` §Next roadmap (rich text & live preview;
-round-trip & documents; images). **Planning the next release?** Read `PROGRESS.md`
+validation. **Next:** **v0.7.0 → v0.8.0** planned — `PLAN.md` §Next roadmap (round-trip & documents;
+images). **Planning the next release?** Read `PROGRESS.md`
 (status + **Open follow-ups**), then `PLAN.md` §Next roadmap.
