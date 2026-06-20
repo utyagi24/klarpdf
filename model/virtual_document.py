@@ -82,9 +82,22 @@ class VirtualDocument:
         vd.origin_source_id = source_id
         vd.path = path
         vd._origin_toc = vd.sources[source_id].get_toc(simple=False)
-        vd.ordered = [PageRef(source_id, i) for i in range(vd.sources[source_id].page_count)]
+        vd.ordered = vd._seed_ordered(source_id)
         vd.dirty = False
         return vd
+
+    def _seed_ordered(self, source_id: str) -> list[PageRef]:
+        """Build the initial page list for a freshly-opened origin source, seeding each page with
+        the pdfproj annotations baked into it (M31 round-trip read-back) so saved highlights /
+        text-boxes reopen as editable model descriptors. Used by ``from_path`` + ``reload_from_file``.
+        """
+        from model.page_edits import read_pdfproj_annotations
+
+        src = self.sources[source_id]
+        return [
+            PageRef(source_id, i, annotations=read_pdfproj_annotations(src[i]))
+            for i in range(src.page_count)
+        ]
 
     def open_source(self, path: str) -> str:
         """Open and register a source by path (idempotent). Returns its source id.
@@ -310,7 +323,7 @@ class VirtualDocument:
         self.origin_source_id = source_id
         self.path = path
         self._origin_toc = self.sources[source_id].get_toc(simple=False)
-        self.ordered = [PageRef(source_id, i) for i in range(self.sources[source_id].page_count)]
+        self.ordered = self._seed_ordered(source_id)  # re-read our annotations from the clean file
         self._form_values = {}
         self.dirty = False
 
