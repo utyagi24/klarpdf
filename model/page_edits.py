@@ -302,6 +302,17 @@ def read_pdfproj_annotations(page: fitz.Page) -> tuple:
     return tuple(result)
 
 
+def page_has_pdfproj_annotations(page: fitz.Page) -> bool:
+    """True if the page carries any baked pdfproj-authored (:data:`PDFPROJ_AUTHOR`-tagged) mark.
+
+    The viewer / thumbnails use this to decide whether a page must render from an edits-applied
+    copy — our baked annotations stripped and redrawn from the (editable) model — instead of
+    straight from the shared source, which would otherwise show the original mark twice (the baked
+    one pinned under the editable overlay).
+    """
+    return any(annot.info.get("title") == PDFPROJ_AUTHOR for annot in page.annots())
+
+
 def strip_pdfproj_annotations(page: fitz.Page) -> None:
     """Delete this page's pdfproj-authored annotations (matched by :data:`PDFPROJ_AUTHOR`).
 
