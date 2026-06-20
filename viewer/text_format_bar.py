@@ -94,7 +94,10 @@ class TextFormatBar(QWidget):
         self._style = TextBoxStyle()
         self._fill_rgb = _DEFAULT_FILL  # remembered across toggles, so re-enabling restores it
 
-        # A child of the viewport that should never grab the editor's keyboard focus.
+        # A child of the viewport that should never grab the editor's keyboard focus, and must set its
+        # own cursor: otherwise it inherits the viewport's — which the viewer flips to a four-way
+        # SizeAll "move" cursor while hovering a text box, leaving the bar stuck showing it.
+        self.setCursor(Qt.CursorShape.ArrowCursor)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setAutoFillBackground(True)
         self.setStyleSheet(
@@ -108,23 +111,31 @@ class TextFormatBar(QWidget):
         row.setContentsMargins(3, 2, 3, 2)
         row.setSpacing(2)
 
+        # Checkable actions in an exclusive group, kept in a dict, so a dropdown shows a tick against
+        # the current choice — and re-editing a box can re-sync that tick to the box's real style.
         self._family_btn = self._menu_button("Helvetica", "Font family")
         self._family_menu = QMenu(self._family_btn)
-        group = QActionGroup(self._family_menu)
+        fam_group = QActionGroup(self._family_menu)
+        self._family_actions: dict[str, object] = {}
         for key, _family, _hint, label in _FAMILIES:
             act = self._family_menu.addAction(label)
             act.setCheckable(True)
-            act.setData(key)
-            group.addAction(act)
+            fam_group.addAction(act)
             act.triggered.connect(lambda _checked, k=key: self._set_family(k))
+            self._family_actions[key] = act
         self._family_btn.setMenu(self._family_menu)
         row.addWidget(self._family_btn)
 
         self._size_btn = self._menu_button("11", "Font size")
         self._size_menu = QMenu(self._size_btn)
+        size_group = QActionGroup(self._size_menu)
+        self._size_actions: dict[int, object] = {}
         for pt in _SIZES:
             act = self._size_menu.addAction(str(pt))
+            act.setCheckable(True)
+            size_group.addAction(act)
             act.triggered.connect(lambda _checked, p=pt: self._set_size(p))
+            self._size_actions[pt] = act
         self._size_btn.setMenu(self._size_menu)
         row.addWidget(self._size_btn)
 
@@ -141,6 +152,14 @@ class TextFormatBar(QWidget):
         self._outline_btn.setCheckable(True)
         self._outline_btn.clicked.connect(self._toggle_outline)
         row.addWidget(self._outline_btn)
+
+        # The font / size menus are pop-ups that steal the editor's keyboard focus when shown, which
+        # fires its focus-out commit and would close the box before the selection lands (so the change
+        # leaks to the *next* box). Bracket them with the same modal hooks the colour dialogs use, so
+        # the commit is suspended while a menu is open and focus is handed back to the editor after.
+        for menu in (self._family_menu, self._size_menu):
+            menu.aboutToShow.connect(self._before_modal)
+            menu.aboutToHide.connect(self._after_modal)
 
         self.adjustSize()
         self._refresh_swatches()
@@ -173,7 +192,17 @@ class TextFormatBar(QWidget):
         for _key, _family, _hint, label in _FAMILIES:
             if _key == style.fontname:
                 self._family_btn.setText(label)
-        self._size_btn.setText(str(int(round(style.fontsize))))
+        fam_act = self._family_actions.get(style.fontname)
+        if fam_act is not None:
+            fam_act.setChecked(True)            # tick the loaded family in the dropdown
+        size = int(round(style.fontsize))
+        self._size_btn.setText(str(size))
+        size_act = self._size_actions.get(size)
+        if size_act is not None:
+            size_act.setChecked(True)           # tick the loaded size
+        else:
+            for a in self._size_actions.values():
+                a.setChecked(False)             # a non-preset size → no tick
         self._fill_btn.setChecked(style.fill_color is not None)
         self._outline_btn.setChecked(style.border_width > 0)
         self._refresh_swatches()

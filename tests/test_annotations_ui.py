@@ -454,6 +454,31 @@ def test_format_bar_roundtrips_style_through_controls(qapp):
     bar.deleteLater()
 
 
+def test_format_bar_sets_its_own_cursor(qapp):
+    """The bar must not inherit the viewport's cursor — the viewer flips that to a four-way SizeAll
+    'move' cursor over a text box, which would otherwise leave the bar stuck showing it."""
+    from PySide6.QtWidgets import QWidget
+
+    parent = QWidget()
+    parent.setCursor(Qt.CursorShape.SizeAllCursor)
+    bar = TextFormatBar(parent)
+    assert bar.testAttribute(Qt.WidgetAttribute.WA_SetCursor)        # sets its own, not inherited
+    assert bar.cursor().shape() == Qt.CursorShape.ArrowCursor
+    bar.deleteLater()
+
+
+def test_overlay_reports_editing_state(win):
+    """The viewer suppresses the move cursor while a box is being edited, keyed off this flag."""
+    ov = win.view.annotations
+    assert ov.editing is False
+    win.view.arm(ArmedTool.TEXTBOX)
+    ov.place_textbox(win.view.scene_rect_for_box(0, (100, 120, 300, 160)).center())
+    assert ov.editing is True
+    ov._editor.setPlainText("x")
+    ov._commit_textbox()
+    assert ov.editing is False
+
+
 def test_format_bar_outline_toggle_emits_styled(qapp):
     bar = TextFormatBar(None)
     seen = []
@@ -462,3 +487,107 @@ def test_format_bar_outline_toggle_emits_styled(qapp):
     bar._toggle_outline()
     assert seen and seen[-1].border_width == 1.0
     bar.deleteLater()
+
+
+def test_bar_change_while_editing_restyles_the_current_box(win):
+    """Regression: a style change made while a box is open must apply to THAT box, not just the next.
+
+    The bar's font/size menus (and the colour dialogs) steal the editor's keyboard focus, which fires
+    its focus-out commit. That premature commit must be suppressed while the menu/dialog is up, so the
+    still-open box keeps receiving style edits and bakes the final style. Emitting the menu's
+    ``aboutToShow`` / ``aboutToHide`` here stands in for that real focus-steal."""
+    win.view.arm(ArmedTool.TEXTBOX)
+    ov = win.view.annotations
+    ov.place_textbox(win.view.scene_rect_for_box(0, (100, 120, 300, 160)).center())
+    ov._editor.setPlainText("hello")
+    bar = ov._format_bar
+    bar._size_menu.aboutToShow.emit()        # opening the menu would steal focus → editor focus-out
+    ov._commit_textbox()                     # …that spurious commit must be a no-op now
+    assert ov._editor is not None            # box still open (not prematurely committed)
+    assert win.vdoc.page_annotations(0) == ()
+    bar._set_size(24)                        # the actual change, made on the open box
+    bar._size_menu.aboutToHide.emit()        # menu closed → focus back to the editor
+    ov._commit_textbox()                     # genuine click-away commit
+    box = next(a for a in win.vdoc.page_annotations(0) if isinstance(a, TextBox))
+    assert box.fontsize == 24.0 and box.text == "hello"   # THIS box got the new size
+
+
+def test_focus_out_before_menu_shows_does_not_commit_early(win, qapp):
+    """Real-Windows repro (from the diagnostic log): clicking a bar menu button fires the editor's
+    focus-out BEFORE the menu's ``aboutToShow``, so ``suppress`` isn't set yet. The commit is deferred
+    a tick so the settled state is seen — the open box must survive, then take the change (rather than
+    committing as the old style and leaking the new one to the next box)."""
+    win.view.arm(ArmedTool.TEXTBOX)
+    ov = win.view.annotations
+    ov.place_textbox(win.view.scene_rect_for_box(0, (100, 120, 300, 160)).center())
+    ov._editor.setPlainText("hello")
+    ov._on_editor_focus_out()                       # focus-out from the button click (no suppress yet)
+    ov._format_bar._family_menu.aboutToShow.emit()  # the menu now arms suppression
+    qapp.processEvents()                            # the deferred commit runs here — must be a no-op
+    assert ov._editor is not None                   # box NOT committed early
+    assert win.vdoc.page_annotations(0) == ()
+    next(a for a in ov._format_bar._family_menu.actions() if a.text() == "Courier").trigger()
+    ov._format_bar._family_menu.aboutToHide.emit()
+    ov._commit_textbox()                            # genuine commit
+    box = next(a for a in win.vdoc.page_annotations(0) if isinstance(a, TextBox))
+    assert box.fontname == "cour" and box.text == "hello"   # THIS box got Courier
+
+
+def test_focus_out_while_pressing_bar_button_does_not_commit(win, qapp, monkeypatch):
+    """The colour / fill / outline buttons are focus-less and open their dialog on *release*, so on
+    press the editor's focus-out fires with no pop-up/modal up yet and suppress not set. The pointer
+    sitting on the bar is the tell that keeps the box open — so the colour lands on THIS box, not the
+    next one (the reported regression after font/size were fixed)."""
+    win.view.arm(ArmedTool.TEXTBOX)
+    ov = win.view.annotations
+    ov.place_textbox(win.view.scene_rect_for_box(0, (100, 120, 300, 160)).center())
+    ov._editor.setPlainText("hello")
+    monkeypatch.setattr(ov, "_pointer_over_bar", lambda: True)    # cursor is on a bar button
+    ov._on_editor_focus_out()
+    qapp.processEvents()                                          # deferred commit runs — must skip
+    assert ov._editor is not None                                # box NOT committed early
+    assert win.vdoc.page_annotations(0) == ()
+    ov._format_bar.styleChanged.emit(TextBoxStyle(color=(1.0, 0.33, 0.0)))  # the colour pick
+    monkeypatch.setattr(ov, "_pointer_over_bar", lambda: False)   # done with the bar
+    ov._commit_textbox()
+    box = next(a for a in win.vdoc.page_annotations(0) if isinstance(a, TextBox))
+    assert box.color == (1.0, 0.33, 0.0) and box.text == "hello"  # THIS box got the colour
+
+
+def test_reedit_resyncs_dropdown_checkmarks(win):
+    """Re-editing a box ticks its real family/size in the dropdowns (the bug where the menu showed a
+    stale tick from the last-used family while the box was a different one)."""
+    win.vdoc.add_annotation(0, TextBox((100, 120, 300, 160), "x", fontname="tiro", fontsize=18))
+    win.view.annotations.repaint()
+    ov = win.view.annotations
+    ov.edit_textbox_at(win.view.scene_rect_for_box(0, (100, 120, 300, 160)).center())
+    bar = ov._format_bar
+    assert bar._family_actions["tiro"].isChecked()       # the box's real family is ticked
+    assert not bar._family_actions["helv"].isChecked()
+    assert bar._size_actions[18].isChecked()             # and its size
+
+
+def test_style_change_refocuses_the_editor(win, monkeypatch):
+    """A bar style change restores the editor's focus (a focus-less Outline/Fill toggle drops it with
+    no menu/dialog to hand it back) — so a later click on the page commits and closes the bar instead
+    of it sticking around."""
+    win.view.arm(ArmedTool.TEXTBOX)
+    ov = win.view.annotations
+    ov.place_textbox(win.view.scene_rect_for_box(0, (100, 120, 300, 160)).center())
+    ov._editor.setPlainText("hi")
+    refocused = []
+    monkeypatch.setattr(ov._editor, "setFocus", lambda: refocused.append(True))
+    ov._on_style_changed(ov.current_style)
+    assert refocused                                     # the editor was handed focus back
+
+
+def test_textbox_preserves_whitespace_and_newlines(win):
+    """Committing keeps the text verbatim — leading spaces and newlines are no longer stripped (only
+    a wholly-blank box is dropped)."""
+    win.view.arm(ArmedTool.TEXTBOX)
+    ov = win.view.annotations
+    ov.place_textbox(win.view.scene_rect_for_box(0, (100, 120, 320, 220)).center())
+    ov._editor.setPlainText("  indented\nsecond line\n")
+    ov._commit_textbox()
+    box = next(a for a in win.vdoc.page_annotations(0) if isinstance(a, TextBox))
+    assert box.text == "  indented\nsecond line\n"       # spaces + newlines preserved

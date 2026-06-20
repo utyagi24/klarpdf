@@ -379,8 +379,13 @@ class PdfView(QGraphicsView):
         super().keyPressEvent(event)
 
     def _update_hover_cursor(self, scene_pt) -> None:
-        """In SELECT mode, show a move cursor over a text box so it's clearly draggable."""
+        """In SELECT mode, show a move cursor over a text box so it's clearly draggable — but never
+        while a box is being edited (you're typing, not arranging), so the move cursor is not left
+        showing on the viewport, which the inline editor / formatting bar would inherit."""
         if self._armed is not None or self._mode != InteractionMode.SELECT or self.annotations is None:
+            return
+        if getattr(self.annotations, "editing", False):
+            self.viewport().setCursor(Qt.CursorShape.ArrowCursor)
             return
         over_box = self.annotations.textbox_at(scene_pt) is not None
         self.viewport().setCursor(Qt.CursorShape.SizeAllCursor if over_box else Qt.CursorShape.ArrowCursor)
