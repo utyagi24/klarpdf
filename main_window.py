@@ -172,6 +172,10 @@ class MainWindow(QMainWindow):
         self._recent_menu.aboutToShow.connect(self._populate_recent_menu)
         a_save = act("Save", self.save, QKeySequence.StandardKey.Save, icon="save", to_menu=file_menu)
         act("Save As…", self.save_as, QKeySequence.StandardKey.SaveAs, to_menu=file_menu)
+        # Export → a *derived* copy (Save stays editable; Export locks). One format today
+        # (flattened PDF); the submenu grows an image format in M36.
+        export_menu = file_menu.addMenu("&Export")
+        act("Flattened PDF…", self._export_flattened_pdf, to_menu=export_menu)
         # Revert: discard all edits and reload from disk. Enabled only while there are unsaved
         # changes (a clean doc has nothing to revert) — toggled in _on_clean_changed.
         self._a_revert = act("Revert to Saved", self.revert, to_menu=file_menu)
@@ -631,6 +635,39 @@ class MainWindow(QMainWindow):
             # into a leak. Same reload-in-place path as Revert.
             self._reset_to_file(target_path)
         return True
+
+    # ---- export (a derived copy, not the editable document) ---------------------
+
+    def _export_flattened_pdf(self) -> None:
+        """Export → Flattened PDF (M31.5): write a locked copy whose annotations + form fields are
+        baked into page content (text preserved). A *derived* artifact like Print — it does not
+        touch the working document's path, dirty state, undo history, or file watcher; a pending
+        redaction is applied in the exported file without committing it in the open document."""
+        if self.view.form is not None:
+            self.view.form.commit_pending()  # flush an open inline field editor first
+        default = self.vdoc.path or ""
+        if default:
+            base, _ext = os.path.splitext(default)
+            default = f"{base} (flattened).pdf"
+        path, _ = QFileDialog.getSaveFileName(self, "Export Flattened PDF", default, "PDF files (*.pdf)")
+        if not path:
+            return
+        if not path.lower().endswith(".pdf"):
+            path += ".pdf"
+        # Write to a temp file in the same directory, then atomically replace — never leave a partial
+        # export (and never clobber the target if the bake/save fails).
+        directory = os.path.dirname(os.path.abspath(path)) or "."
+        fd, tmp = tempfile.mkstemp(suffix=".pdf", dir=directory)
+        os.close(fd)
+        try:
+            from model.export import export_flattened_pdf
+
+            export_flattened_pdf(self.vdoc, tmp)
+            os.replace(tmp, path)
+        except Exception as exc:  # surface, don't crash; leave any existing target intact
+            if os.path.exists(tmp):
+                os.remove(tmp)
+            QMessageBox.critical(self, "Export failed", str(exc))
 
     def _confirm_redaction(self) -> bool:
         return (
