@@ -1,21 +1,23 @@
 # Plan: Local, Offline, Native-Windows PDF Viewer + Page Editor (Python)
 
-> **Shipped: `v0.6.0` released** — milestones M0–M30 complete (v0.1.0 = M0–M9; v0.2.0 = M10–M15:
-> icons, zoom %, printing, recent docs, form filling; v0.3.0 = M16–M19: drag-and-drop visuals,
-> Explorer file-drop, grab/select mode; v0.4.0 = M20–M22: annotations — highlight + movable/
+> **Shipped: `v0.7.0` released** — milestones M0–M31.5 + M34 complete (v0.1.0 = M0–M9; v0.2.0 =
+> M10–M15: icons, zoom %, printing, recent docs, form filling; v0.3.0 = M16–M19: drag-and-drop
+> visuals, Explorer file-drop, grab/select mode; v0.4.0 = M20–M22: annotations — highlight + movable/
 > re-editable text boxes — and true destructive redaction (region + text-flow) with cross-engine
 > leak verification and a redacted-save point-of-no-return; v0.5.0 = M23–M26: revert, external-change
 > warning, edits-aware printing; v0.6.0 = M27–M30: styled text boxes, live thumbnails, dynamic theme
-> icons). Releases:
+> icons; **v0.7.0 = M31 + M31.5 + M34**: annotation round-trip editing — reopen → move/edit/remove
+> our author-tagged marks — and a flatten **Export → PDF** that bakes annotations into content,
+> text-preserving). Releases:
+> [v0.7.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.7.0) ·
 > [v0.6.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.6.0) ·
 > [v0.5.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.5.0) ·
 > [v0.4.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.4.0) ·
 > [v0.3.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.3.0) ·
 > [v0.2.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.2.0) ·
 > [v0.1.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.1.0). This plan stays the
-> spec/source-of-truth. **Next:** **v0.7.0 → v0.8.0** planned — see §Next roadmap (round-trip &
-> documents; images). Anything beyond lives in §Future
-> enhancements.
+> spec/source-of-truth. **Next:** **v0.8.0** (images) → **v0.9.0** (encrypted PDFs + internal-link
+> remap, re-scoped out of v0.7.0) — see §Next roadmap. Anything beyond lives in §Future enhancements.
 
 > **Revision (2026-06-15)** — folded in two decisions without changing the product: a
 > **Development environment** section (Hybrid — build the cross-platform core + headless tests in
@@ -641,7 +643,7 @@ descriptors + `model/edit_engine.py`'s post-copy pass; reuse `viewer/tools.py`; 
 `packaging/`; nothing new leaks into `app.py`/`launcher.py`, and all the v0.3.0/v0.4.0 work lives in
 the reusable cross-platform layer.
 
-## Next roadmap (v0.5.0 → v0.6.0 → v0.7.0 → v0.8.0)
+## Next roadmap (v0.5.0 → v0.6.0 → v0.7.0 → v0.8.0 → v0.9.0)
 
 Same discipline as the shipped releases: **one PR per milestone**, `PROGRESS.md` tracks state, ⭐
 marks a keystone (most risk, GUI-free core, fully headless-testable). **Still no third-party
@@ -674,29 +676,38 @@ The annotation experience deepens, building directly on v0.4.0's text boxes.
 | **M29** Dynamic theme icons | Verify + complete the runtime OS **light↔dark** switch: `changeEvent` / `icons.refresh_for_theme` already re-tint toolbar glyphs on `ApplicationPaletteChange`; ensure it fires on a live Windows theme change (and the app/window icon follows). | WSLg + **Win** | Flipping the OS theme re-tints the toolbar without a restart |
 | **M30** Verify + release | Headless suite green; Windows validation; tag **v0.6.0**. | **Win** | Matrix green → v0.6.0 released |
 
-### v0.7.0 — "Round-trip & Documents"
+### v0.7.0 ✅ — "Round-trip & Export" (shipped)
 
-Re-editing saved annotations, a flatten **Export**, + deeper PDF-format support.
+Re-editing saved annotations + a flatten **Export**. (Encrypted-PDF + internal-link support that
+originally sat here were re-scoped by the owner to **v0.9.0**, so the image work ships first.)
 
 | Milestone | Feature | Where | Done when |
 |---|---|---|---|
-| **M31** ⭐ Annotation round-trip editing | On open, re-parse **our** annotations (the `PDFPROJ_AUTHOR`-tagged highlights / text-boxes) from the source into `model/page_edits.py`; at materialize, **strip-then-re-add** the managed annotations on the copied page so they aren't duplicated. Saved highlights/text-boxes become movable / re-editable / removable after reopening. (Redaction stays a point-of-no-return — not re-editable.) | WSL (model+tests) + WSLg | Reopen a saved doc → move / edit / remove its pdfproj annotations |
-| **M31.5** Export → PDF (flatten) | Introduce an **Export** action (`File ▸ Export`) whose first format is a **flattened PDF**: bake the managed annotations into page content via PyMuPDF `Document.bake()` (text layer **preserved**, *not* rasterised) — a locked but still-searchable copy whose marks can't be moved/removed in any tool. The opt-out counterpart to M31's round-trip (Save As stays editable; Export → PDF locks). Built as an **extensible Export path** that **M36** grows to an image format. Headless test: the baked output merges the annotations (annot count drops) with the text layer intact. | WSL (model+tests) + WSLg | Export → PDF writes a flattened, text-preserving copy whose annotations are no longer editable |
-| **M32** Encrypted / password PDFs | On open, detect `doc.needs_pass`, prompt, `doc.authenticate(pw)` before registering the source. (Output stays unencrypted unless re-encryption is added later.) | WSL + WSLg | Open a password-protected PDF after entering its password |
-| **M33** Internal GoTo-link remap | Generalize `model/toc_remap.py` → `model/links_remap.py`: the same old→new page-index map applied to internal `LINK` GoTo annotations at materialize; drop links whose target page was deleted. Pure model — a clean headless keystone. | WSL (model+tests) | Reordered/deleted pages keep internal links pointing at the right page |
-| **M34** Verify + release | Headless suite green; Windows validation; tag **v0.7.0**. | **Win** | Matrix green → v0.7.0 released |
+| **M31** ⭐ Annotation round-trip editing | On open, re-parse **our** annotations (the `PDFPROJ_AUTHOR`-tagged highlights / text-boxes) from the source into `model/page_edits.py`; at materialize, **strip-then-re-add** the managed annotations on the copied page so they aren't duplicated. Saved highlights/text-boxes become movable / re-editable / removable after reopening. (Redaction stays a point-of-no-return — not re-editable.) Follow-ups from manual testing: the page render strips our baked marks so the editable overlay is the single source of truth (no double-draw / pinned original), and text selection reads the stripped render page (a box's text isn't drag-selectable, no stale-position copy). | WSL (model+tests) + WSLg | Reopen a saved doc → move / edit / remove its pdfproj annotations |
+| **M31.5** Export → PDF (flatten) | An **Export** action (`File ▸ Export`) whose first format is a **flattened PDF**: bake the managed annotations **and form widgets** into page content via PyMuPDF `Document.bake()` (text layer **preserved**, *not* rasterised) — a locked but still-searchable copy whose marks can't be moved/removed in any tool. The opt-out counterpart to M31's round-trip (Save As stays editable; Export → PDF locks). Built as an **extensible Export path** (`model/export.py`) that **M36** grows to an image format. | WSL (model+tests) + WSLg | Export → PDF writes a flattened, text-preserving copy whose annotations are no longer editable |
+| **M34** Verify + release | Headless suite green (317 tests); Windows validation; tag **v0.7.0**. | **Win** | Matrix green → v0.7.0 released |
 
 ### v0.8.0 — "Images"
 
 Bring raster images into the page workflow, reusing existing seams — **no new dependency** (PyMuPDF
-converts images ↔ PDF pages; the drag/drop + render paths already exist). Sequencing: parked after
-v0.7.0; pull earlier if image support is wanted sooner.
+converts images ↔ PDF pages; the drag/drop + render paths already exist). **Next up** after v0.7.0.
 
 | Milestone | Feature | Where | Done when |
 |---|---|---|---|
 | **M35** Image import | Drag a local image (`.jpg` / `.jpeg` / `.png` / …) from Explorer onto the Pages sidebar → insert as a new page, exactly like a dropped PDF. Reuses **M17**'s `text/uri-list` drop + insert plumbing; the only new bit is converting each image to a one-page PDF source (PyMuPDF `convert_to_pdf`), after which it's just another registered source. | WSL (logic) + WSLg | Drop a PNG/JPEG on the sidebar → it inserts as a page; Save bakes it in |
 | **M36** Image export | **Extend the Export feature (M31.5)** to images: export the selected page(s) → image files (`.png` / `.jpeg`) at a chosen DPI, reusing the **M25** edits-aware render (`render_output` + `_page_image`) so each image shows annotations / fills / redactions; one file per page (or the current page). | WSL (render) + WSLg | Export → Image writes PNG/JPEG matching the on-screen (edited) pages |
 | **M37** Verify + release | Headless suite green; Windows validation (image drop-insert + image export in the frozen build); tag **v0.8.0**. | **Win** | Matrix green → v0.8.0 released |
+
+### v0.9.0 — "Encrypted & Links"
+
+Deeper PDF-format support, **re-scoped out of v0.7.0** by the owner so the image work (v0.8.0) lands
+first. **No new dependency** — both are native PyMuPDF.
+
+| Milestone | Feature | Where | Done when |
+|---|---|---|---|
+| **M32** Encrypted / password PDFs | On open, detect `doc.needs_pass`, prompt, `doc.authenticate(pw)` before registering the source. (Output stays unencrypted unless re-encryption is added later.) | WSL + WSLg | Open a password-protected PDF after entering its password |
+| **M33** Internal GoTo-link remap | Generalize `model/toc_remap.py` → `model/links_remap.py`: the same old→new page-index map applied to internal `LINK` GoTo annotations at materialize; drop links whose target page was deleted. Pure model — a clean headless keystone. | WSL (model+tests) | Reordered/deleted pages keep internal links pointing at the right page |
+| **M38** Verify + release | Headless suite green; Windows validation; tag **v0.9.0**. | **Win** | Matrix green → v0.9.0 released |
 
 ## Future enhancements (deferred beyond the roadmap)
 
