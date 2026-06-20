@@ -3,11 +3,15 @@
 Live status of the build (milestone detail in `PLAN.md` §Execution). **One PR per milestone** — when
 it merges, check the box here in the same PR and append the PR link.
 
-**Status:** ✅ **v0.7.0 shipped** — milestones **M0–M31.5 + M34 complete** (v0.1.0 = M0–M9,
+**Status:** ✅ **v0.8.0 shipped** — milestones **M0–M37 complete** (v0.1.0 = M0–M9,
 v0.2.0 = M10–M15, v0.3.0 = M16–M19, v0.4.0 = M20–M22, v0.5.0 = M23–M26, v0.6.0 = M27–M30,
-v0.7.0 = M31 + M31.5 + M34). Releases:
-<https://github.com/utyagi24/pdfproj/releases/tag/v0.7.0> ·
-<https://github.com/utyagi24/pdfproj/releases/tag/v0.6.0>. v0.7.0 "Round-trip & Export" adds
+v0.7.0 = M31 + M31.5 + M34, v0.8.0 = M35–M37). Releases:
+<https://github.com/utyagi24/pdfproj/releases/tag/v0.8.0> ·
+<https://github.com/utyagi24/pdfproj/releases/tag/v0.7.0>. v0.8.0 "Images" adds **image import**
+(drag a local PNG/JPEG/… from Explorer onto the Pages sidebar → it inserts as a page, converted via
+PyMuPDF `convert_to_pdf`) and **image export** (`File ▸ Export ▸ Image…`; selected page(s) → PNG/JPEG
+at a chosen DPI, edits-aware off `render_output`), plus UI polish (clearer multi-page selection,
+vertical-centred fitting page, centred text-box text). v0.7.0 "Round-trip & Export" adds
 **annotation round-trip editing** (reopen a saved doc → move / edit / remove our `PDFPROJ_AUTHOR`-tagged
 highlights & text boxes; the page render strips our baked marks so the editable overlay is the single
 source of truth, and text selection reads that stripped page) and a flatten **Export → PDF**
@@ -16,9 +20,8 @@ text-preserving — a locked counterpart to the round-trip). v0.6.0 "Rich Text &
 **styled text boxes**, **live thumbnails**, and **dynamic theme icons**. v0.5.0 "File Safety & Output"
 adds **Revert to Saved**, an **external-change warning**, and **edits-aware printing**. v0.4.0
 "Annotate & Redact" adds text **highlight** + **text boxes** and **true destructive redaction**.
-**Next:** **v0.8.0** (images, M35–M37) → **v0.9.0** (encrypted PDFs + GoTo-link remap, M32/M33,
-re-scoped out of v0.7.0) — see the roadmap below and `PLAN.md` §Next roadmap. **Open follow-ups**
-(carried items) are at the bottom.
+**Next:** **v0.9.0** (encrypted PDFs + GoTo-link remap, M32/M33, re-scoped out of v0.7.0) — see the
+roadmap below and `PLAN.md` §Next roadmap. **Open follow-ups** (carried items) are at the bottom.
 
 - [x] **M0** Scaffold + WSL dev venv — *step 1 (WSL); WSL* — [#4](https://github.com/utyagi24/pdfproj/pull/4)
 - [x] **M1** Correctness core: `model/` + headless tests green ⭐ — *steps 5, 7; WSL* — [#5](https://github.com/utyagi24/pdfproj/pull/5)
@@ -33,7 +36,7 @@ re-scoped out of v0.7.0) — see the roadmap below and `PLAN.md` §Next roadmap.
 
 ⭐ M1 is the keystone — most correctness risk, GUI-free, fully testable in WSL/CI.
 
-## Releases — v0.2.0 ✅ → v0.3.0 ✅ → v0.4.0 ✅ → v0.5.0 ✅ → v0.6.0 ✅ → v0.7.0 ✅ → v0.8.0 → v0.9.0
+## Releases — v0.2.0 ✅ → v0.3.0 ✅ → v0.4.0 ✅ → v0.5.0 ✅ → v0.6.0 ✅ → v0.7.0 ✅ → v0.8.0 ✅ → v0.9.0
 
 Spec + architecture in `PLAN.md` (§Shipped roadmap for v0.2–v0.4, §Next roadmap for v0.5–v0.9). Same
 conventions: **one PR per milestone**, tick the box here on merge. ⭐ marks a keystone (most risk,
@@ -84,11 +87,15 @@ GUI-free core, fully headless-testable).
 > Re-scope (owner, 2026-06-20): encrypted-PDF (M32) + internal-link remap (M33) moved **out of
 > v0.7.0** to a new **v0.9.0**, so the image work (v0.8.0) ships next.
 
-**v0.8.0 — "Images"** (planned, next)
+**v0.8.0 ✅ — "Images"** (shipped)
 
 - [x] **M35** Image import — drag a local image (jpg/png/…) from Explorer onto the Pages sidebar → insert as a new page (reuse M17 drop + PyMuPDF `convert_to_pdf`) — *WSL (logic) + WSLg* — [#50](https://github.com/utyagi24/pdfproj/pull/50)
 - [x] **M36** Image export — **extend the M31.5 Export feature** to images: selected page(s) → PNG/JPEG at a chosen DPI (reuse M25 `render_output` + `_page_image`; edits-aware) — *WSL (render) + WSLg* — [#51](https://github.com/utyagi24/pdfproj/pull/51)
-- [ ] **M37** Verify + release → tag **v0.8.0** — *Windows*
+- [x] **M37** Verify + release → tag **v0.8.0** (version bump + docs; 341 headless tests green) — *Windows* — [#54](https://github.com/utyagi24/pdfproj/pull/54)
+
+> Pre-release polish (owner, 2026-06-20): clearer multi-page selection in the sidebar + vertically
+> centred fitting page ([#52](https://github.com/utyagi24/pdfproj/pull/52)) and vertically centred
+> text-box text ([#53](https://github.com/utyagi24/pdfproj/pull/53)).
 
 **v0.9.0 — "Encrypted & Links"** (planned; re-scoped out of v0.7.0)
 
