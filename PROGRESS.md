@@ -3,19 +3,22 @@
 Live status of the build (milestone detail in `PLAN.md` §Execution). **One PR per milestone** — when
 it merges, check the box here in the same PR and append the PR link.
 
-**Status:** ✅ **v0.6.0 shipped** — milestones **M0–M30 complete** (v0.1.0 = M0–M9,
-v0.2.0 = M10–M15, v0.3.0 = M16–M19, v0.4.0 = M20–M22, v0.5.0 = M23–M26, v0.6.0 = M27–M30). Releases:
-<https://github.com/utyagi24/pdfproj/releases/tag/v0.6.0> ·
-<https://github.com/utyagi24/pdfproj/releases/tag/v0.5.0>. v0.6.0 "Rich Text & Live Preview" adds
-**styled text boxes** (font / size / colour + box fill + outline, via a formatting bar on the inline
-editor), **live thumbnails** (the Pages sidebar shows each page's edits), and **dynamic theme icons**
-(live OS light↔dark re-tint). v0.5.0 "File Safety & Output" adds
-**Revert to Saved**, an **external-change warning**, and **edits-aware printing**. v0.4.0 "Annotate & Redact" adds text
-**highlight** + **text boxes** (move / re-edit / auto-grow), and **true destructive redaction**
-(region + text-flow) with cross-engine leak verification and a redacted-save "point of no return".
-Annotate/redact tools are **one-shot armed** gestures; cross-window page drag/paste **carries
-per-page edits**. **Next:** **v0.7.0 → v0.8.0** planned (M31–M37) — see the roadmap below and
-`PLAN.md` §Next roadmap. **Open follow-ups** (carried items) are at the bottom.
+**Status:** ✅ **v0.7.0 shipped** — milestones **M0–M31.5 + M34 complete** (v0.1.0 = M0–M9,
+v0.2.0 = M10–M15, v0.3.0 = M16–M19, v0.4.0 = M20–M22, v0.5.0 = M23–M26, v0.6.0 = M27–M30,
+v0.7.0 = M31 + M31.5 + M34). Releases:
+<https://github.com/utyagi24/pdfproj/releases/tag/v0.7.0> ·
+<https://github.com/utyagi24/pdfproj/releases/tag/v0.6.0>. v0.7.0 "Round-trip & Export" adds
+**annotation round-trip editing** (reopen a saved doc → move / edit / remove our `PDFPROJ_AUTHOR`-tagged
+highlights & text boxes; the page render strips our baked marks so the editable overlay is the single
+source of truth, and text selection reads that stripped page) and a flatten **Export → PDF**
+(`File ▸ Export`; bakes annotations + form widgets into page content via `Document.bake()`,
+text-preserving — a locked counterpart to the round-trip). v0.6.0 "Rich Text & Live Preview" adds
+**styled text boxes**, **live thumbnails**, and **dynamic theme icons**. v0.5.0 "File Safety & Output"
+adds **Revert to Saved**, an **external-change warning**, and **edits-aware printing**. v0.4.0
+"Annotate & Redact" adds text **highlight** + **text boxes** and **true destructive redaction**.
+**Next:** **v0.8.0** (images, M35–M37) → **v0.9.0** (encrypted PDFs + GoTo-link remap, M32/M33,
+re-scoped out of v0.7.0) — see the roadmap below and `PLAN.md` §Next roadmap. **Open follow-ups**
+(carried items) are at the bottom.
 
 - [x] **M0** Scaffold + WSL dev venv — *step 1 (WSL); WSL* — [#4](https://github.com/utyagi24/pdfproj/pull/4)
 - [x] **M1** Correctness core: `model/` + headless tests green ⭐ — *steps 5, 7; WSL* — [#5](https://github.com/utyagi24/pdfproj/pull/5)
@@ -30,9 +33,9 @@ per-page edits**. **Next:** **v0.7.0 → v0.8.0** planned (M31–M37) — see th
 
 ⭐ M1 is the keystone — most correctness risk, GUI-free, fully testable in WSL/CI.
 
-## Releases — v0.2.0 ✅ → v0.3.0 ✅ → v0.4.0 ✅ → v0.5.0 ✅ → v0.6.0 ✅ → v0.7.0 → v0.8.0
+## Releases — v0.2.0 ✅ → v0.3.0 ✅ → v0.4.0 ✅ → v0.5.0 ✅ → v0.6.0 ✅ → v0.7.0 ✅ → v0.8.0 → v0.9.0
 
-Spec + architecture in `PLAN.md` (§Shipped roadmap for v0.2–v0.4, §Next roadmap for v0.5–v0.8). Same
+Spec + architecture in `PLAN.md` (§Shipped roadmap for v0.2–v0.4, §Next roadmap for v0.5–v0.9). Same
 conventions: **one PR per milestone**, tick the box here on merge. ⭐ marks a keystone (most risk,
 GUI-free core, fully headless-testable).
 
@@ -72,19 +75,26 @@ GUI-free core, fully headless-testable).
 - [x] **M29** Dynamic theme icons — runtime OS light↔dark re-tint. Verify revealed it never fired: `changeEvent` matched only `ApplicationPaletteChange`, but Qt delivers `PaletteChange`; now handles both, so the toolbar glyphs re-tint live (app icon is theme-agnostic) — *WSLg + Windows* — [#44](https://github.com/utyagi24/pdfproj/pull/44)
 - [x] **M30** Verify + release → tag **v0.6.0** (version bump + docs; 285 headless tests green) — *Windows* — [#45](https://github.com/utyagi24/pdfproj/pull/45)
 
-**v0.7.0 — "Round-trip & Documents"** (planned)
+**v0.7.0 ✅ — "Round-trip & Export"** (shipped)
 
-- [x] **M31** ⭐ Annotation round-trip editing — reopen → move/edit/remove our `PDFPROJ_AUTHOR`-tagged annotations (strip-then-re-add at materialize) — *WSL (model+tests) + WSLg* — [#46](https://github.com/utyagi24/pdfproj/pull/46)
-- [x] **M31.5** Export → PDF (flatten) — new **Export** action (`File ▸ Export`); bake annotations into page content (PyMuPDF `Document.bake()`, text-preserving — locks the marks, the opposite of M31's round-trip). Extensible: M36 adds an image format. — *WSL (model+tests) + WSLg* — [#48](https://github.com/utyagi24/pdfproj/pull/48)
-- [ ] **M32** Encrypted / password PDFs — detect `needs_pass`, prompt, `authenticate` on open — *WSL + WSLg*
-- [ ] **M33** Internal GoTo-link remap — `toc_remap` → `links_remap` (fix cross-run link targets; clean headless keystone) — *WSL (model+tests)*
-- [ ] **M34** Verify + release → tag **v0.7.0** — *Windows*
+- [x] **M31** ⭐ Annotation round-trip editing — reopen → move/edit/remove our `PDFPROJ_AUTHOR`-tagged annotations (strip-then-re-add at materialize); page render + text selection read the stripped page so the editable overlay is authoritative (no double-draw / stale-position select) — *WSL (model+tests) + WSLg* — [#46](https://github.com/utyagi24/pdfproj/pull/46)
+- [x] **M31.5** Export → PDF (flatten) — new **Export** action (`File ▸ Export`); bake annotations + form widgets into page content (PyMuPDF `Document.bake()`, text-preserving — locks the marks, the opposite of M31's round-trip). Extensible Export path (`model/export.py`); M36 adds an image format. — *WSL (model+tests) + WSLg* — [#48](https://github.com/utyagi24/pdfproj/pull/48)
+- [x] **M34** Verify + release → tag **v0.7.0** (version bump + docs + re-scope; 317 headless tests green) — *Windows*
 
-**v0.8.0 — "Images"** (planned)
+> Re-scope (owner, 2026-06-20): encrypted-PDF (M32) + internal-link remap (M33) moved **out of
+> v0.7.0** to a new **v0.9.0**, so the image work (v0.8.0) ships next.
+
+**v0.8.0 — "Images"** (planned, next)
 
 - [ ] **M35** Image import — drag a local image (jpg/png/…) from Explorer onto the Pages sidebar → insert as a new page (reuse M17 drop + PyMuPDF `convert_to_pdf`) — *WSL (logic) + WSLg*
 - [ ] **M36** Image export — **extend the M31.5 Export feature** to images: selected page(s) → PNG/JPEG at a chosen DPI (reuse M25 `render_output` + `_page_image`; edits-aware) — *WSL (render) + WSLg*
 - [ ] **M37** Verify + release → tag **v0.8.0** — *Windows*
+
+**v0.9.0 — "Encrypted & Links"** (planned; re-scoped out of v0.7.0)
+
+- [ ] **M32** Encrypted / password PDFs — detect `needs_pass`, prompt, `authenticate` on open — *WSL + WSLg*
+- [ ] **M33** Internal GoTo-link remap — `toc_remap` → `links_remap` (fix cross-run link targets; clean headless keystone) — *WSL (model+tests)*
+- [ ] **M38** Verify + release → tag **v0.9.0** — *Windows*
 
 ## Open follow-ups (carried)
 
@@ -99,9 +109,9 @@ Carried items — none block work:
   it stays deferred (still unsigned through v0.4.0); slots into `release.yml` before packaging
   (PLAN.md §Packaging §5). Carry to a future release once a cert is available.
 - **App icon** → ✅ shipped in **M10** (v0.2.0).
-- **Product features** → view/print/annotate/redact all shipped (M0–M22). The next tranche is
-  **scheduled** in §Next roadmap above (M23–M37): rich text, live thumbnails, theme icons, revert,
-  disk-change warning, edits-aware printing, annotation round-trip editing, encrypted PDFs, GoTo-link remap, image import/export.
+- **Product features** → view/print/annotate/redact/round-trip/flatten-export all shipped (M0–M31.5).
+  The next tranche is **scheduled** in §Next roadmap above: image import/export (v0.8.0, M35–M37);
+  encrypted PDFs + GoTo-link remap (v0.9.0, M32/M33, re-scoped out of v0.7.0).
   Still **deferred beyond** the roadmap (PLAN.md §Future enhancements): new-field form designer,
   drop-to-open in the main view, re-encryption on save, cross-app annotation editing (M31 round-trip
   edits only pdfproj's own author-tagged marks; foreign annotations are shown but not editable — a
