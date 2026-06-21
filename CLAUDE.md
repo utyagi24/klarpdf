@@ -31,10 +31,13 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   spare machine / a fresh local user with networking disabled.
 
 ## Status
-**v0.8.0 shipped** — milestones **M0–M37 complete** (v0.1.0 = M0–M9; v0.2.0 = M10–M15;
+**v0.8.1 shipped** (bug-fix patch) — milestones **M0–M37 complete** (v0.1.0 = M0–M9; v0.2.0 = M10–M15;
 v0.3.0 = M16–M19; v0.4.0 = M20–M22; v0.5.0 = M23–M26; v0.6.0 = M27–M30; v0.7.0 = M31 + M31.5 + M34;
-v0.8.0 = M35–M37).
+v0.8.0 = M35–M37). **v0.8.1** patch: double-click open from a case-sensitive `\\wsl.localhost\` / UNC
+folder works for every file (the single-instance hand-off now passes the raw path, not a lower-cased
+one — `launcher.py`; PR #55).
 Releases:
+<https://github.com/utyagi24/pdfproj/releases/tag/v0.8.1> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.8.0> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.7.0> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.6.0> ·
