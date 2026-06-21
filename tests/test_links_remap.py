@@ -1,8 +1,10 @@
-"""Internal GoTo-link remap at materialize (PLAN.md, M33). Headless.
+"""Internal link remap at materialize (PLAN.md, M33). Headless.
 
-insert_pdf drops internal GoTo links whose target isn't in the contiguous run being copied, so our
-reorder/delete materialize loses them. We rebuild them from the source against the new page order
-(repoint survivors, drop links to deleted pages), like the outline remap. URI links pass through.
+insert_pdf drops internal **GoTo** links whose target isn't in the contiguous run being copied, and
+drops **named-destination** links entirely (the /Dests name tree isn't rebuilt) — so our
+reorder/delete materialize loses them. We rebuild both from the source against the new page order
+(repoint survivors, drop links to deleted pages, baking a named dest to a direct GoTo), like the
+outline remap. URI links pass through.
 """
 
 from __future__ import annotations
@@ -113,6 +115,60 @@ def test_duplicated_page_links_point_to_first_occurrence(linked_pdf, tmp_path):
     assert _goto_targets(out, 0) == [3]   # src0 → src3 → first occurrence (out3)
     assert _goto_targets(out, 3) == [0]   # both copies of src3 → src0 (out0)
     assert _goto_targets(out, 4) == [0]
+
+
+# ---- named-destination links (the Javadoc / printed-web case) ---------------
+
+
+@pytest.fixture
+def named_pdf(tmp_path) -> str:
+    """4 pages; page 0 links to a named dest on page 2, page 1 to a named dest on page 3."""
+    path = str(tmp_path / "named.pdf")
+    doc = fitz.open()
+    for i in range(4):
+        doc.new_page().insert_text((72, 72), f"P{i}", fontsize=20)
+    doc.xref_set_key(
+        doc.pdf_catalog(),
+        "Dests",
+        "<< /dA [ %d 0 R /XYZ 0 700 0 ] /dB [ %d 0 R /XYZ 0 500 0 ] >>"
+        % (doc.page_xref(2), doc.page_xref(3)),
+    )
+    doc[0].insert_link({"kind": fitz.LINK_NAMED, "from": fitz.Rect(72, 100, 200, 120), "nameddest": "dA"})
+    doc[1].insert_link({"kind": fitz.LINK_NAMED, "from": fitz.Rect(72, 100, 200, 120), "nameddest": "dB"})
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def test_named_links_dropped_by_insert_pdf_without_the_remap(named_pdf):
+    """Sanity: insert_pdf alone drops named-destination links — so the remap is what saves them."""
+    out_doc = fitz.open()
+    out_doc.insert_pdf(fitz.open(named_pdf), links=True)
+    assert [ln for ln in out_doc[0].get_links() if ln["kind"] == fitz.LINK_GOTO] == []
+    assert [ln for ln in out_doc[0].get_links() if ln["kind"] == fitz.LINK_NAMED] == []
+    out_doc.close()
+
+
+def test_named_links_survive_identity_save_as_goto(named_pdf, tmp_path):
+    out = _materialize(VirtualDocument.from_path(named_pdf), tmp_path)
+    assert _goto_targets(out, 0) == [2]  # page0's named dest (page 2) baked to a working GoTo
+    assert _goto_targets(out, 1) == [3]
+
+
+def test_named_links_follow_reorder(named_pdf, tmp_path):
+    v = VirtualDocument.from_path(named_pdf)
+    v.ordered = list(reversed(v.ordered))  # [3,2,1,0]: src2→out1, src3→out0
+    out = _materialize(v, tmp_path)
+    assert _goto_targets(out, 3) == [1]   # src0 (out3) → named src2, now out1
+    assert _goto_targets(out, 2) == [0]   # src1 (out2) → named src3, now out0
+
+
+def test_named_link_to_deleted_page_dropped(named_pdf, tmp_path):
+    v = VirtualDocument.from_path(named_pdf)
+    v.delete_page(2)  # ordered [0,1,3]; page0's target (src2) is gone
+    out = _materialize(v, tmp_path)
+    assert _goto_targets(out, 0) == []    # named target deleted → dropped
+    assert _goto_targets(out, 1) == [2]   # page1 → named src3, now out2
 
 
 def test_no_links_document_materializes_clean(tmp_path):

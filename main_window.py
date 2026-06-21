@@ -51,6 +51,7 @@ from ui import icons
 from util.paths import normalize_path
 from viewer.annotations import AnnotationOverlay
 from viewer.form_fill import FormFiller
+from viewer.links import LinkNavigator
 from viewer.pdf_view import PdfView
 from viewer.search import FindBar, SearchController
 from viewer.text_selection import TextSelection
@@ -91,6 +92,7 @@ class MainWindow(QMainWindow):
         self.view.selection = TextSelection(self.view)
         self.view.search = SearchController(self.view)
         self.view.form = FormFiller(self.view, self._set_field_value)
+        self.view.links = LinkNavigator(self.view)  # click internal links to jump (M33)
         self.view.annotations = AnnotationOverlay(
             self.view, self._add_annotation, self._remove_annotation, self._replace_annotation
         )
