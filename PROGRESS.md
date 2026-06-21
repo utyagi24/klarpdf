@@ -3,16 +3,18 @@
 Live status of the build (milestone detail in `PLAN.md` §Execution). **One PR per milestone** — when
 it merges, check the box here in the same PR and append the PR link.
 
-**Status:** ✅ **v0.8.1 shipped** (patch) — milestones **M0–M37 complete** (v0.1.0 = M0–M9,
+**Status:** ✅ **v0.9.0 shipped** — milestones **M0–M38 complete** (v0.1.0 = M0–M9,
 v0.2.0 = M10–M15, v0.3.0 = M16–M19, v0.4.0 = M20–M22, v0.5.0 = M23–M26, v0.6.0 = M27–M30,
-v0.7.0 = M31 + M31.5 + M34, v0.8.0 = M35–M37). Releases:
+v0.7.0 = M31 + M31.5 + M34, v0.8.0 = M35–M37, v0.9.0 = M32 + M33 + M38). Releases:
+<https://github.com/utyagi24/pdfproj/releases/tag/v0.9.0> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.8.1> ·
-<https://github.com/utyagi24/pdfproj/releases/tag/v0.8.0> ·
-<https://github.com/utyagi24/pdfproj/releases/tag/v0.7.0>. **v0.8.1** is a bug-fix patch: opening a
-PDF from a **case-sensitive `\\wsl.localhost\` (WSL) / UNC folder** via double-click now works for
-every file (the single-instance hand-off passed a lower-cased path that named a non-existent file on
-a case-sensitive share — it now hands off the raw path; [#55](https://github.com/utyagi24/pdfproj/pull/55)).
-v0.8.0 "Images" adds **image import**
+<https://github.com/utyagi24/pdfproj/releases/tag/v0.8.0>. v0.9.0 "Encrypted & Links" adds
+**encrypted / password-protected PDFs** (prompt + `authenticate` on open, then the source is held
+decrypted so the output stays unencrypted) and **internal links** — `links_remap` rebuilds GoTo
+**and** named-destination links at materialize so reorder/delete/Save keeps them working, and the
+viewer makes them **clickable** (click → jump to the target page; `viewer/links.py`). **v0.8.1** was
+a bug-fix patch: double-click open from a case-sensitive `\\wsl.localhost\` / UNC folder works for
+every file ([#55](https://github.com/utyagi24/pdfproj/pull/55)). v0.8.0 "Images" adds **image import**
 (drag a local PNG/JPEG/… from Explorer onto the Pages sidebar → it inserts as a page, converted via
 PyMuPDF `convert_to_pdf`) and **image export** (`File ▸ Export ▸ Image…`; selected page(s) → PNG/JPEG
 at a chosen DPI, edits-aware off `render_output`), plus UI polish (clearer multi-page selection,
@@ -25,8 +27,8 @@ text-preserving — a locked counterpart to the round-trip). v0.6.0 "Rich Text &
 **styled text boxes**, **live thumbnails**, and **dynamic theme icons**. v0.5.0 "File Safety & Output"
 adds **Revert to Saved**, an **external-change warning**, and **edits-aware printing**. v0.4.0
 "Annotate & Redact" adds text **highlight** + **text boxes** and **true destructive redaction**.
-**Next:** **v0.9.0** (encrypted PDFs + GoTo-link remap, M32/M33, re-scoped out of v0.7.0) — see the
-roadmap below and `PLAN.md` §Next roadmap. **Open follow-ups** (carried items) are at the bottom.
+**Next:** the roadmap (M0–M38) is complete; further work lives in `PLAN.md` §Future enhancements.
+**Open follow-ups** (carried items) are at the bottom.
 
 - [x] **M0** Scaffold + WSL dev venv — *step 1 (WSL); WSL* — [#4](https://github.com/utyagi24/pdfproj/pull/4)
 - [x] **M1** Correctness core: `model/` + headless tests green ⭐ — *steps 5, 7; WSL* — [#5](https://github.com/utyagi24/pdfproj/pull/5)
@@ -41,7 +43,7 @@ roadmap below and `PLAN.md` §Next roadmap. **Open follow-ups** (carried items) 
 
 ⭐ M1 is the keystone — most correctness risk, GUI-free, fully testable in WSL/CI.
 
-## Releases — v0.2.0 ✅ → v0.3.0 ✅ → v0.4.0 ✅ → v0.5.0 ✅ → v0.6.0 ✅ → v0.7.0 ✅ → v0.8.0 ✅ → v0.9.0
+## Releases — v0.2.0 ✅ → v0.3.0 ✅ → v0.4.0 ✅ → v0.5.0 ✅ → v0.6.0 ✅ → v0.7.0 ✅ → v0.8.0 ✅ → v0.9.0 ✅
 
 Spec + architecture in `PLAN.md` (§Shipped roadmap for v0.2–v0.4, §Next roadmap for v0.5–v0.9). Same
 conventions: **one PR per milestone**, tick the box here on merge. ⭐ marks a keystone (most risk,
@@ -102,11 +104,11 @@ GUI-free core, fully headless-testable).
 > centred fitting page ([#52](https://github.com/utyagi24/pdfproj/pull/52)) and vertically centred
 > text-box text ([#53](https://github.com/utyagi24/pdfproj/pull/53)).
 
-**v0.9.0 — "Encrypted & Links"** (planned; re-scoped out of v0.7.0)
+**v0.9.0 ✅ — "Encrypted & Links"** (shipped; re-scoped out of v0.7.0)
 
 - [x] **M32** Encrypted / password PDFs — detect `needs_pass`, prompt, `authenticate` on open (then store the source decrypted in memory; output stays unencrypted) — *WSL + WSLg* — [#57](https://github.com/utyagi24/pdfproj/pull/57)
 - [x] **M33** Internal link remap **+ navigation** — `links_remap` rebuilds GoTo **and** named-destination links at materialize (reorder/delete/Save keeps them working; named dests baked to GoTo — insert_pdf drops them entirely), **and** the viewer makes internal links clickable (click → jump to target page; pointing-hand on hover, `viewer/links.py`) — *WSL (model+tests) + WSLg* — [#58](https://github.com/utyagi24/pdfproj/pull/58)
-- [ ] **M38** Verify + release → tag **v0.9.0** — *Windows*
+- [x] **M38** Verify + release → tag **v0.9.0** (version bump + docs; 369 headless tests green) — *Windows* — [#59](https://github.com/utyagi24/pdfproj/pull/59)
 
 ## Open follow-ups (carried)
 
