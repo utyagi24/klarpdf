@@ -3,11 +3,16 @@
 Live status of the build (milestone detail in `PLAN.md` §Execution). **One PR per milestone** — when
 it merges, check the box here in the same PR and append the PR link.
 
-**Status:** ✅ **v0.8.0 shipped** — milestones **M0–M37 complete** (v0.1.0 = M0–M9,
+**Status:** ✅ **v0.8.1 shipped** (patch) — milestones **M0–M37 complete** (v0.1.0 = M0–M9,
 v0.2.0 = M10–M15, v0.3.0 = M16–M19, v0.4.0 = M20–M22, v0.5.0 = M23–M26, v0.6.0 = M27–M30,
 v0.7.0 = M31 + M31.5 + M34, v0.8.0 = M35–M37). Releases:
+<https://github.com/utyagi24/pdfproj/releases/tag/v0.8.1> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.8.0> ·
-<https://github.com/utyagi24/pdfproj/releases/tag/v0.7.0>. v0.8.0 "Images" adds **image import**
+<https://github.com/utyagi24/pdfproj/releases/tag/v0.7.0>. **v0.8.1** is a bug-fix patch: opening a
+PDF from a **case-sensitive `\\wsl.localhost\` (WSL) / UNC folder** via double-click now works for
+every file (the single-instance hand-off passed a lower-cased path that named a non-existent file on
+a case-sensitive share — it now hands off the raw path; [#55](https://github.com/utyagi24/pdfproj/pull/55)).
+v0.8.0 "Images" adds **image import**
 (drag a local PNG/JPEG/… from Explorer onto the Pages sidebar → it inserts as a page, converted via
 PyMuPDF `convert_to_pdf`) and **image export** (`File ▸ Export ▸ Image…`; selected page(s) → PNG/JPEG
 at a chosen DPI, edits-aware off `render_output`), plus UI polish (clearer multi-page selection,
