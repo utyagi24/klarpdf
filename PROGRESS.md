@@ -104,7 +104,7 @@ GUI-free core, fully headless-testable).
 
 **v0.9.0 — "Encrypted & Links"** (planned; re-scoped out of v0.7.0)
 
-- [ ] **M32** Encrypted / password PDFs — detect `needs_pass`, prompt, `authenticate` on open — *WSL + WSLg*
+- [x] **M32** Encrypted / password PDFs — detect `needs_pass`, prompt, `authenticate` on open (then store the source decrypted in memory; output stays unencrypted) — *WSL + WSLg* — [#57](https://github.com/utyagi24/pdfproj/pull/57)
 - [ ] **M33** Internal GoTo-link remap — `toc_remap` → `links_remap` (fix cross-run link targets; clean headless keystone) — *WSL (model+tests)*
 - [ ] **M38** Verify + release → tag **v0.9.0** — *Windows*
 
