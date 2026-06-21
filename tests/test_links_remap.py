@@ -1,0 +1,129 @@
+"""Internal GoTo-link remap at materialize (PLAN.md, M33). Headless.
+
+insert_pdf drops internal GoTo links whose target isn't in the contiguous run being copied, so our
+reorder/delete materialize loses them. We rebuild them from the source against the new page order
+(repoint survivors, drop links to deleted pages), like the outline remap. URI links pass through.
+"""
+
+from __future__ import annotations
+
+import pymupdf as fitz
+import pytest
+
+from model.edit_engine import PyMuPDFEngine
+from model.links_remap import link_target_map
+from model.virtual_document import PageRef, VirtualDocument
+
+
+@pytest.fixture
+def linked_pdf(tmp_path) -> str:
+    """4 pages with internal GoTo links 0->3, 1->2, 3->0, plus a URI link on page 0."""
+    path = str(tmp_path / "links.pdf")
+    doc = fitz.open()
+    for i in range(4):
+        doc.new_page().insert_text((72, 72), f"PAGE {i}", fontsize=20)
+    for src_pg, target in {0: 3, 1: 2, 3: 0}.items():
+        doc[src_pg].insert_link(
+            {"kind": fitz.LINK_GOTO, "from": fitz.Rect(72, 100, 200, 120),
+             "page": target, "to": fitz.Point(0, 0)}
+        )
+    doc[0].insert_link(
+        {"kind": fitz.LINK_URI, "from": fitz.Rect(72, 130, 200, 150), "uri": "https://example.com"}
+    )
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def _materialize(vdoc, tmp_path, name="out.pdf") -> str:
+    out = str(tmp_path / name)
+    PyMuPDFEngine().materialize(vdoc, out)
+    return out
+
+
+def _goto_targets(path, page_index) -> list[int]:
+    doc = fitz.open(path)
+    page = doc[page_index]
+    targets = sorted(link["page"] for link in page.get_links() if link["kind"] == fitz.LINK_GOTO)
+    doc.close()
+    return targets
+
+
+# ---- the pure index map -----------------------------------------------------
+
+
+def test_link_target_map_first_occurrence_and_drops_deleted():
+    refs = [PageRef("s", 3), PageRef("s", 1), PageRef("s", 1)]  # reordered + duplicated; src0/2 gone
+    assert link_target_map(refs) == {("s", 3): 0, ("s", 1): 1}  # dup → first occurrence
+
+
+# ---- materialize integration ------------------------------------------------
+
+
+def test_internal_links_are_lost_without_the_remap_fixture_sanity(linked_pdf):
+    """Sanity: the fixture really does carry internal GoTo links on the source."""
+    assert _goto_targets(linked_pdf, 0) == [3] and _goto_targets(linked_pdf, 3) == [0]
+
+
+def test_internal_links_follow_reorder(linked_pdf, tmp_path):
+    v = VirtualDocument.from_path(linked_pdf)
+    v.ordered = list(reversed(v.ordered))  # [3,2,1,0] → src0→out3, src1→out2, src2→out1, src3→out0
+    out = _materialize(v, tmp_path)
+    assert _goto_targets(out, 3) == [0]   # src0's link → src3, now at out0
+    assert _goto_targets(out, 2) == [1]   # src1's link → src2, now at out1
+    assert _goto_targets(out, 0) == [3]   # src3's link → src0, now at out3
+    assert _goto_targets(out, 1) == []    # src2 had no link
+
+
+def test_link_to_deleted_page_is_dropped(linked_pdf, tmp_path):
+    v = VirtualDocument.from_path(linked_pdf)
+    v.delete_page(2)  # ordered [0,1,3]; src1's link target (src2) is gone
+    out = _materialize(v, tmp_path)
+    assert _goto_targets(out, 0) == [2]   # src0 → src3 (now out2)
+    assert _goto_targets(out, 1) == []    # src1 → src2 (deleted) → dropped
+    assert _goto_targets(out, 2) == [0]   # src3 → src0 (out0)
+
+
+def test_uri_link_preserved(linked_pdf, tmp_path):
+    v = VirtualDocument.from_path(linked_pdf)
+    out = _materialize(v, tmp_path)
+    doc = fitz.open(out)
+    uris = [link.get("uri") for link in doc[0].get_links() if link["kind"] == fitz.LINK_URI]
+    doc.close()
+    assert uris == ["https://example.com"]
+
+
+def test_identity_order_keeps_links_without_duplicating(linked_pdf, tmp_path):
+    """No reorder → insert_pdf keeps the links; the rebuild must not duplicate them."""
+    v = VirtualDocument.from_path(linked_pdf)
+    out = _materialize(v, tmp_path)
+    assert _goto_targets(out, 0) == [3]
+    assert _goto_targets(out, 1) == [2]
+    assert _goto_targets(out, 3) == [0]
+    doc = fitz.open(out)
+    for i in (0, 1, 3):
+        assert sum(1 for ln in doc[i].get_links() if ln["kind"] == fitz.LINK_GOTO) == 1
+    doc.close()
+
+
+def test_duplicated_page_links_point_to_first_occurrence(linked_pdf, tmp_path):
+    v = VirtualDocument.from_path(linked_pdf)
+    v.ordered = v.ordered + [v.ordered[3]]  # [0,1,2,3,3]
+    out = _materialize(v, tmp_path)
+    assert _goto_targets(out, 0) == [3]   # src0 → src3 → first occurrence (out3)
+    assert _goto_targets(out, 3) == [0]   # both copies of src3 → src0 (out0)
+    assert _goto_targets(out, 4) == [0]
+
+
+def test_no_links_document_materializes_clean(tmp_path):
+    src = str(tmp_path / "plain.pdf")
+    doc = fitz.open()
+    doc.new_page().insert_text((72, 72), "no links here", fontsize=14)
+    doc.save(src)
+    doc.close()
+    out = _materialize(VirtualDocument.from_path(src), tmp_path)
+    result = fitz.open(out)
+    try:
+        assert result[0].get_links() == []
+    finally:
+        result.close()
