@@ -58,6 +58,7 @@ class PdfView(QGraphicsView):
         self.search = None
         self.form = None
         self.annotations = None
+        self.links = None  # internal-link navigation (M33), set by MainWindow
 
         self._mode = InteractionMode.SELECT  # SELECT (text/forms/move) vs GRAB (hand-pan) — M18
         # A one-shot armed insert tool (ArmedTool.TEXTBOX / .REDACT) — fires once then auto-reverts
@@ -294,6 +295,11 @@ class PdfView(QGraphicsView):
                 if self.annotations is not None and self.annotations.begin_move(scene_pt):
                     event.accept()
                     return
+                # Click an internal link → jump to its target page (before text selection, so a click
+                # on a link navigates rather than starting a selection).
+                if self.links is not None and self.links.navigate_at(scene_pt):
+                    event.accept()
+                    return
                 if self.selection is not None and self.selection.begin(scene_pt):
                     event.accept()
                     return
@@ -383,15 +389,19 @@ class PdfView(QGraphicsView):
         super().keyPressEvent(event)
 
     def _update_hover_cursor(self, scene_pt) -> None:
-        """In SELECT mode, show a move cursor over a text box so it's clearly draggable — but never
-        while a box is being edited (you're typing, not arranging), so the move cursor is not left
-        showing on the viewport, which the inline editor / formatting bar would inherit."""
-        if self._armed is not None or self._mode != InteractionMode.SELECT or self.annotations is None:
+        """In SELECT mode, show a pointing-hand over an internal link (it's clickable) and a move
+        cursor over a text box (it's draggable) — but never while a box is being edited (you're
+        typing, not arranging), so the move cursor isn't left showing on the viewport, which the
+        inline editor / formatting bar would inherit."""
+        if self._armed is not None or self._mode != InteractionMode.SELECT:
             return
-        if getattr(self.annotations, "editing", False):
+        if self.annotations is not None and getattr(self.annotations, "editing", False):
             self.viewport().setCursor(Qt.CursorShape.ArrowCursor)
             return
-        over_box = self.annotations.textbox_at(scene_pt) is not None
+        if self.links is not None and self.links.link_at(scene_pt) is not None:
+            self.viewport().setCursor(Qt.CursorShape.PointingHandCursor)
+            return
+        over_box = self.annotations is not None and self.annotations.textbox_at(scene_pt) is not None
         self.viewport().setCursor(Qt.CursorShape.SizeAllCursor if over_box else Qt.CursorShape.ArrowCursor)
 
     # ---- rendering --------------------------------------------------------------
@@ -625,6 +635,8 @@ class PdfView(QGraphicsView):
         self._drop_render_docs()
         if self.selection is not None:
             self.selection.invalidate()
+        if self.links is not None:
+            self.links.invalidate()
         if self._current >= self._vdoc.page_count:
             self._current = max(0, self._vdoc.page_count - 1)
         self._build_scene()
