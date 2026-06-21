@@ -127,6 +127,12 @@ class PyMuPDFEngine(EditEngine):
 
             apply_form_values(out, vdoc.form_values)
 
+            # Rebuild internal GoTo links + the outline against the new page order (M33 / M1):
+            # insert_pdf drops cross-run internal links and never copies the outline, so both are
+            # remapped here — surviving targets repointed to their new index, deleted ones dropped.
+            from model.links_remap import remap_internal_links
+
+            remap_internal_links(out, vdoc)
             out.set_toc(vdoc.remapped_toc())
         except Exception:
             out.close()
