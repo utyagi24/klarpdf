@@ -21,7 +21,6 @@ from PySide6.QtWidgets import QFileDialog
 
 from app import PdfApp, send_path_to_running_instance
 from platform_integration import single_instance_server_name
-from util.paths import normalize_path
 
 
 def silence_mupdf_console_noise() -> None:
@@ -45,16 +44,20 @@ def main(argv: list[str]) -> int:
     name = single_instance_server_name()
 
     raw_path = argv[1] if len(argv) > 1 else None
-    norm_path = normalize_path(raw_path) if raw_path else None
 
-    # 1) A resident instance already running? Hand off and exit (no UI in this process).
-    if norm_path and send_path_to_running_instance(name, norm_path):
+    # 1) A resident instance already running? Hand off the path **as given** and exit (no UI here).
+    #    We hand off the *raw* path, NOT normalize_path(it): the resident instance computes the
+    #    normalised identity key itself, but it must OPEN the original path. normalize_path lower-cases
+    #    (Windows case-fold), which names a non-existent file on a **case-sensitive** share such as a
+    #    `\\wsl.localhost\` (WSL) mount — so handing off a normalised path opened the first file (this
+    #    process opens raw_path directly) but failed for every subsequent file routed via the server.
+    if raw_path and send_path_to_running_instance(name, raw_path):
         return 0
 
     # 2) Become the resident instance. If listen fails we lost a race to another launch that
     #    just became the server — hand off to it; only as a last resort run degraded.
     if not app.start_server(name):
-        if norm_path and send_path_to_running_instance(name, norm_path):
+        if raw_path and send_path_to_running_instance(name, raw_path):
             return 0
 
     path = raw_path

@@ -93,6 +93,28 @@ def test_start_server_clears_stale_socket(app):
     leftover.close()
 
 
+def test_launcher_hands_off_raw_path_not_normalized(qapp, monkeypatch):
+    r"""A second launch hands the resident instance the path **as given** — not normalize_path(it).
+
+    normalize_path lower-cases (Windows case-fold); on a case-sensitive share such as a
+    ``\\wsl.localhost\`` (WSL) mount the lower-cased path names a non-existent file, so a normalised
+    hand-off failed to open it. The resident instance computes the identity key itself, so it only
+    needs the original path. Regression guard for the v0.8.0 WSL-folder bug."""
+    import launcher
+
+    captured: list[str] = []
+    monkeypatch.setattr(launcher, "PdfApp", lambda argv: qapp)  # reuse the one QApplication
+    monkeypatch.setattr(
+        launcher,
+        "send_path_to_running_instance",
+        lambda name, path, *a, **k: (captured.append(path), True)[1],
+    )
+    raw = r"\\wsl.localhost\Ubuntu-24.04\home\umesh\Payslip_2026-06-05.pdf"  # mixed-case, case-sensitive
+    assert launcher.main(["pdfproj", raw]) == 0
+    assert captured == [raw]                     # handed off verbatim (original case preserved)
+    assert captured[0] != normalize_path(raw)    # specifically NOT the lower-cased identity key
+
+
 def test_activate_window_does_not_crash(app):
     win = QMainWindow()
     win.show()
