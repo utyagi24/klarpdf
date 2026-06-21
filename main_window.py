@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QDockWidget,
     QFileDialog,
     QInputDialog,
+    QLineEdit,
     QMainWindow,
     QMenu,
     QMessageBox,
@@ -57,6 +58,21 @@ from viewer.tools import ArmedTool, InteractionMode
 from viewer.zoom_widget import ZoomWidget
 
 
+def _ask_pdf_password(path: str, retry: bool) -> str | None:
+    """Password provider for an encrypted PDF (M32): a masked input dialog, looped by the model on a
+    wrong password (``retry=True`` shows a "try again" message). Returns the entered text, or
+    ``None`` if the user cancelled (the open is then quietly abandoned). Module-level so tests can
+    monkeypatch it."""
+    name = os.path.basename(path)
+    message = (
+        f"Incorrect password. Try again for “{name}”:"
+        if retry
+        else f"“{name}” is password-protected.\n\nEnter password:"
+    )
+    text, ok = QInputDialog.getText(None, "Password required", message, QLineEdit.EchoMode.Password)
+    return text if ok else None
+
+
 class MainWindow(QMainWindow):
     def __init__(self, app, path: str, settings: Settings) -> None:
         super().__init__()
@@ -65,7 +81,9 @@ class MainWindow(QMainWindow):
         self.path = path
         self._initialized = False
 
-        self.vdoc = VirtualDocument.from_path(path)
+        # from_path may raise PasswordRequired for an encrypted file (the prompt was cancelled);
+        # app.open_document constructs MainWindow in a try/except and simply opens no window then.
+        self.vdoc = VirtualDocument.from_path(path, password_provider=_ask_pdf_password)
         self.view = PdfView(self.vdoc)
         self.undo_stack = QUndoStack(self)
 
