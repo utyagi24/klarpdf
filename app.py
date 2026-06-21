@@ -130,17 +130,26 @@ class PdfApp(QApplication):
     # ---- window registry --------------------------------------------------------
 
     def open_document(self, path: str):
-        """Open ``path``, or raise its existing window if already open (no duplicate)."""
+        """Open ``path``, or raise its existing window if already open (no duplicate).
+
+        Returns ``None`` if an encrypted document's password prompt was cancelled — no window opens.
+        """
         key = normalize_path(path)
-        self.settings.add_recent(path)  # record every open in the MRU (new or re-raised)
         existing = self._windows.get(key)
         if existing is not None:
+            self.settings.add_recent(path)  # bump the MRU for the re-raised doc
             self._raise(existing)
             return existing
 
         from main_window import MainWindow  # local import avoids a cycle at module load
+        from model.virtual_document import PasswordRequired
 
-        window = MainWindow(self, path, self.settings)
+        try:
+            window = MainWindow(self, path, self.settings)
+        except PasswordRequired:
+            return None  # encrypted + the password prompt was cancelled → open nothing
+
+        self.settings.add_recent(path)  # record only a document we actually opened
         self._windows[key] = window
         window.show()
         self._raise(window)

@@ -29,6 +29,46 @@ State = tuple
 IMAGE_EXTENSIONS = frozenset({".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tif", ".tiff"})
 
 
+class PasswordRequired(Exception):
+    """An encrypted source needs a password we don't have — no provider, or the user cancelled.
+
+    Raised out of :meth:`VirtualDocument.open_source` / :meth:`~VirtualDocument.from_path`; the GUI
+    catches it and simply doesn't open a window (cancelling the prompt is a normal outcome, not an
+    error to surface)."""
+
+
+def _authenticate_and_decrypt(doc: "fitz.Document", path: str, password_provider) -> "fitz.Document":
+    """Authenticate an encrypted ``doc`` (prompting via ``password_provider``), then return a fresh
+    **decrypted** in-memory copy (M32).
+
+    ``password_provider(path, retry)`` returns a password string, or ``None`` to cancel. The model
+    loops on a wrong password (re-calling with ``retry=True``) until it succeeds or the user
+    cancels. On success the document is re-serialised with encryption removed, so nothing downstream
+    — fresh source copies, materialise, render — ever needs the password again, and the saved output
+    is unencrypted (re-encryption on save is a deferred enhancement). Raises :class:`PasswordRequired`
+    when no password is available.
+
+    NB: ``authenticate`` returns a truthy bitfield on success (``needs_pass`` stays set even then),
+    and the decrypt ``tobytes`` passes no ``garbage``/``deflate`` — garbage-collecting an AES doc
+    mid-decrypt corrupts its content streams; the materialise save cleans the decrypted output later.
+    """
+    if password_provider is None:
+        doc.close()
+        raise PasswordRequired(path)
+    retry = False
+    while True:
+        password = password_provider(path, retry)
+        if password is None:  # user cancelled the prompt
+            doc.close()
+            raise PasswordRequired(path)
+        if doc.authenticate(password):
+            break
+        retry = True
+    decrypted = doc.tobytes(encryption=fitz.PDF_ENCRYPT_NONE)
+    doc.close()
+    return fitz.open(stream=decrypted, filetype="pdf")
+
+
 @dataclass(frozen=True, slots=True)
 class PageRef:
     """A reference to one source page. Immutable so snapshots are cheap and safe.
@@ -81,14 +121,22 @@ class VirtualDocument:
         # straight-from-source render for clean documents and switch to the edits-applied copy
         # (our marks stripped, redrawn editable) only for documents that actually have our marks.
         self._source_has_ours: dict[str, bool] = {}
+        # How to obtain a password for an encrypted source (set by from_path). Stored so a later
+        # reload_from_file (Revert of an encrypted original) can re-prompt the same way. GUI-free:
+        # callers inject a callable (the GUI's password dialog; a lambda in tests). None = no prompt.
+        self._password_provider = None
 
     # ---- construction / sources -------------------------------------------------
 
     @classmethod
-    def from_path(cls, path: str) -> "VirtualDocument":
-        """Open ``path`` as the origin document and seed ``ordered`` with all its pages."""
+    def from_path(cls, path: str, password_provider=None) -> "VirtualDocument":
+        """Open ``path`` as the origin document and seed ``ordered`` with all its pages.
+
+        ``password_provider`` (``(path, retry) -> str | None``) is consulted if the document is
+        encrypted; it raises :class:`PasswordRequired` if no password is supplied (M32)."""
         vd = cls()
-        source_id = vd.open_source(path)
+        vd._password_provider = password_provider
+        source_id = vd.open_source(path, password_provider)
         vd.origin_source_id = source_id
         vd.path = path
         vd._origin_toc = vd.sources[source_id].get_toc(simple=False)
@@ -134,16 +182,23 @@ class VirtualDocument:
         """True if any registered source carries baked pdfproj annotations (doc-level)."""
         return any(self.source_has_pdfproj_annotations(sid) for sid in self.sources)
 
-    def open_source(self, path: str) -> str:
+    def open_source(self, path: str, password_provider=None) -> str:
         """Open and register a source by path (idempotent). Returns its source id.
 
         Opened from an **in-memory copy** of the file, never a live file handle: on Windows an open
         handle blocks the atomic ``os.replace`` used by in-place Save, so holding the file open
         would make saving over the currently-open document fail with "access denied".
+
+        If the document is **encrypted** (``needs_pass``), it is authenticated via
+        ``password_provider`` and stored **decrypted** (M32 — see :func:`_authenticate_and_decrypt`);
+        :class:`PasswordRequired` propagates if no password is available.
         """
         source_id = normalize_path(path)
         if source_id not in self.sources:
-            self.sources[source_id] = fitz.open(stream=Path(path).read_bytes(), filetype="pdf")
+            doc = fitz.open(stream=Path(path).read_bytes(), filetype="pdf")
+            if doc.needs_pass:
+                doc = _authenticate_and_decrypt(doc, path, password_provider)
+            self.sources[source_id] = doc
         return source_id
 
     def open_image_source(self, path: str) -> str:
@@ -371,7 +426,7 @@ class VirtualDocument:
         """
         self.sources = {}
         self._source_has_ours = {}  # new file's bytes → recompute whether our marks are baked in
-        source_id = self.open_source(path)
+        source_id = self.open_source(path, self._password_provider)  # re-prompt if still encrypted
         self.origin_source_id = source_id
         self.path = path
         self._origin_toc = self.sources[source_id].get_toc(simple=False)
