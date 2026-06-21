@@ -704,23 +704,24 @@ class MainWindow(QMainWindow):
         if self.view.form is not None:
             self.view.form.commit_pending()
         indices = self.thumbs.selected_rows() or [self.view.current_page]
+        fmt, ok = QInputDialog.getItem(
+            self, "Export Image", "Format:", ["PNG", "JPEG"], 0, editable=False
+        )
+        if not ok:
+            return
         dpi, ok = QInputDialog.getInt(self, "Export Image", "Resolution (DPI):", 150, 36, 600, 1)
         if not ok:
             return
-        default = ""
-        if self.vdoc.path:
-            default = os.path.splitext(self.vdoc.path)[0] + ".png"
-        path, selected = QFileDialog.getSaveFileName(
-            self, "Export Image", default, "PNG image (*.png);;JPEG image (*.jpg)"
-        )
+        is_jpeg = fmt == "JPEG"
+        ext = ".jpg" if is_jpeg else ".png"
+        name_filter = "JPEG image (*.jpg)" if is_jpeg else "PNG image (*.png)"
+        valid_exts = (".jpg", ".jpeg") if is_jpeg else (".png",)
+        default = os.path.splitext(self.vdoc.path)[0] + ext if self.vdoc.path else ""
+        path, _ = QFileDialog.getSaveFileName(self, "Export Image", default, name_filter)
         if not path:
             return
-        # Make the extension agree with the chosen filter, so the format is unambiguous.
-        jpeg = "jpg" in selected.lower() or path.lower().endswith((".jpg", ".jpeg"))
-        if jpeg and not path.lower().endswith((".jpg", ".jpeg")):
-            path += ".jpg"
-        elif not jpeg and not path.lower().endswith(".png"):
-            path += ".png"
+        if not path.lower().endswith(valid_exts):  # force the extension to match the chosen format
+            path += ext
         try:
             from model.export import export_page_images
 

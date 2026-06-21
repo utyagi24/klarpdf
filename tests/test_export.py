@@ -279,10 +279,16 @@ def test_export_no_pages_writes_nothing(vdoc, tmp_path):
     assert not list(tmp_path.glob("*.png"))
 
 
+def _choose_format(monkeypatch, fmt):
+    """Make the format dropdown return ``fmt`` (PNG/JPEG)."""
+    monkeypatch.setattr(mw.QInputDialog, "getItem", staticmethod(lambda *a, **k: (fmt, True)))
+
+
 def test_export_images_menu_writes_file_and_leaves_doc_untouched(app, a_pdf, tmp_path, monkeypatch):
     win = MainWindow(app, a_pdf, app.settings)
     win.vdoc.add_annotation(0, TextBox((72, 200, 320, 240), "shot"))
     target = str(tmp_path / "shot.png")
+    _choose_format(monkeypatch, "PNG")
     monkeypatch.setattr(mw.QInputDialog, "getInt", staticmethod(lambda *a, **k: (120, True)))
     monkeypatch.setattr(mw.QFileDialog, "getSaveFileName",
                         staticmethod(lambda *a, **k: (target, "PNG image (*.png)")))
@@ -291,18 +297,33 @@ def test_export_images_menu_writes_file_and_leaves_doc_untouched(app, a_pdf, tmp
     assert win.vdoc.path == a_pdf and win.vdoc.page_annotations(0)  # working doc untouched
 
 
-def test_export_images_menu_appends_extension_for_jpeg(app, a_pdf, tmp_path, monkeypatch):
+def test_export_images_menu_jpeg_format_writes_jpeg(app, a_pdf, tmp_path, monkeypatch):
+    """Choosing JPEG writes a real .jpg even when the user typed no extension."""
     win = MainWindow(app, a_pdf, app.settings)
-    chosen = str(tmp_path / "noext")  # user typed no extension; JPEG filter selected
+    chosen = str(tmp_path / "noext")
+    _choose_format(monkeypatch, "JPEG")
     monkeypatch.setattr(mw.QInputDialog, "getInt", staticmethod(lambda *a, **k: (96, True)))
     monkeypatch.setattr(mw.QFileDialog, "getSaveFileName",
                         staticmethod(lambda *a, **k: (chosen, "JPEG image (*.jpg)")))
     win._export_images()
-    assert os.path.isfile(chosen + ".jpg")  # extension forced to match the JPEG filter
+    out = chosen + ".jpg"
+    assert os.path.isfile(out)                     # extension forced to match the chosen format
+    assert fitz.Pixmap(out).width > 0              # a valid JPEG decodes back
+
+
+def test_export_images_menu_cancel_at_format_writes_nothing(app, a_pdf, tmp_path, monkeypatch):
+    win = MainWindow(app, a_pdf, app.settings)
+    monkeypatch.setattr(mw.QInputDialog, "getItem", staticmethod(lambda *a, **k: ("PNG", False)))
+    # If the format prompt is cancelled we must never reach DPI / save.
+    monkeypatch.setattr(mw.QInputDialog, "getInt",
+                        staticmethod(lambda *a, **k: pytest.fail("should not prompt DPI")))
+    win._export_images()
+    assert not list(tmp_path.glob("*.png")) and not list(tmp_path.glob("*.jpg"))
 
 
 def test_export_images_menu_cancel_at_dpi_writes_nothing(app, a_pdf, tmp_path, monkeypatch):
     win = MainWindow(app, a_pdf, app.settings)
+    _choose_format(monkeypatch, "PNG")
     monkeypatch.setattr(mw.QInputDialog, "getInt", staticmethod(lambda *a, **k: (150, False)))
     monkeypatch.setattr(mw.QFileDialog, "getSaveFileName",
                         staticmethod(lambda *a, **k: (str(tmp_path / "nope.png"), "PNG image (*.png)")))
