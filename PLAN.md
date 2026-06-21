@@ -1,6 +1,9 @@
 # Plan: Local, Offline, Native-Windows PDF Viewer + Page Editor (Python)
 
-> **Shipped: `v0.8.0` released** — milestones M0–M37 complete (v0.1.0 = M0–M9; v0.2.0 =
+> **Shipped: `v0.8.1` released** (bug-fix patch over v0.8.0: open a PDF from a case-sensitive
+> `\\wsl.localhost\` / UNC folder via double-click — the single-instance hand-off now passes the raw
+> path, not a lower-cased one that named a non-existent file on a case-sensitive share). Milestones
+> M0–M37 complete (v0.1.0 = M0–M9; v0.2.0 =
 > M10–M15: icons, zoom %, printing, recent docs, form filling; v0.3.0 = M16–M19: drag-and-drop
 > visuals, Explorer file-drop, grab/select mode; v0.4.0 = M20–M22: annotations — highlight + movable/
 > re-editable text boxes — and true destructive redaction (region + text-flow) with cross-engine
@@ -12,6 +15,7 @@
 > a page) + **image export** (`File ▸ Export ▸ Image…`, selected pages → PNG/JPEG at a chosen DPI),
 > plus UI polish — clearer multi-page selection, a vertically-centred fitting page, centred text-box
 > text). Releases:
+> [v0.8.1](https://github.com/utyagi24/pdfproj/releases/tag/v0.8.1) ·
 > [v0.8.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.8.0) ·
 > [v0.7.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.7.0) ·
 > [v0.6.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.6.0) ·
