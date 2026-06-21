@@ -31,12 +31,18 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   spare machine / a fresh local user with networking disabled.
 
 ## Status
-**v0.8.1 shipped** (bug-fix patch) — milestones **M0–M37 complete** (v0.1.0 = M0–M9; v0.2.0 = M10–M15;
+**v0.9.0 shipped** — milestones **M0–M38 complete** (v0.1.0 = M0–M9; v0.2.0 = M10–M15;
 v0.3.0 = M16–M19; v0.4.0 = M20–M22; v0.5.0 = M23–M26; v0.6.0 = M27–M30; v0.7.0 = M31 + M31.5 + M34;
-v0.8.0 = M35–M37). **v0.8.1** patch: double-click open from a case-sensitive `\\wsl.localhost\` / UNC
-folder works for every file (the single-instance hand-off now passes the raw path, not a lower-cased
-one — `launcher.py`; PR #55).
+v0.8.0 = M35–M37; v0.9.0 = M32 + M33 + M38). **v0.9.0 "Encrypted & Links"** added **encrypted /
+password PDFs** (`needs_pass` → prompt → `authenticate` on open, then the source is held decrypted
+via `PDF_ENCRYPT_NONE` so the output stays unencrypted — `model/virtual_document.py`) and **internal
+links**: `model/links_remap.py` rebuilds GoTo *and* named-destination links at materialize (both
+baked to remapped GoTo — `insert_pdf` drops named dests entirely) so reorder/delete/Save keeps them
+working, plus **in-viewer click-to-navigate** (`viewer/links.py`). **v0.8.1** patch: double-click
+open from a case-sensitive `\\wsl.localhost\` / UNC folder works for every file (the single-instance
+hand-off now passes the raw path, not a lower-cased one — `launcher.py`; PR #55).
 Releases:
+<https://github.com/utyagi24/pdfproj/releases/tag/v0.9.0> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.8.1> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.8.0> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.7.0> ·
@@ -70,7 +76,10 @@ page content via `Document.bake()`, text-preserving — the locked counterpart t
 `VirtualDocument.open_image_source` via PyMuPDF `convert_to_pdf`) and **image export**
 (`File ▸ Export ▸ Image…`; `model/export.py:export_page_images` rasterises `render_output` → PNG/JPEG
 at a chosen DPI, edits-aware), plus UI polish (clearer multi-page selection, vertically-centred
-fitting page, centred text-box text). 341 headless tests; real-Windows + frozen-build validation.
-**Next:** **v0.9.0** (encrypted PDFs + GoTo-link remap, re-scoped out of v0.7.0) — `PLAN.md` §Next
-roadmap. **Planning the next release?** Read `PROGRESS.md` (status + **Open follow-ups**), then
-`PLAN.md` §Next roadmap.
+fitting page, centred text-box text); **v0.9.0** added **encrypted / password PDFs**
+(`_authenticate_and_decrypt` in `model/virtual_document.py` — prompt + authenticate on open, source
+held decrypted so the output stays unencrypted) and **internal links** (`model/links_remap.py`
+rebuilds GoTo + named-destination links at materialize; `viewer/links.py` makes them clickable in
+the viewer). 369 headless tests; real-Windows + frozen-build validation. **The planned roadmap
+(M0–M38) is complete** — further work lives in `PLAN.md` §Future enhancements. **Planning the next
+release?** Read `PROGRESS.md` (status + **Open follow-ups**), then `PLAN.md` §Future enhancements.
