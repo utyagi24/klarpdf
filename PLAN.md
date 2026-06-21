@@ -1,9 +1,12 @@
 # Plan: Local, Offline, Native-Windows PDF Viewer + Page Editor (Python)
 
-> **Shipped: `v0.8.1` released** (bug-fix patch over v0.8.0: open a PDF from a case-sensitive
-> `\\wsl.localhost\` / UNC folder via double-click — the single-instance hand-off now passes the raw
-> path, not a lower-cased one that named a non-existent file on a case-sensitive share). Milestones
-> M0–M37 complete (v0.1.0 = M0–M9; v0.2.0 =
+> **Shipped: `v0.9.0` released** — "Encrypted & Links": **encrypted / password-protected PDFs**
+> (prompt + authenticate on open, source held decrypted so the output stays unencrypted) and
+> **internal links** — `links_remap` rebuilds GoTo *and* named-destination links at materialize so
+> reorder/delete/Save keeps them working, and the viewer makes them clickable (click → jump to the
+> target page). (v0.8.1 was a bug-fix patch: double-click open from a case-sensitive
+> `\\wsl.localhost\` / UNC folder works for every file — the single-instance hand-off passes the raw
+> path, not a lower-cased one.) Milestones M0–M38 complete (v0.1.0 = M0–M9; v0.2.0 =
 > M10–M15: icons, zoom %, printing, recent docs, form filling; v0.3.0 = M16–M19: drag-and-drop
 > visuals, Explorer file-drop, grab/select mode; v0.4.0 = M20–M22: annotations — highlight + movable/
 > re-editable text boxes — and true destructive redaction (region + text-flow) with cross-engine
@@ -15,6 +18,7 @@
 > a page) + **image export** (`File ▸ Export ▸ Image…`, selected pages → PNG/JPEG at a chosen DPI),
 > plus UI polish — clearer multi-page selection, a vertically-centred fitting page, centred text-box
 > text). Releases:
+> [v0.9.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.9.0) ·
 > [v0.8.1](https://github.com/utyagi24/pdfproj/releases/tag/v0.8.1) ·
 > [v0.8.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.8.0) ·
 > [v0.7.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.7.0) ·
@@ -24,8 +28,8 @@
 > [v0.3.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.3.0) ·
 > [v0.2.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.2.0) ·
 > [v0.1.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.1.0). This plan stays the
-> spec/source-of-truth. **Next:** **v0.9.0** (encrypted PDFs + internal-link remap, re-scoped out of
-> v0.7.0) — see §Next roadmap. Anything beyond lives in §Future enhancements.
+> spec/source-of-truth. The planned roadmap (M0–M38) is **complete**; anything beyond lives in
+> §Future enhancements.
 
 > **Revision (2026-06-15)** — folded in two decisions without changing the product: a
 > **Development environment** section (Hybrid — build the cross-platform core + headless tests in
@@ -707,16 +711,16 @@ polish: clearer multi-page selection, a vertically-centred fitting page, and cen
 | **M36** Image export | **Extend the Export feature (M31.5)** to images: export the selected page(s) → image files (`.png` / `.jpeg`) at a chosen DPI, reusing the **M25** edits-aware render (`render_output` + `_page_image`) so each image shows annotations / fills / redactions; one file per page (or the current page). | WSL (render) + WSLg | Export → Image writes PNG/JPEG matching the on-screen (edited) pages |
 | **M37** Verify + release | Headless suite green (341 tests); Windows validation (image drop-insert + image export in the frozen build); tag **v0.8.0**. | **Win** | Matrix green → v0.8.0 released |
 
-### v0.9.0 — "Encrypted & Links"
+### v0.9.0 ✅ — "Encrypted & Links" (shipped)
 
-Deeper PDF-format support, **re-scoped out of v0.7.0** by the owner so the image work (v0.8.0) lands
+Deeper PDF-format support, **re-scoped out of v0.7.0** by the owner so the image work (v0.8.0) landed
 first. **No new dependency** — both are native PyMuPDF.
 
 | Milestone | Feature | Where | Done when |
 |---|---|---|---|
-| **M32** Encrypted / password PDFs | On open, detect `doc.needs_pass`, prompt, `doc.authenticate(pw)` before registering the source. (Output stays unencrypted unless re-encryption is added later.) | WSL + WSLg | Open a password-protected PDF after entering its password |
-| **M33** Internal GoTo-link remap | Generalize `model/toc_remap.py` → `model/links_remap.py`: the same old→new page-index map applied to internal `LINK` GoTo annotations at materialize; drop links whose target page was deleted. Pure model — a clean headless keystone. | WSL (model+tests) | Reordered/deleted pages keep internal links pointing at the right page |
-| **M38** Verify + release | Headless suite green; Windows validation; tag **v0.9.0**. | **Win** | Matrix green → v0.9.0 released |
+| **M32** Encrypted / password PDFs | On open, detect `doc.needs_pass`, prompt, `doc.authenticate(pw)` before registering the source; the source is then held **decrypted in memory** (re-serialised with `PDF_ENCRYPT_NONE`) so render / materialise / export never need the password and the output stays unencrypted (re-encryption deferred). Cancelling raises `PasswordRequired`; the provider is stored so Revert of an encrypted original re-prompts. | WSL + WSLg | Open a password-protected PDF after entering its password |
+| **M33** Internal link remap **+ navigation** | `model/links_remap.py`: at materialize, rebuild internal **GoTo *and* named-destination** links against the new page order (both resolve to a target page, re-emitted as remapped GoTo — `insert_pdf` drops named dests entirely, and cross-run GoTo links). Plus **in-viewer navigation** (`viewer/links.py`): clicking an internal link jumps to its target page (pointing-hand on hover), resolved via the same map so it follows reorder/delete live. | WSL (model+tests) + WSLg | Reordered/deleted pages keep internal links working; clicking a link in the viewer jumps to its target |
+| **M38** Verify + release | Headless suite green (369 tests); Windows validation; tag **v0.9.0**. | **Win** | Matrix green → v0.9.0 released |
 
 ## Future enhancements (deferred beyond the roadmap)
 
