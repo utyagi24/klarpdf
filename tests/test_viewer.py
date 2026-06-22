@@ -310,3 +310,41 @@ def test_app_open_document_dedupes(qapp, a_pdf, b_pdf, tmp_path):
     assert w2 is not w1
     w1.close()
     w2.close()
+
+
+# ---- window opens full-height, horizontally centred, at Fit Page ------------
+
+
+def test_open_geometry_full_height_and_horizontally_centered():
+    from PySide6.QtCore import QRect
+
+    from main_window import MainWindow
+
+    geo = MainWindow._open_geometry(QRect(0, 0, 1366, 768), 1000, frame_w=16, frame_h=39, title_bar=31)
+    assert geo.width() == 1000          # default width (fits) — NOT full width
+    assert geo.height() == 768 - 39     # full available height minus the frame
+    assert geo.x() == (1366 - 1000) // 2  # horizontally centred (183)
+    assert geo.y() == 31                # content dropped by the title bar → frame top at the screen top
+
+
+def test_open_geometry_clamps_width_on_a_narrow_offset_screen():
+    from PySide6.QtCore import QRect
+
+    from main_window import MainWindow
+
+    geo = MainWindow._open_geometry(QRect(100, 50, 800, 600), 1000, frame_w=16, frame_h=39, title_bar=31)
+    assert geo.width() == 800 - 16      # width clamped to the screen (minus side borders)
+    assert geo.height() == 600 - 39     # full height of the (smaller, offset) screen
+    assert geo.x() == 100 + (800 - 784) // 2  # centred within the offset screen (108)
+    assert geo.y() == 50 + 31           # offset down by the title bar from the screen top
+
+
+def test_document_opens_at_fit_page(qapp, a_pdf, tmp_path):
+    """The whole page fits the viewport on open (Fit Page) — fit-width would overflow vertically."""
+    qapp.settings = Settings(tmp_path / "view_state.json")
+    w = qapp.open_document(a_pdf)
+    qapp.processEvents()
+    v = w.view
+    _, page_h = v._natural_size(v.current_page)
+    assert page_h * v.zoom <= v.viewport().height() + 2
+    w.close()

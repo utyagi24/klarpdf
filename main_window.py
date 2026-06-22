@@ -17,7 +17,7 @@ from __future__ import annotations
 import os
 import tempfile
 
-from PySide6.QtCore import QEvent, QSize, Qt
+from PySide6.QtCore import QEvent, QRect, QSize, Qt
 from PySide6.QtGui import QAction, QActionGroup, QKeySequence, QUndoStack
 from PySide6.QtWidgets import (
     QDockWidget,
@@ -849,18 +849,42 @@ class MainWindow(QMainWindow):
 
     # ---- view-state persistence + close prompt ----------------------------------
 
+    @staticmethod
+    def _open_geometry(avail: QRect, width: int, frame_w: int, frame_h: int, title_bar: int) -> QRect:
+        """Window content rect: the **full available height** of the screen, ``width`` clamped to the
+        screen, **centred horizontally**, anchored so the window *frame* fills the height and stays
+        on-screen. ``frame_w`` / ``frame_h`` / ``title_bar`` are the window-decoration sizes — the
+        content is shortened by the frame and dropped by the title-bar height, so the title bar sits
+        at the top of the available area and the bottom border at the bottom."""
+        w = max(400, min(width, avail.width() - frame_w))
+        h = max(300, avail.height() - frame_h)
+        x = avail.x() + (avail.width() - w) // 2  # symmetric side borders → centring content centres the frame
+        y = avail.y() + title_bar
+        return QRect(x, y, w, h)
+
     def showEvent(self, event) -> None:
         super().showEvent(event)
         if self._initialized:
             return
         self._initialized = True
-        state = self._settings.get_doc_state(self.path)
-        if state.get("win_w") and state.get("win_h"):
-            self.resize(int(state["win_w"]), int(state["win_h"]))
-        if state:
-            self.view.apply_state(state)
-        else:
-            self.view.fit_width()  # sensible default for a first open
+        # Open at the full screen height, default width, centred horizontally (not the OS default
+        # offset). Use the window-decoration sizes so the *frame* fills the height and stays visible;
+        # if they aren't realised yet (or offscreen), fall back to a typical title-bar/border allowance.
+        screen = self.screen()
+        if screen is not None:
+            frame, inner = self.frameGeometry(), self.geometry()
+            frame_w = max(0, frame.width() - inner.width())
+            frame_h = max(0, frame.height() - inner.height())
+            title_bar = max(0, inner.top() - frame.top())
+            if frame_h == 0:
+                frame_w, frame_h, title_bar = 16, 39, 31
+            self.setGeometry(
+                self._open_geometry(screen.availableGeometry(), self.width(), frame_w, frame_h, title_bar)
+            )
+        # Resume the last page (+ rotation) for this document, but always open at Fit Page so the
+        # whole page is visible — the preferred default rather than a remembered zoom.
+        self.view.apply_state(self._settings.get_doc_state(self.path))
+        self.view.fit_page()
 
     def _confirm_discard(self):
         return QMessageBox.question(
@@ -882,9 +906,9 @@ class MainWindow(QMainWindow):
                 event.ignore()
                 return
             # Discard → fall through and close without saving.
-        state = self.view.view_state()
-        state.update({"win_w": self.width(), "win_h": self.height()})
-        self._settings.set_doc_state(self.path, state)
+        # Persist the per-document page / rotation (to resume on reopen). Window size + position are
+        # intentionally not remembered — every launch opens centred at Fit Page (see showEvent).
+        self._settings.set_doc_state(self.path, self.view.view_state())
         self.view._drop_render_docs()  # release the fresh-opened render copies' file handles
         self._app.forget_window(self.path)
         super().closeEvent(event)
