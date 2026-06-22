@@ -1,10 +1,12 @@
 # Plan: Local, Offline, Native-Windows PDF Viewer + Page Editor (Python)
 
-> **Shipped: `v0.9.0` released** — "Encrypted & Links": **encrypted / password-protected PDFs**
-> (prompt + authenticate on open, source held decrypted so the output stays unencrypted) and
-> **internal links** — `links_remap` rebuilds GoTo *and* named-destination links at materialize so
-> reorder/delete/Save keeps them working, and the viewer makes them clickable (click → jump to the
-> target page). (v0.8.1 was a bug-fix patch: double-click open from a case-sensitive
+> **Shipped: `v0.9.1` released** (UX patch over v0.9.0: a document window now opens at the **full
+> screen height, centred horizontally, at Fit Page** — it was the OS default offset at a fixed size
+> that could exceed the screen, zoomed Fit Width). v0.9.0 "Encrypted & Links": **encrypted /
+> password-protected PDFs** (prompt + authenticate on open, source held decrypted so the output stays
+> unencrypted) and **internal links** — `links_remap` rebuilds GoTo *and* named-destination links at
+> materialize so reorder/delete/Save keeps them working, and the viewer makes them clickable (click →
+> jump to the target page). (v0.8.1 was a bug-fix patch: double-click open from a case-sensitive
 > `\\wsl.localhost\` / UNC folder works for every file — the single-instance hand-off passes the raw
 > path, not a lower-cased one.) Milestones M0–M38 complete (v0.1.0 = M0–M9; v0.2.0 =
 > M10–M15: icons, zoom %, printing, recent docs, form filling; v0.3.0 = M16–M19: drag-and-drop
@@ -18,6 +20,7 @@
 > a page) + **image export** (`File ▸ Export ▸ Image…`, selected pages → PNG/JPEG at a chosen DPI),
 > plus UI polish — clearer multi-page selection, a vertically-centred fitting page, centred text-box
 > text). Releases:
+> [v0.9.1](https://github.com/utyagi24/pdfproj/releases/tag/v0.9.1) ·
 > [v0.9.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.9.0) ·
 > [v0.8.1](https://github.com/utyagi24/pdfproj/releases/tag/v0.8.1) ·
 > [v0.8.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.8.0) ·
