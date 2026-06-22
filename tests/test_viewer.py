@@ -312,29 +312,31 @@ def test_app_open_document_dedupes(qapp, a_pdf, b_pdf, tmp_path):
     w2.close()
 
 
-# ---- window opens centred at Fit Page ---------------------------------------
+# ---- window opens full-height, horizontally centred, at Fit Page ------------
 
 
-def test_centered_on_clamps_to_screen_and_centers():
+def test_open_geometry_full_height_and_horizontally_centered():
     from PySide6.QtCore import QRect
 
     from main_window import MainWindow
 
-    geo = MainWindow._centered_on(QRect(0, 0, 1366, 768), 1000, 800, margin=40)
-    assert geo.width() == 1000               # fits horizontally → unchanged
-    assert geo.height() == 768 - 40          # taller than the screen → clamped (minus margin)
-    assert abs(geo.center().x() - 683) <= 1  # centred horizontally
-    assert abs(geo.center().y() - 384) <= 1  # centred vertically
+    geo = MainWindow._open_geometry(QRect(0, 0, 1366, 768), 1000, frame_w=16, frame_h=39, title_bar=31)
+    assert geo.width() == 1000          # default width (fits) — NOT full width
+    assert geo.height() == 768 - 39     # full available height minus the frame
+    assert geo.x() == (1366 - 1000) // 2  # horizontally centred (183)
+    assert geo.y() == 31                # content dropped by the title bar → frame top at the screen top
 
 
-def test_centered_on_respects_screen_origin_and_clamps_both_dims():
+def test_open_geometry_clamps_width_on_a_narrow_offset_screen():
     from PySide6.QtCore import QRect
 
     from main_window import MainWindow
 
-    geo = MainWindow._centered_on(QRect(100, 50, 800, 600), 1000, 1000, margin=20)
-    assert geo.width() == 780 and geo.height() == 580   # both dims clamped to the offset screen
-    assert geo.x() == 110 and geo.y() == 60             # centred within it, offset by the origin
+    geo = MainWindow._open_geometry(QRect(100, 50, 800, 600), 1000, frame_w=16, frame_h=39, title_bar=31)
+    assert geo.width() == 800 - 16      # width clamped to the screen (minus side borders)
+    assert geo.height() == 600 - 39     # full height of the (smaller, offset) screen
+    assert geo.x() == 100 + (800 - 784) // 2  # centred within the offset screen (108)
+    assert geo.y() == 50 + 31           # offset down by the title bar from the screen top
 
 
 def test_document_opens_at_fit_page(qapp, a_pdf, tmp_path):
