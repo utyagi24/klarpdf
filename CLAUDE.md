@@ -31,9 +31,13 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   spare machine / a fresh local user with networking disabled.
 
 ## Status
-**v0.9.1 shipped** (UX patch) — milestones **M0–M38 complete** (v0.1.0 = M0–M9; v0.2.0 = M10–M15;
-v0.3.0 = M16–M19; v0.4.0 = M20–M22; v0.5.0 = M23–M26; v0.6.0 = M27–M30; v0.7.0 = M31 + M31.5 + M34;
-v0.8.0 = M35–M37; v0.9.0 = M32 + M33 + M38). **v0.9.1** patch: a document window opens at the **full
+**v0.9.2 shipped** (load-time / UX patch) — milestones **M0–M38 complete** (v0.1.0 = M0–M9; v0.2.0 =
+M10–M15; v0.3.0 = M16–M19; v0.4.0 = M20–M22; v0.5.0 = M23–M26; v0.6.0 = M27–M30; v0.7.0 = M31 + M31.5
++ M34; v0.8.0 = M35–M37; v0.9.0 = M32 + M33 + M38). **v0.9.2** patch: open **flicker fixed** (window
+placed + the page rendered once at Fit Page *before* show — `_shown_once`/`open_at` in
+`viewer/pdf_view.py`, `_place_window` in `main_window.py`; PR #63) + **lazy thumbnails** (the Pages
+sidebar rasterises only the pages scrolled into view — `organize/thumbnail_panel.py`; a 320-page doc
+opens ~1010 ms → ~150 ms; PR #64). **v0.9.1** patch: a document window opens at the **full
 screen height, centred horizontally, at Fit Page** (`main_window.py` `_open_geometry` / `showEvent`;
 PR #61). **v0.9.0 "Encrypted & Links"** added **encrypted /
 password PDFs** (`needs_pass` → prompt → `authenticate` on open, then the source is held decrypted
@@ -44,6 +48,7 @@ working, plus **in-viewer click-to-navigate** (`viewer/links.py`). **v0.8.1** pa
 open from a case-sensitive `\\wsl.localhost\` / UNC folder works for every file (the single-instance
 hand-off now passes the raw path, not a lower-cased one — `launcher.py`; PR #55).
 Releases:
+<https://github.com/utyagi24/pdfproj/releases/tag/v0.9.2> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.9.1> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.9.0> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.8.1> ·
