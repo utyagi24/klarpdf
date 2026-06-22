@@ -74,6 +74,11 @@ class PdfView(QGraphicsView):
         self.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignHCenter)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
 
+        # Suppress page rasterisation until the window is first shown (open_at). The scene geometry
+        # is still built so overlays can place themselves, but no pixmap is rendered — and therefore
+        # never painted — at the construction zoom (1.0) or during the pre-show resizes. So the first
+        # frame the user sees is rendered once, at Fit Page, with no zoom-1.0 / resize flicker.
+        self._shown_once = False
         self._build_scene()
         self.verticalScrollBar().valueChanged.connect(self._on_scroll)
 
@@ -497,7 +502,7 @@ class PdfView(QGraphicsView):
         return first, last
 
     def _render_visible(self) -> None:
-        if not self._pages:
+        if not self._pages or not self._shown_once:
             return
         first, last = self._visible_range()
         lo, hi = max(0, first - _PREFETCH), min(len(self._pages) - 1, last + _PREFETCH)
@@ -666,4 +671,20 @@ class PdfView(QGraphicsView):
         self._build_scene()
         self.goto_page(int(state.get("page", 0)))
         # apply_state sets _zoom directly (bypassing set_zoom), so announce it for the indicator.
+        self.zoomChanged.emit(self._zoom)
+
+    def open_at(self, state: dict) -> None:
+        """First show: restore the remembered page + rotation, open at **Fit Page**, and do the
+        first pixmap render — once, at the now-final viewport size. Rendering was suppressed until
+        here (``_shown_once``), so the page paints exactly once at the fit zoom — no zoom-1.0 frame,
+        no re-render after a remembered zoom, no flicker."""
+        self._shown_once = True
+        state = state or {}
+        rotation = int(state.get("rotation", 0)) % 360
+        if rotation in (0, 90, 180, 270):
+            self._rotation = rotation
+        self._current = max(0, min(int(state.get("page", 0)), self._vdoc.page_count - 1))
+        self._zoom = self._fit_zoom(fit_height=True)  # Fit Page, computed against the final viewport
+        self._build_scene()                           # geometry + the first (and only) render
+        self.goto_page(self._current)                 # resume the remembered page
         self.zoomChanged.emit(self._zoom)
