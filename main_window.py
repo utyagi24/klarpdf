@@ -18,7 +18,7 @@ import os
 import tempfile
 
 from PySide6.QtCore import QEvent, QRect, QSize, Qt
-from PySide6.QtGui import QAction, QActionGroup, QGuiApplication, QKeySequence, QUndoStack
+from PySide6.QtGui import QAction, QActionGroup, QCursor, QGuiApplication, QKeySequence, QUndoStack
 from PySide6.QtWidgets import (
     QDockWidget,
     QFileDialog,
@@ -123,6 +123,10 @@ class MainWindow(QMainWindow):
         self.pages_dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetClosable)
         self.pages_dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.pages_dock)
+        # Hidden by default (a clean, fast, flicker-free open — no thumbnails rendered until the
+        # sidebar is shown); the choice is remembered app-wide, so once you open it to organise pages
+        # it stays open on the next launch. Toggle via View ▸ Pages Sidebar.
+        self.pages_dock.setVisible(bool(self._settings.get_pref("sidebar_visible", False)))
 
         self.view.currentPageChanged.connect(self.thumbs.set_current)
         self.thumbs.pageActivated.connect(self.view.goto_page)
@@ -286,6 +290,11 @@ class MainWindow(QMainWindow):
         pages_toggle.setIcon(icons.icon("sidebar"))
         pages_toggle.setToolTip("Show/Hide the Pages sidebar")
         pages_toggle.setProperty("iconName", "sidebar")  # re-tinted on theme change
+        # Remember the user's show/hide choice app-wide (triggered fires only on an explicit toggle,
+        # not the programmatic setVisible above), so it persists to the next launch / new windows.
+        pages_toggle.triggered.connect(
+            lambda checked: self._settings.set_pref("sidebar_visible", checked)
+        )
         view_menu.addAction(pages_toggle)
 
         # Toolbar: built explicitly (order independent of menu wiring), grouped functionally with
@@ -866,8 +875,17 @@ class MainWindow(QMainWindow):
         """Size + position the window at full screen height, default width, centred horizontally —
         done **before** the window is shown, so it maps directly at its final geometry (no post-show
         resize jump / flicker). The native frame isn't realised yet, so use a typical title-bar /
-        border allowance for the decoration sizes."""
-        screen = self.screen() or QGuiApplication.primaryScreen()
+        border allowance for the decoration sizes.
+
+        Open on the screen **under the cursor** — where the user just double-clicked in Explorer, or
+        is working — so a launch from a second monitor opens there, not on the primary. (Before the
+        window is shown ``self.screen()`` only ever reports the primary screen, which is why the
+        placement was being forced onto it.)"""
+        screen = (
+            QGuiApplication.screenAt(QCursor.pos())
+            or self.screen()
+            or QGuiApplication.primaryScreen()
+        )
         if screen is None:
             self.resize(1000, 800)
             return

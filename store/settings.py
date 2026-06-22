@@ -46,6 +46,7 @@ class Settings:
         self._path = path or (_config_dir() / _STATE_FILENAME)
         self._docs: dict[str, dict] = {}
         self._recent: list[str] = []  # most-recent-first, original-case paths
+        self._prefs: dict = {}        # app-global preferences (e.g. sidebar visibility)
         self._load()
 
     def _load(self) -> None:
@@ -57,10 +58,17 @@ class Settings:
             return
         self._docs = {k: v for k, v in raw.get("documents", {}).items() if isinstance(v, dict)}
         self._recent = [p for p in raw.get("recent", []) if isinstance(p, str)]
+        prefs = raw.get("preferences", {})
+        self._prefs = dict(prefs) if isinstance(prefs, dict) else {}
 
     def _save(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {"version": 1, "documents": self._docs, "recent": self._recent}
+        payload = {
+            "version": 1,
+            "documents": self._docs,
+            "recent": self._recent,
+            "preferences": self._prefs,
+        }
         # Atomic-ish write: temp then replace, so a crash mid-write can't truncate the file.
         tmp = self._path.with_suffix(self._path.suffix + ".tmp")
         tmp.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
@@ -109,4 +117,16 @@ class Settings:
 
     def clear_recent(self) -> None:
         self._recent = []
+        self._save()
+
+    # ---- app-global preferences -------------------------------------------------
+
+    def get_pref(self, key: str, default=None):
+        """An app-global preference (shared by all windows), e.g. ``"sidebar_visible"``."""
+        return self._prefs.get(key, default)
+
+    def set_pref(self, key: str, value) -> None:
+        if self._prefs.get(key) == value:
+            return  # unchanged — skip the write
+        self._prefs[key] = value
         self._save()

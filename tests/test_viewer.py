@@ -272,14 +272,27 @@ def test_pages_dock_locked_and_toggleable(qapp, a_pdf, tmp_path):
     toggle = dock.toggleViewAction()
     bar = next(b for b in w.findChildren(QToolBar) if b.windowTitle() == "Main")
     assert toggle in bar.actions()  # dedicated toolbar button wired to the same toggle
-    assert toggle.isChecked()  # visible after open
+    assert not dock.isVisible() and not toggle.isChecked()  # hidden by default
     toggle.trigger()
     qapp.processEvents()
-    assert not dock.isVisible() and not toggle.isChecked()  # hidden
+    assert dock.isVisible() and toggle.isChecked()  # shown
     toggle.trigger()
     qapp.processEvents()
-    assert dock.isVisible() and toggle.isChecked()  # restored
+    assert not dock.isVisible() and not toggle.isChecked()  # hidden again
     w.close()
+
+
+def test_sidebar_visibility_is_remembered(qapp, a_pdf, tmp_path):
+    """Showing the sidebar persists app-wide, so a new window opens with it shown."""
+    qapp.settings = Settings(tmp_path / "view_state.json")
+    w1 = qapp.open_document(a_pdf)
+    assert not w1.pages_dock.isVisible()              # hidden by default
+    w1.pages_dock.toggleViewAction().trigger()        # user shows it → remembered
+    assert qapp.settings.get_pref("sidebar_visible") is True
+    w1.close()
+    w2 = qapp.open_document(a_pdf)
+    assert w2.pages_dock.isVisible()                  # new window honours the remembered choice
+    w2.close()
 
 
 def test_open_recent_menu_populates(qapp, a_pdf, b_pdf, tmp_path):
@@ -348,6 +361,29 @@ def test_document_opens_at_fit_page(qapp, a_pdf, tmp_path):
     _, page_h = v._natural_size(v.current_page)
     assert page_h * v.zoom <= v.viewport().height() + 2
     w.close()
+
+
+def test_open_places_window_on_the_screen_under_the_cursor(qapp, a_pdf, tmp_path, monkeypatch):
+    """Regression (multi-monitor): a window is placed on the screen under the cursor — where the
+    user double-clicked in Explorer — not always the primary screen."""
+    from PySide6.QtCore import QRect
+
+    import main_window as mw
+
+    qapp.settings = Settings(tmp_path / "vs.json")
+    second_monitor = QRect(2000, 100, 1920, 1040)  # a screen offset to the right of the primary
+
+    class FakeScreen:
+        def availableGeometry(self):
+            return second_monitor
+
+    monkeypatch.setattr(mw.QGuiApplication, "screenAt", staticmethod(lambda pos: FakeScreen()))
+    win = mw.MainWindow(qapp, a_pdf, qapp.settings)
+    try:
+        expected = mw.MainWindow._open_geometry(second_monitor, 1000, 16, 39, 31)
+        assert win.geometry() == expected  # full-height, centred *within the cursor's screen*
+    finally:
+        win.close()
 
 
 def test_view_defers_rendering_until_first_show(qapp, vdoc):
