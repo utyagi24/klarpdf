@@ -272,14 +272,27 @@ def test_pages_dock_locked_and_toggleable(qapp, a_pdf, tmp_path):
     toggle = dock.toggleViewAction()
     bar = next(b for b in w.findChildren(QToolBar) if b.windowTitle() == "Main")
     assert toggle in bar.actions()  # dedicated toolbar button wired to the same toggle
-    assert toggle.isChecked()  # visible after open
+    assert not dock.isVisible() and not toggle.isChecked()  # hidden by default
     toggle.trigger()
     qapp.processEvents()
-    assert not dock.isVisible() and not toggle.isChecked()  # hidden
+    assert dock.isVisible() and toggle.isChecked()  # shown
     toggle.trigger()
     qapp.processEvents()
-    assert dock.isVisible() and toggle.isChecked()  # restored
+    assert not dock.isVisible() and not toggle.isChecked()  # hidden again
     w.close()
+
+
+def test_sidebar_visibility_is_remembered(qapp, a_pdf, tmp_path):
+    """Showing the sidebar persists app-wide, so a new window opens with it shown."""
+    qapp.settings = Settings(tmp_path / "view_state.json")
+    w1 = qapp.open_document(a_pdf)
+    assert not w1.pages_dock.isVisible()              # hidden by default
+    w1.pages_dock.toggleViewAction().trigger()        # user shows it → remembered
+    assert qapp.settings.get_pref("sidebar_visible") is True
+    w1.close()
+    w2 = qapp.open_document(a_pdf)
+    assert w2.pages_dock.isVisible()                  # new window honours the remembered choice
+    w2.close()
 
 
 def test_open_recent_menu_populates(qapp, a_pdf, b_pdf, tmp_path):
