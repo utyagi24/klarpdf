@@ -79,6 +79,12 @@ class ThumbnailPanel(QListWidget):
         # internal reorder from a cross-window copy. None until assigned.
         self.source_key: str | None = None
 
+        # Lazy thumbnails: items get a cheap placeholder up front and their real page is rasterised
+        # only when scrolled into view, so opening a many-page document doesn't render every page.
+        self._rendered: set[int] = set()            # rows whose real thumbnail has been rendered
+        self._baked = None                          # edits-applied render doc, kept open for lazy use
+        self.verticalScrollBar().valueChanged.connect(self._render_visible_thumbs)
+
         self.currentRowChanged.connect(self._on_row_changed)
         # Repaint the whole viewport on any selection change so every selection marker (drawn in
         # paintEvent) updates — Qt otherwise only invalidates individual changed item rects.
@@ -106,6 +112,7 @@ class ThumbnailPanel(QListWidget):
     def _drag_pixmap(self, rows: list[int]) -> QPixmap:
         """A page image to carry under the cursor: the first grabbed page, with a stacked-page hint
         and an "N" count badge for a multi-page drag, so it's obvious a page is being dragged."""
+        self._ensure_rendered(rows[0])  # the dragged thumbnail must be the real page, not a placeholder
         size = QSize(_DRAG_W, int(_DRAG_W * 1.4))
         thumb = self.item(rows[0]).icon().pixmap(size)
         if thumb.isNull():
@@ -367,10 +374,56 @@ class ThumbnailPanel(QListWidget):
         except Exception:
             return QIcon()
 
+    def _thumb_dims(self, index: int) -> tuple[int, int]:
+        """The displayed thumbnail size (w, h) for page ``index`` — from the mediabox + rotation, so
+        it matches what :meth:`_thumbnail` renders **without** rasterising. Lets a placeholder reserve
+        the right space so the layout doesn't shift when the real thumbnail arrives."""
+        ref = self._vdoc.ordered[index]
+        page = self._vdoc.sources[ref.source_id][ref.source_page_index]
+        final_rot = page.rotation if ref.rotation_override is None else ref.rotation_override
+        mb = page.mediabox
+        disp_w, disp_h = (mb.height, mb.width) if final_rot % 180 else (mb.width, mb.height)
+        return _THUMB_W, max(1, round(_THUMB_W * disp_h / max(1.0, disp_w)))
+
+    def _placeholder_icon(self, index: int) -> QIcon:
+        """A cheap blank-page icon at the correct size, shown until the real thumbnail is rendered."""
+        w, h = self._thumb_dims(index)
+        pm = QPixmap(w, h)
+        pm.fill(QColor(0xEC, 0xEC, 0xEC))
+        return QIcon(pm)
+
+    def _render_one(self, row: int) -> None:
+        self.item(row).setIcon(self._thumbnail(row, self._baked))
+        self._rendered.add(row)
+
+    def _ensure_rendered(self, row: int) -> None:
+        """Render row ``row``'s real thumbnail now if it's still a placeholder (used by drag)."""
+        if 0 <= row < self.count() and row not in self._rendered:
+            self._render_one(row)
+
+    def _render_visible_thumbs(self) -> None:
+        """Render the real thumbnail for every item currently in (or near) the viewport that is still
+        a placeholder. Driven by scroll / resize / show, so only pages the user actually looks at are
+        rasterised — opening a 320-page document renders ~a screenful, not all 320."""
+        if len(self._rendered) == self.count():
+            return
+        view_rect = self.viewport().rect()
+        if view_rect.isEmpty():
+            return  # not laid out yet (e.g. before first show) — render happens on showEvent
+        for row in range(self.count()):
+            if row not in self._rendered and view_rect.intersects(self.visualItemRect(self.item(row))):
+                self._render_one(row)
+
+    def _close_baked(self) -> None:
+        if self._baked is not None:
+            self._baked.close()
+            self._baked = None
+
     def populate(self) -> None:
-        """(Re)build the thumbnail list from ``ordered[]``, each thumbnail reflecting the page's
-        **current edited state** (annotations / redactions / fills), so the sidebar matches the page
-        and the saved output. Called after every edit (``MainWindow._on_doc_changed``).
+        """(Re)build the thumbnail list from ``ordered[]``. Items get a placeholder up front and are
+        rendered **lazily** when scrolled into view (and reflect the page's current edited state via
+        the ``_edited_render`` bake, which is kept open for that lazy rendering). Called after every
+        edit (``MainWindow._on_doc_changed``).
 
         Preserves the current-page marker across the rebuild: ``clear()`` would otherwise reset the
         current row to -1, so an edit (which repopulates) would drop the highlight even though the
@@ -379,18 +432,25 @@ class ThumbnailPanel(QListWidget):
         current = self.currentRow()
         self._syncing = True
         self.clear()
-        baked = self._edited_render()  # built once per rebuild; None when the doc has no edits
-        try:
-            for i in range(self._vdoc.page_count):
-                item = QListWidgetItem(self._thumbnail(i, baked), str(i + 1))
-                item.setTextAlignment(Qt.AlignmentFlag.AlignHCenter)
-                self.addItem(item)
-        finally:
-            if baked is not None:
-                baked.close()
+        self._close_baked()
+        self._baked = self._edited_render()  # kept open for lazy rendering; closed on next populate/close
+        self._rendered = set()
+        for i in range(self._vdoc.page_count):
+            item = QListWidgetItem(self._placeholder_icon(i), str(i + 1))
+            item.setTextAlignment(Qt.AlignmentFlag.AlignHCenter)
+            self.addItem(item)
         if 0 <= current < self.count():
             self.setCurrentRow(current)
         self._syncing = False
+        self._render_visible_thumbs()  # render whatever is already on screen (nothing if not yet shown)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self._render_visible_thumbs()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._render_visible_thumbs()
 
     def set_current(self, index: int) -> None:
         """Highlight ``index`` without triggering a jump back to the view."""
