@@ -1,8 +1,11 @@
 # Plan: Local, Offline, Native-Windows PDF Viewer + Page Editor (Python)
 
-> **Shipped: `v0.9.1` released** (UX patch over v0.9.0: a document window now opens at the **full
-> screen height, centred horizontally, at Fit Page** — it was the OS default offset at a fixed size
-> that could exceed the screen, zoomed Fit Width). v0.9.0 "Encrypted & Links": **encrypted /
+> **Shipped: `v0.9.2` released** (load-time / UX patch: the open **flicker is gone** — the page
+> renders once at Fit Page at the final geometry, not re-sized/re-zoomed after the window is visible
+> — and the Pages sidebar renders **thumbnails lazily**, only the pages scrolled into view, so large
+> documents open far faster, e.g. a 320-page doc ~1010 ms → ~150 ms). v0.9.1 (UX patch over v0.9.0):
+> a document window opens at the **full screen height, centred horizontally, at Fit Page**. v0.9.0
+> "Encrypted & Links": **encrypted /
 > password-protected PDFs** (prompt + authenticate on open, source held decrypted so the output stays
 > unencrypted) and **internal links** — `links_remap` rebuilds GoTo *and* named-destination links at
 > materialize so reorder/delete/Save keeps them working, and the viewer makes them clickable (click →
@@ -20,6 +23,7 @@
 > a page) + **image export** (`File ▸ Export ▸ Image…`, selected pages → PNG/JPEG at a chosen DPI),
 > plus UI polish — clearer multi-page selection, a vertically-centred fitting page, centred text-box
 > text). Releases:
+> [v0.9.2](https://github.com/utyagi24/pdfproj/releases/tag/v0.9.2) ·
 > [v0.9.1](https://github.com/utyagi24/pdfproj/releases/tag/v0.9.1) ·
 > [v0.9.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.9.0) ·
 > [v0.8.1](https://github.com/utyagi24/pdfproj/releases/tag/v0.8.1) ·
