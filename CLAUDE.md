@@ -31,9 +31,11 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   spare machine / a fresh local user with networking disabled.
 
 ## Status
-**v0.9.0 shipped** — milestones **M0–M38 complete** (v0.1.0 = M0–M9; v0.2.0 = M10–M15;
+**v0.9.1 shipped** (UX patch) — milestones **M0–M38 complete** (v0.1.0 = M0–M9; v0.2.0 = M10–M15;
 v0.3.0 = M16–M19; v0.4.0 = M20–M22; v0.5.0 = M23–M26; v0.6.0 = M27–M30; v0.7.0 = M31 + M31.5 + M34;
-v0.8.0 = M35–M37; v0.9.0 = M32 + M33 + M38). **v0.9.0 "Encrypted & Links"** added **encrypted /
+v0.8.0 = M35–M37; v0.9.0 = M32 + M33 + M38). **v0.9.1** patch: a document window opens at the **full
+screen height, centred horizontally, at Fit Page** (`main_window.py` `_open_geometry` / `showEvent`;
+PR #61). **v0.9.0 "Encrypted & Links"** added **encrypted /
 password PDFs** (`needs_pass` → prompt → `authenticate` on open, then the source is held decrypted
 via `PDF_ENCRYPT_NONE` so the output stays unencrypted — `model/virtual_document.py`) and **internal
 links**: `model/links_remap.py` rebuilds GoTo *and* named-destination links at materialize (both
@@ -42,6 +44,7 @@ working, plus **in-viewer click-to-navigate** (`viewer/links.py`). **v0.8.1** pa
 open from a case-sensitive `\\wsl.localhost\` / UNC folder works for every file (the single-instance
 hand-off now passes the raw path, not a lower-cased one — `launcher.py`; PR #55).
 Releases:
+<https://github.com/utyagi24/pdfproj/releases/tag/v0.9.1> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.9.0> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.8.1> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.8.0> ·
