@@ -18,7 +18,7 @@ import os
 import tempfile
 
 from PySide6.QtCore import QEvent, QRect, QSize, Qt
-from PySide6.QtGui import QAction, QActionGroup, QKeySequence, QUndoStack
+from PySide6.QtGui import QAction, QActionGroup, QGuiApplication, QKeySequence, QUndoStack
 from PySide6.QtWidgets import (
     QDockWidget,
     QFileDialog,
@@ -146,7 +146,7 @@ class MainWindow(QMainWindow):
         self._build_actions()
         self.setWindowTitle(f"{os.path.basename(path)} — pdfproj[*]")
         self.setWindowIcon(icons.app_icon())
-        self.resize(1000, 800)
+        self._place_window()  # final size + position *before* show() → no post-show resize jump
 
     # ---- actions / menus --------------------------------------------------------
 
@@ -862,29 +862,26 @@ class MainWindow(QMainWindow):
         y = avail.y() + title_bar
         return QRect(x, y, w, h)
 
+    def _place_window(self) -> None:
+        """Size + position the window at full screen height, default width, centred horizontally —
+        done **before** the window is shown, so it maps directly at its final geometry (no post-show
+        resize jump / flicker). The native frame isn't realised yet, so use a typical title-bar /
+        border allowance for the decoration sizes."""
+        screen = self.screen() or QGuiApplication.primaryScreen()
+        if screen is None:
+            self.resize(1000, 800)
+            return
+        self.setGeometry(self._open_geometry(screen.availableGeometry(), 1000, 16, 39, 31))
+
     def showEvent(self, event) -> None:
         super().showEvent(event)
         if self._initialized:
             return
         self._initialized = True
-        # Open at the full screen height, default width, centred horizontally (not the OS default
-        # offset). Use the window-decoration sizes so the *frame* fills the height and stays visible;
-        # if they aren't realised yet (or offscreen), fall back to a typical title-bar/border allowance.
-        screen = self.screen()
-        if screen is not None:
-            frame, inner = self.frameGeometry(), self.geometry()
-            frame_w = max(0, frame.width() - inner.width())
-            frame_h = max(0, frame.height() - inner.height())
-            title_bar = max(0, inner.top() - frame.top())
-            if frame_h == 0:
-                frame_w, frame_h, title_bar = 16, 39, 31
-            self.setGeometry(
-                self._open_geometry(screen.availableGeometry(), self.width(), frame_w, frame_h, title_bar)
-            )
-        # Resume the last page (+ rotation) for this document, but always open at Fit Page so the
-        # whole page is visible — the preferred default rather than a remembered zoom.
-        self.view.apply_state(self._settings.get_doc_state(self.path))
-        self.view.fit_page()
+        # The window is already at its final geometry (set pre-show); now do the first render once,
+        # at Fit Page, resuming the remembered page/rotation. No fit/resize happens after the first
+        # paint, so there's no flicker.
+        self.view.open_at(self._settings.get_doc_state(self.path))
 
     def _confirm_discard(self):
         return QMessageBox.question(
