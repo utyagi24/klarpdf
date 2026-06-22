@@ -38,16 +38,39 @@ def activate_window(window) -> None:
     window.activateWindow()
 
     if sys.platform == "win32":
-        # A background process can't always steal focus on Windows; a brief always-on-top
-        # toggle reliably pulls the window forward. Validated on real Windows in M7.
-        from PySide6.QtCore import Qt
+        # A background process (the resident instance opening a window from an Explorer double-click)
+        # can't always steal focus on Windows. Nudge the window to the top of the z-order with
+        # SetWindowPos TOPMOST→NOTOPMOST + flash the taskbar.
+        #
+        # NB: do NOT toggle the Qt WindowStaysOnTopHint flag to do this — changing a window flag on
+        # Windows *destroys and recreates the native window*, a visible flash/flicker every raise
+        # (the previous approach; the cause of the open-from-Explorer flicker). SetWindowPos only
+        # reorders the existing window, so there's no recreation and no flicker.
         from PySide6.QtWidgets import QApplication
 
-        window.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
-        window.show()
-        window.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, False)
-        window.show()
+        _raise_to_front_win32(window)
         QApplication.alert(window)
+
+
+def _raise_to_front_win32(window) -> None:
+    """Raise ``window`` to the top of the z-order via the Win32 ``SetWindowPos`` TOPMOST→NOTOPMOST
+    nudge — no native-window recreation (hence no flicker). Best-effort: any failure (e.g. an
+    offscreen window with no real HWND) is ignored, leaving the portable ``raise_``/``activateWindow``
+    above as the result."""
+    try:
+        import ctypes
+
+        hwnd = int(window.winId())
+        if not hwnd:
+            return
+        user32 = ctypes.windll.user32
+        HWND_TOPMOST, HWND_NOTOPMOST = -1, -2
+        SWP_NOMOVE, SWP_NOSIZE = 0x0002, 0x0001
+        flags = SWP_NOMOVE | SWP_NOSIZE
+        user32.SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, flags)
+        user32.SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, flags)
+    except Exception:
+        pass
 
 
 def register_file_association(exe_path: str | None = None) -> None:
