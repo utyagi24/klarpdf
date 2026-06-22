@@ -348,3 +348,21 @@ def test_document_opens_at_fit_page(qapp, a_pdf, tmp_path):
     _, page_h = v._natural_size(v.current_page)
     assert page_h * v.zoom <= v.viewport().height() + 2
     w.close()
+
+
+def test_view_defers_rendering_until_first_show(qapp, vdoc):
+    """No page is rasterised until the window is first shown (open_at) — the construction-time and
+    pre-show renders are suppressed, so nothing is painted at the wrong zoom (no flicker)."""
+    view = PdfView(vdoc)
+    assert view._shown_once is False
+    view._render_visible()  # gated → no-op before the first show
+    assert all(p["pix"].pixmap().isNull() for p in view._pages)  # nothing rendered yet
+
+
+def test_open_renders_the_current_page_once_shown(qapp, a_pdf, tmp_path):
+    qapp.settings = Settings(tmp_path / "view_state.json")
+    w = qapp.open_document(a_pdf)
+    qapp.processEvents()
+    assert w.view._shown_once is True
+    assert not w.view._pages[w.view.current_page]["pix"].pixmap().isNull()  # rendered on open
+    w.close()
