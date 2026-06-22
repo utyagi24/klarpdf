@@ -350,6 +350,29 @@ def test_document_opens_at_fit_page(qapp, a_pdf, tmp_path):
     w.close()
 
 
+def test_open_places_window_on_the_screen_under_the_cursor(qapp, a_pdf, tmp_path, monkeypatch):
+    """Regression (multi-monitor): a window is placed on the screen under the cursor — where the
+    user double-clicked in Explorer — not always the primary screen."""
+    from PySide6.QtCore import QRect
+
+    import main_window as mw
+
+    qapp.settings = Settings(tmp_path / "vs.json")
+    second_monitor = QRect(2000, 100, 1920, 1040)  # a screen offset to the right of the primary
+
+    class FakeScreen:
+        def availableGeometry(self):
+            return second_monitor
+
+    monkeypatch.setattr(mw.QGuiApplication, "screenAt", staticmethod(lambda pos: FakeScreen()))
+    win = mw.MainWindow(qapp, a_pdf, qapp.settings)
+    try:
+        expected = mw.MainWindow._open_geometry(second_monitor, 1000, 16, 39, 31)
+        assert win.geometry() == expected  # full-height, centred *within the cursor's screen*
+    finally:
+        win.close()
+
+
 def test_view_defers_rendering_until_first_show(qapp, vdoc):
     """No page is rasterised until the window is first shown (open_at) — the construction-time and
     pre-show renders are suppressed, so nothing is painted at the wrong zoom (no flicker)."""
