@@ -32,6 +32,7 @@ def win(qapp, a_pdf, tmp_path):
 
 
 def _thumb(panel, index):
+    panel._ensure_rendered(index)  # thumbnails render lazily; force this one for the pixel check
     return panel.item(index).icon().pixmap(panel.iconSize())
 
 
@@ -134,6 +135,8 @@ def test_thumbnail_width_stays_full_when_saved_rotated_page_is_rotated_back(qapp
     vdoc.set_rotation(0, 0)            # rotate page 0 back to portrait (absolute override 0)
     panel = ThumbnailPanel(vdoc)
     try:
+        panel._ensure_rendered(0)
+        panel._ensure_rendered(1)
         back = panel.item(0).icon().pixmap(panel.iconSize())
         norm = panel.item(1).icon().pixmap(panel.iconSize())
         assert abs(back.width() - norm.width()) <= 1   # full width, not shrunk

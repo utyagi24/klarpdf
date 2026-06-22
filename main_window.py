@@ -907,5 +907,6 @@ class MainWindow(QMainWindow):
         # intentionally not remembered — every launch opens centred at Fit Page (see showEvent).
         self._settings.set_doc_state(self.path, self.view.view_state())
         self.view._drop_render_docs()  # release the fresh-opened render copies' file handles
+        self.thumbs._close_baked()     # release the thumbnails' kept-open edits render, if any
         self._app.forget_window(self.path)
         super().closeEvent(event)
