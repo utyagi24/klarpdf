@@ -1,6 +1,11 @@
 # Plan: Local, Offline, Native-Windows PDF Viewer + Page Editor (Python)
 
-> **Shipped: `v0.9.2` released** (load-time / UX patch: the open **flicker is gone** — the page
+> **Shipped: `v0.9.3` released** (open-behavior patch: a new window opens **on the monitor under the
+> cursor**, not always the primary; the **open-from-Explorer flicker is gone** — `activate_window`
+> raises the window via a `SetWindowPos` z-order nudge instead of toggling `WindowStaysOnTopHint`,
+> which recreated the native window on Windows and flashed every raise; and the **Pages sidebar is
+> hidden by default**, remembered app-wide). v0.9.2 (load-time / UX patch: the open render/zoom
+> **flicker is gone** — the page
 > renders once at Fit Page at the final geometry, not re-sized/re-zoomed after the window is visible
 > — and the Pages sidebar renders **thumbnails lazily**, only the pages scrolled into view, so large
 > documents open far faster, e.g. a 320-page doc ~1010 ms → ~150 ms). v0.9.1 (UX patch over v0.9.0):
@@ -23,6 +28,7 @@
 > a page) + **image export** (`File ▸ Export ▸ Image…`, selected pages → PNG/JPEG at a chosen DPI),
 > plus UI polish — clearer multi-page selection, a vertically-centred fitting page, centred text-box
 > text). Releases:
+> [v0.9.3](https://github.com/utyagi24/pdfproj/releases/tag/v0.9.3) ·
 > [v0.9.2](https://github.com/utyagi24/pdfproj/releases/tag/v0.9.2) ·
 > [v0.9.1](https://github.com/utyagi24/pdfproj/releases/tag/v0.9.1) ·
 > [v0.9.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.9.0) ·
