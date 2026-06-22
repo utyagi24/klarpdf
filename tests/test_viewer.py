@@ -310,3 +310,39 @@ def test_app_open_document_dedupes(qapp, a_pdf, b_pdf, tmp_path):
     assert w2 is not w1
     w1.close()
     w2.close()
+
+
+# ---- window opens centred at Fit Page ---------------------------------------
+
+
+def test_centered_on_clamps_to_screen_and_centers():
+    from PySide6.QtCore import QRect
+
+    from main_window import MainWindow
+
+    geo = MainWindow._centered_on(QRect(0, 0, 1366, 768), 1000, 800, margin=40)
+    assert geo.width() == 1000               # fits horizontally → unchanged
+    assert geo.height() == 768 - 40          # taller than the screen → clamped (minus margin)
+    assert abs(geo.center().x() - 683) <= 1  # centred horizontally
+    assert abs(geo.center().y() - 384) <= 1  # centred vertically
+
+
+def test_centered_on_respects_screen_origin_and_clamps_both_dims():
+    from PySide6.QtCore import QRect
+
+    from main_window import MainWindow
+
+    geo = MainWindow._centered_on(QRect(100, 50, 800, 600), 1000, 1000, margin=20)
+    assert geo.width() == 780 and geo.height() == 580   # both dims clamped to the offset screen
+    assert geo.x() == 110 and geo.y() == 60             # centred within it, offset by the origin
+
+
+def test_document_opens_at_fit_page(qapp, a_pdf, tmp_path):
+    """The whole page fits the viewport on open (Fit Page) — fit-width would overflow vertically."""
+    qapp.settings = Settings(tmp_path / "view_state.json")
+    w = qapp.open_document(a_pdf)
+    qapp.processEvents()
+    v = w.view
+    _, page_h = v._natural_size(v.current_page)
+    assert page_h * v.zoom <= v.viewport().height() + 2
+    w.close()

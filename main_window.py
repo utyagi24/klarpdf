@@ -17,7 +17,7 @@ from __future__ import annotations
 import os
 import tempfile
 
-from PySide6.QtCore import QEvent, QSize, Qt
+from PySide6.QtCore import QEvent, QRect, QSize, Qt
 from PySide6.QtGui import QAction, QActionGroup, QKeySequence, QUndoStack
 from PySide6.QtWidgets import (
     QDockWidget,
@@ -849,18 +849,31 @@ class MainWindow(QMainWindow):
 
     # ---- view-state persistence + close prompt ----------------------------------
 
+    @staticmethod
+    def _centered_on(avail: QRect, width: int, height: int, margin: int = 40) -> QRect:
+        """A window rect of ``width`` × ``height`` clamped to fit ``avail`` (the screen's available
+        area, minus ``margin``) and centred within it — so the window never opens larger than the
+        screen and always lands centred, not at the OS's default offset."""
+        w = max(400, min(width, avail.width() - margin))
+        h = max(300, min(height, avail.height() - margin))
+        x = avail.x() + (avail.width() - w) // 2
+        y = avail.y() + (avail.height() - h) // 2
+        return QRect(x, y, w, h)
+
     def showEvent(self, event) -> None:
         super().showEvent(event)
         if self._initialized:
             return
         self._initialized = True
-        state = self._settings.get_doc_state(self.path)
-        if state.get("win_w") and state.get("win_h"):
-            self.resize(int(state["win_w"]), int(state["win_h"]))
-        if state:
-            self.view.apply_state(state)
-        else:
-            self.view.fit_width()  # sensible default for a first open
+        # Centre the window on the screen (clamped to fit) rather than leaving it at the OS default
+        # offset / a size that can exceed the display.
+        screen = self.screen()
+        if screen is not None:
+            self.setGeometry(self._centered_on(screen.availableGeometry(), self.width(), self.height()))
+        # Resume the last page (+ rotation) for this document, but always open at Fit Page so the
+        # whole page is visible — the preferred default rather than a remembered zoom.
+        self.view.apply_state(self._settings.get_doc_state(self.path))
+        self.view.fit_page()
 
     def _confirm_discard(self):
         return QMessageBox.question(
@@ -882,9 +895,9 @@ class MainWindow(QMainWindow):
                 event.ignore()
                 return
             # Discard → fall through and close without saving.
-        state = self.view.view_state()
-        state.update({"win_w": self.width(), "win_h": self.height()})
-        self._settings.set_doc_state(self.path, state)
+        # Persist the per-document page / rotation (to resume on reopen). Window size + position are
+        # intentionally not remembered — every launch opens centred at Fit Page (see showEvent).
+        self._settings.set_doc_state(self.path, self.view.view_state())
         self.view._drop_render_docs()  # release the fresh-opened render copies' file handles
         self._app.forget_window(self.path)
         super().closeEvent(event)
