@@ -3,12 +3,15 @@
 Live status of the build (milestone detail in `PLAN.md` §Execution). **One PR per milestone** — when
 it merges, check the box here in the same PR and append the PR link.
 
-**Status:** ✅ **v0.9.0 shipped** — milestones **M0–M38 complete** (v0.1.0 = M0–M9,
+**Status:** ✅ **v0.9.1 shipped** (patch) — milestones **M0–M38 complete** (v0.1.0 = M0–M9,
 v0.2.0 = M10–M15, v0.3.0 = M16–M19, v0.4.0 = M20–M22, v0.5.0 = M23–M26, v0.6.0 = M27–M30,
 v0.7.0 = M31 + M31.5 + M34, v0.8.0 = M35–M37, v0.9.0 = M32 + M33 + M38). Releases:
+<https://github.com/utyagi24/pdfproj/releases/tag/v0.9.1> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.9.0> ·
-<https://github.com/utyagi24/pdfproj/releases/tag/v0.8.1> ·
-<https://github.com/utyagi24/pdfproj/releases/tag/v0.8.0>. v0.9.0 "Encrypted & Links" adds
+<https://github.com/utyagi24/pdfproj/releases/tag/v0.8.1>. **v0.9.1** is a UX patch: a document
+window now opens at the **full screen height, centred horizontally, at Fit Page** (it was the OS
+default offset at a fixed size that could exceed the screen, with a Fit Width zoom that overflowed
+vertically; [#61](https://github.com/utyagi24/pdfproj/pull/61)). v0.9.0 "Encrypted & Links" adds
 **encrypted / password-protected PDFs** (prompt + `authenticate` on open, then the source is held
 decrypted so the output stays unencrypted) and **internal links** — `links_remap` rebuilds GoTo
 **and** named-destination links at materialize so reorder/delete/Save keeps them working, and the
