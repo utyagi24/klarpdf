@@ -41,7 +41,9 @@ text-preserving — a locked counterpart to the round-trip). v0.6.0 "Rich Text &
 **styled text boxes**, **live thumbnails**, and **dynamic theme icons**. v0.5.0 "File Safety & Output"
 adds **Revert to Saved**, an **external-change warning**, and **edits-aware printing**. v0.4.0
 "Annotate & Redact" adds text **highlight** + **text boxes** and **true destructive redaction**.
-**Next:** the roadmap (M0–M38) is complete; further work lives in `PLAN.md` §Future enhancements.
+**Next:** **v0.10.0 — "MCP / Agent Bridge"** (M39–M44, planned) — expose pdfproj's PDF engine to
+Claude Code / Claude Desktop / agentic clients as a local **MCP server** (`PLAN.md` §MCP / Agent
+Bridge roadmap). Other deferred items live in `PLAN.md` §Future enhancements.
 **Open follow-ups** (carried items) are at the bottom.
 
 - [x] **M0** Scaffold + WSL dev venv — *step 1 (WSL); WSL* — [#4](https://github.com/utyagi24/pdfproj/pull/4)
@@ -123,6 +125,31 @@ GUI-free core, fully headless-testable).
 - [x] **M32** Encrypted / password PDFs — detect `needs_pass`, prompt, `authenticate` on open (then store the source decrypted in memory; output stays unencrypted) — *WSL + WSLg* — [#57](https://github.com/utyagi24/pdfproj/pull/57)
 - [x] **M33** Internal link remap **+ navigation** — `links_remap` rebuilds GoTo **and** named-destination links at materialize (reorder/delete/Save keeps them working; named dests baked to GoTo — insert_pdf drops them entirely), **and** the viewer makes internal links clickable (click → jump to target page; pointing-hand on hover, `viewer/links.py`) — *WSL (model+tests) + WSLg* — [#58](https://github.com/utyagi24/pdfproj/pull/58)
 - [x] **M38** Verify + release → tag **v0.9.0** (version bump + docs; 369 headless tests green) — *Windows* — [#59](https://github.com/utyagi24/pdfproj/pull/59)
+
+## Roadmap — v0.10.0 "MCP / Agent Bridge" (planned)
+
+Spec + architecture in `PLAN.md` §MCP / Agent Bridge roadmap. Same conventions: **one PR per
+milestone**, tick the box here on merge. ⭐ marks the keystone (GUI-free, fully headless-testable).
+A new MCP server surface (`mcp/` package) that reuses the GUI-free `model/` core **without PySide6**
+and ships as a separate optional component — the `pdfproj-setup.exe` audit surface is untouched.
+
+- [ ] **M39** ⭐ MCP scaffold + read-only core — `mcp/` FastMCP stdio server; headless query/metadata
+  tools (`get_info`, `get_outline`, `search`, `extract_text`, `render_page`, `get_form_fields`); no
+  PySide6 import on the server path; headless tests — *WSL*
+- [ ] **M40** Transform tools — `split` / `merge` / `reorder` / `delete_pages` / `rotate` /
+  `fill_form` / `flatten` / `export_images` to an explicit out path (never overwrites source;
+  lossless OCR/TOC/forms); headless tests — *WSL*
+- [ ] **M41** Redaction + encrypted — `redact_regions` / `redact_text` (destructive + cross-engine
+  leak verify) and encrypted-input (`password`) tools; headless leak assertion — *WSL*
+- [ ] **M42** Dependency lock + packaging — separate `requirements-mcp.{in,txt}` (GUI lock untouched);
+  `pdfproj-mcp` entry point; `.mcp.json` + Claude Desktop config docs; optional `.mcpb` — *Windows*
+- [ ] **M43** Hardening + docs — path allowlist, return-size caps, read-only flag, error handling;
+  README usage + example agent workflows — *WSL*
+- [ ] **M44** Verify + release → tag **v0.10.0** (tool round-trips + leak verify + no-network +
+  runs from Code/Desktop) — *Windows*
+
+> Decisions to confirm with owner (see `PLAN.md` §MCP / Agent Bridge roadmap → Decisions): packaging
+> (separate vs bundled), write-tools-now vs read-only-first, stdio-only vs HTTP, same-repo vs sibling repo.
 
 ## Open follow-ups (carried)
 
