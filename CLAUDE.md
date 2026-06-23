@@ -17,7 +17,14 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   run on **Windows**. See PLAN.md §Development environment.
 - **git is the only bridge** between the WSL checkout (`~/pdfproj`) and the Windows checkout
   (`C:\Users\<you>\pdfproj`). **Never** edit one across `\\wsl$` or `/mnt/c`.
-- **One PR per milestone.** In the same PR, tick the milestone's box in `PROGRESS.md` and link the PR.
+- **Branch + commit + PR for every change — never leave edits uncommitted or on `main`.** This
+  applies to **planning/docs** (`PLAN.md`, `PROGRESS.md`, `CLAUDE.md`), not just code. The moment a
+  change is ready, create a branch (`plan/…`, `feat/m39-…`, `fix/…`, `docs/…`), commit, push, and
+  open a PR with `gh` — **proactively, without being asked**. This is standing authorization; it
+  overrides the default of committing only on request. The only exceptions: a throwaway the user said
+  not to keep, or when the user explicitly says to hold off. (Local `gh`/`git` quirks live in memory.)
+- **One PR per milestone** (implementation); one PR per logical unit for planning/process changes. In
+  the same PR, tick the milestone's box in `PROGRESS.md` and link the PR.
 - **Cite sources.** Tie claims/numbers back to a `PLAN.md` section; don't present assumptions as facts.
 
 ## Gotchas (cost real time if missed)
