@@ -35,12 +35,16 @@ because the ship/build locks carry `win_amd64` hashes.
    `--require-hashes` isn't shareable across platforms, which is why the dev lock is version-only
    (see `DEPENDENCIES.md`).
 
-3. **Re-vendor wheels** — needed for the offline build / clean-machine test (the online CI build
-   re-fetches on its own):
+3. **Re-vendor wheels + regenerate the sources record** — needed for the offline build /
+   clean-machine test (the online CI build re-fetches on its own). `vendor/wheels-sources.md` is
+   **generated, never hand-edited** — `vendor/gen-sources.py` writes it from a pip `--report` JSON:
    ```sh
    pip download -r requirements.txt --only-binary=:all: -d vendor/wheels
+   pip install -r requirements.txt --require-hashes --ignore-installed --dry-run --report report.json
+   py -3.12 vendor/gen-sources.py        # reads report.json -> writes vendor/wheels-sources.md
    ```
-   then update `vendor/wheels-sources.md` (version + sha256 + URL per wheel).
+   Commit the regenerated `vendor/wheels-sources.md`; `report.json` is a gitignored throwaway. (The
+   `.whl` payloads under `vendor/wheels/` are gitignored too — the `.md` is the committed record.)
 
 4. **Review + test.** Open the lock diff as a PR (branch from `origin/main`); run the headless suite
    (`.\.venv\Scripts\python.exe -m pytest`). The diff is auditable — exact `==` plus per-wheel hashes.
