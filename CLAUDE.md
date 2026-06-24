@@ -17,7 +17,21 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   run on **Windows**. See PLAN.md §Development environment.
 - **git is the only bridge** between the WSL checkout (`~/pdfproj`) and the Windows checkout
   (`C:\Users\<you>\pdfproj`). **Never** edit one across `\\wsl$` or `/mnt/c`.
-- **One PR per milestone.** In the same PR, tick the milestone's box in `PROGRESS.md` and link the PR.
+- **Branch + commit + PR for every change — never leave edits uncommitted or on `main`.** This
+  applies to **planning/docs** (`PLAN.md`, `PROGRESS.md`, `CLAUDE.md`), not just code. The moment a
+  change is ready, create a branch (`plan/…`, `feat/m39-…`, `fix/…`, `docs/…`), commit, push, and
+  open a PR with `gh` — **proactively, without being asked**. This is standing authorization; it
+  overrides the default of committing only on request. The only exceptions: a throwaway the user said
+  not to keep, or when the user explicitly says to hold off. (Local `gh`/`git` quirks live in memory.)
+- **Always branch from an up-to-date `main`.** Before creating a branch, check what's checked out
+  (`git branch --show-current`); a new branch must be based on **`origin/main`**, *not* on whatever
+  feature branch is currently active — else that branch's commits ride into your PR (e.g. an unrelated
+  open PR leaking into a new one). Use `git fetch origin && git switch -c <name> origin/main`. The one
+  exception is *intentionally stacking* on an open PR — then base the branch on it **and** set the PR's
+  base to match. Sanity-check before pushing: `git diff --stat origin/main..HEAD` should list only your
+  own files.
+- **One PR per milestone** (implementation); one PR per logical unit for planning/process changes. In
+  the same PR, tick the milestone's box in `PROGRESS.md` and link the PR.
 - **Cite sources.** Tie claims/numbers back to a `PLAN.md` section; don't present assumptions as facts.
 
 ## Gotchas (cost real time if missed)
