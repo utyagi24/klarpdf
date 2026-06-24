@@ -3,13 +3,16 @@
 Live status of the build (milestone detail in `PLAN.md` §Execution). **One PR per milestone** — when
 it merges, check the box here in the same PR and append the PR link.
 
-**Status:** ✅ **v0.9.3 shipped** (open-behavior patch) — milestones **M0–M38 complete** (v0.1.0 = M0–M9,
+**Status:** ✅ **v0.9.4 shipped** (dependency security patch) — milestones **M0–M38 complete** (v0.1.0 = M0–M9,
 v0.2.0 = M10–M15, v0.3.0 = M16–M19, v0.4.0 = M20–M22, v0.5.0 = M23–M26, v0.6.0 = M27–M30,
 v0.7.0 = M31 + M31.5 + M34, v0.8.0 = M35–M37, v0.9.0 = M32 + M33 + M38). Releases:
+<https://github.com/utyagi24/pdfproj/releases/tag/v0.9.4> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.9.3> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.9.2> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.9.1> ·
-<https://github.com/utyagi24/pdfproj/releases/tag/v0.9.0>. **v0.9.3** is an open-behavior patch
+<https://github.com/utyagi24/pdfproj/releases/tag/v0.9.0>. **v0.9.4** is a dependency security patch:
+bump **pypdf 6.13.2 → 6.13.3**, clearing GHSA-jm82-fx9c-mx94 (Moderate memory-DoS in the `pypdf`
+fallback edit engine; no functional change). **v0.9.3** is an open-behavior patch
 ([#66](https://github.com/utyagi24/pdfproj/pull/66)): a new window opens **on the monitor under the
 cursor** (where you double-clicked in Explorer) instead of always the primary; the **open-from-Explorer
 flicker is gone** — `activate_window` now raises the window with a `SetWindowPos` z-order nudge instead
@@ -155,17 +158,9 @@ and ships as a separate optional component — the `pdfproj-setup.exe` audit sur
 
 Carried items — none block work:
 
-- **Dependency vuln: pypdf → 6.13.3** — `pip-audit` (2026-06-23) flagged **GHSA-jm82-fx9c-mx94**
-  in the pinned `pypdf==6.13.2` (ship + dev locks): a crafted PDF with a content stream missing
-  `/Length` bypasses `MAX_DECLARED_STREAM_LENGTH` → large memory use. **Moderate, CVSS 4.0 = 6.9**
-  (`AV:L … VA:H` — local file, availability-only; no data exposure / RCE; no CVE assigned). Low
-  exposure here: `pypdf` is only the *fallback* edit engine (`model/edit_engine.py:PyPdfEngine`);
-  PyMuPDF is authoritative. **Fix:** bump `requirements.in` floor to `pypdf>=6.13.3`, re-compile
-  `requirements{,-dev}.txt`, re-vendor wheels (Windows) — fold into the next dependency bump /
-  release. Accepted track-only, so it is **explicitly ignored** by the audit gate
-  (`--ignore-vuln GHSA-jm82-fx9c-mx94` in `.github/workflows/audit.yml` + `tools/audit-deps.ps1`);
-  remove that ignore when `pypdf` is bumped. Also watched by Dependabot **alerts + security updates**
-  (repo settings — these surface new advisories and auto-open fix PRs without no-CVE version churn).
+- **Dependency vuln: pypdf → 6.13.3** → ✅ fixed in **v0.9.4**: bumped `pypdf` 6.13.2 → 6.13.3
+  (**GHSA-jm82-fx9c-mx94**, Moderate memory-DoS in the `pypdf` fallback edit engine), recompiled the
+  locks + regenerated `vendor/wheels-sources.md`, and removed the audit-gate ignore.
 - **Clean-machine install** — the one deferred M9 verification item: run `pdfproj-setup.exe` on a
   Windows VM with **no Python and networking disabled** (Win10 Home has no Sandbox → VirtualBox /
   spare machine / fresh local user). Everything else in the Verification matrix is green.

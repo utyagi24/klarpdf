@@ -25,7 +25,7 @@ the wheels, so target machines need no Python and no network.
 |---|---|---|---|---|
 | **PySide6-Essentials** | Qt6 GUI (QtCore/QtGui/QtWidgets/QtSvg) + `QtNetwork` IPC + `QtPrintSupport` printing | LGPL-3.0 | `>=6.7` | `6.11.1` |
 | **PyMuPDF** (`fitz`) | render pages/thumbnails + lossless object-level page editing | AGPL-3.0 (or Artifex commercial) | `>=1.25.5` | `1.27.2.3` |
-| **pypdf** | pure-Python fallback edit engine | BSD-3-Clause | `>=4.0` | `6.13.2` |
+| **pypdf** | pure-Python fallback edit engine | BSD-3-Clause | `>=6.13.3` | `6.13.3` |
 | _shiboken6_ (transitive) | PySide6 C++/Python binding runtime | LGPL-3.0 | — | `6.11.1` |
 
 > **Why Essentials, not the full `PySide6` meta:** the app imports only QtCore/QtGui/QtWidgets/
