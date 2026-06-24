@@ -735,6 +735,114 @@ first. **No new dependency** — both are native PyMuPDF.
 | **M33** Internal link remap **+ navigation** | `model/links_remap.py`: at materialize, rebuild internal **GoTo *and* named-destination** links against the new page order (both resolve to a target page, re-emitted as remapped GoTo — `insert_pdf` drops named dests entirely, and cross-run GoTo links). Plus **in-viewer navigation** (`viewer/links.py`): clicking an internal link jumps to its target page (pointing-hand on hover), resolved via the same map so it follows reorder/delete live. | WSL (model+tests) + WSLg | Reordered/deleted pages keep internal links working; clicking a link in the viewer jumps to its target |
 | **M38** Verify + release | Headless suite green (369 tests); Windows validation; tag **v0.9.0**. | **Win** | Matrix green → v0.9.0 released |
 
+## MCP / Agent Bridge roadmap (v0.10.0 — planned)
+
+A new surface, not a GUI feature: expose pdfproj's PDF engine to **Claude Code, Claude Desktop, and
+other agentic clients** as a local **MCP (Model Context Protocol) server**. Same offline/native/
+audited principles as the app; the GUI is untouched.
+
+### Why (the niche)
+
+Claude already *reads* PDFs natively (the API renders each page to image + extracts text), so an MCP
+server is **not** about "helping Claude read." Native reading has two gaps this fills:
+
+1. **Transform, not just read.** Native PDF support is read-only ingestion. pdfproj is an *editor* —
+   redaction, splice/split/merge, lossless save, form fill, encrypted-PDF handling. No LLM and no
+   existing PDF MCP server (`pdf-mcp`, `mcp-pdf` cover extraction/search/OCR only) gives an agent the
+   **destructive-redaction + lossless** half. **This is the reason to build.**
+2. **Keep big PDFs out of context.** Native reading loads the whole file into the context window and
+   re-sends it every turn (bounded at ~600 pages / 32 MB on the API; 20 pages/read in Claude Code).
+   Tool-mediated access lets the agent pull only the pages/answers it needs. Cheap **query/metadata**
+   tools (`get_info`, `get_outline`, `search`) also let the agent *route intelligently* — see a
+   doc is 800 pages, then `search` + `extract_text` a slice instead of loading it whole.
+
+The leverage: the headless `model/` core already implements every transform. The only new logic is a
+thin set of read-only query helpers + the MCP tool layer.
+
+### Architecture (a quarantined seam, like `packaging/`)
+
+- **New `mcp/` package**, isolated the same way OS code is quarantined behind `platform_integration.py` —
+  never inlined into `app.py`/`launcher.py`. The GUI build does not import it.
+- **Reuses the GUI-free core only.** Imports `model/virtual_document`, `edit_engine`, `export`,
+  `page_edits`, `links_remap`, `toc_remap` — **not** `model/edit_commands.py` (it imports
+  `QUndoCommand`); the server calls `VirtualDocument` ops directly, so it runs **without PySide6/Qt**.
+  M39 confirms no Qt import reaches the server path.
+- **FastMCP, stdio transport** (works for Claude Code *and* Claude Desktop local servers). Optional
+  Streamable-HTTP later if the API MCP connector / remote use is wanted.
+- **New headless helpers** (the only genuinely new code) in `model/` (or `mcp/queries.py`):
+  `extract_text(path, pages)`, `search(path, query)`, `render_page(path, page, dpi)`,
+  `document_info(path)` — `viewer/search.py` is Qt-bound, so search is reimplemented headlessly over
+  `page.search_for`.
+
+### Tool surface
+
+| Tool | Maps to | Category |
+|---|---|---|
+| `get_info(path)` → pages, size, encrypted, has-text-layer | new helper + `needs_pass` | query/route |
+| `get_outline(path)` | `get_toc` / `remapped_toc` | query/route |
+| `search(path, query)` → pages + snippets | new headless helper | query/route |
+| `extract_text(path, pages)` | new helper (`page.get_text`) | query |
+| `render_page(path, page, dpi)` → image block | `export_page_images` (single page) | query |
+| `get_form_fields(path)` | `page_edits.read_form_fields` | query |
+| `split` / `merge` / `reorder` / `delete_pages` / `rotate` → out path | `VirtualDocument` ops + `materialize` | transform |
+| `fill_form(path, values, out)` | `set_field_value` + `materialize` | transform |
+| `flatten(path, out)` | `export.export_flattened_pdf` | transform |
+| `export_images(path, pages, dpi, out_dir)` | `export.export_page_images` | transform |
+| `redact_regions` / `redact_text(path, …, out)` | `Redaction` + `apply_redactions` + cross-engine leak verify | secure |
+| (encrypted input) | `password` param → `from_path(password_provider=…)` | all |
+
+### Safety model (agent-driven = untrusted caller)
+
+- **Never overwrite the source.** Write tools require an explicit *new* output path; in-place save is
+  not exposed.
+- **Redaction stays a point of no return** — destructive `apply_redactions` + the existing
+  `fitz`+Poppler leak verification before the tool reports success.
+- **Path scoping.** A configurable allowlist of roots the server may read/write (an MCP tool runs with
+  the host's file access); refuse paths outside it.
+- **Return-size caps** so a mis-call (`extract_text` on 800 pages) degrades gracefully, not a context blow-out.
+- **Read-only mode** — a launch flag exposing only query tools, for users who want zero write risk.
+
+### Dependencies & packaging (keep the shipped app's audit surface tiny)
+
+- The `mcp` SDK + transitive deps (pydantic, anyio, …) go in a **separate optional lock**
+  (`requirements-mcp.in` → `requirements-mcp.txt`), following the same `pip-compile` discipline —
+  **not** added to the GUI ship lock. `pdfproj-setup.exe` is unchanged; the server is opt-in.
+- `pdfproj-mcp` console entry point (a second `[project.scripts]` / spec target).
+- Docs: a `.mcp.json` snippet for Claude Code and a `claude_desktop_config.json` block for Desktop;
+  optionally package a one-click **Desktop Extension** (`.mcpb`).
+
+### Milestones (one PR each; ⭐ = keystone, GUI-free, fully headless-testable)
+
+| Milestone | Where | Done when |
+|---|---|---|
+| **M39 ⭐** MCP scaffold + read-only core | WSL | `mcp/` FastMCP stdio server; `get_info`/`get_outline`/`search`/`extract_text`/`render_page`/`get_form_fields` wired to headless helpers; no PySide6 import on the server path; headless tests green |
+| **M40** Transform tools | WSL | `split`/`merge`/`reorder`/`delete_pages`/`rotate`/`fill_form`/`flatten`/`export_images` → explicit out path; never overwrites source; lossless (OCR/TOC/forms survive); headless tests |
+| **M41** Redaction + encrypted | WSL | `redact_regions`/`redact_text` (destructive + leak-verified) and encrypted-input (`password`) tools; headless cross-engine leak assertion |
+| **M42** Dependency lock + packaging | Windows | `requirements-mcp.{in,txt}` (hashed where applicable, GUI lock untouched); `pdfproj-mcp` entry point; `.mcp.json` + Desktop config docs; optional `.mcpb` |
+| **M43** Hardening + docs | WSL | path allowlist, return-size caps, read-only flag, error handling; README usage + example agent workflows |
+| **M44** Verify + release | Windows | verification matrix green (below) → tag **v0.10.0** → GitHub Release |
+
+### Verification (adds to the existing matrix)
+
+- **Tool round-trips (headless pytest):** each transform tool over the `A.pdf`/`B.pdf` fixtures
+  asserts the same invariants as `test_materialize.py` — OCR text on moved pages, TOC remapped to new
+  indices, both form fields preserved, dup-name handled.
+- **Redaction leak-free:** `redact_*` output passes `fitz` + Poppler `pdftotext` cross-engine — the
+  secret is gone from the written file.
+- **No network:** the server makes no outbound connections (same audit as the app; stdio only).
+- **Lives with a client:** the server registers and the tools work from **Claude Code** (`.mcp.json`)
+  and **Claude Desktop** (config / `.mcpb`).
+- **Source untouched:** every write tool leaves the input file byte-identical.
+
+### Decisions to confirm with owner
+
+1. **Packaging:** separate optional component (recommended — keeps the audited GUI bundle tiny) vs.
+   bundled into `pdfproj-setup.exe`.
+2. **Write tools default-on, or read-only-first release** (query tools only in v0.10.0, transforms in v0.11.0)?
+3. **Transport:** stdio only (Code + Desktop) for v0.10.0, HTTP deferred — confirm HTTP isn't needed now.
+4. **Repo layout:** keep the server in this repo (shared `model/` core) vs. a sibling repo importing
+   pdfproj as a dependency.
+
 ## Future enhancements (deferred beyond the roadmap)
 
 Captured but not yet scheduled:
