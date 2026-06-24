@@ -61,15 +61,27 @@ def test(c):
 
 @task
 def audit(c):
-    """Scan the dependency locks for known advisories (isolated pip-audit)."""
+    """Scan the dependency locks for known advisories.
+
+    pip-audit is installed into a THROWAWAY venv (never the project .venv) so the scanner's own
+    dependency tree can't pollute the dev env or the audited locks - matching the CI job
+    (`pipx install pip-audit`) and the Windows script (`tools/audit-deps.ps1`). Needs network.
+    """
     if IS_WIN:
         c.run(_ps("tools/audit-deps.ps1"), echo=True)
         return
-    if not shutil.which("pip-audit"):
-        sys.exit("pip-audit not found - `pipx install pip-audit` (kept out of the project venv), "
-                 "or rely on the CI audit (.github/workflows/audit.yml).")
-    for lock in ("requirements-win.txt", "requirements-dev.txt", "requirements-build-win.txt"):
-        c.run(f"pip-audit -r {lock} --no-deps --desc", echo=True, warn=True)
+    # Linux/WSL twin of tools/audit-deps.ps1: self-provision pip-audit in a throwaway venv.
+    import tempfile
+
+    venv = Path(tempfile.mkdtemp(prefix="pdfproj-audit-"))
+    try:
+        c.run(f'"{sys.executable}" -m venv "{venv}"', echo=True)
+        vpy = venv / "bin" / "python"
+        c.run(f'"{vpy}" -m pip install --quiet --disable-pip-version-check pip-audit', echo=True)
+        for lock in ("requirements-win.txt", "requirements-dev.txt", "requirements-build-win.txt"):
+            c.run(f'"{vpy}" -m pip_audit -r {lock} --no-deps --desc', echo=True, warn=True)
+    finally:
+        shutil.rmtree(venv, ignore_errors=True)
 
 
 @task(help={"package": "re-pin only this package, e.g. pypdf==6.13.3 (optional)"})
