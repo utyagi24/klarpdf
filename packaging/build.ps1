@@ -72,8 +72,8 @@ try {
     if (-not $Offline) {
         New-Item -ItemType Directory -Force $wheels | Out-Null
         Write-Host '==> Fetching pinned win_amd64 wheels (runtime + build)'
-        Invoke-Checked $py ($pyArgs + @('-m','pip','download','-r','requirements.txt',
-            '-r','requirements-build.txt','--only-binary=:all:','-d',$wheels))
+        Invoke-Checked $py ($pyArgs + @('-m','pip','download','-r','requirements-win.txt',
+            '-r','requirements-build-win.txt','--only-binary=:all:','-d',$wheels))
     }
     if (-not (Test-Path (Join-Path $wheels '*.whl'))) {
         throw "vendor/wheels is empty - run once without -Offline to populate it."
@@ -87,7 +87,7 @@ try {
 
     Write-Host '==> Installing runtime + build deps (--require-hashes --no-index)'
     Invoke-Checked $vpy @('-m','pip','install','--require-hashes','--no-index','--find-links',$wheels,
-        '-r','requirements.txt','-r','requirements-build.txt')
+        '-r','requirements-win.txt','-r','requirements-build-win.txt')
 
     Write-Host '==> PyInstaller freeze (onedir + onefile)'
     Invoke-Checked $vpy @('-m','PyInstaller','packaging\pdfproj.spec','--noconfirm','--clean',

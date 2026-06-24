@@ -38,7 +38,7 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
 - **Windows Python must be python.org 3.12.x**, not the Microsoft Store stub (which can't build).
 - **WSL dev venv installs from `requirements-dev.txt`** (same `==` versions, **no hashes**):
   `pip install --require-hashes` fails on Linux by design (manylinux wheel hashes ≠ the `win_amd64`
-  hashes pinned in `requirements.txt`). The hashed/offline lock is the **Windows ship** artifact only.
+  hashes pinned in `requirements-win.txt`). The hashed/offline lock is the **Windows ship** artifact only.
 - **Keep OS-specific code quarantined** behind `platform_integration.py` and `packaging/` — never
   inline in `app.py`/`launcher.py`. `util/paths.py:normalize_path()` is the single identity chokepoint.
 - **Win10 Home has no Windows Sandbox** — the clean-machine install test (M9) uses VirtualBox / a

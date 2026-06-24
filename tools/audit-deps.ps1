@@ -33,7 +33,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
-$Locks = "requirements.txt", "requirements-dev.txt", "requirements-build.txt"
+$Locks = "requirements-win.txt", "requirements-dev.txt", "requirements-build-win.txt"
 $Venv = Join-Path $env:TEMP ("pdfproj-audit-" + [guid]::NewGuid().ToString("N").Substring(0, 8))
 
 Push-Location $RepoRoot
