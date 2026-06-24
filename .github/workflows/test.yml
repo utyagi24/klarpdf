@@ -1,0 +1,47 @@
+# Headless test suite (pytest) on every push to main + PR.
+#
+# Runs on Linux with **poppler-utils** installed, so the Poppler cross-engine redaction leak check
+# (tests/test_redaction.py::test_redaction_leak_check_poppler_cross_engine) actually RUNS instead of
+# skipping the way it does on a stock Windows/WSL shell with no pdftotext on PATH. The suite is
+# offscreen (tests/conftest.py sets QT_QPA_PLATFORM=offscreen), so no display/xvfb is needed - only
+# the Qt offscreen runtime libs.
+#
+# This is the project's first CI that runs the tests: release.yml only builds, audit.yml only scans.
+name: test
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install system deps (Poppler for the cross-engine check; Qt offscreen runtime)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            poppler-utils libegl1 libgl1 libxkbcommon0 libdbus-1-3 libglib2.0-0 fontconfig
+
+      - name: Install Python deps (cross-platform dev lock, no hashes)
+        run: pip install -r requirements-dev.txt
+
+      - name: Run the headless suite
+        run: pytest -q
+
+      - name: Assert the Poppler cross-engine redaction test ran (did not skip)
+        run: |
+          out=$(pytest -q tests/test_redaction.py::test_redaction_leak_check_poppler_cross_engine)
+          echo "$out"
+          echo "$out" | grep -q "1 passed"
