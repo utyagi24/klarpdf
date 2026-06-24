@@ -9,7 +9,92 @@ explicit edit + a reviewable PR (see `CLAUDE.md` §How we work).
 
 ---
 
-## 1. Cut a release
+## 1. Change a dependency (pin → compile → vendor)
+
+`pip-compile` runs **here** — a manual, maintainer step, done *before* the pipeline — **not** inside
+`build.ps1` or `release.yml`. Those only *consume* the committed lock (`pip download` +
+`pip install --require-hashes --no-index`); they never regenerate it, so a rebuild can't silently
+pull a different version. Run `pip-compile` (pinned pip-tools, see `DEPENDENCIES.md`) on **Windows**,
+because the ship/build locks carry `win_amd64` hashes.
+
+1. **Edit the floor pin** in the right `*.in` — the only file you hand-edit:
+   - runtime dep (PySide6 / PyMuPDF / pypdf) → `requirements.in`
+   - test-only dep → `requirements-dev.in`
+   - build-only dep (PyInstaller) → `requirements-build.in`
+
+2. **Re-compile the affected lock(s).** A runtime change propagates to **both** the ship and dev
+   locks (the dev lock includes `-r requirements.in`):
+   ```sh
+   # ship lock (hashed, win_amd64) — Windows
+   pip-compile --generate-hashes -o requirements.txt requirements.in
+   # dev lock (versions, no hashes; a Windows compile keeps the win32-only colorama)
+   pip-compile -o requirements-dev.txt requirements-dev.in
+   # build lock (hashed) — only when a build-only dep changed
+   pip-compile --generate-hashes --allow-unsafe -o requirements-build.txt requirements-build.in
+   ```
+   `--require-hashes` isn't shareable across platforms, which is why the dev lock is version-only
+   (see `DEPENDENCIES.md`).
+
+3. **Re-vendor wheels** — needed for the offline build / clean-machine test (the online CI build
+   re-fetches on its own):
+   ```sh
+   pip download -r requirements.txt --only-binary=:all: -d vendor/wheels
+   ```
+   then update `vendor/wheels-sources.md` (version + sha256 + URL per wheel).
+
+4. **Review + test.** Open the lock diff as a PR (branch from `origin/main`); run the headless suite
+   (`.\.venv\Scripts\python.exe -m pytest`). The diff is auditable — exact `==` plus per-wheel hashes.
+
+5. **Ship it** if it should reach users — cut a release per §3.
+
+> Caveat (`CLAUDE.md` §Gotchas): compile the **ship/build** locks on **Windows** (python.org 3.12.x).
+> Compiling them on Linux yields manylinux hashes that `--require-hashes --no-index` rejects at build.
+
+---
+
+## 2. Incorporate a Dependabot security update
+
+Dependabot **alerts + security updates** (repo *settings*, under **Settings ▸ Code security**) open
+a PR when a dependency has a known advisory. There is no `.github/dependabot.yml` — version-update
+PRs are deliberately off, so the only Dependabot PRs you see are security-driven.
+
+> The PR description is Dependabot's standard changelog/commits format and does **not** name the
+> advisory. The **advisory + severity (CVSS) live in the linked alert** under
+> **repo ▸ Security ▸ Dependabot alerts**, which is tied to the PR there.
+
+**Flow:**
+
+1. **Triage** — open the linked alert for severity + advisory ID; skim the PR changelog.
+
+2. **Decide trust by package type** (this is the crux for our hashed/offline lock):
+   - **Pure-Python dep** (e.g. `pypdf`, pip-tools deps): the wheel is `py3-none-any`, so Dependabot's
+     `requirements.txt` hashes are platform-independent and **correct** → safe to take.
+     *Watch:* Dependabot re-resolves on its Linux runner, so it can **drop a win32-only transitive**
+     from `requirements-dev.txt` (e.g. `colorama`, pulled in by pytest only on Windows).
+   - **Native dep** (`PyMuPDF`, `PySide6-Essentials`, `shiboken6`): Dependabot resolves on Linux, so
+     its `requirements.txt` hashes may be the manylinux wheels, **not** our `win_amd64` set →
+     `--require-hashes` would fail on Windows. **Do not take its lock** — bump `requirements.in` and
+     regenerate the lock(s) on Windows per **§1**.
+
+3. **Reconcile the dev lock** on Windows (§1 step 2) so any win32-only transitive Dependabot's Linux
+   run dropped (e.g. `colorama`) returns.
+
+4. **Re-vendor** (§1 step 3) — only needed for a strict `-Offline` local build / clean-machine test;
+   the online CI release build re-fetches automatically.
+
+5. **Clean the audit gate.** Once the dependency is patched the advisory no longer applies — remove
+   its `--ignore-vuln <GHSA-id>` from `.github/workflows/audit.yml` **and** `tools/audit-deps.ps1`,
+   and resolve the matching `PROGRESS.md` "Open follow-ups" entry. (Leaving the ignore would silently
+   suppress that advisory if it ever recurred.)
+
+6. **Cut a patch release** — §3 below.
+
+**Fast path for a pure-Python bump** (the common case, e.g. `pypdf`): merge the Dependabot PR, then
+do steps 3 + 5, then release. Merging to `main` auto-resolves the Dependabot alert.
+
+---
+
+## 3. Cut a release
 
 **Sequence:** version bump → docs → tag → CI draft → smoke → publish.
 
@@ -68,91 +153,6 @@ cross-check, absent on Windows).
 `pwsh packaging/build.ps1` re-fetches wheels then builds; add `-Offline` to build strictly from the
 existing `vendor/wheels` (proves the fully-offline path — populate it once online first). Requires
 Inno Setup 6 installed (see `DEPENDENCIES.md`). Artifacts land in `dist/`.
-
----
-
-## 2. Change a dependency (pin → compile → vendor)
-
-`pip-compile` runs **here** — a manual, maintainer step, done *before* the pipeline — **not** inside
-`build.ps1` or `release.yml`. Those only *consume* the committed lock (`pip download` +
-`pip install --require-hashes --no-index`); they never regenerate it, so a rebuild can't silently
-pull a different version. Run `pip-compile` (pinned pip-tools, see `DEPENDENCIES.md`) on **Windows**,
-because the ship/build locks carry `win_amd64` hashes.
-
-1. **Edit the floor pin** in the right `*.in` — the only file you hand-edit:
-   - runtime dep (PySide6 / PyMuPDF / pypdf) → `requirements.in`
-   - test-only dep → `requirements-dev.in`
-   - build-only dep (PyInstaller) → `requirements-build.in`
-
-2. **Re-compile the affected lock(s).** A runtime change propagates to **both** the ship and dev
-   locks (the dev lock includes `-r requirements.in`):
-   ```sh
-   # ship lock (hashed, win_amd64) — Windows
-   pip-compile --generate-hashes -o requirements.txt requirements.in
-   # dev lock (versions, no hashes; a Windows compile keeps the win32-only colorama)
-   pip-compile -o requirements-dev.txt requirements-dev.in
-   # build lock (hashed) — only when a build-only dep changed
-   pip-compile --generate-hashes --allow-unsafe -o requirements-build.txt requirements-build.in
-   ```
-   `--require-hashes` isn't shareable across platforms, which is why the dev lock is version-only
-   (see `DEPENDENCIES.md`).
-
-3. **Re-vendor wheels** — needed for the offline build / clean-machine test (the online CI build
-   re-fetches on its own):
-   ```sh
-   pip download -r requirements.txt --only-binary=:all: -d vendor/wheels
-   ```
-   then update `vendor/wheels-sources.md` (version + sha256 + URL per wheel).
-
-4. **Review + test.** Open the lock diff as a PR (branch from `origin/main`); run the headless suite
-   (`.\.venv\Scripts\python.exe -m pytest`). The diff is auditable — exact `==` plus per-wheel hashes.
-
-5. **Ship it** if it should reach users — cut a release per §1.
-
-> Caveat (`CLAUDE.md` §Gotchas): compile the **ship/build** locks on **Windows** (python.org 3.12.x).
-> Compiling them on Linux yields manylinux hashes that `--require-hashes --no-index` rejects at build.
-
----
-
-## 3. Incorporate a Dependabot security update
-
-Dependabot **alerts + security updates** (repo *settings*, under **Settings ▸ Code security**) open
-a PR when a dependency has a known advisory. There is no `.github/dependabot.yml` — version-update
-PRs are deliberately off, so the only Dependabot PRs you see are security-driven.
-
-> The PR description is Dependabot's standard changelog/commits format and does **not** name the
-> advisory. The **advisory + severity (CVSS) live in the linked alert** under
-> **repo ▸ Security ▸ Dependabot alerts**, which is tied to the PR there.
-
-**Flow:**
-
-1. **Triage** — open the linked alert for severity + advisory ID; skim the PR changelog.
-
-2. **Decide trust by package type** (this is the crux for our hashed/offline lock):
-   - **Pure-Python dep** (e.g. `pypdf`, pip-tools deps): the wheel is `py3-none-any`, so Dependabot's
-     `requirements.txt` hashes are platform-independent and **correct** → safe to take.
-     *Watch:* Dependabot re-resolves on its Linux runner, so it can **drop a win32-only transitive**
-     from `requirements-dev.txt` (e.g. `colorama`, pulled in by pytest only on Windows).
-   - **Native dep** (`PyMuPDF`, `PySide6-Essentials`, `shiboken6`): Dependabot resolves on Linux, so
-     its `requirements.txt` hashes may be the manylinux wheels, **not** our `win_amd64` set →
-     `--require-hashes` would fail on Windows. **Do not take its lock** — bump `requirements.in` and
-     regenerate the lock(s) on Windows per **§2**.
-
-3. **Reconcile the dev lock** on Windows (§2 step 2) so any win32-only transitive Dependabot's Linux
-   run dropped (e.g. `colorama`) returns.
-
-4. **Re-vendor** (§2 step 3) — only needed for a strict `-Offline` local build / clean-machine test;
-   the online CI release build re-fetches automatically.
-
-5. **Clean the audit gate.** Once the dependency is patched the advisory no longer applies — remove
-   its `--ignore-vuln <GHSA-id>` from `.github/workflows/audit.yml` **and** `tools/audit-deps.ps1`,
-   and resolve the matching `PROGRESS.md` "Open follow-ups" entry. (Leaving the ignore would silently
-   suppress that advisory if it ever recurred.)
-
-6. **Cut a patch release** — §1 above.
-
-**Fast path for a pure-Python bump** (the common case, e.g. `pypdf`): merge the Dependabot PR, then
-do steps 3 + 5, then release. Merging to `main` auto-resolves the Dependabot alert.
 
 ---
 
