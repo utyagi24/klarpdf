@@ -1,12 +1,12 @@
 # Vendored wheel sources (offline Windows ship build)
 
-Exact `win_amd64` wheels for the pinned ship lock (`requirements.txt`). The wheels themselves
+Exact `win_amd64` wheels for the pinned ship lock (`requirements-win.txt`). The wheels themselves
 are **not committed** (binary bloat; GitHub's 100 MB/file limit) — this file is the auditable
 record so the set can be re-fetched and verified offline, and the M8 installer bundles them so
 the target machine needs no Python and no network. Regenerate with `vendor/gen-sources.py`
-(see its header) after any `requirements.txt` change.
+(see its header) after any `requirements-win.txt` change.
 
-Every `sha256` below also appears in `requirements.txt`; `pip install --require-hashes` refuses
+Every `sha256` below also appears in `requirements-win.txt`; `pip install --require-hashes` refuses
 any wheel whose hash does not match.
 
 ## PyMuPDF 1.27.2.3
