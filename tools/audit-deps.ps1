@@ -26,9 +26,9 @@
 #>
 [CmdletBinding()]
 param(
-    # Advisory IDs accepted as track-only (see PROGRESS.md). Pass @() to see everything.
-    #   GHSA-jm82-fx9c-mx94 - pypdf 6.13.2 memory-DoS, fix 6.13.3 (fallback engine only).
-    [string[]]$IgnoreVuln = @("GHSA-jm82-fx9c-mx94")
+    # Advisory IDs accepted as track-only (see PROGRESS.md). Empty by default; add IDs to silence
+    # an advisory you've consciously deferred, and mirror it in .github/workflows/audit.yml.
+    [string[]]$IgnoreVuln = @()
 )
 
 $ErrorActionPreference = "Stop"
