@@ -16,6 +16,41 @@ explicit edit + a reviewable PR (see `CLAUDE.md` §How we work).
 
 ---
 
+## Start here — shipping a change
+
+The sections below are organised by *operation*; this is how they **compose** for the two everyday
+cases. A change reaches users only when a release is cut (the last step). A small fix can carry its
+own version bump in the same PR; larger work can accumulate on `main` and ship under one later
+release PR — either way the release mechanics are §3.
+
+### A — bug fix or feature, **no** new dependency
+1. Branch from `origin/main`; make the change.
+2. **Test** — `invoke test` (headless suite green).
+3. **Version + docs** (§3 steps 1–2) — bump `version.py` (patch = fix, minor = feature); update the
+   `PROGRESS.md` / `CLAUDE.md` status paragraphs.
+4. **PR** (change + bump together), review, **merge** to `main`.
+5. **Release** (§3 steps 3–6) — `invoke tag --version X.Y.Z` → CI builds the draft → smoke-test →
+   `invoke publish --version X.Y.Z`.
+
+### B — bug fix or feature that **adds** a dependency
+Same as A, but do the dependency change **first** (§1), in the same PR, so the lock diff reviews
+alongside the code:
+1. Branch from `origin/main`.
+2. **Add + lock the dep** (§1) — edit the right `*.in`: runtime → `requirements.in`, test-only →
+   `requirements-dev.in`, build-only → `requirements-build.in`. Then **on Windows** regenerate with
+   `invoke lock` (recompiles the locks; unaffected ones produce no diff), plus `invoke vendor` for a
+   **runtime/build** dep (refreshes the offline wheels + `vendor/wheels-sources.md`; a *test-only*
+   dep needs no vendoring).
+3. Make the code change that uses it; **`invoke test`**.
+4. **Version + docs** as in A — and for a **runtime** dep, also add it to the `DEPENDENCIES.md`
+   runtime table (it grows the shipped audit surface).
+5. **PR** (the `*.in` + regenerated lock(s) + `wheels-sources.md` + code + bump), review, **merge**.
+6. **Release** as in A step 5.
+
+> A **Dependabot alert** is just case B with the target version already decided — see §2.
+
+---
+
 ## 1. Change a dependency (pin → compile → vendor)
 
 `pip-compile` runs **here** — a manual, maintainer step, done *before* the pipeline — **not** inside
