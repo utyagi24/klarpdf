@@ -7,6 +7,13 @@ Version is single-sourced in `version.py`; dependency versions are single-source
 `requirements.in` (compiled to the locks). Nothing changes automatically — every bump is an
 explicit edit + a reviewable PR (see `CLAUDE.md` §How we work).
 
+> **Each step here is also an `invoke` task** (`tasks.py` — run `invoke --list`). The tasks are thin
+> wrappers that **echo the exact command** they run, so they're a convenience, not a second source of
+> truth — this prose stays authoritative for *why* and for the platform/CI boundaries. Quick map:
+> `invoke test` · `invoke audit` · `invoke lock --package <pkg==ver>` · `invoke vendor` ·
+> `invoke build` · `invoke tag --version <v>` (pre-flights, then tags) · `invoke publish --version <v>`.
+> Windows-only tasks (`lock`/`vendor`/`build`) fail fast off Windows.
+
 ---
 
 ## 1. Change a dependency (pin → compile → vendor)
