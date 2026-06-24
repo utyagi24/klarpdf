@@ -14,7 +14,7 @@ build/
 dist/
 
 # Vendored wheels are a LOCAL build input only (a ~94 MB win_amd64 set), re-fetched via
-# `pip download -r requirements.txt`. NOT committed (binary bloat / GitHub's 100 MB/file limit);
+# `pip download -r requirements-win.txt`. NOT committed (binary bloat / GitHub's 100 MB/file limit);
 # vendor/wheels-sources.md records the exact version + sha256 + source URL of each, and the M8
 # installer bundles them so the target needs no Python/network. The record + generator under
 # vendor/ ARE committed — only the .whl payloads are ignored.

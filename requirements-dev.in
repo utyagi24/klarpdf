@@ -3,6 +3,6 @@
 # Note: a Windows compile includes pytest's win32-only `colorama` (pip-tools has no cross-platform
 # marker mode); that line is a harmless no-op extra if you install on Linux. Hashes are omitted on
 # purpose: Linux manylinux wheel hashes differ from the Windows win_amd64 hashes in
-# requirements.txt, so --require-hashes can't be shared across platforms (PLAN.md).
+# requirements-win.txt, so --require-hashes can't be shared across platforms (PLAN.md).
 -r requirements.in
 pytest>=8

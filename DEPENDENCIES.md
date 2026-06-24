@@ -5,8 +5,8 @@ Versions have a single source of truth: **`requirements.in`** (top-level floor p
 | Lock | For | Pinning | Produced |
 |---|---|---|---|
 | `requirements-dev.txt` | dev + tests (WSL/Windows) | exact `==`, **no hashes** | `pip-compile requirements-dev.in` |
-| `requirements.txt` | Windows ship build | exact `==` + `sha256` per wheel | **M6** (Windows), `pip-compile --generate-hashes` |
-| `requirements-build.txt` | build toolchain (PyInstaller) | exact `==` + `sha256` (`--allow-unsafe`) | **M8** (Windows), `pip-compile --generate-hashes` |
+| `requirements-win.txt` | Windows ship build | exact `==` + `sha256` per wheel | **M6** (Windows), `pip-compile --generate-hashes` |
+| `requirements-build-win.txt` | build toolchain (PyInstaller) | exact `==` + `sha256` (`--allow-unsafe`) | **M8** (Windows), `pip-compile --generate-hashes` |
 
 `--require-hashes` is **not** shareable across platforms: Linux `manylinux` wheels and Windows
 `win_amd64` wheels have different hashes. So dev installs by version only; the hashed, offline,
@@ -14,9 +14,9 @@ vendored lock is the Windows ship build's job. See PLAN.md §Development environ
 
 **Vendored wheels are not committed.** The `win_amd64` wheel set (~94 MB) is a local build input,
 re-fetched offline-thereafter with
-`pip download -r requirements.txt --only-binary=:all: -d vendor/wheels`.
+`pip download -r requirements-win.txt --only-binary=:all: -d vendor/wheels`.
 [`vendor/wheels-sources.md`](vendor/wheels-sources.md) records each wheel's exact version, `sha256`
-(same as `requirements.txt`), and source URL, so the set is reproducible and auditable without
+(same as `requirements-win.txt`), and source URL, so the set is reproducible and auditable without
 storing binaries in git (which also dodges GitHub's 100 MB/file limit). The **M8 installer bundles**
 the wheels, so target machines need no Python and no network.
 
@@ -43,11 +43,11 @@ the wheels, so target machines need no Python and no network.
 | **Python** | interpreter — 3.12.x exact | Windows **3.12.10** (python.org); WSL 3.12.3 | — |
 | **pip-tools** (`pip-compile`) | generate the locked requirements | **7.5.3** | dev/build env |
 | **pytest** | headless model/save tests | see `requirements-dev.txt` | `requirements-dev.txt` |
-| **PyInstaller** | freeze the app (onedir + onefile) | **6.21.0** | `requirements-build.txt` (hashed) |
+| **PyInstaller** | freeze the app (onedir + onefile) | **6.21.0** | `requirements-build-win.txt` (hashed) |
 | **Inno Setup** | build the Windows installer | **6.7.3** | here (native tool; `winget install JRSoftware.InnoSetup`, CI `choco install innosetup`) |
 
-M6 produced the hashed `win_amd64` ship lock (`requirements.txt`) on python.org **3.12.10** with
+M6 produced the hashed `win_amd64` ship lock (`requirements-win.txt`) on python.org **3.12.10** with
 **pip-tools 7.5.3**. M8 added the **build** toolchain — **PyInstaller 6.21.0** (hashed in
-`requirements-build.txt`) and **Inno Setup 6.7.3** — driven by `packaging/build.ps1`
+`requirements-build-win.txt`) and **Inno Setup 6.7.3** — driven by `packaging/build.ps1`
 (`.github/workflows/release.yml` runs the same on CI). Exact resolved versions are the **Locked**
 columns and the lock files.

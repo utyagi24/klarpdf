@@ -221,12 +221,12 @@ launcher). The Windows machine currently has only the **Microsoft Store stub** `
 is not usable for the build. WSL already has 3.12.3.
 
 **Dependency discipline applies to the _shipped Windows build_, not WSL dev:**
-- The authoritative `requirements.txt` (exact `==` + `--hash=sha256`) and `vendor/wheels/` are the
+- The authoritative `requirements-win.txt` (exact `==` + `--hash=sha256`) and `vendor/wheels/` are the
   **Windows** set (`win_amd64`), produced on Windows — the auditable ship artifact.
 - The **WSL dev venv** installs the **same pinned `==` versions** but **by version only, not by
   hash**: the Windows lockfile's `--hash=sha256` lines pin specific *`win_amd64`* wheels, and pip on
   Linux resolves *`manylinux`* wheels with different hashes, so `pip install --require-hashes -r
-  requirements.txt` would **fail on Linux by design**. Dev therefore installs from a small
+  requirements-win.txt` would **fail on Linux by design**. Dev therefore installs from a small
   unhashed `requirements-dev.txt` (or `pip install <pkg>==<ver> ...`) carrying the same versions —
   derived from the same `requirements.in`. It is dev tooling, not shipped, so it need not be
   hashed/vendored/offline; the offline+hashed guarantee is the Windows ship build's job.
@@ -238,7 +238,7 @@ install** — each reproducible and offline.
 
 ```mermaid
 flowchart LR
-  A["requirements.in<br/>(human-edited, top-level pins)"] -->|"pip-compile<br/>--generate-hashes"| B["requirements.txt<br/>(exact ==, sha256 per wheel)"]
+  A["requirements.in<br/>(human-edited, top-level pins)"] -->|"pip-compile<br/>--generate-hashes"| B["requirements-win.txt<br/>(exact ==, sha256 per wheel)"]
   B -->|"pip download<br/>(once, online)"| C["vendor/wheels/<br/>(committed/released)"]
   C -->|"pip install --no-index<br/>--require-hashes (offline)"| D["build venv<br/>(Win, Python 3.12.x pinned)"]
   D -->|"PyInstaller (pinned)<br/>--onedir --noconsole"| E["dist/pdfproj/<br/>(runtime + Qt + libs)"]
@@ -248,7 +248,7 @@ flowchart LR
 
 **1. Dependency pinning & integrity (versions never drift).**
 - `requirements.in` lists the few top-level libs (PySide6, PyMuPDF, pypdf). `pip-compile
-  --generate-hashes` (from **pip-tools**, itself pinned) produces `requirements.txt` with **exact
+  --generate-hashes` (from **pip-tools**, itself pinned) produces `requirements-win.txt` with **exact
   `==` versions for the full transitive tree plus a `--hash=sha256:` for every wheel**.
 - All installs use `pip install --require-hashes --no-index --find-links vendor/wheels` — pip
   **refuses** anything whose version or hash doesn't match the lockfile, so a rebuild can never
@@ -258,7 +258,7 @@ flowchart LR
   versions. Also pin **Python (3.12.x exact)**, **PyInstaller**, and the **Inno Setup** version
   used, recorded in `DEPENDENCIES.md`.
 
-**2. Vendored wheels (offline build).** Run `pip download -r requirements.txt --only-binary=:all:
+**2. Vendored wheels (offline build).** Run `pip download -r requirements-win.txt --only-binary=:all:
 -d vendor/wheels` to fetch the `win_amd64` set. The wheels are **not committed** (binary bloat /
 GitHub's 100 MB-per-file limit); `vendor/wheels-sources.md` records each wheel's version + sha256 +
 source URL so the exact set is reproducible, and each release archives them as assets. Once
@@ -294,7 +294,7 @@ widely used; script-driven) with a checked-in `packaging/installer.iss` that:
 `.github/workflows/release.yml` runs on a **`windows-latest`** runner, triggered both by
 **`workflow_dispatch`** (a "Run workflow" button in the Actions tab, also `gh workflow run`) and by
 a **`push` of a `v*` tag**. It drives the same one-command `packaging/build.ps1` (also runnable
-locally) end-to-end: re-fetch + hash-verify the `win_amd64` wheels from `requirements.txt` (not
+locally) end-to-end: re-fetch + hash-verify the `win_amd64` wheels from `requirements-win.txt` (not
 committed — see §2) → clean build venv (`--require-hashes --no-index`) + pinned PyInstaller → **two
 artifacts** from `packaging/pdfproj.spec`: the **`--onedir --noconsole`** tree for the installer and
 a portable **`--onefile` `pdfproj-portable.exe`** → Inno Setup (`ISCC installer.iss`) →
@@ -370,7 +370,7 @@ pdfproj/
   tests/test_virtual_document.py  # reorder/delete/insert/move/copy + undo/redo restore ordered[]
   tests/test_materialize.py       # materialize preserves OCR text, remaps TOC to new indices, drops dangling, keeps form fields
   requirements.in              # top-level FLOOR pins (e.g. PyMuPDF>=1.25.5); pip-compile makes the exact == lock. Only file edited to bump
-  requirements.txt             # locked Windows ship: exact == for full tree + sha256 hash per win_amd64 wheel (pip-compile --generate-hashes)
+  requirements-win.txt             # locked Windows ship: exact == for full tree + sha256 hash per win_amd64 wheel (pip-compile --generate-hashes)
   requirements-dev.txt         # WSL dev: same == versions, NO hashes (Linux manylinux wheels differ); version-only install for iteration + tests
   vendor/wheels/               # pinned win_amd64 wheels (offline build) — NOT committed; re-fetched from the lock, archived as release assets
   vendor/wheels-sources.md     # auditable record: version + sha256 + source URL per wheel (regenerated by vendor/gen-sources.py)
@@ -396,10 +396,10 @@ Each step is tagged **(WSL)** / **(WSLg)** / **(Windows)** per the Development e
      iteration + headless tests. Canonical source is the WSL checkout `/home/<you>/pdfproj`.
    - *Windows (ship lock):* install **Python 3.12.x** from python.org (not the Store stub; add to
      PATH). Author `requirements.in`, run `pip-compile --generate-hashes` → the pinned, hashed
-     `requirements.txt`; `pip download --only-binary=:all:` the `win_amd64` wheels into
+     `requirements-win.txt`; `pip download --only-binary=:all:` the `win_amd64` wheels into
      `vendor/wheels/`; write `DEPENDENCIES.md`. The offline build runs from the Windows checkout
      `C:\Users\<you>\pdfproj` (via git): `py -3.12 -m pip install --require-hashes --no-index
-     --find-links vendor/wheels -r requirements.txt`.
+     --find-links vendor/wheels -r requirements-win.txt`.
 2. **Single-instance launcher + window management — (WSL; validate on Windows).** The duplicate-tab
    fix and resident process. WSLg smoke-tests the `QLocalServer` handoff; Explorer `%1`, named-pipe
    IPC, and the focus quirks are Windows-real → validate on Windows. Focus logic lives behind
@@ -438,7 +438,7 @@ in WSL before anything touches Windows.
 | **M3** Selection + search | 4 | WSLg | drag-select → clipboard copy; find + next/prev |
 | **M4** Editing loop | 6 + 8 | WSLg | reorder/delete/merge + cross-window cut/copy/paste (organize panel) + undo/redo; Save/Save As; dirty-close prompt |
 | **M5** Single-instance | 2 (logic) | WSL | second launch hands off to first (WSLg smoke test) |
-| **M6** Windows ship lock | 1 (Win) | Windows | python.org 3.12; hashed `requirements.txt`; vendored `win_amd64` wheels; `DEPENDENCIES.md` |
+| **M6** Windows ship lock | 1 (Win) | Windows | python.org 3.12; hashed `requirements-win.txt`; vendored `win_amd64` wheels; `DEPENDENCIES.md` |
 | **M7** Windows validation | 2 (validate) | Windows | single-instance/focus/Open-With behave on real Windows; GUI fidelity pass |
 | **M8** Freeze + installer + CI | 9 | Windows | `build.ps1` (+ `.github/workflows/release.yml`) → PyInstaller (onedir + onefile) → Inno Setup → `pdfproj-setup.exe` + portable `.exe` |
 | **M9** Verify + release | Verification § | Windows | offline build + clean-machine install + no-network audit; portable-exe check; uninstall wipes app + keys + `%APPDATA%` → tag `v*` → GitHub Release |
@@ -453,7 +453,7 @@ milestone PR ticks its box and links the PR. `CLAUDE.md` routes any resuming age
 
 **Windows handoff.** git is the only bridge — never edit across `\\wsl$` / `/mnt/c`. Code flows
 **WSL → Windows** (push here, pull there); ship artifacts flow **Windows → repo** (the hashed
-`requirements.txt`, `vendor/wheels/`, `DEPENDENCIES.md`, and `setup.exe` are produced on Windows and
+`requirements-win.txt`, `vendor/wheels/`, `DEPENDENCIES.md`, and `setup.exe` are produced on Windows and
 committed back, keeping the repo canonical).
 - *One-time Windows setup (M5 → M6):* install **Python 3.12.x from python.org** (Store stub won't
   build); install **git + an SSH key** (or HTTPS + `gh`) and `git clone` to `C:\Users\<you>\pdfproj`;
@@ -510,8 +510,8 @@ Run with `py -3.12 -m pytest -q` (or `pytest` in the project venv).
 
 ### Installer, offline & dependency integrity
 
-- **Version pinning holds:** `pip install --require-hashes --no-index -r requirements.txt` into a
-  fresh venv succeeds; then flip one hash/version in `requirements.txt` and confirm pip **aborts**
+- **Version pinning holds:** `pip install --require-hashes --no-index -r requirements-win.txt` into a
+  fresh venv succeeds; then flip one hash/version in `requirements-win.txt` and confirm pip **aborts**
   (proves nothing can silently drift). Rebuilding twice yields the same dependency versions.
 - **Offline build:** disconnect the network (or build inside a no-egress shell) and run
   `packaging/build.ps1` end-to-end from `vendor/wheels/` — produces `pdfproj-setup.exe` with no
