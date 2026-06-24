@@ -26,11 +26,11 @@ because the ship/build locks carry `win_amd64` hashes.
    locks (the dev lock includes `-r requirements.in`):
    ```sh
    # ship lock (hashed, win_amd64) — Windows
-   pip-compile --generate-hashes -o requirements.txt requirements.in
+   pip-compile --generate-hashes -o requirements-win.txt requirements.in
    # dev lock (versions, no hashes; a Windows compile keeps the win32-only colorama)
    pip-compile -o requirements-dev.txt requirements-dev.in
    # build lock (hashed) — only when a build-only dep changed
-   pip-compile --generate-hashes --allow-unsafe -o requirements-build.txt requirements-build.in
+   pip-compile --generate-hashes --allow-unsafe -o requirements-build-win.txt requirements-build.in
    ```
    `--require-hashes` isn't shareable across platforms, which is why the dev lock is version-only
    (see `DEPENDENCIES.md`).
@@ -39,8 +39,8 @@ because the ship/build locks carry `win_amd64` hashes.
    clean-machine test (the online CI build re-fetches on its own). `vendor/wheels-sources.md` is
    **generated, never hand-edited** — `vendor/gen-sources.py` writes it from a pip `--report` JSON:
    ```sh
-   pip download -r requirements.txt --only-binary=:all: -d vendor/wheels
-   pip install -r requirements.txt --require-hashes --ignore-installed --dry-run --report report.json
+   pip download -r requirements-win.txt --only-binary=:all: -d vendor/wheels
+   pip install -r requirements-win.txt --require-hashes --ignore-installed --dry-run --report report.json
    py -3.12 vendor/gen-sources.py        # reads report.json -> writes vendor/wheels-sources.md
    ```
    Commit the regenerated `vendor/wheels-sources.md`; `report.json` is a gitignored throwaway. (The
@@ -56,45 +56,29 @@ because the ship/build locks carry `win_amd64` hashes.
 
 ---
 
-## 2. Incorporate a Dependabot security update
+## 2. Respond to a Dependabot alert
 
-Dependabot **alerts + security updates** (repo *settings*, under **Settings ▸ Code security**) open
-a PR when a dependency has a known advisory. There is no `.github/dependabot.yml` — version-update
-PRs are deliberately off, so the only Dependabot PRs you see are security-driven.
+Dependabot is **detection-only** here: **alerts** are on (repo setting), but **security-update PRs
+and version-update PRs are both disabled**. Dependabot runs on Linux and would write wrong-platform
+(manylinux) hashes into the `win_amd64` locks for native deps, so we never let it auto-edit them — it
+tells you *what* and *how severe*, and you do the bump yourself.
 
-> The PR description is Dependabot's standard changelog/commits format and does **not** name the
-> advisory. The **advisory + severity (CVSS) live in the linked alert** under
-> **repo ▸ Security ▸ Dependabot alerts**, which is tied to the PR there.
+> The alert (repo ▸ Security ▸ Dependabot) carries the advisory ID, **severity (CVSS)**, the
+> vulnerable range, and the **first patched version** — that's the source of truth.
 
 **Flow:**
 
-1. **Triage** — open the linked alert for severity + advisory ID; skim the PR changelog.
+1. **Read the alert** — note the package, severity, and the first patched version.
 
-2. **Decide trust by package type** (this is the crux for our hashed/offline lock):
-   - **Pure-Python dep** (e.g. `pypdf`, pip-tools deps): the wheel is `py3-none-any`, so Dependabot's
-     `requirements.txt` hashes are platform-independent and **correct** → safe to take.
-     *Watch:* Dependabot re-resolves on its Linux runner, so it can **drop a win32-only transitive**
-     from `requirements-dev.txt` (e.g. `colorama`, pulled in by pytest only on Windows).
-   - **Native dep** (`PyMuPDF`, `PySide6-Essentials`, `shiboken6`): Dependabot resolves on Linux, so
-     its `requirements.txt` hashes may be the manylinux wheels, **not** our `win_amd64` set →
-     `--require-hashes` would fail on Windows. **Do not take its lock** — bump `requirements.in` and
-     regenerate the lock(s) on Windows per **§1**.
+2. **Bump it via §1** — edit the `.in` floor to the patched version, recompile the affected lock(s)
+   on Windows, re-vendor. (Pure-Python vs native doesn't change the steps; recompiling on Windows
+   yields the correct `win_amd64` hashes either way.)
 
-3. **Reconcile the dev lock** on Windows (§1 step 2) so any win32-only transitive Dependabot's Linux
-   run dropped (e.g. `colorama`) returns.
+3. **Clean the audit gate** — if the advisory was being carried as track-only, remove its
+   `--ignore-vuln <GHSA-id>` from `.github/workflows/audit.yml` **and** `tools/audit-deps.ps1`, and
+   resolve the matching `PROGRESS.md` "Open follow-ups" entry.
 
-4. **Re-vendor** (§1 step 3) — only needed for a strict `-Offline` local build / clean-machine test;
-   the online CI release build re-fetches automatically.
-
-5. **Clean the audit gate.** Once the dependency is patched the advisory no longer applies — remove
-   its `--ignore-vuln <GHSA-id>` from `.github/workflows/audit.yml` **and** `tools/audit-deps.ps1`,
-   and resolve the matching `PROGRESS.md` "Open follow-ups" entry. (Leaving the ignore would silently
-   suppress that advisory if it ever recurred.)
-
-6. **Cut a patch release** — §3 below.
-
-**Fast path for a pure-Python bump** (the common case, e.g. `pypdf`): merge the Dependabot PR, then
-do steps 3 + 5, then release. Merging to `main` auto-resolves the Dependabot alert.
+4. **Cut a patch release** — §3 below. Pushing the bump to `main` auto-resolves the alert.
 
 ---
 
@@ -128,7 +112,7 @@ cross-check, absent on Windows).
 
 4. **CI draft.** The `v*` tag push runs `.github/workflows/release.yml` on a `windows-latest` runner.
    It executes `packaging/build.ps1` end-to-end — re-fetch + hash-verify the `win_amd64` wheels from
-   `requirements.txt` → clean build venv (`--require-hashes --no-index`) → PyInstaller onedir +
+   `requirements-win.txt` → clean build venv (`--require-hashes --no-index`) → PyInstaller onedir +
    onefile → Inno Setup installer → `SHA256SUMS` — uploads the artifacts, and creates a **draft**
    GitHub Release (`draft: true`, auto-generated notes) attaching `pdfproj-setup.exe`,
    `pdfproj-portable.exe`, `SHA256SUMS`, and `vendor-wheels.zip` (the exact build inputs / AGPL
