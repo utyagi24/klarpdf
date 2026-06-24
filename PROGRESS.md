@@ -155,6 +155,17 @@ and ships as a separate optional component — the `pdfproj-setup.exe` audit sur
 
 Carried items — none block work:
 
+- **Dependency vuln: pypdf → 6.13.3** — `pip-audit` (2026-06-23) flagged **GHSA-jm82-fx9c-mx94**
+  in the pinned `pypdf==6.13.2` (ship + dev locks): a crafted PDF with a content stream missing
+  `/Length` bypasses `MAX_DECLARED_STREAM_LENGTH` → large memory use. **Moderate, CVSS 4.0 = 6.9**
+  (`AV:L … VA:H` — local file, availability-only; no data exposure / RCE; no CVE assigned). Low
+  exposure here: `pypdf` is only the *fallback* edit engine (`model/edit_engine.py:PyPdfEngine`);
+  PyMuPDF is authoritative. **Fix:** bump `requirements.in` floor to `pypdf>=6.13.3`, re-compile
+  `requirements{,-dev}.txt`, re-vendor wheels (Windows) — fold into the next dependency bump /
+  release. Accepted track-only, so it is **explicitly ignored** by the audit gate
+  (`--ignore-vuln GHSA-jm82-fx9c-mx94` in `.github/workflows/audit.yml` + `tools/audit-deps.ps1`);
+  remove that ignore when `pypdf` is bumped. Also watched by Dependabot **alerts + security updates**
+  (repo settings — these surface new advisories and auto-open fix PRs without no-CVE version churn).
 - **Clean-machine install** — the one deferred M9 verification item: run `pdfproj-setup.exe` on a
   Windows VM with **no Python and networking disabled** (Win10 Home has no Sandbox → VirtualBox /
   spare machine / fresh local user). Everything else in the Verification matrix is green.
