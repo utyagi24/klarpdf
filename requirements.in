@@ -6,4 +6,4 @@
 # unused — we render via PyMuPDF, not QtPdf — so excluding it shrinks the bundle + audit surface.
 PySide6-Essentials>=6.7
 PyMuPDF>=1.25.5
-pypdf>=4.0
+pypdf>=6.13.3
