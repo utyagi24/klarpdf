@@ -34,7 +34,11 @@ from invoke import task
 ROOT = Path(__file__).resolve().parent
 IS_WIN = platform.system() == "Windows"
 _BIN = ROOT / ".venv" / ("Scripts" if IS_WIN else "bin")
-PY = str(_BIN / ("python.exe" if IS_WIN else "python"))
+_VENV_PY = _BIN / ("python.exe" if IS_WIN else "python")
+# Prefer the project .venv; otherwise fall back to the interpreter running invoke - so `invoke test`
+# / `audit` work in WSL even if the dev venv lives elsewhere, as long as invoke is run from it (the
+# intended dev-dependency model). On Windows invoke is run from .venv, so behaviour is unchanged.
+PY = str(_VENV_PY) if _VENV_PY.exists() else sys.executable
 PIP_COMPILE = str(_BIN / ("pip-compile.exe" if IS_WIN else "pip-compile"))
 # PowerShell 7 (pwsh, matches release.yml / CI) if present, else Windows PowerShell 5.1.
 POWERSHELL = shutil.which("pwsh") or "powershell"
@@ -60,9 +64,12 @@ def audit(c):
     """Scan the dependency locks for known advisories (isolated pip-audit)."""
     if IS_WIN:
         c.run(_ps("tools/audit-deps.ps1"), echo=True)
-    else:
-        for lock in ("requirements-win.txt", "requirements-dev.txt", "requirements-build-win.txt"):
-            c.run(f"pip-audit -r {lock} --no-deps --desc", echo=True, warn=True)
+        return
+    if not shutil.which("pip-audit"):
+        sys.exit("pip-audit not found - `pipx install pip-audit` (kept out of the project venv), "
+                 "or rely on the CI audit (.github/workflows/audit.yml).")
+    for lock in ("requirements-win.txt", "requirements-dev.txt", "requirements-build-win.txt"):
+        c.run(f"pip-audit -r {lock} --no-deps --desc", echo=True, warn=True)
 
 
 @task(help={"package": "re-pin only this package, e.g. pypdf==6.13.3 (optional)"})
