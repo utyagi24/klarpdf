@@ -47,14 +47,13 @@ jobs:
       - name: Install pip-audit (isolated via pipx)
         run: pipx install pip-audit
 
-      # Accepted, track-only advisories are ignored here AND in tools/audit-deps.ps1 and recorded in
-      # PROGRESS.md "Open follow-ups". Keep the three in sync; drop an entry when the dep is bumped.
-      #   GHSA-jm82-fx9c-mx94 — pypdf 6.13.2 memory-DoS, fix 6.13.3 (fallback engine only).
+      # If an advisory is ever accepted as track-only, add --ignore-vuln <GHSA-id> to the runs below,
+      # mirror it in tools/audit-deps.ps1, and record it in PROGRESS.md "Open follow-ups".
       - name: Audit ship lock (requirements-win.txt)
-        run: pip-audit -r requirements-win.txt --no-deps --desc --ignore-vuln GHSA-jm82-fx9c-mx94
+        run: pip-audit -r requirements-win.txt --no-deps --desc
 
       - name: Audit dev lock (requirements-dev.txt)
-        run: pip-audit -r requirements-dev.txt --no-deps --desc --ignore-vuln GHSA-jm82-fx9c-mx94
+        run: pip-audit -r requirements-dev.txt --no-deps --desc
 
       - name: Audit build lock (requirements-build-win.txt)
-        run: pip-audit -r requirements-build-win.txt --no-deps --desc --ignore-vuln GHSA-jm82-fx9c-mx94
+        run: pip-audit -r requirements-build-win.txt --no-deps --desc

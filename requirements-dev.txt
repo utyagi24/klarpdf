@@ -16,7 +16,7 @@ pygments==2.20.0
     # via pytest
 pymupdf==1.27.2.3
     # via -r requirements.in
-pypdf==6.13.2
+pypdf==6.13.3
     # via -r requirements.in
 pyside6-essentials==6.11.1
     # via -r requirements.in
