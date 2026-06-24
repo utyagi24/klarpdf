@@ -38,10 +38,8 @@ jobs:
         run: pip install -r requirements-dev.txt
 
       - name: Run the headless suite
-        run: pytest -q
+        run: pytest -q --junit-xml=junit.xml
 
       - name: Assert the Poppler cross-engine redaction test ran (did not skip)
         run: |
-          out=$(pytest -q tests/test_redaction.py::test_redaction_leak_check_poppler_cross_engine)
-          echo "$out"
-          echo "$out" | grep -q "1 passed"
+          python -c "import xml.etree.ElementTree as ET; tcs=[t for t in ET.parse('junit.xml').getroot().iter('testcase') if t.get('name')=='test_redaction_leak_check_poppler_cross_engine']; assert tcs, 'redaction cross-engine test not found in results'; assert tcs[0].find('skipped') is None, 'cross-engine redaction test SKIPPED in CI (Poppler missing?)'; print('OK: cross-engine redaction test ran (not skipped)')"
