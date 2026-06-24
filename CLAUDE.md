@@ -30,6 +30,10 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   exception is *intentionally stacking* on an open PR — then base the branch on it **and** set the PR's
   base to match. Sanity-check before pushing: `git diff --stat origin/main..HEAD` should list only your
   own files.
+- **Delete the local branch after its PR merges.** Once a PR is merged, switch back and prune:
+  `git checkout main && git pull --ff-only && git branch -d <branch>`, plus `git fetch --prune` to
+  drop stale remote-tracking refs. Don't let merged branches pile up. (GitHub auto-deletes the remote
+  head branch on merge, so only the local copy needs cleaning.)
 - **One PR per milestone** (implementation); one PR per logical unit for planning/process changes. In
   the same PR, tick the milestone's box in `PROGRESS.md` and link the PR.
 - **Cite sources.** Tie claims/numbers back to a `PLAN.md` section; don't present assumptions as facts.
