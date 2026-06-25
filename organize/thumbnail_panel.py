@@ -23,35 +23,24 @@ from PySide6.QtGui import (
     QPixmap,
     QTransform,
 )
-from PySide6.QtWidgets import (
-    QAbstractItemView,
-    QListWidget,
-    QListWidgetItem,
-    QStyledItemDelegate,
-)
+from PySide6.QtWidgets import QAbstractItemView, QListWidget, QListWidgetItem
 
 from model.edit_engine import PyMuPDFEngine
 from model.virtual_document import IMAGE_EXTENSIONS, VirtualDocument
 
-_THUMB_W = 140  # target thumbnail width in px
 _DRAG_W = 96    # width of the page image carried under the cursor while dragging
 _ACCENT = QColor(0, 120, 215)  # drop-marker + count-badge colour
-_SIDEBAR_W = 190      # default Pages-sidebar width: one thumbnail column + margins + scrollbar
-_SIDEBAR_MIN_W = 168  # never narrower than one full thumbnail + the scrollbar
+# Thumbnails scale with the sidebar width (Preview-style): the displayed icon width tracks the bar
+# between these bounds, and the bar itself is bounded (min/max width) so widening grows the thumbnail
+# up to a cap instead of adding dead space. Pages render once at the MAX width and Qt scales the
+# pixmap down, so resizing stays sharp and cheap (no re-render).
+_THUMB_MIN_W = 110
+_THUMB_MAX_W = 240
+_SIDEBAR_W = 210      # default sidebar width (a comfortable mid-size thumbnail)
+_SIDEBAR_CHROME = 36  # scrollbar + frame + the 2*spacing margin, added around the thumbnail width
 # Custom drag payload so a drop knows the source document + rows even across windows; the plain
 # QListWidget item-move MIME can't cross processes/windows and InternalMove can't leave the view.
 _PAGES_MIME = "application/x-pdfproj-pages"
-
-
-class _CenterColumnDelegate(QStyledItemDelegate):
-    """Stretch each item to the full viewport width so the fixed-width thumbnail centres in its row —
-    one centred column at any sidebar width. The natural icon + label height is preserved."""
-
-    def sizeHint(self, option, index):
-        hint = super().sizeHint(option, index)
-        view = self.parent()
-        width = view.viewport().width() if view is not None else hint.width()
-        return QSize(max(hint.width(), width), hint.height())
 
 
 class ThumbnailPanel(QListWidget):
@@ -69,16 +58,16 @@ class ThumbnailPanel(QListWidget):
         self._syncing = False  # guard against current→highlight→jump feedback loops
 
         self.setViewMode(QListWidget.ViewMode.IconMode)
-        self.setIconSize(QSize(_THUMB_W, int(_THUMB_W * 1.4)))
+        self.setIconSize(QSize(_THUMB_MAX_W, round(_THUMB_MAX_W * 1.4)))  # adjusted to the bar on show
         self.setResizeMode(QListWidget.ResizeMode.Adjust)
         self.setMovement(QListWidget.Movement.Static)
         self.setSpacing(8)
         self.setUniformItemSizes(False)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        # Centre the single thumbnail column (delegate stretches items to the viewport width) and
-        # keep the sidebar from being dragged narrower than one full thumbnail.
-        self.setItemDelegate(_CenterColumnDelegate(self))
-        self.setMinimumWidth(_SIDEBAR_MIN_W)
+        # Single column; the thumbnails scale with the bar (see _apply_thumb_size), and the bar's
+        # width is bounded so widening grows the thumbnail up to a cap rather than leaving dead space.
+        self.setMinimumWidth(_THUMB_MIN_W + _SIDEBAR_CHROME)
+        self.setMaximumWidth(_THUMB_MAX_W + _SIDEBAR_CHROME)
 
         # Organize: multi-select + drag-and-drop. DragDrop (not InternalMove) so pages can be
         # dragged across windows too; we carry a custom MIME payload and drive the model via a
@@ -367,7 +356,7 @@ class ThumbnailPanel(QListWidget):
         if baked is not None:
             try:
                 page = baked[index]  # page i == ordered[i], with rotation + every edit baked in
-                zoom = _THUMB_W / max(1.0, page.rect.width)
+                zoom = _THUMB_MAX_W / max(1.0, page.rect.width)
                 pm = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
                 img = QImage(pm.samples, pm.width, pm.height, pm.stride, QImage.Format.Format_RGB888)
                 return QIcon(QPixmap.fromImage(img.copy()))
@@ -383,7 +372,7 @@ class ThumbnailPanel(QListWidget):
         final_rot = page.rotation if ref.rotation_override is None else ref.rotation_override
         mediabox = page.mediabox
         displayed_w = mediabox.height if final_rot % 180 else mediabox.width
-        zoom = _THUMB_W / max(1.0, displayed_w)
+        zoom = _THUMB_MAX_W / max(1.0, displayed_w)
         try:
             pm = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
             img = QImage(pm.samples, pm.width, pm.height, pm.stride, QImage.Format.Format_RGB888)
@@ -405,7 +394,7 @@ class ThumbnailPanel(QListWidget):
         final_rot = page.rotation if ref.rotation_override is None else ref.rotation_override
         mb = page.mediabox
         disp_w, disp_h = (mb.height, mb.width) if final_rot % 180 else (mb.width, mb.height)
-        return _THUMB_W, max(1, round(_THUMB_W * disp_h / max(1.0, disp_w)))
+        return _THUMB_MAX_W, max(1, round(_THUMB_MAX_W * disp_h / max(1.0, disp_w)))
 
     def _placeholder_icon(self, index: int) -> QIcon:
         """A cheap blank-page icon at the correct size, shown until the real thumbnail is rendered."""
@@ -468,16 +457,25 @@ class ThumbnailPanel(QListWidget):
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
+        self._apply_thumb_size()
         self._render_visible_thumbs()
 
     def sizeHint(self) -> QSize:
-        # Snug default width on first show (one column + margins + scrollbar); the bare QListWidget
-        # hint is much wider. Still user-resizable; the centring delegate re-centres at any width.
+        # Snug default width on first show (the bare QListWidget hint is much wider). User-resizable
+        # within the min/max bounds; the thumbnail scales to fill whatever width is chosen.
         return QSize(_SIDEBAR_W, super().sizeHint().height())
+
+    def _apply_thumb_size(self) -> None:
+        """Scale the displayed thumbnail to the current bar width (Preview-style), within the bounds.
+        The pixmap is rendered at _THUMB_MAX_W, so this only resizes the icon — no re-render."""
+        avail = self.viewport().width() - 2 * self.spacing()
+        w = max(_THUMB_MIN_W, min(_THUMB_MAX_W, avail))
+        if self.iconSize().width() != w:
+            self.setIconSize(QSize(w, round(w * 1.4)))
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
-        self.scheduleDelayedItemsLayout()  # re-query the delegate so the column re-centres at the new width
+        self._apply_thumb_size()  # thumbnails grow/shrink with the bar (Preview-style)
         self._render_visible_thumbs()
 
     def set_current(self, index: int) -> None:
