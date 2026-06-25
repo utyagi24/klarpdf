@@ -123,7 +123,7 @@ def test_thumbnail_width_stays_full_when_saved_rotated_page_is_rotated_back(qapp
     import pymupdf as fitz
 
     from model.virtual_document import VirtualDocument
-    from organize.thumbnail_panel import _THUMB_W, ThumbnailPanel
+    from organize.thumbnail_panel import ThumbnailPanel
 
     path = str(tmp_path / "rot.pdf")
     doc = fitz.open()

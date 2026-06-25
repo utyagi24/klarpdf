@@ -79,6 +79,9 @@ class PdfView(QGraphicsView):
         # never painted — at the construction zoom (1.0) or during the pre-show resizes. So the first
         # frame the user sees is rendered once, at Fit Page, with no zoom-1.0 / resize flicker.
         self._shown_once = False
+        # Sticky fit mode ("width" / "page" / None): re-applied on every viewport resize so a chosen
+        # Fit Width / Fit Page follows the window — e.g. it re-fits when the Pages sidebar is toggled.
+        self._fit_mode: "str | None" = None
         self._build_scene()
         self.verticalScrollBar().valueChanged.connect(self._on_scroll)
 
@@ -159,7 +162,11 @@ class PdfView(QGraphicsView):
         for i in range(self._vdoc.page_count):
             w_pt, h_pt = self._natural_size(i)
             w, h = w_pt * self._zoom, h_pt * self._zoom
-            x = (widest - w) / 2.0
+            # Centre each page within the scene's content band. The band is inset by _PAGE_GAP on
+            # both sides (the sceneRect below is widest + 2*_PAGE_GAP), so the left inset must be
+            # added here too — without it the widest page sat flush at scene-x 0 and the whole strip
+            # rendered ~_PAGE_GAP px left of centre in the window.
+            x = _PAGE_GAP + (widest - w) / 2.0
             # Geometry goes in the item POSITION (local rect at origin), so the child pixmap —
             # placed at the parent's (0,0) — inherits the page's scene position. Encoding x/y in
             # the rect instead leaves the item at (0,0) and piles every pixmap at the origin.
@@ -533,6 +540,7 @@ class PdfView(QGraphicsView):
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
+        self._reapply_fit()  # a sticky Fit Width/Page follows the new viewport (e.g. sidebar toggle)
         self._render_visible()
 
     # ---- public API: zoom / fit / rotate / navigation ---------------------------
@@ -587,7 +595,11 @@ class PdfView(QGraphicsView):
         self.viewport().setCursor(Qt.CursorShape.ArrowCursor)
         self.armedChanged.emit(None)
 
-    def set_zoom(self, zoom: float, keep_page: bool = True) -> None:
+    def set_zoom(self, zoom: float, keep_page: bool = True, fit: "str | None" = None) -> None:
+        # ``fit`` records the sticky fit-mode this zoom represents ("width" / "page"); it is re-applied
+        # on a viewport resize so the fit follows the window (e.g. a Pages-sidebar toggle). A manual
+        # zoom passes None, which cancels any sticky fit.
+        self._fit_mode = fit
         zoom = max(_MIN_ZOOM, min(_MAX_ZOOM, zoom))
         if abs(zoom - self._zoom) < 1e-6:
             return
@@ -619,10 +631,31 @@ class PdfView(QGraphicsView):
         return zoom
 
     def fit_width(self) -> None:
-        self.set_zoom(self._fit_zoom(fit_height=False))
+        self.set_zoom(self._fit_zoom(fit_height=False), fit="width")
+        self._center_horizontally()
 
     def fit_page(self) -> None:
-        self.set_zoom(self._fit_zoom(fit_height=True))
+        self.set_zoom(self._fit_zoom(fit_height=True), fit="page")
+        self._center_horizontally()
+
+    def _reapply_fit(self) -> None:
+        """Re-run the active sticky fit against the current viewport (called on resize)."""
+        if self._fit_mode == "width":
+            self.set_zoom(self._fit_zoom(fit_height=False), fit="width")
+            self._center_horizontally()
+        elif self._fit_mode == "page":
+            self.set_zoom(self._fit_zoom(fit_height=True), fit="page")
+            self._center_horizontally()
+
+    def _center_horizontally(self) -> None:
+        """Centre the viewport on the scene's horizontal midline. Pages are laid out centred in the
+        scene's widest column, so this centres the **current** page — needed when a wider (e.g. a
+        90°/270°-rotated) page makes the scene exceed the viewport width, where Qt's AlignHCenter no
+        longer applies. Fit Width/Page on the current page then stays centred + fitting while the
+        wider page overflows symmetrically (h-scrollable), instead of shoving the current page off to
+        one side (where it fit neither page)."""
+        hbar = self.horizontalScrollBar()
+        hbar.setValue((hbar.minimum() + hbar.maximum()) // 2)
 
     def rotate_view(self, delta: int) -> None:
         """Rotate the whole view by ``delta`` degrees (a multiple of 90)."""
@@ -662,6 +695,7 @@ class PdfView(QGraphicsView):
     def apply_state(self, state: dict) -> None:
         if not state:
             return
+        self._fit_mode = None  # a restored, explicit zoom is manual — not a sticky fit
         rotation = int(state.get("rotation", 0)) % 360
         if rotation in (0, 90, 180, 270):
             self._rotation = rotation
@@ -685,6 +719,8 @@ class PdfView(QGraphicsView):
             self._rotation = rotation
         self._current = max(0, min(int(state.get("page", 0)), self._vdoc.page_count - 1))
         self._zoom = self._fit_zoom(fit_height=True)  # Fit Page, computed against the final viewport
+        self._fit_mode = "page"                       # default view tracks Fit Page (re-fits on resize)
         self._build_scene()                           # geometry + the first (and only) render
         self.goto_page(self._current)                 # resume the remembered page
+        self._center_horizontally()                   # centre even if a rotated page widens the scene
         self.zoomChanged.emit(self._zoom)
