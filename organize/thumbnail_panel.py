@@ -23,7 +23,12 @@ from PySide6.QtGui import (
     QPixmap,
     QTransform,
 )
-from PySide6.QtWidgets import QAbstractItemView, QListWidget, QListWidgetItem
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QListWidget,
+    QListWidgetItem,
+    QStyledItemDelegate,
+)
 
 from model.edit_engine import PyMuPDFEngine
 from model.virtual_document import IMAGE_EXTENSIONS, VirtualDocument
@@ -31,9 +36,22 @@ from model.virtual_document import IMAGE_EXTENSIONS, VirtualDocument
 _THUMB_W = 140  # target thumbnail width in px
 _DRAG_W = 96    # width of the page image carried under the cursor while dragging
 _ACCENT = QColor(0, 120, 215)  # drop-marker + count-badge colour
+_SIDEBAR_W = 190      # default Pages-sidebar width: one thumbnail column + margins + scrollbar
+_SIDEBAR_MIN_W = 168  # never narrower than one full thumbnail + the scrollbar
 # Custom drag payload so a drop knows the source document + rows even across windows; the plain
 # QListWidget item-move MIME can't cross processes/windows and InternalMove can't leave the view.
 _PAGES_MIME = "application/x-pdfproj-pages"
+
+
+class _CenterColumnDelegate(QStyledItemDelegate):
+    """Stretch each item to the full viewport width so the fixed-width thumbnail centres in its row —
+    one centred column at any sidebar width. The natural icon + label height is preserved."""
+
+    def sizeHint(self, option, index):
+        hint = super().sizeHint(option, index)
+        view = self.parent()
+        width = view.viewport().width() if view is not None else hint.width()
+        return QSize(max(hint.width(), width), hint.height())
 
 
 class ThumbnailPanel(QListWidget):
@@ -57,6 +75,10 @@ class ThumbnailPanel(QListWidget):
         self.setSpacing(8)
         self.setUniformItemSizes(False)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        # Centre the single thumbnail column (delegate stretches items to the viewport width) and
+        # keep the sidebar from being dragged narrower than one full thumbnail.
+        self.setItemDelegate(_CenterColumnDelegate(self))
+        self.setMinimumWidth(_SIDEBAR_MIN_W)
 
         # Organize: multi-select + drag-and-drop. DragDrop (not InternalMove) so pages can be
         # dragged across windows too; we carry a custom MIME payload and drive the model via a
@@ -448,8 +470,14 @@ class ThumbnailPanel(QListWidget):
         super().showEvent(event)
         self._render_visible_thumbs()
 
+    def sizeHint(self) -> QSize:
+        # Snug default width on first show (one column + margins + scrollbar); the bare QListWidget
+        # hint is much wider. Still user-resizable; the centring delegate re-centres at any width.
+        return QSize(_SIDEBAR_W, super().sizeHint().height())
+
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
+        self.scheduleDelayedItemsLayout()  # re-query the delegate so the column re-centres at the new width
         self._render_visible_thumbs()
 
     def set_current(self, index: int) -> None:
