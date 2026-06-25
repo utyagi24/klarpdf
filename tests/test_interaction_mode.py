@@ -53,6 +53,27 @@ def test_grab_mode_suppresses_text_selection(view):
     assert view.selection.active is False  # no selection started while grabbing
 
 
+def test_armed_text_tool_paints_the_selection_in_its_target_colour(view):
+    """An armed Highlight / Redact-text paints the live selection in the tool's final colour
+    (highlight yellow / redaction black), so there's no blue→colour flip when it lands on release; a
+    plain selection stays selection-blue."""
+    from viewer.text_selection import _HIGHLIGHT_ARMED, _REDACT_ARMED, _SELECTION
+    from viewer.tools import ArmedTool
+
+    sel = view.selection
+
+    def colour_after(arm_action) -> object:
+        arm_action()
+        sel._anchor = sel._cursor = (0, 0)  # select the first word on page 0
+        sel.repaint()
+        assert sel._items, "expected a painted selection rect"
+        return sel._items[0].brush().color()
+
+    assert colour_after(lambda: view.arm(ArmedTool.HIGHLIGHT)) == _HIGHLIGHT_ARMED
+    assert colour_after(lambda: view.arm(ArmedTool.REDACT_TEXT)) == _REDACT_ARMED
+    assert colour_after(lambda: view.disarm()) == _SELECTION
+
+
 def test_mode_toggle_in_toolbar_is_exclusive(qapp, a_pdf, tmp_path):
     qapp.settings = Settings(tmp_path / "vs.json")
     win = qapp.open_document(a_pdf)
