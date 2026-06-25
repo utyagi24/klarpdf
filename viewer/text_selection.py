@@ -18,7 +18,13 @@ from __future__ import annotations
 from PySide6.QtGui import QBrush, QColor, QGuiApplication
 from PySide6.QtWidgets import QGraphicsRectItem
 
-_HIGHLIGHT = QColor(0, 120, 215, 80)  # translucent selection blue
+from viewer.tools import ArmedTool
+
+_SELECTION = QColor(0, 120, 215, 80)  # translucent selection blue (normal text selection)
+# Translucent marker yellow ~ the Highlight annotation's default colour (1.0, 0.86, 0.10). While the
+# Highlight tool is armed the live selection is painted in this, so a highlight reads yellow from the
+# first drag — no blue→yellow flip when the annotation is applied on release.
+_HIGHLIGHT_ARMED = QColor(255, 219, 26, 120)
 _DRAG_THRESHOLD = 4.0  # scene units the pointer must move before a drag counts as a selection
 
 
@@ -204,7 +210,11 @@ class TextSelection:
         if self._view.rotation != 0:
             return
         scene = self._view.scene()
-        brush = QBrush(_HIGHLIGHT)
+        # While the Highlight tool is armed, paint the live selection in the highlight colour (not
+        # the selection blue) so it shows yellow from the first drag — the highlight applied on
+        # release then replaces it seamlessly (yellow → yellow), with no jarring colour change.
+        armed_highlight = self._view.armed is ArmedTool.HIGHLIGHT
+        brush = QBrush(_HIGHLIGHT_ARMED if armed_highlight else _SELECTION)
         for page_index, _i, w in self.selected_words():
             rect = self._view.scene_rect_for_box(page_index, (w[0], w[1], w[2], w[3]))
             item = QGraphicsRectItem(rect)
