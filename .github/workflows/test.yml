@@ -12,7 +12,9 @@ name: test
 on:
   push:
     branches: ["main"]
+    paths-ignore: ["**.md"]   # docs-only changes don't affect tests
   pull_request:
+    paths-ignore: ["**.md"]   # skips only when EVERY changed file is markdown
   workflow_dispatch:
 
 permissions:
