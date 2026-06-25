@@ -92,3 +92,36 @@ def test_widget_clamps_out_of_range(view):
     widget.lineEdit().editingFinished.emit()
     assert view.zoom <= 8.0  # clamped to _MAX_ZOOM
     assert widget.lineEdit().text() == "800%"
+
+
+def test_fit_width_centres_current_page_when_another_page_is_rotated_wider(qapp, tmp_path):
+    """Fit Width on the current (narrower) page must centre + fit *that* page even when another page
+    is rotated 90°/270° and so is wider — the wider page overflows symmetrically (h-scrollable)
+    instead of shoving the current page off to one side (where it fit neither page)."""
+    import pymupdf as fitz
+
+    path = str(tmp_path / "rot.pdf")
+    doc = fitz.open()
+    doc.new_page(width=612, height=792)  # page 0 — portrait
+    doc.new_page(width=612, height=792)  # page 1 — portrait
+    doc.save(path)
+    doc.close()
+    vdoc = VirtualDocument.from_path(path)
+    vdoc.set_rotation(0, 90)  # page 0 displays landscape (792 wide) — now the widest page
+
+    view = PdfView(vdoc)
+    try:
+        view.resize(480, 700)
+        view.show()
+        qapp.processEvents()
+        view.open_at({})
+        view._current = 1  # focus the non-rotated, narrower page
+        view.fit_width()
+        qapp.processEvents()
+        hbar = view.horizontalScrollBar()
+        if hbar.maximum() == hbar.minimum():
+            pytest.skip("no horizontal overflow in this offscreen environment")
+        mid = (hbar.minimum() + hbar.maximum()) // 2
+        assert abs(hbar.value() - mid) <= 1  # current page centred (h-scroll at the midpoint)
+    finally:
+        view.deleteLater()

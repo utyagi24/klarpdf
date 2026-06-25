@@ -632,16 +632,30 @@ class PdfView(QGraphicsView):
 
     def fit_width(self) -> None:
         self.set_zoom(self._fit_zoom(fit_height=False), fit="width")
+        self._center_horizontally()
 
     def fit_page(self) -> None:
         self.set_zoom(self._fit_zoom(fit_height=True), fit="page")
+        self._center_horizontally()
 
     def _reapply_fit(self) -> None:
         """Re-run the active sticky fit against the current viewport (called on resize)."""
         if self._fit_mode == "width":
             self.set_zoom(self._fit_zoom(fit_height=False), fit="width")
+            self._center_horizontally()
         elif self._fit_mode == "page":
             self.set_zoom(self._fit_zoom(fit_height=True), fit="page")
+            self._center_horizontally()
+
+    def _center_horizontally(self) -> None:
+        """Centre the viewport on the scene's horizontal midline. Pages are laid out centred in the
+        scene's widest column, so this centres the **current** page — needed when a wider (e.g. a
+        90°/270°-rotated) page makes the scene exceed the viewport width, where Qt's AlignHCenter no
+        longer applies. Fit Width/Page on the current page then stays centred + fitting while the
+        wider page overflows symmetrically (h-scrollable), instead of shoving the current page off to
+        one side (where it fit neither page)."""
+        hbar = self.horizontalScrollBar()
+        hbar.setValue((hbar.minimum() + hbar.maximum()) // 2)
 
     def rotate_view(self, delta: int) -> None:
         """Rotate the whole view by ``delta`` degrees (a multiple of 90)."""
@@ -708,4 +722,5 @@ class PdfView(QGraphicsView):
         self._fit_mode = "page"                       # default view tracks Fit Page (re-fits on resize)
         self._build_scene()                           # geometry + the first (and only) render
         self.goto_page(self._current)                 # resume the remembered page
+        self._center_horizontally()                   # centre even if a rotated page widens the scene
         self.zoomChanged.emit(self._zoom)
