@@ -18,7 +18,20 @@ from __future__ import annotations
 from PySide6.QtGui import QBrush, QColor, QGuiApplication
 from PySide6.QtWidgets import QGraphicsRectItem
 
-_HIGHLIGHT = QColor(0, 120, 215, 80)  # translucent selection blue
+from viewer.tools import ArmedTool
+
+_SELECTION = QColor(0, 120, 215, 80)   # translucent selection blue (normal text selection)
+# While a drag-over-text tool is armed, the live selection is painted in the tool's *final* colour
+# instead of the selection blue — so a highlight reads yellow and a text-redaction reads black from
+# the first drag, and the applied result replaces the selection seamlessly (no blue→colour flip, no
+# perceived delay on release). Yellow ~ the Highlight annotation default (1.0, 0.86, 0.10); black ~
+# the opaque redaction bar it becomes.
+_HIGHLIGHT_ARMED = QColor(255, 219, 26, 120)
+_REDACT_ARMED = QColor(0, 0, 0, 130)
+_ARMED_SELECTION_COLOUR = {
+    ArmedTool.HIGHLIGHT: _HIGHLIGHT_ARMED,
+    ArmedTool.REDACT_TEXT: _REDACT_ARMED,
+}
 _DRAG_THRESHOLD = 4.0  # scene units the pointer must move before a drag counts as a selection
 
 
@@ -204,7 +217,10 @@ class TextSelection:
         if self._view.rotation != 0:
             return
         scene = self._view.scene()
-        brush = QBrush(_HIGHLIGHT)
+        # An armed drag-over-text tool previews in its final colour (see _ARMED_SELECTION_COLOUR);
+        # a plain selection (or any other state) uses the selection blue. So a highlight/redaction
+        # shows its colour from the first drag and the applied result replaces it seamlessly.
+        brush = QBrush(_ARMED_SELECTION_COLOUR.get(self._view.armed, _SELECTION))
         for page_index, _i, w in self.selected_words():
             rect = self._view.scene_rect_for_box(page_index, (w[0], w[1], w[2], w[3]))
             item = QGraphicsRectItem(rect)
