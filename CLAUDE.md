@@ -49,9 +49,15 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   spare machine / a fresh local user with networking disabled.
 
 ## Status
-**v0.9.4 shipped** (dependency security patch) — milestones **M0–M38 complete** (v0.1.0 = M0–M9; v0.2.0 =
+**v0.9.5 shipped** (viewer-polish patch) — milestones **M0–M38 complete** (v0.1.0 = M0–M9; v0.2.0 =
 M10–M15; v0.3.0 = M16–M19; v0.4.0 = M20–M22; v0.5.0 = M23–M26; v0.6.0 = M27–M30; v0.7.0 = M31 + M31.5
-+ M34; v0.8.0 = M35–M37; v0.9.0 = M32 + M33 + M38). **v0.9.4** dependency security patch: bump
++ M34; v0.8.0 = M35–M37; v0.9.0 = M32 + M33 + M38). **v0.9.5** viewer-polish patch: the page opens
+**centred** and stays centred, and **Fit Width / Fit Page are sticky on resize** (`viewer/pdf_view.py`;
+PR #80); the **Pages sidebar** gets a narrower default with a centred single column whose thumbnails
+**scale with the sidebar width** (Preview-style, capped — `organize/thumbnail_panel.py`); a **rotated
+page wider than the view is centred** on fit; and the **Highlight** / **Redact-Text** tools **preview
+the armed selection in their final colour** (highlight colour / redaction black) while you drag
+(`viewer/text_selection.py`; PR #81). **v0.9.4** dependency security patch: bump
 **pypdf 6.13.2 → 6.13.3**, clearing GHSA-jm82-fx9c-mx94 (Moderate memory-DoS in the `pypdf` fallback
 edit engine `model/edit_engine.py:PyPdfEngine`; no functional change). **v0.9.3** patch (PR #66): a window opens **on the
 monitor under the cursor** (`QGuiApplication.screenAt(QCursor.pos())` in `main_window.py`
@@ -74,6 +80,7 @@ working, plus **in-viewer click-to-navigate** (`viewer/links.py`). **v0.8.1** pa
 open from a case-sensitive `\\wsl.localhost\` / UNC folder works for every file (the single-instance
 hand-off now passes the raw path, not a lower-cased one — `launcher.py`; PR #55).
 Releases:
+<https://github.com/utyagi24/pdfproj/releases/tag/v0.9.5> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.9.4> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.9.3> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.9.2> ·
