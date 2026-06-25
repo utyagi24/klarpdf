@@ -17,6 +17,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write   # post the pass/fail comment on the PR
 
 jobs:
   pytest:
@@ -43,3 +44,38 @@ jobs:
       - name: Assert the Poppler cross-engine redaction test ran (did not skip)
         run: |
           python -c "import xml.etree.ElementTree as ET; tcs=[t for t in ET.parse('junit.xml').getroot().iter('testcase') if t.get('name')=='test_redaction_leak_check_poppler_cross_engine']; assert tcs, 'redaction cross-engine test not found in results'; assert tcs[0].find('skipped') is None, 'cross-engine redaction test SKIPPED in CI (Poppler missing?)'; print('OK: cross-engine redaction test ran (not skipped)')"
+
+      # Post the result as a single, updated-in-place comment on the PR, so pass/fail is visible right
+      # where you merge (this private/free repo can't require status checks, but the token can comment).
+      - name: Comment the result on the PR
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- ci-test-results -->';
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            let body;
+            try {
+              const xml = fs.readFileSync('junit.xml', 'utf8');
+              const n = (re) => Number((xml.match(re) || [])[1] || 0);
+              const tests = n(/tests="(\d+)"/), failures = n(/failures="(\d+)"/);
+              const errors = n(/errors="(\d+)"/), skipped = n(/skipped="(\d+)"/);
+              const passed = tests - failures - errors - skipped;
+              const ok = failures === 0 && errors === 0;
+              body = `${marker}\n### ${ok ? '✅ Tests passed' : '❌ Tests failed'}\n\n` +
+                     `**${passed} passed**, ${failures} failed, ${errors} errors, ${skipped} skipped ` +
+                     `— [run details](${runUrl})`;
+            } catch (e) {
+              body = `${marker}\n### ⚠️ Tests did not run\n\n` +
+                     `Setup failed before results were produced — [run details](${runUrl})`;
+            }
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const { data: comments } = await github.rest.issues.listComments({ owner, repo, issue_number });
+            const prev = comments.find(c => c.body && c.body.includes(marker));
+            if (prev) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: prev.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
