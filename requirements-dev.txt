@@ -8,6 +8,8 @@ colorama==0.4.6
     # via pytest
 iniconfig==2.3.0
     # via pytest
+invoke==3.0.3
+    # via -r requirements-dev.in
 packaging==26.2
     # via pytest
 pluggy==1.6.0
