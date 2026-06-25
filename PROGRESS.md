@@ -3,14 +3,21 @@
 Live status of the build (milestone detail in `PLAN.md` §Execution). **One PR per milestone** — when
 it merges, check the box here in the same PR and append the PR link.
 
-**Status:** ✅ **v0.9.4 shipped** (dependency security patch) — milestones **M0–M38 complete** (v0.1.0 = M0–M9,
+**Status:** ✅ **v0.9.5 shipped** (viewer-polish patch) — milestones **M0–M38 complete** (v0.1.0 = M0–M9,
 v0.2.0 = M10–M15, v0.3.0 = M16–M19, v0.4.0 = M20–M22, v0.5.0 = M23–M26, v0.6.0 = M27–M30,
 v0.7.0 = M31 + M31.5 + M34, v0.8.0 = M35–M37, v0.9.0 = M32 + M33 + M38). Releases:
+<https://github.com/utyagi24/pdfproj/releases/tag/v0.9.5> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.9.4> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.9.3> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.9.2> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.9.1> ·
-<https://github.com/utyagi24/pdfproj/releases/tag/v0.9.0>. **v0.9.4** is a dependency security patch:
+<https://github.com/utyagi24/pdfproj/releases/tag/v0.9.0>. **v0.9.5** is a viewer-polish patch: the page
+opens **centred** and stays centred, and **Fit Width / Fit Page are sticky on resize**
+([#80](https://github.com/utyagi24/pdfproj/pull/80)); the **Pages sidebar** gets a narrower default
+with a centred single column whose thumbnails **scale with the sidebar width** (Preview-style, capped);
+a **rotated page that's wider than the view is centred** on fit; and the **Highlight** and
+**Redact-Text** tools now **preview the armed selection in their final colour** (highlight colour /
+redaction black) while you drag ([#81](https://github.com/utyagi24/pdfproj/pull/81)). **v0.9.4** is a dependency security patch:
 bump **pypdf 6.13.2 → 6.13.3**, clearing GHSA-jm82-fx9c-mx94 (Moderate memory-DoS in the `pypdf`
 fallback edit engine; no functional change). **v0.9.3** is an open-behavior patch
 ([#66](https://github.com/utyagi24/pdfproj/pull/66)): a new window opens **on the monitor under the
