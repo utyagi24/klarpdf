@@ -6,3 +6,4 @@
 # requirements-win.txt, so --require-hashes can't be shared across platforms (PLAN.md).
 -r requirements.in
 pytest>=8
+invoke>=3.0   # task runner — `invoke <task>` orchestrates build steps (tasks.py); see RELEASE.md
