@@ -165,6 +165,37 @@ and ships as a separate optional component — the `pdfproj-setup.exe` audit sur
 > Decisions to confirm with owner (see `PLAN.md` §MCP / Agent Bridge roadmap → Decisions): packaging
 > (separate vs bundled), write-tools-now vs read-only-first, stdio-only vs HTTP, same-repo vs sibling repo.
 
+## Public-Release Readiness — go open-source under AGPL-3.0 (planned)
+
+Make the **currently private** repo public as an `AGPL-3.0-or-later` project. Independent of the
+v0.10.0 MCP roadmap — this track can land first. Full execution detail in `PLAN.md`
+§Public-release readiness (plan introduced in [#83](https://github.com/utyagi24/pdfproj/pull/83)).
+**One PR per item**; tick the box on merge and append the PR link. Steps
+are ordered — **G1 runs first, while the repo is still private**, and the final flip to public (G6)
+is a manual GitHub action, not a PR. The pre-public hygiene scan is clean (no secrets in tree or
+history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI uses `${{ secrets.* }}`).
+
+- [ ] **G1** Commit-author cleanup (**do first, while private**) — rewrite history so the maintainer's
+  personal email (on ~162 of 246 commits) is replaced by the canonical GitHub no-reply
+  (`<id>+username@users.noreply.github.com`), unifying the older bare-form web-commit address too;
+  force-push. A dedicated history-rewrite operation, not bundled with other work. — *WSL*
+- [ ] **G2** License + notices — root `LICENSE` (full AGPL-3.0-or-later) + `THIRD_PARTY_LICENSES`
+  (PyMuPDF AGPL-3.0, PySide6 + shiboken6 LGPL-3.0, pypdf BSD-3; cross-ref `DEPENDENCIES.md`) +
+  README license section + badge + build-from-source pointer — *WSL*
+- [ ] **G3** In-app About + Open-Source Licenses dialog — add a Help menu (`main_window.py`): About
+  (version + AGPL + no-warranty notice + source link), Open-Source Licenses (bundled license texts),
+  View Source; bundle texts via `packaging/pdfproj.spec` + a freeze-aware `resource_path()`; headless
+  smoke test — *WSL + WSLg*
+- [ ] **G4** Community-health files — `SECURITY.md`, `CONTRIBUTING.md` (DCO sign-off),
+  `CODE_OF_CONDUCT.md` (Contributor Covenant), `.github/ISSUE_TEMPLATE/*` + `pull_request_template.md`
+  — *WSL*
+- [ ] **G5** Lock-in identity + hygiene — local `git user.email` = no-reply on all checkouts; enable
+  GitHub "Keep my email addresses private" + "Block command line pushes that expose my email"; add
+  `*.pfx *.pem *.key .env *.log` to `.gitignore`; optional CI guard rejecting disallowed author emails
+  — *WSL + GitHub settings*
+- [ ] **G6** Flip to public (**manual; not a PR**) — `gh repo edit --visibility public`; then enable
+  secret scanning + push protection, branch protection on `main`, repo description/topics — *GitHub*
+
 ## Open follow-ups (carried)
 
 Carried items — none block work:

@@ -70,9 +70,10 @@ editing on one engine. Text selected this way is exactly the preserved OCR layer
 
 **AGPL note for the user:** PyMuPDF is AGPL. Building the installer for **your own machines** is
 private use — fine. If you ever distribute the installer **publicly**, AGPL requires offering the
-corresponding source; since the full source already lives in this public repo, shipping the
-installer with a pointer to the repo (and its exact tag/commit) satisfies that. The alternatives
-remain: an Artifex commercial license, or a pypdf-only fallback build.
+corresponding source; since the full source will live in this repo once it is made public (the repo
+is **currently private** — see §Packaging → *Public-release readiness*), shipping the installer with
+a pointer to the repo (and its exact tag/commit) satisfies that. The alternatives remain: an Artifex
+commercial license, or a pypdf-only fallback build.
 
 ### Key design idea — Virtual-document / edit-list model (lossless)
 
@@ -271,6 +272,41 @@ a portable **`--onefile` `pdfproj-portable.exe`** → Inno Setup (`ISCC installe
 - **Code signing** is a deferred enhancement: an Authenticode sign step (cert from GitHub Secrets)
   slots in just before packaging; until then the unsigned `.exe` shows a one-time SmartScreen
   "unknown publisher" prompt — acceptable for private/own-machine use.
+
+### Public-release readiness (AGPL licensing & compliance)
+
+The repo is **currently private**. Making it public is a deliberate, largely one-way step (published
+source is effectively public forever) and turns the AGPL note above from "private use, fine" into a
+live obligation, so it carries its own readiness track (checklist in `PROGRESS.md` §Public-Release
+Readiness; **one PR per item**, ordered, with the email cleanup first and the flip-to-public last and
+manual). The pre-public hygiene scan is clean — no secrets in the working tree or history,
+`.gitignore` excludes all build artifacts / wheels / `report.json`, CI uses `${{ secrets.* }}` — so
+the work is licensing + community files plus a one-time commit-author cleanup.
+
+- **Project license = `AGPL-3.0-or-later`.** PyMuPDF is AGPL and the app is a derivative of it, so the
+  whole project must ship AGPL (it cannot be MIT/BSD); LGPL (PySide6/shiboken6) and BSD-3 (pypdf) are
+  then satisfied by the same source release. Add a root `LICENSE` (full AGPL text) + a
+  `THIRD_PARTY_LICENSES` bundling the PyMuPDF / PySide6 / shiboken6 / pypdf notices (cross-refs
+  `DEPENDENCIES.md`) + a README license section + badge + build-from-source pointer. This closes the
+  gap that the repo today has **no `LICENSE` at all** (a public repo with no license is "all rights
+  reserved" *and* fails AGPL's obligation to offer source under AGPL terms).
+- **In-app About + Open-Source Licenses dialog.** The app has no Help menu today; a proper OSS release
+  adds **About** (version + AGPL + no-warranty notice + source-repo link at the matching tag) and an
+  **Open-Source Licenses** view (the bundled license texts), shipped offline via
+  `packaging/pdfproj.spec` `datas` + a freeze-aware `resource_path()` (mirroring `ui/icons.py`).
+- **Community-health files:** `SECURITY.md`, `CONTRIBUTING.md` (DCO sign-off), `CODE_OF_CONDUCT.md`
+  (Contributor Covenant), and `.github/` issue/PR templates.
+- **Commit-author cleanup (runs FIRST, while still private):** the maintainer's personal email is on
+  ~162 of 246 commits (the rest already use the GitHub no-reply); a one-time history rewrite maps every
+  commit to the canonical `<id>+username@users.noreply.github.com` no-reply and force-pushes, so the
+  personal address is never exposed when the repo flips public. Going forward, GitHub's "Keep my email
+  addresses private" setting governs web-merge commits and a local `user.email` = no-reply governs CLI
+  commits; an optional CI guard can reject disallowed author emails.
+- **Flip to public (manual; not a PR):** `gh repo edit --visibility public`, then enable secret
+  scanning + push protection, branch protection on `main`, and a repo description / topics.
+
+Escape hatches (only if closed-source is ever wanted) remain as in the AGPL note above: an Artifex
+commercial PyMuPDF license, or a pypdf-only fallback build.
 
 ## Portability (Windows-first ship, Linux-ready seams)
 
