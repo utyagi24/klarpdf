@@ -283,6 +283,14 @@ manual). The pre-public hygiene scan is clean — no secrets in the working tree
 `.gitignore` excludes all build artifacts / wheels / `report.json`, CI uses `${{ secrets.* }}` — so
 the work is licensing + community files plus a one-time commit-author cleanup.
 
+- **Branding (name + logo) — decide early.** `pdfproj` is a development codename, not a product brand;
+  choose a polished name + logo **before** the name-dependent artifacts below (license copyright, About
+  dialog, community files, README) so they bake in the final identity. A decision gate first (name
+  shortlist → trademark / domain / PDF-tool-name-clash check → choose; logo concepts → choose), then a
+  rebrand sweep across `version.py`, `packaging/installer.iss` (AppName / Publisher / ProgID
+  `pdfproj.Document`), the window title, the single-instance + `%APPDATA%\pdfproj` identifiers, the
+  `.ico` + toolbar SVG assets, and the **GitHub repo name** (rename while private — old links redirect).
+  Tracked as G2 in `PROGRESS.md`.
 - **Project license = `AGPL-3.0-or-later`.** PyMuPDF is AGPL and the app is a derivative of it, so the
   whole project must ship AGPL (it cannot be MIT/BSD); LGPL (PySide6/shiboken6) and BSD-3 (pypdf) are
   then satisfied by the same source release. Add a root `LICENSE` (full AGPL text) + a
