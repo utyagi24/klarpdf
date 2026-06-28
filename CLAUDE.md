@@ -37,6 +37,12 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
 - **One PR per milestone** (implementation); one PR per logical unit for planning/process changes. In
   the same PR, tick the milestone's box in `PROGRESS.md` and link the PR.
 - **Cite sources.** Tie claims/numbers back to a `PLAN.md` section; don't present assumptions as facts.
+- **Where things live — update in exactly one place** (avoid the drift that let a stale status blurb
+  triplicate across the docs). *Status* — shipped versions, release links, per-release notes, milestone
+  ticks, open follow-ups → **`PROGRESS.md`** only. *Design / spec* — architecture, packaging,
+  verification, the roadmap & rationale of each milestone → **`PLAN.md`**. *How we work* — conventions,
+  gotchas, environment → **`CLAUDE.md`**. The other two **link**, never restate. Rule of thumb:
+  **status → PROGRESS; design → PLAN; process → CLAUDE.**
 
 ## Gotchas (cost real time if missed)
 - **Windows Python must be python.org 3.12.x**, not the Microsoft Store stub (which can't build).
@@ -49,80 +55,7 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   spare machine / a fresh local user with networking disabled.
 
 ## Status
-**v0.9.5 shipped** (viewer-polish patch) — milestones **M0–M38 complete** (v0.1.0 = M0–M9; v0.2.0 =
-M10–M15; v0.3.0 = M16–M19; v0.4.0 = M20–M22; v0.5.0 = M23–M26; v0.6.0 = M27–M30; v0.7.0 = M31 + M31.5
-+ M34; v0.8.0 = M35–M37; v0.9.0 = M32 + M33 + M38). **v0.9.5** viewer-polish patch: the page opens
-**centred** and stays centred, and **Fit Width / Fit Page are sticky on resize** (`viewer/pdf_view.py`;
-PR #80); the **Pages sidebar** gets a narrower default with a centred single column whose thumbnails
-**scale with the sidebar width** (Preview-style, capped — `organize/thumbnail_panel.py`); a **rotated
-page wider than the view is centred** on fit; and the **Highlight** / **Redact-Text** tools **preview
-the armed selection in their final colour** (highlight colour / redaction black) while you drag
-(`viewer/text_selection.py`; PR #81). **v0.9.4** dependency security patch: bump
-**pypdf 6.13.2 → 6.13.3**, clearing GHSA-jm82-fx9c-mx94 (Moderate memory-DoS in the `pypdf` fallback
-edit engine `model/edit_engine.py:PyPdfEngine`; no functional change). **v0.9.3** patch (PR #66): a window opens **on the
-monitor under the cursor** (`QGuiApplication.screenAt(QCursor.pos())` in `main_window.py`
-`_place_window`) instead of always the primary; the **open-from-Explorer flicker is gone** —
-`platform_integration.py` `activate_window` raises via a `SetWindowPos` TOPMOST→NOTOPMOST z-order
-nudge (`_raise_to_front_win32`) instead of toggling `WindowStaysOnTopHint` (changing a window flag
-recreates the native window on Windows → a flash every raise); and the **Pages sidebar is hidden by
-default**, remembered app-wide via `store/settings.py` `get_pref`/`set_pref`. **v0.9.2** patch: open
-render/zoom **flicker fixed** (window placed + the page rendered once at Fit Page *before* show —
-`_shown_once`/`open_at` in `viewer/pdf_view.py`, `_place_window` in `main_window.py`; PR #63) + **lazy
-thumbnails** (the Pages sidebar rasterises only the pages scrolled into view —
-`organize/thumbnail_panel.py`; a 320-page doc opens ~1010 ms → ~150 ms; PR #64). **v0.9.1** patch: a
-document window opens at the **full screen height, centred horizontally, at Fit Page** (`main_window.py`
-`_open_geometry` / `showEvent`; PR #61). **v0.9.0 "Encrypted & Links"** added **encrypted /
-password PDFs** (`needs_pass` → prompt → `authenticate` on open, then the source is held decrypted
-via `PDF_ENCRYPT_NONE` so the output stays unencrypted — `model/virtual_document.py`) and **internal
-links**: `model/links_remap.py` rebuilds GoTo *and* named-destination links at materialize (both
-baked to remapped GoTo — `insert_pdf` drops named dests entirely) so reorder/delete/Save keeps them
-working, plus **in-viewer click-to-navigate** (`viewer/links.py`). **v0.8.1** patch: double-click
-open from a case-sensitive `\\wsl.localhost\` / UNC folder works for every file (the single-instance
-hand-off now passes the raw path, not a lower-cased one — `launcher.py`; PR #55).
-Releases:
-<https://github.com/utyagi24/pdfproj/releases/tag/v0.9.5> ·
-<https://github.com/utyagi24/pdfproj/releases/tag/v0.9.4> ·
-<https://github.com/utyagi24/pdfproj/releases/tag/v0.9.3> ·
-<https://github.com/utyagi24/pdfproj/releases/tag/v0.9.2> ·
-<https://github.com/utyagi24/pdfproj/releases/tag/v0.9.1> ·
-<https://github.com/utyagi24/pdfproj/releases/tag/v0.9.0> ·
-<https://github.com/utyagi24/pdfproj/releases/tag/v0.8.1> ·
-<https://github.com/utyagi24/pdfproj/releases/tag/v0.8.0> ·
-<https://github.com/utyagi24/pdfproj/releases/tag/v0.7.0> ·
-<https://github.com/utyagi24/pdfproj/releases/tag/v0.6.0> ·
-<https://github.com/utyagi24/pdfproj/releases/tag/v0.5.0> ·
-<https://github.com/utyagi24/pdfproj/releases/tag/v0.4.0> ·
-<https://github.com/utyagi24/pdfproj/releases/tag/v0.3.0> ·
-<https://github.com/utyagi24/pdfproj/releases/tag/v0.2.0> ·
-<https://github.com/utyagi24/pdfproj/releases/tag/v0.1.0>. On top of v0.1.0 (view + splice/split +
-single-instance + undo/redo + lossless materialize-on-save + freeze→installer→CI), **v0.2.0** added
-**icons**, a **zoom %** indicator, **printing**, **recent documents**, and **form filling** on a new
-**page-edit layer** (`model/page_edits.py` — immutable per-doc edit descriptors applied at
-materialize; sources stay read-only); **v0.3.0** added **drag-and-drop visuals**, **Explorer
-file-drop**, and a **Grab/Select** viewer-mode toggle (`viewer/tools.py`); **v0.4.0** added
-**annotations** (highlight + movable/re-editable text boxes) and **true destructive redaction**
-(region + text-flow, `apply_redactions` with cross-engine leak verification and a redacted-save
-point-of-no-return) — all on the M14 page-edit layer, with annotate/redact exposed as **one-shot
-armed** tools (`viewer/tools.py` `ArmedTool`); **v0.5.0** added **Revert to Saved**, an
-**external-change warning** (`QFileSystemWatcher`), and **edits-aware printing** (print/preview
-render the edited page — annotations / fills / redactions — via `render_output`); **v0.6.0** added
-**styled text boxes** (font family / size / colour + box fill + box outline, via a formatting bar on
-the inline editor — `viewer/text_format_bar.py`), **live thumbnails** (the Pages sidebar renders each
-page's edited state via `render_output`), and **dynamic theme icons** (the toolbar re-tints on a live
-OS light↔dark switch — `changeEvent` handles `PaletteChange`); **v0.7.0** added **annotation
-round-trip editing** (reopen → move/edit/remove our `PDFPROJ_AUTHOR`-tagged highlights & text boxes —
-`read_pdfproj_annotations` seeds the model on open, strip-then-re-add at materialize; the page render
-+ text selection read the our-marks-stripped page so the editable overlay is authoritative) and a
-flatten **Export → PDF** (`File ▸ Export`; `model/export.py` bakes annotations + form widgets into
-page content via `Document.bake()`, text-preserving — the locked counterpart to round-trip);
-**v0.8.0** added **image import** (drag a PNG/JPEG from Explorer onto the Pages sidebar → a page,
-`VirtualDocument.open_image_source` via PyMuPDF `convert_to_pdf`) and **image export**
-(`File ▸ Export ▸ Image…`; `model/export.py:export_page_images` rasterises `render_output` → PNG/JPEG
-at a chosen DPI, edits-aware), plus UI polish (clearer multi-page selection, vertically-centred
-fitting page, centred text-box text); **v0.9.0** added **encrypted / password PDFs**
-(`_authenticate_and_decrypt` in `model/virtual_document.py` — prompt + authenticate on open, source
-held decrypted so the output stays unencrypted) and **internal links** (`model/links_remap.py`
-rebuilds GoTo + named-destination links at materialize; `viewer/links.py` makes them clickable in
-the viewer). 369 headless tests; real-Windows + frozen-build validation. **The planned roadmap
-(M0–M38) is complete** — further work lives in `PLAN.md` §Future enhancements. **Planning the next
-release?** Read `PROGRESS.md` (status + **Open follow-ups**), then `PLAN.md` §Future enhancements.
+**Current: v0.9.5 shipped** — the planned roadmap **M0–M38 is complete**. For live status — shipped
+versions, per-release notes, release links, milestone ticks, and **Open follow-ups** — see
+`PROGRESS.md` (the single source of status; read it first). Design/spec, including §Future
+enhancements for what's next, lives in `PLAN.md`.
