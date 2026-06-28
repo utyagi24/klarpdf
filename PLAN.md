@@ -1,48 +1,9 @@
 # Plan: Local, Offline, Native-Windows PDF Viewer + Page Editor (Python)
 
-> **Shipped: `v0.9.3` released** (open-behavior patch: a new window opens **on the monitor under the
-> cursor**, not always the primary; the **open-from-Explorer flicker is gone** — `activate_window`
-> raises the window via a `SetWindowPos` z-order nudge instead of toggling `WindowStaysOnTopHint`,
-> which recreated the native window on Windows and flashed every raise; and the **Pages sidebar is
-> hidden by default**, remembered app-wide). v0.9.2 (load-time / UX patch: the open render/zoom
-> **flicker is gone** — the page
-> renders once at Fit Page at the final geometry, not re-sized/re-zoomed after the window is visible
-> — and the Pages sidebar renders **thumbnails lazily**, only the pages scrolled into view, so large
-> documents open far faster, e.g. a 320-page doc ~1010 ms → ~150 ms). v0.9.1 (UX patch over v0.9.0):
-> a document window opens at the **full screen height, centred horizontally, at Fit Page**. v0.9.0
-> "Encrypted & Links": **encrypted /
-> password-protected PDFs** (prompt + authenticate on open, source held decrypted so the output stays
-> unencrypted) and **internal links** — `links_remap` rebuilds GoTo *and* named-destination links at
-> materialize so reorder/delete/Save keeps them working, and the viewer makes them clickable (click →
-> jump to the target page). (v0.8.1 was a bug-fix patch: double-click open from a case-sensitive
-> `\\wsl.localhost\` / UNC folder works for every file — the single-instance hand-off passes the raw
-> path, not a lower-cased one.) Milestones M0–M38 complete (v0.1.0 = M0–M9; v0.2.0 =
-> M10–M15: icons, zoom %, printing, recent docs, form filling; v0.3.0 = M16–M19: drag-and-drop
-> visuals, Explorer file-drop, grab/select mode; v0.4.0 = M20–M22: annotations — highlight + movable/
-> re-editable text boxes — and true destructive redaction (region + text-flow) with cross-engine
-> leak verification and a redacted-save point-of-no-return; v0.5.0 = M23–M26: revert, external-change
-> warning, edits-aware printing; v0.6.0 = M27–M30: styled text boxes, live thumbnails, dynamic theme
-> icons; v0.7.0 = M31 + M31.5 + M34: annotation round-trip editing — reopen → move/edit/remove
-> our author-tagged marks — and a flatten **Export → PDF** that bakes annotations into content,
-> text-preserving; **v0.8.0 = M35–M37**: **image import** (drag a PNG/JPEG onto the Pages sidebar →
-> a page) + **image export** (`File ▸ Export ▸ Image…`, selected pages → PNG/JPEG at a chosen DPI),
-> plus UI polish — clearer multi-page selection, a vertically-centred fitting page, centred text-box
-> text). Releases:
-> [v0.9.3](https://github.com/utyagi24/pdfproj/releases/tag/v0.9.3) ·
-> [v0.9.2](https://github.com/utyagi24/pdfproj/releases/tag/v0.9.2) ·
-> [v0.9.1](https://github.com/utyagi24/pdfproj/releases/tag/v0.9.1) ·
-> [v0.9.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.9.0) ·
-> [v0.8.1](https://github.com/utyagi24/pdfproj/releases/tag/v0.8.1) ·
-> [v0.8.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.8.0) ·
-> [v0.7.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.7.0) ·
-> [v0.6.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.6.0) ·
-> [v0.5.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.5.0) ·
-> [v0.4.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.4.0) ·
-> [v0.3.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.3.0) ·
-> [v0.2.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.2.0) ·
-> [v0.1.0](https://github.com/utyagi24/pdfproj/releases/tag/v0.1.0). This plan stays the
-> spec/source-of-truth. The planned roadmap (M0–M38) is **complete**; anything beyond lives in
-> §Future enhancements.
+> **This document is the design / spec source-of-truth** — architecture, packaging, verification, and
+> the roadmap of *planned* work (the what & why). It deliberately carries **no live status**: for
+> shipped versions, per-release notes, release links, milestone ticks, and open follow-ups, see
+> **`PROGRESS.md`** (the single source of status). How-we-work conventions live in **`CLAUDE.md`**.
 
 > **Revision (2026-06-15)** — folded in two decisions without changing the product: a
 > **Development environment** section (Hybrid — build the cross-platform core + headless tests in
