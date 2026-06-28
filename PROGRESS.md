@@ -203,12 +203,19 @@ history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI uses `${
   guarantee still holds** (the app opens no socket itself). Decide the platform first (GitHub Sponsors
   / Ko-fi / Liberapay / Buy Me a Coffee / PayPal). Open-source + donations is fully AGPL-compatible.
   — *WSL + WSLg*
-- [ ] **G7** Lock-in identity + hygiene — local `git user.email` = no-reply on all checkouts; enable
-  GitHub "Keep my email addresses private" + "Block command line pushes that expose my email"; add
-  `*.pfx *.pem *.key .env *.log` to `.gitignore`; optional CI guard rejecting disallowed author emails
-  — *WSL + GitHub settings*
+- [ ] **G7** Lock-in identity, hygiene & branch rulesets — local `git user.email` = no-reply on all
+  checkouts; enable GitHub "Keep my email addresses private" + "Block command line pushes that expose
+  my email"; add `*.pfx *.pem *.key .env *.log` to `.gitignore`; optional CI guard rejecting disallowed
+  author emails. **Review & decide the `main` ruleset** (GitHub *Rulesets*, the successor to branch
+  protection): require a PR + review, require the CI status checks (`test.yml`), **block force-push +
+  deletion**, optionally linear history / signed commits — **activated at the flip (G8)**. Caveats:
+  enable the force-push-blocking rule **only after** the G1 history rewrite (else it blocks the scrub's
+  force-push); requiring **signed commits** means setting up GPG/SSH signing for the no-reply identity
+  first (commits are unsigned today); ruleset *enforcement* on a private repo can need a paid plan, so
+  it activates cleanly once public (free). — *GitHub settings*
 - [ ] **G8** Flip to public (**manual; not a PR**) — `gh repo edit --visibility public`; then enable
-  secret scanning + push protection, branch protection on `main`, repo description/topics — *GitHub*
+  secret scanning + push protection, **activate the `main` ruleset reviewed in G7**, add repo
+  description/topics — *GitHub*
 
 ## Open follow-ups (carried)
 
