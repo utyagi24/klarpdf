@@ -304,6 +304,12 @@ the work is licensing + community files plus a one-time commit-author cleanup.
   `packaging/pdfproj.spec` `datas` + a freeze-aware `resource_path()` (mirroring `ui/icons.py`).
 - **Community-health files:** `SECURITY.md`, `CONTRIBUTING.md` (DCO sign-off), `CODE_OF_CONDUCT.md`
   (Contributor Covenant), and `.github/` issue/PR templates.
+- **Donations (repo + product).** Add a `.github/FUNDING.yml` (repo "Sponsor" button) + a README
+  Support section, and a **Help ▸ Donate…** menu entry plus an About-dialog link in the app
+  (`QDesktopServices.openUrl` — user-initiated, so the offline / no-telemetry guarantee is preserved;
+  the app opens no socket itself). Pick the platform first (GitHub Sponsors / Ko-fi / Liberapay / …).
+  Open-source + donations is fully AGPL-compatible (the "open source + voluntary support" model from
+  the appendix). Tracked as G6 in `PROGRESS.md`.
 - **Commit-author cleanup (runs FIRST, while still private):** the maintainer's personal email is on
   ~162 of 246 commits (the rest already use the GitHub no-reply); a one-time history rewrite maps every
   commit to the canonical `<id>+username@users.noreply.github.com` no-reply and force-pushes, so the
