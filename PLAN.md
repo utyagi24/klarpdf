@@ -316,8 +316,15 @@ the work is licensing + community files plus a one-time commit-author cleanup.
   personal address is never exposed when the repo flips public. Going forward, GitHub's "Keep my email
   addresses private" setting governs web-merge commits and a local `user.email` = no-reply governs CLI
   commits; an optional CI guard can reject disallowed author emails.
+- **Branch rulesets (review before the flip).** Decide the `main` ruleset (GitHub *Rulesets*, the
+  successor to branch protection): require a PR + review, require the CI status checks (`test.yml`),
+  **block force-pushes & deletions**, optionally linear history / signed commits — applied at the
+  flip. Two ordering caveats: a force-push-blocking rule must come **after** the G1 history rewrite
+  (else it blocks the scrub), and requiring signed commits needs commit-signing configured for the
+  no-reply identity first (commits are unsigned today). Enforcement on a private repo can need a paid
+  plan, so the ruleset activates cleanly once public.
 - **Flip to public (manual; not a PR):** `gh repo edit --visibility public`, then enable secret
-  scanning + push protection, branch protection on `main`, and a repo description / topics.
+  scanning + push protection, **activate the reviewed `main` ruleset**, and a repo description / topics.
 
 Escape hatches (only if closed-source is ever wanted) remain as in the AGPL note above: an Artifex
 commercial PyMuPDF license, or a pypdf-only fallback build.
