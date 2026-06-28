@@ -171,7 +171,7 @@ Make the **currently private** repo public as an `AGPL-3.0-or-later` project. In
 v0.10.0 MCP roadmap — this track can land first. Full execution detail in `PLAN.md`
 §Public-release readiness (plan introduced in [#83](https://github.com/utyagi24/pdfproj/pull/83)).
 **One PR per item**; tick the box on merge and append the PR link. Steps
-are ordered — **G1 runs first, while the repo is still private**, and the final flip to public (G7)
+are ordered — **G1 runs first, while the repo is still private**, and the final flip to public (G8)
 is a manual GitHub action, not a PR. The pre-public hygiene scan is clean (no secrets in tree or
 history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI uses `${{ secrets.* }}`).
 
@@ -196,11 +196,18 @@ history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI uses `${
 - [ ] **G5** Community-health files — `SECURITY.md`, `CONTRIBUTING.md` (DCO sign-off),
   `CODE_OF_CONDUCT.md` (Contributor Covenant), `.github/ISSUE_TEMPLATE/*` + `pull_request_template.md`
   — *WSL*
-- [ ] **G6** Lock-in identity + hygiene — local `git user.email` = no-reply on all checkouts; enable
+- [ ] **G6** Donations — repo + product — let users support the project. **Repo:** add
+  `.github/FUNDING.yml` (the GitHub "Sponsor" button) + a README "Support / Donate" section/badge.
+  **Product:** a **Help ▸ Donate…** entry (extends the G4 Help menu) + a link in the About dialog,
+  opened with `QDesktopServices.openUrl` — **user-initiated only, so the offline / no-telemetry
+  guarantee still holds** (the app opens no socket itself). Decide the platform first (GitHub Sponsors
+  / Ko-fi / Liberapay / Buy Me a Coffee / PayPal). Open-source + donations is fully AGPL-compatible.
+  — *WSL + WSLg*
+- [ ] **G7** Lock-in identity + hygiene — local `git user.email` = no-reply on all checkouts; enable
   GitHub "Keep my email addresses private" + "Block command line pushes that expose my email"; add
   `*.pfx *.pem *.key .env *.log` to `.gitignore`; optional CI guard rejecting disallowed author emails
   — *WSL + GitHub settings*
-- [ ] **G7** Flip to public (**manual; not a PR**) — `gh repo edit --visibility public`; then enable
+- [ ] **G8** Flip to public (**manual; not a PR**) — `gh repo edit --visibility public`; then enable
   secret scanning + push protection, branch protection on `main`, repo description/topics — *GitHub*
 
 ## Open follow-ups (carried)
