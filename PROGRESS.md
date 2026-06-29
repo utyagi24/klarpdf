@@ -175,10 +175,11 @@ are ordered — **G1 runs first, while the repo is still private**, and the fina
 is a manual GitHub action, not a PR. The pre-public hygiene scan is clean (no secrets in tree or
 history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI uses `${{ secrets.* }}`).
 
-- [ ] **G1** Commit-author cleanup (**do first, while private**) — rewrite history so the maintainer's
-  personal email (on ~162 of 246 commits) is replaced by the canonical GitHub no-reply
-  (`<id>+username@users.noreply.github.com`), unifying the older bare-form web-commit address too;
-  force-push. A dedicated history-rewrite operation, not bundled with other work. — *WSL*
+- [x] **G1** Commit-author cleanup (**done** — history rewrite, no PR) — `git filter-repo` mailmap
+  remapped the maintainer's personal email (162 commits) **and** the older bare-form no-reply (80
+  web-commit authors) onto the canonical `<id>+username@users.noreply.github.com`, author + committer;
+  content byte-identical (trees unchanged); `main` + all 15 release tags force-pushed; verified **0**
+  personal-email / bare-form authors remaining and all Releases intact. Done first, while private. — *WSL/Windows*
 - [ ] **G2** Branding — name + logo (**decide before the name-dependent steps below**) — `pdfproj` is a
   dev codename; brainstorm and choose a polished product name + logo. **Decision gate first** (name
   shortlist → trademark / domain / PDF-tool-name-clash check → pick; logo concepts → pick), **then the
