@@ -165,6 +165,58 @@ and ships as a separate optional component — the `pdfproj-setup.exe` audit sur
 > Decisions to confirm with owner (see `PLAN.md` §MCP / Agent Bridge roadmap → Decisions): packaging
 > (separate vs bundled), write-tools-now vs read-only-first, stdio-only vs HTTP, same-repo vs sibling repo.
 
+## Public-Release Readiness — go open-source under AGPL-3.0 (planned)
+
+Make the **currently private** repo public as an `AGPL-3.0-or-later` project. Independent of the
+v0.10.0 MCP roadmap — this track can land first. Full execution detail in `PLAN.md`
+§Public-release readiness (plan introduced in [#83](https://github.com/utyagi24/pdfproj/pull/83)).
+**One PR per item**; tick the box on merge and append the PR link. Steps
+are ordered — **G1 runs first, while the repo is still private**, and the final flip to public (G8)
+is a manual GitHub action, not a PR. The pre-public hygiene scan is clean (no secrets in tree or
+history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI uses `${{ secrets.* }}`).
+
+- [ ] **G1** Commit-author cleanup (**do first, while private**) — rewrite history so the maintainer's
+  personal email (on ~162 of 246 commits) is replaced by the canonical GitHub no-reply
+  (`<id>+username@users.noreply.github.com`), unifying the older bare-form web-commit address too;
+  force-push. A dedicated history-rewrite operation, not bundled with other work. — *WSL*
+- [ ] **G2** Branding — name + logo (**decide before the name-dependent steps below**) — `pdfproj` is a
+  dev codename; brainstorm and choose a polished product name + logo. **Decision gate first** (name
+  shortlist → trademark / domain / PDF-tool-name-clash check → pick; logo concepts → pick), **then the
+  rebrand sweep**: GitHub repo rename (while private), app strings (`version.py`, `installer.iss`
+  AppName/Publisher, window title, ProgID `pdfproj.Document`, single-instance + `%APPDATA%\pdfproj`
+  identifiers), `.ico` + toolbar SVG assets, README/docs. Feeds the copyright name (G3), the About
+  name+logo (G4), and the community files (G5). — *WSL + Windows (installer / ProgID / icon)*
+- [ ] **G3** License + notices — root `LICENSE` (full AGPL-3.0-or-later) + `THIRD_PARTY_LICENSES`
+  (PyMuPDF AGPL-3.0, PySide6 + shiboken6 LGPL-3.0, pypdf BSD-3; cross-ref `DEPENDENCIES.md`) +
+  README license section + badge + build-from-source pointer (uses the G2 name) — *WSL*
+- [ ] **G4** In-app About + Open-Source Licenses dialog — add a Help menu (`main_window.py`): About
+  (G2 name + logo + version + AGPL + no-warranty notice + source link), Open-Source Licenses (bundled
+  license texts), View Source; bundle texts via `packaging/pdfproj.spec` + a freeze-aware
+  `resource_path()`; headless smoke test — *WSL + WSLg*
+- [ ] **G5** Community-health files — `SECURITY.md`, `CONTRIBUTING.md` (DCO sign-off),
+  `CODE_OF_CONDUCT.md` (Contributor Covenant), `.github/ISSUE_TEMPLATE/*` + `pull_request_template.md`
+  — *WSL*
+- [ ] **G6** Donations — repo + product — let users support the project. **Repo:** add
+  `.github/FUNDING.yml` (the GitHub "Sponsor" button) + a README "Support / Donate" section/badge.
+  **Product:** a **Help ▸ Donate…** entry (extends the G4 Help menu) + a link in the About dialog,
+  opened with `QDesktopServices.openUrl` — **user-initiated only, so the offline / no-telemetry
+  guarantee still holds** (the app opens no socket itself). Decide the platform first (GitHub Sponsors
+  / Ko-fi / Liberapay / Buy Me a Coffee / PayPal). Open-source + donations is fully AGPL-compatible.
+  — *WSL + WSLg*
+- [ ] **G7** Lock-in identity, hygiene & branch rulesets — local `git user.email` = no-reply on all
+  checkouts; enable GitHub "Keep my email addresses private" + "Block command line pushes that expose
+  my email"; add `*.pfx *.pem *.key .env *.log` to `.gitignore`; optional CI guard rejecting disallowed
+  author emails. **Review & decide the `main` ruleset** (GitHub *Rulesets*, the successor to branch
+  protection): require a PR + review, require the CI status checks (`test.yml`), **block force-push +
+  deletion**, optionally linear history / signed commits — **activated at the flip (G8)**. Caveats:
+  enable the force-push-blocking rule **only after** the G1 history rewrite (else it blocks the scrub's
+  force-push); requiring **signed commits** means setting up GPG/SSH signing for the no-reply identity
+  first (commits are unsigned today); ruleset *enforcement* on a private repo can need a paid plan, so
+  it activates cleanly once public (free). — *GitHub settings*
+- [ ] **G8** Flip to public (**manual; not a PR**) — `gh repo edit --visibility public`; then enable
+  secret scanning + push protection, **activate the `main` ruleset reviewed in G7**, add repo
+  description/topics — *GitHub*
+
 ## Open follow-ups (carried)
 
 Carried items — none block work:
