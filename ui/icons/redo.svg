@@ -1,4 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#2b2b2b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-  <polyline points="15 14 20 9 15 4"/>
-  <path d="M4 20v-7a4 4 0 0 1 4-4h12"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#1E293B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.5 6 19.5 10l-4 4"></path><path d="M19.5 10H10a5.5 5.5 0 0 0 0 11h2.4"></path></svg>
