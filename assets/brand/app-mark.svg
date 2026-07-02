@@ -1,12 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" fill="none">
-  <defs>
-    <linearGradient id="sheafGrad" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#13B8A6"></stop>
-      <stop offset="1" stop-color="#3B82F6"></stop>
-    </linearGradient>
-  </defs>
-  <rect x="62" y="36" width="110" height="168" rx="18" fill="#A7E8E0"></rect>
-  <path d="M92 46 L146 46 L182 82 L182 192 Q182 210 164 210 L92 210 Q74 210 74 192 L74 64 Q74 46 92 46 Z" fill="url(#sheafGrad)"></path>
-  <path d="M146 46 L146 82 L182 82 Z" fill="#D8F3EE"></path>
-  <rect x="66" y="150" width="124" height="34" rx="9" fill="#FFFFFF"></rect>
+  <defs><linearGradient id="sheafGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#13B8A6"></stop><stop offset="1" stop-color="#3B82F6"></stop></linearGradient></defs>
+  <rect x="60" y="64" width="108" height="168" rx="16" fill="#8FDDD3" transform="rotate(-9 114 148)"></rect>
+  <rect x="68" y="56" width="108" height="168" rx="16" fill="#A7E8E0" transform="rotate(-4.5 122 140)"></rect>
+  <path d="M80 151 L60 160 L60 188 L80 184 Z" fill="#C7DBEA"></path>
+  <path d="M92 46 L145 46 Q150 46 153 49 L181 77 Q184 80 184 85 L184 196 Q184 214 166 214 L92 214 Q76 214 76 196 L76 62 Q76 46 92 46 Z" fill="url(#sheafGrad)"></path>
+  <path d="M150 49 L150 76 Q150 80 154 80 L181 80 Q184 80 182 78 Z" fill="#D8F3EE"></path>
+  <rect x="74" y="150" width="112" height="34" rx="5" fill="#FFFFFF"></rect>
+  <path d="M115 167 L123 167 M133 167 L141 167" stroke="#2563EB" stroke-width="3.6" stroke-linecap="round"></path>
+  <rect x="123" y="162" width="10" height="10" rx="3" transform="rotate(45 128 167)" fill="#2563EB"></rect>
 </svg>
