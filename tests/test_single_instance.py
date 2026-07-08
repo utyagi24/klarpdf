@@ -120,3 +120,40 @@ def test_activate_window_does_not_crash(app):
     win.show()
     activate_window(win)  # raise/focus path must be exception-free on this platform
     win.close()
+
+
+def test_allow_foreground_handoff_does_not_crash():
+    """A best-effort Win32 call (AllowSetForegroundWindow) on Windows, a no-op elsewhere — never
+    raises on this platform."""
+    from platform_integration import allow_foreground_handoff
+
+    allow_foreground_handoff()
+
+
+def test_handoff_passes_the_foreground_right(app, a_pdf, monkeypatch):
+    """A second launch hands its foreground right to the resident instance as part of forwarding the
+    path, so the resident (a background process) can actually raise the window it opens. Windows
+    otherwise refuses a background process the focus — the bug where only the first file opened from
+    Explorer came to the front and every later one stayed behind."""
+    import platform_integration
+
+    calls: list[bool] = []
+    monkeypatch.setattr(platform_integration, "allow_foreground_handoff", lambda: calls.append(True))
+
+    name = "pdfproj-test-foreground"
+    QLocalServer.removeServer(name)
+    assert app.start_server(name) is True
+    assert send_path_to_running_instance(name, normalize_path(a_pdf)) is True
+    assert calls  # the right was passed exactly once, as part of a successful handoff
+
+
+def test_no_foreground_handoff_when_no_instance(monkeypatch):
+    """With no resident instance to hand off to, the connection never opens, so there is nothing to
+    raise and no foreground right is passed (the grant would just leak to some other app)."""
+    import platform_integration
+
+    calls: list[bool] = []
+    monkeypatch.setattr(platform_integration, "allow_foreground_handoff", lambda: calls.append(True))
+
+    assert send_path_to_running_instance("pdfproj-test-absent-xyz", "/tmp/none.pdf") is False
+    assert not calls

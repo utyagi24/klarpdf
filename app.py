@@ -33,6 +33,11 @@ def send_path_to_running_instance(name: str, path: str, retries: int = 1) -> boo
         sock = QLocalSocket()
         sock.connectToServer(name)
         if sock.waitForConnected(_HANDOFF_TIMEOUT_MS):
+            # Hand our foreground right to the resident instance before forwarding the path, so the
+            # window IT opens for this file is actually raised to the front. A background process is
+            # refused focus on Windows — which is why, before this, only the first file opened from
+            # Explorer came forward and every later one stayed behind (see allow_foreground_handoff).
+            platform_integration.allow_foreground_handoff()
             sock.write(path.encode("utf-8") + b"\n")
             sock.flush()  # push the bytes onto the pipe now; the pump below drives any remainder
             # Keep our end open until the resident instance has read the path and closes the

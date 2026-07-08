@@ -73,6 +73,37 @@ def _raise_to_front_win32(window) -> None:
         pass
 
 
+def allow_foreground_handoff() -> None:
+    """Pass this process's foreground right on to the resident instance (Windows).
+
+    When a second launch hands its file to the already-running instance and exits, it is that
+    *resident* — a **background** process — that opens and raises the new window. But Windows lets
+    only a process currently holding the foreground right call ``SetForegroundWindow`` (what Qt's
+    ``activateWindow`` uses); a background process is refused, so the window opens *behind* the others.
+    This process, however, was started by Explorer (the foreground app) to service the double-click,
+    so it *does* hold the right — ``AllowSetForegroundWindow(ASFW_ANY)`` delegates it to whichever
+    process next activates a window, i.e. the resident instance. The sender calls this just before it
+    forwards the path (while it still holds the right); :func:`activate_window` in the resident then
+    succeeds. Without it, only the very first file — opened by this same foreground-privileged process,
+    before it became resident — was brought to the front.
+
+    Best-effort and a no-op off Windows (or if this process doesn't currently hold the right, in which
+    case the call simply returns FALSE and we are no worse off than before)."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        ASFW_ANY = 0xFFFFFFFF  # (DWORD)-1 — grant to any process (the resident instance is unknown here)
+        user32 = ctypes.windll.user32
+        user32.AllowSetForegroundWindow.argtypes = [wintypes.DWORD]
+        user32.AllowSetForegroundWindow.restype = wintypes.BOOL
+        user32.AllowSetForegroundWindow(ASFW_ANY)
+    except Exception:
+        pass
+
+
 def register_file_association(exe_path: str | None = None) -> None:
     """Register pdfproj as a .pdf handler.
 
