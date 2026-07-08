@@ -76,6 +76,35 @@ def test_selection_marker_helper_runs_for_a_multi_selection(qapp, a_pdf):
         panel.deleteLater()
 
 
+def test_thumbnail_width_is_invariant_to_scrollbar_visibility(qapp, a_pdf):
+    """Regression: at a narrow bar width the thumbnail tracks the width, so if its size depended on
+    whether the vertical scrollbar is showing, the bar toggling on/off would resize the thumbnails —
+    which changes the content height, which toggles the bar again: a flicker loop that fires when the
+    window's bottom edge lands right at the last thumbnail. The icon width must not change when the
+    scrollbar appears/disappears (its slot is reserved unconditionally)."""
+    from organize.thumbnail_panel import _THUMB_MAX_W
+
+    panel = ThumbnailPanel(VirtualDocument.from_path(a_pdf))
+    panel.resize(180, 900)  # narrow enough that the thumbnail tracks the width (not clamped at max)
+    panel.show()
+    qapp.processEvents()
+    try:
+        panel.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        qapp.processEvents()
+        panel._apply_thumb_size()
+        without_bar = panel.iconSize().width()
+
+        panel.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+        qapp.processEvents()
+        panel._apply_thumb_size()
+        with_bar = panel.iconSize().width()
+
+        assert without_bar < _THUMB_MAX_W  # in the width-tracking regime, so the check is meaningful
+        assert with_bar == without_bar     # scrollbar toggling must not resize the thumbnail
+    finally:
+        panel.deleteLater()
+
+
 # ---- #4: a short page that fits the viewport is vertically centered ----------
 
 

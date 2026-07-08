@@ -467,8 +467,18 @@ class ThumbnailPanel(QListWidget):
 
     def _apply_thumb_size(self) -> None:
         """Scale the displayed thumbnail to the current bar width (Preview-style), within the bounds.
-        The pixmap is rendered at _THUMB_MAX_W, so this only resizes the icon — no re-render."""
-        avail = self.viewport().width() - 2 * self.spacing()
+        The pixmap is rendered at _THUMB_MAX_W, so this only resizes the icon — no re-render.
+
+        Size off a scrollbar-*invariant* width: ``contentsRect`` is the inner width that includes the
+        vertical scrollbar's slot, and we subtract the scrollbar extent whether or not the bar is
+        currently shown (``viewport().width()`` excludes it only while visible). This breaks a flicker
+        loop — with a narrow bar the icon tracks the width, so were the size to depend on the scrollbar,
+        the bar appearing would shrink the icon → content fits → bar hides → icon grows → content
+        overflows → bar reappears, oscillating when the window's bottom edge sits right at the last
+        thumbnail. (At max width the icon is clamped to _THUMB_MAX_W and never tracked the width, which
+        is why widening the bar hid the loop; reserving the slot fixes it at every width.)"""
+        sbw = self.verticalScrollBar().sizeHint().width()
+        avail = self.contentsRect().width() - sbw - 2 * self.spacing()
         w = max(_THUMB_MIN_W, min(_THUMB_MAX_W, avail))
         if self.iconSize().width() != w:
             self.setIconSize(QSize(w, round(w * 1.4)))
