@@ -57,11 +57,19 @@ jobs:
         shell: pwsh
         run: Compress-Archive -Path vendor/wheels/* -DestinationPath dist/vendor-wheels.zip -Force
 
-      - name: Upload build artifacts
+      # Run artifacts are the deliverable ONLY for the workflow_dispatch dry run; a tag push publishes a
+      # Release (below) with the same files, so re-uploading them here is redundant on a release — and
+      # that redundant ~200 MB-per-release upload, with no retention limit, eventually exhausted the
+      # shared Actions-artifact storage quota and blocked the Release (the failing upload aborted the
+      # job before the publish step). Restrict it to dry runs and expire it, so a release neither
+      # depends on nor consumes that quota.
+      - name: Upload build artifacts (dry-run only)
+        if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v7
         with:
           name: pdfproj-${{ steps.ver.outputs.version }}
           if-no-files-found: error
+          retention-days: 14
           path: |
             dist/pdfproj-setup.exe
             dist/pdfproj-portable.exe
