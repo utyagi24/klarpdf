@@ -7,15 +7,23 @@ it merges, check the box here in the same PR and append the PR link.
 > release links, milestone ticks, and open follow-ups. `PLAN.md` (design/spec) and `CLAUDE.md`
 > (conventions) **link here, they don't restate it** — see CLAUDE.md §How we work → "Where things live".
 
-**Status:** ✅ **v0.9.5 shipped** (viewer-polish patch) — milestones **M0–M38 complete** (v0.1.0 = M0–M9,
+**Status:** ✅ **v0.9.6 shipped** (bug-fix patch) — milestones **M0–M38 complete** (v0.1.0 = M0–M9,
 v0.2.0 = M10–M15, v0.3.0 = M16–M19, v0.4.0 = M20–M22, v0.5.0 = M23–M26, v0.6.0 = M27–M30,
 v0.7.0 = M31 + M31.5 + M34, v0.8.0 = M35–M37, v0.9.0 = M32 + M33 + M38). Releases:
+<https://github.com/utyagi24/pdfproj/releases/tag/v0.9.6> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.9.5> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.9.4> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.9.3> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.9.2> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.9.1> ·
-<https://github.com/utyagi24/pdfproj/releases/tag/v0.9.0>. **v0.9.5** is a viewer-polish patch: the page
+<https://github.com/utyagi24/pdfproj/releases/tag/v0.9.0>. **v0.9.6** is a bug-fix patch: the **Pages
+sidebar thumbnails no longer flicker** at the window height where the bottom edge meets the last
+thumbnail — the thumbnail is sized off a scrollbar-invariant width, so the vertical scrollbar toggling
+on/off can no longer drive a resize→scrollbar→resize loop
+([#87](https://github.com/utyagi24/pdfproj/pull/87)); and **a second PDF opened from Explorer now comes
+to the front** (previously only the first did) — the forwarding launch hands its foreground right to the
+resident instance via `AllowSetForegroundWindow`, which Windows otherwise denies a background process
+([#88](https://github.com/utyagi24/pdfproj/pull/88)). **v0.9.5** is a viewer-polish patch: the page
 opens **centred** and stays centred, and **Fit Width / Fit Page are sticky on resize**
 ([#80](https://github.com/utyagi24/pdfproj/pull/80)); the **Pages sidebar** gets a narrower default
 with a centred single column whose thumbnails **scale with the sidebar width** (Preview-style, capped);
