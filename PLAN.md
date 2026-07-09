@@ -283,14 +283,25 @@ manual). The pre-public hygiene scan is clean — no secrets in the working tree
 `.gitignore` excludes all build artifacts / wheels / `report.json`, CI uses `${{ secrets.* }}` — so
 the work is licensing + community files plus a one-time commit-author cleanup.
 
-- **Branding (name + logo) — decide early.** `pdfproj` is a development codename, not a product brand;
-  choose a polished name + logo **before** the name-dependent artifacts below (license copyright, About
-  dialog, community files, README) so they bake in the final identity. A decision gate first (name
-  shortlist → trademark / domain / PDF-tool-name-clash check → choose; logo concepts → choose), then a
-  rebrand sweep across `version.py`, `packaging/installer.iss` (AppName / Publisher / ProgID
-  `pdfproj.Document`), the window title, the single-instance + `%APPDATA%\pdfproj` identifiers, the
-  `.ico` + toolbar SVG assets, and the **GitHub repo name** (rename while private — old links redirect).
-  Tracked as G2 in `PROGRESS.md`.
+- **Branding (name + logo) — decided: KlarPDF.** `pdfproj` was a development codename, not a product
+  brand; the name had to be settled **before** the name-dependent artifacts below (license copyright,
+  About dialog, community files, README) so they bake in the final identity. The gate is closed — the
+  visual system landed first, then the rebrand sweep across `version.py`, `packaging/installer.iss`
+  (AppName / Publisher / `AppId` / ProgID), the window title, the single-instance + `%APPDATA%`
+  identifiers, the annotation author tag, the `.ico` + toolbar SVG assets, and the **GitHub repo name**
+  (rename while private — old links redirect). Name, casing mapping and the two-part split are tracked
+  as G2 in `PROGRESS.md`; the visual system is specified in `assets/brand/BRAND.md`.
+
+  The sweep carries **no backward-compatibility shims**, because the app has never been distributed —
+  it has a single user and no installed base. Two values are therefore free to change outright that
+  would otherwise be frozen: `PDFPROJ_AUTHOR` in `model/page_edits.py`, which is stamped as the PDF
+  `/T` field on every annotation the app bakes in and matched on read-back (M31 round-trip, and the
+  foreign-annotation boundary noted under §Future enhancements), so changing it would strand
+  annotations in already-saved files; and the `%APPDATA%` config leaf, whose rename orphans the local
+  view-state JSON. Both are accepted losses. The installer additionally takes a **fresh `AppId` GUID**:
+  Inno identifies an installation by `AppId`, not `AppName`, so reusing it would make the renamed setup
+  an in-place upgrade — silently skipping the old uninstaller's ProgID / `OpenWithProgids` /
+  `%APPDATA%` cleanup and reusing the recorded `pdfproj` install directory.
 - **Project license = `AGPL-3.0-or-later`.** PyMuPDF is AGPL and the app is a derivative of it, so the
   whole project must ship AGPL (it cannot be MIT/BSD); LGPL (PySide6/shiboken6) and BSD-3 (pypdf) are
   then satisfied by the same source release. Add a root `LICENSE` (full AGPL text) + a

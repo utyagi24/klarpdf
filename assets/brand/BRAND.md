@@ -37,9 +37,15 @@ correct when Windows switches theme (which the app already follows).
 
 ## Type
 
-- **Wordmark:** Quicksand SemiBold (600), lowercase, tracking −0.5px — SIL OFL 1.1.
+- **Wordmark:** Quicksand SemiBold (600), lowercase `klarpdf`, tracking −0.5px — SIL OFL 1.1.
 - **UI / tagline:** Nunito Sans — SIL OFL 1.1. Tagline "PDF VIEWER + EDITOR", uppercase, ~2px tracking.
 - Bundle the OFL font files (with their `OFL.txt`) or outline the wordmark to paths in any shipped SVG lockup.
+
+**Name casing.** The lowercase form is the *drawn* wordmark only — where we control the typeface and
+tracking (About lockup, README header, splash). Anywhere the OS renders the name as a plain string in
+its own font — window title, installer AppName, Add/Remove Programs, the `.pdf` "Open With" list — it
+is **`KlarPDF`**, initialism capitalised. Lowercase identifiers (`klarpdf`) are a technical constraint
+of paths, URLs and package names, not a style: see `PROGRESS.md` §G2 for the full mapping.
 
 ## Icon system (summary; full spec in `README-icons.md`)
 
