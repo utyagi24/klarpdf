@@ -4,15 +4,17 @@ Local, offline, **native-Windows** PDF viewer + page editor (Python · PySide6 �
 trustworthy replacement for macOS Preview's view + splice/split workflow on Windows. The source is
 the unit of audit; it ships as a pinned, fully offline Windows installer.
 
-**Status: `v0.9.4` shipped** — [download the installer or portable exe](https://github.com/utyagi24/pdfproj/releases/latest). Milestones **M0–M38 complete**.
+**Status: `v0.9.6` shipped** — [download the installer or portable exe](https://github.com/utyagi24/klarpdf/releases/latest). Milestones **M0–M38 complete**. Full status: [PROGRESS.md](PROGRESS.md).
 
 **New in v0.9.0 — Encrypted & Links:** open **password-protected PDFs** (prompt + authenticate on
 open; the saved copy is unencrypted); and **internal links that survive editing** — GoTo and
 named-destination links are rebuilt at save so reorder / delete / Save keeps them working, and
-they're **clickable in the viewer** (click to jump to the target page). Patches through **v0.9.4**
+they're **clickable in the viewer** (click to jump to the target page). Patches through **v0.9.6**
 polish the open experience — a window opens on the **monitor under your cursor** at Fit Page with no
 flicker, the Pages sidebar loads **lazily** (a 320-page doc opens in ~150 ms) and is hidden by
-default — and **v0.9.4** is a dependency **security patch** (`pypdf` 6.13.2 → 6.13.3).
+default; **v0.9.4** is a dependency **security patch** (`pypdf` 6.13.2 → 6.13.3); **v0.9.5** centres
+the page and makes Fit Width / Fit Page sticky on resize; and **v0.9.6** stops the Pages-sidebar
+thumbnails flickering and brings a second PDF opened from Explorer to the front.
 **v0.8.0 — Images:** **import** a PNG/JPEG from Explorer onto the Pages sidebar as a new page, and
 **export** selected pages as PNG/JPEG at a chosen DPI (edits-aware).
 **v0.7.0 — Round-trip & Export:** reopen a saved document and **move / edit / remove your own
@@ -44,7 +46,7 @@ viewer-mode toggle.
 
 ## Use it (Windows)
 
-Grab the [latest release](https://github.com/utyagi24/pdfproj/releases/latest):
+Grab the [latest release](https://github.com/utyagi24/klarpdf/releases/latest):
 
 - **`klarpdf-setup.exe`** — installer (per-user, no admin). Adds KlarPDF to the `.pdf` **Open With**
   list + a Start-Menu shortcut; clean uninstall. *Recommended.*

@@ -27,7 +27,7 @@ release PR — either way the release mechanics are §3.
 1. Branch from `origin/main`; make the change.
 2. **Test** — `invoke test` (headless suite green).
 3. **Version + docs** (§3 steps 1–2) — bump `version.py` (patch = fix, minor = feature); update the
-   `PROGRESS.md` / `CLAUDE.md` status paragraphs.
+   `PROGRESS.md` / `CLAUDE.md` / **`README.md`** status paragraphs.
 4. **PR** (change + bump together), review, **merge** to `main`.
 5. **Release** (§3 steps 3–6) — `invoke tag --version X.Y.Z` → CI builds the draft → smoke-test →
    `invoke publish --version X.Y.Z`.
@@ -140,9 +140,18 @@ cross-check, absent on Windows).
 2. **Docs** (same PR as the bump):
    - `PROGRESS.md` — tick any item this release resolves; add the release line + link.
    - `CLAUDE.md` — update the **## Status** paragraph.
+   - **`README.md` — update the `**Status: vX.Y.Z shipped**` line and the "New in …" summary.**
+     This is the *only* doc a visitor to the public repo reads, so a stale version here is the most
+     visible drift there is. It went unnoticed at v0.9.5 and v0.9.6 (README still claimed v0.9.4).
    - `DEPENDENCIES.md` — update the **Locked** column if a dependency version changed.
 
    Open this as a normal PR (branch from `origin/main`), review, and **merge to `main`**.
+
+   Quick check before opening the PR — these three must agree:
+   ```sh
+   grep -n '__version__' version.py
+   grep -n 'Status' README.md CLAUDE.md | head -2
+   ```
 
 3. **Tag.** Annotated tag on the merged `main`, then push it — the push is what triggers the release
    workflow:

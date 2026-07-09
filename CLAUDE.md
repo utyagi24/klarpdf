@@ -45,6 +45,13 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   verification, the roadmap & rationale of each milestone → **`PLAN.md`**. *How we work* — conventions,
   gotchas, environment → **`CLAUDE.md`**. The other two **link**, never restate. Rule of thumb:
   **status → PROGRESS; design → PLAN; process → CLAUDE.**
+- **`README.md` is the one sanctioned exception — and it must be updated on every release.** It is the
+  shop window for the (soon-public) repo, so it *does* restate the shipped version and a short
+  what's-new summary; a visitor won't go read `PROGRESS.md`. That restatement is exactly what rots:
+  README sat on `v0.9.4` through both v0.9.5 and v0.9.6. So the release checklist
+  (`RELEASE.md` §3 step 2) now names `README.md` alongside `PROGRESS.md` and `CLAUDE.md`, and the
+  version bump, the three status lines, and the release PR all land **together**. Keep README's
+  restatement to the version + a one-line-per-release summary; everything deeper stays a link.
 
 ## Gotchas (cost real time if missed)
 - **Windows Python must be python.org 3.12.x**, not the Microsoft Store stub (which can't build).
