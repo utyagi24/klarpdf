@@ -1,12 +1,13 @@
-# sheaf — brand & icon system
+# KlarPDF — brand & icon system
 
-The visual identity for **sheaf**, a local, offline, privacy-first, open-source **PDF Viewer + Editor**
-for native Windows (Qt / PySide6). Personality: **calm, precise, trustworthy, light, modern — a clean
-"Preview for Windows."**
+The visual identity for **KlarPDF**, a local, offline, privacy-first, open-source **PDF Viewer +
+Editor** for native Windows (Qt / PySide6). Personality: **calm, precise, trustworthy, light, modern —
+a clean "Preview for Windows."** The name is *klar* — "clear" in German and the Scandinavian
+languages.
 
 Production assets are the flat, Qt-safe **SVGs** in this folder and in `ui/icons/`; `tokens.json` holds
-the machine-readable colour / type / grid tokens. (Design source: Claude Design project "Sheaf PDF
-application branding".)
+the machine-readable colour / type / grid tokens. (Design source: the Claude Design project "Sheaf PDF
+application branding" — *sheaf* was the working name the marks were drawn under, before the rename.)
 
 ## Where the assets live
 
