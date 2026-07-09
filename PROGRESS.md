@@ -188,13 +188,28 @@ history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI uses `${
   web-commit authors) onto the canonical `<id>+username@users.noreply.github.com`, author + committer;
   content byte-identical (trees unchanged); `main` + all 15 release tags force-pushed; verified **0**
   personal-email / bare-form authors remaining and all Releases intact. Done first, while private. — *WSL/Windows*
-- [ ] **G2** Branding — name + logo (**decide before the name-dependent steps below**) — `pdfproj` is a
-  dev codename; brainstorm and choose a polished product name + logo. **Decision gate first** (name
-  shortlist → trademark / domain / PDF-tool-name-clash check → pick; logo concepts → pick), **then the
-  rebrand sweep**: GitHub repo rename (while private), app strings (`version.py`, `installer.iss`
-  AppName/Publisher, window title, ProgID `pdfproj.Document`, single-instance + `%APPDATA%\pdfproj`
-  identifiers), `.ico` + toolbar SVG assets, README/docs. Feeds the copyright name (G3), the About
-  name+logo (G4), and the community files (G5). — *WSL + Windows (installer / ProgID / icon)*
+- [ ] **G2** Branding — name + logo. **Decision gate: closed.** The product is **KlarPDF** (*klar* =
+  "clear" in German / the Scandinavian languages); `pdfproj` was the dev codename. An earlier pick,
+  *sheaf*, was dropped for clashing with existing GitHub PDF-processing projects — the marks were drawn
+  under that name, hence the design-source title in `assets/brand/BRAND.md`. Name mapping: display
+  string **`KlarPDF`** (window title, About, installer AppName) · drawn wordmark lowercase `klarpdf`
+  (BRAND.md §Type) · repo + exe + `%APPDATA%` leaf + single-instance id `klarpdf` · ProgID
+  `KlarPDF.Document`.
+  - [x] **Part 1 — visual assets** — toolbar glyph set (24 replaced + 3 new: `about`, `donate`,
+    `export`), app mark, regenerated `packaging/pdfproj.ico`, and `assets/brand/` (tokens + `BRAND.md`
+    + icon spec). No code changes; icon filenames unchanged. — *WSL* —
+    [#91](https://github.com/utyagi24/pdfproj/pull/91)
+  - [ ] **Part 2 — the name sweep** — app strings (`version.py`, `installer.iss` AppName/Publisher +
+    **a fresh `AppId` GUID**, window title, ProgID, single-instance id, `%APPDATA%` leaf), the
+    `PDFPROJ_AUTHOR` annotation tag → `klarpdf`, asset **filenames** (`pdfproj.svg/.ico/.spec`),
+    README/docs, then the **GitHub repo rename** (while private — old links redirect). **No
+    back-compat shims**: the app has never been distributed (single user), so the settings dir and the
+    annotation tag change outright rather than carrying a migration. A fresh `AppId` stops Inno
+    treating the renamed setup as an in-place upgrade (which would skip the old uninstaller's registry
+    cleanup and inherit its install dir) — **uninstall `pdfproj` before installing `KlarPDF`**; note
+    this in `RELEASE.md`. — *WSL + Windows (installer / ProgID / icon)*
+
+  Feeds the copyright name (G3), the About name+logo (G4), and the community files (G5).
 - [ ] **G3** License + notices — root `LICENSE` (full AGPL-3.0-or-later) + `THIRD_PARTY_LICENSES`
   (PyMuPDF AGPL-3.0, PySide6 + shiboken6 LGPL-3.0, pypdf BSD-3; cross-ref `DEPENDENCIES.md`) +
   README license section + badge + build-from-source pointer (uses the G2 name) — *WSL*

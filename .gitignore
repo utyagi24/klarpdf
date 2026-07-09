@@ -25,3 +25,8 @@ vendor/wheels/
 # OS cruft
 .DS_Store
 Thumbs.db
+
+# Claude Design export bundle, downloaded locally as reference. Its assets are imported into
+# ui/icons/ + assets/brand/, so this duplicate (plus its .dc.html/support.js preview scaffolding)
+# is deliberately NOT committed.
+/design_handoff_sheaf_brand/

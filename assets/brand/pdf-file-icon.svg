@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" fill="none">
+  <defs><linearGradient id="pdfGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#13B8A6"></stop><stop offset="1" stop-color="#3B82F6"></stop></linearGradient></defs>
+  <path d="M76 34 L143 34 Q150 34 154 38 L191 75 Q196 80 196 87 L196 214 Q196 226 184 226 L76 226 Q64 226 64 214 L64 46 Q64 34 76 34 Z" fill="#FFFFFF" stroke="url(#pdfGrad)" stroke-width="9" stroke-linejoin="round"></path>
+  <path d="M154 38 L154 71 Q154 75 158 75 L191 75" fill="none" stroke="url(#pdfGrad)" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"></path>
+  <rect x="48" y="150" width="120" height="46" rx="10" fill="url(#pdfGrad)"></rect>
+  <g fill="none" stroke="#FFFFFF" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M74 162 V184 M74 162 H84 a6 6 0 0 1 0 12 H74"></path>
+    <path d="M98 162 V184 M98 162 H105 a11 11 0 0 1 0 22 H98"></path>
+    <path d="M126 162 V184 M126 162 H140 M126 173 H137"></path>
+  </g>
+</svg>
