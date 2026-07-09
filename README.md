@@ -1,5 +1,7 @@
 # KlarPDF
 
+[![License: AGPL-3.0-or-later](https://img.shields.io/badge/License-AGPL--3.0--or--later-blue.svg)](LICENSE)
+
 Local, offline, **native-Windows** PDF viewer + page editor (Python · PySide6 · PyMuPDF) — a
 trustworthy replacement for macOS Preview's view + splice/split workflow on Windows. The source is
 the unit of audit; it ships as a pinned, fully offline Windows installer.
@@ -88,10 +90,29 @@ CI does the same on a tag: push a `v*` tag and `.github/workflows/release.yml` b
 end-to-end flow — version bump → tag → draft → smoke → publish, with the `invoke tag` / `invoke
 publish` shortcuts — is in **[RELEASE.md](RELEASE.md)**.
 
-## License / audit notes
+## License
 
-PyMuPDF is **AGPL** — building for your own machines is private use; public distribution offers the
-corresponding source (this repo at the release tag). Dependencies are pinned with hashes and
-vendored for an offline, auditable build, and **continuously scanned** for known advisories
-(`pip-audit` in CI + Dependabot alerts; bumps follow [RELEASE.md](RELEASE.md)). See DEPENDENCIES.md
-and PLAN.md §Packaging.
+KlarPDF is licensed under the **GNU Affero General Public License v3.0 or later
+(`AGPL-3.0-or-later`)** — full text in [LICENSE](LICENSE).
+
+Why AGPL and not MIT/BSD: KlarPDF renders and edits PDFs with **PyMuPDF**, which is itself
+**AGPL-3.0** (or an Artifex commercial license). KlarPDF links it and is a derivative work, so the
+whole project must ship under the AGPL — it cannot be relicensed as MIT/BSD (see
+PLAN.md §Public-release readiness). The LGPL-3.0 (PySide6 / shiboken6) and BSD-3-Clause (pypdf) terms
+of the other bundled libraries are satisfied by the same source release. Per-dependency versions,
+license identifiers, and notices are in **[THIRD_PARTY_LICENSES](THIRD_PARTY_LICENSES)**
+(cross-referenced by [DEPENDENCIES.md](DEPENDENCIES.md)).
+
+Because the app is AGPL, public distribution must offer the corresponding source — this repository at
+the exact release tag each installer is built from satisfies that. Building for **your own machines**
+is private use with no such obligation.
+
+**Build from source:** see [Develop (WSL)](#develop-wsl) to run it, and
+[Build the Windows installer](#build-the-windows-installer) to produce `klarpdf-setup.exe` /
+`klarpdf-portable.exe` yourself.
+
+## Audit notes
+
+Dependencies are pinned with hashes and vendored for an offline, auditable build, and
+**continuously scanned** for known advisories (`pip-audit` in CI + Dependabot alerts; bumps follow
+[RELEASE.md](RELEASE.md)). See DEPENDENCIES.md and PLAN.md §Packaging.
