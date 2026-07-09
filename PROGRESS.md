@@ -188,7 +188,7 @@ history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI uses `${
   web-commit authors) onto the canonical `<id>+username@users.noreply.github.com`, author + committer;
   content byte-identical (trees unchanged); `main` + all 15 release tags force-pushed; verified **0**
   personal-email / bare-form authors remaining and all Releases intact. Done first, while private. — *WSL/Windows*
-- [ ] **G2** Branding — name + logo. **Decision gate: closed.** The product is **KlarPDF** (*klar* =
+- [x] **G2** Branding — name + logo (**done** — all three parts). **Decision gate: closed.** The product is **KlarPDF** (*klar* =
   "clear" in German / the Scandinavian languages); `pdfproj` was the dev codename. An earlier pick,
   *sheaf*, was dropped for clashing with existing GitHub PDF-processing projects — the marks were drawn
   under that name, hence the design-source title in `assets/brand/BRAND.md`. Name mapping: display
@@ -210,9 +210,14 @@ history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI uses `${
     config-dir cleanup and reuse its install dir) — **uninstall `pdfproj` before installing
     `KlarPDF`** (`RELEASE.md`). Historical release notes, shipped artifact names and repo URLs are
     left as-is: they record what actually shipped. — *WSL* — [#92](https://github.com/utyagi24/pdfproj/pull/92)
-  - [ ] **Part 3 — GitHub repo rename** (**manual; not a PR**) — `gh repo edit --rename klarpdf`
-    while the repo is still private; old links redirect. Then re-point both checkouts'
-    `origin` remotes. Deferred so it can't break the open-PR flow mid-sweep. — *GitHub*
+  - [x] **Part 3 — GitHub repo rename** (**manual**) — `gh repo rename klarpdf` (**not**
+    `gh repo edit --rename`, which doesn't exist), run while the repo was still private.
+    `utyagi24/pdfproj` → `utyagi24/klarpdf`; GitHub redirects the old URLs, so the historical
+    release/PR links above keep resolving, and PRs/issues/releases are untouched (a *repo* rename is
+    safe — it is a *branch* rename that closes an open PR, see #86). Each checkout then needs
+    `git remote set-url origin https://github.com/utyagi24/klarpdf.git`; the Windows checkout is
+    done, **the WSL checkout must be re-pointed by hand**. Local working-directory names deliberately
+    keep the old codename. — *GitHub*
 
   Feeds the copyright name (G3), the About name+logo (G4), and the community files (G5).
 - [ ] **G3** License + notices — root `LICENSE` (full AGPL-3.0-or-later) + `THIRD_PARTY_LICENSES`

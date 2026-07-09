@@ -15,8 +15,10 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   headless tests run in **WSL**; the GUI iterates via **WSLg**. Only **packaging + Windows
   shell-integration** (PyInstaller, Inno Setup, file-association, single-instance/focus *validation*)
   run on **Windows**. See PLAN.md §Development environment.
-- **git is the only bridge** between the WSL checkout (`~/klarpdf`) and the Windows checkout
-  (`C:\Users\<you>\klarpdf`). **Never** edit one across `\\wsl$` or `/mnt/c`.
+- **git is the only bridge** between the WSL checkout (`~/pdfproj`) and the Windows checkout
+  (`C:\Users\<you>\pdfproj`). **Never** edit one across `\\wsl$` or `/mnt/c`. (The **directory** names
+  keep the old codename by choice — the GitHub repo is `klarpdf`; git doesn't care, and renaming a
+  live working directory buys nothing.)
 - **Branch + commit + PR for every change — never leave edits uncommitted or on `main`.** This
   applies to **planning/docs** (`PLAN.md`, `PROGRESS.md`, `CLAUDE.md`), not just code. The moment a
   change is ready, create a branch (`plan/…`, `feat/m39-…`, `fix/…`, `docs/…`), commit, push, and
