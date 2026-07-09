@@ -1,0 +1,75 @@
+name: Bug report
+description: Report a problem with KlarPDF
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report.
+
+        **Security issue?** Do **not** file it here — please follow
+        [SECURITY.md](../blob/main/SECURITY.md) and report it privately.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear and concise description of the bug.
+      placeholder: When I do X, KlarPDF does Y instead of Z.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: >
+        Exact steps to reproduce the behavior. If a specific PDF triggers it and you can share it,
+        please attach it (drag the file into this box). Do not attach anything confidential.
+      placeholder: |
+        1. Open '...'
+        2. Click '...'
+        3. Scroll to '...'
+        4. See error
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What you expected to happen instead.
+    validations:
+      required: true
+  - type: input
+    id: klarpdf-version
+    attributes:
+      label: KlarPDF version
+      description: From Help ▸ About, or the version in the installer/portable filename you downloaded.
+      placeholder: e.g. 0.9.6
+    validations:
+      required: true
+  - type: input
+    id: windows-version
+    attributes:
+      label: Windows version
+      description: Run `winver`, or Settings ▸ System ▸ About.
+      placeholder: e.g. Windows 11 Home 24H2 (build 26200)
+    validations:
+      required: true
+  - type: dropdown
+    id: install-method
+    attributes:
+      label: Install method
+      description: How did you install KlarPDF?
+      options:
+        - Installer (klarpdf-setup.exe)
+        - Portable (klarpdf-portable.exe)
+        - Built from source
+        - Other / not sure
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Screenshots, error messages, logs, or other context.
+    validations:
+      required: false

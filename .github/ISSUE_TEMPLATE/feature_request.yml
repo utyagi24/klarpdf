@@ -1,0 +1,42 @@
+name: Feature request
+description: Suggest an idea or improvement for KlarPDF
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting an improvement. Please check the
+        [PLAN.md](../blob/main/PLAN.md) roadmap and existing issues first — your idea may already be
+        planned or under discussion.
+
+        Note: KlarPDF is deliberately **local, offline, and free of telemetry**. Features that would
+        require network access or data collection are out of scope.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the use case or the frustration this feature would address.
+      placeholder: I'm always frustrated when...
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What would you like KlarPDF to do?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any workarounds or other approaches you've thought about.
+    validations:
+      required: false
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Mockups, examples from other tools, or additional context.
+    validations:
+      required: false
