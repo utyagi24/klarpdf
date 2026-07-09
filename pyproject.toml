@@ -1,5 +1,5 @@
 [project]
-name = "pdfproj"
+name = "klarpdf"
 version = "0.0.0"
 description = "Local, offline, native-Windows PDF viewer + page editor"
 requires-python = ">=3.12,<3.13"

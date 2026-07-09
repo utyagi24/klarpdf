@@ -99,7 +99,7 @@ def test_flattened_annotations_do_not_round_trip(vdoc, tmp_path):
 
     reopened = VirtualDocument.from_path(out)
     assert reopened.page_annotations(0) == ()        # nothing comes back as editable
-    assert reopened.has_baked_pdfproj_annotations() is False
+    assert reopened.has_baked_klarpdf_annotations() is False
     assert "LOCKED" in _text(out)                    # the text is still there, just not editable
 
 

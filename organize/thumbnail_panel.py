@@ -40,7 +40,7 @@ _SIDEBAR_W = 210      # default sidebar width (a comfortable mid-size thumbnail)
 _SIDEBAR_CHROME = 36  # scrollbar + frame + the 2*spacing margin, added around the thumbnail width
 # Custom drag payload so a drop knows the source document + rows even across windows; the plain
 # QListWidget item-move MIME can't cross processes/windows and InternalMove can't leave the view.
-_PAGES_MIME = "application/x-pdfproj-pages"
+_PAGES_MIME = "application/x-klarpdf-pages"
 
 
 class ThumbnailPanel(QListWidget):
@@ -339,7 +339,7 @@ class ThumbnailPanel(QListWidget):
         has_edits = (
             bool(self._vdoc.form_values)
             or any(r.annotations for r in self._vdoc.ordered)
-            or self._vdoc.has_baked_pdfproj_annotations()
+            or self._vdoc.has_baked_klarpdf_annotations()
         )
         if not has_edits:
             return None

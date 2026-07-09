@@ -1,4 +1,4 @@
-# CLAUDE.md — pdfproj
+# CLAUDE.md — KlarPDF
 
 Local, offline, **native-Windows** PDF viewer + page editor in Python (PySide6 + PyMuPDF), shipped
 as a pinned/auditable offline Windows installer. Replaces macOS Preview's view + splice/split
@@ -15,8 +15,8 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   headless tests run in **WSL**; the GUI iterates via **WSLg**. Only **packaging + Windows
   shell-integration** (PyInstaller, Inno Setup, file-association, single-instance/focus *validation*)
   run on **Windows**. See PLAN.md §Development environment.
-- **git is the only bridge** between the WSL checkout (`~/pdfproj`) and the Windows checkout
-  (`C:\Users\<you>\pdfproj`). **Never** edit one across `\\wsl$` or `/mnt/c`.
+- **git is the only bridge** between the WSL checkout (`~/klarpdf`) and the Windows checkout
+  (`C:\Users\<you>\klarpdf`). **Never** edit one across `\\wsl$` or `/mnt/c`.
 - **Branch + commit + PR for every change — never leave edits uncommitted or on `main`.** This
   applies to **planning/docs** (`PLAN.md`, `PROGRESS.md`, `CLAUDE.md`), not just code. The moment a
   change is ready, create a branch (`plan/…`, `feat/m39-…`, `fix/…`, `docs/…`), commit, push, and

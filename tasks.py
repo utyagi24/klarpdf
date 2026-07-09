@@ -1,4 +1,4 @@
-"""Task runner for pdfproj - ``invoke <task>`` ties the build steps into one interface.
+"""Task runner for KlarPDF - ``invoke <task>`` ties the build steps into one interface.
 
 Thin orchestration only: each task shells out to the existing authoritative scripts
 (``packaging/build.ps1``, ``pip-compile``, ``vendor/gen-sources.py``, ``tools/audit-deps.ps1``,
@@ -73,7 +73,7 @@ def audit(c):
     # Linux/WSL twin of tools/audit-deps.ps1: self-provision pip-audit in a throwaway venv.
     import tempfile
 
-    venv = Path(tempfile.mkdtemp(prefix="pdfproj-audit-"))
+    venv = Path(tempfile.mkdtemp(prefix="klarpdf-audit-"))
     try:
         c.run(f'"{sys.executable}" -m venv "{venv}"', echo=True)
         vpy = venv / "bin" / "python"

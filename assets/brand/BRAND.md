@@ -13,7 +13,7 @@ application branding" — *sheaf* was the working name the marks were drawn unde
 
 | Asset | File | Used by |
 |---|---|---|
-| App mark (full-colour) | `ui/icons/pdfproj.svg` (source copy: `assets/brand/app-mark.svg`) | window / taskbar icon; `make_icon.py` → `packaging/pdfproj.ico` |
+| App mark (full-colour) | `ui/icons/klarpdf.svg` (source copy: `assets/brand/app-mark.svg`) | window / taskbar icon; `make_icon.py` → `packaging/klarpdf.ico` |
 | Monochrome mark | `assets/brand/app-mark-mono.svg` | theme-tinted in-app use (About, empty state) |
 | Windows tile | `assets/brand/app-tile.svg` | boxed / tile contexts |
 | `.pdf` file icon | `assets/brand/pdf-file-icon.svg` | Explorer file-association icon (G2 part 2) |

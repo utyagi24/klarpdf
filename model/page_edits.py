@@ -89,11 +89,11 @@ _TEXTLIKE = frozenset(
 # Frozen + hashable so they can live inside a frozen PageRef and be snapshotted for undo/redo.
 # Geometry is in unrotated page points (the same space text selection + the viewer overlays use).
 
-# Author tag stamped on every annotation pdfproj bakes in. It is the hook a future "round-trip"
+# Author tag stamped on every annotation KlarPDF bakes in. It is the hook a future "round-trip"
 # milestone (re-open + edit/remove saved annotations — PLAN.md §Future enhancements) needs to tell
 # *our* annotations from ones other tools wrote, so it can read only ours back into the model and
 # strip-then-re-add them at save without duplicating. Costs nothing today.
-PDFPROJ_AUTHOR = "pdfproj"
+KLARPDF_AUTHOR = "klarpdf"
 
 
 @dataclass(frozen=True)
@@ -157,13 +157,13 @@ def apply_annotations(page: fitz.Page, annotations: tuple) -> None:
 
     Redaction descriptors are deliberately skipped here — they are handled separately by
     :func:`apply_redactions`, which must run as its own destructive pass (see
-    :mod:`model.edit_engine`). Each baked annotation is tagged with :data:`PDFPROJ_AUTHOR`.
+    :mod:`model.edit_engine`). Each baked annotation is tagged with :data:`KLARPDF_AUTHOR`.
     """
     for annotation in annotations:
         if isinstance(annotation, Highlight):
             annot = page.add_highlight_annot([fitz.Rect(r) for r in annotation.rects])
             annot.set_colors(stroke=annotation.color)
-            annot.set_info(title=PDFPROJ_AUTHOR)
+            annot.set_info(title=KLARPDF_AUTHOR)
             annot.update()
         elif isinstance(annotation, TextBox):
             annot = page.add_freetext_annot(
@@ -175,7 +175,7 @@ def apply_annotations(page: fitz.Page, annotations: tuple) -> None:
                 fill_color=annotation.fill_color,      # None → no background fill
                 border_width=annotation.border_width,  # 0 → no outline (black when > 0)
             )
-            annot.set_info(title=PDFPROJ_AUTHOR)
+            annot.set_info(title=KLARPDF_AUTHOR)
             annot.update()
 
 
@@ -206,10 +206,10 @@ def apply_redactions(page: fitz.Page, annotations: tuple) -> None:
 
 # ---- round-trip read-back (M31): reconstruct our own annotations from a saved page ----
 #
-# The inverse of :func:`apply_annotations`: re-parse the highlights / text-boxes a previous pdfproj
+# The inverse of :func:`apply_annotations`: re-parse the highlights / text-boxes a previous KlarPDF
 # save baked in, back into the descriptors above, so a reopened document's annotations become
 # movable / re-editable / removable again. Only *our* annotations round-trip (matched by the
-# :data:`PDFPROJ_AUTHOR` title); foreign annotations and consumed redactions are left alone.
+# :data:`KLARPDF_AUTHOR` title); foreign annotations and consumed redactions are left alone.
 # Geometry comes back in unrotated page points — the space the model + viewer overlays use.
 
 # A base-14 DA font name (``/Helv`` / ``/TiRo`` / ``/Cour``) → our :class:`TextBox` ``fontname``.
@@ -257,11 +257,11 @@ def _quads_to_rects(vertices) -> tuple[tuple[float, float, float, float], ...]:
     return tuple(rects)
 
 
-def read_pdfproj_annotations(page: fitz.Page) -> tuple:
-    """Re-parse this page's pdfproj-authored highlights / text-boxes into model descriptors.
+def read_klarpdf_annotations(page: fitz.Page) -> tuple:
+    """Re-parse this page's KlarPDF-authored highlights / text-boxes into model descriptors.
 
-    The inverse of :func:`apply_annotations`. Matches annotations by the :data:`PDFPROJ_AUTHOR`
-    title, so only marks pdfproj itself wrote come back into the editable model; foreign
+    The inverse of :func:`apply_annotations`. Matches annotations by the :data:`KLARPDF_AUTHOR`
+    title, so only marks KlarPDF itself wrote come back into the editable model; foreign
     annotations are ignored (and copied through verbatim at materialise). Redactions are
     *destructive* and leave nothing tagged to read, so they never round-trip — a redacted save
     stays a point of no return.
@@ -269,7 +269,7 @@ def read_pdfproj_annotations(page: fitz.Page) -> tuple:
     doc = page.parent
     result: list = []
     for annot in page.annots():
-        if annot.info.get("title") != PDFPROJ_AUTHOR:
+        if annot.info.get("title") != KLARPDF_AUTHOR:
             continue
         kind = annot.type[0]
         if kind == fitz.PDF_ANNOT_HIGHLIGHT:
@@ -302,30 +302,30 @@ def read_pdfproj_annotations(page: fitz.Page) -> tuple:
     return tuple(result)
 
 
-def page_has_pdfproj_annotations(page: fitz.Page) -> bool:
-    """True if the page carries any baked pdfproj-authored (:data:`PDFPROJ_AUTHOR`-tagged) mark.
+def page_has_klarpdf_annotations(page: fitz.Page) -> bool:
+    """True if the page carries any baked KlarPDF-authored (:data:`KLARPDF_AUTHOR`-tagged) mark.
 
     The viewer / thumbnails use this to decide whether a page must render from an edits-applied
     copy — our baked annotations stripped and redrawn from the (editable) model — instead of
     straight from the shared source, which would otherwise show the original mark twice (the baked
     one pinned under the editable overlay).
     """
-    return any(annot.info.get("title") == PDFPROJ_AUTHOR for annot in page.annots())
+    return any(annot.info.get("title") == KLARPDF_AUTHOR for annot in page.annots())
 
 
-def strip_pdfproj_annotations(page: fitz.Page) -> None:
-    """Delete this page's pdfproj-authored annotations (matched by :data:`PDFPROJ_AUTHOR`).
+def strip_klarpdf_annotations(page: fitz.Page) -> None:
+    """Delete this page's KlarPDF-authored annotations (matched by :data:`KLARPDF_AUTHOR`).
 
     Used at materialise: ``insert_pdf(annots=True)`` copies every source annotation — *including*
-    the pdfproj marks a prior save baked in — so before re-adding them from the model (which now
+    the KlarPDF marks a prior save baked in — so before re-adding them from the model (which now
     owns them, with any move / edit / removal applied) we strip the copies, leaving the model the
     single source of truth. Foreign annotations are preserved. Uses the documented
     delete-while-iterating idiom (:meth:`Page.delete_annot` returns the next annot), and is a no-op
-    on a page with no pdfproj annotations (so clean pages are never rewritten).
+    on a page with no KlarPDF annotations (so clean pages are never rewritten).
     """
     annot = page.first_annot
     while annot:
-        if annot.info.get("title") == PDFPROJ_AUTHOR:
+        if annot.info.get("title") == KLARPDF_AUTHOR:
             annot = page.delete_annot(annot)
         else:
             annot = annot.next

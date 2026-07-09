@@ -16,7 +16,7 @@ from PySide6.QtWidgets import QApplication
 
 from app import PdfApp
 from model.edit_engine import PyMuPDFEngine
-from model.page_edits import Highlight, TextBox, page_has_pdfproj_annotations
+from model.page_edits import Highlight, TextBox, page_has_klarpdf_annotations
 from model.virtual_document import VirtualDocument
 from store.settings import Settings
 from viewer.pdf_view import PdfView
@@ -41,7 +41,7 @@ def _clean_pdf(tmp_path, name="clean.pdf") -> str:
 
 @pytest.fixture
 def baked_pdf(tmp_path) -> str:
-    """A saved PDF with a baked pdfproj highlight + filled text-box on page 0, plus a clean page 1.
+    """A saved PDF with a baked KlarPDF highlight + filled text-box on page 0, plus a clean page 1.
 
     The text-box has a fill over a blank region (page text sits at y≈100) so its presence /
     absence in a render is measurable as ink.
@@ -91,9 +91,9 @@ def test_render_copy_strips_our_marks_but_not_the_source(qapp, baked_pdf):
         ref = v.ordered[0]
         page = view._render_source_page(ref)
         assert page is not None                          # a render copy is built for the marked source
-        assert not page_has_pdfproj_annotations(page)    # our baked marks stripped from the copy
+        assert not page_has_klarpdf_annotations(page)    # our baked marks stripped from the copy
         # The shared source is untouched — another window may reference it.
-        assert page_has_pdfproj_annotations(v.sources[ref.source_id][0])
+        assert page_has_klarpdf_annotations(v.sources[ref.source_id][0])
     finally:
         view.deleteLater()
 
@@ -127,7 +127,7 @@ def test_clean_document_renders_from_shared_source(qapp, tmp_path):
 
 
 def test_render_copy_keeps_foreign_annotations(qapp, tmp_path):
-    # A source carrying BOTH a foreign mark and a baked pdfproj mark.
+    # A source carrying BOTH a foreign mark and a baked KlarPDF mark.
     src = str(tmp_path / "foreign.pdf")
     doc = fitz.open()
     page = doc.new_page()
@@ -159,17 +159,17 @@ def test_render_copy_keeps_foreign_annotations(qapp, tmp_path):
 def test_source_and_doc_annotation_flags(baked_pdf):
     v = VirtualDocument.from_path(baked_pdf)
     sid = v.ordered[0].source_id
-    assert v.source_has_pdfproj_annotations(sid) is True
-    assert v.has_baked_pdfproj_annotations() is True
+    assert v.source_has_klarpdf_annotations(sid) is True
+    assert v.has_baked_klarpdf_annotations() is True
     # Removing the model annotations does NOT clear the source-bytes flag — the marks are still
     # baked into the on-disk source, so the render must stay on the strip path.
     v.clear_annotations(0)
-    assert v.has_baked_pdfproj_annotations() is True
+    assert v.has_baked_klarpdf_annotations() is True
 
 
 def test_clean_document_has_no_baked_flag(tmp_path):
     v = VirtualDocument.from_path(_clean_pdf(tmp_path))
-    assert v.has_baked_pdfproj_annotations() is False
+    assert v.has_baked_klarpdf_annotations() is False
 
 
 # ---- thumbnail stays on the baked path --------------------------------------

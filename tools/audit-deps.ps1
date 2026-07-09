@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Local dependency-vulnerability audit for pdfproj - the on-demand / offline twin of the
+  Local dependency-vulnerability audit for KlarPDF - the on-demand / offline twin of the
   .github/workflows/audit.yml CI job.
 
 .DESCRIPTION
@@ -34,7 +34,7 @@ param(
 $ErrorActionPreference = "Stop"
 $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $Locks = "requirements-win.txt", "requirements-dev.txt", "requirements-build-win.txt"
-$Venv = Join-Path $env:TEMP ("pdfproj-audit-" + [guid]::NewGuid().ToString("N").Substring(0, 8))
+$Venv = Join-Path $env:TEMP ("klarpdf-audit-" + [guid]::NewGuid().ToString("N").Substring(0, 8))
 
 Push-Location $RepoRoot
 try {

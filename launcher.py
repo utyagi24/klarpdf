@@ -1,6 +1,6 @@
 """Entry point with the single-instance guard (PLAN.md, Single-instance).
 
-Explorer invokes this as ``pdfproj.exe "%1"`` (frozen) / ``pythonw launcher.py "%1"`` (dev).
+Explorer invokes this as ``klarpdf.exe "%1"`` (frozen) / ``pythonw launcher.py "%1"`` (dev).
 Each launch:
  1. normalize ``%1`` and try to hand it to a resident instance (``QLocalSocket``);
  2. if one accepted it → exit with no UI (it raised/opened the window);

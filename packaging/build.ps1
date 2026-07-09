@@ -6,8 +6,8 @@
   Fetches the pinned win_amd64 wheels, creates a clean build venv and installs runtime + build
   deps with --require-hashes --no-index, runs PyInstaller (onedir + onefile), compiles the Inno
   Setup installer, and writes dist/SHA256SUMS. Produces:
-      dist/pdfproj-setup.exe      (installer)
-      dist/pdfproj-portable.exe   (portable --onefile)
+      dist/klarpdf-setup.exe      (installer)
+      dist/klarpdf-portable.exe   (portable --onefile)
       dist/SHA256SUMS
   Self-locates the repo root; run from anywhere:  pwsh packaging/build.ps1
 
@@ -66,7 +66,7 @@ try {
     if (-not $Version) {
         $Version = (& $py @pyArgs -c "import version; print(version.__version__)").Trim()
     }
-    Write-Host "==> Building pdfproj $Version  (offline=$Offline)" -ForegroundColor Cyan
+    Write-Host "==> Building KlarPDF $Version  (offline=$Offline)" -ForegroundColor Cyan
 
     $wheels = Join-Path $Root 'vendor\wheels'
     if (-not $Offline) {
@@ -90,7 +90,7 @@ try {
         '-r','requirements-win.txt','-r','requirements-build-win.txt')
 
     Write-Host '==> PyInstaller freeze (onedir + onefile)'
-    Invoke-Checked $vpy @('-m','PyInstaller','packaging\pdfproj.spec','--noconfirm','--clean',
+    Invoke-Checked $vpy @('-m','PyInstaller','packaging\klarpdf.spec','--noconfirm','--clean',
         '--workpath','build\pyi','--distpath','dist')
 
     $iscc = Get-IsccPath
@@ -98,13 +98,13 @@ try {
     Invoke-Checked $iscc @("/DMyAppVersion=$Version", 'packaging\installer.iss')
 
     Write-Host '==> SHA256SUMS'
-    $lines = foreach ($a in @('dist\pdfproj-setup.exe', 'dist\pdfproj-portable.exe')) {
+    $lines = foreach ($a in @('dist\klarpdf-setup.exe', 'dist\klarpdf-portable.exe')) {
         if (Test-Path $a) { "$((Get-FileHash $a -Algorithm SHA256).Hash.ToLower())  $(Split-Path $a -Leaf)" }
     }
     $lines | Set-Content -Path 'dist\SHA256SUMS' -Encoding ascii
     $lines | ForEach-Object { Write-Host "    $_" }
 
-    Write-Host "==> Done. dist\: pdfproj-setup.exe, pdfproj-portable.exe, SHA256SUMS" -ForegroundColor Green
+    Write-Host "==> Done. dist\: klarpdf-setup.exe, klarpdf-portable.exe, SHA256SUMS" -ForegroundColor Green
 }
 finally {
     Pop-Location

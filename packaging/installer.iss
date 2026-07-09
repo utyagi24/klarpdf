@@ -1,36 +1,47 @@
-; Inno Setup script for pdfproj (PLAN.md, Packaging §4).
+; Inno Setup script for KlarPDF (PLAN.md, Packaging §4).
 ;
 ; Per-user install (no admin): bundles the PyInstaller --onedir tree, writes the HKCU .pdf ProgID +
 ; Open-With association, a Start-Menu shortcut, and an uninstaller that removes the app, the
-; registry keys, AND %APPDATA%\pdfproj. Compile from the repo root after dist\pdfproj\ exists:
+; registry keys, AND %LOCALAPPDATA%\klarpdf. Compile from the repo root after dist\klarpdf\ exists:
 ;   ISCC /DMyAppVersion=0.1.0 packaging\installer.iss
 ; build.ps1 passes the version from version.py.
+;
+; Two spellings, deliberately (assets\brand\BRAND.md §Type, PROGRESS.md §G2): MyAppName is the
+; display string Windows renders in its own font (Add/Remove Programs, shortcuts, Open With);
+; MyAppSlug is the lowercase identifier used for paths and filenames.
 
 #ifndef MyAppVersion
   #define MyAppVersion "0.0.0"
 #endif
-#define MyAppName "pdfproj"
-#define MyAppExe "pdfproj.exe"
+#define MyAppName "KlarPDF"
+#define MyAppSlug "klarpdf"
+#define MyAppExe "klarpdf.exe"
+#define MyAppProgId "KlarPDF.Document"
 
 [Setup]
-AppId={{7FC0B9A9-6FE3-4EEB-BE6E-83F4A00D4E8B}
+; AppId is the installation's identity — Inno matches on it, NOT on AppName. This GUID was minted
+; fresh at the pdfproj -> KlarPDF rename so the renamed setup is a NEW app, not an in-place upgrade
+; of pdfproj: an upgrade would silently skip the old uninstaller's ProgID / OpenWithProgids cleanup
+; and reuse pdfproj's recorded install directory. Uninstall pdfproj first (RELEASE.md).
+; Never change this GUID again — doing so orphans every existing install.
+AppId={{7E66AD28-218E-4488-AA66-2795D9F1A1B1}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
-AppPublisher=pdfproj
+AppPublisher={#MyAppName}
 DefaultDirName={localappdata}\Programs\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 OutputDir=..\dist
-OutputBaseFilename=pdfproj-setup
+OutputBaseFilename={#MyAppSlug}-setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
-SetupIconFile=pdfproj.ico
+SetupIconFile={#MyAppSlug}.ico
 UninstallDisplayIcon={app}\{#MyAppExe}
 
 [Files]
-Source: "..\dist\pdfproj\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
+Source: "..\dist\{#MyAppSlug}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExe}"
@@ -41,16 +52,19 @@ Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription
 
 [Registry]
 ; Per-user ProgID under HKCU\Software\Classes (no admin). uninsdeletekey removes the whole subtree.
-Root: HKCU; Subkey: "Software\Classes\pdfproj.Document"; ValueType: string; ValueName: ""; ValueData: "PDF Document"; Flags: uninsdeletekey
-Root: HKCU; Subkey: "Software\Classes\pdfproj.Document"; ValueType: string; ValueName: "FriendlyAppName"; ValueData: "{#MyAppName}"
-Root: HKCU; Subkey: "Software\Classes\pdfproj.Document\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\{#MyAppExe},0"
-Root: HKCU; Subkey: "Software\Classes\pdfproj.Document\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExe}"" ""%1"""
-; Add pdfproj to the .pdf "Open With" list (does NOT claim default; the user confirms that once).
-Root: HKCU; Subkey: "Software\Classes\.pdf\OpenWithProgids"; ValueType: string; ValueName: "pdfproj.Document"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKCU; Subkey: "Software\Classes\{#MyAppProgId}"; ValueType: string; ValueName: ""; ValueData: "PDF Document"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\{#MyAppProgId}"; ValueType: string; ValueName: "FriendlyAppName"; ValueData: "{#MyAppName}"
+Root: HKCU; Subkey: "Software\Classes\{#MyAppProgId}\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\{#MyAppExe},0"
+Root: HKCU; Subkey: "Software\Classes\{#MyAppProgId}\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExe}"" ""%1"""
+; Add KlarPDF to the .pdf "Open With" list (does NOT claim default; the user confirms that once).
+Root: HKCU; Subkey: "Software\Classes\.pdf\OpenWithProgids"; ValueType: string; ValueName: "{#MyAppProgId}"; ValueData: ""; Flags: uninsdeletevalue
 
 [UninstallDelete]
 ; Clean removal of the per-user runtime config (the view-state JSON written by store/settings.py).
-Type: filesandordirs; Name: "{userappdata}\pdfproj"
+; NOTE: {localappdata}, not {userappdata}. Qt's QStandardPaths.AppConfigLocation resolves to
+; %LOCALAPPDATA% on Windows, not %APPDATA% (Roaming) — verified at runtime. The pdfproj-era script
+; deleted {userappdata}\pdfproj, a path that never existed, so its config was never cleaned up.
+Type: filesandordirs; Name: "{localappdata}\{#MyAppSlug}"
 
 [Run]
-Filename: "{app}\{#MyAppExe}"; Description: "Launch pdfproj"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#MyAppExe}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent

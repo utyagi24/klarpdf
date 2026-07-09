@@ -26,7 +26,7 @@ def single_instance_server_name() -> str:
         user = getpass.getuser()
     except Exception:  # getuser can raise if the environment has no user info
         user = "default"
-    return f"pdfproj-singleton-{user}"
+    return f"klarpdf-singleton-{user}"
 
 
 def activate_window(window) -> None:
@@ -105,7 +105,7 @@ def allow_foreground_handoff() -> None:
 
 
 def register_file_association(exe_path: str | None = None) -> None:
-    """Register pdfproj as a .pdf handler.
+    """Register KlarPDF as a .pdf handler.
 
     On Windows this is a no-op: the installer writes the HKCU ProgID + association (PLAN.md,
     Packaging). It exists for a future Linux ``xdg-mime`` path and an optional dev convenience.

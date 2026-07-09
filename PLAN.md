@@ -119,7 +119,7 @@ already held in `model/virtual_document.py`.
 
 ### Single-instance + one-window-per-document (the duplicate-tab fix)
 
-Every launch is invoked by Explorer as `pdfproj.exe "%1"` (the frozen `launcher.py`; `pythonw
+Every launch is invoked by Explorer as `klarpdf.exe "%1"` (the frozen `launcher.py`; `pythonw
 launcher.py "%1"` when running from source in dev):
 1. Compute a per-user `QLocalServer` name; try `QLocalSocket.connectToServer`.
 2. **Connects** → an instance is running: send the **normalized absolute path**, then exit
@@ -153,7 +153,7 @@ launcher.py "%1"` when running from source in dev):
 - **Thumbnail sidebar** bound to the `ordered[]` list — doubles as jump-to-page (View mode) and
   drag-reorder/delete/cross-window drag (Organize mode). Both views read the same model.
 - **Remember last page/zoom/scroll per document** in a small local JSON under the QStandardPaths
-  app-config dir (`%APPDATA%\pdfproj` on Windows, `~/.config/pdfproj` on Linux; auditable, offline),
+  app-config dir (`%LOCALAPPDATA%\klarpdf` on Windows, `~/.config/klarpdf` on Linux; auditable, offline),
   keyed by identity path. (Path resolved in `store/settings.py` — Portability hedge #1.)
 
 ## Development environment (Hybrid: WSL + Windows)
@@ -163,9 +163,9 @@ The owner develops in **WSL2** (Ubuntu, Python 3.12.3, with WSLg so GUIs display
 truly require Windows. So development is **hybrid**, with **git as the bridge** between two
 checkouts — neither reaches across the filesystem boundary at runtime.
 
-- **WSL checkout** `/home/<you>/pdfproj` (native Linux fs, fast): canonical dev for all `model/`,
+- **WSL checkout** `/home/<you>/klarpdf` (native Linux fs, fast): canonical dev for all `model/`,
   `viewer/`, `organize/` code, the headless tests, and GUI iteration via **WSLg**.
-- **Windows checkout** `C:\Users\<you>\pdfproj` (native NTFS, fast PyInstaller + correct shell
+- **Windows checkout** `C:\Users\<you>\klarpdf` (native NTFS, fast PyInstaller + correct shell
   behavior): `git pull` here for **packaging + Windows-behavior validation only**.
 - Push from WSL → pull on Windows. **Do not** edit one checkout with the other OS's tools across
   `\\wsl$` or `/mnt/c` (slow; line-ending/permission churn). A checked-in `.gitattributes`
@@ -203,8 +203,8 @@ flowchart LR
   A["requirements.in<br/>(human-edited, top-level pins)"] -->|"pip-compile<br/>--generate-hashes"| B["requirements-win.txt<br/>(exact ==, sha256 per wheel)"]
   B -->|"pip download<br/>(once, online)"| C["vendor/wheels/<br/>(committed/released)"]
   C -->|"pip install --no-index<br/>--require-hashes (offline)"| D["build venv<br/>(Win, Python 3.12.x pinned)"]
-  D -->|"PyInstaller (pinned)<br/>--onedir --noconsole"| E["dist/pdfproj/<br/>(runtime + Qt + libs)"]
-  E -->|"Inno Setup (pinned .iss)"| F["pdfproj-setup.exe<br/>(bundles everything)"]
+  D -->|"PyInstaller (pinned)<br/>--onedir --noconsole"| E["dist/klarpdf/<br/>(runtime + Qt + libs)"]
+  E -->|"Inno Setup (pinned .iss)"| F["klarpdf-setup.exe<br/>(bundles everything)"]
   F -->|"installs + writes ProgID/.pdf assoc (HKCU)"| G["target machine<br/>no Python, no network"]
 ```
 
@@ -228,24 +228,24 @@ fetched, the **build itself is fully offline** (`--no-index --require-hashes`) a
 from the lock alone.
 
 **3. Freeze (bundle Python + Qt + libs).** **PyInstaller** (pinned) with a checked-in
-`packaging/pdfproj.spec`, built `--onedir --noconsole` on Windows (cannot be cross-built from
+`packaging/klarpdf.spec`, built `--onedir --noconsole` on Windows (cannot be cross-built from
 WSL). `--onedir` (vs `--onefile`) gives faster startup and a clean tree for the installer to lay
 down; a secondary `--onefile` build also ships as a portable, run-anywhere `.exe` (see §5 — it
 trades slower per-launch startup and no auto-association for zero-install portability). Output
-`dist/pdfproj/` contains the embedded CPython, the PySide6/Qt runtime, and PyMuPDF —
+`dist/klarpdf/` contains the embedded CPython, the PySide6/Qt runtime, and PyMuPDF —
 no system Python needed. (Dependency versions are reproducible via the hashes; note honestly that
 PyInstaller output is **not byte-identical** across builds due to timestamps — version-repro, not
 bit-repro.)
 
 **4. Installer + registry (one self-contained `setup.exe`).** **Inno Setup** (free, mature,
 widely used; script-driven) with a checked-in `packaging/installer.iss` that:
-- bundles the entire `dist/pdfproj/` tree (so the `.exe` carries every dependency — no downloads
+- bundles the entire `dist/klarpdf/` tree (so the `.exe` carries every dependency — no downloads
   at install time, satisfying offline-install),
 - `[Registry]` writes a **per-user ProgID** under `HKCU\Software\Classes` (no admin):
-  `pdfproj.Document` with `shell\open\command = "{app}\pdfproj.exe" "%1"`, a `DefaultIcon`, a
+  `klarpdf.Document` with `shell\open\command = "{app}\klarpdf.exe" "%1"`, a `DefaultIcon`, a
   `FriendlyAppName`, and `.pdf\OpenWithProgids` so the app appears in **Open With**,
 - installs a Start-Menu shortcut, and registers an **uninstaller** that removes the app, the
-  registry keys, **and the per-user config `%APPDATA%\pdfproj`** (an `[UninstallDelete]` wipe —
+  registry keys, **and the per-user config `%LOCALAPPDATA%\klarpdf`** (an `[UninstallDelete]` wipe —
   a clean removal was chosen over leaving the view-state JSON behind).
 - **Setting it as *the* default** is the one manual step Windows reserves to the user (the
   `UserChoice` hash is anti-hijack-protected): the installer adds the handler + Open-With entry;
@@ -258,13 +258,13 @@ widely used; script-driven) with a checked-in `packaging/installer.iss` that:
 a **`push` of a `v*` tag**. It drives the same one-command `packaging/build.ps1` (also runnable
 locally) end-to-end: re-fetch + hash-verify the `win_amd64` wheels from `requirements-win.txt` (not
 committed — see §2) → clean build venv (`--require-hashes --no-index`) + pinned PyInstaller → **two
-artifacts** from `packaging/pdfproj.spec`: the **`--onedir --noconsole`** tree for the installer and
-a portable **`--onefile` `pdfproj-portable.exe`** → Inno Setup (`ISCC installer.iss`) →
-`pdfproj-setup.exe` → smoke-test (launch + open a PDF).
+artifacts** from `packaging/klarpdf.spec`: the **`--onedir --noconsole`** tree for the installer and
+a portable **`--onefile` `klarpdf-portable.exe`** → Inno Setup (`ISCC installer.iss`) →
+`klarpdf-setup.exe` → smoke-test (launch + open a PDF).
 - **Versioning:** one source of truth (`version.py`) feeds the PyInstaller exe metadata, the Inno
   `AppVersion`, and the git tag; a bump is an explicit edit + a new tag.
 - **Release:** on a `v*` tag the workflow publishes a **GitHub Release** attaching
-  `pdfproj-setup.exe`, the portable `pdfproj-portable.exe`, a **`SHA256SUMS`** file, and the
+  `klarpdf-setup.exe`, the portable `klarpdf-portable.exe`, a **`SHA256SUMS`** file, and the
   **vendored wheels** (each release archives its exact build inputs and carries the AGPL
   "corresponding source" pointer at that tag). The runner re-fetches wheels from PyPI, so the
   *runner* build is not offline — but the produced installer is fully self-contained, and the
@@ -287,21 +287,21 @@ the work is licensing + community files plus a one-time commit-author cleanup.
   brand; the name had to be settled **before** the name-dependent artifacts below (license copyright,
   About dialog, community files, README) so they bake in the final identity. The gate is closed — the
   visual system landed first, then the rebrand sweep across `version.py`, `packaging/installer.iss`
-  (AppName / Publisher / `AppId` / ProgID), the window title, the single-instance + `%APPDATA%`
+  (AppName / Publisher / `AppId` / ProgID), the window title, the single-instance + `%LOCALAPPDATA%`
   identifiers, the annotation author tag, the `.ico` + toolbar SVG assets, and the **GitHub repo name**
   (rename while private — old links redirect). Name, casing mapping and the two-part split are tracked
   as G2 in `PROGRESS.md`; the visual system is specified in `assets/brand/BRAND.md`.
 
   The sweep carries **no backward-compatibility shims**, because the app has never been distributed —
   it has a single user and no installed base. Two values are therefore free to change outright that
-  would otherwise be frozen: `PDFPROJ_AUTHOR` in `model/page_edits.py`, which is stamped as the PDF
+  would otherwise be frozen: `KLARPDF_AUTHOR` in `model/page_edits.py`, which is stamped as the PDF
   `/T` field on every annotation the app bakes in and matched on read-back (M31 round-trip, and the
   foreign-annotation boundary noted under §Future enhancements), so changing it would strand
-  annotations in already-saved files; and the `%APPDATA%` config leaf, whose rename orphans the local
+  annotations in already-saved files; and the `%LOCALAPPDATA%` config leaf, whose rename orphans the local
   view-state JSON. Both are accepted losses. The installer additionally takes a **fresh `AppId` GUID**:
   Inno identifies an installation by `AppId`, not `AppName`, so reusing it would make the renamed setup
   an in-place upgrade — silently skipping the old uninstaller's ProgID / `OpenWithProgids` /
-  `%APPDATA%` cleanup and reusing the recorded `pdfproj` install directory.
+  config-dir cleanup and reusing the recorded `pdfproj` install directory.
 - **Project license = `AGPL-3.0-or-later`.** PyMuPDF is AGPL and the app is a derivative of it, so the
   whole project must ship AGPL (it cannot be MIT/BSD); LGPL (PySide6/shiboken6) and BSD-3 (pypdf) are
   then satisfied by the same source release. Add a root `LICENSE` (full AGPL text) + a
@@ -312,7 +312,7 @@ the work is licensing + community files plus a one-time commit-author cleanup.
 - **In-app About + Open-Source Licenses dialog.** The app has no Help menu today; a proper OSS release
   adds **About** (version + AGPL + no-warranty notice + source-repo link at the matching tag) and an
   **Open-Source Licenses** view (the bundled license texts), shipped offline via
-  `packaging/pdfproj.spec` `datas` + a freeze-aware `resource_path()` (mirroring `ui/icons.py`).
+  `packaging/klarpdf.spec` `datas` + a freeze-aware `resource_path()` (mirroring `ui/icons.py`).
 - **Community-health files:** `SECURITY.md`, `CONTRIBUTING.md` (DCO sign-off), `CODE_OF_CONDUCT.md`
   (Contributor Covenant), and `.github/` issue/PR templates.
 - **Donations (repo + product).** Add a `.github/FUNDING.yml` (repo "Sponsor" button) + a README
@@ -349,7 +349,7 @@ as OS-specific code stays quarantined.
 
 **Cheap hedges (do now, ≈zero cost):**
 1. `store/settings.py` uses `QStandardPaths.writableLocation(QStandardPaths.AppConfigLocation)`
-   instead of a literal `%APPDATA%\pdfproj` — Qt resolves it per-OS (AppData on Windows,
+   instead of a literal `%LOCALAPPDATA%\klarpdf` — Qt resolves it per-OS (Local AppData on Windows,
    `~/.config` on Linux). No behavior change for the Windows ship, just the portable form.
 2. A thin **`platform_integration.py`** seam holds the only OS-specific app behaviors —
    `single_instance_server_name()` and `activate_window(win)` (the `WindowStaysOnTopHint`/`alert`
@@ -372,14 +372,14 @@ as OS-specific code stays quarantined.
   activation) + the IPC socket path (same Qt API, different underlying transport).
 - **Full rewrite per OS:** `packaging/installer.iss` → AppImage/Flatpak/.deb; `build.ps1` →
   `build.sh`; HKCU registry association → MIME + `.desktop` (`xdg-mime`); `vendor/wheels/` →
-  `manylinux` wheels; `pdfproj.spec` → Linux conditionals.
+  `manylinux` wheels; `klarpdf.spec` → Linux conditionals.
 - **Rule of thumb:** the *application* ports almost for free; the *installer + file-association +
   window-manager glue* is rewritten per OS.
 
 ## Critical files to create
 
 ```
-pdfproj/
+klarpdf/
   launcher.py                  # entrypoint: single-instance guard, normalize %1, hand-off/become server
   app.py                       # PdfApp(QApplication): path->window dict, page clipboard, QLocalServer; raise/focus via platform_integration
   platform_integration.py      # OS seam (portability hedge): single-instance name, activate_window() focus shims; register_file_association() slot (Windows uses the installer, so unused there; for future Linux xdg-mime). Windows now / Linux stub later
@@ -393,7 +393,7 @@ pdfproj/
   model/edit_commands.py       # QUndoCommand subclasses (reorder/delete/insert/rotate/paste): snapshot+restore ordered[]
   model/edit_engine.py         # EditEngine interface; PyMuPDFEngine (default) + PyPdfEngine (fallback); materialize-on-save
   model/toc_remap.py           # outline snapshot + old->new page remap + drop-dangling
-  store/settings.py            # per-document last page/zoom/geometry — JSON via QStandardPaths AppConfigLocation (%APPDATA% on Windows, ~/.config on Linux)
+  store/settings.py            # per-document last page/zoom/geometry — JSON via QStandardPaths AppConfigLocation (%LOCALAPPDATA% on Windows, ~/.config on Linux)
   util/paths.py                # normalize_path() — SINGLE identity chokepoint (case-fold on Windows; one-line switch for Linux)
   tests/conftest.py            # builds fixtures with fitz: A.pdf (text layer, bookmark, form field), B.pdf (same-name field)
   tests/test_virtual_document.py  # reorder/delete/insert/move/copy + undo/redo restore ordered[]
@@ -406,8 +406,8 @@ pdfproj/
   DEPENDENCIES.md              # each lib: purpose, why reputable, license, exact version; + pinned Python/PyInstaller/Inno versions
   .gitattributes               # *.py eol=lf; *.ps1/*.iss eol=crlf — clean across the WSL + Windows checkouts
   version.py                   # single source of version → PyInstaller exe metadata, Inno AppVersion, git tag
-  packaging/pdfproj.spec       # PyInstaller spec → --onedir (installer) + --onefile (portable .exe), icon, data files
-  packaging/installer.iss      # Inno Setup: bundles dist/, [Registry] ProgID + .pdf assoc (HKCU), Start Menu, uninstaller (+ [UninstallDelete] %APPDATA%\pdfproj)
+  packaging/klarpdf.spec       # PyInstaller spec → --onedir (installer) + --onefile (portable .exe), icon, data files
+  packaging/installer.iss      # Inno Setup: bundles dist/, [Registry] ProgID + .pdf assoc (HKCU), Start Menu, uninstaller (+ [UninstallDelete] %LOCALAPPDATA%\klarpdf)
   packaging/build.ps1          # offline build: --require-hashes --no-index, PyInstaller (onedir+onefile), ISCC — reproducible
   .github/workflows/release.yml # CI: windows-latest; workflow_dispatch + v* tag → build.ps1 → GitHub Release (setup.exe + portable + SHA256SUMS + wheels)
 ```
@@ -422,12 +422,12 @@ Each step is tagged **(WSL)** / **(WSLg)** / **(Windows)** per the Development e
 
 1. **Setup + dependency lock — (split: WSL + Windows).**
    - *WSL (dev):* create a Python 3.12 venv and install the pinned versions (online once) for fast
-     iteration + headless tests. Canonical source is the WSL checkout `/home/<you>/pdfproj`.
+     iteration + headless tests. Canonical source is the WSL checkout `/home/<you>/klarpdf`.
    - *Windows (ship lock):* install **Python 3.12.x** from python.org (not the Store stub; add to
      PATH). Author `requirements.in`, run `pip-compile --generate-hashes` → the pinned, hashed
      `requirements-win.txt`; `pip download --only-binary=:all:` the `win_amd64` wheels into
      `vendor/wheels/`; write `DEPENDENCIES.md`. The offline build runs from the Windows checkout
-     `C:\Users\<you>\pdfproj` (via git): `py -3.12 -m pip install --require-hashes --no-index
+     `C:\Users\<you>\klarpdf` (via git): `py -3.12 -m pip install --require-hashes --no-index
      --find-links vendor/wheels -r requirements-win.txt`.
 2. **Single-instance launcher + window management — (WSL; validate on Windows).** The duplicate-tab
    fix and resident process. WSLg smoke-tests the `QLocalServer` handoff; Explorer `%1`, named-pipe
@@ -444,10 +444,10 @@ Each step is tagged **(WSL)** / **(WSLg)** / **(Windows)** per the Development e
    early as step 5; no Qt display required). Runs in WSL and CI. See Verification.
 8. **Save / Save As — (WSL).** Atomic `os.replace` for Save (also atomic on Windows, same volume);
    Save As dialog.
-9. **Freeze + installer + release pipeline — (Windows ONLY).** `packaging/pdfproj.spec` (PyInstaller
+9. **Freeze + installer + release pipeline — (Windows ONLY).** `packaging/klarpdf.spec` (PyInstaller
    `--onedir --noconsole` for the installer **plus a `--onefile` portable `.exe`**) →
-   `packaging/installer.iss` (Inno Setup) bundling `dist/pdfproj/`, writing the `HKCU` ProgID + `.pdf`
-   Open-With association, with an uninstaller that **also wipes `%APPDATA%\pdfproj`**.
+   `packaging/installer.iss` (Inno Setup) bundling `dist/klarpdf/`, writing the `HKCU` ProgID + `.pdf`
+   Open-With association, with an uninstaller that **also wipes `%LOCALAPPDATA%\klarpdf`**.
    `packaging/build.ps1` ties pin→freeze→install into one offline, reproducible command;
    `.github/workflows/release.yml` runs it on `windows-latest` (`workflow_dispatch` + `v*` tag) and
    publishes the GitHub Release (installer + portable + `SHA256SUMS` + wheels). **Cannot be cross-built
@@ -469,12 +469,12 @@ in WSL before anything touches Windows.
 | **M5** Single-instance | 2 (logic) | WSL | second launch hands off to first (WSLg smoke test) |
 | **M6** Windows ship lock | 1 (Win) | Windows | python.org 3.12; hashed `requirements-win.txt`; vendored `win_amd64` wheels; `DEPENDENCIES.md` |
 | **M7** Windows validation | 2 (validate) | Windows | single-instance/focus/Open-With behave on real Windows; GUI fidelity pass |
-| **M8** Freeze + installer + CI | 9 | Windows | `build.ps1` (+ `.github/workflows/release.yml`) → PyInstaller (onedir + onefile) → Inno Setup → `pdfproj-setup.exe` + portable `.exe` |
-| **M9** Verify + release | Verification § | Windows | offline build + clean-machine install + no-network audit; portable-exe check; uninstall wipes app + keys + `%APPDATA%` → tag `v*` → GitHub Release |
+| **M8** Freeze + installer + CI | 9 | Windows | `build.ps1` (+ `.github/workflows/release.yml`) → PyInstaller (onedir + onefile) → Inno Setup → `klarpdf-setup.exe` + portable `.exe` |
+| **M9** Verify + release | Verification § | Windows | offline build + clean-machine install + no-network audit; portable-exe check; uninstall wipes app + keys + `%LOCALAPPDATA%` → tag `v*` → GitHub Release |
 
 ⭐ **M1 is the keystone** — most of the correctness risk (lossless edits, TOC remap, dup form-field
 handling), GUI-free, fully testable in WSL/CI. The packaging scripts (`build.ps1`, `installer.iss`,
-`pdfproj.spec`) are *authored* during M0–M5 but only *executed* on Windows.
+`klarpdf.spec`) are *authored* during M0–M5 but only *executed* on Windows.
 
 **Progress tracking.** `PROGRESS.md` (repo root) is the durable, at-a-glance checklist; each
 milestone PR ticks its box and links the PR. `CLAUDE.md` routes any resuming agent: read
@@ -485,7 +485,7 @@ milestone PR ticks its box and links the PR. `CLAUDE.md` routes any resuming age
 `requirements-win.txt`, `vendor/wheels/`, `DEPENDENCIES.md`, and `setup.exe` are produced on Windows and
 committed back, keeping the repo canonical).
 - *One-time Windows setup (M5 → M6):* install **Python 3.12.x from python.org** (Store stub won't
-  build); install **git + an SSH key** (or HTTPS + `gh`) and `git clone` to `C:\Users\<you>\pdfproj`;
+  build); install **git + an SSH key** (or HTTPS + `gh`) and `git clone` to `C:\Users\<you>\klarpdf`;
   install **Inno Setup** (pin its version in `DEPENDENCIES.md`).
 - *Per handoff:* `git pull` → `py -3.12 -m pytest -q` (the core passes on Windows Python too) →
   `packaging\build.ps1` → validate Windows-only behaviors → commit Windows artifacts back.
@@ -543,17 +543,17 @@ Run with `py -3.12 -m pytest -q` (or `pytest` in the project venv).
   fresh venv succeeds; then flip one hash/version in `requirements-win.txt` and confirm pip **aborts**
   (proves nothing can silently drift). Rebuilding twice yields the same dependency versions.
 - **Offline build:** disconnect the network (or build inside a no-egress shell) and run
-  `packaging/build.ps1` end-to-end from `vendor/wheels/` — produces `pdfproj-setup.exe` with no
+  `packaging/build.ps1` end-to-end from `vendor/wheels/` — produces `klarpdf-setup.exe` with no
   downloads.
 - **Offline install on a clean machine:** on a Windows VM with **no Python and networking
   disabled**, run `setup.exe` → installs and launches; the dependency set bundled matches
   `DEPENDENCIES.md`. (**Windows 10 Home has no Windows Sandbox** — use a free VirtualBox VM, a spare
   machine, or a fresh local user account with networking disabled.)
-- **Association via installer:** after install, `.pdf` shows **pdfproj** in Open With with the
-  right icon/name; choosing it (and "Always") routes double-clicks through `pdfproj.exe "%1"`
+- **Association via installer:** after install, `.pdf` shows **KlarPDF** in Open With with the
+  right icon/name; choosing it (and "Always") routes double-clicks through `klarpdf.exe "%1"`
   into the single-instance path. Uninstall removes the app, the `HKCU` ProgID keys, **and
-  `%APPDATA%\pdfproj`** — nothing left behind.
-- **Portable build:** `pdfproj-portable.exe` (the `--onefile` asset) launches from any folder on a
+  `%LOCALAPPDATA%\klarpdf`** — nothing left behind.
+- **Portable build:** `klarpdf-portable.exe` (the `--onefile` asset) launches from any folder on a
   clean machine and opens a PDF with no install (slower first paint, no auto-association — both
   expected).
 - **Offline runtime** (existing "No network" check) holds for the installed `.exe` too.
@@ -627,7 +627,7 @@ layer at all — it's drag-and-drop + viewer-mode UX.)
 
 | Milestone | Feature | Where | Done when |
 |---|---|---|---|
-| **M10** Icons | App `.ico` (closes the open follow-up) + toolbar icons for undo/redo, zoom-in/out, cut/copy/paste. `QApplication.setWindowIcon`; wire `icon=` into `packaging/pdfproj.spec` and `SetupIconFile` into `packaging/installer.iss`. | WSLg + **Win** | App has a real icon (taskbar + installed); toolbar buttons are iconographic |
+| **M10** Icons | App `.ico` (closes the open follow-up) + toolbar icons for undo/redo, zoom-in/out, cut/copy/paste. `QApplication.setWindowIcon`; wire `icon=` into `packaging/klarpdf.spec` and `SetupIconFile` into `packaging/installer.iss`. | WSLg + **Win** | App has a real icon (taskbar + installed); toolbar buttons are iconographic |
 | **M11** Zoom UX | `zoomChanged` signal from `PdfView`; live "150%" indicator (toolbar combo); **Actual Size / 100%** action (Ctrl+0); preset levels. Extends `PdfView.set_zoom`. | WSLg | Magnification % always visible; one click resets to 100% |
 | **M12** Printing | `QPrintDialog` + `QPrinter`; render each page via PyMuPDF at printer DPI, paint with `QPainter`; page-range + current-page. Confirm `QtPrintSupport` + plugins survive the freeze. | WSL logic; **Win** print validation | System print dialog prints the open doc correctly |
 | **M13** Recent documents | MRU list in `store/settings.py`; dynamic **File ▸ Open Recent** submenu (app-global, refreshed across windows); dedupe via `normalize_path`, drop missing files, "Clear Recent". Reopen routes through `app.open_document` (free single-instance dedupe). | WSL | Recent files listed; reopen in one click |
@@ -670,14 +670,14 @@ played for v0.1.0).
 - **Redaction (v0.4.0):** **true destructive** removal (`apply_redactions`), never visual-cover-only
   (which leaves extractable text — a data-leak trap).
 - **Annotations (v0.4.0):** **fire-and-forget at save** — they live in the edit-list while the doc is
-  open (full undo/redo) and bake into the saved PDF; pdfproj does not re-parse saved annotations back
+  open (full undo/redo) and bake into the saved PDF; KlarPDF does not re-parse saved annotations back
   into the model for round-trip re-editing (deferred — see Future enhancements).
 
 ### Files (shipped + planned)
 
 **Shipped in v0.2.0:** `model/page_edits.py` (form-value descriptors, snapshotted with `ordered[]`),
 `viewer/printing.py` (QPrinter render), `viewer/zoom_widget.py`, `viewer/form_fill.py` (inline
-fill), `ui/icons.py` + `ui/icons/*.svg`, `packaging/pdfproj.ico` + `packaging/make_icon.py`; tests
+fill), `ui/icons.py` + `ui/icons/*.svg`, `packaging/klarpdf.ico` + `packaging/make_icon.py`; tests
 `test_form_fill.py`, `test_form_fill_ui.py`, `test_zoom.py`, `test_recent.py`, `test_icons.py`,
 `test_printing.py`. (Sources are opened from an in-memory stream + `VirtualDocument.fresh_source` so
 in-place Save isn't blocked by a file lock and repeated saves keep widgets.)
@@ -737,7 +737,7 @@ originally sat here were re-scoped by the owner to **v0.9.0**, so the image work
 
 | Milestone | Feature | Where | Done when |
 |---|---|---|---|
-| **M31** ⭐ Annotation round-trip editing | On open, re-parse **our** annotations (the `PDFPROJ_AUTHOR`-tagged highlights / text-boxes) from the source into `model/page_edits.py`; at materialize, **strip-then-re-add** the managed annotations on the copied page so they aren't duplicated. Saved highlights/text-boxes become movable / re-editable / removable after reopening. (Redaction stays a point-of-no-return — not re-editable.) Follow-ups from manual testing: the page render strips our baked marks so the editable overlay is the single source of truth (no double-draw / pinned original), and text selection reads the stripped render page (a box's text isn't drag-selectable, no stale-position copy). | WSL (model+tests) + WSLg | Reopen a saved doc → move / edit / remove its pdfproj annotations |
+| **M31** ⭐ Annotation round-trip editing | On open, re-parse **our** annotations (the `KLARPDF_AUTHOR`-tagged highlights / text-boxes) from the source into `model/page_edits.py`; at materialize, **strip-then-re-add** the managed annotations on the copied page so they aren't duplicated. Saved highlights/text-boxes become movable / re-editable / removable after reopening. (Redaction stays a point-of-no-return — not re-editable.) Follow-ups from manual testing: the page render strips our baked marks so the editable overlay is the single source of truth (no double-draw / pinned original), and text selection reads the stripped render page (a box's text isn't drag-selectable, no stale-position copy). | WSL (model+tests) + WSLg | Reopen a saved doc → move / edit / remove its KlarPDF annotations |
 | **M31.5** Export → PDF (flatten) | An **Export** action (`File ▸ Export`) whose first format is a **flattened PDF**: bake the managed annotations **and form widgets** into page content via PyMuPDF `Document.bake()` (text layer **preserved**, *not* rasterised) — a locked but still-searchable copy whose marks can't be moved/removed in any tool. The opt-out counterpart to M31's round-trip (Save As stays editable; Export → PDF locks). Built as an **extensible Export path** (`model/export.py`) that **M36** grows to an image format. | WSL (model+tests) + WSLg | Export → PDF writes a flattened, text-preserving copy whose annotations are no longer editable |
 | **M34** Verify + release | Headless suite green (317 tests); Windows validation; tag **v0.7.0**. | **Win** | Matrix green → v0.7.0 released |
 
@@ -766,7 +766,7 @@ first. **No new dependency** — both are native PyMuPDF.
 
 ## MCP / Agent Bridge roadmap (v0.10.0 — planned)
 
-A new surface, not a GUI feature: expose pdfproj's PDF engine to **Claude Code, Claude Desktop, and
+A new surface, not a GUI feature: expose KlarPDF's PDF engine to **Claude Code, Claude Desktop, and
 other agentic clients** as a local **MCP (Model Context Protocol) server**. Same offline/native/
 audited principles as the app; the GUI is untouched.
 
@@ -775,7 +775,7 @@ audited principles as the app; the GUI is untouched.
 Claude already *reads* PDFs natively (the API renders each page to image + extracts text), so an MCP
 server is **not** about "helping Claude read." Native reading has two gaps this fills:
 
-1. **Transform, not just read.** Native PDF support is read-only ingestion. pdfproj is an *editor* —
+1. **Transform, not just read.** Native PDF support is read-only ingestion. KlarPDF is an *editor* —
    redaction, splice/split/merge, lossless save, form fill, encrypted-PDF handling. No LLM and no
    existing PDF MCP server (`pdf-mcp`, `mcp-pdf` cover extraction/search/OCR only) gives an agent the
    **destructive-redaction + lossless** half. **This is the reason to build.**
@@ -835,8 +835,8 @@ thin set of read-only query helpers + the MCP tool layer.
 
 - The `mcp` SDK + transitive deps (pydantic, anyio, …) go in a **separate optional lock**
   (`requirements-mcp.in` → `requirements-mcp.txt`), following the same `pip-compile` discipline —
-  **not** added to the GUI ship lock. `pdfproj-setup.exe` is unchanged; the server is opt-in.
-- `pdfproj-mcp` console entry point (a second `[project.scripts]` / spec target).
+  **not** added to the GUI ship lock. `klarpdf-setup.exe` is unchanged; the server is opt-in.
+- `klarpdf-mcp` console entry point (a second `[project.scripts]` / spec target).
 - Docs: a `.mcp.json` snippet for Claude Code and a `claude_desktop_config.json` block for Desktop;
   optionally package a one-click **Desktop Extension** (`.mcpb`).
 
@@ -847,7 +847,7 @@ thin set of read-only query helpers + the MCP tool layer.
 | **M39 ⭐** MCP scaffold + read-only core | WSL | `mcp/` FastMCP stdio server; `get_info`/`get_outline`/`search`/`extract_text`/`render_page`/`get_form_fields` wired to headless helpers; no PySide6 import on the server path; headless tests green |
 | **M40** Transform tools | WSL | `split`/`merge`/`reorder`/`delete_pages`/`rotate`/`fill_form`/`flatten`/`export_images` → explicit out path; never overwrites source; lossless (OCR/TOC/forms survive); headless tests |
 | **M41** Redaction + encrypted | WSL | `redact_regions`/`redact_text` (destructive + leak-verified) and encrypted-input (`password`) tools; headless cross-engine leak assertion |
-| **M42** Dependency lock + packaging | Windows | `requirements-mcp.{in,txt}` (hashed where applicable, GUI lock untouched); `pdfproj-mcp` entry point; `.mcp.json` + Desktop config docs; optional `.mcpb` |
+| **M42** Dependency lock + packaging | Windows | `requirements-mcp.{in,txt}` (hashed where applicable, GUI lock untouched); `klarpdf-mcp` entry point; `.mcp.json` + Desktop config docs; optional `.mcpb` |
 | **M43** Hardening + docs | WSL | path allowlist, return-size caps, read-only flag, error handling; README usage + example agent workflows |
 | **M44** Verify + release | Windows | verification matrix green (below) → tag **v0.10.0** → GitHub Release |
 
@@ -866,11 +866,11 @@ thin set of read-only query helpers + the MCP tool layer.
 ### Decisions to confirm with owner
 
 1. **Packaging:** separate optional component (recommended — keeps the audited GUI bundle tiny) vs.
-   bundled into `pdfproj-setup.exe`.
+   bundled into `klarpdf-setup.exe`.
 2. **Write tools default-on, or read-only-first release** (query tools only in v0.10.0, transforms in v0.11.0)?
 3. **Transport:** stdio only (Code + Desktop) for v0.10.0, HTTP deferred — confirm HTTP isn't needed now.
 4. **Repo layout:** keep the server in this repo (shared `model/` core) vs. a sibling repo importing
-   pdfproj as a dependency.
+   KlarPDF as a dependency.
 
 ## Future enhancements (deferred beyond the roadmap)
 
@@ -884,10 +884,10 @@ Captured but not yet scheduled:
 - **Re-encryption on save:** materialize writes an unencrypted document; re-encrypting the output
   (carrying a password through) pairs with the M32 encrypted-PDF work if wanted.
 - **Cross-app annotation editing (foreign annotations):** annotation round-trip (M31) re-opens for
-  editing **only pdfproj's own** marks — those stamped with the `/T = "pdfproj"` author tag
-  (`PDFPROJ_AUTHOR`). A highlight / text-box written by another tool (Preview, Edge, Acrobat, …) is
+  editing **only KlarPDF's own** marks — those stamped with the `/T = "klarpdf"` author tag
+  (`KLARPDF_AUTHOR`). A highlight / text-box written by another tool (Preview, Edge, Acrobat, …) is
   **shown** (it stays baked in the page and renders normally) but **not editable**: the read-back in
-  `model/page_edits.py:read_pdfproj_annotations` skips any annotation whose title isn't ours, so it
+  `model/page_edits.py:read_klarpdf_annotations` skips any annotation whose title isn't ours, so it
   never enters the editable model, and the viewer overlay / hit-testing only act on the model. This
   is **deliberate**, not a bug: the strip-then-re-add at materialise rewrites a managed annotation
   from our descriptor, and the `TextBox` / `Highlight` model is intentionally narrow (simple

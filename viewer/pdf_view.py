@@ -453,17 +453,17 @@ class PdfView(QGraphicsView):
             for page in self._vdoc.sources[source_id]
             for w in (page.widgets() or [])
         )
-        has_ours = self._vdoc.source_has_pdfproj_annotations(source_id)
+        has_ours = self._vdoc.source_has_klarpdf_annotations(source_id)
         if not has_fills and not has_ours:
             return None
-        from model.page_edits import apply_form_values, strip_pdfproj_annotations
+        from model.page_edits import apply_form_values, strip_klarpdf_annotations
 
         doc = self._vdoc.fresh_source(source_id)  # fresh copy keeps widgets (graft quirk)
         if has_fills:
             apply_form_values(doc, values)
         if has_ours:
             for page in doc:
-                strip_pdfproj_annotations(page)
+                strip_klarpdf_annotations(page)
         return doc
 
     def _drop_render_docs(self) -> None:

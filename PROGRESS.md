@@ -1,4 +1,4 @@
-# pdfproj — Build Progress
+# KlarPDF — Build Progress
 
 Live status of the build (milestone detail in `PLAN.md` §Execution). **One PR per milestone** — when
 it merges, check the box here in the same PR and append the PR link.
@@ -55,7 +55,7 @@ every file ([#55](https://github.com/utyagi24/pdfproj/pull/55)). v0.8.0 "Images"
 PyMuPDF `convert_to_pdf`) and **image export** (`File ▸ Export ▸ Image…`; selected page(s) → PNG/JPEG
 at a chosen DPI, edits-aware off `render_output`), plus UI polish (clearer multi-page selection,
 vertical-centred fitting page, centred text-box text). v0.7.0 "Round-trip & Export" adds
-**annotation round-trip editing** (reopen a saved doc → move / edit / remove our `PDFPROJ_AUTHOR`-tagged
+**annotation round-trip editing** (reopen a saved doc → move / edit / remove our author-tagged
 highlights & text boxes; the page render strips our baked marks so the editable overlay is the single
 source of truth, and text selection reads that stripped page) and a flatten **Export → PDF**
 (`File ▸ Export`; bakes annotations + form widgets into page content via `Document.bake()`,
@@ -63,7 +63,7 @@ text-preserving — a locked counterpart to the round-trip). v0.6.0 "Rich Text &
 **styled text boxes**, **live thumbnails**, and **dynamic theme icons**. v0.5.0 "File Safety & Output"
 adds **Revert to Saved**, an **external-change warning**, and **edits-aware printing**. v0.4.0
 "Annotate & Redact" adds text **highlight** + **text boxes** and **true destructive redaction**.
-**Next:** **v0.10.0 — "MCP / Agent Bridge"** (M39–M44, planned) — expose pdfproj's PDF engine to
+**Next:** **v0.10.0 — "MCP / Agent Bridge"** (M39–M44, planned) — expose KlarPDF's PDF engine to
 Claude Code / Claude Desktop / agentic clients as a local **MCP server** (`PLAN.md` §MCP / Agent
 Bridge roadmap). Other deferred items live in `PLAN.md` §Future enhancements.
 **Open follow-ups** (carried items) are at the bottom.
@@ -125,7 +125,7 @@ GUI-free core, fully headless-testable).
 
 **v0.7.0 ✅ — "Round-trip & Export"** (shipped)
 
-- [x] **M31** ⭐ Annotation round-trip editing — reopen → move/edit/remove our `PDFPROJ_AUTHOR`-tagged annotations (strip-then-re-add at materialize); page render + text selection read the stripped page so the editable overlay is authoritative (no double-draw / stale-position select) — *WSL (model+tests) + WSLg* — [#46](https://github.com/utyagi24/pdfproj/pull/46)
+- [x] **M31** ⭐ Annotation round-trip editing — reopen → move/edit/remove our author-tagged annotations (strip-then-re-add at materialize); page render + text selection read the stripped page so the editable overlay is authoritative (no double-draw / stale-position select) — *WSL (model+tests) + WSLg* — [#46](https://github.com/utyagi24/pdfproj/pull/46)
 - [x] **M31.5** Export → PDF (flatten) — new **Export** action (`File ▸ Export`); bake annotations + form widgets into page content (PyMuPDF `Document.bake()`, text-preserving — locks the marks, the opposite of M31's round-trip). Extensible Export path (`model/export.py`); M36 adds an image format. — *WSL (model+tests) + WSLg* — [#48](https://github.com/utyagi24/pdfproj/pull/48)
 - [x] **M34** Verify + release → tag **v0.7.0** (version bump + docs + re-scope; 317 headless tests green) — *Windows* — [#49](https://github.com/utyagi24/pdfproj/pull/49)
 
@@ -153,7 +153,7 @@ GUI-free core, fully headless-testable).
 Spec + architecture in `PLAN.md` §MCP / Agent Bridge roadmap. Same conventions: **one PR per
 milestone**, tick the box here on merge. ⭐ marks the keystone (GUI-free, fully headless-testable).
 A new MCP server surface (`mcp/` package) that reuses the GUI-free `model/` core **without PySide6**
-and ships as a separate optional component — the `pdfproj-setup.exe` audit surface is untouched.
+and ships as a separate optional component — the `klarpdf-setup.exe` audit surface is untouched.
 
 - [ ] **M39** ⭐ MCP scaffold + read-only core — `mcp/` FastMCP stdio server; headless query/metadata
   tools (`get_info`, `get_outline`, `search`, `extract_text`, `render_page`, `get_form_fields`); no
@@ -164,7 +164,7 @@ and ships as a separate optional component — the `pdfproj-setup.exe` audit sur
 - [ ] **M41** Redaction + encrypted — `redact_regions` / `redact_text` (destructive + cross-engine
   leak verify) and encrypted-input (`password`) tools; headless leak assertion — *WSL*
 - [ ] **M42** Dependency lock + packaging — separate `requirements-mcp.{in,txt}` (GUI lock untouched);
-  `pdfproj-mcp` entry point; `.mcp.json` + Claude Desktop config docs; optional `.mcpb` — *Windows*
+  `klarpdf-mcp` entry point; `.mcp.json` + Claude Desktop config docs; optional `.mcpb` — *Windows*
 - [ ] **M43** Hardening + docs — path allowlist, return-size caps, read-only flag, error handling;
   README usage + example agent workflows — *WSL*
 - [ ] **M44** Verify + release → tag **v0.10.0** (tool round-trips + leak verify + no-network +
@@ -193,21 +193,26 @@ history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI uses `${
   *sheaf*, was dropped for clashing with existing GitHub PDF-processing projects — the marks were drawn
   under that name, hence the design-source title in `assets/brand/BRAND.md`. Name mapping: display
   string **`KlarPDF`** (window title, About, installer AppName) · drawn wordmark lowercase `klarpdf`
-  (BRAND.md §Type) · repo + exe + `%APPDATA%` leaf + single-instance id `klarpdf` · ProgID
+  (BRAND.md §Type) · repo + exe + `%LOCALAPPDATA%` leaf + single-instance id `klarpdf` · ProgID
   `KlarPDF.Document`.
   - [x] **Part 1 — visual assets** — toolbar glyph set (24 replaced + 3 new: `about`, `donate`,
-    `export`), app mark, regenerated `packaging/pdfproj.ico`, and `assets/brand/` (tokens + `BRAND.md`
+    `export`), app mark, regenerated `packaging/klarpdf.ico`, and `assets/brand/` (tokens + `BRAND.md`
     + icon spec). No code changes; icon filenames unchanged. — *WSL* —
     [#91](https://github.com/utyagi24/pdfproj/pull/91)
-  - [ ] **Part 2 — the name sweep** — app strings (`version.py`, `installer.iss` AppName/Publisher +
-    **a fresh `AppId` GUID**, window title, ProgID, single-instance id, `%APPDATA%` leaf), the
-    `PDFPROJ_AUTHOR` annotation tag → `klarpdf`, asset **filenames** (`pdfproj.svg/.ico/.spec`),
-    README/docs, then the **GitHub repo rename** (while private — old links redirect). **No
-    back-compat shims**: the app has never been distributed (single user), so the settings dir and the
-    annotation tag change outright rather than carrying a migration. A fresh `AppId` stops Inno
-    treating the renamed setup as an in-place upgrade (which would skip the old uninstaller's registry
-    cleanup and inherit its install dir) — **uninstall `pdfproj` before installing `KlarPDF`**; note
-    this in `RELEASE.md`. — *WSL + Windows (installer / ProgID / icon)*
+  - [x] **Part 2 — the name sweep** — app strings (`app.py`, window title, `platform_integration.py`
+    single-instance id, `store/settings.py` `%LOCALAPPDATA%` leaf); `PDFPROJ_AUTHOR` → `KLARPDF_AUTHOR`
+    with the tag **value** `klarpdf`, and its five `*_klarpdf_annotations` helpers; asset filenames
+    (`klarpdf.svg` / `.ico` / `.spec`); `installer.iss` AppName/Publisher/ProgID + **a fresh `AppId`
+    GUID**; `build.ps1`, `release.yml`, `pyproject.toml`, `tasks.py`, tests, docs. **No back-compat
+    shims**: the app has never been distributed (single user), so the settings dir and the annotation
+    tag change outright rather than carrying a migration. The fresh `AppId` stops Inno treating the
+    renamed setup as an in-place upgrade (which would skip the old uninstaller's registry +
+    config-dir cleanup and reuse its install dir) — **uninstall `pdfproj` before installing
+    `KlarPDF`** (`RELEASE.md`). Historical release notes, shipped artifact names and repo URLs are
+    left as-is: they record what actually shipped. — *WSL* — [#PRNUM](https://github.com/utyagi24/pdfproj/pull/PRNUM)
+  - [ ] **Part 3 — GitHub repo rename** (**manual; not a PR**) — `gh repo edit --rename klarpdf`
+    while the repo is still private; old links redirect. Then re-point both checkouts'
+    `origin` remotes. Deferred so it can't break the open-PR flow mid-sweep. — *GitHub*
 
   Feeds the copyright name (G3), the About name+logo (G4), and the community files (G5).
 - [ ] **G3** License + notices — root `LICENSE` (full AGPL-3.0-or-later) + `THIRD_PARTY_LICENSES`
@@ -215,7 +220,7 @@ history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI uses `${
   README license section + badge + build-from-source pointer (uses the G2 name) — *WSL*
 - [ ] **G4** In-app About + Open-Source Licenses dialog — add a Help menu (`main_window.py`): About
   (G2 name + logo + version + AGPL + no-warranty notice + source link), Open-Source Licenses (bundled
-  license texts), View Source; bundle texts via `packaging/pdfproj.spec` + a freeze-aware
+  license texts), View Source; bundle texts via `packaging/klarpdf.spec` + a freeze-aware
   `resource_path()`; headless smoke test — *WSL + WSLg*
 - [ ] **G5** Community-health files — `SECURITY.md`, `CONTRIBUTING.md` (DCO sign-off),
   `CODE_OF_CONDUCT.md` (Contributor Covenant), `.github/ISSUE_TEMPLATE/*` + `pull_request_template.md`
@@ -248,7 +253,7 @@ Carried items — none block work:
 - **Dependency vuln: pypdf → 6.13.3** → ✅ fixed in **v0.9.4**: bumped `pypdf` 6.13.2 → 6.13.3
   (**GHSA-jm82-fx9c-mx94**, Moderate memory-DoS in the `pypdf` fallback edit engine), recompiled the
   locks + regenerated `vendor/wheels-sources.md`, and removed the audit-gate ignore.
-- **Clean-machine install** — the one deferred M9 verification item: run `pdfproj-setup.exe` on a
+- **Clean-machine install** — the one deferred M9 verification item: run `klarpdf-setup.exe` on a
   Windows VM with **no Python and networking disabled** (Win10 Home has no Sandbox → VirtualBox /
   spare machine / fresh local user). Everything else in the Verification matrix is green.
 - **CI action versions** → ✅ done in M15: `actions/checkout@v6`, `setup-python@v6`,
@@ -262,5 +267,5 @@ Carried items — none block work:
   encrypted PDFs + GoTo-link remap (v0.9.0, M32/M33, re-scoped out of v0.7.0).
   Still **deferred beyond** the roadmap (PLAN.md §Future enhancements): new-field form designer,
   drop-to-open in the main view, re-encryption on save, cross-app annotation editing (M31 round-trip
-  edits only pdfproj's own author-tagged marks; foreign annotations are shown but not editable — a
+  edits only KlarPDF's own author-tagged marks; foreign annotations are shown but not editable — a
   deliberate fidelity-safety boundary, see PLAN.md).

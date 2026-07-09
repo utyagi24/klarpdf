@@ -17,7 +17,7 @@ from model.edit_commands import (
     ReplaceAnnotationCommand,
 )
 from model.edit_engine import PyMuPDFEngine
-from model.page_edits import PDFPROJ_AUTHOR, Highlight, TextBox
+from model.page_edits import KLARPDF_AUTHOR, Highlight, TextBox
 from model.virtual_document import VirtualDocument
 
 
@@ -177,14 +177,14 @@ def test_textbox_on_rotated_page_materializes(vdoc, tmp_path):
 
 
 def test_baked_annotations_are_author_tagged(vdoc, tmp_path):
-    """Highlights & text-boxes pdfproj writes carry the PDFPROJ_AUTHOR title — the hook a future
+    """Highlights & text-boxes KlarPDF writes carry the KLARPDF_AUTHOR title — the hook a future
     round-trip milestone needs to tell our annotations from foreign ones."""
     vdoc.add_annotation(0, Highlight(_word_rects(vdoc, 0)))
     vdoc.add_annotation(0, TextBox((72, 150, 320, 180), "note"))
     out = _materialize(vdoc, tmp_path)
     with fitz.open(out) as doc:
         titles = {a.info.get("title", "") for a in doc[0].annots()}
-    assert titles == {PDFPROJ_AUTHOR}
+    assert titles == {KLARPDF_AUTHOR}
 
 
 # ---- M27 styled text boxes: font family / size / colour + box fill + box outline ----

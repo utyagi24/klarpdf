@@ -1,9 +1,10 @@
 """Per-document view state — remember last page/zoom/scroll/geometry across sessions.
 
 PLAN.md, Viewer: "Remember last page/zoom/scroll per document in a small local JSON under the
-QStandardPaths app-config dir (%APPDATA%\\pdfproj on Windows, ~/.config/pdfproj on Linux),
-keyed by identity path." Using ``AppConfigLocation`` (not a literal ``%APPDATA%``) is Portability
-hedge #1 — Qt resolves it per-OS, so the same code is correct on Windows and Linux.
+QStandardPaths app-config dir (%LOCALAPPDATA%\\klarpdf on Windows, ~/.config/klarpdf on Linux),
+keyed by identity path." Using ``AppConfigLocation`` (not a literal path) is Portability hedge #1 —
+Qt resolves it per-OS, so the same code is correct on Windows and Linux. Note it resolves to
+**Local** AppData on Windows, not Roaming (%APPDATA%); ``packaging/installer.iss`` must match.
 
 Offline, auditable, human-readable JSON. The identity key is :func:`util.paths.normalize_path`,
 the single chokepoint, so this store never disagrees with the single-instance "already open?"
@@ -22,12 +23,12 @@ from PySide6.QtCore import QStandardPaths
 from util.paths import normalize_path
 
 _STATE_FILENAME = "view_state.json"
-_APP_DIR_NAME = "pdfproj"
+_APP_DIR_NAME = "klarpdf"
 _MAX_RECENT = 10  # cap the File ▸ Open Recent list
 
 
 def _config_dir() -> Path:
-    """The app-config directory, guaranteed to end in a ``pdfproj`` leaf.
+    """The app-config directory, guaranteed to end in a ``klarpdf`` leaf.
 
     ``AppConfigLocation`` already includes the application name once the QApplication sets it,
     but tests and early startup may query before that, so we defensively ensure the leaf.

@@ -133,7 +133,7 @@ tells you *what* and *how severe*, and you do the bump yourself.
 cross-check, absent on Windows).
 
 1. **Version bump.** Edit `version.py` `__version__` (e.g. `0.9.3` → `0.9.4`). This single value
-   feeds the PyInstaller exe metadata (`packaging/pdfproj.spec`), the Inno `AppVersion`
+   feeds the PyInstaller exe metadata (`packaging/klarpdf.spec`), the Inno `AppVersion`
    (`packaging/installer.iss`), and the `v<version>` git tag. SemVer: **patch** = fixes / dependency
    bumps only; **minor** = features; **major** = breaking.
 
@@ -156,8 +156,8 @@ cross-check, absent on Windows).
    It executes `packaging/build.ps1` end-to-end — re-fetch + hash-verify the `win_amd64` wheels from
    `requirements-win.txt` → clean build venv (`--require-hashes --no-index`) → PyInstaller onedir +
    onefile → Inno Setup installer → `SHA256SUMS` — uploads the artifacts, and creates a **draft**
-   GitHub Release (`draft: true`, auto-generated notes) attaching `pdfproj-setup.exe`,
-   `pdfproj-portable.exe`, `SHA256SUMS`, and `vendor-wheels.zip` (the exact build inputs / AGPL
+   GitHub Release (`draft: true`, auto-generated notes) attaching `klarpdf-setup.exe`,
+   `klarpdf-portable.exe`, `SHA256SUMS`, and `vendor-wheels.zip` (the exact build inputs / AGPL
    corresponding-source pointer at that tag). **It does NOT auto-publish.**
    - The runner is *online*, so it re-fetches wheels — the CI build is not the offline build; the
      authoritative offline build + clean-machine install are validated locally (see Verification in
@@ -166,9 +166,19 @@ cross-check, absent on Windows).
 
 5. **Smoke-test the draft before publishing:**
    - Headless suite green (above).
-   - Install/run the **onedir** `pdfproj-setup.exe` (from the draft's assets, or a local build):
+   - **One-time, for the first KlarPDF release:** *uninstall `pdfproj` first.* The rename minted a
+     fresh Inno `AppId`, so `klarpdf-setup.exe` installs as a **new** app rather than upgrading
+     `pdfproj` in place. Installing over the old app would leave its `pdfproj.Document` ProgID and its
+     `.pdf` `OpenWithProgids` value orphaned — the *old* uninstaller is the only thing that removes
+     them, and an in-place upgrade never runs it. Uninstalling first also clears the stale "pdfproj"
+     entry from the `.pdf` **Open With** list.
+   - Then **delete `%LOCALAPPDATA%\pdfproj` by hand.** pdfproj's uninstaller does *not* remove it: its
+     `[UninstallDelete]` pointed at `{userappdata}` (Roaming), while Qt's `AppConfigLocation` resolves
+     to `%LOCALAPPDATA%` on Windows — so it deleted a path that never existed. Fixed for KlarPDF
+     (`{localappdata}`), but the old build can't retroactively clean up after itself.
+   - Install/run the **onedir** `klarpdf-setup.exe` (from the draft's assets, or a local build):
      launch, open a PDF, confirm single-instance + window focus.
-   - The **onefile portable** (`pdfproj-portable.exe`) may be blocked *locally* by a Windows
+   - The **onefile portable** (`klarpdf-portable.exe`) may be blocked *locally* by a Windows
      Application Control policy (a machine policy on unsigned single-file exes) — that is **not** a
      build defect; trust the CI artifact for the portable.
    - PyInstaller output is **version-repro, not bit-repro** (timestamps differ) — CI's `SHA256SUMS`
