@@ -225,7 +225,7 @@ history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI uses `${
   Feeds the copyright name (G3), the About name+logo (G4), and the community files (G5).
 - [x] **G3** License + notices — root `LICENSE` (full AGPL-3.0-or-later) + `THIRD_PARTY_LICENSES`
   (PyMuPDF AGPL-3.0, PySide6 + shiboken6 LGPL-3.0, pypdf BSD-3; cross-ref `DEPENDENCIES.md`) +
-  README license section + badge + build-from-source pointer (uses the G2 name) — *WSL* — PR-LINK-PLACEHOLDER
+  README license section + badge + build-from-source pointer (uses the G2 name) — *WSL* — [#95](https://github.com/utyagi24/klarpdf/pull/95)
 - [ ] **G4** In-app About + Open-Source Licenses dialog — add a Help menu (`main_window.py`): About
   (G2 name + logo + version + AGPL + no-warranty notice + source link), Open-Source Licenses (bundled
   license texts), View Source; bundle texts via `packaging/klarpdf.spec` + a freeze-aware
