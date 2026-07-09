@@ -16,16 +16,22 @@ Licenses.
 Summary
 -------
 
-| Component            | Version   | License (SPDX)     |
-|----------------------|-----------|--------------------|
-| PyMuPDF              | 1.27.2.3  | AGPL-3.0-only *    |
-| PySide6-Essentials   | 6.11.1    | LGPL-3.0-only      |
-| shiboken6            | 6.11.1    | LGPL-3.0-only      |
-| pypdf                | 6.13.3    | BSD-3-Clause       |
+| Component            | Version   | License, as the wheel declares it            | KlarPDF relies on |
+|----------------------|-----------|---------------------------------------------|-------------------|
+| PyMuPDF              | 1.27.2.3  | AGPL-3.0 **or** Artifex commercial *        | AGPL-3.0          |
+| PySide6-Essentials   | 6.11.1    | `LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only` | LGPL-3.0-only |
+| shiboken6            | 6.11.1    | `LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only` | LGPL-3.0-only |
+| pypdf                | 6.13.3    | BSD-3-Clause                                | BSD-3-Clause      |
 
-* PyMuPDF is dual-licensed: GNU AGPL-3.0 or an Artifex commercial license.
-  KlarPDF uses it under the AGPL, which is why the whole project ships as
-  AGPL-3.0-or-later (see README ▸ License and PLAN.md §Public-release readiness).
+* PyMuPDF is dual-licensed. KlarPDF uses it under the AGPL, which is why the whole
+  project ships as AGPL-3.0-or-later (see README ▸ License and PLAN.md
+  §Public-release readiness).
+
+Provenance: the versions come from `requirements-win.txt`; the license strings are
+read from each installed wheel's own `dist-info` (`METADATA`, `COPYING`) at exactly
+those pinned versions, **not** from the projects' websites. Where a wheel ships no
+copyright year, none is stated below rather than guessed. pypdf's BSD-3-Clause text
+is reproduced verbatim, as that license requires.
 
 
 --------------------------------------------------------------------------------
@@ -33,9 +39,10 @@ Summary
 --------------------------------------------------------------------------------
 
 Purpose in KlarPDF : render pages/thumbnails + lossless object-level page editing
-License            : GNU Affero General Public License v3.0 (AGPL-3.0-only),
-                     or an alternative Artifex commercial license
-Copyright          : (C) 2016-2025 Artifex Software, Inc. and the MuPDF authors
+License            : "Dual Licensed - GNU AFFERO GPL 3.0 or Artifex Commercial
+                     License" (verbatim, from the wheel's own COPYING file)
+Copyright          : Artifex Software, Inc. and the MuPDF authors. Upstream ships
+                     no year range in the wheel, so none is asserted here.
 Upstream           : https://github.com/pymupdf/PyMuPDF
 PyPI               : https://pypi.org/project/PyMuPDF/1.27.2.3/
 License text       : https://www.gnu.org/licenses/agpl-3.0.txt
@@ -53,8 +60,10 @@ tag from which each installer is built.
 
 Purpose in KlarPDF : Qt 6 GUI (QtCore/QtGui/QtWidgets/QtSvg) + QtNetwork IPC +
                      QtPrintSupport printing
-License            : GNU Lesser General Public License v3.0 (LGPL-3.0-only)
-Copyright          : (C) 2025 The Qt Company Ltd.
+License            : declared by the wheel as "LGPL-3.0-only OR GPL-2.0-only OR
+                     GPL-3.0-only". KlarPDF relies on the LGPL-3.0-only option.
+Copyright          : The Qt Company Ltd. and the Qt for Python contributors
+                     (the wheel ships no year range; none is asserted here)
 Upstream           : https://doc.qt.io/qtforpython-6/
 PyPI               : https://pypi.org/project/PySide6-Essentials/6.11.1/
 License text       : LGPL-3.0  https://www.gnu.org/licenses/lgpl-3.0.txt
@@ -73,8 +82,10 @@ this project's corresponding source, which the AGPL source release already does.
 
 Purpose in KlarPDF : PySide6 C++/Python binding runtime (transitive dependency
                      of PySide6-Essentials)
-License            : GNU Lesser General Public License v3.0 (LGPL-3.0-only)
-Copyright          : (C) 2025 The Qt Company Ltd.
+License            : declared by the wheel as "LGPL-3.0-only OR GPL-2.0-only OR
+                     GPL-3.0-only". KlarPDF relies on the LGPL-3.0-only option.
+Copyright          : The Qt Company Ltd. and the Qt for Python contributors
+                     (the wheel ships no year range; none is asserted here)
 Upstream           : https://doc.qt.io/qtforpython-6/shiboken6/
 PyPI               : https://pypi.org/project/shiboken6/6.11.1/
 License text       : LGPL-3.0  https://www.gnu.org/licenses/lgpl-3.0.txt
