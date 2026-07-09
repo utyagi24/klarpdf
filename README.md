@@ -1,4 +1,4 @@
-# pdfproj
+# KlarPDF
 
 Local, offline, **native-Windows** PDF viewer + page editor (Python · PySide6 · PyMuPDF) — a
 trustworthy replacement for macOS Preview's view + splice/split workflow on Windows. The source is
@@ -46,9 +46,9 @@ viewer-mode toggle.
 
 Grab the [latest release](https://github.com/utyagi24/pdfproj/releases/latest):
 
-- **`pdfproj-setup.exe`** — installer (per-user, no admin). Adds pdfproj to the `.pdf` **Open With**
+- **`klarpdf-setup.exe`** — installer (per-user, no admin). Adds KlarPDF to the `.pdf` **Open With**
   list + a Start-Menu shortcut; clean uninstall. *Recommended.*
-- **`pdfproj-portable.exe`** — single-file portable build; run from any folder (slower first launch,
+- **`klarpdf-portable.exe`** — single-file portable build; run from any folder (slower first launch,
   no file association).
 
 No Python and no network needed at install or runtime. Unsigned for now → a one-time SmartScreen

@@ -1,17 +1,17 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller spec — freezes pdfproj into two artifacts from one analysis (PLAN.md, Packaging §3):
+"""PyInstaller spec — freezes KlarPDF into two artifacts from one analysis (PLAN.md, Packaging §3):
 
-  dist/pdfproj/pdfproj.exe   (--onedir)   bundled by the Inno Setup installer; fast startup
-  dist/pdfproj-portable.exe  (--onefile)  portable, run-anywhere build
+  dist/klarpdf/klarpdf.exe   (--onedir)   bundled by the Inno Setup installer; fast startup
+  dist/klarpdf-portable.exe  (--onefile)  portable, run-anywhere build
 
 Both are windowed (no console). Build on Windows; cannot be cross-built from WSL. Run from the
-repo root:  py -3.12 -m PyInstaller packaging/pdfproj.spec --noconfirm
+repo root:  py -3.12 -m PyInstaller packaging/klarpdf.spec --noconfirm
 """
 
 from pathlib import Path
 
 ROOT = Path(SPECPATH).resolve().parent  # spec lives in packaging/; ROOT is the repo root
-ICON = str(ROOT / "packaging" / "pdfproj.ico")  # embedded in both exes (M10)
+ICON = str(ROOT / "packaging" / "klarpdf.ico")  # embedded in both exes (M10)
 
 a = Analysis(
     [str(ROOT / "launcher.py")],
@@ -40,13 +40,13 @@ a = Analysis(
 
 pyz = PYZ(a.pure)
 
-# --- onedir: the installer's payload (dist/pdfproj/pdfproj.exe + Qt/PyMuPDF/CPython) ---
+# --- onedir: the installer's payload (dist/klarpdf/klarpdf.exe + Qt/PyMuPDF/CPython) ---
 exe_onedir = EXE(
     pyz,
     a.scripts,
     [],
     exclude_binaries=True,   # binaries land in COLLECT below, not inside the exe
-    name="pdfproj",
+    name="klarpdf",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -66,17 +66,17 @@ coll = COLLECT(
     strip=False,
     upx=False,
     upx_exclude=[],
-    name="pdfproj",
+    name="klarpdf",
 )
 
-# --- onefile: portable single exe (dist/pdfproj-portable.exe) ---
+# --- onefile: portable single exe (dist/klarpdf-portable.exe) ---
 exe_onefile = EXE(
     pyz,
     a.scripts,
     a.binaries,
     a.datas,
     [],
-    name="pdfproj-portable",
+    name="klarpdf-portable",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

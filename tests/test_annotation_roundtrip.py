@@ -1,6 +1,6 @@
 """Annotation round-trip editing (PLAN.md, M31 — the v0.7.0 keystone).
 
-On open, pdfproj re-parses **its own** (``PDFPROJ_AUTHOR``-tagged) highlights / text-boxes back into
+On open, KlarPDF re-parses **its own** (``KLARPDF_AUTHOR``-tagged) highlights / text-boxes back into
 the editable model; at materialise it strips the copied marks ``insert_pdf`` brought over and
 re-adds them from the model, so a reopened document's annotations are movable / re-editable /
 removable without ever duplicating. Foreign annotations pass through untouched; a destructive
@@ -16,12 +16,12 @@ import pytest
 
 from model.edit_engine import PyMuPDFEngine
 from model.page_edits import (
-    PDFPROJ_AUTHOR,
+    KLARPDF_AUTHOR,
     Highlight,
     Redaction,
     TextBox,
-    read_pdfproj_annotations,
-    strip_pdfproj_annotations,
+    read_klarpdf_annotations,
+    strip_klarpdf_annotations,
 )
 from model.virtual_document import VirtualDocument
 
@@ -75,7 +75,7 @@ def test_open_seeds_baked_annotations_into_model(text_pdf, tmp_path):
 
 
 def test_clean_document_seeds_no_annotations(text_pdf):
-    """A document pdfproj never annotated opens with empty per-page annotation tuples."""
+    """A document KlarPDF never annotated opens with empty per-page annotation tuples."""
     v = VirtualDocument.from_path(text_pdf)
     assert all(ref.annotations == () for ref in v.ordered)
 
@@ -94,7 +94,7 @@ def test_resave_does_not_duplicate_annotations(text_pdf, tmp_path):
     second = _materialize(VirtualDocument.from_path(first), tmp_path, "second.pdf")
     assert _annot_count(second) == 2
     with fitz.open(second) as doc:
-        assert {a.info.get("title") for a in doc[0].annots()} == {PDFPROJ_AUTHOR}
+        assert {a.info.get("title") for a in doc[0].annots()} == {KLARPDF_AUTHOR}
 
 
 # ---- styling + geometry fidelity --------------------------------------------
@@ -198,8 +198,8 @@ def test_moving_roundtripped_textbox_persists(text_pdf, tmp_path):
 
 
 def test_foreign_annotations_are_preserved_and_not_modeled(tmp_path):
-    """An annotation another tool wrote (no pdfproj title) is ignored by the read-back and copied
-    through verbatim at materialise — pdfproj only ever touches its own marks."""
+    """An annotation another tool wrote (no KlarPDF title) is ignored by the read-back and copied
+    through verbatim at materialise — KlarPDF only ever touches its own marks."""
     src = str(tmp_path / "foreign.pdf")
     doc = fitz.open()
     page = doc.new_page()
@@ -217,21 +217,21 @@ def test_foreign_annotations_are_preserved_and_not_modeled(tmp_path):
 
     with fitz.open(out) as result:
         titles = sorted(a.info.get("title") for a in result[0].annots())
-    assert titles == [PDFPROJ_AUTHOR, "some other app"]  # both survive, exactly once each
+    assert titles == [KLARPDF_AUTHOR, "some other app"]  # both survive, exactly once each
 
 
-def test_strip_pdfproj_annotations_leaves_foreign(tmp_path):
+def test_strip_klarpdf_annotations_leaves_foreign(tmp_path):
     doc = fitz.open()
     page = doc.new_page()
     page.insert_text((72, 100), "HELLO WORLD here", fontsize=14)
     mine = page.add_freetext_annot(fitz.Rect(72, 150, 300, 180), "mine")
-    mine.set_info(title=PDFPROJ_AUTHOR)
+    mine.set_info(title=KLARPDF_AUTHOR)
     mine.update()
     theirs = page.add_freetext_annot(fitz.Rect(72, 200, 300, 230), "theirs")
     theirs.set_info(title="other")
     theirs.update()
 
-    strip_pdfproj_annotations(page)
+    strip_klarpdf_annotations(page)
     remaining = [(a.type[1], a.info.get("title")) for a in page.annots()]
     doc.close()
     assert remaining == [("FreeText", "other")]
@@ -251,7 +251,7 @@ def test_redaction_does_not_round_trip(text_pdf, tmp_path):
     assert not any(isinstance(a, Redaction) for a in reopened.page_annotations(0))
     with fitz.open(out) as doc:
         page = doc[0]
-        assert read_pdfproj_annotations(page) == reopened.page_annotations(0)
+        assert read_klarpdf_annotations(page) == reopened.page_annotations(0)
 
 
 # ---- reload_from_file (redaction commit + revert) seeds annotations ----------

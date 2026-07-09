@@ -57,7 +57,7 @@ def test_server_name_is_stable_and_nonempty():
 
 
 def test_handoff_opens_window_in_resident_instance(app, a_pdf):
-    name = "pdfproj-test-handoff"
+    name = "klarpdf-test-handoff"
     QLocalServer.removeServer(name)
     assert app.start_server(name) is True
 
@@ -67,7 +67,7 @@ def test_handoff_opens_window_in_resident_instance(app, a_pdf):
 
 
 def test_handoff_for_open_doc_does_not_duplicate(app, a_pdf):
-    name = "pdfproj-test-dedupe"
+    name = "klarpdf-test-dedupe"
     QLocalServer.removeServer(name)
     app.start_server(name)
     w1 = app.open_document(a_pdf)
@@ -80,11 +80,11 @@ def test_handoff_for_open_doc_does_not_duplicate(app, a_pdf):
 
 
 def test_send_returns_false_when_no_instance():
-    assert send_path_to_running_instance("pdfproj-test-absent-xyz", "/tmp/none.pdf") is False
+    assert send_path_to_running_instance("klarpdf-test-absent-xyz", "/tmp/none.pdf") is False
 
 
 def test_start_server_clears_stale_socket(app):
-    name = "pdfproj-test-stale"
+    name = "klarpdf-test-stale"
     QLocalServer.removeServer(name)
     leftover = QLocalServer()  # simulate a socket left behind by a prior instance
     assert leftover.listen(name)
@@ -110,7 +110,7 @@ def test_launcher_hands_off_raw_path_not_normalized(qapp, monkeypatch):
         lambda name, path, *a, **k: (captured.append(path), True)[1],
     )
     raw = r"\\wsl.localhost\Ubuntu-24.04\home\umesh\Payslip_2026-06-05.pdf"  # mixed-case, case-sensitive
-    assert launcher.main(["pdfproj", raw]) == 0
+    assert launcher.main(["klarpdf", raw]) == 0
     assert captured == [raw]                     # handed off verbatim (original case preserved)
     assert captured[0] != normalize_path(raw)    # specifically NOT the lower-cased identity key
 
@@ -140,7 +140,7 @@ def test_handoff_passes_the_foreground_right(app, a_pdf, monkeypatch):
     calls: list[bool] = []
     monkeypatch.setattr(platform_integration, "allow_foreground_handoff", lambda: calls.append(True))
 
-    name = "pdfproj-test-foreground"
+    name = "klarpdf-test-foreground"
     QLocalServer.removeServer(name)
     assert app.start_server(name) is True
     assert send_path_to_running_instance(name, normalize_path(a_pdf)) is True
@@ -155,5 +155,5 @@ def test_no_foreground_handoff_when_no_instance(monkeypatch):
     calls: list[bool] = []
     monkeypatch.setattr(platform_integration, "allow_foreground_handoff", lambda: calls.append(True))
 
-    assert send_path_to_running_instance("pdfproj-test-absent-xyz", "/tmp/none.pdf") is False
+    assert send_path_to_running_instance("klarpdf-test-absent-xyz", "/tmp/none.pdf") is False
     assert not calls

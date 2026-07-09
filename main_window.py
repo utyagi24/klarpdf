@@ -148,7 +148,7 @@ class MainWindow(QMainWindow):
         self._watcher.changedOnDisk.connect(self._check_external_change)
 
         self._build_actions()
-        self.setWindowTitle(f"{os.path.basename(path)} — pdfproj[*]")
+        self.setWindowTitle(f"{os.path.basename(path)} — KlarPDF[*]")
         self.setWindowIcon(icons.app_icon())
         self._place_window()  # final size + position *before* show() → no post-show resize jump
 
@@ -637,7 +637,7 @@ class MainWindow(QMainWindow):
         self._app.rename_window(old, path, self)
         self.thumbs.source_key = normalize_path(path)  # re-key for cross-window drag/drop
         self._watcher.watch(path)  # follow the new file; its signature is now the synced state
-        self.setWindowTitle(f"{os.path.basename(path)} — pdfproj[*]")
+        self.setWindowTitle(f"{os.path.basename(path)} — KlarPDF[*]")
         return True
 
     def _write_to(self, target_path: str) -> bool:

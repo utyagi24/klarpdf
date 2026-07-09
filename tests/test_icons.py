@@ -1,7 +1,7 @@
 """Icon resolver + generated app ICO (PLAN.md, M10).
 
 Headless (offscreen, set in conftest): the SVGs must render to non-empty QIcons, a missing name
-must degrade to an empty icon rather than crash, and the committed ``packaging/pdfproj.ico`` must be
+must degrade to an empty icon rather than crash, and the committed ``packaging/klarpdf.ico`` must be
 a well-formed multi-resolution PNG-in-ICO container.
 """
 
@@ -23,7 +23,7 @@ ACTION_ICONS = [
     "insert", "find", "zoom-in", "zoom-out", "fit-width", "fit-page",
     "rotate-left", "rotate-right", "sidebar", "select", "grab", "highlight", "textbox",
 ]
-ICO_PATH = Path(__file__).resolve().parents[1] / "packaging" / "pdfproj.ico"
+ICO_PATH = Path(__file__).resolve().parents[1] / "packaging" / "klarpdf.ico"
 
 
 @pytest.fixture(scope="session")

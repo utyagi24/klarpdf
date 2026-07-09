@@ -1,13 +1,13 @@
-"""Render ``ui/icons/pdfproj.svg`` to ``packaging/pdfproj.ico`` (PLAN.md, M10).
+"""Render ``ui/icons/klarpdf.svg`` to ``packaging/klarpdf.ico`` (PLAN.md, M10).
 
 The app icon is authored as readable SVG (the unit of audit); this script bakes it into the
-multi-resolution ``.ico`` that PyInstaller embeds in ``pdfproj.exe`` and Inno Setup uses as the
+multi-resolution ``.ico`` that PyInstaller embeds in ``klarpdf.exe`` and Inno Setup uses as the
 installer/shortcut icon. Pure offline: renders with Qt (already a dependency) and writes a standard
 PNG-compressed ICO container by hand — no Pillow, no network. Re-run after editing the SVG:
 
     py -3.12 packaging/make_icon.py
 
-The generated ``packaging/pdfproj.ico`` is committed so the build needs no extra step.
+The generated ``packaging/klarpdf.ico`` is committed so the build needs no extra step.
 """
 
 from __future__ import annotations
@@ -24,8 +24,8 @@ from PySide6.QtGui import QGuiApplication, QImage, QPainter  # noqa: E402
 from PySide6.QtSvg import QSvgRenderer  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
-SVG = ROOT / "ui" / "icons" / "pdfproj.svg"
-ICO = ROOT / "packaging" / "pdfproj.ico"
+SVG = ROOT / "ui" / "icons" / "klarpdf.svg"
+ICO = ROOT / "packaging" / "klarpdf.ico"
 
 # Standard Windows icon sizes. 256 is stored PNG-compressed (Vista+), the rest also as PNG —
 # every modern Windows shell reads PNG-in-ICO.

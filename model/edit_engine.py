@@ -100,7 +100,7 @@ class PyMuPDFEngine(EditEngine):
 
             # Apply absolute rotation overrides + per-page edits (output page i == ordered[i]).
             # Round-trip (M31): insert_pdf(annots=True) copied every source annotation, including
-            # the pdfproj marks a prior save baked in. The model now owns those (read back on open,
+            # the KlarPDF marks a prior save baked in. The model now owns those (read back on open,
             # with any move / edit / removal applied), so strip the copies and re-add from the
             # model — the model is the single source of truth. Stripping runs on *every* page (even
             # one with no model annotations) so a removed mark is actually dropped; foreign
@@ -110,13 +110,13 @@ class PyMuPDFEngine(EditEngine):
             from model.page_edits import (
                 apply_annotations,
                 apply_redactions,
-                strip_pdfproj_annotations,
+                strip_klarpdf_annotations,
             )
 
             for i, ref in enumerate(vdoc.ordered):
                 if ref.rotation_override is not None:
                     out[i].set_rotation(ref.rotation_override)
-                strip_pdfproj_annotations(out[i])
+                strip_klarpdf_annotations(out[i])
                 if ref.annotations:
                     apply_redactions(out[i], ref.annotations)
                     apply_annotations(out[i], ref.annotations)

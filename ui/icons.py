@@ -3,7 +3,7 @@
 The SVGs are the unit of audit (readable vector source, no opaque binary, no network). We render
 them with ``QSvgRenderer`` rather than relying on Qt's optional ``qsvgicon`` icon-engine plugin, so
 icons are robust in the frozen build whether or not that plugin is bundled (the ``ui/icons`` folder
-is added to the PyInstaller bundle via ``packaging/pdfproj.spec`` ``datas``).
+is added to the PyInstaller bundle via ``packaging/klarpdf.spec`` ``datas``).
 
 **Theming:** the monochrome action glyphs are *tinted to the palette's button-text colour* at render
 time, so they read as dark glyphs on a light theme and light glyphs on a dark theme (the SVGs' own
@@ -30,7 +30,7 @@ from PySide6.QtSvg import QSvgRenderer
 _RENDER_SIZES = (16, 20, 24, 32, 48)
 
 # App-icon name (a filled mark) vs the line-style action icons.
-APP_ICON = "pdfproj"
+APP_ICON = "klarpdf"
 
 
 def icons_dir() -> Path:

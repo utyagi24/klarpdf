@@ -70,9 +70,9 @@ class PdfApp(QApplication):
     def __init__(self, argv: list[str]) -> None:
         super().__init__(argv)
         # Set early: QStandardPaths.AppConfigLocation derives from the application name, so the
-        # settings dir resolves to .config/pdfproj (Linux) / %APPDATA%\pdfproj (Windows).
-        self.setApplicationName("pdfproj")
-        self.setOrganizationName("pdfproj")
+        # settings dir resolves to .config/klarpdf (Linux) / %LOCALAPPDATA%\klarpdf (Windows).
+        self.setApplicationName("klarpdf")
+        self.setOrganizationName("klarpdf")
         # App-level icon: taskbar grouping + the default for every window/dialog.
         from ui import icons
 
