@@ -214,10 +214,13 @@ history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI uses `${
     `gh repo edit --rename`, which doesn't exist), run while the repo was still private.
     `utyagi24/pdfproj` → `utyagi24/klarpdf`; GitHub redirects the old URLs, so the historical
     release/PR links above keep resolving, and PRs/issues/releases are untouched (a *repo* rename is
-    safe — it is a *branch* rename that closes an open PR, see #86). Each checkout then needs
-    `git remote set-url origin https://github.com/utyagi24/klarpdf.git`; the Windows checkout is
-    done, **the WSL checkout must be re-pointed by hand**. Local working-directory names deliberately
-    keep the old codename. — *GitHub*
+    safe — it is a *branch* rename that closes an open PR, see #86). Re-pointing each checkout's
+    `origin` is **optional** — GitHub redirects the old remote over **both** HTTPS and SSH — but if you
+    do it, **keep the checkout's existing protocol**: the Windows checkout is HTTPS
+    (`https://github.com/utyagi24/klarpdf.git`), the WSL checkout is SSH
+    (`git@github.com:utyagi24/klarpdf.git`). Rewriting an SSH remote to the HTTPS form makes git ignore
+    `~/.ssh/config` and start prompting for a password that cannot work (password auth was removed in
+    2021). Local working-directory names deliberately keep the old codename. — *GitHub*
 
   Feeds the copyright name (G3), the About name+logo (G4), and the community files (G5).
 - [ ] **G3** License + notices — root `LICENSE` (full AGPL-3.0-or-later) + `THIRD_PARTY_LICENSES`
