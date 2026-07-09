@@ -1,4 +1,4 @@
-# sheaf - icon system
+# KlarPDF - icon system
 
 All glyphs share ONE keyline so the family stays coherent.
 
