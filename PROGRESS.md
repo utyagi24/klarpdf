@@ -209,7 +209,7 @@ history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI uses `${
     renamed setup as an in-place upgrade (which would skip the old uninstaller's registry +
     config-dir cleanup and reuse its install dir) — **uninstall `pdfproj` before installing
     `KlarPDF`** (`RELEASE.md`). Historical release notes, shipped artifact names and repo URLs are
-    left as-is: they record what actually shipped. — *WSL* — [#PRNUM](https://github.com/utyagi24/pdfproj/pull/PRNUM)
+    left as-is: they record what actually shipped. — *WSL* — [#92](https://github.com/utyagi24/pdfproj/pull/92)
   - [ ] **Part 3 — GitHub repo rename** (**manual; not a PR**) — `gh repo edit --rename klarpdf`
     while the repo is still private; old links redirect. Then re-point both checkouts'
     `origin` remotes. Deferred so it can't break the open-PR flow mid-sweep. — *GitHub*
