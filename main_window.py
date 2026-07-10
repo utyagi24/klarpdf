@@ -297,6 +297,14 @@ class MainWindow(QMainWindow):
         )
         view_menu.addAction(pages_toggle)
 
+        # Help — an AGPL release owes the user the licence and the corresponding source (G4).
+        # Deliberately not on the toolbar: discoverable where users look for it, not in the way.
+        help_menu = menu.addMenu("&Help")
+        act("About KlarPDF", self._show_about, icon="about", to_menu=help_menu)
+        act("Open-Source Licenses", self._show_licenses, to_menu=help_menu)
+        help_menu.addSeparator()
+        act("View Source", self._open_source_url, to_menu=help_menu)
+
         # Toolbar: built explicitly (order independent of menu wiring), grouped functionally with
         # separators — file · history · page edits · zoom/fit · rotate · search.
         groups = (
@@ -361,6 +369,26 @@ class MainWindow(QMainWindow):
             action.triggered.connect(lambda checked=False, p=path: self._app.open_document(p))
         self._recent_menu.addSeparator()
         self._recent_menu.addAction("Clear Recent", self._settings.clear_recent)
+
+    # --- Help (G4) -------------------------------------------------------------------------
+    # Imported lazily: the About/Licenses dialogs read the bundled licence texts off disk, and no
+    # window should pay that on open. Mirrors the lazy `viewer.printing` import below.
+
+    def _show_about(self) -> None:
+        from ui.about import AboutDialog
+
+        AboutDialog(self).exec()
+
+    def _show_licenses(self) -> None:
+        from ui.about import LicensesDialog
+
+        LicensesDialog(self).exec()
+
+    def _open_source_url(self) -> None:
+        """Open the repo in the system browser. User-initiated; the app opens no socket itself."""
+        from ui.about import SOURCE_URL, _open_url
+
+        _open_url(SOURCE_URL)
 
     def _print(self) -> None:
         from viewer.printing import print_document

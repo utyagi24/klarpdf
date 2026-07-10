@@ -226,10 +226,16 @@ history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI uses `${
 - [x] **G3** License + notices — root `LICENSE` (full AGPL-3.0-or-later) + `THIRD_PARTY_LICENSES`
   (PyMuPDF AGPL-3.0, PySide6 + shiboken6 LGPL-3.0, pypdf BSD-3; cross-ref `DEPENDENCIES.md`) +
   README license section + badge + build-from-source pointer (uses the G2 name) — *WSL* — [#95](https://github.com/utyagi24/klarpdf/pull/95)
-- [ ] **G4** In-app About + Open-Source Licenses dialog — add a Help menu (`main_window.py`): About
-  (G2 name + logo + version + AGPL + no-warranty notice + source link), Open-Source Licenses (bundled
-  license texts), View Source; bundle texts via `packaging/klarpdf.spec` + a freeze-aware
-  `resource_path()`; headless smoke test — *WSL + WSLg*
+- [x] **G4** In-app About + Open-Source Licenses dialog — Help menu (`main_window.py`) → **About**
+  (mark + version + AGPL + the AGPL §15-16 no-warranty notice + a *tagged* corresponding-source link,
+  never `main`), **Open-Source Licenses** (the bundled texts, one tab each, offline), **View Source**.
+  New `ui/about.py` (dialogs) + `util/resources.py` (freeze-aware `resource_path()`, mirroring
+  `ui/icons.py`'s `_MEIPASS` dance); `packaging/klarpdf.spec` `datas` ships `LICENSE` +
+  `THIRD_PARTY_LICENSES` to the bundle root. Links open via `QDesktopServices` on **user click only**,
+  so the offline / no-telemetry guarantee holds. `tests/test_about_dialog.py` drives the real Help
+  menu and simulates `sys._MEIPASS` — the frozen path the headless suite otherwise never executes —
+  and asserts the spec still bundles both texts, since a `datas` regression is invisible to CI.
+  — *WSL + WSLg* — [#PRNUM](https://github.com/utyagi24/klarpdf/pull/PRNUM)
 - [x] **G5** Community-health files — `SECURITY.md`, `CONTRIBUTING.md` (DCO sign-off),
   `CODE_OF_CONDUCT.md` (Contributor Covenant), `.github/ISSUE_TEMPLATE/*` + `pull_request_template.md`
   — *WSL* — [#96](https://github.com/utyagi24/klarpdf/pull/96)
