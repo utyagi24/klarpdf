@@ -785,7 +785,7 @@ first. **No new dependency** — both are native PyMuPDF.
 | **M33** Internal link remap **+ navigation** | `model/links_remap.py`: at materialize, rebuild internal **GoTo *and* named-destination** links against the new page order (both resolve to a target page, re-emitted as remapped GoTo — `insert_pdf` drops named dests entirely, and cross-run GoTo links). Plus **in-viewer navigation** (`viewer/links.py`): clicking an internal link jumps to its target page (pointing-hand on hover), resolved via the same map so it follows reorder/delete live. | WSL (model+tests) + WSLg | Reordered/deleted pages keep internal links working; clicking a link in the viewer jumps to its target |
 | **M38** Verify + release | Headless suite green (369 tests); Windows validation; tag **v0.9.0**. | **Win** | Matrix green → v0.9.0 released |
 
-## MCP / Agent Bridge roadmap (v0.10.0 — planned)
+## MCP / Agent Bridge roadmap (v0.11.0 — planned)
 
 A new surface, not a GUI feature: expose KlarPDF's PDF engine to **Claude Code, Claude Desktop, and
 other agentic clients** as a local **MCP (Model Context Protocol) server**. Same offline/native/
@@ -870,7 +870,7 @@ thin set of read-only query helpers + the MCP tool layer.
 | **M41** Redaction + encrypted | WSL | `redact_regions`/`redact_text` (destructive + leak-verified) and encrypted-input (`password`) tools; headless cross-engine leak assertion |
 | **M42** Dependency lock + packaging | Windows | `requirements-mcp.{in,txt}` (hashed where applicable, GUI lock untouched); `klarpdf-mcp` entry point; `.mcp.json` + Desktop config docs; optional `.mcpb` |
 | **M43** Hardening + docs | WSL | path allowlist, return-size caps, read-only flag, error handling; README usage + example agent workflows |
-| **M44** Verify + release | Windows | verification matrix green (below) → tag **v0.10.0** → GitHub Release |
+| **M44** Verify + release | Windows | verification matrix green (below) → tag **v0.11.0** → GitHub Release |
 
 ### Verification (adds to the existing matrix)
 
@@ -888,8 +888,8 @@ thin set of read-only query helpers + the MCP tool layer.
 
 1. **Packaging:** separate optional component (recommended — keeps the audited GUI bundle tiny) vs.
    bundled into `klarpdf-setup.exe`.
-2. **Write tools default-on, or read-only-first release** (query tools only in v0.10.0, transforms in v0.11.0)?
-3. **Transport:** stdio only (Code + Desktop) for v0.10.0, HTTP deferred — confirm HTTP isn't needed now.
+2. **Write tools default-on, or read-only-first release** (query tools only in v0.11.0, transforms in v0.12.0)?
+3. **Transport:** stdio only (Code + Desktop) for v0.11.0, HTTP deferred — confirm HTTP isn't needed now.
 4. **Repo layout:** keep the server in this repo (shared `model/` core) vs. a sibling repo importing
    KlarPDF as a dependency.
 

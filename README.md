@@ -6,9 +6,17 @@ Local, offline, **native-Windows** PDF viewer + page editor (Python · PySide6 �
 trustworthy replacement for macOS Preview's view + splice/split workflow on Windows. The source is
 the unit of audit; it ships as a pinned, fully offline Windows installer.
 
-**Status: `v0.9.6` shipped** — [download the installer or portable exe](https://github.com/utyagi24/klarpdf/releases/latest). Milestones **M0–M38 complete**. Full status: [PROGRESS.md](PROGRESS.md).
+**Status: `v0.10.0` shipped** — [download the installer or portable exe](https://github.com/utyagi24/klarpdf/releases/latest). Milestones **M0–M38 complete**. Full status: [PROGRESS.md](PROGRESS.md).
 
-**New in v0.9.0 — Encrypted & Links:** open **password-protected PDFs** (prompt + authenticate on
+**New in v0.10.0 — KlarPDF:** the project formerly built as `pdfproj` is now **KlarPDF** (*klar* =
+"clear" in German and the Scandinavian languages) — a new name, mark, and toolbar icon set; a root
+**AGPL-3.0-or-later licence**; and a **Help menu** with **About** (version, licence, no-warranty
+notice, and a link to the source at the exact tag this binary was built from) and **Open-Source
+Licenses** (the bundled licence texts, readable offline). *Upgrading from `pdfproj`?* **Uninstall it
+first** — KlarPDF installs as a separate application, and the old uninstaller is the only thing that
+removes its file association. Then delete `%LOCALAPPDATA%\pdfproj` by hand.
+
+**v0.9.0 — Encrypted & Links:** open **password-protected PDFs** (prompt + authenticate on
 open; the saved copy is unencrypted); and **internal links that survive editing** — GoTo and
 named-destination links are rebuilt at save so reorder / delete / Save keeps them working, and
 they're **clickable in the viewer** (click to jump to the target page). Patches through **v0.9.6**
@@ -41,7 +49,7 @@ viewer-mode toggle.
 | Doc | What |
 |---|---|
 | [PLAN.md](PLAN.md) | Product spec, architecture, dependencies/packaging, portability, build order, **Execution**, verification |
-| [PROGRESS.md](PROGRESS.md) | Live milestone checklist (M0–M38 shipped; v0.10.0 MCP roadmap planned) + **Open follow-ups** |
+| [PROGRESS.md](PROGRESS.md) | Live milestone checklist (M0–M38 shipped; v0.11.0 MCP roadmap planned) + **Open follow-ups** |
 | [RELEASE.md](RELEASE.md) | Maintainer runbook — change a dependency · respond to a Dependabot alert · cut a release (via the `invoke` tasks) |
 | [CLAUDE.md](CLAUDE.md) | Orientation + conventions for contributors/agents |
 | [DEPENDENCIES.md](DEPENDENCIES.md) | Pinned libraries + build toolchain — exact versions, licenses |

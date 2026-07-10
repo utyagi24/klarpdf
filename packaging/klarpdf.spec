@@ -8,10 +8,67 @@ Both are windowed (no console). Build on Windows; cannot be cross-built from WSL
 repo root:  py -3.12 -m PyInstaller packaging/klarpdf.spec --noconfirm
 """
 
+import sys
 from pathlib import Path
 
 ROOT = Path(SPECPATH).resolve().parent  # spec lives in packaging/; ROOT is the repo root
 ICON = str(ROOT / "packaging" / "klarpdf.ico")  # embedded in both exes (M10)
+
+# --- Windows version resource ---------------------------------------------------------------
+# Read the single source of the version rather than restating it (version.py). Until now the exes
+# carried *no* version resource at all — Explorer's Properties -> Details was blank, and an unsigned
+# binary with no version info is a mild antivirus heuristic. RELEASE.md always claimed version.py
+# "feeds the PyInstaller exe metadata"; this is what finally makes that true.
+sys.path.insert(0, str(ROOT))
+from version import __version__  # noqa: E402
+
+# The Win32 FIXEDFILEINFO struct wants exactly four integers; SemVer gives three.
+_parts = tuple(int(p) for p in __version__.split(".")) + (0,)
+assert len(_parts) == 4, f"unexpected version shape: {__version__!r}"
+
+
+def _version_resource(exe_name: str) -> str:
+    """Write a PyInstaller version file for ``exe_name`` and return its path (Windows only).
+
+    Per-exe because ``OriginalFilename`` must name the artifact it is embedded in — the onedir exe is
+    ``klarpdf.exe``, the portable one is ``klarpdf-portable.exe``.
+    """
+    from PyInstaller.utils.win32.versioninfo import (
+        FixedFileInfo,
+        StringFileInfo,
+        StringStruct,
+        StringTable,
+        VarFileInfo,
+        VarStruct,
+        VSVersionInfo,
+    )
+
+    info = VSVersionInfo(
+        ffi=FixedFileInfo(filevers=_parts, prodvers=_parts, mask=0x3F, flags=0x0, OS=0x40004,
+                          fileType=0x1, subtype=0x0, date=(0, 0)),
+        kids=[
+            StringFileInfo([StringTable("040904B0", [  # US English, Unicode
+                StringStruct("CompanyName", "KlarPDF contributors"),
+                StringStruct("FileDescription", "KlarPDF — local, offline PDF viewer and editor"),
+                StringStruct("FileVersion", __version__),
+                StringStruct("InternalName", Path(exe_name).stem),
+                StringStruct("LegalCopyright", "Copyright (C) 2026 KlarPDF contributors. AGPL-3.0-or-later."),
+                StringStruct("OriginalFilename", exe_name),
+                StringStruct("ProductName", "KlarPDF"),
+                StringStruct("ProductVersion", __version__),
+            ])]),
+            VarFileInfo([VarStruct("Translation", [0x0409, 1200])]),
+        ],
+    )
+    out = ROOT / "build" / f"version_info_{Path(exe_name).stem}.txt"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(str(info), encoding="utf-8")
+    return str(out)
+
+
+_WIN = sys.platform == "win32"
+VERSION_ONEDIR = _version_resource("klarpdf.exe") if _WIN else None
+VERSION_ONEFILE = _version_resource("klarpdf-portable.exe") if _WIN else None
 
 a = Analysis(
     [str(ROOT / "launcher.py")],
@@ -66,6 +123,7 @@ exe_onedir = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=ICON,
+    version=VERSION_ONEDIR,
 )
 coll = COLLECT(
     exe_onedir,
@@ -97,4 +155,5 @@ exe_onefile = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=ICON,
+    version=VERSION_ONEFILE,
 )
