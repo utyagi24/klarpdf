@@ -185,6 +185,14 @@ cross-check, absent on Windows).
      `[UninstallDelete]` pointed at `{userappdata}` (Roaming), while Qt's `AppConfigLocation` resolves
      to `%LOCALAPPDATA%` on Windows — so it deleted a path that never existed. Fixed for KlarPDF
      (`{localappdata}`), but the old build can't retroactively clean up after itself.
+   - **Close the app before uninstalling anything.** Verified at v0.10.0: uninstalling while KlarPDF is
+     running leaves two artifacts, neither of which is a packaging fault. The install directory
+     survives, because Inno cannot delete a running `.exe` and a per-user install has no admin rights
+     to queue a reboot-time delete (`PendingFileRenameOperations` stays empty) — the registry keys,
+     shortcut and Add/Remove entry are still removed correctly, and the uninstaller self-deletes. And
+     `%LOCALAPPDATA%\klarpdf` **reappears**: `[UninstallDelete]` removes it, then the still-running
+     process writes `view_state.json` on shutdown and recreates it. Both clear with a manual
+     `Remove-Item`, but the smoke test is only meaningful with the app closed first.
    - Install/run the **onedir** `klarpdf-setup.exe` (from the draft's assets, or a local build):
      launch, open a PDF, confirm single-instance + window focus.
    - The **onefile portable** (`klarpdf-portable.exe`) may be blocked *locally* by a Windows
