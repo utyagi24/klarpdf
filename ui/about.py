@@ -53,8 +53,10 @@ class AboutDialog(QDialog):
 
         layout = QVBoxLayout(self)
 
+        # The free-standing mark, not the OS tile: this dialog supplies its own background, so a bare
+        # mark reads better than a container would. See ui/icons.py.
         mark = QLabel()
-        mark.setPixmap(icons.app_icon().pixmap(64, 64))
+        mark.setPixmap(icons.brand_mark().pixmap(64, 64))
         mark.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         layout.addWidget(mark)
 

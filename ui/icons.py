@@ -29,8 +29,14 @@ from PySide6.QtSvg import QSvgRenderer
 # Sizes baked into each QIcon. The toolbar uses ~20px; menus ~16px; HiDPI may ask for more.
 _RENDER_SIZES = (16, 20, 24, 32, 48)
 
-# App-icon name (a filled mark) vs the line-style action icons.
+# Three full-colour marks with three distinct jobs (assets/brand/BRAND.md):
+#   APP_ICON  — the OS icon: a gradient *tile*, because Windows gives an icon a square canvas and a
+#               portrait page spans only 59% of it (every other app spans 82-100%).
+#   BRAND_MARK — the free-standing fanned-sheets mark, for in-app use on our own background.
+#   DOC_ICON  — what Explorer shows for a `.pdf` file. A document is not the program that opens it.
 APP_ICON = "klarpdf"
+BRAND_MARK = "klarpdf-mark"
+DOC_ICON = "klarpdf-doc"
 
 
 def icons_dir() -> Path:
@@ -91,8 +97,19 @@ def icon(name: str) -> QIcon:
 
 @lru_cache(maxsize=None)
 def app_icon() -> QIcon:
-    """The full-colour application/window icon (taskbar, title bar) — never tinted."""
+    """The OS application icon — taskbar, title bar, Alt-Tab, Task Manager. Never tinted.
+
+    This is the **tile**, not the free-standing mark: see :data:`APP_ICON`. For a mark to show inside
+    the app (About dialog, empty states), use :func:`brand_mark` — a dialog supplies its own
+    background, so a bare mark is right there and a container would look boxed-in.
+    """
     return _render(APP_ICON, tint=False)
+
+
+@lru_cache(maxsize=None)
+def brand_mark() -> QIcon:
+    """The free-standing fanned-sheets mark, for in-app use on our own background. Never tinted."""
+    return _render(BRAND_MARK, tint=False)
 
 
 def refresh_for_theme() -> None:

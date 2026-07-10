@@ -24,8 +24,18 @@ from PySide6.QtGui import QGuiApplication, QImage, QPainter  # noqa: E402
 from PySide6.QtSvg import QSvgRenderer  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
-SVG = ROOT / "ui" / "icons" / "klarpdf.svg"
-ICO = ROOT / "packaging" / "klarpdf.ico"
+
+# Two icons, two jobs (ui/icons.py):
+#   klarpdf.ico      the APPLICATION (exe, taskbar, Start Menu, Add/Remove Programs)
+#   klarpdf-doc.ico  a `.pdf` DOCUMENT (the ProgID DefaultIcon in installer.iss)
+# Until v0.10.0 the installer pointed DefaultIcon at `klarpdf.exe,0`, so every PDF wore the app's
+# icon. A document is not the program that opens it.
+ICON_PAIRS = (
+    (ROOT / "ui" / "icons" / "klarpdf.svg", ROOT / "packaging" / "klarpdf.ico"),
+    (ROOT / "ui" / "icons" / "klarpdf-doc.svg", ROOT / "packaging" / "klarpdf-doc.ico"),
+)
+
+SVG, ICO = ICON_PAIRS[0]  # back-compat for anything importing these names
 
 # Standard Windows icon sizes. 256 is stored PNG-compressed (Vista+), the rest also as PNG —
 # every modern Windows shell reads PNG-in-ICO.
@@ -61,17 +71,19 @@ def _pack_ico(pngs: list[tuple[int, bytes]]) -> bytes:
 
 
 def main() -> int:
-    if not SVG.exists():
-        print(f"missing source SVG: {SVG}", file=sys.stderr)
-        return 1
     QGuiApplication.instance() or QGuiApplication([])
-    renderer = QSvgRenderer(str(SVG))
-    if not renderer.isValid():
-        print(f"invalid SVG: {SVG}", file=sys.stderr)
-        return 1
-    pngs = [(s, _render_png(renderer, s)) for s in SIZES]
-    ICO.write_bytes(_pack_ico(pngs))
-    print(f"wrote {ICO} ({ICO.stat().st_size} bytes, sizes {', '.join(map(str, SIZES))})")
+    for svg, ico in ICON_PAIRS:
+        if not svg.exists():
+            print(f"missing source SVG: {svg}", file=sys.stderr)
+            return 1
+        renderer = QSvgRenderer(str(svg))
+        if not renderer.isValid():
+            print(f"invalid SVG: {svg}", file=sys.stderr)
+            return 1
+        pngs = [(s, _render_png(renderer, s)) for s in SIZES]
+        ico.write_bytes(_pack_ico(pngs))
+        print(f"wrote {ico.name} ({ico.stat().st_size} bytes) from {svg.name}, "
+              f"sizes {', '.join(map(str, SIZES))}")
     return 0
 
 
