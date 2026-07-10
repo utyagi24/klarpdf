@@ -7,9 +7,19 @@ it merges, check the box here in the same PR and append the PR link.
 > release links, milestone ticks, and open follow-ups. `PLAN.md` (design/spec) and `CLAUDE.md`
 > (conventions) **link here, they don't restate it** — see CLAUDE.md §How we work → "Where things live".
 
-**Status:** ✅ **v0.9.6 shipped** (bug-fix patch) — milestones **M0–M38 complete** (v0.1.0 = M0–M9,
+**Status:** ✅ **v0.10.0 shipped** — **"KlarPDF"**, the rebrand + open-source release. The app formerly
+built as `pdfproj` is now **KlarPDF** (*klar* = "clear"): new name, new mark and toolbar glyph set, a
+root **AGPL-3.0-or-later `LICENSE`** + `THIRD_PARTY_LICENSES`, and a **Help menu** — About (version,
+licence, no-warranty notice, a link to the source at *this exact tag*) and Open-Source Licenses (the
+bundled texts, offline). Community-health files and a governance policy landed too: issues are open to
+everyone, pull requests are restricted to the maintainer and invited collaborators. Windows-facing
+consequences of the rename: a **fresh Inno `AppId`**, so `klarpdf-setup.exe` installs as a *new* app —
+**uninstall `pdfproj` first** (`RELEASE.md`) — a `KlarPDF.Document` ProgID, `%LOCALAPPDATA%\klarpdf`
+for settings, and the exes finally carry **version metadata** (`ProductName`/`FileVersion`), which the
+spec had never set. Milestones **M0–M38 complete** (v0.1.0 = M0–M9,
 v0.2.0 = M10–M15, v0.3.0 = M16–M19, v0.4.0 = M20–M22, v0.5.0 = M23–M26, v0.6.0 = M27–M30,
 v0.7.0 = M31 + M31.5 + M34, v0.8.0 = M35–M37, v0.9.0 = M32 + M33 + M38). Releases:
+<https://github.com/utyagi24/klarpdf/releases/tag/v0.10.0> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.9.6> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.9.5> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.9.4> ·
@@ -63,7 +73,7 @@ text-preserving — a locked counterpart to the round-trip). v0.6.0 "Rich Text &
 **styled text boxes**, **live thumbnails**, and **dynamic theme icons**. v0.5.0 "File Safety & Output"
 adds **Revert to Saved**, an **external-change warning**, and **edits-aware printing**. v0.4.0
 "Annotate & Redact" adds text **highlight** + **text boxes** and **true destructive redaction**.
-**Next:** **v0.10.0 — "MCP / Agent Bridge"** (M39–M44, planned) — expose KlarPDF's PDF engine to
+**Next:** **v0.11.0 — "MCP / Agent Bridge"** (M39–M44, planned) — expose KlarPDF's PDF engine to
 Claude Code / Claude Desktop / agentic clients as a local **MCP server** (`PLAN.md` §MCP / Agent
 Bridge roadmap). Other deferred items live in `PLAN.md` §Future enhancements.
 **Open follow-ups** (carried items) are at the bottom.
@@ -148,7 +158,7 @@ GUI-free core, fully headless-testable).
 - [x] **M33** Internal link remap **+ navigation** — `links_remap` rebuilds GoTo **and** named-destination links at materialize (reorder/delete/Save keeps them working; named dests baked to GoTo — insert_pdf drops them entirely), **and** the viewer makes internal links clickable (click → jump to target page; pointing-hand on hover, `viewer/links.py`) — *WSL (model+tests) + WSLg* — [#58](https://github.com/utyagi24/pdfproj/pull/58)
 - [x] **M38** Verify + release → tag **v0.9.0** (version bump + docs; 369 headless tests green) — *Windows* — [#59](https://github.com/utyagi24/pdfproj/pull/59)
 
-## Roadmap — v0.10.0 "MCP / Agent Bridge" (planned)
+## Roadmap — v0.11.0 "MCP / Agent Bridge" (planned)
 
 Spec + architecture in `PLAN.md` §MCP / Agent Bridge roadmap. Same conventions: **one PR per
 milestone**, tick the box here on merge. ⭐ marks the keystone (GUI-free, fully headless-testable).
@@ -167,7 +177,7 @@ and ships as a separate optional component — the `klarpdf-setup.exe` audit sur
   `klarpdf-mcp` entry point; `.mcp.json` + Claude Desktop config docs; optional `.mcpb` — *Windows*
 - [ ] **M43** Hardening + docs — path allowlist, return-size caps, read-only flag, error handling;
   README usage + example agent workflows — *WSL*
-- [ ] **M44** Verify + release → tag **v0.10.0** (tool round-trips + leak verify + no-network +
+- [ ] **M44** Verify + release → tag **v0.11.0** (tool round-trips + leak verify + no-network +
   runs from Code/Desktop) — *Windows*
 
 > Decisions to confirm with owner (see `PLAN.md` §MCP / Agent Bridge roadmap → Decisions): packaging
@@ -176,7 +186,7 @@ and ships as a separate optional component — the `klarpdf-setup.exe` audit sur
 ## Public-Release Readiness — go open-source under AGPL-3.0 (planned)
 
 Make the **currently private** repo public as an `AGPL-3.0-or-later` project. Independent of the
-v0.10.0 MCP roadmap — this track can land first. Full execution detail in `PLAN.md`
+v0.11.0 MCP roadmap — this track can land first. Full execution detail in `PLAN.md`
 §Public-release readiness (plan introduced in [#83](https://github.com/utyagi24/pdfproj/pull/83)).
 **One PR per item**; tick the box on merge and append the PR link. Steps
 are ordered — **G1 runs first, while the repo is still private**, and the final flip to public (G8)
@@ -290,6 +300,18 @@ history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI uses `${
 
 Carried items — none block work:
 
+- **A stale `vendor/wheels/` silently shadows the lock in `-Offline` builds.** Found while building
+  v0.10.0: the local cache still held `pypdf-6.13.2` (the wheel the v0.9.4 security bump replaced), so
+  `build.ps1 -Offline` failed with *"Could not find a version that satisfies pypdf==6.13.3"*. The repo
+  was correct (`requirements-win.txt`, `vendor/wheels-sources.md` both say 6.13.3); `vendor/wheels/` is
+  **gitignored**, so it drifts per-machine and never gets re-vendored by a `git pull`. CI is unaffected
+  (it fetches fresh). Fix by re-running `build.ps1` **without** `-Offline` once, then re-running with
+  it. Worth a guard in `build.ps1` that diffs the cache against the lock before an offline build.
+- **Flaky test: `test_single_instance.py::test_handoff_opens_window_in_resident_instance`.** Failed
+  once, passed on rerun (timing-sensitive Windows IPC: a race between the resident instance binding its
+  socket and the forwarding launch connecting). **Could not reproduce** — 5 isolated runs + several
+  full suites all green. Harmless while the repo is private; once public (G8), a flake is a red X on a
+  stranger's first CI run. Diagnose before the flip.
 - **Dependency vuln: pypdf → 6.13.3** → ✅ fixed in **v0.9.4**: bumped `pypdf` 6.13.2 → 6.13.3
   (**GHSA-jm82-fx9c-mx94**, Moderate memory-DoS in the `pypdf` fallback edit engine), recompiled the
   locks + regenerated `vendor/wheels-sources.md`, and removed the audit-gate ignore.
