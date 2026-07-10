@@ -17,8 +17,16 @@ a = Analysis(
     [str(ROOT / "launcher.py")],
     pathex=[str(ROOT)],
     binaries=[],
-    # Ship the hand-authored toolbar SVGs (rendered at runtime by ui/icons.py).
-    datas=[(str(ROOT / "ui" / "icons"), "ui/icons")],
+    datas=[
+        # The hand-authored toolbar SVGs (rendered at runtime by ui/icons.py).
+        (str(ROOT / "ui" / "icons"), "ui/icons"),
+        # AGPL §5 obliges us to ship the license with the binary, and Help ▸ Open-Source Licenses
+        # reads these at runtime via util/resources.py. Land them at the bundle root, which is
+        # where `resource_root()` looks. Drop either entry and that dialog shows a placeholder —
+        # the headless suite cannot catch it, so `tests/test_about_dialog.py` asserts this list.
+        (str(ROOT / "LICENSE"), "."),
+        (str(ROOT / "THIRD_PARTY_LICENSES"), "."),
+    ],
     # QtSvg renders the toolbar icons (ui/icons.py); QtPrintSupport drives the print dialog
     # (viewer/printing.py). Pin both so the freeze always carries them + their plugins.
     hiddenimports=["PySide6.QtSvg", "PySide6.QtPrintSupport"],
