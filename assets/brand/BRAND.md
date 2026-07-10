@@ -74,7 +74,11 @@ patterns, `<use>` cross-refs, SVG2-only features. Optimise with SVGO.
 - **Min size:** app tile ≥ 16px; free-standing mark ≥ 24px (below that its detail is sub-pixel);
   monochrome ≥ 24px.
 - **Do** keep the teal→blue direction and the folded corner; recolour mono glyphs per theme.
-- **Don't** rotate the mark, add shadows, restyle the gradient, or show the "PDF" label below hero size.
+- **Don't** rotate the mark, add shadows, restyle the gradient, or show the "PDF" label below hero size
+  — **except on the `.pdf` document icon**, which carries it at every size on purpose. Below ~24px the
+  label degrades to a blue smudge inside the page, but the icon stays unmistakably a *document*, and
+  the smudge sits exactly where a reader expects a label. Verified against the real Explorer entry at
+  16px before this exception was written down.
 
 ## Licensing
 
