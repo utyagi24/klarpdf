@@ -188,7 +188,8 @@ cross-check, absent on Windows).
    - **Close the app first — since v0.10.1 the installer enforces this.** KlarPDF holds a named mutex
      (`platform_integration.APP_MUTEX_NAME`) for its whole lifetime, and `installer.iss` names it in
      `AppMutex`, so **Setup and the uninstaller both refuse to run** while the app is open (silent runs
-     exit `1` and change nothing). It **refuses rather than force-closes**: Restart Manager could shut
+     exit **non-zero** and change nothing — `1` and `5` both observed, so test the code is non-zero,
+     never that it equals a particular value). It **refuses rather than force-closes**: Restart Manager could shut
      the app down for us, but KlarPDF prompts on unsaved edits and a forced close would bypass that
      prompt — hence `CloseApplications=no`.
 
