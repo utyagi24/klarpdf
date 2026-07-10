@@ -6,9 +6,15 @@ Local, offline, **native-Windows** PDF viewer + page editor (Python · PySide6 �
 trustworthy replacement for macOS Preview's view + splice/split workflow on Windows. The source is
 the unit of audit; it ships as a pinned, fully offline Windows installer.
 
-**Status: `v0.10.0` shipped** — [download the installer or portable exe](https://github.com/utyagi24/klarpdf/releases/latest). Milestones **M0–M38 complete**. Full status: [PROGRESS.md](PROGRESS.md).
+**Status: `v0.10.1` shipped** — [download the installer or portable exe](https://github.com/utyagi24/klarpdf/releases/latest). Milestones **M0–M38 complete**. Full status: [PROGRESS.md](PROGRESS.md).
 
-**New in v0.10.0 — KlarPDF:** the project formerly built as `pdfproj` is now **KlarPDF** (*klar* =
+**New in v0.10.1:** a **bigger, clearer app icon** — the old mark filled barely half the square canvas
+Windows gives a taskbar button, so it looked tiny next to everything else; it is now a tile that fills
+it. **PDF files get their own icon** instead of wearing the application's. And the **installer and
+uninstaller now refuse to run while KlarPDF is open**, rather than leaving files behind — close the
+app first, and they will say so.
+
+**v0.10.0 — KlarPDF:** the project formerly built as `pdfproj` is now **KlarPDF** (*klar* =
 "clear" in German and the Scandinavian languages) — a new name, mark, and toolbar icon set; a root
 **AGPL-3.0-or-later licence**; and a **Help menu** with **About** (version, licence, no-warranty
 notice, and a link to the source at the exact tag this binary was built from) and **Open-Source

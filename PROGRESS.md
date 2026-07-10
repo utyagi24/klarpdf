@@ -7,7 +7,21 @@ it merges, check the box here in the same PR and append the PR link.
 > release links, milestone ticks, and open follow-ups. `PLAN.md` (design/spec) and `CLAUDE.md`
 > (conventions) **link here, they don't restate it** — see CLAUDE.md §How we work → "Where things live".
 
-**Status:** ✅ **v0.10.0 shipped** — **"KlarPDF"**, the rebrand + open-source release. The app formerly
+**Status:** ✅ **v0.10.1 shipped** — a patch fixing the Windows shell integration v0.10.0 got wrong.
+**The app icon is now a tile.** The brand mark is a portrait page, so it spanned only **59%** of the
+square canvas Windows gives an icon (24×24 for the taskbar) — against 82–100% for every other app on a
+typical machine — and read as *tiny*. `ui/icons/klarpdf.svg` is a gradient rounded square that spans
+100%. **`.pdf` files get their own icon**: the ProgID `DefaultIcon` pointed at `klarpdf.exe,0`, so
+every PDF on disk wore the *application's* icon; a new `klarpdf-doc.ico` (from the brand's
+`pdf-file-icon.svg`, drawn for this and never wired up) now shows a page. The free-standing mark
+survives in the About dialog. And **Setup and the uninstaller now refuse to run while KlarPDF is
+open** — the app holds a named mutex Inno watches (`AppMutex`). Without it, uninstalling a running app
+left the install directory behind (Windows won't delete a running `.exe`) and *recreated*
+`%LOCALAPPDATA%\klarpdf`, because the dying process rewrites `view_state.json` on shutdown. It refuses
+rather than force-closes: KlarPDF prompts on unsaved edits, and Restart Manager would bypass that
+prompt.
+
+**v0.10.0** — **"KlarPDF"**, the rebrand + open-source release. The app formerly
 built as `pdfproj` is now **KlarPDF** (*klar* = "clear"): new name, new mark and toolbar glyph set, a
 root **AGPL-3.0-or-later `LICENSE`** + `THIRD_PARTY_LICENSES`, and a **Help menu** — About (version,
 licence, no-warranty notice, a link to the source at *this exact tag*) and Open-Source Licenses (the
@@ -19,6 +33,7 @@ for settings, and the exes finally carry **version metadata** (`ProductName`/`Fi
 spec had never set. Milestones **M0–M38 complete** (v0.1.0 = M0–M9,
 v0.2.0 = M10–M15, v0.3.0 = M16–M19, v0.4.0 = M20–M22, v0.5.0 = M23–M26, v0.6.0 = M27–M30,
 v0.7.0 = M31 + M31.5 + M34, v0.8.0 = M35–M37, v0.9.0 = M32 + M33 + M38). Releases:
+<https://github.com/utyagi24/klarpdf/releases/tag/v0.10.1> ·
 <https://github.com/utyagi24/klarpdf/releases/tag/v0.10.0> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.9.6> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.9.5> ·

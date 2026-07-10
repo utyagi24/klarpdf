@@ -64,7 +64,8 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   spare machine / a fresh local user with networking disabled.
 
 ## Status
-**Current: v0.10.0 shipped** ("KlarPDF" — rebrand + AGPL open-source release) — the planned roadmap
+**Current: v0.10.1 shipped** (Windows shell-integration patch on v0.10.0 "KlarPDF" — the rebrand +
+AGPL open-source release) — the planned roadmap
 **M0–M38 is complete**. For live status — shipped
 versions, per-release notes, release links, milestone ticks, and **Open follow-ups** — see
 `PROGRESS.md` (the single source of status; read it first). Design/spec, including §Future
