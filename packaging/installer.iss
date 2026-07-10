@@ -17,6 +17,7 @@
 #define MyAppSlug "klarpdf"
 #define MyAppExe "klarpdf.exe"
 #define MyAppProgId "KlarPDF.Document"
+#define MyAppDocIco "klarpdf-doc.ico"
 
 [Setup]
 ; AppId is the installation's identity — Inno matches on it, NOT on AppName. This GUID was minted
@@ -42,6 +43,9 @@ UninstallDisplayIcon={app}\{#MyAppExe}
 
 [Files]
 Source: "..\dist\{#MyAppSlug}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
+; The `.pdf` DOCUMENT icon, referenced by the ProgID DefaultIcon below. Not embedded in the exe —
+; the exe carries the APPLICATION icon, and a document is not the program that opens it.
+Source: "{#MyAppDocIco}"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExe}"
@@ -54,7 +58,9 @@ Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription
 ; Per-user ProgID under HKCU\Software\Classes (no admin). uninsdeletekey removes the whole subtree.
 Root: HKCU; Subkey: "Software\Classes\{#MyAppProgId}"; ValueType: string; ValueName: ""; ValueData: "PDF Document"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\{#MyAppProgId}"; ValueType: string; ValueName: "FriendlyAppName"; ValueData: "{#MyAppName}"
-Root: HKCU; Subkey: "Software\Classes\{#MyAppProgId}\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\{#MyAppExe},0"
+; A `.pdf` file gets the DOCUMENT icon, not the application icon. Before v0.10.1 this pointed at
+; "{app}\klarpdf.exe,0", so every PDF on disk wore KlarPDF's own app icon.
+Root: HKCU; Subkey: "Software\Classes\{#MyAppProgId}\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\{#MyAppDocIco},0"
 Root: HKCU; Subkey: "Software\Classes\{#MyAppProgId}\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExe}"" ""%1"""
 ; Add KlarPDF to the .pdf "Open With" list (does NOT claim default; the user confirms that once).
 Root: HKCU; Subkey: "Software\Classes\.pdf\OpenWithProgids"; ValueType: string; ValueName: "{#MyAppProgId}"; ValueData: ""; Flags: uninsdeletevalue

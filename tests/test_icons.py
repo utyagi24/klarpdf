@@ -115,21 +115,28 @@ def test_app_ico_is_valid_multi_resolution():
     assert 256 in sizes and 16 in sizes
 
 
-# --- app-icon legibility at small sizes (v0.10.0 follow-up) --------------------------------------
+# --- three marks, three jobs (v0.10.1) ----------------------------------------------------------
 #
-# The mark shipped in v0.10.0 filled only 53% of the icon canvas and sat off-centre, so the taskbar
-# and Explorer entries were ~9x13px of glyph inside a 16px box, and the knot rendered sub-pixel.
-# These pin the two fixes: the canvas is filled and centred, and sizes <= 32px come from a
-# simplified master where the knot actually survives the downsample.
+# v0.10.0 shipped one drawing for everything: the portrait fanned-sheets mark. Windows gives an icon
+# a square canvas (24x24 for the taskbar at 100% scaling), and that mark spanned only 59% of it,
+# against 82-100% for every other app on a typical machine. It read as "tiny". Worse, the installer
+# pointed the `.pdf` ProgID DefaultIcon at the app's own icon, so every PDF on disk wore it.
+#
+#   klarpdf.svg       tile      -> the OS icon. Must SPAN the square canvas.
+#   klarpdf-doc.svg   document  -> what Explorer shows for a `.pdf`. Portrait, by design.
+#   klarpdf-mark.svg  mark      -> free-standing, in-app only (About dialog).
 
-SMALL_SVG = Path(__file__).resolve().parents[1] / "ui" / "icons" / "klarpdf-small.svg"
+DOC_ICO_PATH = Path(__file__).resolve().parents[1] / "packaging" / "klarpdf-doc.ico"
 
 
-def _ink_box(renderer, n):
-    """Bounding box of non-transparent pixels when rendered into an n x n square."""
+def _bbox_span(name, n=24):
+    """Fraction of an n x n canvas covered by the artwork's bounding box."""
     from PySide6.QtCore import QRectF
     from PySide6.QtGui import QImage, QPainter
+    from PySide6.QtSvg import QSvgRenderer
 
+    renderer = QSvgRenderer(str(icons.svg_path(name)))
+    assert renderer.isValid(), name
     image = QImage(n, n, QImage.Format.Format_ARGB32)
     image.fill(Qt.GlobalColor.transparent)
     painter = QPainter(image)
@@ -137,111 +144,67 @@ def _ink_box(renderer, n):
     painter.end()
     pts = [(x, y) for y in range(n) for x in range(n) if image.pixelColor(x, y).alpha() > 8]
     xs, ys = [p[0] for p in pts], [p[1] for p in pts]
-    return min(xs), max(xs), min(ys), max(ys)
+    w, h = max(xs) - min(xs) + 1, max(ys) - min(ys) + 1
+    return (w * h) / (n * n), (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2
 
 
-def test_small_master_exists_and_is_qtsvg_safe(qapp):
+@pytest.mark.parametrize("name", [icons.APP_ICON, icons.BRAND_MARK, icons.DOC_ICON])
+def test_the_three_marks_exist_and_are_qtsvg_safe(qapp, name):
     from PySide6.QtSvg import QSvgRenderer
 
-    assert SMALL_SVG.is_file(), "the <=32px app-icon master is missing"
-    assert QSvgRenderer(str(SMALL_SVG)).isValid()
-    text = SMALL_SVG.read_text(encoding="utf-8")
+    path = icons.svg_path(name)
+    assert path.is_file(), f"{name}.svg missing"
+    assert QSvgRenderer(str(path)).isValid(), f"{name}.svg does not parse"
+    text = path.read_text(encoding="utf-8")
     for banned in ("<text", "<filter", "<mask", "<style", "<use"):
-        assert banned not in text, f"{banned} is not QtSvg-safe (BRAND.md)"
+        assert banned not in text, f"{name}: {banned} is not QtSvg-safe (BRAND.md)"
 
 
-@pytest.mark.parametrize("svg", ["klarpdf", "klarpdf-small"])
-def test_app_mark_fills_and_centres_its_canvas(qapp, svg):
-    """Regression: the v0.10.0 mark filled 53% of the width and sat off-centre."""
-    from PySide6.QtSvg import QSvgRenderer
+def test_app_icon_spans_the_square_canvas(qapp):
+    """The whole point of the tile: the OS icon must not be a small glyph in a big box.
 
-    renderer = QSvgRenderer(str(icons.svg_path(svg)))
-    n = 256
-    x0, x1, y0, y1 = _ink_box(renderer, n)
-    height_fill = (y1 - y0 + 1) / n
-    assert height_fill >= 0.88, f"{svg}: mark fills only {height_fill:.0%} of the canvas height"
-    # Centred to within a pixel — the old mark was 21px left and 27px low on a 256 canvas.
-    assert abs((x0 + x1) / 2 - (n - 1) / 2) <= 1.5, f"{svg}: not horizontally centred"
-    assert abs((y0 + y1) / 2 - (n - 1) / 2) <= 1.5, f"{svg}: not vertically centred"
-
-
-def test_knot_survives_at_16px_only_in_the_small_master(qapp):
-    """The point of the small master: at 16px the detailed knot is a smudge, the small one is solid.
-
-    Rendered with and without the knot; we compare how much ink it actually contributes.
+    v0.10.0 spanned 59% at 24px. Peers: Notepad 91%, VS Code 100%, Word 82%, cmd 84%.
     """
-    import re
-
-    from PySide6.QtCore import QByteArray, QRectF
-    from PySide6.QtGui import QImage, QPainter
-    from PySide6.QtSvg import QSvgRenderer
-
-    def max_delta(path, n=16):
-        text = path.read_text(encoding="utf-8")
-        without = re.sub(r'\s*<rect x="1[12]\d"[^>]*rotate\(45 128 167\)[^>]*></rect>', "", text)
-        assert without != text, f"knot rect not found in {path.name}"
-
-        def draw(src):
-            r = QSvgRenderer(QByteArray(src.encode()))
-            img = QImage(n, n, QImage.Format.Format_ARGB32)
-            img.fill(Qt.GlobalColor.transparent)
-            p = QPainter(img)
-            r.render(p, QRectF(0, 0, n, n))
-            p.end()
-            return img
-
-        a, b = draw(text), draw(without)
-        return max(
-            max(abs(a.pixelColor(x, y).red() - b.pixelColor(x, y).red()),
-                abs(a.pixelColor(x, y).green() - b.pixelColor(x, y).green()),
-                abs(a.pixelColor(x, y).blue() - b.pixelColor(x, y).blue()))
-            for y in range(n) for x in range(n)
-        )
-
-    detailed = max_delta(icons.svg_path("klarpdf"))
-    small = max_delta(SMALL_SVG)
-    assert small > 150, f"knot barely renders at 16px in the small master (delta {small})"
-    assert small > detailed * 2, (
-        f"small master's knot ({small}) should be far more legible than the detailed one ({detailed})"
-    )
+    for n in (16, 24, 32, 48):
+        span, cx, cy = _bbox_span(icons.APP_ICON, n)
+        assert span >= 0.90, f"app icon spans only {span:.0%} of the {n}px canvas"
+        assert abs(cx - (n - 1) / 2) <= 1.0 and abs(cy - (n - 1) / 2) <= 1.0, "not centred"
 
 
-def test_ico_small_entries_come_from_the_small_master():
-    """16/24/32 in the .ico must match the small master, not the detailed one."""
-    import io
-    import struct as _struct
+def test_document_icon_is_portrait_not_a_tile(qapp):
+    """A `.pdf` should look like a page, not like the application. It must NOT span the canvas."""
+    span, _, _ = _bbox_span(icons.DOC_ICON, 32)
+    assert 0.55 <= span <= 0.85, f"doc icon spans {span:.0%}; expected a portrait page"
+    app_span, _, _ = _bbox_span(icons.APP_ICON, 32)
+    assert app_span > span, "the document icon should not fill more of the canvas than the app tile"
 
-    from PySide6.QtCore import QByteArray, QRectF
-    from PySide6.QtGui import QGuiApplication, QImage, QPainter
-    from PySide6.QtSvg import QSvgRenderer
 
-    QGuiApplication.instance() or QGuiApplication([])
-    raw = ICO_PATH.read_bytes()
-    _, _, count = _struct.unpack("<HHH", raw[:6])
-    entries = {}
-    for i in range(count):
-        w, _h, _c, _r, _p, _b, nbytes, offset = _struct.unpack("<BBBBHHII", raw[6 + 16 * i: 22 + 16 * i])
-        entries[w or 256] = raw[offset:offset + nbytes]
+def test_app_icon_and_document_icon_are_different_artwork(qapp):
+    a = icons.svg_path(icons.APP_ICON).read_text(encoding="utf-8")
+    d = icons.svg_path(icons.DOC_ICON).read_text(encoding="utf-8")
+    assert a != d, "the .pdf icon must not be the app icon"
 
-    def render(path, n):
-        r = QSvgRenderer(str(path))
-        img = QImage(n, n, QImage.Format.Format_ARGB32)
-        img.fill(Qt.GlobalColor.transparent)
-        p = QPainter(img)
-        r.render(p, QRectF(0, 0, n, n))
-        p.end()
-        return img
 
-    for n in (16, 24, 32):
-        baked = QImage()
-        baked.loadFromData(entries[n], "PNG")
-        baked = baked.convertToFormat(QImage.Format.Format_ARGB32)
-        small = render(SMALL_SVG, n)
-        detailed = render(icons.svg_path("klarpdf"), n)
+def test_about_dialog_uses_the_free_standing_mark_not_the_tile():
+    """A dialog supplies its own background; a container would look boxed-in there."""
+    import ui.about as about
 
-        def diff(a, b):
-            return sum(a.pixelColor(x, y) != b.pixelColor(x, y) for y in range(n) for x in range(n))
+    src = Path(about.__file__).read_text(encoding="utf-8")
+    assert "icons.brand_mark()" in src
+    assert "icons.app_icon()" not in src
 
-        assert diff(baked, small) < diff(baked, detailed), (
-            f"the {n}px .ico entry looks like the detailed mark — re-run packaging/make_icon.py"
-        )
+
+def test_installer_points_the_pdf_association_at_the_document_icon():
+    r"""Regression: v0.10.0's DefaultIcon was `{app}\klarpdf.exe,0` — the app icon, on every PDF."""
+    iss = (Path(__file__).resolve().parents[1] / "packaging" / "installer.iss").read_text(encoding="utf-8")
+    line = next(ln for ln in iss.splitlines() if "DefaultIcon" in ln and ln.startswith("Root:"))
+    assert "MyAppDocIco" in line, f"DefaultIcon does not use the document icon: {line}"
+    assert "MyAppExe" not in line, f"DefaultIcon still points at the exe: {line}"
+
+
+def test_both_icos_are_built_and_distinct():
+    for path in (ICO_PATH, DOC_ICO_PATH):
+        raw = path.read_bytes()
+        reserved, kind, count = struct.unpack("<HHH", raw[:6])
+        assert (reserved, kind) == (0, 1) and count >= 5, f"{path.name} is not a multi-size ICO"
+    assert ICO_PATH.read_bytes() != DOC_ICO_PATH.read_bytes(), "app and document .ico are identical"

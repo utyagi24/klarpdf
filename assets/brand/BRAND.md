@@ -13,11 +13,11 @@ application branding" — *sheaf* was the working name the marks were drawn unde
 
 | Asset | File | Used by |
 |---|---|---|
-| App mark (full-colour) | `ui/icons/klarpdf.svg` (brand master: `assets/brand/app-mark.svg`) | window / taskbar icon ≥48px; `make_icon.py` → `packaging/klarpdf.ico` |
-| App mark, small master | `ui/icons/klarpdf-small.svg` | the **≤32px** icon entries (taskbar, Explorer small/medium) |
-| Monochrome mark | `assets/brand/app-mark-mono.svg` | theme-tinted in-app use (About, empty state) |
-| Windows tile | `assets/brand/app-tile.svg` | boxed / tile contexts |
-| `.pdf` file icon | `assets/brand/pdf-file-icon.svg` | Explorer file-association icon (G2 part 2) |
+| **App icon (tile)** | `ui/icons/klarpdf.svg` | the **OS icon**: taskbar, title bar, Alt-Tab, Task Manager, Add/Remove Programs; `make_icon.py` → `packaging/klarpdf.ico` |
+| **`.pdf` document icon** | `ui/icons/klarpdf-doc.svg` (master: `assets/brand/pdf-file-icon.svg`) | Explorer's icon for a PDF file; `make_icon.py` → `packaging/klarpdf-doc.ico`, wired via the ProgID `DefaultIcon` |
+| App mark (free-standing) | `ui/icons/klarpdf-mark.svg` (master: `assets/brand/app-mark.svg`) | in-app on our own background: About dialog, empty states |
+| Monochrome mark | `assets/brand/app-mark-mono.svg` | theme-tinted in-app use |
+| Windows tile (light) | `assets/brand/app-tile.svg` | *unused* — a near-white tile; the shipped app icon is the gradient tile above |
 | Toolbar glyphs (27) | `ui/icons/<name>.svg` | toolbar / menu actions (tinted per theme) |
 | Icon system spec | `assets/brand/README-icons.md` | how to draw a new icon |
 
@@ -63,14 +63,16 @@ patterns, `<use>` cross-refs, SVG2-only features. Optimise with SVGO.
 
 ## Usage rules
 
-- **Clear space** ≥ the band height (≈ ¼ of the mark) on all sides — for **lockups only**. An **OS icon
-  canvas already supplies its own padding**: honouring the clear-space rule inside `ui/icons/klarpdf.svg`
-  as well left the mark filling 53% of the width and sitting off-centre, so the v0.10.0 taskbar icon
-  was ~9×13px of glyph in a 16px box. App-icon SVGs crop their `viewBox` to the ink bounding box,
-  squared and centred, at ~90% fill.
-- **Min size:** full-colour mark ≥ 16px; monochrome ≥ 24px. **Below 32px use the small master**
-  (`ui/icons/klarpdf-small.svg`): the back leaves and the knot are sub-pixel there and only smear the
-  silhouette. Keep the two masters in visual step — same page path, gradient and fold.
+- **Clear space** ≥ the band height (≈ ¼ of the mark) on all sides — **for lockups only**.
+- **An OS icon must span its canvas.** Windows hands an icon a *square* canvas (24×24 for the
+  taskbar at 100% scaling). The free-standing mark is a portrait page, aspect 0.71, so it spans
+  only 59% of that square — against 82–100% for every other app (Word 82%, cmd 84%, Notepad 91%,
+  VS Code 100%). v0.10.0 shipped it as the app icon and it read as *tiny*. Hence the **tile**:
+  a gradient-filled rounded square, ≥90% span, which is what `ui/icons/klarpdf.svg` now is.
+- **A document is not the application.** `.pdf` files get `klarpdf-doc.svg` — portrait, page-shaped,
+  deliberately *not* spanning the canvas. Never point the ProgID `DefaultIcon` at the exe.
+- **Min size:** app tile ≥ 16px; free-standing mark ≥ 24px (below that its detail is sub-pixel);
+  monochrome ≥ 24px.
 - **Do** keep the teal→blue direction and the folded corner; recolour mono glyphs per theme.
 - **Don't** rotate the mark, add shadows, restyle the gradient, or show the "PDF" label below hero size.
 

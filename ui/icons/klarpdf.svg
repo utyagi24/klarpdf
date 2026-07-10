@@ -1,17 +1,27 @@
-<!-- App icon. Same artwork as assets/brand/app-mark.svg, but the viewBox is cropped to the mark's ink
-     bounding box (x 49.5..185.5, y 46..237) then squared and centred, so the glyph fills ~90% of the
-     icon canvas instead of 53%. BRAND.md's "clear space >= band height" rule governs *lockups*; an OS
-     icon canvas supplies its own padding, and honouring the rule twice left the mark small and
-     off-centre (9x13 px at a 16px taskbar icon). Do not re-add width/height: the square viewBox is
-     what lets QSvgRenderer fill any square target. -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="11.4 35.4 212.2 212.2" fill="none">
-  <defs><linearGradient id="brandGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#13B8A6"></stop><stop offset="1" stop-color="#3B82F6"></stop></linearGradient></defs>
-  <rect x="60" y="64" width="108" height="168" rx="16" fill="#8FDDD3" transform="rotate(-9 114 148)"></rect>
-  <rect x="68" y="56" width="108" height="168" rx="16" fill="#A7E8E0" transform="rotate(-4.5 122 140)"></rect>
-  <path d="M80 151 L60 160 L60 188 L80 184 Z" fill="#C7DBEA"></path>
-  <path d="M92 46 L145 46 Q150 46 153 49 L181 77 Q184 80 184 85 L184 196 Q184 214 166 214 L92 214 Q76 214 76 196 L76 62 Q76 46 92 46 Z" fill="url(#brandGrad)"></path>
-  <path d="M150 49 L150 76 Q150 80 154 80 L181 80 Q184 80 182 78 Z" fill="#D8F3EE"></path>
-  <rect x="74" y="150" width="112" height="34" rx="5" fill="#FFFFFF"></rect>
-  <path d="M115 167 L123 167 M133 167 L141 167" stroke="#2563EB" stroke-width="3.6" stroke-linecap="round"></path>
-  <rect x="123" y="162" width="10" height="10" rx="3" transform="rotate(45 128 167)" fill="#2563EB"></rect>
+<!-- KlarPDF application icon. Used by the taskbar, title bar, Alt-Tab, Task Manager, Add/Remove
+     Programs, the Start Menu shortcut, and Explorer's view of klarpdf.exe. Baked into
+     packaging/klarpdf.ico by packaging/make_icon.py.
+
+     It is a *tile*, not the free-standing mark, and that is deliberate. Windows hands an icon a
+     square canvas (24x24 at 100% scaling for the taskbar). The brand mark is a portrait page,
+     aspect 0.71, so filling the canvas vertically leaves it 16px wide in a 24px box — 59% span,
+     against 82-100% for every other app on a typical machine (Word, Excel, cmd, MMC, Explorer are
+     filled containers; VS Code, Edge, Notepad are wide transparent glyphs). Either way they span the
+     box; we did not, and it read as "tiny".
+
+     The back leaves are omitted on purpose: at 16px their translucent white blurs the page edge, the
+     only shape that survives that grid. They live on in the free-standing mark
+     (ui/icons/klarpdf-mark.svg, assets/brand/app-mark.svg), which is what the About dialog and the
+     README show — contexts with their own background, where a bare mark is correct.
+
+     A `.pdf` *document* must NOT use this icon; see ui/icons/klarpdf-doc.svg. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="none">
+  <defs><linearGradient id="tileGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#13B8A6"></stop><stop offset="1" stop-color="#3B82F6"></stop></linearGradient></defs>
+  <rect x="4" y="4" width="248" height="248" rx="54" fill="url(#tileGrad)"></rect>
+  <g transform="translate(128 132) scale(0.9) translate(-130 -130)">
+    <path d="M92 46 L145 46 Q150 46 153 49 L181 77 Q184 80 184 85 L184 196 Q184 214 166 214 L92 214 Q76 214 76 196 L76 62 Q76 46 92 46 Z" fill="#FFFFFF"></path>
+    <path d="M150 49 L150 76 Q150 80 154 80 L181 80 Q184 80 182 78 Z" fill="#BFE0F0"></path>
+    <rect x="74" y="146" width="112" height="44" rx="7" fill="#2563EB"></rect>
+    <rect x="115" y="155" width="26" height="26" rx="5" transform="rotate(45 128 168)" fill="#FFFFFF"></rect>
+  </g>
 </svg>

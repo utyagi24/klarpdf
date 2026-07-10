@@ -29,14 +29,14 @@ from PySide6.QtSvg import QSvgRenderer
 # Sizes baked into each QIcon. The toolbar uses ~20px; menus ~16px; HiDPI may ask for more.
 _RENDER_SIZES = (16, 20, 24, 32, 48)
 
-# App-icon name (a filled mark) vs the line-style action icons.
+# Three full-colour marks with three distinct jobs (assets/brand/BRAND.md):
+#   APP_ICON  — the OS icon: a gradient *tile*, because Windows gives an icon a square canvas and a
+#               portrait page spans only 59% of it (every other app spans 82-100%).
+#   BRAND_MARK — the free-standing fanned-sheets mark, for in-app use on our own background.
+#   DOC_ICON  — what Explorer shows for a `.pdf` file. A document is not the program that opens it.
 APP_ICON = "klarpdf"
-
-# The app mark is drawn at two levels of detail. Below this size the knot and the back leaves are
-# sub-pixel and only smear the silhouette, so a simplified master is rendered instead; Qt then picks
-# the nearest pixmap per request (taskbar 16-24, alt-tab 32-48). See ui/icons/klarpdf-small.svg.
-APP_ICON_SMALL = "klarpdf-small"
-_SMALL_MASTER_MAX = 32
+BRAND_MARK = "klarpdf-mark"
+DOC_ICON = "klarpdf-doc"
 
 
 def icons_dir() -> Path:
@@ -97,29 +97,19 @@ def icon(name: str) -> QIcon:
 
 @lru_cache(maxsize=None)
 def app_icon() -> QIcon:
-    """The full-colour application/window icon (taskbar, title bar) — never tinted.
+    """The OS application icon — taskbar, title bar, Alt-Tab, Task Manager. Never tinted.
 
-    Multi-master: sizes at or below :data:`_SMALL_MASTER_MAX` render from the simplified small mark,
-    larger ones from the detailed mark. Falls back to the detailed mark if the small master is absent,
-    so a missing file degrades to "less crisp", never to "no icon".
+    This is the **tile**, not the free-standing mark: see :data:`APP_ICON`. For a mark to show inside
+    the app (About dialog, empty states), use :func:`brand_mark` — a dialog supplies its own
+    background, so a bare mark is right there and a container would look boxed-in.
     """
-    detailed, small = svg_path(APP_ICON), svg_path(APP_ICON_SMALL)
-    if not detailed.exists():
-        return QIcon()
-    result = QIcon()
-    renderers = {
-        True: QSvgRenderer(str(small)) if small.exists() else None,
-        False: QSvgRenderer(str(detailed)),
-    }
-    for size in _RENDER_SIZES:
-        renderer = renderers[size <= _SMALL_MASTER_MAX] or renderers[False]
-        pixmap = QPixmap(size, size)
-        pixmap.fill(Qt.GlobalColor.transparent)
-        painter = QPainter(pixmap)
-        renderer.render(painter, QRectF(0, 0, size, size))
-        painter.end()
-        result.addPixmap(pixmap)
-    return result
+    return _render(APP_ICON, tint=False)
+
+
+@lru_cache(maxsize=None)
+def brand_mark() -> QIcon:
+    """The free-standing fanned-sheets mark, for in-app use on our own background. Never tinted."""
+    return _render(BRAND_MARK, tint=False)
 
 
 def refresh_for_theme() -> None:
