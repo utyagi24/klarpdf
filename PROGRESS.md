@@ -230,9 +230,9 @@ history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI uses `${
   (G2 name + logo + version + AGPL + no-warranty notice + source link), Open-Source Licenses (bundled
   license texts), View Source; bundle texts via `packaging/klarpdf.spec` + a freeze-aware
   `resource_path()`; headless smoke test — *WSL + WSLg*
-- [ ] **G5** Community-health files — `SECURITY.md`, `CONTRIBUTING.md` (DCO sign-off),
+- [x] **G5** Community-health files — `SECURITY.md`, `CONTRIBUTING.md` (DCO sign-off),
   `CODE_OF_CONDUCT.md` (Contributor Covenant), `.github/ISSUE_TEMPLATE/*` + `pull_request_template.md`
-  — *WSL*
+  — *WSL* — [#96](https://github.com/utyagi24/klarpdf/pull/96)
 - [ ] **G6** Donations — repo + product — let users support the project. **Repo:** add
   `.github/FUNDING.yml` (the GitHub "Sponsor" button) + a README "Support / Donate" section/badge.
   **Product:** a **Help ▸ Donate…** entry (extends the G4 Help menu) + a link in the About dialog,
