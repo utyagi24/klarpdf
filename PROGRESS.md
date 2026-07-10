@@ -274,9 +274,17 @@ history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI uses `${
   it activates cleanly once public (free). — *GitHub settings*
 - [ ] **G8** Flip to public (**manual; not a PR**) —
   `gh repo edit --visibility public --accept-visibility-change-consequences` (the second flag is
-  **required**; `gh` refuses `--visibility` without it); then enable
-  secret scanning + push protection, **activate the `main` ruleset reviewed in G7**, add repo
-  description/topics — *GitHub*
+  **required**; `gh` refuses `--visibility` without it); then, **in the same sitting**:
+  - **Enable private vulnerability reporting** —
+    `gh api -X PUT repos/utyagi24/klarpdf/private-vulnerability-reporting` (or Settings ▸ Code
+    security). **It cannot be done before the flip**: the endpoint 404s on a private repo because the
+    feature is public-repo-only. Until it is on, `/security/advisories/new` 404s — and that URL is the
+    *only* reporting channel `SECURITY.md`, `CODE_OF_CONDUCT.md`, `.github/ISSUE_TEMPLATE/config.yml`
+    and the auto-close workflow's comment advertise. Verify with a GET; it must return
+    `{"enabled": true}`.
+  - Enable **secret scanning + push protection**.
+  - **Activate the `main` ruleset reviewed in G7.**
+  - Add repo description/topics. — *GitHub*
 
 ## Open follow-ups (carried)
 
