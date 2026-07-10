@@ -251,7 +251,7 @@ history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI uses `${
   collaborator's first merge. **Repo settings (manual):** keep Issues **on**; enable private
   vulnerability reporting; Wiki/Projects/Discussions off; **no interaction limits** (they would block
   the public from opening issues, defeating the policy). — *WSL + GitHub settings* —
-  [#PRNUM](https://github.com/utyagi24/klarpdf/pull/PRNUM)
+  [#98](https://github.com/utyagi24/klarpdf/pull/98)
 - [ ] **G6** Donations — repo + product — let users support the project. **Repo:** add
   `.github/FUNDING.yml` (the GitHub "Sponsor" button) + a README "Support / Donate" section/badge.
   **Product:** a **Help ▸ Donate…** entry (extends the G4 Help menu) + a link in the About dialog,
