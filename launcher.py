@@ -20,7 +20,7 @@ import sys
 from PySide6.QtWidgets import QFileDialog
 
 from app import PdfApp, send_path_to_running_instance
-from platform_integration import single_instance_server_name
+from platform_integration import acquire_app_mutex, single_instance_server_name
 
 
 def silence_mupdf_console_noise() -> None:
@@ -59,6 +59,12 @@ def main(argv: list[str]) -> int:
     if not app.start_server(name):
         if raw_path and send_path_to_running_instance(name, raw_path):
             return 0
+
+    # 3) From here this process stays alive and owns the windows, so it takes the mutex the Inno
+    #    installer/uninstaller watch. Deliberately *after* every hand-off return above: a forwarding
+    #    launch exits in milliseconds, and holding the mutex there would briefly unlock the installer
+    #    at exactly the moment a window is being opened.
+    acquire_app_mutex()
 
     path = raw_path
     if not path:

@@ -18,6 +18,9 @@
 #define MyAppExe "klarpdf.exe"
 #define MyAppProgId "KlarPDF.Document"
 #define MyAppDocIco "klarpdf-doc.ico"
+; MUST match platform_integration.APP_MUTEX_NAME. tests/test_app_mutex.py asserts they never drift:
+; a rename on either side silently disables the guard below, and nothing else would notice.
+#define MyAppMutex "KlarPDF-AppMutex"
 
 [Setup]
 ; AppId is the installation's identity — Inno matches on it, NOT on AppName. This GUID was minted
@@ -40,6 +43,23 @@ SolidCompression=yes
 WizardStyle=modern
 SetupIconFile={#MyAppSlug}.ico
 UninstallDisplayIcon={app}\{#MyAppExe}
+
+; Refuse to install OR uninstall while KlarPDF is running. The app holds this named mutex for its
+; whole lifetime (platform_integration.acquire_app_mutex); Setup and the uninstaller both test for it
+; and ask the user to close the app. Without this, at v0.10.0:
+;   * Windows would not let the uninstaller delete the running .exe, so the install directory
+;     survived (a per-user install cannot even queue a reboot-time delete), and
+;   * [UninstallDelete] removed %LOCALAPPDATA%\klarpdf, then the still-live process wrote
+;     view_state.json on shutdown and recreated it.
+; Neither is a packaging bug; both vanish if the app simply isn't running. See RELEASE.md.
+AppMutex={#MyAppMutex}
+; Refuse, don't auto-close. Restart Manager could close the app for us, but KlarPDF prompts on
+; unsaved edits and a forced close would bypass that prompt. Losing a user's annotations to make an
+; installer more convenient is the wrong trade.
+CloseApplications=no
+RestartApplications=no
+; And never let two Setups run at once.
+SetupMutex={#MyAppMutex}-Setup
 
 [Files]
 Source: "..\dist\{#MyAppSlug}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion

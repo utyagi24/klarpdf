@@ -185,14 +185,21 @@ cross-check, absent on Windows).
      `[UninstallDelete]` pointed at `{userappdata}` (Roaming), while Qt's `AppConfigLocation` resolves
      to `%LOCALAPPDATA%` on Windows — so it deleted a path that never existed. Fixed for KlarPDF
      (`{localappdata}`), but the old build can't retroactively clean up after itself.
-   - **Close the app before uninstalling anything.** Verified at v0.10.0: uninstalling while KlarPDF is
-     running leaves two artifacts, neither of which is a packaging fault. The install directory
-     survives, because Inno cannot delete a running `.exe` and a per-user install has no admin rights
-     to queue a reboot-time delete (`PendingFileRenameOperations` stays empty) — the registry keys,
-     shortcut and Add/Remove entry are still removed correctly, and the uninstaller self-deletes. And
-     `%LOCALAPPDATA%\klarpdf` **reappears**: `[UninstallDelete]` removes it, then the still-running
-     process writes `view_state.json` on shutdown and recreates it. Both clear with a manual
-     `Remove-Item`, but the smoke test is only meaningful with the app closed first.
+   - **Close the app first — since v0.10.1 the installer enforces this.** KlarPDF holds a named mutex
+     (`platform_integration.APP_MUTEX_NAME`) for its whole lifetime, and `installer.iss` names it in
+     `AppMutex`, so **Setup and the uninstaller both refuse to run** while the app is open (silent runs
+     exit `1` and change nothing). It **refuses rather than force-closes**: Restart Manager could shut
+     the app down for us, but KlarPDF prompts on unsaved edits and a forced close would bypass that
+     prompt — hence `CloseApplications=no`.
+
+     What the guard prevents, observed at v0.10.0 and neither of them a packaging fault: the install
+     directory survives (Inno cannot delete a running `.exe`, and a per-user install has no admin
+     rights to queue a reboot-time delete — `PendingFileRenameOperations` stays empty), and
+     `%LOCALAPPDATA%\klarpdf` **reappears** because `[UninstallDelete]` removes it and the still-live
+     process then writes `view_state.json` on shutdown. Both clear with a manual `Remove-Item`.
+
+     Two things the mutex does *not* cover: the **portable** exe (no installer at all), and the
+     **pdfproj-era** uninstaller, which predates the mutex — close that app by hand before removing it.
    - Install/run the **onedir** `klarpdf-setup.exe` (from the draft's assets, or a local build):
      launch, open a PDF, confirm single-instance + window focus.
    - The **onefile portable** (`klarpdf-portable.exe`) may be blocked *locally* by a Windows
