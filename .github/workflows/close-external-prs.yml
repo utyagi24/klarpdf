@@ -1,0 +1,65 @@
+# Close pull requests from anyone who is not the maintainer or an invited collaborator.
+#
+# Policy: issues are open to everyone; pull requests are not (CONTRIBUTING.md, PLAN.md
+# §Public-release readiness). Review capacity is the scarce resource and the roadmap is deliberately
+# narrow, so unsolicited PRs are declined — politely, immediately, and without consuming attention.
+#
+# SECURITY — why `pull_request_target` and why no checkout:
+#   `pull_request` runs in the *fork's* context with a read-only token, so it cannot close anything.
+#   `pull_request_target` runs in the *base repo's* context with write access, which is what lets this
+#   job comment and close. That same privilege is why this workflow MUST NOT check out, build, or
+#   execute any code from the pull request: doing so would run an untrusted contributor's code with a
+#   write-scoped token. There is deliberately no `actions/checkout` step here. Keep it that way.
+#
+# Note `github.event.pull_request.author_association` is evaluated against the *base* repository.
+# For a user-owned repo the values that matter are OWNER and COLLABORATOR; MEMBER only appears on
+# organisation-owned repos, and is included so this keeps working if the repo is ever transferred.
+
+name: Close external PRs
+
+on:
+  pull_request_target:
+    types: [opened, reopened]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  close:
+    # Skip the job entirely for people who are allowed to open PRs — cheaper and clearer than
+    # branching inside the steps.
+    if: >-
+      github.event.pull_request.author_association != 'OWNER' &&
+      github.event.pull_request.author_association != 'COLLABORATOR' &&
+      github.event.pull_request.author_association != 'MEMBER'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Explain, then close
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          # Body via heredoc + --body-file, not --body "…": the text contains backticks and
+          # apostrophes, and a quoted shell string would invite command substitution. Only $AUTHOR
+          # and $REPO_URL expand, and both are GitHub-controlled (a login is [A-Za-z0-9-]).
+          # Links are absolute: relative links resolve against the page URL in a *comment*, not
+          # against the repo root the way they do inside a Markdown file.
+          cat > /tmp/close-body.md <<EOF
+          Hi @${AUTHOR} — thanks for taking the time to write this.
+
+          KlarPDF **does not accept pull requests**. Only the maintainer and invited collaborators can
+          open them, so this is closed automatically. It is not a judgement on your change — nobody has
+          read it. Review capacity is the constraint, and the roadmap is kept deliberately narrow.
+
+          What *is* welcome, and genuinely useful:
+
+          - **Bug reports** and **feature requests** — [open an issue](${REPO_URL}/issues/new/choose).
+          - **Security reports** — use [private vulnerability reporting](${REPO_URL}/security/advisories/new), never a public issue.
+          - **Forking** — KlarPDF is AGPL-3.0-or-later. You are free to fork, modify, and publish your own version.
+
+          See [CONTRIBUTING.md](${REPO_URL}/blob/main/CONTRIBUTING.md) for the reasoning.
+          EOF
+          gh pr comment "$PR_URL" --body-file /tmp/close-body.md
+          gh pr close "$PR_URL"

@@ -236,9 +236,22 @@ history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI uses `${
   menu and simulates `sys._MEIPASS` — the frozen path the headless suite otherwise never executes —
   and asserts the spec still bundles both texts, since a `datas` regression is invisible to CI.
   — *WSL + WSLg* — [#97](https://github.com/utyagi24/klarpdf/pull/97)
-- [x] **G5** Community-health files — `SECURITY.md`, `CONTRIBUTING.md` (DCO sign-off),
-  `CODE_OF_CONDUCT.md` (Contributor Covenant), `.github/ISSUE_TEMPLATE/*` + `pull_request_template.md`
+- [x] **G5** Community-health files — `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`
+  (Contributor Covenant), `.github/ISSUE_TEMPLATE/*` + `pull_request_template.md`
   — *WSL* — [#96](https://github.com/utyagi24/klarpdf/pull/96)
+- [x] **G5.1** Governance — **open source, closed to PRs** (decided after G5 landed; rationale in
+  `PLAN.md` §Public-release readiness). **Issues open to everyone** (bugs / security / feature
+  requests); **PRs restricted to the maintainer + invited collaborators**, others auto-closed by
+  `.github/workflows/close-external-prs.yml` (`pull_request_target`, *no* checkout — that trigger runs
+  with write access, so it must never execute a fork's code). DCO 1.1 is now **deemed accepted** on
+  submission: no `Signed-off-by`, no CI check — G5 had claimed unsigned PRs "cannot be merged", which
+  nothing enforced. **Open decision:** the DCO grants no rights, so the *first* merged contribution by
+  anyone other than the maintainer — a collaborator included — forecloses commercial relicensing
+  (PLAN.md's Artifex hatch). A CLA or explicit relicensing grant must be settled **before** a
+  collaborator's first merge. **Repo settings (manual):** keep Issues **on**; enable private
+  vulnerability reporting; Wiki/Projects/Discussions off; **no interaction limits** (they would block
+  the public from opening issues, defeating the policy). — *WSL + GitHub settings* —
+  [#PRNUM](https://github.com/utyagi24/klarpdf/pull/PRNUM)
 - [ ] **G6** Donations — repo + product — let users support the project. **Repo:** add
   `.github/FUNDING.yml` (the GitHub "Sponsor" button) + a README "Support / Donate" section/badge.
   **Product:** a **Help ▸ Donate…** entry (extends the G4 Help menu) + a link in the About dialog,
@@ -250,13 +263,18 @@ history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI uses `${
   checkouts; enable GitHub "Keep my email addresses private" + "Block command line pushes that expose
   my email"; add `*.pfx *.pem *.key .env *.log` to `.gitignore`; optional CI guard rejecting disallowed
   author emails. **Review & decide the `main` ruleset** (GitHub *Rulesets*, the successor to branch
-  protection): require a PR + review, require the CI status checks (`test.yml`), **block force-push +
-  deletion**, optionally linear history / signed commits — **activated at the flip (G8)**. Caveats:
+  protection): require the CI status checks (`test.yml`), **block force-push + deletion**, optionally
+  linear history / signed commits — **activated at the flip (G8)**. *Require a PR + review* is
+  **dropped while the project is solo** (G5.1): it would mean approving your own PRs to be protected
+  from nobody. Re-enable it the moment a collaborator is added — that is when it starts doing work.
+  Caveats:
   enable the force-push-blocking rule **only after** the G1 history rewrite (else it blocks the scrub's
   force-push); requiring **signed commits** means setting up GPG/SSH signing for the no-reply identity
   first (commits are unsigned today); ruleset *enforcement* on a private repo can need a paid plan, so
   it activates cleanly once public (free). — *GitHub settings*
-- [ ] **G8** Flip to public (**manual; not a PR**) — `gh repo edit --visibility public`; then enable
+- [ ] **G8** Flip to public (**manual; not a PR**) —
+  `gh repo edit --visibility public --accept-visibility-change-consequences` (the second flag is
+  **required**; `gh` refuses `--visibility` without it); then enable
   secret scanning + push protection, **activate the `main` ruleset reviewed in G7**, add repo
   description/topics — *GitHub*
 

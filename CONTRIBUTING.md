@@ -1,34 +1,49 @@
 # Contributing to KlarPDF
 
-Thanks for your interest in KlarPDF — a local, offline, native-Windows PDF viewer + page editor
-(Python · PySide6 · PyMuPDF). This guide covers how to set up a dev environment, run the test suite,
-and get a change reviewed and merged. Please also read [`CLAUDE.md`](CLAUDE.md) for the project
-orientation and conventions, and [`PLAN.md`](PLAN.md) for the product spec and architecture.
+KlarPDF is a local, offline, native-Windows PDF viewer + page editor (Python · PySide6 · PyMuPDF).
+It is open source under `AGPL-3.0-or-later`. It is **not open to pull requests**.
+
+## How this project accepts contributions
+
+**Issues — open to everyone.** Bug reports, security reports, and feature requests are welcome and
+wanted. Filing one is the most useful thing you can do; see
+[Reporting bugs and requesting features](#reporting-bugs-and-requesting-features).
+
+**Pull requests — the maintainer and invited collaborators only.** PRs from anyone else are closed
+automatically by
+[`.github/workflows/close-external-prs.yml`](.github/workflows/close-external-prs.yml). This is not a
+judgement on your change. Review is the scarce resource here, and the roadmap is deliberately narrow
+(see [`PLAN.md`](PLAN.md)). If a feature request is accepted, a collaborator implements it — an
+unsolicited PR implementing it will still be closed, however good it is.
+
+**Forking is welcome.** The AGPL guarantees your right to fork, modify, and publish your own version.
+Nothing here is meant to discourage that.
 
 ## Licensing of contributions
 
-KlarPDF is licensed **`AGPL-3.0-or-later`** (see the root `LICENSE` file). By contributing, you agree
-that your contributions are licensed under the same `AGPL-3.0-or-later` terms. Do not contribute code
-you are not entitled to license this way.
+KlarPDF is licensed **`AGPL-3.0-or-later`** (see the root `LICENSE`). Contributions are
+*inbound = outbound*: by contributing you license your contribution under those same terms. You keep
+your copyright — the project asks for no assignment. Do not contribute code you are not entitled to
+license this way.
 
-## Developer Certificate of Origin (DCO) — sign off every commit
+> **For collaborators.** Because contributions are *licensed*, not assigned, a merged contribution
+> makes its author a copyright holder in the combined work — which forecloses relicensing the project
+> under any other terms without their consent. See `PLAN.md` §Public-release readiness: if the
+> commercial-relicensing option is ever to be kept, a relicensing grant must be settled **before** a
+> collaborator's first merge, not after.
 
-This project uses the **Developer Certificate of Origin (DCO) 1.1** instead of a CLA. Every commit
-must carry a `Signed-off-by` line certifying that you wrote the change (or otherwise have the right to
-submit it under the project's licence). Add it automatically with the `-s` / `--signoff` flag:
+## Provenance — the Developer Certificate of Origin (DCO) 1.1
 
-```bash
-git commit -s -m "fix: correct thumbnail sizing"
-```
+This project uses the **DCO 1.1** rather than a CLA. It is a statement about *provenance*: that you
+wrote the change, or otherwise have the right to submit it under the project's licence.
 
-That appends a line using your `git` name and email, for example:
+**You accept it by submitting a change.** By opening a pull request, or having a commit merged, you
+certify the three clauses reproduced below. There is no `Signed-off-by` requirement and no sign-off
+check — with pull requests restricted to a handful of invited collaborators, a per-commit
+certification would be ceremony rather than information.
 
-```
-Signed-off-by: Jane Developer <jane@example.com>
-```
-
-Pull requests whose commits are not signed off cannot be merged. If you forgot, amend the last commit
-with `git commit --amend -s` (or rebase to sign off a series) and force-push your branch.
+Note the DCO grants the project no rights beyond the `AGPL-3.0-or-later` under which your contribution
+is already licensed. It certifies that you *may* contribute; it does not transfer anything.
 
 <details>
 <summary>Developer Certificate of Origin 1.1 (full text)</summary>
@@ -74,7 +89,7 @@ By making a contribution to this project, I certify that:
 
 </details>
 
-## Development environment
+## Development environment (collaborators, and anyone working in a fork)
 
 KlarPDF is developed **hybrid**: the cross-platform core (`model/`, `viewer/`, `organize/`) and the
 headless test suite run in **WSL** (Ubuntu, Python 3.12), the GUI iterates via **WSLg**, and only
@@ -111,17 +126,15 @@ Notes:
 runs the same suite on every PR (`.github/workflows/test.yml`), plus a weekly dependency audit
 (`audit.yml`).
 
-## Branch, commit, and PR conventions
+## Branch, commit, and PR conventions (collaborators)
 
 - **Always branch from an up-to-date `main`.** `git fetch origin && git switch -c <name> origin/main`.
   Use a prefixed branch name: `feat/…`, `fix/…`, `docs/…`.
 - **One PR per logical unit.** Keep changes focused and reviewable.
-- **Sign off every commit** (`git commit -s`, see the DCO section above).
 - **Keep the tests green.** Run `invoke test` before pushing.
 - **Match where things live.** Status → `PROGRESS.md`; design/spec → `PLAN.md`; conventions →
   `CLAUDE.md`; the README is the shop window (see `CLAUDE.md` §How we work).
-- Open the PR against `main` and fill in the pull-request template (it restates the DCO sign-off and
-  the test requirement).
+- Open the PR against `main` and fill in the pull-request template.
 
 ## Reporting bugs and requesting features
 
