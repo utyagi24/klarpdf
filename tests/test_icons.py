@@ -11,7 +11,7 @@ import struct
 from pathlib import Path
 
 import pytest
-from PySide6.QtCore import QSize
+from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication
 
@@ -113,3 +113,135 @@ def test_app_ico_is_valid_multi_resolution():
         assert raw[offset:offset + 4] == png_magic  # PNG-compressed entry
         assert nbytes > 0
     assert 256 in sizes and 16 in sizes
+
+
+# --- app-icon legibility at small sizes (v0.10.0 follow-up) --------------------------------------
+#
+# The mark shipped in v0.10.0 filled only 53% of the icon canvas and sat off-centre, so the taskbar
+# and Explorer entries were ~9x13px of glyph inside a 16px box, and the knot rendered sub-pixel.
+# These pin the two fixes: the canvas is filled and centred, and sizes <= 32px come from a
+# simplified master where the knot actually survives the downsample.
+
+SMALL_SVG = Path(__file__).resolve().parents[1] / "ui" / "icons" / "klarpdf-small.svg"
+
+
+def _ink_box(renderer, n):
+    """Bounding box of non-transparent pixels when rendered into an n x n square."""
+    from PySide6.QtCore import QRectF
+    from PySide6.QtGui import QImage, QPainter
+
+    image = QImage(n, n, QImage.Format.Format_ARGB32)
+    image.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(image)
+    renderer.render(painter, QRectF(0, 0, n, n))
+    painter.end()
+    pts = [(x, y) for y in range(n) for x in range(n) if image.pixelColor(x, y).alpha() > 8]
+    xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+    return min(xs), max(xs), min(ys), max(ys)
+
+
+def test_small_master_exists_and_is_qtsvg_safe(qapp):
+    from PySide6.QtSvg import QSvgRenderer
+
+    assert SMALL_SVG.is_file(), "the <=32px app-icon master is missing"
+    assert QSvgRenderer(str(SMALL_SVG)).isValid()
+    text = SMALL_SVG.read_text(encoding="utf-8")
+    for banned in ("<text", "<filter", "<mask", "<style", "<use"):
+        assert banned not in text, f"{banned} is not QtSvg-safe (BRAND.md)"
+
+
+@pytest.mark.parametrize("svg", ["klarpdf", "klarpdf-small"])
+def test_app_mark_fills_and_centres_its_canvas(qapp, svg):
+    """Regression: the v0.10.0 mark filled 53% of the width and sat off-centre."""
+    from PySide6.QtSvg import QSvgRenderer
+
+    renderer = QSvgRenderer(str(icons.svg_path(svg)))
+    n = 256
+    x0, x1, y0, y1 = _ink_box(renderer, n)
+    height_fill = (y1 - y0 + 1) / n
+    assert height_fill >= 0.88, f"{svg}: mark fills only {height_fill:.0%} of the canvas height"
+    # Centred to within a pixel — the old mark was 21px left and 27px low on a 256 canvas.
+    assert abs((x0 + x1) / 2 - (n - 1) / 2) <= 1.5, f"{svg}: not horizontally centred"
+    assert abs((y0 + y1) / 2 - (n - 1) / 2) <= 1.5, f"{svg}: not vertically centred"
+
+
+def test_knot_survives_at_16px_only_in_the_small_master(qapp):
+    """The point of the small master: at 16px the detailed knot is a smudge, the small one is solid.
+
+    Rendered with and without the knot; we compare how much ink it actually contributes.
+    """
+    import re
+
+    from PySide6.QtCore import QByteArray, QRectF
+    from PySide6.QtGui import QImage, QPainter
+    from PySide6.QtSvg import QSvgRenderer
+
+    def max_delta(path, n=16):
+        text = path.read_text(encoding="utf-8")
+        without = re.sub(r'\s*<rect x="1[12]\d"[^>]*rotate\(45 128 167\)[^>]*></rect>', "", text)
+        assert without != text, f"knot rect not found in {path.name}"
+
+        def draw(src):
+            r = QSvgRenderer(QByteArray(src.encode()))
+            img = QImage(n, n, QImage.Format.Format_ARGB32)
+            img.fill(Qt.GlobalColor.transparent)
+            p = QPainter(img)
+            r.render(p, QRectF(0, 0, n, n))
+            p.end()
+            return img
+
+        a, b = draw(text), draw(without)
+        return max(
+            max(abs(a.pixelColor(x, y).red() - b.pixelColor(x, y).red()),
+                abs(a.pixelColor(x, y).green() - b.pixelColor(x, y).green()),
+                abs(a.pixelColor(x, y).blue() - b.pixelColor(x, y).blue()))
+            for y in range(n) for x in range(n)
+        )
+
+    detailed = max_delta(icons.svg_path("klarpdf"))
+    small = max_delta(SMALL_SVG)
+    assert small > 150, f"knot barely renders at 16px in the small master (delta {small})"
+    assert small > detailed * 2, (
+        f"small master's knot ({small}) should be far more legible than the detailed one ({detailed})"
+    )
+
+
+def test_ico_small_entries_come_from_the_small_master():
+    """16/24/32 in the .ico must match the small master, not the detailed one."""
+    import io
+    import struct as _struct
+
+    from PySide6.QtCore import QByteArray, QRectF
+    from PySide6.QtGui import QGuiApplication, QImage, QPainter
+    from PySide6.QtSvg import QSvgRenderer
+
+    QGuiApplication.instance() or QGuiApplication([])
+    raw = ICO_PATH.read_bytes()
+    _, _, count = _struct.unpack("<HHH", raw[:6])
+    entries = {}
+    for i in range(count):
+        w, _h, _c, _r, _p, _b, nbytes, offset = _struct.unpack("<BBBBHHII", raw[6 + 16 * i: 22 + 16 * i])
+        entries[w or 256] = raw[offset:offset + nbytes]
+
+    def render(path, n):
+        r = QSvgRenderer(str(path))
+        img = QImage(n, n, QImage.Format.Format_ARGB32)
+        img.fill(Qt.GlobalColor.transparent)
+        p = QPainter(img)
+        r.render(p, QRectF(0, 0, n, n))
+        p.end()
+        return img
+
+    for n in (16, 24, 32):
+        baked = QImage()
+        baked.loadFromData(entries[n], "PNG")
+        baked = baked.convertToFormat(QImage.Format.Format_ARGB32)
+        small = render(SMALL_SVG, n)
+        detailed = render(icons.svg_path("klarpdf"), n)
+
+        def diff(a, b):
+            return sum(a.pixelColor(x, y) != b.pixelColor(x, y) for y in range(n) for x in range(n))
+
+        assert diff(baked, small) < diff(baked, detailed), (
+            f"the {n}px .ico entry looks like the detailed mark — re-run packaging/make_icon.py"
+        )

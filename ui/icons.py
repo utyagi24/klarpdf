@@ -32,6 +32,12 @@ _RENDER_SIZES = (16, 20, 24, 32, 48)
 # App-icon name (a filled mark) vs the line-style action icons.
 APP_ICON = "klarpdf"
 
+# The app mark is drawn at two levels of detail. Below this size the knot and the back leaves are
+# sub-pixel and only smear the silhouette, so a simplified master is rendered instead; Qt then picks
+# the nearest pixmap per request (taskbar 16-24, alt-tab 32-48). See ui/icons/klarpdf-small.svg.
+APP_ICON_SMALL = "klarpdf-small"
+_SMALL_MASTER_MAX = 32
+
 
 def icons_dir() -> Path:
     """Directory holding the SVGs, resolved for both source runs and the frozen bundle."""
@@ -91,8 +97,29 @@ def icon(name: str) -> QIcon:
 
 @lru_cache(maxsize=None)
 def app_icon() -> QIcon:
-    """The full-colour application/window icon (taskbar, title bar) — never tinted."""
-    return _render(APP_ICON, tint=False)
+    """The full-colour application/window icon (taskbar, title bar) — never tinted.
+
+    Multi-master: sizes at or below :data:`_SMALL_MASTER_MAX` render from the simplified small mark,
+    larger ones from the detailed mark. Falls back to the detailed mark if the small master is absent,
+    so a missing file degrades to "less crisp", never to "no icon".
+    """
+    detailed, small = svg_path(APP_ICON), svg_path(APP_ICON_SMALL)
+    if not detailed.exists():
+        return QIcon()
+    result = QIcon()
+    renderers = {
+        True: QSvgRenderer(str(small)) if small.exists() else None,
+        False: QSvgRenderer(str(detailed)),
+    }
+    for size in _RENDER_SIZES:
+        renderer = renderers[size <= _SMALL_MASTER_MAX] or renderers[False]
+        pixmap = QPixmap(size, size)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        renderer.render(painter, QRectF(0, 0, size, size))
+        painter.end()
+        result.addPixmap(pixmap)
+    return result
 
 
 def refresh_for_theme() -> None:

@@ -25,11 +25,17 @@ from PySide6.QtSvg import QSvgRenderer  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 SVG = ROOT / "ui" / "icons" / "klarpdf.svg"
+SVG_SMALL = ROOT / "ui" / "icons" / "klarpdf-small.svg"
 ICO = ROOT / "packaging" / "klarpdf.ico"
 
 # Standard Windows icon sizes. 256 is stored PNG-compressed (Vista+), the rest also as PNG —
 # every modern Windows shell reads PNG-in-ICO.
 SIZES = (16, 24, 32, 48, 64, 128, 256)
+
+# At or below this size, render the simplified small master (ui/icons.py uses the same threshold).
+# Explorer's small/medium views and the taskbar pull the 16/24/32 entries; the knot and the back
+# leaves are sub-pixel there and only muddy the silhouette.
+SMALL_MASTER_MAX = 32
 
 
 def _render_png(renderer: QSvgRenderer, size: int) -> bytes:
@@ -69,9 +75,21 @@ def main() -> int:
     if not renderer.isValid():
         print(f"invalid SVG: {SVG}", file=sys.stderr)
         return 1
-    pngs = [(s, _render_png(renderer, s)) for s in SIZES]
+
+    small = None
+    if SVG_SMALL.exists():
+        small = QSvgRenderer(str(SVG_SMALL))
+        if not small.isValid():
+            print(f"invalid SVG: {SVG_SMALL}", file=sys.stderr)
+            return 1
+    else:
+        # Not fatal: the icon just loses crispness at 16-32px. Say so rather than fail the build.
+        print(f"note: {SVG_SMALL.name} absent — small sizes use the detailed mark", file=sys.stderr)
+
+    pngs = [(s, _render_png(small if (small and s <= SMALL_MASTER_MAX) else renderer, s)) for s in SIZES]
     ICO.write_bytes(_pack_ico(pngs))
-    print(f"wrote {ICO} ({ICO.stat().st_size} bytes, sizes {', '.join(map(str, SIZES))})")
+    detail = f"{'/'.join(str(s) for s in SIZES if s <= SMALL_MASTER_MAX)} from {SVG_SMALL.name}" if small else "single master"
+    print(f"wrote {ICO} ({ICO.stat().st_size} bytes, sizes {', '.join(map(str, SIZES))}; {detail})")
     return 0
 
 

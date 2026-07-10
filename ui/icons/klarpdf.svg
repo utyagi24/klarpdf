@@ -1,4 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" fill="none">
+<!-- App icon. Same artwork as assets/brand/app-mark.svg, but the viewBox is cropped to the mark's ink
+     bounding box (x 49.5..185.5, y 46..237) then squared and centred, so the glyph fills ~90% of the
+     icon canvas instead of 53%. BRAND.md's "clear space >= band height" rule governs *lockups*; an OS
+     icon canvas supplies its own padding, and honouring the rule twice left the mark small and
+     off-centre (9x13 px at a 16px taskbar icon). Do not re-add width/height: the square viewBox is
+     what lets QSvgRenderer fill any square target. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="11.4 35.4 212.2 212.2" fill="none">
   <defs><linearGradient id="brandGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#13B8A6"></stop><stop offset="1" stop-color="#3B82F6"></stop></linearGradient></defs>
   <rect x="60" y="64" width="108" height="168" rx="16" fill="#8FDDD3" transform="rotate(-9 114 148)"></rect>
   <rect x="68" y="56" width="108" height="168" rx="16" fill="#A7E8E0" transform="rotate(-4.5 122 140)"></rect>

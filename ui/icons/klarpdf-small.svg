@@ -1,0 +1,15 @@
+<!-- Small-size master of the app mark, for icons <= 32px (ui/icons.py, packaging/make_icon.py).
+     Same silhouette and palette as klarpdf.svg (its own viewBox: no leaves, so its ink is narrower), with the detail that cannot survive a 16px
+     grid removed rather than smeared:
+       - the two back leaves go: at 16px they are ~1px of mush behind the page, and they blur the
+         page's silhouette, which is the only thing actually recognisable at that size;
+       - the two 3.6-unit dashes go: they render 0.27px wide;
+       - the knot grows 10 -> 26 units and the band 34 -> 44, so both survive the downsample.
+     Keep the two files in visual step: same page path, same gradient, same fold. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="38.7 38.7 182.5 182.5" fill="none">
+  <defs><linearGradient id="brandGradSmall" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#13B8A6"></stop><stop offset="1" stop-color="#3B82F6"></stop></linearGradient></defs>
+  <path d="M92 46 L145 46 Q150 46 153 49 L181 77 Q184 80 184 85 L184 196 Q184 214 166 214 L92 214 Q76 214 76 196 L76 62 Q76 46 92 46 Z" fill="url(#brandGradSmall)"></path>
+  <path d="M150 49 L150 76 Q150 80 154 80 L181 80 Q184 80 182 78 Z" fill="#D8F3EE"></path>
+  <rect x="74" y="145" width="112" height="44" rx="6" fill="#FFFFFF"></rect>
+  <rect x="115" y="154" width="26" height="26" rx="5" transform="rotate(45 128 167)" fill="#2563EB"></rect>
+</svg>

@@ -13,7 +13,8 @@ application branding" — *sheaf* was the working name the marks were drawn unde
 
 | Asset | File | Used by |
 |---|---|---|
-| App mark (full-colour) | `ui/icons/klarpdf.svg` (source copy: `assets/brand/app-mark.svg`) | window / taskbar icon; `make_icon.py` → `packaging/klarpdf.ico` |
+| App mark (full-colour) | `ui/icons/klarpdf.svg` (brand master: `assets/brand/app-mark.svg`) | window / taskbar icon ≥48px; `make_icon.py` → `packaging/klarpdf.ico` |
+| App mark, small master | `ui/icons/klarpdf-small.svg` | the **≤32px** icon entries (taskbar, Explorer small/medium) |
 | Monochrome mark | `assets/brand/app-mark-mono.svg` | theme-tinted in-app use (About, empty state) |
 | Windows tile | `assets/brand/app-tile.svg` | boxed / tile contexts |
 | `.pdf` file icon | `assets/brand/pdf-file-icon.svg` | Explorer file-association icon (G2 part 2) |
@@ -62,8 +63,14 @@ patterns, `<use>` cross-refs, SVG2-only features. Optimise with SVGO.
 
 ## Usage rules
 
-- **Clear space** ≥ the band height (≈ ¼ of the mark) on all sides.
-- **Min size:** full-colour mark ≥ 16px; monochrome ≥ 24px.
+- **Clear space** ≥ the band height (≈ ¼ of the mark) on all sides — for **lockups only**. An **OS icon
+  canvas already supplies its own padding**: honouring the clear-space rule inside `ui/icons/klarpdf.svg`
+  as well left the mark filling 53% of the width and sitting off-centre, so the v0.10.0 taskbar icon
+  was ~9×13px of glyph in a 16px box. App-icon SVGs crop their `viewBox` to the ink bounding box,
+  squared and centred, at ~90% fill.
+- **Min size:** full-colour mark ≥ 16px; monochrome ≥ 24px. **Below 32px use the small master**
+  (`ui/icons/klarpdf-small.svg`): the back leaves and the knot are sub-pixel there and only smear the
+  silhouette. Keep the two masters in visual step — same page path, gradient and fold.
 - **Do** keep the teal→blue direction and the folded corner; recolour mono glyphs per theme.
 - **Don't** rotate the mark, add shadows, restyle the gradient, or show the "PDF" label below hero size.
 
