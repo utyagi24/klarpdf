@@ -235,7 +235,7 @@ history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI uses `${
   so the offline / no-telemetry guarantee holds. `tests/test_about_dialog.py` drives the real Help
   menu and simulates `sys._MEIPASS` — the frozen path the headless suite otherwise never executes —
   and asserts the spec still bundles both texts, since a `datas` regression is invisible to CI.
-  — *WSL + WSLg* — [#PRNUM](https://github.com/utyagi24/klarpdf/pull/PRNUM)
+  — *WSL + WSLg* — [#97](https://github.com/utyagi24/klarpdf/pull/97)
 - [x] **G5** Community-health files — `SECURITY.md`, `CONTRIBUTING.md` (DCO sign-off),
   `CODE_OF_CONDUCT.md` (Contributor Covenant), `.github/ISSUE_TEMPLATE/*` + `pull_request_template.md`
   — *WSL* — [#96](https://github.com/utyagi24/klarpdf/pull/96)
