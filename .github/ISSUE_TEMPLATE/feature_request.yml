@@ -11,6 +11,13 @@ body:
 
         Note: KlarPDF is deliberately **local, offline, and free of telemetry**. Features that would
         require network access or data collection are out of scope.
+
+        **On the roadmap and on code.** What KlarPDF does and does not do is the maintainer's call,
+        and the roadmap is kept deliberately narrow. A request is input, not a commitment — many good
+        ideas will be declined simply to keep the app small. And please **do not send a pull request
+        implementing it**: KlarPDF accepts PRs only from the maintainer and invited collaborators, so
+        it would be closed unread no matter how good it is. Accepted requests get implemented by a
+        collaborator. See [CONTRIBUTING.md](../blob/main/CONTRIBUTING.md).
   - type: textarea
     id: problem
     attributes:

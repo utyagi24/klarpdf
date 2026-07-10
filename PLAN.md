@@ -302,6 +302,27 @@ the work is licensing + community files plus a one-time commit-author cleanup.
   Inno identifies an installation by `AppId`, not `AppName`, so reusing it would make the renamed setup
   an in-place upgrade — silently skipping the old uninstaller's ProgID / `OpenWithProgids` /
   config-dir cleanup and reusing the recorded `pdfproj` install directory.
+- **Governance: open source, closed to pull requests.** Issues — bugs, security reports, feature
+  requests — are **open to everyone**; they are the cheapest, highest-signal input a public repo gets.
+  **Pull requests are restricted to the maintainer and invited collaborators**, and everything else is
+  auto-closed by `.github/workflows/close-external-prs.yml`. Review is the scarce resource and the
+  roadmap is deliberately narrow; publishing source obliges nothing about accepting changes (AGPL
+  requires offering source to *recipients*, not merging patches). Forking is guaranteed by the licence
+  and is the intended escape valve. Interaction limits are the wrong tool for this — they would also
+  block non-collaborators from opening issues.
+
+  Provenance uses the **DCO 1.1, deemed accepted** by submitting a change: no `Signed-off-by`
+  requirement and no sign-off check, because with PRs limited to invited collaborators a per-commit
+  certification is ceremony rather than information. **The DCO grants the project no rights** — it
+  certifies that the contributor *may* contribute. Contributions are therefore *licensed*
+  (inbound = outbound, `AGPL-3.0-or-later`), never assigned.
+
+  **Consequence for the Artifex escape hatch below:** relicensing a work needs the consent of every
+  copyright holder in it. While the maintainer is the sole author, that is his alone to give. The
+  first merged contribution from *anyone else — a collaborator included* — makes them a copyright
+  holder and forecloses commercial relicensing without their consent. A DCO does not change this; only
+  a CLA or an explicit relicensing grant does. If that option is ever to be kept, the grant must be
+  settled **before** a collaborator's first merge, not after.
 - **Project license = `AGPL-3.0-or-later`.** PyMuPDF is AGPL and the app is a derivative of it, so the
   whole project must ship AGPL (it cannot be MIT/BSD); LGPL (PySide6/shiboken6) and BSD-3 (pypdf) are
   then satisfied by the same source release. Add a root `LICENSE` (full AGPL text) + a
@@ -313,7 +334,7 @@ the work is licensing + community files plus a one-time commit-author cleanup.
   adds **About** (version + AGPL + no-warranty notice + source-repo link at the matching tag) and an
   **Open-Source Licenses** view (the bundled license texts), shipped offline via
   `packaging/klarpdf.spec` `datas` + a freeze-aware `resource_path()` (mirroring `ui/icons.py`).
-- **Community-health files:** `SECURITY.md`, `CONTRIBUTING.md` (DCO sign-off), `CODE_OF_CONDUCT.md`
+- **Community-health files:** `SECURITY.md`, `CONTRIBUTING.md` (DCO, deemed-accepted), `CODE_OF_CONDUCT.md`
   (Contributor Covenant), and `.github/` issue/PR templates.
 - **Donations (repo + product).** Add a `.github/FUNDING.yml` (repo "Sponsor" button) + a README
   Support section, and a **Help ▸ Donate…** menu entry plus an About-dialog link in the app
