@@ -304,6 +304,11 @@ class MainWindow(QMainWindow):
         act("Open-Source Licenses", self._show_licenses, to_menu=help_menu)
         help_menu.addSeparator()
         act("View Source", self._open_source_url, to_menu=help_menu)
+        # Donate (G6) — last, and deliberately in the same group as View Source: the separator splits
+        # "opens a dialog" from "hands a URL to your browser", which is the distinction that actually
+        # matters to the user. Menu-only, like the rest of Help — asking for money should be findable,
+        # never in the way of the work. Voluntary: no feature is gated on it.
+        act("Donate…", self._open_donate_url, icon="donate", to_menu=help_menu)
 
         # Toolbar: built explicitly (order independent of menu wiring), grouped functionally with
         # separators — file · history · page edits · zoom/fit · rotate · search.
@@ -389,6 +394,13 @@ class MainWindow(QMainWindow):
         from ui.about import SOURCE_URL, _open_url
 
         _open_url(SOURCE_URL)
+
+    def _open_donate_url(self) -> None:
+        """Open the sponsors page in the system browser (G6). Same policy as View Source: the browser
+        is handed a URL only because the user clicked, so the offline / no-telemetry guarantee holds."""
+        from ui.about import DONATE_URL, _open_url
+
+        _open_url(DONATE_URL)
 
     def _print(self) -> None:
         from viewer.printing import print_document

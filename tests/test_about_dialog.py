@@ -131,6 +131,39 @@ def test_about_source_link_points_at_this_exact_build(qapp):
     assert "/tree/main" not in SOURCE_URL
 
 
+def test_about_dialog_offers_the_donate_link(qapp):
+    """G6: the About dialog carries the support link, not just the Help menu."""
+    from PySide6.QtWidgets import QLabel
+
+    from ui.about import DONATE_URL, AboutDialog
+
+    dlg = AboutDialog()
+    text = " ".join(label.text() for label in dlg.findChildren(QLabel))
+    assert DONATE_URL in text
+    dlg.deleteLater()
+
+
+def test_donate_link_and_funding_yml_name_the_same_account(qapp):
+    """G6: the in-app Donate and the repo's Sponsor button must point at one account.
+
+    Two files hold one fact, so they can drift. The failure mode is what makes this worth a test:
+    `/sponsors/<wrong-or-unenrolled-user>` does **not** 404 — GitHub redirects it to that user's
+    plain profile — so a broken donate link still looks like a working one, in the app and in CI.
+    Only an equality check catches it.
+    """
+    from ui.about import DONATE_URL, REPO_URL
+
+    assert DONATE_URL.startswith("https://github.com/sponsors/"), "donations are GitHub Sponsors (G6)"
+    account = DONATE_URL.rsplit("/", 1)[1]
+
+    funding = (ROOT / ".github" / "FUNDING.yml").read_text(encoding="utf-8")
+    entry = re.search(r"^github:\s*(\S+)\s*$", funding, re.M)
+    assert entry, ".github/FUNDING.yml has no `github:` entry — the Sponsor button needs one"
+    assert entry.group(1) == account, "FUNDING.yml and ui/about.py disagree on the account"
+    # ...and it is the account that owns the repo: support should land where the source lives.
+    assert REPO_URL.split("/")[3] == account
+
+
 def test_licenses_dialog_has_a_tab_per_bundled_text_with_real_content(qapp):
     from ui.about import LicensesDialog
 
@@ -159,7 +192,7 @@ def test_main_window_help_menu_is_wired_to_the_dialogs(app, a_pdf, monkeypatch):
     help_menu = next((m for m in win.menuBar().findChildren(QMenu) if m.title() == "&Help"), None)
     assert help_menu is not None, "no Help menu on the menu bar"
     labels = [a.text() for a in help_menu.actions() if not a.isSeparator()]
-    assert labels == ["About KlarPDF", "Open-Source Licenses", "View Source"]
+    assert labels == ["About KlarPDF", "Open-Source Licenses", "View Source", "Donate…"]
 
     import ui.about as about
 
@@ -172,6 +205,7 @@ def test_main_window_help_menu_is_wired_to_the_dialogs(app, a_pdf, monkeypatch):
         if not action.isSeparator():
             action.trigger()  # must not raise
 
-    # View Source hands exactly one URL to the browser — the tagged source, never a live socket.
-    assert opened == [about.SOURCE_URL]
+    # The two link actions hand exactly these URLs to the browser — and nothing else opens a socket.
+    # Order follows the menu: View Source, then Donate.
+    assert opened == [about.SOURCE_URL, about.DONATE_URL]
     win.close()

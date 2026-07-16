@@ -277,15 +277,27 @@ history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI uses `${
   vulnerability reporting; Wiki/Projects/Discussions off; **no interaction limits** (they would block
   the public from opening issues, defeating the policy). — *WSL + GitHub settings* —
   [#98](https://github.com/utyagi24/klarpdf/pull/98)
-- [ ] **G6** Donations — repo + product — let users support the project. **Repo:** add
-  `.github/FUNDING.yml` (the GitHub "Sponsor" button) + a README "Support / Donate" section/badge.
-  **Product:** a **Help ▸ Donate…** entry (extends the G4 Help menu) + a link in the About dialog,
-  opened with `QDesktopServices.openUrl` — **user-initiated only, so the offline / no-telemetry
-  guarantee still holds** (the app opens no socket itself). Decide the platform first (GitHub Sponsors
-  / Ko-fi / Liberapay / Buy Me a Coffee / PayPal). Open-source + donations is fully AGPL-compatible.
-  — *WSL + WSLg*
-- [ ] **G7** Lock-in identity, hygiene & branch rulesets — keeps the G1 scrub true, permanently. Three
-  parts; the repo-side work is one PR, the rest is manual.
+- [ ] **G6** Donations — repo + product — let users support the project. **Platform: GitHub Sponsors**
+  (decision gate closed) — same host as the source link, so supporting the project introduces no
+  third-party domain into the app or the repo. Open-source + donations is fully AGPL-compatible.
+  - [x] **Part 1 — the code** — `.github/FUNDING.yml` (`github: utyagi24`); README **Support** section
+    + Sponsor badge; **Help ▸ Donate…** (extends the G4 Help menu, grouped with *View Source* — the
+    separator splits "opens a dialog" from "hands a URL to the browser") + an About-dialog link, both
+    via `QDesktopServices.openUrl` on **user click only, so the offline / no-telemetry guarantee holds**
+    (the app opens no socket itself). A test asserts `FUNDING.yml` and `ui/about.py` name the *same*
+    account — see the trap below. — *WSL + WSLg* — [#107](https://github.com/utyagi24/klarpdf/pull/107)
+  - [ ] **Part 2 — enrol the account in GitHub Sponsors (manual; the actual gate)** — Stripe +
+    identity + GitHub review, so it takes **days**, not minutes: start it early. Verify with
+    `gh api graphql -f query='{user(login:"utyagi24"){hasSponsorsListing}}'` → currently **`false`**.
+    **The trap:** `https://github.com/sponsors/utyagi24` does **not** 404 without a listing — GitHub
+    silently **redirects it to the plain profile page**, so a dead Donate link is indistinguishable
+    from a working one, in the app and in CI. Nothing automated can catch this; hence the one-time
+    gate in `RELEASE.md` §3, to be checked before the first release that ships the menu item. The
+    Sponsor *button* additionally needs the repo to be public (G8). — *GitHub account*
+- [x] **G7** Lock-in identity, hygiene & branch rulesets — keeps the G1 scrub true, permanently. Three
+  parts: repo-side (one PR), manual identity, and the ruleset. **Complete in the sense G7 can be** —
+  the ruleset is *decided and pre-authored* here but can only be **created at G8** (rulesets 403 on a
+  private free repo), so that one step is carried on G8's checklist, not left dangling here.
   - [x] **Part 1 — repo side** — `.gitignore` gains `*.pfx *.pem *.key .env *.log` (nothing matches
     today; `*.pfx` is the live one — Authenticode signing is a carried follow-up and a cert lands in the
     tree as exactly that). New `.github/workflows/author-email-guard.yml` fails a PR whose author (or
@@ -295,20 +307,26 @@ history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI uses `${
     gains an in-job docs-only gate, so the `pytest` check reports on every PR without running the suite
     on markdown — the prerequisite for requiring it below (rationale + the two-workflow trap it avoids:
     `PLAN.md` §Public-release readiness). — *WSL* — [#106](https://github.com/utyagi24/klarpdf/pull/106)
-  - [ ] **Part 2 — identity (manual, per machine + account)** — `git config user.email` = the no-reply
-    on **every** checkout: **Windows ✅ verified** (local + global = `12071588+utyagi24@…`, last 20
-    commits clean); **WSL checkout — unverified**, `git config user.email` there is yours to check (the
-    two checkouts are bridged only by git). Then, in GitHub account settings ▸ Emails: **Keep my email
-    addresses private** + **Block command line pushes that expose my email**. Both are web toggles —
-    the first needs an API scope this checkout's `gh` lacks, the second has **no API at all**.
-  - [ ] **Part 3 — the `main` ruleset** — **decided at G7, created at G8.** The full rule-by-rule
-    decision + rationale is in `PLAN.md` §Public-release readiness; in short: **block force-push** +
-    **restrict deletions** + **require the `pytest` and `emails` checks**, with **admin bypass**;
-    *require PR + review* dropped while solo (G5.1), *linear history* rejected (the project merges with
-    merge commits), *signed commits* deferred (commits are unsigned; needs GPG/SSH set up for the
-    no-reply identity first). Cannot be created before the flip — confirmed: `GET
-    /repos/utyagi24/klarpdf/rulesets` → **403 "Upgrade to GitHub Pro or make this repository public"**.
-    — *GitHub settings, at G8*
+  - [x] **Part 2 — identity (manual, per machine + account)** — **all four verified.** `git config
+    user.email` = the no-reply on **both** checkouts: **Windows** (local + global =
+    `12071588+utyagi24@…`) and **WSL** (owner-verified — the two checkouts are bridged only by git, so
+    each is its own machine). GitHub account ▸ Emails: **Keep my email addresses private** ✅ +
+    **Block command line pushes that expose my email** ✅ (owner-verified in the UI — the first needs a
+    `user` API scope this checkout's `gh` lacks, the second has **no API at all**, so neither is
+    machine-checkable from here; the public profile `email` field now reads empty, which is consistent).
+    With the push block on, the *server* now rejects an exposing push — Part 1's `emails` workflow
+    remains the backstop for what these per-machine/per-account settings cannot cover (a fresh clone,
+    a new machine, a changed account).
+  - [x] **Part 3 — the `main` ruleset, decided + pre-authored** (**created** at G8). Payload lives at
+    [`.github/rulesets/main.json`](.github/rulesets/main.json) with the rationale beside it, so the
+    flip runs **one reviewed command** rather than a from-memory clicking session at the moment the
+    repo first becomes visible. In short: **block force-push** + **restrict deletions** + **require the
+    `pytest` and `emails` checks**, **empty bypass list**; *require PR + review* dropped while solo
+    (G5.1), *linear history* rejected (the project merges with merge commits), *signed commits*
+    deferred (unsigned today; needs GPG/SSH for the no-reply identity first). Full rule-by-rule
+    reasoning: `PLAN.md` §Public-release readiness. Cannot be *created* before the flip — confirmed:
+    `GET /repos/utyagi24/klarpdf/rulesets` → **403 "Upgrade to GitHub Pro or make this repository
+    public"**. — *WSL* — [#107](https://github.com/utyagi24/klarpdf/pull/107)
 - [ ] **G8** Flip to public (**manual; not a PR**) —
   `gh repo edit --visibility public --accept-visibility-change-consequences` (the second flag is
   **required**; `gh` refuses `--visibility` without it); then, **in the same sitting**:
@@ -319,10 +337,15 @@ history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI uses `${
     *only* reporting channel `SECURITY.md`, `CODE_OF_CONDUCT.md`, `.github/ISSUE_TEMPLATE/config.yml`
     and the auto-close workflow's comment advertise. Verify with a GET; it must return
     `{"enabled": true}`.
-  - Enable **secret scanning + push protection**.
-  - **Create the `main` ruleset decided in G7** (Part 3 — it 403s until the repo is public): block
-    force-push, restrict deletions, require the `pytest` + `emails` checks, admin bypass.
-  - Add repo description/topics. — *GitHub*
+  - Enable **secret scanning + push protection**. Also flip-gated: `security_and_analysis` on the
+    private repo is **empty** (the features need paid GHAS while private; both are free once public).
+  - **Create the `main` ruleset pre-authored in G7** — it 403s until the repo is public:
+    `gh api -X POST repos/utyagi24/klarpdf/rulesets --input .github/rulesets/main.json`, then verify
+    with `gh api repos/utyagi24/klarpdf/rulesets --jq '.[] | {name, enforcement}'`.
+  - ~~Add repo description/topics~~ — **done ahead of the flip** (needs no public repo): description
+    set + 13 topics. Nothing to do here at G8.
+  - **Check the Sponsors listing is live** (G6 Part 2) if it wasn't already — the repo Sponsor button
+    only renders once the repo is public *and* the listing exists. — *GitHub*
 
 ## Open follow-ups (carried)
 
