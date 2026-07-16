@@ -344,6 +344,12 @@ history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI uses `${
     with `gh api repos/utyagi24/klarpdf/rulesets --jq '.[] | {name, enforcement}'`.
   - ~~Add repo description/topics~~ — **done ahead of the flip** (needs no public repo): description
     set + 13 topics. Nothing to do here at G8.
+  - **Upload the social preview** — Settings ▸ General ▸ Social preview ▸
+    `assets/brand/social-preview.png`. **Manual: there is no REST API for it.** It is GitHub's
+    `og:image` — what renders when the repo link is pasted anywhere.
+  - **Check the two dynamic README badges went live.** `tests` and `release` read the GitHub API, so
+    while the repo is private they render *"repo or workflow not found"* and *"inaccessible"*; the flip
+    fixes both with no edit. They should show the workflow result and the latest tag.
   - **Check the Sponsors listing is live** (G6 Part 2) if it wasn't already — the repo Sponsor button
     only renders once the repo is public *and* the listing exists. — *GitHub*
 
