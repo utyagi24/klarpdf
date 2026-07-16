@@ -85,11 +85,19 @@ jobs:
           python -c "import xml.etree.ElementTree as ET; tcs=[t for t in ET.parse('junit.xml').getroot().iter('testcase') if t.get('name')=='test_redaction_leak_check_poppler_cross_engine']; assert tcs, 'redaction cross-engine test not found in results'; assert tcs[0].find('skipped') is None, 'cross-engine redaction test SKIPPED in CI (Poppler missing?)'; print('OK: cross-engine redaction test ran (not skipped)')"
 
       # Post the result as a single, updated-in-place comment on the PR, so pass/fail is visible right
-      # where you merge (this private/free repo can't require status checks, but the token can comment).
+      # where you merge — a convenience on top of the check, not the check itself.
       - name: Comment the result on the PR
         # Nothing to report on a docs-only PR — the check itself says "evaluated"; a comment claiming
         # "0 passed" would be worse than silence.
         if: always() && github.event_name == 'pull_request' && steps.gate.outputs.docs_only != 'true'
+        # This step MUST NOT be able to fail the job. `pytest` is a required status check on `main`
+        # (G7 — PLAN.md §Public-release readiness), so a red job blocks the merge — and this step talks to the
+        # GitHub REST API, which is the one part of this workflow that fails for reasons having nothing
+        # to do with the code. Seen for real on 2026-07-16: the suite passed, `issues/N/comments`
+        # returned a 503 HTML page during the "Degraded REST API Availability" incident, and the check
+        # went red twice. A cosmetic comment must never gate a merge; the test result already lives in
+        # the job's own steps, which do fail loudly and correctly.
+        continue-on-error: true
         uses: actions/github-script@v7
         with:
           script: |
