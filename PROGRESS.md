@@ -294,8 +294,10 @@ history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI uses `${
     from a working one, in the app and in CI. Nothing automated can catch this; hence the one-time
     gate in `RELEASE.md` §3, to be checked before the first release that ships the menu item. The
     Sponsor *button* additionally needs the repo to be public (G8). — *GitHub account*
-- [ ] **G7** Lock-in identity, hygiene & branch rulesets — keeps the G1 scrub true, permanently. Three
-  parts; the repo-side work is one PR, the rest is manual.
+- [x] **G7** Lock-in identity, hygiene & branch rulesets — keeps the G1 scrub true, permanently. Three
+  parts: repo-side (one PR), manual identity, and the ruleset. **Complete in the sense G7 can be** —
+  the ruleset is *decided and pre-authored* here but can only be **created at G8** (rulesets 403 on a
+  private free repo), so that one step is carried on G8's checklist, not left dangling here.
   - [x] **Part 1 — repo side** — `.gitignore` gains `*.pfx *.pem *.key .env *.log` (nothing matches
     today; `*.pfx` is the live one — Authenticode signing is a carried follow-up and a cert lands in the
     tree as exactly that). New `.github/workflows/author-email-guard.yml` fails a PR whose author (or
@@ -305,12 +307,16 @@ history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI uses `${
     gains an in-job docs-only gate, so the `pytest` check reports on every PR without running the suite
     on markdown — the prerequisite for requiring it below (rationale + the two-workflow trap it avoids:
     `PLAN.md` §Public-release readiness). — *WSL* — [#106](https://github.com/utyagi24/klarpdf/pull/106)
-  - [ ] **Part 2 — identity (manual, per machine + account)** — `git config user.email` = the no-reply
-    on **every** checkout: **Windows ✅ verified** (local + global = `12071588+utyagi24@…`, last 20
-    commits clean); **WSL checkout — unverified**, `git config user.email` there is yours to check (the
-    two checkouts are bridged only by git). Then, in GitHub account settings ▸ Emails: **Keep my email
-    addresses private** + **Block command line pushes that expose my email**. Both are web toggles —
-    the first needs an API scope this checkout's `gh` lacks, the second has **no API at all**.
+  - [x] **Part 2 — identity (manual, per machine + account)** — **all four verified.** `git config
+    user.email` = the no-reply on **both** checkouts: **Windows** (local + global =
+    `12071588+utyagi24@…`) and **WSL** (owner-verified — the two checkouts are bridged only by git, so
+    each is its own machine). GitHub account ▸ Emails: **Keep my email addresses private** ✅ +
+    **Block command line pushes that expose my email** ✅ (owner-verified in the UI — the first needs a
+    `user` API scope this checkout's `gh` lacks, the second has **no API at all**, so neither is
+    machine-checkable from here; the public profile `email` field now reads empty, which is consistent).
+    With the push block on, the *server* now rejects an exposing push — Part 1's `emails` workflow
+    remains the backstop for what these per-machine/per-account settings cannot cover (a fresh clone,
+    a new machine, a changed account).
   - [x] **Part 3 — the `main` ruleset, decided + pre-authored** (**created** at G8). Payload lives at
     [`.github/rulesets/main.json`](.github/rulesets/main.json) with the rationale beside it, so the
     flip runs **one reviewed command** rather than a from-memory clicking session at the moment the
