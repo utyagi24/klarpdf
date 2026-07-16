@@ -364,7 +364,11 @@ the work is licensing + community files plus a one-time commit-author cleanup.
   | Require a PR + review | ❌ | Dropped while solo (§Governance): it would mean approving your own PRs to be protected from nobody. Re-enable the moment a collaborator is added — that is when it starts doing work. |
   | Require linear history | ❌ | The project merges PRs with merge commits; this would break the existing flow to buy tidiness. |
   | Require signed commits | ❌ | Commits are unsigned today. Needs GPG/SSH signing set up for the no-reply identity first — a prerequisite, not a rule to flip. Revisit separately. |
-  | Bypass: **repo admin** | ✅ | So a future history repair is possible without deleting the ruleset. A bypass that only the sole maintainer holds costs nothing and avoids locking yourself out. |
+  | Bypass list | **empty** | Same reasoning as the review rule: a bypass for the repo admin, on a repo whose only pusher *is* the admin, would make the force-push rule protect against nobody. The realistic threat is a fat-fingered `git push --force`, which an empty bypass list is exactly what stops. A genuine history repair remains possible by flipping `enforcement` to `disabled` and back — deliberate, and it leaves a trail. It also avoids an unverifiable magic number: GitHub's REST docs do not publish the numeric `actor_id` of the built-in `RepositoryRole` values. |
+
+  The payload is pre-authored at `.github/rulesets/main.json` (+ a README of the same rationale), so
+  the flip runs one reviewed command rather than a from-memory clicking session at the moment the repo
+  first becomes visible: `gh api -X POST repos/utyagi24/klarpdf/rulesets --input .github/rulesets/main.json`.
 
   **Why the required checks are safe** (the trap this design exists to dodge): a required check is a
   *gate* — "was this evaluated?" — not "did tests run". GitHub cannot distinguish a check that was

@@ -37,6 +37,11 @@ REPO_URL = "https://github.com/utyagi24/klarpdf"
 #: source". A bare link to `main` would be wrong: main moves, the shipped binary does not.
 SOURCE_URL = f"{REPO_URL}/tree/v{__version__}"
 
+#: Where Help ▸ Donate… and the About link go (G6). GitHub Sponsors, so the only host the app ever
+#: hands the browser stays github.com — a donation platform is not a reason to introduce a new domain.
+#: Support is *voluntary*: nothing in the app is gated on it, which is what keeps this AGPL-clean.
+DONATE_URL = "https://github.com/sponsors/utyagi24"
+
 
 def _open_url(url: str) -> None:
     """Hand a URL to the system browser. User-initiated only — never called on a timer or at start."""
@@ -85,6 +90,10 @@ class AboutDialog(QDialog):
             "the AGPL.</p>"
             f"<p>Source for this exact build: <a href='{SOURCE_URL}'>v{__version__}</a><br>"
             f"Project: <a href='{REPO_URL}'>{REPO_URL}</a></p>"
+            # G6. Phrased as a thank-you, not a nag: the app is free software and stays fully
+            # functional whether or not anyone ever clicks this.
+            f"<p>Free, and free software. If it saves you time, you can "
+            f"<a href='{DONATE_URL}'>support the project</a>.</p>"
         )
         notice.setWordWrap(True)
         notice.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)

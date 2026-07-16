@@ -1,0 +1,10 @@
+# The repo "Sponsor" button (G6). GitHub Sponsors only — deliberately: it is the same host as the
+# source link, so supporting the project introduces no third-party domain, and the in-app
+# Help ▸ Donate… can point at github.com like every other link the app opens.
+#
+# This file is inert on its own. The button needs BOTH:
+#   1. a public repo (private repos render no Sponsor button), and
+#   2. an approved GitHub Sponsors listing on the account (Stripe + identity + GitHub review).
+# Until (2) lands, https://github.com/sponsors/utyagi24 silently redirects to the plain profile —
+# it does not 404 — so a broken listing looks like a working link. See PROGRESS.md G6.
+github: utyagi24

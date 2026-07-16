@@ -132,6 +132,15 @@ tells you *what* and *how severe*, and you do the bump yourself.
 (`.\.venv\Scripts\python.exe -m pytest` — offscreen; 1 expected skip = the Poppler `pdftotext`
 cross-check, absent on Windows).
 
+**One-time gate — the first release carrying Help ▸ Donate… (G6).** The menu item ships whether or not
+the GitHub Sponsors listing exists, and a missing listing does **not** 404: `/sponsors/utyagi24`
+redirects to the plain profile, so a dead Donate link looks *exactly* like a working one — no test can
+tell them apart. Confirm the listing is live before the first release that includes it:
+```sh
+gh api graphql -f query='{user(login:"utyagi24"){hasSponsorsListing}}'   # must be true
+```
+Delete this gate once it has passed once.
+
 1. **Version bump.** Edit `version.py` `__version__` (e.g. `0.9.3` → `0.9.4`). This single value
    feeds the PyInstaller exe metadata (`packaging/klarpdf.spec`), the Inno `AppVersion`
    (`packaging/installer.iss`), and the `v<version>` git tag. SemVer: **patch** = fixes / dependency

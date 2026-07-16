@@ -1,6 +1,7 @@
 # KlarPDF
 
 [![License: AGPL-3.0-or-later](https://img.shields.io/badge/License-AGPL--3.0--or--later-blue.svg)](LICENSE)
+[![Sponsor](https://img.shields.io/badge/Sponsor-GitHub%20Sponsors-ea4aaa.svg)](https://github.com/sponsors/utyagi24)
 
 Local, offline, **native-Windows** PDF viewer + page editor (Python · PySide6 · PyMuPDF) — a
 trustworthy replacement for macOS Preview's view + splice/split workflow on Windows. The source is
@@ -103,6 +104,15 @@ CI does the same on a tag: push a `v*` tag and `.github/workflows/release.yml` b
 `windows-latest` and publishes a **draft** GitHub Release (PLAN.md §Packaging §5). The full
 end-to-end flow — version bump → tag → draft → smoke → publish, with the `invoke tag` / `invoke
 publish` shortcuts — is in **[RELEASE.md](RELEASE.md)**.
+
+## Support
+
+KlarPDF is free, and free software — every feature, no upsell, no telemetry, and that does not change.
+If it saves you time and you want to fund the work, you can
+**[sponsor it on GitHub](https://github.com/sponsors/utyagi24)**. Entirely voluntary; nothing here is
+gated on it. The same link lives in the app under **Help ▸ Donate…**.
+
+Not paying? Just as useful: a good [bug report or feature request](https://github.com/utyagi24/klarpdf/issues/new/choose).
 
 ## License
 
