@@ -284,19 +284,31 @@ history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI uses `${
   guarantee still holds** (the app opens no socket itself). Decide the platform first (GitHub Sponsors
   / Ko-fi / Liberapay / Buy Me a Coffee / PayPal). Open-source + donations is fully AGPL-compatible.
   — *WSL + WSLg*
-- [ ] **G7** Lock-in identity, hygiene & branch rulesets — local `git user.email` = no-reply on all
-  checkouts; enable GitHub "Keep my email addresses private" + "Block command line pushes that expose
-  my email"; add `*.pfx *.pem *.key .env *.log` to `.gitignore`; optional CI guard rejecting disallowed
-  author emails. **Review & decide the `main` ruleset** (GitHub *Rulesets*, the successor to branch
-  protection): require the CI status checks (`test.yml`), **block force-push + deletion**, optionally
-  linear history / signed commits — **activated at the flip (G8)**. *Require a PR + review* is
-  **dropped while the project is solo** (G5.1): it would mean approving your own PRs to be protected
-  from nobody. Re-enable it the moment a collaborator is added — that is when it starts doing work.
-  Caveats:
-  enable the force-push-blocking rule **only after** the G1 history rewrite (else it blocks the scrub's
-  force-push); requiring **signed commits** means setting up GPG/SSH signing for the no-reply identity
-  first (commits are unsigned today); ruleset *enforcement* on a private repo can need a paid plan, so
-  it activates cleanly once public (free). — *GitHub settings*
+- [ ] **G7** Lock-in identity, hygiene & branch rulesets — keeps the G1 scrub true, permanently. Three
+  parts; the repo-side work is one PR, the rest is manual.
+  - [x] **Part 1 — repo side** — `.gitignore` gains `*.pfx *.pem *.key .env *.log` (nothing matches
+    today; `*.pfx` is the live one — Authenticode signing is a carried follow-up and a cert lands in the
+    tree as exactly that). New `.github/workflows/author-email-guard.yml` fails a PR whose author (or
+    committer) email is not a GitHub no-reply — the backstop under the local `user.email` and the
+    account-level push block, both of which are per-machine/per-account state a fresh clone or a new
+    machine silently loses. `test.yml` loses the `paths-ignore` on its **`pull_request`** trigger and
+    gains an in-job docs-only gate, so the `pytest` check reports on every PR without running the suite
+    on markdown — the prerequisite for requiring it below (rationale + the two-workflow trap it avoids:
+    `PLAN.md` §Public-release readiness). — *WSL* — [#106](https://github.com/utyagi24/klarpdf/pull/106)
+  - [ ] **Part 2 — identity (manual, per machine + account)** — `git config user.email` = the no-reply
+    on **every** checkout: **Windows ✅ verified** (local + global = `12071588+utyagi24@…`, last 20
+    commits clean); **WSL checkout — unverified**, `git config user.email` there is yours to check (the
+    two checkouts are bridged only by git). Then, in GitHub account settings ▸ Emails: **Keep my email
+    addresses private** + **Block command line pushes that expose my email**. Both are web toggles —
+    the first needs an API scope this checkout's `gh` lacks, the second has **no API at all**.
+  - [ ] **Part 3 — the `main` ruleset** — **decided at G7, created at G8.** The full rule-by-rule
+    decision + rationale is in `PLAN.md` §Public-release readiness; in short: **block force-push** +
+    **restrict deletions** + **require the `pytest` and `emails` checks**, with **admin bypass**;
+    *require PR + review* dropped while solo (G5.1), *linear history* rejected (the project merges with
+    merge commits), *signed commits* deferred (commits are unsigned; needs GPG/SSH set up for the
+    no-reply identity first). Cannot be created before the flip — confirmed: `GET
+    /repos/utyagi24/klarpdf/rulesets` → **403 "Upgrade to GitHub Pro or make this repository public"**.
+    — *GitHub settings, at G8*
 - [ ] **G8** Flip to public (**manual; not a PR**) —
   `gh repo edit --visibility public --accept-visibility-change-consequences` (the second flag is
   **required**; `gh` refuses `--visibility` without it); then, **in the same sitting**:
@@ -308,7 +320,8 @@ history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI uses `${
     and the auto-close workflow's comment advertise. Verify with a GET; it must return
     `{"enabled": true}`.
   - Enable **secret scanning + push protection**.
-  - **Activate the `main` ruleset reviewed in G7.**
+  - **Create the `main` ruleset decided in G7** (Part 3 — it 403s until the repo is public): block
+    force-push, restrict deletions, require the `pytest` + `emails` checks, admin bypass.
   - Add repo description/topics. — *GitHub*
 
 ## Open follow-ups (carried)

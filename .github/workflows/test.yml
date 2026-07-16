@@ -13,8 +13,15 @@ on:
   push:
     branches: ["main"]
     paths-ignore: ["**.md"]   # docs-only changes don't affect tests
+  # NO path filter on PRs, deliberately (G7). This job is a *required status check* on `main`, and a
+  # required check is a gate — it must report "evaluated" on every PR, including docs-only ones. A
+  # filtered-out workflow never creates a check run at all, and a ruleset cannot tell "not needed"
+  # apart from "not finished yet": the PR would sit on "Expected — waiting for status" forever.
+  # The docs-only decision therefore moves INSIDE the job (see the gate step) — which is also the only
+  # place it can be expressed correctly. `paths: ["**.md"]` on a second workflow would be the obvious
+  # alternative, but it means "ANY file is markdown", not "ALL files are" — a PR touching app.py *and*
+  # README.md would fire both workflows and race two check runs called `pytest`.
   pull_request:
-    paths-ignore: ["**.md"]   # skips only when EVERY changed file is markdown
   workflow_dispatch:
 
 permissions:
@@ -26,31 +33,63 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0   # the gate below diffs against the merge base
+
+      # The docs-only gate. On a PR whose every changed file is markdown, the suite is not needed and
+      # the honest result for this check is "evaluated, nothing to test" — the ~2 min of install+run is
+      # skipped and `pytest` still reports success, so the ruleset is satisfied without a wedge.
+      # Runs only for pull_request; on push/workflow_dispatch the output is empty and the suite runs.
+      - name: Is this a docs-only change?
+        id: gate
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          files=$(git diff --name-only "${BASE_SHA}...${HEAD_SHA}")   # 3 dots = diff vs the merge base
+          echo "Changed files:"; printf '%s\n' "$files"
+          # docs-only iff the list is non-empty AND contains no line that fails to end in .md.
+          # The -n guard matters: an empty list (no diff) must NOT count as docs-only — that is an
+          # unexpected state, and the safe response is to run the suite.
+          if [ -n "$files" ] && ! printf '%s\n' "$files" | grep -qvE '\.md$'; then
+            echo "docs_only=true" >> "$GITHUB_OUTPUT"
+            echo "-> docs-only: skipping the suite, reporting the check as evaluated."
+          else
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - uses: actions/setup-python@v6
+        if: steps.gate.outputs.docs_only != 'true'
         with:
           python-version: "3.12"
 
       - name: Install system deps (Poppler for the cross-engine check; Qt offscreen runtime)
+        if: steps.gate.outputs.docs_only != 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             poppler-utils libegl1 libgl1 libxkbcommon0 libdbus-1-3 libglib2.0-0 fontconfig
 
       - name: Install Python deps (cross-platform dev lock, no hashes)
+        if: steps.gate.outputs.docs_only != 'true'
         run: pip install -r requirements-dev.txt
 
       - name: Run the headless suite
+        if: steps.gate.outputs.docs_only != 'true'
         run: pytest -q --junit-xml=junit.xml
 
       - name: Assert the Poppler cross-engine redaction test ran (did not skip)
+        if: steps.gate.outputs.docs_only != 'true'
         run: |
           python -c "import xml.etree.ElementTree as ET; tcs=[t for t in ET.parse('junit.xml').getroot().iter('testcase') if t.get('name')=='test_redaction_leak_check_poppler_cross_engine']; assert tcs, 'redaction cross-engine test not found in results'; assert tcs[0].find('skipped') is None, 'cross-engine redaction test SKIPPED in CI (Poppler missing?)'; print('OK: cross-engine redaction test ran (not skipped)')"
 
       # Post the result as a single, updated-in-place comment on the PR, so pass/fail is visible right
       # where you merge (this private/free repo can't require status checks, but the token can comment).
       - name: Comment the result on the PR
-        if: always() && github.event_name == 'pull_request'
+        # Nothing to report on a docs-only PR — the check itself says "evaluated"; a comment claiming
+        # "0 passed" would be worse than silence.
+        if: always() && github.event_name == 'pull_request' && steps.gate.outputs.docs_only != 'true'
         uses: actions/github-script@v7
         with:
           script: |

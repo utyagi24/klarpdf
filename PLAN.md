@@ -345,16 +345,37 @@ the work is licensing + community files plus a one-time commit-author cleanup.
 - **Commit-author cleanup (runs FIRST, while still private):** the maintainer's personal email is on
   ~162 of 246 commits (the rest already use the GitHub no-reply); a one-time history rewrite maps every
   commit to the canonical `<id>+username@users.noreply.github.com` no-reply and force-pushes, so the
-  personal address is never exposed when the repo flips public. Going forward, GitHub's "Keep my email
-  addresses private" setting governs web-merge commits and a local `user.email` = no-reply governs CLI
-  commits; an optional CI guard can reject disallowed author emails.
-- **Branch rulesets (review before the flip).** Decide the `main` ruleset (GitHub *Rulesets*, the
-  successor to branch protection): require a PR + review, require the CI status checks (`test.yml`),
-  **block force-pushes & deletions**, optionally linear history / signed commits — applied at the
-  flip. Two ordering caveats: a force-push-blocking rule must come **after** the G1 history rewrite
-  (else it blocks the scrub), and requiring signed commits needs commit-signing configured for the
-  no-reply identity first (commits are unsigned today). Enforcement on a private repo can need a paid
-  plan, so the ruleset activates cleanly once public.
+  personal address is never exposed when the repo flips public. **Keeping it true is G7's job**, in
+  three layers, each covering what the one before it loses: a local `user.email` = no-reply governs CLI
+  commits (per-machine state a fresh clone silently drops); GitHub's *Keep my email addresses private*
+  + *Block command line pushes that expose my email* govern web-merge commits and reject an exposing
+  push server-side (account-wide, but only for this account); and `.github/workflows/author-email-guard.yml`
+  is the backstop that fails a PR carrying a non-no-reply author or committer.
+- **Branch rulesets — decided at G7, activated at G8.** The `main` ruleset (GitHub *Rulesets*, the
+  successor to branch protection). Enforcement on a private repo needs a paid plan — confirmed at G7,
+  `GET /repos/utyagi24/klarpdf/rulesets` returns **403 "Upgrade to GitHub Pro or make this repository
+  public"** — so it is *decided* now and *created* in the same sitting as the flip, when it is free.
+
+  | Rule | | Why |
+  |---|---|---|
+  | Block force pushes | ✅ | The one that matters. G1's scrub + 15 rewritten tags are only permanent if history is. Safe to enable **only now**: as a rule it would have blocked the scrub's own force-push. |
+  | Restrict deletions | ✅ | `main` should not be deletable by accident. |
+  | Require status checks: **`pytest`**, **`emails`** | ✅ | `pytest` stops a red merge mechanically instead of relying on noticing the ❌ comment `test.yml` posts. `emails` (the G7 author-email guard) is the layer that keeps the G1 scrub true — a personal address merged post-flip is public permanently. Both always report on every PR by construction; see below. |
+  | Require a PR + review | ❌ | Dropped while solo (§Governance): it would mean approving your own PRs to be protected from nobody. Re-enable the moment a collaborator is added — that is when it starts doing work. |
+  | Require linear history | ❌ | The project merges PRs with merge commits; this would break the existing flow to buy tidiness. |
+  | Require signed commits | ❌ | Commits are unsigned today. Needs GPG/SSH signing set up for the no-reply identity first — a prerequisite, not a rule to flip. Revisit separately. |
+  | Bypass: **repo admin** | ✅ | So a future history repair is possible without deleting the ruleset. A bypass that only the sole maintainer holds costs nothing and avoids locking yourself out. |
+
+  **Why the required checks are safe** (the trap this design exists to dodge): a required check is a
+  *gate* — "was this evaluated?" — not "did tests run". GitHub cannot distinguish a check that was
+  **skipped as unnecessary** from one that has **not finished yet**: both are simply an absent check
+  run, and the PR waits on *"Expected — waiting for status"* forever. So a required check must report
+  on **every** PR. `test.yml` therefore carries **no path filter** on its `pull_request` trigger; the
+  docs-only decision lives **inside** the job, which skips the ~2 min install+suite on an all-markdown
+  PR and still reports `pytest`. That is also the only place it can be expressed: a path filter cannot
+  say *"every changed file is markdown"* — `paths: ["**.md"]` means *any* file is, so a PR touching
+  `app.py` **and** `README.md` would match both it and `test.yml`'s `paths-ignore` and race two check
+  runs named `pytest`.
 - **Flip to public (manual; not a PR):** `gh repo edit --visibility public`, then enable secret
   scanning + push protection, **activate the reviewed `main` ruleset**, and a repo description / topics.
 

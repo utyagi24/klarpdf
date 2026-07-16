@@ -22,6 +22,16 @@ vendor/wheels/
 # throwaway pip --report used to regenerate vendor/wheels-sources.md
 /report.json
 
+# Secrets & credentials — belt-and-braces (G7). Nothing here is committed today; these patterns exist
+# so that a stray file never becomes a public-repo leak that only a history rewrite can undo.
+# *.pfx is the live one: Authenticode code signing is a carried follow-up (PROGRESS.md), and a signing
+# cert lands in the tree as exactly this.
+*.pfx
+*.pem
+*.key
+.env
+*.log
+
 # OS cruft
 .DS_Store
 Thumbs.db

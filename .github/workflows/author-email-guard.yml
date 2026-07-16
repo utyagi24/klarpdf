@@ -1,0 +1,83 @@
+# Reject commits whose author/committer email is not a GitHub no-reply address.
+#
+# Why (PLAN.md §Public-release readiness, G7): G1 rewrote 242 commits to scrub the maintainer's
+# personal email from history before the repo goes public. That scrub is a one-time act; this guard is
+# what keeps it true. A personal address that reaches `main` after the flip is public permanently —
+# undoing it means another force-push + rewritten tags, on a repo strangers may already have cloned.
+#
+# This is the *backstop*, not the primary defence. In order:
+#   1. `git config user.email` = the no-reply, on every checkout        (local, per-machine, forgettable)
+#   2. GitHub "Block command line pushes that expose my email"          (server-side, rejects the push)
+#   3. this guard                                                        (catches what reached a PR)
+# Each layer exists because the one before it is per-machine state that a fresh clone silently loses.
+#
+# SECURITY — why plain `pull_request` and why a checkout is fine here (contrast close-external-prs.yml,
+# which must NOT check out): this runs in the *fork's* context with a read-only token, and it only ever
+# runs `git log` over commit metadata. It never executes repository code — no build, no test, no
+# install. That is what makes checking out a contributor's branch safe in this workflow.
+
+name: Author email guard
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  emails:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0   # need the full range base..head, not just the tip
+
+      - name: Check author + committer emails
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # Canonical GitHub no-reply: <id>+<login>@users.noreply.github.com — the form G1 rewrote
+          # everything onto. `(\[bot\])?` admits e.g. 49699333+dependabot[bot]@users.noreply.github.com;
+          # no bot commits here today, but a future one should not trip the guard.
+          AUTHOR_OK='^[0-9]+\+[A-Za-z0-9-]+(\[bot\])?@users\.noreply\.github\.com$'
+          # Committers get one extra: GitHub's merge button signs merge commits as `noreply@github.com`
+          # (bare form, no id prefix). It is legitimately the committer of every squash/merge on main —
+          # but never an author. G1 scrubbed 80 commits that had the bare form as *author*, so keeping
+          # it out of AUTHOR_OK is what stops that class from coming back.
+          COMMITTER_OK="${AUTHOR_OK}|^noreply@github\.com$"
+
+          fail=0
+          while read -r sha ae ce; do
+            # Report the domain only, never the full address. The commit is visible on the PR anyway,
+            # so this leaks nothing new — but a public Actions log is plaintext and indexed, and the
+            # sha + domain is already enough to know which commit to fix and why.
+            if ! printf '%s' "$ae"  | grep -Eq "$AUTHOR_OK"; then
+              echo "::error::${sha}: author email not allowed (***@${ae#*@})"
+              fail=1
+            fi
+            if ! printf '%s' "$ce" | grep -Eq "$COMMITTER_OK"; then
+              echo "::error::${sha}: committer email not allowed (***@${ce#*@})"
+              fail=1
+            fi
+          done < <(git log --format='%H %ae %ce' "${BASE_SHA}..${HEAD_SHA}")
+
+          if [ "$fail" -ne 0 ]; then
+            cat <<'EOF'
+
+          One or more commits carry an email that is not a GitHub no-reply address.
+
+          Fix the identity, then rewrite the offending commits — do not just fix it going forward,
+          the bad address is already in the objects this PR would merge:
+
+            git config user.email '<id>+<login>@users.noreply.github.com'
+            git rebase -r --exec 'git commit --amend --no-edit --reset-author' <base>
+            git push --force-with-lease
+
+          Find your no-reply address at: Settings -> Emails -> "Keep my email addresses private".
+          EOF
+            exit 1
+          fi
+
+          echo "OK: every author + committer email in this PR is a GitHub no-reply address."
