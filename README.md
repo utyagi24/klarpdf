@@ -1,11 +1,33 @@
-# KlarPDF
+<!-- The hero, the screenshots and the badges are the repo's shop window (assets/brand/BRAND.md
+     §GitHub assets). GitHub strips CSS from markdown, so brand colour can only arrive via images and
+     badges — and <picture> + prefers-color-scheme is the *supported* way to theme them: GitHub wraps
+     it in its own <themed-picture> element and swaps on the viewer's theme. -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/brand/github-hero-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="assets/brand/github-hero-light.svg">
+  <img src="assets/brand/github-hero-light.svg" alt="KlarPDF — PDF viewer + editor" width="100%">
+</picture>
 
-[![License: AGPL-3.0-or-later](https://img.shields.io/badge/License-AGPL--3.0--or--later-blue.svg)](LICENSE)
-[![Sponsor](https://img.shields.io/badge/Sponsor-GitHub%20Sponsors-ea4aaa.svg)](https://github.com/sponsors/utyagi24)
+<p align="center">
+  <a href="LICENSE"><img alt="License: AGPL-3.0-or-later" src="https://img.shields.io/badge/license-AGPL--3.0--or--later-3B82F6?style=flat-square"></a>
+  <a href="https://github.com/utyagi24/klarpdf/actions/workflows/test.yml"><img alt="tests" src="https://img.shields.io/github/actions/workflow/status/utyagi24/klarpdf/test.yml?branch=main&style=flat-square&label=tests&color=13B8A6"></a>
+  <a href="https://github.com/utyagi24/klarpdf/releases/latest"><img alt="latest release" src="https://img.shields.io/github/v/release/utyagi24/klarpdf?style=flat-square&color=13B8A6&label=release"></a>
+  <img alt="platform: Windows" src="https://img.shields.io/badge/platform-Windows-1CA6C9?style=flat-square">
+  <a href="https://github.com/sponsors/utyagi24"><img alt="Sponsor" src="https://img.shields.io/badge/sponsor-%E2%99%A5-13B8A6?style=flat-square"></a>
+</p>
 
 Local, offline, **native-Windows** PDF viewer + page editor (Python · PySide6 · PyMuPDF) — a
 trustworthy replacement for macOS Preview's view + splice/split workflow on Windows. The source is
 the unit of audit; it ships as a pinned, fully offline Windows installer.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/klarpdf-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="assets/screenshots/klarpdf-light.png">
+  <img src="assets/screenshots/klarpdf-light.png" alt="KlarPDF showing a document with the Pages sidebar open" width="100%">
+</picture>
+
+<p align="center"><sub>The real app, captured from a real build — and it follows the Windows theme, so
+this screenshot follows your GitHub one.</sub></p>
 
 **Status: `v0.10.1` shipped** — [download the installer or portable exe](https://github.com/utyagi24/klarpdf/releases/latest). Milestones **M0–M38 complete**. Full status: [PROGRESS.md](PROGRESS.md).
 

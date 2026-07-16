@@ -19,7 +19,14 @@ application branding" — *sheaf* was the working name the marks were drawn unde
 | Monochrome mark | `assets/brand/app-mark-mono.svg` | theme-tinted in-app use |
 | Windows tile (light) | `assets/brand/app-tile.svg` | *unused* — a near-white tile; the shipped app icon is the gradient tile above |
 | Toolbar glyphs (27) | `ui/icons/<name>.svg` | toolbar / menu actions (tinted per theme) |
+| **README hero** | `assets/brand/github-hero-{light,dark}.svg` | top of `README.md`, theme-swapped — §GitHub assets |
+| **Social preview** | `assets/brand/social-preview.{svg,png}` | the card shown when the repo link is shared — §GitHub assets |
+| **Lockup generator** | `assets/brand/gen-lockup.py` | **writes** the two above from `tokens.json` |
+| **App screenshots** | `assets/screenshots/klarpdf-{light,dark}.png` | `README.md`, theme-swapped |
 | Icon system spec | `assets/brand/README-icons.md` | how to draw a new icon |
+
+**None of these ship.** `packaging/klarpdf.spec` bundles only `ui/icons/`, `LICENSE` and
+`THIRD_PARTY_LICENSES`; everything in `assets/` is design source and repo presentation.
 
 ## Colour  (machine-readable in `tokens.json`)
 
@@ -41,6 +48,10 @@ correct when Windows switches theme (which the app already follows).
 - **Wordmark:** Quicksand SemiBold (600), lowercase `klarpdf`, tracking −0.5px — SIL OFL 1.1.
 - **UI / tagline:** Nunito Sans — SIL OFL 1.1. Tagline "PDF VIEWER + EDITOR", uppercase, ~2px tracking.
 - Bundle the OFL font files (with their `OFL.txt`) or outline the wordmark to paths in any shipped SVG lockup.
+- **The drawn lockup now exists as an asset** — `gen-lockup.py` renders it from these exact tokens
+  (Quicksand 600 at −0.5px; Nunito Sans 600, uppercase, 0.14em tracking) and outlines it to paths. It
+  is the *only* place the wordmark is reproduced; regenerate rather than hand-editing path data. See
+  §GitHub assets.
 
 **Name casing.** The lowercase form is the *drawn* wordmark only — where we control the typeface and
 tracking (About lockup, README header, splash). Anywhere the OS renders the name as a plain string in
@@ -79,6 +90,39 @@ patterns, `<use>` cross-refs, SVG2-only features. Optimise with SVGO.
   label degrades to a blue smudge inside the page, but the icon stays unmistakably a *document*, and
   the smudge sits exactly where a reader expects a label. Verified against the real Explorer entry at
   16px before this exception was written down.
+
+## GitHub assets (the repo's shop window)
+
+The repo page is the first thing anyone sees, and **GitHub strips CSS from markdown** — no `<style>`,
+no `style=` attributes, no coloured text (verified against the `POST /markdown` renderer, which drops
+the attribute and keeps the element). Brand colour can therefore only arrive through **images** and
+**badges**. Three assets carry it:
+
+- **Hero** — `github-hero-{light,dark}.svg`, 1200×300, the canonical gradient band with the white
+  lockup, at the top of `README.md`.
+- **Screenshots** — `assets/screenshots/klarpdf-{light,dark}.png`: the real app, captured from a real
+  build by forcing `QStyleHints.setColorScheme()` (**not** by changing a Windows setting — the app
+  already follows the palette, so this drives the same code path a real theme switch does).
+- **Social preview** — `social-preview.png`, 1280×640. Upload at **Settings ▸ General ▸ Social
+  preview**; it is **manual**, there is no REST API for it. It is what renders when the repo link is
+  pasted into Slack / X / Discord, and it is GitHub's `og:image`.
+
+**Theming is done with `<picture>` + `prefers-color-scheme`,** which is the *supported* path: GitHub
+wraps it in its own `<themed-picture>` element and swaps on the viewer's theme. Do not reach for the
+older `#gh-dark-mode-only` URL-fragment trick.
+
+**The wordmark is outlined, and that is not optional.** A README SVG renders inside an `<img>` and
+**cannot load a webfont**; live `<text>` would substitute to whatever the viewer has, and Quicksand is
+a system font nowhere. `gen-lockup.py` fetches Quicksand + Nunito Sans (both SIL OFL 1.1) to a temp
+dir, outlines the lettering to paths at 2dp, and writes the SVGs. **The font binaries are never
+committed** — converting glyphs to outlines is explicitly permitted by the OFL and the resulting paths
+are artwork, not Font Software, so no `OFL.txt` obligation follows. This is the "**or** outline the
+wordmark to paths" half of §Type's instruction.
+
+**Documented exception to "don't restyle the gradient":** the *dark* hero lays a `#0B1220` scrim at
+**0.28** over the band. The stops and the 120° direction are untouched — it is a dim, not a restyle —
+and it exists because the full-chroma band glares against GitHub's dark chrome (`#0d1117`). Applies to
+the README hero only; never to an icon, a tile, or the mark.
 
 ## Licensing
 
