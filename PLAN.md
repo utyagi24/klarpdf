@@ -204,7 +204,7 @@ flowchart LR
   B -->|"pip download<br/>(once, online)"| C["vendor/wheels/<br/>(committed/released)"]
   C -->|"pip install --no-index<br/>--require-hashes (offline)"| D["build venv<br/>(Win, Python 3.12.x pinned)"]
   D -->|"PyInstaller (pinned)<br/>--onedir --noconsole"| E["dist/klarpdf/<br/>(runtime + Qt + libs)"]
-  E -->|"Inno Setup (pinned .iss)"| F["klarpdf-setup.exe<br/>(bundles everything)"]
+  E -->|"Inno Setup (pinned .iss)"| F["klarpdf-setup-x64.exe<br/>(bundles everything)"]
   F -->|"installs + writes ProgID/.pdf assoc (HKCU)"| G["target machine<br/>no Python, no network"]
 ```
 
@@ -259,12 +259,14 @@ a **`push` of a `v*` tag**. It drives the same one-command `packaging/build.ps1`
 locally) end-to-end: re-fetch + hash-verify the `win_amd64` wheels from `requirements-win.txt` (not
 committed — see §2) → clean build venv (`--require-hashes --no-index`) + pinned PyInstaller → **two
 artifacts** from `packaging/klarpdf.spec`: the **`--onedir --noconsole`** tree for the installer and
-a portable **`--onefile` `klarpdf-portable.exe`** → Inno Setup (`ISCC installer.iss`) →
-`klarpdf-setup.exe` → smoke-test (launch + open a PDF).
+a portable **`--onefile` `klarpdf-portable-x64.exe`** → Inno Setup (`ISCC installer.iss`) →
+`klarpdf-setup-x64.exe` → smoke-test (launch + open a PDF). Both artifact names carry an explicit
+**`-x64`** suffix — the only architecture built today (§2's `win_amd64`-pinned wheels, built on a
+`windows-latest` x64 runner) — so a future `arm64` build has a distinct, non-colliding name.
 - **Versioning:** one source of truth (`version.py`) feeds the PyInstaller exe metadata, the Inno
   `AppVersion`, and the git tag; a bump is an explicit edit + a new tag.
 - **Release:** on a `v*` tag the workflow publishes a **GitHub Release** attaching
-  `klarpdf-setup.exe`, the portable `klarpdf-portable.exe`, a **`SHA256SUMS`** file, and the
+  `klarpdf-setup-x64.exe`, the portable `klarpdf-portable-x64.exe`, a **`SHA256SUMS`** file, and the
   **vendored wheels** (each release archives its exact build inputs and carries the AGPL
   "corresponding source" pointer at that tag). The runner re-fetches wheels from PyPI, so the
   *runner* build is not offline — but the produced installer is fully self-contained, and the
@@ -589,7 +591,7 @@ Run with `py -3.12 -m pytest -q` (or `pytest` in the project venv).
   fresh venv succeeds; then flip one hash/version in `requirements-win.txt` and confirm pip **aborts**
   (proves nothing can silently drift). Rebuilding twice yields the same dependency versions.
 - **Offline build:** disconnect the network (or build inside a no-egress shell) and run
-  `packaging/build.ps1` end-to-end from `vendor/wheels/` — produces `klarpdf-setup.exe` with no
+  `packaging/build.ps1` end-to-end from `vendor/wheels/` — produces `klarpdf-setup-x64.exe` with no
   downloads.
 - **Offline install on a clean machine:** on a Windows VM with **no Python and networking
   disabled**, run `setup.exe` → installs and launches; the dependency set bundled matches
@@ -599,7 +601,7 @@ Run with `py -3.12 -m pytest -q` (or `pytest` in the project venv).
   right icon/name; choosing it (and "Always") routes double-clicks through `klarpdf.exe "%1"`
   into the single-instance path. Uninstall removes the app, the `HKCU` ProgID keys, **and
   `%LOCALAPPDATA%\klarpdf`** — nothing left behind.
-- **Portable build:** `klarpdf-portable.exe` (the `--onefile` asset) launches from any folder on a
+- **Portable build:** `klarpdf-portable-x64.exe` (the `--onefile` asset) launches from any folder on a
   clean machine and opens a PDF with no install (slower first paint, no auto-association — both
   expected).
 - **Offline runtime** (existing "No network" check) holds for the installed `.exe` too.
@@ -881,7 +883,7 @@ thin set of read-only query helpers + the MCP tool layer.
 
 - The `mcp` SDK + transitive deps (pydantic, anyio, …) go in a **separate optional lock**
   (`requirements-mcp.in` → `requirements-mcp.txt`), following the same `pip-compile` discipline —
-  **not** added to the GUI ship lock. `klarpdf-setup.exe` is unchanged; the server is opt-in.
+  **not** added to the GUI ship lock. `klarpdf-setup-x64.exe` is unchanged; the server is opt-in.
 - `klarpdf-mcp` console entry point (a second `[project.scripts]` / spec target).
 - Docs: a `.mcp.json` snippet for Claude Code and a `claude_desktop_config.json` block for Desktop;
   optionally package a one-click **Desktop Extension** (`.mcpb`).
@@ -912,7 +914,7 @@ thin set of read-only query helpers + the MCP tool layer.
 ### Decisions to confirm with owner
 
 1. **Packaging:** separate optional component (recommended — keeps the audited GUI bundle tiny) vs.
-   bundled into `klarpdf-setup.exe`.
+   bundled into `klarpdf-setup-x64.exe`.
 2. **Write tools default-on, or read-only-first release** (query tools only in v0.11.0, transforms in v0.12.0)?
 3. **Transport:** stdio only (Code + Desktop) for v0.11.0, HTTP deferred — confirm HTTP isn't needed now.
 4. **Repo layout:** keep the server in this repo (shared `model/` core) vs. a sibling repo importing

@@ -15,6 +15,12 @@
 #endif
 #define MyAppName "KlarPDF"
 #define MyAppSlug "klarpdf"
+; Only architecture built today (win_amd64-pinned wheels, windows-latest x64 runner). Carried in
+; the *released artifact's* filename (OutputBaseFilename below) so a future arm64 build can't
+; collide with or be mistaken for this one. The installed exe name (MyAppExe) is untouched — it's
+; not a filename anyone chooses between on the Releases page, and platform_integration's mutex/
+; ProgID wiring keys off it, so renaming it is a separate, larger change than this one.
+#define MyAppArch "x64"
 #define MyAppExe "klarpdf.exe"
 #define MyAppProgId "KlarPDF.Document"
 #define MyAppDocIco "klarpdf-doc.ico"
@@ -37,7 +43,7 @@ DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 OutputDir=..\dist
-OutputBaseFilename={#MyAppSlug}-setup
+OutputBaseFilename={#MyAppSlug}-setup-{#MyAppArch}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern

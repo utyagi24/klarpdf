@@ -60,8 +60,8 @@ body:
       label: Install method
       description: How did you install KlarPDF?
       options:
-        - Installer (klarpdf-setup.exe)
-        - Portable (klarpdf-portable.exe)
+        - Installer (klarpdf-setup-x64.exe)
+        - Portable (klarpdf-portable-x64.exe)
         - Built from source
         - Other / not sure
     validations:

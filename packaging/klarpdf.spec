@@ -1,8 +1,12 @@
 # -*- mode: python ; coding: utf-8 -*-
 """PyInstaller spec — freezes KlarPDF into two artifacts from one analysis (PLAN.md, Packaging §3):
 
-  dist/klarpdf/klarpdf.exe   (--onedir)   bundled by the Inno Setup installer; fast startup
-  dist/klarpdf-portable.exe  (--onefile)  portable, run-anywhere build
+  dist/klarpdf/klarpdf.exe       (--onedir)   bundled by the Inno Setup installer; fast startup
+  dist/klarpdf-portable-x64.exe  (--onefile)  portable, run-anywhere build
+
+Artifact names carry an explicit -x64 suffix (only architecture built today, via win_amd64-pinned
+wheels on a windows-latest x64 runner) so a future arm64 build can't collide with or be mistaken
+for this one.
 
 Both are windowed (no console). Build on Windows; cannot be cross-built from WSL. Run from the
 repo root:  py -3.12 -m PyInstaller packaging/klarpdf.spec --noconfirm
@@ -31,7 +35,7 @@ def _version_resource(exe_name: str) -> str:
     """Write a PyInstaller version file for ``exe_name`` and return its path (Windows only).
 
     Per-exe because ``OriginalFilename`` must name the artifact it is embedded in — the onedir exe is
-    ``klarpdf.exe``, the portable one is ``klarpdf-portable.exe``.
+    ``klarpdf.exe``, the portable one is ``klarpdf-portable-x64.exe``.
     """
     from PyInstaller.utils.win32.versioninfo import (
         FixedFileInfo,
@@ -68,7 +72,7 @@ def _version_resource(exe_name: str) -> str:
 
 _WIN = sys.platform == "win32"
 VERSION_ONEDIR = _version_resource("klarpdf.exe") if _WIN else None
-VERSION_ONEFILE = _version_resource("klarpdf-portable.exe") if _WIN else None
+VERSION_ONEFILE = _version_resource("klarpdf-portable-x64.exe") if _WIN else None
 
 a = Analysis(
     [str(ROOT / "launcher.py")],
@@ -135,14 +139,14 @@ coll = COLLECT(
     name="klarpdf",
 )
 
-# --- onefile: portable single exe (dist/klarpdf-portable.exe) ---
+# --- onefile: portable single exe (dist/klarpdf-portable-x64.exe) ---
 exe_onefile = EXE(
     pyz,
     a.scripts,
     a.binaries,
     a.datas,
     [],
-    name="klarpdf-portable",
+    name="klarpdf-portable-x64",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

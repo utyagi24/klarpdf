@@ -174,8 +174,8 @@ Delete this gate once it has passed once.
    It executes `packaging/build.ps1` end-to-end — re-fetch + hash-verify the `win_amd64` wheels from
    `requirements-win.txt` → clean build venv (`--require-hashes --no-index`) → PyInstaller onedir +
    onefile → Inno Setup installer → `SHA256SUMS` — uploads the artifacts, and creates a **draft**
-   GitHub Release (`draft: true`, auto-generated notes) attaching `klarpdf-setup.exe`,
-   `klarpdf-portable.exe`, `SHA256SUMS`, and `vendor-wheels.zip` (the exact build inputs / AGPL
+   GitHub Release (`draft: true`, auto-generated notes) attaching `klarpdf-setup-x64.exe`,
+   `klarpdf-portable-x64.exe`, `SHA256SUMS`, and `vendor-wheels.zip` (the exact build inputs / AGPL
    corresponding-source pointer at that tag). **It does NOT auto-publish.**
    - The runner is *online*, so it re-fetches wheels — the CI build is not the offline build; the
      authoritative offline build + clean-machine install are validated locally (see Verification in
@@ -210,9 +210,9 @@ Delete this gate once it has passed once.
 
      Two things the mutex does *not* cover: the **portable** exe (no installer at all), and the
      **pdfproj-era** uninstaller, which predates the mutex — close that app by hand before removing it.
-   - Install/run the **onedir** `klarpdf-setup.exe` (from the draft's assets, or a local build):
+   - Install/run the **onedir** `klarpdf-setup-x64.exe` (from the draft's assets, or a local build):
      launch, open a PDF, confirm single-instance + window focus.
-   - The **onefile portable** (`klarpdf-portable.exe`) may be blocked *locally* by a Windows
+   - The **onefile portable** (`klarpdf-portable-x64.exe`) may be blocked *locally* by a Windows
      Application Control policy (a machine policy on unsigned single-file exes) — that is **not** a
      build defect; trust the CI artifact for the portable.
    - PyInstaller output is **version-repro, not bit-repro** (timestamps differ) — CI's `SHA256SUMS`
