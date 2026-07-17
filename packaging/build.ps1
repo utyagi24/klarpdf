@@ -6,8 +6,8 @@
   Fetches the pinned win_amd64 wheels, creates a clean build venv and installs runtime + build
   deps with --require-hashes --no-index, runs PyInstaller (onedir + onefile), compiles the Inno
   Setup installer, and writes dist/SHA256SUMS. Produces:
-      dist/klarpdf-setup.exe      (installer)
-      dist/klarpdf-portable.exe   (portable --onefile)
+      dist/klarpdf-setup-x64.exe      (installer)
+      dist/klarpdf-portable-x64.exe   (portable --onefile)
       dist/SHA256SUMS
   Self-locates the repo root; run from anywhere:  pwsh packaging/build.ps1
 
@@ -98,13 +98,13 @@ try {
     Invoke-Checked $iscc @("/DMyAppVersion=$Version", 'packaging\installer.iss')
 
     Write-Host '==> SHA256SUMS'
-    $lines = foreach ($a in @('dist\klarpdf-setup.exe', 'dist\klarpdf-portable.exe')) {
+    $lines = foreach ($a in @('dist\klarpdf-setup-x64.exe', 'dist\klarpdf-portable-x64.exe')) {
         if (Test-Path $a) { "$((Get-FileHash $a -Algorithm SHA256).Hash.ToLower())  $(Split-Path $a -Leaf)" }
     }
     $lines | Set-Content -Path 'dist\SHA256SUMS' -Encoding ascii
     $lines | ForEach-Object { Write-Host "    $_" }
 
-    Write-Host "==> Done. dist\: klarpdf-setup.exe, klarpdf-portable.exe, SHA256SUMS" -ForegroundColor Green
+    Write-Host "==> Done. dist\: klarpdf-setup-x64.exe, klarpdf-portable-x64.exe, SHA256SUMS" -ForegroundColor Green
 }
 finally {
     Pop-Location

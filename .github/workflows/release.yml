@@ -71,8 +71,8 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           path: |
-            dist/klarpdf-setup.exe
-            dist/klarpdf-portable.exe
+            dist/klarpdf-setup-x64.exe
+            dist/klarpdf-portable-x64.exe
             dist/SHA256SUMS
             dist/vendor-wheels.zip
 
@@ -83,7 +83,7 @@ jobs:
           draft: true   # lands as a draft Release to review, then publish manually
           generate_release_notes: true
           files: |
-            dist/klarpdf-setup.exe
-            dist/klarpdf-portable.exe
+            dist/klarpdf-setup-x64.exe
+            dist/klarpdf-portable-x64.exe
             dist/SHA256SUMS
             dist/vendor-wheels.zip

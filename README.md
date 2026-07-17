@@ -87,10 +87,13 @@ viewer-mode toggle.
 
 Grab the [latest release](https://github.com/utyagi24/klarpdf/releases/latest):
 
-- **`klarpdf-setup.exe`** — installer (per-user, no admin). Adds KlarPDF to the `.pdf` **Open With**
-  list + a Start-Menu shortcut; clean uninstall. *Recommended.*
-- **`klarpdf-portable.exe`** — single-file portable build; run from any folder (slower first launch,
-  no file association).
+- **`klarpdf-setup-x64.exe`** — installer (per-user, no admin). Adds KlarPDF to the `.pdf` **Open
+  With** list + a Start-Menu shortcut; clean uninstall. *Recommended.*
+- **`klarpdf-portable-x64.exe`** — single-file portable build; run from any folder (slower first
+  launch, no file association).
+
+Windows-on-Arm devices run this via x64 emulation (no native arm64 build yet). The `-x64` suffix
+names the only architecture built today — see PLAN.md §Packaging.
 
 No Python and no network needed at install or runtime. Unsigned for now → a one-time SmartScreen
 "unknown publisher" prompt. Verify a download against `SHA256SUMS` in the release.
@@ -154,8 +157,8 @@ the exact release tag each installer is built from satisfies that. Building for 
 is private use with no such obligation.
 
 **Build from source:** see [Develop (WSL)](#develop-wsl) to run it, and
-[Build the Windows installer](#build-the-windows-installer) to produce `klarpdf-setup.exe` /
-`klarpdf-portable.exe` yourself.
+[Build the Windows installer](#build-the-windows-installer) to produce `klarpdf-setup-x64.exe` /
+`klarpdf-portable-x64.exe` yourself.
 
 ## Audit notes
 

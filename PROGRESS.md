@@ -372,7 +372,7 @@ Carried items — none block work:
 - **Dependency vuln: pypdf → 6.13.3** → ✅ fixed in **v0.9.4**: bumped `pypdf` 6.13.2 → 6.13.3
   (**GHSA-jm82-fx9c-mx94**, Moderate memory-DoS in the `pypdf` fallback edit engine), recompiled the
   locks + regenerated `vendor/wheels-sources.md`, and removed the audit-gate ignore.
-- **Clean-machine install** — the one deferred M9 verification item: run `klarpdf-setup.exe` on a
+- **Clean-machine install** — the one deferred M9 verification item: run `klarpdf-setup-x64.exe` on a
   Windows VM with **no Python and networking disabled** (Win10 Home has no Sandbox → VirtualBox /
   spare machine / fresh local user). Everything else in the Verification matrix is green.
 - **CI action versions** → ✅ done in M15: `actions/checkout@v6`, `setup-python@v6`,
