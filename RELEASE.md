@@ -149,7 +149,9 @@ Delete this gate once it has passed once.
 2. **Docs** (same PR as the bump):
    - `PROGRESS.md` — tick any item this release resolves; add the release line + link.
    - `CLAUDE.md` — update the **## Status** paragraph.
-   - **`README.md` — update the `**Status: vX.Y.Z shipped**` line and the "New in …" summary.**
+   - **`README.md` — update the `**Status: vX.Y.Z shipped**` line (with its one-line "New in …"
+     summary, current release only — history lives in GitHub Releases), and the **Features**
+     inventory if the release adds or changes a user-facing feature.**
      This is the *only* doc a visitor to the public repo reads, so a stale version here is the most
      visible drift there is. It went unnoticed at v0.9.5 and v0.9.6 (README still claimed v0.9.4).
    - `DEPENDENCIES.md` — update the **Locked** column if a dependency version changed.
