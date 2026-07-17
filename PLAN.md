@@ -353,24 +353,42 @@ the work is licensing + community files plus a one-time commit-author cleanup.
   + *Block command line pushes that expose my email* govern web-merge commits and reject an exposing
   push server-side (account-wide, but only for this account); and `.github/workflows/author-email-guard.yml`
   is the backstop that fails a PR carrying a non-no-reply author or committer.
-- **Branch rulesets — decided at G7, activated at G8.** The `main` ruleset (GitHub *Rulesets*, the
-  successor to branch protection). Enforcement on a private repo needs a paid plan — confirmed at G7,
-  `GET /repos/utyagi24/klarpdf/rulesets` returns **403 "Upgrade to GitHub Pro or make this repository
-  public"** — so it is *decided* now and *created* in the same sitting as the flip, when it is free.
+- **Branch rulesets — reviewed at G7, completed at G8.** The `main` ruleset (GitHub *Rulesets*, the
+  successor to branch protection) is **id 18233952, "Protect Main"**, and it has been active since
+  2026-06-28 — predating this track. G7 believed otherwise: `GET /repos/utyagi24/klarpdf/rulesets`
+  returned **403 "Upgrade to GitHub Pro or make this repository public"**, which G7 read as *no
+  ruleset can exist* when it only meant *this API is unavailable on a private free repo*. The flip to
+  public revealed the two live rulesets, and G8 reconciled them: the deletion + force-push rules were
+  **already there**, so G8's real work was adding the required status checks. A **403 on a read is
+  not evidence of absence** — the one durable lesson here.
+
+  **The likely full story** (inference from the timeline, not something GitHub documents plainly, so
+  hold it loosely): a private free repo can *create* rulesets but does not *enforce* them — which is
+  what "enforcement needs a paid plan" always meant. That fits every observation at once: created
+  2026-06-28 via the UI; the API refusing to read them; and G1's force-push sailing through weeks
+  later despite `non_fast_forward` being listed. If that reading is right, the practical upshot is
+  that **`main` acquired real protection at the flip, not on 2026-06-28** — the rules were a promissory
+  note until the repo went public.
 
   | Rule | | Why |
   |---|---|---|
-  | Block force pushes | ✅ | The one that matters. G1's scrub + 15 rewritten tags are only permanent if history is. Safe to enable **only now**: as a rule it would have blocked the scrub's own force-push. |
+  | Block force pushes | ✅ | The one that matters. G1's scrub + 15 rewritten tags are only permanent if history is. Present in the ruleset since 2026-06-28, yet G1's force-push (weeks later) succeeded — consistent with the reading below that a private free repo's rulesets are *created but not enforced*. It is enforced now, which is what the rule is for. |
   | Restrict deletions | ✅ | `main` should not be deletable by accident. |
-  | Require status checks: **`pytest`**, **`emails`** | ✅ | `pytest` stops a red merge mechanically instead of relying on noticing the ❌ comment `test.yml` posts. `emails` (the G7 author-email guard) is the layer that keeps the G1 scrub true — a personal address merged post-flip is public permanently. Both always report on every PR by construction; see below. |
-  | Require a PR + review | ❌ | Dropped while solo (§Governance): it would mean approving your own PRs to be protected from nobody. Re-enable the moment a collaborator is added — that is when it starts doing work. |
+  | Require status checks: **`pytest`**, **`emails`** | ✅ | **The only rule G8 actually added.** `pytest` stops a red merge mechanically instead of relying on noticing the ❌ comment `test.yml` posts. `emails` (the G7 author-email guard) is the layer that keeps the G1 scrub true — a personal address merged post-flip is public permanently. Both always report on every PR by construction; see below. |
+  | Require a **PR** (0 approvals) | ✅ | Live since 2026-06-28, and kept at G8 — this is `CLAUDE.md`'s "never leave edits on `main`" convention enforced server-side rather than remembered. It is distinct from requiring a *review*: at `required_approving_review_count: 0` the solo open-then-self-merge flow is untouched, while a direct push to `main` is blocked. G7's table conflated the two under one ❌; only the review half was ever the thing being declined. |
+  | Require a **review** (approvals > 0) | ❌ | Dropped while solo (§Governance): it would mean approving your own PRs to be protected from nobody. Re-enable the moment a collaborator is added — that is when it starts doing work. |
   | Require linear history | ❌ | The project merges PRs with merge commits; this would break the existing flow to buy tidiness. |
   | Require signed commits | ❌ | Commits are unsigned today. Needs GPG/SSH signing set up for the no-reply identity first — a prerequisite, not a rule to flip. Revisit separately. |
   | Bypass list | **empty** | Same reasoning as the review rule: a bypass for the repo admin, on a repo whose only pusher *is* the admin, would make the force-push rule protect against nobody. The realistic threat is a fat-fingered `git push --force`, which an empty bypass list is exactly what stops. A genuine history repair remains possible by flipping `enforcement` to `disabled` and back — deliberate, and it leaves a trail. It also avoids an unverifiable magic number: GitHub's REST docs do not publish the numeric `actor_id` of the built-in `RepositoryRole` values. |
 
-  The payload is pre-authored at `.github/rulesets/main.json` (+ a README of the same rationale), so
-  the flip runs one reviewed command rather than a from-memory clicking session at the moment the repo
-  first becomes visible: `gh api -X POST repos/utyagi24/klarpdf/rulesets --input .github/rulesets/main.json`.
+  A second ruleset, **Protect Tags** (id 18234032), guards `~ALL` tags with `deletion`,
+  `non_fast_forward` and `update`. Also pre-existing; unchanged by G8.
+
+  `.github/rulesets/main.json` (+ a README of the same rationale) is now a **mirror of the live
+  ruleset** rather than the from-scratch payload it was authored as, so the rules stay reviewable in a
+  diff. Changes go back with a `PUT` to the existing id — a `POST` would add a *second* ruleset on
+  `main` and split its rules across two objects:
+  `gh api -X PUT repos/utyagi24/klarpdf/rulesets/18233952 --input .github/rulesets/main.json`.
 
   **Why the required checks are safe** (the trap this design exists to dodge): a required check is a
   *gate* — "was this evaluated?" — not "did tests run". GitHub cannot distinguish a check that was
@@ -382,8 +400,11 @@ the work is licensing + community files plus a one-time commit-author cleanup.
   say *"every changed file is markdown"* — `paths: ["**.md"]` means *any* file is, so a PR touching
   `app.py` **and** `README.md` would match both it and `test.yml`'s `paths-ignore` and race two check
   runs named `pytest`.
-- **Flip to public (manual; not a PR):** `gh repo edit --visibility public`, then enable secret
-  scanning + push protection, **activate the reviewed `main` ruleset**, and a repo description / topics.
+- **Flip to public (manual; not a PR):** `gh repo edit --visibility public
+  --accept-visibility-change-consequences` (the second flag is required), then — in the same sitting —
+  enable private vulnerability reporting, secret scanning + push protection, and Dependabot security
+  updates (all four are public-repo-gated and free), and **reconcile the `main` ruleset**. Status of
+  each: `PROGRESS.md` G8.
 
 Escape hatches (only if closed-source is ever wanted) remain as in the AGPL note above: an Artifex
 commercial PyMuPDF license, or a pypdf-only fallback build.

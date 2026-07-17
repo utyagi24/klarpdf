@@ -317,41 +317,58 @@ history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI uses `${
     With the push block on, the *server* now rejects an exposing push — Part 1's `emails` workflow
     remains the backstop for what these per-machine/per-account settings cannot cover (a fresh clone,
     a new machine, a changed account).
-  - [x] **Part 3 — the `main` ruleset, decided + pre-authored** (**created** at G8). Payload lives at
-    [`.github/rulesets/main.json`](.github/rulesets/main.json) with the rationale beside it, so the
-    flip runs **one reviewed command** rather than a from-memory clicking session at the moment the
-    repo first becomes visible. In short: **block force-push** + **restrict deletions** + **require the
-    `pytest` and `emails` checks**, **empty bypass list**; *require PR + review* dropped while solo
-    (G5.1), *linear history* rejected (the project merges with merge commits), *signed commits*
-    deferred (unsigned today; needs GPG/SSH for the no-reply identity first). Full rule-by-rule
-    reasoning: `PLAN.md` §Public-release readiness. Cannot be *created* before the flip — confirmed:
-    `GET /repos/utyagi24/klarpdf/rulesets` → **403 "Upgrade to GitHub Pro or make this repository
-    public"**. — *WSL* — [#107](https://github.com/utyagi24/klarpdf/pull/107)
-- [ ] **G8** Flip to public (**manual; not a PR**) —
-  `gh repo edit --visibility public --accept-visibility-change-consequences` (the second flag is
-  **required**; `gh` refuses `--visibility` without it); then, **in the same sitting**:
-  - **Enable private vulnerability reporting** —
-    `gh api -X PUT repos/utyagi24/klarpdf/private-vulnerability-reporting` (or Settings ▸ Code
-    security). **It cannot be done before the flip**: the endpoint 404s on a private repo because the
-    feature is public-repo-only. Until it is on, `/security/advisories/new` 404s — and that URL is the
-    *only* reporting channel `SECURITY.md`, `CODE_OF_CONDUCT.md`, `.github/ISSUE_TEMPLATE/config.yml`
-    and the auto-close workflow's comment advertise. Verify with a GET; it must return
-    `{"enabled": true}`.
-  - Enable **secret scanning + push protection**. Also flip-gated: `security_and_analysis` on the
-    private repo is **empty** (the features need paid GHAS while private; both are free once public).
-  - **Create the `main` ruleset pre-authored in G7** — it 403s until the repo is public:
-    `gh api -X POST repos/utyagi24/klarpdf/rulesets --input .github/rulesets/main.json`, then verify
-    with `gh api repos/utyagi24/klarpdf/rulesets --jq '.[] | {name, enforcement}'`.
+  - [x] **Part 3 — the `main` ruleset, decided + pre-authored** (**reconciled** at G8 — see the
+    correction there). Payload lives at [`.github/rulesets/main.json`](.github/rulesets/main.json)
+    with the rationale beside it, so the rules are reviewable in a diff rather than clicks made once
+    in the UI. In short: **block force-push** + **restrict deletions** + **require the `pytest` and
+    `emails` checks**, **empty bypass list**; *require review* dropped while solo (G5.1), *linear
+    history* rejected (the project merges with merge commits), *signed commits* deferred (unsigned
+    today; needs GPG/SSH for the no-reply identity first). Full rule-by-rule reasoning: `PLAN.md`
+    §Public-release readiness. **This part's premise was wrong, corrected at G8:** it recorded that a
+    ruleset *cannot exist* before the flip, from `GET /repos/utyagi24/klarpdf/rulesets` → **403
+    "Upgrade to GitHub Pro or make this repository public"**. The 403 was about the **API**, not the
+    rulesets — two were already active. — *WSL* — [#107](https://github.com/utyagi24/klarpdf/pull/107)
+- [ ] **G8** Flip to public (**manual; not a PR**) — **the repo is public** as of 2026-07-17
+  (`gh repo edit --visibility public --accept-visibility-change-consequences`; the second flag is
+  **required**, `gh` refuses `--visibility` without it). Everything machine-doable is **done**; two
+  items remain, both needing a human. The repo-settings work landed in
+  [#111](https://github.com/utyagi24/klarpdf/pull/111) (docs) — the settings themselves are not a PR.
+  - [x] **Private vulnerability reporting** — enabled; `GET
+    repos/utyagi24/klarpdf/private-vulnerability-reporting` → `{"enabled": true}`. Flip-gated (404s on
+    a private repo — public-repo-only). Until it was on, `/security/advisories/new` 404'd — and that
+    URL is the *only* reporting channel `SECURITY.md`, `CODE_OF_CONDUCT.md`,
+    `.github/ISSUE_TEMPLATE/config.yml` and the auto-close workflow's comment advertise.
+  - [x] **Secret scanning + push protection** — both `enabled`. Also flip-gated (they need paid GHAS
+    while private; free once public).
+  - [x] **Dependabot security updates** — `enabled` (`PUT repos/utyagi24/klarpdf/automated-security-fixes`).
+    **Not in the original G8 list**; added here because it is free on a public repo and is the
+    mechanical version of the pypdf advisory (**GHSA-jm82-fx9c-mx94**) that was caught by hand in
+    v0.9.4. See Open follow-ups.
+  - [x] **The `main` ruleset — reconciled, not created.** G7's premise was **wrong**: it recorded that
+    rulesets cannot exist before the flip (`GET .../rulesets` → 403 *"Upgrade to GitHub Pro or make
+    this repository public"*). That 403 was the **API** being unavailable on a private free repo, not
+    an absent ruleset — **"Protect Main"** (id 18233952) and **"Protect Tags"** (id 18234032) had been
+    active since **2026-06-28**. So `deletion` + `non_fast_forward` were already in place and the only
+    rule G8 actually added was **`required_status_checks`: `pytest` + `emails`**, `PUT` into the
+    existing ruleset rather than `POST`ed as a second overlapping one. Its pre-existing `pull_request`
+    rule (0 approvals) was **kept** — it enforces `CLAUDE.md`'s "never leave edits on `main`", and G7
+    only ever meant to decline required *reviews*. `main.json` is now a **mirror** of the live
+    ruleset. Verify: `gh api repos/utyagi24/klarpdf/rulesets/18233952 --jq '.rules'`.
+    **Likely-but-unconfirmed:** a private free repo *creates* rulesets without *enforcing* them (it
+    fits the 403, and G1's force-push succeeding weeks after `non_fast_forward` was listed) — so `main`
+    plausibly acquired real protection only at the flip. `PLAN.md` §Public-release readiness.
+  - [x] **The two dynamic README badges went live** — verified: `tests: passing`, `release: v0.10.1`.
+    They read the GitHub API, so while private they rendered *"repo or workflow not found"* and
+    *"inaccessible"*; the flip fixed both with no edit.
   - ~~Add repo description/topics~~ — **done ahead of the flip** (needs no public repo): description
     set + 13 topics. Nothing to do here at G8.
-  - **Upload the social preview** — Settings ▸ General ▸ Social preview ▸
-    `assets/brand/social-preview.png`. **Manual: there is no REST API for it.** It is GitHub's
-    `og:image` — what renders when the repo link is pasted anywhere.
-  - **Check the two dynamic README badges went live.** `tests` and `release` read the GitHub API, so
-    while the repo is private they render *"repo or workflow not found"* and *"inaccessible"*; the flip
-    fixes both with no edit. They should show the workflow result and the latest tag.
-  - **Check the Sponsors listing is live** (G6 Part 2) if it wasn't already — the repo Sponsor button
-    only renders once the repo is public *and* the listing exists. — *GitHub*
+  - [ ] **Upload the social preview** (**manual — the only G8 step a human must click**) — Settings ▸
+    General ▸ Social preview ▸ `assets/brand/social-preview.png`. **There is no REST API for it.** It
+    is GitHub's `og:image` — what renders when the repo link is pasted anywhere.
+  - [ ] **Check the Sponsors listing is live** — **blocked on G6 Part 2**, which is not done:
+    `hasSponsorsListing` is still **`false`**. The repo Sponsor button needs the repo public (✅ now)
+    *and* the listing to exist. Note the **shipped** in-app **Help ▸ Donate…** (v0.10.0) therefore
+    points at a URL that silently redirects to the plain profile — see G6's trap. — *GitHub*
 
 ## Open follow-ups (carried)
 
@@ -367,8 +384,12 @@ Carried items — none block work:
 - **Flaky test: `test_single_instance.py::test_handoff_opens_window_in_resident_instance`.** Failed
   once, passed on rerun (timing-sensitive Windows IPC: a race between the resident instance binding its
   socket and the forwarding launch connecting). **Could not reproduce** — 5 isolated runs + several
-  full suites all green. Harmless while the repo is private; once public (G8), a flake is a red X on a
-  stranger's first CI run. Diagnose before the flip.
+  full suites all green. **Stakes rose twice at G8** and this is now the most actionable follow-up:
+  the repo is public, so a flake is a red X on a stranger's first CI run — *and* `pytest` is now a
+  **required status check**, so a flake no longer merely looks bad, it **blocks the merge** until
+  someone re-runs the job. (The bypass list is empty by design, so there is no override; the escape is
+  re-running the check, or flipping `enforcement` to `disabled` and back.) Note the check runs on
+  `ubuntu-latest` while the observed flake was on Windows.
 - **Dependency vuln: pypdf → 6.13.3** → ✅ fixed in **v0.9.4**: bumped `pypdf` 6.13.2 → 6.13.3
   (**GHSA-jm82-fx9c-mx94**, Moderate memory-DoS in the `pypdf` fallback edit engine), recompiled the
   locks + regenerated `vendor/wheels-sources.md`, and removed the audit-gate ignore.
