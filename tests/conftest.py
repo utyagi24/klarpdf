@@ -14,6 +14,12 @@ from __future__ import annotations
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")  # headless: no display needed
+# Headless printing: QPrinter's only Linux backend is the CUPS plugin, which enumerates print
+# destinations at construction. With no cupsd (a bare WSL box has none), libcups falls back to
+# localhost:631; on WSL2 that connect never gets refused, so QPrinter(...) hangs the whole suite
+# (test_printing.py). Point CUPS at a dead domain socket so it fails fast — the tests render to PDF
+# and need no real printer. setdefault keeps a real CUPS setup (or CI's) if one is configured.
+os.environ.setdefault("CUPS_SERVER", "/dev/null")
 
 import pymupdf as fitz
 import pytest
