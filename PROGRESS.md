@@ -200,13 +200,14 @@ and ships as a separate optional component — the `klarpdf-setup.exe` audit sur
 
 ## Public-Release Readiness — go open-source under AGPL-3.0 (planned)
 
-Make the **currently private** repo public as an `AGPL-3.0-or-later` project. Independent of the
-v0.11.0 MCP roadmap — this track can land first. Full execution detail in `PLAN.md`
-§Public-release readiness (plan introduced in [#83](https://github.com/utyagi24/pdfproj/pull/83)).
-**One PR per item**; tick the box on merge and append the PR link. Steps
-are ordered — **G1 runs first, while the repo is still private**, and the final flip to public (G8)
-is a manual GitHub action, not a PR. The pre-public hygiene scan is clean (no secrets in tree or
-history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI uses `${{ secrets.* }}`).
+**The repo is public** as of **2026-07-17**, as an `AGPL-3.0-or-later` project — the flip (G8) is done.
+**G1–G5, G7 and G8 are complete; `G6 Part 2` (enrol in GitHub Sponsors) is the only item left**, and
+nothing depends on it. Independent of the v0.11.0 MCP roadmap — this track landed first. Full
+execution detail in `PLAN.md` §Public-release readiness (plan introduced in
+[#83](https://github.com/utyagi24/pdfproj/pull/83)). **One PR per item**; tick the box on merge and
+append the PR link. Steps were ordered — **G1 ran first, while the repo was still private**, and the
+flip itself was a manual GitHub action, not a PR. The pre-public hygiene scan was clean (no secrets in
+tree or history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI uses `${{ secrets.* }}`).
 
 - [x] **G1** Commit-author cleanup (**done** — history rewrite, no PR) — `git filter-repo` mailmap
   remapped the maintainer's personal email (162 commits) **and** the older bare-form no-reply (80
@@ -292,12 +293,20 @@ history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI uses `${
     **The trap:** `https://github.com/sponsors/utyagi24` does **not** 404 without a listing — GitHub
     silently **redirects it to the plain profile page**, so a dead Donate link is indistinguishable
     from a working one, in the app and in CI. Nothing automated can catch this; hence the one-time
-    gate in `RELEASE.md` §3, to be checked before the first release that ships the menu item. The
-    Sponsor *button* additionally needs the repo to be public (G8). — *GitHub account*
+    gate in `RELEASE.md` §3, to be checked before the first release that ships the menu item.
+    **This is now the only thing standing between the project and a finished public-release track**
+    (G1–G5, G7, G8 all done). Two consequences of that ordering, both live today:
+    - the in-app **Help ▸ Donate…** and About link **already shipped** in v0.10.0, so they currently
+      lead to a silent redirect to the plain profile — harmless, but wrong;
+    - the repo **Sponsor button** (the check moved here from G8) needs the repo public — ✅ since
+      2026-07-17 — *and* the listing. So the listing is now the sole remaining blocker for it.
+    Verify both once enrolled: `hasSponsorsListing` → `true`, and the Sponsor button renders on the
+    repo page. — *GitHub account*
 - [x] **G7** Lock-in identity, hygiene & branch rulesets — keeps the G1 scrub true, permanently. Three
-  parts: repo-side (one PR), manual identity, and the ruleset. **Complete in the sense G7 can be** —
-  the ruleset is *decided and pre-authored* here but can only be **created at G8** (rulesets 403 on a
-  private free repo), so that one step is carried on G8's checklist, not left dangling here.
+  parts: repo-side (one PR), manual identity, and the ruleset. The ruleset was *decided and
+  pre-authored* here and **completed at G8**, where its premise turned out to be wrong: G7 recorded
+  that a ruleset *cannot exist* while private (a 403 on `GET .../rulesets`), but two were already
+  active — the 403 was the **API**, not the rulesets. See Part 3 and G8.
   - [x] **Part 1 — repo side** — `.gitignore` gains `*.pfx *.pem *.key .env *.log` (nothing matches
     today; `*.pfx` is the live one — Authenticode signing is a carried follow-up and a cert lands in the
     tree as exactly that). New `.github/workflows/author-email-guard.yml` fails a PR whose author (or
@@ -328,11 +337,12 @@ history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI uses `${
     ruleset *cannot exist* before the flip, from `GET /repos/utyagi24/klarpdf/rulesets` → **403
     "Upgrade to GitHub Pro or make this repository public"**. The 403 was about the **API**, not the
     rulesets — two were already active. — *WSL* — [#107](https://github.com/utyagi24/klarpdf/pull/107)
-- [ ] **G8** Flip to public (**manual; not a PR**) — **the repo is public** as of 2026-07-17
+- [x] **G8** Flip to public (**manual; not a PR**) — **done 2026-07-17. The repo is public.**
   (`gh repo edit --visibility public --accept-visibility-change-consequences`; the second flag is
-  **required**, `gh` refuses `--visibility` without it). Everything machine-doable is **done**; two
-  items remain, both needing a human. The repo-settings work landed in
-  [#111](https://github.com/utyagi24/klarpdf/pull/111) (docs) — the settings themselves are not a PR.
+  **required**, `gh` refuses `--visibility` without it.) Every item in G8's own scope is complete and
+  verified; the Sponsors-listing check that used to sit here is G6's and moved there. Docs landed in
+  [#111](https://github.com/utyagi24/klarpdf/pull/111) + [#112](https://github.com/utyagi24/klarpdf/pull/112)
+  — the settings themselves are not a PR.
   - [x] **Private vulnerability reporting** — enabled; `GET
     repos/utyagi24/klarpdf/private-vulnerability-reporting` → `{"enabled": true}`. Flip-gated (404s on
     a private repo — public-repo-only). Until it was on, `/security/advisories/new` 404'd — and that
@@ -362,13 +372,17 @@ history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI uses `${
     *"inaccessible"*; the flip fixed both with no edit.
   - ~~Add repo description/topics~~ — **done ahead of the flip** (needs no public repo): description
     set + 13 topics. Nothing to do here at G8.
-  - [ ] **Upload the social preview** (**manual — the only G8 step a human must click**) — Settings ▸
-    General ▸ Social preview ▸ `assets/brand/social-preview.png`. **There is no REST API for it.** It
-    is GitHub's `og:image` — what renders when the repo link is pasted anywhere.
-  - [ ] **Check the Sponsors listing is live** — **blocked on G6 Part 2**, which is not done:
-    `hasSponsorsListing` is still **`false`**. The repo Sponsor button needs the repo public (✅ now)
-    *and* the listing to exist. Note the **shipped** in-app **Help ▸ Donate…** (v0.10.0) therefore
-    points at a URL that silently redirects to the plain profile — see G6's trap. — *GitHub*
+  - [x] **Upload the social preview** (**manual — the one G8 step a human had to click**; there is no
+    REST API for it) — Settings ▸ General ▸ Social preview ▸ `assets/brand/social-preview.png`.
+    **Done + verified**: the repo's `og:image` meta now resolves to `repository-images.
+    githubusercontent.com` (a custom upload; the default would be `opengraph.githubassets.com`) and the
+    served bytes are **sha256-identical** to `assets/brand/social-preview.png`, 1280×640. This is what
+    renders when the repo link is pasted anywhere. Re-check with:
+    `curl -sL https://github.com/utyagi24/klarpdf | grep 'og:image'`.
+  - ~~Check the Sponsors listing is live~~ — **moved to G6 Part 2**, where it belongs: it verifies
+    *G6's* deliverable, and was only parked here because the Sponsor button also needs a public repo
+    — a condition now permanently satisfied. Leaving it here would make G8's status a lagging shadow
+    of G6's, which is exactly the duplication `CLAUDE.md` §"update in exactly one place" forbids. — *GitHub*
 
 ## Open follow-ups (carried)
 

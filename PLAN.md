@@ -69,11 +69,12 @@ from `page.get_text("words")` boxes delivers selection **and** unifies viewing +
 editing on one engine. Text selected this way is exactly the preserved OCR layer.
 
 **AGPL note for the user:** PyMuPDF is AGPL. Building the installer for **your own machines** is
-private use — fine. If you ever distribute the installer **publicly**, AGPL requires offering the
-corresponding source; since the full source will live in this repo once it is made public (the repo
-is **currently private** — see §Packaging → *Public-release readiness*), shipping the installer with
-a pointer to the repo (and its exact tag/commit) satisfies that. The alternatives remain: an Artifex
-commercial license, or a pypdf-only fallback build.
+private use — fine. If you distribute the installer **publicly**, AGPL requires offering the
+corresponding source; the full source now lives in this **public** repo (since 2026-07-17 — see
+§Packaging → *Public-release readiness*), so shipping the installer with a pointer to the repo (and
+its exact tag/commit) satisfies that. This is no longer hypothetical: the obligation is **live**, and
+the About dialog's tagged corresponding-source link (G4) is what discharges it per release. The
+alternatives remain: an Artifex commercial license, or a pypdf-only fallback build.
 
 ### Key design idea — Virtual-document / edit-list model (lossless)
 
@@ -277,13 +278,15 @@ a portable **`--onefile` `klarpdf-portable-x64.exe`** → Inno Setup (`ISCC inst
 
 ### Public-release readiness (AGPL licensing & compliance)
 
-The repo is **currently private**. Making it public is a deliberate, largely one-way step (published
-source is effectively public forever) and turns the AGPL note above from "private use, fine" into a
-live obligation, so it carries its own readiness track (checklist in `PROGRESS.md` §Public-Release
-Readiness; **one PR per item**, ordered, with the email cleanup first and the flip-to-public last and
-manual). The pre-public hygiene scan is clean — no secrets in the working tree or history,
-`.gitignore` excludes all build artifacts / wheels / `report.json`, CI uses `${{ secrets.* }}` — so
-the work is licensing + community files plus a one-time commit-author cleanup.
+The repo is **public since 2026-07-17**. That was a deliberate, largely one-way step (published source
+is effectively public forever) and it turned the AGPL note above from "private use, fine" into a
+**live obligation**, so it carried its own readiness track (checklist + status in `PROGRESS.md`
+§Public-Release Readiness; **one PR per item**, ordered, with the email cleanup first and the
+flip-to-public last and manual). The pre-public hygiene scan was clean — no secrets in the working
+tree or history, `.gitignore` excludes all build artifacts / wheels / `report.json`, CI uses
+`${{ secrets.* }}` — so the work was licensing + community files plus a one-time commit-author
+cleanup. The sections below record the **design and rationale**; for what is done vs. outstanding, see
+`PROGRESS.md`.
 
 - **Branding (name + logo) — decided: KlarPDF.** `pdfproj` was a development codename, not a product
   brand; the name had to be settled **before** the name-dependent artifacts below (license copyright,
