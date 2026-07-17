@@ -29,59 +29,72 @@ the unit of audit; it ships as a pinned, fully offline Windows installer.
 <p align="center"><sub>The real app, captured from a real build — and it follows the Windows theme, so
 this screenshot follows your GitHub one.</sub></p>
 
-**Status: `v0.10.1` shipped** — [download the installer or portable exe](https://github.com/utyagi24/klarpdf/releases/latest). Milestones **M0–M38 complete**. Full status: [PROGRESS.md](PROGRESS.md).
+**Status: `v0.10.1` shipped** — [download the installer or portable exe](https://github.com/utyagi24/klarpdf/releases/latest).
+**New in v0.10.1:** a bigger, clearer app icon; PDF files get their own document icon; and Setup /
+the uninstaller now refuse to run while KlarPDF is open instead of leaving files behind. Full
+release notes live on [GitHub Releases](https://github.com/utyagi24/klarpdf/releases); live status —
+milestones (**M0–M38 complete**), per-release notes, open follow-ups — in [PROGRESS.md](PROGRESS.md).
 
-**New in v0.10.1:** a **bigger, clearer app icon** — the old mark filled barely half the square canvas
-Windows gives a taskbar button, so it looked tiny next to everything else; it is now a tile that fills
-it. **PDF files get their own icon** instead of wearing the application's. And the **installer and
-uninstaller now refuse to run while KlarPDF is open**, rather than leaving files behind — close the
-app first, and they will say so.
+## Features
 
-**v0.10.0 — KlarPDF:** the project formerly built as `pdfproj` is now **KlarPDF** (*klar* =
-"clear" in German and the Scandinavian languages) — a new name, mark, and toolbar icon set; a root
-**AGPL-3.0-or-later licence**; and a **Help menu** with **About** (version, licence, no-warranty
-notice, and a link to the source at the exact tag this binary was built from) and **Open-Source
-Licenses** (the bundled licence texts, readable offline). *Upgrading from `pdfproj`?* **Uninstall it
-first** — KlarPDF installs as a separate application, and the old uninstaller is the only thing that
-removes its file association. Then delete `%LOCALAPPDATA%\pdfproj` by hand.
+The macOS-Preview workflow, rebuilt for Windows: a fast viewer that is also a page editor.
+Everything below works **fully offline** — the app makes no network connections, ever.
 
-**v0.9.0 — Encrypted & Links:** open **password-protected PDFs** (prompt + authenticate on
-open; the saved copy is unencrypted); and **internal links that survive editing** — GoTo and
-named-destination links are rebuilt at save so reorder / delete / Save keeps them working, and
-they're **clickable in the viewer** (click to jump to the target page). Patches through **v0.9.6**
-polish the open experience — a window opens on the **monitor under your cursor** at Fit Page with no
-flicker, the Pages sidebar loads **lazily** (a 320-page doc opens in ~150 ms) and is hidden by
-default; **v0.9.4** is a dependency **security patch** (`pypdf` 6.13.2 → 6.13.3); **v0.9.5** centres
-the page and makes Fit Width / Fit Page sticky on resize; and **v0.9.6** stops the Pages-sidebar
-thumbnails flickering and brings a second PDF opened from Explorer to the front.
-**v0.8.0 — Images:** **import** a PNG/JPEG from Explorer onto the Pages sidebar as a new page, and
-**export** selected pages as PNG/JPEG at a chosen DPI (edits-aware).
-**v0.7.0 — Round-trip & Export:** reopen a saved document and **move / edit / remove your own
-highlights & text boxes**; plus a flatten **Export → PDF** that bakes annotations + form widgets into
-the page content (text-preserving).
-**v0.6.0 — Rich Text & Live Preview:** **styled text boxes** — set the font family, size, and
-colour, plus a box fill and outline, from a small formatting bar on the inline editor; **live
-thumbnails** — the Pages sidebar reflects each page's current edits (annotations, redactions, fills);
-and **dynamic theme icons** — the toolbar re-tints instantly when you switch Windows light↔dark.
-**v0.5.0 — File Safety & Output:** **Revert to Saved** (discard edits, reload from disk); an
-**external-change warning** when another program modifies the open file (Reload / Keep, plus an
-overwrite guard before Save); and **edits-aware printing** — the printout shows your annotations,
-form values, and redactions (a not-yet-saved redaction no longer prints the original).
-**v0.4.0 — Annotate & Redact:** text **highlight** and **text boxes** (drag to move, double-click to
-re-edit); and **true destructive redaction** — drag over text or a block to permanently remove it at
-save (a cross-engine-verified, confirmed point of no return).
-**v0.3.0:** better **drag-and-drop**, **drag a PDF in from File Explorer**, and a **Grab/Select**
-viewer-mode toggle.
-**v0.2.0:** theme-aware **icons**, a live **zoom %** indicator, **printing**, **Open Recent**, and
-**form filling** (click and fill AcroForm fields, saved losslessly).
+**View**
+- Continuous-scroll viewer with zoom, a live zoom readout, and **Fit Width / Fit Page** that stay
+  sticky as you resize.
+- **Select & copy text** — exactly the document's (OCR) text layer — and **search** with
+  highlighted hits and next/previous navigation.
+- **Pages sidebar** with live thumbnails that reflect your current edits; thumbnails load lazily,
+  so a 320-page document opens in ~150 ms.
+- **Clickable internal links** — click to jump to the target page.
+- Opens **password-protected PDFs** (prompted on open; the saved copy is unencrypted).
+- **Grab / Select** viewer-mode toggle; a window opens on the monitor under your cursor, at
+  Fit Page, without flicker.
+- Follows the **Windows light/dark theme** live — the toolbar icons re-tint the moment you switch.
+- **Remembers where you were**: last page, zoom, scroll, and window geometry per document — plus
+  **Open Recent**.
 
-| Doc | What |
-|---|---|
-| [PLAN.md](PLAN.md) | Product spec, architecture, dependencies/packaging, portability, build order, **Execution**, verification |
-| [PROGRESS.md](PROGRESS.md) | Live milestone checklist (M0–M38 shipped; v0.11.0 MCP roadmap planned) + **Open follow-ups** |
-| [RELEASE.md](RELEASE.md) | Maintainer runbook — change a dependency · respond to a Dependabot alert · cut a release (via the `invoke` tasks) |
-| [CLAUDE.md](CLAUDE.md) | Orientation + conventions for contributors/agents |
-| [DEPENDENCIES.md](DEPENDENCIES.md) | Pinned libraries + build toolchain — exact versions, licenses |
+**Organize pages** — the splice/split workflow
+- **Drag-and-drop reorder**, delete, and rotate pages in the Pages sidebar.
+- **Merge / splice**: drag a PDF in from File Explorer to insert its pages at any position.
+- **Cut / copy / paste pages** — including **between two open documents**.
+- **Undo / redo** (Ctrl+Z / Ctrl+Y) for every page edit.
+- **Lossless saves**: pages are copied at the object level, so the text (OCR) layer and form fields
+  survive untouched, and **bookmarks and internal links are rebuilt** to keep working after
+  reorder / delete.
+- Save / Save As, with a **Save / Discard / Cancel** prompt on close.
+
+**Annotate, redact & fill**
+- **Highlight** text, and add **styled text boxes** — font family, size, colour, box fill and
+  outline; drag to move, double-click to re-edit, **also after reopening the saved file**.
+- **True destructive redaction**: drag over text or a region and it is permanently removed at save
+  — a cross-engine-verified, confirmed point of no return.
+- **Fill AcroForm forms**; values save losslessly.
+- **Edits-aware printing** — the printout shows your annotations, form values, and redactions (an
+  unsaved redaction never prints the original).
+- **Export → PDF (flatten)**: bakes annotations + form widgets into the page content,
+  text-preserving.
+
+**Images**
+- **Import** a PNG/JPEG from Explorer as a new page.
+- **Export** selected pages as PNG/JPEG at a chosen DPI, edits-aware.
+
+**File safety**
+- **Revert to Saved**; a warning when **another program modifies the open file** (Reload / Keep);
+  and an overwrite guard before Save.
+
+**A native Windows citizen**
+- Registers in the `.pdf` **Open With** list — built to be your default viewer.
+- **Single instance, one window per document**: opening an already-open file focuses its window,
+  never spawns a duplicate.
+- Per-user install (no admin), Start-Menu shortcut, clean uninstall — or a single-file portable
+  exe.
+
+**Private & auditable by design**
+- **No network access** at install or runtime, no telemetry, no accounts, no upsell.
+- Readable Python source is the unit of audit; every dependency **pinned by hash and vendored**;
+  free software under the AGPL.
 
 ## Use it (Windows)
 
@@ -97,6 +110,38 @@ names the only architecture built today — see PLAN.md §Packaging.
 
 No Python and no network needed at install or runtime. Unsigned for now → a one-time SmartScreen
 "unknown publisher" prompt. Verify a download against `SHA256SUMS` in the release.
+
+*Upgrading from a pre-rename `pdfproj` build (≤ v0.9.6)?* **Uninstall it first** — KlarPDF installs
+as a separate application, and the old uninstaller is the only thing that removes its file
+association. Then delete `%LOCALAPPDATA%\pdfproj` by hand.
+
+## The repo — docs & layout
+
+| Doc | What |
+|---|---|
+| [PLAN.md](PLAN.md) | The design source of truth: product spec, architecture, dependencies/packaging, portability, build order, **Execution**, verification |
+| [PROGRESS.md](PROGRESS.md) | The status source of truth: milestone checklist, per-release notes, release links, **Open follow-ups** |
+| [RELEASE.md](RELEASE.md) | Maintainer runbook — change a dependency · respond to a Dependabot alert · cut a release (via the `invoke` tasks) |
+| [CLAUDE.md](CLAUDE.md) | Orientation + working conventions for contributors/agents |
+| [DEPENDENCIES.md](DEPENDENCIES.md) | Pinned libraries + build toolchain — exact versions, licenses |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | How contributions work: issues open to everyone; pull requests maintainer-only |
+| [SECURITY.md](SECURITY.md) | Security policy — supported versions, threat model, how to report |
+| [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Community standards |
+
+Source layout, briefly:
+
+```text
+launcher.py                # entry point — single-instance logic, then hands off to app.py
+app.py · main_window.py    # Qt application + the document window
+model/                     # edit engine: virtual document, page edits, save, outline/link remap
+viewer/                    # rendering, selection, search, annotations, forms, printing
+organize/                  # Pages sidebar (thumbnails, drag-and-drop)
+ui/ · store/ · util/       # icons + About · view-state/recents · path identity + resources
+platform_integration.py    # ALL OS-specific code, quarantined behind one seam
+packaging/                 # PyInstaller spec, Inno Setup script, build.ps1
+vendor/ · requirements-*   # the pinned + vendored offline dependency ship-set
+tests/                     # 414 headless tests (offscreen Qt), run in CI on every PR
+```
 
 ## Develop (WSL)
 
