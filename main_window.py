@@ -54,7 +54,7 @@ from viewer.annotations import AnnotationOverlay
 from viewer.form_fill import FormFiller
 from viewer.links import LinkNavigator
 from viewer.pdf_view import PdfView
-from viewer.search import FindBar, SearchController
+from viewer.search import FindBar, SearchController, SearchResultsPanel
 from viewer.text_selection import TextSelection
 from viewer.tools import ArmedTool, InteractionMode
 from viewer.zoom_widget import ZoomWidget
@@ -104,14 +104,18 @@ class MainWindow(QMainWindow):
         self.view.armedChanged.connect(self._on_armed_changed)
         self.view.applyTextTool.connect(self._apply_text_tool)
         self.find_bar = FindBar(self.view)  # hidden until Ctrl+F
+        # Doc-wide search hit list (M47): a band under the find bar, hidden until List All.
+        self.search_results = SearchResultsPanel(self.view)
+        self.find_bar.results_panel = self.search_results
 
-        # Central column: find bar above the view. (A QToolBar host collapses to zero height
-        # while the bar is hidden and won't re-expand on show(), so use a real layout.)
+        # Central column: find bar (+ results list) above the view. (A QToolBar host collapses to
+        # zero height while the bar is hidden and won't re-expand on show(), so use a real layout.)
         central = QWidget()
         col = QVBoxLayout(central)
         col.setContentsMargins(0, 0, 0, 0)
         col.setSpacing(0)
         col.addWidget(self.find_bar)
+        col.addWidget(self.search_results)
         col.addWidget(self.view, 1)
         self.setCentralWidget(central)
 
@@ -479,6 +483,8 @@ class MainWindow(QMainWindow):
         # A structural edit invalidates page indices, so drop stale overlays and rebuild.
         self.view.selection.clear()
         self.view.search.clear()
+        if self.search_results.isVisible():
+            self.search_results.refresh()  # the hits died with the edit — no stale rows
         self.view.reload()
         self.thumbs.populate()
         if self.outline is not None:
@@ -914,6 +920,8 @@ class MainWindow(QMainWindow):
         self._watcher.record_current()
         self.view.selection.clear()
         self.view.search.clear()
+        if self.search_results.isVisible():
+            self.search_results.refresh()  # cleared with the search — no stale rows
         self.view.reload()
         self.thumbs.populate()
         self._mount_sidebar()  # the freshly-read file may have gained or lost its outline

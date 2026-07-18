@@ -218,7 +218,11 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   link → Copy Link Address** (URI links stay non-clickable — clipboard only, offline guarantee
   intact); bare page → the routed View-menu QActions (fits · rotate · Go to Page). Sidebar menu adds
   Rotate Left/Right (extract joins at M51; paste-object at M59). — *WSLg*
-- [ ] **M47** Search-all results panel (page + snippet, click-to-jump; M64 reuses it) — *WSLg*
+- [x] **M47** Search-all results panel (page + snippet, click-to-jump; M64 reuses it). The FindBar
+  gains a **List All** toggle → a hit-list band under the bar ("p. N   …snippet…"; hidden until
+  asked — no dead chrome). Snippets are the hit's text line windowed ±4 words with ellipses; click
+  a row → that hit becomes current and is revealed; the panel follows the query as typed, tracks
+  next/prev, and empties with the overlay on a structural edit. — *WSLg*
 - [ ] **M48** Crop pages — `crop_override` on PageRef; page/selected/all scopes; "hidden, not removed" wording; reset offered — *WSL + WSLg*
 - [ ] **M49** Night reading mode (view-only pixmap invert) — *WSLg*
 - [ ] **M50** Verify + release → tag — *Windows*
