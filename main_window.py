@@ -150,6 +150,9 @@ class MainWindow(QMainWindow):
         self._watcher.changedOnDisk.connect(self._check_external_change)
 
         self._build_actions()
+        # Right-click menus by hit state (M46) — set after _build_actions: the bare-page menu
+        # routes the QActions built there.
+        self.view.context_menu_provider = self._view_context_menu
         self.setWindowTitle(f"{os.path.basename(path)} — KlarPDF[*]")
         self.setWindowIcon(icons.app_icon())
         self._place_window()  # final size + position *before* show() → no post-show resize jump
@@ -269,7 +272,7 @@ class MainWindow(QMainWindow):
         a_delete = act("Delete Pages", lambda: self._delete_rows(self.thumbs.selected_rows()), icon="delete", to_menu=edit_menu)
         a_insert = act("Insert Pages from File…", self._insert_from_file, icon="insert", to_menu=edit_menu)
         edit_menu.addSeparator()
-        act("Copy", self._copy_selection, QKeySequence.StandardKey.Copy, to_menu=edit_menu)
+        self._a_copy_text = act("Copy", self._copy_selection, QKeySequence.StandardKey.Copy, to_menu=edit_menu)
         a_find = act("Find…", self._show_find, QKeySequence.StandardKey.Find, icon="find", to_menu=edit_menu)
         act("Find Next", self.find_bar.find_next, QKeySequence.StandardKey.FindNext, to_menu=edit_menu)
         act("Find Previous", self.find_bar.find_prev, QKeySequence.StandardKey.FindPrevious, to_menu=edit_menu)
@@ -279,18 +282,20 @@ class MainWindow(QMainWindow):
         a_zin = act("Zoom In", self.view.zoom_in, QKeySequence.StandardKey.ZoomIn, icon="zoom-in", to_menu=view_menu)
         # Live magnification indicator + preset/typed zoom (1.0 == 100%).
         self.zoom_widget = ZoomWidget(self.view)
-        act("Actual Size", self.view.actual_size, "Ctrl+0", to_menu=view_menu)  # reset to 100%
-        a_fitw = act("Fit Width", self.view.fit_width, "Ctrl+1", icon="fit-width", to_menu=view_menu)
-        a_fitp = act("Fit Page", self.view.fit_page, "Ctrl+2", icon="fit-page", to_menu=view_menu)
+        # self._a_* refs: these actions are also routed into the view's context menu (M46) — the
+        # same QAction objects, so labels/shortcuts/enabled-state stay single-sourced.
+        self._a_actual = act("Actual Size", self.view.actual_size, "Ctrl+0", to_menu=view_menu)  # reset to 100%
+        a_fitw = self._a_fitw = act("Fit Width", self.view.fit_width, "Ctrl+1", icon="fit-width", to_menu=view_menu)
+        a_fitp = self._a_fitp = act("Fit Page", self.view.fit_page, "Ctrl+2", icon="fit-page", to_menu=view_menu)
         view_menu.addSeparator()
         # Jump to an absolute page (M45). Menu + dialog only — one-shot commands stay off the
         # toolbar (PLAN.md §GUI feature roadmap, UI budget).
-        act("Go to &Page…", self._goto_page_dialog, "Ctrl+G", to_menu=view_menu)
+        self._a_goto = act("Go to &Page…", self._goto_page_dialog, "Ctrl+G", to_menu=view_menu)
         view_menu.addSeparator()
         # Rotate the current/selected page(s) only — a real per-page edit (undoable, saved),
         # not a whole-view spin. PdfView.rotate_view still exists for view-only rotation.
-        a_rotl = act("Rotate Left", lambda: self._rotate_pages(-90), "Ctrl+L", icon="rotate-left", to_menu=view_menu)
-        a_rotr = act("Rotate Right", lambda: self._rotate_pages(90), "Ctrl+R", icon="rotate-right", to_menu=view_menu)
+        a_rotl = self._a_rotl = act("Rotate Left", lambda: self._rotate_pages(-90), "Ctrl+L", icon="rotate-left", to_menu=view_menu)
+        a_rotr = self._a_rotr = act("Rotate Right", lambda: self._rotate_pages(90), "Ctrl+R", icon="rotate-right", to_menu=view_menu)
         view_menu.addSeparator()
         # Persistent interaction mode: Select (default — text/forms/move) vs Grab (hand-pan).
         # Mutually exclusive; the checked toolbar button shows the active tool.
@@ -674,29 +679,77 @@ class MainWindow(QMainWindow):
             label = "Insert dropped file" if len(paths) == 1 else f"Insert {len(paths)} dropped files"
             self.undo_stack.push(InsertCommand(self.vdoc, before_index, refs, text=label))
 
-    def _page_context_menu(self, pos) -> None:
-        rows = self.thumbs.selected_rows()
+    def _view_context_menu(self, scene_pt) -> "QMenu | None":
+        """Build the view's right-click menu from the hit state under the cursor (M46): the verbs
+        for our annotation / the live text selection / the link at ``scene_pt``, else the bare-page
+        navigation set. Exec'd by ``PdfView.contextMenuEvent``; returned unexec'd so tests can
+        assert contents. Later milestones hang their situational verbs here (paste object M59,
+        extract M51)."""
         menu = QMenu(self)
-        a_cut = menu.addAction("Cut")
-        a_copy = menu.addAction("Copy")
-        a_paste = menu.addAction("Paste")
-        a_delete = menu.addAction("Delete")
+        # Our annotation under the cursor → Remove (pre-M46 behaviour, now routed here). First:
+        # the most specific hit wins, and Remove must stay reachable over a selection.
+        hit = self.view.annotations.annotation_at(scene_pt) if self.view.annotations else None
+        if hit is not None:
+            page_index, annot = hit
+            label = {
+                "Highlight": "Remove highlight",
+                "TextBox": "Remove text box",
+                "Redaction": "Remove redaction",
+            }.get(type(annot).__name__, "Remove annotation")
+            menu.addAction(label, lambda: self.view.annotations.remove(page_index, annot))
+            return menu
+        # A live text selection → its verbs. Highlight/Redact Selection apply now to what is
+        # selected — unlike the toolbar's armed one-shot tools, which select-then-apply.
+        if self.view.selection is not None and self.view.selection.selected_words():
+            menu.addAction(self._a_copy_text)
+            menu.addSeparator()
+            menu.addAction("Highlight Selection", self._highlight_selection)
+            menu.addAction("Redact Selection", self._redact_selection)
+            return menu
+        if self.view.links is not None:
+            dest = self.view.links.link_at(scene_pt)
+            if dest is not None:
+                menu.addAction(f"Go to Page {dest + 1}", lambda: self.view.goto_page(dest))
+                return menu
+            uri = self.view.links.uri_at(scene_pt)
+            if uri is not None:
+                # External links are never click-navigable (offline app) — copy is the one verb.
+                menu.addAction("Copy Link Address",
+                               lambda: QGuiApplication.clipboard().setText(uri))
+                return menu
+        # Bare page (or the gap between pages — these verbs are view-level, so no dead zone):
+        # routes the same QAction objects as the View menu, so shortcuts show alongside.
+        for action in (self._a_fitw, self._a_fitp, self._a_actual):
+            menu.addAction(action)
         menu.addSeparator()
-        a_insert = menu.addAction("Insert Pages from File…")
-        for a in (a_cut, a_copy, a_delete):
+        menu.addAction(self._a_rotl)
+        menu.addAction(self._a_rotr)
+        menu.addSeparator()
+        menu.addAction(self._a_goto)
+        return menu
+
+    def _build_page_context_menu(self, rows) -> QMenu:
+        """The Pages-sidebar right-click menu for the selected ``rows`` (M46 adds rotate; extract
+        joins at M51). Built unexec'd so tests can assert contents and trigger actions."""
+        menu = QMenu(self)
+        a_cut = menu.addAction("Cut", lambda: self._cut_pages(rows))
+        a_copy = menu.addAction("Copy", lambda: self._copy_pages(rows))
+        a_paste = menu.addAction("Paste", lambda: self._paste_pages(rows[-1] + 1 if rows else None))
+        a_delete = menu.addAction("Delete", lambda: self._delete_rows(rows))
+        menu.addSeparator()
+        # Same undoable per-page rotation as View ▸ Rotate; rows == the sidebar selection, which
+        # is exactly what _rotate_pages acts on.
+        a_rotl = menu.addAction("Rotate Left", lambda: self._rotate_pages(-90))
+        a_rotr = menu.addAction("Rotate Right", lambda: self._rotate_pages(90))
+        menu.addSeparator()
+        menu.addAction("Insert Pages from File…", self._insert_from_file)
+        for a in (a_cut, a_copy, a_delete, a_rotl, a_rotr):
             a.setEnabled(bool(rows))
         a_paste.setEnabled(bool(self._app.page_clipboard))
-        chosen = menu.exec(self.thumbs.mapToGlobal(pos))
-        if chosen is a_cut:
-            self._cut_pages(rows)
-        elif chosen is a_copy:
-            self._copy_pages(rows)
-        elif chosen is a_paste:
-            self._paste_pages(rows[-1] + 1 if rows else None)
-        elif chosen is a_delete:
-            self._delete_rows(rows)
-        elif chosen is a_insert:
-            self._insert_from_file()
+        return menu
+
+    def _page_context_menu(self, pos) -> None:
+        self._build_page_context_menu(self.thumbs.selected_rows()).exec(self.thumbs.mapToGlobal(pos))
 
     # ---- save (materialize-on-save) ---------------------------------------------
 

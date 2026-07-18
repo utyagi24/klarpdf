@@ -59,6 +59,9 @@ class PdfView(QGraphicsView):
         self.form = None
         self.annotations = None
         self.links = None  # internal-link navigation (M33), set by MainWindow
+        # Builds the right-click menu for a scene point (M46), set by MainWindow; None falls
+        # through to the default QGraphicsView handling.
+        self.context_menu_provider = None
 
         self._mode = InteractionMode.SELECT  # SELECT (text/forms/move) vs GRAB (hand-pan) — M18
         # A one-shot armed insert tool (ArmedTool.TEXTBOX / .REDACT) — fires once then auto-reverts
@@ -319,23 +322,13 @@ class PdfView(QGraphicsView):
         super().mousePressEvent(event)
 
     def contextMenuEvent(self, event) -> None:
-        # Right-click an annotation → Remove (works in any mode; the discoverable way to delete a
-        # highlight / text-box without undoing later edits).
-        if self.annotations is not None:
-            hit = self.annotations.annotation_at(self.mapToScene(event.pos()))
-            if hit is not None:
-                from PySide6.QtWidgets import QMenu
-
-                page_index, annot = hit
-                menu = QMenu(self)
-                label = {
-                    "Highlight": "Remove highlight",
-                    "TextBox": "Remove text box",
-                    "Redaction": "Remove redaction",
-                }.get(type(annot).__name__, "Remove annotation")
-                action = menu.addAction(label)
-                if menu.exec(event.globalPos()) is action:
-                    self.annotations.remove(page_index, annot)
+        # The menu is built by MainWindow (context_menu_provider) from the hit state under the
+        # cursor — annotation / text selection / link / bare page (M46) — because the verbs it
+        # routes (copy, highlight/redact, fit modes, Go to Page…) live on the window, not the view.
+        if self.context_menu_provider is not None:
+            menu = self.context_menu_provider(self.mapToScene(event.pos()))
+            if menu is not None:
+                menu.exec(event.globalPos())
                 event.accept()
                 return
         super().contextMenuEvent(event)
