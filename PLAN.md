@@ -944,14 +944,15 @@ thin set of read-only query helpers + the MCP tool layer.
 4. **Repo layout:** keep the server in this repo (shared `model/` core) vs. a sibling repo importing
    KlarPDF as a dependency.
 
-## GUI feature roadmap — the post-v0.10 tranche G1–G5 (planned; M45–M70)
+## GUI feature roadmap — the post-v0.10 tranche R1–R5 (planned; M45–M70)
 
 Owner-decided 2026-07-18 after a feature-exploration session (23 features approved, radio-button
 groups rejected — see §Future enhancements). Same discipline as every prior tranche: **one PR per
 milestone**, `PROGRESS.md` tracks state, ⭐ marks a keystone (GUI-free core, fully
 headless-testable). **Still zero new dependencies** — every item is native PyMuPDF or Qt (already
 inside the vendored wheels), so `requirements.in` and the hashed offline lock stay exactly as
-shipped.
+shipped. (Releases are numbered **R1–R5** — "R" for release — because **G#** is already taken by the
+Public-Release Readiness track's G1–G8 milestones; R# also matches the decision report's bundle names.)
 
 **Sequencing vs the MCP bridge:** v0.11.0 is reserved for the MCP / Agent Bridge roadmap above
 (M39–M44). The releases below are provisionally **v0.12.0 → v0.16.0** assuming the bridge ships
@@ -976,7 +977,7 @@ the v0.7.0 → v0.9.0 re-scope). Theme names and milestone numbers are stable ei
   dict + XMP); search-&-redact covers the text layer only; an image signature is ink-equivalent,
   not cryptographic; baked-at-save marks are a point of no return, round-trip marks stay editable.
 
-### G1 (prov. v0.12.0) — "Navigate & Polish"
+### R1 (prov. v0.12.0) — "Navigate & Polish"
 
 | Milestone | Feature | Where | Done when |
 |---|---|---|---|
@@ -987,7 +988,7 @@ the v0.7.0 → v0.9.0 re-scope). Theme names and milestone numbers are stable ei
 | **M49** Night reading mode | Invert page pixmaps (view-only; independent of the followed OS theme). | WSLg | Toggle renders pages dark; file + print output unchanged |
 | **M50** Verify + release | Headless suite green; Windows validation; tag. | Windows | Matrix green → release |
 
-### G2 — "Document Hygiene"
+### R2 — "Document Hygiene"
 
 | Milestone | Feature | Where | Done when |
 |---|---|---|---|
@@ -997,17 +998,17 @@ the v0.7.0 → v0.9.0 re-scope). Theme names and milestone numbers are stable ei
 | **M54** ⭐ Document encryption | One save-path capability, four verbs: **Set / Change / Remove Password** + carry-through on save (supersedes the old "re-encryption on save" deferral). AES-256 only, user password (real cryptography); optional advisory restriction flags with honest wording ("honored by most viewers; not cryptographically enforced"). Password held in memory only, never persisted; type-twice + unrecoverable-if-lost warning. NB: pypdf can't do AES without a dev-only `cryptography` extra — cross-engine verification is via independent PyMuPDF reopen (fixture pattern exists in `test_encrypted.py`). | WSL (model+tests) + WSLg | Save→reopen round-trips under password on both open paths; Remove requires the current password |
 | **M55** Verify + release | Headless suite green; Windows validation; tag. | Windows | Matrix green → release |
 
-### G3 — "Markup Tools"
+### R3 — "Markup Tools"
 
 | Milestone | Feature | Where | Done when |
 |---|---|---|---|
 | **M56** Underline & strikeout | Same text-quad path as Highlight; author-tagged; round-trip read-back. Joins the Markup ▾ split-button. | WSL (model+tests) + WSLg | Underline/strikeout bake, reopen editable, print/flatten correctly |
 | **M57** ⭐ Pen & shapes model | `InkStroke` / `Line` / `Shape` descriptors beside `Highlight`; `add_ink_annot`, `add_line_annot` + `set_line_ends` (arrows), `add_rect_annot`, `add_circle_annot`; extend `apply_annotations` + `read_klarpdf_annotations` (style via `annot.colors`/`annot.border` — no DA parsing). Printing, flatten, and thumbnails inherit automatically via `apply_annotations`. | WSL (model+tests) | All four types bake, read back symmetric, survive save→reopen→save without drift |
 | **M58** Pen & shapes tools | Draw interactions: pen path capture with live preview; shapes press-drag-release + Shift-constrain (square/circle/45°); move + delete (resize deferred). Toolbar stays in budget via **Draw ▾** split-button. Markup/redlining framing — not CAD editing, no measurement tools. | WSLg | Draw/move/delete each type; fixed-width ink (no pressure — PDF ink can't carry it) |
-| **M59** Copy / paste objects | In-process object clipboard (descriptors are frozen value objects); paste with offset on same page, rect-clamp across page sizes; **cross-window free** (single process — same pattern as page paste). Focus-routed Ctrl+C/X/V (text vs pages vs object — the actual design work); copying a text box also sets `text/plain`. Applies to text boxes + G3 types; foreign annotations excluded until M68. | WSL + WSLg | Copy/paste objects within + across windows; keyboard routing unambiguous |
+| **M59** Copy / paste objects | In-process object clipboard (descriptors are frozen value objects); paste with offset on same page, rect-clamp across page sizes; **cross-window free** (single process — same pattern as page paste). Focus-routed Ctrl+C/X/V (text vs pages vs object — the actual design work); copying a text box also sets `text/plain`. Applies to text boxes + R3 types; foreign annotations excluded until M68. | WSL + WSLg | Copy/paste objects within + across windows; keyboard routing unambiguous |
 | **M60** Verify + release | Headless suite green; Windows validation; tag. | Windows | Matrix green → release |
 
-### G4 — "Stamp, Sign & Watermark" (+ search & redact)
+### R4 — "Stamp, Sign & Watermark" (+ search & redact)
 
 | Milestone | Feature | Where | Done when |
 |---|---|---|---|
@@ -1017,13 +1018,13 @@ the v0.7.0 → v0.9.0 re-scope). Theme names and milestone numbers are stable ei
 | **M64** Search & redact | Redact every occurrence of a string: `search_for` quads → batched `Redaction` descriptors in **one undo step**; destructive only at the existing confirmed Save. Review flow reuses M47's panel with checkboxes (untick "Smithsonian" when redacting "Smith"); case + whole-word toggles. **Honesty: text-layer only** — detect image-only pages and warn; form-field values are a documented boundary; same-width boxes hint string length (docs note). | WSL (model+tests) + WSLg | Mark-all → review → redact-checked → Save removes them (cross-engine leak check); warnings fire on image-only pages |
 | **M65** Verify + release | Headless suite green; Windows validation; tag. | Windows | Matrix green → release |
 
-### G5 — "Foreign Annotations & Form Fields"
+### R5 — "Foreign Annotations & Form Fields"
 
 | Milestone | Feature | Where | Done when |
 |---|---|---|---|
 | **M66** ⭐ Foreign-annot infrastructure + delete | The shared cost, built once: enumerate/hit-test/select foreign annotations in the viewer + **fingerprint identity** (`/NM` when present, else type + rect + contents hash — xrefs don't survive `insert_pdf`). First verb: **delete** — a `ForeignDeletion` descriptor matched and applied at materialise. Zero fidelity risk, works for **every** annotation type, everything else passes through byte-identical. | WSL (model+tests) + WSLg | Delete any foreign mark; save; remaining annots byte-identical; undo restores |
 | **M67** Move foreign marks | Translate `/Rect` in place at materialise — the appearance stream is preserved verbatim, so a rich callout box moves with zero degradation; live drag preview via the annot's pixmap patch. | WSL + WSLg | Move a foreign mark of any type; its appearance survives untouched |
-| **M68** Adopt-on-edit | Double-click a foreign mark of a **modeled type** (highlight, FreeText — plus G3's ink/line/rect/ellipse and M56's underline/strikeout) → parse into the model, author-tag, strip-exactly-that-one at materialise. **Detect unsupported features first** (`/RC` rich text, non-base-14 DA font, `/CA` opacity, `/CL` callouts…) and warn "editing will simplify this annotation" with cancel. Unmodeled types stay delete/move only. | WSL (model+tests) + WSLg | Adopt→edit→save round-trips; degrade warning fires exactly when features would be lost |
+| **M68** Adopt-on-edit | Double-click a foreign mark of a **modeled type** (highlight, FreeText — plus R3's ink/line/rect/ellipse and M56's underline/strikeout) → parse into the model, author-tag, strip-exactly-that-one at materialise. **Detect unsupported features first** (`/RC` rich text, non-base-14 DA font, `/CA` opacity, `/CL` callouts…) and warn "editing will simplify this annotation" with cancel. Unmodeled types stay delete/move only. | WSL (model+tests) + WSLg | Adopt→edit→save round-trips; degrade warning fires exactly when features would be lost |
 | **M69** Form-field creation | **Checkbox / text / dropdown** via `page.add_widget` (the API the test fixtures already use); placement UI reused from M62 + a small properties panel (name, type, default, options). Saved fields are ordinary AcroForm — existing fill, lossless value save, edits-aware print, and flatten just work. **Radio-button groups: rejected by owner (2026-07-18)** — see §Future enhancements. | WSL (model+tests) + WSLg | Place the three field types; fill/print/flatten work on them like any AcroForm field |
 | **M70** Verify + release | Headless suite green; Windows validation; tag. | Windows | Matrix green → release |
 
@@ -1046,7 +1047,7 @@ Captured but not yet scheduled:
 - **Book-scan crops:** M48 defers odd/even mirrored crops (the gutter alternates sides in two-up
   book scans).
 - ~~**Re-encryption on save**~~ → **scheduled**: generalised into **M54 Document encryption** (set /
-  change / remove password + carry-through, AES-256) in the G2 release above.
+  change / remove password + carry-through, AES-256) in the R2 release above.
 - **Consciously rejected (owner, 2026-07 decision session)** — recorded so they aren't relitigated:
   **OCR** (needs a bundled Tesseract — breaks the pinned offline ship-set; if ever revisited, it's
   an optional add-on download, never a core dependency); **cryptographic digital signatures**
@@ -1055,7 +1056,7 @@ Captured but not yet scheduled:
   overlays add); **measurement/dimension tools** (Bluebeam territory — scale-calibration UX is a
   separate large feature); **a "lite" edition** (see §GUI feature roadmap → Design budgets);
   **radio-button groups** (above).
-- **Cross-app annotation editing (foreign annotations)** → **scheduled as M66–M68** (G5 above), with
+- **Cross-app annotation editing (foreign annotations)** → **scheduled as M66–M68** (R5 above), with
   a staging that supersedes the recommendation at the end of this entry: **delete → move →
   adopt-on-edit**, because the first two verbs are fidelity-safe by construction and cover every
   annotation type, while adoption is confined to modeled types with an explicit degrade warning.
