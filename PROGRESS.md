@@ -210,7 +210,7 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
 
 **R1 — "Navigate & Polish"** (prov. v0.12.0)
 
-- [ ] **M45** ⭐ Outline sidebar (no TOC → no tab; live `remapped_toc`; scroll tracking) + Go to Page (Ctrl+G) — *WSL + WSLg*
+- [x] **M45** ⭐ Outline sidebar (no TOC → no tab; live `remapped_toc`; scroll tracking) + Go to Page (Ctrl+G). The sidebar becomes a Pages | Outline switcher **only** for a TOC'd document (dock title "Sidebar"; the View-menu/toolbar toggle is renamed "Sidebar" — one stable label for both document kinds); TOC-less docs keep the bare Pages panel. Bundled fix: a reload-in-place now resyncs the file watcher, and a **closed** window can no longer raise the "file changed on disk" prompt (a lingering hidden window's stale watcher + a stray activation event = an unanswerable modal — it deadlocked the offscreen suite, and the pre-existing save-cancel path could trigger it too). — *WSL + WSLg*
 - [ ] **M46** Context menus everywhere — selection / link / empty-page / sidebar, hit-test routed — *WSLg*
 - [ ] **M47** Search-all results panel (page + snippet, click-to-jump; M64 reuses it) — *WSLg*
 - [ ] **M48** Crop pages — `crop_override` on PageRef; page/selected/all scopes; "hidden, not removed" wording; reset offered — *WSL + WSLg*

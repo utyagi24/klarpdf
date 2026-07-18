@@ -257,6 +257,13 @@ class VirtualDocument:
 
         return remap_toc(self._origin_toc, self.build_index_map())
 
+    def has_outline(self) -> bool:
+        """Whether the **origin** document carries an outline (M45 — decides if the sidebar grows an
+        Outline tab). Keyed to the origin, not the live remap: deleting every bookmarked page leaves
+        the tab in place showing an empty tree (undo brings the entries back), rather than tearing
+        the switcher down mid-session."""
+        return bool(self._origin_toc)
+
     # ---- snapshot / restore (used by edit_commands for undo/redo) ---------------
 
     def snapshot(self) -> State:
