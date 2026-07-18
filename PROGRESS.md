@@ -88,9 +88,10 @@ text-preserving — a locked counterpart to the round-trip). v0.6.0 "Rich Text &
 **styled text boxes**, **live thumbnails**, and **dynamic theme icons**. v0.5.0 "File Safety & Output"
 adds **Revert to Saved**, an **external-change warning**, and **edits-aware printing**. v0.4.0
 "Annotate & Redact" adds text **highlight** + **text boxes** and **true destructive redaction**.
-**Next:** **v0.11.0 — "MCP / Agent Bridge"** (M39–M44, planned) — expose KlarPDF's PDF engine to
-Claude Code / Claude Desktop / agentic clients as a local **MCP server** (`PLAN.md` §MCP / Agent
-Bridge roadmap). Other deferred items live in `PLAN.md` §Future enhancements.
+**Next:** two planned roadmaps — **v0.11.0 "MCP / Agent Bridge"** (M39–M44; `PLAN.md` §MCP / Agent
+Bridge roadmap) and the **GUI feature tranche G1–G5** (M45–M70, owner-decided 2026-07-18;
+`PLAN.md` §GUI feature roadmap — provisionally v0.12.0 → v0.16.0, sequencing vs the bridge is the
+owner's call). Other deferred items live in `PLAN.md` §Future enhancements.
 **Open follow-ups** (carried items) are at the bottom.
 
 - [x] **M0** Scaffold + WSL dev venv — *step 1 (WSL); WSL* — [#4](https://github.com/utyagi24/pdfproj/pull/4)
@@ -197,6 +198,55 @@ and ships as a separate optional component — the `klarpdf-setup.exe` audit sur
 
 > Decisions to confirm with owner (see `PLAN.md` §MCP / Agent Bridge roadmap → Decisions): packaging
 > (separate vs bundled), write-tools-now vs read-only-first, stdio-only vs HTTP, same-repo vs sibling repo.
+
+## Roadmap — GUI feature tranche G1–G5 (planned; M45–M70)
+
+Spec, per-milestone scope, and the binding **design budgets** (UI / lightness / honesty) in
+`PLAN.md` §GUI feature roadmap. Owner-decided **2026-07-18** (23 features approved; radio-button
+groups rejected → §Future enhancements). Same conventions: **one PR per milestone**, tick here on
+merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions provisional
+(v0.12.0 → v0.16.0 if the MCP bridge ships v0.11.0 first; assigned at tag time).
+
+**G1 — "Navigate & Polish"** (prov. v0.12.0)
+
+- [ ] **M45** ⭐ Outline sidebar (no TOC → no tab; live `remapped_toc`; scroll tracking) + Go to Page (Ctrl+G) — *WSL + WSLg*
+- [ ] **M46** Context menus everywhere — selection / link / empty-page / sidebar, hit-test routed — *WSLg*
+- [ ] **M47** Search-all results panel (page + snippet, click-to-jump; M64 reuses it) — *WSLg*
+- [ ] **M48** Crop pages — `crop_override` on PageRef; page/selected/all scopes; "hidden, not removed" wording; reset offered — *WSL + WSLg*
+- [ ] **M49** Night reading mode (view-only pixmap invert) — *WSLg*
+- [ ] **M50** Verify + release → tag — *Windows*
+
+**G2 — "Document Hygiene"**
+
+- [ ] **M51** Extract selected pages → PDF + Insert blank / duplicate page — *WSL + WSLg*
+- [ ] **M52** Reduce file size — Export ▸ Reduced Size PDF…; true-value presets + custom dpi/quality knobs; actual before→after — *WSL + WSLg*
+- [ ] **M53** Properties + metadata (view · edit · remove; Info dict **and** XMP both) — *WSL + WSLg*
+- [ ] **M54** ⭐ Document encryption — set/change/remove/carry-through, AES-256; optional advisory restriction flags — *WSL + WSLg*
+- [ ] **M55** Verify + release → tag — *Windows*
+
+**G3 — "Markup Tools"**
+
+- [ ] **M56** Underline & strikeout (Highlight's quad path; round-trip) — *WSL + WSLg*
+- [ ] **M57** ⭐ Pen & shapes model — ink/line+arrows/rect/ellipse descriptors, apply + read-back — *WSL*
+- [ ] **M58** Pen & shapes tools — draw/move/delete, Shift-constrain, Draw ▾ split-button — *WSLg*
+- [ ] **M59** Copy / paste objects — object clipboard, cross-window, focus-routed Ctrl+C/X/V — *WSL + WSLg*
+- [ ] **M60** Verify + release → tag — *Windows*
+
+**G4 — "Stamp, Sign & Watermark"**
+
+- [ ] **M61** ⭐ Unified content-draw engine (Way 2: presets = prefilled custom stamps; baked at save) — *WSL*
+- [ ] **M62** Stamp & watermark UI — placement mode (M69 reuses it) + dialogs + page-range apply — *WSLg*
+- [ ] **M63** Image stamp / signature — transparent PNG + white-to-alpha toggle; recent list stores paths only — *WSL + WSLg*
+- [ ] **M64** Search & redact — batched redactions, one undo step; M47 review panel + checkboxes; text-layer-only warnings — *WSL + WSLg*
+- [ ] **M65** Verify + release → tag — *Windows*
+
+**G5 — "Foreign Annotations & Form Fields"**
+
+- [ ] **M66** ⭐ Foreign-annot infra + delete — selection overlay + fingerprint identity; every annot type; zero fidelity risk — *WSL + WSLg*
+- [ ] **M67** Move foreign marks — `/Rect` translation, appearance preserved verbatim — *WSL + WSLg*
+- [ ] **M68** Adopt-on-edit — modeled types only; degrade warning before simplifying — *WSL + WSLg*
+- [ ] **M69** Form-field creation — checkbox / text / dropdown via `add_widget` (radio rejected) — *WSL + WSLg*
+- [ ] **M70** Verify + release → tag — *Windows*
 
 ## Public-Release Readiness — go open-source under AGPL-3.0 (planned)
 

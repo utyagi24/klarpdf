@@ -944,18 +944,122 @@ thin set of read-only query helpers + the MCP tool layer.
 4. **Repo layout:** keep the server in this repo (shared `model/` core) vs. a sibling repo importing
    KlarPDF as a dependency.
 
+## GUI feature roadmap — the post-v0.10 tranche G1–G5 (planned; M45–M70)
+
+Owner-decided 2026-07-18 after a feature-exploration session (23 features approved, radio-button
+groups rejected — see §Future enhancements). Same discipline as every prior tranche: **one PR per
+milestone**, `PROGRESS.md` tracks state, ⭐ marks a keystone (GUI-free core, fully
+headless-testable). **Still zero new dependencies** — every item is native PyMuPDF or Qt (already
+inside the vendored wheels), so `requirements.in` and the hashed offline lock stay exactly as
+shipped.
+
+**Sequencing vs the MCP bridge:** v0.11.0 is reserved for the MCP / Agent Bridge roadmap above
+(M39–M44). The releases below are provisionally **v0.12.0 → v0.16.0** assuming the bridge ships
+first; whether it does is the owner's call, and version numbers are assigned at tag time (precedent:
+the v0.7.0 → v0.9.0 re-scope). Theme names and milestone numbers are stable either way.
+
+### Design budgets (binding for every milestone in this tranche)
+
+- **UI budget.** Menus are the complete catalog (inapplicable items *disable* — inside menus, hiding
+  breaks spatial memory); the toolbar is **modes-only, ~10 slots**, held by grouped split-buttons
+  (Markup ▾ · Draw ▾ · Stamp ▾ · Redact ▾); one-shot commands are menu + dialog, never toolbar.
+  Net chrome for the whole tranche: **one new top-level menu (Tools)** plus a few File/Edit/View
+  entries. Persistent panels appear **only when applicable** (owner rule — e.g. the Outline tab).
+  The bar to hold: *the app at rest — a plain scanned PDF open — looks identical to today.*
+- **Lightness budget.** Lazy dialog construction + deferred imports (already the house style);
+  nothing new runs on the open-document path unless the document uses it (guard the ~150 ms /
+  320-page open with a regression test); installer weight unchanged (zero new deps). **One
+  edition** — a "lite" build is rejected: every feature is pure Python on libraries the viewer core
+  already loads, so a split buys ~nothing and costs a second packaging/QA pipeline forever.
+- **Honesty principle.** Every feature states its guarantee boundary in UI + docs: crop *hides*
+  (redact removes); permission flags are advisory; metadata removal clears **both** stores (Info
+  dict + XMP); search-&-redact covers the text layer only; an image signature is ink-equivalent,
+  not cryptographic; baked-at-save marks are a point of no return, round-trip marks stay editable.
+
+### G1 (prov. v0.12.0) — "Navigate & Polish"
+
+| Milestone | Feature | Where | Done when |
+|---|---|---|---|
+| **M45** ⭐ Outline sidebar + Go to Page | An **Outline** tab beside Pages in the existing sidebar. **No TOC → no tab and no tab bar** (owner rule): the switcher only materialises for documents with an outline; TOC-less docs keep today's plain Pages panel pixel-identical. Shows the **live** `remapped_toc()` tree during editing (what you see is what Save writes); highlights the visible page's entry on scroll; click → `goto_page`. Plus **Go to Page…** (Ctrl+G). | WSL (glue) + WSLg | TOC'd doc: tree navigates, tracks scroll, reflects edits live; TOC-less doc: sidebar unchanged; Ctrl+G jumps |
+| **M46** Context menus everywhere | Grow `pdf_view.contextMenuEvent` (today: annotation-Remove only) by hit-test state — selection → Copy / Highlight / Redact Selection; link → go to target / copy target; empty page → paste object / fit modes / rotate / Go to Page; sidebar adds rotate + extract. Mostly routes existing QActions; later milestones hang their situational verbs here. | WSLg | Right-click offers the state-appropriate verbs on every surface |
+| **M47** Search-all results panel | Doc-wide search results list (page + context snippet, click-to-jump) alongside the existing next/prev flow. Builds the reviewable-hit-list UI that M64 (search & redact) reuses with checkboxes. | WSLg | A search lists every hit with context; click jumps to it |
+| **M48** Crop pages | `crop_override` riding `PageRef` exactly like `rotation_override` (absolute rect or None; snapshots for undo; follows reorder). Drag a rect → apply to **this page / selected / all pages**; materialise via `set_cropbox`. **UI copy: "hidden, not removed — use Redact to remove permanently."** When CropBox ≠ MediaBox on open, offer adjust/reset (crop is structured geometry — cross-app editable, no author tag needed). Odd/even mirrored book-scan crops deferred. | WSL (model+tests) + WSLg | Crop applies at the chosen scope, undoes, survives save/reopen; reset restores full page |
+| **M49** Night reading mode | Invert page pixmaps (view-only; independent of the followed OS theme). | WSLg | Toggle renders pages dark; file + print output unchanged |
+| **M50** Verify + release | Headless suite green; Windows validation; tag. | Windows | Matrix green → release |
+
+### G2 — "Document Hygiene"
+
+| Milestone | Feature | Where | Done when |
+|---|---|---|---|
+| **M51** Page ops: extract + blank/duplicate | **Export ▸ Selected Pages as PDF…** (object-level copy via the materialise path, TOC/link remap included) + **Insert ▸ Blank Page / Duplicate Page** (`new_page` / `fullcopy_page`) on the undo stack. | WSL (model+tests) + WSLg | Extracted PDF carries text layer/forms/bookmarks; insert/duplicate undo cleanly |
+| **M52** Reduce file size | **File ▸ Export ▸ Reduced Size PDF…** — the *lossy* tier only (normal saves already run `garbage=4, deflate, clean`): image recompression presets named by intent **showing their true values** ("Screen — 150 dpi, JPEG 75" / "Print — 300 dpi, JPEG 85") + a Custom mode exposing the two real knobs (target dpi, quality) + font subsetting. No synthetic "% compression" slider. Reports **actual** before → after sizes; overwriting the original goes through the overwrite guard with permanent-quality-loss wording. | WSL + WSLg | Reduced copy is smaller, renders acceptably at preset intent; original untouched by default |
+| **M53** Properties + metadata | One dialog, three verbs: **view** (none exists today) · **edit** · **remove all**. Handles **both stores** — the Info dict *and* the XMP packet (viewers prefer XMP): edit keeps them consistent; remove clears both, or the strip is a false promise. | WSL (model+tests) + WSLg | Removed-metadata file shows clean in Acrobat-class viewers, not just KlarPDF |
+| **M54** ⭐ Document encryption | One save-path capability, four verbs: **Set / Change / Remove Password** + carry-through on save (supersedes the old "re-encryption on save" deferral). AES-256 only, user password (real cryptography); optional advisory restriction flags with honest wording ("honored by most viewers; not cryptographically enforced"). Password held in memory only, never persisted; type-twice + unrecoverable-if-lost warning. NB: pypdf can't do AES without a dev-only `cryptography` extra — cross-engine verification is via independent PyMuPDF reopen (fixture pattern exists in `test_encrypted.py`). | WSL (model+tests) + WSLg | Save→reopen round-trips under password on both open paths; Remove requires the current password |
+| **M55** Verify + release | Headless suite green; Windows validation; tag. | Windows | Matrix green → release |
+
+### G3 — "Markup Tools"
+
+| Milestone | Feature | Where | Done when |
+|---|---|---|---|
+| **M56** Underline & strikeout | Same text-quad path as Highlight; author-tagged; round-trip read-back. Joins the Markup ▾ split-button. | WSL (model+tests) + WSLg | Underline/strikeout bake, reopen editable, print/flatten correctly |
+| **M57** ⭐ Pen & shapes model | `InkStroke` / `Line` / `Shape` descriptors beside `Highlight`; `add_ink_annot`, `add_line_annot` + `set_line_ends` (arrows), `add_rect_annot`, `add_circle_annot`; extend `apply_annotations` + `read_klarpdf_annotations` (style via `annot.colors`/`annot.border` — no DA parsing). Printing, flatten, and thumbnails inherit automatically via `apply_annotations`. | WSL (model+tests) | All four types bake, read back symmetric, survive save→reopen→save without drift |
+| **M58** Pen & shapes tools | Draw interactions: pen path capture with live preview; shapes press-drag-release + Shift-constrain (square/circle/45°); move + delete (resize deferred). Toolbar stays in budget via **Draw ▾** split-button. Markup/redlining framing — not CAD editing, no measurement tools. | WSLg | Draw/move/delete each type; fixed-width ink (no pressure — PDF ink can't carry it) |
+| **M59** Copy / paste objects | In-process object clipboard (descriptors are frozen value objects); paste with offset on same page, rect-clamp across page sizes; **cross-window free** (single process — same pattern as page paste). Focus-routed Ctrl+C/X/V (text vs pages vs object — the actual design work); copying a text box also sets `text/plain`. Applies to text boxes + G3 types; foreign annotations excluded until M68. | WSL + WSLg | Copy/paste objects within + across windows; keyboard routing unambiguous |
+| **M60** Verify + release | Headless suite green; Windows validation; tag. | Windows | Matrix green → release |
+
+### G4 — "Stamp, Sign & Watermark" (+ search & redact)
+
+| Milestone | Feature | Where | Done when |
+|---|---|---|---|
+| **M61** ⭐ Unified content-draw engine | **One engine for stamps, signature, and watermark** (owner call: Way 2 — presets are prefilled entries of the custom generator; no dual annotation/content path, no true Stamp annots, no cross-renderer calibration). Custom-text stamp generator via PyMuPDF drawing (rounded-rect border + Helvetica-Bold → transparent high-DPI pixmap); image placement; page-range watermark pass (`overlay=False` under content; rotation + opacity). All **baked at save** — editable/undoable until save, permanent after (redaction-style semantics, said plainly in UI). | WSL (model+tests) | Stamp/watermark descriptors ride PageRefs, render in preview/print/export, bake at materialise |
+| **M62** Stamp & watermark UI | Placement mode (drag rect, move, corner-resize until save) — **the same placement UI M69's field creation reuses**; stamp dialog (text · colour · angle · opacity + preset list); watermark dialog (page range, translucency, diagonal); apply-to-page-range checkbox on stamps (the initials-on-every-page case). | WSLg | Place/move/resize a stamp; watermark a range; both bake on save |
+| **M63** Image stamp / signature | The sign-and-return workflow: place a PNG/JPEG (scanned signature, seal, logo) via the M62 placement UI. Transparent-PNG alpha honored + a **"make white background transparent"** threshold toggle (phone-photo signatures just work); **recent-signatures list stores paths only** — KlarPDF never keeps a hidden copy of a signature. Docs: ink-equivalent, **not** a cryptographic signature. | WSL + WSLg | Sign a form offline in two clicks on the second use; baked mark can't be lifted off |
+| **M64** Search & redact | Redact every occurrence of a string: `search_for` quads → batched `Redaction` descriptors in **one undo step**; destructive only at the existing confirmed Save. Review flow reuses M47's panel with checkboxes (untick "Smithsonian" when redacting "Smith"); case + whole-word toggles. **Honesty: text-layer only** — detect image-only pages and warn; form-field values are a documented boundary; same-width boxes hint string length (docs note). | WSL (model+tests) + WSLg | Mark-all → review → redact-checked → Save removes them (cross-engine leak check); warnings fire on image-only pages |
+| **M65** Verify + release | Headless suite green; Windows validation; tag. | Windows | Matrix green → release |
+
+### G5 — "Foreign Annotations & Form Fields"
+
+| Milestone | Feature | Where | Done when |
+|---|---|---|---|
+| **M66** ⭐ Foreign-annot infrastructure + delete | The shared cost, built once: enumerate/hit-test/select foreign annotations in the viewer + **fingerprint identity** (`/NM` when present, else type + rect + contents hash — xrefs don't survive `insert_pdf`). First verb: **delete** — a `ForeignDeletion` descriptor matched and applied at materialise. Zero fidelity risk, works for **every** annotation type, everything else passes through byte-identical. | WSL (model+tests) + WSLg | Delete any foreign mark; save; remaining annots byte-identical; undo restores |
+| **M67** Move foreign marks | Translate `/Rect` in place at materialise — the appearance stream is preserved verbatim, so a rich callout box moves with zero degradation; live drag preview via the annot's pixmap patch. | WSL + WSLg | Move a foreign mark of any type; its appearance survives untouched |
+| **M68** Adopt-on-edit | Double-click a foreign mark of a **modeled type** (highlight, FreeText — plus G3's ink/line/rect/ellipse and M56's underline/strikeout) → parse into the model, author-tag, strip-exactly-that-one at materialise. **Detect unsupported features first** (`/RC` rich text, non-base-14 DA font, `/CA` opacity, `/CL` callouts…) and warn "editing will simplify this annotation" with cancel. Unmodeled types stay delete/move only. | WSL (model+tests) + WSLg | Adopt→edit→save round-trips; degrade warning fires exactly when features would be lost |
+| **M69** Form-field creation | **Checkbox / text / dropdown** via `page.add_widget` (the API the test fixtures already use); placement UI reused from M62 + a small properties panel (name, type, default, options). Saved fields are ordinary AcroForm — existing fill, lossless value save, edits-aware print, and flatten just work. **Radio-button groups: rejected by owner (2026-07-18)** — see §Future enhancements. | WSL (model+tests) + WSLg | Place the three field types; fill/print/flatten work on them like any AcroForm field |
+| **M70** Verify + release | Headless suite green; Windows validation; tag. | Windows | Matrix green → release |
+
 ## Future enhancements (deferred beyond the roadmap)
 
 Captured but not yet scheduled:
 
-- **New-field form designer:** form-fill (v0.2.0) edits *existing* AcroForm fields only; adding
-  brand-new fields (layout, types, appearance streams) is a larger, separate effort.
+- **New-field form designer (beyond M69):** checkbox / text / dropdown creation is now **scheduled
+  (M69)**. What stays deferred is the full designer — field appearance styling, layout tooling, and
+  **radio-button groups**, which the owner **rejected (2026-07-18)**: a radio group is several
+  widgets sharing one field name with distinct "on" states, PyMuPDF's group creation is historically
+  finicky (needs a verification spike before promising), and it's the rarest field type in real
+  forms. Revisit only on user demand.
 - **Drop-to-open in the main view:** Explorer file-drop is scoped to the Pages sidebar
   (insert-at-slot). A later extension could accept a PDF dropped onto the main page area — insert at
   the current page, or open it as a new window when the view is empty.
-- **Re-encryption on save:** materialize writes an unencrypted document; re-encrypting the output
-  (carrying a password through) pairs with the M32 encrypted-PDF work if wanted.
-- **Cross-app annotation editing (foreign annotations):** annotation round-trip (M31) re-opens for
+- **Outline (bookmark) editing:** M45 *displays* the outline; adding/renaming/deleting entries is a
+  natural later verb (entry point via the View menu, since the Outline tab is hidden for TOC-less
+  docs — the docs that would need it most). Few free tools offer it.
+- **Book-scan crops:** M48 defers odd/even mirrored crops (the gutter alternates sides in two-up
+  book scans).
+- ~~**Re-encryption on save**~~ → **scheduled**: generalised into **M54 Document encryption** (set /
+  change / remove password + carry-through, AES-256) in the G2 release above.
+- **Consciously rejected (owner, 2026-07 decision session)** — recorded so they aren't relitigated:
+  **OCR** (needs a bundled Tesseract — breaks the pinned offline ship-set; if ever revisited, it's
+  an optional add-on download, never a core dependency); **cryptographic digital signatures**
+  (crypto deps + certificate UX; M63's image signature covers the everyday tier);
+  **content-stream editing** of baked page content (a different product — redaction removes,
+  overlays add); **measurement/dimension tools** (Bluebeam territory — scale-calibration UX is a
+  separate large feature); **a "lite" edition** (see §GUI feature roadmap → Design budgets);
+  **radio-button groups** (above).
+- **Cross-app annotation editing (foreign annotations)** → **scheduled as M66–M68** (G5 above), with
+  a staging that supersedes the recommendation at the end of this entry: **delete → move →
+  adopt-on-edit**, because the first two verbs are fidelity-safe by construction and cover every
+  annotation type, while adoption is confined to modeled types with an explicit degrade warning.
+  The analysis below is kept because it documents *why* the boundary exists. Annotation round-trip (M31) re-opens for
   editing **only KlarPDF's own** marks — those stamped with the `/T = "klarpdf"` author tag
   (`KLARPDF_AUTHOR`). A highlight / text-box written by another tool (Preview, Edge, Acrobat, …) is
   **shown** (it stays baked in the page and renders normally) but **not editable**: the read-back in
@@ -976,7 +1080,9 @@ Captured but not yet scheduled:
   exactly the adopted one and passes the rest through); (2) **move-only** for foreign boxes (rewrite
   `/Rect` in place, regenerate appearance — no text/style edit); (3) **full model parity** (model
   rich text / arbitrary fonts / opacity / etc. so anything round-trips losslessly — a large effort,
-  against the small-audited-model design). Recommended path is (1).
+  against the small-audited-model design). *Superseded 2026-07-18:* the scheduled staging (M66–M68)
+  leads with **delete** — a fidelity-safe verb this list didn't consider — then (2) move, then (1)
+  adopt-on-edit behind a degrade warning; (3) remains rejected.
 - **Resolved (no longer open):** duplicate form-field rename + multi-level outline remap are handled
   today — `insert_pdf` auto-renames colliding root fields on merge (confirmed in M1) and
   `model/toc_remap.py` does multi-level remap with orphan repair.
