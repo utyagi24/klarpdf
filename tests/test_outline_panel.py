@@ -81,6 +81,16 @@ def test_toc_doc_mounts_pages_outline_tabs(app, a_pdf):
     assert win.pages_dock.windowTitle() == "Sidebar"
 
 
+def test_switcher_keeps_the_pages_panel_width_bounds(app, a_pdf):
+    """The tab container must carry the Pages panel's min/max width — a QTabWidget doesn't
+    inherit its children's constraints, so without this the sidebar of a TOC'd document was
+    freely resizable while a TOC-less one stayed capped."""
+    win = app.open_document(a_pdf)
+    tabs = win.pages_dock.widget()
+    assert tabs.minimumWidth() == win.thumbs.minimumWidth()
+    assert tabs.maximumWidth() == win.thumbs.maximumWidth()
+
+
 def test_tocless_doc_keeps_the_bare_pages_panel(app, b_pdf):
     win = app.open_document(b_pdf)
     assert win.outline is None
