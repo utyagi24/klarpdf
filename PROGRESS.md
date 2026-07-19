@@ -7,7 +7,29 @@ it merges, check the box here in the same PR and append the PR link.
 > release links, milestone ticks, and open follow-ups. `PLAN.md` (design/spec) and `CLAUDE.md`
 > (conventions) **link here, they don't restate it** — see CLAUDE.md §How we work → "Where things live".
 
-**Status:** ✅ **v0.10.1 shipped** — a patch fixing the Windows shell integration v0.10.0 got wrong.
+**Status:** ✅ **v0.12.0 "Navigate & Polish" shipped** — the GUI tranche's **R1 (M45–M50) is
+complete**. **Outline sidebar**: a document with bookmarks gets a Pages | Outline switcher (no
+TOC → no tab and no tab bar, owner rule) showing the **live** `remapped_toc()` tree — follows
+edits, tracks scroll, click-to-jump — plus **Go to Page…** (Ctrl+G)
+([#117](https://github.com/utyagi24/klarpdf/pull/117)). **Context menus everywhere**, hit-test
+routed — selection / internal link / **external link (Copy Link Address)** / annotation / bare
+page / sidebar ([#118](https://github.com/utyagi24/klarpdf/pull/118)). **Search-all results
+panel** — List All shows page + context-snippet rows, click-to-jump; the surface M64 reuses
+([#119](https://github.com/utyagi24/klarpdf/pull/119)). **Crop pages** — `crop_override` rides the
+PageRef like rotation; page/selected/all scopes; *hidden, not removed*; Remove Crop restores the
+full MediaBox even for pre-cropped files ([#120](https://github.com/utyagi24/klarpdf/pull/120)).
+**Night reading mode** — view-only inversion; file/print/export stay true-colour
+([#121](https://github.com/utyagi24/klarpdf/pull/121)). **The Tools menu** — modes out of View,
+Rotate into Edit beside the page ops ([#123](https://github.com/utyagi24/klarpdf/pull/123)).
+Review-testing fixes folded in: toolbar text tools **apply to a live selection** (Preview-style);
+the find bar **revives its kept query** on reopen; the sidebar keeps its width bounds with the
+switcher mounted; two offscreen-suite deadlock classes fixed (stale-watcher zombie prompts; a
+conftest guard that fails loudly on any unexpected modal); and a **save-fidelity fix** — URI links
+PyMuPDF's `insert_pdf` silently drops (unbalanced-paren URIs, seen in the wild) are restored at
+materialise ([#122](https://github.com/utyagi24/klarpdf/pull/122)). **v0.11.0 stays reserved for
+the MCP / Agent Bridge** (owner decision, PR #116) — hence R1 = v0.12.0. 485 headless tests green.
+
+**v0.10.1** — a patch fixing the Windows shell integration v0.10.0 got wrong.
 **The app icon is now a tile.** The brand mark is a portrait page, so it spanned only **59%** of the
 square canvas Windows gives an icon (24×24 for the taskbar) — against 82–100% for every other app on a
 typical machine — and read as *tiny*. `ui/icons/klarpdf.svg` is a gradient rounded square that spans
@@ -33,6 +55,7 @@ for settings, and the exes finally carry **version metadata** (`ProductName`/`Fi
 spec had never set. Milestones **M0–M38 complete** (v0.1.0 = M0–M9,
 v0.2.0 = M10–M15, v0.3.0 = M16–M19, v0.4.0 = M20–M22, v0.5.0 = M23–M26, v0.6.0 = M27–M30,
 v0.7.0 = M31 + M31.5 + M34, v0.8.0 = M35–M37, v0.9.0 = M32 + M33 + M38). Releases:
+<https://github.com/utyagi24/klarpdf/releases/tag/v0.12.0> ·
 <https://github.com/utyagi24/klarpdf/releases/tag/v0.10.1> ·
 <https://github.com/utyagi24/klarpdf/releases/tag/v0.10.0> ·
 <https://github.com/utyagi24/pdfproj/releases/tag/v0.9.6> ·
@@ -89,9 +112,10 @@ text-preserving — a locked counterpart to the round-trip). v0.6.0 "Rich Text &
 adds **Revert to Saved**, an **external-change warning**, and **edits-aware printing**. v0.4.0
 "Annotate & Redact" adds text **highlight** + **text boxes** and **true destructive redaction**.
 **Next:** two planned roadmaps — **v0.11.0 "MCP / Agent Bridge"** (M39–M44; `PLAN.md` §MCP / Agent
-Bridge roadmap) and the **GUI feature tranche R1–R5** (M45–M70, owner-decided 2026-07-18;
-`PLAN.md` §GUI feature roadmap — provisionally v0.12.0 → v0.16.0, sequencing vs the bridge is the
-owner's call). Other deferred items live in `PLAN.md` §Future enhancements.
+Bridge roadmap; the version number stays reserved for it) and the **GUI feature tranche's
+remaining releases R2–R5** (M51–M70; `PLAN.md` §GUI feature roadmap — **R1 shipped as v0.12.0**,
+next tranche milestone is **M51**; sequencing vs the bridge stays the owner's call). Other
+deferred items live in `PLAN.md` §Future enhancements.
 **Open follow-ups** (carried items) are at the bottom.
 
 - [x] **M0** Scaffold + WSL dev venv — *step 1 (WSL); WSL* — [#4](https://github.com/utyagi24/pdfproj/pull/4)
@@ -210,19 +234,19 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
 
 **R1 — "Navigate & Polish"** (prov. v0.12.0)
 
-- [x] **M45** ⭐ Outline sidebar (no TOC → no tab; live `remapped_toc`; scroll tracking) + Go to Page (Ctrl+G). The sidebar becomes a Pages | Outline switcher **only** for a TOC'd document (dock title "Sidebar"; the View-menu/toolbar toggle is renamed "Sidebar" — one stable label for both document kinds); TOC-less docs keep the bare Pages panel. Bundled fix: a reload-in-place now resyncs the file watcher, and a **closed** window can no longer raise the "file changed on disk" prompt (a lingering hidden window's stale watcher + a stray activation event = an unanswerable modal — it deadlocked the offscreen suite, and the pre-existing save-cancel path could trigger it too). — *WSL + WSLg*
+- [x] **M45** ⭐ Outline sidebar (no TOC → no tab; live `remapped_toc`; scroll tracking) + Go to Page (Ctrl+G). The sidebar becomes a Pages | Outline switcher **only** for a TOC'd document (dock title "Sidebar"; the View-menu/toolbar toggle is renamed "Sidebar" — one stable label for both document kinds); TOC-less docs keep the bare Pages panel. Bundled fix: a reload-in-place now resyncs the file watcher, and a **closed** window can no longer raise the "file changed on disk" prompt (a lingering hidden window's stale watcher + a stray activation event = an unanswerable modal — it deadlocked the offscreen suite, and the pre-existing save-cancel path could trigger it too). — *WSL + WSLg* — [#117](https://github.com/utyagi24/klarpdf/pull/117)
 - [x] **M46** Context menus everywhere — selection / link / empty-page / sidebar, hit-test routed.
   `PdfView.contextMenuEvent` delegates to a MainWindow-built menu by hit state: our annotation →
   Remove (the pre-M46 menu, now routed); live selection → Copy / **Highlight Selection** / **Redact
   Selection** (apply-now, vs the toolbar's armed one-shots); internal link → Go to Page N; **external
   link → Copy Link Address** (URI links stay non-clickable — clipboard only, offline guarantee
   intact); bare page → the routed View-menu QActions (fits · rotate · Go to Page). Sidebar menu adds
-  Rotate Left/Right (extract joins at M51; paste-object at M59). — *WSLg*
+  Rotate Left/Right (extract joins at M51; paste-object at M59). — *WSLg* — [#118](https://github.com/utyagi24/klarpdf/pull/118)
 - [x] **M47** Search-all results panel (page + snippet, click-to-jump; M64 reuses it). The FindBar
   gains a **List All** toggle → a hit-list band under the bar ("p. N   …snippet…"; hidden until
   asked — no dead chrome). Snippets are the hit's text line windowed ±4 words with ellipses; click
   a row → that hit becomes current and is revealed; the panel follows the query as typed, tracks
-  next/prev, and empties with the overlay on a structural edit. — *WSLg*
+  next/prev, and empties with the overlay on a structural edit. — *WSLg* — [#119](https://github.com/utyagi24/klarpdf/pull/119)
 - [x] **M48** Crop pages — `crop_override` on PageRef; page/selected/all scopes; "hidden, not
   removed" wording; reset offered. Rides the PageRef exactly like `rotation_override` (absolute
   content-frame rect; snapshots for undo; follows reorder **and** cross-window copy/paste);
@@ -230,18 +254,20 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   render + baked thumbnails). Armed **Crop Pages** drag → scope prompt (This/Selected/All) with the
   honesty wording; **Remove Crop** restores the full MediaBox — *including a crop the file arrived
   with* (pre-cropped sources also now display by their CropBox, fixing their layout). Odd/even
-  book-scan crops stay deferred. — *WSL + WSLg*
+  book-scan crops stay deferred. — *WSL + WSLg* — [#120](https://github.com/utyagi24/klarpdf/pull/120)
 - [x] **M49** Night reading mode (view-only pixmap invert). **View ▸ Night Reading Mode**
   (checkable, remembered app-wide): the page render inverts and the pre-render placeholder goes
   black (no bright flash); the file, print/export renders, and thumbnails keep true colours;
-  independent of the followed OS theme. — *WSLg*
-- [x] **R1 polish — the Tools menu** (owner-decided during the stack review): the tranche's one
+  independent of the followed OS theme. — *WSLg* — [#121](https://github.com/utyagi24/klarpdf/pull/121)
+- [x] **R1 polish — the Tools menu** ([#123](https://github.com/utyagi24/klarpdf/pull/123); owner-decided during the stack review): the tranche's one
   budgeted top-level menu (`PLAN.md` §Design budgets) lands with the tools it was reserved for —
   Select/Grab and the armed one-shots (Text Box · Highlight · Redact ×2 · Crop + Remove Crop) move
   out of View into **Tools**; **Rotate Left/Right moves to Edit** beside the other page operations
   (it is a real, saved edit — the View placement implied a view-only spin). Shortcuts and the
   toolbar are unchanged; R3's Markup/Draw and R4's Stamp land straight into Tools.
-- [ ] **M50** Verify + release → tag — *Windows*
+- [x] **M50** Verify + release → tag **v0.12.0** (version bump + docs; 485 headless tests green on the
+  merged main; local onedir build + smoke; CI draft → published) — *Windows* —
+  [release](https://github.com/utyagi24/klarpdf/releases/tag/v0.12.0)
 
 **R2 — "Document Hygiene"**
 

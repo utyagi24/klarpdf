@@ -29,11 +29,12 @@ the unit of audit; it ships as a pinned, fully offline Windows installer.
 <p align="center"><sub>The real app, captured from a real build — and it follows the Windows theme, so
 this screenshot follows your GitHub one.</sub></p>
 
-**Status: `v0.10.1` shipped** — [download the installer or portable exe](https://github.com/utyagi24/klarpdf/releases/latest).
-**New in v0.10.1:** a bigger, clearer app icon; PDF files get their own document icon; and Setup /
-the uninstaller now refuse to run while KlarPDF is open instead of leaving files behind. Full
+**Status: `v0.12.0` shipped** — [download the installer or portable exe](https://github.com/utyagi24/klarpdf/releases/latest).
+**New in v0.12.0 "Navigate & Polish":** an Outline (bookmarks) sidebar with Go to Page (Ctrl+G),
+right-click menus everywhere, a search-results list, page cropping (hidden — not removed),
+night reading mode, a new Tools menu — and a save-fidelity fix for URI links some PDFs lose. Full
 release notes live on [GitHub Releases](https://github.com/utyagi24/klarpdf/releases); live status —
-milestones (**M0–M38 complete**), per-release notes, open follow-ups — in [PROGRESS.md](PROGRESS.md).
+milestones (**M0–M38 + R1 complete**), per-release notes, open follow-ups — in [PROGRESS.md](PROGRESS.md).
 
 ## Features
 
@@ -44,9 +45,18 @@ Everything below works **fully offline** — the app makes no network connection
 - Continuous-scroll viewer with zoom, a live zoom readout, and **Fit Width / Fit Page** that stay
   sticky as you resize.
 - **Select & copy text** — exactly the document's (OCR) text layer — and **search** with
-  highlighted hits and next/previous navigation.
+  highlighted hits, next/previous navigation, and **List All**: every match with its context
+  line, click to jump.
 - **Pages sidebar** with live thumbnails that reflect your current edits; thumbnails load lazily,
   so a 320-page document opens in ~150 ms.
+- **Outline sidebar** — a document with bookmarks gets a Pages | Outline switcher: the live
+  bookmark tree tracks your scroll position, follows your edits, and jumps on click. Plus
+  **Go to Page…** (Ctrl+G).
+- **Night reading mode** — inverts the page for dark-room reading; printing, export, and the
+  file itself stay true-colour.
+- **Right-click menus everywhere** — the verbs fit what's under the cursor: text selection
+  (copy / highlight / redact), links (jump, or copy an external link's address), annotations,
+  the page, and the sidebar.
 - **Clickable internal links** — click to jump to the target page.
 - Opens **password-protected PDFs** (prompted on open; the saved copy is unencrypted).
 - **Grab / Select** viewer-mode toggle; a window opens on the monitor under your cursor, at
@@ -57,6 +67,9 @@ Everything below works **fully offline** — the app makes no network connection
 
 **Organize pages** — the splice/split workflow
 - **Drag-and-drop reorder**, delete, and rotate pages in the Pages sidebar.
+- **Crop pages** — drag the area to keep, applied to this page / selected / all. Cropping
+  *hides* (use Redact to remove permanently); **Remove Crop** restores the full page any time,
+  even for a crop the file arrived with.
 - **Merge / splice**: drag a PDF in from File Explorer to insert its pages at any position.
 - **Cut / copy / paste pages** — including **between two open documents**.
 - **Undo / redo** (Ctrl+Z / Ctrl+Y) for every page edit.
