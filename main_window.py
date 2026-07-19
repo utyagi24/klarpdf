@@ -231,6 +231,11 @@ class MainWindow(QMainWindow):
         file_menu = menu.addMenu("&File")
         edit_menu = menu.addMenu("&Edit")
         view_menu = menu.addMenu("&View")
+        # Tools — the tranche's one budgeted top-level menu (PLAN.md §GUI feature roadmap, UI
+        # budget; owner call during the R1 review): interaction *modes* live here — the cursor
+        # changes and a gesture follows — while Edit holds one-shot document operations and View
+        # holds what never touches the file. R3's Markup/Draw and R4's Stamp land here too.
+        tools_menu = menu.addMenu("&Tools")
 
         def act(text, slot, shortcut=None, icon=None, to_menu=None):
             a = QAction(text, self)
@@ -283,6 +288,11 @@ class MainWindow(QMainWindow):
         a_copy_pg = act("Copy Pages", lambda: self._copy_pages(), icon="copy", to_menu=edit_menu)
         a_paste = act("Paste Pages", lambda: self._paste_pages(), icon="paste", to_menu=edit_menu)
         a_delete = act("Delete Pages", lambda: self._delete_rows(self.thumbs.selected_rows()), icon="delete", to_menu=edit_menu)
+        # Rotate sits with the other page operations (owner call, R1 review): it is a real,
+        # undoable, *saved* edit on the selected/current page — its old View placement read as a
+        # view-only spin that wouldn't touch the file. PdfView.rotate_view remains the view-only one.
+        a_rotl = self._a_rotl = act("Rotate Left", lambda: self._rotate_pages(-90), "Ctrl+L", icon="rotate-left", to_menu=edit_menu)
+        a_rotr = self._a_rotr = act("Rotate Right", lambda: self._rotate_pages(90), "Ctrl+R", icon="rotate-right", to_menu=edit_menu)
         a_insert = act("Insert Pages from File…", self._insert_from_file, icon="insert", to_menu=edit_menu)
         edit_menu.addSeparator()
         self._a_copy_text = act("Copy", self._copy_selection, QKeySequence.StandardKey.Copy, to_menu=edit_menu)
@@ -305,39 +315,36 @@ class MainWindow(QMainWindow):
         # toolbar (PLAN.md §GUI feature roadmap, UI budget).
         self._a_goto = act("Go to &Page…", self._goto_page_dialog, "Ctrl+G", to_menu=view_menu)
         view_menu.addSeparator()
-        # Rotate the current/selected page(s) only — a real per-page edit (undoable, saved),
-        # not a whole-view spin. PdfView.rotate_view still exists for view-only rotation.
-        a_rotl = self._a_rotl = act("Rotate Left", lambda: self._rotate_pages(-90), "Ctrl+L", icon="rotate-left", to_menu=view_menu)
-        a_rotr = self._a_rotr = act("Rotate Right", lambda: self._rotate_pages(90), "Ctrl+R", icon="rotate-right", to_menu=view_menu)
-        view_menu.addSeparator()
-        # Persistent interaction mode: Select (default — text/forms/move) vs Grab (hand-pan).
-        # Mutually exclusive; the checked toolbar button shows the active tool.
+
+        # Tools — persistent interaction mode first: Select (default — text/forms/move) vs Grab
+        # (hand-pan). Mutually exclusive; the checked toolbar button shows the active tool.
         mode_group = QActionGroup(self)
         mode_group.setExclusive(True)
-        a_select = act("Select", lambda: self.view.set_mode(InteractionMode.SELECT), icon="select", to_menu=view_menu)
-        a_grab = act("Grab", lambda: self.view.set_mode(InteractionMode.GRAB), icon="grab", to_menu=view_menu)
+        a_select = act("Select", lambda: self.view.set_mode(InteractionMode.SELECT), icon="select", to_menu=tools_menu)
+        a_grab = act("Grab", lambda: self.view.set_mode(InteractionMode.GRAB), icon="grab", to_menu=tools_menu)
         for a in (a_select, a_grab):
             a.setCheckable(True)
             mode_group.addAction(a)
         a_select.setChecked(True)
         self._a_select = a_select
-        view_menu.addSeparator()
+        tools_menu.addSeparator()
         # One-shot armed annotate/redact tools: click to arm (button lights), do one gesture, then
         # it reverts to Select. Checkable only to reflect the armed state — NOT in the mode group.
         # All four are consistent — arm, then a single gesture: TextBox = click; Highlight /
         # Redact Text = drag over text; Redact Block = drag a rectangle.
-        a_textbox = act("Add Text Box", lambda: self._arm_tool(ArmedTool.TEXTBOX), icon="textbox", to_menu=view_menu)
+        a_textbox = act("Add Text Box", lambda: self._arm_tool(ArmedTool.TEXTBOX), icon="textbox", to_menu=tools_menu)
         a_textbox.setToolTip("Add Text Box — click a spot, then type (drag to move, double-click to edit)")
-        a_highlight = act("Highlight", lambda: self._arm_tool(ArmedTool.HIGHLIGHT), "Ctrl+H", icon="highlight", to_menu=view_menu)
+        a_highlight = act("Highlight", lambda: self._arm_tool(ArmedTool.HIGHLIGHT), "Ctrl+H", icon="highlight", to_menu=tools_menu)
         a_highlight.setToolTip("Highlight — drag over text to highlight it")
-        a_redact_text = act("Redact Text", lambda: self._arm_tool(ArmedTool.REDACT_TEXT), "Ctrl+Shift+R", icon="redact-text", to_menu=view_menu)
+        a_redact_text = act("Redact Text", lambda: self._arm_tool(ArmedTool.REDACT_TEXT), "Ctrl+Shift+R", icon="redact-text", to_menu=tools_menu)
         a_redact_text.setToolTip("Redact Text — drag over text to permanently remove it at save")
-        a_redact_block = act("Redact Block", lambda: self._arm_tool(ArmedTool.REDACT_REGION), icon="redact", to_menu=view_menu)
+        a_redact_block = act("Redact Block", lambda: self._arm_tool(ArmedTool.REDACT_REGION), icon="redact", to_menu=tools_menu)
         a_redact_block.setToolTip("Redact Block — drag a box to permanently remove its contents at save")
+        tools_menu.addSeparator()
         # Crop (M48): menu-only (no free toolbar slot needed for a one-shot); same armed pattern.
-        a_crop = act("Crop Pages", lambda: self._arm_tool(ArmedTool.CROP), to_menu=view_menu)
+        a_crop = act("Crop Pages", lambda: self._arm_tool(ArmedTool.CROP), to_menu=tools_menu)
         a_crop.setToolTip("Crop Pages — drag the area to keep; the rest is hidden, not removed")
-        act("Remove Crop", self._remove_crop, to_menu=view_menu)
+        act("Remove Crop", self._remove_crop, to_menu=tools_menu)
         self._armed_actions = {
             ArmedTool.TEXTBOX: a_textbox,
             ArmedTool.HIGHLIGHT: a_highlight,
@@ -347,7 +354,6 @@ class MainWindow(QMainWindow):
         }
         for a in self._armed_actions.values():
             a.setCheckable(True)
-        view_menu.addSeparator()
         # Night reading mode (M49): view-only page inversion, independent of the OS theme the
         # chrome follows. Remembered app-wide, like the sidebar choice; the file, print, export,
         # and thumbnails stay daylight — only what the eyes read at night inverts.
