@@ -90,6 +90,9 @@ class PdfView(QGraphicsView):
         # Sticky fit mode ("width" / "page" / None): re-applied on every viewport resize so a chosen
         # Fit Width / Fit Page follows the window — e.g. it re-fits when the Pages sidebar is toggled.
         self._fit_mode: "str | None" = None
+        # Night reading mode (M49): view-only pixel inversion, independent of the OS theme the
+        # chrome follows. The file, print, export, and thumbnails are untouched.
+        self._night = False
         self._build_scene()
         self.verticalScrollBar().valueChanged.connect(self._on_scroll)
 
@@ -173,7 +176,9 @@ class PdfView(QGraphicsView):
         scene.clear()
         self._pages.clear()
         page_pen = QPen(QColor(0x80, 0x80, 0x80))
-        page_brush = QBrush(QColor(0xFF, 0xFF, 0xFF))
+        # Night mode paints the not-yet-rendered page black — the inverse of the white page —
+        # so a page scrolling into view doesn't flash bright before its pixmap lands.
+        page_brush = QBrush(QColor(0, 0, 0) if self._night else QColor(0xFF, 0xFF, 0xFF))
 
         widest = max((self._natural_size(i)[0] for i in range(self._vdoc.page_count)), default=1.0)
         widest *= self._zoom
@@ -528,7 +533,10 @@ class PdfView(QGraphicsView):
                 )
             pm = page.get_pixmap(matrix=fitz.Matrix(self._zoom, self._zoom), clip=clip, alpha=False)
             img = QImage(pm.samples, pm.width, pm.height, pm.stride, QImage.Format.Format_RGB888)
-            pixmap = QPixmap.fromImage(img.copy())  # copy: detach from pm.samples buffer
+            img = img.copy()  # detach from pm.samples buffer
+            if self._night:
+                img.invertPixels()  # M49: view-only — save/print/export render elsewhere
+            pixmap = QPixmap.fromImage(img)
             if total:
                 pixmap = pixmap.transformed(QTransform().rotate(total))
         except Exception:
@@ -674,6 +682,25 @@ class PdfView(QGraphicsView):
         self._armed = None
         self.viewport().setCursor(Qt.CursorShape.ArrowCursor)
         self.armedChanged.emit(None)
+
+    # ---- night reading mode (M49) -----------------------------------------------
+
+    @property
+    def night_mode(self) -> bool:
+        return self._night
+
+    def set_night_mode(self, on: bool) -> None:
+        """Toggle the view-only pixel inversion. Restyles the page backgrounds (the pre-render
+        placeholder must match the inverted page) and re-renders what's visible; the cache is
+        dropped because its pixmaps were produced under the other palette."""
+        if on == self._night:
+            return
+        self._night = on
+        self._cache.clear()
+        brush = QBrush(QColor(0, 0, 0) if on else QColor(0xFF, 0xFF, 0xFF))
+        for p in self._pages:
+            p["bg"].setBrush(brush)
+        self._render_visible()
 
     # ---- armed-CROP drag (M48) --------------------------------------------------
 

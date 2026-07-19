@@ -231,7 +231,10 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   honesty wording; **Remove Crop** restores the full MediaBox — *including a crop the file arrived
   with* (pre-cropped sources also now display by their CropBox, fixing their layout). Odd/even
   book-scan crops stay deferred. — *WSL + WSLg*
-- [ ] **M49** Night reading mode (view-only pixmap invert) — *WSLg*
+- [x] **M49** Night reading mode (view-only pixmap invert). **View ▸ Night Reading Mode**
+  (checkable, remembered app-wide): the page render inverts and the pre-render placeholder goes
+  black (no bright flash); the file, print/export renders, and thumbnails keep true colours;
+  independent of the followed OS theme. — *WSLg*
 - [ ] **M50** Verify + release → tag — *Windows*
 
 **R2 — "Document Hygiene"**

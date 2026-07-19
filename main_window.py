@@ -342,6 +342,15 @@ class MainWindow(QMainWindow):
         for a in self._armed_actions.values():
             a.setCheckable(True)
         view_menu.addSeparator()
+        # Night reading mode (M49): view-only page inversion, independent of the OS theme the
+        # chrome follows. Remembered app-wide, like the sidebar choice; the file, print, export,
+        # and thumbnails stay daylight — only what the eyes read at night inverts.
+        self._a_night = act("Night Reading Mode", self._toggle_night_mode, to_menu=view_menu)
+        self._a_night.setCheckable(True)
+        if bool(self._settings.get_pref("night_mode", False)):
+            self._a_night.setChecked(True)
+            self.view.set_night_mode(True)  # pre-show: nothing rendered yet, so no flash
+        view_menu.addSeparator()
         # Checkable show/hide for the sidebar — menu item + a dedicated toolbar button (its
         # checked state mirrors the panel's visibility, with the :checked toolbar styling).
         # "Sidebar", not "Pages Sidebar": since M45 the dock can also hold the Outline tab, and one
@@ -475,6 +484,11 @@ class MainWindow(QMainWindow):
 
     def _show_find(self) -> None:
         self.find_bar.show_bar()
+
+    def _toggle_night_mode(self, checked: bool) -> None:
+        """View ▸ Night Reading Mode (M49): invert the page pixels, view-only; remembered."""
+        self.view.set_night_mode(checked)
+        self._settings.set_pref("night_mode", checked)
 
     def _goto_page_dialog(self) -> None:
         """View ▸ Go to Page… (Ctrl+G, M45): jump straight to an absolute page number."""
