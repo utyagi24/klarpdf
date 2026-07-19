@@ -9,6 +9,11 @@ our marks round-trip on reopen — M31). Export writes a locked / derived artifa
   content, not editable annotations, so they can't be moved / removed / re-edited in any tool. It is
   the opt-out counterpart to M31's round-trip: Save As stays editable, Export → PDF locks.
 * **Images** (M36): the selected page(s) → PNG / JPEG at a chosen DPI, one file per page.
+* **Selected pages as PDF** (M51): the selected page(s) → a new PDF, extracted **object-level**
+  through the ordinary materialise path — so unlike the other formats it stays *editable* (a
+  Save-like artifact of a page subset): the text layer, form fields, and our round-trippable
+  annotations all carry, and the origin bookmarks / internal links whose targets were extracted
+  are remapped to the new page numbers (the rest are dropped).
 
 Every format shares the edits-applied render (:meth:`PyMuPDFEngine.render_output`), so an export
 reflects the same page order / rotation / redactions / annotations / fills a Save would write — and
@@ -44,6 +49,22 @@ def export_flattened_pdf(vdoc: VirtualDocument, out_path: str) -> None:
         out.save(out_path, garbage=4, deflate=True, clean=True)
     finally:
         out.close()
+
+
+def export_selected_pages(vdoc: VirtualDocument, page_indices, out_path: str) -> None:
+    """Write the pages at ``page_indices`` (indices into the live order, deduped, document order)
+    to ``out_path`` as a new PDF — the object-level extract (M51).
+
+    Materialises a :meth:`VirtualDocument.subset`, so the output is exactly what a Save would
+    write for those pages: text layer / forms / annotations carried, rotation + crop + fills
+    applied, a *pending* redaction applied destructively **in the extracted copy only** (the
+    working document keeps it, still undoable — same side-artifact rule as the other exports),
+    and the origin bookmarks + internal links remapped to the extracted page numbers.
+    """
+    indices = sorted(set(page_indices))
+    if not indices:
+        return
+    PyMuPDFEngine().materialize(vdoc.subset(indices), out_path)
 
 
 def export_page_images(
