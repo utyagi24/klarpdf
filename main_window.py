@@ -177,6 +177,12 @@ class MainWindow(QMainWindow):
             tabs.setDocumentMode(True)  # flat sidebar-style tab bar, no page frame
             tabs.addTab(self.thumbs, "Pages")  # reparents thumbs out of any retired container
             tabs.addTab(self.outline, "Outline")
+            # The dock's resize bounds come from its content widget, and a QTabWidget does not
+            # inherit its children's constraints — without this the sidebar becomes freely
+            # resizable the moment the switcher mounts (dead space beside the capped thumbnails).
+            # Mirror the Pages panel's bounds: one surface, one set of limits, either document kind.
+            tabs.setMinimumWidth(self.thumbs.minimumWidth())
+            tabs.setMaximumWidth(self.thumbs.maximumWidth())
             if isinstance(old, QTabWidget):
                 tabs.setCurrentIndex(old.currentIndex())  # a reload keeps the active tab
             self.pages_dock.setWindowTitle("Sidebar")  # the tab labels carry the specifics
