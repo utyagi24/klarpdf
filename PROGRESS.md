@@ -285,7 +285,7 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
 
 **R3 — "Markup Tools"**
 
-- [ ] **M56** Underline & strikeout (Highlight's quad path; round-trip) — *WSL + WSLg*
+- [x] **M56** Underline & strikeout (Highlight's quad path; round-trip; Markup ▾ split-button) — *Windows (headless + offscreen GUI)* — [#130](https://github.com/utyagi24/klarpdf/pull/130)
 - [ ] **M57** ⭐ Pen & shapes model — ink/line+arrows/rect/ellipse descriptors, apply + read-back — *WSL*
 - [ ] **M58** Pen & shapes tools — draw/move/delete, Shift-constrain, Draw ▾ split-button — *WSLg*
 - [ ] **M59** Copy / paste objects — object clipboard, cross-window, focus-routed Ctrl+C/X/V — *WSL + WSLg*
