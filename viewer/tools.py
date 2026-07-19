@@ -14,6 +14,8 @@ Two layers:
   All four are consistent — arm, then a single gesture:
   - **TEXTBOX** — click a spot to place a free-text note box (M20);
   - **HIGHLIGHT** — drag over text to highlight it (one continuous bar per line);
+  - **UNDERLINE** / **STRIKEOUT** — drag over text to underline / strike it (M56; same
+    line-bar path as highlight);
   - **REDACT_TEXT** — drag over text to redact it (text-flow, one bar per line);
   - **REDACT_REGION** — drag a rectangle to destructively remove a block/image (M21);
   - **CROP** — drag the rectangle to keep; the rest of the page is hidden, not removed (M48).
@@ -32,11 +34,18 @@ class InteractionMode(Enum):
 class ArmedTool(Enum):
     TEXTBOX = "textbox"
     HIGHLIGHT = "highlight"
+    UNDERLINE = "underline"
+    STRIKEOUT = "strikeout"
     REDACT_TEXT = "redact_text"
     REDACT_REGION = "redact_region"
     CROP = "crop"
 
     @property
     def drags_text(self) -> bool:
-        """True for tools driven by a drag-over-text selection (highlight / text-redact)."""
-        return self in (ArmedTool.HIGHLIGHT, ArmedTool.REDACT_TEXT)
+        """True for tools driven by a drag-over-text selection (the markup trio + text-redact)."""
+        return self in (
+            ArmedTool.HIGHLIGHT,
+            ArmedTool.UNDERLINE,
+            ArmedTool.STRIKEOUT,
+            ArmedTool.REDACT_TEXT,
+        )
