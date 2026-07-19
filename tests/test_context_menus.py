@@ -193,17 +193,20 @@ def test_toolbar_highlight_arms_when_nothing_is_selected(app, menu_pdf):
 def test_sidebar_menu_lists_all_verbs_with_rotate(app, menu_pdf):
     win = _win(app, menu_pdf)
     menu = win._build_page_context_menu([0])
-    assert _titles(menu) == ["Cut", "Copy", "Paste", "Delete",
-                             "Rotate Left", "Rotate Right", "Insert Pages from File…"]
+    assert _titles(menu) == ["Cut", "Copy", "Paste", "Delete", "Duplicate",
+                             "Rotate Left", "Rotate Right",
+                             "Insert Pages from File…", "Insert Blank Page", "Export as PDF…"]
 
 
 def test_sidebar_menu_disables_row_verbs_without_a_selection(app, menu_pdf):
     win = _win(app, menu_pdf)
     by_title = {a.text(): a for a in win._build_page_context_menu([]).actions()}
-    for title in ("Cut", "Copy", "Delete", "Rotate Left", "Rotate Right"):
+    for title in ("Cut", "Copy", "Delete", "Duplicate", "Rotate Left", "Rotate Right",
+                  "Export as PDF…"):
         assert by_title[title].isEnabled() is False
     assert by_title["Paste"].isEnabled() is False  # empty page clipboard
     assert by_title["Insert Pages from File…"].isEnabled() is True
+    assert by_title["Insert Blank Page"].isEnabled() is True
 
 
 def test_sidebar_menu_paste_enables_with_clipboard(app, menu_pdf):

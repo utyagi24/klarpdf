@@ -219,6 +219,23 @@ class VirtualDocument:
             self.sources[source_id] = doc
         return source_id
 
+    def open_blank_source(self, width: float, height: float) -> str:
+        """Register a one-page **blank** in-memory source of ``width`` × ``height`` points (M51
+        Insert ▸ Blank Page) and return its source id.
+
+        Built via ``fitz.Document.new_page`` — an empty page, no content stream to inherit. The id
+        is synthetic (``blank:WxH`` — never a path), and one source is shared by every blank page
+        of the same size, so the insert itself stays a plain ``PageRef`` list edit like any other:
+        it rides the undo stack, materialises object-level, and travels cross-window for free.
+        Idempotent per size.
+        """
+        source_id = f"blank:{width:g}x{height:g}"
+        if source_id not in self.sources:
+            doc = fitz.open()
+            doc.new_page(width=width, height=height)
+            self.sources[source_id] = doc
+        return source_id
+
     def open_image_source(self, path: str) -> str:
         """Open a raster image as a **one-page PDF** source (M35 image import) and register it.
 
@@ -274,6 +291,38 @@ class VirtualDocument:
         from model.toc_remap import remap_toc
 
         return remap_toc(self._origin_toc, self.build_index_map())
+
+    def subset(self, indices: Iterable[int]) -> "VirtualDocument":
+        """A throwaway extract view holding only the pages at ``indices``, in document order (M51
+        Export ▸ Selected Pages as PDF…).
+
+        Shares this document's live source objects (so **never** ``close()`` the subset) and copies
+        the refs + form fills; the origin outline rides along so ``remapped_toc`` keeps the
+        bookmarks whose target pages were extracted and drops the rest. Materialising the subset is
+        the ordinary lossless path — object-level page copy, per-page edits, TOC + internal-link
+        remap — applied to just these pages.
+        """
+        sub = VirtualDocument()
+        sub.sources = self.sources
+        sub.ordered = [self.ordered[i] for i in sorted(set(indices))]
+        sub.origin_source_id = self.origin_source_id
+        sub._origin_toc = self._origin_toc
+        sub._form_values = dict(self._form_values)
+        return sub
+
+    def page_visible_size(self, index: int) -> tuple:
+        """The on-screen ``(width, height)`` of the page at ``index`` — its (cropped) content
+        frame with the effective rotation applied. Sizes an inserted blank page to match the page
+        it follows (M51)."""
+        ref = self.ordered[index]
+        if ref.crop_override is not None:
+            w = ref.crop_override[2] - ref.crop_override[0]
+            h = ref.crop_override[3] - ref.crop_override[1]
+        else:
+            _x0, _y0, w, h = self.page_base_rect(index)
+        native = self.sources[ref.source_id][ref.source_page_index].rotation
+        rotation = native if ref.rotation_override is None else ref.rotation_override
+        return (h, w) if rotation % 180 else (w, h)
 
     def has_outline(self) -> bool:
         """Whether the **origin** document carries an outline (M45 — decides if the sidebar grows an

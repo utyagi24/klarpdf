@@ -256,10 +256,12 @@ class MainWindow(QMainWindow):
         self._recent_menu.aboutToShow.connect(self._populate_recent_menu)
         a_save = act("Save", self.save, QKeySequence.StandardKey.Save, icon="save", to_menu=file_menu)
         act("Save As…", self.save_as, QKeySequence.StandardKey.SaveAs, to_menu=file_menu)
-        # Export → a *derived* copy (Save stays editable; Export locks). One format today
-        # (flattened PDF); the submenu grows an image format in M36.
+        # Export → a *derived* copy that never touches the working document. Flatten locks the
+        # marks into content; Selected Pages (M51) extracts a page subset through the ordinary
+        # materialise path (that one stays editable — a Save-like artifact); Image rasterises.
         export_menu = file_menu.addMenu("&Export")
         act("Flattened PDF…", self._export_flattened_pdf, to_menu=export_menu)
+        act("Selected Pages as PDF…", self._export_selected_pages, to_menu=export_menu)
         act("Image…", self._export_images, to_menu=export_menu)
         # Revert: discard all edits and reload from disk. Enabled only while there are unsaved
         # changes (a clean doc has nothing to revert) — toggled in _on_clean_changed.
@@ -294,6 +296,11 @@ class MainWindow(QMainWindow):
         a_rotl = self._a_rotl = act("Rotate Left", lambda: self._rotate_pages(-90), "Ctrl+L", icon="rotate-left", to_menu=edit_menu)
         a_rotr = self._a_rotr = act("Rotate Right", lambda: self._rotate_pages(90), "Ctrl+R", icon="rotate-right", to_menu=edit_menu)
         a_insert = act("Insert Pages from File…", self._insert_from_file, icon="insert", to_menu=edit_menu)
+        # M51: a fresh empty page / copies of the selection — both plain PageRef inserts on the
+        # undo stack, grouped with the other page operations. Menu-only (one-shot commands stay
+        # off the toolbar — PLAN.md §GUI feature roadmap, UI budget).
+        act("Insert Blank Page", self._insert_blank_page, to_menu=edit_menu)
+        act("Duplicate Pages", lambda: self._duplicate_pages(), to_menu=edit_menu)
         edit_menu.addSeparator()
         self._a_copy_text = act("Copy", self._copy_selection, QKeySequence.StandardKey.Copy, to_menu=edit_menu)
         a_find = act("Find…", self._show_find, QKeySequence.StandardKey.Find, icon="find", to_menu=edit_menu)
@@ -758,6 +765,34 @@ class MainWindow(QMainWindow):
         self.undo_stack.push(InsertCommand(self.vdoc, self._insertion_index(), refs,
                                            text="Insert pages from file"))
 
+    def _insert_blank_page(self) -> None:
+        """Edit ▸ Insert Blank Page (M51): one empty page after the selection — or after the
+        current page — sized to match the page it follows (its visible, rotated frame), so a
+        landscape scan gets a landscape blank. Undoable like any insert."""
+        rows = self.thumbs.selected_rows()
+        at = rows[-1] + 1 if rows else min(self.view.current_page + 1, self.vdoc.page_count)
+        if self.vdoc.page_count:
+            width, height = self.vdoc.page_visible_size(max(0, at - 1))
+        else:
+            width, height = 612.0, 792.0  # empty document — US Letter
+        source_id = self.vdoc.open_blank_source(width, height)
+        self.undo_stack.push(
+            InsertCommand(self.vdoc, at, [PageRef(source_id, 0)], text="Insert blank page")
+        )
+
+    def _duplicate_pages(self, rows=None) -> None:
+        """Edit ▸ Duplicate Pages (M51): copies of the selected pages — or the current page —
+        spliced in right after the last of them. The copies are the same frozen PageRefs, so they
+        carry the pages' per-page edits (rotation / crop / annotations); the object-level copy
+        happens at materialise, like every insert. One undo step."""
+        rows = rows if rows else (self.thumbs.selected_rows() or [self.view.current_page])
+        rows = sorted({r for r in rows if 0 <= r < self.vdoc.page_count})
+        if not rows:
+            return
+        refs = [self.vdoc.ordered[i] for i in rows]
+        label = "Duplicate page" if len(refs) == 1 else f"Duplicate {len(refs)} pages"
+        self.undo_stack.push(InsertCommand(self.vdoc, rows[-1] + 1, refs, text=label))
+
     def _on_files_dropped(self, paths, before_index: int) -> None:
         """PDF(s) and/or image(s) dragged from Explorer onto the Pages panel — insert at the drop
         slot. An image (M35) is converted to a one-page PDF source; a PDF opens as-is."""
@@ -827,13 +862,14 @@ class MainWindow(QMainWindow):
         return menu
 
     def _build_page_context_menu(self, rows) -> QMenu:
-        """The Pages-sidebar right-click menu for the selected ``rows`` (M46 adds rotate; extract
-        joins at M51). Built unexec'd so tests can assert contents and trigger actions."""
+        """The Pages-sidebar right-click menu for the selected ``rows`` (M46; M51 adds Duplicate +
+        the extract). Built unexec'd so tests can assert contents and trigger actions."""
         menu = QMenu(self)
         a_cut = menu.addAction("Cut", lambda: self._cut_pages(rows))
         a_copy = menu.addAction("Copy", lambda: self._copy_pages(rows))
         a_paste = menu.addAction("Paste", lambda: self._paste_pages(rows[-1] + 1 if rows else None))
         a_delete = menu.addAction("Delete", lambda: self._delete_rows(rows))
+        a_dup = menu.addAction("Duplicate", lambda: self._duplicate_pages(rows))
         menu.addSeparator()
         # Same undoable per-page rotation as View ▸ Rotate; rows == the sidebar selection, which
         # is exactly what _rotate_pages acts on.
@@ -841,7 +877,11 @@ class MainWindow(QMainWindow):
         a_rotr = menu.addAction("Rotate Right", lambda: self._rotate_pages(90))
         menu.addSeparator()
         menu.addAction("Insert Pages from File…", self._insert_from_file)
-        for a in (a_cut, a_copy, a_delete, a_rotl, a_rotr):
+        menu.addAction("Insert Blank Page", self._insert_blank_page)
+        # The selection-scoped extract (M51) — same handler as File ▸ Export ▸ Selected Pages
+        # (it reads the sidebar selection, which is exactly these rows).
+        a_extract = menu.addAction("Export as PDF…", self._export_selected_pages)
+        for a in (a_cut, a_copy, a_delete, a_dup, a_rotl, a_rotr, a_extract):
             a.setEnabled(bool(rows))
         a_paste.setEnabled(bool(self._app.page_clipboard))
         return menu
@@ -919,36 +959,55 @@ class MainWindow(QMainWindow):
 
     # ---- export (a derived copy, not the editable document) ---------------------
 
-    def _export_flattened_pdf(self) -> None:
-        """Export → Flattened PDF (M31.5): write a locked copy whose annotations + form fields are
-        baked into page content (text preserved). A *derived* artifact like Print — it does not
-        touch the working document's path, dirty state, undo history, or file watcher; a pending
-        redaction is applied in the exported file without committing it in the open document."""
+    def _export_pdf(self, title: str, default_tag: str, write) -> None:
+        """Shared plumbing for the PDF-writing exports: flush a pending inline form edit, ask for
+        the target (default name = the document's, tagged ``default_tag``), then ``write(vdoc,
+        tmp_path)`` to a same-directory temp file and atomically replace — never a partial export,
+        and the target is left intact if the write fails. Every export is a *derived* artifact
+        like Print: the working document's path, dirty state, undo history, and file watcher are
+        untouched."""
         if self.view.form is not None:
             self.view.form.commit_pending()  # flush an open inline field editor first
         default = self.vdoc.path or ""
         if default:
             base, _ext = os.path.splitext(default)
-            default = f"{base} (flattened).pdf"
-        path, _ = QFileDialog.getSaveFileName(self, "Export Flattened PDF", default, "PDF files (*.pdf)")
+            default = f"{base} ({default_tag}).pdf"
+        path, _ = QFileDialog.getSaveFileName(self, title, default, "PDF files (*.pdf)")
         if not path:
             return
         if not path.lower().endswith(".pdf"):
             path += ".pdf"
-        # Write to a temp file in the same directory, then atomically replace — never leave a partial
-        # export (and never clobber the target if the bake/save fails).
         directory = os.path.dirname(os.path.abspath(path)) or "."
         fd, tmp = tempfile.mkstemp(suffix=".pdf", dir=directory)
         os.close(fd)
         try:
-            from model.export import export_flattened_pdf
-
-            export_flattened_pdf(self.vdoc, tmp)
+            write(self.vdoc, tmp)
             os.replace(tmp, path)
         except Exception as exc:  # surface, don't crash; leave any existing target intact
             if os.path.exists(tmp):
                 os.remove(tmp)
             QMessageBox.critical(self, "Export failed", str(exc))
+
+    def _export_flattened_pdf(self) -> None:
+        """Export → Flattened PDF (M31.5): write a locked copy whose annotations + form fields are
+        baked into page content (text preserved); a pending redaction is applied in the exported
+        file without committing it in the open document."""
+        from model.export import export_flattened_pdf
+
+        self._export_pdf("Export Flattened PDF", "flattened", export_flattened_pdf)
+
+    def _export_selected_pages(self) -> None:
+        """Export → Selected Pages as PDF… (M51): the selected pages — or the current page when
+        nothing is selected — extracted object-level into a new, still-editable PDF (text layer /
+        forms / our annotations carried; origin bookmarks + internal links remapped)."""
+        from model.export import export_selected_pages
+
+        indices = self.thumbs.selected_rows() or [self.view.current_page]
+        self._export_pdf(
+            "Export Selected Pages",
+            "extracted",
+            lambda vdoc, tmp: export_selected_pages(vdoc, indices, tmp),
+        )
 
     def _export_images(self) -> None:
         """Export → Image (M36): rasterise the selected page(s) — or the current page when nothing
