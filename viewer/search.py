@@ -215,6 +215,13 @@ class FindBar(QWidget):
         self.show()
         self._edit.setFocus()
         self._edit.selectAll()
+        # Closing the bar clears the search (the highlight overlays must go), but the query text
+        # survives in the field — so reopening showed the old query with zero hits behind it, a
+        # dead state where only retyping revived the search. Re-run the kept query when the
+        # controller is empty; a bar that is already live (Ctrl+F while open) keeps its current
+        # hit position untouched.
+        if self._edit.text() and self._view.search.position()[1] == 0:
+            self._on_text(self._edit.text())
 
     def hide_bar(self) -> None:
         self._view.search.clear()
