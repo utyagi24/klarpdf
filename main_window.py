@@ -42,6 +42,7 @@ from model.edit_commands import (
     ReplaceAnnotationCommand,
     ResetCropCommand,
     RotatePagesCommand,
+    SetEncryptionCommand,
     SetFieldValueCommand,
     SetMetadataCommand,
 )
@@ -273,6 +274,9 @@ class MainWindow(QMainWindow):
         # Properties (M53): view / edit / remove-all over the document metadata — one dialog,
         # menu + dialog only (one-shot command, stays off the toolbar). Ctrl+D as in Acrobat.
         act("Properties…", self._show_properties, "Ctrl+D", to_menu=file_menu)
+        # Password protection (M54): Set / Change / Remove the AES-256 save password. Same
+        # placement logic — a document-level dialog beside Properties, never on the toolbar.
+        act("Password Protection…", self._password_protection, to_menu=file_menu)
         a_print = act("Print…", self._print, QKeySequence.StandardKey.Print, icon="print", to_menu=file_menu)
         file_menu.addSeparator()
         act("Close", self.close, QKeySequence.StandardKey.Close, to_menu=file_menu)
@@ -527,6 +531,22 @@ class MainWindow(QMainWindow):
         override = dialog.staged_override()
         if override is not None:
             self.undo_stack.push(SetMetadataCommand(self.vdoc, override))
+
+    def _password_protection(self) -> None:
+        """File ▸ Password Protection… (M54): one save-path capability, four verbs — Set / Change
+        / Remove the AES-256 password (+ advisory restriction flags), then carry-through on every
+        following save. The dialog owns the type-twice + unrecoverable warning and requires the
+        current password for Change/Remove; whatever it stages becomes one undoable command (the
+        password is only ever written into the encrypted output itself)."""
+        from ui.encrypt_dialog import PasswordDialog
+
+        dialog = PasswordDialog(self.vdoc, self)
+        if not dialog.exec():
+            return
+        staged = dialog.staged()
+        if staged is not None:
+            password, permissions = staged
+            self.undo_stack.push(SetEncryptionCommand(self.vdoc, password, permissions))
 
     def _goto_page_dialog(self) -> None:
         """View ▸ Go to Page… (Ctrl+G, M45): jump straight to an absolute page number."""

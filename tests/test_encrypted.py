@@ -1,8 +1,10 @@
-"""Encrypted / password-protected PDFs (PLAN.md, M32).
+"""Encrypted / password-protected PDFs (PLAN.md, M32; carry-through updated by M54).
 
 On open, an encrypted source is authenticated via an injected password provider and stored
-**decrypted** in memory, so everything downstream (render / materialise / export) is password-free
-and the saved output is unencrypted. Cancelling the prompt raises ``PasswordRequired`` and the GUI
+**decrypted** in memory, so everything downstream (render / materialise / export) is
+password-free. Since M54 the password that opened the document is **carried through**: a save
+re-encrypts with it (superseding M32's save-unencrypted deferral — the set/change/remove verbs
+live in ``test_encryption.py``). Cancelling the prompt raises ``PasswordRequired`` and the GUI
 simply opens no window. Model tests are headless; two offscreen GUI tests cover the prompt wiring.
 """
 
@@ -76,22 +78,27 @@ def test_unencrypted_open_never_consults_provider(a_pdf):
     assert vd.page_count >= 1
 
 
-def test_materialize_of_encrypted_is_unencrypted_and_keeps_content(encrypted_pdf, tmp_path):
+def test_materialize_of_encrypted_carries_the_password_through(encrypted_pdf, tmp_path):
+    """M54 supersedes M32's save-unencrypted deferral: the password that opened the document is
+    the password the save writes (AES-256), and the content/outline survive the round trip."""
     vd = VirtualDocument.from_path(encrypted_pdf, password_provider=_correct)
+    assert vd.password == "secret"                # carry-through seeded at open
     out = str(tmp_path / "out.pdf")
     PyMuPDFEngine().materialize(vd, out)
     doc = fitz.open(out)
     try:
-        assert not doc.needs_pass                 # output is unencrypted (re-encryption is deferred)
+        assert doc.needs_pass                     # the output is protected again…
+        assert doc.authenticate("secret")         # …with the same password
         assert _SECRET in doc[0].get_text()       # content survived the decrypt + materialise
         assert doc.get_toc() == [[1, "Cover", 1]]  # outline preserved
     finally:
         doc.close()
 
 
-def test_reload_reuses_stored_password_provider(encrypted_pdf):
-    """Revert of an encrypted original re-reads the on-disk (still-encrypted) file, re-prompting via
-    the provider stored at open — so it authenticates again without the caller re-supplying it."""
+def test_reload_tries_the_known_password_before_prompting(encrypted_pdf):
+    """Revert / redaction-commit of an encrypted document re-reads the (still-encrypted) file.
+    Since M54 the held carry-through password is tried silently first — no re-prompt for a
+    password we know."""
     calls = []
 
     def provider(path, retry):
@@ -102,7 +109,31 @@ def test_reload_reuses_stored_password_provider(encrypted_pdf):
     before = len(calls)
     vd.reload_from_file(encrypted_pdf)
     assert vd.page_count == 1
-    assert len(calls) == before + 1
+    assert len(calls) == before                   # the known password opened it — no prompt
+    assert vd.password == "secret"                # carry-through still armed
+
+
+def test_reload_falls_back_to_the_provider_on_a_changed_password(encrypted_pdf, tmp_path):
+    """If an external program re-encrypted the file with a different password, the known one
+    fails and the stored provider is consulted (the ordinary retry loop)."""
+    other = str(tmp_path / "rekeyed.pdf")
+    doc = fitz.open(encrypted_pdf)
+    doc.authenticate("secret")
+    doc.save(other, encryption=fitz.PDF_ENCRYPT_AES_256, owner_pw="changed", user_pw="changed")
+    doc.close()
+    calls = []
+
+    def provider(path, retry):
+        calls.append(retry)
+        # First open (not a retry) → the original password; the reload's fallback arrives as a
+        # retry, after the silently-tried known password failed → the new one.
+        return "changed" if retry else "secret"
+
+    vd = VirtualDocument.from_path(encrypted_pdf, password_provider=provider)
+    vd.reload_from_file(other)
+    assert vd.page_count == 1
+    assert calls[-1] is True                      # the fallback ran as a retry after "secret" failed
+    assert vd.password == "changed"               # re-baselined to what actually opened it
 
 
 # ---- GUI: the password prompt wiring ----------------------------------------

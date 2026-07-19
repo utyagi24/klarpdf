@@ -161,6 +161,25 @@ class SetMetadataCommand(_SnapshotCommand):
         self._vdoc.set_metadata_override(self._override)
 
 
+class SetEncryptionCommand(_SnapshotCommand):
+    """Set / change / remove the password the next Save applies (M54). Snapshot-based like every
+    edit: nothing is written until materialise, so undoing a pending password change is safe —
+    the password lives only in memory either way."""
+
+    def __init__(self, vdoc: VirtualDocument, password: "str | None", permissions: int = -1) -> None:
+        if password is None:
+            label = "Remove password"
+        elif vdoc.password is None:
+            label = "Set password"
+        else:
+            label = "Change password"
+        super().__init__(vdoc, label)
+        self._password, self._permissions = password, permissions
+
+    def _apply(self) -> None:
+        self._vdoc.set_encryption(self._password, self._permissions)
+
+
 class SetFieldValueCommand(_SnapshotCommand):
     """Fill an AcroForm field (M14). Snapshot-based, so undo/redo restores the prior value."""
 
