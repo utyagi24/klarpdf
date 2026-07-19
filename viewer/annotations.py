@@ -187,7 +187,12 @@ class AnnotationOverlay:
         if page_index is None:
             return None
         for annot in reversed(self._view._vdoc.ordered[page_index].annotations):
-            boxes = annot.rects if hasattr(annot, "rects") else (annot.rect,)
+            if hasattr(annot, "rects"):
+                boxes = annot.rects
+            elif hasattr(annot, "rect"):
+                boxes = (annot.rect,)
+            else:
+                boxes = (annot.bounding_rect(),)  # drawn marks (M57): ink / line / shape
             for box in boxes:
                 if self._view.scene_rect_for_box(page_index, box).contains(scene_pt):
                     return page_index, annot
