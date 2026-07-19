@@ -252,6 +252,21 @@ def mark_bounds(mark) -> tuple:
     return mark.rect if isinstance(mark, TextBox) else mark.bounding_rect()
 
 
+def restyle_mark(mark, color: tuple, width: float, fill_color: tuple | None):
+    """A drawn mark re-coloured / re-widthed (and, for shapes, re-filled) in place — the M59.5
+    "restyle the selected object" primitive, the style twin of :func:`translate_mark`. Only the
+    drawn types carry a shared stroke style; a :class:`TextBox` (its own font/fill/border live in
+    the format bar) or anything else returns ``None`` — nothing to restyle this way. ``fill_color``
+    is ignored for the fill-less :class:`Line` / :class:`InkStroke`."""
+    from dataclasses import replace
+
+    if isinstance(mark, Shape):
+        return replace(mark, color=color, width=width, fill_color=fill_color)
+    if isinstance(mark, (Line, InkStroke)):
+        return replace(mark, color=color, width=width)
+    return None
+
+
 def apply_annotations(page: fitz.Page, annotations: tuple) -> None:
     """Write a page's *non-destructive* annotation descriptors onto a materialised output page.
 

@@ -70,7 +70,7 @@ from ui import icons
 from util.paths import normalize_path
 from viewer.annotations import AnnotationOverlay
 from viewer.form_fill import FormFiller
-from viewer.markup_style import MarkupStyleButton
+from viewer.markup_style import MarkupStyle, MarkupStyleButton
 from viewer.links import LinkNavigator
 from viewer.pdf_view import PdfView
 from viewer.search import FindBar, SearchController, SearchResultsPanel
@@ -114,7 +114,8 @@ class MainWindow(QMainWindow):
         self.view.form = FormFiller(self.view, self._set_field_value)
         self.view.links = LinkNavigator(self.view)  # click internal links to jump (M33)
         self.view.annotations = AnnotationOverlay(
-            self.view, self._add_annotation, self._remove_annotation, self._replace_annotation
+            self.view, self._add_annotation, self._remove_annotation, self._replace_annotation,
+            self._on_object_selected,
         )
         # PdfView built its scene in __init__ (before this overlay existed), and the first show's
         # fit/restore can early-return without a rebuild — so paint any annotations the document was
@@ -443,7 +444,7 @@ class MainWindow(QMainWindow):
         # tracks it thereafter (the overlay is the single source of truth, created above).
         self._markup_style_button = MarkupStyleButton()
         self.view.annotations.set_markup_style(self._markup_style_button.style())
-        self._markup_style_button.styleChanged.connect(self.view.annotations.set_markup_style)
+        self._markup_style_button.styleChanged.connect(self._on_markup_style_changed)
         # Night reading mode (M49): view-only page inversion, independent of the OS theme the
         # chrome follows. Remembered app-wide, like the sidebar choice; the file, print, export,
         # and thumbnails stay daylight — only what the eyes read at night inverts.
@@ -871,6 +872,23 @@ class MainWindow(QMainWindow):
         """The shared sticky stroke colour (M59.5) applied to a new underline / strikeout — the
         same picker that colours the pen & shapes. Highlight stays its own translucent yellow."""
         return self.view.annotations.current_markup_style.color
+
+    def _on_markup_style_changed(self, style) -> None:
+        """The picker changed → update the sticky style for the next mark, and — mirroring the
+        text-markup 'apply to the current selection' rule — restyle a selected drawn object in
+        place (undoable) if one is selected."""
+        self.view.annotations.set_markup_style(style)
+        self.view.annotations.restyle_selected_object(style)
+
+    def _on_object_selected(self, mark) -> None:
+        """A free-placed mark was click-selected (M59.5): load a drawn mark's colour/width/fill into
+        the picker (so a follow-up tweak edits *that* mark), like double-clicking a text box loads
+        its style into the format bar. A text box keeps its own format bar, so it leaves the picker
+        untouched."""
+        style = MarkupStyle.from_mark(mark)
+        if style is not None:
+            self._markup_style_button.set_style(style)      # reflect it in the button (no emit)
+            self.view.annotations.set_markup_style(style)   # …and as the sticky default
 
     def _highlight_selection(self) -> None:
         self._apply_selection_bars(Highlight, "Highlight")

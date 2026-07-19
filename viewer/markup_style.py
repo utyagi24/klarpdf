@@ -67,6 +67,19 @@ class MarkupStyle:
     width: float = 2.0                                       # draw-tool stroke width, page points
     fill_color: tuple[float, float, float] | None = None     # shapes only; None → no fill
 
+    @classmethod
+    def from_mark(cls, mark) -> "MarkupStyle | None":
+        """The style of a selected drawn mark — loaded into the picker so a follow-up tweak edits
+        *that* mark's colour/width/fill (M59.5, the twin of ``TextBoxStyle.from_textbox``). Returns
+        ``None`` for a text box (its own format bar owns its style) or a non-drawn mark."""
+        from model.page_edits import InkStroke, Line, Shape
+
+        if isinstance(mark, Shape):
+            return cls(mark.color, mark.width, mark.fill_color)
+        if isinstance(mark, (Line, InkStroke)):
+            return cls(mark.color, mark.width, None)
+        return None
+
 
 def _rgb(color: QColor) -> tuple[float, float, float]:
     return (color.redF(), color.greenF(), color.blueF())

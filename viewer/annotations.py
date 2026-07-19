@@ -51,6 +51,7 @@ from model.page_edits import (
     TextBox,
     Underline,
     mark_bounds,
+    restyle_mark,
     translate_mark,
 )
 from viewer.markup_style import MarkupStyle
@@ -108,11 +109,12 @@ class _TextBoxEditor(QPlainTextEdit):
 
 
 class AnnotationOverlay:
-    def __init__(self, view, on_add, on_remove=None, on_replace=None) -> None:
+    def __init__(self, view, on_add, on_remove=None, on_replace=None, on_select=None) -> None:
         self._view = view
         self._on_add = on_add               # on_add(page_index, annotation) — pushes Add command
         self._on_remove = on_remove         # on_remove(page_index, annotation)
         self._on_replace = on_replace       # on_replace(page_index, old, new) — move / re-edit
+        self._on_select = on_select         # on_select(mark) — an object was click-selected (M59.5)
         self._items: list[QGraphicsRectItem] = []
         # Inline editor (placing a new box, or re-editing an existing one) + its formatting bar.
         self._editor: _TextBoxEditor | None = None
@@ -653,6 +655,8 @@ class AnnotationOverlay:
         self._view.scene().addItem(outline)
         self._selected = (page_index, mark)
         self._selected_item = outline
+        if self._on_select is not None:
+            self._on_select(mark)  # load its style into the picker (M59.5), like re-editing a box
 
     def select_object_at(self, scene_pt) -> bool:
         """Select the free-placed mark under ``scene_pt`` (text box or drawn mark), if any."""
@@ -676,6 +680,25 @@ class AnnotationOverlay:
         page_index, mark = self._selected
         self.clear_object_selection()
         self.remove(page_index, mark)
+        return True
+
+    def restyle_selected_object(self, style) -> bool:
+        """Apply ``style`` (a :class:`~viewer.markup_style.MarkupStyle`) to the selected drawn mark
+        in place — the "same strategy as text markup" the owner asked for: with an object selected,
+        a picker change edits *it* (undoable), not just the sticky default. Returns True if a mark
+        was restyled. A text box (its own format bar) or an unchanged style is a no-op.
+
+        The replace reloads the view, which clears the selection — so re-select the updated mark,
+        keeping the outline up for the next tweak. Page index + new mark are captured *before* the
+        replace, since the reload nulls ``self._selected`` mid-call."""
+        if self._selected is None:
+            return False
+        page_index, mark = self._selected
+        new = restyle_mark(mark, style.color, style.width, style.fill_color)
+        if new is None or new == mark:
+            return False
+        self._replace(page_index, mark, new, text=f"Restyle {type(mark).__name__.lower()}")
+        self.select_object(page_index, new)
         return True
 
     def begin_move(self, scene_pt) -> bool:

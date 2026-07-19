@@ -186,6 +186,76 @@ def test_set_style_does_not_emit():
 # ---- the picker's output round-trips through a save --------------------------
 
 
+# ---- restyle a selected object via the picker (the text-markup 'apply to selection' rule) ----
+
+
+def _add_and_select(win, mark):
+    win.vdoc.add_annotation(0, mark)
+    win.view.reload()
+    got = _only_mark(win, type(mark))
+    win.view.annotations.select_object(0, got)
+    return got
+
+
+def test_picker_restyles_the_selected_shape(win):
+    _add_and_select(win, Shape("rect", (100.0, 100.0, 180.0, 150.0),
+                               color=(0.86, 0.10, 0.10), width=2.0))
+    win._markup_style_button._set_color((0.0, 0.0, 1.0))   # what a preset click emits
+    restyled = _only_mark(win, Shape)
+    assert restyled.color == pytest.approx((0.0, 0.0, 1.0))
+    assert win.undo_stack.undoText() == "Restyle shape"
+    win.undo_stack.undo()
+    assert _only_mark(win, Shape).color == pytest.approx((0.86, 0.10, 0.10))
+
+
+def test_partial_edit_keeps_the_objects_other_attributes(win):
+    """Selecting loads the object's style into the picker, so nudging *one* control leaves the
+    rest alone — change the width and the blue colour + fill survive."""
+    _add_and_select(win, Shape("rect", (100.0, 100.0, 180.0, 150.0),
+                               color=(0.0, 0.0, 1.0), width=4.0, fill_color=(1.0, 0.94, 0.60)))
+    win._markup_style_button._set_width(1.0)
+    s = _only_mark(win, Shape)
+    assert s.width == 1.0
+    assert s.color == pytest.approx((0.0, 0.0, 1.0))          # untouched
+    assert s.fill_color == pytest.approx((1.0, 0.94, 0.60))   # untouched
+
+
+def test_selecting_a_mark_loads_its_style_into_the_picker(win):
+    _add_and_select(win, Line((100.0, 200.0), (220.0, 240.0), color=(0.13, 0.60, 0.20), width=4.0))
+    loaded = win._markup_style_button.style()
+    assert loaded.color == pytest.approx((0.13, 0.60, 0.20))
+    assert loaded.width == 4.0
+
+
+def test_restyle_keeps_the_object_selected_for_the_next_tweak(win):
+    _add_and_select(win, Line((100.0, 200.0), (220.0, 240.0), color=(0.86, 0.10, 0.10)))
+    win._markup_style_button._set_color((0.13, 0.60, 0.20))
+    sel = win.view.annotations.selected_object
+    assert sel is not None and isinstance(sel[1], Line)
+    assert sel[1].color == pytest.approx((0.13, 0.60, 0.20))   # selection followed the restyle
+
+
+def test_textbox_selection_is_left_to_its_format_bar(win):
+    """A text box keeps its richer format bar — the markup picker doesn't restyle it, and doesn't
+    even load into the button (so drawing style isn't hijacked by selecting a box)."""
+    from model.page_edits import TextBox
+
+    _add_and_select(win, TextBox((100.0, 100.0, 200.0, 140.0), "hi", color=(0.0, 0.0, 0.0)))
+    at = win.undo_stack.index()
+    win._markup_style_button._set_color((0.0, 0.0, 1.0))
+    box = [a for a in win.vdoc.page_annotations(0) if isinstance(a, TextBox)][0]
+    assert box.color == pytest.approx((0.0, 0.0, 0.0))   # untouched
+    assert win.undo_stack.index() == at                  # no restyle command pushed
+
+
+def test_no_selection_only_updates_the_sticky_default(win):
+    win.view.annotations.clear_object_selection()
+    at = win.undo_stack.index()
+    win._markup_style_button._set_color((0.0, 0.0, 1.0))
+    assert win.view.annotations.current_markup_style.color == pytest.approx((0.0, 0.0, 1.0))
+    assert win.undo_stack.index() == at                  # nothing to restyle → no command
+
+
 def test_coloured_shape_round_trips(a_pdf, tmp_path):
     """A blue, thick, blue-filled rectangle survives save→reopen with its style intact — proving
     the picker changes nothing about the (already-styled) descriptor's persistence."""
