@@ -121,6 +121,32 @@ class RotatePagesCommand(_SnapshotCommand):
         self._vdoc.rotate_pages(self._indices, self._delta)
 
 
+class CropPagesCommand(_SnapshotCommand):
+    """Crop one or more pages to an absolute rect (M48). Snapshot-based, so undo restores the
+    prior crops exactly (including a mix of crops across the pages)."""
+
+    def __init__(self, vdoc: VirtualDocument, indices: Iterable[int], rect: tuple) -> None:
+        self._indices = sorted(set(indices))
+        label = "Crop page" if len(self._indices) == 1 else f"Crop {len(self._indices)} pages"
+        super().__init__(vdoc, label)
+        self._rect = rect
+
+    def _apply(self) -> None:
+        self._vdoc.set_crop(self._indices, self._rect)
+
+
+class ResetCropCommand(_SnapshotCommand):
+    """Remove the crop from one or more pages — back to the full MediaBox (M48)."""
+
+    def __init__(self, vdoc: VirtualDocument, indices: Iterable[int]) -> None:
+        self._indices = sorted(set(indices))
+        label = "Remove crop" if len(self._indices) == 1 else f"Remove crop on {len(self._indices)} pages"
+        super().__init__(vdoc, label)
+
+    def _apply(self) -> None:
+        self._vdoc.reset_crop(self._indices)
+
+
 class SetFieldValueCommand(_SnapshotCommand):
     """Fill an AcroForm field (M14). Snapshot-based, so undo/redo restores the prior value."""
 

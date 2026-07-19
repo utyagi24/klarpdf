@@ -29,6 +29,32 @@ A_TEXT = ["ALPHA-zero-A0", "ALPHA-one-A1", "ALPHA-two-A2"]
 B_TEXT = ["BETA-zero-B0", "BETA-one-B1"]
 
 
+@pytest.fixture(autouse=True)
+def _no_real_modals(monkeypatch):
+    """Turn any unexpected modal dialog into a loud failure. Offscreen, a real modal blocks
+    forever — nothing can click it — and it has deadlocked the suite twice: a stale
+    file-changed prompt from a lingering closed window, then a "Save failed" error box whose
+    underlying exception the hang swallowed. Tests that exercise a prompt patch the
+    ``_confirm_*`` / provider seam *above* these Qt calls (their per-test monkeypatch overrides
+    this one), so anything reaching a real Qt modal is a bug — and the message raised here
+    carries the dialog's text, so the root cause lands in the failure output."""
+    from PySide6.QtWidgets import QFileDialog, QInputDialog, QMessageBox
+
+    def deny(cls_name: str, method: str):
+        def raiser(*args, **kwargs):
+            raise AssertionError(f"unexpected modal {cls_name}.{method} in headless test: {args!r}")
+
+        return raiser
+
+    for method in ("critical", "warning", "information", "question"):
+        monkeypatch.setattr(QMessageBox, method, staticmethod(deny("QMessageBox", method)))
+    monkeypatch.setattr(QMessageBox, "exec", deny("QMessageBox", "exec"))
+    for method in ("getInt", "getText", "getItem"):
+        monkeypatch.setattr(QInputDialog, method, staticmethod(deny("QInputDialog", method)))
+    for method in ("getOpenFileName", "getSaveFileName"):
+        monkeypatch.setattr(QFileDialog, method, staticmethod(deny("QFileDialog", method)))
+
+
 def _build(path: str, texts: list[str], field_value: str) -> None:
     doc = fitz.open()
     for i, text in enumerate(texts):

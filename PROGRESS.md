@@ -211,10 +211,30 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
 **R1 — "Navigate & Polish"** (prov. v0.12.0)
 
 - [x] **M45** ⭐ Outline sidebar (no TOC → no tab; live `remapped_toc`; scroll tracking) + Go to Page (Ctrl+G). The sidebar becomes a Pages | Outline switcher **only** for a TOC'd document (dock title "Sidebar"; the View-menu/toolbar toggle is renamed "Sidebar" — one stable label for both document kinds); TOC-less docs keep the bare Pages panel. Bundled fix: a reload-in-place now resyncs the file watcher, and a **closed** window can no longer raise the "file changed on disk" prompt (a lingering hidden window's stale watcher + a stray activation event = an unanswerable modal — it deadlocked the offscreen suite, and the pre-existing save-cancel path could trigger it too). — *WSL + WSLg*
-- [ ] **M46** Context menus everywhere — selection / link / empty-page / sidebar, hit-test routed — *WSLg*
-- [ ] **M47** Search-all results panel (page + snippet, click-to-jump; M64 reuses it) — *WSLg*
-- [ ] **M48** Crop pages — `crop_override` on PageRef; page/selected/all scopes; "hidden, not removed" wording; reset offered — *WSL + WSLg*
-- [ ] **M49** Night reading mode (view-only pixmap invert) — *WSLg*
+- [x] **M46** Context menus everywhere — selection / link / empty-page / sidebar, hit-test routed.
+  `PdfView.contextMenuEvent` delegates to a MainWindow-built menu by hit state: our annotation →
+  Remove (the pre-M46 menu, now routed); live selection → Copy / **Highlight Selection** / **Redact
+  Selection** (apply-now, vs the toolbar's armed one-shots); internal link → Go to Page N; **external
+  link → Copy Link Address** (URI links stay non-clickable — clipboard only, offline guarantee
+  intact); bare page → the routed View-menu QActions (fits · rotate · Go to Page). Sidebar menu adds
+  Rotate Left/Right (extract joins at M51; paste-object at M59). — *WSLg*
+- [x] **M47** Search-all results panel (page + snippet, click-to-jump; M64 reuses it). The FindBar
+  gains a **List All** toggle → a hit-list band under the bar ("p. N   …snippet…"; hidden until
+  asked — no dead chrome). Snippets are the hit's text line windowed ±4 words with ellipses; click
+  a row → that hit becomes current and is revealed; the panel follows the query as typed, tracks
+  next/prev, and empties with the overlay on a structural edit. — *WSLg*
+- [x] **M48** Crop pages — `crop_override` on PageRef; page/selected/all scopes; "hidden, not
+  removed" wording; reset offered. Rides the PageRef exactly like `rotation_override` (absolute
+  content-frame rect; snapshots for undo; follows reorder **and** cross-window copy/paste);
+  materialised via `set_cropbox`; live in the viewer (crop-aware geometry/overlay mapping + clip
+  render + baked thumbnails). Armed **Crop Pages** drag → scope prompt (This/Selected/All) with the
+  honesty wording; **Remove Crop** restores the full MediaBox — *including a crop the file arrived
+  with* (pre-cropped sources also now display by their CropBox, fixing their layout). Odd/even
+  book-scan crops stay deferred. — *WSL + WSLg*
+- [x] **M49** Night reading mode (view-only pixmap invert). **View ▸ Night Reading Mode**
+  (checkable, remembered app-wide): the page render inverts and the pre-render placeholder goes
+  black (no bright flash); the file, print/export renders, and thumbnails keep true colours;
+  independent of the followed OS theme. — *WSLg*
 - [ ] **M50** Verify + release → tag — *Windows*
 
 **R2 — "Document Hygiene"**

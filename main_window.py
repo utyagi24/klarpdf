@@ -34,11 +34,13 @@ from PySide6.QtWidgets import (
 
 from model.edit_commands import (
     AddAnnotationCommand,
+    CropPagesCommand,
     DeleteCommand,
     InsertCommand,
     MovePagesCommand,
     RemoveAnnotationCommand,
     ReplaceAnnotationCommand,
+    ResetCropCommand,
     RotatePagesCommand,
     SetFieldValueCommand,
 )
@@ -54,7 +56,7 @@ from viewer.annotations import AnnotationOverlay
 from viewer.form_fill import FormFiller
 from viewer.links import LinkNavigator
 from viewer.pdf_view import PdfView
-from viewer.search import FindBar, SearchController
+from viewer.search import FindBar, SearchController, SearchResultsPanel
 from viewer.text_selection import TextSelection
 from viewer.tools import ArmedTool, InteractionMode
 from viewer.zoom_widget import ZoomWidget
@@ -103,15 +105,20 @@ class MainWindow(QMainWindow):
         self.view.annotations.repaint()
         self.view.armedChanged.connect(self._on_armed_changed)
         self.view.applyTextTool.connect(self._apply_text_tool)
+        self.view.cropDragged.connect(self._on_crop_dragged)
         self.find_bar = FindBar(self.view)  # hidden until Ctrl+F
+        # Doc-wide search hit list (M47): a band under the find bar, hidden until List All.
+        self.search_results = SearchResultsPanel(self.view)
+        self.find_bar.results_panel = self.search_results
 
-        # Central column: find bar above the view. (A QToolBar host collapses to zero height
-        # while the bar is hidden and won't re-expand on show(), so use a real layout.)
+        # Central column: find bar (+ results list) above the view. (A QToolBar host collapses to
+        # zero height while the bar is hidden and won't re-expand on show(), so use a real layout.)
         central = QWidget()
         col = QVBoxLayout(central)
         col.setContentsMargins(0, 0, 0, 0)
         col.setSpacing(0)
         col.addWidget(self.find_bar)
+        col.addWidget(self.search_results)
         col.addWidget(self.view, 1)
         self.setCentralWidget(central)
 
@@ -150,6 +157,9 @@ class MainWindow(QMainWindow):
         self._watcher.changedOnDisk.connect(self._check_external_change)
 
         self._build_actions()
+        # Right-click menus by hit state (M46) — set after _build_actions: the bare-page menu
+        # routes the QActions built there.
+        self.view.context_menu_provider = self._view_context_menu
         self.setWindowTitle(f"{os.path.basename(path)} — KlarPDF[*]")
         self.setWindowIcon(icons.app_icon())
         self._place_window()  # final size + position *before* show() → no post-show resize jump
@@ -275,7 +285,7 @@ class MainWindow(QMainWindow):
         a_delete = act("Delete Pages", lambda: self._delete_rows(self.thumbs.selected_rows()), icon="delete", to_menu=edit_menu)
         a_insert = act("Insert Pages from File…", self._insert_from_file, icon="insert", to_menu=edit_menu)
         edit_menu.addSeparator()
-        act("Copy", self._copy_selection, QKeySequence.StandardKey.Copy, to_menu=edit_menu)
+        self._a_copy_text = act("Copy", self._copy_selection, QKeySequence.StandardKey.Copy, to_menu=edit_menu)
         a_find = act("Find…", self._show_find, QKeySequence.StandardKey.Find, icon="find", to_menu=edit_menu)
         act("Find Next", self.find_bar.find_next, QKeySequence.StandardKey.FindNext, to_menu=edit_menu)
         act("Find Previous", self.find_bar.find_prev, QKeySequence.StandardKey.FindPrevious, to_menu=edit_menu)
@@ -285,18 +295,20 @@ class MainWindow(QMainWindow):
         a_zin = act("Zoom In", self.view.zoom_in, QKeySequence.StandardKey.ZoomIn, icon="zoom-in", to_menu=view_menu)
         # Live magnification indicator + preset/typed zoom (1.0 == 100%).
         self.zoom_widget = ZoomWidget(self.view)
-        act("Actual Size", self.view.actual_size, "Ctrl+0", to_menu=view_menu)  # reset to 100%
-        a_fitw = act("Fit Width", self.view.fit_width, "Ctrl+1", icon="fit-width", to_menu=view_menu)
-        a_fitp = act("Fit Page", self.view.fit_page, "Ctrl+2", icon="fit-page", to_menu=view_menu)
+        # self._a_* refs: these actions are also routed into the view's context menu (M46) — the
+        # same QAction objects, so labels/shortcuts/enabled-state stay single-sourced.
+        self._a_actual = act("Actual Size", self.view.actual_size, "Ctrl+0", to_menu=view_menu)  # reset to 100%
+        a_fitw = self._a_fitw = act("Fit Width", self.view.fit_width, "Ctrl+1", icon="fit-width", to_menu=view_menu)
+        a_fitp = self._a_fitp = act("Fit Page", self.view.fit_page, "Ctrl+2", icon="fit-page", to_menu=view_menu)
         view_menu.addSeparator()
         # Jump to an absolute page (M45). Menu + dialog only — one-shot commands stay off the
         # toolbar (PLAN.md §GUI feature roadmap, UI budget).
-        act("Go to &Page…", self._goto_page_dialog, "Ctrl+G", to_menu=view_menu)
+        self._a_goto = act("Go to &Page…", self._goto_page_dialog, "Ctrl+G", to_menu=view_menu)
         view_menu.addSeparator()
         # Rotate the current/selected page(s) only — a real per-page edit (undoable, saved),
         # not a whole-view spin. PdfView.rotate_view still exists for view-only rotation.
-        a_rotl = act("Rotate Left", lambda: self._rotate_pages(-90), "Ctrl+L", icon="rotate-left", to_menu=view_menu)
-        a_rotr = act("Rotate Right", lambda: self._rotate_pages(90), "Ctrl+R", icon="rotate-right", to_menu=view_menu)
+        a_rotl = self._a_rotl = act("Rotate Left", lambda: self._rotate_pages(-90), "Ctrl+L", icon="rotate-left", to_menu=view_menu)
+        a_rotr = self._a_rotr = act("Rotate Right", lambda: self._rotate_pages(90), "Ctrl+R", icon="rotate-right", to_menu=view_menu)
         view_menu.addSeparator()
         # Persistent interaction mode: Select (default — text/forms/move) vs Grab (hand-pan).
         # Mutually exclusive; the checked toolbar button shows the active tool.
@@ -322,14 +334,28 @@ class MainWindow(QMainWindow):
         a_redact_text.setToolTip("Redact Text — drag over text to permanently remove it at save")
         a_redact_block = act("Redact Block", lambda: self._arm_tool(ArmedTool.REDACT_REGION), icon="redact", to_menu=view_menu)
         a_redact_block.setToolTip("Redact Block — drag a box to permanently remove its contents at save")
+        # Crop (M48): menu-only (no free toolbar slot needed for a one-shot); same armed pattern.
+        a_crop = act("Crop Pages", lambda: self._arm_tool(ArmedTool.CROP), to_menu=view_menu)
+        a_crop.setToolTip("Crop Pages — drag the area to keep; the rest is hidden, not removed")
+        act("Remove Crop", self._remove_crop, to_menu=view_menu)
         self._armed_actions = {
             ArmedTool.TEXTBOX: a_textbox,
             ArmedTool.HIGHLIGHT: a_highlight,
             ArmedTool.REDACT_TEXT: a_redact_text,
             ArmedTool.REDACT_REGION: a_redact_block,
+            ArmedTool.CROP: a_crop,
         }
         for a in self._armed_actions.values():
             a.setCheckable(True)
+        view_menu.addSeparator()
+        # Night reading mode (M49): view-only page inversion, independent of the OS theme the
+        # chrome follows. Remembered app-wide, like the sidebar choice; the file, print, export,
+        # and thumbnails stay daylight — only what the eyes read at night inverts.
+        self._a_night = act("Night Reading Mode", self._toggle_night_mode, to_menu=view_menu)
+        self._a_night.setCheckable(True)
+        if bool(self._settings.get_pref("night_mode", False)):
+            self._a_night.setChecked(True)
+            self.view.set_night_mode(True)  # pre-show: nothing rendered yet, so no flash
         view_menu.addSeparator()
         # Checkable show/hide for the sidebar — menu item + a dedicated toolbar button (its
         # checked state mirrors the panel's visibility, with the :checked toolbar styling).
@@ -465,6 +491,11 @@ class MainWindow(QMainWindow):
     def _show_find(self) -> None:
         self.find_bar.show_bar()
 
+    def _toggle_night_mode(self, checked: bool) -> None:
+        """View ▸ Night Reading Mode (M49): invert the page pixels, view-only; remembered."""
+        self.view.set_night_mode(checked)
+        self._settings.set_pref("night_mode", checked)
+
     def _goto_page_dialog(self) -> None:
         """View ▸ Go to Page… (Ctrl+G, M45): jump straight to an absolute page number."""
         count = self.vdoc.page_count
@@ -480,6 +511,8 @@ class MainWindow(QMainWindow):
         # A structural edit invalidates page indices, so drop stale overlays and rebuild.
         self.view.selection.clear()
         self.view.search.clear()
+        if self.search_results.isVisible():
+            self.search_results.refresh()  # the hits died with the edit — no stale rows
         self.view.reload()
         self.thumbs.populate()
         if self.outline is not None:
@@ -519,11 +552,12 @@ class MainWindow(QMainWindow):
                 ref = src.vdoc.ordered[i]
                 self.vdoc.register_source(ref.source_id, src.vdoc.sources[ref.source_id])
                 # Carry the page's unsaved per-page edits with it (annotations, redactions,
-                # rotation) — what's on the page travels to the destination. A carried redaction
-                # is the safe default: otherwise a redacted page could be dragged out and saved
-                # un-redacted (a leak). Form-field fills are document-level and stay behind.
+                # rotation, crop) — what's on the page travels to the destination. A carried
+                # redaction is the safe default: otherwise a redacted page could be dragged out and
+                # saved un-redacted (a leak). Form-field fills are document-level and stay behind.
                 refs.append(
-                    PageRef(ref.source_id, ref.source_page_index, ref.rotation_override, ref.annotations)
+                    PageRef(ref.source_id, ref.source_page_index, ref.rotation_override,
+                            ref.annotations, ref.crop_override)
                 )
         if refs:
             self.undo_stack.push(InsertCommand(self.vdoc, before_index, refs, text="Drag pages in"))
@@ -540,12 +574,22 @@ class MainWindow(QMainWindow):
         self.undo_stack.push(SetFieldValueCommand(self.vdoc, name, value))
 
     def _arm_tool(self, tool: ArmedTool) -> None:
-        """Toolbar: arm a one-shot annotate/redact tool, or disarm it if already armed (toggle)."""
+        """Toolbar: arm a one-shot annotate/redact tool, or disarm it if already armed (toggle).
+
+        A drag-over-text tool clicked while a text selection is **live** applies to that selection
+        immediately instead of arming (Preview-style, and identical to the context menu's
+        Highlight/Redact Selection) — otherwise "select, then click Highlight" would leave the
+        selection untouched and silently wait for a second drag, while the context menu acted at
+        once (owner call on the M46 review). With no selection the arm-then-drag flow is unchanged.
+        """
         if self.view.armed is tool:
             self.view.disarm()
-        else:
-            self.view.arm(tool)
-            self._a_select.setChecked(True)  # arming forces the SELECT base mode
+            return
+        if tool.drags_text and self.view.selection is not None and self.view.selection.selected_words():
+            self._apply_text_tool(tool)  # clears the selection as it applies — one undo step
+            return
+        self.view.arm(tool)
+        self._a_select.setChecked(True)  # arming forces the SELECT base mode
 
     def _on_armed_changed(self, tool) -> None:
         """Light the matching tool button while it's armed (None → all off)."""
@@ -617,6 +661,52 @@ class MainWindow(QMainWindow):
             self.undo_stack.push(AddAnnotationCommand(self.vdoc, page_index, Redaction(tuple(rects))))
         self.undo_stack.endMacro()
 
+    def _on_crop_dragged(self, page_index: int, rect: tuple) -> None:
+        """An armed-CROP drag finished (M48): ask the scope, then crop as one undo step."""
+        indices = self._ask_crop_scope(page_index)
+        if indices:
+            self.undo_stack.push(CropPagesCommand(self.vdoc, indices, rect))
+
+    def _ask_crop_scope(self, page_index: int) -> list[int]:
+        """Which pages the dragged crop applies to — this page / the sidebar selection / all —
+        with the honesty wording (crop hides; Redact removes). Returns ``[]`` on cancel. A
+        separate seam so tests drive the choice without the modal."""
+        selection = self.thumbs.selected_rows()
+        others = [r for r in selection if r != page_index]
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle("Crop pages")
+        box.setText(
+            "Crop to the dragged area?\n\nEverything outside it is hidden, not removed — use "
+            "Redact to remove content permanently. Remove Crop restores the full page any time."
+        )
+        this_btn = box.addButton("This Page", QMessageBox.ButtonRole.AcceptRole)
+        sel_btn = (
+            box.addButton(f"Selected Pages ({len(others) + 1})", QMessageBox.ButtonRole.AcceptRole)
+            if others
+            else None
+        )
+        all_btn = box.addButton("All Pages", QMessageBox.ButtonRole.AcceptRole)
+        box.addButton(QMessageBox.StandardButton.Cancel)
+        box.setDefaultButton(this_btn)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is this_btn:
+            return [page_index]
+        if sel_btn is not None and clicked is sel_btn:
+            return sorted({page_index, *selection})
+        if clicked is all_btn:
+            return list(range(self.vdoc.page_count))
+        return []
+
+    def _remove_crop(self) -> None:
+        """View ▸ Remove Crop: restore the selected pages — or the current page — to the full
+        MediaBox (also un-hides a crop the file arrived with). No-op on uncropped pages."""
+        rows = self.thumbs.selected_rows() or [self.view.current_page]
+        rows = [r for r in rows if 0 <= r < self.vdoc.page_count and self.vdoc.page_is_cropped(r)]
+        if rows:
+            self.undo_stack.push(ResetCropCommand(self.vdoc, rows))
+
     def _delete_rows(self, rows) -> None:
         if rows:
             self.undo_stack.push(DeleteCommand(self.vdoc, rows))
@@ -626,10 +716,11 @@ class MainWindow(QMainWindow):
         clipboard = []
         for i in rows:
             ref = self.vdoc.ordered[i]
-            # Carry the page's per-page edits (rotation + annotations/redactions) on the clipboard
-            # so a paste into another document keeps what's on the page.
+            # Carry the page's per-page edits (rotation + annotations/redactions + crop) on the
+            # clipboard so a paste into another document keeps what's on the page.
             clipboard.append((ref.source_id, self.vdoc.sources[ref.source_id],
-                              ref.source_page_index, ref.rotation_override, ref.annotations))
+                              ref.source_page_index, ref.rotation_override, ref.annotations,
+                              ref.crop_override))
         if clipboard:
             self._app.page_clipboard = clipboard
 
@@ -646,9 +737,9 @@ class MainWindow(QMainWindow):
             return
         before = self._insertion_index() if before_index is None else before_index
         refs = []
-        for source_id, doc, page_index, rotation, annotations in payloads:
+        for source_id, doc, page_index, rotation, annotations, crop in payloads:
             self.vdoc.register_source(source_id, doc)
-            refs.append(PageRef(source_id, page_index, rotation, annotations))
+            refs.append(PageRef(source_id, page_index, rotation, annotations, crop))
         self.undo_stack.push(InsertCommand(self.vdoc, before, refs, text="Paste pages"))
 
     def _insert_from_file(self) -> None:
@@ -680,29 +771,77 @@ class MainWindow(QMainWindow):
             label = "Insert dropped file" if len(paths) == 1 else f"Insert {len(paths)} dropped files"
             self.undo_stack.push(InsertCommand(self.vdoc, before_index, refs, text=label))
 
-    def _page_context_menu(self, pos) -> None:
-        rows = self.thumbs.selected_rows()
+    def _view_context_menu(self, scene_pt) -> "QMenu | None":
+        """Build the view's right-click menu from the hit state under the cursor (M46): the verbs
+        for our annotation / the live text selection / the link at ``scene_pt``, else the bare-page
+        navigation set. Exec'd by ``PdfView.contextMenuEvent``; returned unexec'd so tests can
+        assert contents. Later milestones hang their situational verbs here (paste object M59,
+        extract M51)."""
         menu = QMenu(self)
-        a_cut = menu.addAction("Cut")
-        a_copy = menu.addAction("Copy")
-        a_paste = menu.addAction("Paste")
-        a_delete = menu.addAction("Delete")
+        # Our annotation under the cursor → Remove (pre-M46 behaviour, now routed here). First:
+        # the most specific hit wins, and Remove must stay reachable over a selection.
+        hit = self.view.annotations.annotation_at(scene_pt) if self.view.annotations else None
+        if hit is not None:
+            page_index, annot = hit
+            label = {
+                "Highlight": "Remove highlight",
+                "TextBox": "Remove text box",
+                "Redaction": "Remove redaction",
+            }.get(type(annot).__name__, "Remove annotation")
+            menu.addAction(label, lambda: self.view.annotations.remove(page_index, annot))
+            return menu
+        # A live text selection → its verbs. Highlight/Redact Selection apply now to what is
+        # selected — unlike the toolbar's armed one-shot tools, which select-then-apply.
+        if self.view.selection is not None and self.view.selection.selected_words():
+            menu.addAction(self._a_copy_text)
+            menu.addSeparator()
+            menu.addAction("Highlight Selection", self._highlight_selection)
+            menu.addAction("Redact Selection", self._redact_selection)
+            return menu
+        if self.view.links is not None:
+            dest = self.view.links.link_at(scene_pt)
+            if dest is not None:
+                menu.addAction(f"Go to Page {dest + 1}", lambda: self.view.goto_page(dest))
+                return menu
+            uri = self.view.links.uri_at(scene_pt)
+            if uri is not None:
+                # External links are never click-navigable (offline app) — copy is the one verb.
+                menu.addAction("Copy Link Address",
+                               lambda: QGuiApplication.clipboard().setText(uri))
+                return menu
+        # Bare page (or the gap between pages — these verbs are view-level, so no dead zone):
+        # routes the same QAction objects as the View menu, so shortcuts show alongside.
+        for action in (self._a_fitw, self._a_fitp, self._a_actual):
+            menu.addAction(action)
         menu.addSeparator()
-        a_insert = menu.addAction("Insert Pages from File…")
-        for a in (a_cut, a_copy, a_delete):
+        menu.addAction(self._a_rotl)
+        menu.addAction(self._a_rotr)
+        menu.addSeparator()
+        menu.addAction(self._a_goto)
+        return menu
+
+    def _build_page_context_menu(self, rows) -> QMenu:
+        """The Pages-sidebar right-click menu for the selected ``rows`` (M46 adds rotate; extract
+        joins at M51). Built unexec'd so tests can assert contents and trigger actions."""
+        menu = QMenu(self)
+        a_cut = menu.addAction("Cut", lambda: self._cut_pages(rows))
+        a_copy = menu.addAction("Copy", lambda: self._copy_pages(rows))
+        a_paste = menu.addAction("Paste", lambda: self._paste_pages(rows[-1] + 1 if rows else None))
+        a_delete = menu.addAction("Delete", lambda: self._delete_rows(rows))
+        menu.addSeparator()
+        # Same undoable per-page rotation as View ▸ Rotate; rows == the sidebar selection, which
+        # is exactly what _rotate_pages acts on.
+        a_rotl = menu.addAction("Rotate Left", lambda: self._rotate_pages(-90))
+        a_rotr = menu.addAction("Rotate Right", lambda: self._rotate_pages(90))
+        menu.addSeparator()
+        menu.addAction("Insert Pages from File…", self._insert_from_file)
+        for a in (a_cut, a_copy, a_delete, a_rotl, a_rotr):
             a.setEnabled(bool(rows))
         a_paste.setEnabled(bool(self._app.page_clipboard))
-        chosen = menu.exec(self.thumbs.mapToGlobal(pos))
-        if chosen is a_cut:
-            self._cut_pages(rows)
-        elif chosen is a_copy:
-            self._copy_pages(rows)
-        elif chosen is a_paste:
-            self._paste_pages(rows[-1] + 1 if rows else None)
-        elif chosen is a_delete:
-            self._delete_rows(rows)
-        elif chosen is a_insert:
-            self._insert_from_file()
+        return menu
+
+    def _page_context_menu(self, pos) -> None:
+        self._build_page_context_menu(self.thumbs.selected_rows()).exec(self.thumbs.mapToGlobal(pos))
 
     # ---- save (materialize-on-save) ---------------------------------------------
 
@@ -867,6 +1006,8 @@ class MainWindow(QMainWindow):
         self._watcher.record_current()
         self.view.selection.clear()
         self.view.search.clear()
+        if self.search_results.isVisible():
+            self.search_results.refresh()  # cleared with the search — no stale rows
         self.view.reload()
         self.thumbs.populate()
         self._mount_sidebar()  # the freshly-read file may have gained or lost its outline
