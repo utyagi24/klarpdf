@@ -70,6 +70,7 @@ from ui import icons
 from util.paths import normalize_path
 from viewer.annotations import AnnotationOverlay
 from viewer.form_fill import FormFiller
+from viewer.markup_style import MarkupStyleButton
 from viewer.links import LinkNavigator
 from viewer.pdf_view import PdfView
 from viewer.search import FindBar, SearchController, SearchResultsPanel
@@ -437,6 +438,12 @@ class MainWindow(QMainWindow):
         # Markup ▾ (M56): highlight / underline / strikeout. Draw ▾ (M58): the five draw tools.
         self._markup_button = split_button((a_highlight, a_underline, a_strikeout))
         self._draw_button = split_button((a_pen, a_line, a_arrow, a_rect, a_ellipse))
+        # Markup style (M59.5): one slot — the shared colour · width · fill the underline /
+        # strikeout + draw tools stamp on the next mark. Seeds the overlay's sticky style and
+        # tracks it thereafter (the overlay is the single source of truth, created above).
+        self._markup_style_button = MarkupStyleButton()
+        self.view.annotations.set_markup_style(self._markup_style_button.style())
+        self._markup_style_button.styleChanged.connect(self.view.annotations.set_markup_style)
         # Night reading mode (M49): view-only page inversion, independent of the OS theme the
         # chrome follows. Remembered app-wide, like the sidebar choice; the file, print, export,
         # and thumbnails stay daylight — only what the eyes read at night inverts.
@@ -484,7 +491,8 @@ class MainWindow(QMainWindow):
             [a_zout, self.zoom_widget, a_zin, a_fitw, a_fitp],
             [undo, redo],
             [a_cut, a_copy_pg, a_paste, a_delete, a_insert],
-            [a_textbox, self._markup_button, self._draw_button, a_redact_text, a_redact_block],
+            [a_textbox, self._markup_button, self._draw_button, self._markup_style_button,
+             a_redact_text, a_redact_block],
             [a_rotl, a_rotr],
             [a_find],
         )
@@ -859,14 +867,21 @@ class MainWindow(QMainWindow):
             self.undo_stack.push(AddAnnotationCommand(self.vdoc, page_index, make(tuple(rects))))
         self.undo_stack.endMacro()
 
+    def _markup_color(self):
+        """The shared sticky stroke colour (M59.5) applied to a new underline / strikeout — the
+        same picker that colours the pen & shapes. Highlight stays its own translucent yellow."""
+        return self.view.annotations.current_markup_style.color
+
     def _highlight_selection(self) -> None:
         self._apply_selection_bars(Highlight, "Highlight")
 
     def _underline_selection(self) -> None:
-        self._apply_selection_bars(Underline, "Underline")
+        color = self._markup_color()
+        self._apply_selection_bars(lambda rects: Underline(rects, color=color), "Underline")
 
     def _strikeout_selection(self) -> None:
-        self._apply_selection_bars(Strikeout, "Strike out")
+        color = self._markup_color()
+        self._apply_selection_bars(lambda rects: Strikeout(rects, color=color), "Strike out")
 
     def _redact_selection(self) -> None:
         self._apply_selection_bars(Redaction, "Redact selection")
