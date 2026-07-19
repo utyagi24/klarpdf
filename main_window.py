@@ -43,6 +43,7 @@ from model.edit_commands import (
     ResetCropCommand,
     RotatePagesCommand,
     SetFieldValueCommand,
+    SetMetadataCommand,
 )
 from model.page_edits import Highlight, Redaction
 from model.edit_engine import PyMuPDFEngine
@@ -269,6 +270,9 @@ class MainWindow(QMainWindow):
         self._a_revert = act("Revert to Saved", self.revert, to_menu=file_menu)
         self._a_revert.setEnabled(False)
         file_menu.addSeparator()
+        # Properties (M53): view / edit / remove-all over the document metadata — one dialog,
+        # menu + dialog only (one-shot command, stays off the toolbar). Ctrl+D as in Acrobat.
+        act("Properties…", self._show_properties, "Ctrl+D", to_menu=file_menu)
         a_print = act("Print…", self._print, QKeySequence.StandardKey.Print, icon="print", to_menu=file_menu)
         file_menu.addSeparator()
         act("Close", self.close, QKeySequence.StandardKey.Close, to_menu=file_menu)
@@ -509,6 +513,20 @@ class MainWindow(QMainWindow):
         """View ▸ Night Reading Mode (M49): invert the page pixels, view-only; remembered."""
         self.view.set_night_mode(checked)
         self._settings.set_pref("night_mode", checked)
+
+    def _show_properties(self) -> None:
+        """File ▸ Properties… (M53): one dialog, three verbs — view (fields + provenance + file
+        facts), edit (title/author/subject/keywords), remove all. The dialog stages; anything it
+        staged becomes one undoable command here, so a metadata edit is an ordinary document edit
+        (dirty flag, undo/redo, written to **both stores** at the next save)."""
+        from ui.properties_dialog import PropertiesDialog
+
+        dialog = PropertiesDialog(self.vdoc, self)
+        if not dialog.exec():
+            return
+        override = dialog.staged_override()
+        if override is not None:
+            self.undo_stack.push(SetMetadataCommand(self.vdoc, override))
 
     def _goto_page_dialog(self) -> None:
         """View ▸ Go to Page… (Ctrl+G, M45): jump straight to an absolute page number."""

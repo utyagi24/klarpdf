@@ -273,7 +273,7 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
 
 - [x] **M51** Extract selected pages → PDF + Insert blank / duplicate page — *Windows (headless + offscreen GUI)* — [#125](https://github.com/utyagi24/klarpdf/pull/125)
 - [x] **M52** Reduce file size — Export ▸ Reduced Size PDF…; true-value presets + custom dpi/quality knobs; actual before→after — *Windows (headless + offscreen GUI)* — [#126](https://github.com/utyagi24/klarpdf/pull/126)
-- [ ] **M53** Properties + metadata (view · edit · remove; Info dict **and** XMP both) — *WSL + WSLg*
+- [x] **M53** Properties + metadata (view · edit · remove; Info dict **and** XMP both) — *Windows (headless + offscreen GUI)* — [#127](https://github.com/utyagi24/klarpdf/pull/127)
 - [ ] **M54** ⭐ Document encryption — set/change/remove/carry-through, AES-256; optional advisory restriction flags — *WSL + WSLg*
 - [ ] **M55** Verify + release → tag — *Windows*
 
