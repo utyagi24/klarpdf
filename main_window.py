@@ -115,7 +115,7 @@ class MainWindow(QMainWindow):
         self.view.links = LinkNavigator(self.view)  # click internal links to jump (M33)
         self.view.annotations = AnnotationOverlay(
             self.view, self._add_annotation, self._remove_annotation, self._replace_annotation,
-            self._on_object_selected,
+            self._on_object_selected, self._replace_annotations_batch, self._remove_annotations_batch,
         )
         # PdfView built its scene in __init__ (before this overlay existed), and the first show's
         # fit/restore can early-return without a rebuild — so paint any annotations the document was
@@ -363,11 +363,17 @@ class MainWindow(QMainWindow):
         mode_group.setExclusive(True)
         a_select = act("Select", lambda: self.view.set_mode(InteractionMode.SELECT), icon="select", to_menu=tools_menu)
         a_grab = act("Grab", lambda: self.view.set_mode(InteractionMode.GRAB), icon="grab", to_menu=tools_menu)
-        for a in (a_select, a_grab):
+        # Objects mode (M59.6): drag a box to select drawn marks, Ctrl+click to add/remove one, drag
+        # a member to move the whole group — a colour/width/fill change then restyles the group.
+        a_objects = act("Objects", lambda: self.view.set_mode(InteractionMode.OBJECT), icon="objects", to_menu=tools_menu)
+        a_objects.setToolTip("Objects — drag a box to select drawn marks; Ctrl-click adds/removes; "
+                             "drag to move the group; the style picker restyles it")
+        for a in (a_select, a_grab, a_objects):
             a.setCheckable(True)
             mode_group.addAction(a)
         a_select.setChecked(True)
         self._a_select = a_select
+        self._a_objects = a_objects
         tools_menu.addSeparator()
         # One-shot armed annotate/redact tools: click to arm (button lights), do one gesture, then
         # it reverts to Select. Checkable only to reflect the armed state — NOT in the mode group.
@@ -488,7 +494,7 @@ class MainWindow(QMainWindow):
         groups = (
             [pages_toggle],
             [a_open, a_save, a_print],
-            [a_select, a_grab],
+            [a_select, a_grab, a_objects],
             [a_zout, self.zoom_widget, a_zin, a_fitw, a_fitp],
             [undo, redo],
             [a_cut, a_copy_pg, a_paste, a_delete, a_insert],
@@ -831,6 +837,20 @@ class MainWindow(QMainWindow):
         """Swap an annotation for an updated one (moving / re-editing a text box) — one undo step."""
         self.undo_stack.push(ReplaceAnnotationCommand(self.vdoc, index, old, new, text))
 
+    def _replace_annotations_batch(self, index: int, pairs, text: str) -> None:
+        """Swap several annotations on a page as **one** undo step (M59.6 group restyle / move)."""
+        self.undo_stack.beginMacro(text)
+        for old, new in pairs:
+            self.undo_stack.push(ReplaceAnnotationCommand(self.vdoc, index, old, new))
+        self.undo_stack.endMacro()
+
+    def _remove_annotations_batch(self, index: int, marks, text: str) -> None:
+        """Remove several annotations on a page as **one** undo step (M59.6 group delete)."""
+        self.undo_stack.beginMacro(text)
+        for mark in marks:
+            self.undo_stack.push(RemoveAnnotationCommand(self.vdoc, index, mark))
+        self.undo_stack.endMacro()
+
     def _selection_line_bars(self) -> dict[int, list[tuple]]:
         """Group the current text selection's word boxes into one unioned bar **per line, per page**.
 
@@ -875,10 +895,10 @@ class MainWindow(QMainWindow):
 
     def _on_markup_style_changed(self, style) -> None:
         """The picker changed → update the sticky style for the next mark, and — mirroring the
-        text-markup 'apply to the current selection' rule — restyle a selected drawn object in
-        place (undoable) if one is selected."""
+        text-markup 'apply to the current selection' rule — restyle the selected drawn object(s) in
+        place (undoable) if any are selected (a whole group in one undo step, M59.6)."""
         self.view.annotations.set_markup_style(style)
-        self.view.annotations.restyle_selected_object(style)
+        self.view.annotations.restyle_selected_objects(style)
 
     def _on_object_selected(self, mark) -> None:
         """A free-placed mark was click-selected (M59.5): load a drawn mark's colour/width/fill into

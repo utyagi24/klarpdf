@@ -56,7 +56,7 @@ def test_menu_bar_order(app, b_pdf):
 def test_tools_menu_holds_the_modes_and_armed_tools(app, b_pdf):
     win = app.open_document(b_pdf)
     assert _titles(win, "&Tools") == [
-        "Select", "Grab",
+        "Select", "Grab", "Objects",
         "Add Text Box", "Highlight", "Underline", "Strike Out",
         "Pen", "Line", "Arrow", "Rectangle", "Ellipse",
         "Redact Text", "Redact Block",

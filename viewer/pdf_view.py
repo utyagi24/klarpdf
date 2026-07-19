@@ -341,6 +341,19 @@ class PdfView(QGraphicsView):
                 self.selection.begin(scene_pt)  # drag over text; applied (highlight/redact) on release
                 event.accept()
                 return
+            if self._mode == InteractionMode.OBJECT and self.annotations is not None:
+                # Object mode (M59.6): Ctrl toggles a mark in/out of the group (or additively
+                # marquees empty space); a plain press moves the hit mark / group, or marquees.
+                ctrl = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+                hit = self.annotations.textbox_at(scene_pt) or self.annotations.drawn_mark_at(scene_pt)
+                if ctrl and hit is not None:
+                    self.annotations.toggle_object(*hit)
+                elif hit is not None:
+                    self.annotations.begin_move(scene_pt)  # group move if a member, else this mark
+                else:
+                    self.annotations.begin_marquee(scene_pt, add=ctrl)
+                event.accept()
+                return
             if self._mode == InteractionMode.SELECT:
                 # Priority: fill a form field → move an existing text box → begin a text selection.
                 if self.form is not None and self.form.handle_press(scene_pt):
@@ -406,6 +419,10 @@ class PdfView(QGraphicsView):
             self.annotations.update_move(scene_pt)
             event.accept()
             return
+        if self.annotations is not None and self.annotations.marqueeing:
+            self.annotations.update_marquee(scene_pt)
+            event.accept()
+            return
         if self.selection is not None and self.selection.active:
             self.selection.update_to(scene_pt)
             event.accept()
@@ -436,6 +453,10 @@ class PdfView(QGraphicsView):
             self.annotations.finish_move()
             event.accept()
             return
+        if self.annotations is not None and self.annotations.marqueeing:
+            self.annotations.finish_marquee()
+            event.accept()
+            return
         if self.selection is not None and self.selection.active:
             self.selection.finish()
             # An armed drag-over-text tool applies to what was just selected, then disarms — but a
@@ -455,32 +476,38 @@ class PdfView(QGraphicsView):
             self.disarm()
             event.accept()
             return
-        if self.annotations is not None and self.annotations.selected_object is not None:
+        if self.annotations is not None and self.annotations.selected_objects:
             if event.key() == Qt.Key.Key_Escape:
                 self.annotations.clear_object_selection()
                 event.accept()
                 return
             if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
-                self.annotations.remove_selected_object()
+                self.annotations.remove_selected_objects()  # whole group, one undo (M59.6)
                 event.accept()
                 return
         super().keyPressEvent(event)
 
     def _update_hover_cursor(self, scene_pt) -> None:
-        """In SELECT mode, show a pointing-hand over an internal link (it's clickable) and a move
-        cursor over a text box (it's draggable) — but never while a box is being edited (you're
-        typing, not arranging), so the move cursor isn't left showing on the viewport, which the
-        inline editor / formatting bar would inherit."""
-        if self._armed is not None or self._mode != InteractionMode.SELECT:
+        """Show a pointing-hand over an internal link (SELECT — it's clickable) and a move cursor
+        over a draggable mark — but never while a box is being edited (you're typing, not arranging),
+        so the move cursor isn't left showing on the viewport, which the inline editor / formatting
+        bar would inherit. In OBJECT mode (M59.6) the move cursor covers any drawn mark or text box,
+        since dragging one moves it / the group; links are inert there."""
+        if self._armed is not None or self._mode not in (InteractionMode.SELECT, InteractionMode.OBJECT):
             return
         if self.annotations is not None and getattr(self.annotations, "editing", False):
             self.viewport().setCursor(Qt.CursorShape.ArrowCursor)
             return
-        if self.links is not None and self.links.link_at(scene_pt) is not None:
+        if self._mode == InteractionMode.SELECT and self.links is not None \
+                and self.links.link_at(scene_pt) is not None:
             self.viewport().setCursor(Qt.CursorShape.PointingHandCursor)
             return
-        over_box = self.annotations is not None and self.annotations.textbox_at(scene_pt) is not None
-        self.viewport().setCursor(Qt.CursorShape.SizeAllCursor if over_box else Qt.CursorShape.ArrowCursor)
+        over_mark = self.annotations is not None and (
+            self.annotations.textbox_at(scene_pt) is not None
+            or (self._mode == InteractionMode.OBJECT
+                and self.annotations.drawn_mark_at(scene_pt) is not None)
+        )
+        self.viewport().setCursor(Qt.CursorShape.SizeAllCursor if over_mark else Qt.CursorShape.ArrowCursor)
 
     # ---- rendering --------------------------------------------------------------
 
@@ -678,8 +705,9 @@ class PdfView(QGraphicsView):
         return self._armed
 
     def set_mode(self, mode: InteractionMode) -> None:
-        """Switch the persistent mouse tool: SELECT (text/forms/move) or GRAB (hand-pan).
-        Switching modes also disarms any one-shot insert tool."""
+        """Switch the persistent mouse tool: SELECT (text/forms/move), GRAB (hand-pan), or OBJECT
+        (marquee/group-select drawn marks — M59.6). Switching modes also disarms any one-shot
+        insert tool."""
         self.disarm()
         if mode == self._mode:
             return
@@ -689,6 +717,8 @@ class PdfView(QGraphicsView):
                 self.selection.clear()  # drop any in-progress selection when grabbing
             self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)  # Qt shows the hand cursor
         else:
+            if mode == InteractionMode.OBJECT and self.selection is not None:
+                self.selection.clear()  # text selection is inert in object mode
             self.setDragMode(QGraphicsView.DragMode.NoDrag)
 
     def arm(self, tool: "ArmedTool") -> None:
