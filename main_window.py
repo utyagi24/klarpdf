@@ -262,6 +262,7 @@ class MainWindow(QMainWindow):
         export_menu = file_menu.addMenu("&Export")
         act("Flattened PDF…", self._export_flattened_pdf, to_menu=export_menu)
         act("Selected Pages as PDF…", self._export_selected_pages, to_menu=export_menu)
+        act("Reduced Size PDF…", self._export_reduced_pdf, to_menu=export_menu)
         act("Image…", self._export_images, to_menu=export_menu)
         # Revert: discard all edits and reload from disk. Enabled only while there are unsaved
         # changes (a clean doc has nothing to revert) — toggled in _on_clean_changed.
@@ -959,13 +960,17 @@ class MainWindow(QMainWindow):
 
     # ---- export (a derived copy, not the editable document) ---------------------
 
-    def _export_pdf(self, title: str, default_tag: str, write) -> None:
+    def _export_pdf(self, title: str, default_tag: str, write, confirm=None):
         """Shared plumbing for the PDF-writing exports: flush a pending inline form edit, ask for
         the target (default name = the document's, tagged ``default_tag``), then ``write(vdoc,
         tmp_path)`` to a same-directory temp file and atomically replace — never a partial export,
         and the target is left intact if the write fails. Every export is a *derived* artifact
         like Print: the working document's path, dirty state, undo history, and file watcher are
-        untouched."""
+        untouched.
+
+        ``confirm(path)``, when given, runs after the target is chosen and vetoes the export by
+        returning False (the reduced export's overwrite-the-original guard). Returns ``(path,
+        write's result)`` on success, else ``None`` — so a caller can report on the written file."""
         if self.view.form is not None:
             self.view.form.commit_pending()  # flush an open inline field editor first
         default = self.vdoc.path or ""
@@ -974,19 +979,23 @@ class MainWindow(QMainWindow):
             default = f"{base} ({default_tag}).pdf"
         path, _ = QFileDialog.getSaveFileName(self, title, default, "PDF files (*.pdf)")
         if not path:
-            return
+            return None
         if not path.lower().endswith(".pdf"):
             path += ".pdf"
+        if confirm is not None and not confirm(path):
+            return None
         directory = os.path.dirname(os.path.abspath(path)) or "."
         fd, tmp = tempfile.mkstemp(suffix=".pdf", dir=directory)
         os.close(fd)
         try:
-            write(self.vdoc, tmp)
+            result = write(self.vdoc, tmp)
             os.replace(tmp, path)
         except Exception as exc:  # surface, don't crash; leave any existing target intact
             if os.path.exists(tmp):
                 os.remove(tmp)
             QMessageBox.critical(self, "Export failed", str(exc))
+            return None
+        return path, result
 
     def _export_flattened_pdf(self) -> None:
         """Export → Flattened PDF (M31.5): write a locked copy whose annotations + form fields are
@@ -1007,6 +1016,56 @@ class MainWindow(QMainWindow):
             "Export Selected Pages",
             "extracted",
             lambda vdoc, tmp: export_selected_pages(vdoc, indices, tmp),
+        )
+
+    def _export_reduced_pdf(self) -> None:
+        """Export → Reduced Size PDF… (M52): the lossy tier — images downsampled + re-encoded
+        JPEG at the chosen preset/custom dpi & quality, fonts subset — reporting the **actual**
+        before → after sizes. Overwriting the original goes through the guard below with
+        permanent-quality-loss wording; by default the original is untouched."""
+        from model.export import export_reduced_pdf
+        from ui.reduce_dialog import ReduceSizeDialog, human_size
+
+        dialog = ReduceSizeDialog(self)
+        if not dialog.exec():
+            return
+        dpi, quality = dialog.chosen()
+        outcome = self._export_pdf(
+            "Export Reduced Size PDF",
+            "reduced",
+            lambda vdoc, tmp: export_reduced_pdf(vdoc, tmp, dpi, quality),
+            confirm=self._confirm_reduce_overwrite,
+        )
+        if outcome is None:
+            return
+        _path, (before, after) = outcome
+        if after < before:
+            percent = round(100 * (before - after) / before)
+            message = f"Reduced from {human_size(before)} to {human_size(after)} (−{percent}%)."
+        else:  # honesty over cheerleading: recompression can lose nothing worth having
+            message = (
+                f"The reduced copy is {human_size(after)} — no smaller than a plain save "
+                f"({human_size(before)}). This document has little image data to recompress."
+            )
+        QMessageBox.information(self, "Reduced Size PDF", message)
+
+    def _confirm_reduce_overwrite(self, path: str) -> bool:
+        """The reduced export chose the **original file** as its target: confirm with the
+        permanent-quality-loss wording (any other target needs no guard — the original is
+        untouched by default)."""
+        if self.vdoc.path is None or normalize_path(path) != normalize_path(self.vdoc.path):
+            return True
+        return (
+            QMessageBox.warning(
+                self,
+                "Replace the original?",
+                "This will overwrite the original file with the reduced copy. The removed image "
+                "detail is permanently lost — the full-quality original will be gone.\n\n"
+                "Replace it?",
+                QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel,
+            )
+            == QMessageBox.StandardButton.Save
         )
 
     def _export_images(self) -> None:

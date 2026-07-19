@@ -14,6 +14,11 @@ our marks round-trip on reopen — M31). Export writes a locked / derived artifa
   Save-like artifact of a page subset): the text layer, form fields, and our round-trippable
   annotations all carry, and the origin bookmarks / internal links whose targets were extracted
   are remapped to the new page numbers (the rest are dropped).
+* **Reduced-size PDF** (M52): the whole document with its images **recompressed lossily**
+  (downsampled to a target dpi, re-encoded JPEG at a quality) + fonts subset. This is the lossy
+  tier only — a normal Save already runs the lossless cleanups (``garbage=4, deflate, clean``),
+  which is why the reported "before" is what a plain Save would write, not the stale on-disk
+  size: the delta shown is the true cost/benefit of the lossy step alone.
 
 Every format shares the edits-applied render (:meth:`PyMuPDFEngine.render_output`), so an export
 reflects the same page order / rotation / redactions / annotations / fills a Save would write — and
@@ -65,6 +70,37 @@ def export_selected_pages(vdoc: VirtualDocument, page_indices, out_path: str) ->
     if not indices:
         return
     PyMuPDFEngine().materialize(vdoc.subset(indices), out_path)
+
+
+def export_reduced_pdf(
+    vdoc: VirtualDocument, out_path: str, dpi: int, jpg_quality: int
+) -> tuple[int, int]:
+    """Write ``vdoc`` to ``out_path`` with images recompressed **lossily** and fonts subset (M52).
+
+    Builds the edits-applied output (exactly what a Save would write), then downsamples every
+    image above ``dpi`` to ``dpi`` and re-encodes it as JPEG at ``jpg_quality`` (PyMuPDF
+    ``rewrite_images``), subsets the embedded fonts to the glyphs actually used, and saves with
+    the usual lossless cleanups. The removed image detail is **gone from the copy permanently** —
+    the working document and its file are untouched (side-artifact rule).
+
+    Returns ``(before, after)`` byte sizes — *actual* values, no estimates: ``before`` is what a
+    plain Save of the current document would write (so the delta is the lossy tier's true effect,
+    not the lossless cleanup a Save gives anyway), ``after`` is the written file's size.
+    """
+    out = PyMuPDFEngine().render_output(vdoc)
+    try:
+        before = len(out.tobytes(garbage=4, deflate=True, clean=True))
+        # threshold must sit strictly above target (a rewrite_images rule); +1 keeps the promise
+        # "images *above* the target resolution are downsampled" exact — a page image already at
+        # the target is left alone, everything above it comes down to the target.
+        out.rewrite_images(
+            dpi_threshold=dpi + 1, dpi_target=dpi, quality=jpg_quality, lossy=True, lossless=True
+        )
+        out.subset_fonts()
+        out.save(out_path, garbage=4, deflate=True, clean=True)
+    finally:
+        out.close()
+    return before, os.path.getsize(out_path)
 
 
 def export_page_images(
