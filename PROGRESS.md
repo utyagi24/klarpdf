@@ -235,6 +235,12 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   (checkable, remembered app-wide): the page render inverts and the pre-render placeholder goes
   black (no bright flash); the file, print/export renders, and thumbnails keep true colours;
   independent of the followed OS theme. — *WSLg*
+- [x] **R1 polish — the Tools menu** (owner-decided during the stack review): the tranche's one
+  budgeted top-level menu (`PLAN.md` §Design budgets) lands with the tools it was reserved for —
+  Select/Grab and the armed one-shots (Text Box · Highlight · Redact ×2 · Crop + Remove Crop) move
+  out of View into **Tools**; **Rotate Left/Right moves to Edit** beside the other page operations
+  (it is a real, saved edit — the View placement implied a view-only spin). Shortcuts and the
+  toolbar are unchanged; R3's Markup/Draw and R4's Stamp land straight into Tools.
 - [ ] **M50** Verify + release → tag — *Windows*
 
 **R2 — "Document Hygiene"**
