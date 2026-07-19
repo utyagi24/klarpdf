@@ -149,6 +149,32 @@ def test_panel_hidden_until_list_all(app, prose_pdf):
     assert not win.search_results.isVisible()
 
 
+def test_reopening_the_bar_revives_the_kept_query(app, prose_pdf):
+    """Close the bar (clears hits + overlays), reopen it: the prefilled query must search again —
+    not sit dead until retyped (review finding on the M47 branch, root pre-dating it)."""
+    win = _win(app, prose_pdf)
+    win.find_bar.show_bar()
+    win.find_bar._edit.setText("needle")
+    assert win.view.search.position()[1] == 3
+    win.find_bar.hide_bar()
+    assert win.view.search.position()[1] == 0  # cleared with the bar, as designed
+    win.find_bar.show_bar()
+    assert win.find_bar._edit.text() == "needle"   # the query text was kept…
+    assert win.view.search.position() == (0, 3)    # …and the hits are live again
+    win.find_bar._list_btn.setChecked(True)
+    assert len(_rows(win)) == 3                    # the panel sees them too
+
+
+def test_reopening_an_already_open_bar_keeps_the_position(app, prose_pdf):
+    win = _win(app, prose_pdf)
+    win.find_bar.show_bar()
+    win.find_bar._edit.setText("needle")
+    win.find_bar.find_next()
+    assert win.view.search.position()[0] == 1
+    win.find_bar.show_bar()  # Ctrl+F while open — must not reset the current hit
+    assert win.view.search.position() == (1, 3)
+
+
 def test_edit_clears_a_visible_panel(app, prose_pdf):
     win = _win(app, prose_pdf)
     win.find_bar.show_bar()
