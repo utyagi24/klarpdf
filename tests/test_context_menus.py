@@ -33,6 +33,7 @@ def qapp():
 def app(qapp, tmp_path):
     qapp.settings = Settings(tmp_path / "vs.json")
     qapp.page_clipboard = []
+    qapp.object_clipboard = None
     for w in list(qapp._windows.values()):
         w.close()
     qapp._windows.clear()
@@ -85,10 +86,13 @@ def _bare_point(win):
 def test_bare_page_menu_routes_the_view_actions(app, menu_pdf):
     win = _win(app, menu_pdf)
     menu = win._view_context_menu(_bare_point(win))
-    routed = [a for a in menu.actions() if not a.isSeparator()]
-    # The *same* QAction objects as the View menu — labels/shortcuts/state single-sourced.
-    assert routed == [win._a_fitw, win._a_fitp, win._a_actual,
-                      win._a_rotl, win._a_rotr, win._a_goto]
+    entries = [a for a in menu.actions() if not a.isSeparator()]
+    # Paste Object (M59) leads — the one verb acting at the clicked spot; disabled while the
+    # object clipboard is empty.
+    assert entries[0].text() == "Paste Object" and entries[0].isEnabled() is False
+    # The rest are the *same* QAction objects as the View menu — labels/shortcuts single-sourced.
+    assert entries[1:] == [win._a_fitw, win._a_fitp, win._a_actual,
+                           win._a_rotl, win._a_rotr, win._a_goto]
 
 
 def test_selection_menu_offers_copy_highlight_redact(app, menu_pdf):

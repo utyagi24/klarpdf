@@ -223,6 +223,35 @@ class Redaction:
     fill: tuple[float, float, float] = (0.0, 0.0, 0.0)
 
 
+# The descriptors the object clipboard / move tools operate on (M58 move, M59 copy/paste):
+# free-placed geometry that stays meaningful anywhere on any page. The text-anchored marks
+# (highlight / underline / strikeout) and redactions are deliberately excluded — they belong to
+# the text under them; foreign annotations are excluded until M68.
+PLACEABLE_TYPES = ("TextBox", "InkStroke", "Line", "Shape")
+
+
+def translate_mark(mark, dx: float, dy: float):
+    """The same descriptor moved by ``(dx, dy)`` — the one move primitive for every free-placed
+    geometry (M58 drag-move, M59 paste-with-offset). Frozen value objects in, new ones out."""
+    from dataclasses import replace
+
+    if isinstance(mark, (TextBox, Shape)):
+        x0, y0, x1, y1 = mark.rect
+        return replace(mark, rect=(x0 + dx, y0 + dy, x1 + dx, y1 + dy))
+    if isinstance(mark, Line):
+        return replace(mark, start=(mark.start[0] + dx, mark.start[1] + dy),
+                       end=(mark.end[0] + dx, mark.end[1] + dy))
+    if isinstance(mark, InkStroke):
+        return replace(mark, paths=tuple(tuple((x + dx, y + dy) for x, y in path)
+                                         for path in mark.paths))
+    raise TypeError(f"not a movable mark: {type(mark).__name__}")
+
+
+def mark_bounds(mark) -> tuple:
+    """A free-placed mark's bounding rect: a text box's own rect, else ``bounding_rect()``."""
+    return mark.rect if isinstance(mark, TextBox) else mark.bounding_rect()
+
+
 def apply_annotations(page: fitz.Page, annotations: tuple) -> None:
     """Write a page's *non-destructive* annotation descriptors onto a materialised output page.
 

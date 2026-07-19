@@ -188,11 +188,15 @@ def test_right_click_remove_labels_for_drawn_marks(win):
     win.vdoc.add_annotation(0, Line((100.0, 200.0), (220.0, 240.0)))
     win.vdoc.add_annotation(0, Shape("ellipse", (300.0, 300.0, 380.0, 360.0)))
     win.view.reload()
+
+    def titles(menu):
+        return [a.text() for a in menu.actions() if not a.isSeparator()]
+
     menu = win._view_context_menu(_scene(win, 160, 220))
-    assert [a.text() for a in menu.actions()] == ["Remove line"]
+    assert titles(menu)[-1] == "Remove line"  # Copy/Cut Object join at M59
     menu = win._view_context_menu(_scene(win, 340, 330))
-    assert [a.text() for a in menu.actions()] == ["Remove shape"]
-    menu.actions()[0].trigger()
+    assert titles(menu)[-1] == "Remove shape"
+    next(a for a in menu.actions() if a.text() == "Remove shape").trigger()
     assert not any(isinstance(a, Shape) for a in win.vdoc.page_annotations(0))
 
 
