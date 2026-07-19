@@ -359,6 +359,19 @@ class MainWindow(QMainWindow):
         a_underline.setToolTip("Underline — drag over text to underline it")
         a_strikeout = act("Strike Out", lambda: self._arm_tool(ArmedTool.STRIKEOUT), icon="strikeout", to_menu=tools_menu)
         a_strikeout.setToolTip("Strike Out — drag over text to strike it through")
+        # Draw tools (M58): pen path capture + line/arrow/rect/ellipse press-drag-release, all
+        # one-shot armed like the rest (Shift constrains: square / circle / 45° line). Fixed-width
+        # red ink — markup/redlining framing, not CAD (PLAN.md M58).
+        a_pen = act("Pen", lambda: self._arm_tool(ArmedTool.PEN), icon="pen", to_menu=tools_menu)
+        a_pen.setToolTip("Pen — draw a freehand stroke (fixed width)")
+        a_line = act("Line", lambda: self._arm_tool(ArmedTool.LINE), icon="line", to_menu=tools_menu)
+        a_line.setToolTip("Line — drag from start to end (Shift snaps to 45°)")
+        a_arrow = act("Arrow", lambda: self._arm_tool(ArmedTool.ARROW), icon="arrow", to_menu=tools_menu)
+        a_arrow.setToolTip("Arrow — drag from tail to head (Shift snaps to 45°)")
+        a_rect = act("Rectangle", lambda: self._arm_tool(ArmedTool.RECT), icon="rect", to_menu=tools_menu)
+        a_rect.setToolTip("Rectangle — drag a box (Shift for a square)")
+        a_ellipse = act("Ellipse", lambda: self._arm_tool(ArmedTool.ELLIPSE), icon="ellipse", to_menu=tools_menu)
+        a_ellipse.setToolTip("Ellipse — drag a box (Shift for a circle)")
         a_redact_text = act("Redact Text", lambda: self._arm_tool(ArmedTool.REDACT_TEXT), "Ctrl+Shift+R", icon="redact-text", to_menu=tools_menu)
         a_redact_text.setToolTip("Redact Text — drag over text to permanently remove it at save")
         a_redact_block = act("Redact Block", lambda: self._arm_tool(ArmedTool.REDACT_REGION), icon="redact", to_menu=tools_menu)
@@ -373,6 +386,11 @@ class MainWindow(QMainWindow):
             ArmedTool.HIGHLIGHT: a_highlight,
             ArmedTool.UNDERLINE: a_underline,
             ArmedTool.STRIKEOUT: a_strikeout,
+            ArmedTool.PEN: a_pen,
+            ArmedTool.LINE: a_line,
+            ArmedTool.ARROW: a_arrow,
+            ArmedTool.RECT: a_rect,
+            ArmedTool.ELLIPSE: a_ellipse,
             ArmedTool.REDACT_TEXT: a_redact_text,
             ArmedTool.REDACT_REGION: a_redact_block,
             ArmedTool.CROP: a_crop,
@@ -380,18 +398,23 @@ class MainWindow(QMainWindow):
         for a in self._armed_actions.values():
             a.setCheckable(True)
 
-        # Markup ▾ split-button (M56; PLAN.md §Design budgets — grouped split-buttons keep the
-        # toolbar at ~10 slots): one slot holds the three markup verbs. The face is the last-used
-        # tool (clicking it arms that tool again); the arrow opens the trio. The same QActions as
-        # the Tools menu, so shortcuts / checked-state stay single-sourced.
-        self._markup_button = QToolButton()
-        self._markup_button.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
-        markup_menu = QMenu(self._markup_button)
-        for a in (a_highlight, a_underline, a_strikeout):
-            markup_menu.addAction(a)
-        self._markup_button.setMenu(markup_menu)
-        self._markup_button.setDefaultAction(a_highlight)
-        markup_menu.triggered.connect(self._markup_button.setDefaultAction)  # sticky last-used
+        def split_button(actions) -> QToolButton:
+            """A grouped split-button (PLAN.md §Design budgets — they keep the toolbar at ~10
+            slots): the face is the sticky last-used tool, the arrow opens the group. The same
+            QActions as the Tools menu, so shortcuts / checked-state stay single-sourced."""
+            button = QToolButton()
+            button.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+            menu = QMenu(button)
+            for a in actions:
+                menu.addAction(a)
+            button.setMenu(menu)
+            button.setDefaultAction(actions[0])
+            menu.triggered.connect(button.setDefaultAction)  # sticky last-used face
+            return button
+
+        # Markup ▾ (M56): highlight / underline / strikeout. Draw ▾ (M58): the five draw tools.
+        self._markup_button = split_button((a_highlight, a_underline, a_strikeout))
+        self._draw_button = split_button((a_pen, a_line, a_arrow, a_rect, a_ellipse))
         # Night reading mode (M49): view-only page inversion, independent of the OS theme the
         # chrome follows. Remembered app-wide, like the sidebar choice; the file, print, export,
         # and thumbnails stay daylight — only what the eyes read at night inverts.
@@ -439,7 +462,7 @@ class MainWindow(QMainWindow):
             [a_zout, self.zoom_widget, a_zin, a_fitw, a_fitp],
             [undo, redo],
             [a_cut, a_copy_pg, a_paste, a_delete, a_insert],
-            [a_textbox, self._markup_button, a_redact_text, a_redact_block],
+            [a_textbox, self._markup_button, self._draw_button, a_redact_text, a_redact_block],
             [a_rotl, a_rotr],
             [a_find],
         )
@@ -896,6 +919,9 @@ class MainWindow(QMainWindow):
                 "Highlight": "Remove highlight",
                 "Underline": "Remove underline",
                 "Strikeout": "Remove strikeout",
+                "InkStroke": "Remove ink",
+                "Line": "Remove line",
+                "Shape": "Remove shape",
                 "TextBox": "Remove text box",
                 "Redaction": "Remove redaction",
             }.get(type(annot).__name__, "Remove annotation")
