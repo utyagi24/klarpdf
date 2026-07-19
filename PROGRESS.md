@@ -111,11 +111,13 @@ text-preserving — a locked counterpart to the round-trip). v0.6.0 "Rich Text &
 **styled text boxes**, **live thumbnails**, and **dynamic theme icons**. v0.5.0 "File Safety & Output"
 adds **Revert to Saved**, an **external-change warning**, and **edits-aware printing**. v0.4.0
 "Annotate & Redact" adds text **highlight** + **text boxes** and **true destructive redaction**.
-**Next:** two planned roadmaps — **v0.11.0 "MCP / Agent Bridge"** (M39–M44; `PLAN.md` §MCP / Agent
-Bridge roadmap; the version number stays reserved for it) and the **GUI feature tranche's
-remaining releases R2–R5** (M51–M70; `PLAN.md` §GUI feature roadmap — **R1 shipped as v0.12.0**,
-next tranche milestone is **M51**; sequencing vs the bridge stays the owner's call). Other
-deferred items live in `PLAN.md` §Future enhancements.
+**R2 "Document Hygiene" (M51–M54) is merged and tagged `v0.13.0` — no published release** (owner
+call, 2026-07-19): the owner validated the merged build directly and skipped M55's release cut;
+R2's features first *ship* with the next published release. **Next:** two planned roadmaps —
+**v0.11.0 "MCP / Agent Bridge"** (M39–M44; `PLAN.md` §MCP / Agent Bridge roadmap; the version
+number stays reserved for it) and the **GUI feature tranche's remaining releases R3–R5**
+(M56–M70; `PLAN.md` §GUI feature roadmap — next tranche milestone is **M56**; sequencing vs the
+bridge stays the owner's call). Other deferred items live in `PLAN.md` §Future enhancements.
 **Open follow-ups** (carried items) are at the bottom.
 
 - [x] **M0** Scaffold + WSL dev venv — *step 1 (WSL); WSL* — [#4](https://github.com/utyagi24/pdfproj/pull/4)
@@ -275,7 +277,11 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
 - [x] **M52** Reduce file size — Export ▸ Reduced Size PDF…; true-value presets + custom dpi/quality knobs; actual before→after — *Windows (headless + offscreen GUI)* — [#126](https://github.com/utyagi24/klarpdf/pull/126)
 - [x] **M53** Properties + metadata (view · edit · remove; Info dict **and** XMP both) — *Windows (headless + offscreen GUI)* — [#127](https://github.com/utyagi24/klarpdf/pull/127)
 - [x] **M54** ⭐ Document encryption — set/change/remove/carry-through, AES-256; optional advisory restriction flags — *Windows (headless + offscreen GUI)* — [#128](https://github.com/utyagi24/klarpdf/pull/128)
-- [ ] **M55** Verify + release → tag — *Windows*
+- [x] **M55** Verify + ~~release~~ tag — verify done (full headless suite green on merged main;
+  owner validated the changes directly); **release cut skipped (owner call, 2026-07-19)** — main
+  tagged **`v0.13.0`** only, so the version marks the R2 state without a published release. The
+  CI draft the `v*` tag produces stays unpublished; R2's features first ship with the next
+  published release. — *Windows*
 
 **R3 — "Markup Tools"**
 
