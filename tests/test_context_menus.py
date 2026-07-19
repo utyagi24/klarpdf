@@ -17,6 +17,7 @@ from PySide6.QtGui import QGuiApplication
 from app import PdfApp
 from model.page_edits import Highlight
 from store.settings import Settings
+from viewer.tools import ArmedTool
 
 _LINK_BOX = (72, 300, 200, 320)  # page 0 → page 4 (internal GoTo)
 _URI_BOX = (72, 340, 200, 360)   # page 0 → https://example.org/spec (external)
@@ -151,6 +152,39 @@ def test_external_link_is_still_not_click_navigable(app, menu_pdf):
     center = win.view.scene_rect_for_box(0, _URI_BOX).center()
     assert win.view.links.link_at(center) is None       # no jump target
     assert win.view.links.navigate_at(center) is False  # a click does nothing (offline app)
+
+
+# ---- toolbar tools agree with the menu (select-then-click applies immediately) --
+
+
+def test_toolbar_highlight_applies_to_a_live_selection(app, menu_pdf):
+    # "Select text, click Highlight" acts at once — same meaning as the context menu; the
+    # toolbar no longer arms-and-waits while a selection sits there (owner call, M46 review).
+    win = _win(app, menu_pdf)
+    win.view.selection.select_word_at(_word_center(win))
+    win._arm_tool(ArmedTool.HIGHLIGHT)
+    assert win.view.armed is None  # applied, not armed
+    highlights = [a for a in win.vdoc.page_annotations(0) if isinstance(a, Highlight)]
+    assert len(highlights) == 1
+    assert win.view.selection.selected_words() == []
+
+
+def test_toolbar_redact_text_applies_to_a_live_selection(app, menu_pdf):
+    from model.page_edits import Redaction
+
+    win = _win(app, menu_pdf)
+    win.view.selection.select_word_at(_word_center(win))
+    win._arm_tool(ArmedTool.REDACT_TEXT)
+    assert win.view.armed is None
+    assert any(isinstance(a, Redaction) for a in win.vdoc.page_annotations(0))
+
+
+def test_toolbar_highlight_arms_when_nothing_is_selected(app, menu_pdf):
+    win = _win(app, menu_pdf)
+    win._arm_tool(ArmedTool.HIGHLIGHT)
+    assert win.view.armed is ArmedTool.HIGHLIGHT  # the arm-then-drag flow is unchanged
+    win._arm_tool(ArmedTool.HIGHLIGHT)
+    assert win.view.armed is None  # click again → toggle off, as before
 
 
 # ---- the Pages-sidebar menu -----------------------------------------------------
