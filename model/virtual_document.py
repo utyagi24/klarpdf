@@ -37,16 +37,18 @@ class PasswordRequired(Exception):
     error to surface)."""
 
 
-def _authenticate_and_decrypt(doc: "fitz.Document", path: str, password_provider) -> "fitz.Document":
+def _authenticate_and_decrypt(
+    doc: "fitz.Document", path: str, password_provider
+) -> "tuple[fitz.Document, str]":
     """Authenticate an encrypted ``doc`` (prompting via ``password_provider``), then return a fresh
-    **decrypted** in-memory copy (M32).
+    **decrypted** in-memory copy plus the password that worked (M32; M54 records the password).
 
     ``password_provider(path, retry)`` returns a password string, or ``None`` to cancel. The model
     loops on a wrong password (re-calling with ``retry=True``) until it succeeds or the user
     cancels. On success the document is re-serialised with encryption removed, so nothing downstream
-    — fresh source copies, materialise, render — ever needs the password again, and the saved output
-    is unencrypted (re-encryption on save is a deferred enhancement). Raises :class:`PasswordRequired`
-    when no password is available.
+    — fresh source copies, materialise, render — ever needs the password again; the password is
+    returned so a save can **carry the encryption through** (M54 — it supersedes M32's
+    save-unencrypted deferral). Raises :class:`PasswordRequired` when no password is available.
 
     NB: ``authenticate`` returns a truthy bitfield on success (``needs_pass`` stays set even then),
     and the decrypt ``tobytes`` passes no ``garbage``/``deflate`` — garbage-collecting an AES doc
@@ -66,7 +68,7 @@ def _authenticate_and_decrypt(doc: "fitz.Document", path: str, password_provider
         retry = True
     decrypted = doc.tobytes(encryption=fitz.PDF_ENCRYPT_NONE)
     doc.close()
-    return fitz.open(stream=decrypted, filetype="pdf")
+    return fitz.open(stream=decrypted, filetype="pdf"), password
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,6 +143,14 @@ class VirtualDocument:
         self._origin_info: dict = {}
         self._origin_xmp: str = ""
         self._metadata_override: dict | None = None
+        # Document encryption (M54) — a save-path capability: the password a Save applies
+        # (AES-256), or None to save unencrypted, plus the advisory permission flags (-1 = all
+        # allowed). Held in memory only, never persisted anywhere but the encrypted output
+        # itself. Seeded by from_path for an encrypted original (carry-through — supersedes
+        # M32's save-unencrypted deferral); _source_passwords records what opened each source.
+        self._password: str | None = None
+        self._permissions: int = -1
+        self._source_passwords: dict[str, str] = {}
         # Cache: does a registered source carry baked KlarPDF annotations? Keyed by source id;
         # source bytes are immutable, so this never changes for a given source (cleared only when
         # sources are reset in reload_from_file). Lets the viewer / thumbnails keep the fast
@@ -167,6 +177,9 @@ class VirtualDocument:
         vd.path = path
         vd._origin_toc = vd.sources[source_id].get_toc(simple=False)
         vd._capture_origin_metadata(source_id)
+        # Carry-through (M54): a document opened with a password saves back with that password
+        # unless the user changes/removes it. None for an unencrypted original.
+        vd._password = vd._source_passwords.get(source_id)
         vd.ordered = vd._seed_ordered(source_id)
         vd.dirty = False
         return vd
@@ -233,7 +246,8 @@ class VirtualDocument:
         if source_id not in self.sources:
             doc = fitz.open(stream=Path(path).read_bytes(), filetype="pdf")
             if doc.needs_pass:
-                doc = _authenticate_and_decrypt(doc, path, password_provider)
+                doc, password = _authenticate_and_decrypt(doc, path, password_provider)
+                self._source_passwords[source_id] = password
             self.sources[source_id] = doc
         return source_id
 
@@ -362,14 +376,16 @@ class VirtualDocument:
             tuple(self.ordered),
             dict(self._form_values),
             None if override is None else dict(override),
+            (self._password, self._permissions),
             self.dirty,
         )
 
     def restore(self, state: State) -> None:
-        ordered, form_values, metadata_override, dirty = state
+        ordered, form_values, metadata_override, encryption, dirty = state
         self.ordered = list(ordered)
         self._form_values = dict(form_values)
         self._metadata_override = None if metadata_override is None else dict(metadata_override)
+        self._password, self._permissions = encryption
         self.dirty = dirty
 
     # ---- list edits (each marks the document dirty) -----------------------------
@@ -521,6 +537,29 @@ class VirtualDocument:
     def metadata_is_removed(self) -> bool:
         return self._metadata_override == {}
 
+    # ---- document encryption (M54; a save-path capability) ----------------------
+
+    @property
+    def password(self) -> "str | None":
+        """The password a Save applies (AES-256), or ``None`` to save unencrypted. In memory
+        only — never persisted anywhere but the encrypted output itself."""
+        return self._password
+
+    @property
+    def permissions(self) -> int:
+        """The advisory permission flags a Save writes (-1 = everything allowed). Advisory:
+        honored by most viewers, not cryptographically enforced — only the password is."""
+        return self._permissions
+
+    def set_encryption(self, password: "str | None", permissions: int = -1) -> None:
+        """Set / change / remove the password the next Save applies (+ advisory flags).
+
+        Removing the password (``None``) resets the flags too: PDF permission bits live inside
+        the encryption dictionary, so restrictions without a password don't exist."""
+        self._password = password
+        self._permissions = -1 if password is None else int(permissions)
+        self.dirty = True
+
     # ---- form field values (document-level; applied at materialise) -------------
 
     @property
@@ -614,7 +653,25 @@ class VirtualDocument:
         """
         self.sources = {}
         self._source_has_ours = {}  # new file's bytes → recompute whether our marks are baked in
-        source_id = self.open_source(path, self._password_provider)  # re-prompt if still encrypted
+        self._source_passwords = {}
+
+        def known_then_prompt(path_, retry):
+            # A carry-through save (M54) wrote the file with the password we hold, so try it
+            # silently first — a redaction commit / Revert on an encrypted document must not
+            # re-prompt for a password we know. Fall back to the stored provider (an external
+            # program may have re-encrypted the file with a different password).
+            if not retry and self._password is not None:
+                return self._password
+            if self._password_provider is not None:
+                return self._password_provider(path_, retry)
+            return None
+
+        source_id = self.open_source(path, known_then_prompt)
+        # Re-baseline the carry-through from what actually opened the file: the fallback may
+        # have collected a different password, and a now-unencrypted file clears it.
+        self._password = self._source_passwords.get(source_id)
+        if self._password is None:
+            self._permissions = -1
         self.origin_source_id = source_id
         self.path = path
         self._origin_toc = self.sources[source_id].get_toc(simple=False)

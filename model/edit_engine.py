@@ -33,6 +33,33 @@ def _apply_crop(page: "fitz.Page", rect: tuple) -> None:
     page.set_cropbox(target)
 
 
+def _encryption_args(vdoc: VirtualDocument) -> dict:
+    """The ``Document.save`` keywords that carry the document's encryption (M54); ``{}`` when it
+    saves unencrypted.
+
+    AES-256 only — the one real-cryptography tier. With no restriction flags the owner password
+    equals the user password (one password, one secret). With flags set, the owner password is a
+    fresh random secret held nowhere: PDF permissions bind only readers authenticated as *user*,
+    so a shared owner/user password would authenticate every reader as owner and silently void
+    the flags. Losing that owner secret costs nothing — we re-encrypt from the decrypted
+    in-memory sources on every save, never by re-authenticating as owner.
+    """
+    if vdoc.password is None:
+        return {}
+    if vdoc.permissions == -1:
+        owner_pw = vdoc.password
+    else:
+        import secrets
+
+        owner_pw = secrets.token_urlsafe(30)  # 40 chars — MuPDF's password length ceiling
+    return {
+        "encryption": fitz.PDF_ENCRYPT_AES_256,
+        "user_pw": vdoc.password,
+        "owner_pw": owner_pw,
+        "permissions": vdoc.permissions,
+    }
+
+
 def _contiguous_runs(ordered) -> list[list]:
     """Collapse ``ordered`` into ``[source_id, from_page, to_page]`` runs of consecutive pages.
 
@@ -66,7 +93,7 @@ class PyMuPDFEngine(EditEngine):
     def materialize(self, vdoc: VirtualDocument, out_path: str) -> None:
         out = self._build_output(vdoc)
         try:
-            out.save(out_path, garbage=4, deflate=True, clean=True)
+            out.save(out_path, garbage=4, deflate=True, clean=True, **_encryption_args(vdoc))
         finally:
             out.close()
 
@@ -169,6 +196,12 @@ class PyPdfEngine(EditEngine):
     """Pure-Python fallback (pypdf). Best-effort; PyMuPDF is the authoritative engine."""
 
     def materialize(self, vdoc: VirtualDocument, out_path: str) -> None:
+        # M54: pypdf can't write AES without a dev-only `cryptography` extra (PLAN.md), and a
+        # weaker cipher or a silent unencrypted write would both betray the password promise.
+        if vdoc.password is not None:
+            raise NotImplementedError(
+                "PyPdfEngine cannot write AES-256 encryption; PyMuPDF is the ship engine"
+            )
         from pypdf import PdfReader, PdfWriter
 
         readers: dict[str, PdfReader] = {}
