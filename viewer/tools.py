@@ -15,7 +15,8 @@ Two layers:
   - **TEXTBOX** — click a spot to place a free-text note box (M20);
   - **HIGHLIGHT** — drag over text to highlight it (one continuous bar per line);
   - **REDACT_TEXT** — drag over text to redact it (text-flow, one bar per line);
-  - **REDACT_REGION** — drag a rectangle to destructively remove a block/image (M21).
+  - **REDACT_REGION** — drag a rectangle to destructively remove a block/image (M21);
+  - **CROP** — drag the rectangle to keep; the rest of the page is hidden, not removed (M48).
 """
 
 from __future__ import annotations
@@ -33,6 +34,7 @@ class ArmedTool(Enum):
     HIGHLIGHT = "highlight"
     REDACT_TEXT = "redact_text"
     REDACT_REGION = "redact_region"
+    CROP = "crop"
 
     @property
     def drags_text(self) -> bool:

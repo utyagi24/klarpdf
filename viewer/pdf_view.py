@@ -37,6 +37,7 @@ class PdfView(QGraphicsView):
     zoomChanged = Signal(float)  # emitted whenever the zoom factor changes (1.0 == 100%)
     armedChanged = Signal(object)  # the armed ArmedTool, or None — so the toolbar can light a button
     applyTextTool = Signal(object)  # an ArmedTool (HIGHLIGHT/REDACT_TEXT) fired on a drag-over-text release
+    cropDragged = Signal(int, tuple)  # an armed CROP drag finished: (page_index, content box) — M48
 
     def __init__(self, vdoc: VirtualDocument, parent=None) -> None:
         super().__init__(parent)
@@ -64,6 +65,10 @@ class PdfView(QGraphicsView):
         self.context_menu_provider = None
 
         self._mode = InteractionMode.SELECT  # SELECT (text/forms/move) vs GRAB (hand-pan) — M18
+        # In-progress armed-CROP drag (M48): the anchor point, its page, and the dashed band item.
+        self._crop_anchor = None
+        self._crop_page: "int | None" = None
+        self._crop_item = None
         # A one-shot armed insert tool (ArmedTool.TEXTBOX / .REDACT) — fires once then auto-reverts
         # to SELECT (M21). None means no tool is armed.
         self._armed: "ArmedTool | None" = None
@@ -103,12 +108,23 @@ class PdfView(QGraphicsView):
         return (ref.rotation_override - native) % 360
 
     def _unrotated_size(self, index: int) -> tuple[float, float]:
-        """Unrotated **MediaBox** size in points — the space word boxes + widget rects live in,
-        even for a page with a baked-in ``/Rotate`` (PyMuPDF reports those coords un-rotated, while
-        ``page.rect`` and ``get_pixmap`` are rotated)."""
+        """Unrotated size in points of the page area being **displayed**: the crop override's
+        dims when one is set (M48), else the source **CropBox** (== MediaBox for the normal,
+        uncropped page — and the frame PyMuPDF's word boxes / widget rects / ``get_pixmap`` are
+        all relative to, so a source that arrives pre-cropped lays out consistently too)."""
         ref = self._vdoc.ordered[index]
-        mediabox = self._vdoc.sources[ref.source_id][ref.source_page_index].mediabox
-        return mediabox.width, mediabox.height
+        if ref.crop_override is not None:
+            x0, y0, x1, y1 = ref.crop_override
+            return x1 - x0, y1 - y0
+        cropbox = self._vdoc.sources[ref.source_id][ref.source_page_index].cropbox
+        return cropbox.width, cropbox.height
+
+    def _crop_origin(self, index: int) -> tuple[float, float]:
+        """Top-left of the displayed area within the page's content frame — ``(0, 0)`` unless a
+        crop override shifts it (M48). Content coords (words, annotations, links) subtract this
+        to land in the displayed (cropped) frame; the inverse mappings add it back."""
+        crop = self._vdoc.ordered[index].crop_override
+        return (crop[0], crop[1]) if crop is not None else (0.0, 0.0)
 
     def _display_rotation(self, index: int) -> int:
         """**Absolute** rotation of the displayed page vs its MediaBox: the per-page override if
@@ -213,26 +229,32 @@ class PdfView(QGraphicsView):
                 dy = (scene_pt.y() - p["y"]) / self._zoom
                 w, h = self._unrotated_size(i)
                 lx, ly = self._point_to_source(w, h, self._display_rotation(i), dx, dy)
-                return i, QPointF(lx, ly)
+                ox, oy = self._crop_origin(i)  # displayed frame → content coords
+                return i, QPointF(lx + ox, ly + oy)
         return None, None
 
     def scene_rect_for_box(self, page_index: int, box: tuple) -> QRectF:
         """Map a box in unrotated page points (x0,y0,x1,y1) to its scene rect, accounting for any
-        per-page rotation so overlays align with the displayed (spun) page."""
+        per-page rotation so overlays align with the displayed (spun) page. ``box`` is in content
+        coords; a crop override shifts the displayed frame, so its origin is subtracted first."""
         p = self._pages[page_index]
         z = self._zoom
         w, h = self._unrotated_size(page_index)
+        ox, oy = self._crop_origin(page_index)
+        box = (box[0] - ox, box[1] - oy, box[2] - ox, box[3] - oy)
         dx0, dy0, dx1, dy1 = self._box_to_display(w, h, self._display_rotation(page_index), box)
         return QRectF(p["x"] + dx0 * z, p["y"] + dy0 * z, (dx1 - dx0) * z, (dy1 - dy0) * z)
 
     def local_box_from_scene_rect(self, page_index: int, scene_rect) -> tuple:
         """Inverse of :meth:`scene_rect_for_box`: map a scene rect back to an unrotated page-local
-        box ``(x0,y0,x1,y1)``, clamped to the page. Used by the redaction rubber-band to record the
-        marked region in the coordinate space the materialise pass redacts in."""
+        content box ``(x0,y0,x1,y1)``, clamped to the displayed (possibly cropped) frame. Used by
+        the redaction rubber-band and the crop drag to record the marked region in the coordinate
+        space the materialise pass works in."""
         p = self._pages[page_index]
         z = self._zoom
         w, h = self._unrotated_size(page_index)
         rot = self._display_rotation(page_index)
+        ox, oy = self._crop_origin(page_index)
         corners = (
             (scene_rect.left(), scene_rect.top()),
             (scene_rect.right(), scene_rect.bottom()),
@@ -241,8 +263,9 @@ class PdfView(QGraphicsView):
             self._point_to_source(w, h, rot, (sx - p["x"]) / z, (sy - p["y"]) / z)
             for sx, sy in corners
         ]
-        xs, ys = [pt[0] for pt in pts], [pt[1] for pt in pts]
-        return (max(0.0, min(xs)), max(0.0, min(ys)), min(w, max(xs)), min(h, max(ys)))
+        xs = [pt[0] + ox for pt in pts]
+        ys = [pt[1] + oy for pt in pts]
+        return (max(ox, min(xs)), max(oy, min(ys)), min(ox + w, max(xs)), min(oy + h, max(ys)))
 
     def page_transform(self, page_index: int) -> QTransform:
         """The affine that maps a page's **unrotated** point coords → scene coords (origin offset +
@@ -265,6 +288,8 @@ class PdfView(QGraphicsView):
         elif total == 270:
             tr.translate(0, w)
             tr.rotate(270)
+        ox, oy = self._crop_origin(page_index)
+        tr.translate(-ox, -oy)  # last-added runs first: content coords → the displayed crop frame
         return tr
 
     def local_point_on_page(self, page_index: int, scene_pt) -> QPointF:
@@ -276,7 +301,8 @@ class PdfView(QGraphicsView):
         dy = (scene_pt.y() - p["y"]) / self._zoom
         w, h = self._unrotated_size(page_index)
         lx, ly = self._point_to_source(w, h, self._display_rotation(page_index), dx, dy)
-        return QPointF(lx, ly)
+        ox, oy = self._crop_origin(page_index)
+        return QPointF(lx + ox, ly + oy)
 
     def ensure_box_visible(self, page_index: int, box: tuple) -> None:
         self.ensureVisible(self.scene_rect_for_box(page_index, box), 60, 60)
@@ -296,6 +322,10 @@ class PdfView(QGraphicsView):
                 return
             if self._armed is ArmedTool.REDACT_REGION and self.annotations is not None:
                 self.annotations.begin_redaction(scene_pt)  # no-op off-page; stays armed
+                event.accept()
+                return
+            if self._armed is ArmedTool.CROP:
+                self.begin_crop_drag(scene_pt)  # no-op off-page; stays armed
                 event.accept()
                 return
             if self._armed is not None and self._armed.drags_text and self.selection is not None:
@@ -347,6 +377,10 @@ class PdfView(QGraphicsView):
 
     def mouseMoveEvent(self, event) -> None:
         scene_pt = self.mapToScene(event.position().toPoint())
+        if self.cropping:
+            self.update_crop_drag(scene_pt)
+            event.accept()
+            return
         if self.annotations is not None and self.annotations.redacting:
             self.annotations.update_redaction(scene_pt)
             event.accept()
@@ -363,6 +397,12 @@ class PdfView(QGraphicsView):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:
+        if self.cropping:
+            self.finish_crop_drag()
+            if self._armed is ArmedTool.CROP:
+                self.disarm()  # one-shot: revert to SELECT after the drag commits
+            event.accept()
+            return
         if self.annotations is not None and self.annotations.redacting:
             self.annotations.finish_redaction()
             if self._armed is ArmedTool.REDACT_REGION:
@@ -476,7 +516,17 @@ class PdfView(QGraphicsView):
         try:
             render_page = self._render_source_page(ref)  # None → render the shared source (fast path)
             page = render_page if render_page is not None else self._vdoc.sources[ref.source_id][ref.source_page_index]
-            pm = page.get_pixmap(matrix=fitz.Matrix(self._zoom, self._zoom), alpha=False)
+            clip = None
+            if ref.crop_override is not None:
+                visible = self._renderable_crop(index)
+                if visible is None:
+                    return None  # the crop lies wholly outside the renderable area
+                # get_pixmap's clip is in the page's *rotated* space — spin the content-frame rect.
+                cropbox = page.cropbox
+                clip = fitz.Rect(
+                    self._box_to_display(cropbox.width, cropbox.height, page.rotation, visible)
+                )
+            pm = page.get_pixmap(matrix=fitz.Matrix(self._zoom, self._zoom), clip=clip, alpha=False)
             img = QImage(pm.samples, pm.width, pm.height, pm.stride, QImage.Format.Format_RGB888)
             pixmap = QPixmap.fromImage(img.copy())  # copy: detach from pm.samples buffer
             if total:
@@ -488,6 +538,38 @@ class PdfView(QGraphicsView):
         while len(self._cache) > _CACHE_LIMIT:
             self._cache.popitem(last=False)
         return pixmap
+
+    def _renderable_crop(self, index: int) -> tuple | None:
+        """The part of the page's crop override the renderer can actually produce — the override
+        intersected with the source CropBox frame — or ``None`` when nothing overlaps. Only a
+        Remove Crop on a pre-cropped source extends beyond the frame (the model clamps drags);
+        the uncovered border shows as blank page until a save re-bases the frame."""
+        crop = self._vdoc.ordered[index].crop_override
+        if crop is None:
+            return None
+        ref = self._vdoc.ordered[index]
+        cropbox = self._vdoc.sources[ref.source_id][ref.source_page_index].cropbox
+        visible = (max(crop[0], 0.0), max(crop[1], 0.0),
+                   min(crop[2], cropbox.width), min(crop[3], cropbox.height))
+        if visible[2] <= visible[0] or visible[3] <= visible[1]:
+            return None
+        return visible
+
+    def _pixmap_offset(self, index: int) -> QPointF:
+        """Where the rendered pixmap sits inside the page's display rect — ``(0, 0)`` except when
+        the crop override extends beyond the renderable area (see :meth:`_renderable_crop`): the
+        rendered part then lands inset in the grown frame."""
+        crop = self._vdoc.ordered[index].crop_override
+        if crop is None:
+            return QPointF(0, 0)
+        visible = self._renderable_crop(index)
+        if visible is None or visible == crop:
+            return QPointF(0, 0)
+        w, h = self._unrotated_size(index)
+        shifted = (visible[0] - crop[0], visible[1] - crop[1],
+                   visible[2] - crop[0], visible[3] - crop[1])
+        d = self._box_to_display(w, h, self._display_rotation(index), shifted)
+        return QPointF(d[0] * self._zoom, d[1] * self._zoom)
 
     def _visible_range(self) -> tuple[int, int]:
         view_rect = self.mapToScene(self.viewport().rect()).boundingRect()
@@ -511,6 +593,7 @@ class PdfView(QGraphicsView):
                 pixmap = self._render_pixmap(i)
                 if pixmap is not None:
                     p["pix"].setPixmap(pixmap)
+                    p["pix"].setPos(self._pixmap_offset(i))  # inset only in the un-crop edge case
             elif not p["pix"].pixmap().isNull():
                 p["pix"].setPixmap(QPixmap())  # drop offscreen pixels to bound memory
         self._update_current(first, last)
@@ -584,9 +667,58 @@ class PdfView(QGraphicsView):
         """Cancel any armed one-shot tool and return to plain SELECT behaviour."""
         if self._armed is None:
             return
+        if self.cropping:  # Esc mid-drag: drop the band without emitting (nothing committed)
+            if self._crop_item.scene() is self.scene():
+                self.scene().removeItem(self._crop_item)
+            self._crop_item = self._crop_anchor = self._crop_page = None
         self._armed = None
         self.viewport().setCursor(Qt.CursorShape.ArrowCursor)
         self.armedChanged.emit(None)
+
+    # ---- armed-CROP drag (M48) --------------------------------------------------
+
+    @property
+    def cropping(self) -> bool:
+        return self._crop_item is not None
+
+    def begin_crop_drag(self, scene_pt) -> bool:
+        """Anchor a crop drag on the page under ``scene_pt`` (False off-page — the tool stays
+        armed, a mis-click doesn't waste the arm). Shows a dashed keep-this-area band."""
+        page_index, _local = self.page_and_local_at(scene_pt)
+        if page_index is None:
+            return False
+        self._crop_page = page_index
+        self._crop_anchor = scene_pt
+        item = QGraphicsRectItem(QRectF(scene_pt, scene_pt))
+        pen = QPen(QColor(0, 120, 215))
+        pen.setWidth(2)
+        pen.setStyle(Qt.PenStyle.DashLine)
+        item.setPen(pen)
+        item.setBrush(QBrush(QColor(0, 120, 215, 30)))
+        item.setZValue(11)
+        self.scene().addItem(item)
+        self._crop_item = item
+        return True
+
+    def update_crop_drag(self, scene_pt) -> None:
+        if self._crop_item is not None:
+            self._crop_item.setRect(QRectF(self._crop_anchor, scene_pt).normalized())
+
+    def finish_crop_drag(self) -> None:
+        """End the drag: drop the band and emit ``cropDragged`` with the kept area in content
+        coords (clamped to the page by ``local_box_from_scene_rect``). A sub-8-point drag is
+        discarded as accidental — an 8pt-tall page is not a plausible crop."""
+        if self._crop_item is None:
+            return
+        page_index, rect = self._crop_page, self._crop_item.rect()
+        if self._crop_item.scene() is self.scene():
+            self.scene().removeItem(self._crop_item)
+        self._crop_item = None
+        self._crop_anchor = None
+        self._crop_page = None
+        box = self.local_box_from_scene_rect(page_index, rect)
+        if box[2] - box[0] >= 8 and box[3] - box[1] >= 8:
+            self.cropDragged.emit(page_index, box)
 
     def set_zoom(self, zoom: float, keep_page: bool = True, fit: "str | None" = None) -> None:
         # ``fit`` records the sticky fit-mode this zoom represents ("width" / "page"); it is re-applied

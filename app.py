@@ -80,8 +80,9 @@ class PdfApp(QApplication):
         self.settings = Settings()
         self._windows: dict[str, object] = {}
         # Page clipboard for cross-window cut/copy/paste (PLAN.md): each entry is
-        # (source_id, source fitz.Document, source_page_index, rotation_override). Holding the
-        # source doc lets the paste target register it and splice the PageRef losslessly.
+        # (source_id, source fitz.Document, source_page_index, rotation_override, annotations,
+        # crop_override) — the page plus its per-page edits. Holding the source doc lets the
+        # paste target register it and splice the PageRef losslessly.
         self.page_clipboard: list[tuple] = []
         self._server: QLocalServer | None = None
         self._incoming: dict[QLocalSocket, bytes] = {}

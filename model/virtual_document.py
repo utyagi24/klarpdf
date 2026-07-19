@@ -81,12 +81,22 @@ class PageRef:
     PageRef, they follow the page through reorder / delete / cross-window copy, and are snapshotted
     with ``ordered[]`` for undo/redo. They are applied to the output page at materialize (the
     highlight/text-box overlays non-destructively; a redaction destructively removes its region).
+
+    ``crop_override`` (M48) is an **absolute** visible rect ``(x0, y0, x1, y1)`` in the page's
+    unrotated content coordinates (the frame word boxes / annotations live in — the source
+    CropBox frame, top-left origin), or ``None`` to inherit the source page's own CropBox. Like
+    the rotation override it rides the PageRef (follows reorder / copy, snapshots for undo) and
+    is applied at materialize via ``set_cropbox`` — the crop *hides* the rest of the page, it
+    does not remove content (Redact does that). A reset ("show the full MediaBox") is an
+    explicit override too, which may extend beyond the frame origin (negative coords) when the
+    source arrived pre-cropped.
     """
 
     source_id: str
     source_page_index: int
     rotation_override: int | None = None
     annotations: tuple = ()
+    crop_override: tuple | None = None
 
     def with_rotation(self, angle: int | None) -> "PageRef":
         if angle is not None:
@@ -97,6 +107,14 @@ class PageRef:
 
     def with_annotations(self, annotations: tuple) -> "PageRef":
         return replace(self, annotations=tuple(annotations))
+
+    def with_crop(self, rect: "tuple | None") -> "PageRef":
+        if rect is not None:
+            x0, y0, x1, y1 = (float(v) for v in rect)
+            if x1 <= x0 or y1 <= y0:
+                raise ValueError(f"crop rect must have positive area, got {rect}")
+            rect = (x0, y0, x1, y1)
+        return replace(self, crop_override=rect)
 
 
 class VirtualDocument:
@@ -339,6 +357,56 @@ class VirtualDocument:
             current = native if ref.rotation_override is None else ref.rotation_override
             self.ordered[i] = ref.with_rotation((current + delta) % 360)
         self.dirty = True
+
+    # ---- crop (M48; rides the PageRef like rotation, applied at materialise) ----
+
+    def page_base_rect(self, index: int) -> tuple:
+        """The page's full visible frame ``(0, 0, w, h)`` in unrotated content coordinates — the
+        space word boxes, annotations, and ``crop_override`` live in (the source CropBox frame)."""
+        ref = self.ordered[index]
+        cropbox = self.sources[ref.source_id][ref.source_page_index].cropbox
+        return (0.0, 0.0, float(cropbox.width), float(cropbox.height))
+
+    def set_crop(self, indices: Iterable[int], rect: "tuple | None") -> None:
+        """Set (or clear, with ``None``) the absolute crop on each page, clamped to that page's
+        frame. A page where the clamped rect has no area (the drag lies wholly off that page's
+        frame — possible when one rect is applied to differently-sized pages) is left unchanged."""
+        for i in indices:
+            clamped = rect
+            if rect is not None:
+                base = self.page_base_rect(i)
+                clamped = (max(rect[0], 0.0), max(rect[1], 0.0),
+                           min(rect[2], base[2]), min(rect[3], base[3]))
+                if clamped[2] <= clamped[0] or clamped[3] <= clamped[1]:
+                    continue
+            self.ordered[i] = self.ordered[i].with_crop(clamped)
+        self.dirty = True
+
+    def reset_crop(self, indices: Iterable[int]) -> None:
+        """Restore each page to its **full MediaBox** — undoes our override *and* un-hides a crop
+        the source arrived with (the MediaBox expressed in content coordinates reaches beyond the
+        frame origin for a pre-cropped source, hence the possibly-negative rect)."""
+        for i in indices:
+            ref = self.ordered[i]
+            page = self.sources[ref.source_id][ref.source_page_index]
+            cx, cy = page.cropbox_position
+            mediabox = page.mediabox
+            if cx or cy or page.cropbox.width != mediabox.width or page.cropbox.height != mediabox.height:
+                full = (-cx, -cy, mediabox.width - cx, mediabox.height - cy)
+            else:
+                full = None  # source is already full-page — clearing the override is the reset
+            self.ordered[i] = self.ordered[i].with_crop(full)
+        self.dirty = True
+
+    def page_is_cropped(self, index: int) -> bool:
+        """Whether the page has an explicit crop override or a source CropBox smaller than its
+        MediaBox — i.e. whether Remove Crop has anything to act on. (A reset override counts;
+        resetting again is harmlessly idempotent.)"""
+        ref = self.ordered[index]
+        if ref.crop_override is not None:
+            return True
+        page = self.sources[ref.source_id][ref.source_page_index]
+        return tuple(page.cropbox) != tuple(page.mediabox)
 
     # ---- form field values (document-level; applied at materialise) -------------
 

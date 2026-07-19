@@ -338,7 +338,7 @@ class ThumbnailPanel(QListWidget):
         # strips our baked marks and re-adds only what the model still holds (M31).
         has_edits = (
             bool(self._vdoc.form_values)
-            or any(r.annotations for r in self._vdoc.ordered)
+            or any(r.annotations or r.crop_override is not None for r in self._vdoc.ordered)
             or self._vdoc.has_baked_klarpdf_annotations()
         )
         if not has_edits:
@@ -370,8 +370,11 @@ class ThumbnailPanel(QListWidget):
         # neighbours. (The baked path above is already correct: render_output bakes /Rotate, so the
         # baked page.rect is the displayed size.)
         final_rot = page.rotation if ref.rotation_override is None else ref.rotation_override
-        mediabox = page.mediabox
-        displayed_w = mediabox.height if final_rot % 180 else mediabox.width
+        # CropBox, not MediaBox: it is what get_pixmap renders (equal for the normal page; a
+        # pre-cropped source otherwise gets scaled to the wrong width). A crop *override* never
+        # reaches this fast path — it counts as an edit, so those pages render from the bake.
+        cropbox = page.cropbox
+        displayed_w = cropbox.height if final_rot % 180 else cropbox.width
         zoom = _THUMB_MAX_W / max(1.0, displayed_w)
         try:
             pm = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
@@ -392,8 +395,12 @@ class ThumbnailPanel(QListWidget):
         ref = self._vdoc.ordered[index]
         page = self._vdoc.sources[ref.source_id][ref.source_page_index]
         final_rot = page.rotation if ref.rotation_override is None else ref.rotation_override
-        mb = page.mediabox
-        disp_w, disp_h = (mb.height, mb.width) if final_rot % 180 else (mb.width, mb.height)
+        if ref.crop_override is not None:  # placeholder matches the cropped page's shape (M48)
+            x0, y0, x1, y1 = ref.crop_override
+            w, h = x1 - x0, y1 - y0
+        else:
+            w, h = page.cropbox.width, page.cropbox.height
+        disp_w, disp_h = (h, w) if final_rot % 180 else (w, h)
         return _THUMB_MAX_W, max(1, round(_THUMB_MAX_W * disp_h / max(1.0, disp_w)))
 
     def _placeholder_icon(self, index: int) -> QIcon:

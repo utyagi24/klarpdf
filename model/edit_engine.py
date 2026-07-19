@@ -20,6 +20,19 @@ import pymupdf as fitz
 from model.virtual_document import VirtualDocument
 
 
+def _apply_crop(page: "fitz.Page", rect: tuple) -> None:
+    """Apply a ``PageRef.crop_override`` to an output page via ``set_cropbox`` (M48).
+
+    ``rect`` is in the page's unrotated **content** frame (origin = the current CropBox top-left,
+    the space word boxes live in); ``set_cropbox`` wants the unrotated **MediaBox** frame — shift
+    by the CropBox origin, then clamp to the MediaBox (a reset rect is exactly the MediaBox; a
+    dragged rect was already clamped by the model). Crop *hides* the area outside the rect — the
+    content stays in the file (Redact removes)."""
+    cx, cy = page.cropbox_position
+    target = fitz.Rect(rect[0] + cx, rect[1] + cy, rect[2] + cx, rect[3] + cy) & page.mediabox
+    page.set_cropbox(target)
+
+
 def _contiguous_runs(ordered) -> list[list]:
     """Collapse ``ordered`` into ``[source_id, from_page, to_page]`` runs of consecutive pages.
 
@@ -116,6 +129,8 @@ class PyMuPDFEngine(EditEngine):
             for i, ref in enumerate(vdoc.ordered):
                 if ref.rotation_override is not None:
                     out[i].set_rotation(ref.rotation_override)
+                if ref.crop_override is not None:
+                    _apply_crop(out[i], ref.crop_override)  # set_cropbox takes unrotated coords
                 strip_klarpdf_annotations(out[i])
                 if ref.annotations:
                     apply_redactions(out[i], ref.annotations)

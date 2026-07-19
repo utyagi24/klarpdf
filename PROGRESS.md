@@ -223,7 +223,14 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   asked — no dead chrome). Snippets are the hit's text line windowed ±4 words with ellipses; click
   a row → that hit becomes current and is revealed; the panel follows the query as typed, tracks
   next/prev, and empties with the overlay on a structural edit. — *WSLg*
-- [ ] **M48** Crop pages — `crop_override` on PageRef; page/selected/all scopes; "hidden, not removed" wording; reset offered — *WSL + WSLg*
+- [x] **M48** Crop pages — `crop_override` on PageRef; page/selected/all scopes; "hidden, not
+  removed" wording; reset offered. Rides the PageRef exactly like `rotation_override` (absolute
+  content-frame rect; snapshots for undo; follows reorder **and** cross-window copy/paste);
+  materialised via `set_cropbox`; live in the viewer (crop-aware geometry/overlay mapping + clip
+  render + baked thumbnails). Armed **Crop Pages** drag → scope prompt (This/Selected/All) with the
+  honesty wording; **Remove Crop** restores the full MediaBox — *including a crop the file arrived
+  with* (pre-cropped sources also now display by their CropBox, fixing their layout). Odd/even
+  book-scan crops stay deferred. — *WSL + WSLg*
 - [ ] **M49** Night reading mode (view-only pixmap invert) — *WSLg*
 - [ ] **M50** Verify + release → tag — *Windows*
 

@@ -34,11 +34,13 @@ from PySide6.QtWidgets import (
 
 from model.edit_commands import (
     AddAnnotationCommand,
+    CropPagesCommand,
     DeleteCommand,
     InsertCommand,
     MovePagesCommand,
     RemoveAnnotationCommand,
     ReplaceAnnotationCommand,
+    ResetCropCommand,
     RotatePagesCommand,
     SetFieldValueCommand,
 )
@@ -103,6 +105,7 @@ class MainWindow(QMainWindow):
         self.view.annotations.repaint()
         self.view.armedChanged.connect(self._on_armed_changed)
         self.view.applyTextTool.connect(self._apply_text_tool)
+        self.view.cropDragged.connect(self._on_crop_dragged)
         self.find_bar = FindBar(self.view)  # hidden until Ctrl+F
         # Doc-wide search hit list (M47): a band under the find bar, hidden until List All.
         self.search_results = SearchResultsPanel(self.view)
@@ -325,11 +328,16 @@ class MainWindow(QMainWindow):
         a_redact_text.setToolTip("Redact Text — drag over text to permanently remove it at save")
         a_redact_block = act("Redact Block", lambda: self._arm_tool(ArmedTool.REDACT_REGION), icon="redact", to_menu=view_menu)
         a_redact_block.setToolTip("Redact Block — drag a box to permanently remove its contents at save")
+        # Crop (M48): menu-only (no free toolbar slot needed for a one-shot); same armed pattern.
+        a_crop = act("Crop Pages", lambda: self._arm_tool(ArmedTool.CROP), to_menu=view_menu)
+        a_crop.setToolTip("Crop Pages — drag the area to keep; the rest is hidden, not removed")
+        act("Remove Crop", self._remove_crop, to_menu=view_menu)
         self._armed_actions = {
             ArmedTool.TEXTBOX: a_textbox,
             ArmedTool.HIGHLIGHT: a_highlight,
             ArmedTool.REDACT_TEXT: a_redact_text,
             ArmedTool.REDACT_REGION: a_redact_block,
+            ArmedTool.CROP: a_crop,
         }
         for a in self._armed_actions.values():
             a.setCheckable(True)
@@ -524,11 +532,12 @@ class MainWindow(QMainWindow):
                 ref = src.vdoc.ordered[i]
                 self.vdoc.register_source(ref.source_id, src.vdoc.sources[ref.source_id])
                 # Carry the page's unsaved per-page edits with it (annotations, redactions,
-                # rotation) — what's on the page travels to the destination. A carried redaction
-                # is the safe default: otherwise a redacted page could be dragged out and saved
-                # un-redacted (a leak). Form-field fills are document-level and stay behind.
+                # rotation, crop) — what's on the page travels to the destination. A carried
+                # redaction is the safe default: otherwise a redacted page could be dragged out and
+                # saved un-redacted (a leak). Form-field fills are document-level and stay behind.
                 refs.append(
-                    PageRef(ref.source_id, ref.source_page_index, ref.rotation_override, ref.annotations)
+                    PageRef(ref.source_id, ref.source_page_index, ref.rotation_override,
+                            ref.annotations, ref.crop_override)
                 )
         if refs:
             self.undo_stack.push(InsertCommand(self.vdoc, before_index, refs, text="Drag pages in"))
@@ -622,6 +631,52 @@ class MainWindow(QMainWindow):
             self.undo_stack.push(AddAnnotationCommand(self.vdoc, page_index, Redaction(tuple(rects))))
         self.undo_stack.endMacro()
 
+    def _on_crop_dragged(self, page_index: int, rect: tuple) -> None:
+        """An armed-CROP drag finished (M48): ask the scope, then crop as one undo step."""
+        indices = self._ask_crop_scope(page_index)
+        if indices:
+            self.undo_stack.push(CropPagesCommand(self.vdoc, indices, rect))
+
+    def _ask_crop_scope(self, page_index: int) -> list[int]:
+        """Which pages the dragged crop applies to — this page / the sidebar selection / all —
+        with the honesty wording (crop hides; Redact removes). Returns ``[]`` on cancel. A
+        separate seam so tests drive the choice without the modal."""
+        selection = self.thumbs.selected_rows()
+        others = [r for r in selection if r != page_index]
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle("Crop pages")
+        box.setText(
+            "Crop to the dragged area?\n\nEverything outside it is hidden, not removed — use "
+            "Redact to remove content permanently. Remove Crop restores the full page any time."
+        )
+        this_btn = box.addButton("This Page", QMessageBox.ButtonRole.AcceptRole)
+        sel_btn = (
+            box.addButton(f"Selected Pages ({len(others) + 1})", QMessageBox.ButtonRole.AcceptRole)
+            if others
+            else None
+        )
+        all_btn = box.addButton("All Pages", QMessageBox.ButtonRole.AcceptRole)
+        box.addButton(QMessageBox.StandardButton.Cancel)
+        box.setDefaultButton(this_btn)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is this_btn:
+            return [page_index]
+        if sel_btn is not None and clicked is sel_btn:
+            return sorted({page_index, *selection})
+        if clicked is all_btn:
+            return list(range(self.vdoc.page_count))
+        return []
+
+    def _remove_crop(self) -> None:
+        """View ▸ Remove Crop: restore the selected pages — or the current page — to the full
+        MediaBox (also un-hides a crop the file arrived with). No-op on uncropped pages."""
+        rows = self.thumbs.selected_rows() or [self.view.current_page]
+        rows = [r for r in rows if 0 <= r < self.vdoc.page_count and self.vdoc.page_is_cropped(r)]
+        if rows:
+            self.undo_stack.push(ResetCropCommand(self.vdoc, rows))
+
     def _delete_rows(self, rows) -> None:
         if rows:
             self.undo_stack.push(DeleteCommand(self.vdoc, rows))
@@ -631,10 +686,11 @@ class MainWindow(QMainWindow):
         clipboard = []
         for i in rows:
             ref = self.vdoc.ordered[i]
-            # Carry the page's per-page edits (rotation + annotations/redactions) on the clipboard
-            # so a paste into another document keeps what's on the page.
+            # Carry the page's per-page edits (rotation + annotations/redactions + crop) on the
+            # clipboard so a paste into another document keeps what's on the page.
             clipboard.append((ref.source_id, self.vdoc.sources[ref.source_id],
-                              ref.source_page_index, ref.rotation_override, ref.annotations))
+                              ref.source_page_index, ref.rotation_override, ref.annotations,
+                              ref.crop_override))
         if clipboard:
             self._app.page_clipboard = clipboard
 
@@ -651,9 +707,9 @@ class MainWindow(QMainWindow):
             return
         before = self._insertion_index() if before_index is None else before_index
         refs = []
-        for source_id, doc, page_index, rotation, annotations in payloads:
+        for source_id, doc, page_index, rotation, annotations, crop in payloads:
             self.vdoc.register_source(source_id, doc)
-            refs.append(PageRef(source_id, page_index, rotation, annotations))
+            refs.append(PageRef(source_id, page_index, rotation, annotations, crop))
         self.undo_stack.push(InsertCommand(self.vdoc, before, refs, text="Paste pages"))
 
     def _insert_from_file(self) -> None:
