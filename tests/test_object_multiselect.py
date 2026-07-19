@@ -195,6 +195,40 @@ def test_selected_object_is_none_for_a_group(win):
     assert len(ov.selected_objects) == 2
 
 
+# ---- precise hit-testing: a mark inside a pen loop stays reachable ----------
+
+
+def _loop_around_a_box(win):
+    """A rectangle + a diagonal line, then a closed pen loop drawn around the rectangle. The loop
+    is added last, so it is topmost — the exact case where bounding-box hit-testing made it swallow
+    every click inside it."""
+    win.vdoc.add_annotation(0, Shape("rect", (100.0, 100.0, 160.0, 140.0)))
+    win.vdoc.add_annotation(0, Line((300.0, 300.0), (400.0, 400.0)))
+    loop = InkStroke((((40.0, 40.0), (240.0, 40.0), (240.0, 220.0), (40.0, 220.0), (40.0, 40.0)),))
+    win.vdoc.add_annotation(0, loop)
+    win.view.reload()
+
+
+def test_click_inside_the_loop_reaches_the_inner_box(win):
+    _loop_around_a_box(win)
+    hit = win.view.annotations.drawn_mark_at(_scene(win, 130, 120))   # rect centre, loop interior
+    assert hit is not None and isinstance(hit[1], Shape)              # the box, not the pen loop
+
+
+def test_click_on_the_loop_stroke_selects_the_loop(win):
+    _loop_around_a_box(win)
+    hit = win.view.annotations.drawn_mark_at(_scene(win, 40, 130))    # on the loop's left edge
+    assert hit is not None and isinstance(hit[1], InkStroke)
+
+
+def test_click_in_a_lines_box_but_off_the_segment_misses_it(win):
+    _loop_around_a_box(win)
+    # Inside the diagonal line's bounding box but far from the segment → no longer a false hit.
+    assert win.view.annotations.drawn_mark_at(_scene(win, 305, 395)) is None
+    hit = win.view.annotations.drawn_mark_at(_scene(win, 350, 350))   # on the segment
+    assert hit is not None and isinstance(hit[1], Line)
+
+
 def test_objects_mode_action_switches_mode(win):
     win._a_objects.trigger()
     assert win.view._mode is InteractionMode.OBJECT

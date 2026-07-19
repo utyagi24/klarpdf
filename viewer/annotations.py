@@ -71,6 +71,21 @@ _HIT_PAD = 3.0                    # grab slack around thin drawn marks (page poi
 _DRAWN_TYPES = (InkStroke, Line, Shape)
 
 
+def _dist_point_segment(px: float, py: float, ax: float, ay: float,
+                        bx: float, by: float) -> float:
+    """Shortest distance from point ``(px, py)`` to the segment ``(ax, ay)``–``(bx, by)`` (page
+    points). The building block for hitting a *thin* mark by its actual geometry rather than its
+    bounding box — so a pen loop or a diagonal line is grabbed only near the drawn line, not
+    anywhere inside its (possibly huge) box."""
+    dx, dy = bx - ax, by - ay
+    seg_len2 = dx * dx + dy * dy
+    if seg_len2 <= 1e-9:            # degenerate segment (a point)
+        return math.hypot(px - ax, py - ay)
+    t = ((px - ax) * dx + (py - ay) * dy) / seg_len2
+    t = max(0.0, min(1.0, t))      # clamp to the segment (nearest point is an endpoint past the ends)
+    return math.hypot(px - (ax + t * dx), py - (ay + t * dy))
+
+
 def _line_path(start: tuple, end: tuple, arrow_start: bool, arrow_end: bool,
                width: float) -> QPainterPath:
     """A line's painter path in page points, with open-arrow heads where flagged — the same
@@ -317,19 +332,17 @@ class AnnotationOverlay:
         """The ``(page_index, annotation)`` whose painted area contains ``scene_pt``, else None.
         Topmost (most recently added) wins. Uses the rotation-aware scene mapping, so it works on
         rotated pages too."""
-        page_index, _ = self._view.page_and_local_at(scene_pt)
+        page_index, local = self._view.page_and_local_at(scene_pt)
         if page_index is None:
             return None
         for annot in reversed(self._view._vdoc.ordered[page_index].annotations):
-            if hasattr(annot, "rects"):
-                boxes = annot.rects
-            elif isinstance(annot, _DRAWN_TYPES):
-                # Drawn marks hit-test on a padded bounding rect — a thin or perfectly
-                # horizontal/vertical line has a (near-)degenerate box that nothing could click.
-                x0, y0, x1, y1 = annot.bounding_rect()
-                boxes = ((x0 - _HIT_PAD, y0 - _HIT_PAD, x1 + _HIT_PAD, y1 + _HIT_PAD),)
-            else:
-                boxes = (annot.rect,)
+            # A pen stroke / line is hit by its actual geometry (not its box), so a loop drawn
+            # around other marks no longer swallows every click inside it (M59.6 follow-up).
+            if isinstance(annot, _DRAWN_TYPES):
+                if self._drawn_hit(annot, local.x(), local.y()):
+                    return page_index, annot
+                continue
+            boxes = annot.rects if hasattr(annot, "rects") else (annot.rect,)
             for box in boxes:
                 if self._view.scene_rect_for_box(page_index, box).contains(scene_pt):
                     return page_index, annot
@@ -640,19 +653,43 @@ class AnnotationOverlay:
         return bool(self._move_items)
 
     def drawn_mark_at(self, scene_pt):
-        """The ``(page_index, drawn mark)`` under ``scene_pt`` (topmost; padded bounding-rect hit
-        like :meth:`annotation_at`), else None — the M58 move/delete hit test."""
-        page_index, _ = self._view.page_and_local_at(scene_pt)
+        """The ``(page_index, drawn mark)`` under ``scene_pt`` (topmost), else None — the
+        move/select hit test. Pen strokes and lines hit by their **actual geometry** (proximity to
+        the drawn line); shapes by their (padded) box, so a filled or hollow box stays clickable in
+        its interior. This is what lets you reach a mark tucked inside a pen loop."""
+        page_index, local = self._view.page_and_local_at(scene_pt)
         if page_index is None:
             return None
         for annot in reversed(self._view._vdoc.ordered[page_index].annotations):
-            if not isinstance(annot, _DRAWN_TYPES):
-                continue
-            x0, y0, x1, y1 = annot.bounding_rect()
-            box = (x0 - _HIT_PAD, y0 - _HIT_PAD, x1 + _HIT_PAD, y1 + _HIT_PAD)
-            if self._view.scene_rect_for_box(page_index, box).contains(scene_pt):
+            if isinstance(annot, _DRAWN_TYPES) and self._drawn_hit(annot, local.x(), local.y()):
                 return page_index, annot
         return None
+
+    def _hit_tol(self, mark) -> float:
+        """Click tolerance in page points for a thin mark: half the stroke width plus a fixed
+        on-screen slack (converted to page points via the zoom), so the grab band feels the same
+        ~6 px at any zoom and a thicker stroke is correspondingly easier to hit."""
+        return getattr(mark, "width", 2.0) / 2.0 + 6.0 / max(self._view.zoom, 0.05)
+
+    def _drawn_hit(self, mark, lx: float, ly: float) -> bool:
+        """Whether the unrotated page point ``(lx, ly)`` hits ``mark``. Pen/line → near the drawn
+        line; shape → inside its padded bounding box (interior stays clickable)."""
+        if isinstance(mark, Line):
+            return _dist_point_segment(lx, ly, mark.start[0], mark.start[1],
+                                       mark.end[0], mark.end[1]) <= self._hit_tol(mark)
+        if isinstance(mark, InkStroke):
+            tol = self._hit_tol(mark)
+            for path in mark.paths:
+                if len(path) == 1:                      # a lone dot
+                    if math.hypot(lx - path[0][0], ly - path[0][1]) <= tol:
+                        return True
+                for i in range(len(path) - 1):
+                    if _dist_point_segment(lx, ly, path[i][0], path[i][1],
+                                           path[i + 1][0], path[i + 1][1]) <= tol:
+                        return True
+            return False
+        x0, y0, x1, y1 = mark.bounding_rect()           # Shape: padded box (interior clickable)
+        return (x0 - _HIT_PAD <= lx <= x1 + _HIT_PAD) and (y0 - _HIT_PAD <= ly <= y1 + _HIT_PAD)
 
     # ---- object selection (M59 single → M59.6 group) ----------------------------
     #

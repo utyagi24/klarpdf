@@ -292,6 +292,7 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
 - [x] **M59.5** Markup colour · width · fill — shared sticky `MarkupStyle` + toolbar swatch button for underline/strikeout + pen & shapes — *Windows (headless + offscreen GUI)* — [#134](https://github.com/utyagi24/klarpdf/pull/134)
 - [x] **M59.6** Multi-object selection — Objects mode: marquee + Ctrl-click; group restyle / move / delete (one undo each) — *Windows (offscreen GUI)* — [#135](https://github.com/utyagi24/klarpdf/pull/135)
 - [ ] **M59.7** Object resize — selection handles; single + group bounding-box resize (reusable placement component) — *Windows*
+- [ ] **M59.8** Object z-order — Bring to Front / Send to Back for a mark or group (paint + hit order) — *Windows*
 - [ ] **M60** Verify + release → tag — *Windows*
 
 **R4 — "Stamp, Sign & Watermark"**
