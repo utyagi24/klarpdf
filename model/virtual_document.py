@@ -133,6 +133,14 @@ class VirtualDocument:
         # save (merged-in sources contribute no outline, matching insert_pdf's behaviour).
         self.origin_source_id: str | None = None
         self._origin_toc: list = []
+        # Document metadata (M53): the origin's two stores as read (Info dict + raw XMP packet),
+        # and the user's override — None = untouched (carry the origin's through at materialise),
+        # a dict = edited values (both stores rewritten consistently), {} = removed (both stores
+        # cleared). Like _form_values it is document-level and part of the snapshot, so metadata
+        # edits ride undo/redo. Merged-in sources contribute no metadata, matching the outline.
+        self._origin_info: dict = {}
+        self._origin_xmp: str = ""
+        self._metadata_override: dict | None = None
         # Cache: does a registered source carry baked KlarPDF annotations? Keyed by source id;
         # source bytes are immutable, so this never changes for a given source (cleared only when
         # sources are reset in reload_from_file). Lets the viewer / thumbnails keep the fast
@@ -158,9 +166,19 @@ class VirtualDocument:
         vd.origin_source_id = source_id
         vd.path = path
         vd._origin_toc = vd.sources[source_id].get_toc(simple=False)
+        vd._capture_origin_metadata(source_id)
         vd.ordered = vd._seed_ordered(source_id)
         vd.dirty = False
         return vd
+
+    def _capture_origin_metadata(self, source_id: str) -> None:
+        """Read the origin's two metadata stores (M53) so materialise can carry them through —
+        ``insert_pdf`` copies neither the Info dict nor the XMP packet."""
+        from model.metadata import read_info
+
+        src = self.sources[source_id]
+        self._origin_info = read_info(src)
+        self._origin_xmp = src.get_xml_metadata() or ""
 
     def _seed_ordered(self, source_id: str) -> list[PageRef]:
         """Build the initial page list for a freshly-opened origin source, seeding each page with
@@ -308,6 +326,11 @@ class VirtualDocument:
         sub.origin_source_id = self.origin_source_id
         sub._origin_toc = self._origin_toc
         sub._form_values = dict(self._form_values)
+        # The document-level metadata state rides along too (M53): the extract carries the
+        # origin's stores — or the user's pending edit/removal — like a Save would.
+        sub._origin_info = dict(self._origin_info)
+        sub._origin_xmp = self._origin_xmp
+        sub._metadata_override = self.metadata_override
         return sub
 
     def page_visible_size(self, index: int) -> tuple:
@@ -334,12 +357,19 @@ class VirtualDocument:
     # ---- snapshot / restore (used by edit_commands for undo/redo) ---------------
 
     def snapshot(self) -> State:
-        return (tuple(self.ordered), dict(self._form_values), self.dirty)
+        override = self._metadata_override
+        return (
+            tuple(self.ordered),
+            dict(self._form_values),
+            None if override is None else dict(override),
+            self.dirty,
+        )
 
     def restore(self, state: State) -> None:
-        ordered, form_values, dirty = state
+        ordered, form_values, metadata_override, dirty = state
         self.ordered = list(ordered)
         self._form_values = dict(form_values)
+        self._metadata_override = None if metadata_override is None else dict(metadata_override)
         self.dirty = dirty
 
     # ---- list edits (each marks the document dirty) -----------------------------
@@ -457,6 +487,40 @@ class VirtualDocument:
         page = self.sources[ref.source_id][ref.source_page_index]
         return tuple(page.cropbox) != tuple(page.mediabox)
 
+    # ---- document metadata (M53; document-level, applied at materialise) --------
+
+    @property
+    def origin_metadata(self) -> dict:
+        """The origin file's Info-dict fields as read (what an untouched save carries through)."""
+        return dict(self._origin_info)
+
+    @property
+    def origin_xmp(self) -> str:
+        """The origin file's raw XMP packet as read (``""`` when it has none)."""
+        return self._origin_xmp
+
+    @property
+    def metadata_override(self) -> "dict | None":
+        """The user's metadata verb: ``None`` untouched, a dict = edited, ``{}`` = removed."""
+        override = self._metadata_override
+        return None if override is None else dict(override)
+
+    def effective_metadata(self) -> dict:
+        """What the Properties dialog shows and a Save writes — the override when one is set,
+        else the origin's fields."""
+        if self._metadata_override is not None:
+            return dict(self._metadata_override)
+        return dict(self._origin_info)
+
+    def set_metadata_override(self, values: "dict | None") -> None:
+        """Set the metadata verb: a dict of Info fields (edit), ``{}`` (remove all — both stores
+        cleared at materialise), or ``None`` (revert to the origin's)."""
+        self._metadata_override = None if values is None else dict(values)
+        self.dirty = True
+
+    def metadata_is_removed(self) -> bool:
+        return self._metadata_override == {}
+
     # ---- form field values (document-level; applied at materialise) -------------
 
     @property
@@ -554,6 +618,8 @@ class VirtualDocument:
         self.origin_source_id = source_id
         self.path = path
         self._origin_toc = self.sources[source_id].get_toc(simple=False)
+        self._capture_origin_metadata(source_id)  # the saved file's stores are the new baseline
+        self._metadata_override = None
         self.ordered = self._seed_ordered(source_id)  # re-read our annotations from the clean file
         self._form_values = {}
         self.dirty = False

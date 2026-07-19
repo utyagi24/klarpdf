@@ -149,6 +149,13 @@ class PyMuPDFEngine(EditEngine):
 
             remap_internal_links(out, vdoc)
             out.set_toc(vdoc.remapped_toc())
+
+            # Document metadata (M53): carry the origin's Info dict + XMP packet through (or the
+            # user's edit / removal) — insert_pdf copies neither store, so without this every
+            # save silently stripped them.
+            from model.metadata import apply_metadata
+
+            apply_metadata(out, vdoc)
         except Exception:
             out.close()
             raise

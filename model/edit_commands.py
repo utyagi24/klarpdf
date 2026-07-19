@@ -147,6 +147,20 @@ class ResetCropCommand(_SnapshotCommand):
         self._vdoc.reset_crop(self._indices)
 
 
+class SetMetadataCommand(_SnapshotCommand):
+    """Edit or remove the document metadata (M53). ``override`` is a dict of Info fields (edit),
+    ``{}`` (remove all — both stores cleared at materialise), or ``None`` (revert to the
+    origin's). Snapshot-based, so undo restores the prior state exactly."""
+
+    def __init__(self, vdoc: VirtualDocument, override: "dict | None") -> None:
+        label = "Remove document metadata" if override == {} else "Edit document properties"
+        super().__init__(vdoc, label)
+        self._override = override
+
+    def _apply(self) -> None:
+        self._vdoc.set_metadata_override(self._override)
+
+
 class SetFieldValueCommand(_SnapshotCommand):
     """Fill an AcroForm field (M14). Snapshot-based, so undo/redo restores the prior value."""
 
