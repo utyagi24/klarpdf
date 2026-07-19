@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMenu,
     QMessageBox,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -116,16 +117,17 @@ class MainWindow(QMainWindow):
 
         self.thumbs = ThumbnailPanel(self.vdoc)
         self.thumbs.source_key = normalize_path(path)  # identity for cross-window drag/drop
+        self.outline = None  # OutlinePanel — exists only while the document has an outline (M45)
         self.pages_dock = QDockWidget("Pages", self)
-        self.pages_dock.setWidget(self.thumbs)
-        # Closable (hide/show via View ▸ Pages Sidebar) but NOT floatable or movable — it must stay
+        # Closable (hide/show via View ▸ Sidebar) but NOT floatable or movable — it must stay
         # docked, never tear off into a separate window the user can lose (the inherited M2 bug).
         self.pages_dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetClosable)
         self.pages_dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.pages_dock)
+        self._mount_sidebar()
         # Hidden by default (a clean, fast, flicker-free open — no thumbnails rendered until the
         # sidebar is shown); the choice is remembered app-wide, so once you open it to organise pages
-        # it stays open on the next launch. Toggle via View ▸ Pages Sidebar.
+        # it stays open on the next launch. Toggle via View ▸ Sidebar.
         self.pages_dock.setVisible(bool(self._settings.get_pref("sidebar_visible", False)))
 
         self.view.currentPageChanged.connect(self.thumbs.set_current)
@@ -151,6 +153,48 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"{os.path.basename(path)} — KlarPDF[*]")
         self.setWindowIcon(icons.app_icon())
         self._place_window()  # final size + position *before* show() → no post-show resize jump
+
+    # ---- sidebar (Pages + optional Outline, M45) --------------------------------
+
+    def _mount_sidebar(self) -> None:
+        """(Re)build the dock's contents for the current document: a Pages | Outline tab switcher
+        when the document has an outline, else the bare Pages panel — no tab and no tab bar
+        (owner rule: a TOC-less document keeps the plain pre-M45 sidebar; inapplicable chrome is
+        invisible, not greyed out). Re-run by ``_reset_to_file`` (Revert / redaction commit /
+        external reload), where the freshly-read file may have gained or lost its outline."""
+        if self.outline is not None:
+            self.view.currentPageChanged.disconnect(self.outline.set_current)
+            self.outline = None
+        old = self.pages_dock.widget()  # None at construction
+        if self.vdoc.has_outline():
+            from organize.outline_panel import OutlinePanel  # lazy — TOC-less docs never pay it
+
+            self.outline = OutlinePanel(self.vdoc)
+            self.outline.entryActivated.connect(self.view.goto_page)
+            self.view.currentPageChanged.connect(self.outline.set_current)
+            self.outline.set_current(self.view.current_page)
+            tabs = QTabWidget()
+            tabs.setDocumentMode(True)  # flat sidebar-style tab bar, no page frame
+            tabs.addTab(self.thumbs, "Pages")  # reparents thumbs out of any retired container
+            tabs.addTab(self.outline, "Outline")
+            # The dock's resize bounds come from its content widget, and a QTabWidget does not
+            # inherit its children's constraints — without this the sidebar becomes freely
+            # resizable the moment the switcher mounts (dead space beside the capped thumbnails).
+            # Mirror the Pages panel's bounds: one surface, one set of limits, either document kind.
+            tabs.setMinimumWidth(self.thumbs.minimumWidth())
+            tabs.setMaximumWidth(self.thumbs.maximumWidth())
+            if isinstance(old, QTabWidget):
+                tabs.setCurrentIndex(old.currentIndex())  # a reload keeps the active tab
+            self.pages_dock.setWindowTitle("Sidebar")  # the tab labels carry the specifics
+            self.pages_dock.setWidget(tabs)
+        else:
+            self.pages_dock.setWindowTitle("Pages")
+            self.pages_dock.setWidget(self.thumbs)
+        # QDockWidget.setWidget does not show a widget added while the dock is visible (Qt docs) —
+        # relevant on a re-mount; at construction the dock isn't visible yet and this is a no-op.
+        self.pages_dock.widget().show()
+        if old is not None and old is not self.pages_dock.widget() and old is not self.thumbs:
+            old.deleteLater()  # retired tab container (thumbs was already reparented out of it)
 
     # ---- actions / menus --------------------------------------------------------
 
@@ -245,6 +289,10 @@ class MainWindow(QMainWindow):
         a_fitw = act("Fit Width", self.view.fit_width, "Ctrl+1", icon="fit-width", to_menu=view_menu)
         a_fitp = act("Fit Page", self.view.fit_page, "Ctrl+2", icon="fit-page", to_menu=view_menu)
         view_menu.addSeparator()
+        # Jump to an absolute page (M45). Menu + dialog only — one-shot commands stay off the
+        # toolbar (PLAN.md §GUI feature roadmap, UI budget).
+        act("Go to &Page…", self._goto_page_dialog, "Ctrl+G", to_menu=view_menu)
+        view_menu.addSeparator()
         # Rotate the current/selected page(s) only — a real per-page edit (undoable, saved),
         # not a whole-view spin. PdfView.rotate_view still exists for view-only rotation.
         a_rotl = act("Rotate Left", lambda: self._rotate_pages(-90), "Ctrl+L", icon="rotate-left", to_menu=view_menu)
@@ -283,12 +331,14 @@ class MainWindow(QMainWindow):
         for a in self._armed_actions.values():
             a.setCheckable(True)
         view_menu.addSeparator()
-        # Checkable show/hide for the Pages sidebar — menu item + a dedicated toolbar button (its
+        # Checkable show/hide for the sidebar — menu item + a dedicated toolbar button (its
         # checked state mirrors the panel's visibility, with the :checked toolbar styling).
+        # "Sidebar", not "Pages Sidebar": since M45 the dock can also hold the Outline tab, and one
+        # stable label that is right for both document kinds beats a per-document rename.
         pages_toggle = self.pages_dock.toggleViewAction()
-        pages_toggle.setText("&Pages Sidebar")
+        pages_toggle.setText("&Sidebar")
         pages_toggle.setIcon(icons.icon("sidebar"))
-        pages_toggle.setToolTip("Show/Hide the Pages sidebar")
+        pages_toggle.setToolTip("Show/Hide the sidebar")
         pages_toggle.setProperty("iconName", "sidebar")  # re-tinted on theme change
         # Remember the user's show/hide choice app-wide (triggered fires only on an explicit toggle,
         # not the programmatic setVisible above), so it persists to the next launch / new windows.
@@ -415,6 +465,15 @@ class MainWindow(QMainWindow):
     def _show_find(self) -> None:
         self.find_bar.show_bar()
 
+    def _goto_page_dialog(self) -> None:
+        """View ▸ Go to Page… (Ctrl+G, M45): jump straight to an absolute page number."""
+        count = self.vdoc.page_count
+        page, ok = QInputDialog.getInt(
+            self, "Go to Page", f"Page (1–{count}):", self.view.current_page + 1, 1, count, 1
+        )
+        if ok:
+            self.view.goto_page(page - 1)
+
     # ---- page edits (all via the undo stack) ------------------------------------
 
     def _on_doc_changed(self, _index: int) -> None:
@@ -423,6 +482,8 @@ class MainWindow(QMainWindow):
         self.view.search.clear()
         self.view.reload()
         self.thumbs.populate()
+        if self.outline is not None:
+            self.outline.populate()  # live remapped_toc: the tree shows what a Save would write
 
     def _on_clean_changed(self, clean: bool) -> None:
         self.setWindowModified(not clean)
@@ -800,10 +861,15 @@ class MainWindow(QMainWindow):
         output) and Revert (reload from the on-disk original); afterwards the document is clean."""
         self.vdoc.reload_from_file(path)
         self.undo_stack.clear()        # empties history; an empty stack is clean → title * clears
+        # After a reload-in-place, memory matches disk by definition — resync the watcher here, in
+        # the one shared place. Revert previously skipped this: reverting while the file had also
+        # changed on disk loaded the current bytes yet kept nagging "changed on disk".
+        self._watcher.record_current()
         self.view.selection.clear()
         self.view.search.clear()
         self.view.reload()
         self.thumbs.populate()
+        self._mount_sidebar()  # the freshly-read file may have gained or lost its outline
 
     def revert(self) -> None:
         """Discard all in-memory edits and reload the document from its on-disk file (M23).
@@ -832,9 +898,12 @@ class MainWindow(QMainWindow):
     # ---- external on-disk change (M24) ------------------------------------------
 
     def _check_external_change(self) -> None:
-        """Watcher signal / window-activation entry point. Prompt only while we are the active
-        window — a change noticed in the background waits until the user returns to this window."""
-        if self.isActiveWindow():
+        """Watcher signal / window-activation entry point. Prompt only while we are the visible,
+        active window — a change noticed in the background waits until the user returns to this
+        window. The visibility check matters: ``close()`` hides a window without destroying it, and
+        a lingering closed window must never raise this prompt (nobody can "return" to it — and
+        offscreen, a stray activation event on one turned the modal into a test-suite deadlock)."""
+        if self.isVisible() and self.isActiveWindow():
             self._prompt_external_change()
 
     def _prompt_external_change(self) -> None:
@@ -857,8 +926,7 @@ class MainWindow(QMainWindow):
             )
             self._watcher.record_current()  # acknowledge the removal so we stop nagging
             return
-        self._reset_to_file(self.path)
-        self._watcher.record_current()
+        self._reset_to_file(self.path)  # resyncs the watcher too
 
     def _confirm_external_reload(self) -> bool:
         """Reload from disk (True) vs Keep my version (False) when the file changed under us."""
