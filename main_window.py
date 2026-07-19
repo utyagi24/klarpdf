@@ -545,12 +545,22 @@ class MainWindow(QMainWindow):
         self.undo_stack.push(SetFieldValueCommand(self.vdoc, name, value))
 
     def _arm_tool(self, tool: ArmedTool) -> None:
-        """Toolbar: arm a one-shot annotate/redact tool, or disarm it if already armed (toggle)."""
+        """Toolbar: arm a one-shot annotate/redact tool, or disarm it if already armed (toggle).
+
+        A drag-over-text tool clicked while a text selection is **live** applies to that selection
+        immediately instead of arming (Preview-style, and identical to the context menu's
+        Highlight/Redact Selection) — otherwise "select, then click Highlight" would leave the
+        selection untouched and silently wait for a second drag, while the context menu acted at
+        once (owner call on the M46 review). With no selection the arm-then-drag flow is unchanged.
+        """
         if self.view.armed is tool:
             self.view.disarm()
-        else:
-            self.view.arm(tool)
-            self._a_select.setChecked(True)  # arming forces the SELECT base mode
+            return
+        if tool.drags_text and self.view.selection is not None and self.view.selection.selected_words():
+            self._apply_text_tool(tool)  # clears the selection as it applies — one undo step
+            return
+        self.view.arm(tool)
+        self._a_select.setChecked(True)  # arming forces the SELECT base mode
 
     def _on_armed_changed(self, tool) -> None:
         """Light the matching tool button while it's armed (None → all off)."""
