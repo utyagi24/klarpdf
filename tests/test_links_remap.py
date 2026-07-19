@@ -4,7 +4,9 @@ insert_pdf drops internal **GoTo** links whose target isn't in the contiguous ru
 drops **named-destination** links entirely (the /Dests name tree isn't rebuilt) — so our
 reorder/delete materialize loses them. We rebuild both from the source against the new page order
 (repoint survivors, drop links to deleted pages, baking a named dest to a direct GoTo), like the
-outline remap. URI links pass through.
+outline remap. URI links pass through — except one whose text PyMuPDF's unescaped re-serialisation
+chokes on (an unbalanced paren, seen in the wild), which insert_pdf silently drops and the remap
+pass restores with proper escaping.
 """
 
 from __future__ import annotations
@@ -183,3 +185,74 @@ def test_no_links_document_materializes_clean(tmp_path):
         assert result[0].get_links() == []
     finally:
         result.close()
+
+
+# ---- URI links insert_pdf drops (unescaped re-serialisation) --------------------
+
+_PAREN_URI = "http://www.adobe.com)"  # the in-the-wild shape (novaPDF): unbalanced closing paren
+
+
+def _pdf_escape(text: str) -> str:
+    return text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+
+
+@pytest.fixture
+def paren_uri_pdf(tmp_path) -> str:
+    """2 pages; page 0 carries a paren-poisoned URI link first (like the reporting file), then two
+    well-formed ones. Built via insert_link with pre-escaped text — the only way PyMuPDF writes
+    the poisoned link at all — which produces exactly the valid file the original producer wrote."""
+    path = str(tmp_path / "paren.pdf")
+    doc = fitz.open()
+    for i in range(2):
+        doc.new_page().insert_text((72, 72), f"PAGE {i}", fontsize=14)
+    for j, uri in enumerate([_PAREN_URI, "http://x.com/(balanced)", "https://plain.example"]):
+        doc[0].insert_link({"kind": fitz.LINK_URI, "from": fitz.Rect(72, 100 + 30 * j, 200, 120 + 30 * j),
+                            "uri": _pdf_escape(uri)})
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def _uris(path, page_index) -> list[str]:
+    doc = fitz.open(path)
+    try:
+        return sorted(l["uri"] for l in doc[page_index].get_links() if l["kind"] == fitz.LINK_URI)
+    finally:
+        doc.close()
+
+
+def test_paren_uri_link_survives_save(paren_uri_pdf, tmp_path):
+    """insert_pdf silently drops the unbalanced-paren URI ("skipping bad link / annot item 0");
+    the restore pass re-adds it, so a save loses no link."""
+    assert _uris(paren_uri_pdf, 0) == sorted([_PAREN_URI, "http://x.com/(balanced)",
+                                              "https://plain.example"])  # fixture is faithful
+    out = _materialize(VirtualDocument.from_path(paren_uri_pdf), tmp_path)
+    assert _uris(out, 0) == _uris(paren_uri_pdf, 0)
+
+
+def test_paren_uri_link_follows_a_reorder(paren_uri_pdf, tmp_path):
+    v = VirtualDocument.from_path(paren_uri_pdf)
+    v.ordered = list(reversed(v.ordered))  # the linked page moves to index 1
+    out = _materialize(v, tmp_path)
+    assert _PAREN_URI in _uris(out, 1)
+    assert _uris(out, 0) == []
+
+
+def test_well_formed_uri_links_are_not_duplicated(linked_pdf, tmp_path):
+    """A URI link insert_pdf carries fine must appear exactly once — the restore pass only adds
+    what went missing."""
+    out = _materialize(VirtualDocument.from_path(linked_pdf), tmp_path)
+    assert _uris(out, 0) == ["https://example.com"]
+
+
+def test_pdf_string_escape_round_trips_through_a_written_file(tmp_path):
+    from model.links_remap import _pdf_string_escape
+
+    nasty = r"http://e.x/a)b(c\d"  # unbalanced paren + a literal backslash
+    doc = fitz.open()
+    doc.new_page().insert_link({"kind": fitz.LINK_URI, "from": fitz.Rect(72, 100, 200, 120),
+                                "uri": _pdf_string_escape(nasty)})
+    path = str(tmp_path / "esc.pdf")
+    doc.save(path)
+    doc.close()
+    assert _uris(path, 0) == [nasty]  # the escape is undone by PDF string decoding
