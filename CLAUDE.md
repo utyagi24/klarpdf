@@ -66,9 +66,10 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   spare machine / a fresh local user with networking disabled.
 
 ## Status
-**Current: v0.10.1 shipped** (Windows shell-integration patch on v0.10.0 "KlarPDF" — the rebrand +
-AGPL open-source release) — the planned roadmap
-**M0–M38 is complete**. For live status — shipped
-versions, per-release notes, release links, milestone ticks, and **Open follow-ups** — see
-`PROGRESS.md` (the single source of status; read it first). Design/spec, including §Future
-enhancements for what's next, lives in `PLAN.md`.
+**Current: v0.12.0 "Navigate & Polish" shipped** — the GUI tranche's **R1 (M45–M50)**: outline
+sidebar + Go to Page, context menus, search-all results, crop, night mode, the Tools menu.
+**M0–M38 and R1 are complete**; v0.11.0 stays reserved for the MCP / Agent Bridge (M39–M44), and
+the tranche continues at **M51 (R2)**. For live status — shipped versions, per-release notes,
+release links, milestone ticks, and **Open follow-ups** — see `PROGRESS.md` (the single source of
+status; read it first). Design/spec, including §Future enhancements for what's next, lives in
+`PLAN.md`.
