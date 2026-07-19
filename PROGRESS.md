@@ -271,7 +271,7 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
 
 **R2 — "Document Hygiene"**
 
-- [ ] **M51** Extract selected pages → PDF + Insert blank / duplicate page — *WSL + WSLg*
+- [x] **M51** Extract selected pages → PDF + Insert blank / duplicate page — *Windows (headless + offscreen GUI)* — [#125](https://github.com/utyagi24/klarpdf/pull/125)
 - [ ] **M52** Reduce file size — Export ▸ Reduced Size PDF…; true-value presets + custom dpi/quality knobs; actual before→after — *WSL + WSLg*
 - [ ] **M53** Properties + metadata (view · edit · remove; Info dict **and** XMP both) — *WSL + WSLg*
 - [ ] **M54** ⭐ Document encryption — set/change/remove/carry-through, AES-256; optional advisory restriction flags — *WSL + WSLg*
