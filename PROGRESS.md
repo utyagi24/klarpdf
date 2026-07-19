@@ -439,6 +439,13 @@ tree or history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI 
 
 Carried items — none block work:
 
+- **Upstream PyMuPDF bug: URI links with an unbalanced paren are dropped by `insert_pdf` /
+  `insert_link`** (unescaped re-serialisation of the URI text; console shows "skipping bad link /
+  annot item N"; seen in the wild in a novaPDF-produced file whose URI is `http://www.adobe.com)`).
+  Worked around in `model/links_remap.py`: the materialise link pass re-adds any URI link
+  `insert_pdf` dropped, with the text pre-escaped (round-trips correctly). Consider reporting
+  upstream to PyMuPDF; if fixed there, the restore pass simply finds nothing missing.
+
 - **A stale `vendor/wheels/` silently shadows the lock in `-Offline` builds.** Found while building
   v0.10.0: the local cache still held `pypdf-6.13.2` (the wheel the v0.9.4 security bump replaced), so
   `build.ps1 -Offline` failed with *"Could not find a version that satisfies pypdf==6.13.3"*. The repo
