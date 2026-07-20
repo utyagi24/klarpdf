@@ -29,10 +29,13 @@ the unit of audit; it ships as a pinned, fully offline Windows installer.
 <p align="center"><sub>The real app, captured from a real build — and it follows the Windows theme, so
 this screenshot follows your GitHub one.</sub></p>
 
-**Status: `v0.12.0` shipped** — [download the installer or portable exe](https://github.com/utyagi24/klarpdf/releases/latest).
-**New in v0.12.0 "Navigate & Polish":** an Outline (bookmarks) sidebar with Go to Page (Ctrl+G),
-right-click menus everywhere, a search-results list, page cropping (hidden — not removed),
-night reading mode, a new Tools menu — and a save-fidelity fix for URI links some PDFs lose. Full
+**Status: `v0.14.0` shipped** — [download the installer or portable exe](https://github.com/utyagi24/klarpdf/releases/latest).
+**New in v0.14.0 "Markup Tools":** a full markup kit — **underline & strikeout**, a **pen**, and
+**lines, arrows, rectangles & ellipses**, all with colour · width · opacity · fill, plus object
+editing (select one or many, move, resize, re-order, copy/paste, delete). This release also carries
+**everything from v0.13.0 "Document Hygiene"**, which was tagged but never published: extract /
+insert-blank / duplicate pages, a **Reduced Size** export, **document Properties + metadata**
+editing, and **AES-256 password protection**. Full
 release notes live on [GitHub Releases](https://github.com/utyagi24/klarpdf/releases); live status —
 milestones (**M0–M38 + R1 complete**), per-release notes, open follow-ups — in [PROGRESS.md](PROGRESS.md).
 
@@ -72,15 +75,25 @@ Everything below works **fully offline** — the app makes no network connection
   even for a crop the file arrived with.
 - **Merge / splice**: drag a PDF in from File Explorer to insert its pages at any position.
 - **Cut / copy / paste pages** — including **between two open documents**.
+- **Extract pages** to a new file, **insert blank pages**, and **duplicate** a page.
 - **Undo / redo** (Ctrl+Z / Ctrl+Y) for every page edit.
 - **Lossless saves**: pages are copied at the object level, so the text (OCR) layer and form fields
   survive untouched, and **bookmarks and internal links are rebuilt** to keep working after
   reorder / delete.
 - Save / Save As, with a **Save / Discard / Cancel** prompt on close.
 
-**Annotate, redact & fill**
-- **Highlight** text, and add **styled text boxes** — font family, size, colour, box fill and
-  outline; drag to move, double-click to re-edit, **also after reopening the saved file**.
+**Annotate, mark up, redact & fill**
+- **Highlight, underline and strike out** text, each with its own curated colour palette.
+  Re-marking text you already marked *folds into* the existing mark — same colour extends it, a
+  different colour recolours what it covers — instead of quietly stacking a second layer.
+- **Draw**: a freehand **pen**, plus **lines, arrows, rectangles and ellipses**, with a shared
+  colour · width · **opacity** · fill picker (translucency is how you mark over text without
+  hiding it).
+- Add **styled text boxes** — font family, size, colour, box fill and outline.
+- **Edit what you drew**: click or marquee-select one object or many, then move, **resize**
+  (corner/edge handles, Shift to keep proportions), re-order (**Bring to Front / Send to Back**),
+  copy/cut/paste — a group keeps its arrangement — or delete. Every action is one undo step, and
+  all of it still works **after reopening the saved file**.
 - **True destructive redaction**: drag over text or a region and it is permanently removed at save
   — a cross-engine-verified, confirmed point of no return.
 - **Fill AcroForm forms**; values save losslessly.
@@ -92,6 +105,12 @@ Everything below works **fully offline** — the app makes no network connection
 **Images**
 - **Import** a PNG/JPEG from Explorer as a new page.
 - **Export** selected pages as PNG/JPEG at a chosen DPI, edits-aware.
+- **Export → Reduced Size PDF** — re-encodes for a smaller file when you need to send it.
+
+**Document properties & security**
+- **Properties** — inspect and edit the document's metadata (title, author, subject, keywords…),
+  or strip it entirely; both metadata stores are cleared, not just the visible one.
+- **Password-protect** a document with **AES-256** on save — set, change, or remove it.
 
 **File safety**
 - **Revert to Saved**; a warning when **another program modifies the open file** (Reload / Keep);
