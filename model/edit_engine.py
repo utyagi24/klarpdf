@@ -147,6 +147,7 @@ class PyMuPDFEngine(EditEngine):
             # annotations are preserved. Then redactions run first as a destructive pass
             # (apply_redactions rewrites the page and would otherwise strip overlapping annotations);
             # the non-destructive highlight/text-box overlays go on top afterwards.
+            from model.content_marks import apply_content_marks
             from model.page_edits import (
                 apply_annotations,
                 apply_redactions,
@@ -161,6 +162,11 @@ class PyMuPDFEngine(EditEngine):
                 strip_klarpdf_annotations(out[i])
                 if ref.annotations:
                     apply_redactions(out[i], ref.annotations)
+                    # R4 content marks sit between the two annotation passes: after redaction (which
+                    # rewrites the content stream and would erase a stamp drawn under it) and before
+                    # the overlays (which stay annotations, so they float above page content — a
+                    # stamp included, exactly as they do above the page's own ink).
+                    apply_content_marks(out[i], ref.annotations)
                     apply_annotations(out[i], ref.annotations)
 
             # Apply AcroForm fills onto the copied widgets (M14). Done here, on the output, so the

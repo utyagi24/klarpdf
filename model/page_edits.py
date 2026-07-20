@@ -233,8 +233,10 @@ class Redaction:
 # The descriptors the object clipboard / move tools operate on (M58 move, M59 copy/paste):
 # free-placed geometry that stays meaningful anywhere on any page. The text-anchored marks
 # (highlight / underline / strikeout) and redactions are deliberately excluded — they belong to
-# the text under them; foreign annotations are excluded until M68.
-PLACEABLE_TYPES = ("TextBox", "InkStroke", "Line", "Shape")
+# the text under them; foreign annotations are excluded until M68. The R4 content marks (M61) join
+# the list: they are free-placed rects, so move / resize / copy come from the same primitives even
+# though they bake into page content rather than staying annotations.
+PLACEABLE_TYPES = ("TextBox", "InkStroke", "Line", "Shape", "Stamp", "ImageStamp")
 
 
 def translate_mark(mark, dx: float, dy: float):
@@ -242,7 +244,9 @@ def translate_mark(mark, dx: float, dy: float):
     geometry (M58 drag-move, M59 paste-with-offset). Frozen value objects in, new ones out."""
     from dataclasses import replace
 
-    if isinstance(mark, (TextBox, Shape)):
+    from model.content_marks import CONTENT_MARK_TYPES
+
+    if isinstance(mark, (TextBox, Shape) + CONTENT_MARK_TYPES):
         x0, y0, x1, y1 = mark.rect
         return replace(mark, rect=(x0 + dx, y0 + dy, x1 + dx, y1 + dy))
     if isinstance(mark, Line):
@@ -444,13 +448,19 @@ def scale_mark(mark, sx: float, sy: float, ox: float, oy: float):
     travels along, but its box keeps its size — a text box hugs its text, so its dimensions are
     really a function of the text + font size (owned by the format bar), and stretching the box
     alone would just detach it from its content. Anything else unrecognised returns ``None``.
+
+    An R4 content mark (:class:`~model.content_marks.Stamp` /
+    :class:`~model.content_marks.ImageStamp`) **does** stretch, like a shape: its rect is the box the
+    artwork is fitted into, so scaling the rect is exactly how you resize a stamp.
     """
     from dataclasses import replace
+
+    from model.content_marks import CONTENT_MARK_TYPES
 
     def point(x: float, y: float) -> tuple:
         return (ox + (x - ox) * sx, oy + (y - oy) * sy)
 
-    if isinstance(mark, Shape):
+    if isinstance(mark, (Shape,) + CONTENT_MARK_TYPES):
         x0, y0, x1, y1 = mark.rect
         nx0, ny0 = point(x0, y0)
         nx1, ny1 = point(x1, y1)

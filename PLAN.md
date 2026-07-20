@@ -1021,7 +1021,30 @@ the v0.7.0 → v0.9.0 re-scope). Theme names and milestone numbers are stable ei
 
 | Milestone | Feature | Where | Done when |
 |---|---|---|---|
-| **M61** ⭐ Unified content-draw engine | **One engine for stamps, signature, and watermark** (owner call: Way 2 — presets are prefilled entries of the custom generator; no dual annotation/content path, no true Stamp annots, no cross-renderer calibration). Custom-text stamp generator via PyMuPDF drawing (rounded-rect border + Helvetica-Bold → transparent high-DPI pixmap); image placement; page-range watermark pass (`overlay=False` under content; rotation + opacity). All **baked at save** — editable/undoable until save, permanent after (redaction-style semantics, said plainly in UI). | WSL (model+tests) | Stamp/watermark descriptors ride PageRefs, render in preview/print/export, bake at materialise |
+| **M61** ⭐ Unified content-draw engine | **One engine for stamps, signature, and watermark** (owner call: Way 2 — presets are prefilled entries of the custom generator; no dual annotation/content path, no true Stamp annots, no cross-renderer calibration). Custom-text stamp generator via PyMuPDF drawing (rounded-rect border + Helvetica-Bold); image placement; page-range watermark pass (`overlay=False` under content; rotation + opacity). All **baked at save** — editable/undoable until save, permanent after (redaction-style semantics, said plainly in UI). | WSL (model+tests) | Stamp/watermark descriptors ride PageRefs, render in preview/print/export, bake at materialise |
+
+**M61 as built** — three decisions worth recording, because each is a deviation from the sketch above:
+
+- **Vector, not a raster.** The sketch said "→ transparent high-DPI pixmap". Built instead as a
+  throwaway one-page PDF placed with `show_pdf_page`: the artwork stays **vector** (crisp at any
+  zoom, no DPI to choose and get wrong), stamp text stays in the **text layer** (searchable, and
+  `search_for` is what the tests assert placement with), and `show_pdf_page` takes an **arbitrary
+  rotation angle** natively — which a pixmap does not, and which the diagonal watermark needs.
+  Images still go through a pixmap, since that is what they are; opacity reaches them by scaling the
+  alpha channel, an image having no `/CA` to set.
+- **A watermark is not a third type.** It is a `Stamp` or `ImageStamp` with `under=True`, added to
+  every page in the range. **The page range lives in the UI loop, not the model** — which is exactly
+  what makes "stamp my initials on pages 3–17" and "watermark the document" the same operation, and
+  is the concrete form the "one engine" decision takes.
+- **Text never wraps.** Auto-fit rejects any size that would break the word, because
+  `insert_textbox` left to itself satisfies a narrow box by splitting `DRAFT` into `DR`/`AFT`. A
+  *pinned* size that will not fit is shrunk rather than honoured: `insert_textbox` draws **nothing**
+  on overflow, and a stamp the user placed but cannot see is the worse failure.
+
+  A trap worth remembering: `insert_textbox` is the only way to ask PyMuPDF "does this fit?", and it
+  answers by **drawing** — even at `render_mode=3` (invisible) the glyphs land in the content stream
+  and come back out of `get_text`. Measuring on the target page therefore stamps everything twice,
+  once invisibly. All measurement runs on a scratch page.
 | **M62** Stamp & watermark UI | Placement mode (drag rect, move, corner-resize until save) — **the same placement UI M69's field creation reuses**; stamp dialog (text · colour · angle · opacity + preset list); watermark dialog (page range, translucency, diagonal); apply-to-page-range checkbox on stamps (the initials-on-every-page case). | WSLg | Place/move/resize a stamp; watermark a range; both bake on save |
 | **M63** Image stamp / signature | The sign-and-return workflow: place a PNG/JPEG (scanned signature, seal, logo) via the M62 placement UI. Transparent-PNG alpha honored + a **"make white background transparent"** threshold toggle (phone-photo signatures just work); **recent-signatures list stores paths only** — KlarPDF never keeps a hidden copy of a signature. Docs: ink-equivalent, **not** a cryptographic signature. | WSL + WSLg | Sign a form offline in two clicks on the second use; baked mark can't be lifted off |
 | **M64** Search & redact | Redact every occurrence of a string: `search_for` quads → batched `Redaction` descriptors in **one undo step**; destructive only at the existing confirmed Save. Review flow reuses M47's panel with checkboxes (untick "Smithsonian" when redacting "Smith"); case + whole-word toggles. **Honesty: text-layer only** — detect image-only pages and warn; form-field values are a documented boundary; same-width boxes hint string length (docs note). | WSL (model+tests) + WSLg | Mark-all → review → redact-checked → Save removes them (cross-engine leak check); warnings fire on image-only pages |

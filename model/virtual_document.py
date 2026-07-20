@@ -720,6 +720,19 @@ class VirtualDocument:
 
         return any(isinstance(a, Redaction) for ref in self.ordered for a in ref.annotations)
 
+    def has_content_marks(self) -> bool:
+        """True if any page carries a stamp / signature / watermark (M61).
+
+        Content marks bake into the page's **content stream**, so — unlike our annotations — they
+        leave nothing author-tagged to read back, and the model's copy would re-bake a second one on
+        the next save. A save that writes one is therefore committed the same way a redaction is:
+        confirm, write, then reload from the clean file so the model no longer holds a mark that is
+        already in the page.
+        """
+        from model.content_marks import is_content_mark
+
+        return any(is_content_mark(a) for ref in self.ordered for a in ref.annotations)
+
     # ---- dirty tracking ---------------------------------------------------------
 
     def mark_clean(self) -> None:
