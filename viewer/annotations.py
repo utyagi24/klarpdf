@@ -51,8 +51,10 @@ from model.page_edits import (
     TextBox,
     Underline,
     mark_bounds,
+    restyle_mark,
     translate_mark,
 )
+from viewer.markup_style import MarkupStyle
 from viewer.tools import ArmedTool
 from viewer.text_format_bar import TextBoxStyle, TextFormatBar, qt_font
 
@@ -62,10 +64,9 @@ _MIN_REDACT = 3.0                 # ignore a redaction drag smaller than this (a
 _MIN_DRAW = 2.0                   # ignore a draw drag smaller than this (page points)
 _HIT_PAD = 3.0                    # grab slack around thin drawn marks (page points)
 
-# Drawn-mark defaults (M58): fixed markup-red at 2 pt — the redlining framing; a style picker is
-# out of scope for the draw tools (PLAN.md M58).
-_DRAW_COLOR = (0.86, 0.10, 0.10)
-_DRAW_WIDTH = 2.0
+# The markup / draw style (colour · width · fill) is picked from the shared, sticky
+# :class:`~viewer.markup_style.MarkupStyle` (M59.5) — its defaults are the old M58 fixed
+# redline-red-at-2pt, so an untouched picker draws exactly as before.
 
 _DRAWN_TYPES = (InkStroke, Line, Shape)
 
@@ -108,11 +109,12 @@ class _TextBoxEditor(QPlainTextEdit):
 
 
 class AnnotationOverlay:
-    def __init__(self, view, on_add, on_remove=None, on_replace=None) -> None:
+    def __init__(self, view, on_add, on_remove=None, on_replace=None, on_select=None) -> None:
         self._view = view
         self._on_add = on_add               # on_add(page_index, annotation) — pushes Add command
         self._on_remove = on_remove         # on_remove(page_index, annotation)
         self._on_replace = on_replace       # on_replace(page_index, old, new) — move / re-edit
+        self._on_select = on_select         # on_select(mark) — an object was click-selected (M59.5)
         self._items: list[QGraphicsRectItem] = []
         # Inline editor (placing a new box, or re-editing an existing one) + its formatting bar.
         self._editor: _TextBoxEditor | None = None
@@ -130,6 +132,10 @@ class AnnotationOverlay:
         self._redact_band: QGraphicsRectItem | None = None
         self._redact_page = 0
         self._redact_anchor = None          # the scene point where the drag started
+        # The shared, sticky markup / draw style (M59.5): colour · width · fill, stamped onto the
+        # next drawn mark (and read by main_window for underline / strikeout colour). Edited via the
+        # toolbar MarkupStyleButton — the last-used style carries forward, like the text-box style.
+        self._markup_style = MarkupStyle()
         # In-progress draw gesture (M58): the armed draw tool, its page, the anchor + live end
         # point (page points), captured pen points, and the preview path item.
         self._draw_tool = None
@@ -499,6 +505,15 @@ class AnnotationOverlay:
         if self._format_bar is not None:
             self._format_bar.set_style(style)
 
+    @property
+    def current_markup_style(self) -> MarkupStyle:
+        """The sticky colour · width · fill the markup / draw tools stamp on the next mark (M59.5)."""
+        return self._markup_style
+
+    def set_markup_style(self, style: MarkupStyle) -> None:
+        """Set the sticky markup / draw style (from the toolbar MarkupStyleButton)."""
+        self._markup_style = style
+
     def _ensure_format_bar(self) -> TextFormatBar:
         if self._format_bar is None:
             self._format_bar = TextFormatBar(
@@ -640,6 +655,8 @@ class AnnotationOverlay:
         self._view.scene().addItem(outline)
         self._selected = (page_index, mark)
         self._selected_item = outline
+        if self._on_select is not None:
+            self._on_select(mark)  # load its style into the picker (M59.5), like re-editing a box
 
     def select_object_at(self, scene_pt) -> bool:
         """Select the free-placed mark under ``scene_pt`` (text box or drawn mark), if any."""
@@ -663,6 +680,25 @@ class AnnotationOverlay:
         page_index, mark = self._selected
         self.clear_object_selection()
         self.remove(page_index, mark)
+        return True
+
+    def restyle_selected_object(self, style) -> bool:
+        """Apply ``style`` (a :class:`~viewer.markup_style.MarkupStyle`) to the selected drawn mark
+        in place — the "same strategy as text markup" the owner asked for: with an object selected,
+        a picker change edits *it* (undoable), not just the sticky default. Returns True if a mark
+        was restyled. A text box (its own format bar) or an unchanged style is a no-op.
+
+        The replace reloads the view, which clears the selection — so re-select the updated mark,
+        keeping the outline up for the next tweak. Page index + new mark are captured *before* the
+        replace, since the reload nulls ``self._selected`` mid-call."""
+        if self._selected is None:
+            return False
+        page_index, mark = self._selected
+        new = restyle_mark(mark, style.color, style.width, style.fill_color)
+        if new is None or new == mark:
+            return False
+        self._replace(page_index, mark, new, text=f"Restyle {type(mark).__name__.lower()}")
+        self.select_object(page_index, new)
         return True
 
     def begin_move(self, scene_pt) -> bool:
@@ -803,7 +839,7 @@ class AnnotationOverlay:
         self._draw_anchor = self._draw_end = (local.x(), local.y())
         self._draw_points = [self._draw_anchor]
         item = QGraphicsPathItem()
-        item.setPen(self._drawn_pen(_DRAW_COLOR, _DRAW_WIDTH))
+        item.setPen(self._drawn_pen(self._markup_style.color, self._markup_style.width))
         item.setTransform(self._view.page_transform(page_index))
         item.setZValue(11)
         self._view.scene().addItem(item)
@@ -857,7 +893,7 @@ class AnnotationOverlay:
                 path.lineTo(*point)
         elif tool in (ArmedTool.LINE, ArmedTool.ARROW):
             path = _line_path(self._draw_anchor, self._draw_end,
-                              False, tool is ArmedTool.ARROW, _DRAW_WIDTH)
+                              False, tool is ArmedTool.ARROW, self._markup_style.width)
         else:
             x0, y0 = self._draw_anchor
             x1, y1 = self._draw_end
@@ -879,23 +915,28 @@ class AnnotationOverlay:
         anchor, end, points = self._draw_anchor, self._draw_end, self._draw_points
         self._draw_tool = self._draw_anchor = self._draw_end = None
         self._draw_points = []
+        # Stamp the sticky colour · width (+ shape fill) onto the committed mark (M59.5).
+        style = self._markup_style
         if tool is ArmedTool.PEN:
             xs = [p[0] for p in points]
             ys = [p[1] for p in points]
             if len(points) < 2 or (max(xs) - min(xs) < _MIN_DRAW and max(ys) - min(ys) < _MIN_DRAW):
                 return
-            self._on_add(page_index, InkStroke((tuple(points),)))
+            self._on_add(page_index, InkStroke((tuple(points),), color=style.color,
+                                               width=style.width))
             return
         dx, dy = abs(end[0] - anchor[0]), abs(end[1] - anchor[1])
         if dx < _MIN_DRAW and dy < _MIN_DRAW:
             return
         if tool in (ArmedTool.LINE, ArmedTool.ARROW):
-            self._on_add(page_index, Line(anchor, end, arrow_end=tool is ArmedTool.ARROW))
+            self._on_add(page_index, Line(anchor, end, color=style.color, width=style.width,
+                                          arrow_end=tool is ArmedTool.ARROW))
         else:
             rect = (min(anchor[0], end[0]), min(anchor[1], end[1]),
                     max(anchor[0], end[0]), max(anchor[1], end[1]))
             kind = "rect" if tool is ArmedTool.RECT else "ellipse"
-            self._on_add(page_index, Shape(kind, rect))
+            self._on_add(page_index, Shape(kind, rect, color=style.color, width=style.width,
+                                           fill_color=style.fill_color))
 
     def cancel_draw(self) -> None:
         """Drop an in-progress gesture without committing (Esc / disarm mid-drag)."""

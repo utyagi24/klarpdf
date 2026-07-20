@@ -71,10 +71,13 @@ def test_palette_change_retints_toolbar_icons(win, qapp):
 
 def test_every_icon_action_has_a_name_so_it_re_tints(win):
     """Every toolbar/menu action that carries an icon must also carry the ``iconName`` property
-    ``_retint_icons`` keys off — otherwise it would be left stale on a theme switch."""
+    ``_retint_icons`` keys off — otherwise it would be left stale on a theme switch. The one
+    intentional exception is a colour swatch (the M59.5 markup-style menu): a semantic colour chip
+    that must keep its colour on both themes, so it opts out via the ``colorSwatch`` property."""
     iconful = [a for a in win.findChildren(QAction) if not a.icon().isNull()]
     assert iconful  # sanity: the window has icon-bearing actions
-    stale = [a.text() for a in iconful if not a.property("iconName")]
+    stale = [a.text() for a in iconful
+             if not a.property("iconName") and not a.property("colorSwatch")]
     assert not stale, f"actions with an icon but no iconName (won't re-tint): {stale}"
 
 
