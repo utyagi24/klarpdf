@@ -585,6 +585,23 @@ class VirtualDocument:
         """The annotation descriptors on the page at ``index``."""
         return self.ordered[index].annotations
 
+    # Annotation edits match the target by **identity** first: descriptors are frozen value
+    # objects, so two separately-built copies of "the same" mark compare equal, and identity is
+    # what tells genuine duplicates apart (a paste clamped back onto its original, say).
+    #
+    # But identity alone makes a stale-but-equal handle fail *silently* — the edit just doesn't
+    # happen, which reads to the user as a broken tool (it did: a moved object's re-selection once
+    # held a distinct copy, so the next resize no-opped). So each edit falls back to the first
+    # value-equal match. That is safe precisely because the descriptors are value objects: equal
+    # ones are interchangeable, so whichever is chosen the resulting page is identical.
+
+    @staticmethod
+    def _first_equal_index(annotations: tuple, target) -> int:
+        for i, annotation in enumerate(annotations):
+            if annotation == target:
+                return i
+        return -1
+
     def add_annotation(self, index: int, annotation) -> None:
         """Append an annotation descriptor to the page at ``index``."""
         ref = self.ordered[index]
@@ -602,6 +619,10 @@ class VirtualDocument:
         """Remove one specific annotation instance from the page at ``index``."""
         ref = self.ordered[index]
         remaining = tuple(a for a in ref.annotations if a is not annotation)
+        if len(remaining) == len(ref.annotations):     # identity missed → fall back to value
+            i = self._first_equal_index(ref.annotations, annotation)
+            if i >= 0:
+                remaining = ref.annotations[:i] + ref.annotations[i + 1:]
         if len(remaining) != len(ref.annotations):
             self.ordered[index] = ref.with_annotations(remaining)
             self.dirty = True
@@ -615,6 +636,10 @@ class VirtualDocument:
         """
         ref = self.ordered[index]
         annotations = tuple(new if a is old else a for a in ref.annotations)
+        if annotations == ref.annotations:             # identity missed → fall back to value
+            i = self._first_equal_index(ref.annotations, old)
+            if i >= 0:
+                annotations = ref.annotations[:i] + (new,) + ref.annotations[i + 1:]
         if annotations != ref.annotations:
             self.ordered[index] = ref.with_annotations(annotations)
             self.dirty = True
