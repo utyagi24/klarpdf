@@ -252,6 +252,59 @@ def mark_bounds(mark) -> tuple:
     return mark.rect if isinstance(mark, TextBox) else mark.bounding_rect()
 
 
+# A page's annotation tuple **is** its z-order: later entries paint on top (both in the viewer
+# overlay and in the saved PDF, since :func:`apply_annotations` writes them in order), and the
+# hit-tests walk it reversed so the topmost wins. So "bring to front" is just a list reorder —
+# no new state, and it moves paint order and click order together, which is what users expect.
+Z_ORDER_ACTIONS = ("front", "forward", "backward", "back")
+
+
+def _mark_positions(annotations: tuple, marks) -> list:
+    """Where each of ``marks`` sits in ``annotations`` — identity first, then the first unclaimed
+    value-equal entry (frozen value objects can be handed back as equal-but-distinct copies), so a
+    reorder never silently skips a mark. Unfound marks are dropped."""
+    used: set = set()
+    found = []
+    for mark in marks:
+        position = next((i for i, a in enumerate(annotations) if i not in used and a is mark), -1)
+        if position < 0:
+            position = next((i for i, a in enumerate(annotations) if i not in used and a == mark), -1)
+        if position >= 0:
+            used.add(position)
+            found.append(position)
+    return found
+
+
+def reorder_marks(annotations: tuple, marks, action: str) -> tuple:
+    """``annotations`` with ``marks`` moved in z-order (M59.8).
+
+    ``front`` / ``back`` jump the whole set to the top / bottom, keeping the moved marks in their
+    existing relative order; ``forward`` / ``backward`` step each one past its nearest unselected
+    neighbour (walking from the far end, so a run of selected marks shifts together instead of
+    piling up). Returns the tuple unchanged when there is nothing to do.
+    """
+    positions = set(_mark_positions(annotations, marks))
+    if not positions or action not in Z_ORDER_ACTIONS:
+        return annotations
+    items = list(annotations)
+    if action in ("front", "back"):
+        moved = [items[i] for i in sorted(positions)]
+        rest = [a for i, a in enumerate(items) if i not in positions]
+        return tuple(rest + moved if action == "front" else moved + rest)
+    step = 1 if action == "forward" else -1
+    # Walk from the end the marks are heading towards, so each moves at most one place and a
+    # contiguous run keeps its shape.
+    sweep = range(len(items) - 2, -1, -1) if step > 0 else range(1, len(items))
+    live = set(positions)
+    for i in sweep:
+        j = i + step
+        if i in live and j not in live:
+            items[i], items[j] = items[j], items[i]
+            live.discard(i)
+            live.add(j)
+    return tuple(items)
+
+
 def scale_mark(mark, sx: float, sy: float, ox: float, oy: float):
     """A mark scaled by ``(sx, sy)`` about the origin ``(ox, oy)`` — the M59.7 resize primitive,
     the geometry twin of :func:`translate_mark`. Frozen value objects in, new ones out.

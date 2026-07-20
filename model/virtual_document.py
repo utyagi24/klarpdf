@@ -608,6 +608,14 @@ class VirtualDocument:
         self.ordered[index] = ref.with_annotations(ref.annotations + (annotation,))
         self.dirty = True
 
+    def set_annotations(self, index: int, annotations: tuple) -> None:
+        """Replace the page's whole annotation tuple — used by the z-order reorder (M59.8), where
+        the *order* is the edit. Same contents in a new order still counts as dirty."""
+        ref = self.ordered[index]
+        if tuple(annotations) != ref.annotations:
+            self.ordered[index] = ref.with_annotations(tuple(annotations))
+            self.dirty = True
+
     def clear_annotations(self, index: int) -> None:
         """Remove all annotations from the page at ``index``."""
         ref = self.ordered[index]
