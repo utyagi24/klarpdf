@@ -251,12 +251,24 @@ class MainWindow(QMainWindow):
         # Press/hover feedback + spacing between functional groups. Translucent grey reads on both
         # light and dark themes, so this needs no per-theme rebuild. The separator gains margin so
         # grouped buttons sit close while groups are clearly divided.
+        # The dropdown arrow on a menu-carrying button (M59.13). Qt places it differently per popup
+        # mode: **MenuButtonPopup** (the Markup ▾ / Draw ▾ split buttons) draws a *raised sub-panel*
+        # on the right with the arrow centred in it, which crowds the icon; **InstantPopup** (the
+        # pen-&-shapes style swatch) tucks a small indicator into the **bottom-right corner**, over
+        # the swatch. Same toolbar, two different arrow positions — and both cramped. These rules
+        # give every menu button the same treatment: reserve room on the right (so the arrow never
+        # touches the icon), drop the sub-panel frame, and pin the arrow to the **vertical centre**
+        # whichever mode drew it. popupMode 1 = MenuButtonPopup, 2 = InstantPopup.
         bar.setStyleSheet(
             "QToolBar { spacing: 1px; padding: 2px; }"
             "QToolButton { border: 1px solid transparent; border-radius: 4px; padding: 3px; }"
             "QToolButton:hover { background-color: rgba(128, 128, 128, 46); }"
             "QToolButton:pressed { background-color: rgba(128, 128, 128, 100); }"
             "QToolButton:checked { background-color: rgba(128, 128, 128, 72); }"
+            'QToolButton[popupMode="1"], QToolButton[popupMode="2"] { padding-right: 16px; }'
+            "QToolButton::menu-button { border: none; background: transparent; width: 14px; }"
+            "QToolButton::menu-arrow, QToolButton::menu-indicator {"
+            " subcontrol-origin: padding; subcontrol-position: center right; right: 4px; }"
             "QToolBar::separator { width: 1px; margin: 5px 8px;"
             " background-color: rgba(128, 128, 128, 90); }"
         )
