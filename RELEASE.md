@@ -145,7 +145,10 @@ tells you *what* and *how severe*, and you do the bump yourself.
 
 **Prereqs:** on an up-to-date `main`, working tree clean, headless suite green
 (`.\.venv\Scripts\python.exe -m pytest` — offscreen; 1 expected skip = the Poppler `pdftotext`
-cross-check, absent on Windows).
+cross-check, absent on Windows), **and the `audit` workflow green on `main`**:
+```sh
+gh run list --workflow=audit.yml --limit 3      # main must be green before you tag
+```
 
 **One-time gate — the first release carrying Help ▸ Donate… (G6).** The menu item ships whether or not
 the GitHub Sponsors listing exists, and a missing listing does **not** 404: `/sponsors/utyagi24`
@@ -201,6 +204,18 @@ Delete this gate once it has passed once.
 
 5. **Smoke-test the draft before publishing:**
    - Headless suite green (above).
+   - **The tag's `audit` run is green.** The `v*` push starts `audit.yml` alongside `release.yml`,
+     but they are **separate workflows** — a red audit does **not** fail the build, block the draft,
+     or stop `gh release edit --draft=false`. Nothing is in the way, so this has to be looked at on
+     purpose. It was red at **v0.12.0, v0.13.0 and v0.14.0** before anyone noticed (setuptools
+     PYSEC-2026-3447 in the build lock, fixed in #144).
+     ```sh
+     gh run list --workflow=audit.yml --limit 3           # the row for this tag must be success
+     ```
+     If it is red, triage before publishing: **which lock** (ship / dev / build), then **is the
+     package shipped** (`find dist/klarpdf -iname '*<pkg>*'` — a build-only package is not in the
+     artifact), then **is the vulnerable path reachable** for a frozen Windows app. That decides
+     whether the release must be held or the advisory merely fixed on `main` afterwards.
    - **One-time, for the first KlarPDF release:** *uninstall `pdfproj` first.* The rename minted a
      fresh Inno `AppId`, so `klarpdf-setup.exe` installs as a **new** app rather than upgrading
      `pdfproj` in place. Installing over the old app would leave its `pdfproj.Document` ProgID and its
