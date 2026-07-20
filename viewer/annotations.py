@@ -50,6 +50,8 @@ from model.page_edits import (
     Strikeout,
     TextBox,
     Underline,
+    mark_bounds,
+    translate_mark,
 )
 from viewer.tools import ArmedTool
 from viewer.text_format_bar import TextBoxStyle, TextFormatBar, qt_font
@@ -95,18 +97,6 @@ def _line_path(start: tuple, end: tuple, arrow_start: bool, arrow_end: bool,
     return path
 
 
-def _translated(mark, dx: float, dy: float):
-    """The same descriptor moved by ``(dx, dy)`` — the one move primitive for every geometry."""
-    if isinstance(mark, TextBox) or isinstance(mark, Shape):
-        x0, y0, x1, y1 = mark.rect
-        return replace(mark, rect=(x0 + dx, y0 + dy, x1 + dx, y1 + dy))
-    if isinstance(mark, Line):
-        return replace(mark, start=(mark.start[0] + dx, mark.start[1] + dy),
-                       end=(mark.end[0] + dx, mark.end[1] + dy))
-    if isinstance(mark, InkStroke):
-        return replace(mark, paths=tuple(tuple((x + dx, y + dy) for x, y in path)
-                                         for path in mark.paths))
-    raise TypeError(f"not a movable mark: {type(mark).__name__}")
 
 
 class _TextBoxEditor(QPlainTextEdit):
@@ -148,6 +138,10 @@ class AnnotationOverlay:
         self._draw_end: tuple | None = None
         self._draw_points: list = []
         self._draw_item: QGraphicsPathItem | None = None
+        # The selected object (M59): a click-selected free-placed mark — what Ctrl+C / Ctrl+X /
+        # Delete act on — plus its dashed outline item.
+        self._selected: tuple | None = None       # (page_index, mark)
+        self._selected_item: QGraphicsRectItem | None = None
         self._editor_fontsize = 11.0        # the box font the editor mirrors (WYSIWYG sizing)
         # Live text-box move: a ghost rect following the drag.
         self._move_ghost: QGraphicsRectItem | None = None
@@ -171,6 +165,10 @@ class AnnotationOverlay:
     def repaint(self) -> None:
         """Redraw every page's annotations from the model (also after zoom / scene rebuild)."""
         self._clear_items()
+        # A structural change / scene rebuild orphans the selection (its item died with the
+        # scene, and the mark itself may be gone) — selection never survives a repaint.
+        self._selected = None
+        self._selected_item = None
         if self._view.rotation != 0:
             return
         scene = self._view.scene()
@@ -622,6 +620,51 @@ class AnnotationOverlay:
                 return page_index, annot
         return None
 
+    # ---- object selection (M59): what Ctrl+C / Ctrl+X / Delete act on ------------
+
+    @property
+    def selected_object(self) -> "tuple | None":
+        """The click-selected ``(page_index, mark)``, or None."""
+        return self._selected
+
+    def select_object(self, page_index: int, mark) -> None:
+        """Select a free-placed mark: a dashed outline around its (padded) bounds."""
+        self.clear_object_selection()
+        x0, y0, x1, y1 = mark_bounds(mark)
+        outline = QGraphicsRectItem(QRectF(x0 - _HIT_PAD, y0 - _HIT_PAD,
+                                           (x1 - x0) + 2 * _HIT_PAD, (y1 - y0) + 2 * _HIT_PAD))
+        outline.setTransform(self._view.page_transform(page_index))
+        outline.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+        outline.setPen(QPen(QColor(0, 120, 215), 1, Qt.PenStyle.DashLine))
+        outline.setZValue(12)
+        self._view.scene().addItem(outline)
+        self._selected = (page_index, mark)
+        self._selected_item = outline
+
+    def select_object_at(self, scene_pt) -> bool:
+        """Select the free-placed mark under ``scene_pt`` (text box or drawn mark), if any."""
+        hit = self.textbox_at(scene_pt) or self.drawn_mark_at(scene_pt)
+        if hit is None:
+            return False
+        self.select_object(*hit)
+        return True
+
+    def clear_object_selection(self) -> None:
+        if self._selected_item is not None:
+            item, self._selected_item = self._selected_item, None
+            if item.scene() is self._view.scene():
+                self._view.scene().removeItem(item)
+        self._selected = None
+
+    def remove_selected_object(self) -> bool:
+        """Delete the selected mark (undoable). Returns True if something was removed."""
+        if self._selected is None:
+            return False
+        page_index, mark = self._selected
+        self.clear_object_selection()
+        self.remove(page_index, mark)
+        return True
+
     def begin_move(self, scene_pt) -> bool:
         """SELECT-mode press on a text box **or a drawn mark** (M58) → start a move. Returns True
         if it grabbed something."""
@@ -649,7 +692,7 @@ class AnnotationOverlay:
     @staticmethod
     def _move_bounds(mark) -> tuple:
         """The rect the move drags around: a text box's own rect, else the drawn bounding rect."""
-        return mark.rect if isinstance(mark, TextBox) else mark.bounding_rect()
+        return mark_bounds(mark)
 
     def update_move(self, scene_pt) -> None:
         if self._move_ghost is None:
@@ -675,7 +718,9 @@ class AnnotationOverlay:
         dx = self._move_rect[0] - bounds[0]
         dy = self._move_rect[1] - bounds[1]
         self._move_box = self._move_anchor_local = None
-        if old is not None and (dx or dy):
+        if old is None:
+            return
+        if dx or dy:
             label = {
                 "TextBox": "Move text box",
                 "InkStroke": "Move ink",
@@ -683,7 +728,11 @@ class AnnotationOverlay:
                 "Shape": "Move shape",
             }[type(old).__name__]
             # One translate primitive for every geometry — text + styling ride along untouched.
-            self._replace(page_index, old, _translated(old, dx, dy), text=label)
+            self._replace(page_index, old, translate_mark(old, dx, dy), text=label)
+        else:
+            # A plain click on the mark (no drag) → select it (M59): the outline shows what
+            # Ctrl+C / Ctrl+X / Delete will act on.
+            self.select_object(page_index, old)
 
     # ---- redaction tool (rubber-band drag) --------------------------------------
 

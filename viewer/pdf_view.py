@@ -349,6 +349,10 @@ class PdfView(QGraphicsView):
                 if self.annotations is not None and self.annotations.begin_move(scene_pt):
                     event.accept()
                     return
+                # The press wasn't on a free-placed mark → drop a lingering object selection
+                # (M59); a press that *did* grab one re-selects on its zero-drag release.
+                if self.annotations is not None:
+                    self.annotations.clear_object_selection()
                 # Click an internal link → jump to its target page (before text selection, so a click
                 # on a link navigates rather than starting a selection).
                 if self.links is not None and self.links.navigate_at(scene_pt):
@@ -445,11 +449,21 @@ class PdfView(QGraphicsView):
         super().mouseReleaseEvent(event)
 
     def keyPressEvent(self, event) -> None:
-        # Esc cancels an armed one-shot tool (back to plain Select).
+        # Esc cancels an armed one-shot tool (back to plain Select) — else a lingering object
+        # selection (M59). Delete/Backspace removes the selected object (undoable).
         if event.key() == Qt.Key.Key_Escape and self._armed is not None:
             self.disarm()
             event.accept()
             return
+        if self.annotations is not None and self.annotations.selected_object is not None:
+            if event.key() == Qt.Key.Key_Escape:
+                self.annotations.clear_object_selection()
+                event.accept()
+                return
+            if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+                self.annotations.remove_selected_object()
+                event.accept()
+                return
         super().keyPressEvent(event)
 
     def _update_hover_cursor(self, scene_pt) -> None:

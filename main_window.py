@@ -20,6 +20,7 @@ import tempfile
 from PySide6.QtCore import QEvent, QRect, QSize, Qt
 from PySide6.QtGui import QAction, QActionGroup, QCursor, QGuiApplication, QKeySequence, QUndoStack
 from PySide6.QtWidgets import (
+    QApplication,
     QDockWidget,
     QFileDialog,
     QInputDialog,
@@ -27,6 +28,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMenu,
     QMessageBox,
+    QPlainTextEdit,
     QTabWidget,
     QToolButton,
     QVBoxLayout,
@@ -47,7 +49,18 @@ from model.edit_commands import (
     SetFieldValueCommand,
     SetMetadataCommand,
 )
-from model.page_edits import Highlight, Redaction, Strikeout, Underline
+from model.page_edits import (
+    Highlight,
+    InkStroke,
+    Line,
+    Redaction,
+    Shape,
+    Strikeout,
+    TextBox,
+    Underline,
+    mark_bounds,
+    translate_mark,
+)
 from model.edit_engine import PyMuPDFEngine
 from model.virtual_document import IMAGE_EXTENSIONS, PageRef, VirtualDocument
 from organize.thumbnail_panel import ThumbnailPanel
@@ -312,7 +325,16 @@ class MainWindow(QMainWindow):
         act("Insert Blank Page", self._insert_blank_page, to_menu=edit_menu)
         act("Duplicate Pages", lambda: self._duplicate_pages(), to_menu=edit_menu)
         edit_menu.addSeparator()
-        self._a_copy_text = act("Copy", self._copy_selection, QKeySequence.StandardKey.Copy, to_menu=edit_menu)
+        # Focus-routed clipboard (M59): one Ctrl+C/X/V dispatcher decides text vs pages vs object
+        # by focus + state (see _edit_copy/_edit_cut/_edit_paste). The menu's Copy is the router
+        # too, so the shortcut shown beside it is the one that actually fires. Cut/Paste have no
+        # menu row of their own (pages keep their explicit entries; object cut/paste live on the
+        # context menus) — window-level actions carry their shortcuts.
+        self._a_copy_text = act("Copy", self._edit_copy, QKeySequence.StandardKey.Copy, to_menu=edit_menu)
+        a_cut_sc = act("Cut", self._edit_cut, QKeySequence.StandardKey.Cut)
+        a_paste_sc = act("Paste", self._edit_paste, QKeySequence.StandardKey.Paste)
+        self.addAction(a_cut_sc)   # not in a menu — added to the window so the shortcut is live
+        self.addAction(a_paste_sc)
         a_find = act("Find…", self._show_find, QKeySequence.StandardKey.Find, icon="find", to_menu=edit_menu)
         act("Find Next", self.find_bar.find_next, QKeySequence.StandardKey.FindNext, to_menu=edit_menu)
         act("Find Previous", self.find_bar.find_prev, QKeySequence.StandardKey.FindPrevious, to_menu=edit_menu)
@@ -554,6 +576,90 @@ class MainWindow(QMainWindow):
 
     def _copy_selection(self) -> None:
         self.view.selection.copy()
+
+    # ---- focus-routed clipboard (M59): text vs pages vs object -------------------
+
+    def _focused_text_editor(self):
+        """The focused inline text-input widget, if any — a form-fill editor or the text-box
+        editor. Their own clipboard must win, or Ctrl+V while typing would paste an *object*."""
+        focus = QApplication.focusWidget()
+        return focus if isinstance(focus, (QLineEdit, QPlainTextEdit)) else None
+
+    def _edit_copy(self) -> None:
+        """Ctrl+C, routed: an inline editor's own copy → the Pages sidebar's selection (when the
+        sidebar has focus) → the live text selection → the selected object."""
+        editor = self._focused_text_editor()
+        if editor is not None:
+            editor.copy()
+        elif self.thumbs.hasFocus():
+            self._copy_pages()
+        elif self.view.selection is not None and self.view.selection.selected_words():
+            self._copy_selection()
+        else:
+            self._copy_object()
+
+    def _edit_cut(self) -> None:
+        """Ctrl+X, routed like copy. Page text can't be cut (it isn't ours to remove without a
+        redaction), so with neither sidebar focus nor a selected object this is a no-op."""
+        editor = self._focused_text_editor()
+        if editor is not None:
+            editor.cut()
+        elif self.thumbs.hasFocus():
+            self._cut_pages()
+        else:
+            self._cut_object()
+
+    def _edit_paste(self) -> None:
+        """Ctrl+V, routed: inline editor → pages (sidebar focus) → the object clipboard."""
+        editor = self._focused_text_editor()
+        if editor is not None:
+            editor.paste()
+        elif self.thumbs.hasFocus():
+            self._paste_pages()
+        elif self._app.object_clipboard is not None:
+            self._paste_object()
+
+    def _copy_object(self, hit=None) -> bool:
+        """Copy a free-placed mark (the given ``(page, mark)`` hit, else the selected object) onto
+        the app-wide object clipboard. A text box also lands on the system clipboard as plain
+        text. Returns True if something was copied."""
+        hit = hit or (self.view.annotations.selected_object if self.view.annotations else None)
+        if hit is None:
+            return False
+        _page_index, mark = hit
+        self._app.object_clipboard = mark
+        if isinstance(mark, TextBox):
+            QGuiApplication.clipboard().setText(mark.text)  # text/plain rides along
+        return True
+
+    def _cut_object(self, hit=None) -> None:
+        """Cut = copy + undoable remove."""
+        hit = hit or (self.view.annotations.selected_object if self.view.annotations else None)
+        if hit is not None and self._copy_object(hit):
+            page_index, mark = hit
+            self.view.annotations.clear_object_selection()
+            self._remove_annotation(page_index, mark)
+
+    def _paste_object(self, page_index: int | None = None, at_point: tuple | None = None) -> None:
+        """Paste the object clipboard as one undoable add: at ``at_point`` (page coords — the
+        context menu's click spot, centred there), else onto the current page with a small offset
+        from the original position. Either way the mark's bounds are clamped to the target page
+        (rect-clamp across page sizes), so a paste can never land off-page."""
+        mark = self._app.object_clipboard
+        if mark is None or self.vdoc.page_count == 0:
+            return
+        page = self.view.current_page if page_index is None else page_index
+        x0, y0, x1, y1 = mark_bounds(mark)
+        w, h = x1 - x0, y1 - y0
+        if at_point is not None:
+            tx, ty = at_point[0] - w / 2.0, at_point[1] - h / 2.0  # centred on the click
+        else:
+            tx, ty = x0 + 12.0, y0 + 12.0  # the classic paste offset
+        _fx, _fy, pw, ph = self.vdoc.page_base_rect(page)
+        tx = min(max(0.0, tx), max(0.0, pw - w))
+        ty = min(max(0.0, ty), max(0.0, ph - h))
+        pasted = translate_mark(mark, tx - x0, ty - y0)
+        self.undo_stack.push(AddAnnotationCommand(self.vdoc, page, pasted))
 
     def _show_find(self) -> None:
         self.find_bar.show_bar()
@@ -915,6 +1021,12 @@ class MainWindow(QMainWindow):
         hit = self.view.annotations.annotation_at(scene_pt) if self.view.annotations else None
         if hit is not None:
             page_index, annot = hit
+            # Free-placed marks are copyable (M59); the text-anchored marks + redactions are not
+            # (they belong to the text under them).
+            if isinstance(annot, (TextBox, InkStroke, Line, Shape)):
+                menu.addAction("Copy Object", lambda: self._copy_object(hit))
+                menu.addAction("Cut Object", lambda: self._cut_object(hit))
+                menu.addSeparator()
             label = {
                 "Highlight": "Remove highlight",
                 "Underline": "Remove underline",
@@ -949,7 +1061,18 @@ class MainWindow(QMainWindow):
                                lambda: QGuiApplication.clipboard().setText(uri))
                 return menu
         # Bare page (or the gap between pages — these verbs are view-level, so no dead zone):
-        # routes the same QAction objects as the View menu, so shortcuts show alongside.
+        # routes the same QAction objects as the View menu, so shortcuts show alongside. Paste
+        # Object (M59) leads — the one verb that acts *at the clicked spot* (the pasted mark is
+        # centred on it); disabled while the object clipboard is empty.
+        page_hit = self.view.page_and_local_at(scene_pt)
+        if page_hit[0] is not None:
+            page_index, local = page_hit
+            a_paste_obj = menu.addAction(
+                "Paste Object",
+                lambda: self._paste_object(page_index, (local.x(), local.y())),
+            )
+            a_paste_obj.setEnabled(self._app.object_clipboard is not None)
+            menu.addSeparator()
         for action in (self._a_fitw, self._a_fitp, self._a_actual):
             menu.addAction(action)
         menu.addSeparator()
