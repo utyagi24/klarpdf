@@ -35,6 +35,25 @@ def _boxes_touch(a: tuple, b: tuple) -> bool:
     return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
 
 
+def _struck_words(words: list, box: tuple) -> list:
+    """The page words a hit ``box`` overlaps, in reading order."""
+    return [w for w in words if _boxes_touch(w[:4], box)]
+
+
+def is_whole_word(words: list, box: tuple, tol: float = 0.5) -> bool:
+    """Is the hit at ``box`` a whole word rather than part of a longer one? (M64)
+
+    Geometric rather than textual: a hit is a whole word when the words it touches do not extend
+    past it on either side. Searching "Smith" matches inside "Smithsonian", whose word box runs well
+    beyond the hit — which is precisely the false positive the review step exists to catch, and this
+    toggle to prevent wholesale.
+    """
+    struck = _struck_words(words, box)
+    if not struck:
+        return True                      # nothing to contradict it (e.g. a hit with no word boxes)
+    return struck[0][0] >= box[0] - tol and struck[-1][2] <= box[2] + tol
+
+
 def _snippet_for(words: list, box: tuple) -> str:
     """Context snippet for a hit ``box``: the words of its line, windowed to ±``_SNIPPET_WORDS``
     around the matched span, with ellipses marking a trimmed side. ``words`` is the page's
@@ -59,8 +78,15 @@ class SearchController:
         self._items: list[QGraphicsRectItem] = []
         self._query = ""
 
-    def search(self, query: str) -> int:
-        """Find all matches for ``query`` and select the first. Returns the hit count."""
+    def search(self, query: str, case_sensitive: bool = False,
+               whole_word: bool = False) -> int:
+        """Find all matches for ``query`` and select the first. Returns the hit count.
+
+        MuPDF's ``search_for`` is always case-insensitive and always matches inside words, so the
+        two M64 toggles are applied here as filters over its hits: ``case_sensitive`` compares the
+        text actually under each hit box, ``whole_word`` checks the hit is not part of a longer word
+        (see :func:`is_whole_word`). Both default off, which is exactly today's behaviour.
+        """
         self._query = query or ""
         self._hits = []
         self._idx = -1
@@ -72,6 +98,10 @@ class SearchController:
                 words = page.get_text("words") if boxes else []  # one scan serves the page's hits
                 for r in boxes:
                     box = (r.x0, r.y0, r.x1, r.y1)
+                    if whole_word and not is_whole_word(words, box):
+                        continue
+                    if case_sensitive and page.get_textbox(r).strip() != self._query:
+                        continue
                     self._hits.append((page_index, box, _snippet_for(words, box)))
             if self._hits:
                 self._idx = 0
@@ -144,13 +174,19 @@ class SearchController:
 class SearchResultsPanel(QListWidget):
     """The M47 doc-wide hit list: one row per hit — "p. N   …snippet…" — click to jump. Exists in
     the layout but stays hidden until the FindBar's List All toggle shows it (no dead chrome).
-    M64 (search & redact) later extends this list with per-hit checkboxes."""
+
+    In **checkable** mode (M64) each row gains a checkbox and the list becomes the review step of
+    search-&-redact: the snippet is what lets you untick the "Smithsonian" that a search for "Smith"
+    turned up. Clicking a row still jumps to the hit, so a doubtful one can be inspected on the page
+    before deciding — which is the point of reviewing on the real panel rather than in a bare list.
+    """
 
     _INDEX_ROLE = Qt.ItemDataRole.UserRole  # row payload: the hit's index in the controller
 
-    def __init__(self, view, parent=None) -> None:
+    def __init__(self, view, parent=None, checkable: bool = False) -> None:
         super().__init__(parent)
         self._view = view
+        self._checkable = checkable
         self.setUniformItemSizes(True)
         self.setMaximumHeight(180)  # a band under the find bar, never crowding out the page
         self.itemClicked.connect(self._on_item_clicked)
@@ -164,9 +200,31 @@ class SearchResultsPanel(QListWidget):
             item = QListWidgetItem(f"p. {page_index + 1}   {snippet}")
             item.setData(self._INDEX_ROLE, i)
             item.setToolTip(f"Page {page_index + 1}")
-            self.addItem(item)
+            if self._checkable:
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                item.setCheckState(Qt.CheckState.Checked)   # opt-out, not opt-in: the user asked
+            self.addItem(item)                              # for all of them, then prunes
         if idx >= 0:
             self.setCurrentRow(idx)
+
+    def checked_hits(self) -> list[tuple[int, tuple]]:
+        """``(page_index, box)`` for every ticked row — what a redaction would actually cover."""
+        hits = self._view.search.hits()
+        chosen = []
+        for row in range(self.count()):
+            item = self.item(row)
+            if item.checkState() != Qt.CheckState.Checked:
+                continue
+            index = item.data(self._INDEX_ROLE)
+            if 0 <= index < len(hits):
+                page_index, box, _snippet = hits[index]
+                chosen.append((page_index, box))
+        return chosen
+
+    def set_all_checked(self, checked: bool) -> None:
+        state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
+        for row in range(self.count()):
+            self.item(row).setCheckState(state)
 
     def _on_item_clicked(self, item) -> None:
         self._view.search.goto(item.data(self._INDEX_ROLE))

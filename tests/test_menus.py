@@ -59,7 +59,7 @@ def test_tools_menu_holds_the_modes_and_armed_tools(app, b_pdf):
         "Select", "Grab", "Objects",
         "Add Text Box", "Highlight", "Underline", "Strike Out",
         "Pen", "Line", "Arrow", "Rectangle", "Ellipse",
-        "Redact Text", "Redact Block",
+        "Redact Text", "Redact Block", "Find and Redact…",
         "Stamp…", "Signature / Image…", "Watermark…",
         "Crop Pages", "Remove Crop",
     ]

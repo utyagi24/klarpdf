@@ -361,8 +361,21 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   off Stamp ▾ (hidden until non-empty), making the second use **two clicks**, no dialog. Documented
   as ink-equivalent, **not** a cryptographic signature, in the dialog itself. — *Windows (headless +
   offscreen GUI)* — 21 new tests, 833 green
-- [ ] **M64** Search & redact — batched redactions, one undo step; M47 review panel + checkboxes; text-layer-only warnings — *WSL + WSLg*
-- [ ] **M65** Verify + release → tag — *Windows*
+- [x] **M64** Search & redact — **Tools ▸ Find and Redact…**: mark-all → review → redact-checked.
+  The dialog drives the **real** `SearchController`, so hits highlight on the page while they are
+  reviewed in **M47's results panel, now checkable** — a doubtful row can be clicked to jump to it
+  before deciding. Hits arrive **ticked but prunable** (the user asked for all of them, then
+  prunes), and **Match case** / **Whole words only** exclude the classic false positive wholesale:
+  MuPDF's `search_for` is always case-insensitive and always matches inside words, so both are
+  filters over its hits — case compares the text under the box, whole-word is a *geometric* test
+  that the touched words don't extend past the hit. **Nothing here is destructive**: checked hits
+  become ordinary `Redaction` descriptors (one per page, all in one macro → one undo step) that the
+  existing confirmed Save applies, so the app keeps exactly one destructive path. Honesty stated in
+  the dialog: text-layer only, **image-only pages are detected and named**, form-field values are
+  out of reach, and a box's width hints the removed string's length. — *Windows (headless +
+  offscreen GUI, incl. the cross-engine Poppler leak check)* — 23 new tests, 856 green
+- [ ] ~~**M65** Verify + release → tag~~ — **skipped by owner call (2026-07-20)**; R4's features
+  ship with the next published release. Work continues at **R5 (M66)**.
 
 **R5 — "Foreign Annotations & Form Fields"**
 
