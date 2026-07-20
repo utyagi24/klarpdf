@@ -243,6 +243,53 @@ def test_escape_cancels_an_in_flight_resize(win):
     assert _only(win, Shape).rect == pytest.approx((100, 100, 160, 140))   # nothing committed
 
 
+# ---- regression: a pasted object is selected, so its first resize works ------
+
+
+def _paste_of(win, mark):
+    """Copy ``mark`` to the object clipboard and paste it, as the UI does."""
+    win._app.object_clipboard = mark
+    win._paste_object()
+    return [a for a in win.vdoc.page_annotations(0) if isinstance(a, type(mark))][-1]
+
+
+def test_pasting_selects_the_pasted_object(win):
+    """Paste used to leave nothing selected, so no resize handles were up — the first drag on the
+    pasted mark grabbed its *body* and moved it, which read as "the resize didn't take effect".
+    (Reported for lines, where the endpoint you grab sits right on the body; shapes did it too.)"""
+    _add(win, Line((100.0, 400.0), (220.0, 400.0)))
+    pasted = _paste_of(win, _only(win, Line))
+    ov = win.view.annotations
+    assert ov.selected_objects == [(0, pasted)]
+    assert set(ov._handles._items) == {"p0", "p1"}      # endpoint handles are up immediately
+
+
+def test_first_resize_of_a_pasted_line_takes_effect(win):
+    _add(win, Line((100.0, 400.0), (220.0, 400.0)))
+    pasted = _paste_of(win, _only(win, Line))
+    ov = win.view.annotations
+    handle = ov.handle_at(_scene(win, *pasted.end))
+    assert handle == "p1"                                # a handle is there on the *first* try
+    assert ov.begin_resize(handle, _scene(win, *pasted.end)) is True
+    ov.update_resize(_scene(win, 320.0, 300.0))
+    ov.finish_resize()
+    lines = [a for a in win.vdoc.page_annotations(0) if isinstance(a, Line)]
+    assert lines[-1].end == pytest.approx((320, 300), abs=1.5)
+    assert win.undo_stack.undoText() == "Resize line"    # resized, not moved
+
+
+def test_first_resize_of_a_pasted_shape_takes_effect(win):
+    _add(win, Shape("rect", (100.0, 400.0, 160.0, 440.0)))
+    pasted = _paste_of(win, _only(win, Shape))
+    ov = win.view.annotations
+    handle = ov.handle_at(_scene(win, pasted.rect[2], pasted.rect[3]))
+    assert handle == "se"
+    assert ov.begin_resize(handle, _scene(win, pasted.rect[2], pasted.rect[3])) is True
+    ov.update_resize(_scene(win, 300.0, 500.0))
+    ov.finish_resize()
+    assert win.undo_stack.undoText() == "Resize shape"
+
+
 def test_a_no_op_resize_commits_nothing(win):
     _add(win, Shape("rect", (100.0, 100.0, 160.0, 140.0)))
     ov = win.view.annotations

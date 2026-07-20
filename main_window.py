@@ -675,6 +675,12 @@ class MainWindow(QMainWindow):
         ty = min(max(0.0, ty), max(0.0, ph - h))
         pasted = translate_mark(mark, tx - x0, ty - y0)
         self.undo_stack.push(AddAnnotationCommand(self.vdoc, page, pasted))
+        # Select what was just pasted, so it is immediately ready to restyle / move / delete — and
+        # so its resize handles are up (M59.7). Without this the first drag on a pasted mark lands
+        # on its body and *moves* it instead of resizing, which only *looks* like a broken resize.
+        # After the push, not before: the add reloads the view, which clears any selection.
+        if self.view.annotations is not None:
+            self.view.annotations.select_object(page, pasted)
 
     def _show_find(self) -> None:
         self.find_bar.show_bar()
