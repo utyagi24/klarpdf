@@ -1305,6 +1305,22 @@ class MainWindow(QMainWindow):
     def _redact_selection(self) -> None:
         self._apply_selection_bars(Redaction, "Redact selection")
 
+    def _delete_foreign_annotation(self, page_index: int, mark) -> None:
+        """Mark a foreign annotation for removal at save (M66) — undoable like any page edit.
+
+        Nothing is removed from the shared source: a :class:`ForeignDeletion` rides the PageRef and
+        is applied to the materialised copy, so undo restores the annotation exactly and every other
+        annotation on the page still passes through untouched.
+        """
+        from model.foreign_annots import ForeignDeletion
+
+        self._note_edit_on(page_index)
+        self.undo_stack.push(
+            AddAnnotationCommand(self.vdoc, page_index,
+                                 ForeignDeletion(mark.fingerprint, mark.label),
+                                 text=f"Delete {mark.label}")
+        )
+
     def _on_crop_dragged(self, page_index: int, rect: tuple) -> None:
         """An armed-CROP drag finished (M48): ask the scope, then crop as one undo step."""
         indices = self._ask_crop_scope(page_index)
@@ -1495,6 +1511,20 @@ class MainWindow(QMainWindow):
                 "Redaction": "Remove redaction",
             }.get(type(annot).__name__, "Remove annotation")
             menu.addAction(label, lambda: self.view.annotations.remove(page_index, annot))
+            return menu
+        # A **foreign** annotation — one another tool wrote (M66). Checked after our own marks, so
+        # an editable mark the user just placed wins over a foreign one it happens to sit on, and
+        # before the text-selection verbs, keeping the stated "most specific hit wins" rule.
+        foreign = (self.view.annotations.foreign_annotation_at(scene_pt)
+                   if self.view.annotations else None)
+        if foreign is not None:
+            page_index, mark = foreign
+            self.view.annotations.outline_foreign(page_index, mark)  # show what will be deleted
+            if mark.contents:
+                menu.addAction("Copy Comment Text",
+                               lambda: QGuiApplication.clipboard().setText(mark.contents))
+            menu.addAction(f"Delete {mark.label}",
+                           lambda: self._delete_foreign_annotation(page_index, mark))
             return menu
         # A live text selection → its verbs. Highlight/Redact Selection apply now to what is
         # selected — unlike the toolbar's armed one-shot tools, which select-then-apply.

@@ -148,6 +148,7 @@ class PyMuPDFEngine(EditEngine):
             # (apply_redactions rewrites the page and would otherwise strip overlapping annotations);
             # the non-destructive highlight/text-box overlays go on top afterwards.
             from model.content_marks import apply_content_marks
+            from model.foreign_annots import apply_foreign_deletions
             from model.page_edits import (
                 apply_annotations,
                 apply_redactions,
@@ -160,6 +161,12 @@ class PyMuPDFEngine(EditEngine):
                 if ref.crop_override is not None:
                     _apply_crop(out[i], ref.crop_override)  # set_cropbox takes unrotated coords
                 strip_klarpdf_annotations(out[i])
+                # Foreign-annotation deletions (M66) run next, while the copied annotations are
+                # still exactly as `insert_pdf` brought them across — fingerprints are computed
+                # against that state. Everything not named here passes through untouched, which is
+                # what keeps this zero-fidelity-risk for annotation types the model cannot draw.
+                if ref.annotations:
+                    apply_foreign_deletions(out[i], ref.annotations)
                 if ref.annotations:
                     apply_redactions(out[i], ref.annotations)
                     # R4 content marks sit between the two annotation passes: after redaction (which

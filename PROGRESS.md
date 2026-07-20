@@ -379,7 +379,21 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
 
 **R5 — "Foreign Annotations & Form Fields"**
 
-- [ ] **M66** ⭐ Foreign-annot infra + delete — selection overlay + fingerprint identity; every annot type; zero fidelity risk — *WSL + WSLg*
+- [x] **M66** ⭐ Foreign-annot infra + delete — `model/foreign_annots.py`, the shared machinery M67
+  and M68 consume. **Identity is the hard part**: an annotation's `xref` is renumbered by
+  `insert_pdf`, so a descriptor holding one would target the wrong annotation at materialise;
+  identity is instead the `/NM` name when the writing tool set one, else a hash of type + rect
+  (rounded — a PDF float round-trip is not bit-exact) + contents, with identical twins resolved
+  **positionally within the page**. `/NM` must be read from the **object dictionary** —
+  `annot.info["name"]` is always empty, a trap that silently disables the preferred path (pinned by
+  a test). First verb: **delete**, a `ForeignDeletion` riding the PageRef, applied to the
+  materialised copy — so undo restores it, the shared source is never touched, and it works for
+  **every** annotation type because it removes rather than rewrites. Fidelity is asserted on the
+  surviving annotations' dictionaries **and appearance-stream bytes** (indirect references
+  normalised — removing an object necessarily renumbers the rest). Viewer: hit-test + outline +
+  right-click **Delete** / **Copy Comment Text**; a pending deletion is dropped from a per-*ordered-
+  page* render copy, since a foreign mark lives in the page's own pixmap and no overlay can hide it.
+  — *Windows (headless + offscreen GUI)* — 30 new tests, 886 green
 - [ ] **M67** Move foreign marks — `/Rect` translation, appearance preserved verbatim — *WSL + WSLg*
 - [ ] **M68** Adopt-on-edit — modeled types only; degrade warning before simplifying — *WSL + WSLg*
 - [ ] **M69** Form-field creation — checkbox / text / dropdown via `add_widget` (radio rejected) — *WSL + WSLg*
