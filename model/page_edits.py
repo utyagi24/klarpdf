@@ -54,11 +54,31 @@ class FormField:
 
 
 def read_form_fields(vdoc) -> list[FormField]:
-    """Enumerate fillable widgets across the document's pages, in current page order."""
+    """Enumerate fillable widgets across the document's pages, in current page order.
+
+    Includes fields the user has **placed but not yet saved** (M69 :class:`~model.form_fields.
+    NewField`): they only become real widgets at materialise, but the whole point of the milestone is
+    that a placed field behaves like any other, so the inline filler has to see it straight away.
+    """
+    from model.form_fields import NewField, widget_type
+
     fields: list[FormField] = []
     for page_index in range(vdoc.page_count):
         ref = vdoc.ordered[page_index]
         page = vdoc.sources[ref.source_id][ref.source_page_index]
+        for mark in ref.annotations:
+            if isinstance(mark, NewField) and mark.name:
+                fields.append(
+                    FormField(
+                        name=mark.name,
+                        type=widget_type(mark.kind),
+                        type_string=mark.kind,
+                        page_index=page_index,
+                        rect=mark.rect,
+                        choices=mark.options or None,
+                        current_value=mark.value,
+                    )
+                )
         for widget in page.widgets() or []:
             if widget.field_type not in FILLABLE_TYPES or not widget.field_name:
                 continue
@@ -236,7 +256,7 @@ class Redaction:
 # the text under them; foreign annotations are excluded until M68. The R4 content marks (M61) join
 # the list: they are free-placed rects, so move / resize / copy come from the same primitives even
 # though they bake into page content rather than staying annotations.
-PLACEABLE_TYPES = ("TextBox", "InkStroke", "Line", "Shape", "Stamp", "ImageStamp")
+PLACEABLE_TYPES = ("TextBox", "InkStroke", "Line", "Shape", "Stamp", "ImageStamp", "NewField")
 
 
 def translate_mark(mark, dx: float, dy: float):
@@ -245,8 +265,9 @@ def translate_mark(mark, dx: float, dy: float):
     from dataclasses import replace
 
     from model.content_marks import CONTENT_MARK_TYPES
+    from model.form_fields import NewField
 
-    if isinstance(mark, (TextBox, Shape) + CONTENT_MARK_TYPES):
+    if isinstance(mark, (TextBox, Shape, NewField) + CONTENT_MARK_TYPES):
         x0, y0, x1, y1 = mark.rect
         return replace(mark, rect=(x0 + dx, y0 + dy, x1 + dx, y1 + dy))
     if isinstance(mark, Line):
@@ -456,11 +477,12 @@ def scale_mark(mark, sx: float, sy: float, ox: float, oy: float):
     from dataclasses import replace
 
     from model.content_marks import CONTENT_MARK_TYPES
+    from model.form_fields import NewField
 
     def point(x: float, y: float) -> tuple:
         return (ox + (x - ox) * sx, oy + (y - oy) * sy)
 
-    if isinstance(mark, (Shape,) + CONTENT_MARK_TYPES):
+    if isinstance(mark, (Shape, NewField) + CONTENT_MARK_TYPES):
         x0, y0, x1, y1 = mark.rect
         nx0, ny0 = point(x0, y0)
         nx1, ny1 = point(x1, y1)

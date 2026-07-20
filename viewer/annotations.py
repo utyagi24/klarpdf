@@ -246,6 +246,8 @@ class AnnotationOverlay:
         # placement drag to give it a rect. Cleared once placed, so a second drag needs a second
         # trip through the dialog — the same one-shot contract as every other armed tool.
         self.pending_content_mark = None
+        # The form field (M69) a properties dialog has composed, waiting for its box.
+        self.pending_field = None
         # The foreign annotation being dragged (M67), as (page_index, ForeignAnnot). It
         # reuses the move ghost/delta machinery but is not an editable object, so it never
         # enters `_selection`.
@@ -1505,8 +1507,8 @@ class AnnotationOverlay:
         self._draw_anchor = self._draw_end = (local.x(), local.y())
         self._draw_points = [self._draw_anchor]
         item = QGraphicsPathItem()
-        if tool.places_content:
-            # A stamp's live gesture is the *box*, drawn as a neutral dashed outline — the artwork
+        if tool.places_content or tool.places_field:
+            # A stamp's or field's live gesture is the *box*, drawn as a neutral dashed outline — the artwork
             # appears on commit. Re-rendering the stamp on every mouse-move would cost a PDF render
             # per pixel of drag to preview something the user is still sizing.
             item.setPen(QPen(QColor(0, 120, 215), 1, Qt.PenStyle.DashLine))
@@ -1601,13 +1603,18 @@ class AnnotationOverlay:
         dx, dy = abs(end[0] - anchor[0]), abs(end[1] - anchor[1])
         if dx < _MIN_DRAW and dy < _MIN_DRAW:
             return
-        if tool.places_content:
-            if self.pending_content_mark is None:
+        if tool.places_content or tool.places_field:
+            pending = (self.pending_content_mark if tool.places_content
+                       else self.pending_field)
+            if pending is None:
                 return
             rect = (min(anchor[0], end[0]), min(anchor[1], end[1]),
                     max(anchor[0], end[0]), max(anchor[1], end[1]))
-            self._on_add(page_index, replace(self.pending_content_mark, rect=rect))
-            self.pending_content_mark = None
+            self._on_add(page_index, replace(pending, rect=rect))
+            if tool.places_content:
+                self.pending_content_mark = None
+            else:
+                self.pending_field = None
             return
         if tool in (ArmedTool.LINE, ArmedTool.ARROW):
             self._on_add(page_index, Line(anchor, end, color=style.color, width=style.width,

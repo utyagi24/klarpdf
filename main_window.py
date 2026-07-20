@@ -73,6 +73,7 @@ from store.settings import Settings
 from ui import icons
 from util.paths import normalize_path
 from model.content_marks import ImageStamp, is_content_mark
+from model.form_fields import FIELD_KINDS, kind_label
 from viewer.annotations import AnnotationOverlay, mark_noun
 from viewer.form_fill import FormFiller
 from viewer.markup_style import (
@@ -454,6 +455,15 @@ class MainWindow(QMainWindow):
         a_watermark = act("Watermark…", self._add_watermark, icon="watermark", to_menu=tools_menu)
         a_watermark.setToolTip("Watermark — translucent text under the page content, across a range")
         self._stamp_actions = (a_stamp, a_signature, a_watermark)
+        tools_menu.addSeparator()
+        # Form fields (M69): compose, then drag the box — M62's placement gesture again. Menu-only;
+        # creating a field is a one-shot command, and §Design budgets keeps the toolbar to modes.
+        # Radio groups are deliberately absent (owner, 2026-07-18) — see PLAN.md §Future enhancements.
+        field_menu = tools_menu.addMenu("Add Form Field")
+        for kind in FIELD_KINDS:
+            field_menu.addAction(
+                f"{kind_label(kind)}…", lambda _checked=False, k=kind: self._add_form_field(k)
+            )
         tools_menu.addSeparator()
         # Crop (M48): menu-only (no free toolbar slot needed for a one-shot); same armed pattern.
         a_crop = act("Crop Pages", lambda: self._arm_tool(ArmedTool.CROP), to_menu=tools_menu)
@@ -1032,6 +1042,24 @@ class MainWindow(QMainWindow):
     def _clear_recent_signatures(self) -> None:
         self._settings.clear_recent_signatures()
         self._rebuild_signature_menu()
+
+    def _add_form_field(self, kind: str) -> None:
+        """Tools ▸ Add Form Field ▸ … — compose the field, then drag its box (M69).
+
+        The result is an ordinary AcroForm field at save, so filling, printing and flattening work
+        on it by construction rather than by anything written here.
+        """
+        from ui.field_dialog import FieldDialog
+
+        from model.page_edits import read_form_fields
+
+        existing = {field.name for field in read_form_fields(self.vdoc)}
+        dialog = FieldDialog(self, kind, existing)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        self.view.annotations.pending_field = dialog.field()
+        self.view.arm(ArmedTool.FIELD)
+        self._a_select.setChecked(True)
 
     def _add_watermark(self) -> None:
         """Tools ▸ Watermark… — compose and apply full-page across the range, no placement drag.

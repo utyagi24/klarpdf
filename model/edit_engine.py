@@ -176,6 +176,14 @@ class PyMuPDFEngine(EditEngine):
                     apply_content_marks(out[i], ref.annotations)
                     apply_annotations(out[i], ref.annotations)
 
+            # Create any new AcroForm fields (M69) **before** the fill pass, so a value typed into
+            # a field created in this same session lands on it like any other fill.
+            from model.form_fields import apply_new_fields
+
+            for i, ref in enumerate(vdoc.ordered):
+                if ref.annotations:
+                    apply_new_fields(out[i], ref.annotations)
+
             # Apply AcroForm fills onto the copied widgets (M14). Done here, on the output, so the
             # shared read-only sources are never touched.
             from model.page_edits import apply_form_values

@@ -48,6 +48,7 @@ class ArmedTool(Enum):
     RECT = "rect"
     ELLIPSE = "ellipse"
     STAMP = "stamp"     # M62 — drag the box a composed stamp / signature lands in
+    FIELD = "field"     # M69 — drag the box a new form field occupies
 
     @property
     def drags_text(self) -> bool:
@@ -72,9 +73,15 @@ class ArmedTool(Enum):
             ArmedTool.RECT,
             ArmedTool.ELLIPSE,
             ArmedTool.STAMP,
+            ArmedTool.FIELD,
         )
 
     @property
     def places_content(self) -> bool:
         """True for the tools that place a baked-at-save content mark rather than an annotation."""
         return self is ArmedTool.STAMP
+
+    @property
+    def places_field(self) -> bool:
+        """True for the form-field placement tool (M69), which reuses M62's drag-a-box gesture."""
+        return self is ArmedTool.FIELD
