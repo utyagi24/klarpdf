@@ -248,7 +248,7 @@ def test_escape_cancels_an_in_flight_resize(win):
 
 def _paste_of(win, mark):
     """Copy ``mark`` to the object clipboard and paste it, as the UI does."""
-    win._app.object_clipboard = mark
+    win._app.object_clipboard = [mark]
     win._paste_object()
     return [a for a in win.vdoc.page_annotations(0) if isinstance(a, type(mark))][-1]
 

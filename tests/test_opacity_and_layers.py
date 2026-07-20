@@ -95,7 +95,7 @@ def qapp():
 def app(qapp, tmp_path):
     qapp.settings = Settings(tmp_path / "vs.json")
     qapp.page_clipboard = []
-    qapp.object_clipboard = None
+    qapp.object_clipboard = []
     return qapp
 
 

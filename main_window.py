@@ -675,40 +675,70 @@ class MainWindow(QMainWindow):
             editor.paste()
         elif self.thumbs.hasFocus():
             self._paste_pages()
-        elif self._app.object_clipboard is not None:
+        elif self._app.object_clipboard:
             self._paste_object()
 
+    def _clipboard_target(self, hit=None):
+        """The ``(page_index, [marks])`` the object-clipboard verbs act on, else ``None`` (M59.12).
+
+        A **group** copies and cuts as a unit: if ``hit`` is part of the current multi-selection —
+        or no hit was given (the keyboard path) — the whole selection is the target, mirroring how
+        move / restyle / Delete already treat a group. A hit *outside* the selection targets just
+        that mark, which is what right-clicking an unselected mark means. A selection is always on
+        one page (M59.6), so a single page index covers the set.
+        """
+        selected = self.view.annotations.selected_objects if self.view.annotations else []
+        if hit is not None and not any(mark is hit[1] for _p, mark in selected):
+            return hit[0], [hit[1]]
+        if not selected:
+            return None
+        return selected[0][0], [mark for _p, mark in selected]
+
+    @staticmethod
+    def _object_label(verb: str, count: int) -> str:
+        """"Copy Object" / "Copy 3 Objects" — the menu never claims to act on more than it will."""
+        return f"{verb} Object" if count == 1 else f"{verb} {count} Objects"
+
     def _copy_object(self, hit=None) -> bool:
-        """Copy a free-placed mark (the given ``(page, mark)`` hit, else the selected object) onto
-        the app-wide object clipboard. A text box also lands on the system clipboard as plain
-        text. Returns True if something was copied."""
-        hit = hit or (self.view.annotations.selected_object if self.view.annotations else None)
-        if hit is None:
+        """Copy free-placed marks — the given ``(page, mark)`` hit, or the whole selected group —
+        onto the app-wide object clipboard. Any text boxes among them also land on the system
+        clipboard as plain text (joined, in selection order). Returns True if anything was copied."""
+        target = self._clipboard_target(hit)
+        if target is None:
             return False
-        _page_index, mark = hit
-        self._app.object_clipboard = mark
-        if isinstance(mark, TextBox):
-            QGuiApplication.clipboard().setText(mark.text)  # text/plain rides along
+        _page_index, marks = target
+        self._app.object_clipboard = list(marks)
+        texts = [mark.text for mark in marks if isinstance(mark, TextBox)]
+        if texts:
+            QGuiApplication.clipboard().setText("\n".join(texts))  # text/plain rides along
         return True
 
     def _cut_object(self, hit=None) -> None:
-        """Cut = copy + undoable remove."""
-        hit = hit or (self.view.annotations.selected_object if self.view.annotations else None)
-        if hit is not None and self._copy_object(hit):
-            page_index, mark = hit
-            self.view.annotations.clear_object_selection()
-            self._remove_annotation(page_index, mark)
+        """Cut = copy + undoable remove, the whole group in **one** undo step (M59.12)."""
+        target = self._clipboard_target(hit)
+        if target is None or not self._copy_object(hit):
+            return
+        page_index, marks = target
+        self.view.annotations.clear_object_selection()
+        self._remove_annotations_batch(page_index, marks, self._object_label("Cut", len(marks)))
 
     def _paste_object(self, page_index: int | None = None, at_point: tuple | None = None) -> None:
-        """Paste the object clipboard as one undoable add: at ``at_point`` (page coords — the
+        """Paste the object clipboard as **one** undoable step: at ``at_point`` (page coords — the
         context menu's click spot, centred there), else onto the current page with a small offset
-        from the original position. Either way the mark's bounds are clamped to the target page
-        (rect-clamp across page sizes), so a paste can never land off-page."""
-        mark = self._app.object_clipboard
-        if mark is None or self.vdoc.page_count == 0:
+        from the original position.
+
+        A group pastes as a group (M59.12): the offset/centring/clamping is computed once from the
+        set's **union bounds** and the same delta is applied to every mark, so the arrangement is
+        preserved exactly — the same bounding-box principle as the M59.7 group resize. Clamping the
+        union (not each mark) is what stops a group from collapsing onto itself near a page edge.
+        """
+        marks = self._app.object_clipboard
+        if not marks or self.vdoc.page_count == 0:
             return
         page = self.view.current_page if page_index is None else page_index
-        x0, y0, x1, y1 = mark_bounds(mark)
+        boxes = [mark_bounds(mark) for mark in marks]
+        x0, y0 = min(b[0] for b in boxes), min(b[1] for b in boxes)
+        x1, y1 = max(b[2] for b in boxes), max(b[3] for b in boxes)
         w, h = x1 - x0, y1 - y0
         if at_point is not None:
             tx, ty = at_point[0] - w / 2.0, at_point[1] - h / 2.0  # centred on the click
@@ -717,15 +747,22 @@ class MainWindow(QMainWindow):
         _fx, _fy, pw, ph = self.vdoc.page_base_rect(page)
         tx = min(max(0.0, tx), max(0.0, pw - w))
         ty = min(max(0.0, ty), max(0.0, ph - h))
-        pasted = translate_mark(mark, tx - x0, ty - y0)
+        dx, dy = tx - x0, ty - y0                      # one delta for the set → arrangement kept
+        pasted = [translate_mark(mark, dx, dy) for mark in marks]
         self._note_edit_on(page)
-        self.undo_stack.push(AddAnnotationCommand(self.vdoc, page, pasted))
+        if len(pasted) == 1:
+            self.undo_stack.push(AddAnnotationCommand(self.vdoc, page, pasted[0]))
+        else:
+            self.undo_stack.beginMacro(self._object_label("Paste", len(pasted)))
+            for mark in pasted:
+                self.undo_stack.push(AddAnnotationCommand(self.vdoc, page, mark))
+            self.undo_stack.endMacro()
         # Select what was just pasted, so it is immediately ready to restyle / move / delete — and
         # so its resize handles are up (M59.7). Without this the first drag on a pasted mark lands
         # on its body and *moves* it instead of resizing, which only *looks* like a broken resize.
         # After the push, not before: the add reloads the view, which clears any selection.
         if self.view.annotations is not None:
-            self.view.annotations.select_object(page, pasted)
+            self.view.annotations.select_objects(page, pasted)
 
     def _show_find(self) -> None:
         self.find_bar.show_bar()
@@ -1222,8 +1259,12 @@ class MainWindow(QMainWindow):
                     mark is annot for _p, mark in self.view.annotations.selected_objects
                 ):
                     self.view.annotations.select_object(page_index, annot)
-                menu.addAction("Copy Object", lambda: self._copy_object(hit))
-                menu.addAction("Cut Object", lambda: self._cut_object(hit))
+                # Copy/Cut act on the whole group when the clicked mark is part of it (M59.12),
+                # so the labels count what will actually move.
+                target = self._clipboard_target(hit)
+                n = len(target[1]) if target else 1
+                menu.addAction(self._object_label("Copy", n), lambda: self._copy_object(hit))
+                menu.addAction(self._object_label("Cut", n), lambda: self._cut_object(hit))
                 menu.addSeparator()
                 # Z-order (M59.8) — the shared window actions, so their shortcuts show here (this
                 # menu is their discovery path). Each is disabled at the end it's already at, so
@@ -1277,10 +1318,10 @@ class MainWindow(QMainWindow):
         if page_hit[0] is not None:
             page_index, local = page_hit
             a_paste_obj = menu.addAction(
-                "Paste Object",
+                self._object_label("Paste", max(1, len(self._app.object_clipboard))),
                 lambda: self._paste_object(page_index, (local.x(), local.y())),
             )
-            a_paste_obj.setEnabled(self._app.object_clipboard is not None)
+            a_paste_obj.setEnabled(bool(self._app.object_clipboard))
             menu.addSeparator()
         for action in (self._a_fitw, self._a_fitp, self._a_actual):
             menu.addAction(action)
