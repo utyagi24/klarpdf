@@ -105,6 +105,22 @@ class Highlight:
 
 
 @dataclass(frozen=True)
+class Underline:
+    """A text underline over one or more line bars (M56 — same text-quad path as Highlight)."""
+
+    rects: tuple[tuple[float, float, float, float], ...]
+    color: tuple[float, float, float] = (0.86, 0.10, 0.10)  # redline red
+
+
+@dataclass(frozen=True)
+class Strikeout:
+    """A text strike-through over one or more line bars (M56 — the Highlight quad path)."""
+
+    rects: tuple[tuple[float, float, float, float], ...]
+    color: tuple[float, float, float] = (0.86, 0.10, 0.10)
+
+
+@dataclass(frozen=True)
 class TextBox:
     """A free-text note box, with optional styling baked at materialise (M27 — styled text boxes).
 
@@ -162,6 +178,16 @@ def apply_annotations(page: fitz.Page, annotations: tuple) -> None:
     for annotation in annotations:
         if isinstance(annotation, Highlight):
             annot = page.add_highlight_annot([fitz.Rect(r) for r in annotation.rects])
+            annot.set_colors(stroke=annotation.color)
+            annot.set_info(title=KLARPDF_AUTHOR)
+            annot.update()
+        elif isinstance(annotation, (Underline, Strikeout)):
+            add = (
+                page.add_underline_annot
+                if isinstance(annotation, Underline)
+                else page.add_strikeout_annot
+            )
+            annot = add([fitz.Rect(r) for r in annotation.rects])
             annot.set_colors(stroke=annotation.color)
             annot.set_info(title=KLARPDF_AUTHOR)
             annot.update()
@@ -276,6 +302,11 @@ def read_klarpdf_annotations(page: fitz.Page) -> tuple:
             stroke = annot.colors.get("stroke")
             color = tuple(stroke) if stroke else Highlight.color
             result.append(Highlight(_quads_to_rects(annot.vertices), color=color))
+        elif kind in (fitz.PDF_ANNOT_UNDERLINE, fitz.PDF_ANNOT_STRIKE_OUT):
+            cls = Underline if kind == fitz.PDF_ANNOT_UNDERLINE else Strikeout
+            stroke = annot.colors.get("stroke")
+            color = tuple(stroke) if stroke else cls.color
+            result.append(cls(_quads_to_rects(annot.vertices), color=color))
         elif kind == fitz.PDF_ANNOT_FREE_TEXT:
             # PyMuPDF grows a FreeText /Rect by border_width/2 on each side when it bakes the
             # outline (RD stays zero), so inset by that to recover the authored box — otherwise the

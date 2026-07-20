@@ -27,7 +27,7 @@ from PySide6.QtCore import QRect, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QFontMetricsF, QPen, QTransform
 from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsSimpleTextItem, QPlainTextEdit
 
-from model.page_edits import Highlight, Redaction, TextBox
+from model.page_edits import Highlight, Redaction, Strikeout, TextBox, Underline
 from viewer.text_format_bar import TextBoxStyle, TextFormatBar, qt_font
 
 _TEXTBOX_DEFAULT = (200.0, 56.0)  # starting size for a new box, in page points (then auto-grows)
@@ -106,10 +106,32 @@ class AnnotationOverlay:
                         item.setZValue(6)
                         scene.addItem(item)
                         self._items.append(item)
+                elif isinstance(annot, (Underline, Strikeout)):
+                    self._paint_text_line(scene, page_index, annot)
                 elif isinstance(annot, TextBox):
                     self._paint_textbox(scene, page_index, annot)
                 elif isinstance(annot, Redaction):
                     self._paint_redaction(scene, page_index, annot)
+
+    def _paint_text_line(self, scene, page_index: int, annot) -> None:
+        """Underline / strikeout preview (M56): an opaque thin bar per line rect — along the
+        bottom for an underline, through the vertical middle for a strikeout — matching where
+        MuPDF draws the baked annotation, so the preview is WYSIWYG with the saved page."""
+        colour = QColor.fromRgbF(*annot.color)
+        for box in annot.rects:
+            x0, y0, x1, y1 = box
+            thickness = max(0.9, (y1 - y0) * 0.06)  # ~MuPDF's stroke share of the line height
+            if isinstance(annot, Underline):
+                bar = (x0, y1 - thickness, x1, y1)
+            else:
+                mid = (y0 + y1) / 2.0
+                bar = (x0, mid - thickness / 2.0, x1, mid + thickness / 2.0)
+            item = QGraphicsRectItem(self._view.scene_rect_for_box(page_index, bar))
+            item.setBrush(QBrush(colour))
+            item.setPen(QColor(0, 0, 0, 0))
+            item.setZValue(6)
+            scene.addItem(item)
+            self._items.append(item)
 
     def _paint_redaction(self, scene, page_index: int, annot: Redaction) -> None:
         # WYSIWYG: the opaque fill boxes are exactly what bakes into the output at save. A thin red

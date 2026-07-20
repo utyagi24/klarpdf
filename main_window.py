@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QTabWidget,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -46,7 +47,7 @@ from model.edit_commands import (
     SetFieldValueCommand,
     SetMetadataCommand,
 )
-from model.page_edits import Highlight, Redaction
+from model.page_edits import Highlight, Redaction, Strikeout, Underline
 from model.edit_engine import PyMuPDFEngine
 from model.virtual_document import IMAGE_EXTENSIONS, PageRef, VirtualDocument
 from organize.thumbnail_panel import ThumbnailPanel
@@ -352,6 +353,12 @@ class MainWindow(QMainWindow):
         a_textbox.setToolTip("Add Text Box — click a spot, then type (drag to move, double-click to edit)")
         a_highlight = act("Highlight", lambda: self._arm_tool(ArmedTool.HIGHLIGHT), "Ctrl+H", icon="highlight", to_menu=tools_menu)
         a_highlight.setToolTip("Highlight — drag over text to highlight it")
+        # Underline / strikeout (M56): the same drag-over-text gesture and line-bar path as
+        # Highlight; the three markup verbs share one toolbar slot (the Markup ▾ split-button).
+        a_underline = act("Underline", lambda: self._arm_tool(ArmedTool.UNDERLINE), "Ctrl+U", icon="underline", to_menu=tools_menu)
+        a_underline.setToolTip("Underline — drag over text to underline it")
+        a_strikeout = act("Strike Out", lambda: self._arm_tool(ArmedTool.STRIKEOUT), icon="strikeout", to_menu=tools_menu)
+        a_strikeout.setToolTip("Strike Out — drag over text to strike it through")
         a_redact_text = act("Redact Text", lambda: self._arm_tool(ArmedTool.REDACT_TEXT), "Ctrl+Shift+R", icon="redact-text", to_menu=tools_menu)
         a_redact_text.setToolTip("Redact Text — drag over text to permanently remove it at save")
         a_redact_block = act("Redact Block", lambda: self._arm_tool(ArmedTool.REDACT_REGION), icon="redact", to_menu=tools_menu)
@@ -364,12 +371,27 @@ class MainWindow(QMainWindow):
         self._armed_actions = {
             ArmedTool.TEXTBOX: a_textbox,
             ArmedTool.HIGHLIGHT: a_highlight,
+            ArmedTool.UNDERLINE: a_underline,
+            ArmedTool.STRIKEOUT: a_strikeout,
             ArmedTool.REDACT_TEXT: a_redact_text,
             ArmedTool.REDACT_REGION: a_redact_block,
             ArmedTool.CROP: a_crop,
         }
         for a in self._armed_actions.values():
             a.setCheckable(True)
+
+        # Markup ▾ split-button (M56; PLAN.md §Design budgets — grouped split-buttons keep the
+        # toolbar at ~10 slots): one slot holds the three markup verbs. The face is the last-used
+        # tool (clicking it arms that tool again); the arrow opens the trio. The same QActions as
+        # the Tools menu, so shortcuts / checked-state stay single-sourced.
+        self._markup_button = QToolButton()
+        self._markup_button.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        markup_menu = QMenu(self._markup_button)
+        for a in (a_highlight, a_underline, a_strikeout):
+            markup_menu.addAction(a)
+        self._markup_button.setMenu(markup_menu)
+        self._markup_button.setDefaultAction(a_highlight)
+        markup_menu.triggered.connect(self._markup_button.setDefaultAction)  # sticky last-used
         # Night reading mode (M49): view-only page inversion, independent of the OS theme the
         # chrome follows. Remembered app-wide, like the sidebar choice; the file, print, export,
         # and thumbnails stay daylight — only what the eyes read at night inverts.
@@ -417,7 +439,7 @@ class MainWindow(QMainWindow):
             [a_zout, self.zoom_widget, a_zin, a_fitw, a_fitp],
             [undo, redo],
             [a_cut, a_copy_pg, a_paste, a_delete, a_insert],
-            [a_textbox, a_highlight, a_redact_text, a_redact_block],
+            [a_textbox, self._markup_button, a_redact_text, a_redact_block],
             [a_rotl, a_rotr],
             [a_find],
         )
@@ -650,10 +672,14 @@ class MainWindow(QMainWindow):
 
     def _apply_text_tool(self, tool) -> None:
         """A drag-over-text armed tool was released on a selection → apply it (one undo)."""
-        if tool is ArmedTool.HIGHLIGHT:
-            self._highlight_selection()
-        elif tool is ArmedTool.REDACT_TEXT:
-            self._redact_selection()
+        handler = {
+            ArmedTool.HIGHLIGHT: self._highlight_selection,
+            ArmedTool.UNDERLINE: self._underline_selection,
+            ArmedTool.STRIKEOUT: self._strikeout_selection,
+            ArmedTool.REDACT_TEXT: self._redact_selection,
+        }.get(tool)
+        if handler is not None:
+            handler()
 
     def _add_annotation(self, index: int, annotation) -> None:
         """Add an annotation to a page (from the text-box / redact tools) as an undoable command."""
@@ -691,27 +717,30 @@ class MainWindow(QMainWindow):
             by_page.setdefault(page_index, []).append(tuple(rect))
         return by_page
 
-    def _highlight_selection(self) -> None:
-        """Highlight the current text selection — one continuous bar per line (per page, one undo)."""
+    def _apply_selection_bars(self, make, label: str) -> None:
+        """Apply a line-bar mark to the current text selection — one continuous bar per line, one
+        undo step across the touched pages. ``make(rects)`` builds the descriptor; shared by
+        highlight / underline / strikeout / text-redaction so all four behave identically."""
         by_page = self._selection_line_bars()
         if not by_page:
             return
-        self.view.selection.clear()  # so the yellow bar shows, not the blue selection over it
-        self.undo_stack.beginMacro("Highlight")
+        self.view.selection.clear()  # so the mark shows, not the blue selection over it
+        self.undo_stack.beginMacro(label)
         for page_index, rects in by_page.items():
-            self.undo_stack.push(AddAnnotationCommand(self.vdoc, page_index, Highlight(tuple(rects))))
+            self.undo_stack.push(AddAnnotationCommand(self.vdoc, page_index, make(tuple(rects))))
         self.undo_stack.endMacro()
 
+    def _highlight_selection(self) -> None:
+        self._apply_selection_bars(Highlight, "Highlight")
+
+    def _underline_selection(self) -> None:
+        self._apply_selection_bars(Underline, "Underline")
+
+    def _strikeout_selection(self) -> None:
+        self._apply_selection_bars(Strikeout, "Strike out")
+
     def _redact_selection(self) -> None:
-        """Redact the current text selection — one continuous bar per line (per page, one undo)."""
-        by_page = self._selection_line_bars()
-        if not by_page:
-            return
-        self.view.selection.clear()
-        self.undo_stack.beginMacro("Redact selection")
-        for page_index, rects in by_page.items():
-            self.undo_stack.push(AddAnnotationCommand(self.vdoc, page_index, Redaction(tuple(rects))))
-        self.undo_stack.endMacro()
+        self._apply_selection_bars(Redaction, "Redact selection")
 
     def _on_crop_dragged(self, page_index: int, rect: tuple) -> None:
         """An armed-CROP drag finished (M48): ask the scope, then crop as one undo step."""
@@ -865,6 +894,8 @@ class MainWindow(QMainWindow):
             page_index, annot = hit
             label = {
                 "Highlight": "Remove highlight",
+                "Underline": "Remove underline",
+                "Strikeout": "Remove strikeout",
                 "TextBox": "Remove text box",
                 "Redaction": "Remove redaction",
             }.get(type(annot).__name__, "Remove annotation")
@@ -876,6 +907,8 @@ class MainWindow(QMainWindow):
             menu.addAction(self._a_copy_text)
             menu.addSeparator()
             menu.addAction("Highlight Selection", self._highlight_selection)
+            menu.addAction("Underline Selection", self._underline_selection)
+            menu.addAction("Strike Out Selection", self._strikeout_selection)
             menu.addAction("Redact Selection", self._redact_selection)
             return menu
         if self.view.links is not None:

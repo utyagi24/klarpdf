@@ -95,7 +95,8 @@ def test_selection_menu_offers_copy_highlight_redact(app, menu_pdf):
     win = _win(app, menu_pdf)
     assert win.view.selection.select_word_at(_word_center(win)) is True
     menu = win._view_context_menu(_bare_point(win))  # anywhere: the selection owns the menu
-    assert _titles(menu) == ["Copy", "Highlight Selection", "Redact Selection"]
+    assert _titles(menu) == ["Copy", "Highlight Selection", "Underline Selection",
+                             "Strike Out Selection", "Redact Selection"]
     assert menu.actions()[0] is win._a_copy_text  # the real Copy action, shortcut and all
 
 
