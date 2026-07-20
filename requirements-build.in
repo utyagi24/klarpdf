@@ -1,6 +1,9 @@
 # Build-time toolchain for the frozen Windows ship build. Compiled (WITH hashes) to
 # requirements-build-win.txt:
-#   pip-compile --generate-hashes requirements-build.in -o requirements-build-win.txt
+#   pip-compile --generate-hashes --allow-unsafe -o requirements-build-win.txt requirements-build.in
+# --allow-unsafe is required: PyInstaller pulls in setuptools, which pip-compile classes as "unsafe"
+# and would otherwise leave unpinned. To move a transitive pin (e.g. for an advisory), add
+# --upgrade-package <name> — a plain re-compile keeps whatever the lock already pins (RELEASE.md §1).
 # Installed into the clean build venv alongside requirements-win.txt so PyInstaller runs offline from
 # vendor/wheels. PyInstaller is build-only — it is never bundled into the app. Inno Setup is a
 # separate native tool (not a wheel); its version is pinned in DEPENDENCIES.md.

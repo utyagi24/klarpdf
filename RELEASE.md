@@ -77,6 +77,13 @@ because the ship/build locks carry `win_amd64` hashes.
    `--require-hashes` isn't shareable across platforms, which is why the dev lock is version-only
    (see `DEPENDENCIES.md`).
 
+   > **A plain re-compile does NOT upgrade anything.** `pip-compile` reuses the pins already in the
+   > output file whenever they still satisfy the `.in` constraints — so re-running it against an
+   > unchanged `.in` is a no-op, even when the pinned version is the one an advisory names. To move
+   > a pin you must ask: `--upgrade-package <name>` (targeted, preferred) or `--upgrade` (every pin
+   > — a much larger diff to review). This bit us on **PYSEC-2026-3447** (setuptools 82.0.1 → 83.0.0,
+   > a *transitive* pin of PyInstaller): the first recompile silently reproduced 82.0.1.
+
 3. **Re-vendor wheels + regenerate the sources record** — needed for the offline build /
    clean-machine test (the online CI build re-fetches on its own). `vendor/wheels-sources.md` is
    **generated, never hand-edited** — `vendor/gen-sources.py` writes it from a pip `--report` JSON:
@@ -115,6 +122,14 @@ tells you *what* and *how severe*, and you do the bump yourself.
 2. **Bump it via §1** — edit the `.in` floor to the patched version, recompile the affected lock(s)
    on Windows, re-vendor. (Pure-Python vs native doesn't change the steps; recompiling on Windows
    yields the correct `win_amd64` hashes either way.)
+
+   **If the package is not in any `.in`** it is a *transitive* pin (e.g. `setuptools`, pulled in by
+   PyInstaller and written under "considered to be unsafe"). There is no floor to edit — move it
+   with `--upgrade-package <name>` on the lock that carries it, and check the resulting diff touches
+   only that package. Re-vendoring is **ship-lock only**: `vendor/wheels-sources.md` is generated
+   from `requirements-win.txt`, so a *build*-lock change leaves it unchanged (`build.ps1` fetches
+   the build lock's wheels itself). A build-only package also means the **shipped exe is
+   unaffected** — confirm with a quick search of `dist/klarpdf` before deciding a release is needed.
 
 3. **Clean the audit gate** — if the advisory was being carried as track-only, remove its
    `--ignore-vuln <GHSA-id>` from `.github/workflows/audit.yml` **and** `tools/audit-deps.ps1`, and
