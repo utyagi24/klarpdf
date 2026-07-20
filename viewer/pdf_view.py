@@ -21,6 +21,7 @@ from PySide6.QtGui import QBrush, QColor, QImage, QPen, QPixmap, QTransform
 from PySide6.QtWidgets import QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsScene, QGraphicsView
 
 from model.virtual_document import VirtualDocument
+from viewer.resize_handles import cursor_for
 from viewer.tools import ArmedTool, InteractionMode
 
 _PAGE_GAP = 14          # px between pages in the strip
@@ -341,6 +342,13 @@ class PdfView(QGraphicsView):
                 self.selection.begin(scene_pt)  # drag over text; applied (highlight/redact) on release
                 event.accept()
                 return
+            # A press on a resize handle wins over everything below (it's the most specific
+            # target) — in any mode, since the handles only exist while something is selected.
+            if self.annotations is not None:
+                handle = self.annotations.handle_at(scene_pt)
+                if handle is not None and self.annotations.begin_resize(handle, scene_pt):
+                    event.accept()
+                    return
             if self._mode == InteractionMode.OBJECT and self.annotations is not None:
                 # Object mode (M59.6): Ctrl toggles a mark in/out of the group (or additively
                 # marquees empty space); a plain press moves the hit mark / group, or marquees.
@@ -415,6 +423,10 @@ class PdfView(QGraphicsView):
             self.annotations.update_draw(scene_pt, event.modifiers())  # Shift constrains
             event.accept()
             return
+        if self.annotations is not None and self.annotations.resizing:
+            self.annotations.update_resize(scene_pt, event.modifiers())  # Shift keeps proportions
+            event.accept()
+            return
         if self.annotations is not None and self.annotations.moving:
             self.annotations.update_move(scene_pt)
             event.accept()
@@ -449,6 +461,10 @@ class PdfView(QGraphicsView):
                 self.disarm()  # one-shot: revert to SELECT after the gesture commits
             event.accept()
             return
+        if self.annotations is not None and self.annotations.resizing:
+            self.annotations.finish_resize()
+            event.accept()
+            return
         if self.annotations is not None and self.annotations.moving:
             self.annotations.finish_move()
             event.accept()
@@ -472,6 +488,11 @@ class PdfView(QGraphicsView):
     def keyPressEvent(self, event) -> None:
         # Esc cancels an armed one-shot tool (back to plain Select) — else a lingering object
         # selection (M59). Delete/Backspace removes the selected object (undoable).
+        if event.key() == Qt.Key.Key_Escape and self.annotations is not None \
+                and self.annotations.resizing:
+            self.annotations.cancel_resize()   # drop an in-flight resize before anything else
+            event.accept()
+            return
         if event.key() == Qt.Key.Key_Escape and self._armed is not None:
             self.disarm()
             event.accept()
@@ -498,6 +519,11 @@ class PdfView(QGraphicsView):
         if self.annotations is not None and getattr(self.annotations, "editing", False):
             self.viewport().setCursor(Qt.CursorShape.ArrowCursor)
             return
+        if self.annotations is not None:                      # a resize handle names its own cursor
+            handle = self.annotations.handle_at(scene_pt)
+            if handle is not None:
+                self.viewport().setCursor(cursor_for(handle))
+                return
         if self._mode == InteractionMode.SELECT and self.links is not None \
                 and self.links.link_at(scene_pt) is not None:
             self.viewport().setCursor(Qt.CursorShape.PointingHandCursor)

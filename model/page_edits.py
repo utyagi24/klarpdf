@@ -252,6 +252,37 @@ def mark_bounds(mark) -> tuple:
     return mark.rect if isinstance(mark, TextBox) else mark.bounding_rect()
 
 
+def scale_mark(mark, sx: float, sy: float, ox: float, oy: float):
+    """A mark scaled by ``(sx, sy)`` about the origin ``(ox, oy)`` — the M59.7 resize primitive,
+    the geometry twin of :func:`translate_mark`. Frozen value objects in, new ones out.
+
+    A :class:`TextBox` is **repositioned, not resized**: its top-left scales with the group so it
+    travels along, but its box keeps its size — a text box hugs its text, so its dimensions are
+    really a function of the text + font size (owned by the format bar), and stretching the box
+    alone would just detach it from its content. Anything else unrecognised returns ``None``.
+    """
+    from dataclasses import replace
+
+    def point(x: float, y: float) -> tuple:
+        return (ox + (x - ox) * sx, oy + (y - oy) * sy)
+
+    if isinstance(mark, Shape):
+        x0, y0, x1, y1 = mark.rect
+        nx0, ny0 = point(x0, y0)
+        nx1, ny1 = point(x1, y1)
+        return replace(mark, rect=(min(nx0, nx1), min(ny0, ny1), max(nx0, nx1), max(ny0, ny1)))
+    if isinstance(mark, Line):
+        return replace(mark, start=point(*mark.start), end=point(*mark.end))
+    if isinstance(mark, InkStroke):
+        return replace(mark, paths=tuple(tuple(point(x, y) for x, y in path)
+                                         for path in mark.paths))
+    if isinstance(mark, TextBox):
+        x0, y0, x1, y1 = mark.rect
+        nx0, ny0 = point(x0, y0)                      # move with the group, keep the box's size
+        return replace(mark, rect=(nx0, ny0, nx0 + (x1 - x0), ny0 + (y1 - y0)))
+    return None
+
+
 def restyle_mark(mark, color: tuple, width: float, fill_color: tuple | None):
     """A drawn mark re-coloured / re-widthed (and, for shapes, re-filled) in place — the M59.5
     "restyle the selected object" primitive, the style twin of :func:`translate_mark`. Only the

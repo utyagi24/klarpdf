@@ -35,6 +35,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QGraphicsEllipseItem,
+    QGraphicsLineItem,
     QGraphicsPathItem,
     QGraphicsRectItem,
     QGraphicsSimpleTextItem,
@@ -52,9 +53,11 @@ from model.page_edits import (
     Underline,
     mark_bounds,
     restyle_mark,
+    scale_mark,
     translate_mark,
 )
 from viewer.markup_style import MarkupStyle
+from viewer.resize_handles import ResizeHandles, resized_rect
 from viewer.tools import ArmedTool
 from viewer.text_format_bar import TextBoxStyle, TextFormatBar, qt_font
 
@@ -181,6 +184,18 @@ class AnnotationOverlay:
         self._marquee_page = 0
         self._marquee_anchor = None
         self._marquee_add = False
+        # Resize (M59.7): the handles around the selection, plus the in-flight drag — which handle,
+        # the grab anchor, the marks being resized, the original + live bounds, and a ghost preview.
+        # ``_resize_line`` is set when a lone Line is being re-aimed by an endpoint instead.
+        self._handles = ResizeHandles(view)
+        self._resize_handle: str | None = None
+        self._resize_page = 0
+        self._resize_anchor_local = None
+        self._resize_marks: list = []
+        self._resize_orig: tuple = (0.0, 0.0, 0.0, 0.0)
+        self._resize_rect: tuple = (0.0, 0.0, 0.0, 0.0)
+        self._resize_line = None            # (Line, moved_end) while dragging a line endpoint
+        self._resize_ghost = None
 
     # ---- preview painting -------------------------------------------------------
 
@@ -201,6 +216,7 @@ class AnnotationOverlay:
         # scene, and the marks themselves may be gone) — selection never survives a repaint.
         self._selection = []
         self._selection_items = []
+        self._handles.hide()
         if self._view.rotation != 0:
             return
         scene = self._view.scene()
@@ -734,8 +750,37 @@ class AnnotationOverlay:
         self._selection = list(entries)
         for page_index, mark in self._selection:
             self._selection_items.append(self._outline_for(page_index, mark))
+        self._refresh_handles()
         if self._on_select is not None:
             self._on_select(self._selection[0][1] if len(self._selection) == 1 else None)
+
+    def selection_bounds(self) -> tuple:
+        """The union bounds of the selection, in unrotated page points."""
+        boxes = [mark_bounds(mark) for _p, mark in self._selection]
+        return (min(b[0] for b in boxes), min(b[1] for b in boxes),
+                max(b[2] for b in boxes), max(b[3] for b in boxes))
+
+    def _refresh_handles(self) -> None:
+        """Put resize handles on the selection (M59.7): a lone **line** gets endpoint handles (its
+        box is degenerate when axis-aligned, and you re-aim a line by its ends); a lone **text box**
+        gets none (its size is font-driven — the format bar owns it); everything else, including any
+        group, gets the eight-handle box around the selection's bounds."""
+        self._handles.hide()
+        if not self._selection:
+            return
+        page_index = self._selection[0][0]
+        marks = [mark for _p, mark in self._selection]
+        if len(marks) == 1:
+            if isinstance(marks[0], Line):
+                self._handles.show_points(page_index, {"p0": marks[0].start, "p1": marks[0].end})
+                return
+            if isinstance(marks[0], TextBox):
+                return
+        self._handles.show_box(page_index, self.selection_bounds())
+
+    def handle_at(self, scene_pt) -> "str | None":
+        """The resize handle under ``scene_pt``, else None — checked before move / marquee."""
+        return self._handles.handle_at(scene_pt)
 
     def select_object(self, page_index: int, mark) -> None:
         """Select a single free-placed mark, replacing any prior selection."""
@@ -788,6 +833,7 @@ class AnnotationOverlay:
 
     def clear_object_selection(self) -> None:
         self._clear_selection_items()
+        self._handles.hide()
         self._selection = []
 
     def remove_selected_objects(self) -> bool:
@@ -959,6 +1005,132 @@ class AnnotationOverlay:
             return
         box = self._view.local_box_from_scene_rect(self._marquee_page, scene_rect)
         self.select_in_rect(self._marquee_page, box, add=add)
+
+    # ---- resize (M59.7): drag a handle to scale the selection --------------------
+
+    @property
+    def resizing(self) -> bool:
+        """True while a resize-handle drag is in progress."""
+        return self._resize_handle is not None
+
+    def begin_resize(self, handle: str, scene_pt) -> bool:
+        """Press on a resize handle → start the drag, with a dashed ghost of the result. A lone
+        line's ``p0``/``p1`` handles re-aim that endpoint; every other handle scales the selection's
+        bounding box. Returns True if it took the press."""
+        if self._view.rotation != 0 or not self._selection:
+            return False
+        page_index = self._selection[0][0]
+        marks = [mark for _p, mark in self._selection]
+        self._resize_handle = handle
+        self._resize_page = page_index
+        self._resize_anchor_local = self._view.local_point_on_page(page_index, scene_pt)
+        self._resize_marks = marks
+        self._resize_line = None
+        if handle in ("p0", "p1") and len(marks) == 1 and isinstance(marks[0], Line):
+            line = marks[0]
+            self._resize_line = (line, handle)
+            # For a line the live geometry is the segment itself, kept as (sx, sy, ex, ey).
+            self._resize_rect = (line.start[0], line.start[1], line.end[0], line.end[1])
+            ghost = QGraphicsLineItem(*self._resize_rect)
+            ghost.setPen(QPen(QColor(0, 120, 215), 1, Qt.PenStyle.DashLine))
+        else:
+            self._resize_orig = self._resize_rect = self.selection_bounds()
+            x0, y0, x1, y1 = self._resize_orig
+            ghost = QGraphicsRectItem(QRectF(x0, y0, x1 - x0, y1 - y0))
+            ghost.setBrush(QColor(0, 120, 215, 40))
+            ghost.setPen(QPen(QColor(0, 120, 215), 1, Qt.PenStyle.DashLine))
+        ghost.setTransform(self._view.page_transform(page_index))
+        ghost.setZValue(12)
+        self._view.scene().addItem(ghost)
+        self._resize_ghost = ghost
+        return True
+
+    def update_resize(self, scene_pt, modifiers=None) -> None:
+        """Track the drag: Shift keeps a corner drag proportional. The result is clamped to the
+        page, so a resize never pushes a mark off it."""
+        if self._resize_handle is None:
+            return
+        if modifiers is None:
+            modifiers = QGuiApplication.keyboardModifiers()
+        page_index = self._resize_page
+        local = self._view.local_point_on_page(page_index, scene_pt)
+        pw, ph = self._view._unrotated_size(page_index)
+        x = min(max(0.0, local.x()), pw)
+        y = min(max(0.0, local.y()), ph)
+        if self._resize_line is not None:
+            line, which = self._resize_line
+            self._resize_rect = ((x, y, line.end[0], line.end[1]) if which == "p0"
+                                 else (line.start[0], line.start[1], x, y))
+            self._resize_ghost.setLine(*self._resize_rect)
+            return
+        dx = x - self._resize_anchor_local.x()
+        dy = y - self._resize_anchor_local.y()
+        rect = resized_rect(self._resize_orig, self._resize_handle, dx, dy,
+                            keep_aspect=bool(modifiers & Qt.KeyboardModifier.ShiftModifier))
+        cx0, cy0 = min(max(0.0, rect[0]), pw), min(max(0.0, rect[1]), ph)
+        cx1, cy1 = min(max(0.0, rect[2]), pw), min(max(0.0, rect[3]), ph)
+        self._resize_rect = (min(cx0, cx1), min(cy0, cy1), max(cx0, cx1), max(cy0, cy1))
+        x0, y0, x1, y1 = self._resize_rect
+        self._resize_ghost.setRect(QRectF(x0, y0, x1 - x0, y1 - y0))
+
+    def finish_resize(self) -> None:
+        """Commit the resize (undoable; one macro for a group). Every member is scaled by the same
+        factors about the original bounds' top-left, then shifted to the new one — so a group keeps
+        its internal arrangement. Text boxes ride along repositioned but unstretched."""
+        if self._resize_handle is None:
+            return
+        self._drop_resize_ghost()
+        page_index, marks = self._resize_page, self._resize_marks
+        orig, rect = self._resize_orig, self._resize_rect
+        line_state, self._resize_line = self._resize_line, None
+        self._resize_handle = None
+        self._resize_marks = []
+        self._resize_anchor_local = None
+        if line_state is not None:
+            line, _which = line_state
+            new = replace(line, start=(rect[0], rect[1]), end=(rect[2], rect[3]))
+            if new == line:
+                return self._refresh_handles()
+            self._replace(page_index, line, new, text="Resize line")
+            self._set_selection([(page_index, new)])
+            return
+        ow, oh = orig[2] - orig[0], orig[3] - orig[1]
+        if ow <= 0 or oh <= 0:
+            return self._refresh_handles()
+        sx, sy = (rect[2] - rect[0]) / ow, (rect[3] - rect[1]) / oh
+        pairs = []
+        for mark in marks:
+            scaled = scale_mark(mark, sx, sy, orig[0], orig[1])
+            if scaled is None:
+                continue
+            moved = translate_mark(scaled, rect[0] - orig[0], rect[1] - orig[1])
+            if moved != mark:
+                pairs.append((mark, moved))
+        if not pairs:
+            return self._refresh_handles()
+        if len(pairs) == 1:
+            self._replace(page_index, pairs[0][0], pairs[0][1],
+                          text=f"Resize {type(pairs[0][0]).__name__.lower()}")
+        else:
+            self._replace_many(page_index, pairs, f"Resize {len(pairs)} objects")
+        new_by_old = dict(pairs)
+        self._set_selection([(page_index, new_by_old.get(mark, mark)) for mark in marks])
+
+    def cancel_resize(self) -> None:
+        """Drop an in-progress resize without committing (Esc mid-drag)."""
+        if self._resize_handle is None:
+            return
+        self._drop_resize_ghost()
+        self._resize_handle = None
+        self._resize_line = None
+        self._resize_marks = []
+        self._resize_anchor_local = None
+        self._refresh_handles()
+
+    def _drop_resize_ghost(self) -> None:
+        ghost, self._resize_ghost = self._resize_ghost, None
+        if ghost is not None and ghost.scene() is self._view.scene():
+            self._view.scene().removeItem(ghost)
 
     # ---- redaction tool (rubber-band drag) --------------------------------------
 
