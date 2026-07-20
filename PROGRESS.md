@@ -7,8 +7,26 @@ it merges, check the box here in the same PR and append the PR link.
 > release links, milestone ticks, and open follow-ups. `PLAN.md` (design/spec) and `CLAUDE.md`
 > (conventions) **link here, they don't restate it** — see CLAUDE.md §How we work → "Where things live".
 
-**Status:** ✅ **v0.12.0 "Navigate & Polish" shipped** — the GUI tranche's **R1 (M45–M50) is
-complete**. **Outline sidebar**: a document with bookmarks gets a Pages | Outline switcher (no
+**Status:** ✅ **v0.14.0 "Markup Tools" shipped** — the GUI tranche's **R3 (M56–M60) is complete**,
+and because the **v0.13.0 tag was cut but never published** (owner call), this release also delivers
+**R2 "Document Hygiene" (M51–M54)** to users: extract / insert-blank / duplicate pages, **Reduced
+Size** export, document **Properties + metadata** editing (both stores), and **AES-256** password
+protection. R3 itself is the markup kit: **underline & strikeout** on Highlight's text-quad path,
+a **pen** plus **lines / arrows / rectangles / ellipses**, a shared **colour · width · opacity ·
+fill** picker with curated per-verb text-markup palettes, and full **object editing** — marquee and
+Ctrl-click multi-select, move, **resize** (single + group, about the bounding box), **z-order**
+(Bring to Front / Send to Back, which is both paint *and* hit order), and group **copy / cut /
+paste** that preserves the arrangement. Everything bakes into the saved PDF and reopens editable.
+Four fixes came out of owner testing and shipped in the same tranche: re-marking text now **merges**
+into the existing mark instead of stacking a second layer ([#139](https://github.com/utyagi24/klarpdf/pull/139)),
+mark paint order in the preview now follows the model's z-order rather than the mark's *type* — so a
+filled shape hides a text box exactly as it does in the saved file ([#140](https://github.com/utyagi24/klarpdf/pull/140)),
+group copy/paste reversed an earlier deferral ([#141](https://github.com/utyagi24/klarpdf/pull/141)),
+and the toolbar's dropdown arrows share one position ([#142](https://github.com/utyagi24/klarpdf/pull/142)).
+Release: <https://github.com/utyagi24/klarpdf/releases/tag/v0.14.0>. 737 headless tests green
+(1 expected skip — the Poppler `pdftotext` cross-check, absent on Windows).
+
+**v0.12.0 "Navigate & Polish"** — the GUI tranche's **R1 (M45–M50)**. **Outline sidebar**: a document with bookmarks gets a Pages | Outline switcher (no
 TOC → no tab and no tab bar, owner rule) showing the **live** `remapped_toc()` tree — follows
 edits, tracks scroll, click-to-jump — plus **Go to Page…** (Ctrl+G)
 ([#117](https://github.com/utyagi24/klarpdf/pull/117)). **Context menus everywhere**, hit-test
@@ -286,7 +304,7 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
 **R3 — "Markup Tools"**
 
 - [x] **M56** Underline & strikeout (Highlight's quad path; round-trip; Markup ▾ split-button) — *Windows (headless + offscreen GUI)* — [#130](https://github.com/utyagi24/klarpdf/pull/130)
-- [x] **M57** ⭐ Pen & shapes model — ink/line+arrows/rect/ellipse descriptors, apply + read-back — *Windows (headless)* — [#131](https://github.com/utyagi24/klarpdf/pull/131)
+- [x] **M57** ⭐ Pen & shapes model — ink/line+arrows/rect/ellipse descriptors, apply + read-back — *Windows (headless)* — [#131](https://github.com/utyagi24/klarpdf/pull/131) (shows **Closed**: merging #130 with `--delete-branch` removed this PR's *base* branch, which closes it irrecoverably; the commits reached `main` via #132, and the diff/review history is intact)
 - [x] **M58** Pen & shapes tools — draw/move/delete, Shift-constrain, Draw ▾ split-button — *Windows (offscreen GUI)* — [#132](https://github.com/utyagi24/klarpdf/pull/132)
 - [x] **M59** Copy / paste objects — object clipboard, cross-window, focus-routed Ctrl+C/X/V — *Windows (offscreen GUI)* — [#133](https://github.com/utyagi24/klarpdf/pull/133)
 - [x] **M59.5** Markup colour · width · fill — shared sticky `MarkupStyle` + toolbar swatch button for underline/strikeout + pen & shapes — *Windows (headless + offscreen GUI)* — [#134](https://github.com/utyagi24/klarpdf/pull/134)
@@ -294,11 +312,11 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
 - [x] **M59.7** Object resize — selection handles; single + group bounding-box resize (reusable placement component) — *Windows (headless + offscreen GUI)* — [#136](https://github.com/utyagi24/klarpdf/pull/136)
 - [x] **M59.8** Object z-order — Bring to Front / Send to Back for a mark or group (paint + hit order) — *Windows (headless + offscreen GUI)* — [#137](https://github.com/utyagi24/klarpdf/pull/137)
 - [x] **M59.9** Polish & fidelity — curated markup colour palettes (Markup ▾) · object opacity (`/CA`) · redaction preview z-order fix · edits keep your scroll place — *Windows (headless + offscreen GUI)* — [#138](https://github.com/utyagi24/klarpdf/pull/138)
-- [ ] **M59.10** Markup merge — re-marking text folds into the existing mark instead of stacking: same colour absorbs/extends, a different colour recolours what it covers and splits what it doesn't; one Remove, one undo step
-- [ ] **M59.11** Preview z-order fidelity — mark paint order follows the page's annotation tuple (not the mark's *type*), so a filled shape hides a text box's text as it does in the saved file, and the M59.8 z-order verbs restack the preview across types
-- [ ] **M59.12** Group copy / cut / paste — a multi-selection copies, cuts and pastes as a unit, keeping its arrangement (reverses M59.6's deferral, owner call); one undo step; labels count the set
-- [ ] **M59.13** Dropdown-arrow placement — the Markup ▾ / Draw ▾ / style-swatch arrows all sit vertically centred with room from the icon, instead of Qt's two different per-popup-mode positions (one mid-height, one bottom-corner)
-- [ ] **M60** Verify + release → tag — *Windows*
+- [x] **M59.10** Markup merge — re-marking text folds into the existing mark instead of stacking: same colour absorbs/extends, a different colour recolours what it covers and splits what it doesn't; one Remove, one undo step — *Windows (headless + offscreen GUI)* — [#139](https://github.com/utyagi24/klarpdf/pull/139)
+- [x] **M59.11** Preview z-order fidelity — mark paint order follows the page's annotation tuple (not the mark's *type*), so a filled shape hides a text box's text as it does in the saved file, and the M59.8 z-order verbs restack the preview across types — *Windows (headless + offscreen GUI)* — [#140](https://github.com/utyagi24/klarpdf/pull/140)
+- [x] **M59.12** Group copy / cut / paste — a multi-selection copies, cuts and pastes as a unit, keeping its arrangement (reverses M59.6's deferral, owner call); one undo step; labels count the set — *Windows (offscreen GUI)* — [#141](https://github.com/utyagi24/klarpdf/pull/141)
+- [x] **M59.13** Dropdown-arrow placement — the Markup ▾ / Draw ▾ / style-swatch arrows all sit vertically centred with room from the icon, instead of Qt's two different per-popup-mode positions (one mid-height, one bottom-corner) — *Windows (offscreen GUI)* — [#142](https://github.com/utyagi24/klarpdf/pull/142)
+- [x] **M60** Verify + release → **v0.14.0** tagged & published — *Windows*
 
 **R4 — "Stamp, Sign & Watermark"**
 
@@ -548,3 +566,28 @@ Carried items — none block work:
   drop-to-open in the main view, re-encryption on save, cross-app annotation editing (M31 round-trip
   edits only KlarPDF's own author-tagged marks; foreign annotations are shown but not editable — a
   deliberate fidelity-safety boundary, see PLAN.md).
+
+- **Help ▸ Donate… points at a GitHub Sponsors listing that does not exist.**
+  `gh api graphql -f query='{user(login:"utyagi24"){hasSponsorsListing}}'` returns **false**, and
+  `/sponsors/utyagi24` **redirects to the plain profile** rather than 404ing — so the dead link is
+  indistinguishable from a working one and no test can catch it. This is exactly the one-time gate
+  in `RELEASE.md` §3, which was **not** satisfied before v0.12.0 shipped the menu item, nor before
+  v0.14.0. Owner call at v0.14.0: **ship as-is, fix separately.** Clearing it is a GitHub account
+  step (enable the Sponsors listing), after which the gate check returns true and the gate block can
+  be deleted from `RELEASE.md`.
+
+- **Flaky test: the save path's `os.replace` hits `[WinError 5] Access is denied`.** Seen twice
+  while preparing v0.14.0, both times in `tests/test_external_change.py` (different tests each
+  time: `test_save_no_external_change_does_not_prompt`, then `test_save_overwrite_proceeds`), and
+  only in **full-suite** runs — the file passed 4/4 in isolation, and a clean full re-run was green
+  both times. `_write_to` writes a temp file next to the target then `os.replace`s it, so a
+  transient lock on the freshly written temp (real-time antivirus is the usual suspect on this
+  machine) fails the rename; the resulting "Save failed" modal is what the conftest guard reports.
+  Environmental rather than a code defect, but it is a **release-gate** annoyance and shares the
+  "red X on a stranger's CI run" stakes with the single-instance flake above. Worth a bounded
+  retry around the `os.replace` before declaring the save failed.
+
+- **`MarkupStyleButton.style()` shadows `QWidget.style()`** (it returns the `MarkupStyle`
+  dataclass). Harmless in paint — Qt calls the C++ method — but any Python-level `button.style()`
+  gets the wrong object, and it already cost one debugging detour in M59.13 (workaround:
+  `QWidget.style(btn)`). Rename to `markup_style()` when that file is next touched.

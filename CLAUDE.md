@@ -66,11 +66,12 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   spare machine / a fresh local user with networking disabled.
 
 ## Status
-**Current: v0.13.0 tagged (R2 "Document Hygiene", M51–M54) — no published release** by owner
-call; **v0.12.0 "Navigate & Polish" is the latest *shipped* release**. R2 adds extract/blank/
-duplicate page ops, Reduced Size export, Properties + metadata (both stores), and AES-256
-document encryption. **M0–M38, R1, and R2 are complete**; v0.11.0 stays reserved for the MCP /
-Agent Bridge (M39–M44), and the tranche continues at **M56 (R3)**. For live status — shipped
+**Current: v0.14.0 "Markup Tools" shipped (R3, M56–M60)** — the release also delivers **R2
+"Document Hygiene"** (M51–M54), whose v0.13.0 tag was cut but never published by owner call, so
+users upgrading from v0.12.0 receive both tranches at once. R3 adds underline/strikeout, the pen
+and shape tools, full object editing (multi-select, move, resize, z-order, group copy/paste), and
+markup colour/opacity. **M0–M38, R1, R2, and R3 are complete**; v0.11.0 stays reserved for the
+MCP / Agent Bridge (M39–M44), and the tranche continues at **R4 (M61)**. For live status — shipped
 versions, per-release notes, release links, milestone ticks, and **Open follow-ups** — see
 `PROGRESS.md` (the single source of status; read it first). Design/spec, including §Future
 enhancements for what's next, lives in `PLAN.md`.
