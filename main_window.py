@@ -72,7 +72,13 @@ from ui import icons
 from util.paths import normalize_path
 from viewer.annotations import AnnotationOverlay
 from viewer.form_fill import FormFiller
-from viewer.markup_style import MarkupStyle, MarkupStyleButton
+from viewer.markup_style import (
+    HIGHLIGHT_COLORS,
+    TEXT_LINE_COLORS,
+    MarkupStyle,
+    MarkupStyleButton,
+    swatch_icon,
+)
 from viewer.links import LinkNavigator
 from viewer.pdf_view import PdfView
 from viewer.search import FindBar, SearchController, SearchResultsPanel
@@ -103,6 +109,12 @@ class MainWindow(QMainWindow):
         self._settings = settings
         self.path = path
         self._initialized = False
+        self._edited_page: int | None = None  # the page the in-flight edit lands on (M59.9)
+        # Text-markup colours (M59.9), curated + separate from the pen/shapes stroke picker:
+        # highlight keeps its own (a translucent wash), underline + strikeout share one (an opaque
+        # proofing line). Sticky for the session, like the other last-used styles.
+        self._highlight_color = HIGHLIGHT_COLORS[0][1]
+        self._markup_line_color = TEXT_LINE_COLORS[0][1]
 
         # from_path may raise PasswordRequired for an encrypted file (the prompt was cancelled);
         # app.open_document constructs MainWindow in a try/except and simply opens no window then.
@@ -455,11 +467,26 @@ class MainWindow(QMainWindow):
                 menu.addAction(a)
             button.setMenu(menu)
             button.setDefaultAction(actions[0])
-            menu.triggered.connect(button.setDefaultAction)  # sticky last-used face
+            # Sticky last-used face — but only for the *tools*. QMenu.triggered also fires for
+            # sub-menu entries, so without this guard picking a colour from the Markup ▾ palettes
+            # (M59.9) would make "Yellow" the button's tool.
+            menu.triggered.connect(
+                lambda chosen: button.setDefaultAction(chosen) if chosen in actions else None
+            )
             return button
 
         # Markup ▾ (M56): highlight / underline / strikeout. Draw ▾ (M58): the five draw tools.
         self._markup_button = split_button((a_highlight, a_underline, a_strikeout))
+        # The text-markup colours live here (M59.9), with the verbs they colour — not on the
+        # pen/shapes style button, and not in a new toolbar slot.
+        markup_menu = self._markup_button.menu()
+        markup_menu.addSeparator()
+        self._highlight_color_actions = self._add_color_submenu(
+            markup_menu, "Highlight Colour", HIGHLIGHT_COLORS,
+            self._set_highlight_color, self._highlight_color)
+        self._line_color_actions = self._add_color_submenu(
+            markup_menu, "Underline / Strike Colour", TEXT_LINE_COLORS,
+            self._set_markup_line_color, self._markup_line_color)
         self._draw_button = split_button((a_pen, a_line, a_arrow, a_rect, a_ellipse))
         # Markup style (M59.5): one slot — the shared colour · width · fill the underline /
         # strikeout + draw tools stamp on the next mark. Seeds the overlay's sticky style and
@@ -690,6 +717,7 @@ class MainWindow(QMainWindow):
         tx = min(max(0.0, tx), max(0.0, pw - w))
         ty = min(max(0.0, ty), max(0.0, ph - h))
         pasted = translate_mark(mark, tx - x0, ty - y0)
+        self._note_edit_on(page)
         self.undo_stack.push(AddAnnotationCommand(self.vdoc, page, pasted))
         # Select what was just pasted, so it is immediately ready to restyle / move / delete — and
         # so its resize handles are up (M59.7). Without this the first drag on a pasted mark lands
@@ -747,6 +775,11 @@ class MainWindow(QMainWindow):
 
     # ---- page edits (all via the undo stack) ------------------------------------
 
+    def _note_edit_on(self, index: int) -> None:
+        """Remember which page an edit is about to land on. Set *before* pushing the command —
+        ``_on_doc_changed`` runs synchronously inside the push."""
+        self._edited_page = index
+
     def _on_doc_changed(self, _index: int) -> None:
         # A structural edit invalidates page indices, so drop stale overlays and rebuild.
         self.view.selection.clear()
@@ -754,6 +787,12 @@ class MainWindow(QMainWindow):
         if self.search_results.isVisible():
             self.search_results.refresh()  # the hits died with the edit — no stale rows
         self.view.reload()
+        # Follow the edit: marking up a page that isn't the one under the viewport centre should
+        # move the sidebar highlight onto it, without scrolling. Consumed once, so an undo/redo
+        # (which records nothing) leaves the current page where the reader put it.
+        if self._edited_page is not None:
+            self.view.set_current_page(self._edited_page)
+            self._edited_page = None
         self.thumbs.populate()
         if self.outline is not None:
             self.outline.populate()  # live remapped_toc: the tree shows what a Save would write
@@ -849,18 +888,22 @@ class MainWindow(QMainWindow):
 
     def _add_annotation(self, index: int, annotation) -> None:
         """Add an annotation to a page (from the text-box / redact tools) as an undoable command."""
+        self._note_edit_on(index)
         self.undo_stack.push(AddAnnotationCommand(self.vdoc, index, annotation))
 
     def _remove_annotation(self, index: int, annotation) -> None:
         """Remove an annotation (from the right-click menu) as an undoable command."""
+        self._note_edit_on(index)
         self.undo_stack.push(RemoveAnnotationCommand(self.vdoc, index, annotation))
 
     def _replace_annotation(self, index: int, old, new, text=None) -> None:
         """Swap an annotation for an updated one (moving / re-editing a text box) — one undo step."""
+        self._note_edit_on(index)
         self.undo_stack.push(ReplaceAnnotationCommand(self.vdoc, index, old, new, text))
 
     def _replace_annotations_batch(self, index: int, pairs, text: str) -> None:
         """Swap several annotations on a page as **one** undo step (M59.6 group restyle / move)."""
+        self._note_edit_on(index)
         self.undo_stack.beginMacro(text)
         for old, new in pairs:
             self.undo_stack.push(ReplaceAnnotationCommand(self.vdoc, index, old, new))
@@ -868,6 +911,7 @@ class MainWindow(QMainWindow):
 
     def _remove_annotations_batch(self, index: int, marks, text: str) -> None:
         """Remove several annotations on a page as **one** undo step (M59.6 group delete)."""
+        self._note_edit_on(index)
         self.undo_stack.beginMacro(text)
         for mark in marks:
             self.undo_stack.push(RemoveAnnotationCommand(self.vdoc, index, mark))
@@ -905,15 +949,33 @@ class MainWindow(QMainWindow):
         if not by_page:
             return
         self.view.selection.clear()  # so the mark shows, not the blue selection over it
+        self._note_edit_on(min(by_page))   # a selection can span pages — follow the first marked
         self.undo_stack.beginMacro(label)
         for page_index, rects in by_page.items():
             self.undo_stack.push(AddAnnotationCommand(self.vdoc, page_index, make(tuple(rects))))
         self.undo_stack.endMacro()
 
-    def _markup_color(self):
-        """The shared sticky stroke colour (M59.5) applied to a new underline / strikeout — the
-        same picker that colours the pen & shapes. Highlight stays its own translucent yellow."""
-        return self.view.annotations.current_markup_style.color
+    def _add_color_submenu(self, menu, title: str, palette, setter, current) -> dict:
+        """A curated colour sub-menu of swatches (M59.9), ticked at ``current``. Returns
+        ``{rgb: action}`` so tests and later syncing can reach the entries."""
+        sub = menu.addMenu(title)
+        group = QActionGroup(sub)
+        actions = {}
+        for label, rgb in palette:
+            action = sub.addAction(swatch_icon(rgb), label)
+            action.setCheckable(True)
+            action.setProperty("colorSwatch", True)  # a semantic chip — must NOT theme-retint
+            group.addAction(action)
+            action.triggered.connect(lambda _checked=False, c=rgb: setter(c))
+            action.setChecked(rgb == current)
+            actions[rgb] = action
+        return actions
+
+    def _set_highlight_color(self, color) -> None:
+        self._highlight_color = color
+
+    def _set_markup_line_color(self, color) -> None:
+        self._markup_line_color = color
 
     def _on_markup_style_changed(self, style) -> None:
         """The picker changed → update the sticky style for the next mark, and — mirroring the
@@ -940,6 +1002,7 @@ class MainWindow(QMainWindow):
             return False                                # already at that end — nothing to undo
         label = {"front": "Bring to front", "forward": "Bring forward",
                  "backward": "Send backward", "back": "Send to back"}[action]
+        self._note_edit_on(page_index)
         self.undo_stack.push(SetAnnotationsCommand(self.vdoc, page_index, reordered, label))
         if self.view.annotations is not None:
             self.view.annotations.select_objects(page_index, marks)  # the reload cleared it
@@ -956,14 +1019,15 @@ class MainWindow(QMainWindow):
             self.view.annotations.set_markup_style(style)   # …and as the sticky default
 
     def _highlight_selection(self) -> None:
-        self._apply_selection_bars(Highlight, "Highlight")
+        color = self._highlight_color          # its own curated wash colour (M59.9)
+        self._apply_selection_bars(lambda rects: Highlight(rects, color=color), "Highlight")
 
     def _underline_selection(self) -> None:
-        color = self._markup_color()
+        color = self._markup_line_color        # shared with strikeout — the proofing-line colour
         self._apply_selection_bars(lambda rects: Underline(rects, color=color), "Underline")
 
     def _strikeout_selection(self) -> None:
-        color = self._markup_color()
+        color = self._markup_line_color
         self._apply_selection_bars(lambda rects: Strikeout(rects, color=color), "Strike out")
 
     def _redact_selection(self) -> None:

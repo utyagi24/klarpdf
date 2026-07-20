@@ -915,8 +915,34 @@ class PdfView(QGraphicsView):
             self.links.invalidate()
         if self._current >= self._vdoc.page_count:
             self._current = max(0, self._vdoc.page_count - 1)
+        # A **content-only** edit (annotation, form fill) leaves every page's geometry alone, so the
+        # exact scroll offset is still meaningful — keep it. Snapping to the current page's top
+        # would yank the reader away from the spot they just marked up, and the "current" page is
+        # whichever owns the viewport centre, which may not even be the page they edited.
+        # A **structural** edit (insert / delete / reorder / rotate / crop) remaps the layout, so
+        # there the current-page anchor is the only sensible place to land.
+        layout = self._layout_signature()
+        offset = self.verticalScrollBar().value()
         self._build_scene()
-        self.goto_page(self._current)
+        if self._layout_signature() == layout:
+            self.verticalScrollBar().setValue(offset)
+            self._render_visible()
+        else:
+            self.goto_page(self._current)
+
+    def _layout_signature(self) -> tuple:
+        """The page geometry the scroll offset is meaningful against — unchanged by a content edit."""
+        return tuple((p["x"], p["y"], p["w"], p["h"]) for p in self._pages)
+
+    def set_current_page(self, index: int) -> None:
+        """Mark ``index`` as the current page **without scrolling to it**.
+
+        Used after an edit lands on a page that isn't the one under the viewport centre: the
+        sidebar highlight should follow the work you just did, not where the scroll happens to sit.
+        Scrolling here would defeat the whole point (see :meth:`reload`)."""
+        if 0 <= index < len(self._pages) and index != self._current:
+            self._current = index
+            self.currentPageChanged.emit(index)
 
     def goto_page(self, index: int) -> None:
         if not (0 <= index < len(self._pages)):

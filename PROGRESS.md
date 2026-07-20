@@ -293,7 +293,7 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
 - [x] **M59.6** Multi-object selection — Objects mode: marquee + Ctrl-click; group restyle / move / delete (one undo each) — *Windows (offscreen GUI)* — [#135](https://github.com/utyagi24/klarpdf/pull/135)
 - [x] **M59.7** Object resize — selection handles; single + group bounding-box resize (reusable placement component) — *Windows (headless + offscreen GUI)* — [#136](https://github.com/utyagi24/klarpdf/pull/136)
 - [x] **M59.8** Object z-order — Bring to Front / Send to Back for a mark or group (paint + hit order) — *Windows (headless + offscreen GUI)* — [#137](https://github.com/utyagi24/klarpdf/pull/137)
-- [ ] **M59.9** Misc improvements — text-markup colour palettes (curated, in Markup ▾) + bug fixes found in testing — *Windows*
+- [x] **M59.9** Polish & fidelity — curated markup colour palettes (Markup ▾) · object opacity (`/CA`) · redaction preview z-order fix · edits keep your scroll place — *Windows (headless + offscreen GUI)* — [#138](https://github.com/utyagi24/klarpdf/pull/138)
 - [ ] **M60** Verify + release → tag — *Windows*
 
 **R4 — "Stamp, Sign & Watermark"**

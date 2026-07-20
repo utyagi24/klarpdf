@@ -123,30 +123,43 @@ def test_ellipse_with_no_fill_stays_outline_only(win):
     assert _only_mark(win, Shape).fill_color is None
 
 
-# ---- markup (underline / strikeout) pick up the sticky stroke colour ---------
+# ---- text markup is NOT on this picker (M59.9 moved it to its own palettes) --
 
 
-def test_underline_uses_the_sticky_colour(win):
-    win.view.annotations.set_markup_style(MarkupStyle(color=(0.95, 0.55, 0.15)))
+def test_this_picker_does_not_colour_text_markup(win):
+    """M59.5 routed underline/strikeout through the shared stroke picker; M59.9 moved text markup
+    onto its own curated palettes, leaving this button meaning exactly "pen & shapes"."""
+    win.view.annotations.set_markup_style(MarkupStyle(color=(0.0, 0.0, 1.0)))
     _select_first_word(win)
     win._underline_selection()
-    assert _only_mark(win, Underline).color == pytest.approx((0.95, 0.55, 0.15))
+    assert _only_mark(win, Underline).color == pytest.approx(win._markup_line_color)
+    assert _only_mark(win, Underline).color != pytest.approx((0.0, 0.0, 1.0))
 
 
-def test_strikeout_via_armed_signal_uses_the_sticky_colour(win):
-    win.view.annotations.set_markup_style(MarkupStyle(color=(0.13, 0.35, 0.85)))
+def test_underline_and_strikeout_share_the_curated_line_colour(win):
+    win._set_markup_line_color((0.13, 0.35, 0.85))
+    _select_first_word(win)
+    win._underline_selection()
+    assert _only_mark(win, Underline).color == pytest.approx((0.13, 0.35, 0.85))
+    win.undo_stack.undo()
     _select_first_word(win)
     win._apply_text_tool(ArmedTool.STRIKEOUT)
     assert _only_mark(win, Strikeout).color == pytest.approx((0.13, 0.35, 0.85))
 
 
-def test_highlight_is_excluded_and_stays_yellow(win):
-    """Highlight is a translucent wash with its own yellow default — the shared stroke palette
-    deliberately doesn't touch it (nor redaction's semantic black)."""
+def test_highlight_has_its_own_colour(win):
+    """Highlight is a translucent wash, so it keeps a palette (and a default) of its own —
+    neither the stroke picker nor the underline/strikeout colour touches it."""
     win.view.annotations.set_markup_style(MarkupStyle(color=(0.0, 0.0, 1.0)))
+    win._set_markup_line_color((0.0, 0.0, 0.0))
     _select_first_word(win)
     win._highlight_selection()
-    assert _only_mark(win, Highlight).color == pytest.approx(Highlight.color)
+    assert _only_mark(win, Highlight).color == pytest.approx(Highlight.color)  # yellow default
+    win.undo_stack.undo()
+    win._set_highlight_color((0.55, 0.92, 0.45))
+    _select_first_word(win)
+    win._highlight_selection()
+    assert _only_mark(win, Highlight).color == pytest.approx((0.55, 0.92, 0.45))
 
 
 # ---- the toolbar button seam -------------------------------------------------

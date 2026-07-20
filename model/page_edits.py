@@ -132,6 +132,7 @@ class InkStroke:
     paths: tuple[tuple[tuple[float, float], ...], ...]
     color: tuple[float, float, float] = (0.86, 0.10, 0.10)
     width: float = 2.0
+    opacity: float = 1.0
 
     def bounding_rect(self) -> tuple[float, float, float, float]:
         xs = [p[0] for path in self.paths for p in path]
@@ -150,6 +151,7 @@ class Line:
     width: float = 2.0
     arrow_start: bool = False
     arrow_end: bool = False
+    opacity: float = 1.0
 
     def bounding_rect(self) -> tuple[float, float, float, float]:
         return (
@@ -170,6 +172,11 @@ class Shape:
     color: tuple[float, float, float] = (0.86, 0.10, 0.10)
     width: float = 2.0
     fill_color: tuple[float, float, float] | None = None
+    # Constant opacity for the whole mark (PDF ``/CA``), 0..1. PDF applies it to outline *and*
+    # fill together — there is no fill-only alpha on an annotation — so a translucent fill means
+    # a translucent mark. This is the lever for "my filled box hides the text underneath":
+    # annotations always paint above the page content, so z-order can never put one behind text.
+    opacity: float = 1.0
 
     def bounding_rect(self) -> tuple[float, float, float, float]:
         return self.rect
@@ -336,7 +343,8 @@ def scale_mark(mark, sx: float, sy: float, ox: float, oy: float):
     return None
 
 
-def restyle_mark(mark, color: tuple, width: float, fill_color: tuple | None):
+def restyle_mark(mark, color: tuple, width: float, fill_color: tuple | None,
+                 opacity: float = 1.0):
     """A drawn mark re-coloured / re-widthed (and, for shapes, re-filled) in place — the M59.5
     "restyle the selected object" primitive, the style twin of :func:`translate_mark`. Only the
     drawn types carry a shared stroke style; a :class:`TextBox` (its own font/fill/border live in
@@ -345,9 +353,9 @@ def restyle_mark(mark, color: tuple, width: float, fill_color: tuple | None):
     from dataclasses import replace
 
     if isinstance(mark, Shape):
-        return replace(mark, color=color, width=width, fill_color=fill_color)
+        return replace(mark, color=color, width=width, fill_color=fill_color, opacity=opacity)
     if isinstance(mark, (Line, InkStroke)):
-        return replace(mark, color=color, width=width)
+        return replace(mark, color=color, width=width, opacity=opacity)
     return None
 
 
@@ -378,6 +386,7 @@ def apply_annotations(page: fitz.Page, annotations: tuple) -> None:
             annot = page.add_ink_annot([list(path) for path in annotation.paths])  # seq of (x, y)
             annot.set_colors(stroke=annotation.color)
             annot.set_border(width=annotation.width)
+            annot.set_opacity(annotation.opacity)
             annot.set_info(title=KLARPDF_AUTHOR)
             annot.update()
         elif isinstance(annotation, Line):
@@ -389,6 +398,7 @@ def apply_annotations(page: fitz.Page, annotations: tuple) -> None:
                 )
             annot.set_colors(stroke=annotation.color)
             annot.set_border(width=annotation.width)
+            annot.set_opacity(annotation.opacity)
             annot.set_info(title=KLARPDF_AUTHOR)
             annot.update()
         elif isinstance(annotation, Shape):
@@ -396,6 +406,7 @@ def apply_annotations(page: fitz.Page, annotations: tuple) -> None:
             annot = add(fitz.Rect(annotation.rect))
             annot.set_colors(stroke=annotation.color, fill=annotation.fill_color)
             annot.set_border(width=annotation.width)
+            annot.set_opacity(annotation.opacity)
             annot.set_info(title=KLARPDF_AUTHOR)
             annot.update()
         elif isinstance(annotation, TextBox):
@@ -486,6 +497,16 @@ def _stroke_color(annot, default: tuple) -> tuple:
     return tuple(stroke) if stroke else default
 
 
+def _opacity(annot) -> float:
+    """An annot's constant opacity (``/CA``) as 0..1, defaulting to fully opaque. PyMuPDF reports
+    an unset ``/CA`` as a negative sentinel, so anything outside the range means "not set"."""
+    try:
+        value = float(annot.opacity)
+    except (TypeError, ValueError):
+        return 1.0
+    return value if 0.0 <= value <= 1.0 else 1.0
+
+
 def _border_width(annot) -> float:
     """An annot's border width, defaulting to the drawn-mark default when unset."""
     width = (annot.border or {}).get("width")
@@ -530,7 +551,7 @@ def read_klarpdf_annotations(page: fitz.Page) -> tuple:
         elif kind == fitz.PDF_ANNOT_INK:
             paths = tuple(tuple((p[0], p[1]) for p in path) for path in annot.vertices)
             result.append(InkStroke(paths, color=_stroke_color(annot, InkStroke.color),
-                                    width=_border_width(annot)))
+                                    width=_border_width(annot), opacity=_opacity(annot)))
         elif kind == fitz.PDF_ANNOT_LINE:
             start, end = annot.vertices[0], annot.vertices[1]
             ends = annot.line_ends or (fitz.PDF_ANNOT_LE_NONE, fitz.PDF_ANNOT_LE_NONE)
@@ -542,6 +563,7 @@ def read_klarpdf_annotations(page: fitz.Page) -> tuple:
                     width=_border_width(annot),
                     arrow_start=ends[0] != fitz.PDF_ANNOT_LE_NONE,
                     arrow_end=ends[1] != fitz.PDF_ANNOT_LE_NONE,
+                    opacity=_opacity(annot),
                 )
             )
         elif kind in (fitz.PDF_ANNOT_SQUARE, fitz.PDF_ANNOT_CIRCLE):
@@ -560,6 +582,7 @@ def read_klarpdf_annotations(page: fitz.Page) -> tuple:
                     color=_stroke_color(annot, Shape.color),
                     width=width,
                     fill_color=tuple(fill) if fill else None,
+                    opacity=_opacity(annot),
                 )
             )
         elif kind == fitz.PDF_ANNOT_FREE_TEXT:
