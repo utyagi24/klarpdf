@@ -191,11 +191,22 @@ def test_armed_underline_applies_to_live_selection_immediately(win):
 
 def test_markup_split_button_faces_last_used_tool(win):
     button = win._markup_button
-    actions = {a.text(): a for a in button.menu().actions()}
-    assert set(actions) == {"Highlight", "Underline", "Strike Out"}
+    actions = {a.text(): a for a in button.menu().actions() if not a.isSeparator()}
+    # The three verbs, plus the M59.9 colour palettes that live with them.
+    assert {"Highlight", "Underline", "Strike Out"} <= set(actions)
+    assert "Highlight Colour" in actions and "Underline / Strike Colour" in actions
     assert button.defaultAction().text() == "Highlight"   # the initial face
     button.menu().triggered.emit(actions["Underline"])    # pick from the drop-down
     assert button.defaultAction().text() == "Underline"   # sticky last-used face
+
+
+def test_picking_a_markup_colour_does_not_hijack_the_button_face(win):
+    """QMenu.triggered fires for sub-menu entries too, so the sticky-face wiring must ignore
+    anything that isn't one of the three tools — else the button would read "Yellow"."""
+    button = win._markup_button
+    swatch = next(iter(win._highlight_color_actions.values()))
+    button.menu().triggered.emit(swatch)
+    assert button.defaultAction().text() == "Highlight"   # unchanged
 
 
 def test_remove_labels_in_context_menu(win):

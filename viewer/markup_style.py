@@ -17,13 +17,16 @@ restricting". This module closes that gap without touching the model or the file
 **Applicability follows the model, not the button** — a knob a tool doesn't have is simply ignored,
 the same way the text-box Fill only touches boxes:
 
-* **colour** → underline · strikeout · pen · line · arrow · rect · ellipse;
-* **width** → the five draw tools (an underline/strikeout bar's thickness derives from the line
-  height, not a width field — see :meth:`AnnotationOverlay._paint_text_line`);
+* **colour · opacity** → pen · line · arrow · rect · ellipse;
+* **width** → the five draw tools;
 * **fill** → rect · ellipse only.
 
-Highlight (a translucent yellow wash) and redaction (opaque black, a destructive semantic) keep
-their own colours and are deliberately out of the shared stroke palette.
+**Text markup is deliberately not on this button (M59.9).** Highlight / underline / strikeout are a
+different domain from freehand drawing — a highlighter wants a few translucent brights, a proofing
+underline a few opaque editorial colours, and neither wants width or fill. They get their own
+curated palettes (:data:`HIGHLIGHT_COLORS`, :data:`TEXT_LINE_COLORS`) in the **Markup ▾** dropdown,
+which leaves this button meaning exactly "pen & shapes". Redaction (opaque black, a destructive
+semantic) keeps its own colour and is out of every palette.
 """
 
 from __future__ import annotations
@@ -45,6 +48,28 @@ _STROKE_PRESETS = (
 )
 # Draw-tool stroke widths, in page points (the model's ``width``). Medium == the M58 default.
 _WIDTHS = (("Thin", 1.0), ("Medium", 2.0), ("Thick", 4.0))
+# Whole-mark opacity (PDF /CA). "Solid" first so the default reads as the no-op it is.
+_OPACITIES = (("Solid", 1.0), ("75%", 0.75), ("50%", 0.5), ("25%", 0.25))
+# ---- text-markup palettes (M59.9) -------------------------------------------
+#
+# Curated and small on purpose: these are the colours people actually reach for when marking up
+# text, and a short list is faster than a colour wheel. Two sets, because the two jobs differ —
+# a highlighter lays a translucent wash *behind* the words, while an underline / strikeout draws
+# an opaque proofing line *through* them.
+HIGHLIGHT_COLORS = (
+    ("Yellow", (1.0, 0.86, 0.10)),      # the classic marker, and Highlight's own default
+    ("Green", (0.55, 0.92, 0.45)),
+    ("Blue", (0.55, 0.80, 1.00)),
+    ("Pink", (1.00, 0.65, 0.85)),
+    ("Orange", (1.00, 0.72, 0.30)),
+)
+TEXT_LINE_COLORS = (
+    ("Red", (0.86, 0.10, 0.10)),        # redline red — the editing convention
+    ("Blue", (0.13, 0.35, 0.85)),
+    ("Green", (0.13, 0.60, 0.20)),
+    ("Black", (0.0, 0.0, 0.0)),
+)
+
 # Fill presets for shapes — pale washes that sit under a stroke without swamping it.
 _FILL_PRESETS = (
     ("Yellow", (1.0, 0.94, 0.60)),
@@ -66,6 +91,7 @@ class MarkupStyle:
     color: tuple[float, float, float] = (0.86, 0.10, 0.10)   # shared stroke — redline red
     width: float = 2.0                                       # draw-tool stroke width, page points
     fill_color: tuple[float, float, float] | None = None     # shapes only; None → no fill
+    opacity: float = 1.0                                     # whole-mark alpha (PDF /CA), 0..1
 
     @classmethod
     def from_mark(cls, mark) -> "MarkupStyle | None":
@@ -75,9 +101,9 @@ class MarkupStyle:
         from model.page_edits import InkStroke, Line, Shape
 
         if isinstance(mark, Shape):
-            return cls(mark.color, mark.width, mark.fill_color)
+            return cls(mark.color, mark.width, mark.fill_color, mark.opacity)
         if isinstance(mark, (Line, InkStroke)):
-            return cls(mark.color, mark.width, None)
+            return cls(mark.color, mark.width, None, mark.opacity)
         return None
 
 
@@ -85,7 +111,7 @@ def _rgb(color: QColor) -> tuple[float, float, float]:
     return (color.redF(), color.greenF(), color.blueF())
 
 
-def _swatch(color: tuple[float, float, float] | None, size: int = 16) -> QIcon:
+def swatch_icon(color: tuple[float, float, float] | None, size: int = 16) -> QIcon:
     """A solid colour chip for a menu action / the button face. ``None`` → a hollow 'no fill' chip."""
     pix = QPixmap(size, size)
     if color is None:
@@ -107,7 +133,8 @@ class MarkupStyleButton(QToolButton):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._style = MarkupStyle()
-        self.setToolTip("Markup colour, width & fill — used by underline / strikeout / pen / shapes")
+        self.setToolTip("Pen & shapes style — colour, width, opacity & fill "
+                        "(text markup has its own colours in the Markup menu)")
         self.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.setIconSize(QSize(16, 16))
 
@@ -115,7 +142,7 @@ class MarkupStyleButton(QToolButton):
         self._stroke_group = QActionGroup(menu)
         self._stroke_actions: dict[tuple, object] = {}
         for label, rgb in _STROKE_PRESETS:
-            act = menu.addAction(_swatch(rgb), label)
+            act = menu.addAction(swatch_icon(rgb), label)
             act.setCheckable(True)
             act.setProperty("colorSwatch", True)  # a semantic colour chip — must NOT theme-retint
             self._stroke_group.addAction(act)
@@ -135,6 +162,19 @@ class MarkupStyleButton(QToolButton):
             act.triggered.connect(lambda _c, w=pt: self._set_width(w))
             self._width_actions[pt] = act
 
+        # Opacity (M59.9): PDF's /CA is whole-annotation, so this fades outline and fill together.
+        # It is the answer to "my filled box hides the text" — annotations always paint above the
+        # page content, so no amount of Send to Back can put one behind text; translucency can.
+        self._opacity_menu = menu.addMenu("Opacity")
+        self._opacity_group = QActionGroup(self._opacity_menu)
+        self._opacity_actions: dict[float, object] = {}
+        for label, value in _OPACITIES:
+            act = self._opacity_menu.addAction(label)
+            act.setCheckable(True)
+            self._opacity_group.addAction(act)
+            act.triggered.connect(lambda _c, v=value: self._set_opacity(v))
+            self._opacity_actions[value] = act
+
         self._fill_menu = menu.addMenu("Fill")
         self._fill_group = QActionGroup(self._fill_menu)
         self._no_fill_action = self._fill_menu.addAction("No Fill")
@@ -143,7 +183,7 @@ class MarkupStyleButton(QToolButton):
         self._no_fill_action.triggered.connect(lambda: self._set_fill(None))
         self._fill_actions: dict[tuple, object] = {}
         for label, rgb in _FILL_PRESETS:
-            act = self._fill_menu.addAction(_swatch(rgb), label)
+            act = self._fill_menu.addAction(swatch_icon(rgb), label)
             act.setCheckable(True)
             act.setProperty("colorSwatch", True)  # a semantic colour chip — must NOT theme-retint
             self._fill_group.addAction(act)
@@ -163,7 +203,7 @@ class MarkupStyleButton(QToolButton):
     def set_style(self, style: MarkupStyle) -> None:
         """Load ``style`` into the face + menu ticks without emitting :attr:`styleChanged`."""
         self._style = style
-        self.setIcon(_swatch(style.color, 18))
+        self.setIcon(swatch_icon(style.color, 18))
         stroke_act = self._stroke_actions.get(style.color)
         if stroke_act is not None:
             stroke_act.setChecked(True)          # tick the matching preset (custom → none ticked)
@@ -172,6 +212,11 @@ class MarkupStyleButton(QToolButton):
         width_act = self._width_actions.get(style.width)
         if width_act is not None:
             width_act.setChecked(True)
+        opacity_act = self._opacity_actions.get(style.opacity)
+        if opacity_act is not None:
+            opacity_act.setChecked(True)
+        elif self._opacity_group.checkedAction() is not None:
+            self._opacity_group.checkedAction().setChecked(False)
         if style.fill_color is None:
             self._no_fill_action.setChecked(True)
         else:
@@ -193,6 +238,9 @@ class MarkupStyleButton(QToolButton):
 
     def _set_width(self, width: float) -> None:
         self._apply(width=width)
+
+    def _set_opacity(self, opacity: float) -> None:
+        self._apply(opacity=opacity)
 
     def _set_fill(self, fill: tuple[float, float, float] | None) -> None:
         self._apply(fill_color=fill)

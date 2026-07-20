@@ -293,6 +293,7 @@ class AnnotationOverlay:
                         path.lineTo(*point)
             item = QGraphicsPathItem(path)
         item.setPen(pen)
+        item.setOpacity(annot.opacity)   # whole-item alpha — the same semantics as PDF's /CA
         item.setTransform(transform)
         item.setZValue(7)
         scene.addItem(item)
@@ -301,11 +302,17 @@ class AnnotationOverlay:
     def _paint_redaction(self, scene, page_index: int, annot: Redaction) -> None:
         # WYSIWYG: the opaque fill boxes are exactly what bakes into the output at save. A thin red
         # border distinguishes a still-editable (undoable) pending redaction from a flat black box.
+        #
+        # It sits **below** every other overlay (M59.9 fix) because that is the order a save
+        # produces: `apply_redactions` runs first as a destructive pass, painting its fill into the
+        # page *content* — then `apply_annotations` adds the marks on top of it. It used to paint
+        # above everything, so a drawn mark over a redaction looked covered on screen but came out
+        # on top in the file. Still above the page itself (z 0), so it hides what it will destroy.
         for box in annot.rects:
             item = QGraphicsRectItem(self._view.scene_rect_for_box(page_index, box))
             item.setBrush(QBrush(QColor.fromRgbF(*annot.fill)))
             item.setPen(QPen(QColor(200, 0, 0), 1))
-            item.setZValue(9)  # above highlights/text-boxes — it removes what's beneath
+            item.setZValue(5)
             scene.addItem(item)
             self._items.append(item)
 
@@ -868,7 +875,7 @@ class AnnotationOverlay:
         page_index = selection[0][0]
         pairs = []
         for _p, mark in selection:
-            new = restyle_mark(mark, style.color, style.width, style.fill_color)
+            new = restyle_mark(mark, style.color, style.width, style.fill_color, style.opacity)
             if new is not None and new != mark:
                 pairs.append((mark, new))
         if not pairs:
@@ -1212,6 +1219,7 @@ class AnnotationOverlay:
         self._draw_points = [self._draw_anchor]
         item = QGraphicsPathItem()
         item.setPen(self._drawn_pen(self._markup_style.color, self._markup_style.width))
+        item.setOpacity(self._markup_style.opacity)   # the live gesture previews its opacity too
         item.setTransform(self._view.page_transform(page_index))
         item.setZValue(11)
         self._view.scene().addItem(item)
@@ -1295,20 +1303,21 @@ class AnnotationOverlay:
             if len(points) < 2 or (max(xs) - min(xs) < _MIN_DRAW and max(ys) - min(ys) < _MIN_DRAW):
                 return
             self._on_add(page_index, InkStroke((tuple(points),), color=style.color,
-                                               width=style.width))
+                                               width=style.width, opacity=style.opacity))
             return
         dx, dy = abs(end[0] - anchor[0]), abs(end[1] - anchor[1])
         if dx < _MIN_DRAW and dy < _MIN_DRAW:
             return
         if tool in (ArmedTool.LINE, ArmedTool.ARROW):
             self._on_add(page_index, Line(anchor, end, color=style.color, width=style.width,
-                                          arrow_end=tool is ArmedTool.ARROW))
+                                          arrow_end=tool is ArmedTool.ARROW,
+                                          opacity=style.opacity))
         else:
             rect = (min(anchor[0], end[0]), min(anchor[1], end[1]),
                     max(anchor[0], end[0]), max(anchor[1], end[1]))
             kind = "rect" if tool is ArmedTool.RECT else "ellipse"
             self._on_add(page_index, Shape(kind, rect, color=style.color, width=style.width,
-                                           fill_color=style.fill_color))
+                                           fill_color=style.fill_color, opacity=style.opacity))
 
     def cancel_draw(self) -> None:
         """Drop an in-progress gesture without committing (Esc / disarm mid-drag)."""

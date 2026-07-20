@@ -72,7 +72,13 @@ from ui import icons
 from util.paths import normalize_path
 from viewer.annotations import AnnotationOverlay
 from viewer.form_fill import FormFiller
-from viewer.markup_style import MarkupStyle, MarkupStyleButton
+from viewer.markup_style import (
+    HIGHLIGHT_COLORS,
+    TEXT_LINE_COLORS,
+    MarkupStyle,
+    MarkupStyleButton,
+    swatch_icon,
+)
 from viewer.links import LinkNavigator
 from viewer.pdf_view import PdfView
 from viewer.search import FindBar, SearchController, SearchResultsPanel
@@ -104,6 +110,11 @@ class MainWindow(QMainWindow):
         self.path = path
         self._initialized = False
         self._edited_page: int | None = None  # the page the in-flight edit lands on (M59.9)
+        # Text-markup colours (M59.9), curated + separate from the pen/shapes stroke picker:
+        # highlight keeps its own (a translucent wash), underline + strikeout share one (an opaque
+        # proofing line). Sticky for the session, like the other last-used styles.
+        self._highlight_color = HIGHLIGHT_COLORS[0][1]
+        self._markup_line_color = TEXT_LINE_COLORS[0][1]
 
         # from_path may raise PasswordRequired for an encrypted file (the prompt was cancelled);
         # app.open_document constructs MainWindow in a try/except and simply opens no window then.
@@ -456,11 +467,26 @@ class MainWindow(QMainWindow):
                 menu.addAction(a)
             button.setMenu(menu)
             button.setDefaultAction(actions[0])
-            menu.triggered.connect(button.setDefaultAction)  # sticky last-used face
+            # Sticky last-used face — but only for the *tools*. QMenu.triggered also fires for
+            # sub-menu entries, so without this guard picking a colour from the Markup ▾ palettes
+            # (M59.9) would make "Yellow" the button's tool.
+            menu.triggered.connect(
+                lambda chosen: button.setDefaultAction(chosen) if chosen in actions else None
+            )
             return button
 
         # Markup ▾ (M56): highlight / underline / strikeout. Draw ▾ (M58): the five draw tools.
         self._markup_button = split_button((a_highlight, a_underline, a_strikeout))
+        # The text-markup colours live here (M59.9), with the verbs they colour — not on the
+        # pen/shapes style button, and not in a new toolbar slot.
+        markup_menu = self._markup_button.menu()
+        markup_menu.addSeparator()
+        self._highlight_color_actions = self._add_color_submenu(
+            markup_menu, "Highlight Colour", HIGHLIGHT_COLORS,
+            self._set_highlight_color, self._highlight_color)
+        self._line_color_actions = self._add_color_submenu(
+            markup_menu, "Underline / Strike Colour", TEXT_LINE_COLORS,
+            self._set_markup_line_color, self._markup_line_color)
         self._draw_button = split_button((a_pen, a_line, a_arrow, a_rect, a_ellipse))
         # Markup style (M59.5): one slot — the shared colour · width · fill the underline /
         # strikeout + draw tools stamp on the next mark. Seeds the overlay's sticky style and
@@ -929,10 +955,27 @@ class MainWindow(QMainWindow):
             self.undo_stack.push(AddAnnotationCommand(self.vdoc, page_index, make(tuple(rects))))
         self.undo_stack.endMacro()
 
-    def _markup_color(self):
-        """The shared sticky stroke colour (M59.5) applied to a new underline / strikeout — the
-        same picker that colours the pen & shapes. Highlight stays its own translucent yellow."""
-        return self.view.annotations.current_markup_style.color
+    def _add_color_submenu(self, menu, title: str, palette, setter, current) -> dict:
+        """A curated colour sub-menu of swatches (M59.9), ticked at ``current``. Returns
+        ``{rgb: action}`` so tests and later syncing can reach the entries."""
+        sub = menu.addMenu(title)
+        group = QActionGroup(sub)
+        actions = {}
+        for label, rgb in palette:
+            action = sub.addAction(swatch_icon(rgb), label)
+            action.setCheckable(True)
+            action.setProperty("colorSwatch", True)  # a semantic chip — must NOT theme-retint
+            group.addAction(action)
+            action.triggered.connect(lambda _checked=False, c=rgb: setter(c))
+            action.setChecked(rgb == current)
+            actions[rgb] = action
+        return actions
+
+    def _set_highlight_color(self, color) -> None:
+        self._highlight_color = color
+
+    def _set_markup_line_color(self, color) -> None:
+        self._markup_line_color = color
 
     def _on_markup_style_changed(self, style) -> None:
         """The picker changed → update the sticky style for the next mark, and — mirroring the
@@ -976,14 +1019,15 @@ class MainWindow(QMainWindow):
             self.view.annotations.set_markup_style(style)   # …and as the sticky default
 
     def _highlight_selection(self) -> None:
-        self._apply_selection_bars(Highlight, "Highlight")
+        color = self._highlight_color          # its own curated wash colour (M59.9)
+        self._apply_selection_bars(lambda rects: Highlight(rects, color=color), "Highlight")
 
     def _underline_selection(self) -> None:
-        color = self._markup_color()
+        color = self._markup_line_color        # shared with strikeout — the proofing-line colour
         self._apply_selection_bars(lambda rects: Underline(rects, color=color), "Underline")
 
     def _strikeout_selection(self) -> None:
-        color = self._markup_color()
+        color = self._markup_line_color
         self._apply_selection_bars(lambda rects: Strikeout(rects, color=color), "Strike out")
 
     def _redact_selection(self) -> None:
