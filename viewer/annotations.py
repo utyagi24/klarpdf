@@ -24,15 +24,89 @@ import math
 from dataclasses import replace
 
 from PySide6.QtCore import QRect, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import QBrush, QColor, QFontMetricsF, QPen, QTransform
-from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsSimpleTextItem, QPlainTextEdit
+from PySide6.QtGui import (
+    QBrush,
+    QColor,
+    QFontMetricsF,
+    QGuiApplication,
+    QPainterPath,
+    QPen,
+    QTransform,
+)
+from PySide6.QtWidgets import (
+    QGraphicsEllipseItem,
+    QGraphicsPathItem,
+    QGraphicsRectItem,
+    QGraphicsSimpleTextItem,
+    QPlainTextEdit,
+)
 
-from model.page_edits import Highlight, Redaction, Strikeout, TextBox, Underline
+from model.page_edits import (
+    Highlight,
+    InkStroke,
+    Line,
+    Redaction,
+    Shape,
+    Strikeout,
+    TextBox,
+    Underline,
+)
+from viewer.tools import ArmedTool
 from viewer.text_format_bar import TextBoxStyle, TextFormatBar, qt_font
 
 _TEXTBOX_DEFAULT = (200.0, 56.0)  # starting size for a new box, in page points (then auto-grows)
 _MIN_BOX_W, _MIN_BOX_H = 40.0, 20.0  # a text box never shrinks below this (page points)
 _MIN_REDACT = 3.0                 # ignore a redaction drag smaller than this (a stray click)
+_MIN_DRAW = 2.0                   # ignore a draw drag smaller than this (page points)
+_HIT_PAD = 3.0                    # grab slack around thin drawn marks (page points)
+
+# Drawn-mark defaults (M58): fixed markup-red at 2 pt — the redlining framing; a style picker is
+# out of scope for the draw tools (PLAN.md M58).
+_DRAW_COLOR = (0.86, 0.10, 0.10)
+_DRAW_WIDTH = 2.0
+
+_DRAWN_TYPES = (InkStroke, Line, Shape)
+
+
+def _line_path(start: tuple, end: tuple, arrow_start: bool, arrow_end: bool,
+               width: float) -> QPainterPath:
+    """A line's painter path in page points, with open-arrow heads where flagged — the same
+    geometry for the live preview and the baked-mark overlay, so WYSIWYG holds."""
+    path = QPainterPath()
+    path.moveTo(*start)
+    path.lineTo(*end)
+    length = math.hypot(end[0] - start[0], end[1] - start[1])
+    if length < 1e-6:
+        return path
+    head = max(6.0, width * 4.0)
+    angle = math.atan2(end[1] - start[1], end[0] - start[0])
+    spread = math.radians(25)
+    if arrow_end:
+        for side in (-spread, spread):
+            path.moveTo(*end)
+            path.lineTo(end[0] - head * math.cos(angle + side),
+                        end[1] - head * math.sin(angle + side))
+    if arrow_start:
+        back = angle + math.pi
+        for side in (-spread, spread):
+            path.moveTo(*start)
+            path.lineTo(start[0] - head * math.cos(back + side),
+                        start[1] - head * math.sin(back + side))
+    return path
+
+
+def _translated(mark, dx: float, dy: float):
+    """The same descriptor moved by ``(dx, dy)`` — the one move primitive for every geometry."""
+    if isinstance(mark, TextBox) or isinstance(mark, Shape):
+        x0, y0, x1, y1 = mark.rect
+        return replace(mark, rect=(x0 + dx, y0 + dy, x1 + dx, y1 + dy))
+    if isinstance(mark, Line):
+        return replace(mark, start=(mark.start[0] + dx, mark.start[1] + dy),
+                       end=(mark.end[0] + dx, mark.end[1] + dy))
+    if isinstance(mark, InkStroke):
+        return replace(mark, paths=tuple(tuple((x + dx, y + dy) for x, y in path)
+                                         for path in mark.paths))
+    raise TypeError(f"not a movable mark: {type(mark).__name__}")
 
 
 class _TextBoxEditor(QPlainTextEdit):
@@ -66,6 +140,14 @@ class AnnotationOverlay:
         self._redact_band: QGraphicsRectItem | None = None
         self._redact_page = 0
         self._redact_anchor = None          # the scene point where the drag started
+        # In-progress draw gesture (M58): the armed draw tool, its page, the anchor + live end
+        # point (page points), captured pen points, and the preview path item.
+        self._draw_tool = None
+        self._draw_page = 0
+        self._draw_anchor: tuple | None = None
+        self._draw_end: tuple | None = None
+        self._draw_points: list = []
+        self._draw_item: QGraphicsPathItem | None = None
         self._editor_fontsize = 11.0        # the box font the editor mirrors (WYSIWYG sizing)
         # Live text-box move: a ghost rect following the drag.
         self._move_ghost: QGraphicsRectItem | None = None
@@ -108,6 +190,8 @@ class AnnotationOverlay:
                         self._items.append(item)
                 elif isinstance(annot, (Underline, Strikeout)):
                     self._paint_text_line(scene, page_index, annot)
+                elif isinstance(annot, _DRAWN_TYPES):
+                    self._paint_drawn(scene, page_index, annot)
                 elif isinstance(annot, TextBox):
                     self._paint_textbox(scene, page_index, annot)
                 elif isinstance(annot, Redaction):
@@ -132,6 +216,41 @@ class AnnotationOverlay:
             item.setZValue(6)
             scene.addItem(item)
             self._items.append(item)
+
+    def _drawn_pen(self, color: tuple, width: float) -> QPen:
+        pen = QPen(QColor.fromRgbF(*color), width)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        return pen
+
+    def _paint_drawn(self, scene, page_index: int, annot) -> None:
+        """Ink / line / shape preview (M58): authored in unrotated page points and pushed through
+        the page transform (like text boxes), so the marks zoom and rotate with the page. The pen
+        width is in page points — the transform scales it, matching the baked stroke."""
+        transform = self._view.page_transform(page_index)
+        pen = self._drawn_pen(annot.color, annot.width)
+        if isinstance(annot, Shape):
+            x0, y0, x1, y1 = annot.rect
+            item_cls = QGraphicsRectItem if annot.kind == "rect" else QGraphicsEllipseItem
+            item = item_cls(QRectF(x0, y0, x1 - x0, y1 - y0))
+            item.setBrush(QColor.fromRgbF(*annot.fill_color) if annot.fill_color is not None
+                          else QBrush(Qt.BrushStyle.NoBrush))
+        else:
+            if isinstance(annot, Line):
+                path = _line_path(annot.start, annot.end, annot.arrow_start, annot.arrow_end,
+                                  annot.width)
+            else:
+                path = QPainterPath()
+                for pts in annot.paths:
+                    path.moveTo(*pts[0])
+                    for point in pts[1:]:
+                        path.lineTo(*point)
+            item = QGraphicsPathItem(path)
+        item.setPen(pen)
+        item.setTransform(transform)
+        item.setZValue(7)
+        scene.addItem(item)
+        self._items.append(item)
 
     def _paint_redaction(self, scene, page_index: int, annot: Redaction) -> None:
         # WYSIWYG: the opaque fill boxes are exactly what bakes into the output at save. A thin red
@@ -187,7 +306,15 @@ class AnnotationOverlay:
         if page_index is None:
             return None
         for annot in reversed(self._view._vdoc.ordered[page_index].annotations):
-            boxes = annot.rects if hasattr(annot, "rects") else (annot.rect,)
+            if hasattr(annot, "rects"):
+                boxes = annot.rects
+            elif isinstance(annot, _DRAWN_TYPES):
+                # Drawn marks hit-test on a padded bounding rect — a thin or perfectly
+                # horizontal/vertical line has a (near-)degenerate box that nothing could click.
+                x0, y0, x1, y1 = annot.bounding_rect()
+                boxes = ((x0 - _HIT_PAD, y0 - _HIT_PAD, x1 + _HIT_PAD, y1 + _HIT_PAD),)
+            else:
+                boxes = (annot.rect,)
             for box in boxes:
                 if self._view.scene_rect_for_box(page_index, box).contains(scene_pt):
                     return page_index, annot
@@ -480,11 +607,27 @@ class AnnotationOverlay:
     def moving(self) -> bool:
         return self._move_ghost is not None
 
+    def drawn_mark_at(self, scene_pt):
+        """The ``(page_index, drawn mark)`` under ``scene_pt`` (topmost; padded bounding-rect hit
+        like :meth:`annotation_at`), else None — the M58 move/delete hit test."""
+        page_index, _ = self._view.page_and_local_at(scene_pt)
+        if page_index is None:
+            return None
+        for annot in reversed(self._view._vdoc.ordered[page_index].annotations):
+            if not isinstance(annot, _DRAWN_TYPES):
+                continue
+            x0, y0, x1, y1 = annot.bounding_rect()
+            box = (x0 - _HIT_PAD, y0 - _HIT_PAD, x1 + _HIT_PAD, y1 + _HIT_PAD)
+            if self._view.scene_rect_for_box(page_index, box).contains(scene_pt):
+                return page_index, annot
+        return None
+
     def begin_move(self, scene_pt) -> bool:
-        """SELECT-mode press on a text box → start a move. Returns True if it grabbed a box."""
+        """SELECT-mode press on a text box **or a drawn mark** (M58) → start a move. Returns True
+        if it grabbed something."""
         if self._view.rotation != 0:
             return False
-        hit = self.textbox_at(scene_pt)
+        hit = self.textbox_at(scene_pt) or self.drawn_mark_at(scene_pt)
         if hit is None:
             return False
         self._move_page, self._move_box = hit
@@ -492,7 +635,7 @@ class AnnotationOverlay:
         # frame as the box rect — on a rotated page a raw scene delta would swap axes (drag down →
         # box left). The ghost rides the page transform so it rotates with the page.
         self._move_anchor_local = self._view.local_point_on_page(self._move_page, scene_pt)
-        self._move_rect = self._move_box.rect
+        self._move_rect = self._move_bounds(self._move_box)
         x0, y0, x1, y1 = self._move_rect
         ghost = QGraphicsRectItem(QRectF(x0, y0, x1 - x0, y1 - y0))
         ghost.setTransform(self._view.page_transform(self._move_page))
@@ -503,13 +646,18 @@ class AnnotationOverlay:
         self._move_ghost = ghost
         return True
 
+    @staticmethod
+    def _move_bounds(mark) -> tuple:
+        """The rect the move drags around: a text box's own rect, else the drawn bounding rect."""
+        return mark.rect if isinstance(mark, TextBox) else mark.bounding_rect()
+
     def update_move(self, scene_pt) -> None:
         if self._move_ghost is None:
             return
         local = self._view.local_point_on_page(self._move_page, scene_pt)
         dx = local.x() - self._move_anchor_local.x()
         dy = local.y() - self._move_anchor_local.y()
-        x0, y0, x1, y1 = self._move_box.rect
+        x0, y0, x1, y1 = self._move_bounds(self._move_box)
         w, h = x1 - x0, y1 - y0
         pw, ph = self._view._unrotated_size(self._move_page)
         nx0 = min(max(0.0, x0 + dx), max(0.0, pw - w))   # clamp so the box stays on the page
@@ -522,11 +670,20 @@ class AnnotationOverlay:
             return
         ghost, self._move_ghost = self._move_ghost, None
         self._view.scene().removeItem(ghost)
-        page_index, old, new_rect = self._move_page, self._move_box, self._move_rect
+        page_index, old = self._move_page, self._move_box
+        bounds = self._move_bounds(old)
+        dx = self._move_rect[0] - bounds[0]
+        dy = self._move_rect[1] - bounds[1]
         self._move_box = self._move_anchor_local = None
-        if old is not None and new_rect != old.rect:
-            new = replace(old, rect=new_rect)  # preserve text + all styling, just move it
-            self._replace(page_index, old, new, text="Move text box")
+        if old is not None and (dx or dy):
+            label = {
+                "TextBox": "Move text box",
+                "InkStroke": "Move ink",
+                "Line": "Move line",
+                "Shape": "Move shape",
+            }[type(old).__name__]
+            # One translate primitive for every geometry — text + styling ride along untouched.
+            self._replace(page_index, old, _translated(old, dx, dy), text=label)
 
     # ---- redaction tool (rubber-band drag) --------------------------------------
 
@@ -572,3 +729,131 @@ class AnnotationOverlay:
         box = self._view.local_box_from_scene_rect(self._redact_page, scene_rect)
         if box[2] - box[0] >= 1.0 and box[3] - box[1] >= 1.0:
             self._on_add(self._redact_page, Redaction((box,)))
+
+    # ---- draw tools (M58): pen path capture + line/arrow/rect/ellipse gestures --
+
+    @property
+    def drawing(self) -> bool:
+        """True while a draw press-drag gesture is in progress."""
+        return self._draw_item is not None
+
+    def begin_draw(self, tool, scene_pt) -> bool:
+        """Armed draw-tool press: start the gesture on the page under ``scene_pt``. Returns True
+        if it consumed the press (point on a page, inside its bounds); off-page presses leave the
+        tool armed, like the other one-shots. Rotation-0 only, like the overlays."""
+        if self._view.rotation != 0:
+            return False
+        page_index, local = self._view.page_and_local_at(scene_pt)
+        if page_index is None:
+            return False
+        pw, ph = self._view._unrotated_size(page_index)
+        if not (0 <= local.x() <= pw and 0 <= local.y() <= ph):
+            return False
+        self._draw_tool = tool
+        self._draw_page = page_index
+        self._draw_anchor = self._draw_end = (local.x(), local.y())
+        self._draw_points = [self._draw_anchor]
+        item = QGraphicsPathItem()
+        item.setPen(self._drawn_pen(_DRAW_COLOR, _DRAW_WIDTH))
+        item.setTransform(self._view.page_transform(page_index))
+        item.setZValue(11)
+        self._view.scene().addItem(item)
+        self._draw_item = item
+        return True
+
+    def update_draw(self, scene_pt, modifiers=None) -> None:
+        """Extend the gesture: the pen appends a point, the others track the end point —
+        Shift-constrained (square / circle / 45° line) when held. ``modifiers`` defaults to the
+        live keyboard state; tests pass them explicitly."""
+        if self._draw_item is None:
+            return
+        if modifiers is None:
+            modifiers = QGuiApplication.keyboardModifiers()
+        local = self._view.local_point_on_page(self._draw_page, scene_pt)
+        pw, ph = self._view._unrotated_size(self._draw_page)
+        x = min(max(0.0, local.x()), pw)  # clamp: a mark never leaves its page
+        y = min(max(0.0, local.y()), ph)
+        if self._draw_tool is ArmedTool.PEN:
+            last = self._draw_points[-1]
+            if math.hypot(x - last[0], y - last[1]) >= 0.7:  # thin the samples a touch
+                self._draw_points.append((x, y))
+        else:
+            end = (x, y)
+            if modifiers & Qt.KeyboardModifier.ShiftModifier:
+                end = self._constrained_end(x, y)
+            self._draw_end = end
+        self._draw_item.setPath(self._gesture_path())
+
+    def _constrained_end(self, x: float, y: float) -> tuple:
+        """The Shift constraint: lines/arrows snap to 45° steps; rect/ellipse drags square up."""
+        ax, ay = self._draw_anchor
+        dx, dy = x - ax, y - ay
+        if self._draw_tool in (ArmedTool.LINE, ArmedTool.ARROW):
+            length = math.hypot(dx, dy)
+            if length < 1e-6:
+                return (x, y)
+            step = math.radians(45)
+            angle = round(math.atan2(dy, dx) / step) * step
+            return (ax + length * math.cos(angle), ay + length * math.sin(angle))
+        side = max(abs(dx), abs(dy))
+        return (ax + math.copysign(side, dx or 1.0), ay + math.copysign(side, dy or 1.0))
+
+    def _gesture_path(self) -> QPainterPath:
+        """The live preview path in page points — the same geometry the commit will bake."""
+        tool = self._draw_tool
+        path = QPainterPath()
+        if tool is ArmedTool.PEN:
+            path.moveTo(*self._draw_points[0])
+            for point in self._draw_points[1:]:
+                path.lineTo(*point)
+        elif tool in (ArmedTool.LINE, ArmedTool.ARROW):
+            path = _line_path(self._draw_anchor, self._draw_end,
+                              False, tool is ArmedTool.ARROW, _DRAW_WIDTH)
+        else:
+            x0, y0 = self._draw_anchor
+            x1, y1 = self._draw_end
+            rect = QRectF(min(x0, x1), min(y0, y1), abs(x1 - x0), abs(y1 - y0))
+            if tool is ArmedTool.RECT:
+                path.addRect(rect)
+            else:
+                path.addEllipse(rect)
+        return path
+
+    def finish_draw(self) -> None:
+        """Commit the gesture as its descriptor (undoable). A drag smaller than ``_MIN_DRAW`` in
+        both axes is dropped as a stray click."""
+        if self._draw_item is None:
+            return
+        item, self._draw_item = self._draw_item, None
+        self._view.scene().removeItem(item)
+        tool, page_index = self._draw_tool, self._draw_page
+        anchor, end, points = self._draw_anchor, self._draw_end, self._draw_points
+        self._draw_tool = self._draw_anchor = self._draw_end = None
+        self._draw_points = []
+        if tool is ArmedTool.PEN:
+            xs = [p[0] for p in points]
+            ys = [p[1] for p in points]
+            if len(points) < 2 or (max(xs) - min(xs) < _MIN_DRAW and max(ys) - min(ys) < _MIN_DRAW):
+                return
+            self._on_add(page_index, InkStroke((tuple(points),)))
+            return
+        dx, dy = abs(end[0] - anchor[0]), abs(end[1] - anchor[1])
+        if dx < _MIN_DRAW and dy < _MIN_DRAW:
+            return
+        if tool in (ArmedTool.LINE, ArmedTool.ARROW):
+            self._on_add(page_index, Line(anchor, end, arrow_end=tool is ArmedTool.ARROW))
+        else:
+            rect = (min(anchor[0], end[0]), min(anchor[1], end[1]),
+                    max(anchor[0], end[0]), max(anchor[1], end[1]))
+            kind = "rect" if tool is ArmedTool.RECT else "ellipse"
+            self._on_add(page_index, Shape(kind, rect))
+
+    def cancel_draw(self) -> None:
+        """Drop an in-progress gesture without committing (Esc / disarm mid-drag)."""
+        if self._draw_item is None:
+            return
+        item, self._draw_item = self._draw_item, None
+        if item.scene() is self._view.scene():
+            self._view.scene().removeItem(item)
+        self._draw_tool = self._draw_anchor = self._draw_end = None
+        self._draw_points = []

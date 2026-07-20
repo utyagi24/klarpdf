@@ -57,7 +57,9 @@ def test_tools_menu_holds_the_modes_and_armed_tools(app, b_pdf):
     win = app.open_document(b_pdf)
     assert _titles(win, "&Tools") == [
         "Select", "Grab",
-        "Add Text Box", "Highlight", "Underline", "Strike Out", "Redact Text", "Redact Block",
+        "Add Text Box", "Highlight", "Underline", "Strike Out",
+        "Pen", "Line", "Arrow", "Rectangle", "Ellipse",
+        "Redact Text", "Redact Block",
         "Crop Pages", "Remove Crop",
     ]
 

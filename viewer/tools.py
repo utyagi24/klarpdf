@@ -39,6 +39,11 @@ class ArmedTool(Enum):
     REDACT_TEXT = "redact_text"
     REDACT_REGION = "redact_region"
     CROP = "crop"
+    PEN = "pen"
+    LINE = "line"
+    ARROW = "arrow"
+    RECT = "rect"
+    ELLIPSE = "ellipse"
 
     @property
     def drags_text(self) -> bool:
@@ -48,4 +53,16 @@ class ArmedTool(Enum):
             ArmedTool.UNDERLINE,
             ArmedTool.STRIKEOUT,
             ArmedTool.REDACT_TEXT,
+        )
+
+    @property
+    def draws(self) -> bool:
+        """True for the free-draw tools (M58): pen path capture / line / arrow / rect / ellipse —
+        a press-drag-release gesture on the page, committed as a drawn-mark descriptor."""
+        return self in (
+            ArmedTool.PEN,
+            ArmedTool.LINE,
+            ArmedTool.ARROW,
+            ArmedTool.RECT,
+            ArmedTool.ELLIPSE,
         )

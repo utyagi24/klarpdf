@@ -121,6 +121,61 @@ class Strikeout:
 
 
 @dataclass(frozen=True)
+class InkStroke:
+    """A freehand pen mark: one or more point paths, fixed width (M57).
+
+    PDF ink carries no pressure, so the width is uniform by design (PLAN.md M58). ``paths`` is a
+    tuple of paths, each a tuple of ``(x, y)`` points in unrotated page points — one descriptor
+    holds one drawn gesture (possibly multi-path later; the M58 pen commits one path per stroke).
+    """
+
+    paths: tuple[tuple[tuple[float, float], ...], ...]
+    color: tuple[float, float, float] = (0.86, 0.10, 0.10)
+    width: float = 2.0
+
+    def bounding_rect(self) -> tuple[float, float, float, float]:
+        xs = [p[0] for path in self.paths for p in path]
+        ys = [p[1] for path in self.paths for p in path]
+        return (min(xs), min(ys), max(xs), max(ys))
+
+
+@dataclass(frozen=True)
+class Line:
+    """A straight line, optionally arrow-ended (M57). Arrow heads are open arrows — booleans in
+    the model (we write one style); any non-plain PDF end style reads back as ``True``."""
+
+    start: tuple[float, float]
+    end: tuple[float, float]
+    color: tuple[float, float, float] = (0.86, 0.10, 0.10)
+    width: float = 2.0
+    arrow_start: bool = False
+    arrow_end: bool = False
+
+    def bounding_rect(self) -> tuple[float, float, float, float]:
+        return (
+            min(self.start[0], self.end[0]),
+            min(self.start[1], self.end[1]),
+            max(self.start[0], self.end[0]),
+            max(self.start[1], self.end[1]),
+        )
+
+
+@dataclass(frozen=True)
+class Shape:
+    """A rectangle or ellipse (M57). ``kind`` is ``"rect"`` or ``"ellipse"``; ``fill_color``
+    ``None`` leaves the interior transparent (outline only)."""
+
+    kind: str
+    rect: tuple[float, float, float, float]
+    color: tuple[float, float, float] = (0.86, 0.10, 0.10)
+    width: float = 2.0
+    fill_color: tuple[float, float, float] | None = None
+
+    def bounding_rect(self) -> tuple[float, float, float, float]:
+        return self.rect
+
+
+@dataclass(frozen=True)
 class TextBox:
     """A free-text note box, with optional styling baked at materialise (M27 — styled text boxes).
 
@@ -189,6 +244,30 @@ def apply_annotations(page: fitz.Page, annotations: tuple) -> None:
             )
             annot = add([fitz.Rect(r) for r in annotation.rects])
             annot.set_colors(stroke=annotation.color)
+            annot.set_info(title=KLARPDF_AUTHOR)
+            annot.update()
+        elif isinstance(annotation, InkStroke):
+            annot = page.add_ink_annot([list(path) for path in annotation.paths])  # seq of (x, y)
+            annot.set_colors(stroke=annotation.color)
+            annot.set_border(width=annotation.width)
+            annot.set_info(title=KLARPDF_AUTHOR)
+            annot.update()
+        elif isinstance(annotation, Line):
+            annot = page.add_line_annot(fitz.Point(annotation.start), fitz.Point(annotation.end))
+            if annotation.arrow_start or annotation.arrow_end:
+                annot.set_line_ends(
+                    fitz.PDF_ANNOT_LE_OPEN_ARROW if annotation.arrow_start else fitz.PDF_ANNOT_LE_NONE,
+                    fitz.PDF_ANNOT_LE_OPEN_ARROW if annotation.arrow_end else fitz.PDF_ANNOT_LE_NONE,
+                )
+            annot.set_colors(stroke=annotation.color)
+            annot.set_border(width=annotation.width)
+            annot.set_info(title=KLARPDF_AUTHOR)
+            annot.update()
+        elif isinstance(annotation, Shape):
+            add = page.add_rect_annot if annotation.kind == "rect" else page.add_circle_annot
+            annot = add(fitz.Rect(annotation.rect))
+            annot.set_colors(stroke=annotation.color, fill=annotation.fill_color)
+            annot.set_border(width=annotation.width)
             annot.set_info(title=KLARPDF_AUTHOR)
             annot.update()
         elif isinstance(annotation, TextBox):
@@ -272,6 +351,19 @@ def _parse_freetext_da(da: str) -> tuple[float, tuple[float, float, float], str]
     return fontsize, color, fontname
 
 
+def _stroke_color(annot, default: tuple) -> tuple:
+    """An annot's stroke colour as a plain tuple, or ``default`` when unset (M57 read-back —
+    style via ``annot.colors``, no DA parsing)."""
+    stroke = annot.colors.get("stroke")
+    return tuple(stroke) if stroke else default
+
+
+def _border_width(annot) -> float:
+    """An annot's border width, defaulting to the drawn-mark default when unset."""
+    width = (annot.border or {}).get("width")
+    return float(width) if width and width > 0 else 2.0
+
+
 def _quads_to_rects(vertices) -> tuple[tuple[float, float, float, float], ...]:
     """Group a highlight's quad-point list (4 points per marked span) into per-span bounding rects."""
     rects = []
@@ -307,6 +399,41 @@ def read_klarpdf_annotations(page: fitz.Page) -> tuple:
             stroke = annot.colors.get("stroke")
             color = tuple(stroke) if stroke else cls.color
             result.append(cls(_quads_to_rects(annot.vertices), color=color))
+        elif kind == fitz.PDF_ANNOT_INK:
+            paths = tuple(tuple((p[0], p[1]) for p in path) for path in annot.vertices)
+            result.append(InkStroke(paths, color=_stroke_color(annot, InkStroke.color),
+                                    width=_border_width(annot)))
+        elif kind == fitz.PDF_ANNOT_LINE:
+            start, end = annot.vertices[0], annot.vertices[1]
+            ends = annot.line_ends or (fitz.PDF_ANNOT_LE_NONE, fitz.PDF_ANNOT_LE_NONE)
+            result.append(
+                Line(
+                    (start[0], start[1]),
+                    (end[0], end[1]),
+                    color=_stroke_color(annot, Line.color),
+                    width=_border_width(annot),
+                    arrow_start=ends[0] != fitz.PDF_ANNOT_LE_NONE,
+                    arrow_end=ends[1] != fitz.PDF_ANNOT_LE_NONE,
+                )
+            )
+        elif kind in (fitz.PDF_ANNOT_SQUARE, fitz.PDF_ANNOT_CIRCLE):
+            # The /Rect grows by the border width on each side when the appearance is baked
+            # (mirroring the FreeText inset above) — inset to recover the authored shape box, or
+            # the shape creeps outward on every save→reopen→save cycle.
+            width = _border_width(annot)
+            r = annot.rect
+            inset = width / 2.0
+            rect = (r.x0 + inset, r.y0 + inset, r.x1 - inset, r.y1 - inset)
+            fill = annot.colors.get("fill")
+            result.append(
+                Shape(
+                    "rect" if kind == fitz.PDF_ANNOT_SQUARE else "ellipse",
+                    rect,
+                    color=_stroke_color(annot, Shape.color),
+                    width=width,
+                    fill_color=tuple(fill) if fill else None,
+                )
+            )
         elif kind == fitz.PDF_ANNOT_FREE_TEXT:
             # PyMuPDF grows a FreeText /Rect by border_width/2 on each side when it bakes the
             # outline (RD stays zero), so inset by that to recover the authored box — otherwise the

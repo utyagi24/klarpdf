@@ -333,6 +333,10 @@ class PdfView(QGraphicsView):
                 self.begin_crop_drag(scene_pt)  # no-op off-page; stays armed
                 event.accept()
                 return
+            if self._armed is not None and self._armed.draws and self.annotations is not None:
+                self.annotations.begin_draw(self._armed, scene_pt)  # no-op off-page; stays armed
+                event.accept()
+                return
             if self._armed is not None and self._armed.drags_text and self.selection is not None:
                 self.selection.begin(scene_pt)  # drag over text; applied (highlight/redact) on release
                 event.accept()
@@ -390,6 +394,10 @@ class PdfView(QGraphicsView):
             self.annotations.update_redaction(scene_pt)
             event.accept()
             return
+        if self.annotations is not None and self.annotations.drawing:
+            self.annotations.update_draw(scene_pt, event.modifiers())  # Shift constrains
+            event.accept()
+            return
         if self.annotations is not None and self.annotations.moving:
             self.annotations.update_move(scene_pt)
             event.accept()
@@ -412,6 +420,12 @@ class PdfView(QGraphicsView):
             self.annotations.finish_redaction()
             if self._armed is ArmedTool.REDACT_REGION:
                 self.disarm()  # one-shot: revert to SELECT after the drag commits
+            event.accept()
+            return
+        if self.annotations is not None and self.annotations.drawing:
+            self.annotations.finish_draw()
+            if self._armed is not None and self._armed.draws:
+                self.disarm()  # one-shot: revert to SELECT after the gesture commits
             event.accept()
             return
         if self.annotations is not None and self.annotations.moving:
@@ -679,6 +693,8 @@ class PdfView(QGraphicsView):
             if self._crop_item.scene() is self.scene():
                 self.scene().removeItem(self._crop_item)
             self._crop_item = self._crop_anchor = self._crop_page = None
+        if self.annotations is not None and self.annotations.drawing:
+            self.annotations.cancel_draw()  # Esc mid-gesture: drop the preview, commit nothing
         self._armed = None
         self.viewport().setCursor(Qt.CursorShape.ArrowCursor)
         self.armedChanged.emit(None)
