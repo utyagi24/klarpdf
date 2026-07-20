@@ -84,10 +84,12 @@ class PdfApp(QApplication):
         # crop_override) — the page plus its per-page edits. Holding the source doc lets the
         # paste target register it and splice the PageRef losslessly.
         self.page_clipboard: list[tuple] = []
-        # Object clipboard (M59): one copied free-placed mark (a frozen descriptor value object —
-        # TextBox / InkStroke / Line / Shape), pasteable into any window (single process, same
-        # pattern as the page clipboard but with no source document to carry).
-        self.object_clipboard = None
+        # Object clipboard (M59; a **list** since M59.12): the copied free-placed marks (frozen
+        # descriptor value objects — TextBox / InkStroke / Line / Shape), pasteable into any window
+        # (single process, same pattern as the page clipboard but with no source document to carry).
+        # A whole multi-selection copies at once and pastes as a group, keeping its arrangement, so
+        # this mirrors `page_clipboard`: a list, empty when there is nothing to paste.
+        self.object_clipboard: list = []
         self._server: QLocalServer | None = None
         self._incoming: dict[QLocalSocket, bytes] = {}
 
