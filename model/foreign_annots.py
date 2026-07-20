@@ -219,6 +219,116 @@ def page_has_foreign_annotations(page: "fitz.Page") -> bool:
     return any(is_foreign(annot) for annot in page.annots())
 
 
+# ---- adopt-on-edit (M68) --------------------------------------------------------
+#
+# Delete and move never look *inside* an annotation — that is what makes them safe for every type.
+# Adoption is the opposite: it parses a foreign annotation into one of our descriptors so it becomes
+# fully editable, which is only possible for the types the model actually represents, and only
+# faithful when the annotation uses nothing the model cannot carry.
+#
+# The mechanism reuses M66 wholesale: adopting is a `ForeignDeletion` of the original plus the
+# parsed descriptor added to the page. At materialise the original is stripped and ours is re-added,
+# author-tagged — so an adopted mark round-trips from then on exactly like one we drew.
+
+MODELED_KINDS = frozenset({
+    fitz.PDF_ANNOT_HIGHLIGHT,
+    fitz.PDF_ANNOT_UNDERLINE,
+    fitz.PDF_ANNOT_STRIKE_OUT,
+    fitz.PDF_ANNOT_INK,
+    fitz.PDF_ANNOT_LINE,
+    fitz.PDF_ANNOT_SQUARE,
+    fitz.PDF_ANNOT_CIRCLE,
+    fitz.PDF_ANNOT_FREE_TEXT,
+})
+
+# Base-14 DA font names the TextBox descriptor can represent. Anything else is a font we would
+# silently swap for Helvetica.
+_BASE14_DA = frozenset({"helv", "tiro", "cour"})
+
+
+def is_adoptable(annot: "fitz.Annot") -> bool:
+    """Can this foreign annotation be parsed into an editable model descriptor at all?"""
+    return annot.type[0] in MODELED_KINDS
+
+
+def degradations(annot: "fitz.Annot") -> list[str]:
+    """Features this annotation carries that adoption would **lose**, in plain words.
+
+    Adoption re-creates the mark from our own descriptor, so anything the descriptor cannot hold is
+    dropped — and it must be said *before* the edit, with a way out, rather than discovered
+    afterwards when the original is gone. Empty means adoption is lossless.
+    """
+    doc = annot.parent.parent
+    lost: list[str] = []
+
+    def has(key: str) -> bool:
+        kind, value = doc.xref_get_key(annot.xref, key)
+        return kind not in ("null", "unknown") and bool(value)
+
+    kind = annot.type[0]
+    if has("RC"):
+        lost.append("rich text formatting")
+    # A callout is identified by its **intent** (`/IT /FreeTextCallout`), not by `/CL` being
+    # present: PyMuPDF writes a degenerate `/CL` on every FreeText it creates, so testing for the
+    # key would warn about ordinary text boxes. `/RD` is skipped for the same reason — it is a
+    # routine rendering inset (border width), set on most annotations, and our parser already
+    # accounts for it. A warning that fires on marks losing nothing is worse than none: it trains
+    # people to click through the one that matters.
+    if doc.xref_get_key(annot.xref, "IT")[1] == "/FreeTextCallout":
+        lost.append("its callout line")
+    if has("IRT"):
+        lost.append("its reply thread")
+    dash = doc.xref_get_key(annot.xref, "BS/D")
+    if dash[0] == "array" and dash[1].strip("[] "):
+        lost.append("its dashed border")
+    # Opacity: only the drawn types carry /CA in the model (M59.9); the text-markup descriptors and
+    # TextBox have no opacity field, so a translucent one would come back solid.
+    if kind not in (fitz.PDF_ANNOT_INK, fitz.PDF_ANNOT_LINE,
+                    fitz.PDF_ANNOT_SQUARE, fitz.PDF_ANNOT_CIRCLE):
+        try:
+            opacity = float(annot.opacity)
+        except (TypeError, ValueError):
+            opacity = 1.0
+        if 0.0 <= opacity < 1.0:
+            lost.append("its transparency")
+    if kind == fitz.PDF_ANNOT_FREE_TEXT:
+        from model.page_edits import _parse_freetext_da
+
+        da = doc.xref_get_key(annot.xref, "DA")
+        raw = da[1] if da[0] == "string" else ""
+        token = next((t.lstrip("/").lower() for t in reversed(raw.split())
+                      if t.startswith("/")), "")
+        if token and token not in _BASE14_DA:
+            lost.append("its font (it will become Helvetica)")
+        # A FreeText we model has one text colour and an optional plain border; a coloured border
+        # is on the richtext path we deliberately do not take (M27).
+        if has("IC") and has("C"):
+            lost.append("its separate border colour")
+        _ = _parse_freetext_da
+    return lost
+
+
+def adopt_annotation(annot: "fitz.Annot"):
+    """Parse a foreign annotation into an editable model descriptor, or ``None``.
+
+    Uses :func:`model.page_edits.parse_annotation` — the *same* parser the round-trip path uses on
+    our own marks — so an adopted annotation and one we drew ourselves cannot drift apart.
+    """
+    if not is_adoptable(annot):
+        return None
+    from model.page_edits import parse_annotation
+
+    return parse_annotation(annot)
+
+
+def find_annotation(page: "fitz.Page", target_fingerprint: str):
+    """The foreign annotation on ``page`` matching ``target_fingerprint`` (the first), else None."""
+    for annot in page.annots():
+        if is_foreign(annot) and fingerprint(annot) == target_fingerprint:
+            return annot
+    return None
+
+
 def apply_foreign_edits(page: "fitz.Page", annotations: tuple) -> tuple[int, int]:
     """Apply this page's foreign-annotation deletions and moves. Returns ``(deleted, moved)``.
 

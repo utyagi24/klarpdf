@@ -40,6 +40,7 @@ class PdfView(QGraphicsView):
     applyTextTool = Signal(object)  # an ArmedTool (HIGHLIGHT/REDACT_TEXT) fired on a drag-over-text release
     cropDragged = Signal(int, tuple)  # an armed CROP drag finished: (page_index, content box) — M48
     foreignMoved = Signal(int, object, float, float)  # a foreign annotation was dragged — M67
+    foreignAdopt = Signal(int, object)  # a foreign annotation was double-clicked — M68
 
     def __init__(self, vdoc: VirtualDocument, parent=None) -> None:
         super().__init__(parent)
@@ -414,6 +415,14 @@ class PdfView(QGraphicsView):
             if self.annotations is not None and self.annotations.edit_textbox_at(scene_pt):
                 event.accept()
                 return
+            # Double-click a *foreign* mark → offer to adopt it into the editable model (M68).
+            # After our own text boxes, so re-editing one still wins.
+            if self.annotations is not None:
+                hit = self.annotations.foreign_annotation_at(scene_pt)
+                if hit is not None:
+                    self.foreignAdopt.emit(*hit)
+                    event.accept()
+                    return
             if self.selection is not None and self.selection.select_word_at(scene_pt):
                 event.accept()
                 return

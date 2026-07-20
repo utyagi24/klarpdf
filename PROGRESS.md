@@ -407,7 +407,20 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   mark. Moves **combine rather than stack**, so one descriptor per mark always holds the original
   fingerprint; the viewer reports moved rects so hit-testing follows the mark you can see. — *Windows
   (headless + offscreen GUI)* — 24 new tests, 910 green
-- [ ] **M68** Adopt-on-edit — modeled types only; degrade warning before simplifying — *WSL + WSLg*
+- [x] **M68** Adopt-on-edit — double-click a foreign mark of a **modeled type** (highlight ·
+  underline · strikeout · ink · line · square · circle · FreeText) → it becomes an ordinary editable
+  KlarPDF mark. The mechanism is **entirely M66's**: a `ForeignDeletion` of the original plus the
+  parsed descriptor, one macro — so at materialise the original is stripped and ours is re-added
+  author-tagged, and from then on it round-trips like a mark we drew. Parsing reuses
+  `page_edits.parse_annotation` (extracted from `read_klarpdf_annotations`), so an adopted mark and a
+  round-tripped one **cannot drift apart**. Unmodeled types (sticky note, stamp…) stay delete/move
+  only and say so. **The degrade warning fires exactly when something would be lost** — rich text,
+  a real callout, a reply thread, a dashed border, transparency on a type whose descriptor has no
+  opacity field, a non-base-14 font. Getting "exactly" right was the work: `/RD` and `/CL` are
+  written *routinely* by PyMuPDF itself, so naive key-presence warned on marks losing nothing, which
+  is how a warning stops being read — a callout is now detected by `/IT /FreeTextCallout`, and `/RD`
+  is ignored. A pending M67 move is folded into the adopted mark so it doesn't snap back. — *Windows
+  (headless + offscreen GUI)* — 36 new tests, 946 green
 - [ ] **M69** Form-field creation — checkbox / text / dropdown via `add_widget` (radio rejected) — *WSL + WSLg*
 - [ ] **M70** Verify + release → tag — *Windows*
 
