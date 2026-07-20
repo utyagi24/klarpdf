@@ -125,6 +125,74 @@ class ForeignDeletion:
     label: str = ""          # what the UI called it, for a readable undo entry
 
 
+@dataclass(frozen=True)
+class ForeignMove:
+    """A foreign annotation translated by ``(dx, dy)``, applied at materialise (M67).
+
+    Deltas are in **fitz page coordinates** (y grows downward, the frame every other descriptor in
+    this codebase uses); the conversion to PDF's y-up array values happens at apply time.
+
+    Moves for one annotation **combine rather than stack**: dragging a mark twice replaces its
+    descriptor with the summed delta. That matters for more than tidiness — a hash fingerprint is
+    computed from the annotation's *rect*, so a second descriptor keyed on the moved position would
+    no longer match the annotation as it arrives at materialise. One descriptor per mark, always
+    holding the original fingerprint, keeps identity stable.
+    """
+
+    fingerprint: str
+    dx: float
+    dy: float
+    label: str = ""
+
+
+# Annotation dictionary keys holding page geometry as flat number arrays (x y x y …). All of them
+# have to travel with a move, or the drawn appearance and the annotation's own geometry desync —
+# a highlight whose /Rect moved but whose /QuadPoints did not would be re-derived back to its old
+# position by any viewer that regenerates appearances from the quads.
+_GEOMETRY_KEYS = ("Rect", "QuadPoints", "Vertices", "L", "CL", "InkList")
+
+_NUMBER = __import__("re").compile(r"-?\d+(?:\.\d+)?")
+
+
+def _shift_array(value: str, dx: float, dy: float) -> str:
+    """Translate every ``x y`` pair in a PDF number array, preserving the string's structure.
+
+    Rewritten match-by-match rather than parsed and rebuilt, so nested arrays (``/InkList`` is an
+    array *of* arrays) keep their brackets exactly. Alternating parity survives nesting because every
+    sub-array holds whole coordinate pairs.
+
+    **``dy`` is subtracted**: these arrays are in PDF user space, whose y axis grows *upward*, while
+    the callers' deltas are in fitz page space, whose y grows downward.
+    """
+    index = 0
+
+    def replace(match) -> str:
+        nonlocal index
+        shifted = float(match.group()) + (dx if index % 2 == 0 else -dy)
+        index += 1
+        return f"{shifted:g}"
+
+    return _NUMBER.sub(replace, value)
+
+
+def _translate_annot(annot: "fitz.Annot", dx: float, dy: float) -> None:
+    """Move one annotation by editing its geometry keys directly.
+
+    Deliberately **not** ``Annot.set_rect``: that raises outright on the quad-based text markup types
+    ("Highlight annotations have no Rect property"), so it cannot be the one path for "every
+    annotation type". Editing the dictionary works for all of them and never goes near the
+    appearance stream, which is what makes the "appearance preserved verbatim" guarantee literal —
+    a rich callout box with a custom appearance moves with exactly zero degradation, because nothing
+    re-renders it. The PDF spec maps an appearance's ``/BBox`` into ``/Rect``, so moving the rect
+    moves what is drawn.
+    """
+    doc = annot.parent.parent
+    for key in _GEOMETRY_KEYS:
+        kind, value = doc.xref_get_key(annot.xref, key)
+        if kind == "array" and value:
+            doc.xref_set_key(annot.xref, key, _shift_array(value, dx, dy))
+
+
 def read_foreign_annotations(page: "fitz.Page") -> tuple[ForeignAnnot, ...]:
     """Every foreign annotation on ``page``, in the page's annotation order."""
     found = []
@@ -151,32 +219,55 @@ def page_has_foreign_annotations(page: "fitz.Page") -> bool:
     return any(is_foreign(annot) for annot in page.annots())
 
 
-def apply_foreign_deletions(page: "fitz.Page", annotations: tuple) -> int:
-    """Delete the foreign annotations named by ``annotations``' deletions. Returns how many went.
+def apply_foreign_edits(page: "fitz.Page", annotations: tuple) -> tuple[int, int]:
+    """Apply this page's foreign-annotation deletions and moves. Returns ``(deleted, moved)``.
 
-    Runs on the **materialised output page**, never a shared source. Matching is positional within
-    the page: the *n*-th annotation with a fingerprint satisfies the *n*-th deletion carrying it, so
-    two identical annotations resolve to themselves in order rather than both being removed by one
-    descriptor.
+    Runs on the **materialised output page**, never a shared source.
 
-    A deletion whose target is not found is silently a no-op — the annotation may have been removed
-    by an earlier redaction pass, or the page may have arrived from another document by drag/paste.
-    Failing the save over a missing annotation would be much worse than not deleting it.
+    **Fingerprints are resolved once, up front**, before anything is applied — a hash fingerprint is
+    computed from the annotation's rect, so moving an annotation changes its fingerprint, and
+    matching descriptor-by-descriptor as we went would make a move invalidate every later descriptor
+    aimed at the same mark. Resolving first means every descriptor is matched against the page as it
+    arrived.
+
+    Matching is positional within the page: the *n*-th annotation with a fingerprint satisfies the
+    *n*-th descriptor carrying it, so identical twins resolve to themselves in order rather than one
+    descriptor claiming both.
+
+    A descriptor whose target is not found is silently a no-op — the annotation may have been
+    removed by an earlier redaction pass, or the page may have arrived from another document by
+    drag/paste. Failing the save over a missing annotation would be much worse.
     """
-    wanted: dict[str, int] = {}
+    deletions: dict[str, int] = {}
+    moves: dict[str, list] = {}
     for mark in annotations:
         if isinstance(mark, ForeignDeletion):
-            wanted[mark.fingerprint] = wanted.get(mark.fingerprint, 0) + 1
-    if not wanted:
-        return 0
-    removed = 0
-    annot = page.first_annot
-    while annot:
-        key = fingerprint(annot) if is_foreign(annot) else None
-        if key is not None and wanted.get(key):
-            wanted[key] -= 1
-            removed += 1
-            annot = page.delete_annot(annot)      # returns the next annot (the documented idiom)
-        else:
-            annot = annot.next
-    return removed
+            deletions[mark.fingerprint] = deletions.get(mark.fingerprint, 0) + 1
+        elif isinstance(mark, ForeignMove):
+            moves.setdefault(mark.fingerprint, []).append(mark)
+    if not deletions and not moves:
+        return (0, 0)
+
+    resolved = [(annot, fingerprint(annot)) for annot in page.annots() if is_foreign(annot)]
+    to_delete, to_move = [], []
+    for annot, key in resolved:
+        # Deletion wins over a move for the same mark: dragging something and then deleting it
+        # should delete it, and a deleted annotation has no position worth computing.
+        if deletions.get(key):
+            deletions[key] -= 1
+            to_delete.append(annot)
+        elif moves.get(key):
+            to_move.append((annot, moves[key].pop(0)))
+
+    for annot, mark in to_move:
+        _translate_annot(annot, mark.dx, mark.dy)
+    for annot in to_delete:
+        page.delete_annot(annot)
+    return (len(to_delete), len(to_move))
+
+
+def apply_foreign_deletions(page: "fitz.Page", annotations: tuple) -> int:
+    """Deletions only — :func:`apply_foreign_edits` restricted to :class:`ForeignDeletion`."""
+    return apply_foreign_edits(
+        page, tuple(a for a in annotations if isinstance(a, ForeignDeletion))
+    )[0]

@@ -141,6 +141,7 @@ class MainWindow(QMainWindow):
         self.view.armedChanged.connect(self._on_armed_changed)
         self.view.applyTextTool.connect(self._apply_text_tool)
         self.view.cropDragged.connect(self._on_crop_dragged)
+        self.view.foreignMoved.connect(self._move_foreign_annotation)
         self.find_bar = FindBar(self.view)  # hidden until Ctrl+F
         # Doc-wide search hit list (M47): a band under the find bar, hidden until List All.
         self.search_results = SearchResultsPanel(self.view)
@@ -1320,6 +1321,35 @@ class MainWindow(QMainWindow):
                                  ForeignDeletion(mark.fingerprint, mark.label),
                                  text=f"Delete {mark.label}")
         )
+
+    def _move_foreign_annotation(self, page_index: int, mark, dx: float, dy: float) -> None:
+        """A foreign annotation was dragged (M67) — record the translation, undoably.
+
+        Moves **combine rather than stack**: dragging the same mark twice replaces its descriptor
+        with the summed delta. Beyond tidiness that is required for correctness — a hash fingerprint
+        is derived from the annotation's rect, so a second descriptor keyed on the moved position
+        would no longer match the annotation as it arrives at materialise. One descriptor per mark,
+        always holding the fingerprint the page arrived with.
+        """
+        from model.foreign_annots import ForeignMove
+
+        self._note_edit_on(page_index)
+        existing = next(
+            (a for a in self.vdoc.page_annotations(page_index)
+             if isinstance(a, ForeignMove) and a.fingerprint == mark.fingerprint),
+            None,
+        )
+        label = f"Move {mark.label}"
+        if existing is not None:
+            self.undo_stack.push(ReplaceAnnotationCommand(
+                self.vdoc, page_index, existing,
+                ForeignMove(mark.fingerprint, existing.dx + dx, existing.dy + dy, mark.label),
+                label,
+            ))
+        else:
+            self.undo_stack.push(AddAnnotationCommand(
+                self.vdoc, page_index, ForeignMove(mark.fingerprint, dx, dy, mark.label), text=label
+            ))
 
     def _on_crop_dragged(self, page_index: int, rect: tuple) -> None:
         """An armed-CROP drag finished (M48): ask the scope, then crop as one undo step."""
