@@ -335,7 +335,20 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   would bake a second copy); the confirm now names which of the two it is committing. Move / resize
   / copy come from the existing `translate_mark` / `scale_mark` primitives. Print, export and live
   thumbnails inherit it via `render_output`. — *WSL (model+tests)* — 31 new tests, 767 green
-- [ ] **M62** Stamp & watermark UI — placement mode (M69 reuses it) + dialogs + page-range apply — *WSLg*
+- [x] **M62** Stamp & watermark UI — placement + dialogs + page-range apply. **There is no second
+  placement system**: a content mark is a free-placed rect, so it joins `_OBJECT_TYPES` and inherits
+  hit-testing, selection, move, corner-resize, z-order and delete from the M58/M59 object tools —
+  which *is* the milestone's "drag rect, move, corner-resize until save", built by reuse. A new
+  one-shot **`ArmedTool.STAMP`** shares the draw-gesture path (drag the box; Shift squares it).
+  Two flows over the one engine: a **stamp / signature** is composed then *placed*, a **watermark**
+  covers whole pages so it applies at once, sized to **each page's own** box. `ui/stamp_dialog.py`
+  (text · colour · angle · opacity · frame · page range; presets prefill and stay editable) +
+  `util/page_range.py` (`"1-3, 7, 12-"`, shared with M64's scope). Both dialogs state the bake
+  boundary in the dialog. Toolbar: one new slot, the **Stamp ▾** split-button (three new icons).
+  Live preview renders through the *same generator that bakes at save*; an `under=True` watermark is
+  drawn with **multiply** compositing, since Qt cannot paint beneath the page pixmap — the page's
+  text darkens through it exactly as in the saved file. — *Windows (headless + offscreen GUI)* —
+  46 new tests, 812 green
 - [ ] **M63** Image stamp / signature — transparent PNG + white-to-alpha toggle; recent list stores paths only — *WSL + WSLg*
 - [ ] **M64** Search & redact — batched redactions, one undo step; M47 review panel + checkboxes; text-layer-only warnings — *WSL + WSLg*
 - [ ] **M65** Verify + release → tag — *Windows*

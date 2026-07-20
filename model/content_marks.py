@@ -131,7 +131,7 @@ WATERMARK_PRESETS: dict[str, dict] = {
 WATERMARK_DEFAULTS: dict = {
     "color": (0.45, 0.45, 0.50),
     "border_width": 0.0,     # a frame reads as a stamp; a watermark is bare text
-    "angle": 45.0,
+    "angle": -45.0,
     "opacity": 0.18,
     "under": True,
 }

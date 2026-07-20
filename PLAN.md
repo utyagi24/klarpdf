@@ -1045,6 +1045,30 @@ the v0.7.0 → v0.9.0 re-scope). Theme names and milestone numbers are stable ei
   answers by **drawing** — even at `render_mode=3` (invisible) the glyphs land in the content stream
   and come back out of `get_text`. Measuring on the target page therefore stamps everything twice,
   once invisibly. All measurement runs on a scratch page.
+
+**M62 as built** — the placement mode is **reuse, not a new subsystem**. A content mark is a
+free-placed rect, so adding it to the viewer's `_OBJECT_TYPES` gives hit-testing, selection, move,
+eight-handle resize, z-order and delete from the M58/M59 object tools already in the file; the
+milestone's "drag rect, move, corner-resize until save" then needs only a one-shot `ArmedTool.STAMP`
+sharing the existing draw-gesture path. Two consequences worth stating:
+
+- **A stamp stretches; a text box does not.** `scale_mark` repositions a `TextBox` (its size is a
+  function of its text) but scales a content mark, because the rect *is* the box the artwork is
+  fitted into. The pen-&-shapes style picker correctly ignores a selected stamp — `restyle_mark`
+  returns `None` for it — since a stamp's style comes from its own dialog.
+- **The preview must reproduce `show_pdf_page`'s fit, and this is easy to get wrong.**
+  `show_pdf_page` scales a mark's *rotated* artwork to fit its rect and centres it there, so a 45°
+  watermark bakes at ~0.59 of its box. The first implementation baked that factor into the preview
+  pixmap's resolution, where `setScale` promptly cancelled it out — the on-screen watermark was
+  **~1.8× too large**, and every assertion still passed. It was caught by rendering the preview and
+  the materialised page side by side and looking at them. `_rotation_fit` now carries the factor and
+  is unit-tested against the geometry, plus a scene-level test that a rotated mark's painted item
+  stays inside its rect and concentric with it.
+
+  The one honest gap: an `under=True` watermark bakes *beneath* the page content, and Qt cannot
+  paint beneath the page's own pixmap. It is previewed with **multiply** compositing instead —
+  equivalent for the translucent marks a watermark actually is, because painting a translucent mark
+  under black text and multiplying it over black text both leave the text black.
 | **M62** Stamp & watermark UI | Placement mode (drag rect, move, corner-resize until save) — **the same placement UI M69's field creation reuses**; stamp dialog (text · colour · angle · opacity + preset list); watermark dialog (page range, translucency, diagonal); apply-to-page-range checkbox on stamps (the initials-on-every-page case). | WSLg | Place/move/resize a stamp; watermark a range; both bake on save |
 | **M63** Image stamp / signature | The sign-and-return workflow: place a PNG/JPEG (scanned signature, seal, logo) via the M62 placement UI. Transparent-PNG alpha honored + a **"make white background transparent"** threshold toggle (phone-photo signatures just work); **recent-signatures list stores paths only** — KlarPDF never keeps a hidden copy of a signature. Docs: ink-equivalent, **not** a cryptographic signature. | WSL + WSLg | Sign a form offline in two clicks on the second use; baked mark can't be lifted off |
 | **M64** Search & redact | Redact every occurrence of a string: `search_for` quads → batched `Redaction` descriptors in **one undo step**; destructive only at the existing confirmed Save. Review flow reuses M47's panel with checkboxes (untick "Smithsonian" when redacting "Smith"); case + whole-word toggles. **Honesty: text-layer only** — detect image-only pages and warn; form-field values are a documented boundary; same-width boxes hint string length (docs note). | WSL (model+tests) + WSLg | Mark-all → review → redact-checked → Save removes them (cross-engine leak check); warnings fire on image-only pages |
