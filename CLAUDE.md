@@ -78,7 +78,9 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
 users upgrading from v0.12.0 receive both tranches at once. R3 adds underline/strikeout, the pen
 and shape tools, full object editing (multi-select, move, resize, z-order, group copy/paste), and
 markup colour/opacity. **M0–M38, R1, R2, and R3 are complete**; v0.11.0 stays reserved for the
-MCP / Agent Bridge (M39–M44), and the tranche continues at **R4 (M61)**. For live status — shipped
+MCP / Agent Bridge (M39–M44). **R4 (M61–M64) and R5's M66–M69 are now complete and unreleased** —
+M65's release cut was skipped by owner call, so R4 and R5 will ship together at **M70**, the next
+thing to do. For live status — shipped
 versions, per-release notes, release links, milestone ticks, and **Open follow-ups** — see
 `PROGRESS.md` (the single source of status; read it first). Design/spec, including §Future
 enhancements for what's next, lives in `PLAN.md`.
