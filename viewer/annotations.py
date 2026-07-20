@@ -786,6 +786,11 @@ class AnnotationOverlay:
         """Select a single free-placed mark, replacing any prior selection."""
         self._set_selection([(page_index, mark)])
 
+    def select_objects(self, page_index: int, marks) -> None:
+        """Select several marks on one page — how a group op restores its selection after the
+        edit's reload cleared it (M59.8 reorder)."""
+        self._set_selection([(page_index, mark) for mark in marks])
+
     def select_object_at(self, scene_pt) -> bool:
         """Select the free-placed mark under ``scene_pt`` (text box or drawn mark), if any."""
         hit = self.textbox_at(scene_pt) or self.drawn_mark_at(scene_pt)

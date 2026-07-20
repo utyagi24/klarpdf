@@ -213,6 +213,18 @@ class RemoveAnnotationCommand(_SnapshotCommand):
         self._vdoc.remove_annotation(self._index, self._annotation)
 
 
+class SetAnnotationsCommand(_SnapshotCommand):
+    """Set a page's whole annotation tuple in one undoable step — the z-order reorder (M59.8),
+    where the ordering *is* the edit (paint order in the saved PDF + topmost-wins hit order)."""
+
+    def __init__(self, vdoc: VirtualDocument, index: int, annotations: tuple, text: str) -> None:
+        super().__init__(vdoc, text)
+        self._index, self._annotations = index, annotations
+
+    def _apply(self) -> None:
+        self._vdoc.set_annotations(self._index, self._annotations)
+
+
 class ReplaceAnnotationCommand(_SnapshotCommand):
     """Swap one annotation descriptor for an updated one in place — moving a text box or editing
     its text (M21 follow-up). Snapshot-based, so it is one undo step and keeps z-order."""

@@ -45,6 +45,7 @@ from model.edit_commands import (
     ReplaceAnnotationCommand,
     ResetCropCommand,
     RotatePagesCommand,
+    SetAnnotationsCommand,
     SetEncryptionCommand,
     SetFieldValueCommand,
     SetMetadataCommand,
@@ -59,6 +60,7 @@ from model.page_edits import (
     TextBox,
     Underline,
     mark_bounds,
+    reorder_marks,
     translate_mark,
 )
 from model.edit_engine import PyMuPDFEngine
@@ -411,6 +413,20 @@ class MainWindow(QMainWindow):
         a_crop = act("Crop Pages", lambda: self._arm_tool(ArmedTool.CROP), to_menu=tools_menu)
         a_crop.setToolTip("Crop Pages — drag the area to keep; the rest is hidden, not removed")
         act("Remove Crop", self._remove_crop, to_menu=tools_menu)
+        # Object z-order (M59.8). Window-level actions so the shortcuts work wherever focus is,
+        # but deliberately *not* in a menubar menu: they only ever apply to a selected object, so a
+        # permanent menu group would sit greyed out most of the time. They surface in the view's
+        # right-click menu on an object — where the object is — carrying their shortcut hints.
+        self._a_z_actions = {}
+        for key, label, keys in (
+            ("front", "Bring to Front", "Ctrl+Shift+]"),
+            ("forward", "Bring Forward", "Ctrl+]"),
+            ("backward", "Send Backward", "Ctrl+["),
+            ("back", "Send to Back", "Ctrl+Shift+["),
+        ):
+            a = act(label, lambda _checked=False, k=key: self._reorder_objects(k), keys)
+            self.addAction(a)          # register on the window so the shortcut fires
+            self._a_z_actions[key] = a
         self._armed_actions = {
             ArmedTool.TEXTBOX: a_textbox,
             ArmedTool.HIGHLIGHT: a_highlight,
@@ -906,6 +922,29 @@ class MainWindow(QMainWindow):
         self.view.annotations.set_markup_style(style)
         self.view.annotations.restyle_selected_objects(style)
 
+    def _reorder_objects(self, action: str) -> bool:
+        """Move the selected object(s) in z-order (M59.8) as one undo step.
+
+        Acts on the whole selection, so a group raises together. The page's annotation tuple *is*
+        the z-order, so this is a pure reorder — it moves what paints on top in the saved PDF and
+        what a click hits, in step. The marks survive the edit, so the selection is restored onto
+        them afterwards."""
+        selection = self.view.annotations.selected_objects if self.view.annotations else []
+        if not selection:
+            return False
+        page_index = selection[0][0]
+        marks = [mark for _p, mark in selection]
+        current = self.vdoc.ordered[page_index].annotations
+        reordered = reorder_marks(current, marks, action)
+        if reordered == current:
+            return False                                # already at that end — nothing to undo
+        label = {"front": "Bring to front", "forward": "Bring forward",
+                 "backward": "Send backward", "back": "Send to back"}[action]
+        self.undo_stack.push(SetAnnotationsCommand(self.vdoc, page_index, reordered, label))
+        if self.view.annotations is not None:
+            self.view.annotations.select_objects(page_index, marks)  # the reload cleared it
+        return True
+
     def _on_object_selected(self, mark) -> None:
         """A free-placed mark was click-selected (M59.5): load a drawn mark's colour/width/fill into
         the picker (so a follow-up tweak edits *that* mark), like double-clicking a text box loads
@@ -1083,8 +1122,27 @@ class MainWindow(QMainWindow):
             # Free-placed marks are copyable (M59); the text-anchored marks + redactions are not
             # (they belong to the text under them).
             if isinstance(annot, (TextBox, InkStroke, Line, Shape)):
+                # Right-clicking a free-placed mark selects it, so the verbs below (and the
+                # z-order shortcuts) have an unambiguous target and you can *see* what you're
+                # acting on. Right-clicking a member of a group leaves the group intact — that's
+                # how you raise several marks at once.
+                if self.view.annotations is not None and not any(
+                    mark is annot for _p, mark in self.view.annotations.selected_objects
+                ):
+                    self.view.annotations.select_object(page_index, annot)
                 menu.addAction("Copy Object", lambda: self._copy_object(hit))
                 menu.addAction("Cut Object", lambda: self._cut_object(hit))
+                menu.addSeparator()
+                # Z-order (M59.8) — the shared window actions, so their shortcuts show here (this
+                # menu is their discovery path). Each is disabled at the end it's already at, so
+                # the menu only offers what would actually change something.
+                current = self.vdoc.ordered[page_index].annotations
+                selected = [mark for _p, mark in self.view.annotations.selected_objects] \
+                    if self.view.annotations else [annot]
+                for key in ("front", "forward", "backward", "back"):
+                    action = self._a_z_actions[key]
+                    action.setEnabled(reorder_marks(current, selected, key) != current)
+                    menu.addAction(action)
                 menu.addSeparator()
             label = {
                 "Highlight": "Remove highlight",

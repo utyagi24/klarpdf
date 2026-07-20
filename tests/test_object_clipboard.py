@@ -221,7 +221,10 @@ def test_annotation_menu_offers_copy_cut_for_free_placed_marks(app, win):
     win.view.reload()
     menu = win._view_context_menu(_scene(win, 140, 330))
     titles = [a.text() for a in menu.actions() if not a.isSeparator()]
-    assert titles == ["Copy Object", "Cut Object", "Remove shape"]
+    # M59.8 hangs the z-order verbs here too — this menu is their discovery path.
+    assert titles == ["Copy Object", "Cut Object",
+                      "Bring to Front", "Bring Forward", "Send Backward", "Send to Back",
+                      "Remove shape"]
 
 
 def test_highlight_menu_stays_remove_only(app, win):
