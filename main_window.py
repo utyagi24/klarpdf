@@ -60,6 +60,7 @@ from model.page_edits import (
     TextBox,
     Underline,
     mark_bounds,
+    merge_markup,
     reorder_marks,
     translate_mark,
 )
@@ -943,8 +944,12 @@ class MainWindow(QMainWindow):
 
     def _apply_selection_bars(self, make, label: str) -> None:
         """Apply a line-bar mark to the current text selection — one continuous bar per line, one
-        undo step across the touched pages. ``make(rects)`` builds the descriptor; shared by
-        highlight / underline / strikeout / text-redaction so all four behave identically."""
+        undo step across the touched pages. ``make(rects)`` builds the descriptor.
+
+        Text redaction only, since M59.10: the three markup verbs went to :meth:`_apply_markup`,
+        which merges with what is already on the page. Redactions deliberately stay on this plain
+        add path — they are destructive and colourless, and overlapping rects already union
+        harmlessly in ``apply_redactions``, so there is nothing for a merge to fix."""
         by_page = self._selection_line_bars()
         if not by_page:
             return
@@ -953,6 +958,31 @@ class MainWindow(QMainWindow):
         self.undo_stack.beginMacro(label)
         for page_index, rects in by_page.items():
             self.undo_stack.push(AddAnnotationCommand(self.vdoc, page_index, make(tuple(rects))))
+        self.undo_stack.endMacro()
+
+    def _apply_markup(self, mark_type, color: tuple, label: str) -> None:
+        """Paint the current text selection with a markup mark, **merging** with what is already
+        there (M59.10) instead of stacking a second descriptor on top: same colour folds in, a
+        different colour takes over the span it covers. See :func:`merge_markup` for the rules.
+
+        One :class:`SetAnnotationsCommand` per touched page inside one macro — so a pass that
+        absorbs, trims and adds across a multi-page selection is a single undo step."""
+        by_page = self._selection_line_bars()
+        if not by_page:
+            return
+        self.view.selection.clear()  # so the mark shows, not the blue selection over it
+        updates = []
+        for page_index, rects in by_page.items():
+            current = self.vdoc.ordered[page_index].annotations
+            merged = merge_markup(current, tuple(rects), mark_type, color)
+            if merged != current:
+                updates.append((page_index, merged))
+        if not updates:
+            return                   # re-marking an identical span in the same colour: nothing to do
+        self._note_edit_on(min(page_index for page_index, _ in updates))
+        self.undo_stack.beginMacro(label)
+        for page_index, merged in updates:
+            self.undo_stack.push(SetAnnotationsCommand(self.vdoc, page_index, merged, label))
         self.undo_stack.endMacro()
 
     def _add_color_submenu(self, menu, title: str, palette, setter, current) -> dict:
@@ -1019,16 +1049,14 @@ class MainWindow(QMainWindow):
             self.view.annotations.set_markup_style(style)   # …and as the sticky default
 
     def _highlight_selection(self) -> None:
-        color = self._highlight_color          # its own curated wash colour (M59.9)
-        self._apply_selection_bars(lambda rects: Highlight(rects, color=color), "Highlight")
+        self._apply_markup(Highlight, self._highlight_color, "Highlight")  # curated wash (M59.9)
 
     def _underline_selection(self) -> None:
-        color = self._markup_line_color        # shared with strikeout — the proofing-line colour
-        self._apply_selection_bars(lambda rects: Underline(rects, color=color), "Underline")
+        # The line colour is shared with strikeout — the proofing-line colour.
+        self._apply_markup(Underline, self._markup_line_color, "Underline")
 
     def _strikeout_selection(self) -> None:
-        color = self._markup_line_color
-        self._apply_selection_bars(lambda rects: Strikeout(rects, color=color), "Strike out")
+        self._apply_markup(Strikeout, self._markup_line_color, "Strike out")
 
     def _redact_selection(self) -> None:
         self._apply_selection_bars(Redaction, "Redact selection")

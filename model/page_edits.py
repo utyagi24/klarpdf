@@ -312,6 +312,130 @@ def reorder_marks(annotations: tuple, marks, action: str) -> tuple:
     return tuple(items)
 
 
+# ---- text-markup merge (M59.10): one layer per type, per region ----------------
+#
+# Highlight / underline / strikeout are *paint on text*, not stacked objects: marking a span that
+# is already marked must fold into what is there, never add a second descriptor on top of it. Two
+# copies looked identical but took two Removes to clear (the hit-test returns the topmost only),
+# and a re-colour left the old colour hidden underneath.
+#
+# The merge is scoped **per type** — a yellow highlight and a red underline on the same words are
+# independent layers and stay so — and runs at the granularity the marks are already stored in:
+# one unioned bar per text line (see MainWindow._selection_line_bars). So resolving an overlap is
+# 1-D interval arithmetic on x *within* a line band, not 2-D clipping.
+
+MARKUP_TYPES = (Highlight, Underline, Strikeout)
+
+# A surviving sliver narrower than this is whitespace, not a mark — dropped rather than left as a
+# hairline the user can see but not easily hit.
+_MIN_BAR_WIDTH = 1.0
+# Float-noise slack for "these bars touch" / "this is the same colour". Colours matter because a
+# saved-and-reopened mark comes back through PDF floats (read_klarpdf_annotations), so an exact
+# == against a palette tuple would miss and wrongly treat a re-highlight as a colour change.
+_TOL = 0.01
+
+
+def _same_line(a: tuple, b: tuple) -> bool:
+    """Do two bars sit on the same text line? Midpoint-containment either way, rather than equal
+    y-bounds: a partial selection can omit a tall word and shrink the band it produces."""
+    a_mid, b_mid = (a[1] + a[3]) / 2, (b[1] + b[3]) / 2
+    return b[1] <= a_mid <= b[3] or a[1] <= b_mid <= a[3]
+
+
+def _x_overlap(a: tuple, b: tuple) -> bool:
+    return _same_line(a, b) and a[0] < b[2] - _TOL and b[0] < a[2] - _TOL
+
+
+def _same_color(a: tuple, b: tuple) -> bool:
+    return len(a) == len(b) and all(abs(x - y) <= _TOL for x, y in zip(a, b))
+
+
+def _union_bars(bars) -> tuple:
+    """Fold bars into the fewest rects: same-line ones that overlap or touch become one, each
+    taking the union y-band so a taller word in either pass keeps its coverage. Bars separated by
+    a real gap stay separate rects **of the same mark** — the gap is whitespace the user did not
+    select, and one mark is all it takes for one Remove to clear the lot."""
+    merged: list[list] = []
+    for bar in sorted(bars, key=lambda r: (r[1], r[0])):
+        for other in merged:
+            if _same_line(bar, other) and bar[0] <= other[2] + _TOL and other[0] <= bar[2] + _TOL:
+                other[0], other[1] = min(other[0], bar[0]), min(other[1], bar[1])
+                other[2], other[3] = max(other[2], bar[2]), max(other[3], bar[3])
+                break
+        else:
+            merged.append(list(bar))
+    return tuple(tuple(bar) for bar in merged)
+
+
+def _subtract_bars(bars, cutters) -> tuple:
+    """``bars`` with every ``cutters`` span cut out of it, per line. A cut through the middle
+    leaves two runs (the mark splits around the new colour); a fully covered bar disappears."""
+    result = []
+    for bar in bars:
+        pieces = [(bar[0], bar[2])]
+        for cutter in cutters:
+            if not _same_line(bar, cutter):
+                continue
+            nxt = []
+            for x0, x1 in pieces:
+                if cutter[2] <= x0 or cutter[0] >= x1:
+                    nxt.append((x0, x1))
+                    continue
+                if cutter[0] > x0:
+                    nxt.append((x0, cutter[0]))
+                if cutter[2] < x1:
+                    nxt.append((cutter[2], x1))
+            pieces = nxt
+        result.extend((x0, bar[1], x1, bar[3]) for x0, x1 in pieces if x1 - x0 >= _MIN_BAR_WIDTH)
+    return tuple(result)
+
+
+def merge_markup(annotations: tuple, bars, mark_type, color: tuple) -> tuple:
+    """A page's annotations with ``bars`` painted on as ``mark_type`` in ``color`` (M59.10).
+
+    Returns the whole new tuple (pushed as one :class:`SetAnnotationsCommand`), so a pass that
+    absorbs, trims and adds is a single undo step. Same-type marks the new bars touch resolve by
+    colour:
+
+    * **same colour → absorbed** — the old mark is dropped and its bars folded into the new one,
+      so re-marking an already-marked span is a no-op and extending one grows it in place. Chains:
+      a pass that bridges two same-colour marks merges all three into one.
+    * **different colour → trimmed** — the covered span is cut out of the old mark and the new
+      colour takes it. Full coverage removes the old mark outright; a cut through its middle
+      splits it, leaving the parts you did *not* select in their original colour.
+
+    The merged mark inherits the earliest absorbed mark's z-position (else it is appended), so
+    re-marking never shuffles paint order against a co-located mark of another type. Other types
+    and foreign annotations are passed through untouched.
+    """
+    from dataclasses import replace
+
+    new_bars = tuple(tuple(bar) for bar in bars)
+    if not new_bars:
+        return annotations
+    absorbed = list(new_bars)      # grows as same-colour marks are folded in
+    result: list = []
+    insert_at = None
+    for mark in annotations:
+        if not isinstance(mark, mark_type) or not any(
+            _x_overlap(bar, other) for bar in mark.rects for other in absorbed
+        ):
+            result.append(mark)
+            continue
+        if _same_color(mark.color, color):
+            absorbed.extend(mark.rects)
+            if insert_at is None:
+                insert_at = len(result)          # take over the topmost slot we vacate
+            continue
+        # Only what the user *just* painted erases — absorbed geometry was already on the page.
+        trimmed = _subtract_bars(mark.rects, new_bars)
+        if trimmed:
+            result.append(replace(mark, rects=trimmed))
+    merged = mark_type(_union_bars(absorbed), color=color)
+    result.insert(len(result) if insert_at is None else insert_at, merged)
+    return tuple(result)
+
+
 def scale_mark(mark, sx: float, sy: float, ox: float, oy: float):
     """A mark scaled by ``(sx, sy)`` about the origin ``(ox, oy)`` — the M59.7 resize primitive,
     the geometry twin of :func:`translate_mark`. Frozen value objects in, new ones out.
