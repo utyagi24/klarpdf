@@ -25,6 +25,13 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   open a PR with `gh` — **proactively, without being asked**. This is standing authorization; it
   overrides the default of committing only on request. The only exceptions: a throwaway the user said
   not to keep, or when the user explicitly says to hold off. (Local `gh`/`git` quirks live in memory.)
+- **The standing authorization stops at *opening* the PR — merging needs an explicit go-ahead.**
+  Branch, commit, push, open: yes, always. `gh pr merge`: **only when the owner says so**, for that
+  PR or that batch ("merge all open PRs" covers what is open at the time, not the next PR you write
+  five minutes later). This is what review *is* — a fix authored and merged in one breath was never
+  reviewed, and reporting a bug is a request to diagnose it, not a pre-approval of the patch. Erring
+  the wrong way is not symmetric: an unmerged PR costs one message, while an unwanted merge on a
+  public repo is in the history, and on `main` it is what the next release ships.
 - **Always branch from an up-to-date `main`.** Before creating a branch, check what's checked out
   (`git branch --show-current`); a new branch must be based on **`origin/main`**, *not* on whatever
   feature branch is currently active — else that branch's commits ride into your PR (e.g. an unrelated
