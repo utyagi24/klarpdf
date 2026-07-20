@@ -31,7 +31,6 @@ from PySide6.QtGui import (
     QGuiApplication,
     QPainterPath,
     QPen,
-    QTransform,
 )
 from PySide6.QtWidgets import (
     QGraphicsEllipseItem,
@@ -72,6 +71,13 @@ _HIT_PAD = 3.0                    # grab slack around thin drawn marks (page poi
 # redline-red-at-2pt, so an untouched picker draws exactly as before.
 
 _DRAWN_TYPES = (InkStroke, Line, Shape)
+
+# Scene z for the marks. Every annotation lives in ``[_ANNOT_Z_BASE, _ANNOT_Z_BASE + 1)``, spread
+# by its index in the page's tuple (see :meth:`AnnotationOverlay._annot_z`), so paint order follows
+# the model's z-order instead of the mark's type. Redactions sit one band below (M59.9). Above:
+# search hits (9), text selection (10), the live gesture (11), selection chrome (12–14).
+_ANNOT_Z_BASE = 6.0
+_REDACTION_Z = 5.0
 
 
 def _dist_point_segment(px: float, py: float, ax: float, ay: float,
@@ -209,6 +215,24 @@ class AnnotationOverlay:
                 pass  # already dropped by scene.clear() during a rebuild
         self._items.clear()
 
+    @staticmethod
+    def _annot_z(index: int, count: int) -> float:
+        """The scene z for the annotation at ``index`` of a page's tuple (M59.11).
+
+        The tuple order **is** the z-order (M59.8) — later entries paint on top, in the saved PDF
+        and so on screen too — so the preview must derive z from the position, not from the mark's
+        *type*. It used to be a fixed band per type (highlight 6, drawn/text-box 7, text-box text
+        8), which meant a filled shape could never cover a text box's text no matter where the
+        z-order verbs put it: the fill was hidden (tie at 7, insertion order) but the text showed
+        straight through. It also made Bring to Front / Send to Back visually inert between a text
+        box and any other mark, while the hit-test — which *does* walk the tuple — disagreed.
+
+        The whole band stays inside ``[6, 7)`` so nothing stacked above it needs renumbering:
+        search hits (9), text selection (10), the live gesture (11) and the selection chrome
+        (12–14) are transient UI and belong above every mark regardless of order.
+        """
+        return _ANNOT_Z_BASE + index / (count + 1)
+
     def repaint(self) -> None:
         """Redraw every page's annotations from the model (also after zoom / scene rebuild)."""
         self._clear_items()
@@ -222,7 +246,10 @@ class AnnotationOverlay:
         scene = self._view.scene()
         vdoc = self._view._vdoc
         for page_index in range(vdoc.page_count):
-            for annot in vdoc.ordered[page_index].annotations:
+            annotations = vdoc.ordered[page_index].annotations
+            count = len(annotations)
+            for index, annot in enumerate(annotations):
+                z = self._annot_z(index, count)
                 if isinstance(annot, Highlight):
                     fill = QColor.fromRgbF(*annot.color)
                     fill.setAlpha(110)
@@ -231,19 +258,19 @@ class AnnotationOverlay:
                         item = QGraphicsRectItem(self._view.scene_rect_for_box(page_index, box))
                         item.setBrush(brush)
                         item.setPen(QColor(0, 0, 0, 0))
-                        item.setZValue(6)
+                        item.setZValue(z)
                         scene.addItem(item)
                         self._items.append(item)
                 elif isinstance(annot, (Underline, Strikeout)):
-                    self._paint_text_line(scene, page_index, annot)
+                    self._paint_text_line(scene, page_index, annot, z)
                 elif isinstance(annot, _DRAWN_TYPES):
-                    self._paint_drawn(scene, page_index, annot)
+                    self._paint_drawn(scene, page_index, annot, z)
                 elif isinstance(annot, TextBox):
-                    self._paint_textbox(scene, page_index, annot)
+                    self._paint_textbox(scene, page_index, annot, z)
                 elif isinstance(annot, Redaction):
                     self._paint_redaction(scene, page_index, annot)
 
-    def _paint_text_line(self, scene, page_index: int, annot) -> None:
+    def _paint_text_line(self, scene, page_index: int, annot, z: float) -> None:
         """Underline / strikeout preview (M56): an opaque thin bar per line rect — along the
         bottom for an underline, through the vertical middle for a strikeout — matching where
         MuPDF draws the baked annotation, so the preview is WYSIWYG with the saved page."""
@@ -259,7 +286,7 @@ class AnnotationOverlay:
             item = QGraphicsRectItem(self._view.scene_rect_for_box(page_index, bar))
             item.setBrush(QBrush(colour))
             item.setPen(QColor(0, 0, 0, 0))
-            item.setZValue(6)
+            item.setZValue(z)
             scene.addItem(item)
             self._items.append(item)
 
@@ -269,7 +296,7 @@ class AnnotationOverlay:
         pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
         return pen
 
-    def _paint_drawn(self, scene, page_index: int, annot) -> None:
+    def _paint_drawn(self, scene, page_index: int, annot, z: float) -> None:
         """Ink / line / shape preview (M58): authored in unrotated page points and pushed through
         the page transform (like text boxes), so the marks zoom and rotate with the page. The pen
         width is in page points — the transform scales it, matching the baked stroke."""
@@ -295,7 +322,7 @@ class AnnotationOverlay:
         item.setPen(pen)
         item.setOpacity(annot.opacity)   # whole-item alpha — the same semantics as PDF's /CA
         item.setTransform(transform)
-        item.setZValue(7)
+        item.setZValue(z)
         scene.addItem(item)
         self._items.append(item)
 
@@ -308,15 +335,19 @@ class AnnotationOverlay:
         # page *content* — then `apply_annotations` adds the marks on top of it. It used to paint
         # above everything, so a drawn mark over a redaction looked covered on screen but came out
         # on top in the file. Still above the page itself (z 0), so it hides what it will destroy.
+        #
+        # So a redaction keeps a fixed z *below* the whole annotation band, rather than the
+        # index-derived z of every other mark (M59.11): its position in the tuple is irrelevant to
+        # how it bakes, because it is not written as an annotation at all.
         for box in annot.rects:
             item = QGraphicsRectItem(self._view.scene_rect_for_box(page_index, box))
             item.setBrush(QBrush(QColor.fromRgbF(*annot.fill)))
             item.setPen(QPen(QColor(200, 0, 0), 1))
-            item.setZValue(5)
+            item.setZValue(_REDACTION_Z)
             scene.addItem(item)
             self._items.append(item)
 
-    def _paint_textbox(self, scene, page_index: int, annot: TextBox) -> None:
+    def _paint_textbox(self, scene, page_index: int, annot: TextBox, z: float) -> None:
         # Author both the box and its text in **unrotated page points**, then apply the page's
         # transform so they rotate *with* the page (zoom + per-page/view rotation all in one matrix).
         # WYSIWYG: the box shows exactly the fill + outline that bake at save — and nothing when
@@ -330,7 +361,7 @@ class AnnotationOverlay:
                      else QBrush(Qt.BrushStyle.NoBrush))
         box.setPen(QPen(QColor(0, 0, 0), annot.border_width) if annot.border_width > 0
                    else QPen(Qt.PenStyle.NoPen))
-        box.setZValue(7)
+        box.setZValue(z)
         scene.addItem(box)
         self._items.append(box)
         text = QGraphicsSimpleTextItem(annot.text)
@@ -342,12 +373,13 @@ class AnnotationOverlay:
         # the minimum box height). Horizontal inset stays a small fixed gap.
         text_h = text.boundingRect().height()  # in page points (font pixelSize == fontsize)
         ty = y0 + max(1.0, (y1 - y0 - text_h) / 2.0)
-        text_transform = QTransform(transform)
-        text_transform.translate(x0 + 2, ty)
-        text.setTransform(text_transform)
-        text.setZValue(8)
-        scene.addItem(text)
-        self._items.append(text)
+        # The text is a **child** of the box, not a sibling on its own z band (M59.11): a child
+        # paints directly above its parent and nowhere else, so the text can never float above a
+        # mark that covers the box. Child coordinates are the parent's local space — page points —
+        # so it inherits the page transform (zoom/rotation, and the font's pixelSize scaling) and
+        # needs only its offset here.
+        text.setParentItem(box)
+        text.setPos(x0 + 2, ty)
 
     # ---- hit-testing ------------------------------------------------------------
 
