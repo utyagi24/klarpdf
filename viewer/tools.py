@@ -7,6 +7,8 @@ Two layers:
     dragged to move it or double-clicked to re-edit. Highlight / Redact-Selection are
     select-then-act actions in this mode.
   - **GRAB** — drag pans the page (a hand tool).
+  - **OBJECT** (M59.6) — drag an empty area to marquee-select drawn objects, Ctrl+click to add /
+    remove one, drag a member to move the whole group; text selection & form-fill are inert here.
 
 * **One-shot armed tools** (:class:`ArmedTool`) — an annotate/redact action that fires once then
   reverts to SELECT, instead of being a sticky mode (the user's model: click the toolbar button
@@ -29,6 +31,7 @@ from enum import Enum
 class InteractionMode(Enum):
     SELECT = "select"
     GRAB = "grab"
+    OBJECT = "object"   # M59.6 — marquee/Ctrl-click to select drawn objects; drag to move the group
 
 
 class ArmedTool(Enum):

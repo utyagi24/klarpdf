@@ -71,6 +71,21 @@ _HIT_PAD = 3.0                    # grab slack around thin drawn marks (page poi
 _DRAWN_TYPES = (InkStroke, Line, Shape)
 
 
+def _dist_point_segment(px: float, py: float, ax: float, ay: float,
+                        bx: float, by: float) -> float:
+    """Shortest distance from point ``(px, py)`` to the segment ``(ax, ay)``–``(bx, by)`` (page
+    points). The building block for hitting a *thin* mark by its actual geometry rather than its
+    bounding box — so a pen loop or a diagonal line is grabbed only near the drawn line, not
+    anywhere inside its (possibly huge) box."""
+    dx, dy = bx - ax, by - ay
+    seg_len2 = dx * dx + dy * dy
+    if seg_len2 <= 1e-9:            # degenerate segment (a point)
+        return math.hypot(px - ax, py - ay)
+    t = ((px - ax) * dx + (py - ay) * dy) / seg_len2
+    t = max(0.0, min(1.0, t))      # clamp to the segment (nearest point is an endpoint past the ends)
+    return math.hypot(px - (ax + t * dx), py - (ay + t * dy))
+
+
 def _line_path(start: tuple, end: tuple, arrow_start: bool, arrow_end: bool,
                width: float) -> QPainterPath:
     """A line's painter path in page points, with open-arrow heads where flagged — the same
@@ -109,12 +124,16 @@ class _TextBoxEditor(QPlainTextEdit):
 
 
 class AnnotationOverlay:
-    def __init__(self, view, on_add, on_remove=None, on_replace=None, on_select=None) -> None:
+    def __init__(self, view, on_add, on_remove=None, on_replace=None, on_select=None,
+                 on_replace_many=None, on_remove_many=None) -> None:
         self._view = view
         self._on_add = on_add               # on_add(page_index, annotation) — pushes Add command
         self._on_remove = on_remove         # on_remove(page_index, annotation)
         self._on_replace = on_replace       # on_replace(page_index, old, new) — move / re-edit
         self._on_select = on_select         # on_select(mark) — an object was click-selected (M59.5)
+        # Batch (one-undo-macro) callbacks for group ops (M59.6): restyle / move / delete a group.
+        self._on_replace_many = on_replace_many   # on_replace_many(page, [(old, new), …], text)
+        self._on_remove_many = on_remove_many     # on_remove_many(page, [mark, …], text)
         self._items: list[QGraphicsRectItem] = []
         # Inline editor (placing a new box, or re-editing an existing one) + its formatting bar.
         self._editor: _TextBoxEditor | None = None
@@ -144,17 +163,24 @@ class AnnotationOverlay:
         self._draw_end: tuple | None = None
         self._draw_points: list = []
         self._draw_item: QGraphicsPathItem | None = None
-        # The selected object (M59): a click-selected free-placed mark — what Ctrl+C / Ctrl+X /
-        # Delete act on — plus its dashed outline item.
-        self._selected: tuple | None = None       # (page_index, mark)
-        self._selected_item: QGraphicsRectItem | None = None
+        # The object selection (M59 single → M59.6 group): a list of (page_index, mark), all on one
+        # page — what restyle / move / Delete act on — plus one dashed outline item per mark.
+        self._selection: list = []          # [(page_index, mark), …]
+        self._selection_items: list = []    # the dashed outlines, parallel to _selection
         self._editor_fontsize = 11.0        # the box font the editor mirrors (WYSIWYG sizing)
-        # Live text-box move: a ghost rect following the drag.
-        self._move_ghost: QGraphicsRectItem | None = None
+        # Live object move (M58 single → M59.6 group): the page, the grab anchor (unrotated page
+        # coords), the grabbed mark, one entry per moved mark, and the shared group-clamped delta.
         self._move_page = 0
-        self._move_box: TextBox | None = None
         self._move_anchor_local = None      # grab point in unrotated page coords (rotation-safe)
-        self._move_rect: tuple = (0, 0, 0, 0)
+        self._move_grabbed = None           # the mark actually under the press (for a no-drag click)
+        self._move_items: list = []         # [(mark, (x0, y0, x1, y1), ghost), …]
+        self._move_delta: tuple = (0.0, 0.0)
+        # Live marquee (M59.6 Objects mode): a rubber-band rect, its page, anchor, and whether Ctrl
+        # extends the current group.
+        self._marquee_item: QGraphicsRectItem | None = None
+        self._marquee_page = 0
+        self._marquee_anchor = None
+        self._marquee_add = False
 
     # ---- preview painting -------------------------------------------------------
 
@@ -171,10 +197,10 @@ class AnnotationOverlay:
     def repaint(self) -> None:
         """Redraw every page's annotations from the model (also after zoom / scene rebuild)."""
         self._clear_items()
-        # A structural change / scene rebuild orphans the selection (its item died with the
-        # scene, and the mark itself may be gone) — selection never survives a repaint.
-        self._selected = None
-        self._selected_item = None
+        # A structural change / scene rebuild orphans the selection (its items died with the
+        # scene, and the marks themselves may be gone) — selection never survives a repaint.
+        self._selection = []
+        self._selection_items = []
         if self._view.rotation != 0:
             return
         scene = self._view.scene()
@@ -306,19 +332,17 @@ class AnnotationOverlay:
         """The ``(page_index, annotation)`` whose painted area contains ``scene_pt``, else None.
         Topmost (most recently added) wins. Uses the rotation-aware scene mapping, so it works on
         rotated pages too."""
-        page_index, _ = self._view.page_and_local_at(scene_pt)
+        page_index, local = self._view.page_and_local_at(scene_pt)
         if page_index is None:
             return None
         for annot in reversed(self._view._vdoc.ordered[page_index].annotations):
-            if hasattr(annot, "rects"):
-                boxes = annot.rects
-            elif isinstance(annot, _DRAWN_TYPES):
-                # Drawn marks hit-test on a padded bounding rect — a thin or perfectly
-                # horizontal/vertical line has a (near-)degenerate box that nothing could click.
-                x0, y0, x1, y1 = annot.bounding_rect()
-                boxes = ((x0 - _HIT_PAD, y0 - _HIT_PAD, x1 + _HIT_PAD, y1 + _HIT_PAD),)
-            else:
-                boxes = (annot.rect,)
+            # A pen stroke / line is hit by its actual geometry (not its box), so a loop drawn
+            # around other marks no longer swallows every click inside it (M59.6 follow-up).
+            if isinstance(annot, _DRAWN_TYPES):
+                if self._drawn_hit(annot, local.x(), local.y()):
+                    return page_index, annot
+                continue
+            boxes = annot.rects if hasattr(annot, "rects") else (annot.rect,)
             for box in boxes:
                 if self._view.scene_rect_for_box(page_index, box).contains(scene_pt):
                     return page_index, annot
@@ -342,6 +366,14 @@ class AnnotationOverlay:
     def _replace(self, page_index: int, old, new, text: str | None = None) -> None:
         if self._on_replace is not None:
             self._on_replace(page_index, old, new, text)
+
+    def _replace_many(self, page_index: int, pairs: list, text: str) -> None:
+        if self._on_replace_many is not None:
+            self._on_replace_many(page_index, pairs, text)
+
+    def _remove_many(self, page_index: int, marks: list, text: str) -> None:
+        if self._on_remove_many is not None:
+            self._on_remove_many(page_index, marks, text)
 
     # ---- text-box tool: place (new) / re-edit (existing) ------------------------
 
@@ -618,33 +650,65 @@ class AnnotationOverlay:
 
     @property
     def moving(self) -> bool:
-        return self._move_ghost is not None
+        return bool(self._move_items)
 
     def drawn_mark_at(self, scene_pt):
-        """The ``(page_index, drawn mark)`` under ``scene_pt`` (topmost; padded bounding-rect hit
-        like :meth:`annotation_at`), else None — the M58 move/delete hit test."""
-        page_index, _ = self._view.page_and_local_at(scene_pt)
+        """The ``(page_index, drawn mark)`` under ``scene_pt`` (topmost), else None — the
+        move/select hit test. Pen strokes and lines hit by their **actual geometry** (proximity to
+        the drawn line); shapes by their (padded) box, so a filled or hollow box stays clickable in
+        its interior. This is what lets you reach a mark tucked inside a pen loop."""
+        page_index, local = self._view.page_and_local_at(scene_pt)
         if page_index is None:
             return None
         for annot in reversed(self._view._vdoc.ordered[page_index].annotations):
-            if not isinstance(annot, _DRAWN_TYPES):
-                continue
-            x0, y0, x1, y1 = annot.bounding_rect()
-            box = (x0 - _HIT_PAD, y0 - _HIT_PAD, x1 + _HIT_PAD, y1 + _HIT_PAD)
-            if self._view.scene_rect_for_box(page_index, box).contains(scene_pt):
+            if isinstance(annot, _DRAWN_TYPES) and self._drawn_hit(annot, local.x(), local.y()):
                 return page_index, annot
         return None
 
-    # ---- object selection (M59): what Ctrl+C / Ctrl+X / Delete act on ------------
+    def _hit_tol(self, mark) -> float:
+        """Click tolerance in page points for a thin mark: half the stroke width plus a fixed
+        on-screen slack (converted to page points via the zoom), so the grab band feels the same
+        ~6 px at any zoom and a thicker stroke is correspondingly easier to hit."""
+        return getattr(mark, "width", 2.0) / 2.0 + 6.0 / max(self._view.zoom, 0.05)
+
+    def _drawn_hit(self, mark, lx: float, ly: float) -> bool:
+        """Whether the unrotated page point ``(lx, ly)`` hits ``mark``. Pen/line → near the drawn
+        line; shape → inside its padded bounding box (interior stays clickable)."""
+        if isinstance(mark, Line):
+            return _dist_point_segment(lx, ly, mark.start[0], mark.start[1],
+                                       mark.end[0], mark.end[1]) <= self._hit_tol(mark)
+        if isinstance(mark, InkStroke):
+            tol = self._hit_tol(mark)
+            for path in mark.paths:
+                if len(path) == 1:                      # a lone dot
+                    if math.hypot(lx - path[0][0], ly - path[0][1]) <= tol:
+                        return True
+                for i in range(len(path) - 1):
+                    if _dist_point_segment(lx, ly, path[i][0], path[i][1],
+                                           path[i + 1][0], path[i + 1][1]) <= tol:
+                        return True
+            return False
+        x0, y0, x1, y1 = mark.bounding_rect()           # Shape: padded box (interior clickable)
+        return (x0 - _HIT_PAD <= lx <= x1 + _HIT_PAD) and (y0 - _HIT_PAD <= ly <= y1 + _HIT_PAD)
+
+    # ---- object selection (M59 single → M59.6 group) ----------------------------
+    #
+    # A selection is a list of (page_index, mark), all on one page (a "drawing" is per-page). It is
+    # what restyle / move / Delete act on. Built by a click (one), a marquee (a rubber-band box), or
+    # Ctrl+click (toggle a member). Each selected mark carries a dashed outline.
+
+    @property
+    def selected_objects(self) -> list:
+        """Every selected ``(page_index, mark)`` (M59.6 group); empty when nothing is selected."""
+        return list(self._selection)
 
     @property
     def selected_object(self) -> "tuple | None":
-        """The click-selected ``(page_index, mark)``, or None."""
-        return self._selected
+        """The single selected ``(page_index, mark)`` when exactly one is selected, else None — the
+        single-object seam (clipboard copy/cut, style-load) that predates the group (M59)."""
+        return self._selection[0] if len(self._selection) == 1 else None
 
-    def select_object(self, page_index: int, mark) -> None:
-        """Select a free-placed mark: a dashed outline around its (padded) bounds."""
-        self.clear_object_selection()
+    def _outline_for(self, page_index: int, mark) -> QGraphicsRectItem:
         x0, y0, x1, y1 = mark_bounds(mark)
         outline = QGraphicsRectItem(QRectF(x0 - _HIT_PAD, y0 - _HIT_PAD,
                                            (x1 - x0) + 2 * _HIT_PAD, (y1 - y0) + 2 * _HIT_PAD))
@@ -653,10 +717,29 @@ class AnnotationOverlay:
         outline.setPen(QPen(QColor(0, 120, 215), 1, Qt.PenStyle.DashLine))
         outline.setZValue(12)
         self._view.scene().addItem(outline)
-        self._selected = (page_index, mark)
-        self._selected_item = outline
+        return outline
+
+    def _clear_selection_items(self) -> None:
+        scene = self._view.scene()
+        for item in self._selection_items:
+            if item.scene() is scene:
+                scene.removeItem(item)
+        self._selection_items = []
+
+    def _set_selection(self, entries: list) -> None:
+        """Replace the selection with ``entries`` (``[(page_index, mark), …]``, all one page) and
+        draw an outline per mark. Notifies the picker (style-load) only for a lone selection — a
+        group keeps the picker as-is, so applying it restyles the whole group to one style."""
+        self._clear_selection_items()
+        self._selection = list(entries)
+        for page_index, mark in self._selection:
+            self._selection_items.append(self._outline_for(page_index, mark))
         if self._on_select is not None:
-            self._on_select(mark)  # load its style into the picker (M59.5), like re-editing a box
+            self._on_select(self._selection[0][1] if len(self._selection) == 1 else None)
+
+    def select_object(self, page_index: int, mark) -> None:
+        """Select a single free-placed mark, replacing any prior selection."""
+        self._set_selection([(page_index, mark)])
 
     def select_object_at(self, scene_pt) -> bool:
         """Select the free-placed mark under ``scene_pt`` (text box or drawn mark), if any."""
@@ -666,109 +749,216 @@ class AnnotationOverlay:
         self.select_object(*hit)
         return True
 
-    def clear_object_selection(self) -> None:
-        if self._selected_item is not None:
-            item, self._selected_item = self._selected_item, None
-            if item.scene() is self._view.scene():
-                self._view.scene().removeItem(item)
-        self._selected = None
+    def toggle_object(self, page_index: int, mark) -> None:
+        """Ctrl+click: add/remove ``mark`` from the group (M59.6). One page per group — a mark on a
+        different page starts a fresh selection."""
+        if self._selection and self._selection[0][0] != page_index:
+            self.select_object(page_index, mark)
+            return
+        entries = list(self._selection)
+        entry = (page_index, mark)
+        if entry in entries:
+            entries.remove(entry)
+        else:
+            entries.append(entry)
+        self._set_selection(entries)
 
-    def remove_selected_object(self) -> bool:
-        """Delete the selected mark (undoable). Returns True if something was removed."""
-        if self._selected is None:
+    def select_in_rect(self, page_index: int, rect: tuple, add: bool = False) -> None:
+        """Marquee (M59.6): select every free-placed mark on ``page_index`` whose (padded) bounds
+        intersect ``rect`` (unrotated page points). ``add`` unions with the current same-page
+        group; a thin/degenerate mark is padded so it can still be caught."""
+        box = QRectF(rect[0], rect[1], rect[2] - rect[0], rect[3] - rect[1]).normalized()
+        hits: list = []
+        for mark in self._view._vdoc.ordered[page_index].annotations:
+            if not isinstance(mark, (TextBox, *_DRAWN_TYPES)):
+                continue
+            mx0, my0, mx1, my1 = mark_bounds(mark)
+            padded = QRectF(mx0 - _HIT_PAD, my0 - _HIT_PAD,
+                            (mx1 - mx0) + 2 * _HIT_PAD, (my1 - my0) + 2 * _HIT_PAD)
+            if box.intersects(padded):
+                hits.append((page_index, mark))
+        if add and self._selection and self._selection[0][0] == page_index:
+            entries = list(self._selection)
+            for hit in hits:
+                if hit not in entries:
+                    entries.append(hit)
+            self._set_selection(entries)
+        else:
+            self._set_selection(hits)
+
+    def clear_object_selection(self) -> None:
+        self._clear_selection_items()
+        self._selection = []
+
+    def remove_selected_objects(self) -> bool:
+        """Delete every selected mark (undoable; one macro for a group). True if anything went."""
+        if not self._selection:
             return False
-        page_index, mark = self._selected
+        page_index = self._selection[0][0]
+        marks = [mark for _p, mark in self._selection]
         self.clear_object_selection()
-        self.remove(page_index, mark)
+        if len(marks) == 1:
+            self.remove(page_index, marks[0])                 # single: the plain "Remove shape" undo
+        else:
+            self._remove_many(page_index, marks, f"Delete {len(marks)} objects")
         return True
 
-    def restyle_selected_object(self, style) -> bool:
-        """Apply ``style`` (a :class:`~viewer.markup_style.MarkupStyle`) to the selected drawn mark
-        in place — the "same strategy as text markup" the owner asked for: with an object selected,
-        a picker change edits *it* (undoable), not just the sticky default. Returns True if a mark
-        was restyled. A text box (its own format bar) or an unchanged style is a no-op.
+    def restyle_selected_objects(self, style) -> bool:
+        """Apply ``style`` (a :class:`~viewer.markup_style.MarkupStyle`) to every selected drawn
+        mark in place — the "same strategy as text markup" the owner asked for, now for a group:
+        one picker change restyles the whole selection (one undo step). Text boxes (own format bar)
+        and marks already at ``style`` are skipped. Returns True if anything changed.
 
-        The replace reloads the view, which clears the selection — so re-select the updated mark,
-        keeping the outline up for the next tweak. Page index + new mark are captured *before* the
-        replace, since the reload nulls ``self._selected`` mid-call."""
-        if self._selected is None:
+        The replace reloads the view, which clears the selection, so capture it first and re-select
+        the updated marks afterwards (keeping unchanged members selected too)."""
+        if not self._selection:
             return False
-        page_index, mark = self._selected
-        new = restyle_mark(mark, style.color, style.width, style.fill_color)
-        if new is None or new == mark:
+        selection = list(self._selection)
+        page_index = selection[0][0]
+        pairs = []
+        for _p, mark in selection:
+            new = restyle_mark(mark, style.color, style.width, style.fill_color)
+            if new is not None and new != mark:
+                pairs.append((mark, new))
+        if not pairs:
             return False
-        self._replace(page_index, mark, new, text=f"Restyle {type(mark).__name__.lower()}")
-        self.select_object(page_index, new)
+        if len(pairs) == 1:
+            self._replace(page_index, pairs[0][0], pairs[0][1],
+                          text=f"Restyle {type(pairs[0][0]).__name__.lower()}")
+        else:
+            self._replace_many(page_index, pairs, f"Restyle {len(pairs)} objects")
+        new_by_old = dict(pairs)
+        self._set_selection([(page_index, new_by_old.get(mark, mark)) for _p, mark in selection])
         return True
 
     def begin_move(self, scene_pt) -> bool:
-        """SELECT-mode press on a text box **or a drawn mark** (M58) → start a move. Returns True
-        if it grabbed something."""
+        """Press on a text box **or a drawn mark** → start a move (M58 single; M59.6 group). If the
+        grabbed mark is part of a live multi-selection on this page, the whole group moves together;
+        otherwise just this mark. Returns True if it grabbed something."""
         if self._view.rotation != 0:
             return False
         hit = self.textbox_at(scene_pt) or self.drawn_mark_at(scene_pt)
         if hit is None:
             return False
-        self._move_page, self._move_box = hit
-        # Grab point in the page's own (unrotated) coords, so the move delta is computed in the same
-        # frame as the box rect — on a rotated page a raw scene delta would swap axes (drag down →
-        # box left). The ghost rides the page transform so it rotates with the page.
-        self._move_anchor_local = self._view.local_point_on_page(self._move_page, scene_pt)
-        self._move_rect = self._move_bounds(self._move_box)
-        x0, y0, x1, y1 = self._move_rect
-        ghost = QGraphicsRectItem(QRectF(x0, y0, x1 - x0, y1 - y0))
-        ghost.setTransform(self._view.page_transform(self._move_page))
-        ghost.setBrush(QColor(0, 120, 215, 40))
-        ghost.setPen(QPen(QColor(0, 120, 215), 1, Qt.PenStyle.DashLine))
-        ghost.setZValue(12)
-        self._view.scene().addItem(ghost)
-        self._move_ghost = ghost
+        page_index, mark = hit
+        if len(self._selection) > 1 and (page_index, mark) in self._selection:
+            move_marks = [m for _p, m in self._selection]      # drag the whole group
+        else:
+            move_marks = [mark]
+        self._move_page = page_index
+        self._move_grabbed = mark
+        # Grab point in the page's own (unrotated) coords, so the delta is in the same frame as the
+        # rects — on a rotated page a raw scene delta would swap axes. Ghosts ride the page transform.
+        self._move_anchor_local = self._view.local_point_on_page(page_index, scene_pt)
+        self._move_delta = (0.0, 0.0)
+        self._move_items = []
+        for m in move_marks:
+            bounds = mark_bounds(m)
+            x0, y0, x1, y1 = bounds
+            ghost = QGraphicsRectItem(QRectF(x0, y0, x1 - x0, y1 - y0))
+            ghost.setTransform(self._view.page_transform(page_index))
+            ghost.setBrush(QColor(0, 120, 215, 40))
+            ghost.setPen(QPen(QColor(0, 120, 215), 1, Qt.PenStyle.DashLine))
+            ghost.setZValue(12)
+            self._view.scene().addItem(ghost)
+            self._move_items.append((m, bounds, ghost))
         return True
 
-    @staticmethod
-    def _move_bounds(mark) -> tuple:
-        """The rect the move drags around: a text box's own rect, else the drawn bounding rect."""
-        return mark_bounds(mark)
-
     def update_move(self, scene_pt) -> None:
-        if self._move_ghost is None:
+        if not self._move_items:
             return
         local = self._view.local_point_on_page(self._move_page, scene_pt)
         dx = local.x() - self._move_anchor_local.x()
         dy = local.y() - self._move_anchor_local.y()
-        x0, y0, x1, y1 = self._move_bounds(self._move_box)
-        w, h = x1 - x0, y1 - y0
+        # Clamp the whole group by its union bounds — one shared delta keeps the group's shape, and
+        # no member leaves the page.
+        ux0 = min(b[0] for _m, b, _g in self._move_items)
+        uy0 = min(b[1] for _m, b, _g in self._move_items)
+        ux1 = max(b[2] for _m, b, _g in self._move_items)
+        uy1 = max(b[3] for _m, b, _g in self._move_items)
         pw, ph = self._view._unrotated_size(self._move_page)
-        nx0 = min(max(0.0, x0 + dx), max(0.0, pw - w))   # clamp so the box stays on the page
-        ny0 = min(max(0.0, y0 + dy), max(0.0, ph - h))
-        self._move_rect = (nx0, ny0, nx0 + w, ny0 + h)
-        self._move_ghost.setRect(QRectF(nx0, ny0, w, h))  # ghost transform already rotates it
+        lo_x, hi_x = -ux0, pw - ux1
+        lo_y, hi_y = -uy0, ph - uy1
+        dx = min(max(dx, lo_x), max(lo_x, hi_x))
+        dy = min(max(dy, lo_y), max(lo_y, hi_y))
+        self._move_delta = (dx, dy)
+        for _m, (x0, y0, x1, y1), ghost in self._move_items:
+            ghost.setRect(QRectF(x0 + dx, y0 + dy, x1 - x0, y1 - y0))
 
     def finish_move(self) -> None:
-        if self._move_ghost is None:
+        if not self._move_items:
             return
-        ghost, self._move_ghost = self._move_ghost, None
-        self._view.scene().removeItem(ghost)
-        page_index, old = self._move_page, self._move_box
-        bounds = self._move_bounds(old)
-        dx = self._move_rect[0] - bounds[0]
-        dy = self._move_rect[1] - bounds[1]
-        self._move_box = self._move_anchor_local = None
-        if old is None:
-            return
+        items, self._move_items = self._move_items, []
+        scene = self._view.scene()
+        for _m, _b, ghost in items:
+            if ghost.scene() is scene:
+                scene.removeItem(ghost)
+        page_index, grabbed = self._move_page, self._move_grabbed
+        dx, dy = self._move_delta
+        self._move_anchor_local = self._move_grabbed = None
+        marks = [m for m, _b, _g in items]
         if dx or dy:
-            label = {
-                "TextBox": "Move text box",
-                "InkStroke": "Move ink",
-                "Line": "Move line",
-                "Shape": "Move shape",
-            }[type(old).__name__]
-            # One translate primitive for every geometry — text + styling ride along untouched.
-            self._replace(page_index, old, translate_mark(old, dx, dy), text=label)
+            if len(marks) == 1:
+                label = {
+                    "TextBox": "Move text box",
+                    "InkStroke": "Move ink",
+                    "Line": "Move line",
+                    "Shape": "Move shape",
+                }[type(marks[0]).__name__]
+                self._replace(page_index, marks[0], translate_mark(marks[0], dx, dy), text=label)
+                self._set_selection([(page_index, translate_mark(marks[0], dx, dy))])
+            else:
+                pairs = [(m, translate_mark(m, dx, dy)) for m in marks]
+                self._replace_many(page_index, pairs, f"Move {len(marks)} objects")
+                self._set_selection([(page_index, new) for _old, new in pairs])
         else:
-            # A plain click on the mark (no drag) → select it (M59): the outline shows what
-            # Ctrl+C / Ctrl+X / Delete will act on.
-            self.select_object(page_index, old)
+            # A plain click, no drag → select just the grabbed mark (collapses a group to it).
+            self.select_object(page_index, grabbed)
+
+    # ---- marquee (M59.6 Objects mode: drag a box to select the marks inside) -----
+
+    @property
+    def marqueeing(self) -> bool:
+        return self._marquee_item is not None
+
+    def begin_marquee(self, scene_pt, add: bool = False) -> bool:
+        """Objects-mode press on empty page → start a selection rubber-band. Returns True if the
+        point was on a page. Rotation-0 only, like the other overlays."""
+        if self._view.rotation != 0:
+            return False
+        page_index, _ = self._view.page_and_local_at(scene_pt)
+        if page_index is None:
+            return False
+        self._marquee_page = page_index
+        self._marquee_anchor = scene_pt
+        self._marquee_add = add
+        band = QGraphicsRectItem(QRectF(scene_pt, scene_pt))
+        band.setBrush(QBrush(QColor(0, 120, 215, 40)))
+        band.setPen(QPen(QColor(0, 120, 215), 1, Qt.PenStyle.DashLine))
+        band.setZValue(13)
+        self._view.scene().addItem(band)
+        self._marquee_item = band
+        return True
+
+    def update_marquee(self, scene_pt) -> None:
+        if self._marquee_item is not None:
+            self._marquee_item.setRect(QRectF(self._marquee_anchor, scene_pt).normalized())
+
+    def finish_marquee(self) -> None:
+        """Commit the rubber-band: select the marks it covers. A near-zero drag is a plain click on
+        empty space → clear the selection (unless Ctrl, which signals additive intent)."""
+        if self._marquee_item is None:
+            return
+        band, self._marquee_item = self._marquee_item, None
+        scene_rect = band.rect().normalized()
+        self._view.scene().removeItem(band)
+        add, self._marquee_anchor = self._marquee_add, None
+        if scene_rect.width() < _MIN_DRAW and scene_rect.height() < _MIN_DRAW:
+            if not add:
+                self.clear_object_selection()
+            return
+        box = self._view.local_box_from_scene_rect(self._marquee_page, scene_rect)
+        self.select_in_rect(self._marquee_page, box, add=add)
 
     # ---- redaction tool (rubber-band drag) --------------------------------------
 
