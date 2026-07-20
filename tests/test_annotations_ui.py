@@ -201,7 +201,9 @@ def test_textbox_text_is_vertically_centered_in_the_box(win):
     ov = win.view.annotations
     ov.repaint()
     boxes = [it for it in ov._items if type(it) is QGraphicsRectItem]
-    texts = [it for it in ov._items if isinstance(it, QGraphicsSimpleTextItem)]
+    # The text is a **child** of its box since M59.11 (so it can never out-stack a mark covering
+    # the box), hence it is reached through the frame rather than listed as a top-level item.
+    texts = [c for it in boxes for c in it.childItems() if isinstance(c, QGraphicsSimpleTextItem)]
     assert boxes and texts
     box_rect = boxes[-1].sceneBoundingRect()
     text_center_y = texts[-1].sceneBoundingRect().center().y()
