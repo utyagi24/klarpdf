@@ -951,8 +951,13 @@ class AnnotationOverlay:
                     "Line": "Move line",
                     "Shape": "Move shape",
                 }[type(marks[0]).__name__]
-                self._replace(page_index, marks[0], translate_mark(marks[0], dx, dy), text=label)
-                self._set_selection([(page_index, translate_mark(marks[0], dx, dy))])
+                # Build the moved descriptor ONCE and reuse it for both the model edit and the
+                # re-selection: `replace_annotation` matches by *identity*, so handing the
+                # selection a second, equal-but-distinct copy would leave it pointing at something
+                # the page doesn't contain — and the next edit on it would silently do nothing.
+                moved = translate_mark(marks[0], dx, dy)
+                self._replace(page_index, marks[0], moved, text=label)
+                self._set_selection([(page_index, moved)])
             else:
                 pairs = [(m, translate_mark(m, dx, dy)) for m in marks]
                 self._replace_many(page_index, pairs, f"Move {len(marks)} objects")

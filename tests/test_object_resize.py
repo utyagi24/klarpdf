@@ -290,6 +290,54 @@ def test_first_resize_of_a_pasted_shape_takes_effect(win):
     assert win.undo_stack.undoText() == "Resize shape"
 
 
+def test_resize_works_first_time_after_pasting_then_moving(win):
+    """The reported bug: copy → paste → **move** → resize did nothing on the first try.
+
+    ``finish_move`` built the moved descriptor twice — the model kept one instance and the
+    re-selection held the other. ``replace_annotation`` matches by identity, so the next edit on
+    the selection found nothing and silently no-opped; re-clicking the mark (which returns the
+    model's instance) made a second attempt work."""
+    _add(win, Line((100.0, 400.0), (220.0, 400.0)))
+    pasted = _paste_of(win, _only(win, Line))          # the copy is the last Line on the page
+    ov = win.view.annotations
+
+    def last_line():
+        return [a for a in win.vdoc.page_annotations(0) if isinstance(a, Line)][-1]
+
+    mid = ((pasted.start[0] + pasted.end[0]) / 2.0, pasted.start[1])
+    assert ov.begin_move(_scene(win, *mid)) is True
+    ov.update_move(_scene(win, mid[0] + 60, mid[1] + 60))
+    ov.finish_move()
+    moved = last_line()
+    # The selection must hold the *same instance* the page now holds, or the next edit no-ops.
+    assert ov.selected_objects[0][1] is moved
+
+    handle = ov.handle_at(_scene(win, *moved.end))
+    assert handle == "p1"
+    assert ov.begin_resize(handle, _scene(win, *moved.end)) is True
+    ov.update_resize(_scene(win, 380.0, 300.0))
+    ov.finish_resize()
+    assert last_line().end == pytest.approx((380, 300), abs=1.5)   # took effect first try
+    assert win.undo_stack.undoText() == "Resize line"
+
+
+def test_move_then_resize_works_for_a_shape_too(win):
+    """Same root cause, not line-specific — lock it for shapes as well."""
+    _add(win, Shape("rect", (100.0, 400.0, 160.0, 440.0)))
+    ov = win.view.annotations
+    ov.select_object(0, _only(win, Shape))
+    assert ov.begin_move(_scene(win, 130, 420)) is True
+    ov.update_move(_scene(win, 190, 480))
+    ov.finish_move()
+    moved = _only(win, Shape)
+    assert ov.selected_objects[0][1] is moved
+    ov.begin_resize("se", _scene(win, moved.rect[2], moved.rect[3]))
+    ov.update_resize(_scene(win, 400.0, 600.0))
+    ov.finish_resize()
+    assert _only(win, Shape).rect[2] == pytest.approx(400, abs=1.5)
+    assert win.undo_stack.undoText() == "Resize shape"
+
+
 def test_a_no_op_resize_commits_nothing(win):
     _add(win, Shape("rect", (100.0, 100.0, 160.0, 140.0)))
     ov = win.view.annotations

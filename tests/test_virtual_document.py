@@ -142,3 +142,39 @@ def test_rotate_command_label_and_roundtrip(a_pdf):
     assert vd.ordered[1].rotation_override == 270
     stack.undo()
     assert vd.ordered[1].rotation_override is None
+
+
+# ---- annotation edits: identity first, value as a safety net -----------------
+#
+# Descriptors are frozen value objects, so a caller can hand back an equal-but-*distinct* copy of
+# a mark it is holding. Identity-only matching made that fail silently (a moved object's
+# re-selection once held such a copy, so the next resize no-opped) — these lock the fallback in.
+
+
+def test_replace_annotation_accepts_an_equal_but_distinct_descriptor(a_pdf):
+    from model.page_edits import Line
+
+    vd = VirtualDocument.from_path(a_pdf)
+    vd.add_annotation(0, Line((10.0, 10.0), (50.0, 50.0)))
+    stale = Line((10.0, 10.0), (50.0, 50.0))          # equal by value, a different instance
+    assert stale is not vd.page_annotations(0)[0] and stale == vd.page_annotations(0)[0]
+    vd.replace_annotation(0, stale, Line((10.0, 10.0), (99.0, 99.0)))
+    assert vd.page_annotations(0)[0].end == (99.0, 99.0)   # the edit landed, not a silent no-op
+
+
+def test_remove_annotation_accepts_an_equal_but_distinct_descriptor(a_pdf):
+    from model.page_edits import Line
+
+    vd = VirtualDocument.from_path(a_pdf)
+    vd.add_annotation(0, Line((10.0, 10.0), (50.0, 50.0)))
+    vd.remove_annotation(0, Line((10.0, 10.0), (50.0, 50.0)))
+    assert vd.page_annotations(0) == ()
+
+
+def test_replace_annotation_ignores_a_mark_the_page_does_not_have(a_pdf):
+    from model.page_edits import Line
+
+    vd = VirtualDocument.from_path(a_pdf)
+    vd.add_annotation(0, Line((10.0, 10.0), (50.0, 50.0)))
+    vd.replace_annotation(0, Line((0.0, 0.0), (1.0, 1.0)), Line((5.0, 5.0), (6.0, 6.0)))
+    assert vd.page_annotations(0)[0].end == (50.0, 50.0)   # untouched
