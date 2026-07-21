@@ -71,6 +71,10 @@ _MIN_BOX_W, _MIN_BOX_H = 40.0, 20.0  # a text box never shrinks below this (page
 _MIN_REDACT = 3.0                 # ignore a redaction drag smaller than this (a stray click)
 _MIN_DRAW = 2.0                   # ignore a draw drag smaller than this (page points)
 _HIT_PAD = 3.0                    # grab slack around thin drawn marks (page points)
+# Fraction of the page a content mark must span before it stops being a click target (see
+# AnnotationOverlay.covers_page). Just under 1 so a watermark laid on the page box still counts
+# after floating-point rounding, and so a nearly-full-page mark behaves like a full-page one.
+_PAGE_COVER = 0.98
 
 # The markup / draw style (colour · width · fill) is picked from the shared, sticky
 # :class:`~viewer.markup_style.MarkupStyle` (M59.5) — its defaults are the old M58 fixed
@@ -987,9 +991,32 @@ class AnnotationOverlay:
         if page_index is None:
             return None
         for annot in reversed(self._view._vdoc.ordered[page_index].annotations):
+            if self.covers_page(page_index, annot):
+                continue          # a page-blanketing mark is not grabbable — see covers_page
             if isinstance(annot, OBJECT_TYPES) and self._drawn_hit(annot, local.x(), local.y()):
                 return page_index, annot
         return None
+
+    def covers_page(self, page_index: int, mark) -> bool:
+        """Whether ``mark`` blankets page ``page_index`` — the full-page watermark case.
+
+        Such a mark is **not an interaction target**. A click target that covers every point of the
+        page is a click target for nothing else: with it grabbable, every press anywhere on the page
+        started a move of the watermark, so **text selection stopped working entirely** (the armed
+        markup tools still worked, because they route through the text-drag path before this one).
+        Nor is there anything to gain — a mark already covering the whole page has nowhere to be
+        dragged to and no size to be resized to.
+
+        Keyed on the geometry, not on ``under``: an over-content mark stretched across the page
+        swallows clicks exactly the same way. It stays reachable by right-click, which is where its
+        Remove verb lives.
+        """
+        if not isinstance(mark, CONTENT_MARK_TYPES):
+            return False
+        page_w, page_h = self._view._unrotated_size(page_index)
+        x0, y0, x1, y1 = mark_bounds(mark)
+        return (abs(x1 - x0) >= page_w * _PAGE_COVER
+                and abs(y1 - y0) >= page_h * _PAGE_COVER)
 
     def _hit_tol(self, mark) -> float:
         """Click tolerance in page points for a thin mark: half the stroke width plus a fixed
@@ -1132,6 +1159,8 @@ class AnnotationOverlay:
         for mark in self._view._vdoc.ordered[page_index].annotations:
             if not isinstance(mark, (TextBox, *OBJECT_TYPES)):
                 continue
+            if self.covers_page(page_index, mark):
+                continue          # else every marquee, however small, would catch the watermark
             mx0, my0, mx1, my1 = mark_bounds(mark)
             padded = QRectF(mx0 - _HIT_PAD, my0 - _HIT_PAD,
                             (mx1 - mx0) + 2 * _HIT_PAD, (my1 - my0) + 2 * _HIT_PAD)

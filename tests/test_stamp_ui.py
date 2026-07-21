@@ -303,6 +303,59 @@ def test_watermark_covers_each_page_at_its_own_size(win, monkeypatch):
     assert _stamps(win, 0) == []                      # one undo step for the whole document
 
 
+# ---- a watermark is not a click target (owner-reported, M69.2) ------------------
+#
+# A full-page mark that is grabbable is a click target for the entire page, so every press started
+# a watermark move and text selection stopped working. The armed markup tools kept working, because
+# they route through the text-drag path before the object path — which is exactly how the bug
+# presented: "highlight and underline work, but just selecting text does not".
+
+
+def _watermark_every_page(win):
+    from ui.stamp_dialog import WatermarkDialog
+
+    exec_, pages = WatermarkDialog.exec, WatermarkDialog.selected_pages
+    WatermarkDialog.exec = lambda self: 1
+    WatermarkDialog.selected_pages = lambda self: [0]
+    try:
+        win._add_watermark()
+    finally:
+        WatermarkDialog.exec, WatermarkDialog.selected_pages = exec_, pages
+
+
+def test_a_watermark_does_not_swallow_the_click(win):
+    _watermark_every_page(win)
+    assert win.view.annotations.drawn_mark_at(_scene(win, 200, 300)) is None
+    assert win.view.annotations.begin_move(_scene(win, 200, 300)) is False
+
+
+def test_text_selection_still_begins_over_a_watermark(win):
+    """The reported symptom, at the level it was reported: dragging over text selects it."""
+    _watermark_every_page(win)
+    assert win.view.selection.begin(_scene(win, 100, 100)) is not False
+
+
+def test_a_marquee_does_not_catch_the_watermark(win):
+    _watermark_every_page(win)
+    win.view.annotations.select_in_rect(0, (50, 50, 250, 250))
+    assert win.view.annotations.selected_objects == []
+
+
+def test_a_watermark_is_still_removable_from_its_context_menu(win):
+    """It gives up the click, so right-click has to be a real removal path — not a dead end."""
+    _watermark_every_page(win)
+    labels = _menu_labels(win, 200, 300)
+    assert "Remove watermark" in labels
+    # …but not the object verbs, which would do nothing to a page-wide mark.
+    assert not [text for text in labels if "Object" in text]
+
+
+def test_an_ordinary_stamp_is_still_grabbable(win):
+    """The exclusion is about *covering the page*, not about being a content mark."""
+    _place(win, TEMPLATE, start=(100, 300), end=(300, 360))
+    assert win.view.annotations.drawn_mark_at(_scene(win, 200, 330)) is not None
+
+
 def test_watermark_dialog_defaults_are_translucent_and_diagonal(win):
     from ui.stamp_dialog import WatermarkDialog
 

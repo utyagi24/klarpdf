@@ -1090,7 +1090,13 @@ class MainWindow(QMainWindow):
         self.undo_stack.beginMacro(f"Add watermark to {len(pages)} pages")
         for page_index in pages:
             width, height = self.view._unrotated_size(page_index)
-            self._note_edit_on(page_index)
+            # Follow the **first** page of the range, not each one in turn (M69.2). `_note_edit_on`
+            # is consumed by the doc-changed handler that runs inside every push, so setting it per
+            # page left the view — and the thumbnail sidebar with it — scrolled to the *last* page of
+            # the range. Watermarking a document therefore yanked the sidebar to the end, blanking
+            # the rows the user was looking at and rendering ones they were not: "only some
+            # thumbnails updated". The same rule the batched redact already uses.
+            self._note_edit_on(min(pages))
             self.undo_stack.push(
                 AddAnnotationCommand(self.vdoc, page_index,
                                      dialog.watermark((0.0, 0.0, width, height)))
@@ -1621,7 +1627,14 @@ class MainWindow(QMainWindow):
             # they list the same verbs here. Sourced from the overlay's own object-type tuple rather
             # than a second hand-written list, which is what let stamps fall off this menu while
             # working everywhere else.
-            if isinstance(annot, (TextBox,) + OBJECT_TYPES):
+            # …except a page-blanketing mark (a watermark), which is not a free-placed object: it
+            # has nowhere to be moved to and is deliberately not grabbable (see `covers_page`), so
+            # offering Copy / Cut / z-order on it would be chrome for verbs that do nothing. Its
+            # right-click menu is just Remove — which is also its only removal path, the click that
+            # would select it having been given back to text selection.
+            page_wide = self.view.annotations is not None and \
+                self.view.annotations.covers_page(page_index, annot)
+            if isinstance(annot, (TextBox,) + OBJECT_TYPES) and not page_wide:
                 # Right-clicking a free-placed mark selects it, so the verbs below (and the
                 # z-order shortcuts) have an unambiguous target and you can *see* what you're
                 # acting on. Right-clicking a member of a group leaves the group intact — that's
@@ -1651,12 +1664,13 @@ class MainWindow(QMainWindow):
             # `mark_noun` already names every free-placed mark for the undo labels; deferring to it
             # keeps one vocabulary in the app and means a new descriptor gets a real name here
             # instead of the generic fallback (which is what a stamp used to get).
+            noun = "watermark" if page_wide and getattr(annot, "under", False) else mark_noun(annot)
             label = {
                 "Highlight": "Remove highlight",
                 "Underline": "Remove underline",
                 "Strikeout": "Remove strikeout",
                 "Redaction": "Remove redaction",
-            }.get(type(annot).__name__) or f"Remove {mark_noun(annot)}"
+            }.get(type(annot).__name__) or f"Remove {noun}"
             menu.addAction(label, lambda: self.view.annotations.remove(page_index, annot))
             return menu
         # A **foreign** annotation — one another tool wrote (M66). Checked after our own marks, so
