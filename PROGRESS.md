@@ -449,8 +449,19 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   to fight. A resize carries the pinned size along (smaller axis governs) so the hug survives.
   **(4) The composed stamp/watermark style is now sticky across sessions** through `Settings`
   prefs — text, colour, size, angle, opacity, frame. The **page range is deliberately not
-  remembered**: it is the one field where a stale value is destructive. — *Windows (headless +
-  offscreen GUI)* — 30 new tests, 1005 green
+  remembered**: it is the one field where a stale value is destructive.
+  **(5) A pinned size now means the size that is drawn**, which the first cut of (3) did not
+  deliver. `render_mark_document` built the artwork at the *rect* size, so `show_pdf_page` — which
+  fits rotated artwork into its rect — silently rescaled it: **120pt at −45° baked at 40pt**, in a
+  box 89pt wider than A4 that could not be centred, with the artwork sitting diagonally inside a
+  rect shaped for horizontal text (the reported "resizing distorts the stamp"). Artwork size and
+  rect are now separate concerns — `art_size` / `placement_size` / `art_scale` / `art_target_rect`
+  — so a pinned mark is placed at its **rotated extent** and baked at scale 1, is never enlarged to
+  fill a roomier rect (still shrunk rather than allowed to spill), and `size_for_page` reduces a
+  size too large for the paper to the largest that fits so it can be centred. A resize re-derives
+  the box from the new size instead of stretching it, so the hug is exact at every step. The
+  viewer's preview reads the same `art_scale` the bake applies, so the two cannot drift.
+  — *Windows (headless + offscreen GUI)* — 45 new tests, 1020 green
 - [ ] **M70** Verify + release → tag — *Windows*
 
 ## Public-Release Readiness — go open-source under AGPL-3.0 (planned)

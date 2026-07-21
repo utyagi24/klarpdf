@@ -487,14 +487,21 @@ def scale_mark(mark, sx: float, sy: float, ox: float, oy: float):
         nx0, ny0 = point(x0, y0)
         nx1, ny1 = point(x1, y1)
         box = (min(nx0, nx1), min(ny0, ny1), max(nx0, nx1), max(ny0, ny1))
-        # A stamp at a **pinned** font size was sized to hug its text, so leaving the size behind
-        # while the box grows would just inflate the padding — a resize that visibly does nothing
-        # to the lettering. Carrying the size along keeps the drag meaning what it does for an
-        # auto-fit stamp: bigger box, bigger letters. The *smaller* axis governs, so squashing one
-        # dimension can never push the text outside the box it is being fitted to.
+        # A stamp at a **pinned** font size is a box shaped *by* its text, so it cannot simply take
+        # whatever rectangle a corner-drag produces: stretching one axis would leave the artwork
+        # sitting in a box the wrong shape for it, which reads as the stamp distorting. Instead the
+        # drag sets the **size** — the smaller axis governs, so it never grows past what was asked
+        # — and the box is re-derived from it, keeping the hug exact at every step.
         if getattr(mark, "fontsize", 0.0):
-            return replace(mark, rect=box,
-                           fontsize=mark.fontsize * min(abs(sx), abs(sy)))
+            from model.content_marks import placement_size
+
+            resized = replace(mark, fontsize=mark.fontsize * min(abs(sx), abs(sy)))
+            width, height = placement_size(resized)
+            # Anchor the corner the drag is pulling *against* (the one at the scale origin), so the
+            # stamp grows away from the handle the user is holding rather than sliding under it.
+            x0 = box[0] if abs(box[0] - ox) <= abs(box[2] - ox) else box[2] - width
+            y0 = box[1] if abs(box[1] - oy) <= abs(box[3] - oy) else box[3] - height
+            return replace(resized, rect=(x0, y0, x0 + width, y0 + height))
         return replace(mark, rect=box)
     if isinstance(mark, Line):
         return replace(mark, start=point(*mark.start), end=point(*mark.end))

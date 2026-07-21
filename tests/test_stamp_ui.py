@@ -200,9 +200,26 @@ def test_a_placed_stamp_paints_a_preview_item(win):
     (45.0, 0.5856),     # direction does not change the shrink
 ])
 def test_rotation_fit_matches_show_pdf_page(angle, expected):
+    """The auto-fit case: the artwork *is* the rect, so this is the classic rotation shrink."""
     from viewer.annotations import _rotation_fit
 
-    assert _rotation_fit((0, 0, 595, 842), angle) == pytest.approx(expected, abs=0.002)
+    mark = Stamp(rect=(0, 0, 595, 842), text="WATERMARK", angle=angle)
+    assert _rotation_fit(mark) == pytest.approx(expected, abs=0.002)
+
+
+def test_rotation_fit_previews_a_pinned_stamp_at_its_own_size():
+    """A pinned stamp placed at its :func:`placement_size` is baked at scale 1 — there is no shrink
+    to reproduce. The preview must agree, or it would draw the stamp smaller than the file has it."""
+    from dataclasses import replace
+
+    from model.content_marks import art_size, placement_size
+    from viewer.annotations import _rotation_fit
+
+    mark = Stamp(rect=(0, 0, 1, 1), text="APPROVED", fontsize=40.0, angle=-45.0)
+    width, height = placement_size(mark)
+    placed = replace(mark, rect=(0, 0, width, height))
+    # `fit` is the fraction of the rect's width the artwork occupies on screen.
+    assert _rotation_fit(placed) * width == pytest.approx(art_size(placed)[0], rel=0.01)
 
 
 def _content_item(win):
@@ -412,6 +429,38 @@ def test_a_clicked_stamp_is_clamped_onto_the_page(win):
     _click_place(win, PINNED, at=(2, 2))
     x0, y0, _x1, _y1 = _stamps(win)[0].rect
     assert x0 >= 0.0 and y0 >= 0.0
+
+
+def test_an_oversized_stamp_is_fitted_onto_the_page_not_spilled(win):
+    """The owner-reported case: 120pt at −45° spans a 634pt diagonal on a 595pt-wide page, so the
+    box hung off the edge and no amount of dragging could centre it. It comes back as the largest
+    size that fits, wholly on the paper."""
+    from dataclasses import replace
+
+    _click_place(win, replace(PINNED, fontsize=120.0, angle=-45.0), at=(300, 400))
+    stamp = _stamps(win)[0]
+    page_w, page_h = win.view._unrotated_size(0)
+    assert stamp.fontsize < 120.0                       # reduced to fit
+    assert stamp.rect[0] >= -0.5 and stamp.rect[1] >= -0.5
+    assert stamp.rect[2] <= page_w + 0.5 and stamp.rect[3] <= page_h + 0.5
+
+
+def test_an_oversized_stamp_can_then_be_centred_on_the_page(win):
+    """The point of fitting it: once it is no longer wider than the paper, the ordinary object drag
+    can put it in the middle."""
+    from dataclasses import replace
+
+    page_w, page_h = win.view._unrotated_size(0)
+    _click_place(win, replace(PINNED, fontsize=120.0, angle=-45.0),
+                 at=(page_w / 2, page_h / 2))
+    x0, y0, x1, y1 = _stamps(win)[0].rect
+    assert ((x0 + x1) / 2, (y0 + y1) / 2) == pytest.approx((page_w / 2, page_h / 2), abs=1.5)
+
+
+def test_a_size_that_fits_is_placed_exactly_as_typed(win):
+    """Fitting must not become a tax on the normal case."""
+    _click_place(win, PINNED, at=(200, 400))
+    assert _stamps(win)[0].fontsize == 24.0
 
 
 def test_an_auto_fit_stamp_still_needs_a_drag(win):

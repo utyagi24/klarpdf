@@ -25,9 +25,11 @@ from model.content_marks import (
     apply_content_marks,
     is_content_mark,
     natural_size,
+    placement_size,
     preset_stamp,
     preset_watermark,
     render_mark_document,
+    size_for_page,
 )
 from model.edit_engine import PyMuPDFEngine
 from model.page_edits import Highlight, Redaction, mark_bounds, scale_mark, translate_mark
@@ -249,6 +251,84 @@ def test_resizing_a_pinned_stamp_carries_its_font_size(vdoc, tmp_path):
 def test_resizing_an_auto_fit_stamp_leaves_it_auto_fit():
     """``fontsize=0`` is the sentinel for "fit the box" — scaling must not turn it into a real size."""
     assert scale_mark(Stamp((100, 100, 200, 140), "AUTO"), 2.0, 2.0, 0, 0).fontsize == 0.0
+
+
+def test_resizing_a_pinned_stamp_keeps_its_box_hugging_the_text():
+    """The owner-reported distortion: a pinned stamp's box is shaped *by* its text, so a lopsided
+    corner-drag must re-derive the box rather than stretch it. Otherwise the artwork ends up in a
+    box the wrong shape for it, which is what "resizing distorts the stamp" was."""
+    mark = Stamp((100, 100, 200, 140), "APPROVED", fontsize=20.0)
+    for sx, sy in ((2.0, 2.0), (3.0, 1.2), (0.5, 0.5), (1.0, 4.0)):
+        out = scale_mark(mark, sx, sy, 100, 100)
+        assert (out.rect[2] - out.rect[0], out.rect[3] - out.rect[1]) == pytest.approx(
+            placement_size(out), abs=0.5
+        )
+
+
+def test_resizing_a_pinned_stamp_anchors_the_corner_being_pulled_against():
+    """Dragging the bottom-right handle keeps the top-left still, and vice versa — the stamp grows
+    away from the handle rather than sliding out from under it."""
+    mark = Stamp((100, 100, 200, 140), "OK", fontsize=20.0)
+    grown = scale_mark(mark, 2.0, 2.0, 100, 100)          # origin at the top-left corner
+    assert (grown.rect[0], grown.rect[1]) == pytest.approx((100, 100), abs=0.5)
+    grown = scale_mark(mark, 2.0, 2.0, 200, 140)          # origin at the bottom-right corner
+    assert (grown.rect[2], grown.rect[3]) == pytest.approx((200, 140), abs=0.5)
+
+
+# ---- a pinned size survives rotation and oversized pages ------------------------
+#
+# `show_pdf_page` *fits* the rotated artwork to its rect, up as readily as down. Both directions
+# broke a pinned size: rotation shrank it (a 120pt stamp at -45 deg baked at 40pt) and a roomier
+# rect blew it up. These pin both ends.
+
+
+@pytest.mark.parametrize("angle", [0.0, -45.0, 30.0, 90.0])
+def test_a_pinned_size_survives_rotation(vdoc, tmp_path, angle):
+    """The owner-reported "120pt came out small": with the rect sized to the *unrotated* text, the
+    rotated artwork was fitted down inside it. The rect must be the artwork's **rotated extent**."""
+    from dataclasses import replace
+
+    mark = Stamp((0, 0, 1, 1), "TILTED", fontsize=40.0, angle=angle)
+    width, height = placement_size(mark)
+    vdoc.add_annotation(0, replace(mark, rect=(40, 200, 40 + width, 200 + height)))
+    baked = _stamp_span_size(_materialize(vdoc, tmp_path, f"r{angle}.pdf"), "TILTED")
+    assert baked == pytest.approx(40.0, abs=1.0)
+
+
+def test_a_pinned_stamp_is_not_enlarged_to_fill_a_roomier_box(vdoc, tmp_path):
+    """"Pinned" has to mean pinned in both directions. `show_pdf_page` scales up as happily as down,
+    so a pinned mark is capped at its own size and simply sits centred in a larger rect."""
+    vdoc.add_annotation(0, Stamp((100, 400, 500, 560), "PINNED", fontsize=18.0))
+    assert _stamp_span_size(_materialize(vdoc, tmp_path), "PINNED") == pytest.approx(18.0, abs=0.5)
+
+
+def test_a_pinned_stamp_still_shrinks_rather_than_spilling(vdoc, tmp_path):
+    """Shrinking stays uncapped: a mark that would overflow its rect is scaled down, never allowed
+    to spill outside the box that is its placement promise."""
+    vdoc.add_annotation(0, Stamp((100, 400, 180, 430), "PINNED", fontsize=60.0))
+    assert _stamp_span_size(_materialize(vdoc, tmp_path), "PINNED") < 60.0
+
+
+def test_size_for_page_reduces_a_size_too_big_for_the_paper():
+    """The owner-reported spill: at 120pt and -45 deg, "APPROVED" spans a 634pt diagonal — wider
+    than A4's 595pt — so the box hung off the page and could not be centred."""
+    mark = Stamp((0, 0, 1, 1), "APPROVED", fontsize=120.0, angle=-45.0)
+    fitted = size_for_page(mark, 595.0, 842.0)
+    assert fitted < 120.0
+    from dataclasses import replace
+
+    width, height = placement_size(replace(mark, fontsize=fitted))
+    assert width <= 595.0 + 0.5 and height <= 842.0 + 0.5
+
+
+def test_size_for_page_leaves_a_size_that_already_fits_alone():
+    """It reduces, never raises — a stamp that fits is placed at exactly the size that was typed."""
+    mark = Stamp((0, 0, 1, 1), "OK", fontsize=24.0)
+    assert size_for_page(mark, 595.0, 842.0) == 24.0
+
+
+def test_size_for_page_ignores_an_auto_fit_stamp():
+    assert size_for_page(Stamp((0, 0, 1, 1), "AUTO"), 595.0, 842.0) == 0.0
 
 
 def test_rotated_stamp_stays_within_its_rect(vdoc, tmp_path):

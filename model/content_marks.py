@@ -35,6 +35,7 @@ descriptor is frozen + hashable so it can ride a ``PageRef`` and snapshot for un
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import pymupdf as fitz
@@ -224,6 +225,110 @@ def _text_padding(mark: Stamp) -> float:
     return max(mark.border_width, 0.0) + _TEXT_INSET
 
 
+def art_size(mark) -> tuple[float, float]:
+    """The size :func:`render_mark_document` builds ``mark``'s artwork at.
+
+    For an **auto-fit** mark this is the rect: the box was dragged, and the artwork's whole job is
+    to fill it. For a **pinned-size** stamp it is :func:`natural_size` instead — the artwork is the
+    size the text actually is, and the rect's job becomes holding it (see :func:`placement_size`).
+    Decoupling the two is what lets a pinned size survive rotation.
+    """
+    if isinstance(mark, Stamp) and mark.fontsize:
+        return natural_size(mark)
+    x0, y0, x1, y1 = mark.rect
+    return max(abs(x1 - x0), 1.0), max(abs(y1 - y0), 1.0)
+
+
+def rotated_extent(width: float, height: float, angle: float) -> tuple[float, float]:
+    """The axis-aligned bounding box of a ``width`` × ``height`` box turned by ``angle``."""
+    if not angle:
+        return width, height
+    radians = math.radians(angle)
+    cos, sin = abs(math.cos(radians)), abs(math.sin(radians))
+    return width * cos + height * sin, width * sin + height * cos
+
+
+def placement_size(mark) -> tuple[float, float]:
+    """The rect a **pinned-size** mark must occupy to render at exactly that size.
+
+    ``show_pdf_page`` fits a mark's *rotated* artwork inside its rect and centres it there, so the
+    scale it applies is ``min(rect / rotated-artwork-extent)``. Handing it the rotated extent as the
+    rect therefore makes that scale exactly ``1`` — the pinned size is drawn at the pinned size.
+
+    This is what a rotated stamp got wrong: with the rect sized to the *unrotated* text, a 120pt
+    stamp at −45° was fitted down to 40pt, and its artwork sat diagonally inside a box shaped for
+    horizontal text — so the selection box did not agree with what was drawn, and resizing it looked
+    like distortion.
+    """
+    return rotated_extent(*art_size(mark), mark.angle)
+
+
+def art_scale(mark) -> float:
+    """The factor the artwork is drawn at when placed into ``mark.rect`` (1.0 = its own size).
+
+    ``show_pdf_page`` *fits* — it scales the rotated artwork to the rect in both directions, up as
+    readily as down. That is right for an auto-fit mark, whose artwork **is** the rect and whose
+    whole contract is "fill the box I dragged". It is wrong for a **pinned size**, where being
+    enlarged to fill a roomier box is precisely what "pinned" rules out — so a pinned mark is
+    capped at 1.0 and simply sits centred in a rect larger than it needs.
+
+    Shrinking is *not* capped in either case: a mark that would overflow its rect is scaled down
+    rather than allowed to spill, which is the same policy :func:`_draw_text` applies to text
+    overflowing its box.
+    """
+    rect_w = max(abs(mark.rect[2] - mark.rect[0]), 1e-6)
+    rect_h = max(abs(mark.rect[3] - mark.rect[1]), 1e-6)
+    spanned_w, spanned_h = rotated_extent(*art_size(mark), mark.angle)
+    scale = min(rect_w / max(spanned_w, 1e-6), rect_h / max(spanned_h, 1e-6))
+    if isinstance(mark, Stamp) and mark.fontsize:
+        return min(scale, 1.0)
+    return scale
+
+
+def art_target_rect(mark) -> tuple[float, float, float, float]:
+    """The sub-rect of ``mark.rect`` the artwork is actually placed into, centred within it.
+
+    Handing ``show_pdf_page`` this instead of the whole rect is what makes :func:`art_scale`'s cap
+    real: fitting into a box already the artwork's own size is the identity. For an auto-fit mark it
+    is the rect itself (or, when rotated, the centred sub-rect the fit would have produced anyway),
+    so nothing about the pre-existing behaviour moves.
+    """
+    scale = art_scale(mark)
+    spanned_w, spanned_h = rotated_extent(*art_size(mark), mark.angle)
+    width, height = spanned_w * scale, spanned_h * scale
+    center_x = (mark.rect[0] + mark.rect[2]) / 2.0
+    center_y = (mark.rect[1] + mark.rect[3]) / 2.0
+    return (center_x - width / 2.0, center_y - height / 2.0,
+            center_x + width / 2.0, center_y + height / 2.0)
+
+
+def size_for_page(mark: Stamp, page_width: float, page_height: float) -> float:
+    """``mark.fontsize`` reduced — never raised — until :func:`placement_size` fits the page.
+
+    A stamp bigger than the paper is not a stamp: it cannot be centred, cannot be seen whole, and
+    on a rotated mark it is the *diagonal* that overflows, which is not something a user can be
+    expected to work out from a point size. So the typed size is honoured when it fits and otherwise
+    becomes the largest that does — the same policy :func:`_draw_text` already applies to a pinned
+    size that overflows its box, rather than a second rule to learn.
+
+    Iterative because :func:`natural_size` is affine, not linear, in the font size (the padding is a
+    constant); each pass overshoots slightly and converges in two or three.
+    """
+    from dataclasses import replace
+
+    size = mark.fontsize
+    if not size:
+        return size
+    for _ in range(8):
+        width, height = placement_size(replace(mark, fontsize=size))
+        if width <= page_width and height <= page_height:
+            break
+        size = max(size * min(page_width / width, page_height / height), _MIN_FONTSIZE)
+        if size <= _MIN_FONTSIZE:
+            break
+    return size
+
+
 def natural_size(mark: Stamp) -> tuple[float, float]:
     """The box ``mark``'s text needs at its **pinned** ``fontsize`` — the "hug the text" size.
 
@@ -307,15 +412,14 @@ def _drop_white(pix: fitz.Pixmap, threshold: float) -> fitz.Pixmap:
 
 
 def render_mark_document(mark) -> fitz.Document:
-    """A throwaway one-page PDF holding ``mark``'s artwork at its natural (unrotated) size.
+    """A throwaway one-page PDF holding ``mark``'s artwork at its unrotated :func:`art_size`.
 
     The single generator behind stamps, signatures and watermarks — the caller places the result with
     ``show_pdf_page``. Exposed (rather than kept private to :func:`apply_content_marks`) because the
     viewer's live placement preview renders exactly this, so what is dragged around on screen is the
     same artwork that bakes at save. The caller owns the document and must close it.
     """
-    x0, y0, x1, y1 = mark.rect
-    width, height = max(abs(x1 - x0), 1.0), max(abs(y1 - y0), 1.0)
+    width, height = art_size(mark)
     doc = fitz.open()
     page = doc.new_page(width=width, height=height)
     box = fitz.Rect(0, 0, width, height)
@@ -395,9 +499,10 @@ def apply_content_marks(page: fitz.Page, marks: tuple) -> None:
     editable annotation overlays keep sitting on top of a baked stamp exactly as they do on the page's
     own content. Non-content descriptors are ignored, so the caller passes the page's whole tuple.
 
-    Each mark is placed with ``show_pdf_page``, which fits its (rotated) artwork into the mark's rect
-    — so the rect is the promise: "the mark lands here", at any angle. ``under`` selects
-    ``overlay=False``, putting the mark beneath the existing content (the watermark case).
+    Each mark is placed with ``show_pdf_page`` into :func:`art_target_rect` — a centred sub-rect of
+    the mark's own rect — so the rect stays the promise ("the mark lands here, at any angle") while
+    a pinned font size is never scaled up to fill it. ``under`` selects ``overlay=False``, putting
+    the mark beneath the existing content (the watermark case).
 
     The angle is **negated** on the way in. ``angle`` is counter-clockwise-positive — the maths
     convention, the one the dialog's spinner and the viewer's preview both use, and the one that
@@ -414,6 +519,7 @@ def apply_content_marks(page: fitz.Page, marks: tuple) -> None:
             continue
         art = render_mark_document(mark)
         try:
-            page.show_pdf_page(rect, art, 0, rotate=-mark.angle, overlay=not mark.under)
+            target = fitz.Rect(art_target_rect(mark)).normalize()
+            page.show_pdf_page(target, art, 0, rotate=-mark.angle, overlay=not mark.under)
         finally:
             art.close()
