@@ -9,7 +9,8 @@ descriptor drifted (each new field had to be added twice), and the two preset li
 explain why.
 
 **What actually differed.** Of the seven axes between the old dialogs, six were defaults — ``under``,
-angle, frame, opacity, scope, preset list. Exactly one was structural: **how the mark is placed**.
+angle, frame, opacity, scope, preset list (``under`` has since been dropped from the UI entirely,
+§M69.6). Exactly one was structural: **how the mark is placed**.
 So that is the one control the merged dialog adds, and everything else follows from it:
 
 * **"Where I drag it"** — the mark is *armed*, then the user drags or clicks its box. A stamp goes
@@ -20,6 +21,12 @@ So that is the one control the merged dialog adds, and everything else follows f
 Switching between them rewrites the style fields **in front of the user** (colour, opacity, angle,
 frame) rather than silently applying hidden defaults, and hides the two controls that mean nothing
 for a page-covering mark — the house "no dead chrome" rule, not greyed-out placeholders.
+
+**There is no "behind the page content" control** (§M69.6). ``Stamp.under`` is still an engine
+capability, but the UI does not offer it: "behind" means behind everything the page draws, and most
+real PDFs paint an opaque full-page background, so the usual result was a mark that saved correctly
+and was invisible. **Opacity already gives the watermark look** — a translucent mark over the
+content, page text legible through it — which is what ``under`` was reached for in the first place.
 
 **Presets are words, not modes.** One list, prefilling text + colour only. Whether "Confidential"
 is a stamp or a watermark is now the visible Place choice rather than which menu you happened to
@@ -177,16 +184,20 @@ class MarkDialog(QDialog):
         self.opacity.valueChanged.connect(lambda v: self.opacity_label.setText(f"{v}%"))
         self.frame = QCheckBox("Draw a frame around the text")
         self.frame.setChecked(True)
-        self.under = QCheckBox("Behind the page content")
-        # Honest about the catch (M69.5). "Behind" means behind *everything* the page draws, and most
-        # real-world PDFs paint an opaque full-page background — so on those the mark is saved
-        # correctly and is completely invisible. Off by default; the tooltip says why you might not
-        # want it on.
-        self.under.setToolTip(
-            "The page's own text and images print on top of the mark.\n"
-            "Note: on a page with a solid background the mark ends up behind that too,\n"
-            "and will not be visible. Leave this off if you are not sure."
-        )
+        # **No "behind the page content" control** (M69.6, owner call). `Stamp.under` remains an
+        # engine capability, but the UI does not offer it: "behind" means behind *everything the page
+        # draws*, and most real-world PDFs paint an opaque full-page background — so the usual result
+        # is a mark that saves correctly and is completely invisible. A control whose ordinary
+        # outcome is "nothing appears" is worse than dead chrome.
+        #
+        # Nothing is lost, because **Opacity already delivers the watermark look** (owner): a
+        # translucent mark over the content reads exactly as a watermark should, with the page's own
+        # text legible through it — which is what `under` was reached for in the first place. The
+        # alternative fix (bake `under` as an over-content `/BM /Multiply` draw, so the file finally
+        # matches the multiply-composited preview) was rejected: it would not restore the one thing
+        # true under-print uniquely gives — page images *covering* the mark — and it means hand-built
+        # `/ExtGState` PDF code in the save path, adding exactly the cross-renderer variability
+        # §M61's "no cross-renderer calibration" owner call exists to avoid.
         self.pages = _PageRangeField(page_count, current_page)
 
         form.addRow("Preset", self.presets)
@@ -199,8 +210,6 @@ class MarkDialog(QDialog):
         form.addRow("Opacity", self._opacity_row())
         self._frame_filler = QLabel("")
         form.addRow(self._frame_filler, self.frame)
-        self._under_filler = QLabel("")
-        form.addRow(self._under_filler, self.under)
         form.addRow("Apply to", self.pages)
         self._form = form
 
@@ -254,7 +263,6 @@ class MarkDialog(QDialog):
         self.opacity.setValue(int(defaults["opacity"] * 100))
         self.angle.setValue(defaults["angle"])
         self.frame.setChecked(bool(defaults.get("frame", False)))
-        self.under.setChecked(bool(defaults.get("under", False)))
         for widget in (self._size_label, self.fontsize, self._frame_filler, self.frame):
             widget.setVisible(not whole_page)
         if whole_page:
@@ -279,7 +287,6 @@ class MarkDialog(QDialog):
             border_width=0.0 if whole_page or not self.frame.isChecked() else 3.0,
             angle=self.angle.value(),
             opacity=self.opacity.value() / 100.0,
-            under=self.under.isChecked(),
         )
 
     def selected_pages(self) -> list[int] | None:
@@ -310,7 +317,6 @@ class MarkDialog(QDialog):
             "angle": self.angle.value(),
             "opacity": self.opacity.value(),
             "frame": self.frame.isChecked(),
-            "under": self.under.isChecked(),
         }
 
     def restore(self, state: dict) -> None:
@@ -344,6 +350,5 @@ class MarkDialog(QDialog):
         ):
             if isinstance(state.get(key), (int, float)) and not isinstance(state[key], bool):
                 setter(state[key])
-        for key, box in (("frame", self.frame), ("under", self.under)):
-            if isinstance(state.get(key), bool):
-                box.setChecked(state[key])
+        if isinstance(state.get("frame"), bool):
+            self.frame.setChecked(state["frame"])

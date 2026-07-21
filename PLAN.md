@@ -1021,7 +1021,7 @@ the v0.7.0 → v0.9.0 re-scope). Theme names and milestone numbers are stable ei
 
 | Milestone | Feature | Where | Done when |
 |---|---|---|---|
-| **M61** ⭐ Unified content-draw engine | **One engine for stamps, signature, and watermark** (owner call: Way 2 — presets are prefilled entries of the custom generator; no dual annotation/content path, no true Stamp annots, no cross-renderer calibration). Custom-text stamp generator via PyMuPDF drawing (rounded-rect border + Helvetica-Bold); image placement; page-range watermark pass (`overlay=False` under content; rotation + opacity). All **baked at save** — editable/undoable until save, permanent after (redaction-style semantics, said plainly in UI). | WSL (model+tests) | Stamp/watermark descriptors ride PageRefs, render in preview/print/export, bake at materialise |
+| **M61** ⭐ Unified content-draw engine | **One engine for stamps, signature, and watermark** (owner call: Way 2 — presets are prefilled entries of the custom generator; no dual annotation/content path, no true Stamp annots, no cross-renderer calibration). Custom-text stamp generator via PyMuPDF drawing (rounded-rect border + Helvetica-Bold); image placement; page-range watermark pass (rotation + opacity; `overlay=False` under-content exists in the engine but is **not offered in the UI** — see §M69.6). All **baked at save** — editable/undoable until save, permanent after (redaction-style semantics, said plainly in UI). | WSL (model+tests) | Stamp/watermark descriptors ride PageRefs, render in preview/print/export, bake at materialise |
 
 **M61 as built** — three decisions worth recording, because each is a deviation from the sketch above:
 
@@ -1032,6 +1032,20 @@ the v0.7.0 → v0.9.0 re-scope). Theme names and milestone numbers are stable ei
   rotation angle** natively — which a pixmap does not, and which the diagonal watermark needs.
   Images still go through a pixmap, since that is what they are; opacity reaches them by scaling the
   alpha channel, an image having no `/CA` to set.
+- **§M69.6 — `under` is an engine capability, not a UI control.** A mark drawn with
+  `show_pdf_page(overlay=False)` goes beneath *everything the page draws*, including the opaque
+  full-page background most real PDFs paint — so it bakes correctly into the text layer and cannot be
+  seen (found on a 320-page prospectus: the text was in `get_text()`, nothing was visible). The
+  viewer made it worse by previewing an `under` mark with **multiply compositing on top**, which
+  shows regardless, so preview and file disagreed. **Opacity already gives the watermark look** —
+  a translucent mark over the content with the page's text legible through it — which is what
+  `under` was reached for, so the control was dropped (owner). The considered alternative, baking
+  `under` as an over-content `/BM /Multiply` draw so the file would match the preview, was
+  **rejected**: it does not restore the one thing true under-print uniquely gives (page images
+  *covering* the mark), and it means hand-built `/ExtGState` PDF code in the **save path** — exactly
+  the cross-renderer variability M61's "no cross-renderer calibration" call exists to avoid. The
+  descriptor field and the engine path stay, so a future caller can still use them.
+
 - **§M69.3 — and it is not a second *feature* either.** M62 shipped two dialogs over that one
   descriptor, and the seam cost more than it bought: every new field had to be added twice (the
   sticky-style work at M69.1 wrote `style_state`/`restore` twice), and the two preset lists both

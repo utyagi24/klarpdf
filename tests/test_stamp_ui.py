@@ -769,28 +769,30 @@ def test_the_fit_search_cache_does_not_change_the_answer():
 # ---- a whole-page mark must be visible, and must not move the reader (M69.5) -----
 
 
-def test_a_whole_page_mark_defaults_to_over_the_content(win):
+def test_the_dialog_never_produces_an_under_mark(win):
+    """Owner-reported as "does not save with the document" — the mark *was* saved, and was invisible:
+    `under=True` puts it beneath everything the page draws, and most real PDFs paint an opaque
+    full-page background. The control is gone (M69.6), because **Opacity already gives the watermark
+    look** — a translucent mark over the content, page text legible through it — which is what
+    `under` was reached for. Nothing the dialog composes is an under-mark, in either Place mode."""
     from ui.mark_dialog import MarkDialog
 
-    """Owner-reported as "does not save with the document" — the mark *was* saved, and was invisible.
-    `under=True` means behind everything the page draws, including the opaque full-page background
-    most real PDFs paint. Over the content at watermark opacity is both visible and unobtrusive."""
     dialog = MarkDialog(win, 3, 0)
-    dialog.place.setCurrentText(PLACE_PAGE)
-    assert dialog.under.isChecked() is False
-    assert dialog.mark((0, 0, 595, 842)).under is False
+    assert not hasattr(dialog, "under")
+    for mode in (PLACE_DRAG, PLACE_PAGE):
+        dialog.place.setCurrentText(mode)
+        assert dialog.mark((0, 0, 595, 842)).under is False
     dialog.deleteLater()
 
 
-def test_under_is_still_available_when_asked_for(win):
-    """The capability is not removed — only its default. A page with a transparent background is a
-    real case, and a true under-print is the right answer there."""
+def test_a_restored_under_flag_cannot_resurrect_the_option(win):
+    """A settings file written before M69.6 carries `"under": true`. It must be ignored, not quietly
+    reinstate a mode the UI no longer has a control for."""
     from ui.mark_dialog import MarkDialog
 
     dialog = MarkDialog(win, 3, 0)
-    dialog.place.setCurrentText(PLACE_PAGE)
-    dialog.under.setChecked(True)
-    assert dialog.mark((0, 0, 595, 842)).under is True
+    dialog.restore({"under": True, "place": PLACE_PAGE})
+    assert dialog.mark((0, 0, 595, 842)).under is False
     dialog.deleteLater()
 
 

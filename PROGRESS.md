@@ -517,6 +517,18 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   follow a mark to the page it landed on; a **range** mark did not land anywhere in particular, so
   it is no longer called for one — marking every page changes nothing about where the reader is.
   — *Windows (headless + offscreen GUI)* — 4 new tests, 1038 green
+- [x] **M69.6** "Behind the page content" removed from the UI — owner call: *"I don't see any value
+  for under given that we have opacity control in place already."* M69.5 had defaulted it off and
+  warned in a tooltip; this drops the control. `Stamp.under` stays an **engine** capability (the M61
+  "one engine, over or under" design and its tests are untouched) — the UI simply stops offering a
+  control whose ordinary outcome is *nothing appears*, which is worse than dead chrome. The
+  previously-recorded fix (bake `under` as an over-content `/BM /Multiply` draw so the file matches
+  the multiply-composited preview) was **rejected**: it would not restore the one thing true
+  under-print uniquely gives — page images *covering* the mark — and it means hand-built
+  `/ExtGState` PDF code in the **save path**, adding exactly the cross-renderer variability that
+  §M61's "no cross-renderer calibration" owner call exists to avoid. A pre-M69.6 settings file
+  carrying `"under": true` is ignored rather than resurrecting the mode. — *Windows (headless +
+  offscreen GUI)* — 1038 green
 - [ ] **M70** Verify + release → tag — *Windows*
 
 ## Public-Release Readiness — go open-source under AGPL-3.0 (planned)
@@ -708,21 +720,6 @@ tree or history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI 
 ## Open follow-ups (carried)
 
 Carried items — none block work:
-
-- **`under=True` is invisible on most real PDFs, and the preview does not admit it.** A mark drawn
-  with `show_pdf_page(overlay=False)` goes beneath *everything the page draws* — including the opaque
-  full-page background most real-world PDFs paint — so it bakes correctly into the text layer and
-  cannot be seen (found at M69.5 on `spaceX_prospectus.pdf`). Worse, the viewer previews an `under`
-  mark with **multiply compositing on top**, which shows it regardless: preview and saved file
-  disagree, though the M62 comment asserts they are equivalent (true only for a transparent page
-  background). Mitigated at M69.5 by defaulting whole-page marks to *over* the content and warning in
-  the tooltip, but the option can still be switched on and still silently vanish. The real fix is to
-  bake an `under` mark as an **over-content draw with a `/BM /Multiply` blend** — which is exactly
-  what the preview already does, so the file would finally match it, and dark page content would
-  still read on top. PyMuPDF's `Page._set_opacity` accepts a `blendmode` argument but never writes it
-  into the ExtGState, so this means building the `/ExtGState` dict by hand and prepending a `gs`
-  operator to the mark's form XObject — deferred as its own milestone rather than ridden into a
-  bug-fix branch.
 
 - **The thumbnail sidebar bakes the *whole document* on every edit.** `ThumbnailPanel._edited_render`
   calls `PyMuPDFEngine.render_output(vdoc)` — a full materialise of every page — so the panel can
