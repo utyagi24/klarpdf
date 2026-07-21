@@ -1032,6 +1032,21 @@ the v0.7.0 → v0.9.0 re-scope). Theme names and milestone numbers are stable ei
   rotation angle** natively — which a pixmap does not, and which the diagonal watermark needs.
   Images still go through a pixmap, since that is what they are; opacity reaches them by scaling the
   alpha channel, an image having no `/CA` to set.
+- **§M69.3 — and it is not a second *feature* either.** M62 shipped two dialogs over that one
+  descriptor, and the seam cost more than it bought: every new field had to be added twice (the
+  sticky-style work at M69.1 wrote `style_state`/`restore` twice), and the two preset lists both
+  contained "Draft" and "Confidential" — the same word producing a different mark depending on which
+  menu the user opened, with nothing on screen to explain why. Of the seven axes on which the two
+  dialogs differed, **six were defaults** (`under`, angle, frame, opacity, scope, preset list) and
+  exactly one was structural: **how the mark is placed**. So the merged `ui/mark_dialog.py` surfaces
+  that one as a **Place** control — "Where I drag it" / "Over the whole page" — which rewrites the
+  style fields visibly and hides Size + Frame for a page-covering mark (no dead chrome). Presets
+  became one list of *words*, prefilling text + colour only; whether "Confidential" is a stamp or a
+  watermark is now a visible choice rather than a hidden mode. That is this section's own **Way 2**
+  rule (a preset is a prefill of the custom generator, never a separate code path) applied one level
+  up. Done **before** R4's first release, while it was still free: after M70 ships it would be a
+  breaking UI change that release notes must explain.
+
 - **A watermark is not a third type.** It is a `Stamp` or `ImageStamp` with `under=True`, added to
   every page in the range. **The page range lives in the UI loop, not the model** — which is exactly
   what makes "stamp my initials on pages 3–17" and "watermark the document" the same operation, and
@@ -1069,7 +1084,7 @@ sharing the existing draw-gesture path. Two consequences worth stating:
   paint beneath the page's own pixmap. It is previewed with **multiply** compositing instead —
   equivalent for the translucent marks a watermark actually is, because painting a translucent mark
   under black text and multiplying it over black text both leave the text black.
-| **M62** Stamp & watermark UI | Placement mode (drag rect, move, corner-resize until save) — **the same placement UI M69's field creation reuses**; stamp dialog (text · colour · angle · opacity + preset list); watermark dialog (page range, translucency, diagonal); apply-to-page-range checkbox on stamps (the initials-on-every-page case). | WSLg | Place/move/resize a stamp; watermark a range; both bake on save |
+| **M62** Stamp & watermark UI | Placement mode (drag rect, move, corner-resize until save) — **the same placement UI M69's field creation reuses**; **one** mark dialog (preset · place · text · colour · size · angle · opacity · frame · behind-content · page range) — see §M69.3 for why the stamp and watermark dialogs were merged; apply-to-page-range on any mark (the initials-on-every-page case). | WSLg | Place/move/resize a stamp; watermark a range; both bake on save |
 | **M63** Image stamp / signature | The sign-and-return workflow: place a PNG/JPEG (scanned signature, seal, logo) via the M62 placement UI. Transparent-PNG alpha honored + a **"make white background transparent"** threshold toggle (phone-photo signatures just work); **recent-signatures list stores paths only** — KlarPDF never keeps a hidden copy of a signature. Docs: ink-equivalent, **not** a cryptographic signature. | WSL + WSLg | Sign a form offline in two clicks on the second use; baked mark can't be lifted off |
 | **M64** Search & redact | Redact every occurrence of a string: `search_for` quads → batched `Redaction` descriptors in **one undo step**; destructive only at the existing confirmed Save. Review flow reuses M47's panel with checkboxes (untick "Smithsonian" when redacting "Smith"); case + whole-word toggles. **Honesty: text-layer only** — detect image-only pages and warn; form-field values are a documented boundary; same-width boxes hint string length (docs note). | WSL (model+tests) + WSLg | Mark-all → review → redact-checked → Save removes them (cross-engine leak check); warnings fire on image-only pages |
 | **M65** Verify + release | Headless suite green; Windows validation; tag. | Windows | Matrix green → release |

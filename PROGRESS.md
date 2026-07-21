@@ -462,6 +462,30 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   the box from the new size instead of stretching it, so the hug is exact at every step. The
   viewer's preview reads the same `art_scale` the bake applies, so the two cannot drift.
   — *Windows (headless + offscreen GUI)* — 45 new tests, 1020 green
+- [x] **M69.2** Watermark interaction + live-thumbnail fixes — two owner-reported defects, neither
+  watermark-specific underneath. **(1) Text selection stopped working on a watermarked page**: a
+  full-page mark was an ordinary object hit target, so a press *anywhere* grabbed it before text
+  selection got a look in (the armed markup tools were unaffected, which is exactly how it presented
+  — "highlight and underline work, but selecting text does not"). A mark that blankets the page is
+  no longer an interaction target for move / select / marquee; it stays reachable by right-click,
+  which offers **Remove watermark** and drops the object verbs that would do nothing to it.
+  **(2) Thumbnails did not update**: `populate()` runs on every edit and reset *every* row to a blank
+  grey placeholder, re-rendering only the rows in the viewport — so one edit emptied the sidebar and
+  most rows stayed empty until scrolled to. Rows now carry their previous render (a structural edit
+  carries nothing, since row N is then a different page). Compounding it, a range apply called
+  `_note_edit_on` per page, scrolling the view — and the sidebar — to the **last** page of the range;
+  it now follows the first. — *Windows (headless + offscreen GUI)* — 11 new tests, 1031 green (1029 after the M69.3 merge folded two dialogs into one)
+- [x] **M69.3** ⭐ Stamp and watermark merged into one feature — owner call: *"given the similarity
+  I am not seeing much value offering them as two separate features"*. They were never two: the model
+  has only `Stamp` / `ImageStamp` and a watermark is one with `under=True`. Of the seven axes on
+  which the two dialogs differed, **six were defaults** and exactly one was structural — **how the
+  mark is placed**. So `ui/mark_dialog.py` replaces both dialogs with one carrying a **Place**
+  control ("Where I drag it" / "Over the whole page") that rewrites the style fields visibly and
+  hides Size + Frame for a page-covering mark; `Tools ▸ Stamp / Watermark…` replaces the two menu
+  entries. Presets became **one list of words** (`MARK_PRESETS`) prefilling text + colour only —
+  ending the collision where "Draft" and "Confidential" sat in *both* lists meaning different
+  things. Rationale and the Way-2 argument in `PLAN.md` §R4. Done before R4's first release, while
+  it was still free. — *Windows (headless + offscreen GUI)* — 1029 green
 - [ ] **M70** Verify + release → tag — *Windows*
 
 ## Public-Release Readiness — go open-source under AGPL-3.0 (planned)

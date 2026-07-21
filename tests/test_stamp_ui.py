@@ -19,7 +19,15 @@ from main_window import MainWindow
 from model.content_marks import ImageStamp, Stamp
 from store.settings import Settings
 from util.page_range import PageRangeError, format_page_range, parse_page_range
+from ui.mark_dialog import PLACE_DRAG, PLACE_PAGE
 from viewer.tools import ArmedTool
+
+
+def _compose_whole_page(dialog) -> int:
+    """Stand-in for the user choosing "Over the whole page" and pressing OK — the watermark flow
+    now that both marks share one dialog."""
+    dialog.place.setCurrentText(PLACE_PAGE)
+    return 1
 
 
 @pytest.fixture(scope="session")
@@ -290,11 +298,11 @@ def test_the_pending_range_does_not_leak_into_the_next_mark(win):
 def test_watermark_covers_each_page_at_its_own_size(win, monkeypatch):
     """Applied straight across the range, full-page — and sized per page, so a mixed-size document
     does not inherit the current page's rect."""
-    from ui.stamp_dialog import WatermarkDialog
+    from ui.mark_dialog import MarkDialog
 
-    monkeypatch.setattr(WatermarkDialog, "exec", lambda self: 1)
-    monkeypatch.setattr(WatermarkDialog, "selected_pages", lambda self: [0, 1, 2])
-    win._add_watermark()
+    monkeypatch.setattr(MarkDialog, "exec", _compose_whole_page)
+    monkeypatch.setattr(MarkDialog, "selected_pages", lambda self: [0, 1, 2])
+    win._add_mark()
     for index in range(3):
         mark = _stamps(win, index)[0]
         assert mark.under is True                     # under the content — that is what makes it one
@@ -312,15 +320,15 @@ def test_watermark_covers_each_page_at_its_own_size(win, monkeypatch):
 
 
 def _watermark_every_page(win):
-    from ui.stamp_dialog import WatermarkDialog
+    from ui.mark_dialog import MarkDialog
 
-    exec_, pages = WatermarkDialog.exec, WatermarkDialog.selected_pages
-    WatermarkDialog.exec = lambda self: 1
-    WatermarkDialog.selected_pages = lambda self: [0]
+    exec_, pages = MarkDialog.exec, MarkDialog.selected_pages
+    MarkDialog.exec = _compose_whole_page
+    MarkDialog.selected_pages = lambda self: [0]
     try:
-        win._add_watermark()
+        win._add_mark()
     finally:
-        WatermarkDialog.exec, WatermarkDialog.selected_pages = exec_, pages
+        MarkDialog.exec, MarkDialog.selected_pages = exec_, pages
 
 
 def test_a_watermark_does_not_swallow_the_click(win):
@@ -357,10 +365,11 @@ def test_an_ordinary_stamp_is_still_grabbable(win):
 
 
 def test_watermark_dialog_defaults_are_translucent_and_diagonal(win):
-    from ui.stamp_dialog import WatermarkDialog
+    from ui.mark_dialog import MarkDialog
 
-    dialog = WatermarkDialog(win, 3, 0)
-    mark = dialog.watermark((0, 0, 595, 842))
+    dialog = MarkDialog(win, 3, 0)
+    dialog.place.setCurrentText(PLACE_PAGE)
+    mark = dialog.mark((0, 0, 595, 842))
     assert mark.under is True
     assert mark.angle == -45.0
     assert 0 < mark.opacity < 0.5
@@ -370,13 +379,13 @@ def test_watermark_dialog_defaults_are_translucent_and_diagonal(win):
 
 def test_stamp_dialog_preset_prefills_but_stays_editable(win):
     """Way 2: a preset is a prefill of the custom generator, not a separate kind of stamp."""
-    from ui.stamp_dialog import StampDialog
+    from ui.mark_dialog import MarkDialog
 
-    dialog = StampDialog(win, 3, 0)
+    dialog = MarkDialog(win, 3, 0)
     dialog.presets.setCurrentText("Confidential")
     assert dialog.text.text() == "CONFIDENTIAL"
     dialog.text.setText("MY OWN WORDS")               # still editable after choosing a preset
-    assert dialog.stamp().text == "MY OWN WORDS"
+    assert dialog.mark().text == "MY OWN WORDS"
     dialog.deleteLater()
 
 
@@ -528,19 +537,19 @@ def test_an_auto_fit_stamp_still_needs_a_drag(win):
 
 def test_the_dialog_defaults_to_fitting_the_box(win):
     """Unchanged behaviour for anyone who never touches the field: 0 is the auto-fit sentinel."""
-    from ui.stamp_dialog import StampDialog
+    from ui.mark_dialog import MarkDialog
 
-    dialog = StampDialog(win, 3, 0)
-    assert dialog.stamp().fontsize == 0.0
+    dialog = MarkDialog(win, 3, 0)
+    assert dialog.mark().fontsize == 0.0
     dialog.deleteLater()
 
 
 def test_the_dialog_passes_a_typed_size_through(win):
-    from ui.stamp_dialog import StampDialog
+    from ui.mark_dialog import MarkDialog
 
-    dialog = StampDialog(win, 3, 0)
+    dialog = MarkDialog(win, 3, 0)
     dialog.fontsize.setValue(32.0)
-    assert dialog.stamp().fontsize == 32.0
+    assert dialog.mark().fontsize == 32.0
     dialog.deleteLater()
 
 
@@ -548,9 +557,9 @@ def test_the_dialog_passes_a_typed_size_through(win):
 
 
 def test_stamp_style_round_trips_through_the_dialog(win):
-    from ui.stamp_dialog import StampDialog
+    from ui.mark_dialog import MarkDialog
 
-    first = StampDialog(win, 3, 0)
+    first = MarkDialog(win, 3, 0)
     first.presets.setCurrentText("Custom…")
     first.text.setText("MY MARK")
     first.color.set_color((0.1, 0.2, 0.3))
@@ -560,9 +569,9 @@ def test_stamp_style_round_trips_through_the_dialog(win):
     state = first.style_state()
     first.deleteLater()
 
-    second = StampDialog(win, 3, 0)
+    second = MarkDialog(win, 3, 0)
     second.restore(state)
-    mark = second.stamp()
+    mark = second.mark()
     assert mark.text == "MY MARK"
     assert mark.color == pytest.approx((0.1, 0.2, 0.3), abs=0.01)
     assert mark.fontsize == 28.0
@@ -574,9 +583,9 @@ def test_stamp_style_round_trips_through_the_dialog(win):
 def test_a_restored_preset_is_not_overwritten_by_its_prefill(win):
     """Restoring a preset name must not re-run the prefill over the text the user then edited —
     that is what the remembered preset name is for."""
-    from ui.stamp_dialog import StampDialog
+    from ui.mark_dialog import MarkDialog
 
-    dialog = StampDialog(win, 3, 0)
+    dialog = MarkDialog(win, 3, 0)
     dialog.restore({"preset": "Approved", "text": "EDITED AFTERWARDS"})
     assert dialog.text.text() == "EDITED AFTERWARDS"
     dialog.deleteLater()
@@ -585,64 +594,64 @@ def test_a_restored_preset_is_not_overwritten_by_its_prefill(win):
 def test_restore_tolerates_a_settings_file_from_an_older_build(win):
     """Missing and malformed fields are skipped, never defaulted — an old or hand-edited settings
     file degrades to "some fields remembered", not to a dialog that will not open."""
-    from ui.stamp_dialog import StampDialog
+    from ui.mark_dialog import MarkDialog
 
-    dialog = StampDialog(win, 3, 0)
+    dialog = MarkDialog(win, 3, 0)
     dialog.restore({"text": "KEPT", "color": "not a colour", "fontsize": None, "angle": []})
     assert dialog.text.text() == "KEPT"
-    assert dialog.stamp().fontsize == 0.0
+    assert dialog.mark().fontsize == 0.0
     dialog.deleteLater()
 
 
 def test_the_stamp_style_is_persisted_on_accept(win, app, monkeypatch):
     """End to end through the window: composing a stamp writes the style to the settings store, so
     the next session's dialog opens on it."""
-    from ui.stamp_dialog import StampDialog
+    from ui.mark_dialog import MarkDialog
 
     def compose(dialog):
         dialog.text.setText("REMEMBER ME")
         dialog.fontsize.setValue(26.0)
         return 1
 
-    monkeypatch.setattr(StampDialog, "exec", compose)
-    monkeypatch.setattr(StampDialog, "selected_pages", lambda self: [0])
-    win._add_stamp()
-    saved = app.settings.get_pref("stamp_style", {})
+    monkeypatch.setattr(MarkDialog, "exec", compose)
+    monkeypatch.setattr(MarkDialog, "selected_pages", lambda self: [0])
+    win._add_mark()
+    saved = app.settings.get_pref("mark_style", {})
     assert saved["text"] == "REMEMBER ME"
     assert saved["fontsize"] == 26.0
 
 
 def test_the_remembered_style_is_offered_to_the_next_dialog(win, app, monkeypatch):
-    from ui.stamp_dialog import StampDialog
+    from ui.mark_dialog import MarkDialog
 
-    app.settings.set_pref("stamp_style", {"text": "FROM LAST TIME", "fontsize": 30.0})
+    app.settings.set_pref("mark_style", {"text": "FROM LAST TIME", "fontsize": 30.0})
     seen = {}
-    monkeypatch.setattr(StampDialog, "exec",
+    monkeypatch.setattr(MarkDialog, "exec",
                         lambda self: seen.update(text=self.text.text(),
                                                  size=self.fontsize.value()) or 0)
-    win._add_stamp()
+    win._add_mark()
     assert seen == {"text": "FROM LAST TIME", "size": 30.0}
 
 
 def test_the_page_range_is_never_remembered(win, app, monkeypatch):
     """Style is sticky; **scope is not**. A persisted "All pages" would silently re-scope the next
     stamp to a whole document — the one field where a stale value is destructive."""
-    from ui.stamp_dialog import StampDialog
+    from ui.mark_dialog import MarkDialog
 
-    monkeypatch.setattr(StampDialog, "exec", lambda self: 1)
-    monkeypatch.setattr(StampDialog, "selected_pages", lambda self: [0, 1, 2])
-    win._add_stamp()
-    assert "pages" not in app.settings.get_pref("stamp_style", {})
-    assert "scope" not in app.settings.get_pref("stamp_style", {})
+    monkeypatch.setattr(MarkDialog, "exec", lambda self: 1)
+    monkeypatch.setattr(MarkDialog, "selected_pages", lambda self: [0, 1, 2])
+    win._add_mark()
+    assert "pages" not in app.settings.get_pref("mark_style", {})
+    assert "scope" not in app.settings.get_pref("mark_style", {})
 
 
 def test_stamp_dialog_frame_toggle_drives_border_width(win):
-    from ui.stamp_dialog import StampDialog
+    from ui.mark_dialog import MarkDialog
 
-    dialog = StampDialog(win, 3, 0)
-    assert dialog.stamp().border_width > 0
+    dialog = MarkDialog(win, 3, 0)
+    assert dialog.mark().border_width > 0
     dialog.frame.setChecked(False)
-    assert dialog.stamp().border_width == 0.0
+    assert dialog.mark().border_width == 0.0
     dialog.deleteLater()
 
 

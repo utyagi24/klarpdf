@@ -129,45 +129,47 @@ def is_content_mark(mark) -> bool:
 # Keyword overrides for the same Stamp the custom dialog builds — never a separate code path. A
 # preset chosen from the menu is placed and then editable exactly like a hand-made one.
 
-STAMP_PRESETS: dict[str, dict] = {
+# **One list** (M69.3). There were two — a stamp list and a watermark list — and both contained
+# "Draft" and "Confidential": the same word producing a different mark depending on which menu the
+# user happened to open, with nothing on screen to explain the difference. A preset is a *word*, so
+# it prefills only text + colour; whether the mark is a stamp or a watermark is the visible Place
+# choice in the dialog. That is this module's own "Way 2" rule (a preset is a prefill, never a
+# separate code path) applied one level up.
+MARK_PRESETS: dict[str, dict] = {
     "Approved":     {"text": "APPROVED", "color": (0.05, 0.55, 0.20)},
     "Rejected":     {"text": "REJECTED", "color": (0.80, 0.10, 0.10)},
-    "Draft":        {"text": "DRAFT", "color": (0.35, 0.35, 0.40)},
-    "Confidential": {"text": "CONFIDENTIAL", "color": (0.80, 0.10, 0.10)},
     "Reviewed":     {"text": "REVIEWED", "color": (0.10, 0.35, 0.75)},
     "Final":        {"text": "FINAL", "color": (0.05, 0.55, 0.20)},
+    "Draft":        {"text": "DRAFT", "color": (0.35, 0.35, 0.40)},
+    "Confidential": {"text": "CONFIDENTIAL", "color": (0.80, 0.10, 0.10)},
+    "Copy":         {"text": "COPY", "color": (0.45, 0.45, 0.50)},
+    "Sample":       {"text": "SAMPLE", "color": (0.45, 0.45, 0.50)},
 }
 
-# Watermark presets differ only in being translucent, diagonal, unframed and *under* the content —
-# the same descriptor, which is the whole argument for one engine.
-WATERMARK_PRESETS: dict[str, dict] = {
-    "Draft":        {"text": "DRAFT"},
-    "Confidential": {"text": "CONFIDENTIAL"},
-    "Copy":         {"text": "COPY"},
-    "Sample":       {"text": "SAMPLE"},
-}
-
-WATERMARK_DEFAULTS: dict = {
+# What "over the whole page" means as style: translucent, diagonal, unframed and *under* the
+# content. The watermark look, expressed as defaults on the one descriptor rather than as a second
+# kind of mark — which is the whole argument for one engine.
+WHOLE_PAGE_DEFAULTS: dict = {
     "color": (0.45, 0.45, 0.50),
-    "border_width": 0.0,     # a frame reads as a stamp; a watermark is bare text
+    "border_width": 0.0,     # a frame around the page edge reads as a border, not a mark
     "angle": -45.0,
     "opacity": 0.18,
     "under": True,
 }
 
 
-def preset_stamp(name: str, rect: tuple[float, float, float, float], **overrides) -> Stamp:
-    """The :class:`Stamp` for preset ``name`` placed at ``rect`` — unknown names fall back to the
-    name itself as the text, so a caller can never end up with no stamp at all."""
-    fields = dict(STAMP_PRESETS.get(name, {"text": name.upper()}))
-    fields.update(overrides)
-    return Stamp(rect=rect, **fields)
+def preset_mark(name: str, rect: tuple[float, float, float, float],
+                whole_page: bool = False, **overrides) -> Stamp:
+    """The :class:`Stamp` for preset ``name`` at ``rect``.
 
-
-def preset_watermark(name: str, rect: tuple[float, float, float, float], **overrides) -> Stamp:
-    """The watermark :class:`Stamp` for preset ``name`` covering ``rect`` (normally the whole page)."""
-    fields = dict(WATERMARK_DEFAULTS)
-    fields.update(WATERMARK_PRESETS.get(name, {"text": name.upper()}))
+    ``whole_page`` layers on :data:`WHOLE_PAGE_DEFAULTS` — the watermark look — under the preset's
+    own text and colour. Unknown names fall back to the name itself as the text, so a caller can
+    never end up with no mark at all.
+    """
+    fields = dict(WHOLE_PAGE_DEFAULTS) if whole_page else {}
+    fields.update(MARK_PRESETS.get(name, {"text": name.upper()}))
+    if whole_page:
+        fields["color"] = WHOLE_PAGE_DEFAULTS["color"]   # the preset supplies the word, not the ink
     fields.update(overrides)
     return Stamp(rect=rect, **fields)
 

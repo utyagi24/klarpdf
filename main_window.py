@@ -87,10 +87,9 @@ from viewer.text_selection import TextSelection
 from viewer.tools import ArmedTool, InteractionMode
 from viewer.zoom_widget import ZoomWidget
 
-# Preference keys for the sticky stamp / watermark styles. Style only — never the page range, whose
-# stale value would silently re-scope the next mark to a whole document (see ui.stamp_dialog).
-_STAMP_STYLE_PREF = "stamp_style"
-_WATERMARK_STYLE_PREF = "watermark_style"
+# Preference key for the sticky mark style. Style only — never the page range, whose stale value
+# would silently re-scope the next mark to a whole document (see ui.mark_dialog).
+_MARK_STYLE_PREF = "mark_style"
 
 
 def _ask_pdf_password(path: str, retry: bool) -> str | None:
@@ -446,17 +445,17 @@ class MainWindow(QMainWindow):
         a_redact_find = act("Find and Redact…", self._redact_matches, to_menu=tools_menu)
         a_redact_find.setToolTip("Find and Redact — redact every occurrence of a word or phrase")
         tools_menu.addSeparator()
-        # Stamp / signature / watermark (M62). All three are the one R4 content-draw engine (M61):
-        # a stamp and a signature are composed then *placed* (drag the box), a watermark covers whole
-        # pages so it applies straight away. They share one toolbar slot via the Stamp ▾ split-button.
-        a_stamp = act("Stamp…", self._add_stamp, icon="stamp", to_menu=tools_menu)
-        a_stamp.setToolTip("Stamp — compose a stamp, then drag the box it goes in")
+        # Text marks + signature (M62, merged at M69.3). Both are the one R4 content-draw engine
+        # (M61), and a stamp and a watermark are now **one** entry: they were never two features —
+        # a watermark is a Stamp with `under=True`, and the only real difference (drag it somewhere
+        # vs cover whole pages) is a control inside the dialog. They share one toolbar slot via the
+        # Stamp ▾ split-button.
+        a_stamp = act("Stamp / Watermark…", self._add_mark, icon="stamp", to_menu=tools_menu)
+        a_stamp.setToolTip("Compose a text mark — drag it where you want it, or cover whole pages")
         a_signature = act("Signature / Image…", self._add_image_stamp, icon="signature",
                           to_menu=tools_menu)
         a_signature.setToolTip("Signature — place a scanned signature, seal or logo")
-        a_watermark = act("Watermark…", self._add_watermark, icon="watermark", to_menu=tools_menu)
-        a_watermark.setToolTip("Watermark — translucent text under the page content, across a range")
-        self._stamp_actions = (a_stamp, a_signature, a_watermark)
+        self._stamp_actions = (a_stamp, a_signature)
         tools_menu.addSeparator()
         # Form fields (M69): compose, then drag the box — M62's placement gesture again. Menu-only;
         # creating a field is a one-shot command, and §Design budgets keeps the toolbar to modes.
@@ -540,9 +539,9 @@ class MainWindow(QMainWindow):
             markup_menu, "Underline / Strike Colour", TEXT_LINE_COLORS,
             self._set_markup_line_color, self._markup_line_color)
         self._draw_button = split_button((a_pen, a_line, a_arrow, a_rect, a_ellipse))
-        # Stamp ▾ (M62): stamp · signature · watermark in one slot, the slot §Design budgets
-        # reserved for R4. Each opens its dialog rather than arming directly — the mark has to be
-        # composed before there is anything to place.
+        # Stamp ▾ (M62): the text mark · signature in one slot, the slot §Design budgets reserved
+        # for R4. Each opens its dialog rather than arming directly — the mark has to be composed
+        # before there is anything to place.
         self._stamp_button = split_button(self._stamp_actions)
         # Recent Signatures (M63) hangs off the same dropdown: re-placing last week's signature is
         # the common case, and going through the dialog again to pick the same file is the friction
@@ -968,7 +967,7 @@ class MainWindow(QMainWindow):
         self.view.arm(tool)
         self._a_select.setChecked(True)  # arming forces the SELECT base mode
 
-    # ---- stamps, signatures, watermarks (M62; the M61 content-draw engine) ------
+    # ---- text marks + signatures (M62; the M61 content-draw engine) -------------
     #
     # Two shapes of flow over one engine, and the difference is only where the mark goes:
     #   * a stamp / signature is *placed* — compose it, then drag the box it lands in;
@@ -985,25 +984,55 @@ class MainWindow(QMainWindow):
         self.view.arm(ArmedTool.STAMP)
         self._a_select.setChecked(True)
 
-    def _add_stamp(self) -> None:
-        """Tools ▸ Stamp… — compose, then arm the placement gesture.
+    def _add_mark(self) -> None:
+        """Tools ▸ Stamp / Watermark… — compose one text mark, placed either way (M69.3).
 
-        The composed **style** is sticky across sessions (text, colour, size, angle, opacity,
-        frame): a stamp is configured once and applied for months, so retyping it every launch is
-        the kind of friction that sends people back to whatever they used before. The page range is
-        deliberately *not* remembered — see :mod:`ui.stamp_dialog`.
+        **One entry point, because they were never two features**: a watermark is a
+        :class:`~model.content_marks.Stamp` with ``under=True``, and the only structural difference
+        is how it is placed — dragged onto a spot, or applied full-page across a range. The dialog
+        surfaces exactly that as its Place control, so this method just routes on it.
+
+        The composed **style** is sticky across sessions (text, colour, size, angle, opacity, frame,
+        behind-content): a mark is configured once and applied for months, so retyping it every
+        launch is the kind of friction that sends people back to whatever they used before. The page
+        range is deliberately *not* remembered — see :mod:`ui.mark_dialog`.
         """
-        from ui.stamp_dialog import StampDialog
+        from ui.mark_dialog import MarkDialog
 
-        dialog = StampDialog(self, self.vdoc.page_count, self.view.current_page)
-        dialog.restore(self._settings.get_pref(_STAMP_STYLE_PREF, {}))
+        dialog = MarkDialog(self, self.vdoc.page_count, self.view.current_page)
+        dialog.restore(self._settings.get_pref(_MARK_STYLE_PREF, {}))
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         pages = dialog.selected_pages()
         if pages is None:
             return
-        self._settings.set_pref(_STAMP_STYLE_PREF, dialog.style_state())
-        self._arm_content_mark(dialog.stamp(), pages)
+        self._settings.set_pref(_MARK_STYLE_PREF, dialog.style_state())
+        if dialog.covers_page:
+            self._apply_page_mark(dialog, pages)
+        else:
+            self._arm_content_mark(dialog.mark(), pages)
+
+    def _apply_page_mark(self, dialog, pages: list[int]) -> None:
+        """Apply a whole-page mark across ``pages`` as one undo step — the watermark flow.
+
+        Each page gets the mark sized to **its own** page box, so a document mixing page sizes is
+        marked correctly rather than inheriting the current page's rect.
+        """
+        if not pages:
+            return
+        self.undo_stack.beginMacro(f"Add mark to {len(pages)} pages")
+        for page_index in pages:
+            width, height = self.view._unrotated_size(page_index)
+            # Follow the **first** page of the range, not each one in turn (M69.2). `_note_edit_on`
+            # is consumed by the doc-changed handler that runs inside every push, so setting it per
+            # page left the view — and the thumbnail sidebar with it — scrolled to the *last* page of
+            # the range, blanking the rows the user was looking at and rendering ones they were not.
+            self._note_edit_on(min(pages))
+            self.undo_stack.push(
+                AddAnnotationCommand(self.vdoc, page_index,
+                                     dialog.mark((0.0, 0.0, width, height)))
+            )
+        self.undo_stack.endMacro()
 
     def _add_image_stamp(self) -> None:
         """Tools ▸ Signature / Image… — choose + tune the image, then arm the placement drag (M63).
@@ -1070,38 +1099,6 @@ class MainWindow(QMainWindow):
         self.view.annotations.pending_field = dialog.field()
         self.view.arm(ArmedTool.FIELD)
         self._a_select.setChecked(True)
-
-    def _add_watermark(self) -> None:
-        """Tools ▸ Watermark… — compose and apply full-page across the range, no placement drag.
-
-        Each page gets the watermark sized to **its own** page box, so a document mixing page sizes
-        watermarks correctly rather than inheriting the current page's rect.
-        """
-        from ui.stamp_dialog import WatermarkDialog
-
-        dialog = WatermarkDialog(self, self.vdoc.page_count, self.view.current_page)
-        dialog.restore(self._settings.get_pref(_WATERMARK_STYLE_PREF, {}))
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return
-        pages = dialog.selected_pages()
-        if not pages:
-            return
-        self._settings.set_pref(_WATERMARK_STYLE_PREF, dialog.style_state())
-        self.undo_stack.beginMacro(f"Add watermark to {len(pages)} pages")
-        for page_index in pages:
-            width, height = self.view._unrotated_size(page_index)
-            # Follow the **first** page of the range, not each one in turn (M69.2). `_note_edit_on`
-            # is consumed by the doc-changed handler that runs inside every push, so setting it per
-            # page left the view — and the thumbnail sidebar with it — scrolled to the *last* page of
-            # the range. Watermarking a document therefore yanked the sidebar to the end, blanking
-            # the rows the user was looking at and rendering ones they were not: "only some
-            # thumbnails updated". The same rule the batched redact already uses.
-            self._note_edit_on(min(pages))
-            self.undo_stack.push(
-                AddAnnotationCommand(self.vdoc, page_index,
-                                     dialog.watermark((0.0, 0.0, width, height)))
-            )
-        self.undo_stack.endMacro()
 
     def _redact_matches(self) -> None:
         """Tools ▸ Find and Redact… — mark every checked occurrence for redaction (M64).
