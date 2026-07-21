@@ -486,6 +486,21 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   ending the collision where "Draft" and "Confidential" sat in *both* lists meaning different
   things. Rationale and the Way-2 argument in `PLAN.md` §R4. Done before R4's first release, while
   it was still free. — *Windows (headless + offscreen GUI)* — 1029 green
+- [x] **M69.4** Large-document mark performance — owner-reported: watermarking all pages of a
+  **320-page** document left the app sluggish *afterwards*, not just during. Measured on
+  `spaceX_prospectus.pdf`: the apply took **10.6s**, and **every subsequent edit cost 10.7s**. Two
+  causes, both O(document) where they should be O(what's on screen). **(1) The overlay rasterised
+  every content mark in the document on every repaint** — 320 marks to display about two. Content
+  marks are the one overlay built by rendering a real PDF rather than from cheap Qt items, and the
+  page pixmaps had been lazy since M25 while the overlay never caught up; they now share the view's
+  prefetch band (`content_band`) and paint incrementally as pages scroll in (incrementally, not by
+  `repaint`, which would drop the object selection on every scroll tick). **(2) The auto-fit search
+  was uncached** — `_fit_fontsize` runs a 14-step binary search, each step opening a throwaway PDF
+  and embedding a font, so one repaint ran ~4,500 of them to compute the *same* answer 320 times.
+  Memoised on its scalar inputs, which fully determine the result. **Apply 10.6s → 0.93s; a later
+  edit 10.7s → 0.89s; `view.reload()` 8.8s → 0.16s.** The remaining per-edit cost is the thumbnail
+  panel's whole-document `render_output` bake (0.69s of the 0.89s) — see Open follow-ups.
+  — *Windows (headless + offscreen GUI)* — 5 new tests, 1034 green
 - [ ] **M70** Verify + release → tag — *Windows*
 
 ## Public-Release Readiness — go open-source under AGPL-3.0 (planned)
@@ -677,6 +692,18 @@ tree or history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI 
 ## Open follow-ups (carried)
 
 Carried items — none block work:
+
+- **The thumbnail sidebar bakes the *whole document* on every edit.** `ThumbnailPanel._edited_render`
+  calls `PyMuPDFEngine.render_output(vdoc)` — a full materialise of every page — so the panel can
+  rasterise the handful of thumbnails actually on screen. On a 320-page document that is **~0.69s per
+  edit** (measured at M69.4 on `spaceX_prospectus.pdf`, after the mark-rendering fixes took the rest
+  of the edit cost from 10.7s to 0.89s); it is now the single largest remaining O(document) cost per
+  edit, and it grows with page count on *every* edit, not just marks. The fix is a **per-page bake**:
+  an engine entry point that materialises only the pages asked for, which the panel would call for
+  its visible rows the same way `_render_visible_thumbs` already scopes rasterising. Deferred because
+  it touches the shared `render_output` path that print and save also use, so it wants its own
+  milestone and its own verification rather than riding a bug-fix branch. Not a blocker: 0.89s per
+  edit on a 320-page document is responsive, and small documents are unaffected.
 
 - **Upstream PyMuPDF bug: URI links with an unbalanced paren are dropped by `insert_pdf` /
   `insert_link`** (unescaped re-serialisation of the URI text; console shows "skipping bad link /

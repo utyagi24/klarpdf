@@ -259,6 +259,10 @@ class AnnotationOverlay:
         # placement drag to give it a rect. Cleared once placed, so a second drag needs a second
         # trip through the dialog — the same one-shot contract as every other armed tool.
         self.pending_content_mark = None
+        # Pages whose content marks are currently painted. A content mark is the one overlay that is
+        # *rasterised* rather than built from cheap Qt items, so it is painted lazily by viewport
+        # band (see _paint_visible_content); this tracks which pages have already been done.
+        self._content_pages: set[int] = set()
         # The form field (M69) a properties dialog has composed, waiting for its box.
         self.pending_field = None
         # The foreign annotation being dragged (M67), as (page_index, ForeignAnnot). It
@@ -334,9 +338,41 @@ class AnnotationOverlay:
         """
         return _ANNOT_Z_BASE + index / (count + 1)
 
+    def _content_band_contains(self, page_index: int) -> bool:
+        """Whether ``page_index`` is close enough to the viewport to be worth rasterising a content
+        mark for. Shares the view's own prefetch band, so marks appear with the page they sit on."""
+        band = self._view.content_band()
+        return band is None or band[0] <= page_index <= band[1]
+
+    def _paint_visible_content(self) -> None:
+        """Paint content marks for pages that have scrolled into the band since the last pass.
+
+        **Why this mark type alone is lazy.** Every other overlay is a handful of cheap Qt items, but
+        a content mark is rasterised through the real PDF generator — a throwaway document, a font
+        embed and a pixmap each. Painting them document-wide made an edit cost O(marks in document)
+        instead of O(marks on screen): a 320-page document watermarked on every page spent ~8.5s
+        re-rendering 320 marks after *every* edit, to show about two of them. The page pixmaps were
+        already lazy for exactly this reason; the overlay simply had not caught up.
+
+        Incremental rather than a full :meth:`repaint`, because repaint drops the object selection —
+        scrolling must not deselect what the user is working on.
+        """
+        if self._view.rotation != 0:
+            return
+        scene = self._view.scene()
+        vdoc = self._view._vdoc
+        for page_index in range(vdoc.page_count):
+            if page_index in self._content_pages or not self._content_band_contains(page_index):
+                continue
+            for annot in vdoc.ordered[page_index].annotations:
+                if isinstance(annot, CONTENT_MARK_TYPES):
+                    self._paint_content_mark(scene, page_index, annot)
+            self._content_pages.add(page_index)
+
     def repaint(self) -> None:
         """Redraw every page's annotations from the model (also after zoom / scene rebuild)."""
         self._clear_items()
+        self._content_pages = set()
         # A structural change / scene rebuild orphans the selection (its items died with the
         # scene, and the marks themselves may be gone) — selection never survives a repaint.
         self._selection = []
@@ -367,7 +403,11 @@ class AnnotationOverlay:
                 elif isinstance(annot, _DRAWN_TYPES):
                     self._paint_drawn(scene, page_index, annot, z)
                 elif isinstance(annot, CONTENT_MARK_TYPES):
-                    self._paint_content_mark(scene, page_index, annot)
+                    # Deferred unless the page is near the viewport — see _paint_visible_content
+                    # for why this one mark type cannot afford to be painted document-wide.
+                    if self._content_band_contains(page_index):
+                        self._paint_content_mark(scene, page_index, annot)
+                        self._content_pages.add(page_index)
                 elif isinstance(annot, TextBox):
                     self._paint_textbox(scene, page_index, annot, z)
                 elif isinstance(annot, Redaction):

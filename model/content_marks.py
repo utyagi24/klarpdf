@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from functools import lru_cache
 
 import pymupdf as fitz
 
@@ -177,6 +178,31 @@ def preset_mark(name: str, rect: tuple[float, float, float, float],
 # ---- rendering ------------------------------------------------------------------
 
 
+@lru_cache(maxsize=4096)
+def _measure_free_height(width: float, height: float, text: str, fontsize: float) -> float:
+    """The cached core of :func:`_free_height`, keyed on plain scalars so it is hashable.
+
+    **Memoised because it is both pure and startlingly expensive.** Each call opens a throwaway
+    PDF, embeds the font and lays the text out; :func:`_fit_fontsize` needs fourteen of them for a
+    single mark. Repainting a 320-page document watermarked on every page therefore ran ~4500 of
+    these — about 8 seconds of the ~9 the viewer spent rebuilding after one edit — to compute the
+    *same answer* 320 times over, since the pages are the same size and the mark is the same mark.
+
+    The inputs fully determine the result (the font is the fixed :data:`STAMP_FONT`), so the cache
+    can never go stale. It is bounded, so a document of genuinely distinct marks degrades to the
+    old cost rather than growing without limit.
+    """
+    scratch = fitz.open()
+    page = scratch.new_page(width=width, height=height)
+    try:
+        return page.insert_textbox(
+            fitz.Rect(0, 0, width, height),
+            text, fontsize=fontsize, fontname=STAMP_FONT, align=fitz.TEXT_ALIGN_CENTER,
+        )
+    finally:
+        scratch.close()
+
+
 def _free_height(box: fitz.Rect, text: str, fontsize: float) -> float:
     """Vertical space ``text`` would leave unused in ``box`` at ``fontsize``; negative = doesn't fit.
 
@@ -185,15 +211,16 @@ def _free_height(box: fitz.Rect, text: str, fontsize: float) -> float:
     glyphs still land in the content stream and come back out of ``get_text``. Measuring on the page
     we are about to draw on therefore stamps everything twice, once invisibly.
     """
-    scratch = fitz.open()
-    page = scratch.new_page(width=max(box.width, 1.0), height=max(box.height, 1.0))
-    try:
-        return page.insert_textbox(
-            fitz.Rect(0, 0, max(box.width, 1.0), max(box.height, 1.0)),
-            text, fontsize=fontsize, fontname=STAMP_FONT, align=fitz.TEXT_ALIGN_CENTER,
-        )
-    finally:
-        scratch.close()
+    return _measure_free_height(max(box.width, 1.0), max(box.height, 1.0), text, fontsize)
+
+
+@lru_cache(maxsize=2048)
+def _text_width(text: str, fontsize: float) -> float:
+    """Widest authored line of ``text`` at ``fontsize``. Cached alongside
+    :func:`_measure_free_height` — the same binary search calls it just as often, and it too walks
+    the font's char-width table on every call."""
+    return max(fitz.get_text_length(line, fontname=STAMP_FONT, fontsize=fontsize)
+               for line in text.split("\n"))
 
 
 def _fits(box: fitz.Rect, text: str, fontsize: float) -> bool:
@@ -204,10 +231,7 @@ def _fits(box: fitz.Rect, text: str, fontsize: float) -> bool:
     what someone dragging a stamp box wants. Width is checked per authored line (an explicit newline
     is honoured), height by measurement.
     """
-    lines = text.split("\n")
-    widest = max(fitz.get_text_length(line, fontname=STAMP_FONT, fontsize=fontsize)
-                 for line in lines)
-    return widest <= box.width and _free_height(box, text, fontsize) >= 0
+    return _text_width(text, fontsize) <= box.width and _free_height(box, text, fontsize) >= 0
 
 
 def _fit_fontsize(box: fitz.Rect, text: str) -> float:
@@ -346,11 +370,9 @@ def natural_size(mark: Stamp) -> tuple[float, float]:
     """
     fontsize = mark.fontsize or _MIN_FONTSIZE
     lines = mark.text.split("\n") or [""]
-    width = max(fitz.get_text_length(line, fontname=STAMP_FONT, fontsize=fontsize)
-                for line in lines)
     # A hair of slack: at *exactly* the measured width, float rounding inside insert_textbox can
     # decide the last glyph does not fit and wrap it, which would corrupt the height measurement.
-    width = max(width, 1.0) + 1.0
+    width = max(_text_width(mark.text, fontsize), 1.0) + 1.0
     probe = fitz.Rect(0, 0, width, fontsize * (len(lines) + 2) * 2.0)
     used = probe.height - max(_free_height(probe, mark.text, fontsize), 0.0)
     pad = _text_padding(mark)

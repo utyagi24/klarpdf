@@ -730,6 +730,17 @@ class PdfView(QGraphicsView):
             return self._current, self._current
         return first, last
 
+    def content_band(self) -> tuple[int, int] | None:
+        """The page range worth rasterising for, or ``None`` before the first show (paint it all).
+
+        The same band :meth:`_render_visible` uses for page pixmaps, exposed so the annotation
+        overlay's rasterised content marks can be just as lazy as the pages they sit on.
+        """
+        if not self._pages or not self._shown_once:
+            return None
+        first, last = self._visible_range()
+        return max(0, first - _PREFETCH), min(len(self._pages) - 1, last + _PREFETCH)
+
     def _render_visible(self) -> None:
         if not self._pages or not self._shown_once:
             return
@@ -743,6 +754,9 @@ class PdfView(QGraphicsView):
                     p["pix"].setPos(self._pixmap_offset(i))  # inset only in the un-crop edge case
             elif not p["pix"].pixmap().isNull():
                 p["pix"].setPixmap(QPixmap())  # drop offscreen pixels to bound memory
+        # Content marks ride the same band as the pixmaps, so a stamp scrolls in with its page.
+        if self.annotations is not None:
+            self.annotations._paint_visible_content()
         self._update_current(first, last)
 
     def _update_current(self, first: int, last: int) -> None:

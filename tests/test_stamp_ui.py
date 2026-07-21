@@ -684,3 +684,84 @@ def test_bad_page_range_raises(text):
 def test_format_page_range_collapses_runs():
     assert format_page_range([0, 1, 2, 4]) == "1-3, 5"
     assert format_page_range([]) == ""
+
+
+# ---- content marks are painted lazily, by viewport band (M69.4) ------------------
+#
+# Every other overlay is a handful of cheap Qt items, but a content mark is *rasterised* through the
+# real PDF generator — a throwaway document, a font embed and a pixmap each. Painting them
+# document-wide made an edit cost O(marks in document) rather than O(marks on screen): a 320-page
+# document watermarked on every page spent ~8.5s re-rendering 320 marks after *every* edit, to show
+# about two of them.
+
+
+def _content_items(win):
+    from PySide6.QtWidgets import QGraphicsPixmapItem
+
+    return [i for i in win.view.annotations._items if isinstance(i, QGraphicsPixmapItem)]
+
+
+def _stamp_every_page(win):
+    from model.content_marks import preset_mark
+
+    for index in range(win.vdoc.page_count):
+        width, height = win.view._unrotated_size(index)
+        win.vdoc.add_annotation(index, preset_mark("Draft", (0, 0, width, height), whole_page=True))
+
+
+def test_only_marks_near_the_viewport_are_rasterised(win, monkeypatch):
+    """The optimisation itself: a mark on a page nowhere near the viewport costs nothing."""
+    _stamp_every_page(win)
+    monkeypatch.setattr(win.view, "content_band", lambda: (0, 0))
+    win.view.annotations.repaint()
+    assert len(_content_items(win)) == 1        # page 0 only, not all three
+
+
+def test_scrolling_paints_the_marks_that_came_into_view(win, monkeypatch):
+    """Lazy must not mean missing: a page scrolling in brings its mark with it."""
+    _stamp_every_page(win)
+    monkeypatch.setattr(win.view, "content_band", lambda: (0, 0))
+    win.view.annotations.repaint()
+    assert len(_content_items(win)) == 1
+
+    monkeypatch.setattr(win.view, "content_band", lambda: (0, 2))
+    win.view.annotations._paint_visible_content()
+    assert len(_content_items(win)) == win.vdoc.page_count
+
+
+def test_a_page_already_painted_is_not_painted_twice(win, monkeypatch):
+    """`_paint_visible_content` runs on every scroll tick, so it has to be idempotent — otherwise
+    scrolling would pile duplicate pixmaps onto the same page."""
+    _stamp_every_page(win)
+    monkeypatch.setattr(win.view, "content_band", lambda: (0, 2))
+    win.view.annotations.repaint()
+    before = len(_content_items(win))
+    for _ in range(3):
+        win.view.annotations._paint_visible_content()
+    assert len(_content_items(win)) == before
+
+
+def test_marks_are_all_painted_before_the_view_is_shown(win, monkeypatch):
+    """No band yet (nothing laid out) means paint everything — the honest fallback, and what keeps
+    an offscreen/headless render complete."""
+    _stamp_every_page(win)
+    monkeypatch.setattr(win.view, "content_band", lambda: None)
+    win.view.annotations.repaint()
+    assert len(_content_items(win)) == win.vdoc.page_count
+
+
+def test_the_fit_search_cache_does_not_change_the_answer():
+    """The auto-fit search is memoised because it is pure and startlingly expensive. Pure is the
+    load-bearing half: a cached fit must equal a freshly computed one."""
+    from model.content_marks import _fit_fontsize, _measure_free_height, _text_width
+    import pymupdf as fitz
+
+    box = fitz.Rect(0, 0, 260, 100)
+    _measure_free_height.cache_clear()
+    _text_width.cache_clear()
+    cold = _fit_fontsize(box, "APPROVED")
+    warm = _fit_fontsize(box, "APPROVED")
+    assert cold == warm
+    _measure_free_height.cache_clear()
+    _text_width.cache_clear()
+    assert _fit_fontsize(box, "APPROVED") == cold      # …and equal again from cold
