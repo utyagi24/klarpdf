@@ -63,19 +63,21 @@ from viewer.markup_style import swatch_icon
 
 CUSTOM = "Custom…"
 
-# The size field's "auto" position — the spin box's special value at 0.0, which is also the
-# `Stamp.fontsize` sentinel for auto-fit, so the control maps onto the descriptor with no
-# translation layer.
-FIT_TO_BOX = "Fit to box"
+_MIN_POINT_SIZE = 6.0
 _MAX_POINT_SIZE = 288.0     # 4 inches of cap height; past this a stamp is a watermark
+_DEFAULT_POINT_SIZE = 36.0
 
-# The two placement gestures — the one genuinely structural difference between a stamp and a
-# watermark, and therefore the only mode this dialog has.
-PLACE_DRAG = "Where I drag it"
-PLACE_PAGE = "Over the whole page"
+# **The two use cases, and nothing else** (M69.7, owner). There is no third "drag a box" mode: a
+# stamp is sized by its font size and placed by a click, a watermark covers the page. Dragging a
+# rectangle was a way of *sizing* a stamp, and once a point size is on the dialog it is a second
+# answer to a question already answered — with the worse ergonomics of the two, since a dragged box
+# only sets the size indirectly, through the padding the auto-fit leaves.
+PLACE_CLICK = "Stamp (click to place)"
+PLACE_PAGE = "Watermark (whole page)"
 
-# Style defaults for a mark you drag — the stamp look: opaque, framed, upright, stamp red.
-_DRAG_DEFAULTS = {"color": (0.80, 0.10, 0.10), "opacity": 1.0, "angle": 0.0, "frame": True}
+# Style defaults for a stamp: opaque, framed, upright, stamp red, at a legible size.
+_STAMP_DEFAULTS = {"color": (0.80, 0.10, 0.10), "opacity": 1.0, "angle": 0.0, "frame": True,
+                   "fontsize": _DEFAULT_POINT_SIZE}
 
 # Said in the dialog, not just the docs: a content mark is a point of no return at Save (PLAN.md
 # §Design budgets → Honesty principle). The wording matches the save-time confirm.
@@ -156,23 +158,23 @@ class MarkDialog(QDialog):
         self.presets = QComboBox()
         self.presets.addItems([*MARK_PRESETS, CUSTOM])
         self.place = QComboBox()
-        self.place.addItems([PLACE_DRAG, PLACE_PAGE])
+        self.place.addItems([PLACE_CLICK, PLACE_PAGE])
         self.place.setToolTip(
-            "Where I drag it — compose the mark, then drag or click its box on the page.\n"
-            "Over the whole page — applied straight away, covering every page in the range."
+            "Stamp — compose it at a font size, then click where you want it on the page.\n"
+            "Watermark — applied straight away, covering every page in the range."
         )
         self.text = QLineEdit()
-        self.color = _ColorButton(_DRAG_DEFAULTS["color"])
+        self.color = _ColorButton(_STAMP_DEFAULTS["color"])
+        # **The one sizing control.** No "fit to box" any more — there is no box to fit, because
+        # there is no drag. The stamp is exactly as big as its text at this size, so a click drops a
+        # correctly-proportioned mark and there is no padding to fight.
         self.fontsize = QDoubleSpinBox()
-        self.fontsize.setRange(0.0, _MAX_POINT_SIZE)
+        self.fontsize.setRange(_MIN_POINT_SIZE, _MAX_POINT_SIZE)
         self.fontsize.setDecimals(0)
         self.fontsize.setSingleStep(2.0)
         self.fontsize.setSuffix(" pt")
-        self.fontsize.setSpecialValueText(FIT_TO_BOX)     # shown at 0.0, the minimum
-        self.fontsize.setToolTip(
-            "Fit to box: drag the box and the text fills it.\n"
-            "A point size: the mark is sized to the text, so a click drops it."
-        )
+        self.fontsize.setValue(_DEFAULT_POINT_SIZE)
+        self.fontsize.setToolTip("The stamp is sized to its text at this size; click to place it")
         self.angle = QDoubleSpinBox()
         self.angle.setRange(-180.0, 180.0)
         self.angle.setSuffix("°")
@@ -258,11 +260,13 @@ class MarkDialog(QDialog):
         reads as a border, so neither knob means anything (house rule — no dead chrome).
         """
         whole_page = mode == PLACE_PAGE
-        defaults = WHOLE_PAGE_DEFAULTS if whole_page else _DRAG_DEFAULTS
+        defaults = WHOLE_PAGE_DEFAULTS if whole_page else _STAMP_DEFAULTS
         self.color.set_color(defaults["color"])
         self.opacity.setValue(int(defaults["opacity"] * 100))
         self.angle.setValue(defaults["angle"])
         self.frame.setChecked(bool(defaults.get("frame", False)))
+        if not whole_page:
+            self.fontsize.setValue(defaults["fontsize"])
         for widget in (self._size_label, self.fontsize, self._frame_filler, self.frame):
             widget.setVisible(not whole_page)
         if whole_page:
@@ -283,7 +287,8 @@ class MarkDialog(QDialog):
             rect=rect,
             text=self.text.text().strip() or "MARK",
             color=self.color.color(),
-            fontsize=0.0 if whole_page else self.fontsize.value(),   # 0.0 == "Fit to box"
+            # A watermark auto-fits the page it covers (0.0); a stamp is the size you typed.
+            fontsize=0.0 if whole_page else self.fontsize.value(),
             border_width=0.0 if whole_page or not self.frame.isChecked() else 3.0,
             angle=self.angle.value(),
             opacity=self.opacity.value() / 100.0,

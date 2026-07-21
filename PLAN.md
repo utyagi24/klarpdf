@@ -1032,6 +1032,19 @@ the v0.7.0 → v0.9.0 re-scope). Theme names and milestone numbers are stable ei
   rotation angle** natively — which a pixmap does not, and which the diagonal watermark needs.
   Images still go through a pixmap, since that is what they are; opacity reaches them by scaling the
   alpha channel, an image having no `/CA` to set.
+- **§M69.7 — two use cases, two controls, no third mode.** Owner: *"There are basically two use
+  cases. Stamp — only offer the font size, and click on the page where I want it. Watermark — over
+  the whole page. So we don't need the third option of dragging to stamp."* Dragging a rectangle was
+  only ever a way of **sizing** a text stamp, and once a point size is on the dialog it is a second
+  answer to a question already answered — the worse of the two, since a dragged box sets the size
+  only indirectly, through whatever padding the auto-fit leaves (the M69.1 complaint). So the drag
+  mode is gone for text stamps: `Kind` is *Stamp (click to place)* or *Watermark (whole page)*, the
+  size field loses its "Fit to box" position, and a stamp is centred on the **press point** rather
+  than the middle of any drag, with no rubber band to advertise a box it will not take. **Signature
+  / image placement and M69 field creation keep the drag** — neither has a font size to be sized by,
+  so the box is genuinely how you say how big they are; `fontsize=0` therefore remains the engine's
+  auto-fit sentinel and the drag path stays under it.
+
 - **§M69.6 — `under` is an engine capability, not a UI control.** A mark drawn with
   `show_pdf_page(overlay=False)` goes beneath *everything the page draws*, including the opaque
   full-page background most real PDFs paint — so it bakes correctly into the text layer and cannot be

@@ -529,6 +529,17 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   §M61's "no cross-renderer calibration" owner call exists to avoid. A pre-M69.6 settings file
   carrying `"under": true` is ignored rather than resurrecting the mode. — *Windows (headless +
   offscreen GUI)* — 1038 green
+- [x] **M69.7** Two use cases, two controls — owner call: *"There are basically two use cases…
+  so we don't need the third option of dragging to stamp."* Dragging a rectangle was only ever a way
+  of **sizing** a text stamp; once a point size is on the dialog it is a second answer to a question
+  already answered, and the worse one — a dragged box sets the size only indirectly, through the
+  padding auto-fit leaves (which is what M69.1 was reported about). `Kind` is now *Stamp (click to
+  place)* or *Watermark (whole page)*; the size field drops its "Fit to box" position and defaults to
+  36pt; a stamp is centred on the **press point**, not the middle of a stray drag, and draws no
+  rubber band to advertise a box it will not take. **Signature/image placement and M69 field
+  creation keep the drag** — neither has a font size, so the box is genuinely how you size them, and
+  `fontsize=0` stays the engine's auto-fit sentinel under them. — *Windows (headless + offscreen
+  GUI)* — 5 new tests, 1042 green
 - [ ] **M70** Verify + release → tag — *Windows*
 
 ## Public-Release Readiness — go open-source under AGPL-3.0 (planned)

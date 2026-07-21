@@ -1586,10 +1586,17 @@ class AnnotationOverlay:
         self._draw_points = [self._draw_anchor]
         item = QGraphicsPathItem()
         if tool.places_content or tool.places_field:
-            # A stamp's or field's live gesture is the *box*, drawn as a neutral dashed outline — the artwork
-            # appears on commit. Re-rendering the stamp on every mouse-move would cost a PDF render
-            # per pixel of drag to preview something the user is still sizing.
-            item.setPen(QPen(QColor(0, 120, 215), 1, Qt.PenStyle.DashLine))
+            # A field's (or signature's) live gesture is the *box*, drawn as a neutral dashed outline
+            # — the artwork appears on commit. Re-rendering it on every mouse-move would cost a PDF
+            # render per pixel of drag to preview something the user is still sizing.
+            #
+            # A **click-placed** text stamp (M69.7) draws no band at all: its size is already fixed,
+            # so a rubber band would advertise a box the stamp is not going to take. Nothing to show
+            # between press and release when the press was the whole gesture.
+            if self._click_placed(tool):
+                item.setPen(QPen(Qt.PenStyle.NoPen))
+            else:
+                item.setPen(QPen(QColor(0, 120, 215), 1, Qt.PenStyle.DashLine))
         else:
             item.setPen(self._drawn_pen(self._markup_style.color, self._markup_style.width))
             item.setOpacity(self._markup_style.opacity)   # the live gesture previews its opacity too
@@ -1657,6 +1664,15 @@ class AnnotationOverlay:
                 path.addRect(rect)          # RECT and the STAMP placement box
         return path
 
+    def _click_placed(self, tool) -> bool:
+        """Whether ``tool``'s armed mark is placed by a click rather than sized by a drag — true for
+        a text stamp carrying its own point size (M69.7), false for a signature or a form field,
+        which still get their size from the box you drag."""
+        from model.content_marks import Stamp
+
+        pending = self.pending_content_mark
+        return (tool.places_content and isinstance(pending, Stamp) and bool(pending.fontsize))
+
     def _placed_mark(self, page_index: int, pending, anchor, end):
         """``pending`` positioned by the placement gesture, or ``None`` to drop the gesture.
 
@@ -1683,9 +1699,11 @@ class AnnotationOverlay:
             page_w, page_h = self._view._unrotated_size(page_index)
             pending = replace(pending, fontsize=size_for_page(pending, page_w, page_h))
             width, height = placement_size(pending)
-            cx, cy = (anchor[0] + end[0]) / 2.0, (anchor[1] + end[1]) / 2.0
-            x0 = min(max(0.0, cx - width / 2.0), max(0.0, page_w - width))
-            y0 = min(max(0.0, cy - height / 2.0), max(0.0, page_h - height))
+            # Centred on where the press landed, **not** on the middle of any drag. The gesture is a
+            # click (M69.7): the size is already decided, so a drag has nothing left to say, and
+            # honouring its midpoint would slide the stamp away from the spot the user pointed at.
+            x0 = min(max(0.0, anchor[0] - width / 2.0), max(0.0, page_w - width))
+            y0 = min(max(0.0, anchor[1] - height / 2.0), max(0.0, page_h - height))
             return replace(pending, rect=(x0, y0, x0 + width, y0 + height))
         if abs(end[0] - anchor[0]) < _MIN_DRAW and abs(end[1] - anchor[1]) < _MIN_DRAW:
             return None

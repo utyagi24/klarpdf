@@ -19,7 +19,7 @@ from main_window import MainWindow
 from model.content_marks import ImageStamp, Stamp
 from store.settings import Settings
 from util.page_range import PageRangeError, format_page_range, parse_page_range
-from ui.mark_dialog import PLACE_DRAG, PLACE_PAGE
+from ui.mark_dialog import PLACE_CLICK, PLACE_PAGE
 from viewer.tools import ArmedTool
 
 
@@ -534,12 +534,15 @@ def test_an_auto_fit_stamp_still_needs_a_drag(win):
     assert _stamps(win) == []
 
 
-def test_the_dialog_defaults_to_fitting_the_box(win):
-    """Unchanged behaviour for anyone who never touches the field: 0 is the auto-fit sentinel."""
+def test_a_stamp_always_carries_a_real_point_size(win):
+    """There is no "fit to box" any more (M69.7) — no box to fit, because there is no drag. A stamp
+    composed by the dialog is always sized by its font, so it can be dropped with a click."""
     from ui.mark_dialog import MarkDialog
 
     dialog = MarkDialog(win, 3, 0)
-    assert dialog.mark().fontsize == 0.0
+    assert dialog.mark().fontsize > 0.0
+    dialog.fontsize.setValue(dialog.fontsize.minimum())
+    assert dialog.mark().fontsize > 0.0          # the floor is a real size, not the auto sentinel
     dialog.deleteLater()
 
 
@@ -598,7 +601,7 @@ def test_restore_tolerates_a_settings_file_from_an_older_build(win):
     dialog = MarkDialog(win, 3, 0)
     dialog.restore({"text": "KEPT", "color": "not a colour", "fontsize": None, "angle": []})
     assert dialog.text.text() == "KEPT"
-    assert dialog.mark().fontsize == 0.0
+    assert dialog.mark().fontsize > 0.0          # left at the default, not zeroed by junk
     dialog.deleteLater()
 
 
@@ -779,7 +782,7 @@ def test_the_dialog_never_produces_an_under_mark(win):
 
     dialog = MarkDialog(win, 3, 0)
     assert not hasattr(dialog, "under")
-    for mode in (PLACE_DRAG, PLACE_PAGE):
+    for mode in (PLACE_CLICK, PLACE_PAGE):
         dialog.place.setCurrentText(mode)
         assert dialog.mark((0, 0, 595, 842)).under is False
     dialog.deleteLater()
@@ -818,3 +821,55 @@ def test_marking_one_page_still_follows_the_edit(win, monkeypatch):
     monkeypatch.setattr(MarkDialog, "selected_pages", lambda self: [2])
     win._add_mark()
     assert win.view.current_page == 2
+
+
+# ---- there is no third "drag a box" mode (M69.7) ---------------------------------
+
+
+def test_a_stamp_lands_where_the_press_was_not_where_a_drag_ended(win):
+    """The gesture is a click. If a drag happens anyway, the size is already decided, so the drag has
+    nothing left to say — and honouring its midpoint would slide the stamp off the spot pointed at."""
+    win._arm_content_mark(PINNED)
+    overlay = win.view.annotations
+    overlay.begin_draw(ArmedTool.STAMP, _scene(win, 200, 400))
+    overlay.update_draw(_scene(win, 400, 600), Qt.KeyboardModifier.NoModifier)
+    overlay.finish_draw()
+    x0, y0, x1, y1 = _stamps(win)[0].rect
+    assert ((x0 + x1) / 2, (y0 + y1) / 2) == pytest.approx((200, 400), abs=1.5)
+
+
+def test_no_rubber_band_is_drawn_for_a_click_placed_stamp(win):
+    """A dashed box would advertise a footprint the stamp is not going to take."""
+    from PySide6.QtCore import Qt as _Qt
+
+    win._arm_content_mark(PINNED)
+    overlay = win.view.annotations
+    overlay.begin_draw(ArmedTool.STAMP, _scene(win, 200, 400))
+    assert overlay._draw_item.pen().style() == _Qt.PenStyle.NoPen
+    overlay.finish_draw()
+
+
+def test_a_signature_still_gets_its_size_from_the_drag(win, tmp_path):
+    """Only the *text* stamp went click-only. An image has no font size to be sized by, so it keeps
+    the drag — and must keep its rubber band with it."""
+    import pymupdf as fitz
+    from PySide6.QtCore import Qt as _Qt
+
+    path = str(tmp_path / "sig.png")
+    fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 20, 10), False).save(path)
+    win._arm_content_mark(ImageStamp(rect=(0.0, 0.0, 1.0, 1.0), image_path=path))
+    overlay = win.view.annotations
+    overlay.begin_draw(ArmedTool.STAMP, _scene(win, 100, 300))
+    assert overlay._draw_item.pen().style() == _Qt.PenStyle.DashLine
+    overlay.update_draw(_scene(win, 300, 360), _Qt.KeyboardModifier.NoModifier)
+    overlay.finish_draw()
+    marks = [a for a in win.vdoc.page_annotations(0) if isinstance(a, ImageStamp)]
+    assert marks[0].rect == pytest.approx((100, 300, 300, 360), abs=1.0)
+
+
+def test_the_dialog_offers_exactly_two_kinds(win):
+    from ui.mark_dialog import MarkDialog
+
+    dialog = MarkDialog(win, 3, 0)
+    assert [dialog.place.itemText(i) for i in range(dialog.place.count())] == [PLACE_CLICK, PLACE_PAGE]
+    dialog.deleteLater()
