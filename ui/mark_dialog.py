@@ -175,10 +175,23 @@ class MarkDialog(QDialog):
         self.fontsize.setSuffix(" pt")
         self.fontsize.setValue(_DEFAULT_POINT_SIZE)
         self.fontsize.setToolTip("The stamp is sized to its text at this size; click to place it")
+        # Angle gets a slider **and** keeps its spin box: the slider is for finding the tilt you
+        # want by eye, the spin box for saying one exactly. They are two views of one value, not two
+        # settings — `_sync_angle` keeps them equal without either driving the other in a loop.
         self.angle = QDoubleSpinBox()
         self.angle.setRange(-180.0, 180.0)
+        self.angle.setDecimals(0)          # whole degrees, so the two views cannot disagree
         self.angle.setSuffix("°")
         self.angle.setToolTip("Counter-clockwise, so −45° tilts the mark bottom-left to top-right")
+        self.angle_slider = QSlider(Qt.Orientation.Horizontal)
+        self.angle_slider.setRange(-180, 180)
+        self.angle_slider.setPageStep(15)
+        # Ticks at the quarter turns, and a short snap to them: 0° and ±45° are most of the angles
+        # anyone wants, and they are exactly the ones a free drag is least likely to land on.
+        self.angle_slider.setTickInterval(45)
+        self.angle_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self.angle_slider.valueChanged.connect(self._on_angle_slider)
+        self.angle.valueChanged.connect(self._sync_angle_slider)
         self.opacity = QSlider(Qt.Orientation.Horizontal)
         self.opacity.setRange(5, 100)
         self.opacity.setValue(100)
@@ -208,7 +221,7 @@ class MarkDialog(QDialog):
         form.addRow("Colour", self.color)
         self._size_label = QLabel("Size")
         form.addRow(self._size_label, self.fontsize)
-        form.addRow("Angle", self.angle)
+        form.addRow("Angle", self._angle_row())
         form.addRow("Opacity", self._opacity_row())
         self._frame_filler = QLabel("")
         form.addRow(self._frame_filler, self.frame)
@@ -231,6 +244,33 @@ class MarkDialog(QDialog):
         self.place.currentTextChanged.connect(self._on_place)
         self._on_preset(self.presets.currentText())
         self._on_place(self.place.currentText())
+
+    # Snap width, in degrees, around each 45° tick. Small enough that a deliberate 47° still sticks.
+    _ANGLE_SNAP = 3
+
+    def _on_angle_slider(self, value: int) -> None:
+        """Slider moved → adopt it, snapping to the nearest quarter-turn tick when close."""
+        nearest = round(value / 45.0) * 45
+        if abs(value - nearest) <= self._ANGLE_SNAP:
+            value = nearest
+        if self.angle.value() != value:
+            self.angle.setValue(float(value))     # re-enters via _sync_angle_slider, then settles
+
+    def _sync_angle_slider(self, value: float) -> None:
+        """Spin box changed (typed, or set by a preset / Place switch / restore) → move the slider.
+        Guarded by the equality check, so the two signals cannot ping-pong."""
+        if self.angle_slider.value() != int(value):
+            self.angle_slider.setValue(int(value))
+
+    def _angle_row(self) -> QWidget:
+        from PySide6.QtWidgets import QHBoxLayout
+
+        row = QWidget()
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.angle_slider, 1)
+        layout.addWidget(self.angle)
+        return row
 
     def _opacity_row(self) -> QWidget:
         row = QWidget()

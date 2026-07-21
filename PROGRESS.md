@@ -540,6 +540,13 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   creation keep the drag** — neither has a font size, so the box is genuinely how you size them, and
   `fontsize=0` stays the engine's auto-fit sentinel under them. — *Windows (headless + offscreen
   GUI)* — 5 new tests, 1042 green
+- [x] **M69.8** Angle slider — owner request. The angle keeps its spin box and gains a slider
+  beside it: two views of **one** value (the slider to find a tilt by eye, the spin box to say one
+  exactly), synced without either driving the other in a loop. Ticks at the quarter turns plus a 3°
+  snap to them, because 0° and ±45° are most of the angles anyone wants and exactly the ones a free
+  drag over a −180…180 range is least likely to land on; the snap is short enough that a deliberate
+  38° still sticks. Degrees are whole now, so the two views cannot disagree. — *Windows (headless +
+  offscreen GUI)* — 5 new tests, 1047 green
 - [ ] **M70** Verify + release → tag — *Windows*
 
 ## Public-Release Readiness — go open-source under AGPL-3.0 (planned)
