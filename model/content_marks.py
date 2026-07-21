@@ -155,7 +155,14 @@ WHOLE_PAGE_DEFAULTS: dict = {
     "border_width": 0.0,     # a frame around the page edge reads as a border, not a mark
     "angle": -45.0,
     "opacity": 0.18,
-    "under": True,
+    # **Over the content, not under it** (M69.5). `under=True` is a real capability and still works,
+    # but it is the wrong *default*: it puts the mark beneath everything the page draws, and most
+    # real-world PDFs paint an opaque full-page background — so the mark bakes correctly, lands in
+    # the text layer, and is completely invisible. (Reported as "does not save with the document";
+    # the text was in fact in the saved file.) At these opacities drawing over the content is what a
+    # watermark is supposed to look like anyway: visible, with the page's own text fully legible
+    # through it. See PROGRESS.md Open follow-ups for making `under` itself honest.
+    "under": False,
 }
 
 

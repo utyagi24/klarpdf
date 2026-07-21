@@ -138,8 +138,12 @@ def _xobject_before_text(page) -> bool:
 
 
 def test_watermark_paints_under_the_page_content(vdoc, tmp_path):
-    """``under=True`` prepends the mark, so the page's own text stays legible on top of it."""
-    vdoc.add_annotation(0, preset_mark("Draft", (0, 0, 595, 842), whole_page=True))
+    """``under=True`` prepends the mark, so the page's own text stays legible on top of it.
+
+    Asked for explicitly: it is no longer the whole-page *default* (M69.5), because "behind the page
+    content" means behind an opaque page background too, and most real PDFs have one — the mark bakes
+    correctly and is invisible. The engine capability is unchanged, which is what this pins."""
+    vdoc.add_annotation(0, preset_mark("Draft", (0, 0, 595, 842), whole_page=True, under=True))
     saved = fitz.open(_materialize(vdoc, tmp_path))
     try:
         assert _xobject_before_text(saved[0]) is True
@@ -479,10 +483,11 @@ def test_unknown_preset_falls_back_to_its_name():
     assert preset_mark("shipped", STAMP_RECT).text == "SHIPPED"
 
 
-def test_watermark_preset_is_translucent_diagonal_and_under():
+def test_watermark_preset_is_translucent_and_diagonal():
     mark = preset_mark("Confidential", (0, 0, 595, 842), whole_page=True)
     assert mark.text == "CONFIDENTIAL"
-    assert mark.under is True
+    # Over the content by default (M69.5) — under an opaque page background it would be invisible.
+    assert mark.under is False
     assert mark.angle == -45.0   # bottom-left to top-right, the near-universal convention
     assert 0.0 < mark.opacity < 0.5
     assert mark.border_width == 0.0

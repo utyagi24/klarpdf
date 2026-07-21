@@ -305,7 +305,6 @@ def test_watermark_covers_each_page_at_its_own_size(win, monkeypatch):
     win._add_mark()
     for index in range(3):
         mark = _stamps(win, index)[0]
-        assert mark.under is True                     # under the content — that is what makes it one
         assert mark.rect == (0.0, 0.0, *win.view._unrotated_size(index))
     win.undo_stack.undo()
     assert _stamps(win, 0) == []                      # one undo step for the whole document
@@ -370,7 +369,7 @@ def test_watermark_dialog_defaults_are_translucent_and_diagonal(win):
     dialog = MarkDialog(win, 3, 0)
     dialog.place.setCurrentText(PLACE_PAGE)
     mark = dialog.mark((0, 0, 595, 842))
-    assert mark.under is True
+    assert mark.under is False        # over the content (M69.5) — see the model default
     assert mark.angle == -45.0
     assert 0 < mark.opacity < 0.5
     assert mark.border_width == 0.0                   # a frame would read as a stamp
@@ -765,3 +764,55 @@ def test_the_fit_search_cache_does_not_change_the_answer():
     _measure_free_height.cache_clear()
     _text_width.cache_clear()
     assert _fit_fontsize(box, "APPROVED") == cold      # …and equal again from cold
+
+
+# ---- a whole-page mark must be visible, and must not move the reader (M69.5) -----
+
+
+def test_a_whole_page_mark_defaults_to_over_the_content(win):
+    from ui.mark_dialog import MarkDialog
+
+    """Owner-reported as "does not save with the document" — the mark *was* saved, and was invisible.
+    `under=True` means behind everything the page draws, including the opaque full-page background
+    most real PDFs paint. Over the content at watermark opacity is both visible and unobtrusive."""
+    dialog = MarkDialog(win, 3, 0)
+    dialog.place.setCurrentText(PLACE_PAGE)
+    assert dialog.under.isChecked() is False
+    assert dialog.mark((0, 0, 595, 842)).under is False
+    dialog.deleteLater()
+
+
+def test_under_is_still_available_when_asked_for(win):
+    """The capability is not removed — only its default. A page with a transparent background is a
+    real case, and a true under-print is the right answer there."""
+    from ui.mark_dialog import MarkDialog
+
+    dialog = MarkDialog(win, 3, 0)
+    dialog.place.setCurrentText(PLACE_PAGE)
+    dialog.under.setChecked(True)
+    assert dialog.mark((0, 0, 595, 842)).under is True
+    dialog.deleteLater()
+
+
+def test_marking_every_page_leaves_the_reader_where_they_were(win, monkeypatch):
+    """Owner-reported: the current page (and the sidebar's selected row) jumped to the first or last
+    page when marking the whole document. A range mark did not land on any *particular* page, so
+    there is no page to follow — and following one yanks the reader off what they were reading."""
+    from ui.mark_dialog import MarkDialog
+
+    win.view.set_current_page(1)
+    monkeypatch.setattr(MarkDialog, "exec", _compose_whole_page)
+    monkeypatch.setattr(MarkDialog, "selected_pages", lambda self: [0, 1, 2])
+    win._add_mark()
+    assert win.view.current_page == 1
+
+
+def test_marking_one_page_still_follows_the_edit(win, monkeypatch):
+    """The follow behaviour is right for a mark that *did* land somewhere — don't lose it."""
+    from ui.mark_dialog import MarkDialog
+
+    win.view.set_current_page(0)
+    monkeypatch.setattr(MarkDialog, "exec", _compose_whole_page)
+    monkeypatch.setattr(MarkDialog, "selected_pages", lambda self: [2])
+    win._add_mark()
+    assert win.view.current_page == 2

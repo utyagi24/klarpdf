@@ -178,7 +178,15 @@ class MarkDialog(QDialog):
         self.frame = QCheckBox("Draw a frame around the text")
         self.frame.setChecked(True)
         self.under = QCheckBox("Behind the page content")
-        self.under.setToolTip("The page's own text and images print on top of the mark")
+        # Honest about the catch (M69.5). "Behind" means behind *everything* the page draws, and most
+        # real-world PDFs paint an opaque full-page background — so on those the mark is saved
+        # correctly and is completely invisible. Off by default; the tooltip says why you might not
+        # want it on.
+        self.under.setToolTip(
+            "The page's own text and images print on top of the mark.\n"
+            "Note: on a page with a solid background the mark ends up behind that too,\n"
+            "and will not be visible. Leave this off if you are not sure."
+        )
         self.pages = _PageRangeField(page_count, current_page)
 
         form.addRow("Preset", self.presets)

@@ -1020,14 +1020,17 @@ class MainWindow(QMainWindow):
         """
         if not pages:
             return
+        # **Follow the edit only when the edit is somewhere** (M69.5). `_note_edit_on` exists to move
+        # the current page onto the page a mark landed on, which is right for a mark that landed on
+        # *a* page. A range mark did not land anywhere in particular, so there is no page to follow —
+        # and following one yanks the reader (and the sidebar's current row) off the page they were
+        # reading to the start or the end of the document for no reason they can see. Marking every
+        # page changes nothing about where the reader is, so nothing should move.
+        if len(pages) == 1:
+            self._note_edit_on(pages[0])
         self.undo_stack.beginMacro(f"Add mark to {len(pages)} pages")
         for page_index in pages:
             width, height = self.view._unrotated_size(page_index)
-            # Follow the **first** page of the range, not each one in turn (M69.2). `_note_edit_on`
-            # is consumed by the doc-changed handler that runs inside every push, so setting it per
-            # page left the view — and the thumbnail sidebar with it — scrolled to the *last* page of
-            # the range, blanking the rows the user was looking at and rendering ones they were not.
-            self._note_edit_on(min(pages))
             self.undo_stack.push(
                 AddAnnotationCommand(self.vdoc, page_index,
                                      dialog.mark((0.0, 0.0, width, height)))
@@ -1661,7 +1664,10 @@ class MainWindow(QMainWindow):
             # `mark_noun` already names every free-placed mark for the undo labels; deferring to it
             # keeps one vocabulary in the app and means a new descriptor gets a real name here
             # instead of the generic fallback (which is what a stamp used to get).
-            noun = "watermark" if page_wide and getattr(annot, "under", False) else mark_noun(annot)
+            # A mark covering the whole page is a watermark whichever side of the content it is on
+            # — that is what the user called for and what they will look for to remove. Keying this
+            # on `under` broke the moment `under` stopped being the whole-page default (M69.5).
+            noun = "watermark" if page_wide else mark_noun(annot)
             label = {
                 "Highlight": "Remove highlight",
                 "Underline": "Remove underline",

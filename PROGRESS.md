@@ -501,6 +501,22 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   edit 10.7s → 0.89s; `view.reload()` 8.8s → 0.16s.** The remaining per-edit cost is the thumbnail
   panel's whole-document `render_output` bake (0.69s of the 0.89s) — see Open follow-ups.
   — *Windows (headless + offscreen GUI)* — 5 new tests, 1034 green
+- [x] **M69.5** Whole-page marks: visible by default, and they stop moving the reader — two more
+  owner-reported items. **(1) "Behind the page content" produced nothing.** Reported as *"does not
+  update the thumbnails, does not save with the document"* — but the mark **was** saved: on
+  `spaceX_prospectus.pdf` the watermark's text is in the saved page's text layer and is simply
+  **invisible**, because `under=True` puts it beneath *everything the page draws* and most real
+  PDFs paint an opaque full-page background. The on-screen preview hid the problem by compositing
+  with **multiply on top**, which shows regardless — so the preview and the file genuinely disagreed
+  (the M62 code comment claimed they were equivalent; that only holds for a page with a transparent
+  background). Whole-page marks now default to **over** the content, which at watermark opacity is
+  what a watermark should look like anyway — visible, with the page's own text fully legible
+  through it. `under` is unchanged as a capability and still offered, with a tooltip that says when
+  it will disappear. Making `under` itself honest is in Open follow-ups. **(2) The current page
+  jumped** to the first or last page when marking the whole document. `_note_edit_on` exists to
+  follow a mark to the page it landed on; a **range** mark did not land anywhere in particular, so
+  it is no longer called for one — marking every page changes nothing about where the reader is.
+  — *Windows (headless + offscreen GUI)* — 4 new tests, 1038 green
 - [ ] **M70** Verify + release → tag — *Windows*
 
 ## Public-Release Readiness — go open-source under AGPL-3.0 (planned)
@@ -692,6 +708,21 @@ tree or history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI 
 ## Open follow-ups (carried)
 
 Carried items — none block work:
+
+- **`under=True` is invisible on most real PDFs, and the preview does not admit it.** A mark drawn
+  with `show_pdf_page(overlay=False)` goes beneath *everything the page draws* — including the opaque
+  full-page background most real-world PDFs paint — so it bakes correctly into the text layer and
+  cannot be seen (found at M69.5 on `spaceX_prospectus.pdf`). Worse, the viewer previews an `under`
+  mark with **multiply compositing on top**, which shows it regardless: preview and saved file
+  disagree, though the M62 comment asserts they are equivalent (true only for a transparent page
+  background). Mitigated at M69.5 by defaulting whole-page marks to *over* the content and warning in
+  the tooltip, but the option can still be switched on and still silently vanish. The real fix is to
+  bake an `under` mark as an **over-content draw with a `/BM /Multiply` blend** — which is exactly
+  what the preview already does, so the file would finally match it, and dark page content would
+  still read on top. PyMuPDF's `Page._set_opacity` accepts a `blendmode` argument but never writes it
+  into the ExtGState, so this means building the `/ExtGState` dict by hand and prepending a `gs`
+  operator to the mark's form XObject — deferred as its own milestone rather than ridden into a
+  bug-fix branch.
 
 - **The thumbnail sidebar bakes the *whole document* on every edit.** `ThumbnailPanel._edited_render`
   calls `PyMuPDFEngine.render_output(vdoc)` — a full materialise of every page — so the panel can
