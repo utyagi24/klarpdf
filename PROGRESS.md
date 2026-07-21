@@ -547,6 +547,20 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   drag over a −180…180 range is least likely to land on; the snap is short enough that a deliberate
   38° still sticks. Degrees are whole now, so the two views cannot disagree. — *Windows (headless +
   offscreen GUI)* — 5 new tests, 1047 green
+- [x] **M69.9** Angle sign corrected + one shape for every numeric row — two owner items.
+  **(1) The angle sign was backwards.** `Stamp.angle` was clockwise-positive — `-45` gave the
+  north-east diagonal — while the field's own docstring said counter-clockwise and the watermark
+  default was written `-45` with the comment "bottom-left to top-right". The owner asked the obvious
+  question (*"shouldn't north-east be +45?"*); it should, so the **descriptor** was corrected rather
+  than the docs bent to fit it. `+45` is now north-east, `-45` south-east. That cancelled the
+  negation `apply_content_marks` had carried since M69.1 and added one in the preview (Qt's
+  `setRotation` is clockwise-positive in a y-down scene). Free to fix: R4 has never shipped.
+  **(2) Angle and Opacity are one shape.** They had drifted into two layouts — a slider stacked over
+  a read-only label, and a slider beside an arrow-spinner — which is what made the dialog read as
+  cluttered. Both are now `_SliderField`: a slider plus a typable, **spinner-free** value box, built
+  once so the rows are identical by construction rather than by care. The box is a spin box with its
+  buttons hidden, not a line edit, which keeps range clamping and number parsing for free.
+  — *Windows (headless + offscreen GUI)* — 1047 green
 - [ ] **M70** Verify + release → tag — *Windows*
 
 ## Public-Release Readiness — go open-source under AGPL-3.0 (planned)

@@ -499,7 +499,9 @@ class AnnotationOverlay:
         # at `pos + origin` — so putting the origin at the artwork's centre and positioning by the
         # centre is what keeps a rotated mark concentric with its rect, as the baked one is.
         item.setTransformOriginPoint(pixmap.width() / 2.0, pixmap.height() / 2.0)
-        item.setRotation(annot.angle)
+        # Negated: Qt's setRotation is clockwise-positive in a y-down scene, while `Stamp.angle`
+        # is counter-clockwise-positive (the maths convention, M69.9). Same value, opposite sense.
+        item.setRotation(-annot.angle)
         item.setPos(rect.center().x() - pixmap.width() / 2.0,
                     rect.center().y() - pixmap.height() / 2.0)
         item.setZValue(_WATERMARK_Z if annot.under else _CONTENT_MARK_Z)

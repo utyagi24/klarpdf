@@ -362,9 +362,9 @@ def _baked_text_direction(path: str, text: str) -> tuple[float, float]:
         doc.close()
 
 
-@pytest.mark.parametrize("angle,climbs", [(-45.0, True), (45.0, False)])
+@pytest.mark.parametrize("angle,climbs", [(45.0, True), (-45.0, False)])
 def test_baked_angle_is_counter_clockwise(vdoc, tmp_path, angle, climbs):
-    """``angle`` is counter-clockwise, and the **bake** has to agree with the descriptor.
+    """``angle`` is counter-clockwise (``+45`` = north-east), and the **bake** must agree with it.
 
     The regression: ``show_pdf_page``'s ``rotate`` is clockwise-positive, so passing ``angle``
     through unconverted baked every rotated mark as its own mirror image. On screen the preview
@@ -380,7 +380,7 @@ def test_baked_angle_is_counter_clockwise(vdoc, tmp_path, angle, climbs):
 
 
 def test_watermark_default_diagonal_bakes_bottom_left_to_top_right(vdoc, tmp_path):
-    """The near-universal watermark diagonal, end to end: the ``-45°`` default that
+    """The near-universal watermark diagonal, end to end: the ``+45°`` default that
     :func:`preset_mark` promises must be what actually lands in the file."""
     vdoc.add_annotation(0, preset_mark("Confidential", (0, 0, 595, 842), whole_page=True))
     _dx, dy = _baked_text_direction(_materialize(vdoc, tmp_path, "wm.pdf"), "CONFIDENTIAL")
@@ -488,7 +488,8 @@ def test_watermark_preset_is_translucent_and_diagonal():
     assert mark.text == "CONFIDENTIAL"
     # Over the content by default (M69.5) — under an opaque page background it would be invisible.
     assert mark.under is False
-    assert mark.angle == -45.0   # bottom-left to top-right, the near-universal convention
+    # +45 = north-east, the maths convention (M69.9); it read -45 before the sign was corrected.
+    assert mark.angle == 45.0
     assert 0.0 < mark.opacity < 0.5
     assert mark.border_width == 0.0
 

@@ -67,9 +67,15 @@ class Stamp:
     ``under`` puts the mark beneath the page content instead of over it — the watermark mode. It
     changes nothing else, which is the point: a watermark is a stamp that the text sits on top of.
 
-    ``angle`` is degrees **counter-clockwise** — the maths convention, so ``-45`` reads bottom-left
-    to top-right, the near-universal watermark diagonal. Every consumer converts to its own sense at
-    the edge (see :func:`apply_content_marks`); the descriptor itself never carries a renderer's.
+    ``angle`` is degrees **counter-clockwise**, the maths convention: ``+45`` reads bottom-left to
+    top-right (north-east, the near-universal watermark diagonal) and ``-45`` reads top-left to
+    bottom-right. Every consumer converts to its own sense at the edge (see
+    :func:`apply_content_marks`); the descriptor itself never carries a renderer's.
+
+    The sign was **backwards until M69.9**: ``-45`` produced the north-east diagonal, i.e. the field
+    was clockwise-positive while this docstring already claimed counter-clockwise. Caught by the
+    owner asking why north-east was negative — it should not have been, and nothing had shipped, so
+    the convention was corrected rather than the documentation bent to fit it.
     """
 
     rect: tuple[float, float, float, float]
@@ -153,7 +159,7 @@ MARK_PRESETS: dict[str, dict] = {
 WHOLE_PAGE_DEFAULTS: dict = {
     "color": (0.45, 0.45, 0.50),
     "border_width": 0.0,     # a frame around the page edge reads as a border, not a mark
-    "angle": -45.0,
+    "angle": 45.0,     # north-east: counter-clockwise positive (M69.9)
     "opacity": 0.18,
     # **Over the content, not under it** (M69.5). `under=True` is a real capability and still works,
     # but it is the wrong *default*: it puts the mark beneath everything the page draws, and most
@@ -535,12 +541,15 @@ def apply_content_marks(page: fitz.Page, marks: tuple) -> None:
     a pinned font size is never scaled up to fill it. ``under`` selects ``overlay=False``, putting
     the mark beneath the existing content (the watermark case).
 
-    The angle is **negated** on the way in. ``angle`` is counter-clockwise-positive — the maths
-    convention, the one the dialog's spinner and the viewer's preview both use, and the one that
-    makes the ``-45°`` watermark default read bottom-left to top-right as documented. But
-    ``show_pdf_page``'s ``rotate`` turns the source *clockwise*-positive, so passing the angle
-    straight through baked every rotated mark as its own mirror image — visible as a stamp that
-    tilted one way on the page and the other way in the thumbnail (which renders the bake).
+    ``show_pdf_page``'s ``rotate`` is counter-clockwise-positive, the same sense as
+    :class:`Stamp.angle`, so the angle passes through unchanged: ``+45`` gives the north-east
+    diagonal in the file exactly as it does on screen.
+
+    Both signs have been wrong here before, in opposite ways, which is why they are spelled out.
+    M69.1: the angle was passed straight through while the *descriptor* was clockwise-positive, so
+    every rotated mark baked as its own mirror image — a stamp tilting one way on the page and the
+    other in the thumbnail. M69.9: the descriptor itself was flipped to be genuinely
+    counter-clockwise, which cancelled the negation this had needed.
     """
     for mark in marks:
         if not is_content_mark(mark):
@@ -551,6 +560,6 @@ def apply_content_marks(page: fitz.Page, marks: tuple) -> None:
         art = render_mark_document(mark)
         try:
             target = fitz.Rect(art_target_rect(mark)).normalize()
-            page.show_pdf_page(target, art, 0, rotate=-mark.angle, overlay=not mark.under)
+            page.show_pdf_page(target, art, 0, rotate=mark.angle, overlay=not mark.under)
         finally:
             art.close()

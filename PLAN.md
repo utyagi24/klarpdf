@@ -1045,6 +1045,16 @@ the v0.7.0 → v0.9.0 re-scope). Theme names and milestone numbers are stable ei
   so the box is genuinely how you say how big they are; `fontsize=0` therefore remains the engine's
   auto-fit sentinel and the drag path stays under it.
 
+- **§M69.9 — the angle sign was backwards.** ``Stamp.angle`` was **clockwise**-positive: ``-45``
+  produced the north-east (bottom-left to top-right) diagonal, while the field's own docstring
+  claimed counter-clockwise and the watermark default was written as ``-45`` with the comment
+  "bottom-left to top-right". Caught by the owner asking the obvious question — why is north-east
+  negative? It should not be: the maths convention is counter-clockwise-positive, so ``+45`` is
+  north-east and ``-45`` is south-east. The descriptor was corrected rather than the documentation
+  bent to fit it, which cancelled the negation ``apply_content_marks`` had carried since §M69.1 and
+  added one in the viewer's preview (Qt's ``setRotation`` is clockwise-positive in a y-down scene).
+  Free to fix because R4 has never shipped.
+
 - **§M69.6 — `under` is an engine capability, not a UI control.** A mark drawn with
   `show_pdf_page(overlay=False)` goes beneath *everything the page draws*, including the opaque
   full-page background most real PDFs paint — so it bakes correctly into the text layer and cannot be

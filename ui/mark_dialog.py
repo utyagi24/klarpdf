@@ -13,14 +13,18 @@ angle, frame, opacity, scope, preset list (``under`` has since been dropped from
 §M69.6). Exactly one was structural: **how the mark is placed**.
 So that is the one control the merged dialog adds, and everything else follows from it:
 
-* **"Where I drag it"** — the mark is *armed*, then the user drags or clicks its box. A stamp goes
-  somewhere specific, so the user picks where.
-* **"Over the whole page"** — the mark is applied immediately, full-page, across the range. A
-  watermark covers the page, so there is nothing to place and asking for a drag would be busywork.
+* **"Stamp (click to place)"** — the mark is *armed* at its font size, then a click puts it there.
+* **"Watermark (whole page)"** — applied immediately, full-page, across the range. A watermark
+  covers the page, so there is nothing to place and asking for a gesture would be busywork.
 
 Switching between them rewrites the style fields **in front of the user** (colour, opacity, angle,
 frame) rather than silently applying hidden defaults, and hides the two controls that mean nothing
 for a page-covering mark — the house "no dead chrome" rule, not greyed-out placeholders.
+
+**Every numeric setting is one shape** (§M69.9): a slider with a typable, spinner-free value box,
+built once as :class:`_SliderField`. Angle and Opacity had drifted into two different layouts, which
+is what made the dialog read as cluttered; sharing the widget makes them the same row by
+construction rather than by care.
 
 **There is no "behind the page content" control** (§M69.6). ``Stamp.under`` is still an engine
 capability, but the UI does not offer it: "behind" means behind everything the page draws, and most
@@ -42,6 +46,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QAbstractSpinBox,
     QCheckBox,
     QColorDialog,
     QComboBox,
@@ -49,9 +54,11 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QDoubleSpinBox,
     QFormLayout,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QSlider,
+    QSpinBox,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -147,6 +154,69 @@ class _PageRangeField(QWidget):
         return parse_page_range(self.text.text(), self._page_count)
 
 
+class _SliderField(QWidget):
+    """A slider with a typable value box beside it — the shape every numeric setting here uses.
+
+    One widget so Angle and Opacity are *literally* the same row rather than two rows that happen to
+    look alike: they drifted apart once already (a slider stacked over a read-only label for one, a
+    slider beside a spin box for the other), which is what made the dialog read as cluttered.
+
+    The box is a spin box with its buttons hidden, not a line edit: that keeps range clamping and
+    number parsing for free while showing no up/down arrows. Slider and box are two views of **one**
+    value — each guarded by an equality check, so their signals cannot ping-pong.
+
+    ``snap`` pulls the slider to the nearest multiple of that many units when within ``snap_within``.
+    A -180..180 angle slider is about a degree per pixel, so the values people actually want (0, ±45,
+    ±90) are the ones a free drag is least likely to land on; the window is deliberately short, since
+    a snap that eats a deliberate choice is worse than no snap at all.
+    """
+
+    def __init__(self, minimum: int, maximum: int, value: int, suffix: str,
+                 snap: int = 0, snap_within: int = 3, parent=None) -> None:
+        super().__init__(parent)
+        self._snap, self._snap_within = snap, snap_within
+        self.slider = QSlider(Qt.Orientation.Horizontal)
+        self.slider.setRange(minimum, maximum)
+        self.box = QSpinBox()
+        self.box.setRange(minimum, maximum)
+        self.box.setSuffix(suffix)
+        self.box.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+        self.box.setAlignment(Qt.AlignmentFlag.AlignRight)
+        if snap:
+            self.slider.setTickInterval(snap)
+            self.slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.slider, 1)
+        layout.addWidget(self.box)
+        self.slider.valueChanged.connect(self._from_slider)
+        self.box.valueChanged.connect(self._from_box)
+        self.setValue(value)
+
+    def value(self) -> int:
+        return self.box.value()
+
+    def setValue(self, value) -> None:
+        self.box.setValue(int(value))
+
+    def setToolTip(self, text: str) -> None:      # noqa: N802 - Qt casing
+        super().setToolTip(text)
+        self.slider.setToolTip(text)
+        self.box.setToolTip(text)
+
+    def _from_slider(self, value: int) -> None:
+        if self._snap:
+            nearest = round(value / self._snap) * self._snap
+            if abs(value - nearest) <= self._snap_within:
+                value = nearest
+        if self.box.value() != value:
+            self.box.setValue(value)
+
+    def _from_box(self, value: int) -> None:
+        if self.slider.value() != value:
+            self.slider.setValue(value)
+
+
 class MarkDialog(QDialog):
     """Compose a stamp or a watermark — one dialog, the Place control deciding which."""
 
@@ -175,28 +245,12 @@ class MarkDialog(QDialog):
         self.fontsize.setSuffix(" pt")
         self.fontsize.setValue(_DEFAULT_POINT_SIZE)
         self.fontsize.setToolTip("The stamp is sized to its text at this size; click to place it")
-        # Angle gets a slider **and** keeps its spin box: the slider is for finding the tilt you
-        # want by eye, the spin box for saying one exactly. They are two views of one value, not two
-        # settings — `_sync_angle` keeps them equal without either driving the other in a loop.
-        self.angle = QDoubleSpinBox()
-        self.angle.setRange(-180.0, 180.0)
-        self.angle.setDecimals(0)          # whole degrees, so the two views cannot disagree
-        self.angle.setSuffix("°")
-        self.angle.setToolTip("Counter-clockwise, so −45° tilts the mark bottom-left to top-right")
-        self.angle_slider = QSlider(Qt.Orientation.Horizontal)
-        self.angle_slider.setRange(-180, 180)
-        self.angle_slider.setPageStep(15)
-        # Ticks at the quarter turns, and a short snap to them: 0° and ±45° are most of the angles
-        # anyone wants, and they are exactly the ones a free drag is least likely to land on.
-        self.angle_slider.setTickInterval(45)
-        self.angle_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
-        self.angle_slider.valueChanged.connect(self._on_angle_slider)
-        self.angle.valueChanged.connect(self._sync_angle_slider)
-        self.opacity = QSlider(Qt.Orientation.Horizontal)
-        self.opacity.setRange(5, 100)
-        self.opacity.setValue(100)
-        self.opacity_label = QLabel("100%")
-        self.opacity.valueChanged.connect(lambda v: self.opacity_label.setText(f"{v}%"))
+        self.angle = _SliderField(-180, 180, 0, "°", snap=45)
+        self.angle.setToolTip(
+            "Counter-clockwise, so +45° tilts the mark bottom-left to top-right"
+        )
+        self.opacity = _SliderField(5, 100, 100, "%")
+        self.opacity.setToolTip("How much of the page shows through the mark")
         self.frame = QCheckBox("Draw a frame around the text")
         self.frame.setChecked(True)
         # **No "behind the page content" control** (M69.6, owner call). `Stamp.under` remains an
@@ -221,8 +275,8 @@ class MarkDialog(QDialog):
         form.addRow("Colour", self.color)
         self._size_label = QLabel("Size")
         form.addRow(self._size_label, self.fontsize)
-        form.addRow("Angle", self._angle_row())
-        form.addRow("Opacity", self._opacity_row())
+        form.addRow("Angle", self.angle)
+        form.addRow("Opacity", self.opacity)
         self._frame_filler = QLabel("")
         form.addRow(self._frame_filler, self.frame)
         form.addRow("Apply to", self.pages)
@@ -244,41 +298,6 @@ class MarkDialog(QDialog):
         self.place.currentTextChanged.connect(self._on_place)
         self._on_preset(self.presets.currentText())
         self._on_place(self.place.currentText())
-
-    # Snap width, in degrees, around each 45° tick. Small enough that a deliberate 47° still sticks.
-    _ANGLE_SNAP = 3
-
-    def _on_angle_slider(self, value: int) -> None:
-        """Slider moved → adopt it, snapping to the nearest quarter-turn tick when close."""
-        nearest = round(value / 45.0) * 45
-        if abs(value - nearest) <= self._ANGLE_SNAP:
-            value = nearest
-        if self.angle.value() != value:
-            self.angle.setValue(float(value))     # re-enters via _sync_angle_slider, then settles
-
-    def _sync_angle_slider(self, value: float) -> None:
-        """Spin box changed (typed, or set by a preset / Place switch / restore) → move the slider.
-        Guarded by the equality check, so the two signals cannot ping-pong."""
-        if self.angle_slider.value() != int(value):
-            self.angle_slider.setValue(int(value))
-
-    def _angle_row(self) -> QWidget:
-        from PySide6.QtWidgets import QHBoxLayout
-
-        row = QWidget()
-        layout = QHBoxLayout(row)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self.angle_slider, 1)
-        layout.addWidget(self.angle)
-        return row
-
-    def _opacity_row(self) -> QWidget:
-        row = QWidget()
-        layout = QVBoxLayout(row)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self.opacity)
-        layout.addWidget(self.opacity_label)
-        return row
 
     # ---- the two live behaviours -------------------------------------------------
 

@@ -370,7 +370,7 @@ def test_watermark_dialog_defaults_are_translucent_and_diagonal(win):
     dialog.place.setCurrentText(PLACE_PAGE)
     mark = dialog.mark((0, 0, 595, 842))
     assert mark.under is False        # over the content (M69.5) — see the model default
-    assert mark.angle == -45.0
+    assert mark.angle == 45.0         # +45 = north-east, the maths convention (M69.9)
     assert 0 < mark.opacity < 0.5
     assert mark.border_width == 0.0                   # a frame would read as a stamp
     dialog.deleteLater()
@@ -889,20 +889,20 @@ def _dialog(win):
     return MarkDialog(win, 3, 0)
 
 
-def test_the_angle_slider_and_spin_box_track_each_other(win):
+def test_the_angle_slider_and_value_box_track_each_other(win):
     dialog = _dialog(win)
-    dialog.angle_slider.setValue(30)
-    assert dialog.angle.value() == 30.0
-    dialog.angle.setValue(-120.0)
-    assert dialog.angle_slider.value() == -120
+    dialog.angle.slider.setValue(30)
+    assert dialog.angle.value() == 30
+    dialog.angle.box.setValue(-120)
+    assert dialog.angle.slider.value() == -120
     dialog.deleteLater()
 
 
 def test_the_angle_slider_snaps_to_the_quarter_turns(win):
     """0 and ±45 are most of the angles anyone wants, and the hardest to hit by dragging."""
     dialog = _dialog(win)
-    for dragged, expected in ((-44, -45.0), (-46, -45.0), (2, 0.0), (89, 90.0)):
-        dialog.angle_slider.setValue(dragged)
+    for dragged, expected in ((-44, -45), (-46, -45), (2, 0), (89, 90)):
+        dialog.angle.slider.setValue(dragged)
         assert dialog.angle.value() == expected
     dialog.deleteLater()
 
@@ -910,8 +910,8 @@ def test_the_angle_slider_snaps_to_the_quarter_turns(win):
 def test_a_deliberate_off_tick_angle_survives(win):
     """The snap is short enough that an angle chosen on purpose is not dragged off it."""
     dialog = _dialog(win)
-    dialog.angle_slider.setValue(-38)
-    assert dialog.angle.value() == -38.0
+    dialog.angle.slider.setValue(-38)
+    assert dialog.angle.value() == -38
     dialog.deleteLater()
 
 
@@ -920,14 +920,14 @@ def test_switching_kind_moves_the_slider_with_the_angle(win):
     so it must not be left pointing somewhere the composed mark is not."""
     dialog = _dialog(win)
     dialog.place.setCurrentText(PLACE_PAGE)
-    assert dialog.angle.value() == -45.0
-    assert dialog.angle_slider.value() == -45
-    assert dialog.mark((0, 0, 595, 842)).angle == -45.0
+    assert dialog.angle.value() == 45
+    assert dialog.angle.slider.value() == 45
+    assert dialog.mark((0, 0, 595, 842)).angle == 45.0
     dialog.deleteLater()
 
 
 def test_a_restored_angle_moves_the_slider(win):
     dialog = _dialog(win)
     dialog.restore({"angle": 75.0})
-    assert dialog.angle_slider.value() == 75
+    assert dialog.angle.slider.value() == 75
     dialog.deleteLater()
