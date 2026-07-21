@@ -486,7 +486,16 @@ def scale_mark(mark, sx: float, sy: float, ox: float, oy: float):
         x0, y0, x1, y1 = mark.rect
         nx0, ny0 = point(x0, y0)
         nx1, ny1 = point(x1, y1)
-        return replace(mark, rect=(min(nx0, nx1), min(ny0, ny1), max(nx0, nx1), max(ny0, ny1)))
+        box = (min(nx0, nx1), min(ny0, ny1), max(nx0, nx1), max(ny0, ny1))
+        # A stamp at a **pinned** font size was sized to hug its text, so leaving the size behind
+        # while the box grows would just inflate the padding — a resize that visibly does nothing
+        # to the lettering. Carrying the size along keeps the drag meaning what it does for an
+        # auto-fit stamp: bigger box, bigger letters. The *smaller* axis governs, so squashing one
+        # dimension can never push the text outside the box it is being fitted to.
+        if getattr(mark, "fontsize", 0.0):
+            return replace(mark, rect=box,
+                           fontsize=mark.fontsize * min(abs(sx), abs(sy)))
+        return replace(mark, rect=box)
     if isinstance(mark, Line):
         return replace(mark, start=point(*mark.start), end=point(*mark.end))
     if isinstance(mark, InkStroke):

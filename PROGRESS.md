@@ -432,6 +432,25 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   is drawn. The dialog requires a name (AcroForm keys values by name) and *warns without blocking*
   on a collision. **Radio groups stay rejected** (owner, 2026-07-18) — pinned by a test. — *Windows
   (headless + offscreen GUI)* — 29 new tests, 975 green
+- [x] **M69.1** R4 stamp polish — four owner-reported items from the M61–M69 test pass, all in the
+  stamp surface. **(1) A rotated mark baked as its own mirror image**: `show_pdf_page`'s `rotate` is
+  clockwise-positive while `Stamp.angle`, the dialog spinner and the viewer preview are all
+  counter-clockwise, so a −45° stamp tilted one way on the page and the other in the thumbnail —
+  which renders the bake, and therefore the saved file. Every watermark shipped so far had its
+  documented "bottom-left to top-right" diagonal backwards. **(2) A stamp had no Copy/Cut/z-order on
+  its right-click menu**, though it selected, moved, resized and Ctrl+C/X/V'd fine: the menu carried
+  a hand-written type list that predated the R4 content marks. It now reads
+  `viewer.annotations.OBJECT_TYPES`, and the Remove verb defers to `mark_noun` instead of falling
+  back to "Remove annotation". **(3) Stamp lettering could only be sized by resizing the box**, which
+  auto-fit turns into a fight with the padding (a 260×100pt box fits "APPROVED" at 44.5pt on *width*,
+  leaving 39pt of vertical slack you can only close by making the box narrower). The dialog now has a
+  **Size** field — "Fit to box" (the unchanged default) or a point size — and a pinned size makes the
+  box hug the text via `content_marks.natural_size`, so a **click** places it and there is no padding
+  to fight. A resize carries the pinned size along (smaller axis governs) so the hug survives.
+  **(4) The composed stamp/watermark style is now sticky across sessions** through `Settings`
+  prefs — text, colour, size, angle, opacity, frame. The **page range is deliberately not
+  remembered**: it is the one field where a stale value is destructive. — *Windows (headless +
+  offscreen GUI)* — 30 new tests, 1005 green
 - [ ] **M70** Verify + release → tag — *Windows*
 
 ## Public-Release Readiness — go open-source under AGPL-3.0 (planned)

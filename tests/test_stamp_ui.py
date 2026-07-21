@@ -310,6 +310,230 @@ def test_stamp_dialog_preset_prefills_but_stays_editable(win):
     dialog.deleteLater()
 
 
+# ---- a stamp carries the object verbs on its context menu -----------------------
+#
+# The regression: the menu kept its own hand-written list of "free-placed" types that predated the
+# R4 content marks, so a stamp selected, moved, resized and Ctrl+C/X/V'd like every other object but
+# right-clicking it offered only Remove. These pin the menu against the overlay's own type tuple.
+
+
+def _menu_labels(win, x: float, y: float, page: int = 0) -> list[str]:
+    menu = win._view_context_menu(_scene(win, x, y, page))
+    labels = [action.text() for action in menu.actions()]
+    menu.deleteLater()
+    return labels
+
+
+def test_right_clicking_a_stamp_offers_copy_and_cut(win):
+    _place(win, TEMPLATE, start=(100, 300), end=(300, 360))
+    labels = _menu_labels(win, 200, 330)
+    assert "Copy Object" in labels
+    assert "Cut Object" in labels
+
+
+def test_right_clicking_a_stamp_offers_the_z_order_verbs(win):
+    _place(win, TEMPLATE, start=(100, 300), end=(300, 360))
+    labels = _menu_labels(win, 200, 330)
+    assert "Bring to Front" in labels and "Send to Back" in labels
+
+
+def test_a_stamp_is_named_in_its_remove_verb(win):
+    """"Remove annotation" was the generic fallback — and wrong twice over, since a stamp is content
+    rather than an annotation."""
+    _place(win, TEMPLATE, start=(100, 300), end=(300, 360))
+    assert "Remove stamp" in _menu_labels(win, 200, 330)
+
+
+def test_copying_a_stamp_from_the_menu_fills_the_object_clipboard(win, app):
+    """The menu entry has to actually work on a content mark, not merely be present."""
+    _place(win, TEMPLATE, start=(100, 300), end=(300, 360))
+    hit = win.view.annotations.annotation_at(_scene(win, 200, 330))
+    assert win._copy_object(hit) is True
+    assert [type(m).__name__ for m in app.object_clipboard] == ["Stamp"]
+
+
+def test_pasting_a_copied_stamp_adds_a_second_one(win):
+    _place(win, TEMPLATE, start=(100, 300), end=(300, 360))
+    win._copy_object(win.view.annotations.annotation_at(_scene(win, 200, 330)))
+    win._paste_object(0, (200.0, 500.0))
+    assert len(_stamps(win)) == 2
+
+
+# ---- explicit font size: the box is sized to the text, so a click places it ------
+
+
+def _click_place(win, mark, at=(150, 400), page: int = 0):
+    """Arm, then press-and-release without dragging — the pinned-size placement gesture."""
+    win._arm_content_mark(mark)
+    overlay = win.view.annotations
+    assert overlay.begin_draw(ArmedTool.STAMP, _scene(win, *at, page)) is True
+    overlay.finish_draw()
+
+
+PINNED = Stamp(rect=(0.0, 0.0, 1.0, 1.0), text="APPROVED", fontsize=24.0)
+
+
+def test_a_pinned_size_stamp_places_on_a_click(win):
+    """With the size already decided there is no rectangle left to ask for, so a click is enough —
+    unlike an auto-fit stamp, where the drag *is* how the size gets chosen."""
+    _click_place(win, PINNED, at=(150, 400))
+    assert len(_stamps(win)) == 1
+    assert _stamps(win)[0].fontsize == 24.0
+
+
+def test_a_clicked_stamp_is_centred_on_the_click(win):
+    _click_place(win, PINNED, at=(200, 400))
+    x0, y0, x1, y1 = _stamps(win)[0].rect
+    assert ((x0 + x1) / 2, (y0 + y1) / 2) == pytest.approx((200, 400), abs=1.5)
+
+
+def test_a_pinned_stamp_box_hugs_its_text(win):
+    """The point of the feature: no leftover padding to fight, because the box came *from* the text."""
+    from model.content_marks import natural_size
+
+    _click_place(win, PINNED)
+    x0, y0, x1, y1 = _stamps(win)[0].rect
+    assert (x1 - x0, y1 - y0) == pytest.approx(natural_size(PINNED), abs=0.5)
+
+
+def test_a_bigger_font_size_gives_a_bigger_box(win):
+    from dataclasses import replace
+
+    _click_place(win, PINNED)
+    small = _stamps(win)[0]
+    _click_place(win, replace(PINNED, fontsize=48.0), at=(300, 600))
+    large = [s for s in _stamps(win) if s.fontsize == 48.0][0]
+    assert (large.rect[2] - large.rect[0]) > (small.rect[2] - small.rect[0]) * 1.5
+
+
+def test_a_clicked_stamp_is_clamped_onto_the_page(win):
+    """A click near the edge slides the stamp fully into view rather than committing it half off
+    the paper — there is no drag here to have told the user it would not fit."""
+    _click_place(win, PINNED, at=(2, 2))
+    x0, y0, _x1, _y1 = _stamps(win)[0].rect
+    assert x0 >= 0.0 and y0 >= 0.0
+
+
+def test_an_auto_fit_stamp_still_needs_a_drag(win):
+    """The click gesture belongs to the pinned size only — `fontsize=0` means "fill the box I drag",
+    so a click has said nothing yet and must stay a stray click."""
+    win._arm_content_mark(TEMPLATE)
+    overlay = win.view.annotations
+    overlay.begin_draw(ArmedTool.STAMP, _scene(win, 100, 300))
+    overlay.finish_draw()
+    assert _stamps(win) == []
+
+
+def test_the_dialog_defaults_to_fitting_the_box(win):
+    """Unchanged behaviour for anyone who never touches the field: 0 is the auto-fit sentinel."""
+    from ui.stamp_dialog import StampDialog
+
+    dialog = StampDialog(win, 3, 0)
+    assert dialog.stamp().fontsize == 0.0
+    dialog.deleteLater()
+
+
+def test_the_dialog_passes_a_typed_size_through(win):
+    from ui.stamp_dialog import StampDialog
+
+    dialog = StampDialog(win, 3, 0)
+    dialog.fontsize.setValue(32.0)
+    assert dialog.stamp().fontsize == 32.0
+    dialog.deleteLater()
+
+
+# ---- the composed style is remembered across sessions ---------------------------
+
+
+def test_stamp_style_round_trips_through_the_dialog(win):
+    from ui.stamp_dialog import StampDialog
+
+    first = StampDialog(win, 3, 0)
+    first.presets.setCurrentText("Custom…")
+    first.text.setText("MY MARK")
+    first.color.set_color((0.1, 0.2, 0.3))
+    first.fontsize.setValue(28.0)
+    first.angle.setValue(-30.0)
+    first.frame.setChecked(False)
+    state = first.style_state()
+    first.deleteLater()
+
+    second = StampDialog(win, 3, 0)
+    second.restore(state)
+    mark = second.stamp()
+    assert mark.text == "MY MARK"
+    assert mark.color == pytest.approx((0.1, 0.2, 0.3), abs=0.01)
+    assert mark.fontsize == 28.0
+    assert mark.angle == -30.0
+    assert mark.border_width == 0.0
+    second.deleteLater()
+
+
+def test_a_restored_preset_is_not_overwritten_by_its_prefill(win):
+    """Restoring a preset name must not re-run the prefill over the text the user then edited —
+    that is what the remembered preset name is for."""
+    from ui.stamp_dialog import StampDialog
+
+    dialog = StampDialog(win, 3, 0)
+    dialog.restore({"preset": "Approved", "text": "EDITED AFTERWARDS"})
+    assert dialog.text.text() == "EDITED AFTERWARDS"
+    dialog.deleteLater()
+
+
+def test_restore_tolerates_a_settings_file_from_an_older_build(win):
+    """Missing and malformed fields are skipped, never defaulted — an old or hand-edited settings
+    file degrades to "some fields remembered", not to a dialog that will not open."""
+    from ui.stamp_dialog import StampDialog
+
+    dialog = StampDialog(win, 3, 0)
+    dialog.restore({"text": "KEPT", "color": "not a colour", "fontsize": None, "angle": []})
+    assert dialog.text.text() == "KEPT"
+    assert dialog.stamp().fontsize == 0.0
+    dialog.deleteLater()
+
+
+def test_the_stamp_style_is_persisted_on_accept(win, app, monkeypatch):
+    """End to end through the window: composing a stamp writes the style to the settings store, so
+    the next session's dialog opens on it."""
+    from ui.stamp_dialog import StampDialog
+
+    def compose(dialog):
+        dialog.text.setText("REMEMBER ME")
+        dialog.fontsize.setValue(26.0)
+        return 1
+
+    monkeypatch.setattr(StampDialog, "exec", compose)
+    monkeypatch.setattr(StampDialog, "selected_pages", lambda self: [0])
+    win._add_stamp()
+    saved = app.settings.get_pref("stamp_style", {})
+    assert saved["text"] == "REMEMBER ME"
+    assert saved["fontsize"] == 26.0
+
+
+def test_the_remembered_style_is_offered_to_the_next_dialog(win, app, monkeypatch):
+    from ui.stamp_dialog import StampDialog
+
+    app.settings.set_pref("stamp_style", {"text": "FROM LAST TIME", "fontsize": 30.0})
+    seen = {}
+    monkeypatch.setattr(StampDialog, "exec",
+                        lambda self: seen.update(text=self.text.text(),
+                                                 size=self.fontsize.value()) or 0)
+    win._add_stamp()
+    assert seen == {"text": "FROM LAST TIME", "size": 30.0}
+
+
+def test_the_page_range_is_never_remembered(win, app, monkeypatch):
+    """Style is sticky; **scope is not**. A persisted "All pages" would silently re-scope the next
+    stamp to a whole document — the one field where a stale value is destructive."""
+    from ui.stamp_dialog import StampDialog
+
+    monkeypatch.setattr(StampDialog, "exec", lambda self: 1)
+    monkeypatch.setattr(StampDialog, "selected_pages", lambda self: [0, 1, 2])
+    win._add_stamp()
+    assert "pages" not in app.settings.get_pref("stamp_style", {})
+    assert "scope" not in app.settings.get_pref("stamp_style", {})
+
+
 def test_stamp_dialog_frame_toggle_drives_border_width(win):
     from ui.stamp_dialog import StampDialog
 

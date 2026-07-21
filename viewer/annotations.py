@@ -83,7 +83,11 @@ _DRAWN_TYPES = (InkStroke, Line, Shape)
 # through the same code as a shape, even though they bake into page content rather than staying
 # annotations. That reuse **is** M62's "placement mode (drag rect, move, corner-resize until save)"
 # — there is no second placement system.
-_OBJECT_TYPES = _DRAWN_TYPES + CONTENT_MARK_TYPES
+#
+# Public because the window's right-click menu must offer exactly these marks the object verbs.
+# It used to keep its own hand-written copy of the list, which silently went stale when the content
+# marks joined — stamps then selected, moved and copied by keyboard but had no Copy/Cut on the menu.
+OBJECT_TYPES = _DRAWN_TYPES + CONTENT_MARK_TYPES
 
 # Scene z for the marks. Every annotation lives in ``[_ANNOT_Z_BASE, _ANNOT_Z_BASE + 1)``, spread
 # by its index in the page's tuple (see :meth:`AnnotationOverlay._annot_z`), so paint order follows
@@ -655,7 +659,7 @@ class AnnotationOverlay:
         for annot in reversed(self._view._vdoc.ordered[page_index].annotations):
             # A pen stroke / line is hit by its actual geometry (not its box), so a loop drawn
             # around other marks no longer swallows every click inside it (M59.6 follow-up).
-            if isinstance(annot, _OBJECT_TYPES):
+            if isinstance(annot, OBJECT_TYPES):
                 if self._drawn_hit(annot, local.x(), local.y()):
                     return page_index, annot
                 continue
@@ -978,7 +982,7 @@ class AnnotationOverlay:
         if page_index is None:
             return None
         for annot in reversed(self._view._vdoc.ordered[page_index].annotations):
-            if isinstance(annot, _OBJECT_TYPES) and self._drawn_hit(annot, local.x(), local.y()):
+            if isinstance(annot, OBJECT_TYPES) and self._drawn_hit(annot, local.x(), local.y()):
                 return page_index, annot
         return None
 
@@ -1121,7 +1125,7 @@ class AnnotationOverlay:
         box = QRectF(rect[0], rect[1], rect[2] - rect[0], rect[3] - rect[1]).normalized()
         hits: list = []
         for mark in self._view._vdoc.ordered[page_index].annotations:
-            if not isinstance(mark, (TextBox, *_OBJECT_TYPES)):
+            if not isinstance(mark, (TextBox, *OBJECT_TYPES)):
                 continue
             mx0, my0, mx1, my1 = mark_bounds(mark)
             padded = QRectF(mx0 - _HIT_PAD, my0 - _HIT_PAD,
@@ -1579,9 +1583,41 @@ class AnnotationOverlay:
                 path.addRect(rect)          # RECT and the STAMP placement box
         return path
 
+    def _placement_rect(self, page_index: int, pending, anchor, end):
+        """The box a placement gesture commits ``pending`` at, or ``None`` to drop the gesture.
+
+        Two gestures, chosen by the mark itself rather than by a mode the user has to pick:
+
+        * **Auto-fit** (a stamp at ``fontsize=0``, an image, a form field) — drag the box, the
+          artwork fills it. A drag too small in both axes is a stray click and is dropped.
+        * **Pinned size** (a stamp with an explicit point size) — the box is computed from the text
+          via :func:`~model.content_marks.natural_size`, so it *hugs the letters* and a plain click
+          drops a correctly-sized stamp. Dragging still works and simply says where the centre goes:
+          with the size already decided, a dragged rectangle can only disagree with it, and the size
+          the user typed is the one they meant.
+
+        A pinned box is clamped inside the page, so a click near an edge slides the stamp fully into
+        view instead of committing a mark half off the paper.
+        """
+        from model.content_marks import Stamp, natural_size
+
+        if isinstance(pending, Stamp) and pending.fontsize:
+            width, height = natural_size(pending)
+            cx, cy = (anchor[0] + end[0]) / 2.0, (anchor[1] + end[1]) / 2.0
+            x0, y0 = cx - width / 2.0, cy - height / 2.0
+            page_w, page_h = self._view._unrotated_size(page_index)
+            x0 = min(max(0.0, x0), max(0.0, page_w - width))
+            y0 = min(max(0.0, y0), max(0.0, page_h - height))
+            return (x0, y0, x0 + width, y0 + height)
+        if abs(end[0] - anchor[0]) < _MIN_DRAW and abs(end[1] - anchor[1]) < _MIN_DRAW:
+            return None
+        return (min(anchor[0], end[0]), min(anchor[1], end[1]),
+                max(anchor[0], end[0]), max(anchor[1], end[1]))
+
     def finish_draw(self) -> None:
         """Commit the gesture as its descriptor (undoable). A drag smaller than ``_MIN_DRAW`` in
-        both axes is dropped as a stray click."""
+        both axes is dropped as a stray click — unless the mark carries its own size, in which case
+        the click *is* the gesture (see :meth:`_placement_rect`)."""
         if self._draw_item is None:
             return
         item, self._draw_item = self._draw_item, None
@@ -1601,20 +1637,21 @@ class AnnotationOverlay:
                                                width=style.width, opacity=style.opacity))
             return
         dx, dy = abs(end[0] - anchor[0]), abs(end[1] - anchor[1])
-        if dx < _MIN_DRAW and dy < _MIN_DRAW:
-            return
         if tool.places_content or tool.places_field:
             pending = (self.pending_content_mark if tool.places_content
                        else self.pending_field)
             if pending is None:
                 return
-            rect = (min(anchor[0], end[0]), min(anchor[1], end[1]),
-                    max(anchor[0], end[0]), max(anchor[1], end[1]))
+            rect = self._placement_rect(page_index, pending, anchor, end)
+            if rect is None:
+                return
             self._on_add(page_index, replace(pending, rect=rect))
             if tool.places_content:
                 self.pending_content_mark = None
             else:
                 self.pending_field = None
+            return
+        if dx < _MIN_DRAW and dy < _MIN_DRAW:
             return
         if tool in (ArmedTool.LINE, ArmedTool.ARROW):
             self._on_add(page_index, Line(anchor, end, color=style.color, width=style.width,

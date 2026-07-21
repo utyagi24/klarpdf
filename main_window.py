@@ -53,10 +53,7 @@ from model.edit_commands import (
 )
 from model.page_edits import (
     Highlight,
-    InkStroke,
-    Line,
     Redaction,
-    Shape,
     Strikeout,
     TextBox,
     Underline,
@@ -74,7 +71,7 @@ from ui import icons
 from util.paths import normalize_path
 from model.content_marks import ImageStamp, is_content_mark
 from model.form_fields import FIELD_KINDS, kind_label
-from viewer.annotations import AnnotationOverlay, mark_noun
+from viewer.annotations import OBJECT_TYPES, AnnotationOverlay, mark_noun
 from viewer.form_fill import FormFiller
 from viewer.markup_style import (
     HIGHLIGHT_COLORS,
@@ -89,6 +86,11 @@ from viewer.search import FindBar, SearchController, SearchResultsPanel
 from viewer.text_selection import TextSelection
 from viewer.tools import ArmedTool, InteractionMode
 from viewer.zoom_widget import ZoomWidget
+
+# Preference keys for the sticky stamp / watermark styles. Style only — never the page range, whose
+# stale value would silently re-scope the next mark to a whole document (see ui.stamp_dialog).
+_STAMP_STYLE_PREF = "stamp_style"
+_WATERMARK_STYLE_PREF = "watermark_style"
 
 
 def _ask_pdf_password(path: str, retry: bool) -> str | None:
@@ -984,15 +986,23 @@ class MainWindow(QMainWindow):
         self._a_select.setChecked(True)
 
     def _add_stamp(self) -> None:
-        """Tools ▸ Stamp… — compose, then arm the placement drag."""
+        """Tools ▸ Stamp… — compose, then arm the placement gesture.
+
+        The composed **style** is sticky across sessions (text, colour, size, angle, opacity,
+        frame): a stamp is configured once and applied for months, so retyping it every launch is
+        the kind of friction that sends people back to whatever they used before. The page range is
+        deliberately *not* remembered — see :mod:`ui.stamp_dialog`.
+        """
         from ui.stamp_dialog import StampDialog
 
         dialog = StampDialog(self, self.vdoc.page_count, self.view.current_page)
+        dialog.restore(self._settings.get_pref(_STAMP_STYLE_PREF, {}))
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         pages = dialog.selected_pages()
         if pages is None:
             return
+        self._settings.set_pref(_STAMP_STYLE_PREF, dialog.style_state())
         self._arm_content_mark(dialog.stamp(), pages)
 
     def _add_image_stamp(self) -> None:
@@ -1070,11 +1080,13 @@ class MainWindow(QMainWindow):
         from ui.stamp_dialog import WatermarkDialog
 
         dialog = WatermarkDialog(self, self.vdoc.page_count, self.view.current_page)
+        dialog.restore(self._settings.get_pref(_WATERMARK_STYLE_PREF, {}))
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         pages = dialog.selected_pages()
         if not pages:
             return
+        self._settings.set_pref(_WATERMARK_STYLE_PREF, dialog.style_state())
         self.undo_stack.beginMacro(f"Add watermark to {len(pages)} pages")
         for page_index in pages:
             width, height = self.view._unrotated_size(page_index)
@@ -1604,8 +1616,12 @@ class MainWindow(QMainWindow):
         if hit is not None:
             page_index, annot = hit
             # Free-placed marks are copyable (M59); the text-anchored marks + redactions are not
-            # (they belong to the text under them).
-            if isinstance(annot, (TextBox, InkStroke, Line, Shape)):
+            # (they belong to the text under them). The R4 content marks (M62) are free-placed too
+            # — they already select, move, resize and Ctrl+C/X/V through the same object code — so
+            # they list the same verbs here. Sourced from the overlay's own object-type tuple rather
+            # than a second hand-written list, which is what let stamps fall off this menu while
+            # working everywhere else.
+            if isinstance(annot, (TextBox,) + OBJECT_TYPES):
                 # Right-clicking a free-placed mark selects it, so the verbs below (and the
                 # z-order shortcuts) have an unambiguous target and you can *see* what you're
                 # acting on. Right-clicking a member of a group leaves the group intact — that's
@@ -1632,16 +1648,15 @@ class MainWindow(QMainWindow):
                     action.setEnabled(reorder_marks(current, selected, key) != current)
                     menu.addAction(action)
                 menu.addSeparator()
+            # `mark_noun` already names every free-placed mark for the undo labels; deferring to it
+            # keeps one vocabulary in the app and means a new descriptor gets a real name here
+            # instead of the generic fallback (which is what a stamp used to get).
             label = {
                 "Highlight": "Remove highlight",
                 "Underline": "Remove underline",
                 "Strikeout": "Remove strikeout",
-                "InkStroke": "Remove ink",
-                "Line": "Remove line",
-                "Shape": "Remove shape",
-                "TextBox": "Remove text box",
                 "Redaction": "Remove redaction",
-            }.get(type(annot).__name__, "Remove annotation")
+            }.get(type(annot).__name__) or f"Remove {mark_noun(annot)}"
             menu.addAction(label, lambda: self.view.annotations.remove(page_index, annot))
             return menu
         # A **foreign** annotation — one another tool wrote (M66). Checked after our own marks, so

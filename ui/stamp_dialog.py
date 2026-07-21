@@ -14,6 +14,13 @@ result is placed:
 Both are built lazily (the house lightness rule — nothing on the open-document path) and both state
 the guarantee boundary in the dialog itself: these marks **bake into the page at save** and stop
 being editable then, which is the R4 honesty item.
+
+**The composed style is sticky across sessions.** :meth:`_StampDialogBase.style_state` /
+:meth:`~_StampDialogBase.restore` round-trip the *look* — text, colour, size, angle, opacity, frame
+— through the caller's :class:`~store.settings.Settings`, because a stamp is something a user
+configures once and then applies for months. The **page range is deliberately not remembered**: a
+persisted "All pages" would silently re-scope the next stamp to a whole document, and scope is the
+one field where a stale value is destructive rather than merely wrong.
 """
 
 from __future__ import annotations
@@ -45,6 +52,12 @@ from util.page_range import PageRangeError, parse_page_range
 from viewer.markup_style import swatch_icon
 
 CUSTOM = "Custom…"
+
+# The stamp size field's "auto" position — the spin box's special value at 0.0, which is also the
+# `Stamp.fontsize` sentinel for auto-fit, so the control maps onto the descriptor with no
+# translation layer.
+FIT_TO_BOX = "Fit to box"
+_MAX_POINT_SIZE = 288.0     # 4 inches of cap height; past this a stamp is a watermark
 
 # Said in the dialog, not just the docs: a content mark is a point of no return at Save (PLAN.md
 # §Design budgets → Honesty principle). The wording matches the save-time confirm.
@@ -154,6 +167,41 @@ class _StampDialogBase(QDialog):
     def _opacity(self) -> float:
         return self.opacity.value() / 100.0
 
+    # ---- sticky style (remembered across sessions) -------------------------------
+
+    def style_state(self) -> dict:
+        """The composed look, as JSON-able primitives for :class:`~store.settings.Settings`.
+
+        Subclasses add their own knobs. Note the preset name rides along: reopening on ``Custom…``
+        is what stops :meth:`restore` from being immediately overwritten by a preset's prefill.
+        """
+        return {
+            "preset": self.presets.currentText(),
+            "text": self.text.text(),
+            "color": list(self.color.color()),
+            "opacity": self.opacity.value(),
+        }
+
+    def restore(self, state: dict) -> None:
+        """Reinstate a :meth:`style_state` mapping. Anything missing or malformed is *skipped*, not
+        defaulted — a settings file from an older build must degrade to "some fields remembered",
+        never to a dialog that refuses to open."""
+        if not isinstance(state, dict):
+            return
+        preset = state.get("preset")
+        if isinstance(preset, str) and self.presets.findText(preset) >= 0:
+            self.presets.setCurrentText(preset)   # before the fields: it prefills over them
+        if isinstance(state.get("text"), str):
+            self.text.setText(state["text"])
+        color = state.get("color")
+        if isinstance(color, (list, tuple)) and len(color) == 3:
+            try:
+                self.color.set_color(tuple(float(c) for c in color))
+            except (TypeError, ValueError):
+                pass
+        if isinstance(state.get("opacity"), (int, float)):
+            self.opacity.setValue(int(state["opacity"]))
+
     def selected_pages(self) -> list[int]:
         """The chosen pages, or ``None`` after reporting a bad range to the user."""
         from PySide6.QtWidgets import QMessageBox
@@ -174,11 +222,27 @@ class StampDialog(_StampDialogBase):
         self.angle = QDoubleSpinBox()
         self.angle.setRange(-180.0, 180.0)
         self.angle.setSuffix("°")
+        self.angle.setToolTip("Counter-clockwise, so −45° tilts the stamp bottom-left to top-right")
+        # Size: auto-fit (drag the box, text fills it) or an explicit point size (the box is sized
+        # to the text — see `stamp_box`). A spin box with a special "Fit to box" value at its
+        # minimum keeps that a single control: two widgets for one decision is the dead chrome the
+        # house rules forbid, and the "off" position of a size field *is* auto.
+        self.fontsize = QDoubleSpinBox()
+        self.fontsize.setRange(0.0, _MAX_POINT_SIZE)
+        self.fontsize.setDecimals(0)
+        self.fontsize.setSingleStep(2.0)
+        self.fontsize.setSuffix(" pt")
+        self.fontsize.setSpecialValueText(FIT_TO_BOX)     # shown at 0.0, the minimum
+        self.fontsize.setToolTip(
+            "Fit to box: drag the box and the text fills it.\n"
+            "A point size: the stamp is sized to the text, so a click drops it."
+        )
         self.frame = QCheckBox("Draw a frame around the text")
         self.frame.setChecked(True)
         self._form.addRow("Preset", self.presets)
         self._form.addRow("Text", self.text)
         self._form.addRow("Colour", self.color)
+        self._form.addRow("Size", self.fontsize)
         self._form.addRow("Angle", self.angle)
         self._form.addRow("Opacity", self._opacity_row())
         self._form.addRow("", self.frame)
@@ -208,10 +272,31 @@ class StampDialog(_StampDialogBase):
             rect=(0.0, 0.0, 1.0, 1.0),
             text=self.text.text().strip() or "STAMP",
             color=self.color.color(),
+            fontsize=self.fontsize.value(),          # 0.0 == "Fit to box"
             border_width=3.0 if self.frame.isChecked() else 0.0,
             angle=self.angle.value(),
             opacity=self._opacity(),
         )
+
+    def style_state(self) -> dict:
+        state = super().style_state()
+        state.update({
+            "fontsize": self.fontsize.value(),
+            "angle": self.angle.value(),
+            "frame": self.frame.isChecked(),
+        })
+        return state
+
+    def restore(self, state: dict) -> None:
+        super().restore(state)
+        if not isinstance(state, dict):
+            return
+        if isinstance(state.get("fontsize"), (int, float)):
+            self.fontsize.setValue(float(state["fontsize"]))
+        if isinstance(state.get("angle"), (int, float)):
+            self.angle.setValue(float(state["angle"]))
+        if isinstance(state.get("frame"), bool):
+            self.frame.setChecked(state["frame"])
 
 
 class WatermarkDialog(_StampDialogBase):
@@ -245,6 +330,16 @@ class WatermarkDialog(_StampDialogBase):
         fields = WATERMARK_PRESETS.get(name)
         if fields:
             self.text.setText(fields["text"])
+
+    def style_state(self) -> dict:
+        state = super().style_state()
+        state["diagonal"] = self.diagonal.isChecked()
+        return state
+
+    def restore(self, state: dict) -> None:
+        super().restore(state)
+        if isinstance(state, dict) and isinstance(state.get("diagonal"), bool):
+            self.diagonal.setChecked(state["diagonal"])
 
     def watermark(self, rect: tuple[float, float, float, float]) -> Stamp:
         """The composed descriptor covering ``rect`` (the page). ``under=True`` is what makes it a

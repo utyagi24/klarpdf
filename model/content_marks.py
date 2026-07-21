@@ -48,6 +48,11 @@ STAMP_FONT = "hebo"
 _MIN_FONTSIZE = 4.0
 _MAX_FONTSIZE = 400.0
 
+# Breathing room between the frame and the text, per side, on top of the border width. Named
+# because `natural_size` has to reproduce exactly what `_draw_text` insets, or a "hug the text"
+# box would clip the very text it was sized for.
+_TEXT_INSET = 2.0
+
 
 @dataclass(frozen=True)
 class Stamp:
@@ -59,6 +64,10 @@ class Stamp:
 
     ``under`` puts the mark beneath the page content instead of over it — the watermark mode. It
     changes nothing else, which is the point: a watermark is a stamp that the text sits on top of.
+
+    ``angle`` is degrees **counter-clockwise** — the maths convention, so ``-45`` reads bottom-left
+    to top-right, the near-universal watermark diagonal. Every consumer converts to its own sense at
+    the edge (see :func:`apply_content_marks`); the descriptor itself never carries a renderer's.
     """
 
     rect: tuple[float, float, float, float]
@@ -210,6 +219,37 @@ def _fit_fontsize(box: fitz.Rect, text: str) -> float:
     return best
 
 
+def _text_padding(mark: Stamp) -> float:
+    """The gap :func:`_draw_text` leaves between the mark's box and its text, per side."""
+    return max(mark.border_width, 0.0) + _TEXT_INSET
+
+
+def natural_size(mark: Stamp) -> tuple[float, float]:
+    """The box ``mark``'s text needs at its **pinned** ``fontsize`` — the "hug the text" size.
+
+    The counterpart to :func:`_fit_fontsize`: that one answers "how big can the text be in this
+    box", this one answers "how big must the box be for text this size". It is what lets a stamp
+    with an explicit point size be *dropped* rather than dragged — the placement gesture stops
+    having to guess a rectangle whose auto-fit happens to land on the size the user asked for.
+
+    Height is **measured, not modelled**: ``insert_textbox`` returns the height it left unused, so
+    probing a deliberately over-tall box and subtracting the remainder gives the exact line-height
+    PyMuPDF will use, including its own leading. Guessing ``fontsize × 1.2`` would clip descenders
+    on some faces and pad on others.
+    """
+    fontsize = mark.fontsize or _MIN_FONTSIZE
+    lines = mark.text.split("\n") or [""]
+    width = max(fitz.get_text_length(line, fontname=STAMP_FONT, fontsize=fontsize)
+                for line in lines)
+    # A hair of slack: at *exactly* the measured width, float rounding inside insert_textbox can
+    # decide the last glyph does not fit and wrap it, which would corrupt the height measurement.
+    width = max(width, 1.0) + 1.0
+    probe = fitz.Rect(0, 0, width, fontsize * (len(lines) + 2) * 2.0)
+    used = probe.height - max(_free_height(probe, mark.text, fontsize), 0.0)
+    pad = _text_padding(mark)
+    return width + 2 * pad, max(used, fontsize) + 2 * pad
+
+
 def _alpha_channel(pix: fitz.Pixmap) -> bytes:
     """``pix``'s alpha bytes, one per pixel. The strided slice runs in C, so this stays fast on a
     multi-megapixel phone photo where a Python loop would not."""
@@ -328,7 +368,7 @@ def _draw_text(page: fitz.Page, box: fitz.Rect, mark: Stamp) -> None:
         )
         shape.commit()
 
-    pad = inset + 2.0
+    pad = _text_padding(mark)
     text_box = box + (pad, pad, -pad, -pad)
     if text_box.is_empty or not mark.text:
         return
@@ -358,6 +398,13 @@ def apply_content_marks(page: fitz.Page, marks: tuple) -> None:
     Each mark is placed with ``show_pdf_page``, which fits its (rotated) artwork into the mark's rect
     — so the rect is the promise: "the mark lands here", at any angle. ``under`` selects
     ``overlay=False``, putting the mark beneath the existing content (the watermark case).
+
+    The angle is **negated** on the way in. ``angle`` is counter-clockwise-positive — the maths
+    convention, the one the dialog's spinner and the viewer's preview both use, and the one that
+    makes the ``-45°`` watermark default read bottom-left to top-right as documented. But
+    ``show_pdf_page``'s ``rotate`` turns the source *clockwise*-positive, so passing the angle
+    straight through baked every rotated mark as its own mirror image — visible as a stamp that
+    tilted one way on the page and the other way in the thumbnail (which renders the bake).
     """
     for mark in marks:
         if not is_content_mark(mark):
@@ -367,6 +414,6 @@ def apply_content_marks(page: fitz.Page, marks: tuple) -> None:
             continue
         art = render_mark_document(mark)
         try:
-            page.show_pdf_page(rect, art, 0, rotate=mark.angle, overlay=not mark.under)
+            page.show_pdf_page(rect, art, 0, rotate=-mark.angle, overlay=not mark.under)
         finally:
             art.close()
