@@ -83,7 +83,11 @@ _DRAWN_TYPES = (InkStroke, Line, Shape)
 # through the same code as a shape, even though they bake into page content rather than staying
 # annotations. That reuse **is** M62's "placement mode (drag rect, move, corner-resize until save)"
 # — there is no second placement system.
-_OBJECT_TYPES = _DRAWN_TYPES + CONTENT_MARK_TYPES
+#
+# Public because the window's right-click menu must offer exactly these marks the object verbs.
+# It used to keep its own hand-written copy of the list, which silently went stale when the content
+# marks joined — stamps then selected, moved and copied by keyboard but had no Copy/Cut on the menu.
+OBJECT_TYPES = _DRAWN_TYPES + CONTENT_MARK_TYPES
 
 # Scene z for the marks. Every annotation lives in ``[_ANNOT_Z_BASE, _ANNOT_Z_BASE + 1)``, spread
 # by its index in the page's tuple (see :meth:`AnnotationOverlay._annot_z`), so paint order follows
@@ -145,25 +149,30 @@ def _line_path(start: tuple, end: tuple, arrow_start: bool, arrow_end: bool,
 
 
 
-def _rotation_fit(rect: tuple, angle: float) -> float:
-    """How much a mark shrinks when rotated inside its own rect (1.0 when unrotated).
+def _rotation_fit(mark) -> float:
+    """The fraction of its rect's width that ``mark``'s artwork occupies once baked (1.0 = all of it).
 
     ``show_pdf_page`` scales a mark's artwork so its **rotated bounding box** fits the target rect,
-    then centres it. A 45° watermark on a portrait page therefore comes out at ~0.59 of its box —
-    so the preview has to apply the same factor, or it shows a watermark far larger than the one
-    that bakes.
+    then centres it — so the preview has to apply the same factor or it shows a mark far larger
+    than the one that bakes (a 45° watermark overstated by ~1.8x, the M62 regression).
+
+    Two cases now, because the artwork is no longer always the size of the rect:
+
+    * **auto-fit** — artwork == rect, so this is the classic rotation shrink;
+    * **pinned size** — the artwork is the text's own size and the rect is its *rotated extent*
+      (:func:`~model.content_marks.placement_size`), so the bake applies no shrink at all and the
+      artwork covers only ``art_width / rect_width`` of the box it is centred in.
+
+    Both fall out of one number — :func:`~model.content_marks.art_scale`, the factor the bake itself
+    applies — so the preview cannot drift from the file: the artwork covers ``art_width × scale`` of
+    the rect it is centred in.
     """
-    if not angle:
+    from model.content_marks import art_scale, art_size
+
+    rect_w = abs(mark.rect[2] - mark.rect[0])
+    if rect_w <= 0 or abs(mark.rect[3] - mark.rect[1]) <= 0:
         return 1.0
-    x0, y0, x1, y1 = rect
-    width, height = abs(x1 - x0), abs(y1 - y0)
-    if width <= 0 or height <= 0:
-        return 1.0
-    radians = math.radians(angle)
-    cos, sin = abs(math.cos(radians)), abs(math.sin(radians))
-    spanned_w = width * cos + height * sin
-    spanned_h = width * sin + height * cos
-    return min(width / spanned_w, height / spanned_h)
+    return art_size(mark)[0] * art_scale(mark) / rect_w
 
 
 _MARK_NOUNS = {
@@ -438,7 +447,7 @@ class AnnotationOverlay:
         # `show_pdf_page` fits the mark's *rotated* artwork inside its rect and centres it there, so
         # a rotated mark ends up smaller than its box. Reproduce that shrink here or the preview
         # overstates a diagonal watermark by ~1.8x.
-        fit = _rotation_fit(mark_bounds(annot), annot.angle)
+        fit = _rotation_fit(annot)
         item = _MultiplyPixmapItem(pixmap) if annot.under else QGraphicsPixmapItem(pixmap)
         item.setTransformationMode(Qt.TransformationMode.SmoothTransformation)
         item.setScale(rect.width() * fit / pixmap.width())
@@ -655,7 +664,7 @@ class AnnotationOverlay:
         for annot in reversed(self._view._vdoc.ordered[page_index].annotations):
             # A pen stroke / line is hit by its actual geometry (not its box), so a loop drawn
             # around other marks no longer swallows every click inside it (M59.6 follow-up).
-            if isinstance(annot, _OBJECT_TYPES):
+            if isinstance(annot, OBJECT_TYPES):
                 if self._drawn_hit(annot, local.x(), local.y()):
                     return page_index, annot
                 continue
@@ -978,7 +987,7 @@ class AnnotationOverlay:
         if page_index is None:
             return None
         for annot in reversed(self._view._vdoc.ordered[page_index].annotations):
-            if isinstance(annot, _OBJECT_TYPES) and self._drawn_hit(annot, local.x(), local.y()):
+            if isinstance(annot, OBJECT_TYPES) and self._drawn_hit(annot, local.x(), local.y()):
                 return page_index, annot
         return None
 
@@ -1121,7 +1130,7 @@ class AnnotationOverlay:
         box = QRectF(rect[0], rect[1], rect[2] - rect[0], rect[3] - rect[1]).normalized()
         hits: list = []
         for mark in self._view._vdoc.ordered[page_index].annotations:
-            if not isinstance(mark, (TextBox, *_OBJECT_TYPES)):
+            if not isinstance(mark, (TextBox, *OBJECT_TYPES)):
                 continue
             mx0, my0, mx1, my1 = mark_bounds(mark)
             padded = QRectF(mx0 - _HIT_PAD, my0 - _HIT_PAD,
@@ -1579,9 +1588,45 @@ class AnnotationOverlay:
                 path.addRect(rect)          # RECT and the STAMP placement box
         return path
 
+    def _placed_mark(self, page_index: int, pending, anchor, end):
+        """``pending`` positioned by the placement gesture, or ``None`` to drop the gesture.
+
+        Two gestures, chosen by the mark itself rather than by a mode the user has to pick:
+
+        * **Auto-fit** (a stamp at ``fontsize=0``, an image, a form field) — drag the box, the
+          artwork fills it. A drag too small in both axes is a stray click and is dropped.
+        * **Pinned size** (a stamp with an explicit point size) — the box comes from the text via
+          :func:`~model.content_marks.placement_size`, so it *hugs the letters* and a plain click
+          drops a correctly-sized stamp. Dragging still works and simply says where the centre goes:
+          with the size already decided, a dragged rectangle can only disagree with it, and the size
+          the user typed is the one they meant.
+
+        A pinned mark is **fitted to the page first** and then clamped into it, so a size too large
+        for the paper comes back as the largest that fits rather than as a box hanging off the edge
+        that cannot be centred. The fitted size is written back onto the descriptor, so the object
+        the user then selects and resizes is honestly labelled with the size it is actually drawn at.
+        """
+        from dataclasses import replace
+
+        from model.content_marks import Stamp, placement_size, size_for_page
+
+        if isinstance(pending, Stamp) and pending.fontsize:
+            page_w, page_h = self._view._unrotated_size(page_index)
+            pending = replace(pending, fontsize=size_for_page(pending, page_w, page_h))
+            width, height = placement_size(pending)
+            cx, cy = (anchor[0] + end[0]) / 2.0, (anchor[1] + end[1]) / 2.0
+            x0 = min(max(0.0, cx - width / 2.0), max(0.0, page_w - width))
+            y0 = min(max(0.0, cy - height / 2.0), max(0.0, page_h - height))
+            return replace(pending, rect=(x0, y0, x0 + width, y0 + height))
+        if abs(end[0] - anchor[0]) < _MIN_DRAW and abs(end[1] - anchor[1]) < _MIN_DRAW:
+            return None
+        return replace(pending, rect=(min(anchor[0], end[0]), min(anchor[1], end[1]),
+                                      max(anchor[0], end[0]), max(anchor[1], end[1])))
+
     def finish_draw(self) -> None:
         """Commit the gesture as its descriptor (undoable). A drag smaller than ``_MIN_DRAW`` in
-        both axes is dropped as a stray click."""
+        both axes is dropped as a stray click — unless the mark carries its own size, in which case
+        the click *is* the gesture (see :meth:`_placement_rect`)."""
         if self._draw_item is None:
             return
         item, self._draw_item = self._draw_item, None
@@ -1601,20 +1646,21 @@ class AnnotationOverlay:
                                                width=style.width, opacity=style.opacity))
             return
         dx, dy = abs(end[0] - anchor[0]), abs(end[1] - anchor[1])
-        if dx < _MIN_DRAW and dy < _MIN_DRAW:
-            return
         if tool.places_content or tool.places_field:
             pending = (self.pending_content_mark if tool.places_content
                        else self.pending_field)
             if pending is None:
                 return
-            rect = (min(anchor[0], end[0]), min(anchor[1], end[1]),
-                    max(anchor[0], end[0]), max(anchor[1], end[1]))
-            self._on_add(page_index, replace(pending, rect=rect))
+            placed = self._placed_mark(page_index, pending, anchor, end)
+            if placed is None:
+                return
+            self._on_add(page_index, placed)
             if tool.places_content:
                 self.pending_content_mark = None
             else:
                 self.pending_field = None
+            return
+        if dx < _MIN_DRAW and dy < _MIN_DRAW:
             return
         if tool in (ArmedTool.LINE, ArmedTool.ARROW):
             self._on_add(page_index, Line(anchor, end, color=style.color, width=style.width,
