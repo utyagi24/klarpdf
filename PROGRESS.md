@@ -582,6 +582,23 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   before anything is deleted. Reproduced first (triggering the *oldest* entry, which reorders the
   list and so forces a real rebuild), and both regression tests fail on the pre-fix code with that
   exact RuntimeError. — *Windows (headless + offscreen GUI)* — 3 new tests, 1053 green
+- [x] **M69.12** Signatures made dragging other objects lag — owner-reported, worse with each
+  signature added, *"even if added to other pages"*. A content mark is the one overlay built by
+  **rendering a real PDF**, and it was re-rasterised on **every repaint** — and a drag repaints. So
+  the cost of dragging anything scaled with how many signatures were in view, which had nothing to
+  do with what was being dragged. Measured: **~98ms per transparent signature per repaint**, linear
+  (4 signatures = 392ms *per repaint*). Two fixes. **(1) The rasterised artwork is cached**, keyed
+  on `(mark, on-screen width)`; the descriptors are frozen dataclasses, so a moved or restyled mark
+  is a different key and can never be served the stale image of its previous self — no explicit
+  invalidation. Bounded LRU, so a document of distinct marks costs memory like one. **(2)
+  `_drop_white`'s alpha intersection** ran a Python `zip`/`min` **per pixel** whenever the image
+  *already had* transparency — the exact "full transparency" case — making a transparent PNG
+  **4.6× slower** than an opaque one (110ms vs 24ms) in a module whose docstring warns that a Python
+  per-pixel loop "would stall the UI for seconds". Now `map(min, …)`, which runs the loop inside
+  CPython (~1.6×); MuPDF has no per-pixel alpha-intersect and numpy is not a dependency, so this
+  stays the floor — the cache is what makes it stop mattering. **Repaint after the first: 98ms per
+  signature → 0.0–0.7ms regardless of count.** — *Windows (headless + offscreen GUI)* — 3 new tests,
+  1056 green
 - [ ] **M70** Verify + release → tag — *Windows*
 
 ## Public-Release Readiness — go open-source under AGPL-3.0 (planned)

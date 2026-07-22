@@ -444,7 +444,11 @@ def _drop_white(pix: fitz.Pixmap, threshold: float) -> fitz.Pixmap:
         pix.set_alpha(keyed, premultiply=0)
         return pix
     existing = _alpha_channel(pix)                       # honour the image's own transparency too
-    pix.set_alpha(bytes(min(a, b) for a, b in zip(existing, keyed)), premultiply=0)
+    # `map` with the builtin `min`, not a generator expression: the loop then runs inside CPython
+    # rather than one interpreter frame per pixel (~1.6x here). Still the slowest step in this
+    # function, and the reason an *already transparent* PNG costs several times what an opaque one
+    # does — MuPDF has no per-pixel alpha-intersect to hand it off to, and numpy is not a dependency.
+    pix.set_alpha(bytes(map(min, existing, keyed)), premultiply=0)
     return pix
 
 

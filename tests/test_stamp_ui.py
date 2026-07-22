@@ -1031,3 +1031,74 @@ def test_clear_list_does_not_destroy_its_own_action_mid_signal(win, qapp, tmp_pa
     qapp.processEvents()
     assert _signature_entries(win) == []
     assert win._signature_menu.menuAction().isVisible() is False   # no dead chrome
+
+
+# ---- rasterised marks are cached (M69.12) ---------------------------------------
+#
+# Owner-reported: placing signatures made dragging *other* objects lag, worse with each one added.
+# A content mark is the one overlay built by rendering a real PDF, and it was re-rasterised on every
+# repaint — ~98ms per transparent signature, linear in how many were in view. A drag repaints, so
+# the lag scaled with a count that had nothing to do with what was being dragged.
+
+
+def _sig_path(tmp_path, name="sig.png"):
+    import pymupdf as fitz
+
+    pix = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 400, 180), True)   # alpha: the slow path
+    pix.clear_with(255)
+    path = str(tmp_path / name)
+    pix.save(path)
+    return path
+
+
+def test_a_repainted_mark_is_not_rasterised_twice(win, tmp_path):
+    mark = ImageStamp(rect=(40, 60, 240, 150), image_path=_sig_path(tmp_path), white_to_alpha=True)
+    win.vdoc.add_annotation(0, mark)
+    overlay = win.view.annotations
+    overlay.repaint()
+    calls = []
+    import model.content_marks as cm
+
+    real = cm.render_mark_document
+    cm.render_mark_document = lambda m: (calls.append(m), real(m))[1]
+    try:
+        import viewer.annotations as va
+
+        va_real, va.render_mark_document = va.render_mark_document, cm.render_mark_document
+        try:
+            overlay.repaint()
+            overlay.repaint()
+        finally:
+            va.render_mark_document = va_real
+    finally:
+        cm.render_mark_document = real
+    assert calls == [], "the mark was re-rendered despite nothing about it changing"
+
+
+def test_a_moved_mark_is_not_served_its_old_image(win, tmp_path):
+    """The cache is keyed on the descriptor, which is frozen — so a moved mark is a different key
+    and cannot collide with the stale image of its previous self. No explicit invalidation needed."""
+    path = _sig_path(tmp_path)
+    first = ImageStamp(rect=(40, 60, 240, 150), image_path=path)
+    win.vdoc.add_annotation(0, first)
+    overlay = win.view.annotations
+    overlay.repaint()
+    keys_before = set(overlay._mark_pixmaps)
+    win.vdoc.clear_annotations(0)
+    win.vdoc.add_annotation(0, ImageStamp(rect=(300, 400, 500, 490), image_path=path))
+    overlay.repaint()
+    assert set(overlay._mark_pixmaps) - keys_before, "the moved mark reused the old cache entry"
+
+
+def test_the_mark_cache_is_bounded(win, tmp_path):
+    """A document of genuinely distinct marks must cost memory like one, not without limit."""
+    from viewer.annotations import _MARK_PIXMAP_CACHE
+
+    path = _sig_path(tmp_path)
+    overlay = win.view.annotations
+    for index in range(_MARK_PIXMAP_CACHE + 12):
+        win.vdoc.clear_annotations(0)
+        win.vdoc.add_annotation(0, ImageStamp(rect=(10 + index, 20, 210 + index, 110),
+                                              image_path=path))
+        overlay.repaint()
+    assert len(overlay._mark_pixmaps) <= _MARK_PIXMAP_CACHE

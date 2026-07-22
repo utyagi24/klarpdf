@@ -21,6 +21,7 @@ Rotation-0 only, like the other overlays.
 from __future__ import annotations
 
 import math
+from collections import OrderedDict
 from dataclasses import replace
 
 import pymupdf as fitz
@@ -104,6 +105,13 @@ _REDACTION_Z = 5.0
 # annotations). An `under=True` watermark sits a hair lower still, under the over-content stamps.
 _CONTENT_MARK_Z = 5.6
 _WATERMARK_Z = 5.4
+# How many rasterised content-mark previews to keep. A content mark is the one overlay built by
+# rendering a real PDF, so re-rasterising it on every repaint made an edit cost ~98ms *per
+# transparent signature* (M69.12) — linear in how many were in view, which is what made dragging
+# anything else lag once a few were placed. Bounded, so a document full of distinct marks costs
+# memory like a document full of distinct marks and not more.
+_MARK_PIXMAP_CACHE = 48
+
 # Preview raster resolution for a content mark, in pixels per page point. 2× keeps a stamp crisp at
 # 100% zoom without re-rendering on every zoom step; the *saved* mark is vector regardless.
 _CONTENT_MARK_SCALE = 2.0
@@ -263,6 +271,10 @@ class AnnotationOverlay:
         # *rasterised* rather than built from cheap Qt items, so it is painted lazily by viewport
         # band (see _paint_visible_content); this tracks which pages have already been done.
         self._content_pages: set[int] = set()
+        # Rasterised content-mark artwork, keyed by (mark, on-screen width). The descriptors are
+        # frozen dataclasses, so a moved or restyled mark is a *different* key and can never collide
+        # with the stale image of its previous self — the cache needs no explicit invalidation.
+        self._mark_pixmaps: "OrderedDict[tuple, QPixmap]" = OrderedDict()
         # The form field (M69) a properties dialog has composed, waiting for its box.
         self.pending_field = None
         # The foreign annotation being dragged (M67), as (page_index, ForeignAnnot). It
@@ -515,6 +527,11 @@ class AnnotationOverlay:
         not be built: a stamp is never worth crashing the view over, and the mark stays in the model
         and still bakes at save.
         """
+        key = (annot, round(scene_rect.width()))
+        hit = self._mark_pixmaps.get(key)
+        if hit is not None:
+            self._mark_pixmaps.move_to_end(key)      # LRU: keep what is actually on screen
+            return hit
         try:
             art = render_mark_document(annot)
         except Exception:
@@ -525,11 +542,15 @@ class AnnotationOverlay:
             pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=True)
             image = QImage(pix.samples, pix.width, pix.height, pix.stride,
                            QImage.Format.Format_RGBA8888)
-            return QPixmap.fromImage(image.copy())   # copy: the pixmap outlives pix.samples
+            pixmap = QPixmap.fromImage(image.copy())  # copy: the pixmap outlives pix.samples
         except Exception:
             return None
         finally:
             art.close()
+        self._mark_pixmaps[key] = pixmap
+        while len(self._mark_pixmaps) > _MARK_PIXMAP_CACHE:
+            self._mark_pixmaps.popitem(last=False)
+        return pixmap
 
     def _paint_redaction(self, scene, page_index: int, annot: Redaction) -> None:
         # WYSIWYG: the opaque fill boxes are exactly what bakes into the output at save. A thin red
