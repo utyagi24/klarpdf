@@ -944,10 +944,12 @@ thin set of read-only query helpers + the MCP tool layer.
 4. **Repo layout:** keep the server in this repo (shared `model/` core) vs. a sibling repo importing
    KlarPDF as a dependency.
 
-## GUI feature roadmap — the post-v0.10 tranche R1–R5 (planned; M45–M70)
+## GUI feature roadmap — the post-v0.10 tranche R1–R6 (planned; M45–M79)
 
 Owner-decided 2026-07-18 after a feature-exploration session (23 features approved, radio-button
-groups rejected — see §Future enhancements). Same discipline as every prior tranche: **one PR per
+groups rejected — see §Future enhancements); **R6 added 2026-07-22** after a comparison session
+against macOS Preview's UI (see its section for the decisions and the decided-against list). Same
+discipline as every prior tranche: **one PR per
 milestone**, `PROGRESS.md` tracks state, ⭐ marks a keystone (GUI-free core, fully
 headless-testable). **Still zero new dependencies** — every item is native PyMuPDF or Qt (already
 inside the vendored wheels), so `requirements.in` and the hashed offline lock stay exactly as
@@ -1135,6 +1137,52 @@ sharing the existing draw-gesture path. Two consequences worth stating:
 | **M68** Adopt-on-edit | Double-click a foreign mark of a **modeled type** (highlight, FreeText — plus R3's ink/line/rect/ellipse and M56's underline/strikeout) → parse into the model, author-tag, strip-exactly-that-one at materialise. **Detect unsupported features first** (`/RC` rich text, non-base-14 DA font, `/CA` opacity, `/CL` callouts…) and warn "editing will simplify this annotation" with cancel. Unmodeled types stay delete/move only. | WSL (model+tests) + WSLg | Adopt→edit→save round-trips; degrade warning fires exactly when features would be lost |
 | **M69** Form-field creation | **Checkbox / text / dropdown** via `page.add_widget` (the API the test fixtures already use); placement UI reused from M62 + a small properties panel (name, type, default, options). Saved fields are ordinary AcroForm — existing fill, lossless value save, edits-aware print, and flatten just work. **Radio-button groups: rejected by owner (2026-07-18)** — see §Future enhancements. | WSL (model+tests) + WSLg | Place the three field types; fill/print/flatten work on them like any AcroForm field |
 | **M70** Verify + release | Headless suite green; Windows validation; tag. | Windows | Matrix green → release |
+
+### R6 (prov. v0.16.0) — "Simplify & Read" (planned; M71–M79)
+
+Owner-decided **2026-07-22**, from a comparison session against the owner's notes on **macOS
+Preview's UI** — the app KlarPDF set out to replace on Windows. Preview is the **inspiration, not
+the spec**: its central organizing idea — *the app at rest is a viewer; the markup kit is chrome
+you summon on demand* — is adopted, but not its feature cuts (no explicit Save, no page-op
+buttons anywhere). The session also reviewed Preview-only features for adoption: four approved
+(M75–M78), the rest recorded below so they aren't relitigated.
+
+**Design-budget revision.** R1–R5's UI budget held the bar *"the app at rest — a plain scanned PDF
+open — looks identical to today"*. R6 deliberately revises that bar **downward**: after M71 the
+app at rest shows a ~10-slot *reading* bar, and the markup kit appears only when asked for. Every
+other budget (menus are the complete catalog; one-shot commands are menu + dialog, never toolbar;
+lightness; honesty) carries over unchanged and binds every milestone below.
+
+**Decided against / kept as-is (owner, 2026-07-22)** — the non-adoptions, so they stay settled:
+
+- **Zoom cluster unchanged** — the five-slot group (out · % widget · in · Fit Width · Fit Page)
+  stays on the resting bar as-is; Preview's two-button zoom was reviewed and declined.
+- **Save keeps its toolbar button** — Preview autosaves; KlarPDF has an explicit Save, and the most
+  consequential verb in the app keeps its one-click path. **Open and Print leave the bar** (the File
+  menu keeps them); whether Open stays beside Save ("Save alone looks odd") is settled by eye at the
+  M71 review.
+- **No action strip inside the Pages panel** — the page ops leave the toolbar with no replacement
+  strip; the Edit menu and the sidebar context menu (M46) are the paths.
+- Reviewed from Preview and **not adopted**: Share (against the offline posture); sketch-to-shape
+  recognition (heuristics project, explicit shape tools exist); the magnifier shape (niche); a
+  separate form-filling toolbar (our form fill is inline — it solves a problem we don't have);
+  pressure-sensitive ink (re-affirmed — rejected at M58, PDF ink can't carry it); a toolbar
+  Properties/info button (one-shot commands stay off the toolbar); click-to-place shapes
+  (drag-to-draw kept — fewer steps for the common case); trackpad/camera signature capture (M63's
+  image path covers the everyday tier); **user bookmarks — deferred**, needs an app-side store
+  (§Future enhancements' outline-editing entry may serve the same need inside the file).
+
+| Milestone | Feature | Where | Done when |
+|---|---|---|---|
+| **M71** Two-tier toolbar | Split the single ~29-slot bar into a **resting bar** — Sidebar · Save (Open beside it if Save alone reads odd — review call) · Undo/Redo · the zoom cluster unchanged · Rotate L/R · a **Markup** toggle · Find — and a **markup bar** the toggle reveals: Select/Grab/Objects · Text Box · Markup ▾ · Draw ▾ · style swatch · Stamp ▾ · Redact (M72). Cut/Copy/Paste/Delete/Insert Pages and Open/Print leave the toolbar — the menus and context menus already carry them (M46); no Pages-panel action strip (owner). Markup-bar visibility is remembered app-wide, like the sidebar. | WSLg | At rest only the reading bar shows; the toggle reveals the kit; every removed button's verb still reachable via menu/context menu; the choice persists across launches |
+| **M72** One Redact tool | Preview-style gesture detect: the two Redact slots become **one armed tool** — a drag starting **on text** runs the text-flow redaction, a drag starting elsewhere rubber-bands a block (the press point's hit-test decides, on the existing text-hit path). The Tools menu keeps both explicit verbs (menus are the complete catalog); shortcuts unchanged. | WSLg | One slot arms both gestures; press-on-text vs press-on-margin choose correctly; menu verbs + Ctrl+Shift+R unchanged |
+| **M73** Sticky markup arming | Highlight / Underline / Strike Out / Pen stay **armed across gestures** (Preview's HUS behaviour): mark passage after passage on one arm. Three exits — click the armed button again · **Esc** · arm any other tool from the markup bar (owner). Placement and destructive tools (Text Box, shapes/lines, Stamp/Signature, Redact, Crop) stay **one-shot**: repeat use is rare there, and a stuck destructive mode is a trap. | WSLg | Three highlights on one arm; all three exits work; one-shot tools unchanged; the armed state is always visible on the button |
+| **M74** ⭐ Arrow ends as style | Preview treats arrowheads as *line style*, and it is right: **Arrow leaves Draw ▾**, and `Line` gains an **ends** attribute (none · start · end · both) on the M59.5 style picker — both-ended arrows for the first time. Existing arrows read back as `Line` + end (round-trip via `set_line_ends`); restyle-in-place covers a selected line's ends like colour/width. | WSL (model+tests) + WSLg | Draw a line, give it ends from the picker; both-ended bakes + reopens; pre-R6 arrows reopen editable and unchanged |
+| **M75** Find bar match options | **Match case** + **Whole words** toggles on the FindBar. The filters already exist (`SearchController.search`, built for M64's Find and Redact) — the interactive bar never exposed them; next/prev, List All and the results panel respect them. | WSLg | Both toggles filter interactive search exactly as they do in Find and Redact; both off = today's behaviour |
+| **M76** Markup context menu | Right-click on already-marked text offers Preview's change set: the curated **highlight colours** + **Underline** / **Strike Out** toggles + Remove — recolour a mark, or add/remove the other markup layers on the same words, **in place** through the M59.10 merge machinery (recolour = trim/absorb, never stacking). One undo step per action. | WSLg | Recolour an existing highlight in place; add a strikeout over it; remove one layer leaving the other; each is one undo step |
+| **M77** Annotations sidebar tab | A third sidebar tab beside Pages \| Outline listing **every mark in the document** — ours and foreign — as "p. N · type · snippet/preview" rows; click selects + jumps (the M47 pattern). **The tab exists only while the document has marks** (owner rule: inapplicable chrome is invisible, not greyed out) and tracks edits/undo live. | WSLg | Marked doc: the tab lists all marks, click jumps + selects; clean doc: sidebar unchanged; the list follows add/remove/undo |
+| **M78** View modes | The reading modes Preview offers: **Full Screen** (chrome-free reading, F11) · **Slideshow** (one page per screen at fit-page, arrow/click advance, Esc exits) · **Two-Page view** (facing-pages layout in the ordinary window). Surfaced in the View menu + the bare-page right-click menu (M46). View-only — file, print and export untouched (the M49 principle). | WSLg | Enter/exit each mode cleanly; zoom / night-mode interplay sane; nothing written to the file |
+| **M79** Verify + release | Headless suite green; Windows validation; tag. | Windows | Matrix green → release |
 
 ## Future enhancements (deferred beyond the roadmap)
 

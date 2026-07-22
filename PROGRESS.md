@@ -281,11 +281,13 @@ and ships as a separate optional component — the `klarpdf-setup.exe` audit sur
 > Decisions to confirm with owner (see `PLAN.md` §MCP / Agent Bridge roadmap → Decisions): packaging
 > (separate vs bundled), write-tools-now vs read-only-first, stdio-only vs HTTP, same-repo vs sibling repo.
 
-## Roadmap — GUI feature tranche R1–R5 (planned; M45–M70)
+## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 
 Spec, per-milestone scope, and the binding **design budgets** (UI / lightness / honesty) in
 `PLAN.md` §GUI feature roadmap. Owner-decided **2026-07-18** (23 features approved; radio-button
-groups rejected → §Future enhancements). Same conventions: **one PR per milestone**, tick here on
+groups rejected → §Future enhancements); **R6 added 2026-07-22** from the macOS-Preview UI
+comparison session (spec + the decided-against list in `PLAN.md` §GUI feature roadmap → R6). Same
+conventions: **one PR per milestone**, tick here on
 merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions provisional
 (v0.12.0 → v0.16.0 if the MCP bridge ships v0.11.0 first; assigned at tag time). (**R#** = release —
 **G#** already belongs to the Public-Release Readiness milestones below.)
@@ -685,6 +687,28 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
 - [x] **M70** Verify + release → tag **v0.15.0** (version bump + docs; 1068 headless tests green on
   the merged main; audit green; CI draft → published) — *Windows* —
   [release](https://github.com/utyagi24/klarpdf/releases/tag/v0.15.0)
+
+**R6 — "Simplify & Read"** (planned; prov. v0.16.0)
+
+- [ ] **M71** Two-tier toolbar — a resting *reading* bar (Sidebar · Save · Undo/Redo · zoom cluster
+  · Rotate · Markup toggle · Find) + a toggled markup bar carrying the kit; page ops and Open/Print
+  leave the toolbar (menus + context menus keep them) — *WSLg*
+- [ ] **M72** One Redact tool — gesture detect: a drag starting on text = text redaction, elsewhere
+  = block; the two slots become one; menu verbs unchanged — *WSLg*
+- [ ] **M73** Sticky markup arming — Highlight / Underline / Strike Out / Pen stay armed across
+  gestures; exits are re-click · Esc · arming another tool; placement + destructive tools stay
+  one-shot — *WSLg*
+- [ ] **M74** ⭐ Arrow ends as style — Arrow merges into Line; ends (none / start / end / both) join
+  the style picker; both-ended arrows; pre-R6 arrows round-trip — *WSL + WSLg*
+- [ ] **M75** Find bar match options — Match case + Whole words toggles (M64's existing filters,
+  surfaced on the interactive bar) — *WSLg*
+- [ ] **M76** Markup context menu — recolour / add / remove highlight · underline · strikeout on
+  already-marked text, in place via the M59.10 merge — *WSLg*
+- [ ] **M77** Annotations sidebar tab — every mark listed (page · type · snippet), click-to-jump;
+  the tab exists only while the document has marks — *WSLg*
+- [ ] **M78** View modes — Full Screen · Slideshow · Two-Page view; View menu + bare-page
+  right-click; view-only — *WSLg*
+- [ ] **M79** Verify + release → tag (prov. **v0.16.0**) — *Windows*
 
 ## Public-Release Readiness — go open-source under AGPL-3.0 (planned)
 
