@@ -7,24 +7,62 @@ it merges, check the box here in the same PR and append the PR link.
 > release links, milestone ticks, and open follow-ups. `PLAN.md` (design/spec) and `CLAUDE.md`
 > (conventions) **link here, they don't restate it** — see CLAUDE.md §How we work → "Where things live".
 
-**Status:** ✅ **v0.14.0 "Markup Tools" shipped** — the GUI tranche's **R3 (M56–M60) is complete**,
-and because the **v0.13.0 tag was cut but never published** (owner call), this release also delivers
-**R2 "Document Hygiene" (M51–M54)** to users: extract / insert-blank / duplicate pages, **Reduced
-Size** export, document **Properties + metadata** editing (both stores), and **AES-256** password
-protection. R3 itself is the markup kit: **underline & strikeout** on Highlight's text-quad path,
-a **pen** plus **lines / arrows / rectangles / ellipses**, a shared **colour · width · opacity ·
-fill** picker with curated per-verb text-markup palettes, and full **object editing** — marquee and
-Ctrl-click multi-select, move, **resize** (single + group, about the bounding box), **z-order**
-(Bring to Front / Send to Back, which is both paint *and* hit order), and group **copy / cut /
-paste** that preserves the arrangement. Everything bakes into the saved PDF and reopens editable.
-Four fixes came out of owner testing and shipped in the same tranche: re-marking text now **merges**
-into the existing mark instead of stacking a second layer ([#139](https://github.com/utyagi24/klarpdf/pull/139)),
-mark paint order in the preview now follows the model's z-order rather than the mark's *type* — so a
-filled shape hides a text box exactly as it does in the saved file ([#140](https://github.com/utyagi24/klarpdf/pull/140)),
-group copy/paste reversed an earlier deferral ([#141](https://github.com/utyagi24/klarpdf/pull/141)),
-and the toolbar's dropdown arrows share one position ([#142](https://github.com/utyagi24/klarpdf/pull/142)).
-Release: <https://github.com/utyagi24/klarpdf/releases/tag/v0.14.0>. 737 headless tests green
+**Status:** ✅ **v0.15.0 "Stamp, Sign & Watermark" shipped** — delivers **R4 (M61–M64)** and **R5
+(M66–M69.16)** together: M65's release cut was skipped by owner call (2026-07-20) so R4 would ship
+alongside R5 rather than under an unpublished tag. A **unified content-draw engine**
+(`model/content_marks.py`) underlies stamps, signatures and watermarks — two descriptors, `Stamp`
+(text + optional frame) and `ImageStamp` (a placed raster), that bake into the page's **content
+stream** at save; built **vector** so stamp text stays searchable and crisp at any zoom and
+arbitrary rotation comes free. A watermark isn't a third type, just either descriptor with
+`under=True` applied across a page range. **Placement** rides the existing object tools — drag,
+move, corner-resize, z-order, delete — rather than a second system
+([#146](https://github.com/utyagi24/klarpdf/pull/146), [#147](https://github.com/utyagi24/klarpdf/pull/147)).
+**Image stamp / signature**: "make white background transparent" keys a phone photo of a signature
+so it stops blanking out whatever it covers, with a **recent-signatures** list for two-click reuse
+([#148](https://github.com/utyagi24/klarpdf/pull/148)). **Tools ▸ Find and Redact…** finds every
+occurrence of a search term, reviews hits in the search panel (checkable, click to jump), and
+redacts the checked ones as one undo step — text-layer only, image-only pages named rather than
+silently reporting zero matches ([#149](https://github.com/utyagi24/klarpdf/pull/149)).
+R5 adds a **foreign-annotation** layer for marks another PDF tool wrote: infrastructure + **delete**
+([#150](https://github.com/utyagi24/klarpdf/pull/150)), **move** with the appearance stream
+preserved byte-for-byte ([#151](https://github.com/utyagi24/klarpdf/pull/151)), and
+**adopt-on-edit** — double-click a foreign mark of a modeled type (highlight / underline /
+strikeout / ink / line / square / circle / FreeText) to make it an ordinary editable KlarPDF mark,
+with a degrade warning that fires only when something would actually be lost
+([#152](https://github.com/utyagi24/klarpdf/pull/152)). **Form-field creation** — Tools ▸ Add Form
+Field ▸ Text / Checkbox / Dropdown — places an ordinary AcroForm field, so inline fill, lossless
+save, print and flatten all work on it by construction, no new code path
+([#153](https://github.com/utyagi24/klarpdf/pull/153)). A sixteen-item polish pass (**M69.1–M69.16**)
+followed from owner testing across the whole R4/R5 surface — a rotated stamp's mirror-image bug,
+watermark interaction + live-thumbnail fixes, merging the stamp and watermark UI into one feature
+(owner call: *"given the similarity…"*), large-document mark performance, whole-page marks visible
+by default, an angle slider, a mark-dialog geometry warning, a recent-signature crash, signature-drag
+lag, a backwards opacity slider, and — the last three — making a created form field behave as an
+ordinary object: selected on placement, and grabbed **press-to-move / double-click-to-type** like
+every other text box instead of by hunting for its border
+([#154](https://github.com/utyagi24/klarpdf/pull/154), [#155](https://github.com/utyagi24/klarpdf/pull/155)).
+Release: <https://github.com/utyagi24/klarpdf/releases/tag/v0.15.0>. 1068 headless tests green
 (1 expected skip — the Poppler `pdftotext` cross-check, absent on Windows).
+
+**v0.14.0 "Markup Tools"** — the GUI tranche's **R3 (M56–M60)**, and because the **v0.13.0 tag was
+cut but never published** (owner call), this release also delivered **R2 "Document Hygiene"
+(M51–M54)** to users: extract / insert-blank / duplicate pages, **Reduced Size** export, document
+**Properties + metadata** editing (both stores), and **AES-256** password protection. R3 itself is
+the markup kit: **underline & strikeout** on Highlight's text-quad path, a **pen** plus **lines /
+arrows / rectangles / ellipses**, a shared **colour · width · opacity · fill** picker with curated
+per-verb text-markup palettes, and full **object editing** — marquee and Ctrl-click multi-select,
+move, **resize** (single + group, about the bounding box), **z-order** (Bring to Front / Send to
+Back, which is both paint *and* hit order), and group **copy / cut / paste** that preserves the
+arrangement. Everything bakes into the saved PDF and reopens editable. Four fixes came out of owner
+testing and shipped in the same tranche: re-marking text now **merges** into the existing mark
+instead of stacking a second layer ([#139](https://github.com/utyagi24/klarpdf/pull/139)), mark
+paint order in the preview now follows the model's z-order rather than the mark's *type* — so a
+filled shape hides a text box exactly as it does in the saved file
+([#140](https://github.com/utyagi24/klarpdf/pull/140)), group copy/paste reversed an earlier
+deferral ([#141](https://github.com/utyagi24/klarpdf/pull/141)), and the toolbar's dropdown arrows
+share one position ([#142](https://github.com/utyagi24/klarpdf/pull/142)). Release:
+<https://github.com/utyagi24/klarpdf/releases/tag/v0.14.0>. 737 headless tests green (1 expected
+skip — the Poppler `pdftotext` cross-check, absent on Windows).
 
 **v0.12.0 "Navigate & Polish"** — the GUI tranche's **R1 (M45–M50)**. **Outline sidebar**: a document with bookmarks gets a Pages | Outline switcher (no
 TOC → no tab and no tab bar, owner rule) showing the **live** `remapped_toc()` tree — follows
@@ -644,7 +682,9 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   are untouched — single-click still fills them, which is what filling in a form requires. The
   distinction is who owns the thing under the cursor, and it lives in one predicate
   (`PdfView._grabs_before_form`). — *Windows (headless + offscreen GUI)* — 2 new tests, 1068 green
-- [ ] **M70** Verify + release → tag — *Windows*
+- [x] **M70** Verify + release → tag **v0.15.0** (version bump + docs; 1068 headless tests green on
+  the merged main; audit green; CI draft → published) — *Windows* —
+  [release](https://github.com/utyagi24/klarpdf/releases/tag/v0.15.0)
 
 ## Public-Release Readiness — go open-source under AGPL-3.0 (planned)
 
