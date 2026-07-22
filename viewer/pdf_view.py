@@ -947,6 +947,36 @@ class PdfView(QGraphicsView):
         if box[2] - box[0] >= 8 and box[3] - box[1] >= 8:
             self.cropDragged.emit(page_index, box)
 
+    def _center_anchor(self) -> "tuple[int, float, float] | None":
+        """The content point under the viewport centre as ``(page_index, fx, fy)``, where fx/fy are
+        fractions of that page's scene rect. The rect scales uniformly with zoom, so the fractions
+        are zoom-invariant — a handle that lets a zoom hold the centre fixed instead of snapping to
+        a page top / left edge. ``None`` before any page exists."""
+        if not self._pages:
+            return None
+        center = self.mapToScene(self.viewport().rect().center())
+        pi = self._current
+        for i, p in enumerate(self._pages):
+            if p["y"] <= center.y() <= p["y"] + p["h"]:
+                pi = i
+                break
+        p = self._pages[pi]
+        fx = (center.x() - p["x"]) / p["w"] if p["w"] else 0.5
+        fy = (center.y() - p["y"]) / p["h"] if p["h"] else 0.5
+        return pi, fx, fy
+
+    def _restore_center_anchor(self, anchor: "tuple[int, float, float]") -> None:
+        """Scroll so the ``(page_index, fx, fy)`` from :meth:`_center_anchor` sits back under the
+        viewport centre. ``centerOn`` clamps to the scene bounds, and the view alignment re-centres
+        a page that now fits without scrollbars — so both zoom-out-to-fit and zoom-in-past-edge land
+        where the eye expects."""
+        pi, fx, fy = anchor
+        if not (0 <= pi < len(self._pages)):
+            return
+        p = self._pages[pi]
+        self.centerOn(p["x"] + fx * p["w"], p["y"] + fy * p["h"])
+        self._render_visible()
+
     def set_zoom(self, zoom: float, keep_page: bool = True, fit: "str | None" = None) -> None:
         # ``fit`` records the sticky fit-mode this zoom represents ("width" / "page"); it is re-applied
         # on a viewport resize so the fit follows the window (e.g. a Pages-sidebar toggle). A manual
@@ -956,10 +986,17 @@ class PdfView(QGraphicsView):
         if abs(zoom - self._zoom) < 1e-6:
             return
         anchor = self._current
+        # A manual zoom (no sticky fit) holds the content under the viewport centre fixed, so the
+        # view zooms *into* what you're looking at rather than drifting toward a corner. A fit zoom
+        # re-lands on the current page's top — its own contract (see fit_width/_center_horizontally).
+        center = self._center_anchor() if fit is None else None
         self._zoom = zoom
         self._build_scene()
         if keep_page:
-            self.goto_page(anchor)
+            if center is not None:
+                self._restore_center_anchor(center)
+            else:
+                self.goto_page(anchor)
         self.zoomChanged.emit(self._zoom)
 
     def zoom_in(self) -> None:

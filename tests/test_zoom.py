@@ -94,6 +94,48 @@ def test_widget_clamps_out_of_range(view):
     assert widget.lineEdit().text() == "800%"
 
 
+def test_zoom_holds_the_viewport_centre(qapp, tmp_path):
+    """A manual zoom keeps the content under the viewport centre centred — it must not snap to the
+    page top and leave the horizontal scroll pinned at the left edge, which made the page drift
+    toward the top-left corner further with every zoom-in step."""
+    import pymupdf as fitz
+
+    path = str(tmp_path / "big.pdf")
+    doc = fitz.open()
+    doc.new_page(width=612, height=792)
+    doc.save(path)
+    doc.close()
+
+    view = PdfView(VirtualDocument.from_path(path))
+    try:
+        view.resize(260, 260)
+        view.show()
+        qapp.processEvents()
+        view.open_at({})  # first frame lands at Fit Page — the page fits, so it is centred both ways
+        qapp.processEvents()
+
+        def centre_fraction() -> tuple[float, float]:
+            c = view.mapToScene(view.viewport().rect().center())
+            p = view._pages[view._current]
+            return ((c.x() - p["x"]) / p["w"], (c.y() - p["y"]) / p["h"])
+
+        before = centre_fraction()
+        if not (0.4 < before[0] < 0.6 and 0.4 < before[1] < 0.6):
+            pytest.skip("page not centred at fit in this offscreen environment")
+
+        view.set_zoom(3.0)  # a big manual zoom: the page now overflows the viewport both ways
+        qapp.processEvents()
+        hbar, vbar = view.horizontalScrollBar(), view.verticalScrollBar()
+        if hbar.maximum() == hbar.minimum() or vbar.maximum() == vbar.minimum():
+            pytest.skip("no scroll overflow in this offscreen environment")
+
+        after = centre_fraction()  # the same content point must still be under the centre
+        assert after[0] == pytest.approx(before[0], abs=0.03)
+        assert after[1] == pytest.approx(before[1], abs=0.03)
+    finally:
+        view.deleteLater()
+
+
 def test_fit_width_centres_current_page_when_another_page_is_rotated_wider(qapp, tmp_path):
     """Fit Width on the current (narrower) page must centre + fit *that* page even when another page
     is rotated 90°/270° and so is wider — the wider page overflows symmetrically (h-scrollable)
