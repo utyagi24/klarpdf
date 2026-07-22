@@ -23,6 +23,7 @@ ACTION_ICONS = [
     "insert", "find", "zoom-in", "zoom-out", "fit-width", "fit-page",
     "rotate-left", "rotate-right", "sidebar", "select", "grab", "highlight", "textbox",
     "stamp", "signature", "watermark",   # M62 — the Stamp ▾ split-button
+    "markup",                            # M71 — the reading bar's Markup toggle
 ]
 ICO_PATH = Path(__file__).resolve().parents[1] / "packaging" / "klarpdf.ico"
 
