@@ -421,7 +421,17 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   is how a warning stops being read — a callout is now detected by `/IT /FreeTextCallout`, and `/RD`
   is ignored. A pending M67 move is folded into the adopted mark so it doesn't snap back. — *Windows
   (headless + offscreen GUI)* — 36 new tests, 946 green
-- [ ] **M69** Form-field creation — checkbox / text / dropdown via `add_widget` (radio rejected) — *WSL + WSLg*
+- [x] **M69** Form-field creation — **Tools ▸ Add Form Field ▸ Text · Checkbox · Dropdown**: compose
+  in a small properties dialog (type · name · default · choices), then drag the box with M62's
+  placement gesture. `model/form_fields.py`'s `NewField` rides the PageRef and materialises via
+  `page.add_widget`. **The output is not a KlarPDF construct** — it is an ordinary AcroForm field, so
+  inline filling, lossless value save, edits-aware print and flatten all work on it *by construction*
+  (each asserted by running the existing path over a created field, not new code). Creation runs
+  **before** the fill pass, so a value typed into a field made in the same session persists; and
+  `read_form_fields` reports placed-but-unsaved fields, so the form overlay tints one the moment it
+  is drawn. The dialog requires a name (AcroForm keys values by name) and *warns without blocking*
+  on a collision. **Radio groups stay rejected** (owner, 2026-07-18) — pinned by a test. — *Windows
+  (headless + offscreen GUI)* — 29 new tests, 975 green
 - [ ] **M70** Verify + release → tag — *Windows*
 
 ## Public-Release Readiness — go open-source under AGPL-3.0 (planned)
