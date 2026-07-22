@@ -70,6 +70,13 @@ from viewer.markup_style import swatch_icon
 
 CUSTOM = "Custom…"
 
+# A floor wide enough that the wrapped bake note below the form has a *stable* number of lines.
+# Without it the dialog could be squeezed narrow enough for the note to re-wrap taller, and a
+# word-wrapped label's extra height is invisible to `minimumSizeHint` — Qt then promises Windows a
+# minimum smaller than the layout actually needs and the platform plugin logs a setGeometry warning
+# every time a row is shown or hidden (owner-reported, M69.10).
+_MIN_DIALOG_WIDTH = 420
+
 _MIN_POINT_SIZE = 6.0
 _MAX_POINT_SIZE = 288.0     # 4 inches of cap height; past this a stamp is a watermark
 _DEFAULT_POINT_SIZE = 36.0
@@ -88,6 +95,8 @@ _STAMP_DEFAULTS = {"color": (0.80, 0.10, 0.10), "opacity": 1.0, "angle": 0.0, "f
 
 # Said in the dialog, not just the docs: a content mark is a point of no return at Save (PLAN.md
 # §Design budgets → Honesty principle). The wording matches the save-time confirm.
+_NOTE_MARGIN = 24      # the dialog's layout margins either side of the note
+
 _BAKE_NOTE = ("Marks are drawn into the page when you save. Until then you can move, resize "
               "and undo them; afterwards they are part of the page.")
 
@@ -286,7 +295,13 @@ class MarkDialog(QDialog):
         layout.addLayout(form)
         note = QLabel(_BAKE_NOTE)
         note.setWordWrap(True)
+        # Pin the note's height to what it needs at the narrowest the dialog can get. A wrapped
+        # label reports its height as a function of width, which `minimumSizeHint` does not consult
+        # — so without this the dialog's advertised minimum is a size the note cannot actually fit
+        # in, and every show/hide of a row makes Qt ask for a geometry it then has to override.
+        note.setMinimumHeight(note.heightForWidth(_MIN_DIALOG_WIDTH - _NOTE_MARGIN))
         layout.addWidget(note)
+        self.setMinimumWidth(_MIN_DIALOG_WIDTH)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
@@ -330,6 +345,10 @@ class MarkDialog(QDialog):
             widget.setVisible(not whole_page)
         if whole_page:
             self.pages.set_default_all()      # a watermark is a whole-document mark by default
+        # Resize deliberately to the new row set rather than leaving the window manager to infer it
+        # from a layout that has just changed height under it (M69.10).
+        if self.isVisible():
+            self.adjustSize()
 
     # ---- results -----------------------------------------------------------------
 

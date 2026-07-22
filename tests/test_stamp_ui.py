@@ -931,3 +931,48 @@ def test_a_restored_angle_moves_the_slider(win):
     dialog.restore({"angle": 75.0})
     assert dialog.angle.slider.value() == 75
     dialog.deleteLater()
+
+
+# ---- the dialog's advertised minimum must be one it can actually live in (M69.10) -
+#
+# Owner-reported: switching Kind logged a QWindowsWindow::setGeometry warning — Qt promised Windows
+# a minimum size 48px shorter than the layout then needed. The culprit is the wrapped bake note: a
+# word-wrapped label's height is a function of its width, which `minimumSizeHint` does not consult,
+# so squeezing the dialog narrow made the note re-wrap taller than the advertised minimum allowed.
+
+
+def _bake_note(dialog):
+    from PySide6.QtWidgets import QLabel
+
+    return next(lb for lb in dialog.findChildren(QLabel) if lb.wordWrap())
+
+
+def test_the_dialog_has_a_width_floor(win):
+    from ui.mark_dialog import _MIN_DIALOG_WIDTH
+
+    dialog = _dialog(win)
+    assert dialog.minimumWidth() == _MIN_DIALOG_WIDTH
+    dialog.deleteLater()
+
+
+def test_the_wrapped_note_reserves_the_height_it_needs_when_narrowest(win):
+    """The fix itself: pin the note's height to what it needs at the narrowest the dialog can get,
+    so the advertised minimum is a size the note actually fits in."""
+    from ui.mark_dialog import _MIN_DIALOG_WIDTH, _NOTE_MARGIN
+
+    dialog = _dialog(win)
+    note = _bake_note(dialog)
+    assert note.minimumHeight() >= note.heightForWidth(_MIN_DIALOG_WIDTH - _NOTE_MARGIN)
+    dialog.deleteLater()
+
+
+def test_the_minimum_stays_satisfiable_across_kind_switches(win):
+    """Showing and hiding the Size/Frame rows is what triggered it, so switch both ways."""
+    dialog = _dialog(win)
+    dialog.show()
+    for mode in (PLACE_PAGE, PLACE_CLICK, PLACE_PAGE):
+        dialog.place.setCurrentText(mode)
+        hint, minimum = dialog.sizeHint(), dialog.minimumSizeHint()
+        assert hint.height() >= minimum.height(), f"{mode}: size hint is below the minimum"
+        assert hint.width() >= minimum.width(), f"{mode}: size hint is below the minimum"
+    dialog.deleteLater()

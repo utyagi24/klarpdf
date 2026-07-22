@@ -561,6 +561,18 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   once so the rows are identical by construction rather than by care. The box is a spin box with its
   buttons hidden, not a line edit, which keeps range clamping and number parsing for free.
   — *Windows (headless + offscreen GUI)* — 1047 green
+- [x] **M69.10** Mark dialog geometry warning — owner-reported: switching Kind logged
+  `QWindowsWindow::setGeometry: Unable to set geometry … Resulting geometry: …` on every switch. Qt
+  was promising Windows a minimum **48px shorter** than the layout then needed. Cause: the wrapped
+  bake note under the form. A word-wrapped `QLabel`'s height is a function of its **width**, which
+  `minimumSizeHint` does not consult — so a dialog narrow enough for the note to re-wrap taller
+  advertised a minimum it could not actually live in, and showing/hiding the Size + Frame rows made
+  Qt ask for a geometry the platform then had to override. Fixed by pinning the note's minimum
+  height to what it needs at the dialog's narrowest allowed width, giving the dialog that width
+  floor, and resizing deliberately on a Kind switch instead of leaving the window manager to infer
+  it. Cosmetic (a console warning, nothing misrendered) but it was the layout genuinely fighting
+  itself. Nothing to do with the document being edited — dialog geometry only.
+  — *Windows (headless + offscreen GUI)* — 3 new tests, 1050 green
 - [ ] **M70** Verify + release → tag — *Windows*
 
 ## Public-Release Readiness — go open-source under AGPL-3.0 (planned)
