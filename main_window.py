@@ -435,6 +435,11 @@ class MainWindow(QMainWindow):
         a_redact_text.setToolTip("Redact Text — drag over text to permanently remove it at save")
         a_redact_block = act("Redact Block", lambda: self._arm_tool(ArmedTool.REDACT_REGION), icon="redact", to_menu=tools_menu)
         a_redact_block.setToolTip("Redact Block — drag a box to permanently remove its contents at save")
+        # Search & redact (M64): the one redaction verb that is not a gesture, so it is a dialog —
+        # find every occurrence, review the hits, mark the ones you meant. No toolbar slot: it is a
+        # one-shot command, and §Design budgets keeps the toolbar to modes.
+        a_redact_find = act("Find and Redact…", self._redact_matches, to_menu=tools_menu)
+        a_redact_find.setToolTip("Find and Redact — redact every occurrence of a word or phrase")
         tools_menu.addSeparator()
         # Stamp / signature / watermark (M62). All three are the one R4 content-draw engine (M61):
         # a stamp and a signature are composed then *placed* (drag the box), a watermark covers whole
@@ -1047,6 +1052,39 @@ class MainWindow(QMainWindow):
             self.undo_stack.push(
                 AddAnnotationCommand(self.vdoc, page_index,
                                      dialog.watermark((0.0, 0.0, width, height)))
+            )
+        self.undo_stack.endMacro()
+
+    def _redact_matches(self) -> None:
+        """Tools ▸ Find and Redact… — mark every checked occurrence for redaction (M64).
+
+        The dialog drives the real search controller, so the hits highlight on the page while they
+        are reviewed. What comes back is ordinary :class:`Redaction` descriptors — **nothing is
+        destroyed here**: they stay editable and undoable until the existing confirmed Save applies
+        them, which keeps one destructive path in the app instead of a second one.
+
+        One :class:`Redaction` per page holding that page's boxes, all inside one macro, so a
+        hundred hits across twenty pages is a single undo step.
+        """
+        from ui.redact_matches_dialog import RedactMatchesDialog
+
+        dialog = RedactMatchesDialog(self, self.view)
+        accepted = dialog.exec() == QDialog.DialogCode.Accepted
+        hits = dialog.checked_hits() if accepted else []
+        self.view.search.clear()          # drop the dialog's highlights either way
+        if self.find_bar.isVisible():
+            self.find_bar.hide_bar()      # the find bar's own query is stale now
+        if not hits:
+            return
+        by_page: dict[int, list[tuple]] = {}
+        for page_index, box in hits:
+            by_page.setdefault(page_index, []).append(box)
+        label = f"Redact {len(hits)} match{'es' if len(hits) != 1 else ''}"
+        self.undo_stack.beginMacro(label)
+        for page_index, boxes in sorted(by_page.items()):
+            self._note_edit_on(page_index)
+            self.undo_stack.push(
+                AddAnnotationCommand(self.vdoc, page_index, Redaction(tuple(boxes)))
             )
         self.undo_stack.endMacro()
 
