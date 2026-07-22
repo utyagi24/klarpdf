@@ -527,6 +527,46 @@ class AnnotationOverlay:
 
     # ---- hit-testing ------------------------------------------------------------
 
+    # ---- foreign annotations (M66) ----------------------------------------------
+    #
+    # Annotations other tools wrote. They are already painted in the page's own pixmap, so there is
+    # nothing to draw here — the overlay's job is to *find* one under the cursor and outline it, so
+    # a verb has an unambiguous target. Marks already deleted (pending, undoable) are excluded, since
+    # the render has dropped them and an outline around nothing is worse than no outline.
+
+    def foreign_annotations(self, page_index: int) -> tuple:
+        """Live foreign annotations on ``page_index`` — excluding any with a pending deletion."""
+        from model.foreign_annots import ForeignDeletion, read_foreign_annotations
+
+        vdoc = self._view._vdoc
+        ref = vdoc.ordered[page_index]
+        page = vdoc.sources[ref.source_id][ref.source_page_index]
+        deleted = {a.fingerprint for a in ref.annotations if isinstance(a, ForeignDeletion)}
+        return tuple(a for a in read_foreign_annotations(page) if a.fingerprint not in deleted)
+
+    def foreign_annotation_at(self, scene_pt):
+        """The ``(page_index, ForeignAnnot)`` under ``scene_pt``, topmost first, else None.
+
+        Deliberately consulted *after* our own marks everywhere it is used: an editable mark the user
+        just placed should win over a foreign one it happens to sit on.
+        """
+        page_index, local = self._view.page_and_local_at(scene_pt)
+        if page_index is None:
+            return None
+        for annot in reversed(self.foreign_annotations(page_index)):
+            x0, y0, x1, y1 = annot.rect
+            if (x0 - _HIT_PAD <= local.x() <= x1 + _HIT_PAD
+                    and y0 - _HIT_PAD <= local.y() <= y1 + _HIT_PAD):
+                return page_index, annot
+        return None
+
+    def outline_foreign(self, page_index: int, annot) -> None:
+        """Draw the selection outline around a foreign annotation (cleared on the next repaint)."""
+        self._clear_selection_items()
+        self._handles.hide()
+        self._selection = []                 # not an editable object — no handles, no group verbs
+        self._selection_items.append(self._outline_for(page_index, annot))
+
     def annotation_at(self, scene_pt):
         """The ``(page_index, annotation)`` whose painted area contains ``scene_pt``, else None.
         Topmost (most recently added) wins. Uses the rotation-aware scene mapping, so it works on

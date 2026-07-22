@@ -192,10 +192,15 @@ class SetFieldValueCommand(_SnapshotCommand):
 
 
 class AddAnnotationCommand(_SnapshotCommand):
-    """Add a highlight / text-box to a page (M20). Snapshot-based, so undo removes it."""
+    """Add a highlight / text-box to a page (M20). Snapshot-based, so undo removes it.
 
-    def __init__(self, vdoc: VirtualDocument, index: int, annotation) -> None:
-        super().__init__(vdoc, f"Add {type(annotation).__name__.lower()}")
+    ``text`` overrides the undo label, for descriptors whose class name is not what the user did —
+    a :class:`~model.foreign_annots.ForeignDeletion` is *added* to the page's edits but reads as
+    "Delete Sticky note" (M66).
+    """
+
+    def __init__(self, vdoc: VirtualDocument, index: int, annotation, text: str | None = None) -> None:
+        super().__init__(vdoc, text or f"Add {type(annotation).__name__.lower()}")
         self._index, self._annotation = index, annotation
 
     def _apply(self) -> None:

@@ -52,6 +52,10 @@ class PdfView(QGraphicsView):
         # sources, and NOT built via insert_pdf — repeated insert_pdf from one source drops widgets
         # after the first call, so we use a fresh source copy and apply values / strip on it.
         self._render_docs: dict[str, "fitz.Document"] = {}
+        # Per-*ordered-page* render copies carrying that page's pending foreign-annotation
+        # deletions (M66). Keyed by page index, not source id: the deletion rides the PageRef, so
+        # two copies of one source page can differ. Value is (page, owning doc).
+        self._foreign_docs: dict[int, tuple] = {}
         self._pages: list[dict] = []   # per page: {bg, pix, x, y, w, h}
         self._current = 0
         # Overlay controllers (set by MainWindow): text selection + search (M3), form fill (M14),
@@ -563,6 +567,36 @@ class PdfView(QGraphicsView):
         doc = self._render_docs[source_id]
         return None if doc is None else doc[ref.source_page_index]
 
+    def _deleted_foreign_page(self, index: int, ref):
+        """A one-page render copy with this page's pending foreign deletions applied (M66), or
+        ``None`` when the page has none.
+
+        A deleted foreign annotation is *in the source page's pixmap*, so unlike our own marks it
+        cannot be hidden by an overlay — the render has to lose it. It is cached **per ordered page,
+        not per source**, because the deletion rides the ``PageRef``: duplicate a page (M51) and
+        delete a comment on one copy, and the two must render differently despite sharing a source
+        page. Dropped with the rest on :meth:`reload`.
+        """
+        from model.foreign_annots import ForeignDeletion, apply_foreign_deletions
+
+        if not any(isinstance(a, ForeignDeletion) for a in ref.annotations):
+            return None
+        if index in self._foreign_docs:
+            return self._foreign_docs[index][0]
+        base = self._render_source_page(ref)
+        source = base if base is not None else self._vdoc.sources[ref.source_id][ref.source_page_index]
+        doc = fitz.open()
+        doc.insert_pdf(source.parent, from_page=source.number, to_page=source.number,
+                       annots=True, widgets=True)
+        apply_foreign_deletions(doc[0], ref.annotations)
+        self._foreign_docs[index] = (doc[0], doc)
+        return doc[0]
+
+    def _drop_foreign_docs(self) -> None:
+        for _page, doc in self._foreign_docs.values():
+            doc.close()
+        self._foreign_docs.clear()
+
     def _build_render_doc(self, source_id: str):
         """Build the per-source render copy, or ``None`` when the source needs no fixup (the fast
         path). See :meth:`_render_source_page` for what the copy carries."""
@@ -590,6 +624,7 @@ class PdfView(QGraphicsView):
             if doc is not None:  # a cached None means "fast path", nothing to close
                 doc.close()
         self._render_docs.clear()
+        self._drop_foreign_docs()
 
     def _render_pixmap(self, index: int) -> QPixmap | None:
         total = (self._page_extra(index) + self._rotation) % 360  # per-page override + view spin
@@ -600,7 +635,9 @@ class PdfView(QGraphicsView):
             return hit
         ref = self._vdoc.ordered[index]
         try:
-            render_page = self._render_source_page(ref)  # None → render the shared source (fast path)
+            # A pending foreign deletion needs the annotation gone from the *pixmap*, so it takes
+            # precedence over the shared per-source copy (M66).
+            render_page = self._deleted_foreign_page(index, ref) or self._render_source_page(ref)
             page = render_page if render_page is not None else self._vdoc.sources[ref.source_id][ref.source_page_index]
             clip = None
             if ref.crop_override is not None:
