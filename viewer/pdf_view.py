@@ -21,6 +21,7 @@ from PySide6.QtGui import QBrush, QColor, QImage, QPen, QPixmap, QTransform
 from PySide6.QtWidgets import QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsScene, QGraphicsView
 
 from model.virtual_document import VirtualDocument
+from model.form_fields import NewField
 from viewer.resize_handles import cursor_for
 from viewer.tools import ArmedTool, InteractionMode
 
@@ -378,12 +379,9 @@ class PdfView(QGraphicsView):
                 # never moved without switching to Objects mode. Gated on the mark already being
                 # selected, so a click on an *unselected* field still means "fill this in" — which
                 # is what Select mode is for, and what M69 made work for a field made this session.
-                if self.annotations is not None and self.annotations.selected_objects:
-                    hit = self.annotations.drawn_mark_at(scene_pt)
-                    if hit is not None and any(mark is hit[1] for _p, mark
-                                               in self.annotations.selected_objects)                             and self.annotations.begin_move(scene_pt):
-                        event.accept()
-                        return
+                if self.annotations is not None and self._grabs_before_form(scene_pt)                         and self.annotations.begin_move(scene_pt):
+                    event.accept()
+                    return
                 if self.form is not None and self.form.handle_press(scene_pt):
                     event.accept()
                     return
@@ -422,9 +420,39 @@ class PdfView(QGraphicsView):
                 return
         super().contextMenuEvent(event)
 
+    def _grabs_before_form(self, scene_pt) -> bool:
+        """Whether a Select-mode press on ``scene_pt`` should **move a mark** rather than reach the
+        form overlay (M69.16).
+
+        Two cases, and the distinction is who owns the thing under the cursor:
+
+        * a **field this session created** (:class:`~model.form_fields.NewField`) — you are still
+          authoring it, so a press moves it and a *double*-click types into it, exactly the contract
+          a text box has had since M20. Before this, a press anywhere on a field went to the form
+          overlay, so the only way to grab one in Select mode was to hit its border precisely —
+          "hit and miss most of the times" (owner). A **document's own** form fields are untouched:
+          single-click still fills them, which is what filling in a form requires.
+        * anything **already selected** — having selected a mark, dragging it should move it rather
+          than fall through to whatever sits underneath.
+        """
+        hit = self.annotations.drawn_mark_at(scene_pt)
+        if hit is None:
+            return False
+        if isinstance(hit[1], NewField):
+            return True
+        return any(mark is hit[1] for _p, mark in self.annotations.selected_objects)
+
     def mouseDoubleClickEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton and self._armed is None:
             scene_pt = self.mapToScene(event.position().toPoint())
+            # Double-click a field you created → type into it. The press moves it (see
+            # `_grabs_before_form`), so this is how its value is reached — the same drag-to-move /
+            # double-click-to-edit split a text box has.
+            if self.annotations is not None and self.form is not None:
+                hit = self.annotations.drawn_mark_at(scene_pt)
+                if hit is not None and isinstance(hit[1], NewField)                         and self.form.handle_press(scene_pt):
+                    event.accept()
+                    return
             # Double-click an existing text box → re-edit its text; otherwise select the word.
             if self.annotations is not None and self.annotations.edit_textbox_at(scene_pt):
                 event.accept()

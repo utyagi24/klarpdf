@@ -635,6 +635,15 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   `finish_draw()` directly — the view disarms on mouse *release*, so the tool stayed armed and ate
   the next press. The owner re-testing is what caught that; the tests now go through real press /
   move / release events. — *Windows (headless + offscreen GUI)* — 3 new tests, 1067 green
+- [x] **M69.16** A created field grabs like a text box — owner-reported: *"if I am in text select
+  mode, clicking over it takes me into text entry mode… I have to click precisely on the edge, which
+  is hit and a miss most of the times."* M69.15 had gated the Select-mode grab on the field being
+  *already selected*, which left no way to select it by clicking in the first place — so the border
+  was the only handle. A field **you created this session** now follows the contract a text box has
+  had since M20: **press to move, double-click to type into it**. A **document's own** form fields
+  are untouched — single-click still fills them, which is what filling in a form requires. The
+  distinction is who owns the thing under the cursor, and it lives in one predicate
+  (`PdfView._grabs_before_form`). — *Windows (headless + offscreen GUI)* — 2 new tests, 1068 green
 - [ ] **M70** Verify + release → tag — *Windows*
 
 ## Public-Release Readiness — go open-source under AGPL-3.0 (planned)

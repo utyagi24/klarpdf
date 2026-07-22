@@ -464,9 +464,10 @@ def test_a_field_is_named_in_its_remove_verb(win):
     menu.deleteLater()
 
 
-def test_clicking_a_field_in_select_mode_still_fills_it(win, qapp):
-    """The deliberate split: Select mode fills a field (M69's "type into one you just created"),
-    Objects mode moves it. Pinned so making fields movable cannot quietly cost the filling."""
+def test_clicking_a_created_field_in_select_mode_grabs_it(win, qapp):
+    """Revised at M69.16 to the text-box contract: a press *moves* a field you created, a
+    double-click types into it. Before, a press anywhere on it reached the form overlay, so the only
+    way to grab one in Select mode was to hit its border — "hit and miss most of the times"."""
     from PySide6.QtCore import QEvent, QPointF, Qt as _Qt
     from PySide6.QtGui import QMouseEvent
 
@@ -482,8 +483,8 @@ def test_clicking_a_field_in_select_mode_still_fills_it(win, qapp):
     win.view.mousePressEvent(QMouseEvent(
         QEvent.Type.MouseButtonPress, QPointF(point), win.view.viewport().mapToGlobal(point),
         _Qt.MouseButton.LeftButton, _Qt.MouseButton.LeftButton, _Qt.KeyboardModifier.NoModifier))
-    assert win.view.annotations._move_grabbed is None, \
-        "Select mode grabbed the field to move it instead of letting the form overlay fill it"
+    assert win.view.annotations._move_grabbed is not None, \
+        "a press in the middle of a created field should grab it, not fall through to the form"
 
 
 # ---- a freshly placed mark is selected (M69.15) ----------------------------------
@@ -505,7 +506,8 @@ def _send(win, kind, x, y):
                         _Qt.KeyboardModifier.NoModifier)
     {QEvent.Type.MouseButtonPress: win.view.mousePressEvent,
      QEvent.Type.MouseMove: win.view.mouseMoveEvent,
-     QEvent.Type.MouseButtonRelease: win.view.mouseReleaseEvent}[kind](event)
+     QEvent.Type.MouseButtonRelease: win.view.mouseReleaseEvent,
+     QEvent.Type.MouseButtonDblClick: win.view.mouseDoubleClickEvent}[kind](event)
 
 
 def _draw_field(win, start=(100, 300), end=(300, 330)):
@@ -551,14 +553,27 @@ def test_a_freshly_placed_field_can_be_dragged_straight_away(win, qapp):
     assert field.rect[:2] == pytest.approx((150, 345), abs=2.0)
 
 
-def test_an_unselected_field_is_still_filled_not_moved(win, qapp):
-    """The other half stays true: Select mode on an *unselected* field means "type into it", which
-    is M69's "a value typed into a field made this session persists"."""
+def test_double_clicking_a_created_field_types_into_it(win, qapp):
+    """The other half of the text-box contract, and the route that keeps M69's "a value typed into a
+    field made this session persists" reachable now that a press moves the field."""
     from PySide6.QtCore import QEvent
 
     _draw_field(win)
     qapp.processEvents()
     win.view.annotations.clear_object_selection()
     qapp.processEvents()
-    _send(win, QEvent.Type.MouseButtonPress, 200, 315)
-    assert win.view.annotations.moving is False
+    _send(win, QEvent.Type.MouseButtonDblClick, 200, 315)
+    qapp.processEvents()
+    assert win.view.form._editor is not None, "double-click did not open the inline editor"
+
+
+def test_a_created_field_grabs_from_its_middle_not_just_its_border(win, qapp):
+    """The reported symptom precisely: grabbing used to need a precise hit on the edge."""
+    from PySide6.QtCore import QEvent
+
+    _draw_field(win, start=(100, 300), end=(300, 330))
+    qapp.processEvents()
+    win.view.annotations.clear_object_selection()
+    qapp.processEvents()
+    _send(win, QEvent.Type.MouseButtonPress, 200, 315)      # dead centre
+    assert win.view.annotations.moving is True
