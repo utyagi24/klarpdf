@@ -320,7 +320,21 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
 
 **R4 — "Stamp, Sign & Watermark"**
 
-- [ ] **M61** ⭐ Unified content-draw engine (Way 2: presets = prefilled custom stamps; baked at save) — *WSL*
+- [x] **M61** ⭐ Unified content-draw engine (Way 2: presets = prefilled custom stamps; baked at save).
+  `model/content_marks.py`: two descriptors — **`Stamp`** (text + optional rounded frame) and
+  **`ImageStamp`** (a placed raster) — that ride the PageRef exactly like an annotation, but bake
+  into the page's **content stream** at materialise instead of staying annotations. A **watermark is
+  not a third type**: it is either of those with `under=True` (`overlay=False`, so the page's text
+  sits on top), applied to every page in a range — the range is the UI's loop, not model state.
+  Presets are **prefilled `Stamp`s**, so a placed preset is editable like a hand-made one and there
+  is no second code path. Built **vector** (a throwaway one-page PDF placed via `show_pdf_page`)
+  rather than the planned high-DPI pixmap: crisp at any zoom, stamp text stays searchable, and
+  arbitrary rotation comes free — see `PLAN.md` §R4 "M61 as built". Because a content mark leaves
+  nothing author-tagged to read back, a save that writes one is a **point of no return** like a
+  redaction (`has_content_marks()` → confirm, write, reload from the clean file, or the next save
+  would bake a second copy); the confirm now names which of the two it is committing. Move / resize
+  / copy come from the existing `translate_mark` / `scale_mark` primitives. Print, export and live
+  thumbnails inherit it via `render_output`. — *WSL (model+tests)* — 31 new tests, 767 green
 - [ ] **M62** Stamp & watermark UI — placement mode (M69 reuses it) + dialogs + page-range apply — *WSLg*
 - [ ] **M63** Image stamp / signature — transparent PNG + white-to-alpha toggle; recent list stores paths only — *WSL + WSLg*
 - [ ] **M64** Search & redact — batched redactions, one undo step; M47 review panel + checkboxes; text-layer-only warnings — *WSL + WSLg*

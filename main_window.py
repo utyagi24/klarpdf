@@ -1417,9 +1417,13 @@ class MainWindow(QMainWindow):
         redaction (right-click Remove, or undo) and re-saving could otherwise resurrect the removed
         content — and a redaction can be removed in any document that holds it, including one that
         received the page by drag/paste. We confirm first, and after writing reload from the clean
-        file + clear the undo history, so the secret is gone from disk *and* memory."""
-        committing = self.vdoc.has_redactions()
-        if committing and not self._confirm_redaction():
+        file + clear the undo history, so the secret is gone from disk *and* memory.
+
+        An R4 **content mark** (stamp / signature / watermark, M61) commits on the same path for a
+        different reason: it bakes into the page content stream and leaves nothing author-tagged to
+        read back, so a model copy surviving the save would bake a *second* mark on the next one."""
+        committing = self.vdoc.has_redactions() or self.vdoc.has_content_marks()
+        if committing and not self._confirm_commit():
             return False
         directory = os.path.dirname(os.path.abspath(target_path)) or "."
         fd, tmp = tempfile.mkstemp(suffix=".pdf", dir=directory)
@@ -1588,12 +1592,31 @@ class MainWindow(QMainWindow):
                 self, "Export Image", f"Exported {len(written)} pages to image files."
             )
 
-    def _confirm_redaction(self) -> bool:
+    def _confirm_commit(self) -> bool:
+        """Confirm a save that is a point of no return, naming what is actually being committed.
+
+        Two kinds, and a save can carry both: a **redaction** destroys content, and a **content
+        mark** (stamp / signature / watermark) becomes part of the page. Either way the edit stops
+        being undoable at Save, which is the thing the user has to agree to — so the wording says
+        that plainly rather than hiding behind "are you sure?" (PLAN.md §Design budgets, honesty).
+        """
+        redacting, stamping = self.vdoc.has_redactions(), self.vdoc.has_content_marks()
+        if redacting and stamping:
+            title = "Apply redactions and stamps?"
+            body = ("Saving permanently removes the redacted content and bakes the stamps, "
+                    "signatures and watermarks into the pages. Neither can be undone afterwards.")
+        elif redacting:
+            title = "Apply redactions?"
+            body = "Saving permanently removes the redacted content and cannot be undone."
+        else:
+            title = "Bake stamps into the pages?"
+            body = ("Saving draws the stamps, signatures and watermarks into the page content. "
+                    "They can no longer be moved or removed afterwards.")
         return (
             QMessageBox.warning(
                 self,
-                "Apply redactions?",
-                "Saving permanently removes the redacted content and cannot be undone.\n\nContinue?",
+                title,
+                f"{body}\n\nContinue?",
                 QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Cancel,
                 QMessageBox.StandardButton.Cancel,
             )
