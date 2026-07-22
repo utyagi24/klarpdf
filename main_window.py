@@ -85,7 +85,7 @@ from viewer.links import LinkNavigator
 from viewer.pdf_view import PdfView
 from viewer.search import FindBar, SearchController, SearchResultsPanel
 from viewer.text_selection import TextSelection
-from viewer.tools import ArmedTool, InteractionMode
+from viewer.tools import REDACT_TOOLS, ArmedTool, InteractionMode
 from viewer.zoom_widget import ZoomWidget
 
 # Preference key for the sticky mark style. Style only — never the page range, whose stale value
@@ -452,6 +452,13 @@ class MainWindow(QMainWindow):
         a_redact_text.setToolTip("Redact Text — drag over text to permanently remove it at save")
         a_redact_block = act("Redact Block", lambda: self._arm_tool(ArmedTool.REDACT_REGION), icon="redact", to_menu=tools_menu)
         a_redact_block.setToolTip("Redact Block — drag a box to permanently remove its contents at save")
+        # The markup bar's ONE Redact slot (M72): Preview-style gesture detect — the press point
+        # decides text-flow vs block, so the everyday path needs no choice up front. Toolbar-only:
+        # the Tools menu keeps the two explicit verbs above (menus are the complete catalog), and
+        # this slot is not a third verb, just the one button that arms both gestures.
+        a_redact = self._a_redact = act("Redact", self._arm_redact, icon="redact")
+        a_redact.setToolTip("Redact — drag over text to remove the text, drag elsewhere to "
+                            "remove a block; permanent at save")
         # Search & redact (M64): the one redaction verb that is not a gesture, so it is a dialog —
         # find every occurrence, review the hits, mark the ones you meant. No toolbar slot: it is a
         # one-shot command, and §Design budgets keeps the toolbar to modes.
@@ -512,6 +519,7 @@ class MainWindow(QMainWindow):
             ArmedTool.ELLIPSE: a_ellipse,
             ArmedTool.REDACT_TEXT: a_redact_text,
             ArmedTool.REDACT_REGION: a_redact_block,
+            ArmedTool.REDACT: a_redact,
             ArmedTool.CROP: a_crop,
             # STAMP arms only *after* its dialog composes a mark, so the menu entry above opens the
             # dialog rather than arming; this entry is what lights the button while placing.
@@ -643,7 +651,7 @@ class MainWindow(QMainWindow):
             [a_select, a_grab, a_objects],
             [a_textbox, self._markup_button, self._draw_button, self._markup_style_button,
              self._stamp_button],
-            [a_redact_text, a_redact_block],
+            [a_redact],  # one slot, both gestures (M72)
         )
         for target, groups in ((bar, reading_groups), (self.markup_bar, markup_groups)):
             for gi, group in enumerate(groups):
@@ -1007,6 +1015,21 @@ class MainWindow(QMainWindow):
         self.view.arm(tool)
         self._a_select.setChecked(True)  # arming forces the SELECT base mode
 
+    def _arm_redact(self) -> None:
+        """The markup bar's one Redact slot (M72). Clicked while *any* redact tool is armed —
+        combined or a menu-armed explicit one — it disarms (the button lights for all three, so a
+        click on the lit button must always mean off). A live text selection applies the text-flow
+        redaction immediately, exactly as clicking Tools ▸ Redact Text would (the M46 owner call).
+        Otherwise it arms the combined tool and the press point picks the gesture."""
+        if self.view.armed in REDACT_TOOLS:
+            self.view.disarm()
+            return
+        if self.view.selection is not None and self.view.selection.selected_words():
+            self._apply_text_tool(ArmedTool.REDACT_TEXT)
+            return
+        self.view.arm(ArmedTool.REDACT)
+        self._a_select.setChecked(True)
+
     # ---- text marks + signatures (M62; the M61 content-draw engine) -------------
     #
     # Two shapes of flow over one engine, and the difference is only where the mark goes:
@@ -1204,6 +1227,10 @@ class MainWindow(QMainWindow):
         is only ever the user's explicit toggle)."""
         for armed_tool, action in self._armed_actions.items():
             action.setChecked(armed_tool is tool)
+        # The markup bar's one Redact button (M72) lights for the whole redact family: the
+        # combined slot resolves to a concrete tool at press, and a menu-armed explicit verb is
+        # still "redact is armed" — the slot is where that state must be visible.
+        self._a_redact.setChecked(tool in REDACT_TOOLS)
         if tool in self._MARKUP_BAR_TOOLS and not self.markup_bar.isVisible():
             self.markup_bar.show()
 

@@ -74,6 +74,12 @@ class TextSelection:
         form fill changes the extracted words — otherwise selection would hit stale word boxes."""
         self._words.clear()
 
+    def has_word_at(self, scene_pt) -> bool:
+        """True when a word's box contains the point — the press-point test the combined Redact
+        tool resolves its gesture on (M72). Exact containment, never nearest-snap: a press in the
+        margin must mean *block*, not the closest line of text."""
+        return self._word_containing(scene_pt) is not None
+
     def _word_containing(self, scene_pt) -> tuple[int, int] | None:
         """Exact hit: the word whose box contains the point, else None (no nearest-snap)."""
         page_index, local = self._view.page_and_local_at(scene_pt)
