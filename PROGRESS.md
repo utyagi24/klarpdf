@@ -622,6 +622,19 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   **Objects** mode a click moves a field; in **Select** mode the form overlay claims it so you can
   type into a field you just created (M69's feature). — *Windows (headless + offscreen GUI)* —
   6 new tests, 1064 green
+- [x] **M69.15** A freshly placed mark is selected — owner-reported: a form field could not be
+  selected right after creating it (workaround: switch mode and marquee around it). **Placement
+  committed with nothing selected**, so the next click went to the *form* overlay to be filled —
+  which, to someone who had just drawn the box, looked like the field could not be selected at all.
+  Paste has selected-after-add since M59.7 for exactly this reason (*"the add reloads the view,
+  which clears any selection"*); placement never did. Now it does, for fields and content marks
+  alike. Second half: a press on an **already-selected** object now leads the Select-mode priority
+  list, so a field can be dragged without switching to Objects mode — gated on *selected*, so a
+  click on an unselected field still means "type into it" (M69's in-session fill, pinned by a test).
+  **A note on the diagnosis**: the first attempt looked like it did not work, because the test drove
+  `finish_draw()` directly — the view disarms on mouse *release*, so the tool stayed armed and ate
+  the next press. The owner re-testing is what caught that; the tests now go through real press /
+  move / release events. — *Windows (headless + offscreen GUI)* — 3 new tests, 1067 green
 - [ ] **M70** Verify + release → tag — *Windows*
 
 ## Public-Release Readiness — go open-source under AGPL-3.0 (planned)

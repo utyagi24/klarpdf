@@ -484,3 +484,81 @@ def test_clicking_a_field_in_select_mode_still_fills_it(win, qapp):
         _Qt.MouseButton.LeftButton, _Qt.MouseButton.LeftButton, _Qt.KeyboardModifier.NoModifier))
     assert win.view.annotations._move_grabbed is None, \
         "Select mode grabbed the field to move it instead of letting the form overlay fill it"
+
+
+# ---- a freshly placed mark is selected (M69.15) ----------------------------------
+#
+# Owner-reported: a form field could not be selected right after creating it. Nothing was selected
+# when placement committed, so the next click went to the *form* overlay to be filled — which, to
+# someone who had just drawn the box, looked like the field could not be selected at all. Paste has
+# selected-after-add since M59.7 for exactly this reason; placement never did.
+
+
+def _send(win, kind, x, y):
+    from PySide6.QtCore import QEvent, QPointF, Qt as _Qt
+    from PySide6.QtGui import QMouseEvent
+
+    scene = win.view.scene_rect_for_box(0, (x, y, x + 0.01, y + 0.01)).center()
+    point = win.view.mapFromScene(scene)
+    event = QMouseEvent(kind, QPointF(point), win.view.viewport().mapToGlobal(point),
+                        _Qt.MouseButton.LeftButton, _Qt.MouseButton.LeftButton,
+                        _Qt.KeyboardModifier.NoModifier)
+    {QEvent.Type.MouseButtonPress: win.view.mousePressEvent,
+     QEvent.Type.MouseMove: win.view.mouseMoveEvent,
+     QEvent.Type.MouseButtonRelease: win.view.mouseReleaseEvent}[kind](event)
+
+
+def _draw_field(win, start=(100, 300), end=(300, 330)):
+    """Create a field through the real event path — press, move, release. Driving `finish_draw`
+    directly would leave the tool armed (the view disarms on *release*), which is exactly the
+    artifact that made this look unreproducible the first time."""
+    from PySide6.QtCore import QEvent
+
+    from model.form_fields import NewField
+    from viewer.tools import ArmedTool
+
+    win.view.annotations.pending_field = NewField(kind="text", name="who", rect=(0, 0, 1, 1))
+    win.view.arm(ArmedTool.FIELD)
+    _send(win, QEvent.Type.MouseButtonPress, *start)
+    _send(win, QEvent.Type.MouseMove, *end)
+    _send(win, QEvent.Type.MouseButtonRelease, *end)
+
+
+def test_a_freshly_placed_field_is_selected(win, qapp):
+    from model.form_fields import NewField
+
+    _draw_field(win)
+    qapp.processEvents()
+    assert win.view.armed is None                       # the one-shot arm was consumed
+    selected = win.view.annotations.selected_objects
+    assert [type(m).__name__ for _p, m in selected] == ["NewField"]
+
+
+def test_a_freshly_placed_field_can_be_dragged_straight_away(win, qapp):
+    """The point of selecting it: no mode switch, no marquee — just drag it."""
+    from PySide6.QtCore import QEvent
+
+    from model.form_fields import NewField
+
+    _draw_field(win)
+    qapp.processEvents()
+    _send(win, QEvent.Type.MouseButtonPress, 200, 315)
+    assert win.view.annotations.moving is True
+    _send(win, QEvent.Type.MouseMove, 250, 360)
+    _send(win, QEvent.Type.MouseButtonRelease, 250, 360)
+    qapp.processEvents()
+    field = [a for a in win.vdoc.page_annotations(0) if isinstance(a, NewField)][0]
+    assert field.rect[:2] == pytest.approx((150, 345), abs=2.0)
+
+
+def test_an_unselected_field_is_still_filled_not_moved(win, qapp):
+    """The other half stays true: Select mode on an *unselected* field means "type into it", which
+    is M69's "a value typed into a field made this session persists"."""
+    from PySide6.QtCore import QEvent
+
+    _draw_field(win)
+    qapp.processEvents()
+    win.view.annotations.clear_object_selection()
+    qapp.processEvents()
+    _send(win, QEvent.Type.MouseButtonPress, 200, 315)
+    assert win.view.annotations.moving is False

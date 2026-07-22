@@ -1778,6 +1778,13 @@ class AnnotationOverlay:
                 self.pending_content_mark = None
             else:
                 self.pending_field = None
+            # Select what was just placed, so its handles are up and it can be moved or resized
+            # straight away (M69.15). Paste has done this since M59.7 for exactly this reason;
+            # placement never did — so a freshly drawn form field landed with nothing selected, and
+            # the next click on it went to the *form* overlay to be filled, which to the user who
+            # had just drawn it looked like the field could not be selected at all. **After**
+            # `_on_add`, not before: the add reloads the view, which clears any selection.
+            self.select_objects(page_index, [placed])
             return
         if dx < _MIN_DRAW and dy < _MIN_DRAW:
             return

@@ -369,7 +369,21 @@ class PdfView(QGraphicsView):
                 event.accept()
                 return
             if self._mode == InteractionMode.SELECT:
-                # Priority: fill a form field → move an existing text box → begin a text selection.
+                # Priority: drag an already-selected object → fill a form field → move an existing
+                # text box → begin a text selection.
+                #
+                # The selected-object case leads (M69.15) so a mark that *is* a form field can still
+                # be dragged here. Without it the form overlay claimed every press on a field, and a
+                # field you had just drawn could be resized (handles are tested earlier still) but
+                # never moved without switching to Objects mode. Gated on the mark already being
+                # selected, so a click on an *unselected* field still means "fill this in" — which
+                # is what Select mode is for, and what M69 made work for a field made this session.
+                if self.annotations is not None and self.annotations.selected_objects:
+                    hit = self.annotations.drawn_mark_at(scene_pt)
+                    if hit is not None and any(mark is hit[1] for _p, mark
+                                               in self.annotations.selected_objects)                             and self.annotations.begin_move(scene_pt):
+                        event.accept()
+                        return
                 if self.form is not None and self.form.handle_press(scene_pt):
                     event.accept()
                     return
