@@ -391,3 +391,96 @@ def test_radio_groups_are_not_offered():
     """Rejected by the owner (2026-07-18) — pinned so it cannot creep back in unnoticed."""
     assert "radio" not in FIELD_KINDS
     assert set(FIELD_KINDS) == {"text", "checkbox", "dropdown"}
+
+
+# ---- a created field is an ordinary object (M69.14) ------------------------------
+#
+# Owner-reported: a placed field could not be moved, even before saving. The model had always been
+# ready — `PLACEABLE_TYPES` lists NewField, `translate_mark` and `scale_mark` both handle it, and
+# its `bounding_rect` docstring says it exists "so the viewer's shared hit-test / outline helpers
+# work on it unchanged" — but the viewer's OBJECT_TYPES tuple was never told, so the field was
+# invisible to select / move / resize / marquee. It is drawn by the *form* overlay rather than the
+# annotation overlay, which is what let the omission go unnoticed.
+
+
+def _field_win(win, rect=(100, 300, 300, 330)):
+    from model.form_fields import NewField
+
+    field = NewField(kind="text", name="who", rect=rect)
+    win.vdoc.add_annotation(0, field)
+    win.view.annotations.repaint()
+    return field
+
+
+def _at(win, x, y):
+    return win.view.scene_rect_for_box(0, (x, y, x + 0.01, y + 0.01)).center()
+
+
+def _fields(win):
+    from model.form_fields import NewField
+
+    return [a for a in win.vdoc.page_annotations(0) if isinstance(a, NewField)]
+
+
+def test_a_placed_field_is_hit_testable(win):
+    _field_win(win)
+    assert win.view.annotations.drawn_mark_at(_at(win, 200, 315)) is not None
+
+
+def test_a_placed_field_selects_and_moves(win):
+    _field_win(win)
+    overlay = win.view.annotations
+    assert overlay.select_object_at(_at(win, 200, 315)) is True
+    assert overlay.begin_move(_at(win, 200, 315)) is True
+    overlay.update_move(_at(win, 250, 360))
+    overlay.finish_move()
+    assert _fields(win)[0].rect[:2] == pytest.approx((150, 345), abs=1.5)
+
+
+def test_a_placed_field_resizes_by_its_handles(win):
+    from PySide6.QtCore import Qt as _Qt
+
+    _field_win(win)
+    overlay = win.view.annotations
+    overlay.select_object(0, _fields(win)[0])
+    assert overlay.begin_resize("se", _at(win, 300, 330)) is True
+    overlay.update_resize(_at(win, 360, 380), _Qt.KeyboardModifier.NoModifier)
+    overlay.finish_resize()
+    assert _fields(win)[0].rect == pytest.approx((100, 300, 360, 380), abs=1.5)
+
+
+def test_a_marquee_catches_a_field(win):
+    _field_win(win)
+    win.view.annotations.select_in_rect(0, (50, 250, 400, 400))
+    assert len(win.view.annotations.selected_objects) == 1
+
+
+def test_a_field_is_named_in_its_remove_verb(win):
+    """"Remove newfield" was the class-name fallback."""
+    _field_win(win)
+    menu = win._view_context_menu(_at(win, 200, 315))
+    labels = [a.text() for a in menu.actions()]
+    assert "Remove form field" in labels
+    menu.deleteLater()
+
+
+def test_clicking_a_field_in_select_mode_still_fills_it(win, qapp):
+    """The deliberate split: Select mode fills a field (M69's "type into one you just created"),
+    Objects mode moves it. Pinned so making fields movable cannot quietly cost the filling."""
+    from PySide6.QtCore import QEvent, QPointF, Qt as _Qt
+    from PySide6.QtGui import QMouseEvent
+
+    from model.edit_commands import AddAnnotationCommand
+    from model.form_fields import NewField
+    from viewer.tools import InteractionMode
+
+    win.undo_stack.push(AddAnnotationCommand(
+        win.vdoc, 0, NewField(kind="text", name="who", rect=(100, 300, 300, 330))))
+    qapp.processEvents()
+    win.view.set_mode(InteractionMode.SELECT)
+    point = win.view.mapFromScene(_at(win, 200, 315))
+    win.view.mousePressEvent(QMouseEvent(
+        QEvent.Type.MouseButtonPress, QPointF(point), win.view.viewport().mapToGlobal(point),
+        _Qt.MouseButton.LeftButton, _Qt.MouseButton.LeftButton, _Qt.KeyboardModifier.NoModifier))
+    assert win.view.annotations._move_grabbed is None, \
+        "Select mode grabbed the field to move it instead of letting the form overlay fill it"

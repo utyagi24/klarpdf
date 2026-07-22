@@ -610,6 +610,18 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   strength 15 is the old 0.85 — and the reach is the same (1–50 spans the old 0.99–0.50), so this
   inverts the control without quietly re-tuning it. — *Windows (headless + offscreen GUI)* — 2 new
   tests, 1058 green
+- [x] **M69.14** A created form field is an ordinary object — owner-reported: fields could not be
+  moved, even before saving. The **model had always been ready**: `PLACEABLE_TYPES` lists `NewField`,
+  `translate_mark` and `scale_mark` both handle it, and its `bounding_rect` docstring says it exists
+  *"so the viewer's shared hit-test / outline helpers work on it unchanged"*. But the viewer's
+  `OBJECT_TYPES` tuple was never told, so a field was invisible to select / move / resize / marquee —
+  the **third** time that hand-maintained list has gone stale behind a new descriptor (stamps at
+  M69.1, watermarks at M69.2). A field is drawn by the *form* overlay rather than the annotation
+  overlay, which is what let it go unnoticed. `mark_noun` also gained "form field", so the menu no
+  longer offers "Remove newfield". **Note the deliberate mode split**, now pinned by a test: in
+  **Objects** mode a click moves a field; in **Select** mode the form overlay claims it so you can
+  type into a field you just created (M69's feature). — *Windows (headless + offscreen GUI)* —
+  6 new tests, 1064 green
 - [ ] **M70** Verify + release → tag — *Windows*
 
 ## Public-Release Readiness — go open-source under AGPL-3.0 (planned)

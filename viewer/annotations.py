@@ -48,6 +48,7 @@ from PySide6.QtWidgets import (
 )
 
 from model.content_marks import CONTENT_MARK_TYPES, render_mark_document
+from model.form_fields import NewField
 from model.page_edits import (
     Highlight,
     InkStroke,
@@ -92,7 +93,14 @@ _DRAWN_TYPES = (InkStroke, Line, Shape)
 # Public because the window's right-click menu must offer exactly these marks the object verbs.
 # It used to keep its own hand-written copy of the list, which silently went stale when the content
 # marks joined — stamps then selected, moved and copied by keyboard but had no Copy/Cut on the menu.
-OBJECT_TYPES = _DRAWN_TYPES + CONTENT_MARK_TYPES
+#
+# `NewField` (M69) is here for the same reason and was missed the same way (M69.14): the model has
+# always listed it in `PLACEABLE_TYPES` and both `translate_mark` and `scale_mark` handle it, and its
+# `bounding_rect` is documented as existing "so the viewer's shared hit-test / outline helpers work
+# on it unchanged" — but it was never added here, so a placed field could not be selected, moved,
+# resized or marqueed. A created field is a free-placed rect like any other; it is drawn by the form
+# overlay rather than this one, which is what let the omission go unnoticed.
+OBJECT_TYPES = _DRAWN_TYPES + CONTENT_MARK_TYPES + (NewField,)
 
 # Scene z for the marks. Every annotation lives in ``[_ANNOT_Z_BASE, _ANNOT_Z_BASE + 1)``, spread
 # by its index in the page's tuple (see :meth:`AnnotationOverlay._annot_z`), so paint order follows
@@ -194,6 +202,7 @@ _MARK_NOUNS = {
     "Shape": "shape",
     "Stamp": "stamp",
     "ImageStamp": "image",
+    "NewField": "form field",
 }
 
 
