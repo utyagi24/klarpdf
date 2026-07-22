@@ -21,6 +21,7 @@ from PySide6.QtGui import QBrush, QColor, QImage, QPen, QPixmap, QTransform
 from PySide6.QtWidgets import QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsScene, QGraphicsView
 
 from model.virtual_document import VirtualDocument
+from model.form_fields import NewField
 from viewer.resize_handles import cursor_for
 from viewer.tools import ArmedTool, InteractionMode
 
@@ -369,7 +370,18 @@ class PdfView(QGraphicsView):
                 event.accept()
                 return
             if self._mode == InteractionMode.SELECT:
-                # Priority: fill a form field → move an existing text box → begin a text selection.
+                # Priority: drag an already-selected object → fill a form field → move an existing
+                # text box → begin a text selection.
+                #
+                # The selected-object case leads (M69.15) so a mark that *is* a form field can still
+                # be dragged here. Without it the form overlay claimed every press on a field, and a
+                # field you had just drawn could be resized (handles are tested earlier still) but
+                # never moved without switching to Objects mode. Gated on the mark already being
+                # selected, so a click on an *unselected* field still means "fill this in" — which
+                # is what Select mode is for, and what M69 made work for a field made this session.
+                if self.annotations is not None and self._grabs_before_form(scene_pt)                         and self.annotations.begin_move(scene_pt):
+                    event.accept()
+                    return
                 if self.form is not None and self.form.handle_press(scene_pt):
                     event.accept()
                     return
@@ -408,9 +420,39 @@ class PdfView(QGraphicsView):
                 return
         super().contextMenuEvent(event)
 
+    def _grabs_before_form(self, scene_pt) -> bool:
+        """Whether a Select-mode press on ``scene_pt`` should **move a mark** rather than reach the
+        form overlay (M69.16).
+
+        Two cases, and the distinction is who owns the thing under the cursor:
+
+        * a **field this session created** (:class:`~model.form_fields.NewField`) — you are still
+          authoring it, so a press moves it and a *double*-click types into it, exactly the contract
+          a text box has had since M20. Before this, a press anywhere on a field went to the form
+          overlay, so the only way to grab one in Select mode was to hit its border precisely —
+          "hit and miss most of the times" (owner). A **document's own** form fields are untouched:
+          single-click still fills them, which is what filling in a form requires.
+        * anything **already selected** — having selected a mark, dragging it should move it rather
+          than fall through to whatever sits underneath.
+        """
+        hit = self.annotations.drawn_mark_at(scene_pt)
+        if hit is None:
+            return False
+        if isinstance(hit[1], NewField):
+            return True
+        return any(mark is hit[1] for _p, mark in self.annotations.selected_objects)
+
     def mouseDoubleClickEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton and self._armed is None:
             scene_pt = self.mapToScene(event.position().toPoint())
+            # Double-click a field you created → type into it. The press moves it (see
+            # `_grabs_before_form`), so this is how its value is reached — the same drag-to-move /
+            # double-click-to-edit split a text box has.
+            if self.annotations is not None and self.form is not None:
+                hit = self.annotations.drawn_mark_at(scene_pt)
+                if hit is not None and isinstance(hit[1], NewField)                         and self.form.handle_press(scene_pt):
+                    event.accept()
+                    return
             # Double-click an existing text box → re-edit its text; otherwise select the word.
             if self.annotations is not None and self.annotations.edit_textbox_at(scene_pt):
                 event.accept()
@@ -730,6 +772,17 @@ class PdfView(QGraphicsView):
             return self._current, self._current
         return first, last
 
+    def content_band(self) -> tuple[int, int] | None:
+        """The page range worth rasterising for, or ``None`` before the first show (paint it all).
+
+        The same band :meth:`_render_visible` uses for page pixmaps, exposed so the annotation
+        overlay's rasterised content marks can be just as lazy as the pages they sit on.
+        """
+        if not self._pages or not self._shown_once:
+            return None
+        first, last = self._visible_range()
+        return max(0, first - _PREFETCH), min(len(self._pages) - 1, last + _PREFETCH)
+
     def _render_visible(self) -> None:
         if not self._pages or not self._shown_once:
             return
@@ -743,6 +796,9 @@ class PdfView(QGraphicsView):
                     p["pix"].setPos(self._pixmap_offset(i))  # inset only in the un-crop edge case
             elif not p["pix"].pixmap().isNull():
                 p["pix"].setPixmap(QPixmap())  # drop offscreen pixels to bound memory
+        # Content marks ride the same band as the pixmaps, so a stamp scrolls in with its page.
+        if self.annotations is not None:
+            self.annotations._paint_visible_content()
         self._update_current(first, last)
 
     def _update_current(self, first: int, last: int) -> None:

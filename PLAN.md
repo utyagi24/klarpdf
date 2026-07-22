@@ -1021,7 +1021,7 @@ the v0.7.0 → v0.9.0 re-scope). Theme names and milestone numbers are stable ei
 
 | Milestone | Feature | Where | Done when |
 |---|---|---|---|
-| **M61** ⭐ Unified content-draw engine | **One engine for stamps, signature, and watermark** (owner call: Way 2 — presets are prefilled entries of the custom generator; no dual annotation/content path, no true Stamp annots, no cross-renderer calibration). Custom-text stamp generator via PyMuPDF drawing (rounded-rect border + Helvetica-Bold); image placement; page-range watermark pass (`overlay=False` under content; rotation + opacity). All **baked at save** — editable/undoable until save, permanent after (redaction-style semantics, said plainly in UI). | WSL (model+tests) | Stamp/watermark descriptors ride PageRefs, render in preview/print/export, bake at materialise |
+| **M61** ⭐ Unified content-draw engine | **One engine for stamps, signature, and watermark** (owner call: Way 2 — presets are prefilled entries of the custom generator; no dual annotation/content path, no true Stamp annots, no cross-renderer calibration). Custom-text stamp generator via PyMuPDF drawing (rounded-rect border + Helvetica-Bold); image placement; page-range watermark pass (rotation + opacity; `overlay=False` under-content exists in the engine but is **not offered in the UI** — see §M69.6). All **baked at save** — editable/undoable until save, permanent after (redaction-style semantics, said plainly in UI). | WSL (model+tests) | Stamp/watermark descriptors ride PageRefs, render in preview/print/export, bake at materialise |
 
 **M61 as built** — three decisions worth recording, because each is a deviation from the sketch above:
 
@@ -1032,6 +1032,58 @@ the v0.7.0 → v0.9.0 re-scope). Theme names and milestone numbers are stable ei
   rotation angle** natively — which a pixmap does not, and which the diagonal watermark needs.
   Images still go through a pixmap, since that is what they are; opacity reaches them by scaling the
   alpha channel, an image having no `/CA` to set.
+- **§M69.7 — two use cases, two controls, no third mode.** Owner: *"There are basically two use
+  cases. Stamp — only offer the font size, and click on the page where I want it. Watermark — over
+  the whole page. So we don't need the third option of dragging to stamp."* Dragging a rectangle was
+  only ever a way of **sizing** a text stamp, and once a point size is on the dialog it is a second
+  answer to a question already answered — the worse of the two, since a dragged box sets the size
+  only indirectly, through whatever padding the auto-fit leaves (the M69.1 complaint). So the drag
+  mode is gone for text stamps: `Kind` is *Stamp (click to place)* or *Watermark (whole page)*, the
+  size field loses its "Fit to box" position, and a stamp is centred on the **press point** rather
+  than the middle of any drag, with no rubber band to advertise a box it will not take. **Signature
+  / image placement and M69 field creation keep the drag** — neither has a font size to be sized by,
+  so the box is genuinely how you say how big they are; `fontsize=0` therefore remains the engine's
+  auto-fit sentinel and the drag path stays under it.
+
+- **§M69.9 — the angle sign was backwards.** ``Stamp.angle`` was **clockwise**-positive: ``-45``
+  produced the north-east (bottom-left to top-right) diagonal, while the field's own docstring
+  claimed counter-clockwise and the watermark default was written as ``-45`` with the comment
+  "bottom-left to top-right". Caught by the owner asking the obvious question — why is north-east
+  negative? It should not be: the maths convention is counter-clockwise-positive, so ``+45`` is
+  north-east and ``-45`` is south-east. The descriptor was corrected rather than the documentation
+  bent to fit it, which cancelled the negation ``apply_content_marks`` had carried since §M69.1 and
+  added one in the viewer's preview (Qt's ``setRotation`` is clockwise-positive in a y-down scene).
+  Free to fix because R4 has never shipped.
+
+- **§M69.6 — `under` is an engine capability, not a UI control.** A mark drawn with
+  `show_pdf_page(overlay=False)` goes beneath *everything the page draws*, including the opaque
+  full-page background most real PDFs paint — so it bakes correctly into the text layer and cannot be
+  seen (found on a 320-page prospectus: the text was in `get_text()`, nothing was visible). The
+  viewer made it worse by previewing an `under` mark with **multiply compositing on top**, which
+  shows regardless, so preview and file disagreed. **Opacity already gives the watermark look** —
+  a translucent mark over the content with the page's text legible through it — which is what
+  `under` was reached for, so the control was dropped (owner). The considered alternative, baking
+  `under` as an over-content `/BM /Multiply` draw so the file would match the preview, was
+  **rejected**: it does not restore the one thing true under-print uniquely gives (page images
+  *covering* the mark), and it means hand-built `/ExtGState` PDF code in the **save path** — exactly
+  the cross-renderer variability M61's "no cross-renderer calibration" call exists to avoid. The
+  descriptor field and the engine path stay, so a future caller can still use them.
+
+- **§M69.3 — and it is not a second *feature* either.** M62 shipped two dialogs over that one
+  descriptor, and the seam cost more than it bought: every new field had to be added twice (the
+  sticky-style work at M69.1 wrote `style_state`/`restore` twice), and the two preset lists both
+  contained "Draft" and "Confidential" — the same word producing a different mark depending on which
+  menu the user opened, with nothing on screen to explain why. Of the seven axes on which the two
+  dialogs differed, **six were defaults** (`under`, angle, frame, opacity, scope, preset list) and
+  exactly one was structural: **how the mark is placed**. So the merged `ui/mark_dialog.py` surfaces
+  that one as a **Place** control — "Where I drag it" / "Over the whole page" — which rewrites the
+  style fields visibly and hides Size + Frame for a page-covering mark (no dead chrome). Presets
+  became one list of *words*, prefilling text + colour only; whether "Confidential" is a stamp or a
+  watermark is now a visible choice rather than a hidden mode. That is this section's own **Way 2**
+  rule (a preset is a prefill of the custom generator, never a separate code path) applied one level
+  up. Done **before** R4's first release, while it was still free: after M70 ships it would be a
+  breaking UI change that release notes must explain.
+
 - **A watermark is not a third type.** It is a `Stamp` or `ImageStamp` with `under=True`, added to
   every page in the range. **The page range lives in the UI loop, not the model** — which is exactly
   what makes "stamp my initials on pages 3–17" and "watermark the document" the same operation, and
@@ -1069,7 +1121,7 @@ sharing the existing draw-gesture path. Two consequences worth stating:
   paint beneath the page's own pixmap. It is previewed with **multiply** compositing instead —
   equivalent for the translucent marks a watermark actually is, because painting a translucent mark
   under black text and multiplying it over black text both leave the text black.
-| **M62** Stamp & watermark UI | Placement mode (drag rect, move, corner-resize until save) — **the same placement UI M69's field creation reuses**; stamp dialog (text · colour · angle · opacity + preset list); watermark dialog (page range, translucency, diagonal); apply-to-page-range checkbox on stamps (the initials-on-every-page case). | WSLg | Place/move/resize a stamp; watermark a range; both bake on save |
+| **M62** Stamp & watermark UI | Placement mode (drag rect, move, corner-resize until save) — **the same placement UI M69's field creation reuses**; **one** mark dialog (preset · place · text · colour · size · angle · opacity · frame · behind-content · page range) — see §M69.3 for why the stamp and watermark dialogs were merged; apply-to-page-range on any mark (the initials-on-every-page case). | WSLg | Place/move/resize a stamp; watermark a range; both bake on save |
 | **M63** Image stamp / signature | The sign-and-return workflow: place a PNG/JPEG (scanned signature, seal, logo) via the M62 placement UI. Transparent-PNG alpha honored + a **"make white background transparent"** threshold toggle (phone-photo signatures just work); **recent-signatures list stores paths only** — KlarPDF never keeps a hidden copy of a signature. Docs: ink-equivalent, **not** a cryptographic signature. | WSL + WSLg | Sign a form offline in two clicks on the second use; baked mark can't be lifted off |
 | **M64** Search & redact | Redact every occurrence of a string: `search_for` quads → batched `Redaction` descriptors in **one undo step**; destructive only at the existing confirmed Save. Review flow reuses M47's panel with checkboxes (untick "Smithsonian" when redacting "Smith"); case + whole-word toggles. **Honesty: text-layer only** — detect image-only pages and warn; form-field values are a documented boundary; same-width boxes hint string length (docs note). | WSL (model+tests) + WSLg | Mark-all → review → redact-checked → Save removes them (cross-engine leak check); warnings fire on image-only pages |
 | **M65** Verify + release | Headless suite green; Windows validation; tag. | Windows | Matrix green → release |

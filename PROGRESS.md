@@ -462,6 +462,188 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   the box from the new size instead of stretching it, so the hug is exact at every step. The
   viewer's preview reads the same `art_scale` the bake applies, so the two cannot drift.
   — *Windows (headless + offscreen GUI)* — 45 new tests, 1020 green
+- [x] **M69.2** Watermark interaction + live-thumbnail fixes — two owner-reported defects, neither
+  watermark-specific underneath. **(1) Text selection stopped working on a watermarked page**: a
+  full-page mark was an ordinary object hit target, so a press *anywhere* grabbed it before text
+  selection got a look in (the armed markup tools were unaffected, which is exactly how it presented
+  — "highlight and underline work, but selecting text does not"). A mark that blankets the page is
+  no longer an interaction target for move / select / marquee; it stays reachable by right-click,
+  which offers **Remove watermark** and drops the object verbs that would do nothing to it.
+  **(2) Thumbnails did not update**: `populate()` runs on every edit and reset *every* row to a blank
+  grey placeholder, re-rendering only the rows in the viewport — so one edit emptied the sidebar and
+  most rows stayed empty until scrolled to. Rows now carry their previous render (a structural edit
+  carries nothing, since row N is then a different page). Compounding it, a range apply called
+  `_note_edit_on` per page, scrolling the view — and the sidebar — to the **last** page of the range;
+  it now follows the first. — *Windows (headless + offscreen GUI)* — 11 new tests, 1031 green (1029 after the M69.3 merge folded two dialogs into one)
+- [x] **M69.3** ⭐ Stamp and watermark merged into one feature — owner call: *"given the similarity
+  I am not seeing much value offering them as two separate features"*. They were never two: the model
+  has only `Stamp` / `ImageStamp` and a watermark is one with `under=True`. Of the seven axes on
+  which the two dialogs differed, **six were defaults** and exactly one was structural — **how the
+  mark is placed**. So `ui/mark_dialog.py` replaces both dialogs with one carrying a **Place**
+  control ("Where I drag it" / "Over the whole page") that rewrites the style fields visibly and
+  hides Size + Frame for a page-covering mark; `Tools ▸ Stamp / Watermark…` replaces the two menu
+  entries. Presets became **one list of words** (`MARK_PRESETS`) prefilling text + colour only —
+  ending the collision where "Draft" and "Confidential" sat in *both* lists meaning different
+  things. Rationale and the Way-2 argument in `PLAN.md` §R4. Done before R4's first release, while
+  it was still free. — *Windows (headless + offscreen GUI)* — 1029 green
+- [x] **M69.4** Large-document mark performance — owner-reported: watermarking all pages of a
+  **320-page** document left the app sluggish *afterwards*, not just during. Measured on
+  `spaceX_prospectus.pdf`: the apply took **10.6s**, and **every subsequent edit cost 10.7s**. Two
+  causes, both O(document) where they should be O(what's on screen). **(1) The overlay rasterised
+  every content mark in the document on every repaint** — 320 marks to display about two. Content
+  marks are the one overlay built by rendering a real PDF rather than from cheap Qt items, and the
+  page pixmaps had been lazy since M25 while the overlay never caught up; they now share the view's
+  prefetch band (`content_band`) and paint incrementally as pages scroll in (incrementally, not by
+  `repaint`, which would drop the object selection on every scroll tick). **(2) The auto-fit search
+  was uncached** — `_fit_fontsize` runs a 14-step binary search, each step opening a throwaway PDF
+  and embedding a font, so one repaint ran ~4,500 of them to compute the *same* answer 320 times.
+  Memoised on its scalar inputs, which fully determine the result. **Apply 10.6s → 0.93s; a later
+  edit 10.7s → 0.89s; `view.reload()` 8.8s → 0.16s.** The remaining per-edit cost is the thumbnail
+  panel's whole-document `render_output` bake (0.69s of the 0.89s) — see Open follow-ups.
+  — *Windows (headless + offscreen GUI)* — 5 new tests, 1034 green
+- [x] **M69.5** Whole-page marks: visible by default, and they stop moving the reader — two more
+  owner-reported items. **(1) "Behind the page content" produced nothing.** Reported as *"does not
+  update the thumbnails, does not save with the document"* — but the mark **was** saved: on
+  `spaceX_prospectus.pdf` the watermark's text is in the saved page's text layer and is simply
+  **invisible**, because `under=True` puts it beneath *everything the page draws* and most real
+  PDFs paint an opaque full-page background. The on-screen preview hid the problem by compositing
+  with **multiply on top**, which shows regardless — so the preview and the file genuinely disagreed
+  (the M62 code comment claimed they were equivalent; that only holds for a page with a transparent
+  background). Whole-page marks now default to **over** the content, which at watermark opacity is
+  what a watermark should look like anyway — visible, with the page's own text fully legible
+  through it. `under` is unchanged as a capability and still offered, with a tooltip that says when
+  it will disappear. Making `under` itself honest is in Open follow-ups. **(2) The current page
+  jumped** to the first or last page when marking the whole document. `_note_edit_on` exists to
+  follow a mark to the page it landed on; a **range** mark did not land anywhere in particular, so
+  it is no longer called for one — marking every page changes nothing about where the reader is.
+  — *Windows (headless + offscreen GUI)* — 4 new tests, 1038 green
+- [x] **M69.6** "Behind the page content" removed from the UI — owner call: *"I don't see any value
+  for under given that we have opacity control in place already."* M69.5 had defaulted it off and
+  warned in a tooltip; this drops the control. `Stamp.under` stays an **engine** capability (the M61
+  "one engine, over or under" design and its tests are untouched) — the UI simply stops offering a
+  control whose ordinary outcome is *nothing appears*, which is worse than dead chrome. The
+  previously-recorded fix (bake `under` as an over-content `/BM /Multiply` draw so the file matches
+  the multiply-composited preview) was **rejected**: it would not restore the one thing true
+  under-print uniquely gives — page images *covering* the mark — and it means hand-built
+  `/ExtGState` PDF code in the **save path**, adding exactly the cross-renderer variability that
+  §M61's "no cross-renderer calibration" owner call exists to avoid. A pre-M69.6 settings file
+  carrying `"under": true` is ignored rather than resurrecting the mode. — *Windows (headless +
+  offscreen GUI)* — 1038 green
+- [x] **M69.7** Two use cases, two controls — owner call: *"There are basically two use cases…
+  so we don't need the third option of dragging to stamp."* Dragging a rectangle was only ever a way
+  of **sizing** a text stamp; once a point size is on the dialog it is a second answer to a question
+  already answered, and the worse one — a dragged box sets the size only indirectly, through the
+  padding auto-fit leaves (which is what M69.1 was reported about). `Kind` is now *Stamp (click to
+  place)* or *Watermark (whole page)*; the size field drops its "Fit to box" position and defaults to
+  36pt; a stamp is centred on the **press point**, not the middle of a stray drag, and draws no
+  rubber band to advertise a box it will not take. **Signature/image placement and M69 field
+  creation keep the drag** — neither has a font size, so the box is genuinely how you size them, and
+  `fontsize=0` stays the engine's auto-fit sentinel under them. — *Windows (headless + offscreen
+  GUI)* — 5 new tests, 1042 green
+- [x] **M69.8** Angle slider — owner request. The angle keeps its spin box and gains a slider
+  beside it: two views of **one** value (the slider to find a tilt by eye, the spin box to say one
+  exactly), synced without either driving the other in a loop. Ticks at the quarter turns plus a 3°
+  snap to them, because 0° and ±45° are most of the angles anyone wants and exactly the ones a free
+  drag over a −180…180 range is least likely to land on; the snap is short enough that a deliberate
+  38° still sticks. Degrees are whole now, so the two views cannot disagree. — *Windows (headless +
+  offscreen GUI)* — 5 new tests, 1047 green
+- [x] **M69.9** Angle sign corrected + one shape for every numeric row — two owner items.
+  **(1) The angle sign was backwards.** `Stamp.angle` was clockwise-positive — `-45` gave the
+  north-east diagonal — while the field's own docstring said counter-clockwise and the watermark
+  default was written `-45` with the comment "bottom-left to top-right". The owner asked the obvious
+  question (*"shouldn't north-east be +45?"*); it should, so the **descriptor** was corrected rather
+  than the docs bent to fit it. `+45` is now north-east, `-45` south-east. That cancelled the
+  negation `apply_content_marks` had carried since M69.1 and added one in the preview (Qt's
+  `setRotation` is clockwise-positive in a y-down scene). Free to fix: R4 has never shipped.
+  **(2) Angle and Opacity are one shape.** They had drifted into two layouts — a slider stacked over
+  a read-only label, and a slider beside an arrow-spinner — which is what made the dialog read as
+  cluttered. Both are now `_SliderField`: a slider plus a typable, **spinner-free** value box, built
+  once so the rows are identical by construction rather than by care. The box is a spin box with its
+  buttons hidden, not a line edit, which keeps range clamping and number parsing for free.
+  — *Windows (headless + offscreen GUI)* — 1047 green
+- [x] **M69.10** Mark dialog geometry warning — owner-reported: switching Kind logged
+  `QWindowsWindow::setGeometry: Unable to set geometry … Resulting geometry: …` on every switch. Qt
+  was promising Windows a minimum **48px shorter** than the layout then needed. Cause: the wrapped
+  bake note under the form. A word-wrapped `QLabel`'s height is a function of its **width**, which
+  `minimumSizeHint` does not consult — so a dialog narrow enough for the note to re-wrap taller
+  advertised a minimum it could not actually live in, and showing/hiding the Size + Frame rows made
+  Qt ask for a geometry the platform then had to override. Fixed by pinning the note's minimum
+  height to what it needs at the dialog's narrowest allowed width, giving the dialog that width
+  floor, and resizing deliberately on a Kind switch instead of leaving the window manager to infer
+  it. Cosmetic (a console warning, nothing misrendered) but it was the layout genuinely fighting
+  itself. Nothing to do with the document being edited — dialog geometry only.
+  — *Windows (headless + offscreen GUI)* — 3 new tests, 1050 green
+- [x] **M69.11** Crash: picking a recent signature from the dropdown — owner-reported. The handler
+  called `_rebuild_signature_menu`, which does `menu.clear()` and therefore **destroys the submenu's
+  `QAction` objects — including the one whose `triggered` signal was still being delivered**. That is
+  undefined behaviour: a hard crash on Windows, surfacing under PySide as *"Internal C++ object
+  (QAction) already deleted"*. `Clear List` carried the identical hazard, being an action in the menu
+  its own handler empties. The rebuild is now deferred by a zero-delay timer so the signal unwinds
+  before anything is deleted. Reproduced first (triggering the *oldest* entry, which reorders the
+  list and so forces a real rebuild), and both regression tests fail on the pre-fix code with that
+  exact RuntimeError. — *Windows (headless + offscreen GUI)* — 3 new tests, 1053 green
+- [x] **M69.12** Signatures made dragging other objects lag — owner-reported, worse with each
+  signature added, *"even if added to other pages"*. A content mark is the one overlay built by
+  **rendering a real PDF**, and it was re-rasterised on **every repaint** — and a drag repaints. So
+  the cost of dragging anything scaled with how many signatures were in view, which had nothing to
+  do with what was being dragged. Measured: **~98ms per transparent signature per repaint**, linear
+  (4 signatures = 392ms *per repaint*). Two fixes. **(1) The rasterised artwork is cached**, keyed
+  on `(mark, on-screen width)`; the descriptors are frozen dataclasses, so a moved or restyled mark
+  is a different key and can never be served the stale image of its previous self — no explicit
+  invalidation. Bounded LRU, so a document of distinct marks costs memory like one. **(2)
+  `_drop_white`'s alpha intersection** ran a Python `zip`/`min` **per pixel** whenever the image
+  *already had* transparency — the exact "full transparency" case — making a transparent PNG
+  **4.6× slower** than an opaque one (110ms vs 24ms) in a module whose docstring warns that a Python
+  per-pixel loop "would stall the UI for seconds". Now `map(min, …)`, which runs the loop inside
+  CPython (~1.6×); MuPDF has no per-pixel alpha-intersect and numpy is not a dependency, so this
+  stays the floor — the cache is what makes it stop mattering. **Repaint after the first: 98ms per
+  signature → 0.0–0.7ms regardless of count.** — *Windows (headless + offscreen GUI)* — 3 new tests,
+  1056 green
+- [x] **M69.13** Signature removal slider ran backwards — owner-reported: *"transparency increases
+  if I keep the slider towards zero and decreases as I drag it right."* It did. The slider exposed
+  `ImageStamp.white_threshold` **raw**, and a threshold is a luminance *cutoff*, so lowering it
+  removes more: measured on a grey ramp, far-left removed **129/256** pixels and far-right **4/256**.
+  It also had **no label and no tooltip** — a bare slider under a checkbox, which reads as "how
+  much", the one thing it was not. Now labelled **"Remove"** and inverted, so right removes more;
+  the mapping to the cutoff (`(100 - strength) / 100`) lives at the dialog edge so
+  `ImageStamp` keeps the plain threshold semantics the renderer wants. The default is unchanged —
+  strength 15 is the old 0.85 — and the reach is the same (1–50 spans the old 0.99–0.50), so this
+  inverts the control without quietly re-tuning it. — *Windows (headless + offscreen GUI)* — 2 new
+  tests, 1058 green
+- [x] **M69.14** A created form field is an ordinary object — owner-reported: fields could not be
+  moved, even before saving. The **model had always been ready**: `PLACEABLE_TYPES` lists `NewField`,
+  `translate_mark` and `scale_mark` both handle it, and its `bounding_rect` docstring says it exists
+  *"so the viewer's shared hit-test / outline helpers work on it unchanged"*. But the viewer's
+  `OBJECT_TYPES` tuple was never told, so a field was invisible to select / move / resize / marquee —
+  the **third** time that hand-maintained list has gone stale behind a new descriptor (stamps at
+  M69.1, watermarks at M69.2). A field is drawn by the *form* overlay rather than the annotation
+  overlay, which is what let it go unnoticed. `mark_noun` also gained "form field", so the menu no
+  longer offers "Remove newfield". **Note the deliberate mode split**, now pinned by a test: in
+  **Objects** mode a click moves a field; in **Select** mode the form overlay claims it so you can
+  type into a field you just created (M69's feature). — *Windows (headless + offscreen GUI)* —
+  6 new tests, 1064 green
+- [x] **M69.15** A freshly placed mark is selected — owner-reported: a form field could not be
+  selected right after creating it (workaround: switch mode and marquee around it). **Placement
+  committed with nothing selected**, so the next click went to the *form* overlay to be filled —
+  which, to someone who had just drawn the box, looked like the field could not be selected at all.
+  Paste has selected-after-add since M59.7 for exactly this reason (*"the add reloads the view,
+  which clears any selection"*); placement never did. Now it does, for fields and content marks
+  alike. Second half: a press on an **already-selected** object now leads the Select-mode priority
+  list, so a field can be dragged without switching to Objects mode — gated on *selected*, so a
+  click on an unselected field still means "type into it" (M69's in-session fill, pinned by a test).
+  **A note on the diagnosis**: the first attempt looked like it did not work, because the test drove
+  `finish_draw()` directly — the view disarms on mouse *release*, so the tool stayed armed and ate
+  the next press. The owner re-testing is what caught that; the tests now go through real press /
+  move / release events. — *Windows (headless + offscreen GUI)* — 3 new tests, 1067 green
+- [x] **M69.16** A created field grabs like a text box — owner-reported: *"if I am in text select
+  mode, clicking over it takes me into text entry mode… I have to click precisely on the edge, which
+  is hit and a miss most of the times."* M69.15 had gated the Select-mode grab on the field being
+  *already selected*, which left no way to select it by clicking in the first place — so the border
+  was the only handle. A field **you created this session** now follows the contract a text box has
+  had since M20: **press to move, double-click to type into it**. A **document's own** form fields
+  are untouched — single-click still fills them, which is what filling in a form requires. The
+  distinction is who owns the thing under the cursor, and it lives in one predicate
+  (`PdfView._grabs_before_form`). — *Windows (headless + offscreen GUI)* — 2 new tests, 1068 green
 - [ ] **M70** Verify + release → tag — *Windows*
 
 ## Public-Release Readiness — go open-source under AGPL-3.0 (planned)
@@ -653,6 +835,18 @@ tree or history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI 
 ## Open follow-ups (carried)
 
 Carried items — none block work:
+
+- **The thumbnail sidebar bakes the *whole document* on every edit.** `ThumbnailPanel._edited_render`
+  calls `PyMuPDFEngine.render_output(vdoc)` — a full materialise of every page — so the panel can
+  rasterise the handful of thumbnails actually on screen. On a 320-page document that is **~0.69s per
+  edit** (measured at M69.4 on `spaceX_prospectus.pdf`, after the mark-rendering fixes took the rest
+  of the edit cost from 10.7s to 0.89s); it is now the single largest remaining O(document) cost per
+  edit, and it grows with page count on *every* edit, not just marks. The fix is a **per-page bake**:
+  an engine entry point that materialises only the pages asked for, which the panel would call for
+  its visible rows the same way `_render_visible_thumbs` already scopes rasterising. Deferred because
+  it touches the shared `render_output` path that print and save also use, so it wants its own
+  milestone and its own verification rather than riding a bug-fix branch. Not a blocker: 0.89s per
+  edit on a 320-page document is responsive, and small documents are unaffected.
 
 - **Upstream PyMuPDF bug: URI links with an unbalanced paren are dropped by `insert_pdf` /
   `insert_link`** (unescaped re-serialisation of the URI text; console shows "skipping bad link /

@@ -19,7 +19,15 @@ from main_window import MainWindow
 from model.content_marks import ImageStamp, Stamp
 from store.settings import Settings
 from util.page_range import PageRangeError, format_page_range, parse_page_range
+from ui.mark_dialog import PLACE_CLICK, PLACE_PAGE
 from viewer.tools import ArmedTool
+
+
+def _compose_whole_page(dialog) -> int:
+    """Stand-in for the user choosing "Over the whole page" and pressing OK — the watermark flow
+    now that both marks share one dialog."""
+    dialog.place.setCurrentText(PLACE_PAGE)
+    return 1
 
 
 @pytest.fixture(scope="session")
@@ -290,26 +298,79 @@ def test_the_pending_range_does_not_leak_into_the_next_mark(win):
 def test_watermark_covers_each_page_at_its_own_size(win, monkeypatch):
     """Applied straight across the range, full-page — and sized per page, so a mixed-size document
     does not inherit the current page's rect."""
-    from ui.stamp_dialog import WatermarkDialog
+    from ui.mark_dialog import MarkDialog
 
-    monkeypatch.setattr(WatermarkDialog, "exec", lambda self: 1)
-    monkeypatch.setattr(WatermarkDialog, "selected_pages", lambda self: [0, 1, 2])
-    win._add_watermark()
+    monkeypatch.setattr(MarkDialog, "exec", _compose_whole_page)
+    monkeypatch.setattr(MarkDialog, "selected_pages", lambda self: [0, 1, 2])
+    win._add_mark()
     for index in range(3):
         mark = _stamps(win, index)[0]
-        assert mark.under is True                     # under the content — that is what makes it one
         assert mark.rect == (0.0, 0.0, *win.view._unrotated_size(index))
     win.undo_stack.undo()
     assert _stamps(win, 0) == []                      # one undo step for the whole document
 
 
-def test_watermark_dialog_defaults_are_translucent_and_diagonal(win):
-    from ui.stamp_dialog import WatermarkDialog
+# ---- a watermark is not a click target (owner-reported, M69.2) ------------------
+#
+# A full-page mark that is grabbable is a click target for the entire page, so every press started
+# a watermark move and text selection stopped working. The armed markup tools kept working, because
+# they route through the text-drag path before the object path — which is exactly how the bug
+# presented: "highlight and underline work, but just selecting text does not".
 
-    dialog = WatermarkDialog(win, 3, 0)
-    mark = dialog.watermark((0, 0, 595, 842))
-    assert mark.under is True
-    assert mark.angle == -45.0
+
+def _watermark_every_page(win):
+    from ui.mark_dialog import MarkDialog
+
+    exec_, pages = MarkDialog.exec, MarkDialog.selected_pages
+    MarkDialog.exec = _compose_whole_page
+    MarkDialog.selected_pages = lambda self: [0]
+    try:
+        win._add_mark()
+    finally:
+        MarkDialog.exec, MarkDialog.selected_pages = exec_, pages
+
+
+def test_a_watermark_does_not_swallow_the_click(win):
+    _watermark_every_page(win)
+    assert win.view.annotations.drawn_mark_at(_scene(win, 200, 300)) is None
+    assert win.view.annotations.begin_move(_scene(win, 200, 300)) is False
+
+
+def test_text_selection_still_begins_over_a_watermark(win):
+    """The reported symptom, at the level it was reported: dragging over text selects it."""
+    _watermark_every_page(win)
+    assert win.view.selection.begin(_scene(win, 100, 100)) is not False
+
+
+def test_a_marquee_does_not_catch_the_watermark(win):
+    _watermark_every_page(win)
+    win.view.annotations.select_in_rect(0, (50, 50, 250, 250))
+    assert win.view.annotations.selected_objects == []
+
+
+def test_a_watermark_is_still_removable_from_its_context_menu(win):
+    """It gives up the click, so right-click has to be a real removal path — not a dead end."""
+    _watermark_every_page(win)
+    labels = _menu_labels(win, 200, 300)
+    assert "Remove watermark" in labels
+    # …but not the object verbs, which would do nothing to a page-wide mark.
+    assert not [text for text in labels if "Object" in text]
+
+
+def test_an_ordinary_stamp_is_still_grabbable(win):
+    """The exclusion is about *covering the page*, not about being a content mark."""
+    _place(win, TEMPLATE, start=(100, 300), end=(300, 360))
+    assert win.view.annotations.drawn_mark_at(_scene(win, 200, 330)) is not None
+
+
+def test_watermark_dialog_defaults_are_translucent_and_diagonal(win):
+    from ui.mark_dialog import MarkDialog
+
+    dialog = MarkDialog(win, 3, 0)
+    dialog.place.setCurrentText(PLACE_PAGE)
+    mark = dialog.mark((0, 0, 595, 842))
+    assert mark.under is False        # over the content (M69.5) — see the model default
+    assert mark.angle == 45.0         # +45 = north-east, the maths convention (M69.9)
     assert 0 < mark.opacity < 0.5
     assert mark.border_width == 0.0                   # a frame would read as a stamp
     dialog.deleteLater()
@@ -317,13 +378,13 @@ def test_watermark_dialog_defaults_are_translucent_and_diagonal(win):
 
 def test_stamp_dialog_preset_prefills_but_stays_editable(win):
     """Way 2: a preset is a prefill of the custom generator, not a separate kind of stamp."""
-    from ui.stamp_dialog import StampDialog
+    from ui.mark_dialog import MarkDialog
 
-    dialog = StampDialog(win, 3, 0)
+    dialog = MarkDialog(win, 3, 0)
     dialog.presets.setCurrentText("Confidential")
     assert dialog.text.text() == "CONFIDENTIAL"
     dialog.text.setText("MY OWN WORDS")               # still editable after choosing a preset
-    assert dialog.stamp().text == "MY OWN WORDS"
+    assert dialog.mark().text == "MY OWN WORDS"
     dialog.deleteLater()
 
 
@@ -473,21 +534,24 @@ def test_an_auto_fit_stamp_still_needs_a_drag(win):
     assert _stamps(win) == []
 
 
-def test_the_dialog_defaults_to_fitting_the_box(win):
-    """Unchanged behaviour for anyone who never touches the field: 0 is the auto-fit sentinel."""
-    from ui.stamp_dialog import StampDialog
+def test_a_stamp_always_carries_a_real_point_size(win):
+    """There is no "fit to box" any more (M69.7) — no box to fit, because there is no drag. A stamp
+    composed by the dialog is always sized by its font, so it can be dropped with a click."""
+    from ui.mark_dialog import MarkDialog
 
-    dialog = StampDialog(win, 3, 0)
-    assert dialog.stamp().fontsize == 0.0
+    dialog = MarkDialog(win, 3, 0)
+    assert dialog.mark().fontsize > 0.0
+    dialog.fontsize.setValue(dialog.fontsize.minimum())
+    assert dialog.mark().fontsize > 0.0          # the floor is a real size, not the auto sentinel
     dialog.deleteLater()
 
 
 def test_the_dialog_passes_a_typed_size_through(win):
-    from ui.stamp_dialog import StampDialog
+    from ui.mark_dialog import MarkDialog
 
-    dialog = StampDialog(win, 3, 0)
+    dialog = MarkDialog(win, 3, 0)
     dialog.fontsize.setValue(32.0)
-    assert dialog.stamp().fontsize == 32.0
+    assert dialog.mark().fontsize == 32.0
     dialog.deleteLater()
 
 
@@ -495,9 +559,9 @@ def test_the_dialog_passes_a_typed_size_through(win):
 
 
 def test_stamp_style_round_trips_through_the_dialog(win):
-    from ui.stamp_dialog import StampDialog
+    from ui.mark_dialog import MarkDialog
 
-    first = StampDialog(win, 3, 0)
+    first = MarkDialog(win, 3, 0)
     first.presets.setCurrentText("Custom…")
     first.text.setText("MY MARK")
     first.color.set_color((0.1, 0.2, 0.3))
@@ -507,9 +571,9 @@ def test_stamp_style_round_trips_through_the_dialog(win):
     state = first.style_state()
     first.deleteLater()
 
-    second = StampDialog(win, 3, 0)
+    second = MarkDialog(win, 3, 0)
     second.restore(state)
-    mark = second.stamp()
+    mark = second.mark()
     assert mark.text == "MY MARK"
     assert mark.color == pytest.approx((0.1, 0.2, 0.3), abs=0.01)
     assert mark.fontsize == 28.0
@@ -521,9 +585,9 @@ def test_stamp_style_round_trips_through_the_dialog(win):
 def test_a_restored_preset_is_not_overwritten_by_its_prefill(win):
     """Restoring a preset name must not re-run the prefill over the text the user then edited —
     that is what the remembered preset name is for."""
-    from ui.stamp_dialog import StampDialog
+    from ui.mark_dialog import MarkDialog
 
-    dialog = StampDialog(win, 3, 0)
+    dialog = MarkDialog(win, 3, 0)
     dialog.restore({"preset": "Approved", "text": "EDITED AFTERWARDS"})
     assert dialog.text.text() == "EDITED AFTERWARDS"
     dialog.deleteLater()
@@ -532,64 +596,64 @@ def test_a_restored_preset_is_not_overwritten_by_its_prefill(win):
 def test_restore_tolerates_a_settings_file_from_an_older_build(win):
     """Missing and malformed fields are skipped, never defaulted — an old or hand-edited settings
     file degrades to "some fields remembered", not to a dialog that will not open."""
-    from ui.stamp_dialog import StampDialog
+    from ui.mark_dialog import MarkDialog
 
-    dialog = StampDialog(win, 3, 0)
+    dialog = MarkDialog(win, 3, 0)
     dialog.restore({"text": "KEPT", "color": "not a colour", "fontsize": None, "angle": []})
     assert dialog.text.text() == "KEPT"
-    assert dialog.stamp().fontsize == 0.0
+    assert dialog.mark().fontsize > 0.0          # left at the default, not zeroed by junk
     dialog.deleteLater()
 
 
 def test_the_stamp_style_is_persisted_on_accept(win, app, monkeypatch):
     """End to end through the window: composing a stamp writes the style to the settings store, so
     the next session's dialog opens on it."""
-    from ui.stamp_dialog import StampDialog
+    from ui.mark_dialog import MarkDialog
 
     def compose(dialog):
         dialog.text.setText("REMEMBER ME")
         dialog.fontsize.setValue(26.0)
         return 1
 
-    monkeypatch.setattr(StampDialog, "exec", compose)
-    monkeypatch.setattr(StampDialog, "selected_pages", lambda self: [0])
-    win._add_stamp()
-    saved = app.settings.get_pref("stamp_style", {})
+    monkeypatch.setattr(MarkDialog, "exec", compose)
+    monkeypatch.setattr(MarkDialog, "selected_pages", lambda self: [0])
+    win._add_mark()
+    saved = app.settings.get_pref("mark_style", {})
     assert saved["text"] == "REMEMBER ME"
     assert saved["fontsize"] == 26.0
 
 
 def test_the_remembered_style_is_offered_to_the_next_dialog(win, app, monkeypatch):
-    from ui.stamp_dialog import StampDialog
+    from ui.mark_dialog import MarkDialog
 
-    app.settings.set_pref("stamp_style", {"text": "FROM LAST TIME", "fontsize": 30.0})
+    app.settings.set_pref("mark_style", {"text": "FROM LAST TIME", "fontsize": 30.0})
     seen = {}
-    monkeypatch.setattr(StampDialog, "exec",
+    monkeypatch.setattr(MarkDialog, "exec",
                         lambda self: seen.update(text=self.text.text(),
                                                  size=self.fontsize.value()) or 0)
-    win._add_stamp()
+    win._add_mark()
     assert seen == {"text": "FROM LAST TIME", "size": 30.0}
 
 
 def test_the_page_range_is_never_remembered(win, app, monkeypatch):
     """Style is sticky; **scope is not**. A persisted "All pages" would silently re-scope the next
     stamp to a whole document — the one field where a stale value is destructive."""
-    from ui.stamp_dialog import StampDialog
+    from ui.mark_dialog import MarkDialog
 
-    monkeypatch.setattr(StampDialog, "exec", lambda self: 1)
-    monkeypatch.setattr(StampDialog, "selected_pages", lambda self: [0, 1, 2])
-    win._add_stamp()
-    assert "pages" not in app.settings.get_pref("stamp_style", {})
-    assert "scope" not in app.settings.get_pref("stamp_style", {})
+    monkeypatch.setattr(MarkDialog, "exec", lambda self: 1)
+    monkeypatch.setattr(MarkDialog, "selected_pages", lambda self: [0, 1, 2])
+    win._add_mark()
+    assert "pages" not in app.settings.get_pref("mark_style", {})
+    assert "scope" not in app.settings.get_pref("mark_style", {})
 
 
 def test_stamp_dialog_frame_toggle_drives_border_width(win):
-    from ui.stamp_dialog import StampDialog
+    from ui.mark_dialog import MarkDialog
 
-    dialog = StampDialog(win, 3, 0)
-    assert dialog.stamp().border_width > 0
+    dialog = MarkDialog(win, 3, 0)
+    assert dialog.mark().border_width > 0
     dialog.frame.setChecked(False)
-    assert dialog.stamp().border_width == 0.0
+    assert dialog.mark().border_width == 0.0
     dialog.deleteLater()
 
 
@@ -622,3 +686,419 @@ def test_bad_page_range_raises(text):
 def test_format_page_range_collapses_runs():
     assert format_page_range([0, 1, 2, 4]) == "1-3, 5"
     assert format_page_range([]) == ""
+
+
+# ---- content marks are painted lazily, by viewport band (M69.4) ------------------
+#
+# Every other overlay is a handful of cheap Qt items, but a content mark is *rasterised* through the
+# real PDF generator — a throwaway document, a font embed and a pixmap each. Painting them
+# document-wide made an edit cost O(marks in document) rather than O(marks on screen): a 320-page
+# document watermarked on every page spent ~8.5s re-rendering 320 marks after *every* edit, to show
+# about two of them.
+
+
+def _content_items(win):
+    from PySide6.QtWidgets import QGraphicsPixmapItem
+
+    return [i for i in win.view.annotations._items if isinstance(i, QGraphicsPixmapItem)]
+
+
+def _stamp_every_page(win):
+    from model.content_marks import preset_mark
+
+    for index in range(win.vdoc.page_count):
+        width, height = win.view._unrotated_size(index)
+        win.vdoc.add_annotation(index, preset_mark("Draft", (0, 0, width, height), whole_page=True))
+
+
+def test_only_marks_near_the_viewport_are_rasterised(win, monkeypatch):
+    """The optimisation itself: a mark on a page nowhere near the viewport costs nothing."""
+    _stamp_every_page(win)
+    monkeypatch.setattr(win.view, "content_band", lambda: (0, 0))
+    win.view.annotations.repaint()
+    assert len(_content_items(win)) == 1        # page 0 only, not all three
+
+
+def test_scrolling_paints_the_marks_that_came_into_view(win, monkeypatch):
+    """Lazy must not mean missing: a page scrolling in brings its mark with it."""
+    _stamp_every_page(win)
+    monkeypatch.setattr(win.view, "content_band", lambda: (0, 0))
+    win.view.annotations.repaint()
+    assert len(_content_items(win)) == 1
+
+    monkeypatch.setattr(win.view, "content_band", lambda: (0, 2))
+    win.view.annotations._paint_visible_content()
+    assert len(_content_items(win)) == win.vdoc.page_count
+
+
+def test_a_page_already_painted_is_not_painted_twice(win, monkeypatch):
+    """`_paint_visible_content` runs on every scroll tick, so it has to be idempotent — otherwise
+    scrolling would pile duplicate pixmaps onto the same page."""
+    _stamp_every_page(win)
+    monkeypatch.setattr(win.view, "content_band", lambda: (0, 2))
+    win.view.annotations.repaint()
+    before = len(_content_items(win))
+    for _ in range(3):
+        win.view.annotations._paint_visible_content()
+    assert len(_content_items(win)) == before
+
+
+def test_marks_are_all_painted_before_the_view_is_shown(win, monkeypatch):
+    """No band yet (nothing laid out) means paint everything — the honest fallback, and what keeps
+    an offscreen/headless render complete."""
+    _stamp_every_page(win)
+    monkeypatch.setattr(win.view, "content_band", lambda: None)
+    win.view.annotations.repaint()
+    assert len(_content_items(win)) == win.vdoc.page_count
+
+
+def test_the_fit_search_cache_does_not_change_the_answer():
+    """The auto-fit search is memoised because it is pure and startlingly expensive. Pure is the
+    load-bearing half: a cached fit must equal a freshly computed one."""
+    from model.content_marks import _fit_fontsize, _measure_free_height, _text_width
+    import pymupdf as fitz
+
+    box = fitz.Rect(0, 0, 260, 100)
+    _measure_free_height.cache_clear()
+    _text_width.cache_clear()
+    cold = _fit_fontsize(box, "APPROVED")
+    warm = _fit_fontsize(box, "APPROVED")
+    assert cold == warm
+    _measure_free_height.cache_clear()
+    _text_width.cache_clear()
+    assert _fit_fontsize(box, "APPROVED") == cold      # …and equal again from cold
+
+
+# ---- a whole-page mark must be visible, and must not move the reader (M69.5) -----
+
+
+def test_the_dialog_never_produces_an_under_mark(win):
+    """Owner-reported as "does not save with the document" — the mark *was* saved, and was invisible:
+    `under=True` puts it beneath everything the page draws, and most real PDFs paint an opaque
+    full-page background. The control is gone (M69.6), because **Opacity already gives the watermark
+    look** — a translucent mark over the content, page text legible through it — which is what
+    `under` was reached for. Nothing the dialog composes is an under-mark, in either Place mode."""
+    from ui.mark_dialog import MarkDialog
+
+    dialog = MarkDialog(win, 3, 0)
+    assert not hasattr(dialog, "under")
+    for mode in (PLACE_CLICK, PLACE_PAGE):
+        dialog.place.setCurrentText(mode)
+        assert dialog.mark((0, 0, 595, 842)).under is False
+    dialog.deleteLater()
+
+
+def test_a_restored_under_flag_cannot_resurrect_the_option(win):
+    """A settings file written before M69.6 carries `"under": true`. It must be ignored, not quietly
+    reinstate a mode the UI no longer has a control for."""
+    from ui.mark_dialog import MarkDialog
+
+    dialog = MarkDialog(win, 3, 0)
+    dialog.restore({"under": True, "place": PLACE_PAGE})
+    assert dialog.mark((0, 0, 595, 842)).under is False
+    dialog.deleteLater()
+
+
+def test_marking_every_page_leaves_the_reader_where_they_were(win, monkeypatch):
+    """Owner-reported: the current page (and the sidebar's selected row) jumped to the first or last
+    page when marking the whole document. A range mark did not land on any *particular* page, so
+    there is no page to follow — and following one yanks the reader off what they were reading."""
+    from ui.mark_dialog import MarkDialog
+
+    win.view.set_current_page(1)
+    monkeypatch.setattr(MarkDialog, "exec", _compose_whole_page)
+    monkeypatch.setattr(MarkDialog, "selected_pages", lambda self: [0, 1, 2])
+    win._add_mark()
+    assert win.view.current_page == 1
+
+
+def test_marking_one_page_still_follows_the_edit(win, monkeypatch):
+    """The follow behaviour is right for a mark that *did* land somewhere — don't lose it."""
+    from ui.mark_dialog import MarkDialog
+
+    win.view.set_current_page(0)
+    monkeypatch.setattr(MarkDialog, "exec", _compose_whole_page)
+    monkeypatch.setattr(MarkDialog, "selected_pages", lambda self: [2])
+    win._add_mark()
+    assert win.view.current_page == 2
+
+
+# ---- there is no third "drag a box" mode (M69.7) ---------------------------------
+
+
+def test_a_stamp_lands_where_the_press_was_not_where_a_drag_ended(win):
+    """The gesture is a click. If a drag happens anyway, the size is already decided, so the drag has
+    nothing left to say — and honouring its midpoint would slide the stamp off the spot pointed at."""
+    win._arm_content_mark(PINNED)
+    overlay = win.view.annotations
+    overlay.begin_draw(ArmedTool.STAMP, _scene(win, 200, 400))
+    overlay.update_draw(_scene(win, 400, 600), Qt.KeyboardModifier.NoModifier)
+    overlay.finish_draw()
+    x0, y0, x1, y1 = _stamps(win)[0].rect
+    assert ((x0 + x1) / 2, (y0 + y1) / 2) == pytest.approx((200, 400), abs=1.5)
+
+
+def test_no_rubber_band_is_drawn_for_a_click_placed_stamp(win):
+    """A dashed box would advertise a footprint the stamp is not going to take."""
+    from PySide6.QtCore import Qt as _Qt
+
+    win._arm_content_mark(PINNED)
+    overlay = win.view.annotations
+    overlay.begin_draw(ArmedTool.STAMP, _scene(win, 200, 400))
+    assert overlay._draw_item.pen().style() == _Qt.PenStyle.NoPen
+    overlay.finish_draw()
+
+
+def test_a_signature_still_gets_its_size_from_the_drag(win, tmp_path):
+    """Only the *text* stamp went click-only. An image has no font size to be sized by, so it keeps
+    the drag — and must keep its rubber band with it."""
+    import pymupdf as fitz
+    from PySide6.QtCore import Qt as _Qt
+
+    path = str(tmp_path / "sig.png")
+    fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 20, 10), False).save(path)
+    win._arm_content_mark(ImageStamp(rect=(0.0, 0.0, 1.0, 1.0), image_path=path))
+    overlay = win.view.annotations
+    overlay.begin_draw(ArmedTool.STAMP, _scene(win, 100, 300))
+    assert overlay._draw_item.pen().style() == _Qt.PenStyle.DashLine
+    overlay.update_draw(_scene(win, 300, 360), _Qt.KeyboardModifier.NoModifier)
+    overlay.finish_draw()
+    marks = [a for a in win.vdoc.page_annotations(0) if isinstance(a, ImageStamp)]
+    assert marks[0].rect == pytest.approx((100, 300, 300, 360), abs=1.0)
+
+
+def test_the_dialog_offers_exactly_two_kinds(win):
+    from ui.mark_dialog import MarkDialog
+
+    dialog = MarkDialog(win, 3, 0)
+    assert [dialog.place.itemText(i) for i in range(dialog.place.count())] == [PLACE_CLICK, PLACE_PAGE]
+    dialog.deleteLater()
+
+
+# ---- the angle slider (M69.8) ----------------------------------------------------
+#
+# Slider and spin box are two views of **one** value, not two settings: the slider is for finding a
+# tilt by eye, the spin box for saying one exactly. The risk in that pairing is a signal loop, and
+# the risk in a -180..180 slider is that the angles people actually want (0, ±45, ±90) are the ones
+# a free drag is least likely to land on.
+
+
+def _dialog(win):
+    from ui.mark_dialog import MarkDialog
+
+    return MarkDialog(win, 3, 0)
+
+
+def test_the_angle_slider_and_value_box_track_each_other(win):
+    dialog = _dialog(win)
+    dialog.angle.slider.setValue(30)
+    assert dialog.angle.value() == 30
+    dialog.angle.box.setValue(-120)
+    assert dialog.angle.slider.value() == -120
+    dialog.deleteLater()
+
+
+def test_the_angle_slider_snaps_to_the_quarter_turns(win):
+    """0 and ±45 are most of the angles anyone wants, and the hardest to hit by dragging."""
+    dialog = _dialog(win)
+    for dragged, expected in ((-44, -45), (-46, -45), (2, 0), (89, 90)):
+        dialog.angle.slider.setValue(dragged)
+        assert dialog.angle.value() == expected
+    dialog.deleteLater()
+
+
+def test_a_deliberate_off_tick_angle_survives(win):
+    """The snap is short enough that an angle chosen on purpose is not dragged off it."""
+    dialog = _dialog(win)
+    dialog.angle.slider.setValue(-38)
+    assert dialog.angle.value() == -38
+    dialog.deleteLater()
+
+
+def test_switching_kind_moves_the_slider_with_the_angle(win):
+    """The Place switch rewrites the style fields in front of the user — the slider is one of them,
+    so it must not be left pointing somewhere the composed mark is not."""
+    dialog = _dialog(win)
+    dialog.place.setCurrentText(PLACE_PAGE)
+    assert dialog.angle.value() == 45
+    assert dialog.angle.slider.value() == 45
+    assert dialog.mark((0, 0, 595, 842)).angle == 45.0
+    dialog.deleteLater()
+
+
+def test_a_restored_angle_moves_the_slider(win):
+    dialog = _dialog(win)
+    dialog.restore({"angle": 75.0})
+    assert dialog.angle.slider.value() == 75
+    dialog.deleteLater()
+
+
+# ---- the dialog's advertised minimum must be one it can actually live in (M69.10) -
+#
+# Owner-reported: switching Kind logged a QWindowsWindow::setGeometry warning — Qt promised Windows
+# a minimum size 48px shorter than the layout then needed. The culprit is the wrapped bake note: a
+# word-wrapped label's height is a function of its width, which `minimumSizeHint` does not consult,
+# so squeezing the dialog narrow made the note re-wrap taller than the advertised minimum allowed.
+
+
+def _bake_note(dialog):
+    from PySide6.QtWidgets import QLabel
+
+    return next(lb for lb in dialog.findChildren(QLabel) if lb.wordWrap())
+
+
+def test_the_dialog_has_a_width_floor(win):
+    from ui.mark_dialog import _MIN_DIALOG_WIDTH
+
+    dialog = _dialog(win)
+    assert dialog.minimumWidth() == _MIN_DIALOG_WIDTH
+    dialog.deleteLater()
+
+
+def test_the_wrapped_note_reserves_the_height_it_needs_when_narrowest(win):
+    """The fix itself: pin the note's height to what it needs at the narrowest the dialog can get,
+    so the advertised minimum is a size the note actually fits in."""
+    from ui.mark_dialog import _MIN_DIALOG_WIDTH, _NOTE_MARGIN
+
+    dialog = _dialog(win)
+    note = _bake_note(dialog)
+    assert note.minimumHeight() >= note.heightForWidth(_MIN_DIALOG_WIDTH - _NOTE_MARGIN)
+    dialog.deleteLater()
+
+
+def test_the_minimum_stays_satisfiable_across_kind_switches(win):
+    """Showing and hiding the Size/Frame rows is what triggered it, so switch both ways."""
+    dialog = _dialog(win)
+    dialog.show()
+    for mode in (PLACE_PAGE, PLACE_CLICK, PLACE_PAGE):
+        dialog.place.setCurrentText(mode)
+        hint, minimum = dialog.sizeHint(), dialog.minimumSizeHint()
+        assert hint.height() >= minimum.height(), f"{mode}: size hint is below the minimum"
+        assert hint.width() >= minimum.width(), f"{mode}: size hint is below the minimum"
+    dialog.deleteLater()
+
+
+# ---- picking a recent signature must not destroy the action mid-signal (M69.11) --
+#
+# Owner-reported crash. `_rebuild_signature_menu` calls `menu.clear()`, which destroys the submenu's
+# QActions. Calling it from one of those actions' own `triggered` handler deletes the action while
+# its signal is still being delivered — undefined behaviour, a hard crash on Windows, and
+# "Internal C++ object already deleted" under PySide. The rebuild is now deferred by a zero-delay
+# timer so the signal unwinds first.
+
+
+def _signature_entries(win):
+    return [a for a in win._signature_menu.actions()
+            if not a.isSeparator() and a.text() != "Clear List"]
+
+
+def _seed_signatures(win, tmp_path, count=4):
+    import pymupdf as fitz
+
+    for index in range(count):
+        path = str(tmp_path / f"sig{index}.png")
+        fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 40, 20), False).save(path)
+        win._settings.add_recent_signature(path)
+    win._rebuild_signature_menu()
+
+
+def test_picking_a_recent_signature_does_not_destroy_it_mid_signal(win, qapp, tmp_path):
+    """The crash: triggering the *oldest* entry reorders the list, so the rebuild really does clear
+    the menu — and with it the action still emitting."""
+    _seed_signatures(win, tmp_path)
+    oldest = _signature_entries(win)[-1]
+    oldest.trigger()
+    assert oldest.isEnabled()          # would raise RuntimeError if it had been deleted under us
+    qapp.processEvents()               # let the deferred rebuild run
+    assert isinstance(win.view.annotations.pending_content_mark, ImageStamp)
+
+
+def test_the_recent_list_still_reorders_after_the_deferred_rebuild(win, qapp, tmp_path):
+    """Deferring must not lose the update — most-recently-used still floats to the top."""
+    _seed_signatures(win, tmp_path)
+    oldest_name = _signature_entries(win)[-1].text()
+    _signature_entries(win)[-1].trigger()
+    qapp.processEvents()
+    assert _signature_entries(win)[0].text() == oldest_name
+
+
+def test_clear_list_does_not_destroy_its_own_action_mid_signal(win, qapp, tmp_path):
+    """"Clear List" lives in the very menu the rebuild empties — the same hazard."""
+    _seed_signatures(win, tmp_path)
+    clear = next(a for a in win._signature_menu.actions() if a.text() == "Clear List")
+    clear.trigger()
+    assert clear.isEnabled()
+    qapp.processEvents()
+    assert _signature_entries(win) == []
+    assert win._signature_menu.menuAction().isVisible() is False   # no dead chrome
+
+
+# ---- rasterised marks are cached (M69.12) ---------------------------------------
+#
+# Owner-reported: placing signatures made dragging *other* objects lag, worse with each one added.
+# A content mark is the one overlay built by rendering a real PDF, and it was re-rasterised on every
+# repaint — ~98ms per transparent signature, linear in how many were in view. A drag repaints, so
+# the lag scaled with a count that had nothing to do with what was being dragged.
+
+
+def _sig_path(tmp_path, name="sig.png"):
+    import pymupdf as fitz
+
+    pix = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 400, 180), True)   # alpha: the slow path
+    pix.clear_with(255)
+    path = str(tmp_path / name)
+    pix.save(path)
+    return path
+
+
+def test_a_repainted_mark_is_not_rasterised_twice(win, tmp_path):
+    mark = ImageStamp(rect=(40, 60, 240, 150), image_path=_sig_path(tmp_path), white_to_alpha=True)
+    win.vdoc.add_annotation(0, mark)
+    overlay = win.view.annotations
+    overlay.repaint()
+    calls = []
+    import model.content_marks as cm
+
+    real = cm.render_mark_document
+    cm.render_mark_document = lambda m: (calls.append(m), real(m))[1]
+    try:
+        import viewer.annotations as va
+
+        va_real, va.render_mark_document = va.render_mark_document, cm.render_mark_document
+        try:
+            overlay.repaint()
+            overlay.repaint()
+        finally:
+            va.render_mark_document = va_real
+    finally:
+        cm.render_mark_document = real
+    assert calls == [], "the mark was re-rendered despite nothing about it changing"
+
+
+def test_a_moved_mark_is_not_served_its_old_image(win, tmp_path):
+    """The cache is keyed on the descriptor, which is frozen — so a moved mark is a different key
+    and cannot collide with the stale image of its previous self. No explicit invalidation needed."""
+    path = _sig_path(tmp_path)
+    first = ImageStamp(rect=(40, 60, 240, 150), image_path=path)
+    win.vdoc.add_annotation(0, first)
+    overlay = win.view.annotations
+    overlay.repaint()
+    keys_before = set(overlay._mark_pixmaps)
+    win.vdoc.clear_annotations(0)
+    win.vdoc.add_annotation(0, ImageStamp(rect=(300, 400, 500, 490), image_path=path))
+    overlay.repaint()
+    assert set(overlay._mark_pixmaps) - keys_before, "the moved mark reused the old cache entry"
+
+
+def test_the_mark_cache_is_bounded(win, tmp_path):
+    """A document of genuinely distinct marks must cost memory like one, not without limit."""
+    from viewer.annotations import _MARK_PIXMAP_CACHE
+
+    path = _sig_path(tmp_path)
+    overlay = win.view.annotations
+    for index in range(_MARK_PIXMAP_CACHE + 12):
+        win.vdoc.clear_annotations(0)
+        win.vdoc.add_annotation(0, ImageStamp(rect=(10 + index, 20, 210 + index, 110),
+                                              image_path=path))
+        overlay.repaint()
+    assert len(overlay._mark_pixmaps) <= _MARK_PIXMAP_CACHE

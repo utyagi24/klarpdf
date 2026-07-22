@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from functools import lru_cache
 
 import pymupdf as fitz
 
@@ -66,9 +67,15 @@ class Stamp:
     ``under`` puts the mark beneath the page content instead of over it — the watermark mode. It
     changes nothing else, which is the point: a watermark is a stamp that the text sits on top of.
 
-    ``angle`` is degrees **counter-clockwise** — the maths convention, so ``-45`` reads bottom-left
-    to top-right, the near-universal watermark diagonal. Every consumer converts to its own sense at
-    the edge (see :func:`apply_content_marks`); the descriptor itself never carries a renderer's.
+    ``angle`` is degrees **counter-clockwise**, the maths convention: ``+45`` reads bottom-left to
+    top-right (north-east, the near-universal watermark diagonal) and ``-45`` reads top-left to
+    bottom-right. Every consumer converts to its own sense at the edge (see
+    :func:`apply_content_marks`); the descriptor itself never carries a renderer's.
+
+    The sign was **backwards until M69.9**: ``-45`` produced the north-east diagonal, i.e. the field
+    was clockwise-positive while this docstring already claimed counter-clockwise. Caught by the
+    owner asking why north-east was negative — it should not have been, and nothing had shipped, so
+    the convention was corrected rather than the documentation bent to fit it.
     """
 
     rect: tuple[float, float, float, float]
@@ -129,50 +136,84 @@ def is_content_mark(mark) -> bool:
 # Keyword overrides for the same Stamp the custom dialog builds — never a separate code path. A
 # preset chosen from the menu is placed and then editable exactly like a hand-made one.
 
-STAMP_PRESETS: dict[str, dict] = {
+# **One list** (M69.3). There were two — a stamp list and a watermark list — and both contained
+# "Draft" and "Confidential": the same word producing a different mark depending on which menu the
+# user happened to open, with nothing on screen to explain the difference. A preset is a *word*, so
+# it prefills only text + colour; whether the mark is a stamp or a watermark is the visible Place
+# choice in the dialog. That is this module's own "Way 2" rule (a preset is a prefill, never a
+# separate code path) applied one level up.
+MARK_PRESETS: dict[str, dict] = {
     "Approved":     {"text": "APPROVED", "color": (0.05, 0.55, 0.20)},
     "Rejected":     {"text": "REJECTED", "color": (0.80, 0.10, 0.10)},
-    "Draft":        {"text": "DRAFT", "color": (0.35, 0.35, 0.40)},
-    "Confidential": {"text": "CONFIDENTIAL", "color": (0.80, 0.10, 0.10)},
     "Reviewed":     {"text": "REVIEWED", "color": (0.10, 0.35, 0.75)},
     "Final":        {"text": "FINAL", "color": (0.05, 0.55, 0.20)},
+    "Draft":        {"text": "DRAFT", "color": (0.35, 0.35, 0.40)},
+    "Confidential": {"text": "CONFIDENTIAL", "color": (0.80, 0.10, 0.10)},
+    "Copy":         {"text": "COPY", "color": (0.45, 0.45, 0.50)},
+    "Sample":       {"text": "SAMPLE", "color": (0.45, 0.45, 0.50)},
 }
 
-# Watermark presets differ only in being translucent, diagonal, unframed and *under* the content —
-# the same descriptor, which is the whole argument for one engine.
-WATERMARK_PRESETS: dict[str, dict] = {
-    "Draft":        {"text": "DRAFT"},
-    "Confidential": {"text": "CONFIDENTIAL"},
-    "Copy":         {"text": "COPY"},
-    "Sample":       {"text": "SAMPLE"},
-}
-
-WATERMARK_DEFAULTS: dict = {
+# What "over the whole page" means as style: translucent, diagonal, unframed and *under* the
+# content. The watermark look, expressed as defaults on the one descriptor rather than as a second
+# kind of mark — which is the whole argument for one engine.
+WHOLE_PAGE_DEFAULTS: dict = {
     "color": (0.45, 0.45, 0.50),
-    "border_width": 0.0,     # a frame reads as a stamp; a watermark is bare text
-    "angle": -45.0,
+    "border_width": 0.0,     # a frame around the page edge reads as a border, not a mark
+    "angle": 45.0,     # north-east: counter-clockwise positive (M69.9)
     "opacity": 0.18,
-    "under": True,
+    # **Over the content, not under it** (M69.5). `under=True` is a real capability and still works,
+    # but it is the wrong *default*: it puts the mark beneath everything the page draws, and most
+    # real-world PDFs paint an opaque full-page background — so the mark bakes correctly, lands in
+    # the text layer, and is completely invisible. (Reported as "does not save with the document";
+    # the text was in fact in the saved file.) At these opacities drawing over the content is what a
+    # watermark is supposed to look like anyway: visible, with the page's own text fully legible
+    # through it. See PROGRESS.md Open follow-ups for making `under` itself honest.
+    "under": False,
 }
 
 
-def preset_stamp(name: str, rect: tuple[float, float, float, float], **overrides) -> Stamp:
-    """The :class:`Stamp` for preset ``name`` placed at ``rect`` — unknown names fall back to the
-    name itself as the text, so a caller can never end up with no stamp at all."""
-    fields = dict(STAMP_PRESETS.get(name, {"text": name.upper()}))
-    fields.update(overrides)
-    return Stamp(rect=rect, **fields)
+def preset_mark(name: str, rect: tuple[float, float, float, float],
+                whole_page: bool = False, **overrides) -> Stamp:
+    """The :class:`Stamp` for preset ``name`` at ``rect``.
 
-
-def preset_watermark(name: str, rect: tuple[float, float, float, float], **overrides) -> Stamp:
-    """The watermark :class:`Stamp` for preset ``name`` covering ``rect`` (normally the whole page)."""
-    fields = dict(WATERMARK_DEFAULTS)
-    fields.update(WATERMARK_PRESETS.get(name, {"text": name.upper()}))
+    ``whole_page`` layers on :data:`WHOLE_PAGE_DEFAULTS` — the watermark look — under the preset's
+    own text and colour. Unknown names fall back to the name itself as the text, so a caller can
+    never end up with no mark at all.
+    """
+    fields = dict(WHOLE_PAGE_DEFAULTS) if whole_page else {}
+    fields.update(MARK_PRESETS.get(name, {"text": name.upper()}))
+    if whole_page:
+        fields["color"] = WHOLE_PAGE_DEFAULTS["color"]   # the preset supplies the word, not the ink
     fields.update(overrides)
     return Stamp(rect=rect, **fields)
 
 
 # ---- rendering ------------------------------------------------------------------
+
+
+@lru_cache(maxsize=4096)
+def _measure_free_height(width: float, height: float, text: str, fontsize: float) -> float:
+    """The cached core of :func:`_free_height`, keyed on plain scalars so it is hashable.
+
+    **Memoised because it is both pure and startlingly expensive.** Each call opens a throwaway
+    PDF, embeds the font and lays the text out; :func:`_fit_fontsize` needs fourteen of them for a
+    single mark. Repainting a 320-page document watermarked on every page therefore ran ~4500 of
+    these — about 8 seconds of the ~9 the viewer spent rebuilding after one edit — to compute the
+    *same answer* 320 times over, since the pages are the same size and the mark is the same mark.
+
+    The inputs fully determine the result (the font is the fixed :data:`STAMP_FONT`), so the cache
+    can never go stale. It is bounded, so a document of genuinely distinct marks degrades to the
+    old cost rather than growing without limit.
+    """
+    scratch = fitz.open()
+    page = scratch.new_page(width=width, height=height)
+    try:
+        return page.insert_textbox(
+            fitz.Rect(0, 0, width, height),
+            text, fontsize=fontsize, fontname=STAMP_FONT, align=fitz.TEXT_ALIGN_CENTER,
+        )
+    finally:
+        scratch.close()
 
 
 def _free_height(box: fitz.Rect, text: str, fontsize: float) -> float:
@@ -183,15 +224,16 @@ def _free_height(box: fitz.Rect, text: str, fontsize: float) -> float:
     glyphs still land in the content stream and come back out of ``get_text``. Measuring on the page
     we are about to draw on therefore stamps everything twice, once invisibly.
     """
-    scratch = fitz.open()
-    page = scratch.new_page(width=max(box.width, 1.0), height=max(box.height, 1.0))
-    try:
-        return page.insert_textbox(
-            fitz.Rect(0, 0, max(box.width, 1.0), max(box.height, 1.0)),
-            text, fontsize=fontsize, fontname=STAMP_FONT, align=fitz.TEXT_ALIGN_CENTER,
-        )
-    finally:
-        scratch.close()
+    return _measure_free_height(max(box.width, 1.0), max(box.height, 1.0), text, fontsize)
+
+
+@lru_cache(maxsize=2048)
+def _text_width(text: str, fontsize: float) -> float:
+    """Widest authored line of ``text`` at ``fontsize``. Cached alongside
+    :func:`_measure_free_height` — the same binary search calls it just as often, and it too walks
+    the font's char-width table on every call."""
+    return max(fitz.get_text_length(line, fontname=STAMP_FONT, fontsize=fontsize)
+               for line in text.split("\n"))
 
 
 def _fits(box: fitz.Rect, text: str, fontsize: float) -> bool:
@@ -202,10 +244,7 @@ def _fits(box: fitz.Rect, text: str, fontsize: float) -> bool:
     what someone dragging a stamp box wants. Width is checked per authored line (an explicit newline
     is honoured), height by measurement.
     """
-    lines = text.split("\n")
-    widest = max(fitz.get_text_length(line, fontname=STAMP_FONT, fontsize=fontsize)
-                 for line in lines)
-    return widest <= box.width and _free_height(box, text, fontsize) >= 0
+    return _text_width(text, fontsize) <= box.width and _free_height(box, text, fontsize) >= 0
 
 
 def _fit_fontsize(box: fitz.Rect, text: str) -> float:
@@ -344,11 +383,9 @@ def natural_size(mark: Stamp) -> tuple[float, float]:
     """
     fontsize = mark.fontsize or _MIN_FONTSIZE
     lines = mark.text.split("\n") or [""]
-    width = max(fitz.get_text_length(line, fontname=STAMP_FONT, fontsize=fontsize)
-                for line in lines)
     # A hair of slack: at *exactly* the measured width, float rounding inside insert_textbox can
     # decide the last glyph does not fit and wrap it, which would corrupt the height measurement.
-    width = max(width, 1.0) + 1.0
+    width = max(_text_width(mark.text, fontsize), 1.0) + 1.0
     probe = fitz.Rect(0, 0, width, fontsize * (len(lines) + 2) * 2.0)
     used = probe.height - max(_free_height(probe, mark.text, fontsize), 0.0)
     pad = _text_padding(mark)
@@ -407,7 +444,11 @@ def _drop_white(pix: fitz.Pixmap, threshold: float) -> fitz.Pixmap:
         pix.set_alpha(keyed, premultiply=0)
         return pix
     existing = _alpha_channel(pix)                       # honour the image's own transparency too
-    pix.set_alpha(bytes(min(a, b) for a, b in zip(existing, keyed)), premultiply=0)
+    # `map` with the builtin `min`, not a generator expression: the loop then runs inside CPython
+    # rather than one interpreter frame per pixel (~1.6x here). Still the slowest step in this
+    # function, and the reason an *already transparent* PNG costs several times what an opaque one
+    # does — MuPDF has no per-pixel alpha-intersect to hand it off to, and numpy is not a dependency.
+    pix.set_alpha(bytes(map(min, existing, keyed)), premultiply=0)
     return pix
 
 
@@ -504,12 +545,15 @@ def apply_content_marks(page: fitz.Page, marks: tuple) -> None:
     a pinned font size is never scaled up to fill it. ``under`` selects ``overlay=False``, putting
     the mark beneath the existing content (the watermark case).
 
-    The angle is **negated** on the way in. ``angle`` is counter-clockwise-positive — the maths
-    convention, the one the dialog's spinner and the viewer's preview both use, and the one that
-    makes the ``-45°`` watermark default read bottom-left to top-right as documented. But
-    ``show_pdf_page``'s ``rotate`` turns the source *clockwise*-positive, so passing the angle
-    straight through baked every rotated mark as its own mirror image — visible as a stamp that
-    tilted one way on the page and the other way in the thumbnail (which renders the bake).
+    ``show_pdf_page``'s ``rotate`` is counter-clockwise-positive, the same sense as
+    :class:`Stamp.angle`, so the angle passes through unchanged: ``+45`` gives the north-east
+    diagonal in the file exactly as it does on screen.
+
+    Both signs have been wrong here before, in opposite ways, which is why they are spelled out.
+    M69.1: the angle was passed straight through while the *descriptor* was clockwise-positive, so
+    every rotated mark baked as its own mirror image — a stamp tilting one way on the page and the
+    other in the thumbnail. M69.9: the descriptor itself was flipped to be genuinely
+    counter-clockwise, which cancelled the negation this had needed.
     """
     for mark in marks:
         if not is_content_mark(mark):
@@ -520,6 +564,6 @@ def apply_content_marks(page: fitz.Page, marks: tuple) -> None:
         art = render_mark_document(mark)
         try:
             target = fitz.Rect(art_target_rect(mark)).normalize()
-            page.show_pdf_page(target, art, 0, rotate=-mark.angle, overlay=not mark.under)
+            page.show_pdf_page(target, art, 0, rotate=mark.angle, overlay=not mark.under)
         finally:
             art.close()

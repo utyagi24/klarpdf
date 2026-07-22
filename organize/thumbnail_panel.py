@@ -94,6 +94,7 @@ class ThumbnailPanel(QListWidget):
         # only when scrolled into view, so opening a many-page document doesn't render every page.
         self._rendered: set[int] = set()            # rows whose real thumbnail has been rendered
         self._baked = None                          # edits-applied render doc, kept open for lazy use
+        self._layout_key: list = []                 # which page sits in which row (see _carryable_icons)
         self.verticalScrollBar().valueChanged.connect(self._render_visible_thumbs)
 
         self.currentRowChanged.connect(self._on_row_changed)
@@ -432,6 +433,33 @@ class ThumbnailPanel(QListWidget):
             if row not in self._rendered and view_rect.intersects(self.visualItemRect(self.item(row))):
                 self._render_one(row)
 
+    def _page_layout_key(self) -> list:
+        """What decides *which* page sits in each row and how it is framed — everything about a
+        `PageRef` except its annotations. Two populates with the same key have the same pages in the
+        same rows, so a rendered thumbnail still depicts its row's page."""
+        return [(ref.source_id, ref.source_page_index, ref.rotation_override, ref.crop_override)
+                for ref in self._vdoc.ordered]
+
+    def _carryable_icons(self) -> dict:
+        """Already-rendered icons that :meth:`populate` may reuse as each row's starting image.
+
+        Rendering is lazy — only rows in the viewport are rasterised — but ``populate`` runs on
+        **every** edit and used to reset every row to a blank grey placeholder. So a single edit
+        blanked the whole sidebar and only the handful of rows on screen came back; anything scrolled
+        away stayed an empty rectangle until the user happened to scroll to it. Following the edit
+        can itself scroll the list (a watermark applied to all pages ends on the last page), so the
+        rows the user was looking at were exactly the ones that went blank.
+
+        Carrying the old icons keeps every row showing its page. A carried icon is *stale in its
+        annotations* — the edit is not in it yet — which is why the row is still marked unrendered
+        and re-rasterises on sight. A **structural** edit gets no carry: the pages have moved, so
+        row N's old image is a different page, and an honest placeholder beats a confident lie.
+        """
+        key = self._page_layout_key()
+        if key != self._layout_key or not self._rendered:
+            return {}
+        return {row: self.item(row).icon() for row in self._rendered if row < self.count()}
+
     def _close_baked(self) -> None:
         if self._baked is not None:
             self._baked.close()
@@ -448,15 +476,17 @@ class ThumbnailPanel(QListWidget):
         page didn't change. We capture the row first and restore it if it still exists.
         """
         current = self.currentRow()
+        carried = self._carryable_icons()
         self._syncing = True
         self.clear()
         self._close_baked()
         self._baked = self._edited_render()  # kept open for lazy rendering; closed on next populate/close
         self._rendered = set()
         for i in range(self._vdoc.page_count):
-            item = QListWidgetItem(self._placeholder_icon(i), str(i + 1))
+            item = QListWidgetItem(carried.get(i) or self._placeholder_icon(i), str(i + 1))
             item.setTextAlignment(Qt.AlignmentFlag.AlignHCenter)
             self.addItem(item)
+        self._layout_key = self._page_layout_key()
         if 0 <= current < self.count():
             self.setCurrentRow(current)
         self._syncing = False

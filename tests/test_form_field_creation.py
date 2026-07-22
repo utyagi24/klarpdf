@@ -391,3 +391,189 @@ def test_radio_groups_are_not_offered():
     """Rejected by the owner (2026-07-18) — pinned so it cannot creep back in unnoticed."""
     assert "radio" not in FIELD_KINDS
     assert set(FIELD_KINDS) == {"text", "checkbox", "dropdown"}
+
+
+# ---- a created field is an ordinary object (M69.14) ------------------------------
+#
+# Owner-reported: a placed field could not be moved, even before saving. The model had always been
+# ready — `PLACEABLE_TYPES` lists NewField, `translate_mark` and `scale_mark` both handle it, and
+# its `bounding_rect` docstring says it exists "so the viewer's shared hit-test / outline helpers
+# work on it unchanged" — but the viewer's OBJECT_TYPES tuple was never told, so the field was
+# invisible to select / move / resize / marquee. It is drawn by the *form* overlay rather than the
+# annotation overlay, which is what let the omission go unnoticed.
+
+
+def _field_win(win, rect=(100, 300, 300, 330)):
+    from model.form_fields import NewField
+
+    field = NewField(kind="text", name="who", rect=rect)
+    win.vdoc.add_annotation(0, field)
+    win.view.annotations.repaint()
+    return field
+
+
+def _at(win, x, y):
+    return win.view.scene_rect_for_box(0, (x, y, x + 0.01, y + 0.01)).center()
+
+
+def _fields(win):
+    from model.form_fields import NewField
+
+    return [a for a in win.vdoc.page_annotations(0) if isinstance(a, NewField)]
+
+
+def test_a_placed_field_is_hit_testable(win):
+    _field_win(win)
+    assert win.view.annotations.drawn_mark_at(_at(win, 200, 315)) is not None
+
+
+def test_a_placed_field_selects_and_moves(win):
+    _field_win(win)
+    overlay = win.view.annotations
+    assert overlay.select_object_at(_at(win, 200, 315)) is True
+    assert overlay.begin_move(_at(win, 200, 315)) is True
+    overlay.update_move(_at(win, 250, 360))
+    overlay.finish_move()
+    assert _fields(win)[0].rect[:2] == pytest.approx((150, 345), abs=1.5)
+
+
+def test_a_placed_field_resizes_by_its_handles(win):
+    from PySide6.QtCore import Qt as _Qt
+
+    _field_win(win)
+    overlay = win.view.annotations
+    overlay.select_object(0, _fields(win)[0])
+    assert overlay.begin_resize("se", _at(win, 300, 330)) is True
+    overlay.update_resize(_at(win, 360, 380), _Qt.KeyboardModifier.NoModifier)
+    overlay.finish_resize()
+    assert _fields(win)[0].rect == pytest.approx((100, 300, 360, 380), abs=1.5)
+
+
+def test_a_marquee_catches_a_field(win):
+    _field_win(win)
+    win.view.annotations.select_in_rect(0, (50, 250, 400, 400))
+    assert len(win.view.annotations.selected_objects) == 1
+
+
+def test_a_field_is_named_in_its_remove_verb(win):
+    """"Remove newfield" was the class-name fallback."""
+    _field_win(win)
+    menu = win._view_context_menu(_at(win, 200, 315))
+    labels = [a.text() for a in menu.actions()]
+    assert "Remove form field" in labels
+    menu.deleteLater()
+
+
+def test_clicking_a_created_field_in_select_mode_grabs_it(win, qapp):
+    """Revised at M69.16 to the text-box contract: a press *moves* a field you created, a
+    double-click types into it. Before, a press anywhere on it reached the form overlay, so the only
+    way to grab one in Select mode was to hit its border — "hit and miss most of the times"."""
+    from PySide6.QtCore import QEvent, QPointF, Qt as _Qt
+    from PySide6.QtGui import QMouseEvent
+
+    from model.edit_commands import AddAnnotationCommand
+    from model.form_fields import NewField
+    from viewer.tools import InteractionMode
+
+    win.undo_stack.push(AddAnnotationCommand(
+        win.vdoc, 0, NewField(kind="text", name="who", rect=(100, 300, 300, 330))))
+    qapp.processEvents()
+    win.view.set_mode(InteractionMode.SELECT)
+    point = win.view.mapFromScene(_at(win, 200, 315))
+    win.view.mousePressEvent(QMouseEvent(
+        QEvent.Type.MouseButtonPress, QPointF(point), win.view.viewport().mapToGlobal(point),
+        _Qt.MouseButton.LeftButton, _Qt.MouseButton.LeftButton, _Qt.KeyboardModifier.NoModifier))
+    assert win.view.annotations._move_grabbed is not None, \
+        "a press in the middle of a created field should grab it, not fall through to the form"
+
+
+# ---- a freshly placed mark is selected (M69.15) ----------------------------------
+#
+# Owner-reported: a form field could not be selected right after creating it. Nothing was selected
+# when placement committed, so the next click went to the *form* overlay to be filled — which, to
+# someone who had just drawn the box, looked like the field could not be selected at all. Paste has
+# selected-after-add since M59.7 for exactly this reason; placement never did.
+
+
+def _send(win, kind, x, y):
+    from PySide6.QtCore import QEvent, QPointF, Qt as _Qt
+    from PySide6.QtGui import QMouseEvent
+
+    scene = win.view.scene_rect_for_box(0, (x, y, x + 0.01, y + 0.01)).center()
+    point = win.view.mapFromScene(scene)
+    event = QMouseEvent(kind, QPointF(point), win.view.viewport().mapToGlobal(point),
+                        _Qt.MouseButton.LeftButton, _Qt.MouseButton.LeftButton,
+                        _Qt.KeyboardModifier.NoModifier)
+    {QEvent.Type.MouseButtonPress: win.view.mousePressEvent,
+     QEvent.Type.MouseMove: win.view.mouseMoveEvent,
+     QEvent.Type.MouseButtonRelease: win.view.mouseReleaseEvent,
+     QEvent.Type.MouseButtonDblClick: win.view.mouseDoubleClickEvent}[kind](event)
+
+
+def _draw_field(win, start=(100, 300), end=(300, 330)):
+    """Create a field through the real event path — press, move, release. Driving `finish_draw`
+    directly would leave the tool armed (the view disarms on *release*), which is exactly the
+    artifact that made this look unreproducible the first time."""
+    from PySide6.QtCore import QEvent
+
+    from model.form_fields import NewField
+    from viewer.tools import ArmedTool
+
+    win.view.annotations.pending_field = NewField(kind="text", name="who", rect=(0, 0, 1, 1))
+    win.view.arm(ArmedTool.FIELD)
+    _send(win, QEvent.Type.MouseButtonPress, *start)
+    _send(win, QEvent.Type.MouseMove, *end)
+    _send(win, QEvent.Type.MouseButtonRelease, *end)
+
+
+def test_a_freshly_placed_field_is_selected(win, qapp):
+    from model.form_fields import NewField
+
+    _draw_field(win)
+    qapp.processEvents()
+    assert win.view.armed is None                       # the one-shot arm was consumed
+    selected = win.view.annotations.selected_objects
+    assert [type(m).__name__ for _p, m in selected] == ["NewField"]
+
+
+def test_a_freshly_placed_field_can_be_dragged_straight_away(win, qapp):
+    """The point of selecting it: no mode switch, no marquee — just drag it."""
+    from PySide6.QtCore import QEvent
+
+    from model.form_fields import NewField
+
+    _draw_field(win)
+    qapp.processEvents()
+    _send(win, QEvent.Type.MouseButtonPress, 200, 315)
+    assert win.view.annotations.moving is True
+    _send(win, QEvent.Type.MouseMove, 250, 360)
+    _send(win, QEvent.Type.MouseButtonRelease, 250, 360)
+    qapp.processEvents()
+    field = [a for a in win.vdoc.page_annotations(0) if isinstance(a, NewField)][0]
+    assert field.rect[:2] == pytest.approx((150, 345), abs=2.0)
+
+
+def test_double_clicking_a_created_field_types_into_it(win, qapp):
+    """The other half of the text-box contract, and the route that keeps M69's "a value typed into a
+    field made this session persists" reachable now that a press moves the field."""
+    from PySide6.QtCore import QEvent
+
+    _draw_field(win)
+    qapp.processEvents()
+    win.view.annotations.clear_object_selection()
+    qapp.processEvents()
+    _send(win, QEvent.Type.MouseButtonDblClick, 200, 315)
+    qapp.processEvents()
+    assert win.view.form._editor is not None, "double-click did not open the inline editor"
+
+
+def test_a_created_field_grabs_from_its_middle_not_just_its_border(win, qapp):
+    """The reported symptom precisely: grabbing used to need a precise hit on the edge."""
+    from PySide6.QtCore import QEvent
+
+    _draw_field(win, start=(100, 300), end=(300, 330))
+    qapp.processEvents()
+    win.view.annotations.clear_object_selection()
+    qapp.processEvents()
+    _send(win, QEvent.Type.MouseButtonPress, 200, 315)      # dead centre
+    assert win.view.annotations.moving is True

@@ -17,7 +17,7 @@ from __future__ import annotations
 import os
 import tempfile
 
-from PySide6.QtCore import QEvent, QRect, QSize, Qt
+from PySide6.QtCore import QEvent, QRect, QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QActionGroup, QCursor, QGuiApplication, QKeySequence, QUndoStack
 from PySide6.QtWidgets import (
     QApplication,
@@ -87,10 +87,9 @@ from viewer.text_selection import TextSelection
 from viewer.tools import ArmedTool, InteractionMode
 from viewer.zoom_widget import ZoomWidget
 
-# Preference keys for the sticky stamp / watermark styles. Style only — never the page range, whose
-# stale value would silently re-scope the next mark to a whole document (see ui.stamp_dialog).
-_STAMP_STYLE_PREF = "stamp_style"
-_WATERMARK_STYLE_PREF = "watermark_style"
+# Preference key for the sticky mark style. Style only — never the page range, whose stale value
+# would silently re-scope the next mark to a whole document (see ui.mark_dialog).
+_MARK_STYLE_PREF = "mark_style"
 
 
 def _ask_pdf_password(path: str, retry: bool) -> str | None:
@@ -446,17 +445,17 @@ class MainWindow(QMainWindow):
         a_redact_find = act("Find and Redact…", self._redact_matches, to_menu=tools_menu)
         a_redact_find.setToolTip("Find and Redact — redact every occurrence of a word or phrase")
         tools_menu.addSeparator()
-        # Stamp / signature / watermark (M62). All three are the one R4 content-draw engine (M61):
-        # a stamp and a signature are composed then *placed* (drag the box), a watermark covers whole
-        # pages so it applies straight away. They share one toolbar slot via the Stamp ▾ split-button.
-        a_stamp = act("Stamp…", self._add_stamp, icon="stamp", to_menu=tools_menu)
-        a_stamp.setToolTip("Stamp — compose a stamp, then drag the box it goes in")
+        # Text marks + signature (M62, merged at M69.3). Both are the one R4 content-draw engine
+        # (M61), and a stamp and a watermark are now **one** entry: they were never two features —
+        # a watermark is a Stamp with `under=True`, and the only real difference (drag it somewhere
+        # vs cover whole pages) is a control inside the dialog. They share one toolbar slot via the
+        # Stamp ▾ split-button.
+        a_stamp = act("Stamp / Watermark…", self._add_mark, icon="stamp", to_menu=tools_menu)
+        a_stamp.setToolTip("Compose a text mark — drag it where you want it, or cover whole pages")
         a_signature = act("Signature / Image…", self._add_image_stamp, icon="signature",
                           to_menu=tools_menu)
         a_signature.setToolTip("Signature — place a scanned signature, seal or logo")
-        a_watermark = act("Watermark…", self._add_watermark, icon="watermark", to_menu=tools_menu)
-        a_watermark.setToolTip("Watermark — translucent text under the page content, across a range")
-        self._stamp_actions = (a_stamp, a_signature, a_watermark)
+        self._stamp_actions = (a_stamp, a_signature)
         tools_menu.addSeparator()
         # Form fields (M69): compose, then drag the box — M62's placement gesture again. Menu-only;
         # creating a field is a one-shot command, and §Design budgets keeps the toolbar to modes.
@@ -540,9 +539,9 @@ class MainWindow(QMainWindow):
             markup_menu, "Underline / Strike Colour", TEXT_LINE_COLORS,
             self._set_markup_line_color, self._markup_line_color)
         self._draw_button = split_button((a_pen, a_line, a_arrow, a_rect, a_ellipse))
-        # Stamp ▾ (M62): stamp · signature · watermark in one slot, the slot §Design budgets
-        # reserved for R4. Each opens its dialog rather than arming directly — the mark has to be
-        # composed before there is anything to place.
+        # Stamp ▾ (M62): the text mark · signature in one slot, the slot §Design budgets reserved
+        # for R4. Each opens its dialog rather than arming directly — the mark has to be composed
+        # before there is anything to place.
         self._stamp_button = split_button(self._stamp_actions)
         # Recent Signatures (M63) hangs off the same dropdown: re-placing last week's signature is
         # the common case, and going through the dialog again to pick the same file is the friction
@@ -968,7 +967,7 @@ class MainWindow(QMainWindow):
         self.view.arm(tool)
         self._a_select.setChecked(True)  # arming forces the SELECT base mode
 
-    # ---- stamps, signatures, watermarks (M62; the M61 content-draw engine) ------
+    # ---- text marks + signatures (M62; the M61 content-draw engine) -------------
     #
     # Two shapes of flow over one engine, and the difference is only where the mark goes:
     #   * a stamp / signature is *placed* — compose it, then drag the box it lands in;
@@ -985,25 +984,58 @@ class MainWindow(QMainWindow):
         self.view.arm(ArmedTool.STAMP)
         self._a_select.setChecked(True)
 
-    def _add_stamp(self) -> None:
-        """Tools ▸ Stamp… — compose, then arm the placement gesture.
+    def _add_mark(self) -> None:
+        """Tools ▸ Stamp / Watermark… — compose one text mark, placed either way (M69.3).
 
-        The composed **style** is sticky across sessions (text, colour, size, angle, opacity,
-        frame): a stamp is configured once and applied for months, so retyping it every launch is
-        the kind of friction that sends people back to whatever they used before. The page range is
-        deliberately *not* remembered — see :mod:`ui.stamp_dialog`.
+        **One entry point, because they were never two features**: a watermark is a
+        :class:`~model.content_marks.Stamp` with ``under=True``, and the only structural difference
+        is how it is placed — dragged onto a spot, or applied full-page across a range. The dialog
+        surfaces exactly that as its Place control, so this method just routes on it.
+
+        The composed **style** is sticky across sessions (text, colour, size, angle, opacity, frame,
+        behind-content): a mark is configured once and applied for months, so retyping it every
+        launch is the kind of friction that sends people back to whatever they used before. The page
+        range is deliberately *not* remembered — see :mod:`ui.mark_dialog`.
         """
-        from ui.stamp_dialog import StampDialog
+        from ui.mark_dialog import MarkDialog
 
-        dialog = StampDialog(self, self.vdoc.page_count, self.view.current_page)
-        dialog.restore(self._settings.get_pref(_STAMP_STYLE_PREF, {}))
+        dialog = MarkDialog(self, self.vdoc.page_count, self.view.current_page)
+        dialog.restore(self._settings.get_pref(_MARK_STYLE_PREF, {}))
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         pages = dialog.selected_pages()
         if pages is None:
             return
-        self._settings.set_pref(_STAMP_STYLE_PREF, dialog.style_state())
-        self._arm_content_mark(dialog.stamp(), pages)
+        self._settings.set_pref(_MARK_STYLE_PREF, dialog.style_state())
+        if dialog.covers_page:
+            self._apply_page_mark(dialog, pages)
+        else:
+            self._arm_content_mark(dialog.mark(), pages)
+
+    def _apply_page_mark(self, dialog, pages: list[int]) -> None:
+        """Apply a whole-page mark across ``pages`` as one undo step — the watermark flow.
+
+        Each page gets the mark sized to **its own** page box, so a document mixing page sizes is
+        marked correctly rather than inheriting the current page's rect.
+        """
+        if not pages:
+            return
+        # **Follow the edit only when the edit is somewhere** (M69.5). `_note_edit_on` exists to move
+        # the current page onto the page a mark landed on, which is right for a mark that landed on
+        # *a* page. A range mark did not land anywhere in particular, so there is no page to follow —
+        # and following one yanks the reader (and the sidebar's current row) off the page they were
+        # reading to the start or the end of the document for no reason they can see. Marking every
+        # page changes nothing about where the reader is, so nothing should move.
+        if len(pages) == 1:
+            self._note_edit_on(pages[0])
+        self.undo_stack.beginMacro(f"Add mark to {len(pages)} pages")
+        for page_index in pages:
+            width, height = self.view._unrotated_size(page_index)
+            self.undo_stack.push(
+                AddAnnotationCommand(self.vdoc, page_index,
+                                     dialog.mark((0.0, 0.0, width, height)))
+            )
+        self.undo_stack.endMacro()
 
     def _add_image_stamp(self) -> None:
         """Tools ▸ Signature / Image… — choose + tune the image, then arm the placement drag (M63).
@@ -1040,18 +1072,33 @@ class MainWindow(QMainWindow):
             menu.addSeparator()
             menu.addAction("Clear List", self._clear_recent_signatures)
 
+    def _rebuild_signature_menu_later(self) -> None:
+        """Rebuild the Recent Signatures submenu **after** the current signal finishes delivering.
+
+        :meth:`_rebuild_signature_menu` calls ``menu.clear()``, which destroys the submenu's
+        ``QAction`` objects. Calling it from one of those actions' own ``triggered`` handlers
+        therefore deletes the action that is still mid-emission — undefined behaviour that crashed
+        the app on Windows and surfaces as "Internal C++ object already deleted" under PySide
+        (owner-reported: picking a recent signature from the dropdown). Deferring by a zero-delay
+        timer lets the signal unwind first, so the action is destroyed when nothing is using it.
+        """
+        QTimer.singleShot(0, self._rebuild_signature_menu)
+
     def _place_recent_signature(self, path: str) -> None:
         """Arm a previously used signature straight from the menu — no dialog (M63)."""
         if not os.path.exists(path):
-            self._rebuild_signature_menu()   # it vanished; drop it rather than fail mysteriously
+            # It vanished; drop it rather than fail mysteriously. Deferred — see the helper: we are
+            # inside the triggered handler of the very action the rebuild would destroy.
+            self._rebuild_signature_menu_later()
             return
         self._settings.add_recent_signature(path)
-        self._rebuild_signature_menu()
+        self._rebuild_signature_menu_later()
         self._arm_content_mark(ImageStamp(rect=(0.0, 0.0, 1.0, 1.0), image_path=path))
 
     def _clear_recent_signatures(self) -> None:
+        # Same hazard: "Clear List" lives in the menu the rebuild empties.
         self._settings.clear_recent_signatures()
-        self._rebuild_signature_menu()
+        self._rebuild_signature_menu_later()
 
     def _add_form_field(self, kind: str) -> None:
         """Tools ▸ Add Form Field ▸ … — compose the field, then drag its box (M69).
@@ -1070,32 +1117,6 @@ class MainWindow(QMainWindow):
         self.view.annotations.pending_field = dialog.field()
         self.view.arm(ArmedTool.FIELD)
         self._a_select.setChecked(True)
-
-    def _add_watermark(self) -> None:
-        """Tools ▸ Watermark… — compose and apply full-page across the range, no placement drag.
-
-        Each page gets the watermark sized to **its own** page box, so a document mixing page sizes
-        watermarks correctly rather than inheriting the current page's rect.
-        """
-        from ui.stamp_dialog import WatermarkDialog
-
-        dialog = WatermarkDialog(self, self.vdoc.page_count, self.view.current_page)
-        dialog.restore(self._settings.get_pref(_WATERMARK_STYLE_PREF, {}))
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return
-        pages = dialog.selected_pages()
-        if not pages:
-            return
-        self._settings.set_pref(_WATERMARK_STYLE_PREF, dialog.style_state())
-        self.undo_stack.beginMacro(f"Add watermark to {len(pages)} pages")
-        for page_index in pages:
-            width, height = self.view._unrotated_size(page_index)
-            self._note_edit_on(page_index)
-            self.undo_stack.push(
-                AddAnnotationCommand(self.vdoc, page_index,
-                                     dialog.watermark((0.0, 0.0, width, height)))
-            )
-        self.undo_stack.endMacro()
 
     def _redact_matches(self) -> None:
         """Tools ▸ Find and Redact… — mark every checked occurrence for redaction (M64).
@@ -1621,7 +1642,14 @@ class MainWindow(QMainWindow):
             # they list the same verbs here. Sourced from the overlay's own object-type tuple rather
             # than a second hand-written list, which is what let stamps fall off this menu while
             # working everywhere else.
-            if isinstance(annot, (TextBox,) + OBJECT_TYPES):
+            # …except a page-blanketing mark (a watermark), which is not a free-placed object: it
+            # has nowhere to be moved to and is deliberately not grabbable (see `covers_page`), so
+            # offering Copy / Cut / z-order on it would be chrome for verbs that do nothing. Its
+            # right-click menu is just Remove — which is also its only removal path, the click that
+            # would select it having been given back to text selection.
+            page_wide = self.view.annotations is not None and \
+                self.view.annotations.covers_page(page_index, annot)
+            if isinstance(annot, (TextBox,) + OBJECT_TYPES) and not page_wide:
                 # Right-clicking a free-placed mark selects it, so the verbs below (and the
                 # z-order shortcuts) have an unambiguous target and you can *see* what you're
                 # acting on. Right-clicking a member of a group leaves the group intact — that's
@@ -1651,12 +1679,16 @@ class MainWindow(QMainWindow):
             # `mark_noun` already names every free-placed mark for the undo labels; deferring to it
             # keeps one vocabulary in the app and means a new descriptor gets a real name here
             # instead of the generic fallback (which is what a stamp used to get).
+            # A mark covering the whole page is a watermark whichever side of the content it is on
+            # — that is what the user called for and what they will look for to remove. Keying this
+            # on `under` broke the moment `under` stopped being the whole-page default (M69.5).
+            noun = "watermark" if page_wide else mark_noun(annot)
             label = {
                 "Highlight": "Remove highlight",
                 "Underline": "Remove underline",
                 "Strikeout": "Remove strikeout",
                 "Redaction": "Remove redaction",
-            }.get(type(annot).__name__) or f"Remove {mark_noun(annot)}"
+            }.get(type(annot).__name__) or f"Remove {noun}"
             menu.addAction(label, lambda: self.view.annotations.remove(page_index, annot))
             return menu
         # A **foreign** annotation — one another tool wrote (M66). Checked after our own marks, so

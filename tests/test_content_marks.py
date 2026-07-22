@@ -26,8 +26,7 @@ from model.content_marks import (
     is_content_mark,
     natural_size,
     placement_size,
-    preset_stamp,
-    preset_watermark,
+    preset_mark,
     render_mark_document,
     size_for_page,
 )
@@ -139,8 +138,12 @@ def _xobject_before_text(page) -> bool:
 
 
 def test_watermark_paints_under_the_page_content(vdoc, tmp_path):
-    """``under=True`` prepends the mark, so the page's own text stays legible on top of it."""
-    vdoc.add_annotation(0, preset_watermark("Draft", (0, 0, 595, 842)))
+    """``under=True`` prepends the mark, so the page's own text stays legible on top of it.
+
+    Asked for explicitly: it is no longer the whole-page *default* (M69.5), because "behind the page
+    content" means behind an opaque page background too, and most real PDFs have one — the mark bakes
+    correctly and is invisible. The engine capability is unchanged, which is what this pins."""
+    vdoc.add_annotation(0, preset_mark("Draft", (0, 0, 595, 842), whole_page=True, under=True))
     saved = fitz.open(_materialize(vdoc, tmp_path))
     try:
         assert _xobject_before_text(saved[0]) is True
@@ -359,9 +362,9 @@ def _baked_text_direction(path: str, text: str) -> tuple[float, float]:
         doc.close()
 
 
-@pytest.mark.parametrize("angle,climbs", [(-45.0, True), (45.0, False)])
+@pytest.mark.parametrize("angle,climbs", [(45.0, True), (-45.0, False)])
 def test_baked_angle_is_counter_clockwise(vdoc, tmp_path, angle, climbs):
-    """``angle`` is counter-clockwise, and the **bake** has to agree with the descriptor.
+    """``angle`` is counter-clockwise (``+45`` = north-east), and the **bake** must agree with it.
 
     The regression: ``show_pdf_page``'s ``rotate`` is clockwise-positive, so passing ``angle``
     through unconverted baked every rotated mark as its own mirror image. On screen the preview
@@ -377,9 +380,9 @@ def test_baked_angle_is_counter_clockwise(vdoc, tmp_path, angle, climbs):
 
 
 def test_watermark_default_diagonal_bakes_bottom_left_to_top_right(vdoc, tmp_path):
-    """The near-universal watermark diagonal, end to end: the ``-45°`` default that
-    :func:`preset_watermark` promises must be what actually lands in the file."""
-    vdoc.add_annotation(0, preset_watermark("Confidential", (0, 0, 595, 842)))
+    """The near-universal watermark diagonal, end to end: the ``+45°`` default that
+    :func:`preset_mark` promises must be what actually lands in the file."""
+    vdoc.add_annotation(0, preset_mark("Confidential", (0, 0, 595, 842), whole_page=True))
     _dx, dy = _baked_text_direction(_materialize(vdoc, tmp_path, "wm.pdf"), "CONFIDENTIAL")
     assert dy < 0
 
@@ -465,26 +468,28 @@ def test_image_opacity_is_carried_in_the_pixels(png):
 def test_preset_is_an_ordinary_stamp(vdoc):
     """A preset yields the same descriptor the custom dialog builds — so it can be edited after
     placing and there is no second code path to keep calibrated."""
-    stamp = preset_stamp("Approved", STAMP_RECT)
+    stamp = preset_mark("Approved", STAMP_RECT)
     assert isinstance(stamp, Stamp)
     assert stamp.text == "APPROVED"
     assert stamp.rect == STAMP_RECT
 
 
 def test_preset_overrides_win():
-    assert preset_stamp("Approved", STAMP_RECT, angle=15.0).angle == 15.0
+    assert preset_mark("Approved", STAMP_RECT, angle=15.0).angle == 15.0
 
 
 def test_unknown_preset_falls_back_to_its_name():
     """A caller can never end up with no stamp at all."""
-    assert preset_stamp("shipped", STAMP_RECT).text == "SHIPPED"
+    assert preset_mark("shipped", STAMP_RECT).text == "SHIPPED"
 
 
-def test_watermark_preset_is_translucent_diagonal_and_under():
-    mark = preset_watermark("Confidential", (0, 0, 595, 842))
+def test_watermark_preset_is_translucent_and_diagonal():
+    mark = preset_mark("Confidential", (0, 0, 595, 842), whole_page=True)
     assert mark.text == "CONFIDENTIAL"
-    assert mark.under is True
-    assert mark.angle == -45.0   # bottom-left to top-right, the near-universal convention
+    # Over the content by default (M69.5) — under an opaque page background it would be invisible.
+    assert mark.under is False
+    # +45 = north-east, the maths convention (M69.9); it read -45 before the sign was corrected.
+    assert mark.angle == 45.0
     assert 0.0 < mark.opacity < 0.5
     assert mark.border_width == 0.0
 
@@ -604,7 +609,7 @@ def test_annotations_still_layer_above_a_stamp(vdoc, tmp_path):
     watermark reads exactly as it does on the page's own ink."""
     from model.page_edits import TextBox
 
-    vdoc.add_annotation(0, preset_watermark("Draft", (0, 0, 595, 842)))
+    vdoc.add_annotation(0, preset_mark("Draft", (0, 0, 595, 842), whole_page=True))
     vdoc.add_annotation(0, TextBox((100, 500, 300, 540), "note"))
     saved = fitz.open(_materialize(vdoc, tmp_path))
     try:
@@ -637,7 +642,7 @@ def test_apply_content_marks_ignores_annotation_descriptors(vdoc):
 def test_a_page_range_watermark_is_the_same_descriptor_on_each_page(vdoc, tmp_path):
     """'Watermark pages 1–2' is the model-level loop the UI runs — one descriptor, N pages. No
     page-range state in the model is the reason stamp and watermark are one feature."""
-    mark = preset_watermark("Copy", (0, 0, 595, 842))
+    mark = preset_mark("Copy", (0, 0, 595, 842), whole_page=True)
     for index in range(vdoc.page_count):
         vdoc.add_annotation(index, mark)
     saved = fitz.open(_materialize(vdoc, tmp_path))

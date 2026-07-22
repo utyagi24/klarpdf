@@ -154,3 +154,72 @@ def test_edit_then_undo_returns_thumbnail_to_clean(win):
     win.vdoc.clear_annotations(0)
     win.thumbs.populate()
     assert _diff_fraction(clean, _thumb(win.thumbs, 0)) < 0.02  # back to the clean render
+
+
+# ---- an edit must not blank the sidebar (owner-reported, M69.2) ------------------
+#
+# Rendering is lazy, but `populate()` runs on *every* edit and used to reset every row to a blank
+# grey placeholder — so one edit emptied the whole sidebar and only the rows on screen came back.
+# Anything scrolled away stayed an empty rectangle until the user happened to scroll to it.
+
+
+def _is_blank_placeholder(panel, row) -> bool:
+    """Whether row ``row`` is the grey placeholder rather than a page render.
+
+    Keyed on the placeholder's own fill colour, not on "the image is flat": a page that is mostly
+    white *is* flat over most sampling grids, so flatness would call every clean page a placeholder.
+    """
+    image = panel.item(row).icon().pixmap(panel.iconSize()).toImage()
+    sampled = {image.pixel(x, y)
+               for x in range(0, image.width(), 7)
+               for y in range(0, image.height(), 11)}
+    return sampled == {0xFFECECEC}          # ThumbnailPanel._placeholder_icon's fill
+
+
+def test_an_edit_does_not_blank_the_thumbnails_it_did_not_re_render(win):
+    """The reported symptom: rows outside the viewport turned into empty grey rectangles."""
+    panel = win.thumbs
+    for row in range(panel.count()):
+        panel._ensure_rendered(row)
+    assert not any(_is_blank_placeholder(panel, row) for row in range(panel.count()))
+
+    win.vdoc.add_annotation(0, Highlight(((50, 50, 200, 70),)))
+    panel.populate()
+
+    assert not any(_is_blank_placeholder(panel, row) for row in range(panel.count())),         "an edit blanked a thumbnail instead of carrying its previous render"
+
+
+def test_a_carried_thumbnail_is_still_due_a_real_render(win):
+    """Carrying supplies a *placeholder*, not an answer: the row is not marked rendered, so it
+    refreshes when looked at. Otherwise the sidebar would go permanently stale, not momentarily."""
+    panel = win.thumbs
+    for row in range(panel.count()):
+        panel._ensure_rendered(row)
+    clean = _thumb(panel, 0)
+    carried = panel._carryable_icons()
+    assert set(carried) == set(range(panel.count()))     # every rendered row can be carried
+
+    win.vdoc.add_annotation(0, Redaction(((50, 50, 500, 700),)))
+    panel.populate()
+    assert _diff_fraction(clean, _thumb(panel, 0)) > 0.1  # the re-render carries the edit
+
+
+def test_a_structural_edit_carries_nothing(win):
+    """A carried icon belongs to the page that was in that row. Reorder the pages and the old image
+    is a *different page* — an honest placeholder beats a confident lie."""
+    panel = win.thumbs
+    for row in range(panel.count()):
+        panel._ensure_rendered(row)
+    assert panel._carryable_icons() != {}
+    win.vdoc.ordered.reverse()
+    assert panel._carryable_icons() == {}
+
+
+def test_a_rotation_carries_nothing(win):
+    """Rotation changes the row's shape as well as its pixels, so a carried icon would be the wrong
+    aspect — the layout key covers it alongside reorder and crop."""
+    panel = win.thumbs
+    for row in range(panel.count()):
+        panel._ensure_rendered(row)
+    win.vdoc.set_rotation(0, 90)
+    assert panel._carryable_icons() == {}

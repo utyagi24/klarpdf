@@ -60,7 +60,9 @@ def test_tools_menu_holds_the_modes_and_armed_tools(app, b_pdf):
         "Add Text Box", "Highlight", "Underline", "Strike Out",
         "Pen", "Line", "Arrow", "Rectangle", "Ellipse",
         "Redact Text", "Redact Block", "Find and Redact…",
-        "Stamp…", "Signature / Image…", "Watermark…",
+        # One entry, not two (M69.3): a watermark is a Stamp with `under=True`, so stamps and
+        # watermarks are one dialog with a Place control rather than two menu items.
+        "Stamp / Watermark…", "Signature / Image…",
         "Add Form Field",
         "Crop Pages", "Remove Crop",
     ]

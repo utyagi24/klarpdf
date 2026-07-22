@@ -21,6 +21,7 @@ Rotation-0 only, like the other overlays.
 from __future__ import annotations
 
 import math
+from collections import OrderedDict
 from dataclasses import replace
 
 import pymupdf as fitz
@@ -47,6 +48,7 @@ from PySide6.QtWidgets import (
 )
 
 from model.content_marks import CONTENT_MARK_TYPES, render_mark_document
+from model.form_fields import NewField
 from model.page_edits import (
     Highlight,
     InkStroke,
@@ -71,6 +73,10 @@ _MIN_BOX_W, _MIN_BOX_H = 40.0, 20.0  # a text box never shrinks below this (page
 _MIN_REDACT = 3.0                 # ignore a redaction drag smaller than this (a stray click)
 _MIN_DRAW = 2.0                   # ignore a draw drag smaller than this (page points)
 _HIT_PAD = 3.0                    # grab slack around thin drawn marks (page points)
+# Fraction of the page a content mark must span before it stops being a click target (see
+# AnnotationOverlay.covers_page). Just under 1 so a watermark laid on the page box still counts
+# after floating-point rounding, and so a nearly-full-page mark behaves like a full-page one.
+_PAGE_COVER = 0.98
 
 # The markup / draw style (colour · width · fill) is picked from the shared, sticky
 # :class:`~viewer.markup_style.MarkupStyle` (M59.5) — its defaults are the old M58 fixed
@@ -87,7 +93,14 @@ _DRAWN_TYPES = (InkStroke, Line, Shape)
 # Public because the window's right-click menu must offer exactly these marks the object verbs.
 # It used to keep its own hand-written copy of the list, which silently went stale when the content
 # marks joined — stamps then selected, moved and copied by keyboard but had no Copy/Cut on the menu.
-OBJECT_TYPES = _DRAWN_TYPES + CONTENT_MARK_TYPES
+#
+# `NewField` (M69) is here for the same reason and was missed the same way (M69.14): the model has
+# always listed it in `PLACEABLE_TYPES` and both `translate_mark` and `scale_mark` handle it, and its
+# `bounding_rect` is documented as existing "so the viewer's shared hit-test / outline helpers work
+# on it unchanged" — but it was never added here, so a placed field could not be selected, moved,
+# resized or marqueed. A created field is a free-placed rect like any other; it is drawn by the form
+# overlay rather than this one, which is what let the omission go unnoticed.
+OBJECT_TYPES = _DRAWN_TYPES + CONTENT_MARK_TYPES + (NewField,)
 
 # Scene z for the marks. Every annotation lives in ``[_ANNOT_Z_BASE, _ANNOT_Z_BASE + 1)``, spread
 # by its index in the page's tuple (see :meth:`AnnotationOverlay._annot_z`), so paint order follows
@@ -100,6 +113,13 @@ _REDACTION_Z = 5.0
 # annotations). An `under=True` watermark sits a hair lower still, under the over-content stamps.
 _CONTENT_MARK_Z = 5.6
 _WATERMARK_Z = 5.4
+# How many rasterised content-mark previews to keep. A content mark is the one overlay built by
+# rendering a real PDF, so re-rasterising it on every repaint made an edit cost ~98ms *per
+# transparent signature* (M69.12) — linear in how many were in view, which is what made dragging
+# anything else lag once a few were placed. Bounded, so a document full of distinct marks costs
+# memory like a document full of distinct marks and not more.
+_MARK_PIXMAP_CACHE = 48
+
 # Preview raster resolution for a content mark, in pixels per page point. 2× keeps a stamp crisp at
 # 100% zoom without re-rendering on every zoom step; the *saved* mark is vector regardless.
 _CONTENT_MARK_SCALE = 2.0
@@ -182,6 +202,7 @@ _MARK_NOUNS = {
     "Shape": "shape",
     "Stamp": "stamp",
     "ImageStamp": "image",
+    "NewField": "form field",
 }
 
 
@@ -255,6 +276,14 @@ class AnnotationOverlay:
         # placement drag to give it a rect. Cleared once placed, so a second drag needs a second
         # trip through the dialog — the same one-shot contract as every other armed tool.
         self.pending_content_mark = None
+        # Pages whose content marks are currently painted. A content mark is the one overlay that is
+        # *rasterised* rather than built from cheap Qt items, so it is painted lazily by viewport
+        # band (see _paint_visible_content); this tracks which pages have already been done.
+        self._content_pages: set[int] = set()
+        # Rasterised content-mark artwork, keyed by (mark, on-screen width). The descriptors are
+        # frozen dataclasses, so a moved or restyled mark is a *different* key and can never collide
+        # with the stale image of its previous self — the cache needs no explicit invalidation.
+        self._mark_pixmaps: "OrderedDict[tuple, QPixmap]" = OrderedDict()
         # The form field (M69) a properties dialog has composed, waiting for its box.
         self.pending_field = None
         # The foreign annotation being dragged (M67), as (page_index, ForeignAnnot). It
@@ -330,9 +359,41 @@ class AnnotationOverlay:
         """
         return _ANNOT_Z_BASE + index / (count + 1)
 
+    def _content_band_contains(self, page_index: int) -> bool:
+        """Whether ``page_index`` is close enough to the viewport to be worth rasterising a content
+        mark for. Shares the view's own prefetch band, so marks appear with the page they sit on."""
+        band = self._view.content_band()
+        return band is None or band[0] <= page_index <= band[1]
+
+    def _paint_visible_content(self) -> None:
+        """Paint content marks for pages that have scrolled into the band since the last pass.
+
+        **Why this mark type alone is lazy.** Every other overlay is a handful of cheap Qt items, but
+        a content mark is rasterised through the real PDF generator — a throwaway document, a font
+        embed and a pixmap each. Painting them document-wide made an edit cost O(marks in document)
+        instead of O(marks on screen): a 320-page document watermarked on every page spent ~8.5s
+        re-rendering 320 marks after *every* edit, to show about two of them. The page pixmaps were
+        already lazy for exactly this reason; the overlay simply had not caught up.
+
+        Incremental rather than a full :meth:`repaint`, because repaint drops the object selection —
+        scrolling must not deselect what the user is working on.
+        """
+        if self._view.rotation != 0:
+            return
+        scene = self._view.scene()
+        vdoc = self._view._vdoc
+        for page_index in range(vdoc.page_count):
+            if page_index in self._content_pages or not self._content_band_contains(page_index):
+                continue
+            for annot in vdoc.ordered[page_index].annotations:
+                if isinstance(annot, CONTENT_MARK_TYPES):
+                    self._paint_content_mark(scene, page_index, annot)
+            self._content_pages.add(page_index)
+
     def repaint(self) -> None:
         """Redraw every page's annotations from the model (also after zoom / scene rebuild)."""
         self._clear_items()
+        self._content_pages = set()
         # A structural change / scene rebuild orphans the selection (its items died with the
         # scene, and the marks themselves may be gone) — selection never survives a repaint.
         self._selection = []
@@ -363,7 +424,11 @@ class AnnotationOverlay:
                 elif isinstance(annot, _DRAWN_TYPES):
                     self._paint_drawn(scene, page_index, annot, z)
                 elif isinstance(annot, CONTENT_MARK_TYPES):
-                    self._paint_content_mark(scene, page_index, annot)
+                    # Deferred unless the page is near the viewport — see _paint_visible_content
+                    # for why this one mark type cannot afford to be painted document-wide.
+                    if self._content_band_contains(page_index):
+                        self._paint_content_mark(scene, page_index, annot)
+                        self._content_pages.add(page_index)
                 elif isinstance(annot, TextBox):
                     self._paint_textbox(scene, page_index, annot, z)
                 elif isinstance(annot, Redaction):
@@ -455,7 +520,9 @@ class AnnotationOverlay:
         # at `pos + origin` — so putting the origin at the artwork's centre and positioning by the
         # centre is what keeps a rotated mark concentric with its rect, as the baked one is.
         item.setTransformOriginPoint(pixmap.width() / 2.0, pixmap.height() / 2.0)
-        item.setRotation(annot.angle)
+        # Negated: Qt's setRotation is clockwise-positive in a y-down scene, while `Stamp.angle`
+        # is counter-clockwise-positive (the maths convention, M69.9). Same value, opposite sense.
+        item.setRotation(-annot.angle)
         item.setPos(rect.center().x() - pixmap.width() / 2.0,
                     rect.center().y() - pixmap.height() / 2.0)
         item.setZValue(_WATERMARK_Z if annot.under else _CONTENT_MARK_Z)
@@ -469,6 +536,11 @@ class AnnotationOverlay:
         not be built: a stamp is never worth crashing the view over, and the mark stays in the model
         and still bakes at save.
         """
+        key = (annot, round(scene_rect.width()))
+        hit = self._mark_pixmaps.get(key)
+        if hit is not None:
+            self._mark_pixmaps.move_to_end(key)      # LRU: keep what is actually on screen
+            return hit
         try:
             art = render_mark_document(annot)
         except Exception:
@@ -479,11 +551,15 @@ class AnnotationOverlay:
             pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=True)
             image = QImage(pix.samples, pix.width, pix.height, pix.stride,
                            QImage.Format.Format_RGBA8888)
-            return QPixmap.fromImage(image.copy())   # copy: the pixmap outlives pix.samples
+            pixmap = QPixmap.fromImage(image.copy())  # copy: the pixmap outlives pix.samples
         except Exception:
             return None
         finally:
             art.close()
+        self._mark_pixmaps[key] = pixmap
+        while len(self._mark_pixmaps) > _MARK_PIXMAP_CACHE:
+            self._mark_pixmaps.popitem(last=False)
+        return pixmap
 
     def _paint_redaction(self, scene, page_index: int, annot: Redaction) -> None:
         # WYSIWYG: the opaque fill boxes are exactly what bakes into the output at save. A thin red
@@ -987,9 +1063,32 @@ class AnnotationOverlay:
         if page_index is None:
             return None
         for annot in reversed(self._view._vdoc.ordered[page_index].annotations):
+            if self.covers_page(page_index, annot):
+                continue          # a page-blanketing mark is not grabbable — see covers_page
             if isinstance(annot, OBJECT_TYPES) and self._drawn_hit(annot, local.x(), local.y()):
                 return page_index, annot
         return None
+
+    def covers_page(self, page_index: int, mark) -> bool:
+        """Whether ``mark`` blankets page ``page_index`` — the full-page watermark case.
+
+        Such a mark is **not an interaction target**. A click target that covers every point of the
+        page is a click target for nothing else: with it grabbable, every press anywhere on the page
+        started a move of the watermark, so **text selection stopped working entirely** (the armed
+        markup tools still worked, because they route through the text-drag path before this one).
+        Nor is there anything to gain — a mark already covering the whole page has nowhere to be
+        dragged to and no size to be resized to.
+
+        Keyed on the geometry, not on ``under``: an over-content mark stretched across the page
+        swallows clicks exactly the same way. It stays reachable by right-click, which is where its
+        Remove verb lives.
+        """
+        if not isinstance(mark, CONTENT_MARK_TYPES):
+            return False
+        page_w, page_h = self._view._unrotated_size(page_index)
+        x0, y0, x1, y1 = mark_bounds(mark)
+        return (abs(x1 - x0) >= page_w * _PAGE_COVER
+                and abs(y1 - y0) >= page_h * _PAGE_COVER)
 
     def _hit_tol(self, mark) -> float:
         """Click tolerance in page points for a thin mark: half the stroke width plus a fixed
@@ -1132,6 +1231,8 @@ class AnnotationOverlay:
         for mark in self._view._vdoc.ordered[page_index].annotations:
             if not isinstance(mark, (TextBox, *OBJECT_TYPES)):
                 continue
+            if self.covers_page(page_index, mark):
+                continue          # else every marquee, however small, would catch the watermark
             mx0, my0, mx1, my1 = mark_bounds(mark)
             padded = QRectF(mx0 - _HIT_PAD, my0 - _HIT_PAD,
                             (mx1 - mx0) + 2 * _HIT_PAD, (my1 - my0) + 2 * _HIT_PAD)
@@ -1517,10 +1618,17 @@ class AnnotationOverlay:
         self._draw_points = [self._draw_anchor]
         item = QGraphicsPathItem()
         if tool.places_content or tool.places_field:
-            # A stamp's or field's live gesture is the *box*, drawn as a neutral dashed outline — the artwork
-            # appears on commit. Re-rendering the stamp on every mouse-move would cost a PDF render
-            # per pixel of drag to preview something the user is still sizing.
-            item.setPen(QPen(QColor(0, 120, 215), 1, Qt.PenStyle.DashLine))
+            # A field's (or signature's) live gesture is the *box*, drawn as a neutral dashed outline
+            # — the artwork appears on commit. Re-rendering it on every mouse-move would cost a PDF
+            # render per pixel of drag to preview something the user is still sizing.
+            #
+            # A **click-placed** text stamp (M69.7) draws no band at all: its size is already fixed,
+            # so a rubber band would advertise a box the stamp is not going to take. Nothing to show
+            # between press and release when the press was the whole gesture.
+            if self._click_placed(tool):
+                item.setPen(QPen(Qt.PenStyle.NoPen))
+            else:
+                item.setPen(QPen(QColor(0, 120, 215), 1, Qt.PenStyle.DashLine))
         else:
             item.setPen(self._drawn_pen(self._markup_style.color, self._markup_style.width))
             item.setOpacity(self._markup_style.opacity)   # the live gesture previews its opacity too
@@ -1588,6 +1696,15 @@ class AnnotationOverlay:
                 path.addRect(rect)          # RECT and the STAMP placement box
         return path
 
+    def _click_placed(self, tool) -> bool:
+        """Whether ``tool``'s armed mark is placed by a click rather than sized by a drag — true for
+        a text stamp carrying its own point size (M69.7), false for a signature or a form field,
+        which still get their size from the box you drag."""
+        from model.content_marks import Stamp
+
+        pending = self.pending_content_mark
+        return (tool.places_content and isinstance(pending, Stamp) and bool(pending.fontsize))
+
     def _placed_mark(self, page_index: int, pending, anchor, end):
         """``pending`` positioned by the placement gesture, or ``None`` to drop the gesture.
 
@@ -1614,9 +1731,11 @@ class AnnotationOverlay:
             page_w, page_h = self._view._unrotated_size(page_index)
             pending = replace(pending, fontsize=size_for_page(pending, page_w, page_h))
             width, height = placement_size(pending)
-            cx, cy = (anchor[0] + end[0]) / 2.0, (anchor[1] + end[1]) / 2.0
-            x0 = min(max(0.0, cx - width / 2.0), max(0.0, page_w - width))
-            y0 = min(max(0.0, cy - height / 2.0), max(0.0, page_h - height))
+            # Centred on where the press landed, **not** on the middle of any drag. The gesture is a
+            # click (M69.7): the size is already decided, so a drag has nothing left to say, and
+            # honouring its midpoint would slide the stamp away from the spot the user pointed at.
+            x0 = min(max(0.0, anchor[0] - width / 2.0), max(0.0, page_w - width))
+            y0 = min(max(0.0, anchor[1] - height / 2.0), max(0.0, page_h - height))
             return replace(pending, rect=(x0, y0, x0 + width, y0 + height))
         if abs(end[0] - anchor[0]) < _MIN_DRAW and abs(end[1] - anchor[1]) < _MIN_DRAW:
             return None
@@ -1659,6 +1778,13 @@ class AnnotationOverlay:
                 self.pending_content_mark = None
             else:
                 self.pending_field = None
+            # Select what was just placed, so its handles are up and it can be moved or resized
+            # straight away (M69.15). Paste has done this since M59.7 for exactly this reason;
+            # placement never did — so a freshly drawn form field landed with nothing selected, and
+            # the next click on it went to the *form* overlay to be filled, which to the user who
+            # had just drawn it looked like the field could not be selected at all. **After**
+            # `_on_add`, not before: the add reloads the view, which clears any selection.
+            self.select_objects(page_index, [placed])
             return
         if dx < _MIN_DRAW and dy < _MIN_DRAW:
             return
