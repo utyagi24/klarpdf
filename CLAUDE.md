@@ -79,7 +79,9 @@ unpublished tag. R4 adds a unified content-draw engine (stamps/watermarks baked 
 stamp/signature placement, and Find-and-Redact; R5 adds foreign-annotation handling (delete, move,
 adopt-on-edit) and form-field creation (text/checkbox/dropdown), plus a sixteen-item polish pass
 from owner testing. **M0–M38 and R1–R5 are all complete**; v0.11.0 stays reserved for the
-MCP / Agent Bridge (M39–M44), the only thing left before the next release. For live status —
+MCP / Agent Bridge (M39–M44), and a sixth GUI tranche — **R6 "Simplify & Read" (M71–M79)**, the
+Preview-inspired UI simplification approved 2026-07-22 — is planned (spec + decided-against list in
+`PLAN.md` §GUI feature roadmap → R6). For live status —
 shipped versions, per-release notes, release links, milestone ticks, and **Open follow-ups** — see
 `PROGRESS.md` (the single source of status; read it first). Design/spec, including §Future
 enhancements for what's next, lives in `PLAN.md`.
