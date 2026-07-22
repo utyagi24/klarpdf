@@ -599,6 +599,17 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   stays the floor — the cache is what makes it stop mattering. **Repaint after the first: 98ms per
   signature → 0.0–0.7ms regardless of count.** — *Windows (headless + offscreen GUI)* — 3 new tests,
   1056 green
+- [x] **M69.13** Signature removal slider ran backwards — owner-reported: *"transparency increases
+  if I keep the slider towards zero and decreases as I drag it right."* It did. The slider exposed
+  `ImageStamp.white_threshold` **raw**, and a threshold is a luminance *cutoff*, so lowering it
+  removes more: measured on a grey ramp, far-left removed **129/256** pixels and far-right **4/256**.
+  It also had **no label and no tooltip** — a bare slider under a checkbox, which reads as "how
+  much", the one thing it was not. Now labelled **"Remove"** and inverted, so right removes more;
+  the mapping to the cutoff (`(100 - strength) / 100`) lives at the dialog edge so
+  `ImageStamp` keeps the plain threshold semantics the renderer wants. The default is unchanged —
+  strength 15 is the old 0.85 — and the reach is the same (1–50 spans the old 0.99–0.50), so this
+  inverts the control without quietly re-tuning it. — *Windows (headless + offscreen GUI)* — 2 new
+  tests, 1058 green
 - [ ] **M70** Verify + release → tag — *Windows*
 
 ## Public-Release Readiness — go open-source under AGPL-3.0 (planned)

@@ -325,23 +325,23 @@ def test_signature_dialog_composes_the_mark(win, photo_sig):
     try:
         assert dialog.path() == photo_sig             # the recent entry is preselected
         dialog.transparent.setChecked(True)
-        dialog.threshold.setValue(70)
+        dialog.strength.setValue(30)      # "remove more" — see _white_threshold
         mark = dialog.image_stamp()
         assert mark.image_path == photo_sig
         assert mark.white_to_alpha is True
-        assert mark.white_threshold == pytest.approx(0.70)
+        assert mark.white_threshold == pytest.approx(0.70)   # (100 - 30) / 100
     finally:
         dialog.deleteLater()
 
 
-def test_signature_dialog_threshold_follows_the_toggle(win, photo_sig):
+def test_signature_dialog_strength_follows_the_toggle(win, photo_sig):
     from ui.signature_dialog import SignatureDialog
 
     dialog = SignatureDialog(win, [photo_sig])
     try:
-        assert dialog.threshold.isEnabled() is False   # meaningless until keying is on
+        assert dialog.strength.isEnabled() is False   # meaningless until keying is on
         dialog.transparent.setChecked(True)
-        assert dialog.threshold.isEnabled() is True
+        assert dialog.strength.isEnabled() is True
     finally:
         dialog.deleteLater()
 
@@ -369,3 +369,34 @@ def test_apply_content_marks_tolerates_a_missing_signature(tmp_path):
         assert page.get_images() == []
     finally:
         doc.close()
+
+
+def test_the_removal_slider_runs_the_way_it_looks(win, photo_sig):
+    """Owner-reported: dragging right *reduced* the transparency. The descriptor underneath is a
+    luminance **cutoff**, which runs backwards — lower removes more — and the slider exposed it raw
+    and unlabelled. Right must mean more removed (M69.13)."""
+    from ui.signature_dialog import SignatureDialog
+
+    dialog = SignatureDialog(win, [photo_sig])
+    try:
+        dialog.transparent.setChecked(True)
+        dialog.strength.setValue(dialog.strength.minimum())
+        least = dialog.image_stamp((0, 0, 60, 30)).white_threshold
+        dialog.strength.setValue(dialog.strength.maximum())
+        most = dialog.image_stamp((0, 0, 60, 30)).white_threshold
+        # A *lower* cutoff removes more, so dragging right must lower it.
+        assert most < least
+    finally:
+        dialog.deleteLater()
+
+
+def test_the_removal_slider_keeps_the_old_default(win, photo_sig):
+    """Inverting the control must not quietly re-tune it: 0.85 was the default and still is."""
+    from ui.signature_dialog import SignatureDialog
+
+    dialog = SignatureDialog(win, [photo_sig])
+    try:
+        dialog.transparent.setChecked(True)
+        assert dialog.image_stamp((0, 0, 60, 30)).white_threshold == pytest.approx(0.85)
+    finally:
+        dialog.deleteLater()

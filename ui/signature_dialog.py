@@ -6,7 +6,13 @@ Three things make it work offline in two clicks on the second use:
 * **Recent signatures**, offered first — the second use is "pick the one from last time";
 * **"Make white background transparent"**, so a *phone photo* of a signature on paper works without
   an image editor (a transparent PNG already works through its own alpha);
-* **a live preview**, because the threshold is the one setting whose right value you can only see.
+* **a live preview**, because how much background to remove is the one setting whose right value
+  you can only see.
+
+The removal slider reads **"how much to remove"**, not the raw luminance cutoff underneath it: a
+cutoff runs backwards (lower removes more), and exposing it raw and unlabelled meant dragging right
+removed *less* (§M69.13). The inversion lives at this edge so :class:`~model.content_marks.ImageStamp`
+keeps the plain threshold semantics the renderer wants.
 
 **Paths only, never pixels.** The recent list stores the file paths the user chose — KlarPDF keeps no
 copy of a signature image anywhere. Moving or deleting the file revokes it; that is the whole
@@ -45,6 +51,11 @@ _NOT_CRYPTO = ("This places a picture of your signature — ink-equivalent, like
 
 # The preview panel, in device pixels. Big enough to judge whether the background dropped out
 # cleanly, small enough that re-rendering on every slider step stays instant.
+# Removal strength, as the user sees it: higher removes more. Maps to `white_threshold` as
+# `(100 - strength) / 100`, so the old 0.85 default is strength 15 and the old 0.50..0.99 cutoff
+# range is strength 1..50 — same reach, read the way a slider looks.
+_MIN_STRENGTH, _MAX_STRENGTH, _DEFAULT_STRENGTH = 1, 50, 15
+
 _PREVIEW = (320, 150)
 
 
@@ -73,12 +84,23 @@ class SignatureDialog(QDialog):
             "For a photo or scan of a signature on paper. A PNG that is already transparent "
             "does not need this."
         )
-        self.transparent.toggled.connect(self._sync_threshold)
-        self.threshold = QSlider(Qt.Orientation.Horizontal)
-        self.threshold.setRange(50, 99)
-        self.threshold.setValue(85)
-        self.threshold.setEnabled(False)
-        self.threshold.valueChanged.connect(self._refresh_preview)
+        self.transparent.toggled.connect(self._sync_strength)
+        # **How much to remove, not where the cutoff sits** (M69.13). The underlying
+        # `ImageStamp.white_threshold` is a luminance cutoff, so *lowering* it removes *more* — and
+        # the slider used to expose it raw, unlabelled, under a checkbox. Dragging right therefore
+        # removed less, which is backwards from how every slider reads (owner-reported). It now runs
+        # the way it looks: right is more removed. The inversion lives here, at the edge, so the
+        # descriptor keeps the plain threshold semantics the renderer wants.
+        self.strength_label = QLabel("Remove")
+        self.strength = QSlider(Qt.Orientation.Horizontal)
+        self.strength.setRange(_MIN_STRENGTH, _MAX_STRENGTH)
+        self.strength.setValue(_DEFAULT_STRENGTH)
+        self.strength.setEnabled(False)
+        self.strength.setToolTip(
+            "How much of the light background to remove.\n"
+            "Further right removes more — drag until the paper is gone but the ink is not."
+        )
+        self.strength.valueChanged.connect(self._refresh_preview)
         self.transparent.toggled.connect(self._refresh_preview)
 
         self.preview = QLabel("Choose an image to preview it here.")
@@ -107,7 +129,10 @@ class SignatureDialog(QDialog):
         layout.addLayout(row)
         layout.addWidget(self.preview)
         layout.addWidget(self.transparent)
-        layout.addWidget(self.threshold)
+        strength_row = QHBoxLayout()
+        strength_row.addWidget(self.strength_label)
+        strength_row.addWidget(self.strength, 1)
+        layout.addLayout(strength_row)
         note = QLabel(_NOT_CRYPTO)
         note.setWordWrap(True)
         layout.addWidget(note)
@@ -139,8 +164,13 @@ class SignatureDialog(QDialog):
     def path(self) -> str | None:
         return self._path
 
-    def _sync_threshold(self, on: bool) -> None:
-        self.threshold.setEnabled(on)
+    def _sync_strength(self, on: bool) -> None:
+        self.strength.setEnabled(on)
+        self.strength_label.setEnabled(on)
+
+    def _white_threshold(self) -> float:
+        """The slider's "how much to remove" turned back into the renderer's luminance cutoff."""
+        return (100 - self.strength.value()) / 100.0
 
     # ---- preview --------------------------------------------------------------
 
@@ -182,5 +212,5 @@ class SignatureDialog(QDialog):
             rect=rect,
             image_path=self._path or "",
             white_to_alpha=self.transparent.isChecked(),
-            white_threshold=self.threshold.value() / 100.0,
+            white_threshold=self._white_threshold(),
         )
