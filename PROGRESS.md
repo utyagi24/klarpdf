@@ -573,6 +573,15 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   it. Cosmetic (a console warning, nothing misrendered) but it was the layout genuinely fighting
   itself. Nothing to do with the document being edited — dialog geometry only.
   — *Windows (headless + offscreen GUI)* — 3 new tests, 1050 green
+- [x] **M69.11** Crash: picking a recent signature from the dropdown — owner-reported. The handler
+  called `_rebuild_signature_menu`, which does `menu.clear()` and therefore **destroys the submenu's
+  `QAction` objects — including the one whose `triggered` signal was still being delivered**. That is
+  undefined behaviour: a hard crash on Windows, surfacing under PySide as *"Internal C++ object
+  (QAction) already deleted"*. `Clear List` carried the identical hazard, being an action in the menu
+  its own handler empties. The rebuild is now deferred by a zero-delay timer so the signal unwinds
+  before anything is deleted. Reproduced first (triggering the *oldest* entry, which reorders the
+  list and so forces a real rebuild), and both regression tests fail on the pre-fix code with that
+  exact RuntimeError. — *Windows (headless + offscreen GUI)* — 3 new tests, 1053 green
 - [ ] **M70** Verify + release → tag — *Windows*
 
 ## Public-Release Readiness — go open-source under AGPL-3.0 (planned)

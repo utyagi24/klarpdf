@@ -305,11 +305,16 @@ def test_the_second_use_is_pick_then_drag(win, photo_sig):
 
 
 def test_a_vanished_recent_signature_is_dropped_not_placed(win, photo_sig):
+    from PySide6.QtWidgets import QApplication
+
     win._settings.add_recent_signature(photo_sig)
     win._rebuild_signature_menu()
     os.remove(photo_sig)
     win._place_recent_signature(photo_sig)
     assert win.view.armed is not ArmedTool.STAMP
+    # The menu rebuild is deferred to the next event-loop turn (M69.11): doing it inline would
+    # destroy the QAction whose triggered signal is still being delivered.
+    QApplication.processEvents()
     assert _recent_titles(win) == []
 
 

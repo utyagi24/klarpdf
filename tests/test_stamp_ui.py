@@ -976,3 +976,58 @@ def test_the_minimum_stays_satisfiable_across_kind_switches(win):
         assert hint.height() >= minimum.height(), f"{mode}: size hint is below the minimum"
         assert hint.width() >= minimum.width(), f"{mode}: size hint is below the minimum"
     dialog.deleteLater()
+
+
+# ---- picking a recent signature must not destroy the action mid-signal (M69.11) --
+#
+# Owner-reported crash. `_rebuild_signature_menu` calls `menu.clear()`, which destroys the submenu's
+# QActions. Calling it from one of those actions' own `triggered` handler deletes the action while
+# its signal is still being delivered — undefined behaviour, a hard crash on Windows, and
+# "Internal C++ object already deleted" under PySide. The rebuild is now deferred by a zero-delay
+# timer so the signal unwinds first.
+
+
+def _signature_entries(win):
+    return [a for a in win._signature_menu.actions()
+            if not a.isSeparator() and a.text() != "Clear List"]
+
+
+def _seed_signatures(win, tmp_path, count=4):
+    import pymupdf as fitz
+
+    for index in range(count):
+        path = str(tmp_path / f"sig{index}.png")
+        fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 40, 20), False).save(path)
+        win._settings.add_recent_signature(path)
+    win._rebuild_signature_menu()
+
+
+def test_picking_a_recent_signature_does_not_destroy_it_mid_signal(win, qapp, tmp_path):
+    """The crash: triggering the *oldest* entry reorders the list, so the rebuild really does clear
+    the menu — and with it the action still emitting."""
+    _seed_signatures(win, tmp_path)
+    oldest = _signature_entries(win)[-1]
+    oldest.trigger()
+    assert oldest.isEnabled()          # would raise RuntimeError if it had been deleted under us
+    qapp.processEvents()               # let the deferred rebuild run
+    assert isinstance(win.view.annotations.pending_content_mark, ImageStamp)
+
+
+def test_the_recent_list_still_reorders_after_the_deferred_rebuild(win, qapp, tmp_path):
+    """Deferring must not lose the update — most-recently-used still floats to the top."""
+    _seed_signatures(win, tmp_path)
+    oldest_name = _signature_entries(win)[-1].text()
+    _signature_entries(win)[-1].trigger()
+    qapp.processEvents()
+    assert _signature_entries(win)[0].text() == oldest_name
+
+
+def test_clear_list_does_not_destroy_its_own_action_mid_signal(win, qapp, tmp_path):
+    """"Clear List" lives in the very menu the rebuild empties — the same hazard."""
+    _seed_signatures(win, tmp_path)
+    clear = next(a for a in win._signature_menu.actions() if a.text() == "Clear List")
+    clear.trigger()
+    assert clear.isEnabled()
+    qapp.processEvents()
+    assert _signature_entries(win) == []
+    assert win._signature_menu.menuAction().isVisible() is False   # no dead chrome

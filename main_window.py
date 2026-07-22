@@ -17,7 +17,7 @@ from __future__ import annotations
 import os
 import tempfile
 
-from PySide6.QtCore import QEvent, QRect, QSize, Qt
+from PySide6.QtCore import QEvent, QRect, QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QActionGroup, QCursor, QGuiApplication, QKeySequence, QUndoStack
 from PySide6.QtWidgets import (
     QApplication,
@@ -1072,18 +1072,33 @@ class MainWindow(QMainWindow):
             menu.addSeparator()
             menu.addAction("Clear List", self._clear_recent_signatures)
 
+    def _rebuild_signature_menu_later(self) -> None:
+        """Rebuild the Recent Signatures submenu **after** the current signal finishes delivering.
+
+        :meth:`_rebuild_signature_menu` calls ``menu.clear()``, which destroys the submenu's
+        ``QAction`` objects. Calling it from one of those actions' own ``triggered`` handlers
+        therefore deletes the action that is still mid-emission — undefined behaviour that crashed
+        the app on Windows and surfaces as "Internal C++ object already deleted" under PySide
+        (owner-reported: picking a recent signature from the dropdown). Deferring by a zero-delay
+        timer lets the signal unwind first, so the action is destroyed when nothing is using it.
+        """
+        QTimer.singleShot(0, self._rebuild_signature_menu)
+
     def _place_recent_signature(self, path: str) -> None:
         """Arm a previously used signature straight from the menu — no dialog (M63)."""
         if not os.path.exists(path):
-            self._rebuild_signature_menu()   # it vanished; drop it rather than fail mysteriously
+            # It vanished; drop it rather than fail mysteriously. Deferred — see the helper: we are
+            # inside the triggered handler of the very action the rebuild would destroy.
+            self._rebuild_signature_menu_later()
             return
         self._settings.add_recent_signature(path)
-        self._rebuild_signature_menu()
+        self._rebuild_signature_menu_later()
         self._arm_content_mark(ImageStamp(rect=(0.0, 0.0, 1.0, 1.0), image_path=path))
 
     def _clear_recent_signatures(self) -> None:
+        # Same hazard: "Clear List" lives in the menu the rebuild empties.
         self._settings.clear_recent_signatures()
-        self._rebuild_signature_menu()
+        self._rebuild_signature_menu_later()
 
     def _add_form_field(self, kind: str) -> None:
         """Tools ▸ Add Form Field ▸ … — compose the field, then drag its box (M69).
