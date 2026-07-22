@@ -39,6 +39,7 @@ class PdfView(QGraphicsView):
     armedChanged = Signal(object)  # the armed ArmedTool, or None — so the toolbar can light a button
     applyTextTool = Signal(object)  # an ArmedTool (HIGHLIGHT/REDACT_TEXT) fired on a drag-over-text release
     cropDragged = Signal(int, tuple)  # an armed CROP drag finished: (page_index, content box) — M48
+    foreignMoved = Signal(int, object, float, float)  # a foreign annotation was dragged — M67
 
     def __init__(self, vdoc: VirtualDocument, parent=None) -> None:
         super().__init__(parent)
@@ -374,6 +375,11 @@ class PdfView(QGraphicsView):
                 if self.annotations is not None and self.annotations.begin_move(scene_pt):
                     event.accept()
                     return
+                # A foreign annotation (M67) — tried after our own marks, so an editable mark
+                # always wins a spot they share.
+                if self.annotations is not None and self.annotations.begin_foreign_move(scene_pt):
+                    event.accept()
+                    return
                 # The press wasn't on a free-placed mark → drop a lingering object selection
                 # (M59); a press that *did* grab one re-selects on its zero-drag release.
                 if self.annotations is not None:
@@ -467,6 +473,12 @@ class PdfView(QGraphicsView):
             return
         if self.annotations is not None and self.annotations.resizing:
             self.annotations.finish_resize()
+            event.accept()
+            return
+        if self.annotations is not None and self.annotations.moving_foreign:
+            moved = self.annotations.finish_foreign_move()
+            if moved is not None:
+                self.foreignMoved.emit(*moved)
             event.accept()
             return
         if self.annotations is not None and self.annotations.moving:
@@ -577,9 +589,9 @@ class PdfView(QGraphicsView):
         delete a comment on one copy, and the two must render differently despite sharing a source
         page. Dropped with the rest on :meth:`reload`.
         """
-        from model.foreign_annots import ForeignDeletion, apply_foreign_deletions
+        from model.foreign_annots import ForeignDeletion, ForeignMove, apply_foreign_edits
 
-        if not any(isinstance(a, ForeignDeletion) for a in ref.annotations):
+        if not any(isinstance(a, (ForeignDeletion, ForeignMove)) for a in ref.annotations):
             return None
         if index in self._foreign_docs:
             return self._foreign_docs[index][0]
@@ -588,7 +600,7 @@ class PdfView(QGraphicsView):
         doc = fitz.open()
         doc.insert_pdf(source.parent, from_page=source.number, to_page=source.number,
                        annots=True, widgets=True)
-        apply_foreign_deletions(doc[0], ref.annotations)
+        apply_foreign_edits(doc[0], ref.annotations)
         self._foreign_docs[index] = (doc[0], doc)
         return doc[0]
 

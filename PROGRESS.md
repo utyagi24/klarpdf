@@ -394,7 +394,19 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   right-click **Delete** / **Copy Comment Text**; a pending deletion is dropped from a per-*ordered-
   page* render copy, since a foreign mark lives in the page's own pixmap and no overlay can hide it.
   — *Windows (headless + offscreen GUI)* — 30 new tests, 886 green
-- [ ] **M67** Move foreign marks — `/Rect` translation, appearance preserved verbatim — *WSL + WSLg*
+- [x] **M67** Move foreign marks — drag any foreign annotation; a `ForeignMove` rides the PageRef
+  and translates it at materialise. **The appearance stream is preserved verbatim** — a rich callout
+  box moves with zero degradation because nothing re-renders it (asserted byte-for-byte). Not
+  `Annot.set_rect`: on the quad-based text-markup types that **silently returns `False`** and leaves
+  the rect alone, so a move built on it would fail invisibly on every highlight / underline /
+  strikeout. Instead every geometry key in the annotation's dictionary (`/Rect`, `/QuadPoints`,
+  `/Vertices`, `/L`, `/CL`, `/InkList`) is translated in place — all of them, or a highlight whose
+  rect moved but whose quads didn't gets snapped back by any viewer that regenerates appearances.
+  Deltas convert fitz's y-down to PDF's y-up. Fingerprints are **resolved once up front**, because a
+  move changes the rect a hash fingerprint is derived from; deletion wins over a move for the same
+  mark. Moves **combine rather than stack**, so one descriptor per mark always holds the original
+  fingerprint; the viewer reports moved rects so hit-testing follows the mark you can see. — *Windows
+  (headless + offscreen GUI)* — 24 new tests, 910 green
 - [ ] **M68** Adopt-on-edit — modeled types only; degrade warning before simplifying — *WSL + WSLg*
 - [ ] **M69** Form-field creation — checkbox / text / dropdown via `add_widget` (radio rejected) — *WSL + WSLg*
 - [ ] **M70** Verify + release → tag — *Windows*

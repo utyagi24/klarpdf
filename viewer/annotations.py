@@ -246,6 +246,10 @@ class AnnotationOverlay:
         # placement drag to give it a rect. Cleared once placed, so a second drag needs a second
         # trip through the dialog — the same one-shot contract as every other armed tool.
         self.pending_content_mark = None
+        # The foreign annotation being dragged (M67), as (page_index, ForeignAnnot). It
+        # reuses the move ghost/delta machinery but is not an editable object, so it never
+        # enters `_selection`.
+        self._foreign_move = None
         # In-progress draw gesture (M58): the armed draw tool, its page, the anchor + live end
         # point (page points), captured pen points, and the preview path item.
         self._draw_tool = None
@@ -535,14 +539,36 @@ class AnnotationOverlay:
     # the render has dropped them and an outline around nothing is worse than no outline.
 
     def foreign_annotations(self, page_index: int) -> tuple:
-        """Live foreign annotations on ``page_index`` — excluding any with a pending deletion."""
-        from model.foreign_annots import ForeignDeletion, read_foreign_annotations
+        """Live foreign annotations on ``page_index``, as the user currently sees them.
+
+        Pending deletions are dropped and pending **moves are applied to the reported rect** (M67):
+        the descriptors live in the model while the annotations themselves stay put in the read-only
+        source, so an un-translated rect would leave the hit-test and the selection outline behind at
+        the original position while the render showed the mark somewhere else.
+
+        The ``fingerprint`` deliberately stays the one the *source* page yields — it is the identity
+        every descriptor is keyed on, and it must not drift as the mark moves.
+        """
+        from dataclasses import replace
+
+        from model.foreign_annots import ForeignDeletion, ForeignMove, read_foreign_annotations
 
         vdoc = self._view._vdoc
         ref = vdoc.ordered[page_index]
         page = vdoc.sources[ref.source_id][ref.source_page_index]
         deleted = {a.fingerprint for a in ref.annotations if isinstance(a, ForeignDeletion)}
-        return tuple(a for a in read_foreign_annotations(page) if a.fingerprint not in deleted)
+        moved = {a.fingerprint: a for a in ref.annotations if isinstance(a, ForeignMove)}
+        live = []
+        for annot in read_foreign_annotations(page):
+            if annot.fingerprint in deleted:
+                continue
+            shift = moved.get(annot.fingerprint)
+            if shift is not None:
+                x0, y0, x1, y1 = annot.rect
+                annot = replace(annot, rect=(x0 + shift.dx, y0 + shift.dy,
+                                             x1 + shift.dx, y1 + shift.dy))
+            live.append(annot)
+        return tuple(live)
 
     def foreign_annotation_at(self, scene_pt):
         """The ``(page_index, ForeignAnnot)`` under ``scene_pt``, topmost first, else None.
@@ -559,6 +585,56 @@ class AnnotationOverlay:
                     and y0 - _HIT_PAD <= local.y() <= y1 + _HIT_PAD):
                 return page_index, annot
         return None
+
+    def begin_foreign_move(self, scene_pt) -> bool:
+        """Press on a foreign annotation → start dragging it (M67). True if it grabbed one.
+
+        Tried only *after* our own marks, so an editable mark always wins a shared spot. The drag
+        previews as a dashed ghost box, the same affordance our own marks use — the annotation
+        itself keeps rendering in place until the move commits, because its appearance lives in the
+        page pixmap and is exactly what must not be re-rendered.
+        """
+        if self._view.rotation != 0:
+            return False
+        hit = self.foreign_annotation_at(scene_pt)
+        if hit is None:
+            return False
+        page_index, mark = hit
+        self._foreign_move = (page_index, mark)
+        self._move_page = page_index
+        self._move_anchor_local = self._view.local_point_on_page(page_index, scene_pt)
+        self._move_delta = (0.0, 0.0)
+        x0, y0, x1, y1 = mark.rect
+        ghost = QGraphicsRectItem(QRectF(x0, y0, x1 - x0, y1 - y0))
+        ghost.setTransform(self._view.page_transform(page_index))
+        ghost.setBrush(QColor(0, 120, 215, 40))
+        ghost.setPen(QPen(QColor(0, 120, 215), 1, Qt.PenStyle.DashLine))
+        ghost.setZValue(12)
+        self._view.scene().addItem(ghost)
+        self._move_items = [(mark, mark.rect, ghost)]
+        return True
+
+    @property
+    def moving_foreign(self) -> bool:
+        return self._foreign_move is not None
+
+    def finish_foreign_move(self):
+        """Commit the drag as a ``(page_index, mark, dx, dy)`` for MainWindow to push, or None."""
+        if self._foreign_move is None:
+            return None
+        page_index, mark = self._foreign_move
+        self._foreign_move = None
+        items, self._move_items = self._move_items, []
+        scene = self._view.scene()
+        for _m, _b, ghost in items:
+            if ghost.scene() is scene:
+                scene.removeItem(ghost)
+        dx, dy = self._move_delta
+        self._move_anchor_local = None
+        if not dx and not dy:
+            self.outline_foreign(page_index, mark)   # a click, not a drag → just select it
+            return None
+        return (page_index, mark, dx, dy)
 
     def outline_foreign(self, page_index: int, annot) -> None:
         """Draw the selection outline around a foreign annotation (cleared on the next repaint)."""
