@@ -23,24 +23,30 @@ from __future__ import annotations
 import math
 from dataclasses import replace
 
+import pymupdf as fitz
 from PySide6.QtCore import QRect, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QBrush,
     QColor,
     QFontMetricsF,
     QGuiApplication,
+    QImage,
+    QPainter,
     QPainterPath,
     QPen,
+    QPixmap,
 )
 from PySide6.QtWidgets import (
     QGraphicsEllipseItem,
     QGraphicsLineItem,
     QGraphicsPathItem,
+    QGraphicsPixmapItem,
     QGraphicsRectItem,
     QGraphicsSimpleTextItem,
     QPlainTextEdit,
 )
 
+from model.content_marks import CONTENT_MARK_TYPES, render_mark_document
 from model.page_edits import (
     Highlight,
     InkStroke,
@@ -72,12 +78,27 @@ _HIT_PAD = 3.0                    # grab slack around thin drawn marks (page poi
 
 _DRAWN_TYPES = (InkStroke, Line, Shape)
 
+# Everything the object tools (select / marquee / move / resize / z-order / clipboard) act on. The
+# R4 content marks (M62) join by being free-placed rects: they hit-test, select, move and resize
+# through the same code as a shape, even though they bake into page content rather than staying
+# annotations. That reuse **is** M62's "placement mode (drag rect, move, corner-resize until save)"
+# — there is no second placement system.
+_OBJECT_TYPES = _DRAWN_TYPES + CONTENT_MARK_TYPES
+
 # Scene z for the marks. Every annotation lives in ``[_ANNOT_Z_BASE, _ANNOT_Z_BASE + 1)``, spread
 # by its index in the page's tuple (see :meth:`AnnotationOverlay._annot_z`), so paint order follows
 # the model's z-order instead of the mark's type. Redactions sit one band below (M59.9). Above:
 # search hits (9), text selection (10), the live gesture (11), selection chrome (12–14).
 _ANNOT_Z_BASE = 6.0
 _REDACTION_Z = 5.0
+# Content marks bake into the page's *content stream*, so they belong below every annotation but
+# above a redaction's fill — the order materialise writes them in (redact → content marks →
+# annotations). An `under=True` watermark sits a hair lower still, under the over-content stamps.
+_CONTENT_MARK_Z = 5.6
+_WATERMARK_Z = 5.4
+# Preview raster resolution for a content mark, in pixels per page point. 2× keeps a stamp crisp at
+# 100% zoom without re-rendering on every zoom step; the *saved* mark is vector regardless.
+_CONTENT_MARK_SCALE = 2.0
 
 
 def _dist_point_segment(px: float, py: float, ax: float, ay: float,
@@ -124,6 +145,63 @@ def _line_path(start: tuple, end: tuple, arrow_start: bool, arrow_end: bool,
 
 
 
+def _rotation_fit(rect: tuple, angle: float) -> float:
+    """How much a mark shrinks when rotated inside its own rect (1.0 when unrotated).
+
+    ``show_pdf_page`` scales a mark's artwork so its **rotated bounding box** fits the target rect,
+    then centres it. A 45° watermark on a portrait page therefore comes out at ~0.59 of its box —
+    so the preview has to apply the same factor, or it shows a watermark far larger than the one
+    that bakes.
+    """
+    if not angle:
+        return 1.0
+    x0, y0, x1, y1 = rect
+    width, height = abs(x1 - x0), abs(y1 - y0)
+    if width <= 0 or height <= 0:
+        return 1.0
+    radians = math.radians(angle)
+    cos, sin = abs(math.cos(radians)), abs(math.sin(radians))
+    spanned_w = width * cos + height * sin
+    spanned_h = width * sin + height * cos
+    return min(width / spanned_w, height / spanned_h)
+
+
+_MARK_NOUNS = {
+    "TextBox": "text box",
+    "InkStroke": "ink",
+    "Line": "line",
+    "Shape": "shape",
+    "Stamp": "stamp",
+    "ImageStamp": "image",
+}
+
+
+def mark_noun(mark) -> str:
+    """What to call a mark in an undo label. Falls back to the class name so a future descriptor
+    gets a serviceable label instead of a KeyError in the middle of a drag."""
+    return _MARK_NOUNS.get(type(mark).__name__, type(mark).__name__.lower())
+
+
+def _move_label(mark) -> str:
+    return f"Move {mark_noun(mark)}"
+
+
+class _MultiplyPixmapItem(QGraphicsPixmapItem):
+    """A pixmap painted with **multiply** blending — the under-the-content watermark preview.
+
+    A watermark bakes *beneath* the page content (``show_pdf_page(overlay=False)``), and a scene
+    item cannot be painted beneath the page's own pixmap: z-order below the page just hides it.
+    Multiply reproduces what the reader actually sees, because painting a translucent mark under
+    black text and multiplying a translucent mark over black text give the same result — the text
+    stays black and the mark shows everywhere else. The saved file is unaffected either way; this
+    is purely so the preview does not lie about legibility.
+    """
+
+    def paint(self, painter, option, widget=None) -> None:
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Multiply)
+        super().paint(painter, option, widget)
+
+
 class _TextBoxEditor(QPlainTextEdit):
     committed = Signal()
 
@@ -164,6 +242,10 @@ class AnnotationOverlay:
         # next drawn mark (and read by main_window for underline / strikeout colour). Edited via the
         # toolbar MarkupStyleButton — the last-used style carries forward, like the text-box style.
         self._markup_style = MarkupStyle()
+        # The content mark (M62) a composed stamp / signature dialog has armed, waiting for the
+        # placement drag to give it a rect. Cleared once placed, so a second drag needs a second
+        # trip through the dialog — the same one-shot contract as every other armed tool.
+        self.pending_content_mark = None
         # In-progress draw gesture (M58): the armed draw tool, its page, the anchor + live end
         # point (page points), captured pen points, and the preview path item.
         self._draw_tool = None
@@ -265,6 +347,8 @@ class AnnotationOverlay:
                     self._paint_text_line(scene, page_index, annot, z)
                 elif isinstance(annot, _DRAWN_TYPES):
                     self._paint_drawn(scene, page_index, annot, z)
+                elif isinstance(annot, CONTENT_MARK_TYPES):
+                    self._paint_content_mark(scene, page_index, annot)
                 elif isinstance(annot, TextBox):
                     self._paint_textbox(scene, page_index, annot, z)
                 elif isinstance(annot, Redaction):
@@ -325,6 +409,66 @@ class AnnotationOverlay:
         item.setZValue(z)
         scene.addItem(item)
         self._items.append(item)
+
+    def _paint_content_mark(self, scene, page_index: int, annot) -> None:
+        """Stamp / signature / watermark preview (M62): the mark's own artwork, rasterised.
+
+        Rendered through the **same generator that bakes at save**
+        (:func:`~model.content_marks.render_mark_document`), so what is dragged around on screen is
+        the artwork that lands in the file — including the rotation, which is applied here as a
+        scene transform about the rect's centre rather than being re-derived.
+
+        The one honest gap: an ``under=True`` watermark bakes *beneath* the page content, and Qt
+        cannot paint beneath the page's own pixmap. It is drawn with **multiply** composition
+        instead, so the page's dark text darkens through it exactly as it does in the saved file —
+        visually equivalent for the translucent marks a watermark actually is.
+        """
+        rect = self._view.scene_rect_for_box(page_index, mark_bounds(annot))
+        if rect.isEmpty():
+            return
+        pixmap = self._content_mark_pixmap(annot, rect)
+        if pixmap is None or pixmap.width() < 1:
+            return
+        # `show_pdf_page` fits the mark's *rotated* artwork inside its rect and centres it there, so
+        # a rotated mark ends up smaller than its box. Reproduce that shrink here or the preview
+        # overstates a diagonal watermark by ~1.8x.
+        fit = _rotation_fit(mark_bounds(annot), annot.angle)
+        item = _MultiplyPixmapItem(pixmap) if annot.under else QGraphicsPixmapItem(pixmap)
+        item.setTransformationMode(Qt.TransformationMode.SmoothTransformation)
+        item.setScale(rect.width() * fit / pixmap.width())
+        # Qt applies scale *and* rotation about the transform origin, leaving that one point fixed
+        # at `pos + origin` — so putting the origin at the artwork's centre and positioning by the
+        # centre is what keeps a rotated mark concentric with its rect, as the baked one is.
+        item.setTransformOriginPoint(pixmap.width() / 2.0, pixmap.height() / 2.0)
+        item.setRotation(annot.angle)
+        item.setPos(rect.center().x() - pixmap.width() / 2.0,
+                    rect.center().y() - pixmap.height() / 2.0)
+        item.setZValue(_WATERMARK_Z if annot.under else _CONTENT_MARK_Z)
+        scene.addItem(item)
+        self._items.append(item)
+
+    def _content_mark_pixmap(self, annot, scene_rect) -> "QPixmap | None":
+        """Rasterise ``annot``'s artwork through the **same generator that bakes at save**.
+
+        Resolution only — the placement maths lives in the caller. Returns None if the artwork could
+        not be built: a stamp is never worth crashing the view over, and the mark stays in the model
+        and still bakes at save.
+        """
+        try:
+            art = render_mark_document(annot)
+        except Exception:
+            return None
+        try:
+            page = art[0]
+            scale = _CONTENT_MARK_SCALE * max(scene_rect.width() / max(page.rect.width, 1.0), 0.1)
+            pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=True)
+            image = QImage(pix.samples, pix.width, pix.height, pix.stride,
+                           QImage.Format.Format_RGBA8888)
+            return QPixmap.fromImage(image.copy())   # copy: the pixmap outlives pix.samples
+        except Exception:
+            return None
+        finally:
+            art.close()
 
     def _paint_redaction(self, scene, page_index: int, annot: Redaction) -> None:
         # WYSIWYG: the opaque fill boxes are exactly what bakes into the output at save. A thin red
@@ -393,7 +537,7 @@ class AnnotationOverlay:
         for annot in reversed(self._view._vdoc.ordered[page_index].annotations):
             # A pen stroke / line is hit by its actual geometry (not its box), so a loop drawn
             # around other marks no longer swallows every click inside it (M59.6 follow-up).
-            if isinstance(annot, _DRAWN_TYPES):
+            if isinstance(annot, _OBJECT_TYPES):
                 if self._drawn_hit(annot, local.x(), local.y()):
                     return page_index, annot
                 continue
@@ -716,7 +860,7 @@ class AnnotationOverlay:
         if page_index is None:
             return None
         for annot in reversed(self._view._vdoc.ordered[page_index].annotations):
-            if isinstance(annot, _DRAWN_TYPES) and self._drawn_hit(annot, local.x(), local.y()):
+            if isinstance(annot, _OBJECT_TYPES) and self._drawn_hit(annot, local.x(), local.y()):
                 return page_index, annot
         return None
 
@@ -859,7 +1003,7 @@ class AnnotationOverlay:
         box = QRectF(rect[0], rect[1], rect[2] - rect[0], rect[3] - rect[1]).normalized()
         hits: list = []
         for mark in self._view._vdoc.ordered[page_index].annotations:
-            if not isinstance(mark, (TextBox, *_DRAWN_TYPES)):
+            if not isinstance(mark, (TextBox, *_OBJECT_TYPES)):
                 continue
             mx0, my0, mx1, my1 = mark_bounds(mark)
             padded = QRectF(mx0 - _HIT_PAD, my0 - _HIT_PAD,
@@ -989,12 +1133,7 @@ class AnnotationOverlay:
         marks = [m for m, _b, _g in items]
         if dx or dy:
             if len(marks) == 1:
-                label = {
-                    "TextBox": "Move text box",
-                    "InkStroke": "Move ink",
-                    "Line": "Move line",
-                    "Shape": "Move shape",
-                }[type(marks[0]).__name__]
+                label = _move_label(marks[0])
                 # Build the moved descriptor ONCE and reuse it for both the model edit and the
                 # re-selection: `replace_annotation` matches by *identity*, so handing the
                 # selection a second, equal-but-distinct copy would leave it pointing at something
@@ -1159,7 +1298,7 @@ class AnnotationOverlay:
             return self._refresh_handles()
         if len(pairs) == 1:
             self._replace(page_index, pairs[0][0], pairs[0][1],
-                          text=f"Resize {type(pairs[0][0]).__name__.lower()}")
+                          text=f"Resize {mark_noun(pairs[0][0])}")
         else:
             self._replace_many(page_index, pairs, f"Resize {len(pairs)} objects")
         new_by_old = dict(pairs)
@@ -1250,8 +1389,14 @@ class AnnotationOverlay:
         self._draw_anchor = self._draw_end = (local.x(), local.y())
         self._draw_points = [self._draw_anchor]
         item = QGraphicsPathItem()
-        item.setPen(self._drawn_pen(self._markup_style.color, self._markup_style.width))
-        item.setOpacity(self._markup_style.opacity)   # the live gesture previews its opacity too
+        if tool.places_content:
+            # A stamp's live gesture is the *box*, drawn as a neutral dashed outline — the artwork
+            # appears on commit. Re-rendering the stamp on every mouse-move would cost a PDF render
+            # per pixel of drag to preview something the user is still sizing.
+            item.setPen(QPen(QColor(0, 120, 215), 1, Qt.PenStyle.DashLine))
+        else:
+            item.setPen(self._drawn_pen(self._markup_style.color, self._markup_style.width))
+            item.setOpacity(self._markup_style.opacity)   # the live gesture previews its opacity too
         item.setTransform(self._view.page_transform(page_index))
         item.setZValue(11)
         self._view.scene().addItem(item)
@@ -1310,10 +1455,10 @@ class AnnotationOverlay:
             x0, y0 = self._draw_anchor
             x1, y1 = self._draw_end
             rect = QRectF(min(x0, x1), min(y0, y1), abs(x1 - x0), abs(y1 - y0))
-            if tool is ArmedTool.RECT:
-                path.addRect(rect)
-            else:
+            if tool is ArmedTool.ELLIPSE:
                 path.addEllipse(rect)
+            else:
+                path.addRect(rect)          # RECT and the STAMP placement box
         return path
 
     def finish_draw(self) -> None:
@@ -1339,6 +1484,14 @@ class AnnotationOverlay:
             return
         dx, dy = abs(end[0] - anchor[0]), abs(end[1] - anchor[1])
         if dx < _MIN_DRAW and dy < _MIN_DRAW:
+            return
+        if tool.places_content:
+            if self.pending_content_mark is None:
+                return
+            rect = (min(anchor[0], end[0]), min(anchor[1], end[1]),
+                    max(anchor[0], end[0]), max(anchor[1], end[1]))
+            self._on_add(page_index, replace(self.pending_content_mark, rect=rect))
+            self.pending_content_mark = None
             return
         if tool in (ArmedTool.LINE, ArmedTool.ARROW):
             self._on_add(page_index, Line(anchor, end, color=style.color, width=style.width,

@@ -22,6 +22,7 @@ from PySide6.QtGui import QAction, QActionGroup, QCursor, QGuiApplication, QKeyS
 from PySide6.QtWidgets import (
     QApplication,
     QDockWidget,
+    QDialog,
     QFileDialog,
     QInputDialog,
     QLineEdit,
@@ -71,7 +72,8 @@ from store.file_watch import FileWatcher
 from store.settings import Settings
 from ui import icons
 from util.paths import normalize_path
-from viewer.annotations import AnnotationOverlay
+from model.content_marks import ImageStamp, is_content_mark
+from viewer.annotations import AnnotationOverlay, mark_noun
 from viewer.form_fill import FormFiller
 from viewer.markup_style import (
     HIGHLIGHT_COLORS,
@@ -434,6 +436,18 @@ class MainWindow(QMainWindow):
         a_redact_block = act("Redact Block", lambda: self._arm_tool(ArmedTool.REDACT_REGION), icon="redact", to_menu=tools_menu)
         a_redact_block.setToolTip("Redact Block — drag a box to permanently remove its contents at save")
         tools_menu.addSeparator()
+        # Stamp / signature / watermark (M62). All three are the one R4 content-draw engine (M61):
+        # a stamp and a signature are composed then *placed* (drag the box), a watermark covers whole
+        # pages so it applies straight away. They share one toolbar slot via the Stamp ▾ split-button.
+        a_stamp = act("Stamp…", self._add_stamp, icon="stamp", to_menu=tools_menu)
+        a_stamp.setToolTip("Stamp — compose a stamp, then drag the box it goes in")
+        a_signature = act("Signature / Image…", self._add_image_stamp, icon="signature",
+                          to_menu=tools_menu)
+        a_signature.setToolTip("Signature — place a scanned signature, seal or logo")
+        a_watermark = act("Watermark…", self._add_watermark, icon="watermark", to_menu=tools_menu)
+        a_watermark.setToolTip("Watermark — translucent text under the page content, across a range")
+        self._stamp_actions = (a_stamp, a_signature, a_watermark)
+        tools_menu.addSeparator()
         # Crop (M48): menu-only (no free toolbar slot needed for a one-shot); same armed pattern.
         a_crop = act("Crop Pages", lambda: self._arm_tool(ArmedTool.CROP), to_menu=tools_menu)
         a_crop.setToolTip("Crop Pages — drag the area to keep; the rest is hidden, not removed")
@@ -452,6 +466,9 @@ class MainWindow(QMainWindow):
             a = act(label, lambda _checked=False, k=key: self._reorder_objects(k), keys)
             self.addAction(a)          # register on the window so the shortcut fires
             self._a_z_actions[key] = a
+        # The page range a composed stamp is waiting to be applied across (M62); None = just
+        # the page it is dropped on.
+        self._pending_stamp_pages = None
         self._armed_actions = {
             ArmedTool.TEXTBOX: a_textbox,
             ArmedTool.HIGHLIGHT: a_highlight,
@@ -465,6 +482,9 @@ class MainWindow(QMainWindow):
             ArmedTool.REDACT_TEXT: a_redact_text,
             ArmedTool.REDACT_REGION: a_redact_block,
             ArmedTool.CROP: a_crop,
+            # STAMP arms only *after* its dialog composes a mark, so the menu entry above opens the
+            # dialog rather than arming; this entry is what lights the button while placing.
+            ArmedTool.STAMP: a_stamp,
         }
         for a in self._armed_actions.values():
             a.setCheckable(True)
@@ -501,6 +521,10 @@ class MainWindow(QMainWindow):
             markup_menu, "Underline / Strike Colour", TEXT_LINE_COLORS,
             self._set_markup_line_color, self._markup_line_color)
         self._draw_button = split_button((a_pen, a_line, a_arrow, a_rect, a_ellipse))
+        # Stamp ▾ (M62): stamp · signature · watermark in one slot, the slot §Design budgets
+        # reserved for R4. Each opens its dialog rather than arming directly — the mark has to be
+        # composed before there is anything to place.
+        self._stamp_button = split_button(self._stamp_actions)
         # Markup style (M59.5): one slot — the shared colour · width · fill the underline /
         # strikeout + draw tools stamp on the next mark. Seeds the overlay's sticky style and
         # tracks it thereafter (the overlay is the single source of truth, created above).
@@ -555,7 +579,7 @@ class MainWindow(QMainWindow):
             [undo, redo],
             [a_cut, a_copy_pg, a_paste, a_delete, a_insert],
             [a_textbox, self._markup_button, self._draw_button, self._markup_style_button,
-             a_redact_text, a_redact_block],
+             self._stamp_button, a_redact_text, a_redact_block],
             [a_rotl, a_rotr],
             [a_find],
         )
@@ -920,6 +944,73 @@ class MainWindow(QMainWindow):
         self.view.arm(tool)
         self._a_select.setChecked(True)  # arming forces the SELECT base mode
 
+    # ---- stamps, signatures, watermarks (M62; the M61 content-draw engine) ------
+    #
+    # Two shapes of flow over one engine, and the difference is only where the mark goes:
+    #   * a stamp / signature is *placed* — compose it, then drag the box it lands in;
+    #   * a watermark covers whole pages — compose it and it applies at once, no drag.
+
+    def _arm_content_mark(self, mark, pages=None) -> None:
+        """Hand a composed content mark to the placement gesture (M62).
+
+        ``pages`` (more than one) makes the next placement apply to that whole range — the drag
+        still happens on one page, because you have to point at *something* to say how big.
+        """
+        self._pending_stamp_pages = list(pages) if pages else None
+        self.view.annotations.pending_content_mark = mark
+        self.view.arm(ArmedTool.STAMP)
+        self._a_select.setChecked(True)
+
+    def _add_stamp(self) -> None:
+        """Tools ▸ Stamp… — compose, then arm the placement drag."""
+        from ui.stamp_dialog import StampDialog
+
+        dialog = StampDialog(self, self.vdoc.page_count, self.view.current_page)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        pages = dialog.selected_pages()
+        if pages is None:
+            return
+        self._arm_content_mark(dialog.stamp(), pages)
+
+    def _add_image_stamp(self) -> None:
+        """Tools ▸ Signature / Image… — pick a file, then arm the placement drag.
+
+        The path is all that is kept (M63 builds the recent-signatures list on the same rule):
+        KlarPDF never stores a copy of a signature image.
+        """
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Choose a signature or image", "",
+            "Images (*.png *.jpg *.jpeg *.bmp *.gif *.tif *.tiff)",
+        )
+        if not path:
+            return
+        self._arm_content_mark(ImageStamp(rect=(0.0, 0.0, 1.0, 1.0), image_path=path))
+
+    def _add_watermark(self) -> None:
+        """Tools ▸ Watermark… — compose and apply full-page across the range, no placement drag.
+
+        Each page gets the watermark sized to **its own** page box, so a document mixing page sizes
+        watermarks correctly rather than inheriting the current page's rect.
+        """
+        from ui.stamp_dialog import WatermarkDialog
+
+        dialog = WatermarkDialog(self, self.vdoc.page_count, self.view.current_page)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        pages = dialog.selected_pages()
+        if not pages:
+            return
+        self.undo_stack.beginMacro(f"Add watermark to {len(pages)} pages")
+        for page_index in pages:
+            width, height = self.view._unrotated_size(page_index)
+            self._note_edit_on(page_index)
+            self.undo_stack.push(
+                AddAnnotationCommand(self.vdoc, page_index,
+                                     dialog.watermark((0.0, 0.0, width, height)))
+            )
+        self.undo_stack.endMacro()
+
     def _on_armed_changed(self, tool) -> None:
         """Light the matching tool button while it's armed (None → all off)."""
         for armed_tool, action in self._armed_actions.items():
@@ -937,9 +1028,36 @@ class MainWindow(QMainWindow):
             handler()
 
     def _add_annotation(self, index: int, annotation) -> None:
-        """Add an annotation to a page (from the text-box / redact tools) as an undoable command."""
+        """Add an annotation to a page (from the text-box / redact tools) as an undoable command.
+
+        A stamp placed while a **page range** is pending (M62's "initials on every page") lands on
+        every page in the range instead — the placement drag happened on one page, but the range is
+        what the user asked for. One macro, so the whole application is a single undo step.
+        """
+        pages, self._pending_stamp_pages = self._pending_stamp_pages, None
+        if pages and is_content_mark(annotation) and len(pages) > 1:
+            self._apply_to_pages(annotation, pages)
+            return
         self._note_edit_on(index)
         self.undo_stack.push(AddAnnotationCommand(self.vdoc, index, annotation))
+
+    def _apply_to_pages(self, mark, pages) -> None:
+        """Add one content mark to each of ``pages`` as a single undo step (M62).
+
+        The same descriptor object on every page: it is a frozen value, and the placement rect is in
+        page points, so a stamp lands in the same spot on each — which is what "initials on every
+        page" means. Pages of differing size keep the rect, not a proportion; the mark is clamped by
+        nothing here because the user placed it on a real page and pages in one document rarely
+        differ. The range itself is the UI's, never model state (PLAN.md §R4, M61).
+        """
+        pages = [p for p in pages if 0 <= p < self.vdoc.page_count]
+        if not pages:
+            return
+        self.undo_stack.beginMacro(f"Add {mark_noun(mark)} to {len(pages)} pages")
+        for page_index in pages:
+            self._note_edit_on(page_index)
+            self.undo_stack.push(AddAnnotationCommand(self.vdoc, page_index, mark))
+        self.undo_stack.endMacro()
 
     def _remove_annotation(self, index: int, annotation) -> None:
         """Remove an annotation (from the right-click menu) as an undoable command."""

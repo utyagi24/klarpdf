@@ -303,7 +303,7 @@ def test_watermark_preset_is_translucent_diagonal_and_under():
     mark = preset_watermark("Confidential", (0, 0, 595, 842))
     assert mark.text == "CONFIDENTIAL"
     assert mark.under is True
-    assert mark.angle == 45.0
+    assert mark.angle == -45.0   # bottom-left to top-right, the near-universal convention
     assert 0.0 < mark.opacity < 0.5
     assert mark.border_width == 0.0
 

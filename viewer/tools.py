@@ -47,6 +47,7 @@ class ArmedTool(Enum):
     ARROW = "arrow"
     RECT = "rect"
     ELLIPSE = "ellipse"
+    STAMP = "stamp"     # M62 — drag the box a composed stamp / signature lands in
 
     @property
     def drags_text(self) -> bool:
@@ -60,12 +61,20 @@ class ArmedTool(Enum):
 
     @property
     def draws(self) -> bool:
-        """True for the free-draw tools (M58): pen path capture / line / arrow / rect / ellipse —
-        a press-drag-release gesture on the page, committed as a drawn-mark descriptor."""
+        """True for the press-drag-release gestures on the page (M58 draw tools + M62 stamp
+        placement), each committed as a descriptor. STAMP shares the gesture rather than getting a
+        placement mode of its own: "drag the box it goes in" is the same interaction, and reusing it
+        means a placed stamp is immediately movable / resizable by the M59.6–M59.7 object tools."""
         return self in (
             ArmedTool.PEN,
             ArmedTool.LINE,
             ArmedTool.ARROW,
             ArmedTool.RECT,
             ArmedTool.ELLIPSE,
+            ArmedTool.STAMP,
         )
+
+    @property
+    def places_content(self) -> bool:
+        """True for the tools that place a baked-at-save content mark rather than an annotation."""
+        return self is ArmedTool.STAMP
