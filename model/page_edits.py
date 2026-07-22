@@ -667,82 +667,97 @@ def read_klarpdf_annotations(page: fitz.Page) -> tuple:
     *destructive* and leave nothing tagged to read, so they never round-trip — a redacted save
     stays a point of no return.
     """
-    doc = page.parent
+    return tuple(
+        parsed
+        for annot in page.annots()
+        if annot.info.get("title") == KLARPDF_AUTHOR
+        for parsed in (parse_annotation(annot),)
+        if parsed is not None
+    )
+
+
+def parse_annotation(annot: fitz.Annot):
+    """One annotation → its model descriptor, or ``None`` for a type the model does not represent.
+
+    Split out of :func:`read_klarpdf_annotations` so **M68's adopt-on-edit** can reuse exactly the
+    same parsing for a *foreign* annotation. The two callers differ only in which annotations they
+    offer it: the round-trip path filters to our own author tag first, adoption passes a foreign one
+    deliberately. Keeping one parser is what stops an adopted mark and a round-tripped one drifting
+    apart.
+    """
+    doc = annot.parent.parent
     result: list = []
-    for annot in page.annots():
-        if annot.info.get("title") != KLARPDF_AUTHOR:
-            continue
-        kind = annot.type[0]
-        if kind == fitz.PDF_ANNOT_HIGHLIGHT:
-            stroke = annot.colors.get("stroke")
-            color = tuple(stroke) if stroke else Highlight.color
-            result.append(Highlight(_quads_to_rects(annot.vertices), color=color))
-        elif kind in (fitz.PDF_ANNOT_UNDERLINE, fitz.PDF_ANNOT_STRIKE_OUT):
-            cls = Underline if kind == fitz.PDF_ANNOT_UNDERLINE else Strikeout
-            stroke = annot.colors.get("stroke")
-            color = tuple(stroke) if stroke else cls.color
-            result.append(cls(_quads_to_rects(annot.vertices), color=color))
-        elif kind == fitz.PDF_ANNOT_INK:
-            paths = tuple(tuple((p[0], p[1]) for p in path) for path in annot.vertices)
-            result.append(InkStroke(paths, color=_stroke_color(annot, InkStroke.color),
-                                    width=_border_width(annot), opacity=_opacity(annot)))
-        elif kind == fitz.PDF_ANNOT_LINE:
-            start, end = annot.vertices[0], annot.vertices[1]
-            ends = annot.line_ends or (fitz.PDF_ANNOT_LE_NONE, fitz.PDF_ANNOT_LE_NONE)
-            result.append(
-                Line(
-                    (start[0], start[1]),
-                    (end[0], end[1]),
-                    color=_stroke_color(annot, Line.color),
-                    width=_border_width(annot),
-                    arrow_start=ends[0] != fitz.PDF_ANNOT_LE_NONE,
-                    arrow_end=ends[1] != fitz.PDF_ANNOT_LE_NONE,
-                    opacity=_opacity(annot),
-                )
+    kind = annot.type[0]
+    if kind == fitz.PDF_ANNOT_HIGHLIGHT:
+        stroke = annot.colors.get("stroke")
+        color = tuple(stroke) if stroke else Highlight.color
+        result.append(Highlight(_quads_to_rects(annot.vertices), color=color))
+    elif kind in (fitz.PDF_ANNOT_UNDERLINE, fitz.PDF_ANNOT_STRIKE_OUT):
+        cls = Underline if kind == fitz.PDF_ANNOT_UNDERLINE else Strikeout
+        stroke = annot.colors.get("stroke")
+        color = tuple(stroke) if stroke else cls.color
+        result.append(cls(_quads_to_rects(annot.vertices), color=color))
+    elif kind == fitz.PDF_ANNOT_INK:
+        paths = tuple(tuple((p[0], p[1]) for p in path) for path in annot.vertices)
+        result.append(InkStroke(paths, color=_stroke_color(annot, InkStroke.color),
+                                width=_border_width(annot), opacity=_opacity(annot)))
+    elif kind == fitz.PDF_ANNOT_LINE:
+        start, end = annot.vertices[0], annot.vertices[1]
+        ends = annot.line_ends or (fitz.PDF_ANNOT_LE_NONE, fitz.PDF_ANNOT_LE_NONE)
+        result.append(
+            Line(
+                (start[0], start[1]),
+                (end[0], end[1]),
+                color=_stroke_color(annot, Line.color),
+                width=_border_width(annot),
+                arrow_start=ends[0] != fitz.PDF_ANNOT_LE_NONE,
+                arrow_end=ends[1] != fitz.PDF_ANNOT_LE_NONE,
+                opacity=_opacity(annot),
             )
-        elif kind in (fitz.PDF_ANNOT_SQUARE, fitz.PDF_ANNOT_CIRCLE):
-            # The /Rect grows by the border width on each side when the appearance is baked
-            # (mirroring the FreeText inset above) — inset to recover the authored shape box, or
-            # the shape creeps outward on every save→reopen→save cycle.
-            width = _border_width(annot)
-            r = annot.rect
-            inset = width / 2.0
-            rect = (r.x0 + inset, r.y0 + inset, r.x1 - inset, r.y1 - inset)
-            fill = annot.colors.get("fill")
-            result.append(
-                Shape(
-                    "rect" if kind == fitz.PDF_ANNOT_SQUARE else "ellipse",
-                    rect,
-                    color=_stroke_color(annot, Shape.color),
-                    width=width,
-                    fill_color=tuple(fill) if fill else None,
-                    opacity=_opacity(annot),
-                )
+        )
+    elif kind in (fitz.PDF_ANNOT_SQUARE, fitz.PDF_ANNOT_CIRCLE):
+        # The /Rect grows by the border width on each side when the appearance is baked
+        # (mirroring the FreeText inset above) — inset to recover the authored shape box, or
+        # the shape creeps outward on every save→reopen→save cycle.
+        width = _border_width(annot)
+        r = annot.rect
+        inset = width / 2.0
+        rect = (r.x0 + inset, r.y0 + inset, r.x1 - inset, r.y1 - inset)
+        fill = annot.colors.get("fill")
+        result.append(
+            Shape(
+                "rect" if kind == fitz.PDF_ANNOT_SQUARE else "ellipse",
+                rect,
+                color=_stroke_color(annot, Shape.color),
+                width=width,
+                fill_color=tuple(fill) if fill else None,
+                opacity=_opacity(annot),
             )
-        elif kind == fitz.PDF_ANNOT_FREE_TEXT:
-            # PyMuPDF grows a FreeText /Rect by border_width/2 on each side when it bakes the
-            # outline (RD stays zero), so inset by that to recover the authored box — otherwise the
-            # box would creep outward by half the border on every save→reopen→save round-trip.
-            border_width = (annot.border or {}).get("width") or 0.0
-            inset = border_width / 2.0
-            r = annot.rect
-            rect = (r.x0 + inset, r.y0 + inset, r.x1 - inset, r.y1 - inset)
-            da = doc.xref_get_key(annot.xref, "DA")
-            fontsize, color, fontname = _parse_freetext_da(da[1] if da[0] == "string" else "")
-            # A FreeText's /C (the box fill) surfaces as the 'stroke' colour in PyMuPDF.
-            fill = annot.colors.get("stroke")
-            result.append(
-                TextBox(
-                    rect,
-                    annot.info.get("content", ""),
-                    fontsize=fontsize,
-                    color=color,
-                    fontname=fontname,
-                    fill_color=tuple(fill) if fill else None,
-                    border_width=border_width,
-                )
+        )
+    elif kind == fitz.PDF_ANNOT_FREE_TEXT:
+        # PyMuPDF grows a FreeText /Rect by border_width/2 on each side when it bakes the
+        # outline (RD stays zero), so inset by that to recover the authored box — otherwise the
+        # box would creep outward by half the border on every save→reopen→save round-trip.
+        border_width = (annot.border or {}).get("width") or 0.0
+        inset = border_width / 2.0
+        r = annot.rect
+        rect = (r.x0 + inset, r.y0 + inset, r.x1 - inset, r.y1 - inset)
+        da = doc.xref_get_key(annot.xref, "DA")
+        fontsize, color, fontname = _parse_freetext_da(da[1] if da[0] == "string" else "")
+        # A FreeText's /C (the box fill) surfaces as the 'stroke' colour in PyMuPDF.
+        fill = annot.colors.get("stroke")
+        result.append(
+            TextBox(
+                rect,
+                annot.info.get("content", ""),
+                fontsize=fontsize,
+                color=color,
+                fontname=fontname,
+                fill_color=tuple(fill) if fill else None,
+                border_width=border_width,
             )
-    return tuple(result)
+        )
+    return result[0] if result else None
 
 
 def page_has_klarpdf_annotations(page: fitz.Page) -> bool:

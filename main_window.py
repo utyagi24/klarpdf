@@ -142,6 +142,7 @@ class MainWindow(QMainWindow):
         self.view.applyTextTool.connect(self._apply_text_tool)
         self.view.cropDragged.connect(self._on_crop_dragged)
         self.view.foreignMoved.connect(self._move_foreign_annotation)
+        self.view.foreignAdopt.connect(self._adopt_foreign_annotation)
         self.find_bar = FindBar(self.view)  # hidden until Ctrl+F
         # Doc-wide search hit list (M47): a band under the find bar, hidden until List All.
         self.search_results = SearchResultsPanel(self.view)
@@ -1320,6 +1321,79 @@ class MainWindow(QMainWindow):
             AddAnnotationCommand(self.vdoc, page_index,
                                  ForeignDeletion(mark.fingerprint, mark.label),
                                  text=f"Delete {mark.label}")
+        )
+
+    def _adopt_foreign_annotation(self, page_index: int, mark) -> bool:
+        """Double-click a foreign mark → make it an editable KlarPDF mark (M68).
+
+        Adoption re-creates the annotation from our own descriptor, so anything the descriptor
+        cannot carry is **lost**. That has to be said before the edit, with a way out, rather than
+        discovered afterwards when the original is gone — hence the degrade warning, which fires
+        exactly when something would actually be dropped.
+
+        The mechanism is entirely M66's: a :class:`ForeignDeletion` of the original plus the parsed
+        descriptor, in one macro. At materialise the original is stripped and ours is re-added
+        author-tagged, so from then on it round-trips exactly like a mark we drew.
+        """
+        from model.foreign_annots import (
+            ForeignDeletion,
+            adopt_annotation,
+            degradations,
+            find_annotation,
+        )
+
+        ref = self.vdoc.ordered[page_index]
+        source = self.vdoc.sources[ref.source_id][ref.source_page_index]
+        annot = find_annotation(source, mark.fingerprint)
+        if annot is None:
+            return False
+        adopted = adopt_annotation(annot)
+        if adopted is None:
+            QMessageBox.information(
+                self, "Edit annotation",
+                f"KlarPDF can't edit a {mark.kind_name} annotation.\n\n"
+                "You can still move it or delete it.",
+            )
+            return False
+        lost = degradations(annot)
+        if lost and not self._confirm_degrade(mark, lost):
+            return False
+        # Carry the pending move (M67) onto the adopted descriptor, so adopting a mark you have
+        # already dragged keeps it where you put it rather than snapping back.
+        from model.foreign_annots import ForeignMove
+        from model.page_edits import translate_mark
+
+        shift = next((a for a in ref.annotations
+                      if isinstance(a, ForeignMove) and a.fingerprint == mark.fingerprint), None)
+        if shift is not None:
+            try:
+                adopted = translate_mark(adopted, shift.dx, shift.dy)
+            except TypeError:
+                pass                      # a text-anchored mark: its quads are already where it sits
+        self._note_edit_on(page_index)
+        self.undo_stack.beginMacro(f"Edit {mark.label}")
+        if shift is not None:
+            self.undo_stack.push(RemoveAnnotationCommand(self.vdoc, page_index, shift))
+        self.undo_stack.push(
+            AddAnnotationCommand(self.vdoc, page_index, ForeignDeletion(mark.fingerprint,
+                                                                       mark.label))
+        )
+        self.undo_stack.push(AddAnnotationCommand(self.vdoc, page_index, adopted))
+        self.undo_stack.endMacro()
+        return True
+
+    def _confirm_degrade(self, mark, lost) -> bool:
+        """Warn that editing will simplify this annotation. A separate seam so tests drive it."""
+        listed = "\n".join(f"  • {item}" for item in lost)
+        return (
+            QMessageBox.warning(
+                self, "Editing will simplify this annotation",
+                f"This {mark.kind_name} uses features KlarPDF can't reproduce. Editing it will "
+                f"lose:\n\n{listed}\n\nEdit it anyway?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel,
+            )
+            == QMessageBox.StandardButton.Yes
         )
 
     def _move_foreign_annotation(self, page_index: int, mark, dx: float, dy: float) -> None:
