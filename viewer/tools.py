@@ -10,10 +10,13 @@ Two layers:
   - **OBJECT** (M59.6) — drag an empty area to marquee-select drawn objects, Ctrl+click to add /
     remove one, drag a member to move the whole group; text selection & form-fill are inert here.
 
-* **One-shot armed tools** (:class:`ArmedTool`) — an annotate/redact action that fires once then
-  reverts to SELECT, instead of being a sticky mode (the user's model: click the toolbar button
-  each time, then do the gesture). While armed the view shows a crosshair and the button stays lit.
-  All four are consistent — arm, then a single gesture:
+* **Armed tools** (:class:`ArmedTool`) — an annotate/redact action armed by its toolbar button /
+  menu entry. While armed the view shows a crosshair and the button stays lit. Most fire **once**
+  then revert to SELECT; the four repeat-use markup tools — Highlight / Underline / Strike Out /
+  Pen — **stay armed across gestures** (M73, Preview's behaviour: mark passage after passage on
+  one arm; see :attr:`ArmedTool.sticky`), with three exits: click the lit button again, Esc, or
+  arm any other tool. Placement and destructive tools stay one-shot — repeat use is rare there,
+  and a stuck destructive mode is a trap. Arm, then a gesture:
   - **TEXTBOX** — click a spot to place a free-text note box (M20);
   - **HIGHLIGHT** — drag over text to highlight it (one continuous bar per line);
   - **UNDERLINE** / **STRIKEOUT** — drag over text to underline / strike it (M56; same
@@ -63,6 +66,18 @@ class ArmedTool(Enum):
             ArmedTool.UNDERLINE,
             ArmedTool.STRIKEOUT,
             ArmedTool.REDACT_TEXT,
+        )
+
+    @property
+    def sticky(self) -> bool:
+        """True for the repeat-use markup tools that stay armed across gestures (M73): the HUS
+        trio + Pen. Everything else is one-shot — placement tools because repeat use is rare,
+        the destructive tools (redact, crop) because a stuck destructive mode is a trap."""
+        return self in (
+            ArmedTool.HIGHLIGHT,
+            ArmedTool.UNDERLINE,
+            ArmedTool.STRIKEOUT,
+            ArmedTool.PEN,
         )
 
     @property

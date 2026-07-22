@@ -421,25 +421,25 @@ class MainWindow(QMainWindow):
         self._a_select = a_select
         self._a_objects = a_objects
         tools_menu.addSeparator()
-        # One-shot armed annotate/redact tools: click to arm (button lights), do one gesture, then
-        # it reverts to Select. Checkable only to reflect the armed state — NOT in the mode group.
-        # All four are consistent — arm, then a single gesture: TextBox = click; Highlight /
-        # Redact Text = drag over text; Redact Block = drag a rectangle.
+        # Armed annotate/redact tools: click to arm (button lights), then the gesture. Checkable
+        # only to reflect the armed state — NOT in the mode group. The repeat-use markup quartet
+        # (Highlight / Underline / Strike Out / Pen) **stays armed across gestures** (M73 —
+        # Preview's behaviour: mark passage after passage on one arm; exits are the lit button ·
+        # Esc · arming any other tool); everything else fires once then reverts to Select.
         a_textbox = act("Add Text Box", lambda: self._arm_tool(ArmedTool.TEXTBOX), icon="textbox", to_menu=tools_menu)
         a_textbox.setToolTip("Add Text Box — click a spot, then type (drag to move, double-click to edit)")
         a_highlight = act("Highlight", lambda: self._arm_tool(ArmedTool.HIGHLIGHT), "Ctrl+H", icon="highlight", to_menu=tools_menu)
-        a_highlight.setToolTip("Highlight — drag over text to highlight it")
+        a_highlight.setToolTip("Highlight — drag over text, passage after passage (Esc or click again to stop)")
         # Underline / strikeout (M56): the same drag-over-text gesture and line-bar path as
         # Highlight; the three markup verbs share one toolbar slot (the Markup ▾ split-button).
         a_underline = act("Underline", lambda: self._arm_tool(ArmedTool.UNDERLINE), "Ctrl+U", icon="underline", to_menu=tools_menu)
-        a_underline.setToolTip("Underline — drag over text to underline it")
+        a_underline.setToolTip("Underline — drag over text, passage after passage (Esc or click again to stop)")
         a_strikeout = act("Strike Out", lambda: self._arm_tool(ArmedTool.STRIKEOUT), icon="strikeout", to_menu=tools_menu)
-        a_strikeout.setToolTip("Strike Out — drag over text to strike it through")
-        # Draw tools (M58): pen path capture + line/arrow/rect/ellipse press-drag-release, all
-        # one-shot armed like the rest (Shift constrains: square / circle / 45° line). Fixed-width
-        # red ink — markup/redlining framing, not CAD (PLAN.md M58).
+        a_strikeout.setToolTip("Strike Out — drag over text, passage after passage (Esc or click again to stop)")
+        # Draw tools (M58): pen path capture + line/arrow/rect/ellipse press-drag-release (Shift
+        # constrains: square / circle / 45° line). Pen is sticky (M73); the shapes stay one-shot.
         a_pen = act("Pen", lambda: self._arm_tool(ArmedTool.PEN), icon="pen", to_menu=tools_menu)
-        a_pen.setToolTip("Pen — draw a freehand stroke (fixed width)")
+        a_pen.setToolTip("Pen — draw freehand, stroke after stroke (Esc or click again to stop)")
         a_line = act("Line", lambda: self._arm_tool(ArmedTool.LINE), icon="line", to_menu=tools_menu)
         a_line.setToolTip("Line — drag from start to end (Shift snaps to 45°)")
         a_arrow = act("Arrow", lambda: self._arm_tool(ArmedTool.ARROW), icon="arrow", to_menu=tools_menu)
@@ -998,7 +998,8 @@ class MainWindow(QMainWindow):
         self.undo_stack.push(SetFieldValueCommand(self.vdoc, name, value))
 
     def _arm_tool(self, tool: ArmedTool) -> None:
-        """Toolbar: arm a one-shot annotate/redact tool, or disarm it if already armed (toggle).
+        """Toolbar: arm an annotate/redact tool, or disarm it if already armed (toggle — one of
+        the sticky quartet's three exits, M73).
 
         A drag-over-text tool clicked while a text selection is **live** applies to that selection
         immediately instead of arming (Preview-style, and identical to the context menu's
