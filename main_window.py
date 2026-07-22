@@ -525,6 +525,11 @@ class MainWindow(QMainWindow):
         # reserved for R4. Each opens its dialog rather than arming directly — the mark has to be
         # composed before there is anything to place.
         self._stamp_button = split_button(self._stamp_actions)
+        # Recent Signatures (M63) hangs off the same dropdown: re-placing last week's signature is
+        # the common case, and going through the dialog again to pick the same file is the friction
+        # the "two clicks on the second use" target is about. Hidden until there is one.
+        self._signature_menu = self._stamp_button.menu().addMenu("Recent Signatures")
+        self._rebuild_signature_menu()
         # Markup style (M59.5): one slot — the shared colour · width · fill the underline /
         # strikeout + draw tools stamp on the next mark. Seeds the overlay's sticky style and
         # tracks it thereafter (the overlay is the single source of truth, created above).
@@ -974,18 +979,52 @@ class MainWindow(QMainWindow):
         self._arm_content_mark(dialog.stamp(), pages)
 
     def _add_image_stamp(self) -> None:
-        """Tools ▸ Signature / Image… — pick a file, then arm the placement drag.
+        """Tools ▸ Signature / Image… — choose + tune the image, then arm the placement drag (M63).
 
-        The path is all that is kept (M63 builds the recent-signatures list on the same rule):
-        KlarPDF never stores a copy of a signature image.
+        Only the **path** is remembered, never the pixels: a signature is the most sensitive thing
+        this app touches, and a convenience copy would be one the user did not ask for and cannot
+        find to delete. Moving or deleting the file revokes it.
         """
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Choose a signature or image", "",
-            "Images (*.png *.jpg *.jpeg *.bmp *.gif *.tif *.tiff)",
-        )
-        if not path:
+        from ui.signature_dialog import SignatureDialog
+
+        dialog = SignatureDialog(self, self._settings.recent_signatures())
+        if dialog.exec() != QDialog.DialogCode.Accepted or not dialog.path():
             return
+        self._settings.add_recent_signature(dialog.path())
+        self._rebuild_signature_menu()
+        self._arm_content_mark(dialog.image_stamp())
+
+    def _rebuild_signature_menu(self) -> None:
+        """Refresh the Stamp ▾ ▸ Recent Signatures submenu from the store.
+
+        This is what makes the *second* use two clicks — pick the signature, drag its box — with no
+        dialog in the way. Hidden entirely when there is nothing to list (owner rule: no dead
+        chrome), so a first-time user never sees an empty submenu.
+        """
+        menu = self._signature_menu
+        menu.clear()
+        recent = self._settings.recent_signatures()
+        menu.menuAction().setVisible(bool(recent))
+        for path in recent:
+            action = menu.addAction(os.path.basename(path))
+            action.setToolTip(path)
+            action.triggered.connect(lambda _checked=False, p=path: self._place_recent_signature(p))
+        if recent:
+            menu.addSeparator()
+            menu.addAction("Clear List", self._clear_recent_signatures)
+
+    def _place_recent_signature(self, path: str) -> None:
+        """Arm a previously used signature straight from the menu — no dialog (M63)."""
+        if not os.path.exists(path):
+            self._rebuild_signature_menu()   # it vanished; drop it rather than fail mysteriously
+            return
+        self._settings.add_recent_signature(path)
+        self._rebuild_signature_menu()
         self._arm_content_mark(ImageStamp(rect=(0.0, 0.0, 1.0, 1.0), image_path=path))
+
+    def _clear_recent_signatures(self) -> None:
+        self._settings.clear_recent_signatures()
+        self._rebuild_signature_menu()
 
     def _add_watermark(self) -> None:
         """Tools ▸ Watermark… — compose and apply full-page across the range, no placement drag.

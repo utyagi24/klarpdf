@@ -349,7 +349,18 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   drawn with **multiply** compositing, since Qt cannot paint beneath the page pixmap — the page's
   text darkens through it exactly as in the saved file. — *Windows (headless + offscreen GUI)* —
   46 new tests, 812 green
-- [ ] **M63** Image stamp / signature — transparent PNG + white-to-alpha toggle; recent list stores paths only — *WSL + WSLg*
+- [x] **M63** Image stamp / signature — the sign-and-return workflow, on M62's placement UI.
+  **"Make white background transparent"** (`white_to_alpha` + threshold) keys the paper out of a
+  **phone photo** of a signature, which otherwise arrives as ink on an opaque white rectangle that
+  blanks out whatever it covers; a transparent PNG still works through its own alpha, and existing
+  alpha is **intersected, never replaced**, so keying can't resurrect pixels the author removed.
+  Keying runs at C speed (MuPDF greyscale + one `bytes.translate`) because a 12-megapixel input is
+  realistic. `ui/signature_dialog.py` previews through the *same generator that bakes at save*, so
+  the threshold is judged on the real result. **Recent signatures store paths only** — KlarPDF keeps
+  no copy of a signature image, and deleting the file is the revocation mechanism; the list hangs
+  off Stamp ▾ (hidden until non-empty), making the second use **two clicks**, no dialog. Documented
+  as ink-equivalent, **not** a cryptographic signature, in the dialog itself. — *Windows (headless +
+  offscreen GUI)* — 21 new tests, 833 green
 - [ ] **M64** Search & redact — batched redactions, one undo step; M47 review panel + checkboxes; text-layer-only warnings — *WSL + WSLg*
 - [ ] **M65** Verify + release → tag — *Windows*
 

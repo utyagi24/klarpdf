@@ -120,6 +120,36 @@ class Settings:
         self._recent = []
         self._save()
 
+    # ---- recent signatures (M63) ------------------------------------------------
+    #
+    # **Paths only, never pixels.** A signature image is the most sensitive thing this app is likely
+    # to touch, and a convenience cache of it would be a copy the user did not ask for, does not know
+    # about, and cannot find to delete. So the list is exactly what the Open Recent list is: file
+    # paths the user chose, which they can move or delete to revoke. A vanished file drops out on the
+    # next read rather than lingering as a dead menu entry.
+
+    _SIGNATURE_KEY = "recent_signatures"
+    _MAX_SIGNATURES = 6
+
+    def add_recent_signature(self, path: str) -> None:
+        """Record ``path`` as the most recently used signature / stamp image."""
+        key = normalize_path(path)
+        current = list(self.get_pref(self._SIGNATURE_KEY, []) or [])
+        updated = [path] + [p for p in current if normalize_path(p) != key]
+        del updated[self._MAX_SIGNATURES:]
+        self.set_pref(self._SIGNATURE_KEY, updated)
+
+    def recent_signatures(self) -> list[str]:
+        """Recent signature paths, most-recent-first, with vanished files pruned."""
+        current = list(self.get_pref(self._SIGNATURE_KEY, []) or [])
+        present = [p for p in current if os.path.exists(p)]
+        if present != current:
+            self.set_pref(self._SIGNATURE_KEY, present)
+        return present
+
+    def clear_recent_signatures(self) -> None:
+        self.set_pref(self._SIGNATURE_KEY, [])
+
     # ---- app-global preferences -------------------------------------------------
 
     def get_pref(self, key: str, default=None):

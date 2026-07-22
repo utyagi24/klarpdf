@@ -83,6 +83,13 @@ class ImageStamp:
     ``image_path`` is stored, never the pixels: KlarPDF keeps no hidden copy of a signature, so a
     recent-signatures list is a list of paths the user can see and delete (PLAN.md §M63). A path that
     has since moved renders as nothing rather than failing the save.
+
+    ``white_to_alpha`` drops a light background out of the image (M63), which is what makes a **phone
+    photo of a signature on paper** usable without an image editor: a transparent PNG already works
+    through its own alpha, but a JPEG snapshot arrives as ink on an opaque white rectangle that would
+    blank out whatever it is placed over. ``white_threshold`` is the luminance (0..1) at or above
+    which a pixel becomes fully transparent, with a short ramp below it so antialiased strokes keep
+    a soft edge instead of turning into jagged bitmap.
     """
 
     rect: tuple[float, float, float, float]
@@ -90,6 +97,8 @@ class ImageStamp:
     angle: float = 0.0
     opacity: float = 1.0
     under: bool = False
+    white_to_alpha: bool = False
+    white_threshold: float = 0.85
 
     def bounding_rect(self) -> tuple[float, float, float, float]:
         return self.rect
@@ -201,6 +210,12 @@ def _fit_fontsize(box: fitz.Rect, text: str) -> float:
     return best
 
 
+def _alpha_channel(pix: fitz.Pixmap) -> bytes:
+    """``pix``'s alpha bytes, one per pixel. The strided slice runs in C, so this stays fast on a
+    multi-megapixel phone photo where a Python loop would not."""
+    return pix.samples[pix.n - 1:: pix.n]
+
+
 def _with_opacity(pix: fitz.Pixmap, opacity: float) -> fitz.Pixmap:
     """``pix`` with its alpha scaled by ``opacity`` — an image has no ``/CA`` to set, so translucency
     has to be carried in the pixels. An already-transparent PNG keeps its shape: existing alpha is
@@ -209,10 +224,45 @@ def _with_opacity(pix: fitz.Pixmap, opacity: float) -> fitz.Pixmap:
         return pix
     if not pix.alpha:
         pix = fitz.Pixmap(pix, 1)                 # add a fully-opaque alpha channel
-    n = pix.n
-    samples = pix.samples
-    alpha = bytes(int(samples[i] * opacity) for i in range(n - 1, len(samples), n))
-    pix.set_alpha(alpha, premultiply=0)           # our samples are not premultiplied
+    table = bytes(min(255, int(value * opacity)) for value in range(256))
+    pix.set_alpha(_alpha_channel(pix).translate(table), premultiply=0)  # not premultiplied
+    return pix
+
+
+def _drop_white(pix: fitz.Pixmap, threshold: float) -> fitz.Pixmap:
+    """``pix`` with light pixels made transparent — the "phone photo of a signature" fix (M63).
+
+    Luminance comes from MuPDF's own greyscale conversion, which gives exactly one byte per pixel in
+    C; the per-pixel decision is then a single 256-entry :meth:`bytes.translate`. Both steps run at
+    C speed, which matters: a 12-megapixel photo is a realistic input and a Python loop over it would
+    stall the UI for seconds.
+
+    Pixels at or above ``threshold`` go fully transparent; below it a short ramp keeps antialiased
+    stroke edges soft rather than jagged. Any alpha the image already carries is **intersected**, not
+    replaced, so a transparent PNG never gains opaque pixels here.
+    """
+    cutoff = max(1, min(255, int(threshold * 255)))
+    ramp = max(1, int(0.15 * 255))                       # soft edge below the cutoff
+    table = bytes(
+        0 if value >= cutoff
+        else 255 if value <= cutoff - ramp
+        else int(255 * (cutoff - value) / ramp)
+        for value in range(256)
+    )
+    gray = fitz.Pixmap(fitz.csGRAY, pix)                 # luminance per pixel, computed in C
+    try:
+        # `Pixmap(csGRAY, pix)` *keeps* the source's alpha channel, so an already-transparent PNG
+        # yields 2 bytes per pixel, not 1. Take the first channel explicitly (a C-level strided
+        # slice) — reading `gray.samples` whole would misalign the mask against the pixels.
+        keyed = gray.samples[0:: gray.n].translate(table)
+    finally:
+        gray = None
+    if not pix.alpha:
+        pix = fitz.Pixmap(pix, 1)
+        pix.set_alpha(keyed, premultiply=0)
+        return pix
+    existing = _alpha_channel(pix)                       # honour the image's own transparency too
+    pix.set_alpha(bytes(min(a, b) for a, b in zip(existing, keyed)), premultiply=0)
     return pix
 
 
@@ -254,6 +304,8 @@ def _draw_image(page: fitz.Page, box: fitz.Rect, mark: ImageStamp) -> None:
     try:
         if pix.colorspace is not None and pix.colorspace.n > 3:   # CMYK → RGB for insert_image
             pix = fitz.Pixmap(fitz.csRGB, pix)
+        if mark.white_to_alpha:
+            pix = _drop_white(pix, mark.white_threshold)
         page.insert_image(box, pixmap=_with_opacity(pix, mark.opacity), keep_proportion=True)
     finally:
         pix = None
