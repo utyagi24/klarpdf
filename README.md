@@ -29,15 +29,15 @@ the unit of audit; it ships as a pinned, fully offline Windows installer.
 <p align="center"><sub>The real app, captured from a real build — and it follows the Windows theme, so
 this screenshot follows your GitHub one.</sub></p>
 
-**Status: `v0.14.0` shipped** — [download the installer or portable exe](https://github.com/utyagi24/klarpdf/releases/latest).
-**New in v0.14.0 "Markup Tools":** a full markup kit — **underline & strikeout**, a **pen**, and
-**lines, arrows, rectangles & ellipses**, all with colour · width · opacity · fill, plus object
-editing (select one or many, move, resize, re-order, copy/paste, delete). This release also carries
-**everything from v0.13.0 "Document Hygiene"**, which was tagged but never published: extract /
-insert-blank / duplicate pages, a **Reduced Size** export, **document Properties + metadata**
-editing, and **AES-256 password protection**. Full
-release notes live on [GitHub Releases](https://github.com/utyagi24/klarpdf/releases); live status —
-milestones (**M0–M38 + R1 complete**), per-release notes, open follow-ups — in [PROGRESS.md](PROGRESS.md).
+**Status: `v0.15.0` shipped** — [download the installer or portable exe](https://github.com/utyagi24/klarpdf/releases/latest).
+**New in v0.15.0 "Stamp, Sign & Watermark":** **stamps & watermarks** (text or image, any angle,
+baked into the saved page) and **image signatures** (drop a photo of a signature — white background
+keys out automatically — with a recent-signatures list for reuse); **Find and Redact** — search,
+review the hits, redact the ones you check, one undo step; editing **foreign annotations** from
+other PDF tools (delete, move, or adopt one into an ordinary editable KlarPDF mark); and **form-field
+creation** — add text, checkbox, or dropdown fields directly on the page. Full release notes live on
+[GitHub Releases](https://github.com/utyagi24/klarpdf/releases); live status — milestones
+(**M0–M38 + R1–R5 complete**), per-release notes, open follow-ups — in [PROGRESS.md](PROGRESS.md).
 
 ## Features
 
@@ -94,9 +94,19 @@ Everything below works **fully offline** — the app makes no network connection
   (corner/edge handles, Shift to keep proportions), re-order (**Bring to Front / Send to Back**),
   copy/cut/paste — a group keeps its arrangement — or delete. Every action is one undo step, and
   all of it still works **after reopening the saved file**.
+- **Stamps, signatures & watermarks**: place a text or image stamp anywhere, or apply a watermark
+  across a page range — any angle, any opacity, baked into the saved page. **Sign with a photo**:
+  drop a picture of your signature and a white background is keyed out automatically, with a
+  recent-signatures list for one-click reuse.
 - **True destructive redaction**: drag over text or a region and it is permanently removed at save
-  — a cross-engine-verified, confirmed point of no return.
-- **Fill AcroForm forms**; values save losslessly.
+  — a cross-engine-verified, confirmed point of no return. **Find and Redact** searches the whole
+  document, lets you review every hit (case / whole-word filters, click to jump), and redacts the
+  ones you check as one undo step.
+- **Foreign annotations** — a mark left by another PDF tool can be **deleted**, **moved**
+  (appearance preserved exactly), or **adopted** (highlight, underline, strikeout, ink, line, shape,
+  callout) into an ordinary editable KlarPDF mark.
+- **Fill AcroForm forms**; values save losslessly. **Create form fields** — text, checkbox, or
+  dropdown — directly on the page; a created field fills, saves, prints and flattens like any other.
 - **Edits-aware printing** — the printout shows your annotations, form values, and redactions (an
   unsaved redaction never prints the original).
 - **Export → PDF (flatten)**: bakes annotations + form widgets into the page content,

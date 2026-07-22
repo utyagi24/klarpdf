@@ -73,14 +73,13 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   spare machine / a fresh local user with networking disabled.
 
 ## Status
-**Current: v0.14.0 "Markup Tools" shipped (R3, M56–M60)** — the release also delivers **R2
-"Document Hygiene"** (M51–M54), whose v0.13.0 tag was cut but never published by owner call, so
-users upgrading from v0.12.0 receive both tranches at once. R3 adds underline/strikeout, the pen
-and shape tools, full object editing (multi-select, move, resize, z-order, group copy/paste), and
-markup colour/opacity. **M0–M38, R1, R2, and R3 are complete**; v0.11.0 stays reserved for the
-MCP / Agent Bridge (M39–M44). **R4 (M61–M64) and R5's M66–M69 are now complete and unreleased** —
-M65's release cut was skipped by owner call, so R4 and R5 will ship together at **M70**, the next
-thing to do. For live status — shipped
-versions, per-release notes, release links, milestone ticks, and **Open follow-ups** — see
+**Current: v0.15.0 "Stamp, Sign & Watermark" shipped (R4, M61–M64 + R5, M66–M69.16)** — M65's
+release cut was skipped by owner call so R4 would ship alongside R5 rather than under an
+unpublished tag. R4 adds a unified content-draw engine (stamps/watermarks baked at save), image
+stamp/signature placement, and Find-and-Redact; R5 adds foreign-annotation handling (delete, move,
+adopt-on-edit) and form-field creation (text/checkbox/dropdown), plus a sixteen-item polish pass
+from owner testing. **M0–M38 and R1–R5 are all complete**; v0.11.0 stays reserved for the
+MCP / Agent Bridge (M39–M44), the only thing left before the next release. For live status —
+shipped versions, per-release notes, release links, milestone ticks, and **Open follow-ups** — see
 `PROGRESS.md` (the single source of status; read it first). Design/spec, including §Future
 enhancements for what's next, lives in `PLAN.md`.

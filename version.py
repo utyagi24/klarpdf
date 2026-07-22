@@ -7,4 +7,4 @@ followed by a new tag — versions never change automatically.
 
 from __future__ import annotations
 
-__version__ = "0.14.0"
+__version__ = "0.15.0"
