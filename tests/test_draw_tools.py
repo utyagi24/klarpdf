@@ -81,10 +81,20 @@ def test_line_tool_commits_a_line(win):
     assert (line.arrow_start, line.arrow_end) == (False, False)
 
 
-def test_arrow_tool_sets_the_end_arrow(win):
-    _drag(win, ArmedTool.ARROW, (100, 200), (200, 200))
+def test_line_stamps_the_style_pickers_ends(win):
+    """Arrowheads are line style since M74: the picker's ends land on the committed line —
+    including both-ended, which the retired Arrow tool never could."""
+    from viewer.markup_style import MarkupStyle
+
+    win.view.annotations.set_markup_style(MarkupStyle(line_ends=(False, True)))
+    _drag(win, ArmedTool.LINE, (100, 200), (200, 200))
     line = _only_mark(win, Line)
     assert line.arrow_end is True and line.arrow_start is False
+    win.undo_stack.undo()
+    win.view.annotations.set_markup_style(MarkupStyle(line_ends=(True, True)))
+    _drag(win, ArmedTool.LINE, (100, 200), (200, 200))
+    line = _only_mark(win, Line)
+    assert line.arrow_start is True and line.arrow_end is True
 
 
 def test_rect_and_ellipse_commit_normalised_rects(win):
@@ -212,10 +222,10 @@ def test_repaint_paints_drawn_marks(win):
     assert len(win.view.annotations._items) == before + 3
 
 
-def test_draw_split_button_groups_the_five_tools(win):
+def test_draw_split_button_groups_the_four_tools(win):
     button = win._draw_button
     assert [a.text() for a in button.menu().actions()] == [
-        "Pen", "Line", "Arrow", "Rectangle", "Ellipse"
+        "Pen", "Line", "Rectangle", "Ellipse"  # Arrow merged into Line (M74)
     ]
     assert button.defaultAction().text() == "Pen"
     actions = {a.text(): a for a in button.menu().actions()}
@@ -225,7 +235,7 @@ def test_draw_split_button_groups_the_five_tools(win):
 
 def test_drawn_marks_bake_on_save(win, tmp_path, monkeypatch):
     """The end-to-end slice: draw → save → the mark is a real annotation in the file."""
-    _drag(win, ArmedTool.ARROW, (100, 200), (200, 260))
+    _drag(win, ArmedTool.LINE, (100, 200), (200, 260))
     import main_window as mw
 
     target = str(tmp_path / "drawn.pdf")

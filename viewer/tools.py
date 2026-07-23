@@ -51,8 +51,7 @@ class ArmedTool(Enum):
     REDACT = "redact"   # M72 — the combined slot; resolves to one of the two above at press
     CROP = "crop"
     PEN = "pen"
-    LINE = "line"
-    ARROW = "arrow"
+    LINE = "line"   # arrowheads (incl. both-ended) come from the style picker since M74
     RECT = "rect"
     ELLIPSE = "ellipse"
     STAMP = "stamp"     # M62 — drag the box a composed stamp / signature lands in
@@ -89,7 +88,6 @@ class ArmedTool(Enum):
         return self in (
             ArmedTool.PEN,
             ArmedTool.LINE,
-            ArmedTool.ARROW,
             ArmedTool.RECT,
             ArmedTool.ELLIPSE,
             ArmedTool.STAMP,
