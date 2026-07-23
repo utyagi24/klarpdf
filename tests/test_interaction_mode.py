@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 from PySide6.QtCore import QEvent, QPointF, Qt
 from PySide6.QtGui import QMouseEvent
-from PySide6.QtWidgets import QGraphicsView, QToolBar
+from PySide6.QtWidgets import QGraphicsView
 
 from app import PdfApp
 from model.virtual_document import VirtualDocument
@@ -77,7 +77,7 @@ def test_armed_text_tool_paints_the_selection_in_its_target_colour(view):
 def test_mode_toggle_in_toolbar_is_exclusive(qapp, a_pdf, tmp_path):
     qapp.settings = Settings(tmp_path / "vs.json")
     win = qapp.open_document(a_pdf)
-    bar = next(b for b in win.findChildren(QToolBar) if b.windowTitle() == "Main")
+    bar = win.markup_bar  # the mode trio lives on the markup bar since M71
     by_text = {a.text(): a for a in bar.actions() if a.text()}
     select, grab = by_text["Select"], by_text["Grab"]
     assert select.isCheckable() and grab.isCheckable()

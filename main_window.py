@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QTabWidget,
+    QToolBar,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -90,6 +91,31 @@ from viewer.zoom_widget import ZoomWidget
 # Preference key for the sticky mark style. Style only — never the page range, whose stale value
 # would silently re-scope the next mark to a whole document (see ui.mark_dialog).
 _MARK_STYLE_PREF = "mark_style"
+
+# Press/hover feedback + spacing between functional groups, shared by both toolbars (M71).
+# Translucent grey reads on both light and dark themes, so this needs no per-theme rebuild. The
+# separator gains margin so grouped buttons sit close while groups are clearly divided.
+# The dropdown arrow on a menu-carrying button (M59.13). Qt places it differently per popup
+# mode: **MenuButtonPopup** (the Markup ▾ / Draw ▾ split buttons) draws a *raised sub-panel*
+# on the right with the arrow centred in it, which crowds the icon; **InstantPopup** (the
+# pen-&-shapes style swatch) tucks a small indicator into the **bottom-right corner**, over
+# the swatch. Same toolbar, two different arrow positions — and both cramped. These rules
+# give every menu button the same treatment: reserve room on the right (so the arrow never
+# touches the icon), drop the sub-panel frame, and pin the arrow to the **vertical centre**
+# whichever mode drew it. popupMode 1 = MenuButtonPopup, 2 = InstantPopup.
+_TOOLBAR_STYLE = (
+    "QToolBar { spacing: 1px; padding: 2px; }"
+    "QToolButton { border: 1px solid transparent; border-radius: 4px; padding: 3px; }"
+    "QToolButton:hover { background-color: rgba(128, 128, 128, 46); }"
+    "QToolButton:pressed { background-color: rgba(128, 128, 128, 100); }"
+    "QToolButton:checked { background-color: rgba(128, 128, 128, 72); }"
+    'QToolButton[popupMode="1"], QToolButton[popupMode="2"] { padding-right: 16px; }'
+    "QToolButton::menu-button { border: none; background: transparent; width: 14px; }"
+    "QToolButton::menu-arrow, QToolButton::menu-indicator {"
+    " subcontrol-origin: padding; subcontrol-position: center right; right: 4px; }"
+    "QToolBar::separator { width: 1px; margin: 5px 8px;"
+    " background-color: rgba(128, 128, 128, 90); }"
+)
 
 
 def _ask_pdf_password(path: str, retry: bool) -> str | None:
@@ -248,36 +274,21 @@ class MainWindow(QMainWindow):
     # ---- actions / menus --------------------------------------------------------
 
     def _build_actions(self) -> None:
+        # Two toolbars (M71, the Preview-inspired split): the **reading bar** is what the app at
+        # rest shows — sidebar, save, undo/redo, zoom, rotate, find — and the **markup bar** below
+        # it carries the whole annotate/draw/redact kit, summoned by the reading bar's Markup
+        # toggle. Both icon-only (each QAction's text becomes the button tooltip, so the labels
+        # stay discoverable on hover and in the menus) and one shared style, so the kit reads as
+        # part of the same surface when it is up.
         bar = self.addToolBar("Main")
-        bar.setMovable(False)
-        # Icon-only toolbar (the user's ask: icons instead of text). Each QAction's text becomes
-        # the button tooltip, so the labels stay discoverable on hover and in the menus.
-        bar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
-        bar.setIconSize(QSize(20, 20))
-        # Press/hover feedback + spacing between functional groups. Translucent grey reads on both
-        # light and dark themes, so this needs no per-theme rebuild. The separator gains margin so
-        # grouped buttons sit close while groups are clearly divided.
-        # The dropdown arrow on a menu-carrying button (M59.13). Qt places it differently per popup
-        # mode: **MenuButtonPopup** (the Markup ▾ / Draw ▾ split buttons) draws a *raised sub-panel*
-        # on the right with the arrow centred in it, which crowds the icon; **InstantPopup** (the
-        # pen-&-shapes style swatch) tucks a small indicator into the **bottom-right corner**, over
-        # the swatch. Same toolbar, two different arrow positions — and both cramped. These rules
-        # give every menu button the same treatment: reserve room on the right (so the arrow never
-        # touches the icon), drop the sub-panel frame, and pin the arrow to the **vertical centre**
-        # whichever mode drew it. popupMode 1 = MenuButtonPopup, 2 = InstantPopup.
-        bar.setStyleSheet(
-            "QToolBar { spacing: 1px; padding: 2px; }"
-            "QToolButton { border: 1px solid transparent; border-radius: 4px; padding: 3px; }"
-            "QToolButton:hover { background-color: rgba(128, 128, 128, 46); }"
-            "QToolButton:pressed { background-color: rgba(128, 128, 128, 100); }"
-            "QToolButton:checked { background-color: rgba(128, 128, 128, 72); }"
-            'QToolButton[popupMode="1"], QToolButton[popupMode="2"] { padding-right: 16px; }'
-            "QToolButton::menu-button { border: none; background: transparent; width: 14px; }"
-            "QToolButton::menu-arrow, QToolButton::menu-indicator {"
-            " subcontrol-origin: padding; subcontrol-position: center right; right: 4px; }"
-            "QToolBar::separator { width: 1px; margin: 5px 8px;"
-            " background-color: rgba(128, 128, 128, 90); }"
-        )
+        self.addToolBarBreak()
+        self.markup_bar = QToolBar("Markup")
+        self.addToolBar(self.markup_bar)
+        for b in (bar, self.markup_bar):
+            b.setMovable(False)
+            b.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+            b.setIconSize(QSize(20, 20))
+            b.setStyleSheet(_TOOLBAR_STYLE)
         menu = self.menuBar()
         file_menu = menu.addMenu("&File")
         edit_menu = menu.addMenu("&Edit")
@@ -300,8 +311,9 @@ class MainWindow(QMainWindow):
                 to_menu.addAction(a)
             return a
 
-        # File
-        a_open = act("Open…", self._open_dialog, QKeySequence.StandardKey.Open, icon="open", to_menu=file_menu)
+        # File. Open and Print live here only (M71): the toolbar at rest is a reading surface, and
+        # both verbs keep their standard shortcuts + menu rows.
+        act("Open…", self._open_dialog, QKeySequence.StandardKey.Open, icon="open", to_menu=file_menu)
         # Rebuilt each time it opens (aboutToShow), so it reflects MRU changes from other windows.
         self._recent_menu = file_menu.addMenu("Open &Recent")
         self._recent_menu.aboutToShow.connect(self._populate_recent_menu)
@@ -326,7 +338,7 @@ class MainWindow(QMainWindow):
         # Password protection (M54): Set / Change / Remove the AES-256 save password. Same
         # placement logic — a document-level dialog beside Properties, never on the toolbar.
         act("Password Protection…", self._password_protection, to_menu=file_menu)
-        a_print = act("Print…", self._print, QKeySequence.StandardKey.Print, icon="print", to_menu=file_menu)
+        act("Print…", self._print, QKeySequence.StandardKey.Print, icon="print", to_menu=file_menu)
         file_menu.addSeparator()
         act("Close", self.close, QKeySequence.StandardKey.Close, to_menu=file_menu)
 
@@ -343,17 +355,18 @@ class MainWindow(QMainWindow):
         edit_menu.addAction(redo)
         edit_menu.addSeparator()
         # Page ops act on the thumbnail selection. No accelerators here: Ctrl+C is text Copy and
-        # Delete is handled inside the panel; the toolbar + context menu are the discoverable paths.
-        a_cut = act("Cut Pages", lambda: self._cut_pages(), icon="cut", to_menu=edit_menu)
-        a_copy_pg = act("Copy Pages", lambda: self._copy_pages(), icon="copy", to_menu=edit_menu)
-        a_paste = act("Paste Pages", lambda: self._paste_pages(), icon="paste", to_menu=edit_menu)
-        a_delete = act("Delete Pages", lambda: self._delete_rows(self.thumbs.selected_rows()), icon="delete", to_menu=edit_menu)
+        # Delete is handled inside the panel; since M71 the menus + the sidebar context menu are
+        # the paths (the page-op buttons left the toolbar, with no replacement strip — owner call).
+        act("Cut Pages", lambda: self._cut_pages(), icon="cut", to_menu=edit_menu)
+        act("Copy Pages", lambda: self._copy_pages(), icon="copy", to_menu=edit_menu)
+        act("Paste Pages", lambda: self._paste_pages(), icon="paste", to_menu=edit_menu)
+        act("Delete Pages", lambda: self._delete_rows(self.thumbs.selected_rows()), icon="delete", to_menu=edit_menu)
         # Rotate sits with the other page operations (owner call, R1 review): it is a real,
         # undoable, *saved* edit on the selected/current page — its old View placement read as a
         # view-only spin that wouldn't touch the file. PdfView.rotate_view remains the view-only one.
         a_rotl = self._a_rotl = act("Rotate Left", lambda: self._rotate_pages(-90), "Ctrl+L", icon="rotate-left", to_menu=edit_menu)
         a_rotr = self._a_rotr = act("Rotate Right", lambda: self._rotate_pages(90), "Ctrl+R", icon="rotate-right", to_menu=edit_menu)
-        a_insert = act("Insert Pages from File…", self._insert_from_file, icon="insert", to_menu=edit_menu)
+        act("Insert Pages from File…", self._insert_from_file, icon="insert", to_menu=edit_menu)
         # M51: a fresh empty page / copies of the selection — both plain PageRef inserts on the
         # undo stack, grouped with the other page operations. Menu-only (one-shot commands stay
         # off the toolbar — PLAN.md §GUI feature roadmap, UI budget).
@@ -578,6 +591,24 @@ class MainWindow(QMainWindow):
             lambda checked: self._settings.set_pref("sidebar_visible", checked)
         )
         view_menu.addAction(pages_toggle)
+        # The Markup toggle (M71) — the one button that summons the markup kit. Same contract as
+        # the sidebar: checked state mirrors the bar's visibility, an explicit toggle is remembered
+        # app-wide (triggered fires only on user action, not the programmatic setVisible below).
+        markup_toggle = self.markup_bar.toggleViewAction()
+        markup_toggle.setText("&Markup Toolbar")
+        markup_toggle.setIcon(icons.icon("markup"))
+        markup_toggle.setProperty("iconName", "markup")  # re-tinted on theme change
+        markup_toggle.setToolTip("Show/Hide the markup tools")
+        markup_toggle.setShortcut("Ctrl+Shift+M")
+        markup_toggle.triggered.connect(
+            lambda checked: self._settings.set_pref("markup_bar_visible", checked)
+        )
+        view_menu.addAction(markup_toggle)
+        # Hidden at rest unless the user left it up (the R6 revision of the resting-state budget:
+        # the app at rest is a viewer; the kit is chrome you summon). Arming a kit tool from the
+        # Tools menu while the bar is hidden summons it too — see _on_armed_changed.
+        self.markup_bar.setVisible(bool(self._settings.get_pref("markup_bar_visible", False)))
+        self.markup_bar.visibilityChanged.connect(self._on_markup_bar_visibility)
 
         # Help — an AGPL release owes the user the licence and the corresponding source (G4).
         # Deliberately not on the toolbar: discoverable where users look for it, not in the way.
@@ -592,28 +623,37 @@ class MainWindow(QMainWindow):
         # never in the way of the work. Voluntary: no feature is gated on it.
         act("Donate…", self._open_donate_url, icon="donate", to_menu=help_menu)
 
-        # Toolbar: built explicitly (order independent of menu wiring), grouped functionally with
-        # separators — file · history · page edits · zoom/fit · rotate · search.
-        groups = (
+        # Toolbars: built explicitly (order independent of menu wiring), grouped functionally with
+        # separators. The **reading bar** holds what reading a document needs — sidebar · save ·
+        # history · zoom/fit · rotate · the Markup toggle · find; the **markup bar** holds the kit
+        # the toggle summons — modes · the annotate/draw/stamp tools · redact. Everything M71
+        # removed (Open/Print, the page-op buttons) stays reachable through the menus and context
+        # menus (PLAN.md §R6, M71 — menus are the complete catalog); Open's return beside Save is
+        # a one-line review call at the M71 pass.
+        reading_groups = (
             [pages_toggle],
-            [a_open, a_save, a_print],
-            [a_select, a_grab, a_objects],
-            [a_zout, self.zoom_widget, a_zin, a_fitw, a_fitp],
+            [a_save],
             [undo, redo],
-            [a_cut, a_copy_pg, a_paste, a_delete, a_insert],
-            [a_textbox, self._markup_button, self._draw_button, self._markup_style_button,
-             self._stamp_button, a_redact_text, a_redact_block],
+            [a_zout, self.zoom_widget, a_zin, a_fitw, a_fitp],
             [a_rotl, a_rotr],
+            [markup_toggle],
             [a_find],
         )
-        for gi, group in enumerate(groups):
-            if gi:
-                bar.addSeparator()
-            for item in group:
-                if isinstance(item, QAction):
-                    bar.addAction(item)
-                else:
-                    bar.addWidget(item)  # e.g. the zoom % combo
+        markup_groups = (
+            [a_select, a_grab, a_objects],
+            [a_textbox, self._markup_button, self._draw_button, self._markup_style_button,
+             self._stamp_button],
+            [a_redact_text, a_redact_block],
+        )
+        for target, groups in ((bar, reading_groups), (self.markup_bar, markup_groups)):
+            for gi, group in enumerate(groups):
+                if gi:
+                    target.addSeparator()
+                for item in group:
+                    if isinstance(item, QAction):
+                        target.addAction(item)
+                    else:
+                        target.addWidget(item)  # e.g. the zoom % combo
 
     def _retint_icons(self) -> None:
         """Re-fetch every action's icon so it matches the current theme's text colour."""
@@ -1151,10 +1191,28 @@ class MainWindow(QMainWindow):
             )
         self.undo_stack.endMacro()
 
+    # Armed tools whose lit button lives on the markup bar (M71) — every one-shot except CROP
+    # (menu-only since M48; its state shows as the drag band) and FIELD (dialog-then-drag, menu-
+    # only). For these the bar is summoned on arm and an armed one is disarmed when the bar hides.
+    _MARKUP_BAR_TOOLS = frozenset(ArmedTool) - {ArmedTool.CROP, ArmedTool.FIELD}
+
     def _on_armed_changed(self, tool) -> None:
-        """Light the matching tool button while it's armed (None → all off)."""
+        """Light the matching tool button while it's armed (None → all off). Arming a kit tool
+        while the markup bar is hidden (a Tools-menu / shortcut arm) **summons the bar** (M71):
+        the armed state must be visible on the lit button, and asking for a markup tool is asking
+        for the markup kit. Programmatic show — deliberately not persisted (the remembered choice
+        is only ever the user's explicit toggle)."""
         for armed_tool, action in self._armed_actions.items():
             action.setChecked(armed_tool is tool)
+        if tool in self._MARKUP_BAR_TOOLS and not self.markup_bar.isVisible():
+            self.markup_bar.show()
+
+    def _on_markup_bar_visibility(self, visible: bool) -> None:
+        """Hiding the markup bar disarms a kit tool whose lit button just vanished (M71) — an
+        invisible armed state is a trap (the next drag would mark the page). CROP stays armed: its
+        arming lives in the Tools menu and its feedback is the crosshair + band, not a bar button."""
+        if not visible and self.view.armed in self._MARKUP_BAR_TOOLS:
+            self.view.disarm()
 
     def _apply_text_tool(self, tool) -> None:
         """A drag-over-text armed tool was released on a selection → apply it (one undo)."""

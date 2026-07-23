@@ -14,7 +14,7 @@ where the glyph lands — so the check has to look at pixels.
 from __future__ import annotations
 
 import pytest
-from PySide6.QtWidgets import QToolBar, QToolButton
+from PySide6.QtWidgets import QToolButton
 
 from app import PdfApp
 from main_window import MainWindow
@@ -42,6 +42,7 @@ def win(app, a_pdf):
     w = MainWindow(app, a_pdf, app.settings)
     w.resize(1200, 700)
     w.show()
+    w.markup_bar.show()  # the dropdown buttons live on the markup bar, hidden at rest (M71)
     app.processEvents()
     yield w
     w.undo_stack.setClean()
@@ -91,7 +92,7 @@ def test_every_dropdown_arrow_is_vertically_centred(win):
 def test_dropdown_buttons_reserve_room_so_the_arrow_never_touches_the_icon(win):
     """The 'too close and tight' half: a menu button is wider than a plain one by the strip its
     arrow gets, instead of the arrow crowding (or overlapping) the icon."""
-    bar = win.findChildren(QToolBar)[0]
+    bar = win.markup_bar  # compare within the bar the menu buttons sit on (M71)
     plain = [b for b in bar.findChildren(QToolButton) if b.menu() is None and b.isVisible()]
     assert plain, "expected some menu-less toolbar buttons to compare against"
     widest_plain = max(b.width() for b in plain)

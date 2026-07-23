@@ -690,9 +690,20 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
 
 **R6 — "Simplify & Read"** (planned; prov. v0.16.0)
 
-- [ ] **M71** Two-tier toolbar — a resting *reading* bar (Sidebar · Save · Undo/Redo · zoom cluster
-  · Rotate · Markup toggle · Find) + a toggled markup bar carrying the kit; page ops and Open/Print
-  leave the toolbar (menus + context menus keep them) — *WSLg*
+- [x] **M71** Two-tier toolbar — the single ~29-slot bar is now two tiers, the R6 budget revision
+  made real: at rest the app shows only the **reading bar** (Sidebar · Save · Undo/Redo · the zoom
+  cluster unchanged · Rotate L/R · a **Markup** toggle · Find); the **markup bar** the toggle
+  summons carries the whole kit (Select/Grab/Objects · Text Box · Markup ▾ · Draw ▾ · style swatch ·
+  Stamp ▾ · Redact ×2 until M72 merges them). Open/Print and the page-op buttons left the toolbar —
+  the File/Edit menus and the M46 context menus carry every removed verb, with **no Pages-panel
+  action strip** (owner call); whether Open returns beside Save is the one-line call at the M71
+  review. Visibility is remembered app-wide exactly like the sidebar — only an *explicit* toggle
+  persists. The arm/visibility interplay is honest both ways: arming a kit tool from the Tools menu
+  **summons** the hidden bar (the armed state must be visible on the lit button), and dismissing the
+  bar **disarms** a kit tool (an invisible armed state is a trap) while leaving the menu-only CROP
+  arm and the Select/Grab/Objects base mode alone (Grab is a reading tool). View ▸ Markup Toolbar
+  (Ctrl+Shift+M); new `markup` icon. — *Windows (headless + offscreen GUI)* — 12 new tests, 1082
+  green ([#159](https://github.com/utyagi24/klarpdf/pull/159))
 - [ ] **M72** One Redact tool — gesture detect: a drag starting on text = text redaction, elsewhere
   = block; the two slots become one; menu verbs unchanged — *WSLg*
 - [ ] **M73** Sticky markup arming — Highlight / Underline / Strike Out / Pen stay armed across

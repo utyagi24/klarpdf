@@ -83,4 +83,5 @@ def test_view_menu_keeps_only_view_state(app, b_pdf):
     win = app.open_document(b_pdf)
     view = _titles(win, "&View")
     assert view == ["Zoom Out", "Zoom In", "Actual Size", "Fit Width", "Fit Page",
-                    "Go to &Page…", "Night Reading Mode", "&Sidebar"]
+                    "Go to &Page…", "Night Reading Mode", "&Sidebar",
+                    "&Markup Toolbar"]  # M71 — chrome visibility is view state
