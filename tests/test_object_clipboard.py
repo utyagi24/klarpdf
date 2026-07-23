@@ -228,15 +228,16 @@ def test_annotation_menu_offers_copy_cut_for_free_placed_marks(app, win):
 
 
 def test_highlight_menu_carries_no_object_verbs(app, win):
-    """A text-anchored mark is not a free-placed object: no Copy/Cut/z-order here. (Since M76 the
-    menu also carries the markup layer section — that is text-markup vocabulary, not object's.)"""
+    """A text-anchored mark is not a free-placed object: no Copy/Cut/z-order here — its menu is
+    the M76.1 swatch rows (text-markup vocabulary, not the object's)."""
     from model.page_edits import Highlight
+    from viewer.markup_style import SwatchRowAction
 
     win.vdoc.add_annotation(0, Highlight(((100.0, 100.0, 200.0, 114.0),)))
     win.view.reload()
     menu = win._view_context_menu(_scene(win, 150, 107))
+    assert any(isinstance(a, SwatchRowAction) for a in menu.actions())
     titles = [a.text() for a in menu.actions() if a.text()]
-    assert titles[-1] == "Remove highlight"
     for verb in ("Copy Object", "Cut Object", "Bring to Front", "Send to Back"):
         assert verb not in titles
 
