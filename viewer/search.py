@@ -2,8 +2,9 @@
 
 :class:`SearchController` collects every hit across the document — each with a **context
 snippet** (M47) — paints them, and tracks a "current" hit for next/prev navigation (wrapping),
-scrolling each into view. :class:`FindBar` is the small UI (text field + prev/next/close +
-List All) MainWindow shows on Ctrl+F; :class:`SearchResultsPanel` is the M47 doc-wide hit list
+scrolling each into view. :class:`FindBar` is the small UI (text field + Match case / Whole words
+toggles (M75) + prev/next/close + List All) MainWindow shows on Ctrl+F; :class:`SearchResultsPanel`
+is the M47 doc-wide hit list
 (page + snippet, click-to-jump) that appears only on List All — and is the reviewable-hit-list
 surface M64 (search & redact) later extends with checkboxes.
 
@@ -16,6 +17,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (
+    QCheckBox,
     QGraphicsRectItem,
     QHBoxLayout,
     QLabel,
@@ -231,7 +233,13 @@ class SearchResultsPanel(QListWidget):
 
 
 class FindBar(QWidget):
-    """Text field + prev/next/List All/close, wired to a view's :class:`SearchController`.
+    """Text field + match options + prev/next/List All/close, wired to a view's
+    :class:`SearchController`.
+
+    **Match case** and **Whole words** (M75) are M64's existing ``search()`` filters, surfaced on
+    the interactive bar at last — same labels as the Find-and-Redact dialog, both off by default,
+    which is exactly the pre-M75 behaviour. Toggling one re-runs the live query in place, so the
+    hits, the count label and a visible results panel all follow without retyping.
 
     ``results_panel`` (set by MainWindow) is the :class:`SearchResultsPanel` this bar drives: the
     List All toggle shows/hides it, a re-typed query refreshes it while visible, and closing the
@@ -244,6 +252,9 @@ class FindBar(QWidget):
         self._edit = QLineEdit()
         self._edit.setPlaceholderText("Find in document")
         self._label = QLabel("")
+        self._case_box = QCheckBox("Match case")
+        self._word_box = QCheckBox("Whole words")
+        self._word_box.setToolTip("Skip matches inside longer words")
         prev_btn = QPushButton("Previous")
         next_btn = QPushButton("Next")
         self._list_btn = QPushButton("List All")
@@ -255,6 +266,8 @@ class FindBar(QWidget):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(6, 2, 6, 2)
         layout.addWidget(self._edit, 1)
+        layout.addWidget(self._case_box)
+        layout.addWidget(self._word_box)
         layout.addWidget(self._label)
         layout.addWidget(prev_btn)
         layout.addWidget(next_btn)
@@ -263,6 +276,8 @@ class FindBar(QWidget):
 
         self._edit.textChanged.connect(self._on_text)
         self._edit.returnPressed.connect(self._on_next)
+        self._case_box.toggled.connect(self._on_options_changed)
+        self._word_box.toggled.connect(self._on_options_changed)
         prev_btn.clicked.connect(self._on_prev)
         next_btn.clicked.connect(self._on_next)
         self._list_btn.toggled.connect(self._on_list_toggled)
@@ -298,10 +313,17 @@ class FindBar(QWidget):
         self._update_label()
 
     def _on_text(self, text: str) -> None:
-        self._view.search.search(text)
+        self._view.search.search(text, case_sensitive=self._case_box.isChecked(),
+                                 whole_word=self._word_box.isChecked())
         if self.results_panel is not None and self.results_panel.isVisible():
             self.results_panel.refresh()  # a live panel follows the query as it is typed
         self._update_label()
+
+    def _on_options_changed(self) -> None:
+        """A match option toggled → re-run the live query under the new filters (M75). The label,
+        highlights and a visible results panel all refresh through the ordinary ``_on_text`` path;
+        an empty field is a cheap no-op search."""
+        self._on_text(self._edit.text())
 
     def _on_next(self) -> None:
         self.find_next()
