@@ -857,6 +857,18 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   `recent_signatures` key are unchanged — renaming the key would silently drop every existing
   list. — *Windows (headless + offscreen GUI)* — 1 new test, 1198 green
   ([#173](https://github.com/utyagi24/klarpdf/pull/173))
+- [x] **M77.1** The Annotations tab lists **text markups only** — highlights, underlines,
+  strike-outs and notes (owner: it was listing drawn lines and shapes too). A markup is a
+  *passage*: the row's snippet reads back what you marked, and a list of them is a reading of the
+  document's margin. A pen stroke, line, shape, text box, stamp or form field is a placed
+  **object** — no passage to read back (its row said "p. 3 · line"), visible where it sits, and
+  arranged through the Objects mode that exists for exactly that. `is_listed` /
+  `is_listed_foreign` in `organize/annotations_panel.py` are the single definition, shared with
+  the tab's existence check (`_doc_has_listed_marks`), so a document of drawings alone gets **no
+  tab** rather than a tab over an empty list. Foreign markups list on the same terms — including
+  Squiggly (a wavy underline we cannot draw but can list) and sticky notes, which is "notes"
+  arriving from another tool ahead of our own. — *Windows (headless + offscreen GUI)* — 2 new
+  tests + 4 rewritten, 1199 green ([#174](https://github.com/utyagi24/klarpdf/pull/174))
 - [x] **M77** Annotations sidebar tab — a third tab beside Pages | Outline listing **every mark
   in the document** as "p. N · type · snippet" rows: ours from the PageRef descriptors (text
   markups read their covered page text as the snippet; boxes/stamps/fields their own), foreign

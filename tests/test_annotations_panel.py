@@ -1,9 +1,11 @@
 """Annotations sidebar tab (PLAN.md §GUI feature roadmap → R6, M77). Offscreen GUI.
 
-A third sidebar tab beside Pages | Outline listing every mark in the document — ours and foreign
-— as "p. N · type · snippet" rows; click jumps + selects (the M47 pattern). The tab exists only
-while the document has marks (owner rule: inapplicable chrome is invisible, not greyed out) and
-tracks edits/undo live, including its own appearance and disappearance.
+A sidebar tab beside Pages | Outline listing the document's **text markups** — highlights,
+underlines, strike-outs and notes, ours and foreign — as "p. N · type · snippet" rows; click
+jumps (M77.1 narrowed it from every mark: drawings, text boxes, stamps and fields are placed
+objects with no passage to read back, and they buried the markups). The tab exists only while the
+document has marks it would list (owner rule: inapplicable chrome is invisible, not greyed out)
+and tracks edits/undo live, including its own appearance and disappearance.
 """
 
 from __future__ import annotations
@@ -13,7 +15,8 @@ import pytest
 from PySide6.QtWidgets import QTabWidget
 
 from app import PdfApp
-from model.page_edits import Highlight, TextBox
+from model.content_marks import ImageStamp
+from model.page_edits import Highlight, Line, Shape, Strikeout, TextBox, Underline
 from store.settings import Settings
 
 
@@ -85,8 +88,26 @@ def test_toc_less_marked_doc_gets_pages_and_annotations(qapp, b_pdf, tmp_path):
     w = qapp.open_document(b_pdf)  # B.pdf: no outline
     try:
         assert _tab_labels(w) == []  # bare Pages panel, no tab bar at all
-        w._add_annotation(0, TextBox((72, 150, 300, 180), "note"))
+        w._add_annotation(0, Highlight((_word_box(w),)))
         assert _tab_labels(w) == ["Pages", "Annotations"]
+    finally:
+        w.undo_stack.setClean()
+        w.close()
+
+
+def test_objects_alone_do_not_summon_the_tab(qapp, b_pdf, tmp_path):
+    """A page of drawings has marks but nothing the list would show, and a tab over an empty list
+    is the dead chrome the tab's whole existence rule exists to prevent (M77.1)."""
+    qapp.settings = Settings(tmp_path / "vs.json")
+    w = qapp.open_document(b_pdf)
+    try:
+        w._add_annotation(0, TextBox((72, 150, 300, 180), "note to self"))
+        w._add_annotation(0, Line((72, 200), (300, 240)))
+        assert _tab_labels(w) == []
+        assert w.annotations_panel is None
+        w._add_annotation(0, Highlight((_word_box(w),)))   # …one markup, and it appears
+        assert _tab_labels(w) == ["Pages", "Annotations"]
+        assert w.annotations_panel.count() == 1            # listing the markup alone
     finally:
         w.undo_stack.setClean()
         w.close()
@@ -111,38 +132,41 @@ def test_foreign_marks_alone_summon_the_tab(qapp, foreign_pdf, tmp_path):
 
 
 def test_rows_carry_page_type_and_snippet(win):
-    box = _word_box(win)
-    win._add_annotation(0, Highlight((box,)))
-    win._add_annotation(2, TextBox((72, 150, 300, 180), "remember the milk"))
+    win._add_annotation(0, Highlight((_word_box(win),)))
+    win._add_annotation(2, Strikeout((_word_box(win, 2),)))
     panel = win.annotations_panel
     texts = [panel.item(i).text() for i in range(panel.count())]
     assert len(texts) == 2
     assert texts[0].startswith("p. 1 · highlight")
     assert "ALPHA-zero-A0" in texts[0]           # the covered text is the snippet
-    assert texts[1].startswith("p. 3 · text box") or texts[1].startswith("p. 3 · ")
-    assert "remember the milk" in texts[1]
+    assert texts[1].startswith("p. 3 · ")
+    assert "ALPHA-two-A2" in texts[1]
+
+
+def test_objects_never_reach_the_list(win):
+    """The narrowing (M77.1): drawings, text boxes, stamps and fields are placed objects — found
+    where they sit, arranged in Objects mode — and listing them buried the markups."""
+    win._add_annotation(0, Highlight((_word_box(win),)))
+    win._add_annotation(0, TextBox((72, 150, 300, 180), "remember the milk"))
+    win._add_annotation(1, Line((72, 200), (300, 240)))
+    win._add_annotation(1, Shape("rect", (72, 260, 300, 320)))
+    win._add_annotation(2, ImageStamp((72, 100, 200, 160), "sig.png"))
+    panel = win.annotations_panel
+    texts = [panel.item(i).text() for i in range(panel.count())]
+    assert len(texts) == 1
+    assert texts[0].startswith("p. 1 · highlight")
 
 
 def test_list_follows_add_and_remove_live(win):
-    box = _word_box(win)
-    win._add_annotation(0, Highlight((box,)))
+    win._add_annotation(0, Highlight((_word_box(win),)))
     assert win.annotations_panel.count() == 1
-    win._add_annotation(1, TextBox((72, 150, 300, 180), "second"))
+    win._add_annotation(1, Underline((_word_box(win, 1),)))
     assert win.annotations_panel.count() == 2
     win.undo_stack.undo()
     assert win.annotations_panel.count() == 1
 
 
 # ---- click jumps + selects ---------------------------------------------------
-
-
-def test_click_jumps_and_selects_a_free_placed_mark(win):
-    mark = TextBox((72.0, 150.0, 300.0, 180.0), "jump target")
-    win._add_annotation(2, mark)
-    panel = win.annotations_panel
-    panel._on_item_clicked(panel.item(0))
-    assert win.view.current_page == 2
-    assert any(m is mark for _p, m in win.view.annotations.selected_objects)
 
 
 def test_click_on_a_text_markup_jumps_without_object_selection(win):

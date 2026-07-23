@@ -266,7 +266,7 @@ class MainWindow(QMainWindow):
             self.view.currentPageChanged.connect(self.outline.set_current)
             self.outline.set_current(self.view.current_page)
             extra.append((self.outline, "Outline"))
-        if self._doc_has_marks():
+        if self._doc_has_listed_marks():
             from organize.annotations_panel import AnnotationsPanel  # lazy — clean docs never pay it
 
             self.annotations_panel = AnnotationsPanel(
@@ -303,21 +303,26 @@ class MainWindow(QMainWindow):
         if old is not None and old is not self.pages_dock.widget() and old is not self.thumbs:
             old.deleteLater()  # retired tab container (thumbs was already reparented out of it)
 
-    def _doc_has_marks(self) -> bool:
-        """Whether any page shows a mark — ours or a live foreign annotation (M77). Cheap on the
-        common paths: our marks short-circuit on the first ref carrying one; the per-source-page
-        foreign presence scan runs once ever (sources are immutable in-session), and the live
-        check (which honours pending deletions) runs only for pages that have foreign marks."""
-        from model.foreign_annots import ForeignDeletion, ForeignMove, read_foreign_annotations
+    def _doc_has_listed_marks(self) -> bool:
+        """Whether any page carries a mark the Annotations tab would **list** — a text markup of
+        ours or a live foreign one (M77, narrowed by M77.1). The panel owns that definition, so
+        the tab cannot exist over a list that would be empty (a document of pen strokes has marks
+        but nothing to review). Cheap on the common paths: our marks short-circuit on the first ref
+        carrying one; the per-source-page foreign presence scan runs once ever (sources are
+        immutable in-session), and the live check (which honours pending deletions) runs only for
+        pages that have foreign marks."""
+        from model.foreign_annots import read_foreign_annotations
+        from organize.annotations_panel import is_listed, is_listed_foreign
 
         for page_index, ref in enumerate(self.vdoc.ordered):
-            if any(not isinstance(a, (ForeignDeletion, ForeignMove)) for a in ref.annotations):
+            if any(is_listed(a) for a in ref.annotations):
                 return True
             key = (ref.source_id, ref.source_page_index)
             if key not in self._foreign_presence:
                 page = self.vdoc.sources[ref.source_id][ref.source_page_index]
                 self._foreign_presence[key] = bool(read_foreign_annotations(page))
-            if self._foreign_presence[key] and self.view.annotations.foreign_annotations(page_index):
+            if self._foreign_presence[key] and any(
+                    is_listed_foreign(a) for a in self.view.annotations.foreign_annotations(page_index)):
                 return True
         return False
 
@@ -1149,7 +1154,7 @@ class MainWindow(QMainWindow):
             self.outline.populate()  # live remapped_toc: the tree shows what a Save would write
         # The Annotations tab (M77) tracks edits/undo live — including its own existence: the
         # first mark summons it, undoing the last dismisses it (remount only on that boundary).
-        if (self.annotations_panel is not None) != self._doc_has_marks():
+        if (self.annotations_panel is not None) != self._doc_has_listed_marks():
             self._mount_sidebar()
         elif self.annotations_panel is not None:
             self.annotations_panel.populate()
