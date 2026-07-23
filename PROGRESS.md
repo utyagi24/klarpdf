@@ -758,8 +758,19 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   identical repaints and no-layer removals are no-ops. "Remove <noun>" still closes the menu. —
   *Windows (headless + offscreen GUI)* — 10 new tests, 1138 green
   ([#164](https://github.com/utyagi24/klarpdf/pull/164))
-- [ ] **M77** Annotations sidebar tab — every mark listed (page · type · snippet), click-to-jump;
-  the tab exists only while the document has marks — *WSLg*
+- [x] **M77** Annotations sidebar tab — a third tab beside Pages | Outline listing **every mark
+  in the document** as "p. N · type · snippet" rows: ours from the PageRef descriptors (text
+  markups read their covered page text as the snippet; boxes/stamps/fields their own), foreign
+  through a provider seam (the overlay's live `foreign_annotations` — deletions dropped, moves
+  applied), so `organize/annotations_panel.py` depends only on the model + a callable. **The tab
+  exists only while the document has marks** (inapplicable chrome is invisible): `_doc_has_marks`
+  short-circuits on our marks and scans foreign *presence* once per source page (sources are
+  immutable in-session; cache cleared on `_reset_to_file`). Tracks edits/undo live **including its
+  own existence** — the first mark summons it, undoing the last dismisses it, with remounts keeping
+  the active tab by label. Click = the M47 pattern: jump + real object selection for free-placed
+  marks, the outline for foreign, plain jump for text-anchored/page-wide. — *Windows (headless +
+  offscreen GUI)* — 11 new tests, 1149 green
+  ([#165](https://github.com/utyagi24/klarpdf/pull/165))
 - [ ] **M78** View modes — Full Screen · Slideshow · Two-Page view; View menu + bare-page
   right-click; view-only — *WSLg*
 - [ ] **M79** Verify + release → tag (prov. **v0.16.0**) — *Windows*
