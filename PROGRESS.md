@@ -783,6 +783,16 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   from the first pixel of drag (underline/strikeout keep the selection blue by design). — *Windows
   (headless + offscreen GUI)* — tests updated (menu rows + wired-preview case), 1162 green
   ([#168](https://github.com/utyagi24/klarpdf/pull/168))
+- [x] **Dashed stroke style** (owner request while testing R6; extends M74's "line ends as style").
+  `Line` / `Shape` / `InkStroke` gain a `dashed` bool: PyMuPDF bakes it as a PDF `/BS /D` border on
+  line/square/circle/ink and reads it back on reopen, so the solid/dashed choice round-trips with no
+  extra model state (the array is re-derived from the width at bake, scaled so a thick line dashes
+  boldly). The style picker's **"Width" sub-menu becomes "Line Style"** — the three thicknesses plus
+  a Solid/Dashed radio group (independent groups); `_drawn_pen` dashes the preview to match the bake;
+  draw + restyle-in-place carry it like colour. **Trap fixed**: PyMuPDF silently writes no `/D` for
+  *float* dash values, so `_dash_array` returns ints (the round-trip test catches it). Both renders
+  verified to match (overlay + baked PDF). — *Windows (headless + offscreen GUI)* — 16 new tests,
+  1178 green ([#169](https://github.com/utyagi24/klarpdf/pull/169))
 - [x] **M77** Annotations sidebar tab — a third tab beside Pages | Outline listing **every mark
   in the document** as "p. N · type · snippet" rows: ours from the PageRef descriptors (text
   markups read their covered page text as the snippet; boxes/stamps/fields their own), foreign

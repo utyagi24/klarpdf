@@ -177,12 +177,13 @@ def test_button_seeds_the_overlay_and_tracks_changes(win):
     assert win.view.annotations.current_markup_style.fill_color == pytest.approx((1.0, 0.94, 0.60))
 
 
-def test_button_menu_offers_colour_width_and_fill():
+def test_button_menu_offers_colour_line_style_and_fill():
     btn = MarkupStyleButton()
     labels = [a.text() for a in btn.menu().actions() if not a.isSeparator()]
-    assert "Custom Colour…" in labels and "Width" in labels and "Fill" in labels
-    widths = [a.text() for a in btn._width_menu.actions()]
-    assert widths == ["Thin", "Medium", "Thick"]
+    # "Width" became "Line Style" when the solid/dashed choice joined the thickness options.
+    assert "Custom Colour…" in labels and "Line Style" in labels and "Fill" in labels
+    line_style = [a.text() for a in btn._width_menu.actions() if a.text()]
+    assert line_style == ["Thin", "Medium", "Thick", "Solid", "Dashed"]
     fills = [a.text() for a in btn._fill_menu.actions()]
     assert fills[0] == "No Fill" and "Custom…" in fills
 
