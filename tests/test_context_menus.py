@@ -92,7 +92,8 @@ def test_bare_page_menu_routes_the_view_actions(app, menu_pdf):
     assert entries[0].text() == "Paste Object" and entries[0].isEnabled() is False
     # The rest are the *same* QAction objects as the View menu — labels/shortcuts single-sourced.
     assert entries[1:] == [win._a_fitw, win._a_fitp, win._a_actual,
-                           win._a_rotl, win._a_rotr, win._a_goto]
+                           win._a_rotl, win._a_rotr, win._a_goto,
+                           win._a_fullscreen, win._a_slideshow, win._a_twopage]  # M78
 
 
 def test_selection_menu_offers_copy_highlight_redact(app, menu_pdf):

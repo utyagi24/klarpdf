@@ -771,8 +771,18 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   marks, the outline for foreign, plain jump for text-anchored/page-wide. — *Windows (headless +
   offscreen GUI)* — 11 new tests, 1149 green
   ([#165](https://github.com/utyagi24/klarpdf/pull/165))
-- [ ] **M78** View modes — Full Screen · Slideshow · Two-Page view; View menu + bare-page
-  right-click; view-only — *WSLg*
+- [x] **M78** View modes — the reading modes Preview offers, all **view-only** (the M49 principle;
+  nothing is undoable because nothing is an edit): **Full Screen** (F11, checkable — menu bar, both
+  toolbars, sidebar, find bar step aside; F11/Esc restores exactly the chrome that was up, and
+  programmatic hides never rewrite the remembered sidebar/markup prefs) · **Slideshow** (F5 —
+  chrome-free + one page per screen at Fit Page; click / Right/Down/Space/PgDn advance, Left/Up/
+  PgUp back, clamped; selection, forms, links and menus inert; Esc exits and the prior zoom/fit
+  returns exactly — Esc reaches MainWindow because the view leaves it unconsumed when nothing is
+  armed) · **Two-Page View** (facing pairs 1|2, 3|4 … in the ordinary window: `_build_scene` lays
+  out by row, `page_and_local_at` disambiguates within a row by x, and Fit Width/Page frame the
+  whole spread via `_fit_dims`; session-only, like rotation). Surfaced in the View menu + the
+  bare-page right-click menu as the same QActions. — *Windows (headless + offscreen GUI)* — 11 new
+  tests, 1160 green ([#166](https://github.com/utyagi24/klarpdf/pull/166))
 - [ ] **M79** Verify + release → tag (prov. **v0.16.0**) — *Windows*
 
 ## Public-Release Readiness — go open-source under AGPL-3.0 (planned)
