@@ -1279,7 +1279,8 @@ class AnnotationOverlay:
         page_index = selection[0][0]
         pairs = []
         for _p, mark in selection:
-            new = restyle_mark(mark, style.color, style.width, style.fill_color, style.opacity)
+            new = restyle_mark(mark, style.color, style.width, style.fill_color, style.opacity,
+                               style.line_ends)
             if new is not None and new != mark:
                 pairs.append((mark, new))
         if not pairs:
@@ -1665,7 +1666,7 @@ class AnnotationOverlay:
         """The Shift constraint: lines/arrows snap to 45° steps; rect/ellipse drags square up."""
         ax, ay = self._draw_anchor
         dx, dy = x - ax, y - ay
-        if self._draw_tool in (ArmedTool.LINE, ArmedTool.ARROW):
+        if self._draw_tool is ArmedTool.LINE:
             length = math.hypot(dx, dy)
             if length < 1e-6:
                 return (x, y)
@@ -1683,9 +1684,12 @@ class AnnotationOverlay:
             path.moveTo(*self._draw_points[0])
             for point in self._draw_points[1:]:
                 path.lineTo(*point)
-        elif tool in (ArmedTool.LINE, ArmedTool.ARROW):
+        elif tool is ArmedTool.LINE:
+            # The ends come from the style (M74), and the preview draws them live — WYSIWYG from
+            # the first pixel of drag, exactly as the committed mark will bake.
+            start_head, end_head = self._markup_style.line_ends
             path = _line_path(self._draw_anchor, self._draw_end,
-                              False, tool is ArmedTool.ARROW, self._markup_style.width)
+                              start_head, end_head, self._markup_style.width)
         else:
             x0, y0 = self._draw_anchor
             x1, y1 = self._draw_end
@@ -1788,9 +1792,12 @@ class AnnotationOverlay:
             return
         if dx < _MIN_DRAW and dy < _MIN_DRAW:
             return
-        if tool in (ArmedTool.LINE, ArmedTool.ARROW):
+        if tool is ArmedTool.LINE:
+            # Ends are style (M74): the sticky picker choice stamps onto the committed line the
+            # same way colour and width do — including both-ended, which no tool could draw before.
             self._on_add(page_index, Line(anchor, end, color=style.color, width=style.width,
-                                          arrow_end=tool is ArmedTool.ARROW,
+                                          arrow_start=style.line_ends[0],
+                                          arrow_end=style.line_ends[1],
                                           opacity=style.opacity))
         else:
             rect = (min(anchor[0], end[0]), min(anchor[1], end[1]),

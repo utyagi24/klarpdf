@@ -58,7 +58,7 @@ def test_tools_menu_holds_the_modes_and_armed_tools(app, b_pdf):
     assert _titles(win, "&Tools") == [
         "Select", "Grab", "Objects",
         "Add Text Box", "Highlight", "Underline", "Strike Out",
-        "Pen", "Line", "Arrow", "Rectangle", "Ellipse",
+        "Pen", "Line", "Rectangle", "Ellipse",  # Arrow merged into Line (M74)
         "Redact Text", "Redact Block", "Find and Redact…",
         # One entry, not two (M69.3): a watermark is a Stamp with `under=True`, so stamps and
         # watermarks are one dialog with a Place control rather than two menu items.

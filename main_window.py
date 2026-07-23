@@ -436,14 +436,16 @@ class MainWindow(QMainWindow):
         a_underline.setToolTip("Underline — drag over text, passage after passage (Esc or click again to stop)")
         a_strikeout = act("Strike Out", lambda: self._arm_tool(ArmedTool.STRIKEOUT), icon="strikeout", to_menu=tools_menu)
         a_strikeout.setToolTip("Strike Out — drag over text, passage after passage (Esc or click again to stop)")
-        # Draw tools (M58): pen path capture + line/arrow/rect/ellipse press-drag-release (Shift
+        # Draw tools (M58): pen path capture + line/rect/ellipse press-drag-release (Shift
         # constrains: square / circle / 45° line). Pen is sticky (M73); the shapes stay one-shot.
         a_pen = act("Pen", lambda: self._arm_tool(ArmedTool.PEN), icon="pen", to_menu=tools_menu)
         a_pen.setToolTip("Pen — draw freehand, stroke after stroke (Esc or click again to stop)")
+        # No Arrow tool since M74: arrowheads are *line style* (Preview's model) — none / start /
+        # end / both live on the style picker, so one Line tool draws every variant and a selected
+        # line's ends restyle in place like its colour.
         a_line = act("Line", lambda: self._arm_tool(ArmedTool.LINE), icon="line", to_menu=tools_menu)
-        a_line.setToolTip("Line — drag from start to end (Shift snaps to 45°)")
-        a_arrow = act("Arrow", lambda: self._arm_tool(ArmedTool.ARROW), icon="arrow", to_menu=tools_menu)
-        a_arrow.setToolTip("Arrow — drag from tail to head (Shift snaps to 45°)")
+        a_line.setToolTip("Line — drag from start to end (Shift snaps to 45°); "
+                          "arrowheads come from the style picker")
         a_rect = act("Rectangle", lambda: self._arm_tool(ArmedTool.RECT), icon="rect", to_menu=tools_menu)
         a_rect.setToolTip("Rectangle — drag a box (Shift for a square)")
         a_ellipse = act("Ellipse", lambda: self._arm_tool(ArmedTool.ELLIPSE), icon="ellipse", to_menu=tools_menu)
@@ -514,7 +516,6 @@ class MainWindow(QMainWindow):
             ArmedTool.STRIKEOUT: a_strikeout,
             ArmedTool.PEN: a_pen,
             ArmedTool.LINE: a_line,
-            ArmedTool.ARROW: a_arrow,
             ArmedTool.RECT: a_rect,
             ArmedTool.ELLIPSE: a_ellipse,
             ArmedTool.REDACT_TEXT: a_redact_text,
@@ -559,7 +560,7 @@ class MainWindow(QMainWindow):
         self._line_color_actions = self._add_color_submenu(
             markup_menu, "Underline / Strike Colour", TEXT_LINE_COLORS,
             self._set_markup_line_color, self._markup_line_color)
-        self._draw_button = split_button((a_pen, a_line, a_arrow, a_rect, a_ellipse))
+        self._draw_button = split_button((a_pen, a_line, a_rect, a_ellipse))
         # Stamp ▾ (M62): the text mark · signature in one slot, the slot §Design budgets reserved
         # for R4. Each opens its dialog rather than arming directly — the mark has to be composed
         # before there is anything to place.

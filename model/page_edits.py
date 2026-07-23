@@ -163,7 +163,10 @@ class InkStroke:
 @dataclass(frozen=True)
 class Line:
     """A straight line, optionally arrow-ended (M57). Arrow heads are open arrows — booleans in
-    the model (we write one style); any non-plain PDF end style reads back as ``True``."""
+    the model (we write one style); any non-plain PDF end style reads back as ``True``. Since M74
+    the ends are *style* (Preview's model — set from the picker, restyled in place like colour),
+    which is also what made a both-ended line drawable; a pre-R6 Arrow reads back as
+    ``Line(arrow_end=True)`` unchanged."""
 
     start: tuple[float, float]
     end: tuple[float, float]
@@ -516,17 +519,23 @@ def scale_mark(mark, sx: float, sy: float, ox: float, oy: float):
 
 
 def restyle_mark(mark, color: tuple, width: float, fill_color: tuple | None,
-                 opacity: float = 1.0):
+                 opacity: float = 1.0, line_ends: tuple[bool, bool] | None = None):
     """A drawn mark re-coloured / re-widthed (and, for shapes, re-filled) in place — the M59.5
     "restyle the selected object" primitive, the style twin of :func:`translate_mark`. Only the
     drawn types carry a shared stroke style; a :class:`TextBox` (its own font/fill/border live in
     the format bar) or anything else returns ``None`` — nothing to restyle this way. ``fill_color``
-    is ignored for the fill-less :class:`Line` / :class:`InkStroke`."""
+    is ignored for the fill-less :class:`Line` / :class:`InkStroke`; ``line_ends`` (M74 —
+    ``(arrow_start, arrow_end)``) applies to a :class:`Line` only, and ``None`` keeps the mark's
+    current ends."""
     from dataclasses import replace
 
     if isinstance(mark, Shape):
         return replace(mark, color=color, width=width, fill_color=fill_color, opacity=opacity)
-    if isinstance(mark, (Line, InkStroke)):
+    if isinstance(mark, Line):
+        ends = line_ends if line_ends is not None else (mark.arrow_start, mark.arrow_end)
+        return replace(mark, color=color, width=width, opacity=opacity,
+                       arrow_start=ends[0], arrow_end=ends[1])
+    if isinstance(mark, InkStroke):
         return replace(mark, color=color, width=width, opacity=opacity)
     return None
 

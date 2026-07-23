@@ -17,9 +17,12 @@ restricting". This module closes that gap without touching the model or the file
 **Applicability follows the model, not the button** — a knob a tool doesn't have is simply ignored,
 the same way the text-box Fill only touches boxes:
 
-* **colour · opacity** → pen · line · arrow · rect · ellipse;
-* **width** → the five draw tools;
-* **fill** → rect · ellipse only.
+* **colour · opacity** → pen · line · rect · ellipse;
+* **width** → the draw tools;
+* **fill** → rect · ellipse only;
+* **arrowheads** (M74) → lines only. Preview treats arrowheads as *line style*, and it is right:
+  the Arrow tool is gone, and ``Line`` carries an ends attribute (none · start · end · both) set
+  here — which is also what makes a **both-ended** arrow drawable for the first time.
 
 **Text markup is deliberately not on this button (M59.9).** Highlight / underline / strikeout are a
 different domain from freehand drawing — a highlighter wants a few translucent brights, a proofing
@@ -50,6 +53,14 @@ _STROKE_PRESETS = (
 _WIDTHS = (("Thin", 1.0), ("Medium", 2.0), ("Thick", 4.0))
 # Whole-mark opacity (PDF /CA). "Solid" first so the default reads as the no-op it is.
 _OPACITIES = (("Solid", 1.0), ("75%", 0.75), ("50%", 0.5), ("25%", 0.25))
+# Line ends (M74): ``(arrow_start, arrow_end)``. "None" first — the plain-line default; "End" is
+# what the retired Arrow tool drew; "Both" is new capability.
+_LINE_ENDS = (
+    ("None", (False, False)),
+    ("Start", (True, False)),
+    ("End", (False, True)),
+    ("Both", (True, True)),
+)
 # ---- text-markup palettes (M59.9) -------------------------------------------
 #
 # Curated and small on purpose: these are the colours people actually reach for when marking up
@@ -92,17 +103,21 @@ class MarkupStyle:
     width: float = 2.0                                       # draw-tool stroke width, page points
     fill_color: tuple[float, float, float] | None = None     # shapes only; None → no fill
     opacity: float = 1.0                                     # whole-mark alpha (PDF /CA), 0..1
+    line_ends: tuple[bool, bool] = (False, False)            # lines only (M74): arrowheads
 
     @classmethod
     def from_mark(cls, mark) -> "MarkupStyle | None":
         """The style of a selected drawn mark — loaded into the picker so a follow-up tweak edits
-        *that* mark's colour/width/fill (M59.5, the twin of ``TextBoxStyle.from_textbox``). Returns
-        ``None`` for a text box (its own format bar owns its style) or a non-drawn mark."""
+        *that* mark's colour/width/fill/ends (M59.5, the twin of ``TextBoxStyle.from_textbox``).
+        Returns ``None`` for a text box (its own format bar owns its style) or a non-drawn mark."""
         from model.page_edits import InkStroke, Line, Shape
 
         if isinstance(mark, Shape):
             return cls(mark.color, mark.width, mark.fill_color, mark.opacity)
-        if isinstance(mark, (Line, InkStroke)):
+        if isinstance(mark, Line):
+            return cls(mark.color, mark.width, None, mark.opacity,
+                       (mark.arrow_start, mark.arrow_end))
+        if isinstance(mark, InkStroke):
             return cls(mark.color, mark.width, None, mark.opacity)
         return None
 
@@ -162,6 +177,18 @@ class MarkupStyleButton(QToolButton):
             act.triggered.connect(lambda _c, w=pt: self._set_width(w))
             self._width_actions[pt] = act
 
+        # Arrowheads (M74): line ends as style, Preview's model. Lines only — the other tools
+        # simply ignore it, the same applicability-follows-the-model rule as width and fill.
+        self._ends_menu = menu.addMenu("Arrowheads")
+        self._ends_group = QActionGroup(self._ends_menu)
+        self._ends_actions: dict[tuple, object] = {}
+        for label, ends in _LINE_ENDS:
+            act = self._ends_menu.addAction(label)
+            act.setCheckable(True)
+            self._ends_group.addAction(act)
+            act.triggered.connect(lambda _c, e=ends: self._set_ends(e))
+            self._ends_actions[ends] = act
+
         # Opacity (M59.9): PDF's /CA is whole-annotation, so this fades outline and fill together.
         # It is the answer to "my filled box hides the text" — annotations always paint above the
         # page content, so no amount of Send to Back can put one behind text; translucency can.
@@ -212,6 +239,9 @@ class MarkupStyleButton(QToolButton):
         width_act = self._width_actions.get(style.width)
         if width_act is not None:
             width_act.setChecked(True)
+        ends_act = self._ends_actions.get(style.line_ends)
+        if ends_act is not None:
+            ends_act.setChecked(True)
         opacity_act = self._opacity_actions.get(style.opacity)
         if opacity_act is not None:
             opacity_act.setChecked(True)
@@ -238,6 +268,9 @@ class MarkupStyleButton(QToolButton):
 
     def _set_width(self, width: float) -> None:
         self._apply(width=width)
+
+    def _set_ends(self, ends: tuple[bool, bool]) -> None:
+        self._apply(line_ends=ends)
 
     def _set_opacity(self, opacity: float) -> None:
         self._apply(opacity=opacity)
