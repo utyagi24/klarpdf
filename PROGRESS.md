@@ -869,6 +869,20 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   Squiggly (a wavy underline we cannot draw but can list) and sticky notes, which is "notes"
   arriving from another tool ahead of our own. — *Windows (headless + offscreen GUI)* — 2 new
   tests + 4 rewritten, 1199 green ([#174](https://github.com/utyagi24/klarpdf/pull/174))
+- [x] **M79.1** Sidebar: **no title bar, Pages by default, the rest on demand** (three owner calls
+  from the R6 test pass). (1) The dock's title strip is gone — a label reading "Sidebar" over the
+  sidebar is chrome about chrome, and its ✕ was a third way to do what the toolbar button and
+  View ▸ Sidebar already do, the only one leaving no lit button behind to say how to get it back
+  (an empty, zero-height title widget; the window title survives for screen readers). (2) **Pages
+  alone by default**: Outline and Annotations no longer mount by themselves, so the panel is the
+  same shape on every document. (3) The sidebar toolbar button becomes a **split button** whose ▾
+  carries a checkable entry per optional tab, remembered app-wide (`sidebar_tabs`), so the choice
+  follows the reader across documents and launches. A tab shows when it is **asked for *and*
+  applies** (M45/M77's rules intact), asking for one **opens a hidden sidebar** (as arming a markup
+  tool summons the markup bar), and the ▾ lists only tabs this document could show — dropping the
+  arrow entirely when it could show none, so a tick never produces nothing. — *Windows (headless +
+  offscreen GUI)* — 9 new tests + 2 rewritten (the toggle now rides as a widget), 1208 green
+  ([#175](https://github.com/utyagi24/klarpdf/pull/175))
 - [x] **M77** Annotations sidebar tab — a third tab beside Pages | Outline listing **every mark
   in the document** as "p. N · type · snippet" rows: ours from the PageRef descriptors (text
   markups read their covered page text as the snippet; boxes/stamps/fields their own), foreign

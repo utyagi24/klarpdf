@@ -69,8 +69,12 @@ def test_reading_bar_holds_the_reading_set_and_nothing_else(win):
     """Slot inventory: Sidebar · Save · Undo/Redo · zoom cluster · Rotate · Markup · Find — and
     none of the removed verbs (Open/Print, the page-op buttons, the kit)."""
     texts = {a.text().replace("&", "") for a in _reading_bar(win).actions() if a.text()}
-    assert {"Sidebar", "Save", "Undo", "Redo", "Zoom Out", "Zoom In", "Fit Width",
+    assert {"Save", "Undo", "Redo", "Zoom Out", "Zoom In", "Fit Width",
             "Fit Page", "Rotate Left", "Rotate Right", "Markup Toolbar", "Find…"} <= texts
+    # Sidebar rides as a widget since M79.1 — a split button whose face is the same toggle and
+    # whose ▾ picks the optional tabs.
+    assert win._sidebar_button.parent() is _reading_bar(win)
+    assert win._sidebar_button.defaultAction().text().replace("&", "") == "Sidebar"
     for gone in ("Open…", "Print…", "Cut Pages", "Copy Pages", "Paste Pages", "Delete Pages",
                  "Insert Pages from File…", "Select", "Grab", "Highlight", "Add Text Box"):
         assert gone not in texts

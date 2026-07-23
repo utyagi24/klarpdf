@@ -203,12 +203,22 @@ class MainWindow(QMainWindow):
         self._foreign_presence: dict[tuple, bool] = {}
         # Chrome remembered while a chrome-free reading mode is up (M78); None = ordinary window.
         self._chrome_state: dict | None = None
-        self.pages_dock = QDockWidget("Pages", self)
+        self.pages_dock = QDockWidget("Sidebar", self)
         # Closable (hide/show via View ▸ Sidebar) but NOT floatable or movable — it must stay
         # docked, never tear off into a separate window the user can lose (the inherited M2 bug).
         self.pages_dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetClosable)
         self.pages_dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea)
+        # **No title bar** (M79.1, owner): an empty widget replaces it. A strip reading "Sidebar"
+        # over a panel that is plainly the sidebar is a label for the obvious, and its ✕ was a
+        # third way to do what the toolbar button and View ▸ Sidebar already do — one that leaves
+        # no lit button behind to say how to get it back. The title survives for screen readers.
+        _no_title_bar = QWidget(self.pages_dock)
+        _no_title_bar.setFixedHeight(0)   # an empty widget still claims a strip; this one cannot
+        self.pages_dock.setTitleBarWidget(_no_title_bar)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.pages_dock)
+        # Which optional tabs the reader has asked for (M79.1) — the sidebar button's ▾ menu writes
+        # it; the menu itself is built in _build_actions, which runs after this first mount.
+        self._sidebar_tab_actions: dict = {}
         self._mount_sidebar()
         # Hidden by default (a clean, fast, flicker-free open — no thumbnails rendered until the
         # sidebar is shown); the choice is remembered app-wide, so once you open it to organise pages
@@ -244,21 +254,33 @@ class MainWindow(QMainWindow):
 
     # ---- sidebar (Pages + optional Outline, M45) --------------------------------
 
+    def _sidebar_tabs_wanted(self) -> set:
+        """The optional tabs the reader has switched on, remembered app-wide (M79.1).
+
+        **Pages only by default** (owner): the sidebar is the page organiser first, and a tab bar
+        that appears by itself on some documents and not others makes the panel a different shape
+        each time you open it. Outline and Annotations are now asked for — from the sidebar
+        button's ▾ menu — and the choice sticks across documents and launches, so a reader who
+        works with outlines gets them everywhere and one who doesn't never sees a tab bar."""
+        return set(self._settings.get_pref("sidebar_tabs", []) or [])
+
     def _mount_sidebar(self) -> None:
         """(Re)build the dock's contents for the current document: a Pages | Outline | Annotations
-        tab switcher carrying exactly the tabs that apply — Outline only when the document has an
-        outline (M45), Annotations only while it has marks (M77) — else the bare Pages panel, no
-        tab and no tab bar (owner rule: inapplicable chrome is invisible, not greyed out). Re-run
-        by ``_reset_to_file`` (Revert / redaction commit / external reload), where the freshly-read
-        file may have gained or lost either, and by ``_on_doc_changed`` when an edit crosses the
-        has-marks boundary (the first mark summons the tab, undoing the last dismisses it)."""
+        tab switcher carrying exactly the tabs that are **wanted and apply** — Outline when it is
+        switched on and the document has an outline (M45), Annotations when it is switched on and
+        the document has marks to list (M77) — else the bare Pages panel, no tab and no tab bar
+        (owner rule: inapplicable chrome is invisible, not greyed out). Re-run by ``_reset_to_file``
+        (Revert / redaction commit / external reload), where the freshly-read file may have gained
+        or lost either, by ``_on_doc_changed`` when an edit crosses the has-marks boundary (the
+        first mark summons the tab, undoing the last dismisses it), and by the ▾ menu itself."""
         if self.outline is not None:
             self.view.currentPageChanged.disconnect(self.outline.set_current)
             self.outline = None
         self.annotations_panel = None  # dies with the retired container below
         old = self.pages_dock.widget()  # None at construction
+        wanted = self._sidebar_tabs_wanted()
         extra: list[tuple] = []  # (widget, tab label) beyond Pages
-        if self.vdoc.has_outline():
+        if "outline" in wanted and self.vdoc.has_outline():
             from organize.outline_panel import OutlinePanel  # lazy — TOC-less docs never pay it
 
             self.outline = OutlinePanel(self.vdoc)
@@ -266,7 +288,7 @@ class MainWindow(QMainWindow):
             self.view.currentPageChanged.connect(self.outline.set_current)
             self.outline.set_current(self.view.current_page)
             extra.append((self.outline, "Outline"))
-        if self._doc_has_listed_marks():
+        if "annotations" in wanted and self._doc_has_listed_marks():
             from organize.annotations_panel import AnnotationsPanel  # lazy — clean docs never pay it
 
             self.annotations_panel = AnnotationsPanel(
@@ -292,16 +314,46 @@ class MainWindow(QMainWindow):
                 previous = old.tabText(old.currentIndex())
                 if previous in labels:
                     tabs.setCurrentIndex(labels.index(previous))
-            self.pages_dock.setWindowTitle("Sidebar")  # the tab labels carry the specifics
             self.pages_dock.setWidget(tabs)
         else:
-            self.pages_dock.setWindowTitle("Pages")
             self.pages_dock.setWidget(self.thumbs)
         # QDockWidget.setWidget does not show a widget added while the dock is visible (Qt docs) —
         # relevant on a re-mount; at construction the dock isn't visible yet and this is a no-op.
         self.pages_dock.widget().show()
         if old is not None and old is not self.pages_dock.widget() and old is not self.thumbs:
             old.deleteLater()  # retired tab container (thumbs was already reparented out of it)
+        self._sync_sidebar_tab_menu()
+
+    def _toggle_sidebar_tab(self, key: str, on: bool) -> None:
+        """Switch an optional sidebar tab on/off (M79.1) — remembered app-wide, then re-mount.
+
+        Switching one on also opens the sidebar: asking for a tab is asking to see it, and the
+        alternative is a menu item that appears to do nothing while the panel is hidden. (Same move
+        as arming a markup tool while the markup bar is down — see :meth:`_on_armed_changed`.)"""
+        wanted = self._sidebar_tabs_wanted()
+        if on:
+            wanted.add(key)
+        else:
+            wanted.discard(key)
+        self._settings.set_pref("sidebar_tabs", sorted(wanted))
+        self._mount_sidebar()
+        if on and not self.pages_dock.isVisible():
+            self.pages_dock.setVisible(True)
+            self._settings.set_pref("sidebar_visible", True)
+
+    def _sync_sidebar_tab_menu(self) -> None:
+        """Offer only the tabs this document could show, and no ▾ at all when it could show none.
+
+        A tick that produces nothing is worse than an absent entry: the reader is left unsure
+        whether the tab is off or the document simply has no outline. Called from every mount, so
+        it follows a reload, an edit that adds the first mark, and the ▾ menu's own toggles."""
+        if not self._sidebar_tab_actions:
+            return                       # the first mount runs before _build_actions
+        applicable = {"outline": self.vdoc.has_outline(),
+                      "annotations": self._doc_has_listed_marks()}
+        for key, action in self._sidebar_tab_actions.items():
+            action.setVisible(applicable[key])
+        self._sidebar_button.setMenu(self._sidebar_tab_menu if any(applicable.values()) else None)
 
     def _doc_has_listed_marks(self) -> bool:
         """Whether any page carries a mark the Annotations tab would **list** — a text markup of
@@ -702,6 +754,22 @@ class MainWindow(QMainWindow):
             lambda checked: self._settings.set_pref("sidebar_visible", checked)
         )
         view_menu.addAction(pages_toggle)
+        # …with a ▾ for the optional tabs (M79.1). The face still shows/hides the sidebar; the arrow
+        # picks what it holds. Only tabs this document could actually show are listed — the menu is
+        # rebuilt on every mount and dropped entirely when neither applies, so the arrow itself is
+        # the signal that there is something to choose (the no-dead-chrome rule, one level up).
+        self._sidebar_button = QToolButton()
+        self._sidebar_button.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        self._sidebar_button.setDefaultAction(pages_toggle)
+        self._sidebar_tab_menu = QMenu(self._sidebar_button)
+        for key, label in (("outline", "Outline"), ("annotations", "Annotations")):
+            a = QAction(f"{label} Tab", self)
+            a.setCheckable(True)
+            a.setChecked(key in self._sidebar_tabs_wanted())
+            a.toggled.connect(lambda on, k=key: self._toggle_sidebar_tab(k, on))
+            self._sidebar_tab_menu.addAction(a)
+            self._sidebar_tab_actions[key] = a
+        self._sync_sidebar_tab_menu()
         # The Markup toggle (M71) — the one button that summons the markup kit. Same contract as
         # the sidebar: checked state mirrors the bar's visibility, an explicit toggle is remembered
         # app-wide (triggered fires only on user action, not the programmatic setVisible below).
@@ -742,7 +810,7 @@ class MainWindow(QMainWindow):
         # menus (PLAN.md §R6, M71 — menus are the complete catalog); Open's return beside Save is
         # a one-line review call at the M71 pass.
         reading_groups = (
-            [pages_toggle],
+            [self._sidebar_button],
             [a_save],
             [undo, redo],
             [a_zout, self.zoom_widget, a_zin, a_fitw, a_fitp],
@@ -1154,10 +1222,17 @@ class MainWindow(QMainWindow):
             self.outline.populate()  # live remapped_toc: the tree shows what a Save would write
         # The Annotations tab (M77) tracks edits/undo live — including its own existence: the
         # first mark summons it, undoing the last dismisses it (remount only on that boundary).
-        if (self.annotations_panel is not None) != self._doc_has_listed_marks():
-            self._mount_sidebar()
-        elif self.annotations_panel is not None:
-            self.annotations_panel.populate()
+        # Since M79.1 the tab must also be *wanted*, so the boundary is "asked for and there is
+        # something to list"; when it isn't crossed the ▾ menu is still re-synced, because the
+        # first mark is what makes the Annotations entry offerable at all.
+        wants_panel = ("annotations" in self._sidebar_tabs_wanted()
+                       and self._doc_has_listed_marks())
+        if (self.annotations_panel is not None) != wants_panel:
+            self._mount_sidebar()          # re-syncs the ▾ menu on the way through
+        else:
+            if self.annotations_panel is not None:
+                self.annotations_panel.populate()
+            self._sync_sidebar_tab_menu()
 
     def _on_clean_changed(self, clean: bool) -> None:
         self.setWindowModified(not clean)

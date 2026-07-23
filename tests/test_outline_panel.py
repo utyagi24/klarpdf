@@ -33,6 +33,9 @@ def qapp():
 @pytest.fixture
 def app(qapp, tmp_path):
     qapp.settings = Settings(tmp_path / "vs.json")
+    # The Outline tab is opt-in since M79.1 (Pages alone by default); this file tests the tab
+    # itself, so it is switched on the way a reader who wants outlines would leave it.
+    qapp.settings.set_pref("sidebar_tabs", ["annotations", "outline"])
     qapp.page_clipboard = []
     for w in list(qapp._windows.values()):
         w.close()
@@ -96,7 +99,6 @@ def test_tocless_doc_keeps_the_bare_pages_panel(app, b_pdf):
     assert win.outline is None
     assert win.pages_dock.widget() is win.thumbs  # the panel itself — no tab container at all
     assert isinstance(win.pages_dock.widget(), ThumbnailPanel)
-    assert win.pages_dock.windowTitle() == "Pages"
 
 
 def test_tree_matches_the_outline_structure(app, a_pdf):
@@ -190,7 +192,6 @@ def test_reload_to_a_tocless_file_unmounts_the_tab(app, a_pdf):
     win._reset_to_file(a_pdf)
     assert win.outline is None
     assert win.pages_dock.widget() is win.thumbs
-    assert win.pages_dock.windowTitle() == "Pages"
 
 
 def test_reload_to_a_toc_file_mounts_the_tab(app, b_pdf):
