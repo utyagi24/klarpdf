@@ -726,8 +726,19 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   stuck destructive mode is a trap. The armed state stays visible throughout (lit button + M71's
   summon-on-arm), and the quartet's tooltips say so. — *Windows (headless + offscreen GUI)* — 13
   new tests, 1109 green ([#161](https://github.com/utyagi24/klarpdf/pull/161))
-- [ ] **M74** ⭐ Arrow ends as style — Arrow merges into Line; ends (none / start / end / both) join
-  the style picker; both-ended arrows; pre-R6 arrows round-trip — *WSL + WSLg*
+- [x] **M74** ⭐ Arrow ends as style — Preview treats arrowheads as *line style*, and it is right:
+  `MarkupStyle.line_ends` joins the M59.5 picker as an **Arrowheads** submenu (None · Start · End ·
+  **Both**), lines-only by the applicability-follows-the-model rule; **Arrow leaves Draw ▾**
+  (`ArmedTool.ARROW` removed, four tools remain, the Tools menu drops the entry) — one Line tool
+  draws every variant, and **Both is new capability**. WYSIWYG holds: the live preview draws the
+  style's heads from the first drag pixel (`_line_path` shared with the overlay); `restyle_mark`
+  takes `line_ends` (`None` = keep) so a selected line's ends change in place like colour — one
+  undo step — and `from_mark` loads a selected line's ends into the picker. **Zero file-format
+  change**: materialise already wrote `set_line_ends` per boolean and the parser read both back
+  (M57's model was built for this), so pre-R6 arrows reopen editable + unchanged (pinned) and a
+  both-ended line bakes as an `/LE` OpenArrow pair (asserted on the saved file). — *Windows
+  (headless + offscreen GUI)* — 12 new tests, 1121 green
+  ([#162](https://github.com/utyagi24/klarpdf/pull/162))
 - [ ] **M75** Find bar match options — Match case + Whole words toggles (M64's existing filters,
   surfaced on the interactive bar) — *WSLg*
 - [ ] **M76** Markup context menu — recolour / add / remove highlight · underline · strikeout on
