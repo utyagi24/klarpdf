@@ -205,6 +205,13 @@ def test_the_arrow_takes_its_width_with_it(app, b_pdf):
     assert win._sidebar_button.width() == plain  # …and the room goes back
 
 
+def test_the_entries_are_named_for_the_tabs_they_produce(app, a_pdf):
+    """"Outline", not "Outline Tab" — the entry sits under the sidebar button with a tick beside
+    it, and it now reads as the tab it puts there (owner call)."""
+    win = app.open_document(a_pdf)
+    assert [a.text() for a in win._sidebar_tab_menu.actions()] == ["Outline", "Annotations"]
+
+
 def test_the_sidebar_button_still_shows_and_hides(app, a_pdf):
     """The face of the split button is the old toggle — the ▾ only picks what the panel holds."""
     win = app.open_document(a_pdf)

@@ -906,9 +906,11 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   is showing** rather than the stored preference — the two part company the moment a mark makes the
   entry offerable on a document whose tab is not mounted, and a tick drawn from the preference would
   sit checked over an absent tab, one click from doing the opposite of what it says. The preference
-  still decides what mounts at open, so the ask still follows the reader across documents. —
-  *Windows (headless + offscreen GUI)* — 4 new tests + 8 rewritten (they pinned the summon-on-mark
-  behaviour this replaces), 1212 green
+  still decides what mounts at open, so the ask still follows the reader across documents. The ▾
+  entries lost their "Tab" suffix in the same pass (owner) — each is named for the tab it produces,
+  matching that tab's own label; "Tab" was our vocabulary for an entry that already sits under the
+  sidebar button with a tick beside it. — *Windows (headless + offscreen GUI)* — 5 new tests +
+  8 rewritten (they pinned the summon-on-mark behaviour this replaces), 1213 green
   ([#178](https://github.com/utyagi24/klarpdf/pull/178))
 - [x] **M71.1** New icon for the **Markup toggle** — a page with a pen, chosen by the owner from six
   candidates rendered at real toolbar size (16/20/24 px, lit and unlit, beside their neighbours).

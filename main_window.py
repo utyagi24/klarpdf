@@ -811,9 +811,10 @@ class MainWindow(QMainWindow):
         self._sidebar_button.setDefaultAction(pages_toggle)
         self._sidebar_tab_menu = QMenu(self._sidebar_button)
         for key, label in (("outline", "Outline"), ("annotations", "Annotations")):
-            a = QAction(f"{label} Tab", self)
+            # Named for the tab it produces, not for the fact that it is one: the entry sits under
+            # the sidebar button with a tick beside it, so "Tab" was our vocabulary, not a reader's.
+            a = QAction(label, self)
             a.setCheckable(True)
-            a.setChecked(key in self._sidebar_tabs_wanted())
             a.toggled.connect(lambda on, k=key: self._toggle_sidebar_tab(k, on))
             self._sidebar_tab_menu.addAction(a)
             self._sidebar_tab_actions[key] = a
