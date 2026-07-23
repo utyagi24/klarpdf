@@ -198,6 +198,8 @@ class MainWindow(QMainWindow):
         # in-memory sources are immutable in-session (foreign edits are descriptors on the refs).
         # Keyed by (source_id, source_page_index); cleared on _reset_to_file (fresh bytes).
         self._foreign_presence: dict[tuple, bool] = {}
+        # Chrome remembered while a chrome-free reading mode is up (M78); None = ordinary window.
+        self._chrome_state: dict | None = None
         self.pages_dock = QDockWidget("Pages", self)
         # Closable (hide/show via View ▸ Sidebar) but NOT floatable or movable — it must stay
         # docked, never tear off into a separate window the user can lose (the inherited M2 bug).
@@ -342,7 +344,7 @@ class MainWindow(QMainWindow):
         # toggle. Both icon-only (each QAction's text becomes the button tooltip, so the labels
         # stay discoverable on hover and in the menus) and one shared style, so the kit reads as
         # part of the same surface when it is up.
-        bar = self.addToolBar("Main")
+        bar = self._main_toolbar = self.addToolBar("Main")
         self.addToolBarBreak()
         self.markup_bar = QToolBar("Markup")
         self.addToolBar(self.markup_bar)
@@ -647,6 +649,18 @@ class MainWindow(QMainWindow):
             self._a_night.setChecked(True)
             self.view.set_night_mode(True)  # pre-show: nothing rendered yet, so no flash
         view_menu.addSeparator()
+        # View modes (M78) — the reading modes Preview offers, all view-only (the M49 principle:
+        # file, print and export untouched). Full Screen strips the chrome; Slideshow adds
+        # one-page-per-screen stepping at Fit Page; Two-Page lays facing pages in the ordinary
+        # window. Esc leaves the chrome-free modes (MainWindow.keyPressEvent).
+        self._a_fullscreen = act("Full Screen", self._toggle_fullscreen, "F11", to_menu=view_menu)
+        self._a_fullscreen.setCheckable(True)
+        self._a_slideshow = act("Slideshow", self._start_slideshow, "F5", to_menu=view_menu)
+        self._a_slideshow.setToolTip(
+            "Slideshow — one page per screen; click or arrow keys advance, Esc exits")
+        self._a_twopage = act("Two-Page View", self._toggle_two_page, to_menu=view_menu)
+        self._a_twopage.setCheckable(True)
+        view_menu.addSeparator()
         # Checkable show/hide for the sidebar — menu item + a dedicated toolbar button (its
         # checked state mirrors the panel's visibility, with the :checked toolbar styling).
         # "Sidebar", not "Pages Sidebar": since M45 the dock can also hold the Outline tab, and one
@@ -941,6 +955,96 @@ class MainWindow(QMainWindow):
         """View ▸ Night Reading Mode (M49): invert the page pixels, view-only; remembered."""
         self.view.set_night_mode(checked)
         self._settings.set_pref("night_mode", checked)
+
+    # ---- view modes (M78) — Full Screen · Slideshow · Two-Page, all view-only ----
+
+    def _toggle_two_page(self, checked: bool) -> None:
+        """View ▸ Two-Page View: facing pages (1|2, 3|4 …) in the ordinary window. A pure
+        re-layout — session-only, like rotation, and nothing touches the file."""
+        self.view.set_page_layout("facing" if checked else "single")
+
+    def _toggle_fullscreen(self, checked: bool) -> None:
+        """View ▸ Full Screen (F11): chrome-free reading — the window fills the screen and the
+        menu bar, toolbars, sidebar and find bar step aside until F11/Esc brings them back."""
+        if checked:
+            self._enter_chromeless(slideshow=False)
+        else:
+            self._exit_chromeless()
+
+    def _start_slideshow(self) -> None:
+        """View ▸ Slideshow (F5): one page per screen at Fit Page — click / arrows advance, Esc
+        exits. Chrome-free like Full Screen, plus the view narrows to whole-page stepping; the
+        prior zoom / fit comes back on exit."""
+        if self._chrome_state is not None:
+            self._exit_chromeless()  # e.g. F5 while already reading full-screen
+        self._enter_chromeless(slideshow=True)
+
+    def _enter_chromeless(self, slideshow: bool) -> None:
+        """Enter a chrome-free reading mode (M78), remembering exactly what to put back: which
+        chrome was up, the window state, and — for the slideshow's forced Fit Page — the zoom/fit
+        to restore. Programmatic hides only; the sidebar / markup-bar remembered *preferences*
+        are written by explicit user toggles alone, so reading full-screen never rewrites them."""
+        if self._chrome_state is not None:
+            return
+        self.view.disarm()
+        self._chrome_state = {
+            "maximized": self.isMaximized(),
+            "menubar": self.menuBar().isVisible(),
+            "toolbar": self._main_toolbar.isVisible(),
+            "markup": self.markup_bar.isVisible(),
+            "sidebar": self.pages_dock.isVisible(),
+            "findbar": self.find_bar.isVisible(),
+            "results": self.search_results.isVisible(),
+            "zoom": self.view.zoom,
+            "fit": self.view._fit_mode,
+            "slideshow": slideshow,
+        }
+        for widget in (self.menuBar(), self._main_toolbar, self.markup_bar,
+                       self.pages_dock, self.find_bar, self.search_results):
+            widget.hide()
+        self.showFullScreen()
+        if slideshow:
+            self.view.slideshow = True
+            self.view.fit_page()  # one page per screen; re-fits on the resize automatically
+        else:
+            self._a_fullscreen.setChecked(True)
+        self.view.setFocus()  # the arrow/Esc keys must land on the view, not dead chrome
+
+    def _exit_chromeless(self) -> None:
+        """Leave Full Screen / Slideshow: restore the remembered chrome, window state and (after
+        a slideshow's forced fit) the zoom exactly as they were."""
+        state, self._chrome_state = self._chrome_state, None
+        if state is None:
+            return
+        self.view.slideshow = False
+        self.menuBar().setVisible(state["menubar"])
+        self._main_toolbar.setVisible(state["toolbar"])
+        self.markup_bar.setVisible(state["markup"])
+        self.pages_dock.setVisible(state["sidebar"])
+        self.find_bar.setVisible(state["findbar"])
+        self.search_results.setVisible(state["results"])
+        if state["maximized"]:
+            self.showMaximized()
+        else:
+            self.showNormal()
+        self._a_fullscreen.setChecked(False)
+        if state["slideshow"]:
+            # Put the zoom back the way the reader had it before the forced Fit Page.
+            if state["fit"] == "width":
+                self.view.fit_width()
+            elif state["fit"] == "page":
+                self.view.fit_page()
+            else:
+                self.view.set_zoom(state["zoom"])
+
+    def keyPressEvent(self, event) -> None:
+        # Esc leaves the chrome-free reading modes (M78). Reached via the view's key chain —
+        # PdfView leaves Esc unconsumed when nothing is armed/selected, so it bubbles here.
+        if event.key() == Qt.Key.Key_Escape and self._chrome_state is not None:
+            self._exit_chromeless()
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     def _show_properties(self) -> None:
         """File ▸ Properties… (M53): one dialog, three verbs — view (fields + provenance + file
@@ -1977,6 +2081,12 @@ class MainWindow(QMainWindow):
         menu.addAction(self._a_rotr)
         menu.addSeparator()
         menu.addAction(self._a_goto)
+        # The reading modes (M78) ride the bare-page menu too — same QActions as the View menu,
+        # so labels / shortcuts / checked-state stay single-sourced.
+        menu.addSeparator()
+        menu.addAction(self._a_fullscreen)
+        menu.addAction(self._a_slideshow)
+        menu.addAction(self._a_twopage)
         return menu
 
     def _build_page_context_menu(self, rows) -> QMenu:

@@ -105,6 +105,13 @@ class PdfView(QGraphicsView):
         # Night reading mode (M49): view-only pixel inversion, independent of the OS theme the
         # chrome follows. The file, print, export, and thumbnails are untouched.
         self._night = False
+        # Page layout (M78): "single" = the vertical strip; "facing" = two-page rows (1|2, 3|4 …).
+        # View-only — a pure re-layout of the same pages, like zoom and rotation.
+        self._page_layout = "single"
+        # Slideshow (M78): while True the view narrows to one-page reading — left-click and the
+        # arrow/space/page keys step whole pages instead of scrolling/selecting; Esc (which this
+        # view leaves unconsumed when nothing is armed) bubbles to MainWindow, which exits.
+        self.slideshow = False
         self._build_scene()
         self.verticalScrollBar().valueChanged.connect(self._on_scroll)
 
@@ -183,6 +190,14 @@ class PdfView(QGraphicsView):
             return W - dy, dx
         return dx, dy
 
+    def _layout_rows(self) -> list[tuple[int, ...]]:
+        """Page indices grouped into layout rows: singletons for the vertical strip, pairs
+        (1|2, 3|4 …, a trailing odd page alone) for the facing layout (M78)."""
+        count = self._vdoc.page_count
+        if self._page_layout == "facing" and count > 1:
+            return [tuple(i for i in (row, row + 1) if i < count) for row in range(0, count, 2)]
+        return [(i,) for i in range(count)]
+
     def _build_scene(self) -> None:
         scene = self.scene()
         scene.clear()
@@ -192,29 +207,44 @@ class PdfView(QGraphicsView):
         # so a page scrolling into view doesn't flash bright before its pixmap lands.
         page_brush = QBrush(QColor(0, 0, 0) if self._night else QColor(0xFF, 0xFF, 0xFF))
 
-        widest = max((self._natural_size(i)[0] for i in range(self._vdoc.page_count)), default=1.0)
-        widest *= self._zoom
+        # Lay out by row: the single layout is one page per row; the facing layout (M78) sits a
+        # pair side by side, the row taking the taller page's height. ``widest`` spans the widest
+        # row, so pairs centre as a unit exactly as single pages centred alone.
+        rows = self._layout_rows()
+        z = self._zoom
+        sizes = {i: self._natural_size(i) for row in rows for i in row}
+        row_width = {
+            row: sum(sizes[i][0] for i in row) * z + (len(row) - 1) * _PAGE_GAP for row in rows
+        }
+        widest = max(row_width.values(), default=1.0)
         y = float(_PAGE_GAP)
-        for i in range(self._vdoc.page_count):
-            w_pt, h_pt = self._natural_size(i)
-            w, h = w_pt * self._zoom, h_pt * self._zoom
-            # Centre each page within the scene's content band. The band is inset by _PAGE_GAP on
+        placed: dict[int, tuple] = {}
+        for row in rows:
+            # Centre each row within the scene's content band. The band is inset by _PAGE_GAP on
             # both sides (the sceneRect below is widest + 2*_PAGE_GAP), so the left inset must be
-            # added here too — without it the widest page sat flush at scene-x 0 and the whole strip
+            # added here too — without it the widest row sat flush at scene-x 0 and the whole strip
             # rendered ~_PAGE_GAP px left of centre in the window.
-            x = _PAGE_GAP + (widest - w) / 2.0
+            x = _PAGE_GAP + (widest - row_width[row]) / 2.0
+            row_h = 0.0
+            for i in row:
+                w, h = sizes[i][0] * z, sizes[i][1] * z
+                placed[i] = (x, y, w, h)
+                x += w + _PAGE_GAP
+                row_h = max(row_h, h)
+            y += row_h + _PAGE_GAP
+        for i in range(self._vdoc.page_count):
+            x, py, w, h = placed[i]
             # Geometry goes in the item POSITION (local rect at origin), so the child pixmap —
             # placed at the parent's (0,0) — inherits the page's scene position. Encoding x/y in
             # the rect instead leaves the item at (0,0) and piles every pixmap at the origin.
             bg = QGraphicsRectItem(QRectF(0, 0, w, h))
-            bg.setPos(x, y)
+            bg.setPos(x, py)
             bg.setPen(page_pen)
             bg.setBrush(page_brush)
             scene.addItem(bg)
             pix = QGraphicsPixmapItem(bg)  # child of bg → shares its position
             pix.setPos(0, 0)
-            self._pages.append({"bg": bg, "pix": pix, "x": x, "y": y, "w": w, "h": h})
-            y += h + _PAGE_GAP
+            self._pages.append({"bg": bg, "pix": pix, "x": x, "y": py, "w": w, "h": h})
 
         scene.setSceneRect(0, 0, widest + 2 * _PAGE_GAP, y)
         self._render_visible()
@@ -236,19 +266,33 @@ class PdfView(QGraphicsView):
     def page_and_local_at(self, scene_pt) -> tuple[int | None, "QPointF | None"]:
         """Map a scene point to ``(page_index, point in unrotated page points)``.
 
-        Returns the page whose vertical band contains the point; the local point is mapped back
-        through any per-page rotation so it lands in the source coordinate space (where word boxes
-        and widget rects live). ``(None, None)`` when the point falls in a gap above/below all pages.
+        Returns the page whose vertical band contains the point; when the facing layout (M78) puts
+        two pages in that band, the one whose **x-range** contains the point wins, else the
+        nearest by x — so a hit on the right-hand page maps to it, and a margin click still maps
+        to the adjacent page (the single-layout behaviour, which never x-checked). The local point
+        is mapped back through any per-page rotation so it lands in the source coordinate space
+        (where word boxes and widget rects live). ``(None, None)`` when the point falls in a gap
+        above/below all pages.
         """
-        for i, p in enumerate(self._pages):
-            if p["y"] <= scene_pt.y() <= p["y"] + p["h"]:
-                dx = (scene_pt.x() - p["x"]) / self._zoom
-                dy = (scene_pt.y() - p["y"]) / self._zoom
-                w, h = self._unrotated_size(i)
-                lx, ly = self._point_to_source(w, h, self._display_rotation(i), dx, dy)
-                ox, oy = self._crop_origin(i)  # displayed frame → content coords
-                return i, QPointF(lx + ox, ly + oy)
-        return None, None
+        candidates = [
+            (i, p) for i, p in enumerate(self._pages)
+            if p["y"] <= scene_pt.y() <= p["y"] + p["h"]
+        ]
+        if not candidates:
+            return None, None
+        chosen = next(
+            ((i, p) for i, p in candidates if p["x"] <= scene_pt.x() <= p["x"] + p["w"]),
+            min(candidates,
+                key=lambda c: min(abs(scene_pt.x() - c[1]["x"]),
+                                  abs(scene_pt.x() - (c[1]["x"] + c[1]["w"])))),
+        )
+        i, p = chosen
+        dx = (scene_pt.x() - p["x"]) / self._zoom
+        dy = (scene_pt.y() - p["y"]) / self._zoom
+        w, h = self._unrotated_size(i)
+        lx, ly = self._point_to_source(w, h, self._display_rotation(i), dx, dy)
+        ox, oy = self._crop_origin(i)  # displayed frame → content coords
+        return i, QPointF(lx + ox, ly + oy)
 
     def scene_rect_for_box(self, page_index: int, box: tuple) -> QRectF:
         """Map a box in unrotated page points (x0,y0,x1,y1) to its scene rect, accounting for any
@@ -327,6 +371,12 @@ class PdfView(QGraphicsView):
     # ---- mouse → text selection -------------------------------------------------
 
     def mousePressEvent(self, event) -> None:
+        # Slideshow (M78): a left click advances one page — the projector gesture — and nothing
+        # else in the view (selection, forms, links) is reachable until Esc exits.
+        if self.slideshow and event.button() == Qt.MouseButton.LeftButton:
+            self.goto_page(min(self._current + 1, self._vdoc.page_count - 1))
+            event.accept()
+            return
         if event.button() == Qt.MouseButton.LeftButton:
             scene_pt = self.mapToScene(event.position().toPoint())
             # An armed one-shot tool takes the click first. TEXTBOX disarms once a box is placed;
@@ -433,6 +483,9 @@ class PdfView(QGraphicsView):
         super().mousePressEvent(event)
 
     def contextMenuEvent(self, event) -> None:
+        if self.slideshow:
+            event.accept()  # chrome-free reading (M78): no menus until Esc exits
+            return
         # The menu is built by MainWindow (context_menu_provider) from the hit state under the
         # cursor — annotation / text selection / link / bare page (M46) — because the verbs it
         # routes (copy, highlight/redact, fit modes, Go to Page…) live on the window, not the view.
@@ -590,6 +643,19 @@ class PdfView(QGraphicsView):
         super().mouseReleaseEvent(event)
 
     def keyPressEvent(self, event) -> None:
+        # Slideshow (M78): whole-page steps instead of smooth scrolling — arrows / Space /
+        # PgUp/PgDn move one page. Esc is deliberately NOT consumed here: with nothing armed it
+        # falls through the QGraphicsView chain to MainWindow, which exits the mode.
+        if self.slideshow:
+            key = event.key()
+            if key in (Qt.Key.Key_Right, Qt.Key.Key_Down, Qt.Key.Key_Space, Qt.Key.Key_PageDown):
+                self.goto_page(min(self._current + 1, self._vdoc.page_count - 1))
+                event.accept()
+                return
+            if key in (Qt.Key.Key_Left, Qt.Key.Key_Up, Qt.Key.Key_PageUp):
+                self.goto_page(max(self._current - 1, 0))
+                event.accept()
+                return
         # Esc cancels an armed one-shot tool (back to plain Select) — else a lingering object
         # selection (M59). Delete/Backspace removes the selected object (undoable).
         if event.key() == Qt.Key.Key_Escape and self.annotations is not None \
@@ -1048,10 +1114,19 @@ class PdfView(QGraphicsView):
         """Reset to 100% — 1 PDF point per pixel (no scaling)."""
         self.set_zoom(1.0)
 
+    def _fit_dims(self) -> tuple[float, float, float]:
+        """The fit target's ``(width_pt, height_pt, extra_px)``: the current page — or, in the
+        facing layout (M78), its whole row, so Fit Width/Page frame the spread. ``extra_px`` is
+        the inter-page gap, which zoom does not scale."""
+        row = next((r for r in self._layout_rows() if self._current in r), (self._current,))
+        sizes = [self._natural_size(i) for i in row]
+        return (sum(w for w, _h in sizes), max(h for _w, h in sizes),
+                float((len(row) - 1) * _PAGE_GAP))
+
     def _fit_zoom(self, fit_height: bool) -> float:
         margin = 2 * _PAGE_GAP
-        avail_w = max(1, self.viewport().width() - margin)
-        w_pt, h_pt = self._natural_size(self._current)
+        w_pt, h_pt, extra = self._fit_dims()
+        avail_w = max(1, self.viewport().width() - margin - extra)
         zoom = avail_w / w_pt
         if fit_height:
             avail_h = max(1, self.viewport().height() - margin)
@@ -1090,6 +1165,25 @@ class PdfView(QGraphicsView):
         self._rotation = (self._rotation + delta) % 360
         anchor = self._current
         self._build_scene()
+        self.goto_page(anchor)
+
+    # ---- page layout (M78) ------------------------------------------------------
+
+    @property
+    def page_layout(self) -> str:
+        return self._page_layout
+
+    def set_page_layout(self, layout: str) -> None:
+        """Switch between the single vertical strip and the facing two-page layout (M78) —
+        view-only, a pure re-layout like zoom/rotation. A sticky Fit Width/Page re-fits against
+        the new row dimensions (a facing fit frames the spread); a manual zoom is kept as-is."""
+        if layout not in ("single", "facing") or layout == self._page_layout:
+            return
+        self._page_layout = layout
+        anchor = self._current
+        self._build_scene()          # unconditionally: set_zoom below no-ops on an equal zoom
+        if self._fit_mode is not None:
+            self._reapply_fit()      # rebuilds again only if the re-fitted zoom differs
         self.goto_page(anchor)
 
     def reload(self) -> None:
