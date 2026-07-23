@@ -18,7 +18,7 @@ restricting". This module closes that gap without touching the model or the file
 the same way the text-box Fill only touches boxes:
 
 * **colour · opacity** → pen · line · rect · ellipse;
-* **width** → the draw tools;
+* **width · dash style** → the draw tools (the "Line Style" sub-menu — thickness + solid/dashed);
 * **fill** → rect · ellipse only;
 * **arrowheads** (M74) → lines only. Preview treats arrowheads as *line style*, and it is right:
   the Arrow tool is gone, and ``Line`` carries an ends attribute (none · start · end · both) set
@@ -60,6 +60,8 @@ _STROKE_PRESETS = (
 )
 # Draw-tool stroke widths, in page points (the model's ``width``). Medium == the M58 default.
 _WIDTHS = (("Thin", 1.0), ("Medium", 2.0), ("Thick", 4.0))
+# Stroke dash styles (the model's ``dashed`` bool). Solid first — the no-op default.
+_LINE_STYLES = (("Solid", False), ("Dashed", True))
 # Whole-mark opacity (PDF /CA). "Solid" first so the default reads as the no-op it is.
 _OPACITIES = (("Solid", 1.0), ("75%", 0.75), ("50%", 0.5), ("25%", 0.25))
 # Line ends (M74): ``(arrow_start, arrow_end)``. "None" first — the plain-line default; "End" is
@@ -113,21 +115,22 @@ class MarkupStyle:
     fill_color: tuple[float, float, float] | None = None     # shapes only; None → no fill
     opacity: float = 1.0                                     # whole-mark alpha (PDF /CA), 0..1
     line_ends: tuple[bool, bool] = (False, False)            # lines only (M74): arrowheads
+    dashed: bool = False                                     # dashed vs solid stroke
 
     @classmethod
     def from_mark(cls, mark) -> "MarkupStyle | None":
         """The style of a selected drawn mark — loaded into the picker so a follow-up tweak edits
-        *that* mark's colour/width/fill/ends (M59.5, the twin of ``TextBoxStyle.from_textbox``).
+        *that* mark's colour/width/fill/ends/dash (M59.5, the twin of ``TextBoxStyle.from_textbox``).
         Returns ``None`` for a text box (its own format bar owns its style) or a non-drawn mark."""
         from model.page_edits import InkStroke, Line, Shape
 
         if isinstance(mark, Shape):
-            return cls(mark.color, mark.width, mark.fill_color, mark.opacity)
+            return cls(mark.color, mark.width, mark.fill_color, mark.opacity, dashed=mark.dashed)
         if isinstance(mark, Line):
             return cls(mark.color, mark.width, None, mark.opacity,
-                       (mark.arrow_start, mark.arrow_end))
+                       (mark.arrow_start, mark.arrow_end), dashed=mark.dashed)
         if isinstance(mark, InkStroke):
-            return cls(mark.color, mark.width, None, mark.opacity)
+            return cls(mark.color, mark.width, None, mark.opacity, dashed=mark.dashed)
         return None
 
 
@@ -290,7 +293,10 @@ class MarkupStyleButton(QToolButton):
         self._custom_color_action.triggered.connect(self._pick_custom_color)
         menu.addSeparator()
 
-        self._width_menu = menu.addMenu("Width")
+        # Line Style: thickness + solid/dashed in one sub-menu — two radio groups separated by a
+        # divider, because a stroke has both a width and a dash style at once. (Was "Width" before
+        # the dash style joined it; PyMuPDF bakes the dash as a /BS /D border and reads it back.)
+        self._width_menu = menu.addMenu("Line Style")
         self._width_group = QActionGroup(self._width_menu)
         self._width_actions: dict[float, object] = {}
         for label, pt in _WIDTHS:
@@ -299,6 +305,15 @@ class MarkupStyleButton(QToolButton):
             self._width_group.addAction(act)
             act.triggered.connect(lambda _c, w=pt: self._set_width(w))
             self._width_actions[pt] = act
+        self._width_menu.addSeparator()
+        self._dash_group = QActionGroup(self._width_menu)
+        self._dash_actions: dict[bool, object] = {}
+        for label, is_dashed in _LINE_STYLES:
+            act = self._width_menu.addAction(label)
+            act.setCheckable(True)
+            self._dash_group.addAction(act)
+            act.triggered.connect(lambda _c, d=is_dashed: self._set_dashed(d))
+            self._dash_actions[is_dashed] = act
 
         # Arrowheads (M74): line ends as style, Preview's model. Lines only — the other tools
         # simply ignore it, the same applicability-follows-the-model rule as width and fill.
@@ -362,6 +377,7 @@ class MarkupStyleButton(QToolButton):
         width_act = self._width_actions.get(style.width)
         if width_act is not None:
             width_act.setChecked(True)
+        self._dash_actions[style.dashed].setChecked(True)
         ends_act = self._ends_actions.get(style.line_ends)
         if ends_act is not None:
             ends_act.setChecked(True)
@@ -391,6 +407,9 @@ class MarkupStyleButton(QToolButton):
 
     def _set_width(self, width: float) -> None:
         self._apply(width=width)
+
+    def _set_dashed(self, dashed: bool) -> None:
+        self._apply(dashed=dashed)
 
     def _set_ends(self, ends: tuple[bool, bool]) -> None:
         self._apply(line_ends=ends)

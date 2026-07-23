@@ -153,6 +153,7 @@ class InkStroke:
     color: tuple[float, float, float] = (0.86, 0.10, 0.10)
     width: float = 2.0
     opacity: float = 1.0
+    dashed: bool = False   # dashed stroke (a PDF /BS /D border), else solid
 
     def bounding_rect(self) -> tuple[float, float, float, float]:
         xs = [p[0] for path in self.paths for p in path]
@@ -175,6 +176,7 @@ class Line:
     arrow_start: bool = False
     arrow_end: bool = False
     opacity: float = 1.0
+    dashed: bool = False   # dashed stroke (a PDF /BS /D border), else solid
 
     def bounding_rect(self) -> tuple[float, float, float, float]:
         return (
@@ -200,6 +202,7 @@ class Shape:
     # a translucent mark. This is the lever for "my filled box hides the text underneath":
     # annotations always paint above the page content, so z-order can never put one behind text.
     opacity: float = 1.0
+    dashed: bool = False   # dashed outline (a PDF /BS /D border), else solid
 
     def bounding_rect(self) -> tuple[float, float, float, float]:
         return self.rect
@@ -559,25 +562,47 @@ def scale_mark(mark, sx: float, sy: float, ox: float, oy: float):
 
 
 def restyle_mark(mark, color: tuple, width: float, fill_color: tuple | None,
-                 opacity: float = 1.0, line_ends: tuple[bool, bool] | None = None):
+                 opacity: float = 1.0, line_ends: tuple[bool, bool] | None = None,
+                 dashed: bool | None = None):
     """A drawn mark re-coloured / re-widthed (and, for shapes, re-filled) in place — the M59.5
     "restyle the selected object" primitive, the style twin of :func:`translate_mark`. Only the
     drawn types carry a shared stroke style; a :class:`TextBox` (its own font/fill/border live in
     the format bar) or anything else returns ``None`` — nothing to restyle this way. ``fill_color``
     is ignored for the fill-less :class:`Line` / :class:`InkStroke`; ``line_ends`` (M74 —
-    ``(arrow_start, arrow_end)``) applies to a :class:`Line` only, and ``None`` keeps the mark's
-    current ends."""
+    ``(arrow_start, arrow_end)``) applies to a :class:`Line` only; both ``line_ends`` and
+    ``dashed`` (the solid/dashed stroke) keep the mark's current value when ``None``."""
     from dataclasses import replace
 
+    dash = mark.dashed if dashed is None else dashed
     if isinstance(mark, Shape):
-        return replace(mark, color=color, width=width, fill_color=fill_color, opacity=opacity)
+        return replace(mark, color=color, width=width, fill_color=fill_color, opacity=opacity,
+                       dashed=dash)
     if isinstance(mark, Line):
         ends = line_ends if line_ends is not None else (mark.arrow_start, mark.arrow_end)
         return replace(mark, color=color, width=width, opacity=opacity,
-                       arrow_start=ends[0], arrow_end=ends[1])
+                       arrow_start=ends[0], arrow_end=ends[1], dashed=dash)
     if isinstance(mark, InkStroke):
-        return replace(mark, color=color, width=width, opacity=opacity)
+        return replace(mark, color=color, width=width, opacity=opacity, dashed=dash)
     return None
+
+
+def _dash_array(width: float) -> list[int]:
+    """The PDF dash pattern (``/BS /D``) for a dashed stroke of ``width`` points — dash then gap,
+    scaled to the width so a thick line dashes as boldly as a thin one dashes finely. **Integer**
+    values: PyMuPDF's ``set_border`` silently writes no ``/D`` array for float dashes (verified),
+    so a float pattern would round-trip as *solid*. Kept in step with the viewer's Qt dash pattern
+    (units of pen width) so the preview matches the baked mark."""
+    return [max(2, round(width * 3)), max(2, round(width * 2))]
+
+
+def _set_stroke_border(annot, width: float, dashed: bool) -> None:
+    """Set a drawn mark's border — width, plus a dash pattern (``/BS /D``) when ``dashed``.
+    PyMuPDF bakes the dashes into the annotation's border style and reads them back on reopen, so
+    the solid/dashed choice round-trips without any extra model state beyond the boolean."""
+    if dashed:
+        annot.set_border(width=width, dashes=_dash_array(width))
+    else:
+        annot.set_border(width=width)
 
 
 def apply_annotations(page: fitz.Page, annotations: tuple) -> None:
@@ -606,7 +631,7 @@ def apply_annotations(page: fitz.Page, annotations: tuple) -> None:
         elif isinstance(annotation, InkStroke):
             annot = page.add_ink_annot([list(path) for path in annotation.paths])  # seq of (x, y)
             annot.set_colors(stroke=annotation.color)
-            annot.set_border(width=annotation.width)
+            _set_stroke_border(annot, annotation.width, annotation.dashed)
             annot.set_opacity(annotation.opacity)
             annot.set_info(title=KLARPDF_AUTHOR)
             annot.update()
@@ -618,7 +643,7 @@ def apply_annotations(page: fitz.Page, annotations: tuple) -> None:
                     fitz.PDF_ANNOT_LE_OPEN_ARROW if annotation.arrow_end else fitz.PDF_ANNOT_LE_NONE,
                 )
             annot.set_colors(stroke=annotation.color)
-            annot.set_border(width=annotation.width)
+            _set_stroke_border(annot, annotation.width, annotation.dashed)
             annot.set_opacity(annotation.opacity)
             annot.set_info(title=KLARPDF_AUTHOR)
             annot.update()
@@ -626,7 +651,7 @@ def apply_annotations(page: fitz.Page, annotations: tuple) -> None:
             add = page.add_rect_annot if annotation.kind == "rect" else page.add_circle_annot
             annot = add(fitz.Rect(annotation.rect))
             annot.set_colors(stroke=annotation.color, fill=annotation.fill_color)
-            annot.set_border(width=annotation.width)
+            _set_stroke_border(annot, annotation.width, annotation.dashed)
             annot.set_opacity(annotation.opacity)
             annot.set_info(title=KLARPDF_AUTHOR)
             annot.update()
@@ -734,6 +759,13 @@ def _border_width(annot) -> float:
     return float(width) if width and width > 0 else 2.0
 
 
+def _dashed(annot) -> bool:
+    """Whether an annot's border carries a dash pattern (``/BS /D``) — the round-trip read of the
+    solid/dashed stroke. Presence of any dash array is enough; the exact array is re-derived from
+    the width at bake, so only the boolean is modeled."""
+    return bool((annot.border or {}).get("dashes"))
+
+
 def _quads_to_rects(vertices) -> tuple[tuple[float, float, float, float], ...]:
     """Group a highlight's quad-point list (4 points per marked span) into per-span bounding rects."""
     rects = []
@@ -787,7 +819,8 @@ def parse_annotation(annot: fitz.Annot):
     elif kind == fitz.PDF_ANNOT_INK:
         paths = tuple(tuple((p[0], p[1]) for p in path) for path in annot.vertices)
         result.append(InkStroke(paths, color=_stroke_color(annot, InkStroke.color),
-                                width=_border_width(annot), opacity=_opacity(annot)))
+                                width=_border_width(annot), opacity=_opacity(annot),
+                                dashed=_dashed(annot)))
     elif kind == fitz.PDF_ANNOT_LINE:
         start, end = annot.vertices[0], annot.vertices[1]
         ends = annot.line_ends or (fitz.PDF_ANNOT_LE_NONE, fitz.PDF_ANNOT_LE_NONE)
@@ -800,6 +833,7 @@ def parse_annotation(annot: fitz.Annot):
                 arrow_start=ends[0] != fitz.PDF_ANNOT_LE_NONE,
                 arrow_end=ends[1] != fitz.PDF_ANNOT_LE_NONE,
                 opacity=_opacity(annot),
+                dashed=_dashed(annot),
             )
         )
     elif kind in (fitz.PDF_ANNOT_SQUARE, fitz.PDF_ANNOT_CIRCLE):
@@ -819,6 +853,7 @@ def parse_annotation(annot: fitz.Annot):
                 width=width,
                 fill_color=tuple(fill) if fill else None,
                 opacity=_opacity(annot),
+                dashed=_dashed(annot),
             )
         )
     elif kind == fitz.PDF_ANNOT_FREE_TEXT:

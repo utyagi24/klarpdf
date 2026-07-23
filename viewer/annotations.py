@@ -454,10 +454,16 @@ class AnnotationOverlay:
             scene.addItem(item)
             self._items.append(item)
 
-    def _drawn_pen(self, color: tuple, width: float) -> QPen:
+    def _drawn_pen(self, color: tuple, width: float, dashed: bool = False) -> QPen:
         pen = QPen(QColor.fromRgbF(*color), width)
         pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        if dashed:
+            # Dash units are multiples of the pen width, so the on/off ratio matches the baked
+            # PDF pattern (model._dash_array, in points) at any width. FlatCap on the dashed pen
+            # keeps the gaps open — round caps would balloon each dash and swallow a thin gap.
+            pen.setCapStyle(Qt.PenCapStyle.FlatCap)
+            pen.setDashPattern([3.0, 2.0])
         return pen
 
     def _paint_drawn(self, scene, page_index: int, annot, z: float) -> None:
@@ -465,7 +471,7 @@ class AnnotationOverlay:
         the page transform (like text boxes), so the marks zoom and rotate with the page. The pen
         width is in page points — the transform scales it, matching the baked stroke."""
         transform = self._view.page_transform(page_index)
-        pen = self._drawn_pen(annot.color, annot.width)
+        pen = self._drawn_pen(annot.color, annot.width, getattr(annot, "dashed", False))
         if isinstance(annot, Shape):
             x0, y0, x1, y1 = annot.rect
             item_cls = QGraphicsRectItem if annot.kind == "rect" else QGraphicsEllipseItem
@@ -1280,7 +1286,7 @@ class AnnotationOverlay:
         pairs = []
         for _p, mark in selection:
             new = restyle_mark(mark, style.color, style.width, style.fill_color, style.opacity,
-                               style.line_ends)
+                               style.line_ends, style.dashed)
             if new is not None and new != mark:
                 pairs.append((mark, new))
         if not pairs:
@@ -1631,7 +1637,8 @@ class AnnotationOverlay:
             else:
                 item.setPen(QPen(QColor(0, 120, 215), 1, Qt.PenStyle.DashLine))
         else:
-            item.setPen(self._drawn_pen(self._markup_style.color, self._markup_style.width))
+            item.setPen(self._drawn_pen(self._markup_style.color, self._markup_style.width,
+                                        self._markup_style.dashed))
             item.setOpacity(self._markup_style.opacity)   # the live gesture previews its opacity too
         item.setTransform(self._view.page_transform(page_index))
         item.setZValue(11)
@@ -1766,7 +1773,8 @@ class AnnotationOverlay:
             if len(points) < 2 or (max(xs) - min(xs) < _MIN_DRAW and max(ys) - min(ys) < _MIN_DRAW):
                 return
             self._on_add(page_index, InkStroke((tuple(points),), color=style.color,
-                                               width=style.width, opacity=style.opacity))
+                                               width=style.width, opacity=style.opacity,
+                                               dashed=style.dashed))
             return
         dx, dy = abs(end[0] - anchor[0]), abs(end[1] - anchor[1])
         if tool.places_content or tool.places_field:
@@ -1798,13 +1806,14 @@ class AnnotationOverlay:
             self._on_add(page_index, Line(anchor, end, color=style.color, width=style.width,
                                           arrow_start=style.line_ends[0],
                                           arrow_end=style.line_ends[1],
-                                          opacity=style.opacity))
+                                          opacity=style.opacity, dashed=style.dashed))
         else:
             rect = (min(anchor[0], end[0]), min(anchor[1], end[1]),
                     max(anchor[0], end[0]), max(anchor[1], end[1]))
             kind = "rect" if tool is ArmedTool.RECT else "ellipse"
             self._on_add(page_index, Shape(kind, rect, color=style.color, width=style.width,
-                                           fill_color=style.fill_color, opacity=style.opacity))
+                                           fill_color=style.fill_color, opacity=style.opacity,
+                                           dashed=style.dashed))
 
     def cancel_draw(self) -> None:
         """Drop an in-progress gesture without committing (Esc / disarm mid-drag)."""
