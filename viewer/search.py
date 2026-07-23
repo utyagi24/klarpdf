@@ -84,25 +84,41 @@ class SearchController:
                whole_word: bool = False) -> int:
         """Find all matches for ``query`` and select the first. Returns the hit count.
 
-        MuPDF's ``search_for`` is always case-insensitive and always matches inside words, so the
-        two M64 toggles are applied here as filters over its hits: ``case_sensitive`` compares the
-        text actually under each hit box, ``whole_word`` checks the hit is not part of a longer word
-        (see :func:`is_whole_word`). Both default off, which is exactly today's behaviour.
+        ``whole_word`` decides **what the query is** as well as how it matches (M75.1). Off, the
+        query is a list of words and any of them matches on its own — "electric heater" finds every
+        *electric* and every *heater*, each still matching inside longer words. On, the query is one
+        unit: the whole phrase, and only where neither end sits inside a longer word (see
+        :func:`is_whole_word`) — "electric heater" then finds just that phrase. ``case_sensitive``
+        compares the text actually under each hit box against the term that found it.
+
+        The filters exist because MuPDF's ``search_for`` is always case-insensitive and always
+        matches inside words; it is run once per term, and a multi-term result is re-ordered into
+        reading order per page so next/prev still walks the page the way it is read.
         """
         self._query = query or ""
         self._hits = []
         self._idx = -1
-        if self._query:
+        terms = [self._query] if whole_word else self._query.split()
+        if terms:
             for page_index in range(self._view._vdoc.page_count):
                 ref = self._view._vdoc.ordered[page_index]
                 page = self._view._vdoc.sources[ref.source_id][ref.source_page_index]
-                boxes = page.search_for(self._query)
-                words = page.get_text("words") if boxes else []  # one scan serves the page's hits
-                for r in boxes:
+                found = [(r, term) for term in terms for r in page.search_for(term)]
+                if not found:
+                    continue
+                if len(terms) > 1:   # one term already comes back in reading order
+                    found.sort(key=lambda f: (round(f[0].y0, 1), f[0].x0))
+                words = page.get_text("words")   # one scan serves the page's hits
+                seen: set = set()
+                for r, term in found:
                     box = (r.x0, r.y0, r.x1, r.y1)
+                    key = tuple(round(v, 2) for v in box)
+                    if key in seen:
+                        continue    # two terms landing on the same text is still one hit
+                    seen.add(key)
                     if whole_word and not is_whole_word(words, box):
                         continue
-                    if case_sensitive and page.get_textbox(r).strip() != self._query:
+                    if case_sensitive and page.get_textbox(r).strip() != term:
                         continue
                     self._hits.append((page_index, box, _snippet_for(words, box)))
             if self._hits:
@@ -237,9 +253,13 @@ class FindBar(QWidget):
     :class:`SearchController`.
 
     **Match case** and **Whole words** (M75) are M64's existing ``search()`` filters, surfaced on
-    the interactive bar at last — same labels as the Find-and-Redact dialog, both off by default,
-    which is exactly the pre-M75 behaviour. Toggling one re-runs the live query in place, so the
-    hits, the count label and a visible results panel all follow without retyping.
+    the interactive bar at last — same labels as the Find-and-Redact dialog, both off by default.
+    Toggling one re-runs the live query in place, so the hits, the count label and a visible results
+    panel all follow without retyping. **Whole words** also decides whether a multi-word query is a
+    phrase or a list of words (see :meth:`SearchController.search`).
+
+    Previous / Next / List All are disabled while the search has no hits — see
+    :meth:`_sync_controls`.
 
     ``results_panel`` (set by MainWindow) is the :class:`SearchResultsPanel` this bar drives: the
     List All toggle shows/hides it, a re-typed query refreshes it while visible, and closing the
@@ -254,9 +274,10 @@ class FindBar(QWidget):
         self._label = QLabel("")
         self._case_box = QCheckBox("Match case")
         self._word_box = QCheckBox("Whole words")
-        self._word_box.setToolTip("Skip matches inside longer words")
-        prev_btn = QPushButton("Previous")
-        next_btn = QPushButton("Next")
+        self._word_box.setToolTip("On: match the whole phrase, and only as whole words\n"
+                                  "Off: match any of the words, inside longer words too")
+        self._prev_btn = QPushButton("Previous")
+        self._next_btn = QPushButton("Next")
         self._list_btn = QPushButton("List All")
         self._list_btn.setCheckable(True)
         self._list_btn.setToolTip("List every match with its context; click a row to jump")
@@ -269,8 +290,8 @@ class FindBar(QWidget):
         layout.addWidget(self._case_box)
         layout.addWidget(self._word_box)
         layout.addWidget(self._label)
-        layout.addWidget(prev_btn)
-        layout.addWidget(next_btn)
+        layout.addWidget(self._prev_btn)
+        layout.addWidget(self._next_btn)
         layout.addWidget(self._list_btn)
         layout.addWidget(close_btn)
 
@@ -278,10 +299,11 @@ class FindBar(QWidget):
         self._edit.returnPressed.connect(self._on_next)
         self._case_box.toggled.connect(self._on_options_changed)
         self._word_box.toggled.connect(self._on_options_changed)
-        prev_btn.clicked.connect(self._on_prev)
-        next_btn.clicked.connect(self._on_next)
+        self._prev_btn.clicked.connect(self._on_prev)
+        self._next_btn.clicked.connect(self._on_next)
         self._list_btn.toggled.connect(self._on_list_toggled)
         close_btn.clicked.connect(self.hide_bar)
+        self._sync_controls()   # nothing searched yet: the three hit verbs start dead
         self.hide()
 
     def show_bar(self) -> None:
@@ -315,7 +337,7 @@ class FindBar(QWidget):
     def _on_text(self, text: str) -> None:
         self._view.search.search(text, case_sensitive=self._case_box.isChecked(),
                                  whole_word=self._word_box.isChecked())
-        if self.results_panel is not None and self.results_panel.isVisible():
+        if self.results_panel is not None and self._list_btn.isChecked():
             self.results_panel.refresh()  # a live panel follows the query as it is typed
         self._update_label()
 
@@ -336,7 +358,19 @@ class FindBar(QWidget):
             return
         if checked:
             self.results_panel.refresh()
-        self.results_panel.setVisible(checked)
+        self._sync_controls()
+
+    def _sync_controls(self) -> None:
+        """Previous / Next / List All act on hits, so with none they are **dead verbs** — disabled
+        rather than clickable no-ops, which is the same rule as the outline tab that only exists
+        when the document has one. The list panel goes with them: an empty band under the bar says
+        nothing the "No results" label doesn't, and it returns (still listing) the moment the query
+        matches again."""
+        _idx, total = self._view.search.position()
+        for button in (self._prev_btn, self._next_btn, self._list_btn):
+            button.setEnabled(total > 0)
+        if self.results_panel is not None:
+            self.results_panel.setVisible(self._list_btn.isChecked() and total > 0)
 
     def _sync_results(self) -> None:
         """Keep the visible panel's current-row marker on the controller's current hit."""
@@ -351,6 +385,7 @@ class FindBar(QWidget):
             self._label.setText(f"{idx + 1} of {total}")
         else:
             self._label.setText("No results" if self._edit.text() else "")
+        self._sync_controls()
 
     def keyPressEvent(self, event) -> None:
         if event.key() == Qt.Key.Key_Escape:
