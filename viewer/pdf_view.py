@@ -13,6 +13,7 @@ Text selection (M3) and drag-reorder (M4) build on the same scene later.
 
 from __future__ import annotations
 
+import time
 from collections import OrderedDict
 
 import pymupdf as fitz
@@ -30,6 +31,8 @@ _PREFETCH = 2           # pages to render above/below the viewport
 _CACHE_LIMIT = 48       # max rendered pixmaps held at once
 _MIN_ZOOM, _MAX_ZOOM = 0.1, 8.0
 _ZOOM_STEP = 1.25
+_WHEEL_NOTCH = 120      # one mouse-wheel detent, in eighths of a degree (Qt's unit)
+_WHEEL_QUIET_MS = 250   # gap that ends a wheel gesture (a flywheel wheel coasts well past the hand)
 
 
 class PdfView(QGraphicsView):
@@ -112,10 +115,18 @@ class PdfView(QGraphicsView):
         # Page layout (M78): "single" = the vertical strip; "facing" = two-page rows (1|2, 3|4 …).
         # View-only — a pure re-layout of the same pages, like zoom and rotation.
         self._page_layout = "single"
-        # Slideshow (M78): while True the view narrows to one-page reading — left-click and the
-        # arrow/space/page keys step whole pages instead of scrolling/selecting; Esc (which this
-        # view leaves unconsumed when nothing is armed) bubbles to MainWindow, which exits.
-        self.slideshow = False
+        # Slideshow (M78): while True the view narrows to one-page reading — left-click, the
+        # arrow/space/page keys and the wheel step whole *rows* instead of scrolling/selecting;
+        # Esc (which this view leaves unconsumed when nothing is armed) bubbles to MainWindow,
+        # which exits. ``_slide_row`` is the projected row (an index into :meth:`_layout_rows`) —
+        # the mode's own position, so a step never has to re-derive where it is from the scroll
+        # offset. ``_wheel_accum`` quantises a hi-res wheel to whole detents.
+        # ``_wheel_muted`` parks a coasting wheel after a click / key step (see wheelEvent).
+        self._slideshow = False
+        self._slide_row = 0
+        self._wheel_accum = 0
+        self._wheel_muted = False
+        self._last_wheel_ts = 0
         self._build_scene()
         self.verticalScrollBar().valueChanged.connect(self._on_scroll)
 
@@ -375,10 +386,10 @@ class PdfView(QGraphicsView):
     # ---- mouse → text selection -------------------------------------------------
 
     def mousePressEvent(self, event) -> None:
-        # Slideshow (M78): a left click advances one page — the projector gesture — and nothing
+        # Slideshow (M78): a left click advances one slide — the projector gesture — and nothing
         # else in the view (selection, forms, links) is reachable until Esc exits.
         if self.slideshow and event.button() == Qt.MouseButton.LeftButton:
-            self.goto_page(min(self._current + 1, self._vdoc.page_count - 1))
+            self._deliberate_step(1)
             event.accept()
             return
         if event.button() == Qt.MouseButton.LeftButton:
@@ -524,6 +535,13 @@ class PdfView(QGraphicsView):
         return any(mark is hit[1] for _p, mark in self.annotations.selected_objects)
 
     def mouseDoubleClickEvent(self, event) -> None:
+        # Clicking on impatiently turns every second press into a double-click, which the press
+        # handler never sees — so half a fast click sequence used to vanish. In the slideshow a
+        # double-click is simply the next slide (M78).
+        if self.slideshow and event.button() == Qt.MouseButton.LeftButton:
+            self._deliberate_step(1)
+            event.accept()
+            return
         if event.button() == Qt.MouseButton.LeftButton and self._armed is None:
             scene_pt = self.mapToScene(event.position().toPoint())
             # Double-click a field you created → type into it. The press moves it (see
@@ -647,17 +665,22 @@ class PdfView(QGraphicsView):
         super().mouseReleaseEvent(event)
 
     def keyPressEvent(self, event) -> None:
-        # Slideshow (M78): whole-page steps instead of smooth scrolling — arrows / Space /
-        # PgUp/PgDn move one page. Esc is deliberately NOT consumed here: with nothing armed it
+        # Slideshow (M78): whole-slide steps instead of smooth scrolling — arrows / Space /
+        # PgUp/PgDn move one slide. Esc is deliberately NOT consumed here: with nothing armed it
         # falls through the QGraphicsView chain to MainWindow, which exits the mode.
         if self.slideshow:
             key = event.key()
             if key in (Qt.Key.Key_Right, Qt.Key.Key_Down, Qt.Key.Key_Space, Qt.Key.Key_PageDown):
-                self.goto_page(min(self._current + 1, self._vdoc.page_count - 1))
+                self._deliberate_step(1)
                 event.accept()
                 return
             if key in (Qt.Key.Key_Left, Qt.Key.Key_Up, Qt.Key.Key_PageUp):
-                self.goto_page(max(self._current - 1, 0))
+                self._deliberate_step(-1)
+                event.accept()
+                return
+            if key in (Qt.Key.Key_Home, Qt.Key.Key_End):
+                self._deliberate_step(-len(self._layout_rows()) if key == Qt.Key.Key_Home
+                                     else len(self._layout_rows()))
                 event.accept()
                 return
         # Esc cancels an armed one-shot tool (back to plain Select) — else a lingering object
@@ -681,6 +704,48 @@ class PdfView(QGraphicsView):
                 event.accept()
                 return
         super().keyPressEvent(event)
+
+    def wheelEvent(self, event) -> None:
+        """In the slideshow the wheel steps whole slides (M78); everywhere else it scrolls.
+
+        Free-scrolling a mode that shows *one page per screen* is what let the view come to rest
+        straddling two pages — and from a straddle the projected page and the page under the
+        viewport centre disagree, so the next click appeared to jump to the wrong page. One detent,
+        one slide; a hi-res wheel's fractional deltas accumulate to a detent first.
+
+        A **coasting** wheel is parked. A flywheel wheel (and Windows' smooth scrolling) keeps
+        emitting long after the hand has left it, so a click or arrow key pressed during the
+        coast-down was immediately undone by the events still arriving — the reported "clicked
+        eight times and the first slide never moved", worse after every flick because a harder
+        flick coasts longer. A deliberate step therefore mutes the wheel until it has actually gone
+        quiet (:data:`_WHEEL_QUIET_MS` with no wheel event), which is also how a reader tells the
+        two apart: a fresh scroll comes after a pause, a coast doesn't.
+        """
+        if not self.slideshow:
+            super().wheelEvent(event)
+            return
+        # Qt fills the timestamp from the platform message; a plugin that leaves it at 0 falls back
+        # to our own clock, so an unstamped wheel still un-mutes (fail-open: at worst the wheel
+        # behaves as it did before this guard, never dead).
+        ts = event.timestamp() or int(time.monotonic() * 1000)
+        if self._wheel_muted:
+            if ts - self._last_wheel_ts < _WHEEL_QUIET_MS:
+                self._last_wheel_ts = ts        # same gesture, still coasting — swallow it
+                event.accept()
+                return
+            self._wheel_muted = False           # the wheel stopped; this is a new gesture
+        self._last_wheel_ts = ts
+        delta = event.angleDelta().y()
+        if delta and (delta > 0) != (self._wheel_accum > 0):
+            self._wheel_accum = 0                    # a reversal starts counting afresh
+        self._wheel_accum += delta
+        while self._wheel_accum >= _WHEEL_NOTCH:     # wheel up = back through the deck
+            self._wheel_accum -= _WHEEL_NOTCH
+            self.step_slide(-1)
+        while self._wheel_accum <= -_WHEEL_NOTCH:
+            self._wheel_accum += _WHEEL_NOTCH
+            self.step_slide(1)
+        event.accept()
 
     def _update_hover_cursor(self, scene_pt) -> None:
         """Show a pointing-hand over an internal link (SELECT — it's clickable) and a move cursor
@@ -923,6 +988,10 @@ class PdfView(QGraphicsView):
     def _on_scroll(self, _value: int) -> None:
         self._render_visible()
         self._reposition_overlay_editors()  # keep an open inline editor on its field while scrolling
+        if self._slideshow:
+            # A scroll from anywhere else (the scrollbar, a pan) re-seats the projected row, so the
+            # next step continues from what is on screen. Steps of our own re-assert it afterwards.
+            self._slide_row = self._row_of(self._current)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -1189,6 +1258,62 @@ class PdfView(QGraphicsView):
         if self._fit_mode is not None:
             self._reapply_fit()      # rebuilds again only if the re-fitted zoom differs
         self.goto_page(anchor)
+        self._slide_row = self._row_of(self._current)
+
+    # ---- slideshow (M78) --------------------------------------------------------
+
+    @property
+    def slideshow(self) -> bool:
+        return self._slideshow
+
+    @slideshow.setter
+    def slideshow(self, on: bool) -> None:
+        """Enter/leave the projected reading mode. Entering adopts the page being read as the
+        starting slide, so the first step goes where the reader expects."""
+        self._slideshow = bool(on)
+        self._wheel_accum = 0
+        if self._slideshow:
+            self._slide_row = self._row_of(self._current)
+
+    def _row_of(self, page_index: int) -> int:
+        """The layout row holding ``page_index`` — the unit a slideshow step moves by. In the
+        facing layout (M78) a row is the 1|2 spread, so a step is a spread, not a page."""
+        for i, row in enumerate(self._layout_rows()):
+            if page_index in row:
+                return i
+        return 0
+
+    def step_slide(self, delta: int) -> None:
+        """Move the slideshow ``delta`` rows (clamped at both ends) and land on that row's top.
+
+        Steps move **rows**, not page indices: in the facing layout pages 1 and 2 share a row —
+        stepping by index landed on the same scroll offset and the mode looked dead (the click and
+        the forward keys did nothing). And the destination is recorded rather than re-derived from
+        the scroll offset afterwards: a free scroll can leave the viewport centre over a *different*
+        page than the one on screen, which made the next click jump somewhere unexpected.
+        """
+        rows = self._layout_rows()
+        if not rows:
+            return
+        target = max(0, min(self._slide_row + delta, len(rows) - 1))
+        if target == self._slide_row and self._current == rows[target][0]:
+            return      # already there (a burst running into either end) — no scroll, no render
+        first = rows[target][0]
+        self.goto_page(first)
+        # goto_page re-derives "current" from the viewport centre, which near the end of the
+        # document (where the scroll clamps) or on a short page can name a different page than the
+        # one just projected. The projected row is the truth here — otherwise the next step
+        # counts from a page the reader isn't looking at. Assigned *after* the scroll, whose
+        # _on_scroll resync would otherwise overwrite it.
+        self.set_current_page(first)
+        self._slide_row = target
+
+    def _deliberate_step(self, delta: int) -> None:
+        """A step the reader asked for by hand — a click or a key, never the wheel. It parks a
+        coasting wheel (see :meth:`wheelEvent`) so the slide it lands on stays put."""
+        self._wheel_muted = True
+        self._wheel_accum = 0
+        self.step_slide(delta)
 
     def reload(self) -> None:
         """Rebuild after the ordered list changed (edit). Page indices remap, so the pixmap
