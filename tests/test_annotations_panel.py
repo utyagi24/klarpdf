@@ -3,9 +3,10 @@
 A sidebar tab beside Pages | Outline listing the document's **text markups** — highlights,
 underlines, strike-outs and notes, ours and foreign — as "p. N · type · snippet" rows; click
 jumps (M77.1 narrowed it from every mark: drawings, text boxes, stamps and fields are placed
-objects with no passage to read back, and they buried the markups). The tab exists only while the
-document has marks it would list (owner rule: inapplicable chrome is invisible, not greyed out)
-and tracks edits/undo live, including its own appearance and disappearance.
+objects with no passage to read back, and they buried the markups). The tab is offered only while
+the document has marks it would list (owner rule: inapplicable chrome is invisible, not greyed out)
+and its rows track edits and undo live — but never its own existence: since M79.3 a mark **offers**
+the tab, and mounting it is the reader's move (see `test_sidebar_tabs.py` for that rule itself).
 """
 
 from __future__ import annotations
@@ -65,6 +66,11 @@ def _word_box(win, page_index=0) -> tuple:
     return tuple(page.get_text("words")[0][:4])
 
 
+def _show_annotations(win) -> None:
+    """Mount the tab the way a reader does: the ▾ entry a mark just made offerable (M79.3)."""
+    win._sidebar_tab_actions["annotations"].setChecked(True)
+
+
 # ---- existence follows the marks ---------------------------------------------
 
 
@@ -73,15 +79,17 @@ def test_clean_document_shows_no_annotations_tab(win):
     assert win.annotations_panel is None
 
 
-def test_first_mark_summons_the_tab_and_undo_dismisses_it(win):
+def test_a_mark_offers_the_tab_and_the_reader_mounts_it(win):
     win._add_annotation(0, Highlight((_word_box(win),)))
+    assert _tab_labels(win) == ["Pages", "Outline"]  # M79.3: no panel arrives on its own…
+    assert win._sidebar_tab_actions["annotations"].isVisible()   # …the ▾ offers one
+    _show_annotations(win)
     assert _tab_labels(win) == ["Pages", "Outline", "Annotations"]
     assert win.annotations_panel is not None and win.annotations_panel.count() == 1
     win.undo_stack.undo()
-    assert _tab_labels(win) == ["Pages", "Outline"]  # the last mark went — so did the tab
-    assert win.annotations_panel is None
+    assert win.annotations_panel.count() == 0        # the row goes; the tab is the reader's
     win.undo_stack.redo()
-    assert _tab_labels(win) == ["Pages", "Outline", "Annotations"]
+    assert win.annotations_panel.count() == 1
 
 
 def test_toc_less_marked_doc_gets_pages_and_annotations(qapp, b_pdf, tmp_path):
@@ -91,6 +99,7 @@ def test_toc_less_marked_doc_gets_pages_and_annotations(qapp, b_pdf, tmp_path):
     try:
         assert _tab_labels(w) == []  # bare Pages panel, no tab bar at all
         w._add_annotation(0, Highlight((_word_box(w),)))
+        _show_annotations(w)
         assert _tab_labels(w) == ["Pages", "Annotations"]
     finally:
         w.undo_stack.setClean()
@@ -108,7 +117,10 @@ def test_objects_alone_do_not_summon_the_tab(qapp, b_pdf, tmp_path):
         w._add_annotation(0, Line((72, 200), (300, 240)))
         assert _tab_labels(w) == []
         assert w.annotations_panel is None
-        w._add_annotation(0, Highlight((_word_box(w),)))   # …one markup, and it appears
+        assert not w._sidebar_tab_actions["annotations"].isVisible()  # not even offered
+        w._add_annotation(0, Highlight((_word_box(w),)))   # …one markup, and it is on offer
+        assert w._sidebar_tab_actions["annotations"].isVisible()
+        _show_annotations(w)
         assert _tab_labels(w) == ["Pages", "Annotations"]
         assert w.annotations_panel.count() == 1            # listing the markup alone
     finally:
@@ -138,6 +150,7 @@ def test_foreign_marks_alone_summon_the_tab(qapp, foreign_pdf, tmp_path):
 def test_rows_carry_page_type_and_snippet(win):
     win._add_annotation(0, Highlight((_word_box(win),)))
     win._add_annotation(2, Strikeout((_word_box(win, 2),)))
+    _show_annotations(win)
     panel = win.annotations_panel
     texts = [panel.item(i).text() for i in range(panel.count())]
     assert len(texts) == 2
@@ -155,6 +168,7 @@ def test_objects_never_reach_the_list(win):
     win._add_annotation(1, Line((72, 200), (300, 240)))
     win._add_annotation(1, Shape("rect", (72, 260, 300, 320)))
     win._add_annotation(2, ImageStamp((72, 100, 200, 160), "sig.png"))
+    _show_annotations(win)
     panel = win.annotations_panel
     texts = [panel.item(i).text() for i in range(panel.count())]
     assert len(texts) == 1
@@ -163,6 +177,7 @@ def test_objects_never_reach_the_list(win):
 
 def test_list_follows_add_and_remove_live(win):
     win._add_annotation(0, Highlight((_word_box(win),)))
+    _show_annotations(win)
     assert win.annotations_panel.count() == 1
     win._add_annotation(1, Underline((_word_box(win, 1),)))
     assert win.annotations_panel.count() == 2
@@ -175,6 +190,7 @@ def test_list_follows_add_and_remove_live(win):
 
 def test_click_on_a_text_markup_jumps_without_object_selection(win):
     win._add_annotation(1, Highlight((_word_box(win, 1),)))
+    _show_annotations(win)
     panel = win.annotations_panel
     panel._on_item_clicked(panel.item(0))
     assert win.view.current_page == 1
@@ -195,10 +211,11 @@ def test_click_outlines_a_foreign_mark(qapp, foreign_pdf, tmp_path):
 
 
 def test_reload_keeps_the_active_tab_by_label(win):
-    """The tab set can change across a remount — the active tab is matched by label, so adding a
-    mark while reading the Outline keeps Outline current."""
+    """The tab set can change across a remount — the active tab is matched by label, so asking for
+    Annotations while reading the Outline keeps Outline current."""
     tabs = win.pages_dock.widget()
     tabs.setCurrentIndex(1)  # Outline
-    win._add_annotation(0, Highlight((_word_box(win),)))  # remounts with a third tab
+    win._add_annotation(0, Highlight((_word_box(win),)))
+    _show_annotations(win)                               # remounts with a third tab
     tabs = win.pages_dock.widget()
     assert tabs.tabText(tabs.currentIndex()) == "Outline"

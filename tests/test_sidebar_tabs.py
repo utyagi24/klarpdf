@@ -92,7 +92,16 @@ def test_the_choice_is_remembered_across_documents(app, a_pdf, b_pdf):
     other._add_annotation(0, Highlight((_word_box(other),)))
     assert _tab_labels(other) == []              # B.pdf has no outline, and no Annotations asked
     assert other.annotations_panel is None       # …even though it now has a markup
-    assert other._sidebar_tab_actions["outline"].isChecked()   # the ask itself carried over
+    assert "outline" in other._sidebar_tabs_wanted()   # the ask itself carried over
+
+
+def test_a_remembered_ask_mounts_the_tab_when_the_document_is_opened(app, a_pdf):
+    """The preference decides what the sidebar holds at *open* — that is the whole point of
+    remembering it. It is only mid-session that it stops mounting things (M79.3)."""
+    app.settings.set_pref("sidebar_tabs", ["outline"])
+    win = app.open_document(a_pdf)
+    assert _tab_labels(win) == ["Pages", "Outline"]
+    assert win._sidebar_tab_actions["outline"].isChecked()
 
 
 def test_asking_for_a_tab_opens_a_hidden_sidebar(app, a_pdf):
@@ -106,13 +115,44 @@ def test_asking_for_a_tab_opens_a_hidden_sidebar(app, a_pdf):
 
 
 def test_annotations_tab_needs_both_the_ask_and_the_marks(app, a_pdf):
+    """At open (and at any other mount): asked for *and* something to list."""
+    app.settings.set_pref("sidebar_tabs", ["annotations"])
+    clean = app.open_document(a_pdf)
+    assert _tab_labels(clean) == []              # asked for, but the document is clean
+    marked = app.open_document(a_pdf)
+    marked._add_annotation(0, Highlight((_word_box(marked),)))
+    marked._mount_sidebar()                      # …as a reload or a ▾ tick would
+    assert _tab_labels(marked) == ["Pages", "Annotations"]
+
+
+def test_a_new_mark_offers_the_tab_but_never_mounts_it(app, a_pdf):
+    """The owner's call (M79.3): marking up a page must not push a panel into the sidebar under
+    your hands. The first mark makes the ▾ entry offerable — taking it up is the reader's move."""
+    app.settings.set_pref("sidebar_tabs", ["annotations"])   # …even with the ask already stored
     win = app.open_document(a_pdf)
-    win._sidebar_tab_actions["annotations"].setChecked(True)
-    assert _tab_labels(win) == []                # asked for, but the document is clean
     win._add_annotation(0, Highlight((_word_box(win),)))
+    assert _tab_labels(win) == []                            # no tab arrived
+    assert win.annotations_panel is None
+    entry = win._sidebar_tab_actions["annotations"]
+    assert entry.isVisible()                                 # …but the ▾ now offers one
+    assert not entry.isChecked()          # and reads as what the sidebar shows, not what is stored
+    entry.setChecked(True)                                   # the reader takes it up
+    assert _tab_labels(win) == ["Pages", "Annotations"]
+
+
+def test_a_tab_you_asked_for_survives_its_list_going_empty(app, a_pdf):
+    """The mirror image of the same rule: an undo that empties the list is not a reason to take
+    away a panel that was asked for — and the tab would not come back on the redo."""
+    win = app.open_document(a_pdf)
+    win._add_annotation(0, Highlight((_word_box(win),)))
+    win._sidebar_tab_actions["annotations"].setChecked(True)
     assert _tab_labels(win) == ["Pages", "Annotations"]
     win.undo_stack.undo()
-    assert _tab_labels(win) == []                # the ask survives; the tab follows the marks
+    assert _tab_labels(win) == ["Pages", "Annotations"]      # empty, but still yours
+    entry = win._sidebar_tab_actions["annotations"]
+    assert entry.isVisible()              # …and still dismissable: the ▾ is a tab's only handle
+    entry.setChecked(False)
+    assert _tab_labels(win) == []
 
 
 # ---- the ▾ offers only what this document could show ---------------------------
