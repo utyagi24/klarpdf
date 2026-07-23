@@ -346,14 +346,45 @@ class MainWindow(QMainWindow):
 
         A tick that produces nothing is worse than an absent entry: the reader is left unsure
         whether the tab is off or the document simply has no outline. Called from every mount, so
-        it follows a reload, an edit that adds the first mark, and the ▾ menu's own toggles."""
+        it follows a reload, an edit that adds the first mark, and the ▾ menu's own toggles.
+
+        Dropping the menu is not enough to drop the ▾: ``MenuButtonPopup`` draws the split section
+        from the *popup mode*, not from whether a menu exists, so a menu-less split button keeps a
+        14 px arrow that swallows clicks and does nothing (M79.2). The mode has to go with it."""
         if not self._sidebar_tab_actions:
             return                       # the first mount runs before _build_actions
         applicable = {"outline": self.vdoc.has_outline(),
                       "annotations": self._doc_has_listed_marks()}
         for key, action in self._sidebar_tab_actions.items():
             action.setVisible(applicable[key])
-        self._sidebar_button.setMenu(self._sidebar_tab_menu if any(applicable.values()) else None)
+        offer = any(applicable.values())
+        if (self._sidebar_button.menu() is not None) is not offer:
+            self._flip_sidebar_arrow(offer)
+
+    def _flip_sidebar_arrow(self, offer: bool) -> None:
+        """Show or hide the ▾ on the sidebar button — the popup *mode*, not just the menu (M79.2).
+
+        ``MenuButtonPopup`` draws the split section from the mode alone, so dropping the menu left a
+        14 px arrow that opened nothing — the mode has to go with it. Getting the *width* to follow
+        then takes both lines below, because two caches sit between the mode and the button's
+        geometry and neither notices ``setPopupMode`` (a bare property write — no invalidation, no
+        re-layout): QStyleSheetStyle holds the rule that sizes ``::menu-button`` (`_TOOLBAR_STYLE`)
+        until the widget is re-polished, and QToolButton holds its own sizeHint until a menu is
+        attached or detached. A re-polish alone still measures with the stale hint; a menu swap alone
+        measures against the stale rule. Both, in this order, and the button re-measures at once —
+        otherwise an arrow returning mid-session (the first highlight on a clean document) is drawn
+        squeezed over the icon. Called only on a real change, so the menu is never swapped under an
+        open popup."""
+        button = self._sidebar_button
+        button.setPopupMode(
+            QToolButton.ToolButtonPopupMode.MenuButtonPopup if offer
+            else QToolButton.ToolButtonPopupMode.DelayedPopup  # a plain button: no arrow, no split
+        )
+        button.style().unpolish(button)      # drop the cached ::menu-button rule…
+        button.style().polish(button)
+        button.setMenu(None)                 # …then the cached sizeHint measured against it
+        if offer:
+            button.setMenu(self._sidebar_tab_menu)
 
     def _doc_has_listed_marks(self) -> bool:
         """Whether any page carries a mark the Annotations tab would **list** — a text markup of
@@ -759,7 +790,9 @@ class MainWindow(QMainWindow):
         # rebuilt on every mount and dropped entirely when neither applies, so the arrow itself is
         # the signal that there is something to choose (the no-dead-chrome rule, one level up).
         self._sidebar_button = QToolButton()
-        self._sidebar_button.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        # Born a plain button; _flip_sidebar_arrow owns the popup mode from here and adds the split
+        # section the moment the open document has a tab to offer.
+        self._sidebar_button.setPopupMode(QToolButton.ToolButtonPopupMode.DelayedPopup)
         self._sidebar_button.setDefaultAction(pages_toggle)
         self._sidebar_tab_menu = QMenu(self._sidebar_button)
         for key, label in (("outline", "Outline"), ("annotations", "Annotations")):
