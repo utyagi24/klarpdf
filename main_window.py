@@ -671,6 +671,12 @@ class MainWindow(QMainWindow):
             "Slideshow — one page per screen; click or arrow keys advance, Esc exits")
         self._a_twopage = act("Two-Page View", self._toggle_two_page, to_menu=view_menu)
         self._a_twopage.setCheckable(True)
+        # A menu action's shortcut is only live while the menu's parent — the menu bar — is
+        # *visible*, and these two modes hide it. Adding them to the window as well gives the
+        # shortcut a second, always-visible home, so F11 gets you back out of full screen the same
+        # way it got you in (Esc was the only way out before), and F5 still starts a slideshow.
+        for a in (self._a_fullscreen, self._a_slideshow):
+            self.addAction(a)
         view_menu.addSeparator()
         # Checkable show/hide for the sidebar — menu item + a dedicated toolbar button (its
         # checked state mirrors the panel's visibility, with the :checked toolbar styling).
@@ -976,11 +982,15 @@ class MainWindow(QMainWindow):
 
     def _toggle_fullscreen(self, checked: bool) -> None:
         """View ▸ Full Screen (F11): chrome-free reading — the window fills the screen and the
-        menu bar, toolbars, sidebar and find bar step aside until F11/Esc brings them back."""
-        if checked:
+        menu bar, toolbars, sidebar and find bar step aside until F11/Esc brings them back.
+
+        F11 is a plain toggle of *chrome-free reading*, whichever mode is up: pressed during a
+        slideshow it leaves that too, rather than checking a box over a mode already running."""
+        if checked and self._chrome_state is None:
             self._enter_chromeless(slideshow=False)
         else:
             self._exit_chromeless()
+            self._a_fullscreen.setChecked(False)
 
     def _start_slideshow(self) -> None:
         """View ▸ Slideshow (F5): one page per screen at Fit Page — click / arrows advance, Esc

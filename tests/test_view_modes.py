@@ -9,11 +9,13 @@ is **view-only** — file, print and export untouched (the M49 principle).
 from __future__ import annotations
 
 import pytest
-from PySide6.QtCore import QEvent, QPointF, Qt
-from PySide6.QtGui import QKeyEvent, QMouseEvent
+from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
+from PySide6.QtGui import QKeyEvent, QMouseEvent, QWheelEvent
+from PySide6.QtTest import QTest
 
 from app import PdfApp
 from store.settings import Settings
+from viewer.pdf_view import _PAGE_GAP
 
 
 @pytest.fixture(scope="session")
@@ -42,6 +44,25 @@ def _esc(widget):
 
 def _key(widget, key):
     widget.keyPressEvent(QKeyEvent(QEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier))
+
+
+def _click(view):
+    pt = QPointF(view.viewport().rect().center())
+    view.mousePressEvent(QMouseEvent(QEvent.Type.MouseButtonPress, pt, pt,
+        Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier))
+
+
+def _wheel(view, notches):
+    """One mouse-wheel detent per notch (negative = away from the reader, i.e. forward)."""
+    pt = QPointF(view.viewport().rect().center())
+    delta = QPoint(0, 120 * notches)
+    view.wheelEvent(QWheelEvent(pt, view.viewport().mapToGlobal(pt), delta, delta,
+                                Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier,
+                                Qt.ScrollPhase.NoScrollPhase, False))
+
+
+def _page_top(view, index):
+    return int(view._pages[index]["y"]) - _PAGE_GAP
 
 
 # ---- two-page view -----------------------------------------------------------
@@ -106,6 +127,35 @@ def test_fullscreen_strips_the_chrome_and_esc_restores(qapp, win):
     assert not win._a_fullscreen.isChecked()
 
 
+def test_f11_exits_full_screen(qapp, win):
+    """F11 out, as well as in. The action lives on the View menu, and a menu action's shortcut is
+    only live while the menu bar is visible — which full screen hides, leaving Esc as the only way
+    out. The window carries the action too, so the shortcut survives the hidden menu bar."""
+    assert win._a_fullscreen in win.actions()
+    win._a_fullscreen.trigger()
+    qapp.processEvents()
+    assert win.isFullScreen() and not win.menuBar().isVisible()
+    win.activateWindow()
+    QTest.keyClick(win, Qt.Key.Key_F11)             # the real shortcut, menu bar hidden
+    qapp.processEvents()
+    assert not win.isFullScreen()
+    assert win.menuBar().isVisible()
+    assert not win._a_fullscreen.isChecked()
+
+
+def test_f11_leaves_a_slideshow_too(qapp, win):
+    """F11 toggles chrome-free reading, whichever mode is up — it can't check a box over a
+    slideshow already running."""
+    win._a_slideshow.trigger()
+    qapp.processEvents()
+    assert win.view.slideshow
+    win._a_fullscreen.trigger()
+    qapp.processEvents()
+    assert not win.isFullScreen()
+    assert not win.view.slideshow
+    assert not win._a_fullscreen.isChecked()
+
+
 def test_fullscreen_does_not_rewrite_the_remembered_prefs(qapp, win):
     """Programmatic hides must not persist: reading full-screen never rewrites the sidebar /
     markup-bar choices (only explicit user toggles do)."""
@@ -136,6 +186,60 @@ def test_slideshow_steps_pages_by_click_and_keys(qapp, win):
     assert win.view.current_page == 1
     _esc(win)
     assert not win.view.slideshow and not win.isFullScreen()
+
+
+def test_slideshow_steps_spreads_in_two_page_view(qapp, win):
+    """A slideshow step is a **row**, not a page index. Pages 1|2 share a row in the facing
+    layout, so stepping by index scrolled to the offset already on screen — the click and the
+    forward keys looked dead, and only the backward ones (which land on the previous row) moved."""
+    win._a_twopage.trigger()
+    win._a_slideshow.trigger()
+    qapp.processEvents()
+    assert win.view.current_page == 0
+    _click(win.view)                                # click advances a whole spread…
+    assert win.view.current_page == 2
+    _key(win.view, Qt.Key.Key_Left)                 # …and back
+    assert win.view.current_page == 0
+    _key(win.view, Qt.Key.Key_Down)
+    assert win.view.current_page == 2
+    _key(win.view, Qt.Key.Key_Right)
+    assert win.view.current_page == 2               # clamped on the last spread, no wrap
+    _esc(win)
+
+
+def test_slideshow_wheel_steps_whole_pages(qapp, win):
+    """The wheel projects the next slide instead of free-scrolling: a mode showing one page per
+    screen must never come to rest straddling two — from a straddle the page under the viewport
+    centre isn't the page being read, and the next click stepped from the wrong one."""
+    win._a_slideshow.trigger()
+    qapp.processEvents()
+    view = win.view
+    _wheel(view, -1)                                # one detent forward
+    assert view.current_page == 1
+    assert view.verticalScrollBar().value() == _page_top(view, 1)   # exactly a page top
+    _wheel(view, -1)
+    assert view.current_page == 2
+    _wheel(view, -1)
+    assert view.current_page == 2                   # clamped at the end
+    _wheel(view, 2)                                 # two detents back, in one event
+    assert view.current_page == 0
+    assert view.verticalScrollBar().value() == _page_top(view, 0)
+    _esc(win)
+
+
+def test_slideshow_click_advances_after_a_round_trip(qapp, win):
+    """To the end of the deck and back, then click: the next slide follows, first click."""
+    win._a_slideshow.trigger()
+    qapp.processEvents()
+    view = win.view
+    _wheel(view, -10)                               # all the way to the end
+    assert view.current_page == 2
+    _wheel(view, 10)                                # all the way back to the first page
+    assert view.current_page == 0
+    _click(view)
+    assert view.current_page == 1
+    assert view.verticalScrollBar().value() == _page_top(view, 1)
+    _esc(win)
 
 
 def test_slideshow_restores_the_prior_zoom(qapp, win):
