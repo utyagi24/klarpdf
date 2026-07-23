@@ -52,13 +52,22 @@ def _click(view):
         Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier))
 
 
-def _wheel(view, notches):
-    """One mouse-wheel detent per notch (negative = away from the reader, i.e. forward)."""
+def _wheel(view, notches, ts=0):
+    """One mouse-wheel detent per notch (negative = away from the reader, i.e. forward).
+    ``ts`` is the event timestamp in ms — what tells a coasting wheel from a fresh gesture."""
     pt = QPointF(view.viewport().rect().center())
     delta = QPoint(0, 120 * notches)
-    view.wheelEvent(QWheelEvent(pt, view.viewport().mapToGlobal(pt), delta, delta,
-                                Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier,
-                                Qt.ScrollPhase.NoScrollPhase, False))
+    event = QWheelEvent(pt, view.viewport().mapToGlobal(pt), delta, delta,
+                        Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier,
+                        Qt.ScrollPhase.NoScrollPhase, False)
+    event.setTimestamp(ts)
+    view.wheelEvent(event)
+
+
+def _double_click(view):
+    pt = QPointF(view.viewport().rect().center())
+    view.mouseDoubleClickEvent(QMouseEvent(QEvent.Type.MouseButtonDblClick, pt, pt,
+        Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier))
 
 
 def _page_top(view, index):
@@ -141,6 +150,38 @@ def test_f11_exits_full_screen(qapp, win):
     assert not win.isFullScreen()
     assert win.menuBar().isVisible()
     assert not win._a_fullscreen.isChecked()
+
+
+def test_f5_during_a_slideshow_is_a_no_op(qapp, win):
+    """F5 again used to leave the mode and re-enter it — a blink that landed you back on the same
+    slide, having thrown away the position."""
+    win._a_slideshow.trigger()
+    qapp.processEvents()
+    _key(win.view, Qt.Key.Key_Right)
+    state, page = win._chrome_state, win.view.current_page
+    win._a_slideshow.trigger()                      # F5 while already projecting
+    qapp.processEvents()
+    assert win._chrome_state is state               # the same mode, never torn down…
+    assert win.isFullScreen() and win.view.slideshow
+    assert win.view.current_page == page            # …and the slide stayed put
+    _esc(win)
+
+
+def test_f5_from_full_screen_switches_in_place(qapp, win):
+    win.view.set_zoom(1.7)                          # the reader's zoom, from before Full Screen
+    win._a_fullscreen.trigger()
+    qapp.processEvents()
+    state = win._chrome_state
+    win._a_slideshow.trigger()                      # F5 while reading chrome-free
+    qapp.processEvents()
+    assert win._chrome_state is state               # switched on in place, not torn down and rebuilt
+    assert win.isFullScreen() and win.view.slideshow
+    assert not win._a_fullscreen.isChecked()        # it's a slideshow now, not Full Screen
+    assert win.view._fit_mode == "page"
+    _esc(win)
+    qapp.processEvents()
+    assert not win.isFullScreen()
+    assert win.view.zoom == pytest.approx(1.7)      # one exit, and the zoom is the reader's again
 
 
 def test_f11_leaves_a_slideshow_too(qapp, win):
@@ -239,6 +280,41 @@ def test_slideshow_click_advances_after_a_round_trip(qapp, win):
     _click(view)
     assert view.current_page == 1
     assert view.verticalScrollBar().value() == _page_top(view, 1)
+    _esc(win)
+
+
+def test_a_coasting_wheel_cannot_undo_a_deliberate_step(qapp, win):
+    """A flywheel wheel keeps emitting for seconds after the hand leaves it, and those events used
+    to walk the deck back under the reader — a click during the coast-down was undone at once, so
+    the first slide "wouldn't move" however many times you clicked (worse after a harder flick).
+    A click parks the wheel until it has actually gone quiet."""
+    win._a_slideshow.trigger()
+    qapp.processEvents()
+    view = win.view
+    for i in range(4):                              # a flick forward: t = 1000, 1015, 1030, 1045
+        _wheel(view, -1, ts=1000 + 15 * i)
+    assert view.current_page == 2                   # (3-page document: clamped at the end)
+    _wheel(view, 1, ts=1100)                        # …and a flick back
+    assert view.current_page == 1
+    _click(view)                                    # the reader clicks on, mid-coast
+    assert view.current_page == 2
+    for i in range(6):                              # the wheel coasts on: still 15 ms apart
+        _wheel(view, 1, ts=1120 + 15 * i)
+    assert view.current_page == 2                   # …and moves nothing
+    _wheel(view, 1, ts=1120 + 15 * 5 + 400)         # a fresh gesture, after the wheel went quiet
+    assert view.current_page == 1                   # …scrolls again as normal
+    _esc(win)
+
+
+def test_double_click_advances_a_slide(qapp, win):
+    """Clicking on impatiently makes every second press a double-click, which the press handler
+    never sees — half a fast click sequence used to vanish."""
+    win._a_slideshow.trigger()
+    qapp.processEvents()
+    _click(win.view)
+    assert win.view.current_page == 1
+    _double_click(win.view)                         # the second of two fast clicks
+    assert win.view.current_page == 2
     _esc(win)
 
 

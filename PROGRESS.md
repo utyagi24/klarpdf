@@ -804,12 +804,22 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   the page under the viewport centre isn't the page being read, so the next click stepped from the
   wrong one (the reported "jumps and comes back / click twice"); one detent = one slide, hi-res
   deltas accumulated to a detent, and `step_slide` pins `set_current_page` to the row it projected
-  so a clamped scroll near the end can't drift it. (3) **F11 exits Full Screen**, not just Esc: a
-  menu action's shortcut is live only while its menu bar is *visible*, which the mode hides — the
-  window now carries the Full Screen + Slideshow actions itself, and F11 toggles chrome-free
-  reading whichever mode is up (during a slideshow it leaves that too). — *Windows (headless +
-  offscreen GUI)* — 5 new tests (each verified red without the fix), 1183 green
-  ([#170](https://github.com/utyagi24/klarpdf/pull/170))
+  so a clamped scroll near the end can't drift it. (3) **A coasting wheel can no longer undo a
+  click** — the reported "clicked eight times and the first slide never moved, worse each time I
+  flick to the end and back". A flywheel wheel keeps emitting for seconds after the hand leaves it,
+  and those events walked the deck back under the reader; a click/key step now parks the wheel
+  until it has actually gone quiet (250 ms, `event.timestamp()`, falling back to our own clock so
+  an unstamped platform fails *open*). Reproduced end-to-end on the owner's brochure — click → page
+  2 → coast → page 1 before, holds at page 2 after. A step onto the row already showing costs
+  nothing now, so a burst piling into either end of the deck renders nothing at all. (4) A
+  **double-click** steps a slide: impatient clicking makes every second press a double-click, which
+  the press handler never saw. (5) **F5 during a slideshow is a no-op** instead of a leave-and-
+  re-enter blink, and from Full Screen it switches the projection on **in place**. (6) **F11 exits
+  Full Screen**, not just Esc: a menu action's shortcut is live only while its menu bar is
+  *visible*, which the mode hides — the window now carries the Full Screen + Slideshow actions
+  itself, and F11 toggles chrome-free reading whichever mode is up (during a slideshow it leaves
+  that too). — *Windows (headless + offscreen GUI)* — 9 new tests (each verified red without the
+  fix), 1187 green ([#170](https://github.com/utyagi24/klarpdf/pull/170))
 - [x] **M77** Annotations sidebar tab — a third tab beside Pages | Outline listing **every mark
   in the document** as "p. N · type · snippet" rows: ours from the PageRef descriptors (text
   markups read their covered page text as the snippet; boxes/stamps/fields their own), foreign

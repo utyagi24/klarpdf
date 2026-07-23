@@ -995,9 +995,23 @@ class MainWindow(QMainWindow):
     def _start_slideshow(self) -> None:
         """View ▸ Slideshow (F5): one page per screen at Fit Page — click / arrows advance, Esc
         exits. Chrome-free like Full Screen, plus the view narrows to whole-page stepping; the
-        prior zoom / fit comes back on exit."""
-        if self._chrome_state is not None:
-            self._exit_chromeless()  # e.g. F5 while already reading full-screen
+        prior zoom / fit comes back on exit.
+
+        F5 during a slideshow is a **no-op** — leaving and re-entering only blinked the screen and
+        landed you back where you started. From Full Screen it switches the projection on in place,
+        for the same reason: the chrome is already down, so there is nothing to tear down."""
+        state = self._chrome_state
+        if state is not None:
+            if state["slideshow"]:
+                return
+            # The remembered zoom/fit is the reader's from before Full Screen — exactly what the
+            # slideshow's forced Fit Page must restore on the way out, so it carries over as is.
+            state["slideshow"] = True
+            self._a_fullscreen.setChecked(False)
+            self.view.slideshow = True
+            self.view.fit_page()
+            self.view.setFocus()
+            return
         self._enter_chromeless(slideshow=True)
 
     def _enter_chromeless(self, slideshow: bool) -> None:
