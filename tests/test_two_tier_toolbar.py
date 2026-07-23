@@ -77,9 +77,11 @@ def test_reading_bar_holds_the_reading_set_and_nothing_else(win):
 
 
 def test_markup_bar_carries_the_kit(win):
-    """The summoned bar: modes · text box · the split-buttons ride as widgets · redact pair."""
+    """The summoned bar: modes · text box · the split-buttons ride as widgets · one Redact slot
+    (M72 — the pair became a gesture-detecting single button)."""
     texts = {a.text().replace("&", "") for a in win.markup_bar.actions() if a.text()}
-    assert {"Select", "Grab", "Objects", "Add Text Box", "Redact Text", "Redact Block"} <= texts
+    assert {"Select", "Grab", "Objects", "Add Text Box", "Redact"} <= texts
+    assert "Redact Text" not in texts and "Redact Block" not in texts
     # The Markup ▾ / Draw ▾ / style / Stamp ▾ buttons are widgets on this bar.
     for button in (win._markup_button, win._draw_button, win._markup_style_button,
                    win._stamp_button):

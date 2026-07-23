@@ -80,6 +80,10 @@ class PdfView(QGraphicsView):
         # A one-shot armed insert tool (ArmedTool.TEXTBOX / .REDACT) — fires once then auto-reverts
         # to SELECT (M21). None means no tool is armed.
         self._armed: "ArmedTool | None" = None
+        # True while the armed concrete redact tool was resolved from the combined REDACT slot
+        # (M72) — a release that commits nothing then restores REDACT, so a stray click can't
+        # leave the *resolved* gesture locked in for the next press.
+        self._redact_combined = False
         self.setScene(QGraphicsScene(self))
         self.setBackgroundBrush(QBrush(QColor(0x30, 0x30, 0x30)))
         # SELECT mode: left-drag selects text (M3), so no hand-drag panning; scroll via wheel/bars.
@@ -333,6 +337,26 @@ class PdfView(QGraphicsView):
                     self.disarm()
                 event.accept()
                 return
+            if self._armed is ArmedTool.REDACT:
+                # One Redact slot, two gestures (M72): the press point's text hit decides — a
+                # drag starting on a word runs the text-flow redaction, a drag starting in
+                # margin/image space rubber-bands a block. Resolved *at press* to the concrete
+                # tool, then falls through to that tool's own branch below, so the armed-
+                # selection tint, the release path and the one-shot disarm are exactly the
+                # explicit tools' — nothing downstream knows the combined slot exists. A press
+                # off any page stays armed and unresolved (a mis-click neither wastes the arm
+                # nor locks in a gesture); a rotated view resolves to the block gesture, since
+                # text selection is disabled there (see TextSelection).
+                page_index, _local = self.page_and_local_at(scene_pt)
+                if page_index is None:
+                    event.accept()
+                    return
+                on_text = (self._rotation == 0 and self.selection is not None
+                           and self.selection.has_word_at(scene_pt))
+                resolved = ArmedTool.REDACT_TEXT if on_text else ArmedTool.REDACT_REGION
+                self._armed = resolved
+                self._redact_combined = True  # release restores REDACT if nothing commits
+                self.armedChanged.emit(resolved)
             if self._armed is ArmedTool.REDACT_REGION and self.annotations is not None:
                 self.annotations.begin_redaction(scene_pt)  # no-op off-page; stays armed
                 event.accept()
@@ -543,11 +567,18 @@ class PdfView(QGraphicsView):
         if self.selection is not None and self.selection.active:
             self.selection.finish()
             # An armed drag-over-text tool applies to what was just selected, then disarms — but a
-            # stray click that selected nothing leaves the tool armed (no wasted arm).
+            # stray click that selected nothing leaves the tool armed (no wasted arm). If that
+            # tool was resolved from the combined Redact slot (M72), the no-commit click restores
+            # REDACT — otherwise the resolved text gesture would stay locked in and the next
+            # press on a margin would drag-select instead of rubber-banding.
             if self._armed is not None and self._armed.drags_text:
                 if self.selection.selected_words():
                     self.applyTextTool.emit(self._armed)
                     self.disarm()
+                elif self._redact_combined:
+                    self._armed = ArmedTool.REDACT
+                    self._redact_combined = False
+                    self.armedChanged.emit(ArmedTool.REDACT)
             event.accept()
             return
         super().mouseReleaseEvent(event)
@@ -866,11 +897,13 @@ class PdfView(QGraphicsView):
         mode, shows a crosshair, and announces the change so the toolbar can light the button."""
         self.set_mode(InteractionMode.SELECT)  # NB: set_mode disarms first; we set _armed after
         self._armed = tool
+        self._redact_combined = False  # an explicit arm is never the resolved combined slot
         self.viewport().setCursor(Qt.CursorShape.CrossCursor)
         self.armedChanged.emit(tool)
 
     def disarm(self) -> None:
         """Cancel any armed one-shot tool and return to plain SELECT behaviour."""
+        self._redact_combined = False
         if self._armed is None:
             return
         if self.cropping:  # Esc mid-drag: drop the band without emitting (nothing committed)

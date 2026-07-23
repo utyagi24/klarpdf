@@ -20,6 +20,10 @@ Two layers:
     line-bar path as highlight);
   - **REDACT_TEXT** — drag over text to redact it (text-flow, one bar per line);
   - **REDACT_REGION** — drag a rectangle to destructively remove a block/image (M21);
+  - **REDACT** — the markup bar's one Redact slot (M72): armed, the *press point* decides which
+    of the two gestures runs — a drag starting on a word is the text-flow redaction, a drag
+    starting elsewhere rubber-bands a block. Resolved at press to the concrete tool above, so
+    everything downstream (selection tint, release, one-shot disarm) is exactly theirs;
   - **CROP** — drag the rectangle to keep; the rest of the page is hidden, not removed (M48).
 """
 
@@ -41,6 +45,7 @@ class ArmedTool(Enum):
     STRIKEOUT = "strikeout"
     REDACT_TEXT = "redact_text"
     REDACT_REGION = "redact_region"
+    REDACT = "redact"   # M72 — the combined slot; resolves to one of the two above at press
     CROP = "crop"
     PEN = "pen"
     LINE = "line"
@@ -85,3 +90,9 @@ class ArmedTool(Enum):
     def places_field(self) -> bool:
         """True for the form-field placement tool (M69), which reuses M62's drag-a-box gesture."""
         return self is ArmedTool.FIELD
+
+
+# The redact family (M72): the combined slot plus the two concrete tools it resolves to. One
+# name for "some redact tool is armed" — the markup bar's Redact button lights for any of them,
+# and clicking it then disarms whichever is armed.
+REDACT_TOOLS = frozenset({ArmedTool.REDACT, ArmedTool.REDACT_TEXT, ArmedTool.REDACT_REGION})

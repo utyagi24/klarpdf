@@ -704,8 +704,18 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   arm and the Select/Grab/Objects base mode alone (Grab is a reading tool). View ▸ Markup Toolbar
   (Ctrl+Shift+M); new `markup` icon. — *Windows (headless + offscreen GUI)* — 12 new tests, 1082
   green ([#159](https://github.com/utyagi24/klarpdf/pull/159))
-- [ ] **M72** One Redact tool — gesture detect: a drag starting on text = text redaction, elsewhere
-  = block; the two slots become one; menu verbs unchanged — *WSLg*
+- [x] **M72** One Redact tool — the markup bar's two Redact slots are **one armed tool** with
+  Preview-style gesture detect: `ArmedTool.REDACT` resolves **at press** on the existing text-hit
+  path (`TextSelection.has_word_at`, exact containment — a margin press must mean *block*, never
+  nearest-snap) — press-on-word → the text-flow redaction, press-elsewhere → the rubber-band block,
+  and the resolution swaps in the concrete tool so the armed tint / release / one-shot disarm are
+  exactly the explicit tools'. A press off any page stays armed **and unresolved**; a no-commit
+  click restores the combined arm (the resolved gesture can't lock in); a rotated view resolves to
+  block (text selection is disabled there). The slot's button lights for the whole redact family
+  and a click on the lit button always disarms; a live selection applies immediately (the M46
+  contract). Tools ▸ Redact Text (Ctrl+Shift+R) / Redact Block unchanged — the slot is toolbar
+  sugar, not a third verb. — *Windows (headless + offscreen GUI)* — 14 new tests, 1096 green
+  ([#160](https://github.com/utyagi24/klarpdf/pull/160))
 - [ ] **M73** Sticky markup arming — Highlight / Underline / Strike Out / Pen stay armed across
   gestures; exits are re-click · Esc · arming another tool; placement + destructive tools stay
   one-shot — *WSLg*
