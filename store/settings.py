@@ -129,15 +129,38 @@ class Settings:
     # next read rather than lingering as a dead menu entry.
 
     _SIGNATURE_KEY = "recent_signatures"
+    _SIGNATURE_SETTINGS_KEY = "signature_settings"
     _MAX_SIGNATURES = 6
 
-    def add_recent_signature(self, path: str) -> None:
-        """Record ``path`` as the most recently used signature / stamp image."""
+    def add_recent_signature(self, path: str, white_to_alpha: "bool | None" = None,
+                             white_threshold: "float | None" = None) -> None:
+        """Record ``path`` as the most recently used signature / stamp image.
+
+        Given the transparency settings, they are remembered **for that image** (M63.1): how much
+        paper to drop out of a photographed signature is a property of the scan, not of the day, so
+        re-placing it should not mean re-tuning it — and the Recent Signatures menu, which places
+        with no dialog at all, has no other way to know. Stored beside the list rather than in it,
+        so the list stays exactly what it says it is: paths, never pixels. The keys are paths the
+        list already holds, so this adds no information about the user's files.
+        """
         key = normalize_path(path)
         current = list(self.get_pref(self._SIGNATURE_KEY, []) or [])
         updated = [path] + [p for p in current if normalize_path(p) != key]
         del updated[self._MAX_SIGNATURES:]
         self.set_pref(self._SIGNATURE_KEY, updated)
+        tuned = dict(self.get_pref(self._SIGNATURE_SETTINGS_KEY, {}) or {})
+        if white_to_alpha is not None and white_threshold is not None:
+            tuned[key] = {"white_to_alpha": bool(white_to_alpha),
+                          "white_threshold": float(white_threshold)}
+        self._prune_signature_settings(updated, tuned)
+
+    def signature_settings(self, path: str) -> "dict | None":
+        """The transparency settings ``path`` was last placed with, or ``None`` if it has none."""
+        entry = (self.get_pref(self._SIGNATURE_SETTINGS_KEY, {}) or {}).get(normalize_path(path))
+        if not isinstance(entry, dict) or not isinstance(entry.get("white_threshold"), (int, float)):
+            return None
+        return {"white_to_alpha": bool(entry.get("white_to_alpha", False)),
+                "white_threshold": float(entry["white_threshold"])}
 
     def recent_signatures(self) -> list[str]:
         """Recent signature paths, most-recent-first, with vanished files pruned."""
@@ -145,10 +168,21 @@ class Settings:
         present = [p for p in current if os.path.exists(p)]
         if present != current:
             self.set_pref(self._SIGNATURE_KEY, present)
+            self._prune_signature_settings(present)
         return present
+
+    def _prune_signature_settings(self, kept_paths: list, tuned: "dict | None" = None) -> None:
+        """Drop remembered settings for images no longer on the list — a setting must not outlive
+        the entry it belongs to (a file the user deleted to revoke it least of all)."""
+        if tuned is None:
+            tuned = dict(self.get_pref(self._SIGNATURE_SETTINGS_KEY, {}) or {})
+        keys = {normalize_path(p) for p in kept_paths}
+        self.set_pref(self._SIGNATURE_SETTINGS_KEY,
+                      {k: v for k, v in tuned.items() if k in keys})
 
     def clear_recent_signatures(self) -> None:
         self.set_pref(self._SIGNATURE_KEY, [])
+        self.set_pref(self._SIGNATURE_SETTINGS_KEY, {})
 
     # ---- app-global preferences -------------------------------------------------
 

@@ -237,9 +237,40 @@ def test_recent_signatures_dedupe_and_cap(tmp_path):
 
 def test_clear_recent_signatures(tmp_path, photo_sig):
     settings = Settings(tmp_path / "vs.json")
-    settings.add_recent_signature(photo_sig)
+    settings.add_recent_signature(photo_sig, white_to_alpha=True, white_threshold=0.7)
     settings.clear_recent_signatures()
     assert settings.recent_signatures() == []
+    assert settings.signature_settings(photo_sig) is None   # the settings go with the entry
+
+
+def test_transparency_settings_ride_with_the_path(tmp_path, photo_sig):
+    """How much paper to drop out is a property of the scan, so it is remembered per image (M63.1)
+    — beside the list, never inside it, so "paths, never pixels" still describes the list itself."""
+    settings = Settings(tmp_path / "vs.json")
+    settings.add_recent_signature(photo_sig, white_to_alpha=True, white_threshold=0.7)
+    assert settings.signature_settings(photo_sig) == {"white_to_alpha": True,
+                                                      "white_threshold": 0.7}
+    settings.add_recent_signature(photo_sig)              # re-placing it keeps what it was tuned to
+    assert settings.signature_settings(photo_sig)["white_threshold"] == 0.7
+    import json
+
+    stored = json.loads((tmp_path / "vs.json").read_text(encoding="utf-8"))
+    assert stored["preferences"]["recent_signatures"] == [photo_sig]
+
+
+def test_an_untuned_image_has_no_remembered_settings(tmp_path, photo_sig):
+    settings = Settings(tmp_path / "vs.json")
+    settings.add_recent_signature(photo_sig)
+    assert settings.signature_settings(photo_sig) is None
+
+
+def test_settings_do_not_outlive_their_entry(tmp_path, photo_sig):
+    """A file deleted to revoke the signature must not leave its tuning behind."""
+    settings = Settings(tmp_path / "vs.json")
+    settings.add_recent_signature(photo_sig, white_to_alpha=True, white_threshold=0.7)
+    os.remove(photo_sig)
+    assert settings.recent_signatures() == []
+    assert settings.signature_settings(photo_sig) is None
 
 
 # ---- the two-click second use (offscreen GUI) -----------------------------------
@@ -302,6 +333,53 @@ def test_the_second_use_is_pick_then_drag(win, photo_sig):
     marks = [a for a in win.vdoc.page_annotations(0) if isinstance(a, ImageStamp)]
     assert len(marks) == 1
     assert marks[0].image_path == photo_sig
+
+
+def test_the_menu_places_it_the_way_it_was_placed_last_time(win, photo_sig):
+    """The menu path has no dialog, so it had nowhere to re-tick "make white background
+    transparent" — a photo signature came back with its paper on (owner-reported)."""
+    win._settings.add_recent_signature(photo_sig, white_to_alpha=True, white_threshold=0.70)
+    win._rebuild_signature_menu()
+
+    win._place_recent_signature(photo_sig)
+    overlay = win.view.annotations
+    overlay.begin_draw(ArmedTool.STAMP, _scene(win, 100, 300))
+    overlay.update_draw(_scene(win, 300, 360), Qt.KeyboardModifier.NoModifier)
+    overlay.finish_draw()
+
+    mark = [a for a in win.vdoc.page_annotations(0) if isinstance(a, ImageStamp)][0]
+    assert mark.white_to_alpha is True
+    assert mark.white_threshold == pytest.approx(0.70)
+
+
+def test_the_dialog_reopens_an_image_the_way_it_was_left(win, photo_sig):
+    from ui.signature_dialog import SignatureDialog
+
+    remembered = {photo_sig: {"white_to_alpha": True, "white_threshold": 0.70}}
+    dialog = SignatureDialog(win, [photo_sig], remembered)
+    try:
+        assert dialog.transparent.isChecked() is True
+        assert dialog.strength.value() == 30          # (100 - 0.70 * 100)
+        assert dialog.strength.isEnabled() is True    # the blocked toggle still enabled the slider
+        assert dialog.image_stamp().white_threshold == pytest.approx(0.70)
+    finally:
+        dialog.deleteLater()
+
+
+def test_a_newly_browsed_image_keeps_the_settings_on_screen(win, photo_sig, tmp_path):
+    """An image with no memory of its own inherits what is on the controls — which, since the
+    dialog opens on the most recent entry, is the last-used setting. So re-scanning the same
+    signature to a new file starts tuned."""
+    from ui.signature_dialog import SignatureDialog
+
+    remembered = {photo_sig: {"white_to_alpha": True, "white_threshold": 0.70}}
+    dialog = SignatureDialog(win, [photo_sig], remembered)
+    try:
+        dialog.set_path(str(tmp_path / "never-seen.png"))
+        assert dialog.transparent.isChecked() is True
+        assert dialog.strength.value() == 30
+    finally:
+        dialog.deleteLater()
 
 
 def test_a_vanished_recent_signature_is_dropped_not_placed(win, photo_sig):

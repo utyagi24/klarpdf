@@ -1314,16 +1314,23 @@ class MainWindow(QMainWindow):
 
         Only the **path** is remembered, never the pixels: a signature is the most sensitive thing
         this app touches, and a convenience copy would be one the user did not ask for and cannot
-        find to delete. Moving or deleting the file revokes it.
+        find to delete. Moving or deleting the file revokes it. The transparency settings it was
+        placed with ride alongside the path (M63.1), so the dialog reopens on that image the way it
+        was left instead of asking again for the one value you have to look at to judge.
         """
         from ui.signature_dialog import SignatureDialog
 
-        dialog = SignatureDialog(self, self._settings.recent_signatures())
+        recent = self._settings.recent_signatures()
+        remembered = {path: self._settings.signature_settings(path) for path in recent}
+        dialog = SignatureDialog(self, recent, remembered)
         if dialog.exec() != QDialog.DialogCode.Accepted or not dialog.path():
             return
-        self._settings.add_recent_signature(dialog.path())
+        stamp = dialog.image_stamp()
+        self._settings.add_recent_signature(dialog.path(),
+                                            white_to_alpha=stamp.white_to_alpha,
+                                            white_threshold=stamp.white_threshold)
         self._rebuild_signature_menu()
-        self._arm_content_mark(dialog.image_stamp())
+        self._arm_content_mark(stamp)
 
     def _rebuild_signature_menu(self) -> None:
         """Refresh the Stamp ▾ ▸ Recent Signatures submenu from the store.
@@ -1357,15 +1364,23 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, self._rebuild_signature_menu)
 
     def _place_recent_signature(self, path: str) -> None:
-        """Arm a previously used signature straight from the menu — no dialog (M63)."""
+        """Arm a previously used signature straight from the menu — no dialog (M63).
+
+        With no dialog there is nowhere to re-tick "make white background transparent", so a photo
+        signature came back with its paper on: the settings it was placed with are remembered per
+        image (M63.1) and applied here, which is what makes this path *the same placement as last
+        time* rather than a bare re-open of the file."""
         if not os.path.exists(path):
             # It vanished; drop it rather than fail mysteriously. Deferred — see the helper: we are
             # inside the triggered handler of the very action the rebuild would destroy.
             self._rebuild_signature_menu_later()
             return
+        # signature_settings returns the ImageStamp keywords themselves, or nothing at all — an
+        # image placed before M63.1 (or never tuned) falls through to the descriptor's own defaults.
+        remembered = self._settings.signature_settings(path) or {}
         self._settings.add_recent_signature(path)
         self._rebuild_signature_menu_later()
-        self._arm_content_mark(ImageStamp(rect=(0.0, 0.0, 1.0, 1.0), image_path=path))
+        self._arm_content_mark(ImageStamp(rect=(0.0, 0.0, 1.0, 1.0), image_path=path, **remembered))
 
     def _clear_recent_signatures(self) -> None:
         # Same hazard: "Clear List" lives in the menu the rebuild empties.

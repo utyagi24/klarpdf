@@ -835,6 +835,19 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   band saying nothing the "No results" label doesn't; it returns still listing when the query
   matches again. — *Windows (headless + offscreen GUI)* — 4 new tests, 1191 green
   ([#171](https://github.com/utyagi24/klarpdf/pull/171))
+- [x] **M63.1** Signature transparency is **remembered per image** (owner report: "Signature/Image
+  does not remember the transparency setting last used"). How much paper to drop out of a scan is a
+  property of that scan, not of the day, so the settings ride beside the recent list keyed by path
+  (`Settings.signature_settings`) — *beside*, never inside it, so "paths, never pixels" still
+  describes the list itself, and the tuning is pruned with its entry (a file deleted to revoke a
+  signature leaves nothing behind). Choosing a known image in the dialog restores its checkbox +
+  slider; an image with no memory — anything just browsed to — keeps whatever is on the controls,
+  which is the last-used setting, since the dialog opens on the most recent entry (so a *re-scan*
+  starts tuned). The **Recent Signatures menu** gains the most from it: with no dialog it had
+  nowhere to re-tick "make white background transparent", so a photo signature came back with its
+  paper on — it now places exactly as last time, which is what that path claims to be. — *Windows
+  (headless + offscreen GUI)* — 7 new tests, 1197 green
+  ([#172](https://github.com/utyagi24/klarpdf/pull/172))
 - [x] **M77** Annotations sidebar tab — a third tab beside Pages | Outline listing **every mark
   in the document** as "p. N · type · snippet" rows: ours from the PageRef descriptors (text
   markups read their covered page text as the snippet; boxes/stamps/fields their own), foreign

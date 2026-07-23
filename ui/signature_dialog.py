@@ -55,17 +55,30 @@ _NOT_CRYPTO = ("This places a picture of your signature — ink-equivalent, like
 # `(100 - strength) / 100`, so the old 0.85 default is strength 15 and the old 0.50..0.99 cutoff
 # range is strength 1..50 — same reach, read the way a slider looks.
 _MIN_STRENGTH, _MAX_STRENGTH, _DEFAULT_STRENGTH = 1, 50, 15
+_DEFAULT_THRESHOLD = (100 - _DEFAULT_STRENGTH) / 100.0
 
 _PREVIEW = (320, 150)
+
+
+def _strength_for(white_threshold: float) -> int:
+    """A remembered luminance cutoff read back as the slider's "how much to remove" (M63.1) — the
+    inverse of :meth:`SignatureDialog._white_threshold`, clamped to the slider's reach."""
+    return max(_MIN_STRENGTH, min(_MAX_STRENGTH, round(100 - white_threshold * 100)))
 
 
 class SignatureDialog(QDialog):
     """Choose an image, tune its background removal, and get back an :class:`ImageStamp` template."""
 
-    def __init__(self, parent, recent: list[str]) -> None:
+    def __init__(self, parent, recent: list[str], settings: "dict | None" = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Place Signature or Image")
         self._path: str | None = None
+        # ``settings`` maps a recent path to the transparency settings it was last placed with
+        # (M63.1). Choosing that image restores them; an image with none — anything just browsed to
+        # — leaves the controls where they are, which is the last-used setting, since the dialog
+        # opens on the most recent entry. So a re-scan of the same signature starts tuned, and the
+        # one setting whose right value you can only see by looking is never asked for twice.
+        self._remembered = dict(settings or {})
 
         self.recent = QListWidget()
         self.recent.setMaximumHeight(110)
@@ -157,9 +170,30 @@ class SignatureDialog(QDialog):
             self.set_path(path)
 
     def set_path(self, path: str) -> None:
+        self._restore_settings(path)
         self._path = path
         self._set_ok_enabled(bool(path) and os.path.exists(path))
         self._refresh_preview()
+
+    def _restore_settings(self, path: str) -> None:
+        """Put the controls back where this image left them, if it has been placed before.
+
+        Signals are blocked so the preview renders once, from :meth:`set_path`, instead of once per
+        control — and :meth:`_sync_strength` is then called by hand, since the blocked toggle can no
+        longer enable the slider itself.
+        """
+        remembered = self._remembered.get(path)
+        if not remembered:
+            return
+        on = bool(remembered.get("white_to_alpha", False))
+        threshold = float(remembered.get("white_threshold", _DEFAULT_THRESHOLD))
+        for widget in (self.transparent, self.strength):
+            widget.blockSignals(True)
+        self.transparent.setChecked(on)
+        self.strength.setValue(_strength_for(threshold))
+        for widget in (self.transparent, self.strength):
+            widget.blockSignals(False)
+        self._sync_strength(on)
 
     def path(self) -> str | None:
         return self._path
