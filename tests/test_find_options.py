@@ -12,6 +12,7 @@ and lowercase queries exercise the case filter.
 
 from __future__ import annotations
 
+import pymupdf as fitz
 import pytest
 
 from app import PdfApp
@@ -27,6 +28,30 @@ def qapp():
 def win(qapp, a_pdf, tmp_path):
     qapp.settings = Settings(tmp_path / "vs.json")
     w = qapp.open_document(a_pdf)
+    w.show()
+    qapp.processEvents()
+    yield w
+    w.undo_stack.setClean()
+    w.close()
+
+
+@pytest.fixture
+def phrase_pdf(tmp_path) -> str:
+    """Two pages carrying the owner's example: an "electric heater" phrase, plus an "electric"
+    and a "heater" that never sit together."""
+    path = str(tmp_path / "phrases.pdf")
+    doc = fitz.open()
+    doc.new_page().insert_text((72, 100), "electric heater in the hall", fontsize=11)
+    doc.new_page().insert_text((72, 100), "an electric fan and a gas heater", fontsize=11)
+    doc.save(path)
+    doc.close()
+    return path
+
+
+@pytest.fixture
+def phrase_win(qapp, phrase_pdf, tmp_path):
+    qapp.settings = Settings(tmp_path / "vs2.json")
+    w = qapp.open_document(phrase_pdf)
     w.show()
     qapp.processEvents()
     yield w
@@ -94,6 +119,63 @@ def test_toggles_survive_hide_and_revive_with_the_query(win):
     win.find_bar.show_bar()                      # revives the kept query…
     assert win.find_bar._case_box.isChecked()    # …under the kept option
     assert _hits(win) == 0
+
+
+def test_whole_words_is_words_versus_phrase(phrase_win):
+    """Off, a multi-word query is a **list of words** and any of them matches on its own; on, it is
+    one unit — the phrase, as whole words (M75.1, owner's expectation)."""
+    bar = phrase_win.find_bar
+    bar.show_bar()
+    bar._edit.setText("electric heater")
+    assert _hits(phrase_win) == 4                # both "electric"s and both "heater"s
+    bar._word_box.setChecked(True)
+    assert _hits(phrase_win) == 1                # the phrase alone, on page 1
+    assert phrase_win.view.search.hits()[0][0] == 0
+
+
+def test_single_word_queries_are_unchanged(phrase_win):
+    """The word/phrase split only bites on multi-word queries — one word still means what it did:
+    substring off, whole word on."""
+    bar = phrase_win.find_bar
+    bar.show_bar()
+    bar._edit.setText("heat")
+    assert _hits(phrase_win) == 2                # inside "heater", both pages
+    bar._word_box.setChecked(True)
+    assert _hits(phrase_win) == 0                # …and not as a whole word anywhere
+
+
+def test_multi_word_hits_come_in_reading_order(phrase_win):
+    """Each word is searched separately, so the hits are re-ordered per page — next/prev must walk
+    the page the way it is read, not all the "heater"s after all the "electric"s."""
+    bar = phrase_win.find_bar
+    bar.show_bar()
+    bar._edit.setText("heater electric")         # query order is irrelevant
+    hits = phrase_win.view.search.hits()
+    assert [page for page, _box, _snip in hits] == [0, 0, 1, 1]
+    assert hits[0][1][0] < hits[1][1][0]         # "electric" before "heater" on page 1
+    assert hits[2][1][0] < hits[3][1][0]         # …and on page 2
+
+
+def test_hit_verbs_are_dead_without_results(win):
+    """Previous / Next / List All act on hits, so with none there is nothing to click."""
+    bar = win.find_bar
+    bar.show_bar()
+    assert not bar._prev_btn.isEnabled()         # nothing searched yet
+    assert not bar._next_btn.isEnabled()
+    assert not bar._list_btn.isEnabled()
+    bar._edit.setText("ALPHA")
+    assert bar._prev_btn.isEnabled() and bar._next_btn.isEnabled() and bar._list_btn.isEnabled()
+    bar._list_btn.setChecked(True)
+    assert win.search_results.isVisible()
+    bar._edit.setText("NOTHING-IN-HERE")
+    assert bar._label.text() == "No results"
+    assert not bar._prev_btn.isEnabled()
+    assert not bar._next_btn.isEnabled()
+    assert not bar._list_btn.isEnabled()
+    assert not win.search_results.isVisible()    # the empty band goes with them
+    bar._edit.setText("ALPHA")                   # …and comes back, listing, with the hits
+    assert bar._list_btn.isEnabled()
+    assert win.search_results.isVisible() and win.search_results.count() == 3
 
 
 def test_find_and_redact_dialog_is_unaffected(win, monkeypatch):

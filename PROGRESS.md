@@ -820,6 +820,21 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   itself, and F11 toggles chrome-free reading whichever mode is up (during a slideshow it leaves
   that too). — *Windows (headless + offscreen GUI)* — 9 new tests (each verified red without the
   fix), 1187 green ([#170](https://github.com/utyagi24/klarpdf/pull/170))
+- [x] **M75.1** Find bar: **Whole words** decides *what the query is*, and the hit verbs go dead
+  without hits (two owner reports from the R6 test pass). (1) The toggle was only M64's
+  boundary filter — a multi-word query was a phrase either way, so ticking it on "electric heater"
+  changed nothing visible. It now also splits the query: **off**, the query is a list of words and
+  any of them matches on its own (every *electric*, every *heater*, still inside longer words);
+  **on**, it is one unit — the phrase, and only as whole words. A single-word query is untouched in
+  both states, so nothing M75 shipped changes meaning. `search()` runs `search_for` per term and
+  re-orders a multi-term page into reading order (next/prev must walk the page as it is read), with
+  duplicate boxes collapsed and the case filter comparing against the term that found the hit. The
+  Find-and-Redact dialog drives the same controller, so its identically-labelled toggle gains the
+  same meaning. (2) **Previous / Next / List All are disabled while the search has no hits** —
+  dead verbs, not clickable no-ops (the M77 rule) — and the results panel goes with them, an empty
+  band saying nothing the "No results" label doesn't; it returns still listing when the query
+  matches again. — *Windows (headless + offscreen GUI)* — 4 new tests, 1191 green
+  ([#171](https://github.com/utyagi24/klarpdf/pull/171))
 - [x] **M77** Annotations sidebar tab — a third tab beside Pages | Outline listing **every mark
   in the document** as "p. N · type · snippet" rows: ours from the PageRef descriptors (text
   markups read their covered page text as the snippet; boxes/stamps/fields their own), foreign
