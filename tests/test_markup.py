@@ -210,10 +210,16 @@ def test_picking_a_markup_colour_does_not_hijack_the_button_face(win):
 
 
 def test_remove_labels_in_context_menu(win):
+    from viewer.markup_style import SwatchRowAction
+
     win.vdoc.add_annotation(0, Underline(_BARS))
     win.view.reload()
     win.view.annotations.repaint()
     center = win.view.scene_rect_for_box(0, _BARS[0]).center()
     menu = win._view_context_menu(center)
-    # The M76 layer section sits above; the type-specific Remove label still closes the menu.
-    assert [a.text() for a in menu.actions() if a.text()][-1] == "Remove underline"
+    # Since M76.1 removal is the Underline row's slashed dot; the undo label keeps the words.
+    row = next(a for a in menu.actions()
+               if isinstance(a, SwatchRowAction) and a.title == "Underline")
+    assert row.remove_button.toolTip() == "Remove underline"
+    row.remove_button.click()
+    assert win.undo_stack.undoText() == "Remove underline"

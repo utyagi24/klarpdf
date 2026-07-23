@@ -36,9 +36,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
-from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QActionGroup, QColor, QIcon, QPixmap
-from PySide6.QtWidgets import QColorDialog, QMenu, QToolButton
+from PySide6.QtCore import QPointF, QRectF, QSize, Qt, Signal
+from PySide6.QtGui import QActionGroup, QColor, QGuiApplication, QIcon, QPainter, QPalette, QPen, QPixmap
+from PySide6.QtWidgets import (
+    QColorDialog,
+    QHBoxLayout,
+    QLabel,
+    QMenu,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
+    QWidgetAction,
+)
 
 # Stroke presets — the redline red default first, then a small spread that reads on white paper.
 _STROKE_PRESETS = (
@@ -134,6 +143,98 @@ def swatch_icon(color: tuple[float, float, float] | None, size: int = 16) -> QIc
         return QIcon(pix)
     pix.fill(QColor.fromRgbF(*color))
     return QIcon(pix)
+
+
+def _close_colors(a: tuple, b: tuple) -> bool:
+    """Tolerant colour equality — a save/reopen round-trips through PDF floats, so an exact ==
+    against a palette tuple would miss (the same slack model-side merge uses)."""
+    return len(a) == len(b) and all(abs(x - y) <= 0.01 for x, y in zip(a, b))
+
+
+def dot_icon(color: tuple[float, float, float] | None, ring: bool = False,
+             size: int = 18) -> QIcon:
+    """A round colour dot for the M76.1 swatch rows. ``None`` draws the standard "no colour"
+    glyph — a hollow dot with a red diagonal slash (Preview's own removal control) — so the row
+    stays pure dots with no word to misread; the button tooltip carries the verb. ``ring`` marks
+    the layer's *current* state (its colour, or slashed = absent) in the theme's text colour."""
+    pix = QPixmap(size, size)
+    pix.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pix)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    inner = QRectF(2.5, 2.5, size - 5.0, size - 5.0)
+    if color is None:
+        painter.setPen(QPen(QColor(128, 128, 128, 200), 1.2))
+        painter.setBrush(QColor(255, 255, 255, 60))
+        painter.drawEllipse(inner)
+        painter.setPen(QPen(QColor(0xC0, 0x39, 0x2B), 1.6))  # the red slash reads "remove"
+        offset = inner.width() * 0.2071  # chord inset: the slash spans the circle, not its box
+        painter.drawLine(QPointF(inner.left() + offset, inner.bottom() - offset),
+                         QPointF(inner.right() - offset, inner.top() + offset))
+    else:
+        painter.setPen(QPen(QColor(0, 0, 0, 50), 1))
+        painter.setBrush(QColor.fromRgbF(*color))
+        painter.drawEllipse(inner)
+    if ring:
+        app = QGuiApplication.instance()
+        ring_color = (app.palette().color(QPalette.ColorRole.WindowText)
+                      if app is not None else QColor("#2b2b2b"))
+        painter.setPen(QPen(ring_color, 1.4))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawEllipse(QRectF(0.8, 0.8, size - 1.6, size - 1.6))
+    painter.end()
+    return QIcon(pix)
+
+
+class SwatchRowAction(QWidgetAction):
+    """One markup-layer section of the M76.1 context menu, Preview's layout: a small header
+    ("Highlight" / "Underline" / "Strike Out") over a **horizontal row of colour dots** ending in
+    the slashed remove dot. Clicking a dot closes the menu and emits :attr:`picked` — a colour
+    tuple to recolour/add the layer, ``None`` to remove it. The ring marks the layer's current
+    state, so the row is also where you *read* what is on the words (radio semantics: clicking
+    the ringed dot is a harmless no-op, not dead chrome)."""
+
+    picked = Signal(object)  # (r, g, b) to paint the layer, or None to remove it
+
+    def __init__(self, menu: QMenu, title: str, palette, active: tuple | None) -> None:
+        super().__init__(menu)
+        self.title = title
+        self.active = active
+        self.buttons: dict[str, QToolButton] = {}
+        box = QWidget()
+        column = QVBoxLayout(box)
+        column.setContentsMargins(12, 4, 12, 4)
+        column.setSpacing(2)
+        column.addWidget(QLabel(title))
+        row = QHBoxLayout()
+        row.setSpacing(2)
+        for name, rgb in palette:
+            ringed = active is not None and _close_colors(rgb, active)
+            button = self._dot(menu, name, dot_icon(rgb, ring=ringed))
+            button.clicked.connect(lambda _c=False, c=rgb: self._pick(menu, c))
+            row.addWidget(button)
+            self.buttons[name] = button
+        self.remove_button = self._dot(menu, f"Remove {title.lower()}",
+                                       dot_icon(None, ring=active is None))
+        self.remove_button.clicked.connect(lambda _c=False: self._pick(menu, None))
+        row.addWidget(self.remove_button)
+        row.addStretch(1)
+        column.addLayout(row)
+        self.setDefaultWidget(box)
+
+    @staticmethod
+    def _dot(parent, tooltip: str, icon: QIcon) -> QToolButton:
+        button = QToolButton(parent)
+        button.setAutoRaise(True)
+        button.setIcon(icon)
+        button.setIconSize(QSize(18, 18))
+        button.setFixedSize(24, 24)
+        button.setToolTip(tooltip)
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        return button
+
+    def _pick(self, menu: QMenu, value) -> None:
+        menu.close()  # a widget click doesn't auto-close the menu the way an action does
+        self.picked.emit(value)
 
 
 class MarkupStyleButton(QToolButton):

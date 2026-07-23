@@ -758,6 +758,19 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   identical repaints and no-layer removals are no-ops. "Remove <noun>" still closes the menu. —
   *Windows (headless + offscreen GUI)* — 10 new tests, 1138 green
   ([#164](https://github.com/utyagi24/klarpdf/pull/164))
+- [x] **M76.1** Markup context menu reshaped to **Preview's swatch rows** (owner feedback from the
+  M78 test pass: the M76 layout offered *two* removal wordings at once — "No Highlight" beside
+  "Remove highlight"). Now three sections — Highlight · Underline · Strike Out — each a header over
+  one **horizontal row of colour dots** (`SwatchRowAction`) ending in the standard **slashed
+  no-colour dot**: a colour recolours/lays the layer through the merge, the slashed dot removes it
+  (verb on hover — the owner asked for better than the word "None", and a glyph with "Remove
+  highlight" as its tooltip beats any label), a ring marks each layer's current state (radio
+  semantics). The rows are the complete change set, so the trailing "Remove <noun>" entry is gone —
+  **exactly one removal path per layer** — and the line layers gain direct colour choice their
+  toggles never had. Offscreen render inspected (layout/rings/slash correct; header tofu is the
+  Windows offscreen font stack, confirmed by a control grab). — *Windows (headless + offscreen
+  GUI)* — 12 tests rewritten incl. the one-path regression, 1162 green
+  ([#167](https://github.com/utyagi24/klarpdf/pull/167))
 - [x] **M77** Annotations sidebar tab — a third tab beside Pages | Outline listing **every mark
   in the document** as "p. N · type · snippet" rows: ours from the PageRef descriptors (text
   markups read their covered page text as the snippet; boxes/stamps/fields their own), foreign
