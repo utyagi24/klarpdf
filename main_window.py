@@ -192,6 +192,12 @@ class MainWindow(QMainWindow):
         self.thumbs = ThumbnailPanel(self.vdoc)
         self.thumbs.source_key = normalize_path(path)  # identity for cross-window drag/drop
         self.outline = None  # OutlinePanel — exists only while the document has an outline (M45)
+        # AnnotationsPanel (M77) — exists only while the document has marks (same owner rule).
+        self.annotations_panel = None
+        # Per-source-page "does it carry foreign annotations at all?" — scanned once, because the
+        # in-memory sources are immutable in-session (foreign edits are descriptors on the refs).
+        # Keyed by (source_id, source_page_index); cleared on _reset_to_file (fresh bytes).
+        self._foreign_presence: dict[tuple, bool] = {}
         self.pages_dock = QDockWidget("Pages", self)
         # Closable (hide/show via View ▸ Sidebar) but NOT floatable or movable — it must stay
         # docked, never tear off into a separate window the user can lose (the inherited M2 bug).
@@ -234,15 +240,19 @@ class MainWindow(QMainWindow):
     # ---- sidebar (Pages + optional Outline, M45) --------------------------------
 
     def _mount_sidebar(self) -> None:
-        """(Re)build the dock's contents for the current document: a Pages | Outline tab switcher
-        when the document has an outline, else the bare Pages panel — no tab and no tab bar
-        (owner rule: a TOC-less document keeps the plain pre-M45 sidebar; inapplicable chrome is
-        invisible, not greyed out). Re-run by ``_reset_to_file`` (Revert / redaction commit /
-        external reload), where the freshly-read file may have gained or lost its outline."""
+        """(Re)build the dock's contents for the current document: a Pages | Outline | Annotations
+        tab switcher carrying exactly the tabs that apply — Outline only when the document has an
+        outline (M45), Annotations only while it has marks (M77) — else the bare Pages panel, no
+        tab and no tab bar (owner rule: inapplicable chrome is invisible, not greyed out). Re-run
+        by ``_reset_to_file`` (Revert / redaction commit / external reload), where the freshly-read
+        file may have gained or lost either, and by ``_on_doc_changed`` when an edit crosses the
+        has-marks boundary (the first mark summons the tab, undoing the last dismisses it)."""
         if self.outline is not None:
             self.view.currentPageChanged.disconnect(self.outline.set_current)
             self.outline = None
+        self.annotations_panel = None  # dies with the retired container below
         old = self.pages_dock.widget()  # None at construction
+        extra: list[tuple] = []  # (widget, tab label) beyond Pages
         if self.vdoc.has_outline():
             from organize.outline_panel import OutlinePanel  # lazy — TOC-less docs never pay it
 
@@ -250,10 +260,20 @@ class MainWindow(QMainWindow):
             self.outline.entryActivated.connect(self.view.goto_page)
             self.view.currentPageChanged.connect(self.outline.set_current)
             self.outline.set_current(self.view.current_page)
+            extra.append((self.outline, "Outline"))
+        if self._doc_has_marks():
+            from organize.annotations_panel import AnnotationsPanel  # lazy — clean docs never pay it
+
+            self.annotations_panel = AnnotationsPanel(
+                self.vdoc, self.view.annotations.foreign_annotations)
+            self.annotations_panel.markActivated.connect(self._goto_mark)
+            extra.append((self.annotations_panel, "Annotations"))
+        if extra:
             tabs = QTabWidget()
             tabs.setDocumentMode(True)  # flat sidebar-style tab bar, no page frame
             tabs.addTab(self.thumbs, "Pages")  # reparents thumbs out of any retired container
-            tabs.addTab(self.outline, "Outline")
+            for widget, label in extra:
+                tabs.addTab(widget, label)
             # The dock's resize bounds come from its content widget, and a QTabWidget does not
             # inherit its children's constraints — without this the sidebar becomes freely
             # resizable the moment the switcher mounts (dead space beside the capped thumbnails).
@@ -261,7 +281,12 @@ class MainWindow(QMainWindow):
             tabs.setMinimumWidth(self.thumbs.minimumWidth())
             tabs.setMaximumWidth(self.thumbs.maximumWidth())
             if isinstance(old, QTabWidget):
-                tabs.setCurrentIndex(old.currentIndex())  # a reload keeps the active tab
+                # A reload keeps the active tab — matched by label, since the tab *set* can differ
+                # (e.g. the Annotations tab just appeared or vanished).
+                labels = [tabs.tabText(i) for i in range(tabs.count())]
+                previous = old.tabText(old.currentIndex())
+                if previous in labels:
+                    tabs.setCurrentIndex(labels.index(previous))
             self.pages_dock.setWindowTitle("Sidebar")  # the tab labels carry the specifics
             self.pages_dock.setWidget(tabs)
         else:
@@ -272,6 +297,41 @@ class MainWindow(QMainWindow):
         self.pages_dock.widget().show()
         if old is not None and old is not self.pages_dock.widget() and old is not self.thumbs:
             old.deleteLater()  # retired tab container (thumbs was already reparented out of it)
+
+    def _doc_has_marks(self) -> bool:
+        """Whether any page shows a mark — ours or a live foreign annotation (M77). Cheap on the
+        common paths: our marks short-circuit on the first ref carrying one; the per-source-page
+        foreign presence scan runs once ever (sources are immutable in-session), and the live
+        check (which honours pending deletions) runs only for pages that have foreign marks."""
+        from model.foreign_annots import ForeignDeletion, ForeignMove, read_foreign_annotations
+
+        for page_index, ref in enumerate(self.vdoc.ordered):
+            if any(not isinstance(a, (ForeignDeletion, ForeignMove)) for a in ref.annotations):
+                return True
+            key = (ref.source_id, ref.source_page_index)
+            if key not in self._foreign_presence:
+                page = self.vdoc.sources[ref.source_id][ref.source_page_index]
+                self._foreign_presence[key] = bool(read_foreign_annotations(page))
+            if self._foreign_presence[key] and self.view.annotations.foreign_annotations(page_index):
+                return True
+        return False
+
+    def _goto_mark(self, page_index: int, mark, bounds: tuple) -> None:
+        """An Annotations-tab row was clicked (M77): jump to the mark and select it — the M47
+        click-to-jump pattern. Free-placed marks get the real object selection (handles and all);
+        a foreign mark gets its outline; a text-anchored mark or a page-wide watermark just
+        scrolls into view (neither has an object selection to give)."""
+        from model.foreign_annots import ForeignAnnot
+
+        self.view.ensure_box_visible(page_index, bounds)
+        self.view.set_current_page(page_index)
+        if self.view.annotations is None:
+            return
+        if isinstance(mark, ForeignAnnot):
+            self.view.annotations.outline_foreign(page_index, mark)
+        elif (isinstance(mark, (TextBox,) + OBJECT_TYPES)
+              and not self.view.annotations.covers_page(page_index, mark)):
+            self.view.annotations.select_object(page_index, mark)
 
     # ---- actions / menus --------------------------------------------------------
 
@@ -944,6 +1004,12 @@ class MainWindow(QMainWindow):
         self.thumbs.populate()
         if self.outline is not None:
             self.outline.populate()  # live remapped_toc: the tree shows what a Save would write
+        # The Annotations tab (M77) tracks edits/undo live — including its own existence: the
+        # first mark summons it, undoing the last dismisses it (remount only on that boundary).
+        if (self.annotations_panel is not None) != self._doc_has_marks():
+            self._mount_sidebar()
+        elif self.annotations_panel is not None:
+            self.annotations_panel.populate()
 
     def _on_clean_changed(self, clean: bool) -> None:
         self.setWindowModified(not clean)
@@ -2208,7 +2274,8 @@ class MainWindow(QMainWindow):
             self.search_results.refresh()  # cleared with the search — no stale rows
         self.view.reload()
         self.thumbs.populate()
-        self._mount_sidebar()  # the freshly-read file may have gained or lost its outline
+        self._foreign_presence.clear()  # fresh bytes: the per-source-page foreign scan is stale
+        self._mount_sidebar()  # the freshly-read file may have gained or lost outline / marks
 
     def revert(self) -> None:
         """Discard all in-memory edits and reload the document from its on-disk file (M23).
