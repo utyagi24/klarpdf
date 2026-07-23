@@ -739,8 +739,14 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   both-ended line bakes as an `/LE` OpenArrow pair (asserted on the saved file). — *Windows
   (headless + offscreen GUI)* — 12 new tests, 1121 green
   ([#162](https://github.com/utyagi24/klarpdf/pull/162))
-- [ ] **M75** Find bar match options — Match case + Whole words toggles (M64's existing filters,
-  surfaced on the interactive bar) — *WSLg*
+- [x] **M75** Find bar match options — **Match case** + **Whole words** on the interactive FindBar:
+  M64's existing `SearchController.search` filters, surfaced at last, with the M64 dialog's labels
+  and both off by default (exactly the pre-M75 behaviour). A toggle **re-runs the live query in
+  place** — highlights, the "N of M" label and a visible List All panel follow without retyping;
+  next/prev/goto operate on the filtered set by construction; the bar's kept-query revive inherits
+  the kept toggles; the Find-and-Redact dialog keeps its own independent checkboxes (pinned). —
+  *Windows (headless + offscreen GUI)* — 7 new tests, 1128 green
+  ([#163](https://github.com/utyagi24/klarpdf/pull/163))
 - [ ] **M76** Markup context menu — recolour / add / remove highlight · underline · strikeout on
   already-marked text, in place via the M59.10 merge — *WSLg*
 - [ ] **M77** Annotations sidebar tab — every mark listed (page · type · snippet), click-to-jump;
