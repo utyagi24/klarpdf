@@ -848,6 +848,15 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   paper on — it now places exactly as last time, which is what that path claims to be. — *Windows
   (headless + offscreen GUI)* — 7 new tests, 1197 green
   ([#172](https://github.com/utyagi24/klarpdf/pull/172))
+- [x] **M63.2** The recent submenu is **"Recent Signatures / Images"** (owner: the old "Recent
+  Signatures" assumed every insert is a signature). It is named for the command that fills it —
+  Signature / Image… — because the list holds whatever that placed, seals and logos included, and a
+  list named for one of its uses reads as a filter. *Not* "Recent Inserts", the alternative
+  considered: **Insert already means pages** in this app (Edit ▸ Insert Pages from File… / Insert
+  Blank Page), so it would name the one thing the list never holds. Internal names and the stored
+  `recent_signatures` key are unchanged — renaming the key would silently drop every existing
+  list. — *Windows (headless + offscreen GUI)* — 1 new test, 1198 green
+  ([#173](https://github.com/utyagi24/klarpdf/pull/173))
 - [x] **M77** Annotations sidebar tab — a third tab beside Pages | Outline listing **every mark
   in the document** as "p. N · type · snippet" rows: ours from the PageRef descriptors (text
   markups read their covered page text as the snippet; boxes/stamps/fields their own), foreign

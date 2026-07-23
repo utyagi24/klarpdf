@@ -640,10 +640,14 @@ class MainWindow(QMainWindow):
         # for R4. Each opens its dialog rather than arming directly — the mark has to be composed
         # before there is anything to place.
         self._stamp_button = split_button(self._stamp_actions)
-        # Recent Signatures (M63) hangs off the same dropdown: re-placing last week's signature is
-        # the common case, and going through the dialog again to pick the same file is the friction
-        # the "two clicks on the second use" target is about. Hidden until there is one.
-        self._signature_menu = self._stamp_button.menu().addMenu("Recent Signatures")
+        # Recent Signatures / Images (M63) hangs off the same dropdown: re-placing last week's
+        # signature is the common case, and going through the dialog again to pick the same file is
+        # the friction the "two clicks on the second use" target is about. Hidden until there is one.
+        # The label echoes the command that fills it — "Signature / Image…" — because the list holds
+        # whatever that command placed, seals and logos included, and a list named for only one of
+        # them reads as a filter (owner-reported). "Recent Inserts" was the alternative and is worse
+        # here: Insert already means *pages* in this app (Edit ▸ Insert Pages from File…).
+        self._signature_menu = self._stamp_button.menu().addMenu("Recent Signatures / Images")
         self._rebuild_signature_menu()
         # Markup style (M59.5): one slot — the shared colour · width · fill the underline /
         # strikeout + draw tools stamp on the next mark. Seeds the overlay's sticky style and
@@ -1333,7 +1337,7 @@ class MainWindow(QMainWindow):
         self._arm_content_mark(stamp)
 
     def _rebuild_signature_menu(self) -> None:
-        """Refresh the Stamp ▾ ▸ Recent Signatures submenu from the store.
+        """Refresh the Stamp ▾ ▸ Recent Signatures / Images submenu from the store.
 
         This is what makes the *second* use two clicks — pick the signature, drag its box — with no
         dialog in the way. Hidden entirely when there is nothing to list (owner rule: no dead
@@ -1352,7 +1356,7 @@ class MainWindow(QMainWindow):
             menu.addAction("Clear List", self._clear_recent_signatures)
 
     def _rebuild_signature_menu_later(self) -> None:
-        """Rebuild the Recent Signatures submenu **after** the current signal finishes delivering.
+        """Rebuild the Recent Signatures / Images submenu **after** the current signal finishes.
 
         :meth:`_rebuild_signature_menu` calls ``menu.clear()``, which destroys the submenu's
         ``QAction`` objects. Calling it from one of those actions' own ``triggered`` handlers
