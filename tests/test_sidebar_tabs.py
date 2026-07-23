@@ -140,19 +140,33 @@ def test_a_new_mark_offers_the_tab_but_never_mounts_it(app, a_pdf):
     assert _tab_labels(win) == ["Pages", "Annotations"]
 
 
-def test_a_tab_you_asked_for_survives_its_list_going_empty(app, a_pdf):
-    """The mirror image of the same rule: an undo that empties the list is not a reason to take
-    away a panel that was asked for — and the tab would not come back on the redo."""
+def test_an_emptied_tab_folds_away_and_the_undo_brings_it_back(app, a_pdf):
+    """Deleting the last mark *through* the tab must not leave the empty panel sitting there — and
+    undoing that deletion has to bring the panel back with the mark, or the reader is left holding
+    a restored annotation and no list (owner, both halves)."""
     win = app.open_document(a_pdf)
     win._add_annotation(0, Highlight((_word_box(win),)))
     win._sidebar_tab_actions["annotations"].setChecked(True)
     assert _tab_labels(win) == ["Pages", "Annotations"]
-    win.undo_stack.undo()
-    assert _tab_labels(win) == ["Pages", "Annotations"]      # empty, but still yours
+    win.undo_stack.undo()                                    # the last mark goes…
+    assert _tab_labels(win) == []                            # …and takes the empty tab with it
+    assert win.annotations_panel is None
+    win.undo_stack.redo()
+    assert _tab_labels(win) == ["Pages", "Annotations"]       # the window was carrying it
+    assert win.annotations_panel.count() == 1
+
+
+def test_a_dismissed_tab_stays_dismissed_when_marks_return(app, a_pdf):
+    """Folding away on empty is not the same as being put away by hand: once the reader unticks it,
+    a later mark only offers it again."""
+    win = app.open_document(a_pdf)
+    win._add_annotation(0, Highlight((_word_box(win),)))
     entry = win._sidebar_tab_actions["annotations"]
-    assert entry.isVisible()              # …and still dismissable: the ▾ is a tab's only handle
-    entry.setChecked(False)
+    entry.setChecked(True)
+    entry.setChecked(False)                                  # put away by hand
+    win._add_annotation(1, Highlight((_word_box(win, 1),)))
     assert _tab_labels(win) == []
+    assert entry.isVisible() and not entry.isChecked()        # offered, not imposed
 
 
 # ---- the ▾ offers only what this document could show ---------------------------

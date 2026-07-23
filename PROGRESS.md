@@ -898,19 +898,24 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
 - [x] **M79.3** A new mark **offers** the Annotations tab; it no longer mounts one (owner: "don't
   add the Annotations tab automatically as soon as I add annotations — just the dropdown option").
   M77 had the tab track edits live *including its own existence*, so marking up a page pushed a
-  panel into the sidebar mid-stroke. Now the tab set moves only where the reader moves it — at
-  open, at a reload, or from the ▾ — and an edit changes only what a mounted tab lists. The rule is
-  symmetric: a tab that was asked for **survives its list going empty** (an undo is no reason to
-  take away a panel, and it would not have come back on the redo), and it keeps its ▾ entry listed
-  while it is up, since that entry is a tab's only handle. Each tick now mirrors **what the sidebar
-  is showing** rather than the stored preference — the two part company the moment a mark makes the
+  panel into the sidebar mid-stroke. The existence rule is still M77's — asked for **and**
+  something to list — but "asked for" is now read from *this window* rather than from the app-wide
+  preference, which is exactly where it went wrong: a preference carried in from another document
+  is not a request for a tab on this one. So a new mark only makes the ▾ entry offerable, while a
+  window already carrying the tab keeps tracking live — deleting the last mark **through** the tab
+  folds the empty panel away (owner, second report: an empty tab is the dead chrome this tranche
+  removes) and undoing that deletion brings the panel back with the mark, rather than leaving the
+  reader a restored annotation and no list. Putting the tab away by hand is different from it
+  folding on empty: once unticked it stays away, and a later mark only offers it again. Each tick
+  now mirrors **what the sidebar is showing** rather than the stored preference — the two part
+  company the moment a mark makes the
   entry offerable on a document whose tab is not mounted, and a tick drawn from the preference would
   sit checked over an absent tab, one click from doing the opposite of what it says. The preference
   still decides what mounts at open, so the ask still follows the reader across documents. The ▾
   entries lost their "Tab" suffix in the same pass (owner) — each is named for the tab it produces,
   matching that tab's own label; "Tab" was our vocabulary for an entry that already sits under the
-  sidebar button with a tick beside it. — *Windows (headless + offscreen GUI)* — 5 new tests +
-  8 rewritten (they pinned the summon-on-mark behaviour this replaces), 1213 green
+  sidebar button with a tick beside it. — *Windows (headless + offscreen GUI)* — 6 new tests +
+  9 rewritten (they pinned the summon-on-mark behaviour this replaces), 1214 green
   ([#178](https://github.com/utyagi24/klarpdf/pull/178))
 - [x] **M71.1** New icon for the **Markup toggle** — a page with a pen, chosen by the owner from six
   candidates rendered at real toolbar size (16/20/24 px, lit and unlit, beside their neighbours).

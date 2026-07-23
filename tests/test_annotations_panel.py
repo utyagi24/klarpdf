@@ -87,8 +87,10 @@ def test_a_mark_offers_the_tab_and_the_reader_mounts_it(win):
     assert _tab_labels(win) == ["Pages", "Outline", "Annotations"]
     assert win.annotations_panel is not None and win.annotations_panel.count() == 1
     win.undo_stack.undo()
-    assert win.annotations_panel.count() == 0        # the row goes; the tab is the reader's
-    win.undo_stack.redo()
+    assert _tab_labels(win) == ["Pages", "Outline"]  # nothing left to list: no empty panel
+    assert win.annotations_panel is None
+    win.undo_stack.redo()                            # …and the undo brings it back with the mark
+    assert _tab_labels(win) == ["Pages", "Outline", "Annotations"]
     assert win.annotations_panel.count() == 1
 
 

@@ -219,6 +219,11 @@ class MainWindow(QMainWindow):
         # Which optional tabs the reader has asked for (M79.1) — the sidebar button's ▾ menu writes
         # it; the menu itself is built in _build_actions, which runs after this first mount.
         self._sidebar_tab_actions: dict = {}
+        # Whether *this window* is carrying the Annotations tab (M79.3): set when it mounts, cleared
+        # when the reader puts it away. Distinct from the stored ask, which is app-wide — that
+        # difference is the whole point, since a preference carried in from another document is not
+        # a request for a tab on this one.
+        self._annotations_tab_shown = False
         self._mount_sidebar()
         # Hidden by default (a clean, fast, flicker-free open — no thumbnails rendered until the
         # sidebar is shown); the choice is remembered app-wide, so once you open it to organise pages
@@ -271,9 +276,10 @@ class MainWindow(QMainWindow):
         the document has marks to list (M77) — else the bare Pages panel, no tab and no tab bar
         (owner rule: inapplicable chrome is invisible, not greyed out). Re-run by ``_reset_to_file``
         (Revert / redaction commit / external reload), where the freshly-read file may have gained
-        or lost either, and by the ▾ menu itself. Deliberately **not** re-run by ``_on_doc_changed``
-        (M79.3): an edit changes what a mounted tab lists, never which tabs exist — chrome arrives
-        when the reader asks for it, not while they are marking up a page."""
+        or lost either, and by the ▾ menu itself. ``_on_doc_changed`` re-runs it only to take a
+        mounted Annotations tab away once its list is empty, or to bring it back on the undo — never
+        to introduce one (M79.3): chrome arrives when the reader asks for it, not while they are
+        marking up a page."""
         if self.outline is not None:
             self.view.currentPageChanged.disconnect(self.outline.set_current)
             self.outline = None
@@ -295,6 +301,7 @@ class MainWindow(QMainWindow):
             self.annotations_panel = AnnotationsPanel(
                 self.vdoc, self.view.annotations.foreign_annotations)
             self.annotations_panel.markActivated.connect(self._goto_mark)
+            self._annotations_tab_shown = True   # this window is carrying it now
             extra.append((self.annotations_panel, "Annotations"))
         if extra:
             tabs = QTabWidget()
@@ -336,6 +343,8 @@ class MainWindow(QMainWindow):
             wanted.add(key)
         else:
             wanted.discard(key)
+            if key == "annotations":
+                self._annotations_tab_shown = False   # put away by hand: it stays away
         self._settings.set_pref("sidebar_tabs", sorted(wanted))
         self._mount_sidebar()
         if on and not self.pages_dock.isVisible():
@@ -365,14 +374,12 @@ class MainWindow(QMainWindow):
         showing = {"outline": self.outline is not None,
                    "annotations": self.annotations_panel is not None}
         for key, action in self._sidebar_tab_actions.items():
-            # A mounted tab keeps its entry listed even once it has nothing left to list, or the
-            # reader would have no way to put it away (the ▾ is the only handle a tab has).
-            action.setVisible(applicable[key] or showing[key])
+            action.setVisible(applicable[key])   # a mounted tab always applies, so it stays listed
             if action.isChecked() is not showing[key]:
                 blocked = action.blockSignals(True)   # reporting the state, not choosing it
                 action.setChecked(showing[key])
                 action.blockSignals(blocked)
-        offer = any(applicable.values()) or any(showing.values())
+        offer = any(applicable.values())
         if (self._sidebar_button.menu() is not None) is not offer:
             self._flip_sidebar_arrow(offer)
 
@@ -1269,16 +1276,24 @@ class MainWindow(QMainWindow):
         self.thumbs.populate()
         if self.outline is not None:
             self.outline.populate()  # live remapped_toc: the tree shows what a Save would write
-        # The Annotations tab (M77) tracks edits/undo live in its *contents* — but never in its own
-        # existence (M79.3, owner call). Marking up a page must not push a tab into the sidebar
-        # under the reader's hands; the first mark makes the ▾ entry offerable, and that is the
-        # whole of it. Which means the tab set moves only where the reader moves it: at open, at a
-        # reload, or from the ▾. It also stays put when the marks go away again — an undo emptying
-        # the list is not a reason to take away a panel that was asked for, and it would not come
-        # back on the redo.
-        if self.annotations_panel is not None:
-            self.annotations_panel.populate()
-        self._sync_sidebar_tab_menu()
+        # The Annotations tab (M77) tracks edits and undo live — in its rows always, and in its own
+        # existence only for a window that is already carrying it (M79.3, two owner calls). Marking
+        # up a page must not push a tab into the sidebar under the reader's hands: a *new* mark only
+        # makes the ▾ entry offerable, and taking it up is the reader's move. But once the tab is
+        # up, deleting the last mark through it must not leave an empty panel behind, and undoing
+        # that deletion must bring the panel back with the mark. So the existence rule is the same
+        # one M77 had — asked for and something to list — with "asked for" read from *this window*
+        # rather than from the app-wide preference, which is precisely where it used to go wrong:
+        # a preference carried in from another document is not a request for a tab on this one.
+        wants_panel = (self._annotations_tab_shown
+                       and "annotations" in self._sidebar_tabs_wanted()   # …a sibling window can
+                       and self._doc_has_listed_marks())                  #    have turned it off
+        if (self.annotations_panel is not None) != wants_panel:
+            self._mount_sidebar()          # re-syncs the ▾ menu on the way through
+        else:
+            if self.annotations_panel is not None:
+                self.annotations_panel.populate()
+            self._sync_sidebar_tab_menu()
 
     def _on_clean_changed(self, clean: bool) -> None:
         self.setWindowModified(not clean)
