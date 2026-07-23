@@ -25,6 +25,7 @@ from model.page_edits import (
 )
 from model.virtual_document import VirtualDocument
 from store.settings import Settings
+from viewer.markup_style import HIGHLIGHT_COLORS
 from viewer.tools import ArmedTool
 
 _BARS = ((70.0, 66.0, 220.0, 80.0), (70.0, 86.0, 180.0, 100.0))  # two line bars
@@ -191,22 +192,38 @@ def test_armed_underline_applies_to_live_selection_immediately(win):
 
 def test_markup_split_button_faces_last_used_tool(win):
     button = win._markup_button
-    actions = {a.text(): a for a in button.menu().actions() if not a.isSeparator()}
-    # The three verbs, plus the M59.9 colour palettes that live with them.
+    actions = {a.text(): a for a in button.menu().actions() if a.text() and not a.isSeparator()}
+    # The three verbs; the colours are M76.2 swatch rows (widget actions with no text), asserted
+    # separately below.
     assert {"Highlight", "Underline", "Strike Out"} <= set(actions)
-    assert "Highlight Colour" in actions and "Underline / Strike Colour" in actions
     assert button.defaultAction().text() == "Highlight"   # the initial face
     button.menu().triggered.emit(actions["Underline"])    # pick from the drop-down
     assert button.defaultAction().text() == "Underline"   # sticky last-used face
 
 
+def test_markup_menu_carries_the_always_visible_colour_rows(win):
+    """M76.2: the highlight + line colours are swatch rows in the Markup ▾ menu, always visible
+    (no submenu), so picking a colour and arming is one menu visit."""
+    from viewer.markup_style import SwatchRowAction
+
+    rows = {a.title: a for a in win._markup_button.menu().actions()
+            if isinstance(a, SwatchRowAction)}
+    assert set(rows) == {"Highlight Colour", "Underline / Strike Colour"}
+    # State-setting rows: no remove dot, and they do NOT close the menu on a pick.
+    for row in rows.values():
+        assert row.remove_button is None
+        assert row._close_on_pick is False
+
+
 def test_picking_a_markup_colour_does_not_hijack_the_button_face(win):
-    """QMenu.triggered fires for sub-menu entries too, so the sticky-face wiring must ignore
-    anything that isn't one of the three tools — else the button would read "Yellow"."""
+    """A colour dot is a QWidgetAction, so it never reaches the split-button's sticky-face wiring
+    (which keys on QMenu.triggered for the tool actions) — the face stays the last-used tool."""
     button = win._markup_button
-    swatch = next(iter(win._highlight_color_actions.values()))
-    button.menu().triggered.emit(swatch)
-    assert button.defaultAction().text() == "Highlight"   # unchanged
+    row = next(a for a in button.menu().actions()
+               if getattr(a, "title", None) == "Highlight Colour")
+    row.buttons["Green"].click()
+    assert win._highlight_color == HIGHLIGHT_COLORS[1][1]   # the pick took…
+    assert button.defaultAction().text() == "Highlight"    # …without hijacking the face
 
 
 def test_remove_labels_in_context_menu(win):

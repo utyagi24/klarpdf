@@ -186,20 +186,32 @@ def dot_icon(color: tuple[float, float, float] | None, ring: bool = False,
 
 
 class SwatchRowAction(QWidgetAction):
-    """One markup-layer section of the M76.1 context menu, Preview's layout: a small header
-    ("Highlight" / "Underline" / "Strike Out") over a **horizontal row of colour dots** ending in
-    the slashed remove dot. Clicking a dot closes the menu and emits :attr:`picked` — a colour
-    tuple to recolour/add the layer, ``None`` to remove it. The ring marks the layer's current
-    state, so the row is also where you *read* what is on the words (radio semantics: clicking
-    the ringed dot is a harmless no-op, not dead chrome)."""
+    """A menu section in Preview's layout: a small header over a **horizontal row of colour
+    dots** — the shared vocabulary of the M76.1 context menu and (M76.2) the Markup ▾ dropdown.
+    Clicking a dot emits :attr:`picked` with its colour tuple; the ring marks the current state.
 
-    picked = Signal(object)  # (r, g, b) to paint the layer, or None to remove it
+    Two configurations, two jobs:
 
-    def __init__(self, menu: QMenu, title: str, palette, active: tuple | None) -> None:
+    * the **context menu** (defaults): the row *acts on a mark* — it ends in the slashed remove
+      dot (``picked`` emits ``None``) and a click closes the menu, like any menu action;
+    * the **sticky-colour rows** (``include_remove=False, close_on_pick=False``): the row *sets
+      state* — there is nothing to remove (a mark always has a colour), and the menu **stays
+      open** so "pick a colour, then click the verb" is one menu visit; the caller moves the
+      ring via :meth:`set_active` and the change is visible in place.
+
+    Radio semantics either way: clicking the ringed dot is a harmless no-op, not dead chrome."""
+
+    picked = Signal(object)  # (r, g, b) — or None from the remove dot, where one exists
+
+    def __init__(self, menu: QMenu, title: str, palette, active: tuple | None,
+                 close_on_pick: bool = True, include_remove: bool = True) -> None:
         super().__init__(menu)
         self.title = title
         self.active = active
         self.buttons: dict[str, QToolButton] = {}
+        self._palette = tuple(palette)
+        self._close_on_pick = close_on_pick
+        self.remove_button = None
         box = QWidget()
         column = QVBoxLayout(box)
         column.setContentsMargins(12, 4, 12, 4)
@@ -207,25 +219,34 @@ class SwatchRowAction(QWidgetAction):
         column.addWidget(QLabel(title))
         row = QHBoxLayout()
         row.setSpacing(2)
-        for name, rgb in palette:
-            ringed = active is not None and _close_colors(rgb, active)
-            button = self._dot(menu, name, dot_icon(rgb, ring=ringed))
+        for name, rgb in self._palette:
+            button = self._dot(name)
             button.clicked.connect(lambda _c=False, c=rgb: self._pick(menu, c))
             row.addWidget(button)
             self.buttons[name] = button
-        self.remove_button = self._dot(menu, f"Remove {title.lower()}",
-                                       dot_icon(None, ring=active is None))
-        self.remove_button.clicked.connect(lambda _c=False: self._pick(menu, None))
-        row.addWidget(self.remove_button)
+        if include_remove:
+            self.remove_button = self._dot(f"Remove {title.lower()}")
+            self.remove_button.clicked.connect(lambda _c=False: self._pick(menu, None))
+            row.addWidget(self.remove_button)
         row.addStretch(1)
         column.addLayout(row)
         self.setDefaultWidget(box)
+        self.set_active(active)
+
+    def set_active(self, active: tuple | None) -> None:
+        """Move the state ring onto ``active`` (or the remove dot for ``None``) — re-rendered in
+        place, so a stay-open row shows the change under the still-open menu."""
+        self.active = active
+        for name, rgb in self._palette:
+            ringed = active is not None and _close_colors(rgb, active)
+            self.buttons[name].setIcon(dot_icon(rgb, ring=ringed))
+        if self.remove_button is not None:
+            self.remove_button.setIcon(dot_icon(None, ring=active is None))
 
     @staticmethod
-    def _dot(parent, tooltip: str, icon: QIcon) -> QToolButton:
-        button = QToolButton(parent)
+    def _dot(tooltip: str) -> QToolButton:
+        button = QToolButton()
         button.setAutoRaise(True)
-        button.setIcon(icon)
         button.setIconSize(QSize(18, 18))
         button.setFixedSize(24, 24)
         button.setToolTip(tooltip)
@@ -233,7 +254,8 @@ class SwatchRowAction(QWidgetAction):
         return button
 
     def _pick(self, menu: QMenu, value) -> None:
-        menu.close()  # a widget click doesn't auto-close the menu the way an action does
+        if self._close_on_pick:
+            menu.close()  # a widget click doesn't auto-close the menu the way an action does
         self.picked.emit(value)
 
 

@@ -68,6 +68,10 @@ class PdfView(QGraphicsView):
         self.form = None
         self.annotations = None
         self.links = None  # internal-link navigation (M33), set by MainWindow
+        # The sticky Highlight colour, as an (r,g,b) tuple, kept in sync by MainWindow (M76.2) so
+        # an armed Highlight previews the *chosen* colour under the drag — not a fixed yellow that
+        # only "converts" to the real colour on release (owner report). None → the default yellow.
+        self.highlight_preview_color = None
         # Builds the right-click menu for a scene point (M46), set by MainWindow; None falls
         # through to the default QGraphicsView handling.
         self.context_menu_provider = None

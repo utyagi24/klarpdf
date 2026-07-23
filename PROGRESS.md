@@ -771,6 +771,18 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   Windows offscreen font stack, confirmed by a control grab). — *Windows (headless + offscreen
   GUI)* — 12 tests rewritten incl. the one-path regression, 1162 green
   ([#167](https://github.com/utyagi24/klarpdf/pull/167))
+- [x] **M76.2** HUS colours **always visible** in the Markup ▾ menu + the armed-highlight preview
+  colour (two owner reports from the same test pass). (1) Picking a colour then arming was *two*
+  menu trips (colours hid in submenus): the `SwatchRowAction` gains a state-setting mode
+  (`include_remove=False, close_on_pick=False`) and the dropdown now carries the highlight + line
+  colours as **always-visible dot rows that don't close the menu on a pick** — one menu visit, and
+  no click at all when the ring already sits on your colour (`set_active` moves it in place); the
+  old `_add_color_submenu` is gone. (2) An armed Highlight previewed a fixed yellow that only
+  "converted" on release — it now reads the sticky colour the window keeps on the view
+  (`PdfView.highlight_preview_color`, seeded at init + synced on change), so the chosen colour shows
+  from the first pixel of drag (underline/strikeout keep the selection blue by design). — *Windows
+  (headless + offscreen GUI)* — tests updated (menu rows + wired-preview case), 1162 green
+  ([#168](https://github.com/utyagi24/klarpdf/pull/168))
 - [x] **M77** Annotations sidebar tab — a third tab beside Pages | Outline listing **every mark
   in the document** as "p. N · type · snippet" rows: ours from the PageRef descriptors (text
   markups read their covered page text as the snippet; boxes/stamps/fields their own), foreign

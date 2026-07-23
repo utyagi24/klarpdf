@@ -82,7 +82,6 @@ from viewer.markup_style import (
     MarkupStyle,
     MarkupStyleButton,
     SwatchRowAction,
-    swatch_icon,
 )
 from viewer.links import LinkNavigator
 from viewer.pdf_view import PdfView
@@ -156,6 +155,9 @@ class MainWindow(QMainWindow):
         self.view = PdfView(self.vdoc)
         self.undo_stack = QUndoStack(self)
 
+        # An armed Highlight previews the sticky colour, not a fixed yellow (M76.2) — seed it so
+        # the very first drag, before any colour menu is touched, is already the right colour.
+        self.view.highlight_preview_color = self._highlight_color
         # Text selection + search overlays live on the view (M3); form-fill overlay (M14).
         self.view.selection = TextSelection(self.view)
         self.view.search = SearchController(self.view)
@@ -613,18 +615,26 @@ class MainWindow(QMainWindow):
             )
             return button
 
-        # Markup ▾ (M56): highlight / underline / strikeout. Draw ▾ (M58): the five draw tools.
+        # Markup ▾ (M56): highlight / underline / strikeout. Draw ▾ (M58): the draw tools.
         self._markup_button = split_button((a_highlight, a_underline, a_strikeout))
         # The text-markup colours live here (M59.9), with the verbs they colour — not on the
-        # pen/shapes style button, and not in a new toolbar slot.
+        # pen/shapes style button, and not in a new toolbar slot. Since M76.2 they are the M76.1
+        # **swatch rows, always visible** instead of submenus (owner: picking a colour and arming
+        # was two menu trips). The rows deliberately do NOT close the menu: check the ring — if
+        # it is already on your colour, click the verb; if not, click the dot (the ring moves in
+        # place) and then the verb, all in one menu visit.
         markup_menu = self._markup_button.menu()
         markup_menu.addSeparator()
-        self._highlight_color_actions = self._add_color_submenu(
-            markup_menu, "Highlight Colour", HIGHLIGHT_COLORS,
-            self._set_highlight_color, self._highlight_color)
-        self._line_color_actions = self._add_color_submenu(
-            markup_menu, "Underline / Strike Colour", TEXT_LINE_COLORS,
-            self._set_markup_line_color, self._markup_line_color)
+        self._highlight_color_row = SwatchRowAction(
+            markup_menu, "Highlight Colour", HIGHLIGHT_COLORS, self._highlight_color,
+            close_on_pick=False, include_remove=False)
+        self._highlight_color_row.picked.connect(self._set_highlight_color)
+        markup_menu.addAction(self._highlight_color_row)
+        self._line_color_row = SwatchRowAction(
+            markup_menu, "Underline / Strike Colour", TEXT_LINE_COLORS, self._markup_line_color,
+            close_on_pick=False, include_remove=False)
+        self._line_color_row.picked.connect(self._set_markup_line_color)
+        markup_menu.addAction(self._line_color_row)
         self._draw_button = split_button((a_pen, a_line, a_rect, a_ellipse))
         # Stamp ▾ (M62): the text mark · signature in one slot, the slot §Design budgets reserved
         # for R4. Each opens its dialog rather than arming directly — the mark has to be composed
@@ -1611,27 +1621,16 @@ class MainWindow(QMainWindow):
             label = f"Recolour {noun}" if existed else noun.capitalize()
             self._paint_markup_layer(page_index, rects, mark_type, value, label)
 
-    def _add_color_submenu(self, menu, title: str, palette, setter, current) -> dict:
-        """A curated colour sub-menu of swatches (M59.9), ticked at ``current``. Returns
-        ``{rgb: action}`` so tests and later syncing can reach the entries."""
-        sub = menu.addMenu(title)
-        group = QActionGroup(sub)
-        actions = {}
-        for label, rgb in palette:
-            action = sub.addAction(swatch_icon(rgb), label)
-            action.setCheckable(True)
-            action.setProperty("colorSwatch", True)  # a semantic chip — must NOT theme-retint
-            group.addAction(action)
-            action.triggered.connect(lambda _checked=False, c=rgb: setter(c))
-            action.setChecked(rgb == current)
-            actions[rgb] = action
-        return actions
-
     def _set_highlight_color(self, color) -> None:
         self._highlight_color = color
+        self._highlight_color_row.set_active(color)  # the ring follows under the open menu
+        self.view.highlight_preview_color = color    # an armed drag previews this now (M76.2)
+        if self.view.selection is not None:
+            self.view.selection.repaint()            # re-tint a live selection immediately
 
     def _set_markup_line_color(self, color) -> None:
         self._markup_line_color = color
+        self._line_color_row.set_active(color)
 
     def _on_markup_style_changed(self, style) -> None:
         """The picker changed → update the sticky style for the next mark, and — mirroring the
