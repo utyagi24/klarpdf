@@ -542,8 +542,11 @@ class PdfView(QGraphicsView):
             return
         if self.annotations is not None and self.annotations.drawing:
             self.annotations.finish_draw()
-            if self._armed is not None and self._armed.draws:
-                self.disarm()  # one-shot: revert to SELECT after the gesture commits
+            # One-shot draw tools revert to SELECT after the gesture commits; Pen is sticky
+            # (M73) — stroke after stroke on one arm, exited via Esc / the lit button / arming
+            # another tool.
+            if self._armed is not None and self._armed.draws and not self._armed.sticky:
+                self.disarm()
             event.accept()
             return
         if self.annotations is not None and self.annotations.resizing:
@@ -566,15 +569,18 @@ class PdfView(QGraphicsView):
             return
         if self.selection is not None and self.selection.active:
             self.selection.finish()
-            # An armed drag-over-text tool applies to what was just selected, then disarms — but a
-            # stray click that selected nothing leaves the tool armed (no wasted arm). If that
-            # tool was resolved from the combined Redact slot (M72), the no-commit click restores
-            # REDACT — otherwise the resolved text gesture would stay locked in and the next
-            # press on a margin would drag-select instead of rubber-banding.
+            # An armed drag-over-text tool applies to what was just selected — then the sticky
+            # markup trio (M73) stays armed for the next passage while text-redact disarms
+            # (one-shot: destructive). A stray click that selected nothing leaves the tool armed
+            # either way (no wasted arm). If the tool was resolved from the combined Redact slot
+            # (M72), the no-commit click restores REDACT — otherwise the resolved text gesture
+            # would stay locked in and the next press on a margin would drag-select instead of
+            # rubber-banding.
             if self._armed is not None and self._armed.drags_text:
                 if self.selection.selected_words():
                     self.applyTextTool.emit(self._armed)
-                    self.disarm()
+                    if self._armed is not None and not self._armed.sticky:
+                        self.disarm()
                 elif self._redact_combined:
                     self._armed = ArmedTool.REDACT
                     self._redact_combined = False

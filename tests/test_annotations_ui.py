@@ -255,11 +255,14 @@ def _drag_over_first_word(win):
         Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier))
 
 
-def test_armed_highlight_drag_over_text_applies_and_disarms(win):
+def test_armed_highlight_drag_over_text_applies_and_stays_armed(win):
     win.view.arm(ArmedTool.HIGHLIGHT)
     _drag_over_first_word(win)
-    assert win.view.armed is None  # one-shot reverts to Select after the gesture
+    # Sticky since M73 (Preview's behaviour): the gesture applied and the tool is still armed
+    # for the next passage — see test_sticky_arming.py for the full contract.
+    assert win.view.armed is ArmedTool.HIGHLIGHT
     assert any(isinstance(a, Highlight) for a in win.vdoc.page_annotations(0))
+    win.view.disarm()
 
 
 def test_cross_window_paste_carries_annotations(qapp, a_pdf, b_pdf, tmp_path):

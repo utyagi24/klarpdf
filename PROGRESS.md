@@ -716,9 +716,16 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   contract). Tools ▸ Redact Text (Ctrl+Shift+R) / Redact Block unchanged — the slot is toolbar
   sugar, not a third verb. — *Windows (headless + offscreen GUI)* — 14 new tests, 1096 green
   ([#160](https://github.com/utyagi24/klarpdf/pull/160))
-- [ ] **M73** Sticky markup arming — Highlight / Underline / Strike Out / Pen stay armed across
-  gestures; exits are re-click · Esc · arming another tool; placement + destructive tools stay
-  one-shot — *WSLg*
+- [x] **M73** Sticky markup arming — Highlight / Underline / Strike Out / Pen **stay armed across
+  gestures** (Preview's repeat-use behaviour): a new `ArmedTool.sticky` property names the quartet,
+  and the view's two release paths (drag-over-text apply, draw commit) keep the arm instead of
+  one-shot disarming — passage after passage, stroke after stroke, on one arm. Three exits (owner),
+  all riding pre-existing paths: the lit button again (`_arm_tool`'s toggle) · Esc · arming any
+  other tool; mode switches and dismissing the markup bar (M71) exit too. Placement and destructive
+  tools stay **one-shot** — including the M72 combined slot's resolved text gesture — because a
+  stuck destructive mode is a trap. The armed state stays visible throughout (lit button + M71's
+  summon-on-arm), and the quartet's tooltips say so. — *Windows (headless + offscreen GUI)* — 13
+  new tests, 1109 green ([#161](https://github.com/utyagi24/klarpdf/pull/161))
 - [ ] **M74** ⭐ Arrow ends as style — Arrow merges into Line; ends (none / start / end / both) join
   the style picker; both-ended arrows; pre-R6 arrows round-trip — *WSL + WSLg*
 - [ ] **M75** Find bar match options — Match case + Whole words toggles (M64's existing filters,
