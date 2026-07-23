@@ -215,4 +215,5 @@ def test_remove_labels_in_context_menu(win):
     win.view.annotations.repaint()
     center = win.view.scene_rect_for_box(0, _BARS[0]).center()
     menu = win._view_context_menu(center)
-    assert [a.text() for a in menu.actions()] == ["Remove underline"]
+    # The M76 layer section sits above; the type-specific Remove label still closes the menu.
+    assert [a.text() for a in menu.actions() if a.text()][-1] == "Remove underline"

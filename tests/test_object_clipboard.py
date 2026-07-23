@@ -227,13 +227,18 @@ def test_annotation_menu_offers_copy_cut_for_free_placed_marks(app, win):
                       "Remove shape"]
 
 
-def test_highlight_menu_stays_remove_only(app, win):
+def test_highlight_menu_carries_no_object_verbs(app, win):
+    """A text-anchored mark is not a free-placed object: no Copy/Cut/z-order here. (Since M76 the
+    menu also carries the markup layer section — that is text-markup vocabulary, not object's.)"""
     from model.page_edits import Highlight
 
     win.vdoc.add_annotation(0, Highlight(((100.0, 100.0, 200.0, 114.0),)))
     win.view.reload()
     menu = win._view_context_menu(_scene(win, 150, 107))
-    assert [a.text() for a in menu.actions()] == ["Remove highlight"]
+    titles = [a.text() for a in menu.actions() if a.text()]
+    assert titles[-1] == "Remove highlight"
+    for verb in ("Copy Object", "Cut Object", "Bring to Front", "Send to Back"):
+        assert verb not in titles
 
 
 def test_bare_page_paste_object_enables_with_clipboard(app, win):

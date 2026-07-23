@@ -747,8 +747,17 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   the kept toggles; the Find-and-Redact dialog keeps its own independent checkboxes (pinned). —
   *Windows (headless + offscreen GUI)* — 7 new tests, 1128 green
   ([#163](https://github.com/utyagi24/klarpdf/pull/163))
-- [ ] **M76** Markup context menu — recolour / add / remove highlight · underline · strikeout on
-  already-marked text, in place via the M59.10 merge — *WSLg*
+- [x] **M76** Markup context menu — right-click on marked text offers Preview's change set, scoped
+  to the clicked mark's words: the curated **highlight colours** (recolour in place through the
+  M59.10 merge — trim/absorb, never stacking — or lay a highlight under a clicked underline/
+  strikeout) + **No Highlight** (Preview's slashed swatch) + **Underline** / **Strike Out**
+  toggles (add in the sticky Markup ▾ line colour, or remove). Removal is the merge's new inverse
+  — `remove_markup` trims covered same-type marks by exactly the span (a middle cut splits, full
+  coverage drops), so a wider underline keeps its tail beyond the clicked words; `marks_over` is
+  the shared tick-state query. One `SetAnnotationsCommand` per action = **one undo step**;
+  identical repaints and no-layer removals are no-ops. "Remove <noun>" still closes the menu. —
+  *Windows (headless + offscreen GUI)* — 10 new tests, 1138 green
+  ([#164](https://github.com/utyagi24/klarpdf/pull/164))
 - [ ] **M77** Annotations sidebar tab — every mark listed (page · type · snippet), click-to-jump;
   the tab exists only while the document has marks — *WSLg*
 - [ ] **M78** View modes — Full Screen · Slideshow · Two-Page view; View menu + bare-page

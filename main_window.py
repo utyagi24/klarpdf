@@ -59,7 +59,9 @@ from model.page_edits import (
     TextBox,
     Underline,
     mark_bounds,
+    marks_over,
     merge_markup,
+    remove_markup,
     reorder_marks,
     translate_mark,
 )
@@ -1379,6 +1381,77 @@ class MainWindow(QMainWindow):
             self.undo_stack.push(SetAnnotationsCommand(self.vdoc, page_index, merged, label))
         self.undo_stack.endMacro()
 
+    def _paint_markup_layer(self, page_index: int, rects, mark_type, color, label: str) -> None:
+        """Paint ``rects`` as ``mark_type`` in ``color`` through the M59.10 merge (M76: the
+        context menu's recolour / add-layer verbs) — trim/absorb, never stacking; one
+        ``SetAnnotationsCommand`` = one undo step; an identical repaint is a no-op."""
+        current = self.vdoc.ordered[page_index].annotations
+        merged = merge_markup(current, tuple(rects), mark_type, color)
+        if merged == current:
+            return
+        self._note_edit_on(page_index)
+        self.undo_stack.push(SetAnnotationsCommand(self.vdoc, page_index, merged, label))
+
+    def _erase_markup_layer(self, page_index: int, rects, mark_type, label: str) -> None:
+        """Erase ``mark_type`` over ``rects`` (M76: the context menu's remove-layer verbs) — the
+        merge's removal half: covered marks trim by exactly the span, full coverage drops them.
+        One command = one undo step; nothing overlapping = no-op."""
+        current = self.vdoc.ordered[page_index].annotations
+        remaining = remove_markup(current, tuple(rects), mark_type)
+        if remaining == current:
+            return
+        self._note_edit_on(page_index)
+        self.undo_stack.push(SetAnnotationsCommand(self.vdoc, page_index, remaining, label))
+
+    def _markup_layer_menu(self, menu, page_index: int, annot) -> None:
+        """The M76 markup context-menu section for a right-clicked text markup — Preview's change
+        set, scoped to the clicked mark's words:
+
+        * the curated **highlight colours** — recolour an existing highlight in place (merge:
+          trim/absorb, never stacking) or lay one under a clicked underline/strikeout; **No
+          Highlight** (Preview's ⊘ swatch) removes that layer;
+        * **Underline** / **Strike Out** toggles — add or remove the other markup layers on the
+          same words (added in the sticky Markup ▾ line colour);
+
+        each entry is one undo step. The existing "Remove <noun>" below still removes the clicked
+        mark itself.
+        """
+        rects = annot.rects
+        current = self.vdoc.ordered[page_index].annotations
+        highlights = marks_over(current, rects, Highlight)
+        current_color = highlights[0].color if highlights else None
+        for name, rgb in HIGHLIGHT_COLORS:
+            action = menu.addAction(swatch_icon(rgb), name)
+            action.setCheckable(True)
+            action.setProperty("colorSwatch", True)  # semantic chip — must NOT theme-retint
+            action.setChecked(current_color is not None and rgb == current_color)
+            label = "Recolour highlight" if highlights else "Highlight"
+            action.triggered.connect(
+                lambda _c=False, c=rgb, l=label:
+                self._paint_markup_layer(page_index, rects, Highlight, c, l))
+        no_highlight = menu.addAction("No Highlight")
+        no_highlight.setCheckable(True)
+        no_highlight.setChecked(not highlights)
+        no_highlight.setEnabled(bool(highlights))  # nothing to remove → the tick alone says so
+        no_highlight.triggered.connect(
+            lambda: self._erase_markup_layer(page_index, rects, Highlight, "Remove highlight"))
+        menu.addSeparator()
+        for title, mark_type in (("Underline", Underline), ("Strike Out", Strikeout)):
+            existing = marks_over(current, rects, mark_type)
+            action = menu.addAction(title)
+            action.setCheckable(True)
+            action.setChecked(bool(existing))
+            if existing:
+                action.triggered.connect(
+                    lambda _c=False, t=mark_type, l=f"Remove {title.lower()}":
+                    self._erase_markup_layer(page_index, rects, t, l))
+            else:
+                action.triggered.connect(
+                    lambda _c=False, t=mark_type, l=title:
+                    self._paint_markup_layer(page_index, rects, t,
+                                             self._markup_line_color, l))
+        menu.addSeparator()
+
     def _add_color_submenu(self, menu, title: str, palette, setter, current) -> dict:
         """A curated colour sub-menu of swatches (M59.9), ticked at ``current``. Returns
         ``{rgb: action}`` so tests and later syncing can reach the entries."""
@@ -1763,6 +1836,11 @@ class MainWindow(QMainWindow):
                     action.setEnabled(reorder_marks(current, selected, key) != current)
                     menu.addAction(action)
                 menu.addSeparator()
+            # A right-clicked **text markup** first offers Preview's change set (M76): recolour /
+            # add / remove the highlight · underline · strikeout layers on the same words, in
+            # place through the merge machinery. Remove (below) still takes the clicked mark.
+            if isinstance(annot, (Highlight, Underline, Strikeout)):
+                self._markup_layer_menu(menu, page_index, annot)
             # `mark_noun` already names every free-placed mark for the undo labels; deferring to it
             # keeps one vocabulary in the app and means a new descriptor gets a real name here
             # instead of the generic fallback (which is what a stamp used to get).
