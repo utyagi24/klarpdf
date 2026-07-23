@@ -28,6 +28,7 @@ def qapp():
 @pytest.fixture
 def win(qapp, a_pdf, tmp_path):
     qapp.settings = Settings(tmp_path / "vs.json")
+    qapp.settings.set_pref("sidebar_tabs", ["annotations", "outline"])
     w = qapp.open_document(a_pdf)
     w.show()
     qapp.processEvents()
@@ -85,6 +86,7 @@ def test_first_mark_summons_the_tab_and_undo_dismisses_it(win):
 
 def test_toc_less_marked_doc_gets_pages_and_annotations(qapp, b_pdf, tmp_path):
     qapp.settings = Settings(tmp_path / "vs.json")
+    qapp.settings.set_pref("sidebar_tabs", ["annotations", "outline"])
     w = qapp.open_document(b_pdf)  # B.pdf: no outline
     try:
         assert _tab_labels(w) == []  # bare Pages panel, no tab bar at all
@@ -99,6 +101,7 @@ def test_objects_alone_do_not_summon_the_tab(qapp, b_pdf, tmp_path):
     """A page of drawings has marks but nothing the list would show, and a tab over an empty list
     is the dead chrome the tab's whole existence rule exists to prevent (M77.1)."""
     qapp.settings = Settings(tmp_path / "vs.json")
+    qapp.settings.set_pref("sidebar_tabs", ["annotations", "outline"])
     w = qapp.open_document(b_pdf)
     try:
         w._add_annotation(0, TextBox((72, 150, 300, 180), "note to self"))
@@ -115,6 +118,7 @@ def test_objects_alone_do_not_summon_the_tab(qapp, b_pdf, tmp_path):
 
 def test_foreign_marks_alone_summon_the_tab(qapp, foreign_pdf, tmp_path):
     qapp.settings = Settings(tmp_path / "vs.json")
+    qapp.settings.set_pref("sidebar_tabs", ["annotations", "outline"])
     w = qapp.open_document(foreign_pdf)
     try:
         assert _tab_labels(w) == ["Pages", "Annotations"]  # foreign-only doc lists too
@@ -179,6 +183,7 @@ def test_click_on_a_text_markup_jumps_without_object_selection(win):
 
 def test_click_outlines_a_foreign_mark(qapp, foreign_pdf, tmp_path):
     qapp.settings = Settings(tmp_path / "vs.json")
+    qapp.settings.set_pref("sidebar_tabs", ["annotations", "outline"])
     w = qapp.open_document(foreign_pdf)
     try:
         panel = w.annotations_panel

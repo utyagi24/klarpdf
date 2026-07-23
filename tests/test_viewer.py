@@ -273,7 +273,10 @@ def test_pages_dock_locked_and_toggleable(qapp, a_pdf, tmp_path):
 
     toggle = dock.toggleViewAction()
     bar = next(b for b in w.findChildren(QToolBar) if b.windowTitle() == "Main")
-    assert toggle in bar.actions()  # dedicated toolbar button wired to the same toggle
+    # Dedicated toolbar button wired to the same toggle — a split button since M79.1 (its ▾ picks
+    # the optional tabs), so it rides the bar as a widget rather than as a bare action.
+    assert w._sidebar_button.parent() is bar
+    assert w._sidebar_button.defaultAction() is toggle
     assert not dock.isVisible() and not toggle.isChecked()  # hidden by default
     toggle.trigger()
     qapp.processEvents()
