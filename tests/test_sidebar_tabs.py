@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pymupdf as fitz
 import pytest
-from PySide6.QtWidgets import QTabWidget
+from PySide6.QtWidgets import QStyleOptionToolButton, QTabWidget
 
 from app import PdfApp
 from model.page_edits import Highlight
@@ -128,12 +128,41 @@ def test_the_menu_offers_only_applicable_tabs(app, a_pdf):
     assert win._sidebar_tab_actions["annotations"].isVisible()   # the first mark offers it
 
 
+def _draws_arrow(win) -> bool:
+    """Whether the sidebar button paints its split ▾ section — the *drawn* state, not the menu.
+
+    The distinction is the whole of M79.2: a QToolButton draws the section from its popup mode, so
+    ``setMenu(None)`` alone left an arrow that opened nothing."""
+    option = QStyleOptionToolButton()
+    win._sidebar_button.initStyleOption(option)
+    return bool(option.features & QStyleOptionToolButton.ToolButtonFeature.MenuButtonPopup)
+
+
 def test_no_arrow_at_all_when_nothing_applies(app, b_pdf):
     """B.pdf has no outline and no marks: the ▾ itself is the signal that there is a choice."""
     win = app.open_document(b_pdf)
     assert win._sidebar_button.menu() is None
+    assert not _draws_arrow(win)                 # …and no dead arrow over the missing menu
     win._add_annotation(0, Highlight((_word_box(win),)))
     assert win._sidebar_button.menu() is not None
+    assert _draws_arrow(win)
+
+
+def test_the_arrow_takes_its_width_with_it(app, b_pdf):
+    """The button re-measures on both flips (M79.2). Qt clears neither the stylesheet's
+    ``::menu-button`` rule nor the cached sizeHint on a popup-mode change, so without the re-polish
+    the returning arrow is drawn squeezed over the icon at the plain button's width."""
+    win = app.open_document(b_pdf)
+    win.show()
+    app.processEvents()
+    plain = win._sidebar_button.width()
+    win._add_annotation(0, Highlight((_word_box(win),)))
+    app.processEvents()
+    split = win._sidebar_button.width()
+    assert split > plain                         # room for the ▾, not a crammed overlay
+    win.undo_stack.undo()
+    app.processEvents()
+    assert win._sidebar_button.width() == plain  # …and the room goes back
 
 
 def test_the_sidebar_button_still_shows_and_hides(app, a_pdf):

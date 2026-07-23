@@ -883,6 +883,18 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   arrow entirely when it could show none, so a tick never produces nothing. — *Windows (headless +
   offscreen GUI)* — 9 new tests + 2 rewritten (the toggle now rides as a widget), 1208 green
   ([#175](https://github.com/utyagi24/klarpdf/pull/175))
+- [x] **M79.2** The dropped ▾ really goes (owner: on a document with no outline and no marks the
+  arrow was still drawn, and clicking it did nothing). M79.1 dropped the *menu*; a QToolButton draws
+  the split section from its **popup mode**, so the button kept its 14 px arrow over an empty menu —
+  a dead click, and exactly the greyed-out chrome the sidebar work was removing. The mode now flips
+  with the menu. Making the *width* follow took a re-polish as well: neither of the two caches
+  between the mode and the geometry notices `setPopupMode` (a bare property write) — QStyleSheetStyle
+  holds the rule sizing `::menu-button` until the widget is re-polished, QToolButton holds its own
+  sizeHint until a menu is attached or detached — so a returning arrow was drawn squeezed over the
+  icon. Verified at the pixel: 31 px plain, 44 px split, across open · first mark · undo · redo. —
+  *Windows (headless + offscreen GUI)* — 1 new test + 1 strengthened (it asserted `menu() is None`,
+  which passed while the arrow was still painted), 1209 green
+  ([#177](https://github.com/utyagi24/klarpdf/pull/177))
 - [x] **M71.1** New icon for the **Markup toggle** — a page with a pen, chosen by the owner from six
   candidates rendered at real toolbar size (16/20/24 px, lit and unlit, beside their neighbours).
   The old pencil-in-a-circle failed twice over: the circle dominated at 20 px so the pencil inside
