@@ -22,11 +22,14 @@ from viewer.tools import ArmedTool
 
 _SELECTION = QColor(0, 120, 215, 80)   # translucent selection blue (normal text selection)
 # While a drag-over-text tool is armed, the live selection is painted in the tool's *final* colour
-# instead of the selection blue — so a highlight reads yellow and a text-redaction reads black from
-# the first drag, and the applied result replaces the selection seamlessly (no blue→colour flip, no
-# perceived delay on release). Yellow ~ the Highlight annotation default (1.0, 0.86, 0.10); black ~
-# the opaque redaction bar it becomes.
-_HIGHLIGHT_ARMED = QColor(255, 219, 26, 120)
+# instead of the selection blue — so a highlight reads in its colour and a text-redaction reads
+# black from the first drag, and the applied result replaces the selection seamlessly (no
+# blue→colour flip, no perceived delay on release). An armed highlight asks the window for the
+# *sticky* colour (M76.2 — the constant here previewed the default yellow whatever colour was
+# chosen, which then visibly "converted" on release; owner report). Underline/strikeout stay the
+# selection blue on purpose: their mark is a thin line, and washing the whole band in opaque red
+# would preview something the release does not produce. Black ~ the opaque redaction bar.
+_HIGHLIGHT_ARMED = QColor(255, 219, 26, 120)   # the default-yellow fallback (no provider wired)
 _REDACT_ARMED = QColor(0, 0, 0, 130)
 _ARMED_SELECTION_COLOUR = {
     ArmedTool.HIGHLIGHT: _HIGHLIGHT_ARMED,
@@ -217,16 +220,28 @@ class TextSelection:
                 pass  # already destroyed by scene.clear() during a rebuild
         self._items.clear()
 
+    def _armed_brush(self) -> QBrush:
+        """The colour the live selection paints in. A plain selection is the selection blue; an
+        armed drag-over-text tool previews in its *final* colour so the applied mark replaces it
+        seamlessly (no colour flip on release). Highlight reads the sticky colour the window keeps
+        on the view (M76.2), so the chosen colour shows from the first drag — the constant here is
+        only the default-yellow fallback when no colour has been wired."""
+        armed = self._view.armed
+        if armed is ArmedTool.HIGHLIGHT:
+            rgb = self._view.highlight_preview_color
+            if rgb is not None:
+                colour = QColor.fromRgbF(*rgb)
+                colour.setAlpha(120)  # the same translucency the old fixed yellow used
+                return QBrush(colour)
+        return QBrush(_ARMED_SELECTION_COLOUR.get(armed, _SELECTION))
+
     def repaint(self) -> None:
         """Rebuild highlight rects from the logical selection (also called after zoom/rebuild)."""
         self._clear_items()
         if self._view.rotation != 0:
             return
         scene = self._view.scene()
-        # An armed drag-over-text tool previews in its final colour (see _ARMED_SELECTION_COLOUR);
-        # a plain selection (or any other state) uses the selection blue. So a highlight/redaction
-        # shows its colour from the first drag and the applied result replaces it seamlessly.
-        brush = QBrush(_ARMED_SELECTION_COLOUR.get(self._view.armed, _SELECTION))
+        brush = self._armed_brush()
         for page_index, _i, w in self.selected_words():
             rect = self._view.scene_rect_for_box(page_index, (w[0], w[1], w[2], w[3]))
             item = QGraphicsRectItem(rect)
