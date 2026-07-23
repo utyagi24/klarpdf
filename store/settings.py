@@ -138,8 +138,8 @@ class Settings:
 
         Given the transparency settings, they are remembered **for that image** (M63.1): how much
         paper to drop out of a photographed signature is a property of the scan, not of the day, so
-        re-placing it should not mean re-tuning it — and the Recent Signatures menu, which places
-        with no dialog at all, has no other way to know. Stored beside the list rather than in it,
+        re-placing it should not mean re-tuning it — and the Recent Signatures / Images menu, which
+        places with no dialog at all, has no other way to know. Stored beside the list, not in it,
         so the list stays exactly what it says it is: paths, never pixels. The keys are paths the
         list already holds, so this adds no information about the user's files.
         """

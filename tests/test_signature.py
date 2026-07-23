@@ -317,6 +317,13 @@ def test_using_a_signature_puts_it_in_the_menu(win, photo_sig):
     assert _recent_titles(win) == [os.path.basename(photo_sig), "Clear List"]
 
 
+def test_the_menu_is_named_for_everything_it_holds(win):
+    """The list holds whatever "Signature / Image…" placed — seals and logos too — so it is named
+    for that command, not for one of its uses (M63.2, owner-reported). Not "Recent Inserts":
+    Insert already means *pages* here (Edit ▸ Insert Pages from File…)."""
+    assert win._signature_menu.title() == "Recent Signatures / Images"
+
+
 def test_the_second_use_is_pick_then_drag(win, photo_sig):
     """The M63 done-when: no dialog on the second use — the menu entry arms the placement directly."""
     win._settings.add_recent_signature(photo_sig)
