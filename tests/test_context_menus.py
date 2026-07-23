@@ -120,8 +120,10 @@ def test_annotation_menu_removes_on_trigger(app, menu_pdf):
     win._add_annotation(0, Highlight((rect,)))
     center = win.view.scene_rect_for_box(0, rect).center()
     menu = win._view_context_menu(center)
-    assert _titles(menu) == ["Remove highlight"]
-    menu.actions()[0].trigger()
+    # Since M76 the layer section (colours + Underline/Strike Out) precedes it, but Remove still
+    # closes the menu and still takes the clicked mark (see test_markup_context_menu.py).
+    assert _titles(menu)[-1] == "Remove highlight"
+    menu.actions()[-1].trigger()
     assert win.vdoc.page_annotations(0) == ()
     assert win.undo_stack.canUndo()  # removal is undoable, like the pre-M46 menu
 
@@ -132,7 +134,8 @@ def test_annotation_hit_wins_over_a_live_selection(app, menu_pdf):
     win._add_annotation(0, Highlight((rect,)))
     win.view.selection.select_word_at(_word_center(win))
     menu = win._view_context_menu(win.view.scene_rect_for_box(0, rect).center())
-    assert _titles(menu) == ["Remove highlight"]  # most specific hit first
+    assert _titles(menu)[-1] == "Remove highlight"  # most specific hit first (M76 layers above)
+    assert "Highlight Selection" not in _titles(menu)  # not the selection's menu
 
 
 def test_internal_link_menu_goes_to_target(app, menu_pdf):

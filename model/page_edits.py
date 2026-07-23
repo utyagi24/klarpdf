@@ -464,6 +464,46 @@ def merge_markup(annotations: tuple, bars, mark_type, color: tuple) -> tuple:
     return tuple(result)
 
 
+def remove_markup(annotations: tuple, bars, mark_type) -> tuple:
+    """A page's annotations with ``mark_type`` **erased over** ``bars`` — the removal half of the
+    M59.10 merge, for the M76 markup context menu ("remove one layer leaving the other").
+
+    Covered same-type marks are trimmed by exactly the span the bars cover (the same
+    :func:`_subtract_bars` cut merge's different-colour path uses): full coverage drops the mark,
+    a cut through the middle splits it. Other types and foreign annotations pass through
+    untouched. Returns the whole new tuple (pushed as one ``SetAnnotationsCommand`` → one undo
+    step), unchanged (``is``-comparable by equality) when nothing overlapped.
+    """
+    from dataclasses import replace
+
+    erase = tuple(tuple(bar) for bar in bars)
+    if not erase:
+        return annotations
+    result: list = []
+    for mark in annotations:
+        if not isinstance(mark, mark_type) or not any(
+            _x_overlap(bar, cutter) for bar in mark.rects for cutter in erase
+        ):
+            result.append(mark)
+            continue
+        trimmed = _subtract_bars(mark.rects, erase)
+        if trimmed:
+            result.append(replace(mark, rects=trimmed))
+    return tuple(result)
+
+
+def marks_over(annotations: tuple, bars, mark_type) -> list:
+    """The ``mark_type`` marks among ``annotations`` overlapping any of ``bars`` — the existence /
+    tick-state query behind the M76 layer toggles (same overlap test the merge machinery uses)."""
+    probe = tuple(tuple(bar) for bar in bars)
+    return [
+        mark for mark in annotations
+        if isinstance(mark, mark_type) and any(
+            _x_overlap(bar, other) for bar in mark.rects for other in probe
+        )
+    ]
+
+
 def scale_mark(mark, sx: float, sy: float, ox: float, oy: float):
     """A mark scaled by ``(sx, sy)`` about the origin ``(ox, oy)`` — the M59.7 resize primitive,
     the geometry twin of :func:`translate_mark`. Frozen value objects in, new ones out.
