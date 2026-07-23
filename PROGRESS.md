@@ -883,6 +883,15 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   arrow entirely when it could show none, so a tick never produces nothing. — *Windows (headless +
   offscreen GUI)* — 9 new tests + 2 rewritten (the toggle now rides as a widget), 1208 green
   ([#175](https://github.com/utyagi24/klarpdf/pull/175))
+- [x] **M71.1** New icon for the **Markup toggle** — a page with a pen, chosen by the owner from six
+  candidates rendered at real toolbar size (16/20/24 px, lit and unlit, beside their neighbours).
+  The old pencil-in-a-circle failed twice over: the circle dominated at 20 px so the pencil inside
+  read as a blob, and a bare pencil **is the Pen tool's icon**, two slots away on the bar this
+  button opens. The button summons the whole kit, so it must depict none of its tools — the page is
+  what makes it "mark up this document" rather than one more instrument, and it also rules out the
+  obvious chisel-marker glyph, which is already Highlight's. One file (`ui/icons/markup.svg`);
+  the toolbar and View menu both resolve it by name and the tint follows the theme. — *Windows
+  (headless + offscreen GUI)* — 1208 green ([#176](https://github.com/utyagi24/klarpdf/pull/176))
 - [x] **M77** Annotations sidebar tab — a third tab beside Pages | Outline listing **every mark
   in the document** as "p. N · type · snippet" rows: ours from the PageRef descriptors (text
   markups read their covered page text as the snippet; boxes/stamps/fields their own), foreign
