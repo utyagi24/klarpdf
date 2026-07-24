@@ -1195,6 +1195,51 @@ lightness; honesty) carries over unchanged and binds every milestone below.
 
 Captured but not yet scheduled:
 
+- **Search should match the page's printed text only — the live-model decoupling fix** (owner-reported
+  2026-07-24, three symptoms, one cause; **direction decided, not yet scheduled**).
+  `SearchController.search` scans the raw source pages (`viewer/pdf_view.py` → `_vdoc.sources[...]`)
+  via `page.search_for`, decoupled from the live edit model: our marks are Qt overlays baked to PDF
+  only at Save (the render copy even *strips* them), so a newly typed text box isn't found until
+  save+reopen; a moved one keeps matching its **old** baked location (the source still holds it there
+  until the next Save); and `_on_doc_changed` (`main_window.py`) clears the results list on *every*
+  edit to paper over that staleness. PyMuPDF's `search_for` pulls FreeText annotation text **and**
+  AcroForm field values into its text layer indistinguishably from body text (verified) — which is
+  the only reason our text boxes become findable at all, after save+reopen.
+
+  **Direction A (chosen): search returns content-stream body text only, matching Preview and Edge** —
+  neither surfaces annotation or form-field text in search. Behaviour per kind of text:
+  - **Excluded:** our text boxes; **foreign FreeText** (Preview/Edge "add text" annotations — excluded
+    too, for consistency and to match those apps); and **AcroForm form-field values**. Live, unsaved
+    overlays are *already* invisible to search (never in the source), which is the wanted behaviour —
+    only *baked* copies need suppressing.
+  - **Still findable:** highlighted / underlined / struck-through body text — those annotations add no
+    text of their own, they sit over real content, so the hits are genuine content-stream hits.
+  - **Redaction:** pending (unsaved) redacted text stays findable (owner call — the redaction is
+    reversible until Save, so surfacing it lets the user catch and undo an unintended one); after Save
+    it is gone for good (`apply_redactions` is destructive).
+  - **Crop:** pending (unsaved) cropped-away text stays findable (owner call, same reversibility logic —
+    the source CropBox is unchanged until Save); after save+reopen it is **not** found, because
+    `search_for` respects the CropBox (verified) even though crop only *hides* (the text survives in the
+    file and returns to search on Remove Crop). This falls out of PyMuPDF and matches Preview — no work
+    to keep it.
+
+  **Rejected — Direction B (make text boxes searchable via a materialised search doc):** a cached
+  per-source copy that strips stale baked marks and re-bakes the current model annotations so a live
+  text box searches at its current rect. Fixes the same three bugs, but costs a **second
+  full-document in-memory copy rebuilt on every edit** (it can't share the render copy — that one
+  *strips* marks, this one needs them *present*), an O(document) memory/time hit on marked docs, and
+  it makes KlarPDF the outlier that finds annotation text no mainstream viewer does. Only worth it if
+  typed-text-box searchability is ever wanted as a deliberate differentiator; from owner testing, it
+  is not.
+
+  **Implementation sketch (Direction A, whenever scheduled):** (1) exclude the text-bearing overlays —
+  either *filter* search hits whose box falls on a source FreeText / widget rect (cheap, no copy;
+  gate on the page actually carrying annots/widgets; slightly over-excludes the rare body text sitting
+  *under* a text box), or search a source copy with FreeText annots + widgets *deleted* (robust —
+  deletion leaves the underlying body text intact — but a lighter per-source copy than Direction B,
+  cached and dropped on `reload()`); (2) replace the clear-on-edit in `_on_doc_changed` with a
+  **re-run** of the live query, so the results panel persists and stays correct. Redaction/crop text
+  needs no handling — it is content-stream text, orthogonal to the overlay filter.
 - **New-field form designer (beyond M69):** checkbox / text / dropdown creation is now **scheduled
   (M69)**. What stays deferred is the full designer — field appearance styling, layout tooling, and
   **radio-button groups**, which the owner **rejected (2026-07-18)**: a radio group is several
