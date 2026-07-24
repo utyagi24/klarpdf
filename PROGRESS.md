@@ -956,6 +956,27 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
 - [x] **M78.4** Icon polish — new Grab (filled outline hand, separated fingers) / Text Box (T in a box) / Pen (pencil on a baseline) glyphs, chosen from rendered candidates; verified light + dark, re-tint intact — *Windows (offscreen render)* — `pen` added to the icon test roster + 3 non-blank/QtSvg-safe checks ([#182](https://github.com/utyagi24/klarpdf/pull/182))
 - [x] **M78.5** Highlight/Underline/Strike arming swatches — Markup ▾ becomes three colour rows; a pick sets the verb's colour **and** arms it (marking a live selection at once, and moving the split-button face); underline vs strike colours now independent — *Windows (headless + offscreen GUI)* — 4 new/rewritten tests ([#183](https://github.com/utyagi24/klarpdf/pull/183))
 - [x] **M78.6** Split the markup style button → three markup-bar buttons over one shared `MarkupStyle`: Line Styling (thickness · dash · arrowheads) · Colors (Border + Fill rows + custom + No Fill) · Opacity (a slider showing/accepting an exact %); selecting an object loads its style into all three — *Windows (headless + offscreen GUI)* — new/updated tests across 7 suites ([#184](https://github.com/utyagi24/klarpdf/pull/184))
+- [x] **M78.7** Find-as-you-type stops hanging on a large document (owner report: live search on
+  `spaceX_prospectus.pdf` is *"very slow and unresponsive… with match case on my app actually hanged
+  and I had to kill it"*). Two independent faults, plus a correctness bug the first was hiding.
+  **(1) Every hit re-scanned its whole page.** The snippet walked the page's word list three times
+  per hit, and Match case read the text under each hit with `page.get_textbox`, which re-extracts
+  the page's text on *every call* (~31 ms measured). A live search's first keystroke is a one-letter
+  query, which on this 320-page file has **72 097 hits** — so a single keystroke cost ~4.4 s for
+  snippets and **~26 minutes** for Match case. That is the hang: not a deadlock, arithmetic.
+  `_PageText` now indexes a page once into per-line word and char bands, so a lookup scans one line
+  instead of one page, and the char index (Match case only) is built lazily. **(2) A full-document
+  scan ran per keystroke** — typing a five-letter word ran five scans, the most expensive of them
+  first. The find bar now debounces (`SEARCH_DEBOUNCE_MS`, 250 ms); Enter, an option toggle and
+  Ctrl+F flush or bypass the wait, and closing the bar drops a pending scan. **(3) Match case was
+  also *wrong*.** `get_textbox` answers "what is under this box?" by clipping, so it swept in
+  whatever else shared the box's band — with ordinary single-spaced text the line above comes too,
+  and a hit reading `'Cla\nSPX'` failed `!= "SPX"` and was discarded. Reading the box by char
+  centres is both the faster answer and the right one: on the same file it recovers 4 of 72 hits for
+  "SpaceX", 3 of 82 for "Starlink", and 84 of 2598 for "the". Measured end to end, one full-document
+  search: `"s"` + Match case **1574 s → 4.1 s**, `"space"` + Match case **16.9 s → 1.4 s** — and the
+  debounce means typing that word now pays it once instead of five times. Remaining O(document) cost
+  is in Open follow-ups. — *Windows (headless + offscreen GUI)* — 8 new tests, 1256 green
 - [ ] **M79** Verify + release → tag (prov. **v0.16.0**) — *Windows*
 
 ## Public-Release Readiness — go open-source under AGPL-3.0 (planned)
@@ -1147,6 +1168,20 @@ tree or history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI 
 ## Open follow-ups (carried)
 
 Carried items — none block work:
+
+- **A search is still one uninterruptible pass over every page.** M78.7 made the pass ~400× cheaper
+  and stopped typing from launching one per keystroke, but the shape is unchanged: `search()` walks
+  the whole document synchronously on the UI thread and cannot be cancelled. On the 320-page
+  `spaceX_prospectus.pdf` a one-letter query is **2.3 s** (4.1 s with Match case) of frozen UI —
+  fine once debounced, since it only happens when the user genuinely pauses after one letter, but it
+  grows with page count and it is now the whole remaining cost. The fix is to **chunk the scan**: a
+  page-at-a-time generator driven from a zero-delay timer, painting hits as they arrive and
+  abandoning the run when the query changes. That also buys incremental results and a live count on
+  any document size. Deferred because it changes `search()` from a function that returns a count
+  into something asynchronous, which every caller (find bar, results panel, Find-and-Redact dialog)
+  would have to follow — its own milestone, not a bug-fix branch. A hit **cap** was considered and
+  rejected: "72 097 matches, showing the first 1 000" is a different feature with a worse answer,
+  and Find-and-Redact must see every hit to be trustworthy.
 
 - **The thumbnail sidebar bakes the *whole document* on every edit.** `ThumbnailPanel._edited_render`
   calls `PyMuPDFEngine.render_output(vdoc)` — a full materialise of every page — so the panel can
