@@ -1183,6 +1183,24 @@ Carried items — none block work:
   rejected: "72 097 matches, showing the first 1 000" is a different feature with a worse answer,
   and Find-and-Redact must see every hit to be trustworthy.
 
+- **The Annotations panel reads each row's snippet with `page.get_textbox` — the same call M78.7
+  removed from search, with the same two faults.** `AnnotationsPanel._covered_text` calls it once
+  per mark rect, and `populate()` re-runs after **every edit** (`MainWindow._on_doc_changed`), so
+  the cost is per-edit lag that grows with the mark count: measured on `spaceX_prospectus.pdf`,
+  **0.8 s at 10 highlights, 3.5 s at 50, 15.7 s at 200**. Marks sharing a page each re-extract that
+  page. **And the snippets are wrong**, more often here than in search: each rect is exactly one
+  word's bbox, yet the clip reaches across the full page width, so on a two-column page **567 of
+  700** single-word highlights read back as something else — highlighting "Following" gives
+  "Following and Class B", pulled from the next column. The snippet *is* the row's value ("a
+  highlight row reads back the passage you highlighted"), so those rows are simply false. Fix is
+  M78.7's, applied here: index the page once, read by char centres — prototyped at **15.7 s →
+  0.14 s (107×)** with the snippets correct. **Decision needed first:** the panel's docstring
+  commits it to depending only on the model + the provider seam, so sharing `_PageText` means
+  moving it out of `viewer/` — `model/page_text.py` recommended (pure text geometry, no Qt, both
+  callers downstream of the model) over duplicating a subtle routine that has already been wrong
+  once. Not a blocker: only paid while the Annotations tab is **mounted**, and since M79.3 mounting
+  is the reader's move — a document whose tab is never opened pays nothing.
+
 - **The thumbnail sidebar bakes the *whole document* on every edit.** `ThumbnailPanel._edited_render`
   calls `PyMuPDFEngine.render_output(vdoc)` — a full materialise of every page — so the panel can
   rasterise the handful of thumbnails actually on screen. On a 320-page document that is **~0.69s per
