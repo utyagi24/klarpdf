@@ -1195,8 +1195,8 @@ lightness; honesty) carries over unchanged and binds every milestone below.
 
 Captured but not yet scheduled:
 
-- **Search should match the page's printed text only — the live-model decoupling fix** (owner-reported
-  2026-07-24, three symptoms, one cause; **direction decided, not yet scheduled**).
+- **Search matches the page's printed text only — the live-model decoupling fix** (owner-reported
+  2026-07-24, three symptoms, one cause; **implemented 2026-07-24, PR #190**).
   `SearchController.search` scans the raw source pages (`viewer/pdf_view.py` → `_vdoc.sources[...]`)
   via `page.search_for`, decoupled from the live edit model: our marks are Qt overlays baked to PDF
   only at Save (the render copy even *strips* them), so a newly typed text box isn't found until
@@ -1232,14 +1232,18 @@ Captured but not yet scheduled:
   typed-text-box searchability is ever wanted as a deliberate differentiator; from owner testing, it
   is not.
 
-  **Implementation sketch (Direction A, whenever scheduled):** (1) exclude the text-bearing overlays —
-  either *filter* search hits whose box falls on a source FreeText / widget rect (cheap, no copy;
-  gate on the page actually carrying annots/widgets; slightly over-excludes the rare body text sitting
-  *under* a text box), or search a source copy with FreeText annots + widgets *deleted* (robust —
-  deletion leaves the underlying body text intact — but a lighter per-source copy than Direction B,
-  cached and dropped on `reload()`); (2) replace the clear-on-edit in `_on_doc_changed` with a
-  **re-run** of the live query, so the results panel persists and stays correct. Redaction/crop text
-  needs no handling — it is content-stream text, orthogonal to the overlay filter.
+  **Implemented as:** (1) the **hit-filter** (chosen over the copy variant for its zero added memory):
+  `SearchController.search` drops any hit whose *centre* falls on a source FreeText annotation or a
+  form-field widget rect (`viewer/search.py` → `_overlay_text_rects` / `_center_in_any`), computed
+  only for the pages that actually produced hits; markup annotations (highlight / underline /
+  strikeout) are deliberately absent from the filter, so highlighted body text stays a hit. The rare
+  over-exclusion of body text sitting *under* a text box is accepted (the box covers it on screen
+  anyway). (2) `_on_doc_changed` no longer clears on every edit — `reload()` now reports whether the
+  edit was **structural**, and the search is **kept** across a content-only edit (the body text, and
+  therefore every hit, is unmoved) and cleared only when page indices remap. That is cheaper than the
+  re-run first sketched: a content edit needs no re-search at all. (`repaint` also guards a stale
+  page index, so a delete can never paint a hit off the end of the shrunk document.) Redaction/crop
+  needed no code — content-stream text, orthogonal to the filter, behaving exactly as above.
 - **New-field form designer (beyond M69):** checkbox / text / dropdown creation is now **scheduled
   (M69)**. What stays deferred is the full designer — field appearance styling, layout tooling, and
   **radio-button groups**, which the owner **rejected (2026-07-18)**: a radio group is several

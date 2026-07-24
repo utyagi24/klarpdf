@@ -1333,11 +1333,15 @@ class PdfView(QGraphicsView):
         self._wheel_accum = 0
         self.step_slide(delta)
 
-    def reload(self) -> None:
+    def reload(self) -> bool:
         """Rebuild after the ordered list changed (edit). Page indices remap, so the pixmap
         cache (keyed by ordered index) is dropped to avoid showing stale pages; the render
         copies are dropped too so a changed field value / annotation re-renders, and the text
-        selection's word cache is invalidated (same reasons — remapped indices, stripped marks)."""
+        selection's word cache is invalidated (same reasons — remapped indices, stripped marks).
+
+        Returns ``True`` when the edit was **structural** (page count / order / geometry changed),
+        ``False`` for a content-only edit — the same distinction the scroll-anchor logic below draws,
+        exposed so a caller can tell whether page-index-keyed state (e.g. search hits) is still valid."""
         self._cache.clear()
         self._drop_render_docs()
         if self.selection is not None:
@@ -1355,11 +1359,13 @@ class PdfView(QGraphicsView):
         layout = self._layout_signature()
         offset = self.verticalScrollBar().value()
         self._build_scene()
-        if self._layout_signature() == layout:
+        structural = self._layout_signature() != layout
+        if not structural:
             self.verticalScrollBar().setValue(offset)
             self._render_visible()
         else:
             self.goto_page(self._current)
+        return structural
 
     def _layout_signature(self) -> tuple:
         """The page geometry the scroll offset is meaningful against — unchanged by a content edit."""

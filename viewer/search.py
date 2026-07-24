@@ -19,6 +19,7 @@ module's docstring records why the obvious ``page.get_textbox`` is not used.
 
 from __future__ import annotations
 
+import pymupdf as fitz
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (
@@ -41,6 +42,28 @@ _CURRENT = QColor(255, 138, 0, 150)    # current match: stronger orange
 #: Live search-as-you-type is coalesced over this idle gap (ms). Read at call time so tests can
 #: set it to 0 for a synchronous search — see :meth:`FindBar._on_text`.
 SEARCH_DEBOUNCE_MS = 250
+
+
+def _overlay_text_rects(page) -> list:
+    """The page's **text-bearing overlays** — FreeText annotations (typed boxes, ours and foreign)
+    and form-field widgets. Search excludes hits landing on these so it returns the page's printed
+    *content-stream* text only, the way Preview and Edge do (PLAN §Future enhancements → Direction A):
+    a typed text box or a filled field is never a search hit. Markup annotations (highlight /
+    underline / strikeout) are deliberately **absent** — they add no text of their own and sit *over*
+    real content, so a hit under one is a genuine content hit that must survive."""
+    rects = [a.rect for a in (page.annots() or []) if a.type[0] == fitz.PDF_ANNOT_FREE_TEXT]
+    rects.extend(w.rect for w in (page.widgets() or []))
+    return rects
+
+
+def _center_in_any(box: tuple, rects: list) -> bool:
+    """Is ``box``'s centre inside any of ``rects``? Centre rather than full containment because a
+    FreeText / widget appearance often paints a hair above its ``/Rect`` (the hit box overhangs the
+    top), so strict containment would miss it — and the centre is the same test :class:`PageText`
+    uses to decide which box owns a character."""
+    cx = (box[0] + box[2]) / 2.0
+    cy = (box[1] + box[3]) / 2.0
+    return any(r.x0 <= cx <= r.x1 and r.y0 <= cy <= r.y1 for r in rects)
 
 
 def is_whole_word(words: list, box: tuple, tol: float = 0.5) -> bool:
@@ -98,6 +121,7 @@ class SearchController:
                 if len(terms) > 1:   # one term already comes back in reading order
                     found.sort(key=lambda f: (round(f[0].y0, 1), f[0].x0))
                 text = PageText(page)   # one extraction + index serves the page's hits
+                overlay_rects = _overlay_text_rects(page)  # typed boxes / fields — excluded below
                 seen: set = set()
                 for r, term in found:
                     box = (r.x0, r.y0, r.x1, r.y1)
@@ -105,6 +129,8 @@ class SearchController:
                     if key in seen:
                         continue    # two terms landing on the same text is still one hit
                     seen.add(key)
+                    if overlay_rects and _center_in_any(box, overlay_rects):
+                        continue    # a text box / form-field hit, not the printed page (Direction A)
                     if whole_word and not text.is_whole_word(box):
                         continue
                     if case_sensitive and text.text_under(box).strip() != term:
@@ -169,7 +195,10 @@ class SearchController:
         if self._view.rotation != 0:
             return
         scene = self._view.scene()
+        page_count = len(self._view._pages)
         for i, (page_index, box, _snippet) in enumerate(self._hits):
+            if page_index >= page_count:
+                continue  # a structural edit shrank the doc; these stale hits are about to be cleared
             item = QGraphicsRectItem(self._view.scene_rect_for_box(page_index, box))
             item.setBrush(QBrush(_CURRENT if i == self._idx else _HIT))
             item.setPen(QColor(0, 0, 0, 0))

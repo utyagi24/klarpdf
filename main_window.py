@@ -1354,12 +1354,18 @@ class MainWindow(QMainWindow):
         self._edited_page = index
 
     def _on_doc_changed(self, _index: int) -> None:
-        # A structural edit invalidates page indices, so drop stale overlays and rebuild.
         self.view.selection.clear()
-        self.view.search.clear()
-        if self.search_results.isVisible():
-            self.search_results.refresh()  # the hits died with the edit — no stale rows
-        self.view.reload()
+        # Reload first — it reports whether the edit was **structural**. A content-only edit
+        # (annotation, form fill) leaves the body text, and therefore every search hit (keyed by
+        # page index + box), exactly where it was, so the search survives and the results panel
+        # keeps its rows: a highlight must not blank the list. Only a structural edit
+        # (insert / delete / reorder / rotate / crop) remaps the indices, so only then is the
+        # search dropped. (reload's _build_scene has already repainted the kept hits.)
+        structural = self.view.reload()
+        if structural:
+            self.view.search.clear()
+            if self.search_results.isVisible():
+                self.search_results.refresh()  # stale page indices — no lingering rows
         # Follow the edit: marking up a page that isn't the one under the viewport centre should
         # move the sidebar highlight onto it, without scrolling. Consumed once, so an undo/redo
         # (which records nothing) leaves the current page where the reader put it.
