@@ -242,7 +242,7 @@ class _TextBoxEditor(QPlainTextEdit):
 
 class AnnotationOverlay:
     def __init__(self, view, on_add, on_remove=None, on_replace=None, on_select=None,
-                 on_replace_many=None, on_remove_many=None) -> None:
+                 on_replace_many=None, on_remove_many=None, on_nudge=None) -> None:
         self._view = view
         self._on_add = on_add               # on_add(page_index, annotation) — pushes Add command
         self._on_remove = on_remove         # on_remove(page_index, annotation)
@@ -251,6 +251,9 @@ class AnnotationOverlay:
         # Batch (one-undo-macro) callbacks for group ops (M59.6): restyle / move / delete a group.
         self._on_replace_many = on_replace_many   # on_replace_many(page, [(old, new), …], text)
         self._on_remove_many = on_remove_many     # on_remove_many(page, [mark, …], text)
+        # Arrow-key nudge (M78.2): on_nudge(page, [(old, new), …], auto_repeat, text) — a mergeable
+        # command, so a held key coalesces to one undo step and each tap stays separate.
+        self._on_nudge = on_nudge
         self._items: list[QGraphicsRectItem] = []
         # Inline editor (placing a new box, or re-editing an existing one) + its formatting bar.
         self._editor: _TextBoxEditor | None = None
@@ -782,6 +785,10 @@ class AnnotationOverlay:
     def _remove_many(self, page_index: int, marks: list, text: str) -> None:
         if self._on_remove_many is not None:
             self._on_remove_many(page_index, marks, text)
+
+    def _nudge(self, page_index: int, pairs: list, auto_repeat: bool, text: str) -> None:
+        if self._on_nudge is not None:
+            self._on_nudge(page_index, pairs, auto_repeat, text)
 
     # ---- text-box tool: place (new) / re-edit (existing) ------------------------
 
@@ -1383,6 +1390,37 @@ class AnnotationOverlay:
         else:
             # A plain click, no drag → select just the grabbed mark (collapses a group to it).
             self.select_object(page_index, grabbed)
+
+    # ---- arrow-key nudge (M78.2): shift the object selection a step at a time ------
+
+    def nudge_selection(self, dx: float, dy: float, auto_repeat: bool = False) -> bool:
+        """Move the whole object selection by ``(dx, dy)`` page points (arrow keys: 1 pt, Shift =
+        10 pt), clamped to the page — a group shifts as one, keeping its arrangement. The undo step
+        is *mergeable*: a held key's auto-repeat coalesces into one step (``auto_repeat=True``), each
+        discrete tap is its own. Rotation-0 only, like move/resize. Returns True if it moved."""
+        if not self._selection or self._view.rotation != 0:
+            return False
+        page_index = self._selection[0][0]
+        marks = [m for _p, m in self._selection]
+        boxes = [mark_bounds(m) for m in marks]
+        ux0 = min(b[0] for b in boxes)
+        uy0 = min(b[1] for b in boxes)
+        ux1 = max(b[2] for b in boxes)
+        uy1 = max(b[3] for b in boxes)
+        pw, ph = self._view._unrotated_size(page_index)
+        # Clamp the union bounds to the page (the update_move pattern: max(lo, hi) copes with a
+        # selection wider than the page). A step that would leave the group flush stays put.
+        lo_x, hi_x = -ux0, pw - ux1
+        lo_y, hi_y = -uy0, ph - uy1
+        dx = min(max(dx, lo_x), max(lo_x, hi_x))
+        dy = min(max(dy, lo_y), max(lo_y, hi_y))
+        if dx == 0 and dy == 0:
+            return False
+        pairs = [(m, translate_mark(m, dx, dy)) for m in marks]
+        label = _move_label(marks[0]) if len(marks) == 1 else f"Move {len(marks)} objects"
+        self._nudge(page_index, pairs, auto_repeat, label)
+        self._set_selection([(page_index, new) for _old, new in pairs])
+        return True
 
     # ---- marquee (M59.6 Objects mode: drag a box to select the marks inside) -----
 

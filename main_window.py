@@ -43,6 +43,7 @@ from model.edit_commands import (
     DeleteCommand,
     InsertCommand,
     MovePagesCommand,
+    NudgeCommand,
     RemoveAnnotationCommand,
     ReplaceAnnotationCommand,
     ResetCropCommand,
@@ -166,6 +167,7 @@ class MainWindow(QMainWindow):
         self.view.annotations = AnnotationOverlay(
             self.view, self._add_annotation, self._remove_annotation, self._replace_annotation,
             self._on_object_selected, self._replace_annotations_batch, self._remove_annotations_batch,
+            self._nudge_annotations,
         )
         # PdfView built its scene in __init__ (before this overlay existed), and the first show's
         # fit/restore can early-return without a rebuild — so paint any annotations the document was
@@ -1678,6 +1680,12 @@ class MainWindow(QMainWindow):
         for mark in marks:
             self.undo_stack.push(RemoveAnnotationCommand(self.vdoc, index, mark))
         self.undo_stack.endMacro()
+
+    def _nudge_annotations(self, index: int, pairs, auto_repeat: bool, text: str) -> None:
+        """Arrow-key nudge of an object selection (M78.2): a mergeable command, so a held key's
+        auto-repeat sweep is one undo step while each discrete tap is its own."""
+        self._note_edit_on(index)
+        self.undo_stack.push(NudgeCommand(self.vdoc, index, pairs, auto_repeat, text))
 
     def _selection_line_bars(self) -> dict[int, list[tuple]]:
         """Group the current text selection's word boxes into one unioned bar **per line, per page**.
