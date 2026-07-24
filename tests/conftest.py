@@ -55,6 +55,18 @@ def _no_real_modals(monkeypatch):
         monkeypatch.setattr(QFileDialog, method, staticmethod(deny("QFileDialog", method)))
 
 
+@pytest.fixture(autouse=True)
+def _instant_search(monkeypatch):
+    """Run live search synchronously. In the app a keystroke only *schedules* the search
+    (``SEARCH_DEBOUNCE_MS``), because one full-document scan per keystroke made a 320-page file
+    unusable; tests type with ``setText`` and assert on the result in the next line, with no event
+    loop to let a timer fire. ``test_search_perf.py`` restores the real interval to test the
+    debounce itself."""
+    import viewer.search
+
+    monkeypatch.setattr(viewer.search, "SEARCH_DEBOUNCE_MS", 0)
+
+
 def _build(path: str, texts: list[str], field_value: str) -> None:
     doc = fitz.open()
     for i, text in enumerate(texts):
