@@ -953,7 +953,7 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   tests, 1160 green ([#166](https://github.com/utyagi24/klarpdf/pull/166))
 - [ ] **M78.2** Nudge objects with arrow keys — arrow-move the object selection (1 pt / Shift 10 pt, page-clamped); a held key coalesces to one undo, taps stay separate — *WSLg*
 - [ ] **M78.3** Resize text-box width — a lone box's right-edge handle reflows the text (left pinned, height auto-fits); group resize leaves text boxes unstretched — *WSL + WSLg*
-- [ ] **M78.4** Icon polish — new Grab / Text Box / Pen glyphs, chosen from rendered candidates (2026-07-23) — *WSLg*
+- [x] **M78.4** Icon polish — new Grab (filled outline hand, separated fingers) / Text Box (T in a box) / Pen (pencil on a baseline) glyphs, chosen from rendered candidates; verified light + dark, re-tint intact — *Windows (offscreen render)* — `pen` added to the icon test roster + 3 non-blank/QtSvg-safe checks ([#182](https://github.com/utyagi24/klarpdf/pull/182))
 - [ ] **M78.5** Highlight/Underline/Strike arming swatches — Markup ▾ becomes three colour rows; a pick sets the colour **and** arms that verb — *WSLg*
 - [ ] **M78.6** Split the markup style button → Line Styling · Colors (Border + Fill) · Opacity slider — *WSLg*
 - [ ] **M79** Verify + release → tag (prov. **v0.16.0**) — *Windows*
