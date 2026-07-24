@@ -757,6 +757,10 @@ class MainWindow(QMainWindow):
             close_on_pick=True, include_remove=False, show_title=False)
         self._strike_color_row.picked.connect(self._pick_strike_color)
         markup_menu.addAction(self._strike_color_row)
+        # A divider between each verb group, so it reads unambiguously which swatches belong to
+        # which verb (owner call): …Highlight swatches | ─── | Underline action…
+        markup_menu.insertSeparator(a_underline)
+        markup_menu.insertSeparator(a_strikeout)
         self._draw_button = split_button((a_pen, a_line, a_rect, a_ellipse))
         # Stamp ▾ (M62): the text mark · signature in one slot, the slot §Design budgets reserved
         # for R4. Each opens its dialog rather than arming directly — the mark has to be composed
