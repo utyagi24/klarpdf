@@ -34,6 +34,14 @@ _ZOOM_STEP = 1.25
 _WHEEL_NOTCH = 120      # one mouse-wheel detent, in eighths of a degree (Qt's unit)
 _WHEEL_QUIET_MS = 250   # gap that ends a wheel gesture (a flywheel wheel coasts well past the hand)
 
+# Arrow key → unit (dx, dy) direction for nudging an object selection (M78.2); page-y grows down.
+_NUDGE_KEYS = {
+    Qt.Key.Key_Left: (-1.0, 0.0),
+    Qt.Key.Key_Right: (1.0, 0.0),
+    Qt.Key.Key_Up: (0.0, -1.0),
+    Qt.Key.Key_Down: (0.0, 1.0),
+}
+
 
 class PdfView(QGraphicsView):
     """Vertical continuous-scroll renderer over a VirtualDocument."""
@@ -703,6 +711,16 @@ class PdfView(QGraphicsView):
                 self.annotations.remove_selected_objects()  # whole group, one undo (M59.6)
                 event.accept()
                 return
+            # Arrow keys nudge the selection (M78.2): 1 pt/press, Shift = 10 pt; a held key's
+            # auto-repeat coalesces to one undo step. With nothing selected the arrows fall through
+            # to the view's normal scrolling (below).
+            nudge = _NUDGE_KEYS.get(event.key())
+            if nudge is not None:
+                step = 10.0 if event.modifiers() & Qt.KeyboardModifier.ShiftModifier else 1.0
+                if self.annotations.nudge_selection(nudge[0] * step, nudge[1] * step,
+                                                     auto_repeat=event.isAutoRepeat()):
+                    event.accept()
+                    return
         super().keyPressEvent(event)
 
     def wheelEvent(self, event) -> None:

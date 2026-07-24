@@ -240,3 +240,53 @@ class ReplaceAnnotationCommand(_SnapshotCommand):
 
     def _apply(self) -> None:
         self._vdoc.replace_annotation(self._index, self._old, self._new)
+
+
+# A stable, non-negative command id so consecutive nudges can merge on the QUndoStack (Qt merges
+# only same-id commands whose mergeWith returns True). Arbitrary constant — just has to be unique
+# among our mergeable commands, of which this is the only one.
+NUDGE_COMMAND_ID = 0x4E75  # "Nu"
+
+
+class NudgeCommand(_SnapshotCommand):
+    """Arrow-key nudge of an object selection (M78.2): translate one page's ``pairs`` of
+    ``(old, new)`` descriptors by a fixed step. Snapshot-based like every object edit, but
+    **mergeable** so a held key's auto-repeat sweep collapses into a single undo step while each
+    discrete tap stays its own step.
+
+    Qt calls :meth:`redo` on push (applying the step and snapshotting), then — for a same-id
+    successor — :meth:`mergeWith`. We absorb the successor only when it is an auto-repeat continuing
+    *this* selection on the same page (its ``old`` marks are the marks we just produced), extending
+    our after-snapshot so one Undo returns the objects to where the sweep began — never throwing
+    them back to the origin on the first press of a held key.
+    """
+
+    def __init__(self, vdoc: VirtualDocument, index: int, pairs, auto_repeat: bool,
+                 text: str) -> None:
+        super().__init__(vdoc, text)
+        self._index = index
+        self._pairs = list(pairs)
+        self._auto_repeat = auto_repeat
+        self._old_marks = [old for old, _new in self._pairs]
+        self._new_marks = [new for _old, new in self._pairs]
+
+    def id(self) -> int:
+        return NUDGE_COMMAND_ID
+
+    def _apply(self) -> None:
+        for old, new in self._pairs:
+            self._vdoc.replace_annotation(self._index, old, new)
+
+    def mergeWith(self, other: QUndoCommand) -> bool:
+        if not isinstance(other, NudgeCommand):
+            return False
+        # Only holding a key (auto-repeat) coalesces; a discrete tap is its own undo step.
+        if not other._auto_repeat:
+            return False
+        # Same page, and a continuation of the marks this command produced (so nudging a *different*
+        # selection — or the same one after it was re-picked — starts a fresh step).
+        if other._index != self._index or other._old_marks != self._new_marks:
+            return False
+        self._after = other._after
+        self._new_marks = other._new_marks
+        return True
