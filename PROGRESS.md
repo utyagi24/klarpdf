@@ -1206,13 +1206,13 @@ Carried items — none block work:
   rejected: "72 097 matches, showing the first 1 000" is a different feature with a worse answer,
   and Find-and-Redact must see every hit to be trustworthy.
 
-- **Search is blind to the live edit model** (owner-reported 2026-07-24, three symptoms — a new text
-  box unfindable until save+reopen, a moved one still matching its old spot, and results clearing on
-  any edit — one cause: `search()` scans the raw source, decoupled from the model). **Direction
-  decided (Direction A — search the page's printed text only, matching Preview/Edge); not yet
-  scheduled.** Full root-cause, the per-kind behaviour (text boxes / foreign FreeText / form fields
-  excluded; highlights findable; redaction + crop findable while unsaved), the rejected alternative,
-  and the implementation sketch live in `PLAN.md` §Future enhancements.
+- ~~**Search is blind to the live edit model**~~ — **fixed 2026-07-24 (PR #190, Direction A)**. The
+  three symptoms (a new text box unfindable until save+reopen, a moved one still matching its old
+  spot, results clearing on any edit) shared one cause: `search()` scanned the raw source, decoupled
+  from the model, and `search_for` surfaced FreeText / form-field text. Search now returns the page's
+  printed content-stream text only (matching Preview/Edge — text boxes, foreign FreeText and field
+  values excluded; highlights still findable; redaction/crop findable while unsaved), and results
+  survive a content-only edit. Design + rationale in `PLAN.md` §Future enhancements.
 
 - ~~**The Annotations panel reads each row's snippet with `page.get_textbox`**~~ — **fixed in M78.8**
   (wrong snippets *and* 15.7 s of per-edit lag at 200 highlights; `PageText` moved to
