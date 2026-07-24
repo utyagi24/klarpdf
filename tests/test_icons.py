@@ -22,9 +22,14 @@ ACTION_ICONS = [
     "open", "save", "undo", "redo", "cut", "copy", "paste", "delete",
     "insert", "find", "zoom-in", "zoom-out", "fit-width", "fit-page",
     "rotate-left", "rotate-right", "sidebar", "select", "grab", "highlight", "textbox",
+    "pen",                               # the Pen draw tool (main_window._build_actions)
     "stamp", "signature", "watermark",   # M62 — the Stamp ▾ split-button
     "markup",                            # M71 — the reading bar's Markup toggle
 ]
+
+# The three glyphs redrawn in M78.4 (owner-chosen from rendered candidates, 2026-07-23): Grab (a
+# filled outline hand with separated fingers), Text Box (a T in a box), Pen (a pencil on a baseline).
+POLISHED_ICONS = ["grab", "textbox", "pen"]
 ICO_PATH = Path(__file__).resolve().parents[1] / "packaging" / "klarpdf.ico"
 
 
@@ -86,6 +91,24 @@ def test_action_icons_tint_to_theme_text_colour(qapp):
     finally:
         qapp.setPalette(original)
         icons.refresh_for_theme()
+
+
+@pytest.mark.parametrize("name", POLISHED_ICONS)
+def test_polished_icon_is_qtsvg_safe_and_not_blank(qapp, name):
+    """M78.4: the three redrawn glyphs must parse under QtSvg and render actual ink — a malformed
+    path or a mis-scaled ``<g transform>`` (the Grab hand is authored in a 640-unit space) would
+    render blank while still passing the mere "non-null pixmap" check."""
+    from PySide6.QtSvg import QSvgRenderer
+
+    path = icons.svg_path(name)
+    assert QSvgRenderer(str(path)).isValid(), f"{name}.svg does not parse"
+    text = path.read_text(encoding="utf-8")
+    for banned in ("<text", "<filter", "<mask", "<style", "<use"):
+        assert banned not in text, f"{name}: {banned} is not QtSvg-safe (BRAND.md)"
+    # Real coverage: a healthy 24px glyph paints a good number of opaque pixels, well inside the box.
+    span, cx, cy = _bbox_span(name, 24)
+    assert span >= 0.15, f"{name} renders nearly blank (spans {span:.0%})"
+    assert abs(cx - 11.5) <= 4.0 and abs(cy - 11.5) <= 4.0, f"{name} is not roughly centred"
 
 
 def test_app_icon_keeps_its_colours(qapp):

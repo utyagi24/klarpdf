@@ -951,10 +951,10 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   whole spread via `_fit_dims`; session-only, like rotation). Surfaced in the View menu + the
   bare-page right-click menu as the same QActions. — *Windows (headless + offscreen GUI)* — 11 new
   tests, 1160 green ([#166](https://github.com/utyagi24/klarpdf/pull/166))
-- [ ] **M78.2** Nudge objects with arrow keys — arrow-move the object selection (1 pt / Shift 10 pt, page-clamped); a held key coalesces to one undo, taps stay separate — *WSLg*
-- [ ] **M78.3** Resize text-box width — a lone box's right-edge handle reflows the text (left pinned, height auto-fits); group resize leaves text boxes unstretched — *WSL + WSLg*
-- [ ] **M78.4** Icon polish — new Grab / Text Box / Pen glyphs, chosen from rendered candidates (2026-07-23) — *WSLg*
-- [ ] **M78.5** Highlight/Underline/Strike arming swatches — Markup ▾ becomes three colour rows; a pick sets the colour **and** arms that verb — *WSLg*
+- [x] **M78.2** Nudge objects with arrow keys — arrow-move the object selection (1 pt / Shift 10 pt, page-clamped); a held key coalesces to one undo, taps stay separate — *Windows (headless)* — 10 new tests ([#180](https://github.com/utyagi24/klarpdf/pull/180))
+- [x] **M78.3** Resize text-box width — a lone box's right-edge handle reflows the text (left pinned, height auto-fits); group resize leaves text boxes unstretched; the fold survives save+reopen (`auto_width` inferred) — *Windows (headless + offscreen GUI)* — 9 new tests ([#181](https://github.com/utyagi24/klarpdf/pull/181))
+- [x] **M78.4** Icon polish — new Grab (filled outline hand, separated fingers) / Text Box (T in a box) / Pen (pencil on a baseline) glyphs, chosen from rendered candidates; verified light + dark, re-tint intact — *Windows (offscreen render)* — `pen` added to the icon test roster + 3 non-blank/QtSvg-safe checks ([#182](https://github.com/utyagi24/klarpdf/pull/182))
+- [x] **M78.5** Highlight/Underline/Strike arming swatches — Markup ▾ becomes three colour rows; a pick sets the verb's colour **and** arms it (marking a live selection at once, and moving the split-button face); underline vs strike colours now independent — *Windows (headless + offscreen GUI)* — 4 new/rewritten tests ([#183](https://github.com/utyagi24/klarpdf/pull/183))
 - [x] **M78.6** Split the markup style button → three markup-bar buttons over one shared `MarkupStyle`: Line Styling (thickness · dash · arrowheads) · Colors (Border + Fill rows + custom + No Fill) · Opacity (a slider showing/accepting an exact %); selecting an object loads its style into all three — *Windows (headless + offscreen GUI)* — new/updated tests across 7 suites ([#184](https://github.com/utyagi24/klarpdf/pull/184))
 - [ ] **M79** Verify + release → tag (prov. **v0.16.0**) — *Windows*
 

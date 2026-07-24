@@ -138,26 +138,28 @@ def test_this_picker_does_not_colour_text_markup(win):
     win.view.annotations.set_markup_style(MarkupStyle(color=(0.0, 0.0, 1.0)))
     _select_first_word(win)
     win._underline_selection()
-    assert _only_mark(win, Underline).color == pytest.approx(win._markup_line_color)
+    assert _only_mark(win, Underline).color == pytest.approx(win._underline_color)
     assert _only_mark(win, Underline).color != pytest.approx((0.0, 0.0, 1.0))
 
 
-def test_underline_and_strikeout_share_the_curated_line_colour(win):
-    win._set_markup_line_color((0.13, 0.35, 0.85))
+def test_underline_and_strikeout_have_independent_colours(win):
+    # M78.5: underline and strike out no longer share one line colour.
+    win._set_underline_color((0.13, 0.35, 0.85))
+    win._set_strike_color((0.13, 0.60, 0.20))
     _select_first_word(win)
     win._underline_selection()
     assert _only_mark(win, Underline).color == pytest.approx((0.13, 0.35, 0.85))
     win.undo_stack.undo()
     _select_first_word(win)
     win._apply_text_tool(ArmedTool.STRIKEOUT)
-    assert _only_mark(win, Strikeout).color == pytest.approx((0.13, 0.35, 0.85))
+    assert _only_mark(win, Strikeout).color == pytest.approx((0.13, 0.60, 0.20))
 
 
 def test_highlight_has_its_own_colour(win):
     """Highlight is a translucent wash, so it keeps a palette (and a default) of its own —
     neither the stroke picker nor the underline/strikeout colour touches it."""
     win.view.annotations.set_markup_style(MarkupStyle(color=(0.0, 0.0, 1.0)))
-    win._set_markup_line_color((0.0, 0.0, 0.0))
+    win._set_underline_color((0.0, 0.0, 0.0))
     _select_first_word(win)
     win._highlight_selection()
     assert _only_mark(win, Highlight).color == pytest.approx(Highlight.color)  # yellow default

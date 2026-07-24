@@ -234,6 +234,12 @@ class TextBox:
     fontname: str = "helv"
     fill_color: tuple[float, float, float] | None = None
     border_width: float = 0.0
+    # M78.3: whether the box hugs its longest line (``True``, the default — a new box grows to fit
+    # its text) or its ``rect`` **width is authoritative** and the text wraps inside it (``False`` —
+    # set by dragging the right-edge width handle). Height always auto-fits the (wrapped) text. Not
+    # written to the PDF: on round-trip it is inferred from whether the text fits one line in the
+    # stored rect (see :func:`_textbox_fits_one_line`).
+    auto_width: bool = True
 
 
 @dataclass(frozen=True)
@@ -705,6 +711,22 @@ def apply_redactions(page: fitz.Page, annotations: tuple) -> None:
 # A base-14 DA font name (``/Helv`` / ``/TiRo`` / ``/Cour``) → our :class:`TextBox` ``fontname``.
 _DA_FONT_TO_NAME = {"helv": "helv", "tiro": "tiro", "cour": "cour"}
 
+# Slack (page points) added to a box width before deciding it fits one line, so an *auto-width* box
+# — whose stored width is the longest line plus author-time padding — never round-trips as wrapped
+# just because Qt sized it a hair wider than PyMuPDF's ``get_text_length`` measures it.
+_FIT_ONE_LINE_TOL = 2.0
+
+
+def _textbox_fits_one_line(text: str, fontname: str, fontsize: float, rect: tuple) -> bool:
+    """Whether ``text``'s longest line fits within ``rect``'s width — how a round-tripped FreeText
+    infers :attr:`TextBox.auto_width` (M78.3). Fits → the box was hugging its text (auto width);
+    overflows → its width was deliberately narrowed and the text wrapped, so the fold is preserved
+    on reopen. Explicit newlines are honoured (each paragraph measured on its own)."""
+    width = rect[2] - rect[0]
+    longest = max((fitz.get_text_length(line, fontname=fontname, fontsize=fontsize)
+                   for line in text.split("\n")), default=0.0)
+    return longest <= width + _FIT_ONE_LINE_TOL
+
 
 def _parse_freetext_da(da: str) -> tuple[float, tuple[float, float, float], str]:
     """Parse a FreeText DA string → ``(fontsize, text_color, fontname)``.
@@ -868,15 +890,17 @@ def parse_annotation(annot: fitz.Annot):
         fontsize, color, fontname = _parse_freetext_da(da[1] if da[0] == "string" else "")
         # A FreeText's /C (the box fill) surfaces as the 'stroke' colour in PyMuPDF.
         fill = annot.colors.get("stroke")
+        content = annot.info.get("content", "")
         result.append(
             TextBox(
                 rect,
-                annot.info.get("content", ""),
+                content,
                 fontsize=fontsize,
                 color=color,
                 fontname=fontname,
                 fill_color=tuple(fill) if fill else None,
                 border_width=border_width,
+                auto_width=_textbox_fits_one_line(content, fontname, fontsize, rect),
             )
         )
     return result[0] if result else None

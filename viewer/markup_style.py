@@ -259,7 +259,8 @@ class SwatchRowAction(QWidgetAction):
     picked = Signal(object)  # (r, g, b) — or None from the remove dot, where one exists
 
     def __init__(self, menu: QMenu, title: str, palette, active: tuple | None,
-                 close_on_pick: bool = True, include_remove: bool = True) -> None:
+                 close_on_pick: bool = True, include_remove: bool = True,
+                 show_title: bool = True) -> None:
         super().__init__(menu)
         self.title = title
         self.active = active
@@ -271,7 +272,11 @@ class SwatchRowAction(QWidgetAction):
         column = QVBoxLayout(box)
         column.setContentsMargins(12, 4, 12, 4)
         column.setSpacing(2)
-        column.addWidget(QLabel(title))
+        # ``show_title=False`` drops the header label (``title`` is still kept as the row's
+        # identity) — used when a menu entry right above already names the row (M78.5's markup
+        # rows sit under their verb action, so a title here would just repeat the verb).
+        if show_title:
+            column.addWidget(QLabel(title))
         row = QHBoxLayout()
         row.setSpacing(2)
         for name, rgb in self._palette:

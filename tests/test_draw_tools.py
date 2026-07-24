@@ -219,7 +219,9 @@ def test_repaint_paints_drawn_marks(win):
     win.vdoc.add_annotation(0, Line((100.0, 200.0), (220.0, 240.0), arrow_end=True))
     win.vdoc.add_annotation(0, Shape("rect", (250.0, 100.0, 320.0, 160.0)))
     win.view.annotations.repaint()
-    assert len(win.view.annotations._items) == before + 3
+    # Ink + Shape are one item each; the arrow Line is two — its arrowhead paints on a separate
+    # (always-solid) item so a dashed shaft doesn't dash the head. So 4, not 3.
+    assert len(win.view.annotations._items) == before + 4
 
 
 def test_draw_split_button_groups_the_four_tools(win):

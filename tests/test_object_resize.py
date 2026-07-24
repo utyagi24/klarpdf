@@ -128,10 +128,12 @@ def test_a_line_gets_endpoint_handles(win):
     assert set(win.view.annotations._handles._items) == {"p0", "p1"}
 
 
-def test_a_text_box_gets_no_handles(win):
+def test_a_text_box_gets_only_the_right_edge_handle(win):
+    # M78.3: a lone text box gains a single right-edge width handle (was: no handles), so its wrap
+    # width can be dragged while the font-driven height stays auto-fitted.
     _add(win, TextBox((100.0, 100.0, 200.0, 140.0), "note"))
     win.view.annotations.select_object(0, _only(win, TextBox))
-    assert win.view.annotations._handles.visible is False
+    assert set(win.view.annotations._handles._items) == {"e"}
 
 
 def test_clearing_the_selection_hides_the_handles(win):

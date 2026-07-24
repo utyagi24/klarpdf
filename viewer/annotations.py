@@ -70,6 +70,7 @@ from viewer.text_format_bar import TextBoxStyle, TextFormatBar, qt_font
 
 _TEXTBOX_DEFAULT = (200.0, 56.0)  # starting size for a new box, in page points (then auto-grows)
 _MIN_BOX_W, _MIN_BOX_H = 40.0, 20.0  # a text box never shrinks below this (page points)
+_TEXT_INSET = 2.0                 # horizontal gap between the box edge and its text (page points)
 _MIN_REDACT = 3.0                 # ignore a redaction drag smaller than this (a stray click)
 _MIN_DRAW = 2.0                   # ignore a draw drag smaller than this (page points)
 _HIT_PAD = 3.0                    # grab slack around thin drawn marks (page points)
@@ -140,13 +141,23 @@ def _dist_point_segment(px: float, py: float, ax: float, ay: float,
     return math.hypot(px - (ax + t * dx), py - (ay + t * dy))
 
 
-def _line_path(start: tuple, end: tuple, arrow_start: bool, arrow_end: bool,
-               width: float) -> QPainterPath:
-    """A line's painter path in page points, with open-arrow heads where flagged — the same
-    geometry for the live preview and the baked-mark overlay, so WYSIWYG holds."""
+def _line_shaft_path(start: tuple, end: tuple) -> QPainterPath:
+    """The line segment itself, in page points (no arrowheads)."""
     path = QPainterPath()
     path.moveTo(*start)
     path.lineTo(*end)
+    return path
+
+
+def _arrowheads_path(start: tuple, end: tuple, arrow_start: bool, arrow_end: bool,
+                     width: float) -> QPainterPath:
+    """The open-arrow head strokes where flagged (empty if none), in page points.
+
+    Kept **separate from the shaft** so the heads can be stroked *solid* even on a dashed line — how
+    the saved PDF renders a line ending (PyMuPDF draws an OPEN_ARROW solid regardless of the border
+    dash), so drawing the on-screen head dashed was a WYSIWYG mismatch. A dashed chevron also just
+    reads as broken. Same head geometry as before, only split out."""
+    path = QPainterPath()
     length = math.hypot(end[0] - start[0], end[1] - start[1])
     if length < 1e-6:
         return path
@@ -242,7 +253,7 @@ class _TextBoxEditor(QPlainTextEdit):
 
 class AnnotationOverlay:
     def __init__(self, view, on_add, on_remove=None, on_replace=None, on_select=None,
-                 on_replace_many=None, on_remove_many=None) -> None:
+                 on_replace_many=None, on_remove_many=None, on_nudge=None) -> None:
         self._view = view
         self._on_add = on_add               # on_add(page_index, annotation) — pushes Add command
         self._on_remove = on_remove         # on_remove(page_index, annotation)
@@ -251,11 +262,16 @@ class AnnotationOverlay:
         # Batch (one-undo-macro) callbacks for group ops (M59.6): restyle / move / delete a group.
         self._on_replace_many = on_replace_many   # on_replace_many(page, [(old, new), …], text)
         self._on_remove_many = on_remove_many     # on_remove_many(page, [mark, …], text)
+        # Arrow-key nudge (M78.2): on_nudge(page, [(old, new), …], auto_repeat, text) — a mergeable
+        # command, so a held key coalesces to one undo step and each tap stays separate.
+        self._on_nudge = on_nudge
         self._items: list[QGraphicsRectItem] = []
         # Inline editor (placing a new box, or re-editing an existing one) + its formatting bar.
         self._editor: _TextBoxEditor | None = None
         self._editor_page = 0
         self._editor_rect: tuple = (0, 0, 0, 0)
+        self._editor_auto_width = True      # editor grows width to fit (M78.3); False = fixed + wrap
+        self._editor_fixed_w: float | None = None
         self._editing: tuple | None = None  # (page_index, existing TextBox) when re-editing, else None
         # The style stamped on the next new box — sticky across boxes (the last-used font/colour/etc.
         # carries forward), and loaded from a box when it's re-edited. Edited via the format bar.
@@ -299,6 +315,9 @@ class AnnotationOverlay:
         self._draw_end: tuple | None = None
         self._draw_points: list = []
         self._draw_item: QGraphicsPathItem | None = None
+        # A line's live-preview arrowheads, drawn solid on a separate item so a dashed shaft doesn't
+        # dash them (matches the baked ending — the committed mark does the same split).
+        self._draw_arrow_item: QGraphicsPathItem | None = None
         # The object selection (M59 single → M59.6 group): a list of (page_index, mark), all on one
         # page — what restyle / move / Delete act on — plus one dashed outline item per mark.
         self._selection: list = []          # [(page_index, mark), …]
@@ -328,6 +347,7 @@ class AnnotationOverlay:
         self._resize_orig: tuple = (0.0, 0.0, 0.0, 0.0)
         self._resize_rect: tuple = (0.0, 0.0, 0.0, 0.0)
         self._resize_line = None            # (Line, moved_end) while dragging a line endpoint
+        self._resize_textbox = None         # the TextBox while dragging its width handle (M78.3)
         self._resize_ghost = None
 
     # ---- preview painting -------------------------------------------------------
@@ -481,8 +501,7 @@ class AnnotationOverlay:
                           else QBrush(Qt.BrushStyle.NoBrush))
         else:
             if isinstance(annot, Line):
-                path = _line_path(annot.start, annot.end, annot.arrow_start, annot.arrow_end,
-                                  annot.width)
+                path = _line_shaft_path(annot.start, annot.end)
             else:
                 path = QPainterPath()
                 for pts in annot.paths:
@@ -496,6 +515,19 @@ class AnnotationOverlay:
         item.setZValue(z)
         scene.addItem(item)
         self._items.append(item)
+        # A line's arrowheads are stroked SOLID even when the shaft is dashed — matching how the
+        # saved PDF renders the ending — as a separate item on top (a dashed chevron reads broken).
+        if isinstance(annot, Line):
+            heads = _arrowheads_path(annot.start, annot.end, annot.arrow_start, annot.arrow_end,
+                                     annot.width)
+            if not heads.isEmpty():
+                head_item = QGraphicsPathItem(heads)
+                head_item.setPen(self._drawn_pen(annot.color, annot.width, dashed=False))
+                head_item.setOpacity(annot.opacity)
+                head_item.setTransform(transform)
+                head_item.setZValue(z)
+                scene.addItem(head_item)
+                self._items.append(head_item)
 
     def _paint_content_mark(self, scene, page_index: int, annot) -> None:
         """Stamp / signature / watermark preview (M62): the mark's own artwork, rasterised.
@@ -589,6 +621,38 @@ class AnnotationOverlay:
             scene.addItem(item)
             self._items.append(item)
 
+    def _wrap_textbox_lines(self, text: str, fontname: str, fontsize: float, avail_pt: float):
+        """Greedy word-wrap ``text`` to ``avail_pt`` page points, honouring explicit newlines (each
+        paragraph wrapped on its own, blank lines kept). A single word wider than the box is left
+        unbroken — it overflows rather than being chopped mid-word. Returns ``(lines, metrics)``, so
+        callers reuse the same :class:`QFontMetricsF` for the line height. Page-point measurement:
+        the font's pixelSize is the point size, matching :meth:`_paint_textbox` and the round-trip
+        ``fitz.get_text_length`` inference — one wrap, one source of truth."""
+        fm = QFontMetricsF(qt_font(fontname, fontsize))
+        lines: list[str] = []
+        for para in text.split("\n"):
+            current = ""
+            for word in para.split(" "):
+                trial = word if not current else current + " " + word
+                if current and fm.horizontalAdvance(trial) > avail_pt:
+                    lines.append(current)
+                    current = word
+                else:
+                    current = trial
+            lines.append(current)
+        return lines, fm
+
+    def _reflow_textbox_rect(self, box: TextBox, width_pt: float, page_index: int) -> tuple:
+        """The rect a text box takes at a fixed ``width_pt`` (M78.3 width handle): left + top pinned,
+        width set, height grown to fit the wrapped text — both clamped to the page."""
+        pw, ph = self._view._unrotated_size(page_index)
+        x0, y0 = box.rect[0], box.rect[1]
+        width_pt = max(_MIN_BOX_W, min(width_pt, pw - x0))
+        lines, fm = self._wrap_textbox_lines(box.text, box.fontname, box.fontsize,
+                                             max(1.0, width_pt - 2 * _TEXT_INSET))
+        height = min(ph - y0, max(_MIN_BOX_H, len(lines) * fm.lineSpacing() + 2.0))
+        return (x0, y0, x0 + width_pt, y0 + height)
+
     def _paint_textbox(self, scene, page_index: int, annot: TextBox, z: float) -> None:
         # Author both the box and its text in **unrotated page points**, then apply the page's
         # transform so they rotate *with* the page (zoom + per-page/view rotation all in one matrix).
@@ -606,7 +670,15 @@ class AnnotationOverlay:
         box.setZValue(z)
         scene.addItem(box)
         self._items.append(box)
-        text = QGraphicsSimpleTextItem(annot.text)
+        # A fixed-width box (M78.3) wraps its text at the box width; an auto-width box shows the
+        # verbatim text (its explicit newlines only) and hugs its longest line.
+        if not annot.auto_width:
+            lines, _fm = self._wrap_textbox_lines(annot.text, annot.fontname, annot.fontsize,
+                                                  max(1.0, (x1 - x0) - 2 * _TEXT_INSET))
+            display = "\n".join(lines)
+        else:
+            display = annot.text
+        text = QGraphicsSimpleTextItem(display)
         text.setFont(qt_font(annot.fontname, annot.fontsize))
         text.setBrush(QColor.fromRgbF(*annot.color))
         # Vertically centre the text within the box. The box auto-hugs the text, so a baked FreeText
@@ -784,6 +856,10 @@ class AnnotationOverlay:
         if self._on_remove_many is not None:
             self._on_remove_many(page_index, marks, text)
 
+    def _nudge(self, page_index: int, pairs: list, auto_repeat: bool, text: str) -> None:
+        if self._on_nudge is not None:
+            self._on_nudge(page_index, pairs, auto_repeat, text)
+
     # ---- text-box tool: place (new) / re-edit (existing) ------------------------
 
     def place_textbox(self, scene_pt) -> bool:
@@ -816,18 +892,23 @@ class AnnotationOverlay:
             return False
         page_index, box = hit
         self._editing = (page_index, box)
-        self._open_editor(page_index, box.rect, text=box.text, style=TextBoxStyle.from_textbox(box))
+        self._open_editor(page_index, box.rect, text=box.text,
+                          style=TextBoxStyle.from_textbox(box), auto_width=box.auto_width)
         self._editor.selectAll()
         return True
 
     def _open_editor(self, page_index: int, rect: tuple, text: str,
-                     style: TextBoxStyle | None = None) -> None:
+                     style: TextBoxStyle | None = None, auto_width: bool = True) -> None:
         self._close_editor()
         if style is not None:           # re-edit loads the box's style; a new box keeps the sticky one
             self._style = style
         self._editor_page = page_index
         self._editor_rect = rect
         self._editor_fontsize = self._style.fontsize
+        # M78.3: a fixed-width box wraps in the editor at its own width (height only auto-grows); an
+        # auto-width box grows in both dimensions. Capture the width so the reflow stays put.
+        self._editor_auto_width = auto_width
+        self._editor_fixed_w = (rect[2] - rect[0]) if not auto_width else None
         editor = _TextBoxEditor(self._view.viewport())
         editor.setPlaceholderText("Note…")
         editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
@@ -877,7 +958,14 @@ class AnnotationOverlay:
         lines = editor.toPlainText().split("\n") or [""]
         longest_px = max((fm.horizontalAdvance(ln) for ln in lines), default=0.0)
         avail_px = avail_w * z - pad
-        if avail_px > 0 and longest_px > avail_px:
+        if not self._editor_auto_width:
+            # Fixed-width box (M78.3): wrap at the box's own width; only the height grows.
+            editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
+            w_pt = min(self._editor_fixed_w, avail_w)
+            wrap_px = w_pt * z - pad
+            visual_lines = (sum(max(1, math.ceil(fm.horizontalAdvance(ln) / wrap_px)) for ln in lines)
+                            if wrap_px > 0 else len(lines))
+        elif avail_px > 0 and longest_px > avail_px:
             # Longer than the page allows → wrap to the page edge; height absorbs the extra lines.
             editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
             w_pt = avail_w
@@ -911,6 +999,7 @@ class AnnotationOverlay:
         raw = self._editor.toPlainText()
         text = raw.strip()  # only to decide empty-vs-not; the box keeps the verbatim text
         page_index, rect, style = self._editor_page, self._editor_rect, self._style
+        auto_width = self._editor_auto_width       # preserved across a re-edit (M78.3)
         editing, self._editing = self._editing, None
         self._close_editor()
         if editing is not None:
@@ -921,18 +1010,18 @@ class AnnotationOverlay:
             # Re-commit when the text, the auto-grown rect, OR the style changed (a no-op re-open
             # that touches nothing commits nothing). One descriptor compare covers all three. The
             # text is stored verbatim — leading/trailing spaces and newlines are preserved.
-            new = self._textbox(rect, raw, style)
+            new = self._textbox(rect, raw, style, auto_width)
             if new != old:
                 self._replace(page_index, old, new, text="Edit text box")
         elif text:
-            self._on_add(page_index, self._textbox(rect, raw, style))
+            self._on_add(page_index, self._textbox(rect, raw, style, auto_width))
 
     @staticmethod
-    def _textbox(rect: tuple, text: str, style: TextBoxStyle) -> TextBox:
+    def _textbox(rect: tuple, text: str, style: TextBoxStyle, auto_width: bool = True) -> TextBox:
         """Build a :class:`TextBox` from a geometry + text + the current :class:`TextBoxStyle`."""
         return TextBox(rect, text, fontsize=style.fontsize, color=style.color,
                        fontname=style.fontname, fill_color=style.fill_color,
-                       border_width=style.border_width)
+                       border_width=style.border_width, auto_width=auto_width)
 
     # ---- formatting bar ---------------------------------------------------------
 
@@ -1180,8 +1269,9 @@ class AnnotationOverlay:
     def _refresh_handles(self) -> None:
         """Put resize handles on the selection (M59.7): a lone **line** gets endpoint handles (its
         box is degenerate when axis-aligned, and you re-aim a line by its ends); a lone **text box**
-        gets none (its size is font-driven — the format bar owns it); everything else, including any
-        group, gets the eight-handle box around the selection's bounds."""
+        gets a single **right-edge** handle (M78.3: drag it to set the wrap width, left side pinned;
+        height auto-fits, so a top/corner handle would fight the font-driven sizing); everything
+        else, including any group, gets the eight-handle box around the selection's bounds."""
         self._handles.hide()
         if not self._selection:
             return
@@ -1192,6 +1282,8 @@ class AnnotationOverlay:
                 self._handles.show_points(page_index, {"p0": marks[0].start, "p1": marks[0].end})
                 return
             if isinstance(marks[0], TextBox):
+                x0, y0, x1, y1 = marks[0].rect
+                self._handles.show_points(page_index, {"e": (x1, (y0 + y1) / 2.0)})
                 return
         self._handles.show_box(page_index, self.selection_bounds())
 
@@ -1386,6 +1478,37 @@ class AnnotationOverlay:
             # A plain click, no drag → select just the grabbed mark (collapses a group to it).
             self.select_object(page_index, grabbed)
 
+    # ---- arrow-key nudge (M78.2): shift the object selection a step at a time ------
+
+    def nudge_selection(self, dx: float, dy: float, auto_repeat: bool = False) -> bool:
+        """Move the whole object selection by ``(dx, dy)`` page points (arrow keys: 1 pt, Shift =
+        10 pt), clamped to the page — a group shifts as one, keeping its arrangement. The undo step
+        is *mergeable*: a held key's auto-repeat coalesces into one step (``auto_repeat=True``), each
+        discrete tap is its own. Rotation-0 only, like move/resize. Returns True if it moved."""
+        if not self._selection or self._view.rotation != 0:
+            return False
+        page_index = self._selection[0][0]
+        marks = [m for _p, m in self._selection]
+        boxes = [mark_bounds(m) for m in marks]
+        ux0 = min(b[0] for b in boxes)
+        uy0 = min(b[1] for b in boxes)
+        ux1 = max(b[2] for b in boxes)
+        uy1 = max(b[3] for b in boxes)
+        pw, ph = self._view._unrotated_size(page_index)
+        # Clamp the union bounds to the page (the update_move pattern: max(lo, hi) copes with a
+        # selection wider than the page). A step that would leave the group flush stays put.
+        lo_x, hi_x = -ux0, pw - ux1
+        lo_y, hi_y = -uy0, ph - uy1
+        dx = min(max(dx, lo_x), max(lo_x, hi_x))
+        dy = min(max(dy, lo_y), max(lo_y, hi_y))
+        if dx == 0 and dy == 0:
+            return False
+        pairs = [(m, translate_mark(m, dx, dy)) for m in marks]
+        label = _move_label(marks[0]) if len(marks) == 1 else f"Move {len(marks)} objects"
+        self._nudge(page_index, pairs, auto_repeat, label)
+        self._set_selection([(page_index, new) for _old, new in pairs])
+        return True
+
     # ---- marquee (M59.6 Objects mode: drag a box to select the marks inside) -----
 
     @property
@@ -1440,8 +1563,9 @@ class AnnotationOverlay:
 
     def begin_resize(self, handle: str, scene_pt) -> bool:
         """Press on a resize handle → start the drag, with a dashed ghost of the result. A lone
-        line's ``p0``/``p1`` handles re-aim that endpoint; every other handle scales the selection's
-        bounding box. Returns True if it took the press."""
+        line's ``p0``/``p1`` handles re-aim that endpoint; a lone text box's ``e`` handle sets its
+        wrap width (M78.3); every other handle scales the selection's bounding box. Returns True if
+        it took the press."""
         if self._view.rotation != 0 or not self._selection:
             return False
         page_index = self._selection[0][0]
@@ -1451,7 +1575,18 @@ class AnnotationOverlay:
         self._resize_anchor_local = self._view.local_point_on_page(page_index, scene_pt)
         self._resize_marks = marks
         self._resize_line = None
-        if handle in ("p0", "p1") and len(marks) == 1 and isinstance(marks[0], Line):
+        self._resize_textbox = None
+        if len(marks) == 1 and isinstance(marks[0], TextBox):
+            box = marks[0]
+            self._resize_textbox = box
+            # The width handle only ever moves the right edge; height comes from the reflow. Seed the
+            # live rect with the reflow at the current width so the ghost previews the wrapped shape.
+            self._resize_rect = self._reflow_textbox_rect(box, box.rect[2] - box.rect[0], page_index)
+            x0, y0, x1, y1 = self._resize_rect
+            ghost = QGraphicsRectItem(QRectF(x0, y0, x1 - x0, y1 - y0))
+            ghost.setBrush(QColor(0, 120, 215, 40))
+            ghost.setPen(QPen(QColor(0, 120, 215), 1, Qt.PenStyle.DashLine))
+        elif handle in ("p0", "p1") and len(marks) == 1 and isinstance(marks[0], Line):
             line = marks[0]
             self._resize_line = (line, handle)
             # For a line the live geometry is the segment itself, kept as (sx, sy, ex, ey).
@@ -1482,6 +1617,14 @@ class AnnotationOverlay:
         pw, ph = self._view._unrotated_size(page_index)
         x = min(max(0.0, local.x()), pw)
         y = min(max(0.0, local.y()), ph)
+        if self._resize_textbox is not None:
+            # Width tracks the cursor's x (left edge pinned); the reflow sets the height. The ghost
+            # previews the wrapped box live, so the text is seen refolding as the edge is dragged.
+            self._resize_rect = self._reflow_textbox_rect(
+                self._resize_textbox, x - self._resize_textbox.rect[0], page_index)
+            x0, y0, x1, y1 = self._resize_rect
+            self._resize_ghost.setRect(QRectF(x0, y0, x1 - x0, y1 - y0))
+            return
         if self._resize_line is not None:
             line, which = self._resize_line
             self._resize_rect = ((x, y, line.end[0], line.end[1]) if which == "p0"
@@ -1508,9 +1651,19 @@ class AnnotationOverlay:
         page_index, marks = self._resize_page, self._resize_marks
         orig, rect = self._resize_orig, self._resize_rect
         line_state, self._resize_line = self._resize_line, None
+        box_state, self._resize_textbox = self._resize_textbox, None
         self._resize_handle = None
         self._resize_marks = []
         self._resize_anchor_local = None
+        if box_state is not None:
+            # A text box's width was dragged (M78.3): commit the reflowed rect and pin auto_width off
+            # so the rect width stays authoritative (the text keeps wrapping at it, here and on save).
+            new = replace(box_state, rect=rect, auto_width=False)
+            if new == box_state:
+                return self._refresh_handles()
+            self._replace(page_index, box_state, new, text="Resize text box")
+            self._set_selection([(page_index, new)])
+            return
         if line_state is not None:
             line, _which = line_state
             new = replace(line, start=(rect[0], rect[1]), end=(rect[2], rect[3]))
@@ -1548,6 +1701,7 @@ class AnnotationOverlay:
         self._drop_resize_ghost()
         self._resize_handle = None
         self._resize_line = None
+        self._resize_textbox = None
         self._resize_marks = []
         self._resize_anchor_local = None
         self._refresh_handles()
@@ -1646,6 +1800,18 @@ class AnnotationOverlay:
         item.setZValue(11)
         self._view.scene().addItem(item)
         self._draw_item = item
+        # A line previews its arrowheads on a second, always-solid item (M74 WYSIWYG): the shaft item
+        # above may be dashed, but the ending bakes solid, so the preview must too.
+        self._draw_arrow_item = None
+        if tool is ArmedTool.LINE:
+            arrow = QGraphicsPathItem()
+            arrow.setPen(self._drawn_pen(self._markup_style.color, self._markup_style.width,
+                                         dashed=False))
+            arrow.setOpacity(self._markup_style.opacity)
+            arrow.setTransform(self._view.page_transform(page_index))
+            arrow.setZValue(11)
+            self._view.scene().addItem(arrow)
+            self._draw_arrow_item = arrow
         return True
 
     def update_draw(self, scene_pt, modifiers=None) -> None:
@@ -1670,6 +1836,8 @@ class AnnotationOverlay:
                 end = self._constrained_end(x, y)
             self._draw_end = end
         self._draw_item.setPath(self._gesture_path())
+        if self._draw_arrow_item is not None:
+            self._draw_arrow_item.setPath(self._gesture_arrowheads_path())
 
     def _constrained_end(self, x: float, y: float) -> tuple:
         """The Shift constraint: lines/arrows snap to 45° steps; rect/ellipse drags square up."""
@@ -1694,11 +1862,9 @@ class AnnotationOverlay:
             for point in self._draw_points[1:]:
                 path.lineTo(*point)
         elif tool is ArmedTool.LINE:
-            # The ends come from the style (M74), and the preview draws them live — WYSIWYG from
-            # the first pixel of drag, exactly as the committed mark will bake.
-            start_head, end_head = self._markup_style.line_ends
-            path = _line_path(self._draw_anchor, self._draw_end,
-                              start_head, end_head, self._markup_style.width)
+            # Just the shaft — the arrowheads ride the separate always-solid item (M74 WYSIWYG),
+            # so a dashed line's shaft dashes but its ending stays solid, exactly as it bakes.
+            path = _line_shaft_path(self._draw_anchor, self._draw_end)
         else:
             x0, y0 = self._draw_anchor
             x1, y1 = self._draw_end
@@ -1708,6 +1874,13 @@ class AnnotationOverlay:
             else:
                 path.addRect(rect)          # RECT and the STAMP placement box
         return path
+
+    def _gesture_arrowheads_path(self) -> QPainterPath:
+        """The live line's arrowheads (M74) — drawn on the separate always-solid item, so they
+        never dash with the shaft. The ends come from the sticky style, like colour and width."""
+        start_head, end_head = self._markup_style.line_ends
+        return _arrowheads_path(self._draw_anchor, self._draw_end, start_head, end_head,
+                                self._markup_style.width)
 
     def _click_placed(self, tool) -> bool:
         """Whether ``tool``'s armed mark is placed by a click rather than sized by a drag — true for
@@ -1763,6 +1936,9 @@ class AnnotationOverlay:
             return
         item, self._draw_item = self._draw_item, None
         self._view.scene().removeItem(item)
+        arrow, self._draw_arrow_item = self._draw_arrow_item, None
+        if arrow is not None and arrow.scene() is self._view.scene():
+            self._view.scene().removeItem(arrow)
         tool, page_index = self._draw_tool, self._draw_page
         anchor, end, points = self._draw_anchor, self._draw_end, self._draw_points
         self._draw_tool = self._draw_anchor = self._draw_end = None
@@ -1824,5 +2000,8 @@ class AnnotationOverlay:
         item, self._draw_item = self._draw_item, None
         if item.scene() is self._view.scene():
             self._view.scene().removeItem(item)
+        arrow, self._draw_arrow_item = self._draw_arrow_item, None
+        if arrow is not None and arrow.scene() is self._view.scene():
+            self._view.scene().removeItem(arrow)
         self._draw_tool = self._draw_anchor = self._draw_end = None
         self._draw_points = []

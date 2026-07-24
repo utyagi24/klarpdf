@@ -17,6 +17,7 @@ from model.edit_engine import PyMuPDFEngine
 from model.export import export_flattened_pdf
 from model.page_edits import (
     KLARPDF_AUTHOR,
+    Highlight,
     Strikeout,
     Underline,
     apply_annotations,
@@ -25,7 +26,7 @@ from model.page_edits import (
 )
 from model.virtual_document import VirtualDocument
 from store.settings import Settings
-from viewer.markup_style import HIGHLIGHT_COLORS
+from viewer.markup_style import HIGHLIGHT_COLORS, TEXT_LINE_COLORS
 from viewer.tools import ArmedTool
 
 _BARS = ((70.0, 66.0, 220.0, 80.0), (70.0, 86.0, 180.0, 100.0))  # two line bars
@@ -201,29 +202,83 @@ def test_markup_split_button_faces_last_used_tool(win):
     assert button.defaultAction().text() == "Underline"   # sticky last-used face
 
 
-def test_markup_menu_carries_the_always_visible_colour_rows(win):
-    """M76.2: the highlight + line colours are swatch rows in the Markup ▾ menu, always visible
-    (no submenu), so picking a colour and arming is one menu visit."""
+def test_markup_menu_carries_the_three_arming_colour_rows(win):
+    """M78.5: the Markup ▾ menu carries one swatch row per verb — Highlight, Underline, Strike Out —
+    and each closes the menu on a pick (the pick both sets the colour and arms the verb)."""
     from viewer.markup_style import SwatchRowAction
 
     rows = {a.title: a for a in win._markup_button.menu().actions()
             if isinstance(a, SwatchRowAction)}
-    assert set(rows) == {"Highlight Colour", "Underline / Strike Colour"}
-    # State-setting rows: no remove dot, and they do NOT close the menu on a pick.
+    assert set(rows) == {"Highlight", "Underline", "Strike Out"}
+    # Arming rows: no remove dot, and they DO close the menu on a pick.
     for row in rows.values():
         assert row.remove_button is None
-        assert row._close_on_pick is False
+        assert row._close_on_pick is True
 
 
-def test_picking_a_markup_colour_does_not_hijack_the_button_face(win):
-    """A colour dot is a QWidgetAction, so it never reaches the split-button's sticky-face wiring
-    (which keys on QMenu.triggered for the tool actions) — the face stays the last-used tool."""
+def test_each_swatch_row_sits_under_its_verb_action_with_no_duplicate_label(win):
+    """Owner call after testing M78.5: each swatch row is grouped directly under its verb action
+    (Highlight action → Highlight swatches → Underline action → …), and carries no title label —
+    the action above already names it, so the verb name isn't repeated."""
+    from viewer.markup_style import SwatchRowAction
+
+    entries = []
+    for a in win._markup_button.menu().actions():
+        if a.isSeparator():
+            entries.append("---")
+        else:
+            entries.append(a.title if isinstance(a, SwatchRowAction) else a.text())
+    # Verb action → its swatch row → a divider, per verb (no trailing divider). The divider makes
+    # it unambiguous which swatches belong to which verb.
+    assert entries == ["Highlight", "Highlight", "---",
+                       "Underline", "Underline", "---",
+                       "Strike Out", "Strike Out"]
+    # each row shows its colour dots but no header QLabel repeating the verb name.
+    from PySide6.QtWidgets import QLabel
+
+    for row in win._markup_button.menu().actions():
+        if isinstance(row, SwatchRowAction):
+            assert row.defaultWidget().findChild(QLabel) is None
+
+
+def test_picking_a_markup_colour_arms_the_verb_in_that_colour(win):
+    """M78.5: a colour pick sets the verb's colour, arms the verb, and makes the split-button face
+    repeat it — collapsing the old pick-a-colour-then-click-the-verb into one click."""
+    from viewer.tools import ArmedTool
+
     button = win._markup_button
     row = next(a for a in button.menu().actions()
-               if getattr(a, "title", None) == "Highlight Colour")
+               if getattr(a, "title", None) == "Underline")
+    row.buttons["Blue"].click()
+    assert win._underline_color == dict(TEXT_LINE_COLORS)["Blue"]  # the pick took…
+    assert win.view.armed is ArmedTool.UNDERLINE                   # …armed the verb…
+    assert button.defaultAction().text() == "Underline"           # …and moved the face to it
+
+
+def test_picking_a_colour_marks_a_live_selection_immediately(win):
+    """M78.5 done-when: with text already selected, a colour pick applies the verb at once in that
+    colour — one undo step — rather than arming and waiting for a drag."""
+    _select_first_word(win)
+    row = next(a for a in win._markup_button.menu().actions()
+               if getattr(a, "title", None) == "Highlight")
     row.buttons["Green"].click()
-    assert win._highlight_color == HIGHLIGHT_COLORS[1][1]   # the pick took…
-    assert button.defaultAction().text() == "Highlight"    # …without hijacking the face
+    marks = [a for a in win.vdoc.page_annotations(0) if isinstance(a, Highlight)]
+    assert len(marks) == 1
+    assert marks[0].color == pytest.approx(HIGHLIGHT_COLORS[1][1])   # the Green just picked
+    assert win.view.armed is None                                   # applied, not left armed
+    assert win.undo_stack.undoText() == "Highlight"
+
+
+def test_underline_and_strike_out_rows_pick_independent_colours(win):
+    """The two proofing verbs no longer share a colour: picking on each row sets only that verb."""
+    menu = win._markup_button.menu()
+    u_row = next(a for a in menu.actions() if getattr(a, "title", None) == "Underline")
+    s_row = next(a for a in menu.actions() if getattr(a, "title", None) == "Strike Out")
+    u_row.buttons["Blue"].click()
+    s_row.buttons["Green"].click()
+    assert win._underline_color == dict(TEXT_LINE_COLORS)["Blue"]
+    assert win._strike_color == dict(TEXT_LINE_COLORS)["Green"]
+    assert win._underline_color != win._strike_color
 
 
 def test_remove_labels_in_context_menu(win):
