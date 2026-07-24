@@ -29,114 +29,70 @@ the unit of audit; it ships as a pinned, fully offline Windows installer.
 <p align="center"><sub>The real app, captured from a real build — and it follows the Windows theme, so
 this screenshot follows your GitHub one.</sub></p>
 
-**Status: `v0.15.0` shipped** — [download the installer or portable exe](https://github.com/utyagi24/klarpdf/releases/latest).
-**New in v0.15.0 "Stamp, Sign & Watermark":** **stamps & watermarks** (text or image, any angle,
-baked into the saved page) and **image signatures** (drop a photo of a signature — white background
-keys out automatically — with a recent-signatures list for reuse); **Find and Redact** — search,
-review the hits, redact the ones you check, one undo step; editing **foreign annotations** from
-other PDF tools (delete, move, or adopt one into an ordinary editable KlarPDF mark); and **form-field
-creation** — add text, checkbox, or dropdown fields directly on the page. Full release notes live on
+**Status: `v0.16.0` shipped** — [download the installer or portable exe](https://github.com/utyagi24/klarpdf/releases/latest).
+**New in v0.16.0 "Simplify & Read":** a **two-tier toolbar** — a calm reading bar at rest, the full
+markup kit summoned on demand — plus **Full Screen · Slideshow · Two-Page** view modes, an
+**Annotations sidebar** listing every text mark, **sticky** Highlight/Underline/Strike arming (mark
+passage after passage), **Match case** + **Whole words** on the find bar, **both-ended and dashed**
+lines, right-click **recolour / add / remove** on any mark, and object **arrow-key nudge** +
+**text-box reflow**. Full release notes live on
 [GitHub Releases](https://github.com/utyagi24/klarpdf/releases); live status — milestones
-(**M0–M38 + R1–R5 complete**), per-release notes, open follow-ups — in [PROGRESS.md](PROGRESS.md).
+(**M0–M38 + R1–R6 complete**), per-release notes, open follow-ups — in [PROGRESS.md](PROGRESS.md).
 
 ## Features
 
-The macOS-Preview workflow, rebuilt for Windows: a fast viewer that is also a page editor.
-Everything below works **fully offline** — the app makes no network connections, ever.
+The macOS-Preview workflow, rebuilt for Windows — a fast viewer that is also a page editor.
+Everything here works **fully offline**: the app makes no network connection, ever.
 
-**View**
-- Continuous-scroll viewer with zoom, a live zoom readout, and **Fit Width / Fit Page** that stay
-  sticky as you resize.
-- **Select & copy text** — exactly the document's (OCR) text layer — and **search** with
-  highlighted hits, next/previous navigation, and **List All**: every match with its context
-  line, click to jump.
-- **Pages sidebar** with live thumbnails that reflect your current edits; thumbnails load lazily,
-  so a 320-page document opens in ~150 ms.
-- **Outline sidebar** — a document with bookmarks gets a Pages | Outline switcher: the live
-  bookmark tree tracks your scroll position, follows your edits, and jumps on click. Plus
-  **Go to Page…** (Ctrl+G).
-- **Night reading mode** — inverts the page for dark-room reading; printing, export, and the
-  file itself stay true-colour.
-- **Right-click menus everywhere** — the verbs fit what's under the cursor: text selection
-  (copy / highlight / redact), links (jump, or copy an external link's address), annotations,
-  the page, and the sidebar.
-- **Clickable internal links** — click to jump to the target page.
-- Opens **password-protected PDFs** (prompted on open; the saved copy is unencrypted).
-- **Grab / Select** viewer-mode toggle; a window opens on the monitor under your cursor, at
-  Fit Page, without flicker.
-- Follows the **Windows light/dark theme** live — the toolbar icons re-tint the moment you switch.
-- **Remembers where you were**: last page, zoom, scroll, and window geometry per document — plus
-  **Open Recent**.
+**Read & navigate**
+- **Two-tier toolbar** — a calm reading bar at rest; the markup kit appears only when you summon it.
+- **Continuous scroll** with zoom, a live readout, and sticky **Fit Width / Fit Page**.
+- **View modes** — **Full Screen** (F11), **Slideshow**, and a **Two-Page** facing layout.
+- **Select & copy** the real text layer; **Night mode** inverts the page (file, print and export stay true-colour).
+- **Search** with highlighted hits, next/previous, **Match case** + **Whole words**, and **List All** — every match with its context line, click to jump.
+- **Pages sidebar** with live thumbnails — a 320-page file opens in ~150 ms.
+- **Outline** and **Annotations** tabs appear only when the document has them — a live bookmark tree and a list of every mark, both click-to-jump. Plus **Go to Page** (Ctrl+G).
+- **Clickable links** — jump internal links; copy an external link's address. **Right-click menus** everywhere fit whatever is under the cursor.
+- **Remembers where you were** — page, zoom, scroll and window — plus **Open Recent**; opens **password-protected** PDFs and follows the **Windows light/dark theme** live.
 
 **Organize pages** — the splice/split workflow
-- **Drag-and-drop reorder**, delete, and rotate pages in the Pages sidebar.
-- **Crop pages** — drag the area to keep, applied to this page / selected / all. Cropping
-  *hides* (use Redact to remove permanently); **Remove Crop** restores the full page any time,
-  even for a crop the file arrived with.
-- **Merge / splice**: drag a PDF in from File Explorer to insert its pages at any position.
-- **Cut / copy / paste pages** — including **between two open documents**.
-- **Extract pages** to a new file, **insert blank pages**, and **duplicate** a page.
-- **Undo / redo** (Ctrl+Z / Ctrl+Y) for every page edit.
-- **Lossless saves**: pages are copied at the object level, so the text (OCR) layer and form fields
-  survive untouched, and **bookmarks and internal links are rebuilt** to keep working after
-  reorder / delete.
-- Save / Save As, with a **Save / Discard / Cancel** prompt on close.
+- **Reorder, delete, rotate, duplicate**, and **insert blank** pages.
+- **Merge** — drag a PDF in from Explorer to splice its pages in at any position.
+- **Crop** to hide (this / selected / all), with **Remove Crop** to restore — even a crop the file arrived with.
+- **Extract** pages to a new file; **cut / copy / paste** pages, even **between two open documents**.
+- **Lossless saves** — text layer, form fields, bookmarks and internal links all survive a reorder or delete.
+- **Undo / redo** every page edit (Ctrl+Z / Ctrl+Y).
 
-**Annotate, mark up, redact & fill**
-- **Highlight, underline and strike out** text, each with its own curated colour palette.
-  Re-marking text you already marked *folds into* the existing mark — same colour extends it, a
-  different colour recolours what it covers — instead of quietly stacking a second layer.
-- **Draw**: a freehand **pen**, plus **lines, arrows, rectangles and ellipses**, with a shared
-  colour · width · **opacity** · fill picker (translucency is how you mark over text without
-  hiding it).
-- Add **styled text boxes** — font family, size, colour, box fill and outline.
-- **Edit what you drew**: click or marquee-select one object or many, then move, **resize**
-  (corner/edge handles, Shift to keep proportions), re-order (**Bring to Front / Send to Back**),
-  copy/cut/paste — a group keeps its arrangement — or delete. Every action is one undo step, and
-  all of it still works **after reopening the saved file**.
-- **Stamps, signatures & watermarks**: place a text or image stamp anywhere, or apply a watermark
-  across a page range — any angle, any opacity, baked into the saved page. **Sign with a photo**:
-  drop a picture of your signature and a white background is keyed out automatically, with a
-  recent-signatures list for one-click reuse.
-- **True destructive redaction**: drag over text or a region and it is permanently removed at save
-  — a cross-engine-verified, confirmed point of no return. **Find and Redact** searches the whole
-  document, lets you review every hit (case / whole-word filters, click to jump), and redacts the
-  ones you check as one undo step.
-- **Foreign annotations** — a mark left by another PDF tool can be **deleted**, **moved**
-  (appearance preserved exactly), or **adopted** (highlight, underline, strikeout, ink, line, shape,
-  callout) into an ordinary editable KlarPDF mark.
-- **Fill AcroForm forms**; values save losslessly. **Create form fields** — text, checkbox, or
-  dropdown — directly on the page; a created field fills, saves, prints and flattens like any other.
-- **Edits-aware printing** — the printout shows your annotations, form values, and redactions (an
-  unsaved redaction never prints the original).
-- **Export → PDF (flatten)**: bakes annotations + form widgets into the page content,
-  text-preserving.
+**Annotate & mark up**
+- **Highlight, underline, strike out** — armed once, mark passage after passage; re-marking **merges** instead of stacking a second layer.
+- **Draw** — pen, lines, arrows (any end, **dashed or solid**), rectangles, ellipses — with a shared colour · width · **opacity** · fill picker.
+- **Text boxes** — styled font, size, colour, fill and outline; drag the edge to reflow.
+- **Edit what you drew** — select, move (or **nudge** with arrow keys), **resize**, re-order and group copy/paste; each action one undo step, all editable after reopening.
+- **Stamps, signatures & watermarks** — text or image, any angle, baked at save; **sign with a photo** and its white background keys out automatically.
+- **Change a mark in place** — right-click to recolour, or add and remove markup layers.
+- **Fill forms**, and **create fields** — text, checkbox or dropdown — right on the page.
 
-**Images**
-- **Import** a PNG/JPEG from Explorer as a new page.
-- **Export** selected pages as PNG/JPEG at a chosen DPI, edits-aware.
-- **Export → Reduced Size PDF** — re-encodes for a smaller file when you need to send it.
+**Redact — for real**
+- **Destructive redaction** — drag over text or a region and it is permanently removed at save, cross-engine verified.
+- **Find and Redact** — search the whole document, review the hits, redact the ones you check in one undo step.
 
-**Document properties & security**
-- **Properties** — inspect and edit the document's metadata (title, author, subject, keywords…),
-  or strip it entirely; both metadata stores are cleared, not just the visible one.
-- **Password-protect** a document with **AES-256** on save — set, change, or remove it.
+**Foreign annotations** — marks left by another PDF tool
+- **Delete**, **move** (appearance preserved exactly), or **adopt** one into an ordinary editable KlarPDF mark.
 
-**File safety**
-- **Revert to Saved**; a warning when **another program modifies the open file** (Reload / Keep);
-  and an overwrite guard before Save.
+**Export, print & images**
+- **Print** with your annotations, form values and redactions baked in.
+- **Export → PDF (flatten)** — bakes annotations + form widgets into the page, text-preserving.
+- **Import** a PNG/JPEG as a page; **export** pages as PNG/JPEG at a chosen DPI; **Reduced-Size PDF** for email.
 
-**A native Windows citizen**
-- Registers in the `.pdf` **Open With** list — built to be your default viewer.
-- **Single instance, one window per document**: opening an already-open file focuses its window,
-  never spawns a duplicate.
-- Per-user install (no admin), Start-Menu shortcut, clean uninstall — or a single-file portable
-  exe.
+**Files, security & Windows**
+- **Properties** — edit or strip metadata (both stores cleared, not just the visible one).
+- **Password-protect** with **AES-256** — set, change, or remove.
+- **File safety** — Revert to Saved, a warning when another program changes the open file, an overwrite guard, and a Save / Discard / Cancel prompt on close.
+- **A native Windows citizen** — registers in the `.pdf` **Open With** list; **single instance, one window per document**; per-user install (no admin) or a single-file portable exe.
 
-**Private & auditable by design**
-- **No network access** at install or runtime, no telemetry, no accounts, no upsell.
-- Readable Python source is the unit of audit; every dependency **pinned by hash and vendored**;
-  free software under the AGPL.
+**Private & auditable**
+- **No network, no telemetry, no accounts, no upsell** — ever.
+- Readable Python source is the unit of audit; every dependency **pinned by hash and vendored**; free software under the **AGPL**.
 
 ## Use it (Windows)
 
@@ -182,7 +138,7 @@ ui/ · store/ · util/       # icons + About · view-state/recents · path ident
 platform_integration.py    # ALL OS-specific code, quarantined behind one seam
 packaging/                 # PyInstaller spec, Inno Setup script, build.ps1
 vendor/ · requirements-*   # the pinned + vendored offline dependency ship-set
-tests/                     # 414 headless tests (offscreen Qt), run in CI on every PR
+tests/                     # 1273 headless tests (offscreen Qt), run in CI on every PR
 ```
 
 ## Develop (WSL)
@@ -193,7 +149,7 @@ sudo apt install -y python3.12-venv
 
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements-dev.txt
-invoke test                     # 414 headless tests (offscreen Qt) — or run `pytest`
+invoke test                     # 1273 headless tests (offscreen Qt) — or run `pytest`
 invoke --list                   # all build/release tasks: test · audit · lock · build · tag · publish
 python launcher.py file.pdf     # run the GUI via WSLg
 ```

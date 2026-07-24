@@ -7,7 +7,39 @@ it merges, check the box here in the same PR and append the PR link.
 > release links, milestone ticks, and open follow-ups. `PLAN.md` (design/spec) and `CLAUDE.md`
 > (conventions) **link here, they don't restate it** — see CLAUDE.md §How we work → "Where things live".
 
-**Status:** ✅ **v0.15.0 "Stamp, Sign & Watermark" shipped** — delivers **R4 (M61–M64)** and **R5
+**Status:** ✅ **v0.16.0 "Simplify & Read" shipped** — the GUI tranche's **R6 (M71–M79)**, a
+Preview-inspired simplification built on one idea: *the app at rest is a viewer; the markup kit is
+chrome you summon on demand.* The single ~29-slot toolbar splits into **two tiers** — a resting
+**reading bar** (Sidebar · Save · Undo/Redo · the zoom cluster · Rotate · a **Markup** toggle · Find)
+and a **markup bar** the toggle reveals, its visibility remembered app-wide like the sidebar
+([#159](https://github.com/utyagi24/klarpdf/pull/159)). The kit gains Preview's ergonomics: **one
+gesture-detecting Redact** — press-on-text vs press-on-margin picks the gesture
+([#160](https://github.com/utyagi24/klarpdf/pull/160), [#189](https://github.com/utyagi24/klarpdf/pull/189));
+**sticky arming** so Highlight/Underline/Strike/Pen mark passage after passage
+([#161](https://github.com/utyagi24/klarpdf/pull/161)); **arrowheads as line style** — Arrow folds
+into Line with none/start/end/**both** ends, plus a **dashed** stroke option
+([#162](https://github.com/utyagi24/klarpdf/pull/162), [#169](https://github.com/utyagi24/klarpdf/pull/169));
+and a right-click **markup context menu** to recolour or add/remove layers in place
+([#164](https://github.com/utyagi24/klarpdf/pull/164), [#167](https://github.com/utyagi24/klarpdf/pull/167), [#168](https://github.com/utyagi24/klarpdf/pull/168)).
+Reading gains **Match case** + **Whole words** on the find bar
+([#163](https://github.com/utyagi24/klarpdf/pull/163), [#171](https://github.com/utyagi24/klarpdf/pull/171)),
+an **Annotations sidebar tab** listing every text markup — click to jump, present only when the doc
+has marks ([#165](https://github.com/utyagi24/klarpdf/pull/165), [#174](https://github.com/utyagi24/klarpdf/pull/174)) —
+and three view-only **view modes**: Full Screen, Slideshow, Two-Page
+([#166](https://github.com/utyagi24/klarpdf/pull/166), [#170](https://github.com/utyagi24/klarpdf/pull/170)).
+A late owner-testing pass (**M78.2–M78.6**) added **arrow-key nudge** and **text-box width reflow** to
+object editing, an icon-polish set, **HUS arming swatches**, and split the shared style button into
+Line Styling · Colors · Opacity (an exact-% slider)
+([#180](https://github.com/utyagi24/klarpdf/pull/180)–[#184](https://github.com/utyagi24/klarpdf/pull/184)),
+while **M79.1–.3** stripped the sidebar's title bar and made its optional tabs appear only on demand
+([#175](https://github.com/utyagi24/klarpdf/pull/175), [#177](https://github.com/utyagi24/klarpdf/pull/177), [#178](https://github.com/utyagi24/klarpdf/pull/178)).
+Two search fixes closed the tranche: find-as-you-type no longer hangs a large document
+([#186](https://github.com/utyagi24/klarpdf/pull/186)) and **search matches the page's printed text
+only** ([#190](https://github.com/utyagi24/klarpdf/pull/190)). Release:
+<https://github.com/utyagi24/klarpdf/releases/tag/v0.16.0>. 1273 headless tests green
+(1 expected skip — the Poppler `pdftotext` cross-check, absent on Windows).
+
+**v0.15.0 "Stamp, Sign & Watermark"** — delivers **R4 (M61–M64)** and **R5
 (M66–M69.16)** together: M65's release cut was skipped by owner call (2026-07-20) so R4 would ship
 alongside R5 rather than under an unpublished tag. A **unified content-draw engine**
 (`model/content_marks.py`) underlies stamps, signatures and watermarks — two descriptors, `Stamp`
