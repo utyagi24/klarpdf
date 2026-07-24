@@ -55,16 +55,46 @@ def test_menu_bar_order(app, b_pdf):
 
 def test_tools_menu_holds_the_modes_and_armed_tools(app, b_pdf):
     win = app.open_document(b_pdf)
+    # Grouped to mirror the markup toolbar (modes · draw · text · stamps · redact), then the
+    # menu-only one-shots. Draw precedes text markup as it does on the bar; stamps and redact
+    # are split rather than run together (the menu has no slot budget forcing them into one).
     assert _titles(win, "&Tools") == [
         "Select", "Grab", "Objects",
-        "Add Text Box", "Highlight", "Underline", "Strike Out",
         "Pen", "Line", "Rectangle", "Ellipse",  # Arrow merged into Line (M74)
-        "Redact Text", "Redact Block", "Find and Redact…",
+        "Add Text Box", "Highlight", "Underline", "Strike Out",
         # One entry, not two (M69.3): a watermark is a Stamp with `under=True`, so stamps and
         # watermarks are one dialog with a Place control rather than two menu items.
         "Stamp / Watermark…", "Signature / Image…",
+        "Redact Text", "Redact Block", "Find and Redact…",
         "Add Form Field",
         "Crop Pages", "Remove Crop",
+    ]
+
+
+def test_tools_menu_groups_match_the_markup_toolbar(app, b_pdf):
+    """The separators fall on the toolbar's group seams, not mid-group. Reading the raw action
+    list (separators included) as runs between dividers guards the *grouping*, which the flat
+    ``_titles`` sequence above cannot see."""
+    win = app.open_document(b_pdf)
+    for bar_action in win.menuBar().actions():
+        if bar_action.text() == "&Tools" and bar_action.menu() is not None:
+            groups, current = [], []
+            for a in bar_action.menu().actions():
+                if a.isSeparator():
+                    groups.append(current)
+                    current = []
+                elif a.text():
+                    current.append(a.text())
+            groups.append(current)
+            break
+    assert groups == [
+        ["Select", "Grab", "Objects"],
+        ["Pen", "Line", "Rectangle", "Ellipse"],
+        ["Add Text Box", "Highlight", "Underline", "Strike Out"],
+        ["Stamp / Watermark…", "Signature / Image…"],
+        ["Redact Text", "Redact Block", "Find and Redact…"],
+        ["Add Form Field"],
+        ["Crop Pages", "Remove Crop"],
     ]
 
 

@@ -19,7 +19,7 @@ module's docstring records why the obvious ``page.get_textbox`` is not used.
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -252,7 +252,14 @@ class FindBar(QWidget):
 
     ``results_panel`` (set by MainWindow) is the :class:`SearchResultsPanel` this bar drives: the
     List All toggle shows/hides it, a re-typed query refreshes it while visible, and closing the
-    bar hides it with everything else."""
+    bar hides it with everything else.
+
+    :attr:`visibilityChanged` fires whenever the bar shows or hides, from *any* path — the ✕, Esc,
+    a document change, the fullscreen chrome save/restore's direct ``setVisible`` — so the toolbar's
+    checkable Find button can mirror the bar's state without each caller remembering to. Emitted
+    from :meth:`showEvent` / :meth:`hideEvent`, the one chokepoint Qt routes all of those through."""
+
+    visibilityChanged = Signal(bool)
 
     def __init__(self, view, parent=None) -> None:
         super().__init__(parent)
@@ -272,6 +279,7 @@ class FindBar(QWidget):
         self._list_btn.setToolTip("List every match with its context; click a row to jump")
         close_btn = QPushButton("✕")
         close_btn.setMaximumWidth(32)
+        close_btn.setToolTip("Close (Esc)")  # a bare glyph, so name it — screen readers say "✕"
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(6, 2, 6, 2)
@@ -409,3 +417,16 @@ class FindBar(QWidget):
             self.hide_bar()
             return
         super().keyPressEvent(event)
+
+    # -- visibility signal ---------------------------------------------------------------------
+    # show/hide is the one thing every open/close path passes through (show_bar/hide_bar, Esc, a
+    # document change, the fullscreen save/restore's direct setVisible), so emitting here — rather
+    # than from each caller — is what lets the toolbar's Find toggle stay in sync no matter who
+    # moved the bar. The emitted bool is redundant with isVisible(); the receiver reads it directly.
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self.visibilityChanged.emit(True)
+
+    def hideEvent(self, event) -> None:
+        super().hideEvent(event)
+        self.visibilityChanged.emit(False)
