@@ -951,7 +951,7 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   whole spread via `_fit_dims`; session-only, like rotation). Surfaced in the View menu + the
   bare-page right-click menu as the same QActions. — *Windows (headless + offscreen GUI)* — 11 new
   tests, 1160 green ([#166](https://github.com/utyagi24/klarpdf/pull/166))
-- [ ] **M78.2** Nudge objects with arrow keys — arrow-move the object selection (1 pt / Shift 10 pt, page-clamped); a held key coalesces to one undo, taps stay separate — *WSLg*
+- [x] **M78.2** Nudge objects with arrow keys — arrow-move the object selection (1 pt / Shift 10 pt, page-clamped); a held key coalesces to one undo, taps stay separate — *Windows (headless)* — 10 new tests ([#180](https://github.com/utyagi24/klarpdf/pull/180))
 - [x] **M78.3** Resize text-box width — a lone box's right-edge handle reflows the text (left pinned, height auto-fits); group resize leaves text boxes unstretched; the fold survives save+reopen (`auto_width` inferred) — *Windows (headless + offscreen GUI)* — 9 new tests ([#181](https://github.com/utyagi24/klarpdf/pull/181))
 - [ ] **M78.4** Icon polish — new Grab / Text Box / Pen glyphs, chosen from rendered candidates (2026-07-23) — *WSLg*
 - [ ] **M78.5** Highlight/Underline/Strike arming swatches — Markup ▾ becomes three colour rows; a pick sets the colour **and** arms that verb — *WSLg*
