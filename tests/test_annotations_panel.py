@@ -187,6 +187,116 @@ def test_list_follows_add_and_remove_live(win):
     assert win.annotations_panel.count() == 1
 
 
+# ---- the snippet is the covered text, and costs one read per page (M78.8) ----
+
+
+@pytest.fixture
+def crowded_pdf(tmp_path) -> str:
+    """A page whose lines sit close enough that each word's box shares a band with its
+    neighbours — the ordinary typeset case. Reading a bar by *clipping* pulls those neighbours in
+    ("Following" came back as "Following completio"); reading the characters under it does not."""
+    path = str(tmp_path / "crowded.pdf")
+    doc = fitz.open()
+    page = doc.new_page()
+    for i, (left, right) in enumerate([("Following", "Class"), ("completion", "common"),
+                                       ("offering", "stock")]):
+        page.insert_text((72, 100 + i * 14), left, fontsize=11)
+        page.insert_text((320, 100 + i * 14), right, fontsize=11)
+    doc.save(path)
+    doc.close()
+    return path
+
+
+@pytest.fixture
+def crowded_win(qapp, crowded_pdf, tmp_path):
+    qapp.settings = Settings(tmp_path / "vs.json")
+    qapp.settings.set_pref("sidebar_tabs", ["annotations", "outline"])
+    w = qapp.open_document(crowded_pdf)
+    yield w
+    w.undo_stack.setClean()
+    w.close()
+
+
+def _words(win, page_index=0) -> list:
+    ref = win.vdoc.ordered[page_index]
+    page = win.vdoc.sources[ref.source_id][ref.source_page_index]
+    return page.get_text("words")
+
+
+def test_a_row_reads_back_exactly_the_words_highlighted(crowded_win):
+    """The row's snippet is the whole point of the list, so it must be the marked passage and
+    nothing else. Clipping returned the neighbours too — on a real two-column page 567 of 700
+    single-word highlights read back as text the reader never highlighted."""
+    words = _words(crowded_win)
+    for w in words:
+        crowded_win._add_annotation(0, Highlight((tuple(w[:4]),)))
+    _show_annotations(crowded_win)
+    panel = crowded_win.annotations_panel
+
+    rows = [panel.item(i).text() for i in range(panel.count())]
+    assert len(rows) == len(words)
+    for row, w in zip(rows, words):
+        assert row == f"p. 1 · highlight · {w[4]}"
+
+
+def test_a_multi_bar_highlight_reads_as_its_own_bars_joined(crowded_win):
+    """A highlight spanning lines is several bars; the row is their text, still only theirs."""
+    words = _words(crowded_win)
+    left_column = [w for w in words if w[0] < 200]
+    crowded_win._add_annotation(0, Highlight(tuple(tuple(w[:4]) for w in left_column)))
+    _show_annotations(crowded_win)
+
+    expected = " ".join(w[4] for w in left_column)
+    assert crowded_win.annotations_panel.item(0).text() == f"p. 1 · highlight · {expected}"
+
+
+def test_rows_never_re_extract_the_page_per_bar(crowded_win, monkeypatch):
+    """`get_textbox` re-extracts the whole page on every call, and a rebuild follows every edit —
+    15.7 s per rebuild at 200 highlights. Not "fewer calls": none."""
+    for w in _words(crowded_win):
+        crowded_win._add_annotation(0, Highlight((tuple(w[:4]),)))
+    _show_annotations(crowded_win)
+
+    calls = []
+    monkeypatch.setattr(fitz.Page, "get_textbox",
+                        lambda self, rect, **kw: calls.append(rect) or "")
+    crowded_win.annotations_panel.populate()
+
+    assert crowded_win.annotations_panel.count() == 6
+    assert calls == []
+
+
+def test_a_page_is_read_once_however_many_marks_it_carries(crowded_win, monkeypatch):
+    """Marks sharing a page share its index — the property that makes a rebuild O(pages) rather
+    than O(marks). Six highlights on one page, one read of that page."""
+    for w in _words(crowded_win):
+        crowded_win._add_annotation(0, Highlight((tuple(w[:4]),)))
+    _show_annotations(crowded_win)
+
+    real = fitz.Page.get_text
+    options = []
+
+    def counting(self, option="text", **kw):
+        options.append(option)
+        return real(self, option, **kw)
+
+    monkeypatch.setattr(fitz.Page, "get_text", counting)
+    crowded_win.annotations_panel.populate()
+
+    assert crowded_win.annotations_panel.count() == 6
+    assert options.count("words") == 1
+    assert options.count("rawdict") == 1
+
+
+def test_the_page_index_does_not_outlive_the_rebuild(crowded_win):
+    """An index describes a page as it was, and the next rebuild is called precisely because
+    something changed — so it must not be carried across one."""
+    crowded_win._add_annotation(0, Highlight((tuple(_words(crowded_win)[0][:4]),)))
+    _show_annotations(crowded_win)
+
+    assert crowded_win.annotations_panel._page_text == {}
+
+
 # ---- click jumps + selects ---------------------------------------------------
 
 
