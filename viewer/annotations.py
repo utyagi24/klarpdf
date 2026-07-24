@@ -70,6 +70,7 @@ from viewer.text_format_bar import TextBoxStyle, TextFormatBar, qt_font
 
 _TEXTBOX_DEFAULT = (200.0, 56.0)  # starting size for a new box, in page points (then auto-grows)
 _MIN_BOX_W, _MIN_BOX_H = 40.0, 20.0  # a text box never shrinks below this (page points)
+_TEXT_INSET = 2.0                 # horizontal gap between the box edge and its text (page points)
 _MIN_REDACT = 3.0                 # ignore a redaction drag smaller than this (a stray click)
 _MIN_DRAW = 2.0                   # ignore a draw drag smaller than this (page points)
 _HIT_PAD = 3.0                    # grab slack around thin drawn marks (page points)
@@ -269,6 +270,8 @@ class AnnotationOverlay:
         self._editor: _TextBoxEditor | None = None
         self._editor_page = 0
         self._editor_rect: tuple = (0, 0, 0, 0)
+        self._editor_auto_width = True      # editor grows width to fit (M78.3); False = fixed + wrap
+        self._editor_fixed_w: float | None = None
         self._editing: tuple | None = None  # (page_index, existing TextBox) when re-editing, else None
         # The style stamped on the next new box — sticky across boxes (the last-used font/colour/etc.
         # carries forward), and loaded from a box when it's re-edited. Edited via the format bar.
@@ -343,6 +346,7 @@ class AnnotationOverlay:
         self._resize_orig: tuple = (0.0, 0.0, 0.0, 0.0)
         self._resize_rect: tuple = (0.0, 0.0, 0.0, 0.0)
         self._resize_line = None            # (Line, moved_end) while dragging a line endpoint
+        self._resize_textbox = None         # the TextBox while dragging its width handle (M78.3)
         self._resize_ghost = None
 
     # ---- preview painting -------------------------------------------------------
@@ -616,6 +620,38 @@ class AnnotationOverlay:
             scene.addItem(item)
             self._items.append(item)
 
+    def _wrap_textbox_lines(self, text: str, fontname: str, fontsize: float, avail_pt: float):
+        """Greedy word-wrap ``text`` to ``avail_pt`` page points, honouring explicit newlines (each
+        paragraph wrapped on its own, blank lines kept). A single word wider than the box is left
+        unbroken — it overflows rather than being chopped mid-word. Returns ``(lines, metrics)``, so
+        callers reuse the same :class:`QFontMetricsF` for the line height. Page-point measurement:
+        the font's pixelSize is the point size, matching :meth:`_paint_textbox` and the round-trip
+        ``fitz.get_text_length`` inference — one wrap, one source of truth."""
+        fm = QFontMetricsF(qt_font(fontname, fontsize))
+        lines: list[str] = []
+        for para in text.split("\n"):
+            current = ""
+            for word in para.split(" "):
+                trial = word if not current else current + " " + word
+                if current and fm.horizontalAdvance(trial) > avail_pt:
+                    lines.append(current)
+                    current = word
+                else:
+                    current = trial
+            lines.append(current)
+        return lines, fm
+
+    def _reflow_textbox_rect(self, box: TextBox, width_pt: float, page_index: int) -> tuple:
+        """The rect a text box takes at a fixed ``width_pt`` (M78.3 width handle): left + top pinned,
+        width set, height grown to fit the wrapped text — both clamped to the page."""
+        pw, ph = self._view._unrotated_size(page_index)
+        x0, y0 = box.rect[0], box.rect[1]
+        width_pt = max(_MIN_BOX_W, min(width_pt, pw - x0))
+        lines, fm = self._wrap_textbox_lines(box.text, box.fontname, box.fontsize,
+                                             max(1.0, width_pt - 2 * _TEXT_INSET))
+        height = min(ph - y0, max(_MIN_BOX_H, len(lines) * fm.lineSpacing() + 2.0))
+        return (x0, y0, x0 + width_pt, y0 + height)
+
     def _paint_textbox(self, scene, page_index: int, annot: TextBox, z: float) -> None:
         # Author both the box and its text in **unrotated page points**, then apply the page's
         # transform so they rotate *with* the page (zoom + per-page/view rotation all in one matrix).
@@ -633,7 +669,15 @@ class AnnotationOverlay:
         box.setZValue(z)
         scene.addItem(box)
         self._items.append(box)
-        text = QGraphicsSimpleTextItem(annot.text)
+        # A fixed-width box (M78.3) wraps its text at the box width; an auto-width box shows the
+        # verbatim text (its explicit newlines only) and hugs its longest line.
+        if not annot.auto_width:
+            lines, _fm = self._wrap_textbox_lines(annot.text, annot.fontname, annot.fontsize,
+                                                  max(1.0, (x1 - x0) - 2 * _TEXT_INSET))
+            display = "\n".join(lines)
+        else:
+            display = annot.text
+        text = QGraphicsSimpleTextItem(display)
         text.setFont(qt_font(annot.fontname, annot.fontsize))
         text.setBrush(QColor.fromRgbF(*annot.color))
         # Vertically centre the text within the box. The box auto-hugs the text, so a baked FreeText
@@ -847,18 +891,23 @@ class AnnotationOverlay:
             return False
         page_index, box = hit
         self._editing = (page_index, box)
-        self._open_editor(page_index, box.rect, text=box.text, style=TextBoxStyle.from_textbox(box))
+        self._open_editor(page_index, box.rect, text=box.text,
+                          style=TextBoxStyle.from_textbox(box), auto_width=box.auto_width)
         self._editor.selectAll()
         return True
 
     def _open_editor(self, page_index: int, rect: tuple, text: str,
-                     style: TextBoxStyle | None = None) -> None:
+                     style: TextBoxStyle | None = None, auto_width: bool = True) -> None:
         self._close_editor()
         if style is not None:           # re-edit loads the box's style; a new box keeps the sticky one
             self._style = style
         self._editor_page = page_index
         self._editor_rect = rect
         self._editor_fontsize = self._style.fontsize
+        # M78.3: a fixed-width box wraps in the editor at its own width (height only auto-grows); an
+        # auto-width box grows in both dimensions. Capture the width so the reflow stays put.
+        self._editor_auto_width = auto_width
+        self._editor_fixed_w = (rect[2] - rect[0]) if not auto_width else None
         editor = _TextBoxEditor(self._view.viewport())
         editor.setPlaceholderText("Note…")
         editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
@@ -908,7 +957,14 @@ class AnnotationOverlay:
         lines = editor.toPlainText().split("\n") or [""]
         longest_px = max((fm.horizontalAdvance(ln) for ln in lines), default=0.0)
         avail_px = avail_w * z - pad
-        if avail_px > 0 and longest_px > avail_px:
+        if not self._editor_auto_width:
+            # Fixed-width box (M78.3): wrap at the box's own width; only the height grows.
+            editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
+            w_pt = min(self._editor_fixed_w, avail_w)
+            wrap_px = w_pt * z - pad
+            visual_lines = (sum(max(1, math.ceil(fm.horizontalAdvance(ln) / wrap_px)) for ln in lines)
+                            if wrap_px > 0 else len(lines))
+        elif avail_px > 0 and longest_px > avail_px:
             # Longer than the page allows → wrap to the page edge; height absorbs the extra lines.
             editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
             w_pt = avail_w
@@ -942,6 +998,7 @@ class AnnotationOverlay:
         raw = self._editor.toPlainText()
         text = raw.strip()  # only to decide empty-vs-not; the box keeps the verbatim text
         page_index, rect, style = self._editor_page, self._editor_rect, self._style
+        auto_width = self._editor_auto_width       # preserved across a re-edit (M78.3)
         editing, self._editing = self._editing, None
         self._close_editor()
         if editing is not None:
@@ -952,18 +1009,18 @@ class AnnotationOverlay:
             # Re-commit when the text, the auto-grown rect, OR the style changed (a no-op re-open
             # that touches nothing commits nothing). One descriptor compare covers all three. The
             # text is stored verbatim — leading/trailing spaces and newlines are preserved.
-            new = self._textbox(rect, raw, style)
+            new = self._textbox(rect, raw, style, auto_width)
             if new != old:
                 self._replace(page_index, old, new, text="Edit text box")
         elif text:
-            self._on_add(page_index, self._textbox(rect, raw, style))
+            self._on_add(page_index, self._textbox(rect, raw, style, auto_width))
 
     @staticmethod
-    def _textbox(rect: tuple, text: str, style: TextBoxStyle) -> TextBox:
+    def _textbox(rect: tuple, text: str, style: TextBoxStyle, auto_width: bool = True) -> TextBox:
         """Build a :class:`TextBox` from a geometry + text + the current :class:`TextBoxStyle`."""
         return TextBox(rect, text, fontsize=style.fontsize, color=style.color,
                        fontname=style.fontname, fill_color=style.fill_color,
-                       border_width=style.border_width)
+                       border_width=style.border_width, auto_width=auto_width)
 
     # ---- formatting bar ---------------------------------------------------------
 
@@ -1210,8 +1267,9 @@ class AnnotationOverlay:
     def _refresh_handles(self) -> None:
         """Put resize handles on the selection (M59.7): a lone **line** gets endpoint handles (its
         box is degenerate when axis-aligned, and you re-aim a line by its ends); a lone **text box**
-        gets none (its size is font-driven — the format bar owns it); everything else, including any
-        group, gets the eight-handle box around the selection's bounds."""
+        gets a single **right-edge** handle (M78.3: drag it to set the wrap width, left side pinned;
+        height auto-fits, so a top/corner handle would fight the font-driven sizing); everything
+        else, including any group, gets the eight-handle box around the selection's bounds."""
         self._handles.hide()
         if not self._selection:
             return
@@ -1222,6 +1280,8 @@ class AnnotationOverlay:
                 self._handles.show_points(page_index, {"p0": marks[0].start, "p1": marks[0].end})
                 return
             if isinstance(marks[0], TextBox):
+                x0, y0, x1, y1 = marks[0].rect
+                self._handles.show_points(page_index, {"e": (x1, (y0 + y1) / 2.0)})
                 return
         self._handles.show_box(page_index, self.selection_bounds())
 
@@ -1501,8 +1561,9 @@ class AnnotationOverlay:
 
     def begin_resize(self, handle: str, scene_pt) -> bool:
         """Press on a resize handle → start the drag, with a dashed ghost of the result. A lone
-        line's ``p0``/``p1`` handles re-aim that endpoint; every other handle scales the selection's
-        bounding box. Returns True if it took the press."""
+        line's ``p0``/``p1`` handles re-aim that endpoint; a lone text box's ``e`` handle sets its
+        wrap width (M78.3); every other handle scales the selection's bounding box. Returns True if
+        it took the press."""
         if self._view.rotation != 0 or not self._selection:
             return False
         page_index = self._selection[0][0]
@@ -1512,7 +1573,18 @@ class AnnotationOverlay:
         self._resize_anchor_local = self._view.local_point_on_page(page_index, scene_pt)
         self._resize_marks = marks
         self._resize_line = None
-        if handle in ("p0", "p1") and len(marks) == 1 and isinstance(marks[0], Line):
+        self._resize_textbox = None
+        if len(marks) == 1 and isinstance(marks[0], TextBox):
+            box = marks[0]
+            self._resize_textbox = box
+            # The width handle only ever moves the right edge; height comes from the reflow. Seed the
+            # live rect with the reflow at the current width so the ghost previews the wrapped shape.
+            self._resize_rect = self._reflow_textbox_rect(box, box.rect[2] - box.rect[0], page_index)
+            x0, y0, x1, y1 = self._resize_rect
+            ghost = QGraphicsRectItem(QRectF(x0, y0, x1 - x0, y1 - y0))
+            ghost.setBrush(QColor(0, 120, 215, 40))
+            ghost.setPen(QPen(QColor(0, 120, 215), 1, Qt.PenStyle.DashLine))
+        elif handle in ("p0", "p1") and len(marks) == 1 and isinstance(marks[0], Line):
             line = marks[0]
             self._resize_line = (line, handle)
             # For a line the live geometry is the segment itself, kept as (sx, sy, ex, ey).
@@ -1543,6 +1615,14 @@ class AnnotationOverlay:
         pw, ph = self._view._unrotated_size(page_index)
         x = min(max(0.0, local.x()), pw)
         y = min(max(0.0, local.y()), ph)
+        if self._resize_textbox is not None:
+            # Width tracks the cursor's x (left edge pinned); the reflow sets the height. The ghost
+            # previews the wrapped box live, so the text is seen refolding as the edge is dragged.
+            self._resize_rect = self._reflow_textbox_rect(
+                self._resize_textbox, x - self._resize_textbox.rect[0], page_index)
+            x0, y0, x1, y1 = self._resize_rect
+            self._resize_ghost.setRect(QRectF(x0, y0, x1 - x0, y1 - y0))
+            return
         if self._resize_line is not None:
             line, which = self._resize_line
             self._resize_rect = ((x, y, line.end[0], line.end[1]) if which == "p0"
@@ -1569,9 +1649,19 @@ class AnnotationOverlay:
         page_index, marks = self._resize_page, self._resize_marks
         orig, rect = self._resize_orig, self._resize_rect
         line_state, self._resize_line = self._resize_line, None
+        box_state, self._resize_textbox = self._resize_textbox, None
         self._resize_handle = None
         self._resize_marks = []
         self._resize_anchor_local = None
+        if box_state is not None:
+            # A text box's width was dragged (M78.3): commit the reflowed rect and pin auto_width off
+            # so the rect width stays authoritative (the text keeps wrapping at it, here and on save).
+            new = replace(box_state, rect=rect, auto_width=False)
+            if new == box_state:
+                return self._refresh_handles()
+            self._replace(page_index, box_state, new, text="Resize text box")
+            self._set_selection([(page_index, new)])
+            return
         if line_state is not None:
             line, _which = line_state
             new = replace(line, start=(rect[0], rect[1]), end=(rect[2], rect[3]))
@@ -1609,6 +1699,7 @@ class AnnotationOverlay:
         self._drop_resize_ghost()
         self._resize_handle = None
         self._resize_line = None
+        self._resize_textbox = None
         self._resize_marks = []
         self._resize_anchor_local = None
         self._refresh_handles()
