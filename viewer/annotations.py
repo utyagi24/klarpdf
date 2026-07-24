@@ -140,13 +140,23 @@ def _dist_point_segment(px: float, py: float, ax: float, ay: float,
     return math.hypot(px - (ax + t * dx), py - (ay + t * dy))
 
 
-def _line_path(start: tuple, end: tuple, arrow_start: bool, arrow_end: bool,
-               width: float) -> QPainterPath:
-    """A line's painter path in page points, with open-arrow heads where flagged — the same
-    geometry for the live preview and the baked-mark overlay, so WYSIWYG holds."""
+def _line_shaft_path(start: tuple, end: tuple) -> QPainterPath:
+    """The line segment itself, in page points (no arrowheads)."""
     path = QPainterPath()
     path.moveTo(*start)
     path.lineTo(*end)
+    return path
+
+
+def _arrowheads_path(start: tuple, end: tuple, arrow_start: bool, arrow_end: bool,
+                     width: float) -> QPainterPath:
+    """The open-arrow head strokes where flagged (empty if none), in page points.
+
+    Kept **separate from the shaft** so the heads can be stroked *solid* even on a dashed line — how
+    the saved PDF renders a line ending (PyMuPDF draws an OPEN_ARROW solid regardless of the border
+    dash), so drawing the on-screen head dashed was a WYSIWYG mismatch. A dashed chevron also just
+    reads as broken. Same head geometry as before, only split out."""
+    path = QPainterPath()
     length = math.hypot(end[0] - start[0], end[1] - start[1])
     if length < 1e-6:
         return path
@@ -298,6 +308,9 @@ class AnnotationOverlay:
         self._draw_end: tuple | None = None
         self._draw_points: list = []
         self._draw_item: QGraphicsPathItem | None = None
+        # A line's live-preview arrowheads, drawn solid on a separate item so a dashed shaft doesn't
+        # dash them (matches the baked ending — the committed mark does the same split).
+        self._draw_arrow_item: QGraphicsPathItem | None = None
         # The object selection (M59 single → M59.6 group): a list of (page_index, mark), all on one
         # page — what restyle / move / Delete act on — plus one dashed outline item per mark.
         self._selection: list = []          # [(page_index, mark), …]
@@ -480,8 +493,7 @@ class AnnotationOverlay:
                           else QBrush(Qt.BrushStyle.NoBrush))
         else:
             if isinstance(annot, Line):
-                path = _line_path(annot.start, annot.end, annot.arrow_start, annot.arrow_end,
-                                  annot.width)
+                path = _line_shaft_path(annot.start, annot.end)
             else:
                 path = QPainterPath()
                 for pts in annot.paths:
@@ -495,6 +507,19 @@ class AnnotationOverlay:
         item.setZValue(z)
         scene.addItem(item)
         self._items.append(item)
+        # A line's arrowheads are stroked SOLID even when the shaft is dashed — matching how the
+        # saved PDF renders the ending — as a separate item on top (a dashed chevron reads broken).
+        if isinstance(annot, Line):
+            heads = _arrowheads_path(annot.start, annot.end, annot.arrow_start, annot.arrow_end,
+                                     annot.width)
+            if not heads.isEmpty():
+                head_item = QGraphicsPathItem(heads)
+                head_item.setPen(self._drawn_pen(annot.color, annot.width, dashed=False))
+                head_item.setOpacity(annot.opacity)
+                head_item.setTransform(transform)
+                head_item.setZValue(z)
+                scene.addItem(head_item)
+                self._items.append(head_item)
 
     def _paint_content_mark(self, scene, page_index: int, annot) -> None:
         """Stamp / signature / watermark preview (M62): the mark's own artwork, rasterised.
@@ -1644,6 +1669,18 @@ class AnnotationOverlay:
         item.setZValue(11)
         self._view.scene().addItem(item)
         self._draw_item = item
+        # A line previews its arrowheads on a second, always-solid item (M74 WYSIWYG): the shaft item
+        # above may be dashed, but the ending bakes solid, so the preview must too.
+        self._draw_arrow_item = None
+        if tool is ArmedTool.LINE:
+            arrow = QGraphicsPathItem()
+            arrow.setPen(self._drawn_pen(self._markup_style.color, self._markup_style.width,
+                                         dashed=False))
+            arrow.setOpacity(self._markup_style.opacity)
+            arrow.setTransform(self._view.page_transform(page_index))
+            arrow.setZValue(11)
+            self._view.scene().addItem(arrow)
+            self._draw_arrow_item = arrow
         return True
 
     def update_draw(self, scene_pt, modifiers=None) -> None:
@@ -1668,6 +1705,8 @@ class AnnotationOverlay:
                 end = self._constrained_end(x, y)
             self._draw_end = end
         self._draw_item.setPath(self._gesture_path())
+        if self._draw_arrow_item is not None:
+            self._draw_arrow_item.setPath(self._gesture_arrowheads_path())
 
     def _constrained_end(self, x: float, y: float) -> tuple:
         """The Shift constraint: lines/arrows snap to 45° steps; rect/ellipse drags square up."""
@@ -1692,11 +1731,9 @@ class AnnotationOverlay:
             for point in self._draw_points[1:]:
                 path.lineTo(*point)
         elif tool is ArmedTool.LINE:
-            # The ends come from the style (M74), and the preview draws them live — WYSIWYG from
-            # the first pixel of drag, exactly as the committed mark will bake.
-            start_head, end_head = self._markup_style.line_ends
-            path = _line_path(self._draw_anchor, self._draw_end,
-                              start_head, end_head, self._markup_style.width)
+            # Just the shaft — the arrowheads ride the separate always-solid item (M74 WYSIWYG),
+            # so a dashed line's shaft dashes but its ending stays solid, exactly as it bakes.
+            path = _line_shaft_path(self._draw_anchor, self._draw_end)
         else:
             x0, y0 = self._draw_anchor
             x1, y1 = self._draw_end
@@ -1706,6 +1743,13 @@ class AnnotationOverlay:
             else:
                 path.addRect(rect)          # RECT and the STAMP placement box
         return path
+
+    def _gesture_arrowheads_path(self) -> QPainterPath:
+        """The live line's arrowheads (M74) — drawn on the separate always-solid item, so they
+        never dash with the shaft. The ends come from the sticky style, like colour and width."""
+        start_head, end_head = self._markup_style.line_ends
+        return _arrowheads_path(self._draw_anchor, self._draw_end, start_head, end_head,
+                                self._markup_style.width)
 
     def _click_placed(self, tool) -> bool:
         """Whether ``tool``'s armed mark is placed by a click rather than sized by a drag — true for
@@ -1761,6 +1805,9 @@ class AnnotationOverlay:
             return
         item, self._draw_item = self._draw_item, None
         self._view.scene().removeItem(item)
+        arrow, self._draw_arrow_item = self._draw_arrow_item, None
+        if arrow is not None and arrow.scene() is self._view.scene():
+            self._view.scene().removeItem(arrow)
         tool, page_index = self._draw_tool, self._draw_page
         anchor, end, points = self._draw_anchor, self._draw_end, self._draw_points
         self._draw_tool = self._draw_anchor = self._draw_end = None
@@ -1822,5 +1869,8 @@ class AnnotationOverlay:
         item, self._draw_item = self._draw_item, None
         if item.scene() is self._view.scene():
             self._view.scene().removeItem(item)
+        arrow, self._draw_arrow_item = self._draw_arrow_item, None
+        if arrow is not None and arrow.scene() is self._view.scene():
+            self._view.scene().removeItem(arrow)
         self._draw_tool = self._draw_anchor = self._draw_end = None
         self._draw_points = []
