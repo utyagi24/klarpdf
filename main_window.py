@@ -884,11 +884,15 @@ class MainWindow(QMainWindow):
             [markup_toggle],
             [a_find],
         )
+        # Grouped so related tools sit together (owner call): the modes; then Draw with the three
+        # style buttons that feed it (Line Styling · Colors · Opacity all restyle what Draw stamps —
+        # M78.6); then the text/markup pair (Text Box · Markup ▾); then the content marks
+        # (Stamp · Redact). Separators divide the four groups.
         markup_groups = (
             [a_select, a_grab, a_objects],
-            [a_textbox, self._markup_button, self._draw_button, self._line_style_button,
-             self._colors_button, self._opacity_button, self._stamp_button],
-            [a_redact],  # one slot, both gestures (M72)
+            [self._draw_button, self._line_style_button, self._colors_button, self._opacity_button],
+            [a_textbox, self._markup_button],
+            [self._stamp_button, a_redact],  # Redact: one slot, both gestures (M72)
         )
         for target, groups in ((bar, reading_groups), (self.markup_bar, markup_groups)):
             for gi, group in enumerate(groups):
