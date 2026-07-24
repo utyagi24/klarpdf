@@ -977,6 +977,27 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   search: `"s"` + Match case **1574 s → 4.1 s**, `"space"` + Match case **16.9 s → 1.4 s** — and the
   debounce means typing that word now pays it once instead of five times. Remaining O(document) cost
   is in Open follow-ups. — *Windows (headless + offscreen GUI)* — 8 new tests, 1256 green
+- [x] **M78.8** Annotations rows say what was actually highlighted, and cost one page read each
+  (the follow-up M78.7 opened; owner call: fix it before the release rather than ship it). Same
+  `page.get_textbox` call, same two faults, found in `AnnotationsPanel._covered_text`.
+  **(1) The snippets were wrong** — and this is why it went ahead of the remaining search work:
+  `get_textbox` reads a box by *clipping*, so it returns whatever else shares the box's band. Each
+  bar of a text-anchored mark is exactly one word's bbox, yet on a two-column page of
+  `spaceX_prospectus.pdf` **567 of 700** single-word highlights read back as something else —
+  "Following" as "Following and Class B", pulled from the next column. Across 5567 real word boxes
+  the clip read was exact **89.6%** of the time; the indexed read is exact on every one (the 5
+  nominal misses are a leading thin space that whitespace normalisation strips anyway). The snippet
+  *is* the row's value — "a highlight row reads back the passage you highlighted" — so those rows
+  were simply false, silently, and looked plausible. **(2) It re-extracted the whole page per bar**,
+  and `populate()` re-runs after **every edit**, so this was per-edit lag that grew as the reader
+  marked up: **0.79 s at 10 highlights, 3.46 s at 50, 15.73 s at 200** → now **0.032 s / 0.064 s /
+  0.150 s** (25×–105×). Marks sharing a page now share one index, held for the rebuild only — an
+  index describes a page as it was, and the next rebuild is called precisely because something
+  changed. **`_PageText` moved to `model/page_text.py` as `PageText`** to be shared: it is pure
+  PyMuPDF text geometry with no Qt and no viewer or panel state, and the panel's own contract is to
+  depend only on the model plus the provider seam, so it could not import from `viewer/`. Duplicating
+  it was rejected — two copies of a routine that has already been subtly wrong once. — *Windows
+  (headless + offscreen GUI)* — 5 new tests, 1261 green
 - [ ] **M79** Verify + release → tag (prov. **v0.16.0**) — *Windows*
 
 ## Public-Release Readiness — go open-source under AGPL-3.0 (planned)
@@ -1183,23 +1204,9 @@ Carried items — none block work:
   rejected: "72 097 matches, showing the first 1 000" is a different feature with a worse answer,
   and Find-and-Redact must see every hit to be trustworthy.
 
-- **The Annotations panel reads each row's snippet with `page.get_textbox` — the same call M78.7
-  removed from search, with the same two faults.** `AnnotationsPanel._covered_text` calls it once
-  per mark rect, and `populate()` re-runs after **every edit** (`MainWindow._on_doc_changed`), so
-  the cost is per-edit lag that grows with the mark count: measured on `spaceX_prospectus.pdf`,
-  **0.8 s at 10 highlights, 3.5 s at 50, 15.7 s at 200**. Marks sharing a page each re-extract that
-  page. **And the snippets are wrong**, more often here than in search: each rect is exactly one
-  word's bbox, yet the clip reaches across the full page width, so on a two-column page **567 of
-  700** single-word highlights read back as something else — highlighting "Following" gives
-  "Following and Class B", pulled from the next column. The snippet *is* the row's value ("a
-  highlight row reads back the passage you highlighted"), so those rows are simply false. Fix is
-  M78.7's, applied here: index the page once, read by char centres — prototyped at **15.7 s →
-  0.14 s (107×)** with the snippets correct. **Decision needed first:** the panel's docstring
-  commits it to depending only on the model + the provider seam, so sharing `_PageText` means
-  moving it out of `viewer/` — `model/page_text.py` recommended (pure text geometry, no Qt, both
-  callers downstream of the model) over duplicating a subtle routine that has already been wrong
-  once. Not a blocker: only paid while the Annotations tab is **mounted**, and since M79.3 mounting
-  is the reader's move — a document whose tab is never opened pays nothing.
+- ~~**The Annotations panel reads each row's snippet with `page.get_textbox`**~~ — **fixed in M78.8**
+  (wrong snippets *and* 15.7 s of per-edit lag at 200 highlights; `PageText` moved to
+  `model/page_text.py` and shared). Nothing carried.
 
 - **The thumbnail sidebar bakes the *whole document* on every edit.** `ThumbnailPanel._edited_render`
   calls `PyMuPDFEngine.render_output(vdoc)` — a full materialise of every page — so the panel can

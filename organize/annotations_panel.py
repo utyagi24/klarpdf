@@ -24,11 +24,11 @@ outline panel — depends only on the model and the provider seam.
 
 from __future__ import annotations
 
-import pymupdf as fitz
 from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtWidgets import QListWidget, QListWidgetItem
 
 from model.page_edits import Highlight, Strikeout, Underline
+from model.page_text import PageText
 from model.virtual_document import VirtualDocument
 from organize.thumbnail_panel import _SIDEBAR_W  # one default width for all sidebar tabs
 
@@ -73,6 +73,7 @@ class AnnotationsPanel(QListWidget):
         super().__init__(parent)
         self._vdoc = vdoc
         self._foreign = foreign_provider
+        self._page_text: dict[int, PageText] = {}   # one index per page, per rebuild
         self.setUniformItemSizes(True)
         self.itemClicked.connect(self._on_item_clicked)
         self.populate()
@@ -84,8 +85,21 @@ class AnnotationsPanel(QListWidget):
 
     def populate(self) -> None:
         """(Re)build the rows from the live document. Called after every edit
-        (``MainWindow._on_doc_changed``), so the list follows add / remove / undo."""
+        (``MainWindow._on_doc_changed``), so the list follows add / remove / undo.
+
+        Every row's snippet is a text lookup on its page, so the page indexes are shared **across
+        the whole rebuild** — marks that sit on one page read it once between them, which is the
+        difference between 15.7 s and 0.14 s at 200 highlights (M78.8). They are dropped again at
+        the end: an index describes a page as it was, and the next rebuild is called precisely
+        because something changed."""
         self.clear()
+        self._page_text = {}
+        try:
+            self._populate_rows()
+        finally:
+            self._page_text = {}
+
+    def _populate_rows(self) -> None:
         for page_index in range(self._vdoc.page_count):
             for mark in self._vdoc.page_annotations(page_index):
                 if not is_listed(mark):
@@ -116,11 +130,27 @@ class AnnotationsPanel(QListWidget):
         return f"{noun} · {snippet}" if snippet else noun
 
     def _covered_text(self, page_index: int, rects) -> str:
-        """The page text under a text-anchored mark's bars — what a highlight row should read as."""
-        ref = self._vdoc.ordered[page_index]
-        page = self._vdoc.sources[ref.source_id][ref.source_page_index]
-        parts = [" ".join(page.get_textbox(fitz.Rect(r)).split()) for r in rects]
+        """The page text under a text-anchored mark's bars — what a highlight row should read as.
+
+        Read from the page's :class:`PageText` index rather than ``page.get_textbox(rect)``. That
+        call was wrong twice: it re-extracted the whole page **per bar** (15.7 s per rebuild at 200
+        highlights, and a rebuild follows every edit), and it answers by *clipping*, so it returned
+        whatever else shared the bar's band — on a two-column page 567 of 700 single-word
+        highlights read back as text the reader never highlighted, e.g. "Following" as "Following
+        and Class B" from the next column. The snippet is the row's whole value, so that was not a
+        cosmetic fault. See :mod:`model.page_text`."""
+        text = self._page_text_for(page_index)
+        parts = [" ".join(text.text_under(tuple(r)).split()) for r in rects]
         return " ".join(p for p in parts if p)
+
+    def _page_text_for(self, page_index: int) -> PageText:
+        """The page's text index, built once per rebuild and shared by every mark on it."""
+        text = self._page_text.get(page_index)
+        if text is None:
+            ref = self._vdoc.ordered[page_index]
+            page = self._vdoc.sources[ref.source_id][ref.source_page_index]
+            text = self._page_text[page_index] = PageText(page)
+        return text
 
     @staticmethod
     def _bounds(mark) -> tuple:

@@ -10,11 +10,15 @@ surface M64 (search & redact) later extends with checkboxes.
 
 Highlight placement uses the rotation-0 geometry helpers, so highlights are drawn only in an
 unrotated view; navigation still works regardless.
+
+The per-hit text lookups — the snippet, Whole words, and Match case's read of the text under a hit
+— all come from :class:`model.page_text.PageText`, which indexes a page once and is shared with the
+annotations list. Live typing is debounced (``SEARCH_DEBOUNCE_MS``); both are M78.7/M78.8, and that
+module's docstring records why the obvious ``page.get_textbox`` is not used.
 """
 
 from __future__ import annotations
 
-import pymupdf as fitz
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (
@@ -29,103 +33,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from model.page_text import PageText
+
 _HIT = QColor(255, 235, 59, 90)        # all matches: translucent yellow
 _CURRENT = QColor(255, 138, 0, 150)    # current match: stronger orange
-_SNIPPET_WORDS = 4                     # context words kept either side of a match in a snippet
 
 #: Live search-as-you-type is coalesced over this idle gap (ms). Read at call time so tests can
 #: set it to 0 for a synchronous search — see :meth:`FindBar._on_text`.
 SEARCH_DEBOUNCE_MS = 250
-
-
-def _boxes_touch(a: tuple, b: tuple) -> bool:
-    return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
-
-
-class _PageText:
-    """Every text lookup a page's hits need, extracted **once** and shared by all of them.
-
-    Each of the three per-hit lookups used to re-scan the whole page, which is fine for the handful
-    of hits a small document returns and quadratic-feeling on a real one. Measured on the 320-page
-    ``spaceX_prospectus.pdf``, where the one-letter query a live search runs first has ~72 000 hits:
-
-    * the snippet walked the full word list **three times per hit** — ~4.4 s document-wide;
-    * Match case called ``page.get_textbox`` per hit, and *that* re-extracts the page's text on
-      every call (~31 ms each) — ~37 **minutes** document-wide, i.e. the reported hang.
-
-    Both are answered from a per-line index built once: a hit box can only touch words (or chars)
-    whose line shares its vertical band, so a lookup scans one line rather than one page. The char
-    index behind :meth:`text_under` is built lazily — only Match case needs it.
-    """
-
-    def __init__(self, page=None, words: list | None = None) -> None:
-        self._page = page
-        self.words: list = page.get_text("words") if words is None else words
-        self._by_key: dict[tuple, list] = {}
-        for i, w in enumerate(self.words):
-            self._by_key.setdefault((w[5], w[6]), []).append((i, w))
-        self._lines = [(min(w[1] for _, w in ws), max(w[3] for _, w in ws), ws)
-                       for ws in self._by_key.values()]
-        self._chars: list | None = None
-
-    @staticmethod
-    def _band(lines: list, box: tuple) -> list:
-        """The lines whose vertical band meets ``box``. A word can only touch the box if its own
-        band does, and a line's band covers every word on it — so this narrows without dropping."""
-        return [entry for entry in lines if entry[0] < box[3] and box[1] < entry[1]]
-
-    def struck(self, box: tuple) -> list:
-        """The page words ``box`` overlaps, in document order (as a full scan would return)."""
-        found = [(i, w) for _ly0, _ly1, ws in self._band(self._lines, box)
-                 for i, w in ws if _boxes_touch(w[:4], box)]
-        found.sort(key=lambda t: t[0])
-        return found
-
-    def is_whole_word(self, box: tuple, tol: float = 0.5) -> bool:
-        struck = self.struck(box)
-        if not struck:
-            return True                  # nothing to contradict it (e.g. a hit with no word boxes)
-        return struck[0][1][0] >= box[0] - tol and struck[-1][1][2] <= box[2] + tol
-
-    def snippet(self, box: tuple) -> str:
-        struck = self.struck(box)
-        if not struck:
-            return ""
-        first = struck[0][1]
-        line = [w for _i, w in self._by_key[(first[5], first[6])]]
-        matched = [i for i, w in enumerate(line) if _boxes_touch(w[:4], box)]
-        lo = max(0, matched[0] - _SNIPPET_WORDS)
-        hi = min(len(line), matched[-1] + 1 + _SNIPPET_WORDS)
-        text = " ".join(w[4] for w in line[lo:hi])
-        return ("… " if lo > 0 else "") + text + (" …" if hi < len(line) else "")
-
-    def _char_lines(self) -> list:
-        """Per-line char index ``(y0, y1, [(x0, y0, x1, y1, char), …])``, built on first use."""
-        if self._chars is None:
-            self._chars = []
-            if self._page is not None:
-                raw = self._page.get_text("rawdict", flags=fitz.TEXTFLAGS_TEXT)
-                for block in raw.get("blocks", []):
-                    for line in block.get("lines", []):
-                        chars = [(*ch["bbox"], ch["c"])
-                                 for span in line.get("spans", []) for ch in span.get("chars", [])]
-                        if chars:
-                            self._chars.append((min(c[1] for c in chars),
-                                                max(c[3] for c in chars), chars))
-        return self._chars
-
-    def text_under(self, box: tuple) -> str:
-        """The text actually under a hit box — what Match case compares against the term.
-
-        Char-level, taking each char whose **centre** falls inside the box. ``page.get_textbox``
-        answered the same question by clipping, which sweeps in whatever else shares the rect's
-        band — a hit on "SP" came back as ``'Cla\\nSP'`` — so a genuinely case-matching hit was
-        rejected because of its neighbours. This is both the faster answer and the correct one.
-        """
-        x0, y0, x1, y1 = box
-        return "".join(c[4] for _ly0, _ly1, chars in self._band(self._char_lines(), box)
-                       for c in chars
-                       if x0 <= (c[0] + c[2]) / 2 <= x1 and y0 <= (c[1] + c[3]) / 2 <= y1)
 
 
 def is_whole_word(words: list, box: tuple, tol: float = 0.5) -> bool:
@@ -136,14 +51,14 @@ def is_whole_word(words: list, box: tuple, tol: float = 0.5) -> bool:
     beyond the hit — which is precisely the false positive the review step exists to catch, and this
     toggle to prevent wholesale.
     """
-    return _PageText(words=words).is_whole_word(box, tol)
+    return PageText(words=words).is_whole_word(box, tol)
 
 
 def _snippet_for(words: list, box: tuple) -> str:
-    """Context snippet for a hit ``box``: the words of its line, windowed to ±``_SNIPPET_WORDS``
+    """Context snippet for a hit ``box``: the words of its line, windowed to ±4 words
     around the matched span, with ellipses marking a trimmed side. ``words`` is the page's
     ``get_text("words")`` list (w = x0,y0,x1,y1,text,block,line,word)."""
-    return _PageText(words=words).snippet(box)
+    return PageText(words=words).snippet(box)
 
 
 class SearchController:
@@ -182,7 +97,7 @@ class SearchController:
                     continue
                 if len(terms) > 1:   # one term already comes back in reading order
                     found.sort(key=lambda f: (round(f[0].y0, 1), f[0].x0))
-                text = _PageText(page)   # one extraction + index serves the page's hits
+                text = PageText(page)   # one extraction + index serves the page's hits
                 seen: set = set()
                 for r, term in found:
                     box = (r.x0, r.y0, r.x1, r.y1)
