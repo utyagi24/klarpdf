@@ -65,7 +65,9 @@ def test_tools_menu_holds_the_modes_and_armed_tools(app, b_pdf):
         # One entry, not two (M69.3): a watermark is a Stamp with `under=True`, so stamps and
         # watermarks are one dialog with a Place control rather than two menu items.
         "Stamp / Watermark…", "Signature / Image…",
-        "Redact Text", "Redact Block", "Find and Redact…",
+        # One Redact, not the explicit text/block verbs (owner call): the menu offers the same
+        # gesture-detecting Redact the markup bar does, plus the Find-and-Redact dialog.
+        "Redact", "Find and Redact…",
         "Add Form Field",
         "Crop Pages", "Remove Crop",
     ]
@@ -92,7 +94,7 @@ def test_tools_menu_groups_match_the_markup_toolbar(app, b_pdf):
         ["Pen", "Line", "Rectangle", "Ellipse"],
         ["Add Text Box", "Highlight", "Underline", "Strike Out"],
         ["Stamp / Watermark…", "Signature / Image…"],
-        ["Redact Text", "Redact Block", "Find and Redact…"],
+        ["Redact", "Find and Redact…"],
         ["Add Form Field"],
         ["Crop Pages", "Remove Crop"],
     ]

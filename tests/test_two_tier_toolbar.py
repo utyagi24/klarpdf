@@ -170,7 +170,7 @@ def test_removed_buttons_verbs_stay_in_the_menus(win):
     assert {"Cut Pages", "Copy Pages", "Paste Pages", "Delete Pages",
             "Insert Pages from File…"} <= edit_texts
     tools_texts = _menu_texts(win, "&Tools")
-    assert {"Select", "Grab", "Objects", "Highlight", "Redact Text"} <= tools_texts
+    assert {"Select", "Grab", "Objects", "Highlight", "Redact"} <= tools_texts
 
 
 def test_page_ops_stay_on_the_sidebar_context_menu(win):

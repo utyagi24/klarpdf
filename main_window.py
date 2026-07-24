@@ -647,15 +647,21 @@ class MainWindow(QMainWindow):
         a_rect.setToolTip("Rectangle — drag a box (Shift for a square)")
         a_ellipse = act("Ellipse", lambda: self._arm_tool(ArmedTool.ELLIPSE), icon="ellipse")
         a_ellipse.setToolTip("Ellipse — drag a box (Shift for a circle)")
-        a_redact_text = act("Redact Text", lambda: self._arm_tool(ArmedTool.REDACT_TEXT), "Ctrl+Shift+R", icon="redact-text")
+        # The concrete redact tools. They are **no longer Tools-menu verbs of their own** (owner call
+        # while reviewing the menu regroup): the menu offers the single gesture-detecting Redact below,
+        # the same one the markup bar shows. The tools stay, they're just not surfaced as separate
+        # entries — the combined Redact resolves to one of them at press, the view's context menu
+        # applies REDACT_TEXT to a selection, and both still light the Redact slot while armed
+        # (_on_armed_changed / _armed_actions). Ctrl+Shift+R moved off Redact Text onto that Redact.
+        a_redact_text = act("Redact Text", lambda: self._arm_tool(ArmedTool.REDACT_TEXT), icon="redact-text")
         a_redact_text.setToolTip("Redact Text — drag over text to permanently remove it at save")
         a_redact_block = act("Redact Block", lambda: self._arm_tool(ArmedTool.REDACT_REGION), icon="redact")
         a_redact_block.setToolTip("Redact Block — drag a box to permanently remove its contents at save")
-        # The markup bar's ONE Redact slot (M72): Preview-style gesture detect — the press point
-        # decides text-flow vs block, so the everyday path needs no choice up front. Toolbar-only:
-        # the Tools menu keeps the two explicit verbs above (menus are the complete catalog), and
-        # this slot is not a third verb, just the one button that arms both gestures.
-        a_redact = self._a_redact = act("Redact", self._arm_redact, icon="redact")
+        # The one Redact verb the UI exposes (M72): a single gesture-detecting tool — the press point
+        # decides text-flow vs block, so the everyday path needs no choice up front. The **same
+        # QAction** rides both the markup bar and the Tools menu (icon + behaviour identical by
+        # construction), and it carries Ctrl+Shift+R.
+        a_redact = self._a_redact = act("Redact", self._arm_redact, "Ctrl+Shift+R", icon="redact")
         a_redact.setToolTip("Redact — drag over text to remove the text, drag elsewhere to "
                             "remove a block; permanent at save")
         # Search & redact (M64): the one redaction verb that is not a gesture, so it is a dialog —
@@ -696,7 +702,7 @@ class MainWindow(QMainWindow):
             [a_pen, a_line, a_rect, a_ellipse],               # draw   (toolbar group 2, minus style)
             [a_textbox, a_highlight, a_underline, a_strikeout],  # text markup (toolbar group 3)
             [a_stamp, a_signature],                           # stamps (toolbar group 4, first half)
-            [a_redact_text, a_redact_block, a_redact_find],   # redact (toolbar group 4, second half)
+            [a_redact, a_redact_find],                        # redact (toolbar group 4, second half)
             [field_menu],                                     # menu-only
             [a_crop, a_remove_crop],                          # menu-only
         )
