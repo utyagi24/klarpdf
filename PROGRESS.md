@@ -1233,13 +1233,13 @@ Carried items — none block work:
   `search()` at that doc; drop it on `reload()` like `_render_docs`. Then `_on_doc_changed`
   **re-runs** the live query instead of clearing, so the panel persists *and* stays correct. Docs
   with no marks/fills keep today's raw-source fast path (no regression on large clean files —
-  matters after the M78.7/8 perf work). **Semantics of pending destructive edits**, deciding only
-  once it is built: **text under a not-yet-saved redaction** — *owner decided 2026-07-24: keep
-  matching until Save.* The redaction is reversible until then, and surfacing the term is a feature,
-  not a leak — it lets the user notice and undo a redaction they did not mean to mark. **Text in a
-  not-yet-saved cropped-away margin** stays open (hidden on screen but reversibly present — lean
-  *yes, keep matching*, consistent with the redaction call). Today both match, because the source is
-  intact until Save.
+  matters after the M78.7/8 perf work). **Semantics of pending destructive edits — both decided by
+  the owner 2026-07-24: keep matching until Save.** Text under a not-yet-saved **redaction** and
+  text in a not-yet-saved **cropped-away margin** both stay searchable while unsaved. Both edits are
+  reversible until Save, so surfacing their text is a feature, not a leak: it lets the user notice
+  and undo a redaction or crop they did not mean to make. This is also what happens today (the
+  source is intact until Save), so the fix must *preserve* it — the materialised search doc applies
+  neither `apply_redactions` nor the crop override.
 
 - ~~**The Annotations panel reads each row's snippet with `page.get_textbox`**~~ — **fixed in M78.8**
   (wrong snippets *and* 15.7 s of per-edit lag at 200 highlights; `PageText` moved to
