@@ -269,8 +269,9 @@ class AnnotationOverlay:
         self._redact_page = 0
         self._redact_anchor = None          # the scene point where the drag started
         # The shared, sticky markup / draw style (M59.5): colour · width · fill, stamped onto the
-        # next drawn mark (and read by main_window for underline / strikeout colour). Edited via the
-        # toolbar MarkupStyleButton — the last-used style carries forward, like the text-box style.
+        # next drawn mark. Edited via the toolbar's Line Styling / Colors / Opacity buttons (M78.6,
+        # split from the former single style button) — the last-used style carries forward, like the
+        # text-box style.
         self._markup_style = MarkupStyle()
         # The content mark (M62) a composed stamp / signature dialog has armed, waiting for the
         # placement drag to give it a rect. Cleared once placed, so a second drag needs a second
@@ -951,7 +952,8 @@ class AnnotationOverlay:
         return self._markup_style
 
     def set_markup_style(self, style: MarkupStyle) -> None:
-        """Set the sticky markup / draw style (from the toolbar MarkupStyleButton)."""
+        """Set the sticky markup / draw style (from the toolbar's Line Styling / Colors / Opacity
+        buttons, M78.6)."""
         self._markup_style = style
 
     def _ensure_format_bar(self) -> TextFormatBar:

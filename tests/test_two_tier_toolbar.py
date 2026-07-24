@@ -86,9 +86,10 @@ def test_markup_bar_carries_the_kit(win):
     texts = {a.text().replace("&", "") for a in win.markup_bar.actions() if a.text()}
     assert {"Select", "Grab", "Objects", "Add Text Box", "Redact"} <= texts
     assert "Redact Text" not in texts and "Redact Block" not in texts
-    # The Markup ▾ / Draw ▾ / style / Stamp ▾ buttons are widgets on this bar.
-    for button in (win._markup_button, win._draw_button, win._markup_style_button,
-                   win._stamp_button):
+    # The Markup ▾ / Draw ▾ / Line Styling / Colors / Opacity (M78.6) / Stamp ▾ buttons are widgets
+    # on this bar.
+    for button in (win._markup_button, win._draw_button, win._line_style_button,
+                   win._colors_button, win._opacity_button, win._stamp_button):
         assert button.parent() is win.markup_bar
 
 

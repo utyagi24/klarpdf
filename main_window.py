@@ -79,8 +79,10 @@ from viewer.form_fill import FormFiller
 from viewer.markup_style import (
     HIGHLIGHT_COLORS,
     TEXT_LINE_COLORS,
+    ColorsButton,
+    LineStylingButton,
     MarkupStyle,
-    MarkupStyleButton,
+    OpacityButton,
     SwatchRowAction,
 )
 from viewer.links import LinkNavigator
@@ -759,12 +761,20 @@ class MainWindow(QMainWindow):
         # here: Insert already means *pages* in this app (Edit ▸ Insert Pages from File…).
         self._signature_menu = self._stamp_button.menu().addMenu("Recent Signatures / Images")
         self._rebuild_signature_menu()
-        # Markup style (M59.5): one slot — the shared colour · width · fill the underline /
-        # strikeout + draw tools stamp on the next mark. Seeds the overlay's sticky style and
-        # tracks it thereafter (the overlay is the single source of truth, created above).
-        self._markup_style_button = MarkupStyleButton()
-        self.view.annotations.set_markup_style(self._markup_style_button.style())
-        self._markup_style_button.styleChanged.connect(self._on_markup_style_changed)
+        # Markup style (M59.5, split into three buttons in M78.6): the shared colour · width · fill ·
+        # opacity the underline / strikeout + draw tools stamp on the next mark, now across Line
+        # Styling · Colors · Opacity. All three drive one MarkupStyle — each emits the full style and
+        # the window broadcasts it back to every button, so they stay in sync (see
+        # _on_markup_style_changed). Seeds the overlay's sticky style and tracks it thereafter (the
+        # overlay is the single source of truth, created above).
+        self._line_style_button = LineStylingButton()
+        self._colors_button = ColorsButton()
+        self._opacity_button = OpacityButton()
+        self._markup_style_buttons = (self._line_style_button, self._colors_button,
+                                       self._opacity_button)
+        self.view.annotations.set_markup_style(self._colors_button.style())
+        for style_button in self._markup_style_buttons:
+            style_button.styleChanged.connect(self._on_markup_style_changed)
         # Night reading mode (M49): view-only page inversion, independent of the OS theme the
         # chrome follows. Remembered app-wide, like the sidebar choice; the file, print, export,
         # and thumbnails stay daylight — only what the eyes read at night inverts.
@@ -876,8 +886,8 @@ class MainWindow(QMainWindow):
         )
         markup_groups = (
             [a_select, a_grab, a_objects],
-            [a_textbox, self._markup_button, self._draw_button, self._markup_style_button,
-             self._stamp_button],
+            [a_textbox, self._markup_button, self._draw_button, self._line_style_button,
+             self._colors_button, self._opacity_button, self._stamp_button],
             [a_redact],  # one slot, both gestures (M72)
         )
         for target, groups in ((bar, reading_groups), (self.markup_bar, markup_groups)):
@@ -905,6 +915,10 @@ class MainWindow(QMainWindow):
         if event.type() in (QEvent.Type.ApplicationPaletteChange, QEvent.Type.PaletteChange):
             icons.refresh_for_theme()
             self._retint_icons()
+            # The Line Styling + Opacity faces are drawn in the theme's text colour (M78.6), so
+            # re-sync them to redraw against the new palette (set_style doesn't re-emit).
+            for style_button in getattr(self, "_markup_style_buttons", ()):
+                style_button.set_style(style_button.style())
         elif event.type() == QEvent.Type.ActivationChange and self.isActiveWindow():
             # Returning to this window is when we surface an external change noticed in the
             # background (and re-check, since a watcher event can be missed on some filesystems).
@@ -1817,11 +1831,17 @@ class MainWindow(QMainWindow):
         self._line_color_row.set_active(color)
 
     def _on_markup_style_changed(self, style) -> None:
-        """The picker changed → update the sticky style for the next mark, and — mirroring the
-        text-markup 'apply to the current selection' rule — restyle the selected drawn object(s) in
-        place (undoable) if any are selected (a whole group in one undo step, M59.6)."""
+        """One of the three style buttons changed → update the sticky style for the next mark, and —
+        mirroring the text-markup 'apply to the current selection' rule — restyle the selected drawn
+        object(s) in place (undoable) if any are selected (a whole group in one undo step, M59.6).
+
+        Also broadcast the new style back to all three buttons (M78.6): each button holds the whole
+        style but edits only its slice, so they must be re-synced or the next edit on another button
+        would drop this one's change. ``set_style`` doesn't re-emit, so there is no feedback loop."""
         self.view.annotations.set_markup_style(style)
         self.view.annotations.restyle_selected_objects(style)
+        for style_button in self._markup_style_buttons:
+            style_button.set_style(style)
 
     def _reorder_objects(self, action: str) -> bool:
         """Move the selected object(s) in z-order (M59.8) as one undo step.
@@ -1854,7 +1874,8 @@ class MainWindow(QMainWindow):
         untouched."""
         style = MarkupStyle.from_mark(mark)
         if style is not None:
-            self._markup_style_button.set_style(style)      # reflect it in the button (no emit)
+            for style_button in self._markup_style_buttons:
+                style_button.set_style(style)               # reflect it in all three (no emit)
             self.view.annotations.set_markup_style(style)   # …and as the sticky default
 
     def _highlight_selection(self) -> None:

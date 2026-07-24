@@ -10,9 +10,11 @@ restricting". This module closes that gap without touching the model or the file
   **stroke** colour (line / outline / ink), the draw **width**, and an optional shape **fill**.
   Held sticky on :class:`~viewer.annotations.AnnotationOverlay`, so the last-used style carries
   forward exactly like the text-box :class:`~viewer.text_format_bar.TextBoxStyle`.
-* :class:`MarkupStyleButton` — one toolbar slot (keeping the toolbar in budget, PLAN.md §Design
-  budgets): a swatch face showing the current stroke colour, dropping a menu of preset colours +
-  a custom picker, a width sub-menu, and a fill sub-menu.
+* :class:`LineStylingButton` · :class:`ColorsButton` · :class:`OpacityButton` — three markup-bar
+  buttons over that one shared style (M78.6, splitting the former single ``MarkupStyleButton``):
+  **Line Styling** (thickness · dash · arrowheads), **Colors** (a Border stroke row + a Fill row +
+  custom + No Fill), and **Opacity** (a slider showing/accepting an exact %). The window keeps the
+  three in sync by broadcasting the new style to all of them after any edit.
 
 **Applicability follows the model, not the button** — a knob a tool doesn't have is simply ignored,
 the same way the text-box Fill only touches boxes:
@@ -43,6 +45,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMenu,
+    QSlider,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -64,6 +67,9 @@ _WIDTHS = (("Thin", 1.0), ("Medium", 2.0), ("Thick", 4.0))
 _LINE_STYLES = (("Solid", False), ("Dashed", True))
 # Whole-mark opacity (PDF /CA). "Solid" first so the default reads as the no-op it is.
 _OPACITIES = (("Solid", 1.0), ("75%", 0.75), ("50%", 0.5), ("25%", 0.25))
+# Since M78.6 opacity is a slider (an exact %) rather than those presets; the floor keeps a mark
+# from being dragged to fully invisible (annotations always paint above the page).
+_OPACITY_MIN_PCT = 10
 # Line ends (M74): ``(arrow_start, arrow_end)``. "None" first — the plain-line default; "End" is
 # what the retired Arrow tool drew; "Both" is new capability.
 _LINE_ENDS = (
@@ -188,6 +194,52 @@ def dot_icon(color: tuple[float, float, float] | None, ring: bool = False,
     return QIcon(pix)
 
 
+def _button_text_color() -> QColor:
+    app = QGuiApplication.instance()
+    if app is None:
+        return QColor("#2b2b2b")
+    return app.palette().color(QPalette.ColorRole.ButtonText)
+
+
+def line_style_icon(width: float, dashed: bool, size: int = 18) -> QIcon:
+    """The Line Styling button's face (M78.6): a horizontal stroke at the current thickness + dash,
+    in the theme's text colour, so the button shows the style it sets at a glance."""
+    pix = QPixmap(size, size)
+    pix.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pix)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    pen = QPen(_button_text_color(), max(1.0, min(width, 6.0)))
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    if dashed:
+        pen.setStyle(Qt.PenStyle.DashLine)
+    painter.setPen(pen)
+    y = size / 2.0
+    painter.drawLine(QPointF(3, y), QPointF(size - 3, y))
+    painter.end()
+    return QIcon(pix)
+
+
+def opacity_icon(opacity: float, size: int = 18) -> QIcon:
+    """The Opacity button's face (M78.6): a disc filled at the current opacity inside a ring, so the
+    button hints how translucent the next mark will be."""
+    pix = QPixmap(size, size)
+    pix.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pix)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    base = _button_text_color()
+    inner = QRectF(2.5, 2.5, size - 5.0, size - 5.0)
+    painter.setPen(QPen(base, 1.2))
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    painter.drawEllipse(inner)
+    fill = QColor(base)
+    fill.setAlphaF(max(0.0, min(1.0, opacity)))
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(fill)
+    painter.drawEllipse(inner)
+    painter.end()
+    return QIcon(pix)
+
+
 class SwatchRowAction(QWidgetAction):
     """A menu section in Preview's layout: a small header over a **horizontal row of colour
     dots** — the shared vocabulary of the M76.1 context menu and (M76.2) the Markup ▾ dropdown.
@@ -262,11 +314,15 @@ class SwatchRowAction(QWidgetAction):
         self.picked.emit(value)
 
 
-class MarkupStyleButton(QToolButton):
-    """A single toolbar button: a stroke-colour swatch face + a menu for colour / width / fill.
+class _StyleButton(QToolButton):
+    """Base for the three markup-style buttons (M78.6). They split the pen/shapes style controls —
+    **Line Styling · Colors · Opacity** — across three toolbar slots but share one
+    :class:`MarkupStyle`: each button edits only its own slice, and the window keeps all three in
+    step by broadcasting :meth:`set_style` to every button after any :attr:`styleChanged`. So every
+    mutator lives here (the one style is edited one way), while each subclass owns its menu + face.
 
-    Emits :attr:`styleChanged` whenever the user picks a control; :meth:`set_style` loads a style
-    into the menu ticks + face *without* emitting (so wiring it up on start looks like no edit).
+    :meth:`set_style` loads a style into the controls + face **without** emitting (start-up and
+    object-select), exactly as the old single button did.
     """
 
     styleChanged = Signal(object)  # the new MarkupStyle
@@ -274,133 +330,26 @@ class MarkupStyleButton(QToolButton):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._style = MarkupStyle()
-        self.setToolTip("Pen & shapes style — colour, width, opacity & fill "
-                        "(text markup has its own colours in the Markup menu)")
         self.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.setIconSize(QSize(16, 16))
-
-        menu = QMenu(self)
-        self._stroke_group = QActionGroup(menu)
-        self._stroke_actions: dict[tuple, object] = {}
-        for label, rgb in _STROKE_PRESETS:
-            act = menu.addAction(swatch_icon(rgb), label)
-            act.setCheckable(True)
-            act.setProperty("colorSwatch", True)  # a semantic colour chip — must NOT theme-retint
-            self._stroke_group.addAction(act)
-            act.triggered.connect(lambda _c, c=rgb: self._set_color(c))
-            self._stroke_actions[rgb] = act
-        self._custom_color_action = menu.addAction("Custom Colour…")
-        self._custom_color_action.triggered.connect(self._pick_custom_color)
-        menu.addSeparator()
-
-        # Line Style: thickness + solid/dashed in one sub-menu — two radio groups separated by a
-        # divider, because a stroke has both a width and a dash style at once. (Was "Width" before
-        # the dash style joined it; PyMuPDF bakes the dash as a /BS /D border and reads it back.)
-        self._width_menu = menu.addMenu("Line Style")
-        self._width_group = QActionGroup(self._width_menu)
-        self._width_actions: dict[float, object] = {}
-        for label, pt in _WIDTHS:
-            act = self._width_menu.addAction(label)
-            act.setCheckable(True)
-            self._width_group.addAction(act)
-            act.triggered.connect(lambda _c, w=pt: self._set_width(w))
-            self._width_actions[pt] = act
-        self._width_menu.addSeparator()
-        self._dash_group = QActionGroup(self._width_menu)
-        self._dash_actions: dict[bool, object] = {}
-        for label, is_dashed in _LINE_STYLES:
-            act = self._width_menu.addAction(label)
-            act.setCheckable(True)
-            self._dash_group.addAction(act)
-            act.triggered.connect(lambda _c, d=is_dashed: self._set_dashed(d))
-            self._dash_actions[is_dashed] = act
-
-        # Arrowheads (M74): line ends as style, Preview's model. Lines only — the other tools
-        # simply ignore it, the same applicability-follows-the-model rule as width and fill.
-        self._ends_menu = menu.addMenu("Arrowheads")
-        self._ends_group = QActionGroup(self._ends_menu)
-        self._ends_actions: dict[tuple, object] = {}
-        for label, ends in _LINE_ENDS:
-            act = self._ends_menu.addAction(label)
-            act.setCheckable(True)
-            self._ends_group.addAction(act)
-            act.triggered.connect(lambda _c, e=ends: self._set_ends(e))
-            self._ends_actions[ends] = act
-
-        # Opacity (M59.9): PDF's /CA is whole-annotation, so this fades outline and fill together.
-        # It is the answer to "my filled box hides the text" — annotations always paint above the
-        # page content, so no amount of Send to Back can put one behind text; translucency can.
-        self._opacity_menu = menu.addMenu("Opacity")
-        self._opacity_group = QActionGroup(self._opacity_menu)
-        self._opacity_actions: dict[float, object] = {}
-        for label, value in _OPACITIES:
-            act = self._opacity_menu.addAction(label)
-            act.setCheckable(True)
-            self._opacity_group.addAction(act)
-            act.triggered.connect(lambda _c, v=value: self._set_opacity(v))
-            self._opacity_actions[value] = act
-
-        self._fill_menu = menu.addMenu("Fill")
-        self._fill_group = QActionGroup(self._fill_menu)
-        self._no_fill_action = self._fill_menu.addAction("No Fill")
-        self._no_fill_action.setCheckable(True)
-        self._fill_group.addAction(self._no_fill_action)
-        self._no_fill_action.triggered.connect(lambda: self._set_fill(None))
-        self._fill_actions: dict[tuple, object] = {}
-        for label, rgb in _FILL_PRESETS:
-            act = self._fill_menu.addAction(swatch_icon(rgb), label)
-            act.setCheckable(True)
-            act.setProperty("colorSwatch", True)  # a semantic colour chip — must NOT theme-retint
-            self._fill_group.addAction(act)
-            act.triggered.connect(lambda _c, c=rgb: self._set_fill(c))
-            self._fill_actions[rgb] = act
-        self._custom_fill_action = self._fill_menu.addAction("Custom…")
-        self._custom_fill_action.triggered.connect(self._pick_custom_fill)
-
-        self.setMenu(menu)
-        self.set_style(self._style)
-
-    # ---- state in / out ---------------------------------------------------------
 
     def style(self) -> MarkupStyle:
         return self._style
 
     def set_style(self, style: MarkupStyle) -> None:
-        """Load ``style`` into the face + menu ticks without emitting :attr:`styleChanged`."""
+        """Load ``style`` into this button's controls + face without emitting :attr:`styleChanged`."""
         self._style = style
-        self.setIcon(swatch_icon(style.color, 18))
-        stroke_act = self._stroke_actions.get(style.color)
-        if stroke_act is not None:
-            stroke_act.setChecked(True)          # tick the matching preset (custom → none ticked)
-        elif self._stroke_group.checkedAction() is not None:
-            self._stroke_group.checkedAction().setChecked(False)
-        width_act = self._width_actions.get(style.width)
-        if width_act is not None:
-            width_act.setChecked(True)
-        self._dash_actions[style.dashed].setChecked(True)
-        ends_act = self._ends_actions.get(style.line_ends)
-        if ends_act is not None:
-            ends_act.setChecked(True)
-        opacity_act = self._opacity_actions.get(style.opacity)
-        if opacity_act is not None:
-            opacity_act.setChecked(True)
-        elif self._opacity_group.checkedAction() is not None:
-            self._opacity_group.checkedAction().setChecked(False)
-        if style.fill_color is None:
-            self._no_fill_action.setChecked(True)
-        else:
-            fill_act = self._fill_actions.get(style.fill_color)
-            if fill_act is not None:
-                fill_act.setChecked(True)
-            elif self._fill_group.checkedAction() is not None:
-                self._fill_group.checkedAction().setChecked(False)
+        self._sync()
+
+    def _sync(self) -> None:  # overridden — refresh this button's own controls + face
+        pass
 
     def _apply(self, **changes) -> None:
         self._style = replace(self._style, **changes)
-        self.set_style(self._style)
+        self._sync()
         self.styleChanged.emit(self._style)
 
-    # ---- control slots ----------------------------------------------------------
+    # ---- control slots (shared, so the one style is edited one way) --------------
 
     def _set_color(self, color: tuple[float, float, float]) -> None:
         self._apply(color=color)
@@ -421,7 +370,7 @@ class MarkupStyleButton(QToolButton):
         self._apply(fill_color=fill)
 
     def _pick_custom_color(self) -> None:
-        color = QColorDialog.getColor(QColor.fromRgbF(*self._style.color), self, "Stroke colour")
+        color = QColorDialog.getColor(QColor.fromRgbF(*self._style.color), self, "Border colour")
         if color.isValid():
             self._apply(color=_rgb(color))
 
@@ -430,3 +379,132 @@ class MarkupStyleButton(QToolButton):
         color = QColorDialog.getColor(QColor.fromRgbF(*start), self, "Fill colour")
         if color.isValid():
             self._apply(fill_color=_rgb(color))
+
+
+class LineStylingButton(_StyleButton):
+    """Line Styling (M78.6): thickness · dash · arrowheads. Applicability follows the model — a tool
+    without ends (everything but Line) just ignores them, the same rule as width and fill."""
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setToolTip("Line styling — thickness, dash & arrowheads (pen & shapes)")
+        menu = QMenu(self)
+        self._width_group = QActionGroup(menu)
+        self._width_actions: dict[float, object] = {}
+        for label, pt in _WIDTHS:
+            act = menu.addAction(label)
+            act.setCheckable(True)
+            self._width_group.addAction(act)
+            act.triggered.connect(lambda _c, w=pt: self._set_width(w))
+            self._width_actions[pt] = act
+        menu.addSeparator()
+        self._dash_group = QActionGroup(menu)
+        self._dash_actions: dict[bool, object] = {}
+        for label, is_dashed in _LINE_STYLES:
+            act = menu.addAction(label)
+            act.setCheckable(True)
+            self._dash_group.addAction(act)
+            act.triggered.connect(lambda _c, d=is_dashed: self._set_dashed(d))
+            self._dash_actions[is_dashed] = act
+        menu.addSeparator()
+        # Arrowheads (M74): line ends as style, Preview's model. Lines only.
+        self._ends_menu = menu.addMenu("Arrowheads")
+        self._ends_group = QActionGroup(self._ends_menu)
+        self._ends_actions: dict[tuple, object] = {}
+        for label, ends in _LINE_ENDS:
+            act = self._ends_menu.addAction(label)
+            act.setCheckable(True)
+            self._ends_group.addAction(act)
+            act.triggered.connect(lambda _c, e=ends: self._set_ends(e))
+            self._ends_actions[ends] = act
+        self.setMenu(menu)
+        self._sync()
+
+    def _sync(self) -> None:
+        self.setIcon(line_style_icon(self._style.width, self._style.dashed, 18))
+        width_act = self._width_actions.get(self._style.width)
+        if width_act is not None:
+            width_act.setChecked(True)
+        elif self._width_group.checkedAction() is not None:
+            self._width_group.checkedAction().setChecked(False)
+        self._dash_actions[self._style.dashed].setChecked(True)
+        ends_act = self._ends_actions.get(self._style.line_ends)
+        if ends_act is not None:
+            ends_act.setChecked(True)
+        elif self._ends_group.checkedAction() is not None:
+            self._ends_group.checkedAction().setChecked(False)
+
+
+class ColorsButton(_StyleButton):
+    """Colors (M78.6): a **Border** (stroke) swatch row + a **Fill** swatch row + custom pickers,
+    clubbed under one menu (owner call). 'Border' is the pen/shape *stroke* — distinct from the
+    text-markup colours, which live in the Markup ▾ menu (M78.5), a different domain. The Fill row's
+    slashed dot is 'No Fill'."""
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setToolTip("Colors — border (stroke) & fill for pen & shapes")
+        menu = QMenu(self)
+        self._border_row = SwatchRowAction(menu, "Border", _STROKE_PRESETS, self._style.color,
+                                           close_on_pick=True, include_remove=False)
+        self._border_row.picked.connect(self._set_color)
+        menu.addAction(self._border_row)
+        custom_border = menu.addAction("Custom Border…")
+        custom_border.triggered.connect(self._pick_custom_color)
+        menu.addSeparator()
+        self._fill_row = SwatchRowAction(menu, "Fill", _FILL_PRESETS, self._style.fill_color,
+                                         close_on_pick=True, include_remove=True)
+        self._fill_row.picked.connect(self._set_fill)  # the remove dot → None → No Fill
+        menu.addAction(self._fill_row)
+        custom_fill = menu.addAction("Custom Fill…")
+        custom_fill.triggered.connect(self._pick_custom_fill)
+        self.setMenu(menu)
+        self._sync()
+
+    def _sync(self) -> None:
+        self.setIcon(swatch_icon(self._style.color, 18))
+        self._border_row.set_active(self._style.color)
+        self._fill_row.set_active(self._style.fill_color)  # None → the No-Fill (remove) dot rings
+
+
+class OpacityButton(_StyleButton):
+    """Opacity (M78.6): a slider that shows and accepts an **exact** percentage, replacing the old
+    25/50/75/100 presets. PDF's /CA is whole-annotation, so it fades outline + fill together — the
+    answer to "my filled box hides the text", since annotations always paint above the page."""
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        menu = QMenu(self)
+        box = QWidget()
+        column = QVBoxLayout(box)
+        column.setContentsMargins(12, 6, 12, 6)
+        column.setSpacing(4)
+        self._opacity_label = QLabel()
+        column.addWidget(self._opacity_label)
+        self._slider = QSlider(Qt.Orientation.Horizontal)
+        self._slider.setRange(_OPACITY_MIN_PCT, 100)
+        self._slider.setSingleStep(5)
+        self._slider.setPageStep(10)
+        self._slider.setMinimumWidth(180)
+        self._slider.valueChanged.connect(self._on_slider)
+        column.addWidget(self._slider)
+        action = QWidgetAction(menu)
+        action.setDefaultWidget(box)
+        menu.addAction(action)
+        self.setMenu(menu)
+        self._sync()
+
+    def _on_slider(self, pct: int) -> None:
+        self._opacity_label.setText(f"Opacity: {pct}%")
+        opacity = pct / 100.0
+        if abs(opacity - self._style.opacity) > 1e-9:
+            self._set_opacity(opacity)
+
+    def _sync(self) -> None:
+        pct = round(self._style.opacity * 100)
+        self.setIcon(opacity_icon(self._style.opacity, 18))
+        self.setToolTip(f"Opacity — {pct}% (fades border + fill together)")
+        self._opacity_label.setText(f"Opacity: {pct}%")
+        self._slider.blockSignals(True)  # loading a style must not re-emit through the slider
+        self._slider.setValue(max(_OPACITY_MIN_PCT, min(100, pct)))
+        self._slider.blockSignals(False)

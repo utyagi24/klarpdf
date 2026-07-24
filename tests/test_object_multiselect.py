@@ -122,7 +122,7 @@ def test_group_restyle_is_one_undo_step(win):
     shapes = _shapes(win, (100, 100, 160, 140), (200, 100, 260, 140))
     ov = win.view.annotations
     ov.select_in_rect(0, (90, 90, 270, 150))
-    win._markup_style_button._set_color((0.0, 0.0, 1.0))
+    win._colors_button._set_color((0.0, 0.0, 1.0))
     recoloured = [a for a in win.vdoc.page_annotations(0) if isinstance(a, Shape)]
     assert all(s.color == pytest.approx((0.0, 0.0, 1.0)) for s in recoloured)
     assert win.undo_stack.undoText() == "Restyle 2 objects"
@@ -174,7 +174,7 @@ def test_restyle_skips_a_text_box_in_a_mixed_group(win):
     win.vdoc.add_annotation(0, TextBox((200.0, 100.0, 300.0, 140.0), "note", color=(0.0, 0.0, 0.0)))
     win.view.reload()
     win.view.annotations.select_in_rect(0, (90, 90, 320, 150))
-    win._markup_style_button._set_color((0.0, 0.0, 1.0))
+    win._colors_button._set_color((0.0, 0.0, 1.0))
     shape = [a for a in win.vdoc.page_annotations(0) if isinstance(a, Shape)][0]
     box = [a for a in win.vdoc.page_annotations(0) if isinstance(a, TextBox)][0]
     assert shape.color == pytest.approx((0.0, 0.0, 1.0))    # drawn mark recoloured
