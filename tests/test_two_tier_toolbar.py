@@ -69,8 +69,12 @@ def test_reading_bar_holds_the_reading_set_and_nothing_else(win):
     """Slot inventory: Sidebar · Save · Undo/Redo · zoom cluster · Rotate · Markup · Find — and
     none of the removed verbs (Open/Print, the page-op buttons, the kit)."""
     texts = {a.text().replace("&", "") for a in _reading_bar(win).actions() if a.text()}
+    # "Find" without the ellipsis: the reading-bar slot is a *toggle* that shows/hides the inline
+    # bar (it acts at once), distinct from the Edit-menu "Find…" launcher that carries Ctrl+F.
     assert {"Save", "Undo", "Redo", "Zoom Out", "Zoom In", "Fit Width",
-            "Fit Page", "Rotate Left", "Rotate Right", "Markup Toolbar", "Find…"} <= texts
+            "Fit Page", "Rotate Left", "Rotate Right", "Markup Toolbar", "Find"} <= texts
+    find_toggle = next(a for a in _reading_bar(win).actions() if a.text() == "Find")
+    assert find_toggle.isCheckable() and find_toggle is win._a_find_toggle
     # Sidebar rides as a widget since M79.1 — a split button whose face is the same toggle and
     # whose ▾ picks the optional tabs.
     assert win._sidebar_button.parent() is _reading_bar(win)
@@ -166,7 +170,7 @@ def test_removed_buttons_verbs_stay_in_the_menus(win):
     assert {"Cut Pages", "Copy Pages", "Paste Pages", "Delete Pages",
             "Insert Pages from File…"} <= edit_texts
     tools_texts = _menu_texts(win, "&Tools")
-    assert {"Select", "Grab", "Objects", "Highlight", "Redact Text"} <= tools_texts
+    assert {"Select", "Grab", "Objects", "Highlight", "Redact"} <= tools_texts
 
 
 def test_page_ops_stay_on_the_sidebar_context_menu(win):

@@ -566,9 +566,21 @@ class MainWindow(QMainWindow):
         a_paste_sc = act("Paste", self._edit_paste, QKeySequence.StandardKey.Paste)
         self.addAction(a_cut_sc)   # not in a menu — added to the window so the shortcut is live
         self.addAction(a_paste_sc)
-        a_find = act("Find…", self._show_find, QKeySequence.StandardKey.Find, icon="find", to_menu=edit_menu)
+        act("Find…", self._show_find, QKeySequence.StandardKey.Find, icon="find", to_menu=edit_menu)
         act("Find Next", self.find_bar.find_next, QKeySequence.StandardKey.FindNext, to_menu=edit_menu)
         act("Find Previous", self.find_bar.find_prev, QKeySequence.StandardKey.FindPrevious, to_menu=edit_menu)
+        # The toolbar's Find slot is a *toggle*, not a plain launcher — its two neighbours (the sidebar
+        # button and the Markup toggle) both light while their chrome is up, and Find was the one
+        # summon-chrome button on the reading bar that stayed dark with its bar open, so a second click
+        # looked dead. This is a separate action from the Edit-menu "Find…" on purpose: Ctrl+F while the
+        # bar is open must stay refocus-and-select-all (see FindBar.show_bar), never toggle it shut, so
+        # the shortcut stays on the launcher and only the toolbar face carries the check. State is
+        # mirrored from the bar itself (visibilityChanged), which covers every close path — ✕, Esc, a
+        # document change, the fullscreen chrome restore — not just this button's own click.
+        a_find_toggle = self._a_find_toggle = act("Find", self._toggle_find, icon="find")
+        a_find_toggle.setCheckable(True)
+        a_find_toggle.setToolTip("Find (Ctrl+F)")
+        self.find_bar.visibilityChanged.connect(self._on_find_visibility)
 
         # View
         a_zout = act("Zoom Out", self.view.zoom_out, QKeySequence.StandardKey.ZoomOut, icon="zoom-out", to_menu=view_menu)
@@ -590,11 +602,11 @@ class MainWindow(QMainWindow):
         # (hand-pan). Mutually exclusive; the checked toolbar button shows the active tool.
         mode_group = QActionGroup(self)
         mode_group.setExclusive(True)
-        a_select = act("Select", lambda: self.view.set_mode(InteractionMode.SELECT), icon="select", to_menu=tools_menu)
-        a_grab = act("Grab", lambda: self.view.set_mode(InteractionMode.GRAB), icon="grab", to_menu=tools_menu)
+        a_select = act("Select", lambda: self.view.set_mode(InteractionMode.SELECT), icon="select")
+        a_grab = act("Grab", lambda: self.view.set_mode(InteractionMode.GRAB), icon="grab")
         # Objects mode (M59.6): drag a box to select drawn marks, Ctrl+click to add/remove one, drag
         # a member to move the whole group — a colour/width/fill change then restyles the group.
-        a_objects = act("Objects", lambda: self.view.set_mode(InteractionMode.OBJECT), icon="objects", to_menu=tools_menu)
+        a_objects = act("Objects", lambda: self.view.set_mode(InteractionMode.OBJECT), icon="objects")
         a_objects.setToolTip("Objects — drag a box to select drawn marks; Ctrl-click adds/removes; "
                              "drag to move the group; the style picker restyles it")
         for a in (a_select, a_grab, a_objects):
@@ -603,78 +615,105 @@ class MainWindow(QMainWindow):
         a_select.setChecked(True)
         self._a_select = a_select
         self._a_objects = a_objects
-        tools_menu.addSeparator()
         # Armed annotate/redact tools: click to arm (button lights), then the gesture. Checkable
         # only to reflect the armed state — NOT in the mode group. The repeat-use markup quartet
         # (Highlight / Underline / Strike Out / Pen) **stays armed across gestures** (M73 —
         # Preview's behaviour: mark passage after passage on one arm; exits are the lit button ·
         # Esc · arming any other tool); everything else fires once then reverts to Select.
-        a_textbox = act("Add Text Box", lambda: self._arm_tool(ArmedTool.TEXTBOX), icon="textbox", to_menu=tools_menu)
+        # (The Tools menu is assembled explicitly further down — grouped to mirror the markup
+        # toolbar — so these are created without `to_menu`; only their order in `tools_groups` sets
+        # where they land.)
+        a_textbox = act("Add Text Box", lambda: self._arm_tool(ArmedTool.TEXTBOX), icon="textbox")
         a_textbox.setToolTip("Add Text Box — click a spot, then type (drag to move, double-click to edit)")
-        a_highlight = act("Highlight", lambda: self._arm_tool(ArmedTool.HIGHLIGHT), "Ctrl+H", icon="highlight", to_menu=tools_menu)
+        a_highlight = act("Highlight", lambda: self._arm_tool(ArmedTool.HIGHLIGHT), "Ctrl+H", icon="highlight")
         a_highlight.setToolTip("Highlight — drag over text, passage after passage (Esc or click again to stop)")
         # Underline / strikeout (M56): the same drag-over-text gesture and line-bar path as
         # Highlight; the three markup verbs share one toolbar slot (the Markup ▾ split-button).
-        a_underline = act("Underline", lambda: self._arm_tool(ArmedTool.UNDERLINE), "Ctrl+U", icon="underline", to_menu=tools_menu)
+        a_underline = act("Underline", lambda: self._arm_tool(ArmedTool.UNDERLINE), "Ctrl+U", icon="underline")
         a_underline.setToolTip("Underline — drag over text, passage after passage (Esc or click again to stop)")
-        a_strikeout = act("Strike Out", lambda: self._arm_tool(ArmedTool.STRIKEOUT), icon="strikeout", to_menu=tools_menu)
+        a_strikeout = act("Strike Out", lambda: self._arm_tool(ArmedTool.STRIKEOUT), icon="strikeout")
         a_strikeout.setToolTip("Strike Out — drag over text, passage after passage (Esc or click again to stop)")
         # Draw tools (M58): pen path capture + line/rect/ellipse press-drag-release (Shift
         # constrains: square / circle / 45° line). Pen is sticky (M73); the shapes stay one-shot.
-        a_pen = act("Pen", lambda: self._arm_tool(ArmedTool.PEN), icon="pen", to_menu=tools_menu)
+        a_pen = act("Pen", lambda: self._arm_tool(ArmedTool.PEN), icon="pen")
         a_pen.setToolTip("Pen — draw freehand, stroke after stroke (Esc or click again to stop)")
         # No Arrow tool since M74: arrowheads are *line style* (Preview's model) — none / start /
         # end / both live on the style picker, so one Line tool draws every variant and a selected
         # line's ends restyle in place like its colour.
-        a_line = act("Line", lambda: self._arm_tool(ArmedTool.LINE), icon="line", to_menu=tools_menu)
+        a_line = act("Line", lambda: self._arm_tool(ArmedTool.LINE), icon="line")
         a_line.setToolTip("Line — drag from start to end (Shift snaps to 45°); "
                           "arrowheads come from the style picker")
-        a_rect = act("Rectangle", lambda: self._arm_tool(ArmedTool.RECT), icon="rect", to_menu=tools_menu)
+        a_rect = act("Rectangle", lambda: self._arm_tool(ArmedTool.RECT), icon="rect")
         a_rect.setToolTip("Rectangle — drag a box (Shift for a square)")
-        a_ellipse = act("Ellipse", lambda: self._arm_tool(ArmedTool.ELLIPSE), icon="ellipse", to_menu=tools_menu)
+        a_ellipse = act("Ellipse", lambda: self._arm_tool(ArmedTool.ELLIPSE), icon="ellipse")
         a_ellipse.setToolTip("Ellipse — drag a box (Shift for a circle)")
-        a_redact_text = act("Redact Text", lambda: self._arm_tool(ArmedTool.REDACT_TEXT), "Ctrl+Shift+R", icon="redact-text", to_menu=tools_menu)
+        # The concrete redact tools. They are **no longer Tools-menu verbs of their own** (owner call
+        # while reviewing the menu regroup): the menu offers the single gesture-detecting Redact below,
+        # the same one the markup bar shows. The tools stay, they're just not surfaced as separate
+        # entries — the combined Redact resolves to one of them at press, the view's context menu
+        # applies REDACT_TEXT to a selection, and both still light the Redact slot while armed
+        # (_on_armed_changed / _armed_actions). Ctrl+Shift+R moved off Redact Text onto that Redact.
+        a_redact_text = act("Redact Text", lambda: self._arm_tool(ArmedTool.REDACT_TEXT), icon="redact-text")
         a_redact_text.setToolTip("Redact Text — drag over text to permanently remove it at save")
-        a_redact_block = act("Redact Block", lambda: self._arm_tool(ArmedTool.REDACT_REGION), icon="redact", to_menu=tools_menu)
+        a_redact_block = act("Redact Block", lambda: self._arm_tool(ArmedTool.REDACT_REGION), icon="redact")
         a_redact_block.setToolTip("Redact Block — drag a box to permanently remove its contents at save")
-        # The markup bar's ONE Redact slot (M72): Preview-style gesture detect — the press point
-        # decides text-flow vs block, so the everyday path needs no choice up front. Toolbar-only:
-        # the Tools menu keeps the two explicit verbs above (menus are the complete catalog), and
-        # this slot is not a third verb, just the one button that arms both gestures.
-        a_redact = self._a_redact = act("Redact", self._arm_redact, icon="redact")
+        # The one Redact verb the UI exposes (M72): a single gesture-detecting tool — the press point
+        # decides text-flow vs block, so the everyday path needs no choice up front. The **same
+        # QAction** rides both the markup bar and the Tools menu (icon + behaviour identical by
+        # construction), and it carries Ctrl+Shift+R.
+        a_redact = self._a_redact = act("Redact", self._arm_redact, "Ctrl+Shift+R", icon="redact")
         a_redact.setToolTip("Redact — drag over text to remove the text, drag elsewhere to "
                             "remove a block; permanent at save")
         # Search & redact (M64): the one redaction verb that is not a gesture, so it is a dialog —
         # find every occurrence, review the hits, mark the ones you meant. No toolbar slot: it is a
         # one-shot command, and §Design budgets keeps the toolbar to modes.
-        a_redact_find = act("Find and Redact…", self._redact_matches, to_menu=tools_menu)
+        a_redact_find = act("Find and Redact…", self._redact_matches)
         a_redact_find.setToolTip("Find and Redact — redact every occurrence of a word or phrase")
-        tools_menu.addSeparator()
         # Text marks + signature (M62, merged at M69.3). Both are the one R4 content-draw engine
         # (M61), and a stamp and a watermark are now **one** entry: they were never two features —
         # a watermark is a Stamp with `under=True`, and the only real difference (drag it somewhere
         # vs cover whole pages) is a control inside the dialog. They share one toolbar slot via the
         # Stamp ▾ split-button.
-        a_stamp = act("Stamp / Watermark…", self._add_mark, icon="stamp", to_menu=tools_menu)
+        a_stamp = act("Stamp / Watermark…", self._add_mark, icon="stamp")
         a_stamp.setToolTip("Compose a text mark — drag it where you want it, or cover whole pages")
-        a_signature = act("Signature / Image…", self._add_image_stamp, icon="signature",
-                          to_menu=tools_menu)
+        a_signature = act("Signature / Image…", self._add_image_stamp, icon="signature")
         a_signature.setToolTip("Signature — place a scanned signature, seal or logo")
         self._stamp_actions = (a_stamp, a_signature)
-        tools_menu.addSeparator()
         # Form fields (M69): compose, then drag the box — M62's placement gesture again. Menu-only;
         # creating a field is a one-shot command, and §Design budgets keeps the toolbar to modes.
         # Radio groups are deliberately absent (owner, 2026-07-18) — see PLAN.md §Future enhancements.
-        field_menu = tools_menu.addMenu("Add Form Field")
+        field_menu = QMenu("Add Form Field", self)  # placed in tools_groups below, not appended here
         for kind in FIELD_KINDS:
             field_menu.addAction(
                 f"{kind_label(kind)}…", lambda _checked=False, k=kind: self._add_form_field(k)
             )
-        tools_menu.addSeparator()
         # Crop (M48): menu-only (no free toolbar slot needed for a one-shot); same armed pattern.
-        a_crop = act("Crop Pages", lambda: self._arm_tool(ArmedTool.CROP), to_menu=tools_menu)
+        a_crop = act("Crop Pages", lambda: self._arm_tool(ArmedTool.CROP))
         a_crop.setToolTip("Crop Pages — drag the area to keep; the rest is hidden, not removed")
-        act("Remove Crop", self._remove_crop, to_menu=tools_menu)
+        a_remove_crop = act("Remove Crop", self._remove_crop)
+        # Tools menu, assembled to mirror the markup toolbar's grouping (see `markup_groups` below):
+        # modes · draw · text markup · content marks, then the menu-only one-shots. The toolbar folds
+        # stamp + redact into one slot-group under its ~10-slot budget (§Design budgets); the menu has
+        # no such budget, so it keeps the toolbar's *sequence* but splits "add a mark" (stamps) from
+        # "remove content permanently" (redact) — opposite intents that shouldn't sit undivided. Form
+        # fields and Crop have no toolbar home and trail as the menu-only tail they already were.
+        tools_groups = (
+            [a_select, a_grab, a_objects],                    # modes  (toolbar group 1)
+            [a_pen, a_line, a_rect, a_ellipse],               # draw   (toolbar group 2, minus style)
+            [a_textbox, a_highlight, a_underline, a_strikeout],  # text markup (toolbar group 3)
+            [a_stamp, a_signature],                           # stamps (toolbar group 4, first half)
+            [a_redact, a_redact_find],                        # redact (toolbar group 4, second half)
+            [field_menu],                                     # menu-only
+            [a_crop, a_remove_crop],                          # menu-only
+        )
+        for gi, group in enumerate(tools_groups):
+            if gi:
+                tools_menu.addSeparator()
+            for item in group:
+                if isinstance(item, QMenu):
+                    tools_menu.addMenu(item)
+                else:
+                    tools_menu.addAction(item)
         # Object z-order (M59.8). Window-level actions so the shortcuts work wherever focus is,
         # but deliberately *not* in a menubar menu: they only ever apply to a selected object, so a
         # permanent menu group would sit greyed out most of the time. They surface in the view's
@@ -900,7 +939,7 @@ class MainWindow(QMainWindow):
             [a_zout, self.zoom_widget, a_zin, a_fitw, a_fitp],
             [a_rotl, a_rotr],
             [markup_toggle],
-            [a_find],
+            [a_find_toggle],
         )
         # Grouped so related tools sit together (owner call): the modes; then Draw with the three
         # style buttons that feed it (Line Styling · Colors · Opacity all restyle what Draw stamps —
@@ -1136,6 +1175,24 @@ class MainWindow(QMainWindow):
 
     def _show_find(self) -> None:
         self.find_bar.show_bar()
+
+    def _toggle_find(self, checked: bool) -> None:
+        """Toolbar Find button (checkable): show or hide the find bar. The check state is authored
+        by :meth:`_on_find_visibility` from the bar's own signal, so this only ever runs on a real
+        click — hence acting on ``checked`` is safe (no risk of fighting a programmatic sync)."""
+        if checked:
+            self.find_bar.show_bar()
+        else:
+            self.find_bar.hide_bar()
+
+    def _on_find_visibility(self, visible: bool) -> None:
+        """Keep the toolbar Find toggle lit exactly while the bar is up, whoever moved it (✕, Esc,
+        a document change, fullscreen restore). Reporting the state, not choosing it — so block the
+        button's own signal, as the sidebar-tab sync does, to avoid a show/hide feedback loop."""
+        if self._a_find_toggle.isChecked() != visible:
+            blocked = self._a_find_toggle.blockSignals(True)
+            self._a_find_toggle.setChecked(visible)
+            self._a_find_toggle.blockSignals(blocked)
 
     def _toggle_night_mode(self, checked: bool) -> None:
         """View ▸ Night Reading Mode (M49): invert the page pixels, view-only; remembered."""

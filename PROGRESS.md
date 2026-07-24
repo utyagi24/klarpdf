@@ -713,8 +713,10 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   click restores the combined arm (the resolved gesture can't lock in); a rotated view resolves to
   block (text selection is disabled there). The slot's button lights for the whole redact family
   and a click on the lit button always disarms; a live selection applies immediately (the M46
-  contract). Tools ▸ Redact Text (Ctrl+Shift+R) / Redact Block unchanged — the slot is toolbar
-  sugar, not a third verb. — *Windows (headless + offscreen GUI)* — 14 new tests, 1096 green
+  contract). Tools ▸ Redact Text (Ctrl+Shift+R) / Redact Block were menu verbs at M72; **revised
+  2026-07-24 (PR #189)** to a single Tools-menu Redact (now carrying Ctrl+Shift+R) + Find and Redact,
+  matching the bar — the concrete text/block tools stay, gesture-resolved (see PLAN §GUI roadmap
+  M72). — *Windows (headless + offscreen GUI)* — 14 new tests, 1096 green
   ([#160](https://github.com/utyagi24/klarpdf/pull/160))
 - [x] **M73** Sticky markup arming — Highlight / Underline / Strike Out / Pen **stay armed across
   gestures** (Preview's repeat-use behaviour): a new `ArmedTool.sticky` property names the quartet,

@@ -4,8 +4,12 @@ The markup bar's two Redact slots become **one armed tool** with Preview-style g
 the press point's text hit decides — a drag starting on a word runs the text-flow redaction, a
 drag starting in margin/image space rubber-bands a block. The combined slot resolves *at press*
 to the concrete tool (REDACT_TEXT / REDACT_REGION), so the armed-selection tint, the release
-path and the one-shot disarm are exactly the explicit tools'. The Tools menu keeps both explicit
-verbs (menus are the complete catalog) and Ctrl+Shift+R still arms Redact Text.
+path and the one-shot disarm are exactly the explicit tools'.
+
+Later owner call (the Tools-menu regroup): the menu no longer lists the two explicit verbs either
+— it offers the one gesture-detecting Redact (the same action as the bar) + Find and Redact, and
+Ctrl+Shift+R now arms that combined Redact. The concrete REDACT_TEXT / REDACT_REGION tools still
+exist (gesture-resolved, context-menu Redact Selection, `_arm_tool`), just not as menu entries.
 """
 
 from __future__ import annotations
@@ -152,9 +156,9 @@ def test_slot_arms_the_combined_tool_and_lights(win):
     assert win._a_redact.isChecked()
 
 
-def test_slot_lights_for_a_menu_armed_explicit_verb(win):
-    """Tools ▸ Redact Text arms the explicit tool — the bar's one Redact slot is where that
-    armed state must be visible."""
+def test_slot_lights_for_an_armed_explicit_verb(win):
+    """Arming an explicit concrete tool (REDACT_TEXT here) — via the context menu or a resolved
+    gesture — must light the one Redact slot, where that armed state is visible."""
     win._arm_tool(ArmedTool.REDACT_TEXT)
     assert win._a_redact.isChecked()
     win.view.disarm()
@@ -180,22 +184,27 @@ def test_slot_applies_to_a_live_selection_immediately(win):
     assert _redactions(win)
 
 
-# ---- the menu catalog is unchanged -------------------------------------------
+# ---- the Tools menu offers one Redact + Find and Redact (owner regroup) ------
 
 
-def test_menu_keeps_both_explicit_verbs_and_the_shortcut(win):
+def test_menu_has_one_redact_verb_carrying_the_shortcut(win):
+    """The menu no longer lists Redact Text / Redact Block — it offers the one gesture-detecting
+    Redact (the same action as the bar) plus Find and Redact, and Ctrl+Shift+R rides that Redact."""
     for bar_action in win.menuBar().actions():
         if bar_action.text() == "&Tools" and bar_action.menu() is not None:
             texts = [a.text() for a in bar_action.menu().actions() if a.text()]
-            assert "Redact Text" in texts and "Redact Block" in texts
-            assert "Redact" not in texts  # the combined slot is toolbar sugar, not a third verb
+            assert "Redact" in texts and "Find and Redact…" in texts
+            assert "Redact Text" not in texts and "Redact Block" not in texts
             by_text = {a.text(): a for a in bar_action.menu().actions()}
-            assert by_text["Redact Text"].shortcut() == QKeySequence("Ctrl+Shift+R")
+            assert by_text["Redact"] is win._a_redact  # same action as the markup bar's slot
+            assert by_text["Redact"].shortcut() == QKeySequence("Ctrl+Shift+R")
             return
     raise AssertionError("no Tools menu found")
 
 
-def test_explicit_menu_verbs_still_arm_their_own_tools(win):
+def test_the_concrete_tools_still_arm_directly(win):
+    """They are no longer menu verbs, but the tools remain — armed by the resolved gesture, the
+    context menu, or `_arm_tool` — so redaction functionality is unchanged."""
     win._arm_tool(ArmedTool.REDACT_TEXT)
     assert win.view.armed is ArmedTool.REDACT_TEXT
     win._arm_tool(ArmedTool.REDACT_REGION)
