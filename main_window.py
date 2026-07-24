@@ -144,10 +144,12 @@ class MainWindow(QMainWindow):
         self._initialized = False
         self._edited_page: int | None = None  # the page the in-flight edit lands on (M59.9)
         # Text-markup colours (M59.9), curated + separate from the pen/shapes stroke picker:
-        # highlight keeps its own (a translucent wash), underline + strikeout share one (an opaque
-        # proofing line). Sticky for the session, like the other last-used styles.
+        # highlight keeps its own (a translucent wash); underline and strikeout each keep their own
+        # opaque proofing-line colour (independent since M78.5 — they shared one through M76). Sticky
+        # for the session, like the other last-used styles.
         self._highlight_color = HIGHLIGHT_COLORS[0][1]
-        self._markup_line_color = TEXT_LINE_COLORS[0][1]
+        self._underline_color = TEXT_LINE_COLORS[0][1]
+        self._strike_color = TEXT_LINE_COLORS[0][1]
 
         # from_path may raise PasswordRequired for an encrypted file (the prompt was cancelled);
         # app.open_document constructs MainWindow in a try/except and simply opens no window then.
@@ -728,23 +730,28 @@ class MainWindow(QMainWindow):
         # Markup ▾ (M56): highlight / underline / strikeout. Draw ▾ (M58): the draw tools.
         self._markup_button = split_button((a_highlight, a_underline, a_strikeout))
         # The text-markup colours live here (M59.9), with the verbs they colour — not on the
-        # pen/shapes style button, and not in a new toolbar slot. Since M76.2 they are the M76.1
-        # **swatch rows, always visible** instead of submenus (owner: picking a colour and arming
-        # was two menu trips). The rows deliberately do NOT close the menu: check the ring — if
-        # it is already on your colour, click the verb; if not, click the dot (the ring moves in
-        # place) and then the verb, all in one menu visit.
+        # pen/shapes style button, and not in a new toolbar slot. Since M78.5 each verb has its own
+        # **arming swatch row**: clicking a colour both sets that verb's colour *and* arms the verb
+        # (applying at once to a live text selection), collapsing the old pick-then-click into one
+        # click. So the rows now close the menu on pick (they used to stay open for the second
+        # click). Underline and Strike Out gained independent colours here too.
         markup_menu = self._markup_button.menu()
         markup_menu.addSeparator()
         self._highlight_color_row = SwatchRowAction(
-            markup_menu, "Highlight Colour", HIGHLIGHT_COLORS, self._highlight_color,
-            close_on_pick=False, include_remove=False)
-        self._highlight_color_row.picked.connect(self._set_highlight_color)
+            markup_menu, "Highlight", HIGHLIGHT_COLORS, self._highlight_color,
+            close_on_pick=True, include_remove=False)
+        self._highlight_color_row.picked.connect(self._pick_highlight_color)
         markup_menu.addAction(self._highlight_color_row)
-        self._line_color_row = SwatchRowAction(
-            markup_menu, "Underline / Strike Colour", TEXT_LINE_COLORS, self._markup_line_color,
-            close_on_pick=False, include_remove=False)
-        self._line_color_row.picked.connect(self._set_markup_line_color)
-        markup_menu.addAction(self._line_color_row)
+        self._underline_color_row = SwatchRowAction(
+            markup_menu, "Underline", TEXT_LINE_COLORS, self._underline_color,
+            close_on_pick=True, include_remove=False)
+        self._underline_color_row.picked.connect(self._pick_underline_color)
+        markup_menu.addAction(self._underline_color_row)
+        self._strike_color_row = SwatchRowAction(
+            markup_menu, "Strike Out", TEXT_LINE_COLORS, self._strike_color,
+            close_on_pick=True, include_remove=False)
+        self._strike_color_row.picked.connect(self._pick_strike_color)
+        markup_menu.addAction(self._strike_color_row)
         self._draw_button = split_button((a_pen, a_line, a_rect, a_ellipse))
         # Stamp ▾ (M62): the text mark · signature in one slot, the slot §Design budgets reserved
         # for R4. Each opens its dialog rather than arming directly — the mark has to be composed
@@ -1363,6 +1370,12 @@ class MainWindow(QMainWindow):
         if self.view.armed is tool:
             self.view.disarm()
             return
+        self._apply_or_arm(tool)
+
+    def _apply_or_arm(self, tool: ArmedTool) -> None:
+        """Apply a drag-over-text tool to a **live** selection immediately (Preview-style, one undo
+        step), else arm it for the next drag. The non-toggling core of :meth:`_arm_tool`, shared with
+        the M78.5 colour-pick rows — which must *arm* the verb, never toggle it off."""
         if tool.drags_text and self.view.selection is not None and self.view.selection.selected_words():
             self._apply_text_tool(tool)  # clears the selection as it applies — one undo step
             return
@@ -1807,14 +1820,36 @@ class MainWindow(QMainWindow):
 
     def _set_highlight_color(self, color) -> None:
         self._highlight_color = color
-        self._highlight_color_row.set_active(color)  # the ring follows under the open menu
+        self._highlight_color_row.set_active(color)  # the ring follows for the next menu open
         self.view.highlight_preview_color = color    # an armed drag previews this now (M76.2)
         if self.view.selection is not None:
             self.view.selection.repaint()            # re-tint a live selection immediately
 
-    def _set_markup_line_color(self, color) -> None:
-        self._markup_line_color = color
-        self._line_color_row.set_active(color)
+    def _set_underline_color(self, color) -> None:
+        self._underline_color = color
+        self._underline_color_row.set_active(color)
+
+    def _set_strike_color(self, color) -> None:
+        self._strike_color = color
+        self._strike_color_row.set_active(color)
+
+    # M78.5 — a colour pick both sets the verb's colour and arms it (applying to a live selection
+    # at once), and makes the split-button face repeat that verb. The pure setters above stay the
+    # colour-only seam (undo/redo repaint, tests).
+    def _pick_highlight_color(self, color) -> None:
+        self._set_highlight_color(color)
+        self._markup_button.setDefaultAction(self._armed_actions[ArmedTool.HIGHLIGHT])
+        self._apply_or_arm(ArmedTool.HIGHLIGHT)
+
+    def _pick_underline_color(self, color) -> None:
+        self._set_underline_color(color)
+        self._markup_button.setDefaultAction(self._armed_actions[ArmedTool.UNDERLINE])
+        self._apply_or_arm(ArmedTool.UNDERLINE)
+
+    def _pick_strike_color(self, color) -> None:
+        self._set_strike_color(color)
+        self._markup_button.setDefaultAction(self._armed_actions[ArmedTool.STRIKEOUT])
+        self._apply_or_arm(ArmedTool.STRIKEOUT)
 
     def _on_markup_style_changed(self, style) -> None:
         """The picker changed → update the sticky style for the next mark, and — mirroring the
@@ -1861,11 +1896,11 @@ class MainWindow(QMainWindow):
         self._apply_markup(Highlight, self._highlight_color, "Highlight")  # curated wash (M59.9)
 
     def _underline_selection(self) -> None:
-        # The line colour is shared with strikeout — the proofing-line colour.
-        self._apply_markup(Underline, self._markup_line_color, "Underline")
+        # Underline and strikeout keep independent proofing-line colours since M78.5.
+        self._apply_markup(Underline, self._underline_color, "Underline")
 
     def _strikeout_selection(self) -> None:
-        self._apply_markup(Strikeout, self._markup_line_color, "Strike out")
+        self._apply_markup(Strikeout, self._strike_color, "Strike out")
 
     def _redact_selection(self) -> None:
         self._apply_selection_bars(Redaction, "Redact selection")
