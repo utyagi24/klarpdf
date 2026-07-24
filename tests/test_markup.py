@@ -216,6 +216,28 @@ def test_markup_menu_carries_the_three_arming_colour_rows(win):
         assert row._close_on_pick is True
 
 
+def test_each_swatch_row_sits_under_its_verb_action_with_no_duplicate_label(win):
+    """Owner call after testing M78.5: each swatch row is grouped directly under its verb action
+    (Highlight action → Highlight swatches → Underline action → …), and carries no title label —
+    the action above already names it, so the verb name isn't repeated."""
+    from viewer.markup_style import SwatchRowAction
+
+    entries = []
+    for a in win._markup_button.menu().actions():
+        if a.isSeparator():
+            continue
+        entries.append(a.title if isinstance(a, SwatchRowAction) else a.text())
+    # verb action immediately followed by its (same-named) swatch row, per verb — no clumping.
+    assert entries == ["Highlight", "Highlight", "Underline", "Underline",
+                       "Strike Out", "Strike Out"]
+    # each row shows its colour dots but no header QLabel repeating the verb name.
+    from PySide6.QtWidgets import QLabel
+
+    for row in win._markup_button.menu().actions():
+        if isinstance(row, SwatchRowAction):
+            assert row.defaultWidget().findChild(QLabel) is None
+
+
 def test_picking_a_markup_colour_arms_the_verb_in_that_colour(win):
     """M78.5: a colour pick sets the verb's colour, arms the verb, and makes the split-button face
     repeat it — collapsing the old pick-a-colour-then-click-the-verb into one click."""

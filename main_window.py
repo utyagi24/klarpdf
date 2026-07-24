@@ -735,21 +735,26 @@ class MainWindow(QMainWindow):
         # (applying at once to a live text selection), collapsing the old pick-then-click into one
         # click. So the rows now close the menu on pick (they used to stay open for the second
         # click). Underline and Strike Out gained independent colours here too.
+        #
+        # Layout: each swatch row sits **directly under its verb action** (Highlight action →
+        # Highlight swatches → Underline action → …), with no title on the row — the action above
+        # already names it. Grouping the colour with its verb (and dropping the duplicate label) is
+        # the owner's call after testing: the old "three verbs, then three titled rows" repeated
+        # each verb name twice and split it from its colours.
         markup_menu = self._markup_button.menu()
-        markup_menu.addSeparator()
         self._highlight_color_row = SwatchRowAction(
             markup_menu, "Highlight", HIGHLIGHT_COLORS, self._highlight_color,
-            close_on_pick=True, include_remove=False)
+            close_on_pick=True, include_remove=False, show_title=False)
         self._highlight_color_row.picked.connect(self._pick_highlight_color)
-        markup_menu.addAction(self._highlight_color_row)
+        markup_menu.insertAction(a_underline, self._highlight_color_row)
         self._underline_color_row = SwatchRowAction(
             markup_menu, "Underline", TEXT_LINE_COLORS, self._underline_color,
-            close_on_pick=True, include_remove=False)
+            close_on_pick=True, include_remove=False, show_title=False)
         self._underline_color_row.picked.connect(self._pick_underline_color)
-        markup_menu.addAction(self._underline_color_row)
+        markup_menu.insertAction(a_strikeout, self._underline_color_row)
         self._strike_color_row = SwatchRowAction(
             markup_menu, "Strike Out", TEXT_LINE_COLORS, self._strike_color,
-            close_on_pick=True, include_remove=False)
+            close_on_pick=True, include_remove=False, show_title=False)
         self._strike_color_row.picked.connect(self._pick_strike_color)
         markup_menu.addAction(self._strike_color_row)
         self._draw_button = split_button((a_pen, a_line, a_rect, a_ellipse))
