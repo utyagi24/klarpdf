@@ -73,15 +73,15 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   spare machine / a fresh local user with networking disabled.
 
 ## Status
-**Current: v0.15.0 "Stamp, Sign & Watermark" shipped (R4, M61–M64 + R5, M66–M69.16)** — M65's
-release cut was skipped by owner call so R4 would ship alongside R5 rather than under an
-unpublished tag. R4 adds a unified content-draw engine (stamps/watermarks baked at save), image
-stamp/signature placement, and Find-and-Redact; R5 adds foreign-annotation handling (delete, move,
-adopt-on-edit) and form-field creation (text/checkbox/dropdown), plus a sixteen-item polish pass
-from owner testing. **M0–M38 and R1–R5 are all complete**; v0.11.0 stays reserved for the
-MCP / Agent Bridge (M39–M44), and a sixth GUI tranche — **R6 "Simplify & Read" (M71–M79)**, the
-Preview-inspired UI simplification approved 2026-07-22 — is planned (spec + decided-against list in
-`PLAN.md` §GUI feature roadmap → R6). For live status —
-shipped versions, per-release notes, release links, milestone ticks, and **Open follow-ups** — see
-`PROGRESS.md` (the single source of status; read it first). Design/spec, including §Future
-enhancements for what's next, lives in `PLAN.md`.
+**Current: v0.16.0 "Simplify & Read" shipped (R6, M71–M79)** — the Preview-inspired UI
+simplification, built on one idea: the app at rest is a viewer, the markup kit is chrome you summon
+on demand. It splits the single toolbar into a resting **reading bar** + a **markup bar** the Markup
+toggle reveals; collapses Redact to one gesture-detecting tool; makes Highlight/Underline/Strike/Pen
+**sticky**; folds arrowheads into line style (both-ended + dashed); adds **Match case / Whole words**
+to the find bar, an **Annotations sidebar tab**, and **Full Screen / Slideshow / Two-Page** view
+modes; and (M78.2–.6) adds arrow-key nudge, text-box reflow, HUS arming swatches and a split style
+button, with the sidebar (M79.1–.3) losing its title bar and showing optional tabs only on demand.
+**M0–M38 and R1–R6 are all complete**; v0.11.0 stays reserved for the MCP / Agent Bridge (M39–M44).
+For live status — shipped versions, per-release notes, release links, milestone ticks, and **Open
+follow-ups** — see `PROGRESS.md` (the single source of status; read it first). Design/spec, including
+§Future enhancements for what's next, lives in `PLAN.md`.
