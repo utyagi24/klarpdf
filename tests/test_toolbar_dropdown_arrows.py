@@ -71,7 +71,9 @@ def _arrow_height_fraction(button) -> float:
 
 
 def _menu_buttons(win):
-    return [win._markup_button, win._draw_button, win._markup_style_button]
+    # M78.6 split the single style swatch into three buttons — all still menu buttons with an arrow.
+    return [win._markup_button, win._draw_button, win._line_style_button,
+            win._colors_button, win._opacity_button]
 
 
 def test_every_dropdown_arrow_sits_at_the_same_height(win):

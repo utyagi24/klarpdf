@@ -17,7 +17,7 @@ from model.edit_engine import PyMuPDFEngine
 from model.page_edits import InkStroke, Line, Shape, restyle_mark
 from model.virtual_document import VirtualDocument
 from store.settings import Settings
-from viewer.markup_style import MarkupStyle, MarkupStyleButton
+from viewer.markup_style import LineStylingButton, MarkupStyle
 from viewer.tools import ArmedTool
 
 
@@ -141,7 +141,7 @@ def test_selecting_a_dashed_mark_loads_it_into_the_picker(win):
     win.view.reload()
     win.view.annotations.repaint()
     win._on_object_selected(line)
-    assert win._markup_style_button.style().dashed is True
+    assert win._line_style_button.style().dashed is True
 
 
 def test_from_mark_reads_dashed():
@@ -171,14 +171,16 @@ def test_drawn_shape_and_pen_stamp_the_sticky_dash(win):
 
 
 def test_line_style_menu_has_widths_and_dash_styles():
-    btn = MarkupStyleButton()
-    assert btn.menu().findChild(type(btn.menu())) is not None  # sanity: it has sub-menus
-    labels = [a.text() for a in btn._width_menu.actions() if a.text()]
+    # M78.6: widths + dash live at the top of the Line Styling button's menu (Arrowheads is a
+    # sub-menu below them).
+    btn = LineStylingButton()
+    labels = [a.text() for a in btn.menu().actions() if a.text() and not a.menu()]
     assert labels == ["Thin", "Medium", "Thick", "Solid", "Dashed"]
+    assert any(a.text() == "Arrowheads" and a.menu() for a in btn.menu().actions())
 
 
 def test_picking_dashed_emits_and_ticks():
-    btn = MarkupStyleButton()
+    btn = LineStylingButton()
     seen = []
     btn.styleChanged.connect(seen.append)
     btn._set_dashed(True)
@@ -191,7 +193,7 @@ def test_picking_dashed_emits_and_ticks():
 
 def test_width_and_dash_are_independent_radio_groups():
     """A stroke has a width AND a dash style at once — the two groups don't clobber each other."""
-    btn = MarkupStyleButton()
+    btn = LineStylingButton()
     btn._set_width(4.0)
     btn._set_dashed(True)
     assert btn.style().width == 4.0 and btn.style().dashed is True

@@ -17,7 +17,7 @@ from model.edit_engine import PyMuPDFEngine
 from model.page_edits import Line, restyle_mark
 from model.virtual_document import VirtualDocument
 from store.settings import Settings
-from viewer.markup_style import MarkupStyle, MarkupStyleButton
+from viewer.markup_style import LineStylingButton, MarkupStyle
 
 
 @pytest.fixture(scope="session")
@@ -123,7 +123,7 @@ def test_selecting_a_line_loads_its_ends_into_the_picker(win):
     win.view.reload()
     win.view.annotations.repaint()
     win._on_object_selected(line)
-    assert win._markup_style_button.style().line_ends == (True, True)
+    assert win._line_style_button.style().line_ends == (True, True)
 
 
 def test_from_mark_reads_line_ends():
@@ -135,7 +135,7 @@ def test_from_mark_reads_line_ends():
 
 
 def test_picker_offers_the_four_ends_and_emits(qapp):
-    button = MarkupStyleButton()
+    button = LineStylingButton()
     labels = [a.text() for a in button._ends_menu.actions()]
     assert labels == ["None", "Start", "End", "Both"]
     seen = []

@@ -26,7 +26,13 @@ from model.page_edits import (
 )
 from model.virtual_document import VirtualDocument
 from store.settings import Settings
-from viewer.markup_style import MarkupStyle, MarkupStyleButton
+from viewer.markup_style import (
+    ColorsButton,
+    LineStylingButton,
+    MarkupStyle,
+    OpacityButton,
+    SwatchRowAction,
+)
 from viewer.tools import ArmedTool
 
 
@@ -170,33 +176,42 @@ def test_highlight_has_its_own_colour(win):
 def test_button_seeds_the_overlay_and_tracks_changes(win):
     """The overlay is the single source of truth; the button seeds it on start and pushes every
     later edit into it."""
-    assert win.view.annotations.current_markup_style == win._markup_style_button.style()
-    win._markup_style_button._set_color((0.13, 0.60, 0.20))   # what a preset click calls
+    assert win.view.annotations.current_markup_style == win._colors_button.style()
+    win._colors_button._set_color((0.13, 0.60, 0.20))   # what a preset click calls
     assert win.view.annotations.current_markup_style.color == pytest.approx((0.13, 0.60, 0.20))
-    win._markup_style_button._set_width(4.0)
+    win._line_style_button._set_width(4.0)
     assert win.view.annotations.current_markup_style.width == 4.0
-    win._markup_style_button._set_fill((1.0, 0.94, 0.60))
+    win._colors_button._set_fill((1.0, 0.94, 0.60))
     assert win.view.annotations.current_markup_style.fill_color == pytest.approx((1.0, 0.94, 0.60))
 
 
-def test_button_menu_offers_colour_line_style_and_fill():
-    btn = MarkupStyleButton()
-    labels = [a.text() for a in btn.menu().actions() if not a.isSeparator()]
-    # "Width" became "Line Style" when the solid/dashed choice joined the thickness options.
-    assert "Custom Colour…" in labels and "Line Style" in labels and "Fill" in labels
-    line_style = [a.text() for a in btn._width_menu.actions() if a.text()]
-    assert line_style == ["Thin", "Medium", "Thick", "Solid", "Dashed"]
-    fills = [a.text() for a in btn._fill_menu.actions()]
-    assert fills[0] == "No Fill" and "Custom…" in fills
+def test_the_three_buttons_split_the_style_controls():
+    """M78.6: the single style swatch became three buttons — Line Styling (thickness · dash ·
+    arrowheads), Colors (a Border row + a Fill row + custom), Opacity (a slider)."""
+    line_button = LineStylingButton()
+    line_labels = [a.text() for a in line_button.menu().actions() if a.text() and not a.menu()]
+    assert line_labels == ["Thin", "Medium", "Thick", "Solid", "Dashed"]
+
+    colors_button = ColorsButton()
+    colors = colors_button.menu()
+    row_titles = [a.title for a in colors.actions() if isinstance(a, SwatchRowAction)]
+    assert row_titles == ["Border", "Fill"]
+    text = {a.text() for a in colors.actions() if a.text()}
+    assert "Custom Border…" in text and "Custom Fill…" in text
+
+    from PySide6.QtWidgets import QSlider
+
+    opacity_button = OpacityButton()
+    assert opacity_button.menu().findChild(QSlider) is not None    # a slider, not the old presets
 
 
 def test_set_style_does_not_emit():
-    """Loading a style into the button (wiring it up) must not look like a user edit."""
-    btn = MarkupStyleButton()
-    seen = []
-    btn.styleChanged.connect(seen.append)
-    btn.set_style(MarkupStyle(color=(0.0, 0.0, 1.0)))
-    assert seen == []
+    """Loading a style into a button (wiring it up) must not look like a user edit."""
+    for button in (LineStylingButton(), ColorsButton(), OpacityButton()):
+        seen = []
+        button.styleChanged.connect(seen.append)
+        button.set_style(MarkupStyle(color=(0.0, 0.0, 1.0), opacity=0.5, width=4.0))
+        assert seen == []
 
 
 # ---- the picker's output round-trips through a save --------------------------
@@ -216,7 +231,7 @@ def _add_and_select(win, mark):
 def test_picker_restyles_the_selected_shape(win):
     _add_and_select(win, Shape("rect", (100.0, 100.0, 180.0, 150.0),
                                color=(0.86, 0.10, 0.10), width=2.0))
-    win._markup_style_button._set_color((0.0, 0.0, 1.0))   # what a preset click emits
+    win._colors_button._set_color((0.0, 0.0, 1.0))   # what a preset click emits
     restyled = _only_mark(win, Shape)
     assert restyled.color == pytest.approx((0.0, 0.0, 1.0))
     assert win.undo_stack.undoText() == "Restyle shape"
@@ -229,7 +244,7 @@ def test_partial_edit_keeps_the_objects_other_attributes(win):
     rest alone — change the width and the blue colour + fill survive."""
     _add_and_select(win, Shape("rect", (100.0, 100.0, 180.0, 150.0),
                                color=(0.0, 0.0, 1.0), width=4.0, fill_color=(1.0, 0.94, 0.60)))
-    win._markup_style_button._set_width(1.0)
+    win._line_style_button._set_width(1.0)
     s = _only_mark(win, Shape)
     assert s.width == 1.0
     assert s.color == pytest.approx((0.0, 0.0, 1.0))          # untouched
@@ -238,14 +253,36 @@ def test_partial_edit_keeps_the_objects_other_attributes(win):
 
 def test_selecting_a_mark_loads_its_style_into_the_picker(win):
     _add_and_select(win, Line((100.0, 200.0), (220.0, 240.0), color=(0.13, 0.60, 0.20), width=4.0))
-    loaded = win._markup_style_button.style()
+    loaded = win._colors_button.style()
     assert loaded.color == pytest.approx((0.13, 0.60, 0.20))
     assert loaded.width == 4.0
 
 
+def test_the_three_buttons_drive_one_synced_style(win):
+    """M78.6: each button edits only its slice, but a width on Line Styling and a colour on Colors
+    *combine* — the window re-broadcasts the whole style to all three, so the next edit never drops
+    the last one."""
+    win._line_style_button._set_width(4.0)
+    win._colors_button._set_color((0.0, 0.0, 1.0))
+    style = win.view.annotations.current_markup_style
+    assert style.width == 4.0 and style.color == pytest.approx((0.0, 0.0, 1.0))
+    for button in (win._line_style_button, win._colors_button, win._opacity_button):
+        assert button.style().width == 4.0
+        assert button.style().color == pytest.approx((0.0, 0.0, 1.0))
+
+
+def test_object_select_loads_the_style_into_all_three_buttons(win):
+    _add_and_select(win, Shape("rect", (100.0, 100.0, 180.0, 150.0),
+                               color=(0.13, 0.60, 0.20), width=4.0, opacity=0.5))
+    for button in (win._line_style_button, win._colors_button, win._opacity_button):
+        assert button.style().color == pytest.approx((0.13, 0.60, 0.20))
+        assert button.style().width == 4.0
+        assert button.style().opacity == pytest.approx(0.5)
+
+
 def test_restyle_keeps_the_object_selected_for_the_next_tweak(win):
     _add_and_select(win, Line((100.0, 200.0), (220.0, 240.0), color=(0.86, 0.10, 0.10)))
-    win._markup_style_button._set_color((0.13, 0.60, 0.20))
+    win._colors_button._set_color((0.13, 0.60, 0.20))
     sel = win.view.annotations.selected_object
     assert sel is not None and isinstance(sel[1], Line)
     assert sel[1].color == pytest.approx((0.13, 0.60, 0.20))   # selection followed the restyle
@@ -258,7 +295,7 @@ def test_textbox_selection_is_left_to_its_format_bar(win):
 
     _add_and_select(win, TextBox((100.0, 100.0, 200.0, 140.0), "hi", color=(0.0, 0.0, 0.0)))
     at = win.undo_stack.index()
-    win._markup_style_button._set_color((0.0, 0.0, 1.0))
+    win._colors_button._set_color((0.0, 0.0, 1.0))
     box = [a for a in win.vdoc.page_annotations(0) if isinstance(a, TextBox)][0]
     assert box.color == pytest.approx((0.0, 0.0, 0.0))   # untouched
     assert win.undo_stack.index() == at                  # no restyle command pushed
@@ -267,7 +304,7 @@ def test_textbox_selection_is_left_to_its_format_bar(win):
 def test_no_selection_only_updates_the_sticky_default(win):
     win.view.annotations.clear_object_selection()
     at = win.undo_stack.index()
-    win._markup_style_button._set_color((0.0, 0.0, 1.0))
+    win._colors_button._set_color((0.0, 0.0, 1.0))
     assert win.view.annotations.current_markup_style.color == pytest.approx((0.0, 0.0, 1.0))
     assert win.undo_stack.index() == at                  # nothing to restyle → no command
 

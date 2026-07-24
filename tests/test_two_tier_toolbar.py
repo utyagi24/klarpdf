@@ -86,10 +86,41 @@ def test_markup_bar_carries_the_kit(win):
     texts = {a.text().replace("&", "") for a in win.markup_bar.actions() if a.text()}
     assert {"Select", "Grab", "Objects", "Add Text Box", "Redact"} <= texts
     assert "Redact Text" not in texts and "Redact Block" not in texts
-    # The Markup ▾ / Draw ▾ / style / Stamp ▾ buttons are widgets on this bar.
-    for button in (win._markup_button, win._draw_button, win._markup_style_button,
-                   win._stamp_button):
+    # The Markup ▾ / Draw ▾ / Line Styling / Colors / Opacity (M78.6) / Stamp ▾ buttons are widgets
+    # on this bar.
+    for button in (win._markup_button, win._draw_button, win._line_style_button,
+                   win._colors_button, win._opacity_button, win._stamp_button):
         assert button.parent() is win.markup_bar
+
+
+def test_markup_bar_groups_draw_with_its_style_buttons(win):
+    """Owner call (M78.6): the bar is grouped modes | Draw + the three style buttons that restyle
+    what it stamps | Text Box + Markup | Stamp + Redact — four separator-divided groups, in order."""
+    from PySide6.QtWidgets import QToolButton
+
+    bar = win.markup_bar
+    groups, current = [], []
+    for a in bar.actions():
+        if a.isSeparator():
+            if current:
+                groups.append(current)
+            current = []
+            continue
+        widget = bar.widgetForAction(a)
+        if isinstance(widget, QToolButton) and widget.defaultAction() is not None:
+            current.append(widget.defaultAction().text().replace("&", ""))
+        elif widget is win._line_style_button or widget is win._colors_button \
+                or widget is win._opacity_button:
+            current.append(type(widget).__name__)
+        else:
+            current.append(a.text().replace("&", ""))
+    if current:
+        groups.append(current)
+
+    assert groups[0] == ["Select", "Grab", "Objects"]
+    assert groups[1] == ["Pen", "LineStylingButton", "ColorsButton", "OpacityButton"]
+    assert groups[2] == ["Add Text Box", "Highlight"]      # Text Box + the Markup ▾ (HUS) face
+    assert groups[3][0].startswith("Stamp") and groups[3][1] == "Redact"
 
 
 # ---- the toggle --------------------------------------------------------------
