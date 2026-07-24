@@ -1204,6 +1204,41 @@ Carried items — none block work:
   rejected: "72 097 matches, showing the first 1 000" is a different feature with a worse answer,
   and Find-and-Redact must see every hit to be trustworthy.
 
+- **Search scans the raw source pages, blind to the live edit model** (owner-reported 2026-07-24,
+  three symptoms, one cause). `SearchController.search` walks `_view._vdoc.sources[...]` — the
+  untouched *original* file pages — and calls `page.search_for` on them (`viewer/search.py:92-95`).
+  But our text boxes and every KlarPDF mark are **model descriptors drawn as Qt overlays**, baked
+  into a real PDF page only at *materialise* (Save); the view's render copy even *strips* them and
+  redraws from the model (`viewer/pdf_view.py:806-811`). So no PDF page that search scans ever
+  contains a live mark. Confirmed empirically that PyMuPDF's `search_for` **does** find `FreeText`
+  text once it
+  is baked — which is exactly why the three reported faults all reduce to "search reads the source,
+  not what you see":
+  - **(1) A newly added text box is not found.** Live it is an overlay, absent from the source; a
+    Save writes it as `FreeText` and a reopen loads that file as the new source, so it matches only
+    *after* save+reopen.
+  - **(2) A moved text box still matches at its old location.** After a reopen the source page still
+    *holds* the baked `FreeText` at its original rect; a move updates only the model + overlay (the
+    source changes on the next Save), so `search_for` keeps hitting the stale spot and never the new
+    one.
+  - **(3) Results clear on *any* edit** — `main_window._on_doc_changed` (`main_window.py:1350-1356`)
+    calls `search.clear()` on every edit, including a highlight that moves no text. It is an
+    over-aggressive guard against the staleness of (1)/(2): the panel empties and the user must
+    re-search.
+
+  **Fix (deferred — owner chose diagnose-only 2026-07-24):** give the view a cached per-source
+  *search doc* that is what a Save would write — a fresh source copy with the stale baked marks
+  stripped and the current model annotations re-applied via `apply_annotations`
+  (`model/page_edits.py:614`), so each text box lands as `FreeText` at its **current** rect. Point
+  `search()` at that doc; drop it on `reload()` like `_render_docs`. Then `_on_doc_changed`
+  **re-runs** the live query instead of clearing, so the panel persists *and* stays correct. Docs
+  with no marks/fills keep today's raw-source fast path (no regression on large clean files —
+  matters after the M78.7/8 perf work). **Two open semantics calls this exposes**, both biting only
+  once it is built: should search match **text under a not-yet-saved redaction** (still in the file
+  but marked for removal — I lean *no*, since the same scan feeds Find-and-Redact), and **text in a
+  not-yet-saved cropped-away margin** (hidden on screen but reversibly present — I lean *yes, keep
+  matching*)? Today both match, because the source is intact until Save.
+
 - ~~**The Annotations panel reads each row's snippet with `page.get_textbox`**~~ — **fixed in M78.8**
   (wrong snippets *and* 15.7 s of per-edit lag at 200 highlights; `PageText` moved to
   `model/page_text.py` and shared). Nothing carried.
