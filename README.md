@@ -29,13 +29,14 @@ the unit of audit; it ships as a pinned, fully offline Windows installer.
 <p align="center"><sub>The real app, captured from a real build — and it follows the Windows theme, so
 this screenshot follows your GitHub one.</sub></p>
 
-**Status: `v0.16.0` shipped** — [download the installer or portable exe](https://github.com/utyagi24/klarpdf/releases/latest).
-**New in v0.16.0 "Simplify & Read":** a **two-tier toolbar** — a calm reading bar at rest, the full
+**Status: `v0.16.1` shipped** — [download the installer or portable exe](https://github.com/utyagi24/klarpdf/releases/latest).
+**New in v0.16.1 "Simplify & Read":** a **two-tier toolbar** — a calm reading bar at rest, the full
 markup kit summoned on demand — plus **Full Screen · Slideshow · Two-Page** view modes, an
 **Annotations sidebar** listing every text mark, **sticky** Highlight/Underline/Strike arming (mark
 passage after passage), **Match case** + **Whole words** on the find bar, **both-ended and dashed**
 lines, right-click **recolour / add / remove** on any mark, and object **arrow-key nudge** +
-**text-box reflow**. Full release notes live on
+**text-box reflow**. Also bumps **pypdf → 6.14.2** for four upstream crafted-PDF DoS advisories.
+Full release notes live on
 [GitHub Releases](https://github.com/utyagi24/klarpdf/releases); live status — milestones
 (**M0–M38 + R1–R6 complete**), per-release notes, open follow-ups — in [PROGRESS.md](PROGRESS.md).
 
