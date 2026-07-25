@@ -7,7 +7,7 @@ it merges, check the box here in the same PR and append the PR link.
 > release links, milestone ticks, and open follow-ups. `PLAN.md` (design/spec) and `CLAUDE.md`
 > (conventions) **link here, they don't restate it** — see CLAUDE.md §How we work → "Where things live".
 
-**Status:** ✅ **v0.16.0 "Simplify & Read" shipped** — the GUI tranche's **R6 (M71–M79)**, a
+**Status:** ✅ **v0.16.1 "Simplify & Read" shipped** — the GUI tranche's **R6 (M71–M79)**, a
 Preview-inspired simplification built on one idea: *the app at rest is a viewer; the markup kit is
 chrome you summon on demand.* The single ~29-slot toolbar splits into **two tiers** — a resting
 **reading bar** (Sidebar · Save · Undo/Redo · the zoom cluster · Rotate · a **Markup** toggle · Find)
@@ -35,8 +35,12 @@ while **M79.1–.3** stripped the sidebar's title bar and made its optional tabs
 ([#175](https://github.com/utyagi24/klarpdf/pull/175), [#177](https://github.com/utyagi24/klarpdf/pull/177), [#178](https://github.com/utyagi24/klarpdf/pull/178)).
 Two search fixes closed the tranche: find-as-you-type no longer hangs a large document
 ([#186](https://github.com/utyagi24/klarpdf/pull/186)) and **search matches the page's printed text
-only** ([#190](https://github.com/utyagi24/klarpdf/pull/190)). Release:
-<https://github.com/utyagi24/klarpdf/releases/tag/v0.16.0>. 1273 headless tests green
+only** ([#190](https://github.com/utyagi24/klarpdf/pull/190)). A pre-release audit then flagged
+**pypdf 6.13.3** carrying four newly-disclosed crafted-PDF DoS advisories (CVE-2026-59935/36/37/38),
+so this release also bumps **pypdf → 6.14.2** ([#192](https://github.com/utyagi24/klarpdf/pull/192));
+the intervening **v0.16.0** tag was cut but **never published** — skipped so the fix ships in the
+first public build. Release:
+<https://github.com/utyagi24/klarpdf/releases/tag/v0.16.1>. 1273 headless tests green
 (1 expected skip — the Poppler `pdftotext` cross-check, absent on Windows).
 
 **v0.15.0 "Stamp, Sign & Watermark"** — delivers **R4 (M61–M64)** and **R5
@@ -720,7 +724,7 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   the merged main; audit green; CI draft → published) — *Windows* —
   [release](https://github.com/utyagi24/klarpdf/releases/tag/v0.15.0)
 
-**R6 — "Simplify & Read"** (planned; prov. v0.16.0)
+**R6 — "Simplify & Read"** (shipped v0.16.1)
 
 - [x] **M71** Two-tier toolbar — the single ~29-slot bar is now two tiers, the R6 budget revision
   made real: at rest the app shows only the **reading bar** (Sidebar · Save · Undo/Redo · the zoom
@@ -1032,7 +1036,8 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   depend only on the model plus the provider seam, so it could not import from `viewer/`. Duplicating
   it was rejected — two copies of a routine that has already been subtly wrong once. — *Windows
   (headless + offscreen GUI)* — 5 new tests, 1261 green
-- [ ] **M79** Verify + release → tag (prov. **v0.16.0**) — *Windows*
+- [x] **M79** Verify + release → tagged **v0.16.1** (v0.16.0 tagged but never published — see the
+  Status note) — 1273 headless tests green — *Windows*
 
 ## Public-Release Readiness — go open-source under AGPL-3.0 (planned)
 
