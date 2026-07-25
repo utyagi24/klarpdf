@@ -1,7 +1,7 @@
 """Two-tier toolbar (PLAN.md §GUI feature roadmap → R6, M71). Offscreen GUI.
 
-The Preview-inspired split: at rest the window shows only the ~10-slot **reading bar** (sidebar ·
-save · undo/redo · zoom cluster · rotate · Markup toggle · find); the whole annotate/draw/redact
+The Preview-inspired split: at rest the window shows only the **reading bar** (sidebar ·
+save · zoom cluster · rotate · Markup toggle · find); the whole annotate/draw/redact
 kit sits on a second **markup bar** the toggle summons. The R6 budget revision this implements —
 *the app at rest is a viewer; the markup kit is chrome you summon on demand* — is asserted here:
 resting state, the toggle round-trip, app-wide persistence of an explicit choice, every removed
@@ -66,21 +66,24 @@ def test_at_rest_only_the_reading_bar_shows(win):
 
 
 def test_reading_bar_holds_the_reading_set_and_nothing_else(win):
-    """Slot inventory: Sidebar · Save · Undo/Redo · zoom cluster · Rotate · Markup · Find — and
-    none of the removed verbs (Open/Print, the page-op buttons, the kit)."""
+    """Slot inventory: Sidebar · Save · zoom cluster · Rotate (left only) · Markup · Find — and
+    none of the removed verbs (Open/Print, undo/redo, the second rotate direction, the page-op
+    buttons, the kit). Following Preview's toolbar, undo/redo and Rotate Right stay menu-only so the
+    bar keeps a single curved-arrow glyph."""
     texts = {a.text().replace("&", "") for a in _reading_bar(win).actions() if a.text()}
     # "Find" without the ellipsis: the reading-bar slot is a *toggle* that shows/hides the inline
     # bar (it acts at once), distinct from the Edit-menu "Find…" launcher that carries Ctrl+F.
-    assert {"Save", "Undo", "Redo", "Zoom Out", "Zoom In", "Fit Width",
-            "Fit Page", "Rotate Left", "Rotate Right", "Markup Toolbar", "Find"} <= texts
+    assert {"Save", "Zoom Out", "Zoom In", "Fit Width",
+            "Fit Page", "Rotate Left", "Markup Toolbar", "Find"} <= texts
     find_toggle = next(a for a in _reading_bar(win).actions() if a.text() == "Find")
     assert find_toggle.isCheckable() and find_toggle is win._a_find_toggle
     # Sidebar rides as a widget since M79.1 — a split button whose face is the same toggle and
     # whose ▾ picks the optional tabs.
     assert win._sidebar_button.parent() is _reading_bar(win)
     assert win._sidebar_button.defaultAction().text().replace("&", "") == "Sidebar"
-    for gone in ("Open…", "Print…", "Cut Pages", "Copy Pages", "Paste Pages", "Delete Pages",
-                 "Insert Pages from File…", "Select", "Grab", "Highlight", "Add Text Box"):
+    for gone in ("Open…", "Print…", "Undo", "Redo", "Rotate Right", "Cut Pages", "Copy Pages",
+                 "Paste Pages", "Delete Pages", "Insert Pages from File…", "Select", "Grab",
+                 "Highlight", "Add Text Box"):
         assert gone not in texts
 
 
@@ -167,8 +170,8 @@ def test_removed_buttons_verbs_stay_in_the_menus(win):
     file_texts = _menu_texts(win, "&File")
     assert {"Open…", "Print…"} <= file_texts
     edit_texts = _menu_texts(win, "&Edit")
-    assert {"Cut Pages", "Copy Pages", "Paste Pages", "Delete Pages",
-            "Insert Pages from File…"} <= edit_texts
+    assert {"Undo", "Redo", "Rotate Left", "Rotate Right", "Cut Pages", "Copy Pages",
+            "Paste Pages", "Delete Pages", "Insert Pages from File…"} <= edit_texts
     tools_texts = _menu_texts(win, "&Tools")
     assert {"Select", "Grab", "Objects", "Highlight", "Redact"} <= tools_texts
 
