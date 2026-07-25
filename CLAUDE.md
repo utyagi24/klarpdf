@@ -73,8 +73,12 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   spare machine / a fresh local user with networking disabled.
 
 ## Status
-**Current: v0.16.1 "Simplify & Read" shipped (R6, M71–M79)** — the Preview-inspired UI
-simplification, built on one idea: the app at rest is a viewer, the markup kit is chrome you summon
+**Current: v0.16.2 shipped** — a reading-bar legibility patch: the resting reading bar drops
+**Undo/Redo** and the second **Rotate** button (they were four mirrored curved-arrow glyphs that read
+as two near-identical pairs), leaving one Rotate button, following Preview's toolbar; every verb
+stays on its shortcut + menu ([#194](https://github.com/utyagi24/klarpdf/pull/194)). It refines
+**v0.16.1 "Simplify & Read" (R6, M71–M79)** — the Preview-inspired UI simplification, built on one
+idea: the app at rest is a viewer, the markup kit is chrome you summon
 on demand. It splits the single toolbar into a resting **reading bar** + a **markup bar** the Markup
 toggle reveals; collapses Redact to one gesture-detecting tool; makes Highlight/Underline/Strike/Pen
 **sticky**; folds arrowheads into line style (both-ended + dashed); adds **Match case / Whole words**
