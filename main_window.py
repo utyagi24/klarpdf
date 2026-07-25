@@ -458,7 +458,7 @@ class MainWindow(QMainWindow):
 
     def _build_actions(self) -> None:
         # Two toolbars (M71, the Preview-inspired split): the **reading bar** is what the app at
-        # rest shows — sidebar, save, undo/redo, zoom, rotate, find — and the **markup bar** below
+        # rest shows — sidebar, save, zoom, rotate, find — and the **markup bar** below
         # it carries the whole annotate/draw/redact kit, summoned by the reading bar's Markup
         # toggle. Both icon-only (each QAction's text becomes the button tooltip, so the labels
         # stay discoverable on hover and in the menus) and one shared style, so the kit reads as
@@ -548,7 +548,9 @@ class MainWindow(QMainWindow):
         # undoable, *saved* edit on the selected/current page — its old View placement read as a
         # view-only spin that wouldn't touch the file. PdfView.rotate_view remains the view-only one.
         a_rotl = self._a_rotl = act("Rotate Left", lambda: self._rotate_pages(-90), "Ctrl+L", icon="rotate-left", to_menu=edit_menu)
-        a_rotr = self._a_rotr = act("Rotate Right", lambda: self._rotate_pages(90), "Ctrl+R", icon="rotate-right", to_menu=edit_menu)
+        # Rotate Right stays a real, menu-reachable page op (Edit + sidebar right-click), but the
+        # reading bar carries only the left button now — see the reading_groups note (M71/Preview).
+        self._a_rotr = act("Rotate Right", lambda: self._rotate_pages(90), "Ctrl+R", icon="rotate-right", to_menu=edit_menu)
         act("Insert Pages from File…", self._insert_from_file, icon="insert", to_menu=edit_menu)
         # M51: a fresh empty page / copies of the selection — both plain PageRef inserts on the
         # undo stack, grouped with the other page operations. Menu-only (one-shot commands stay
@@ -927,17 +929,21 @@ class MainWindow(QMainWindow):
 
         # Toolbars: built explicitly (order independent of menu wiring), grouped functionally with
         # separators. The **reading bar** holds what reading a document needs — sidebar · save ·
-        # history · zoom/fit · rotate · the Markup toggle · find; the **markup bar** holds the kit
-        # the toggle summons — modes · the annotate/draw/stamp tools · redact. Everything M71
-        # removed (Open/Print, the page-op buttons) stays reachable through the menus and context
-        # menus (PLAN.md §R6, M71 — menus are the complete catalog); Open's return beside Save is
-        # a one-line review call at the M71 pass.
+        # zoom/fit · rotate · the Markup toggle · find; the **markup bar** holds the kit the toggle
+        # summons — modes · the annotate/draw/stamp tools · redact. Everything M71 removed
+        # (Open/Print, the page-op buttons) — plus, following Preview's own toolbar, **undo/redo**
+        # and the **second rotate direction** — stays reachable through the menus and context menus
+        # (PLAN.md §R6, M71 — menus are the complete catalog). Those two removals answer a real
+        # legibility problem: four mirrored curved-arrow glyphs (undo/redo + rotate L/R) read as two
+        # near-identical pairs at toolbar size; dropping undo/redo (universal Ctrl+Z/Y, Edit-menu)
+        # and the redundant Rotate Right (Ctrl+R, Edit ▸ Rotate Right, sidebar right-click) leaves
+        # rotate-left as the bar's only curved arrow. Open's return beside Save is a one-line review
+        # call at the M71 pass.
         reading_groups = (
             [self._sidebar_button],
             [a_save],
-            [undo, redo],
             [a_zout, self.zoom_widget, a_zin, a_fitw, a_fitp],
-            [a_rotl, a_rotr],
+            [a_rotl],
             [markup_toggle],
             [a_find_toggle],
         )
