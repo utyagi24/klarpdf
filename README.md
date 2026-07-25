@@ -29,13 +29,11 @@ the unit of audit; it ships as a pinned, fully offline Windows installer.
 <p align="center"><sub>The real app, captured from a real build — and it follows the Windows theme, so
 this screenshot follows your GitHub one.</sub></p>
 
-**Status: `v0.16.1` shipped** — [download the installer or portable exe](https://github.com/utyagi24/klarpdf/releases/latest).
-**New in v0.16.1 "Simplify & Read":** a **two-tier toolbar** — a calm reading bar at rest, the full
-markup kit summoned on demand — plus **Full Screen · Slideshow · Two-Page** view modes, an
-**Annotations sidebar** listing every text mark, **sticky** Highlight/Underline/Strike arming (mark
-passage after passage), **Match case** + **Whole words** on the find bar, **both-ended and dashed**
-lines, right-click **recolour / add / remove** on any mark, and object **arrow-key nudge** +
-**text-box reflow**. Also bumps **pypdf → 6.14.2** for four upstream crafted-PDF DoS advisories.
+**Status: `v0.16.2` shipped** — [download the installer or portable exe](https://github.com/utyagi24/klarpdf/releases/latest).
+**New in v0.16.2:** a calmer reading bar — **Undo/Redo** and the second **Rotate** button leave the
+toolbar (four near-identical curved-arrow glyphs read as two confusable pairs), following Preview's
+own toolbar. Nothing is lost: undo/redo stay on **Ctrl+Z / Ctrl+Y** and the Edit menu, and **Rotate
+Right** stays on **Ctrl+R**, the Edit menu, and the page right-click menu.
 Full release notes live on
 [GitHub Releases](https://github.com/utyagi24/klarpdf/releases); live status — milestones
 (**M0–M38 + R1–R6 complete**), per-release notes, open follow-ups — in [PROGRESS.md](PROGRESS.md).

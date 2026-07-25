@@ -7,7 +7,17 @@ it merges, check the box here in the same PR and append the PR link.
 > release links, milestone ticks, and open follow-ups. `PLAN.md` (design/spec) and `CLAUDE.md`
 > (conventions) **link here, they don't restate it** — see CLAUDE.md §How we work → "Where things live".
 
-**Status:** ✅ **v0.16.1 "Simplify & Read" shipped** — the GUI tranche's **R6 (M71–M79)**, a
+**Status:** ✅ **v0.16.2 shipped** — a reading-bar legibility fix, following the Preview model.
+Undo/Redo and rotate-left/right were four mirrored curved-arrow glyphs that read as two
+near-identical pairs at toolbar size, so the resting **reading bar** now drops **Undo/Redo** and the
+**second rotate direction**, leaving a single Rotate button as its only curved arrow — exactly what
+Preview's own toolbar carries. Nothing is lost: undo/redo keep **Ctrl+Z / Ctrl+Y** and the Edit
+menu, and Rotate Right keeps **Ctrl+R**, **Edit ▸ Rotate Right**, and the sidebar right-click menu
+([#194](https://github.com/utyagi24/klarpdf/pull/194)). Release:
+<https://github.com/utyagi24/klarpdf/releases/tag/v0.16.2>. 1273 headless tests green (1 expected
+skip — the Poppler `pdftotext` cross-check, absent on Windows).
+
+**v0.16.1 "Simplify & Read"** — the GUI tranche's **R6 (M71–M79)**, a
 Preview-inspired simplification built on one idea: *the app at rest is a viewer; the markup kit is
 chrome you summon on demand.* The single ~29-slot toolbar splits into **two tiers** — a resting
 **reading bar** (Sidebar · Save · Undo/Redo · the zoom cluster · Rotate · a **Markup** toggle · Find)
