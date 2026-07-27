@@ -1579,6 +1579,18 @@ Captured but not yet scheduled:
   book scans).
 - ~~**Re-encryption on save**~~ → **scheduled**: generalised into **M54 Document encryption** (set /
   change / remove password + carry-through, AES-256) in the R2 release above.
+- **Merging Fit Width + Fit Page into one button — considered and rejected (owner, 2026-07-27).**
+  Both stay as separate, always-visible buttons. Two alternatives were weighed: a **single toggling
+  button** (what Chrome and Edge ship) and a **Fit ▾ split-button** (the idiom §Design budgets already
+  sanctions for Markup/Draw/Stamp). The toggle has a structural flaw here — `_fit_mode` is a **three**-
+  state value (`None` / `"width"` / `"page"`), and *any* manual zoom sets it to `None`, which M80's
+  Ctrl+wheel now does constantly; a two-way toggle cannot express that, and its icon would have to
+  answer "what state am I in?" and "what will clicking do?" at once. The split-button avoids that but
+  costs two clicks to reach the *other* fit. **Decisive point: neither pays for itself.** The reading
+  bar sits at **exactly 10 slots** — at budget, not over — nothing is reported broken, and two labelled
+  buttons keep either fit one click away and visible, which is the most discoverable arrangement.
+  Revisit only if a later milestone genuinely needs the slot; if it ever is revisited, prefer the
+  split-button over the toggle, and land it inside M83 so the zoom cluster changes only once.
 - **Consciously rejected (owner, 2026-07 decision session)** — recorded so they aren't relitigated:
   **OCR** (needs a bundled Tesseract — breaks the pinned offline ship-set; if ever revisited, it's
   an optional add-on download, never a core dependency); **cryptographic digital signatures**
