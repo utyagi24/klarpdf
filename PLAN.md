@@ -1232,7 +1232,70 @@ from `QAbstractScrollArea`). What is **missing**, in the order the audit ranks t
    Windows delivers it, nothing consumes it. The natural companion to M80, and the same
    `set_zoom(..., anchor_pos=…)` seam serves it.
 
-Items 2–8 are **not yet scheduled** — they are a menu for an owner call, not a decided scope.
+Items 2–8 went to the owner as a menu. **Scheduled as M81 below** (2026-07-27): all of them except
+item 5, the momentary hand-pan, which was **dropped** — and dropping it is what removes the
+`Space` tap-versus-hold ambiguity that item would otherwise have forced.
+
+### M81 — the rest of the reading-input conventions (owner-decided 2026-07-27)
+
+The M80 audit's remaining items, scoped in a review pass with the owner. All view-only; no model,
+file-format or dependency change. **Stacked on M80** — M81.3 edits the same `wheelEvent` and M81.5
+calls the `set_zoom(..., anchor_pos=…)` seam M80 introduces, so this branches from
+`feat/m80-ctrl-wheel-zoom`, not `main` (the §How we work "intentionally stacking" exception).
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M81.1** Document-end navigation | `Home` / `End` / `Ctrl+Home` / `Ctrl+End` scroll to the **start / end of the document** — all four the same verb (owner call: to a reader the Ctrl'd and bare forms are one gesture, and Preview/Edge/Chrome bind them alike in a PDF). Implemented as scrollbar minimum / maximum, which is the literal reading and lets `_on_scroll` update the current page for free. Today all four are **verified dead** outside the slideshow, where M78 already binds `Home`/`End` to the first/last slide — that stays. | WSLg / Windows (offscreen GUI) | Each of the four jumps to the corresponding end; the page indicator follows; the slideshow's own binding is untouched |
+| **M81.2** Spacebar paging | `Space` scrolls down one screenful, `Shift+Space` up one — the same `SliderPageStepAdd`/`Sub` as `PgDn`/`PgUp`, on the key most readers actually reach for. Verified dead today outside the slideshow. | WSLg | Space/Shift+Space page down/up; typing a space into a text box or form field still types a space |
+| **M81.3** Shift+wheel horizontal pan | `Shift+wheel` pans **horizontally**. This is an *override*, not a gap: Qt's own `Shift+wheel` scrolls vertically here (measured with the h-bar at full range), so a page zoomed wider than the viewport has no wheel gesture to cross it. A wheel with a genuine horizontal component (tilt wheels, most touchpads) is left to `super()`, which already routes it correctly. | WSLg | Shift+wheel moves the h-scrollbar; inert with no h-range; a plain wheel still scrolls vertically; Ctrl+wheel still zooms (M80) |
+| **M81.4** `Ctrl+=` zoom-in alias | Add `Ctrl+=` to the existing **Zoom In** action's shortcut list. Qt's `StandardKey.ZoomIn` resolves to `Ctrl++`, which on a US layout physically means `Ctrl+Shift+=`; browsers all bind bare `Ctrl+=` for exactly that reason. `Ctrl+-` already works, so Zoom Out needs nothing. Pure binding — no behaviour change, still centre-anchored. | WSLg | `Ctrl+=` zooms in one step; `Ctrl++` and `Ctrl+-` keep working; the menu still shows the standard accelerator |
+| **M81.5** Pinch-zoom | Consume `QNativeGestureEvent` / `Qt::ZoomNativeGesture` on the viewport and zoom **anchored at the gesture centre** — the same pointer-anchored contract M80 gives Ctrl+wheel, through the same `anchor_pos` seam. Qt reports the value as an *incremental* change in the zoom factor, so the new magnification is `zoom * (1 + value)`: already continuous, no accumulation needed. Windows delivers the event today and nothing consumes it. | Windows (**hands-on**) | Two-finger pinch zooms continuously, anchored under the fingers; the handler is unit-tested from a constructed event, but delivery is validated on real hardware — see the note below |
+| **M81.6** `Ctrl+A` select all text | Select every word in the **whole document**, not the current page (owner call: "both Edge and Brave select text from all the document — why should we be different?"). Nearly free in the model, which has always carried the selection as a `(page_index, word_index)` anchor/cursor pair spanning pages — `select_all` just pins it to the two ends. **Paired with the repaint rework below, which is not optional.** | WSL (model+tests) + WSLg | Ctrl+A selects across every page; Ctrl+C copies the document's text; an image-only document selects nothing rather than erroring |
+
+**The repaint rework M81.6 depends on — and the measurement that forces it.** `TextSelection.repaint`
+puts one `QGraphicsRectItem` in the scene **per selected word**, and `_build_scene` calls
+`scene.clear()` on **every zoom step**. Measured offscreen on 2026-07-27:
+
+| Selected words | Add to scene | `scene.clear()` |
+| --- | --- | --- |
+| 25,000 (~50 pages) | 0.08 s | 0.24 s |
+| 100,000 (~200 pages) | 0.39 s | 2.96 s |
+| 247,500 (~500 pages) | 0.91 s | **20.64 s** |
+
+So `Ctrl+A` on a 500-page document followed by one zoom step would freeze the app for twenty
+seconds. Two changes, owner-chosen from three options:
+
+1. **Clip painting to the visible pages** (plus the existing `_PREFETCH` margin), repainting as the
+   viewport moves. The *model* still holds the whole selection — that is what `Ctrl+C` copies — but
+   the *scene* only ever holds what is on screen, which bounds the item count by viewport size
+   instead of document length.
+2. **Coalesce each line's run into one rect.** Words are already sorted `(block, line, word-no)`, so
+   a selected run on one line is a contiguous index range whose rects union cleanly. Cuts the
+   remaining count by roughly another order of magnitude.
+
+Note this is a **pre-existing latent bug, not one Ctrl+A introduces** — a drag-selection carried
+across several hundred pages reaches the same state today. Ctrl+A only makes it a single keystroke.
+(2) additionally changes how **every** selection looks — a merged passage highlight rather than a row
+of per-word boxes — so it is reviewed on a rendered offscreen grab before it ships, not merged on
+description.
+
+**Two design decisions worth not relitigating:**
+
+- **All the navigation keys live in `PdfView.keyPressEvent`, never as window-level `QAction`
+  shortcuts.** A window shortcut fires wherever focus is, so `Home` / `Space` / `Ctrl+A` bound that
+  way would hijack those keys from the inline text-box (`_TextBoxEditor`, a `QPlainTextEdit` child of
+  the viewport) and form-field editors, where they mean line-start, a literal space, and select-all-
+  in-this-field. Routed through the view, a focused editor consumes them first and never sees ours —
+  the same reasoning that already put the clipboard verbs behind `_edit_copy`'s focus router (M59).
+- **Momentary hand-pan is dropped** (owner, 2026-07-27). It was the only audit item that would have
+  needed `Space` to distinguish a tap from a hold — a timing heuristic that is fiddly and
+  occasionally wrong — and the Grab *mode* (M46) already covers the deliberate case. Revisit only if
+  panning mid-markup proves annoying in practice, and then bind it to middle-drag alone.
+
+**Validation limit, stated up front:** M81.5 cannot be certified by the headless suite. A constructed
+`QNativeGestureEvent` exercises our handler, but "Windows actually delivers the gesture to this
+widget" is only demonstrable on a machine with a precision touchpad. It ships flagged for hands-on
+validation rather than reported green.
 
 ## Future enhancements (deferred beyond the roadmap)
 

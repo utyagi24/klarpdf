@@ -1069,8 +1069,23 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     each *measured* against a running window rather than read off the source (`Home`/`End`/`Ctrl+Home`
     /`Ctrl+End` dead · `Space`/`Shift+Space` dead · `Shift+wheel` scrolls vertically, not
     horizontally · no momentary hand-pan · no `Ctrl+A` · `Ctrl+=` unbound because Qt's `ZoomIn` is
-    `Ctrl++` · pinch-zoom unconsumed). Listed in `PLAN.md` §M80; **awaiting an owner call**, not
-    scheduled.
+    `Ctrl++` · pinch-zoom unconsumed). Listed in `PLAN.md` §M80 → **now scheduled as M81** below,
+    all but the hand-pan (dropped).
+- [ ] **M81** The rest of the reading-input conventions (owner-decided 2026-07-27, after a review
+  pass on the M80 audit). Six parts, all view-only, **stacked on M80** — M81.3 edits the same
+  `wheelEvent` and M81.5 calls M80's `anchor_pos` seam. Spec + rationale in `PLAN.md` §M81.
+  - [ ] **M81.1** `Home`/`End`/`Ctrl+Home`/`Ctrl+End` → **document** start/end (all four one verb)
+  - [ ] **M81.2** `Space`/`Shift+Space` → page down/up
+  - [ ] **M81.3** `Shift+wheel` → horizontal pan (an *override*: Qt's own scrolls vertically)
+  - [ ] **M81.4** `Ctrl+=` as a Zoom In alias (Qt's `ZoomIn` is `Ctrl++` = `Ctrl+Shift+=` on US)
+  - [ ] **M81.5** Pinch-zoom, anchored at the gesture centre — **needs hands-on Windows validation**
+  - [ ] **M81.6** `Ctrl+A` → select all text in the **whole** document (Edge/Brave behaviour),
+    **plus** the repaint rework it depends on: painting clipped to visible pages + each line's run
+    coalesced into one rect. Not optional — measured, one scene item per selected word makes
+    `scene.clear()` cost **20.6 s at 247k words** (a 500-page document), and `_build_scene` clears
+    on every zoom step. A pre-existing latent bug (a long drag-selection reaches it today); Ctrl+A
+    merely makes it one keystroke. The coalescing changes how *every* selection looks, so it is
+    reviewed on a rendered grab before merge.
 
 ## Public-Release Readiness — go open-source under AGPL-3.0 (planned)
 
