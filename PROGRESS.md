@@ -1086,6 +1086,42 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     on every zoom step. A pre-existing latent bug (a long drag-selection reaches it today); Ctrl+A
     merely makes it one keystroke. The coalescing changes how *every* selection looks, so it is
     reviewed on a rendered grab before merge.
+- [ ] **M82** Render-resource discipline (owner-decided 2026-07-27, out of profiling M80). M80 did not
+  make a zoom step slower — it made steps arrive **10–60× more often**, exposing costs that were
+  always there. Measured: **124 ms/event** on a notched wheel, **79 ms/event** on a touchpad, cache
+  saturated after one sweep. Spec + all measurements in `PLAN.md` §M82.
+  - [ ] **A** Collapse the 3 redundant `_render_visible()` passes per zoom to 1 — *lands in the M80
+    PR* (owner call: `main` must never hold the laggy version). Pre-existing waste, so it speeds up
+    every zoom, fit, rotate and two-page toggle
+  - [ ] **B** Coalesce the wheel gesture — accumulate deltas, apply once per frame — *lands in the
+    M80 PR*
+  - [ ] **M82.1** Adaptive prefetch (**F**) — `_PREFETCH = 2` is a fixed constant, fine at 1.5 MB/page
+    and harmful at 198 MB/page (~800 MB of unviewable prefetch at 500%). Highest value-per-line item
+  - [ ] **M82.2** Cache: entry count → **global byte ceiling**. Four defects: it is **per-window**
+    (N documents = N caches — every earlier figure was silently per-window), bounded by count not
+    bytes (48 entries = 70 MB of A4 but **4.5 GB of A0**), evicts pages still on screen, and holds
+    pixmaps for windows nobody is looking at. Sizing policy: retention driven by what responsiveness
+    needs, with a **1 GB global backstop** that only binds on exceptionally heavy documents — "just
+    because resources are available should not imply that we stop being stingy" (owner)
+- [ ] **M83** DPI correctness — what "100%" means (owner-reported 2026-07-27: "why does the document
+  appear smaller than in Edge and Brave at the same zoom percentage?"). Because our 100% is 1 pt →
+  1 logical px at 96 DPI, so we show **75% of physical size and call it 100%**. Investigating it
+  surfaced a worse defect: **`devicePixelRatio` is handled nowhere**, so on the owner's 1.75× laptop
+  panel every page is upscaled and the **text is blurry** — on the sharper of their two screens.
+  View-only (print/export/thumbnails compute their own scale). Spec in `PLAN.md` §M83.
+  - [ ] **M83.1** 100% means true physical size (match Edge/Brave/Chrome/Acrobat)
+  - [ ] **M83.2** Honour `devicePixelRatio` — render at `zoom × dpr` — **needs hands-on Windows**
+  - [ ] **M83.3** Handle DPR changing at runtime when the window moves between the 1.75× and 1.0×
+    screens — required, not polish: a naive fix is right only on the screen it opened on
+  - [ ] **M83.4** Re-base Ctrl+0 "Actual Size" to physical size, so the name stops being a lie
+  - [ ] **M83.5** Migrate saved per-document zooms, so "remembers where I was" survives the change
+  - [ ] **M83.6** Zoom range → **25–500%**, sequenced *after* M83.1 (which shifts every number)
+- **Deferred, with the condition to revisit** (`PLAN.md` §Deferred): **C** pixmap preview during the
+  gesture — only if A+B+F leave zoom sluggish; **independent of E**, and E would make C *more*
+  valuable, not redundant (owner correction). **D** quantised zoom ladder — argued against, recorded
+  so it isn't re-proposed as a free win. **E** background rendering — the only item that answers "the
+  app must not appear blocked on a heavy document"; all rendering is synchronous today (verified: zero
+  threading in the codebase). Owner call: **F now, E only if still needed after A+B+F.**
 
 ## Public-Release Readiness — go open-source under AGPL-3.0 (planned)
 

@@ -1297,6 +1297,124 @@ description.
 widget" is only demonstrable on a machine with a precision touchpad. It ships flagged for hands-on
 validation rather than reported green.
 
+### M82 — render-resource discipline (owner-decided 2026-07-27)
+
+Came out of profiling M80: Ctrl+wheel can drive `set_zoom` 10–60× per second where a toolbar click
+drove it once, which exposed costs that were always there and never mattered. **M80 did not make a
+zoom step slower — it made steps frequent.** Measured on a 60-page text document at 1200×900,
+offscreen:
+
+| Gesture | Cost |
+| --- | --- |
+| Notched mouse, 10 detents | 1.24 s total — 124 ms/event |
+| Precision touchpad, 40 fine deltas | 3.16 s total — 79 ms/event |
+| Pixmap cache after one sweep | saturated 48/48 — every fractional zoom evicts |
+| `_build_scene()` alone | 3 ms |
+| `set_zoom()` cold / warm | 23 ms / 7 ms |
+
+Two of those need naming precisely. **`set_zoom` profiles at 21 ms of our own work but 79–124 ms
+end-to-end**; the gap is Qt paint inside `processEvents()` on the *offscreen* platform, which has no
+GPU path, so the end-to-end figures may overstate real Windows. The 21 ms is solid. And **M80's
+continuous zoom factor guarantees a cache miss** — the key is `(index, round(zoom, 4), rotation)`, so
+every event is a zoom value nothing has rendered before. The feature that makes touchpad zoom smooth
+is exactly what defeats the cache; that tension is inherent, not a bug to fix.
+
+**A and B land inside M80's PR** (owner call: `main` should never hold the laggy version), F and the
+cache rework follow as M82 proper.
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **A** (in the M80 PR) | **Collapse the 3 redundant `_render_visible()` passes to 1.** One `set_zoom` runs it three times — `_build_scene`'s own call, `_restore_anchor`'s explicit call, and `_on_scroll` fired by the scrollbar write (profiler: `ncalls=3`). Two-thirds of the most expensive work is waste. **Pre-existing, not M80's** — the old `centerOn` path did the same — so this speeds up every zoom, fit, rotate and two-page toggle, and is worth doing even if M80 were dropped. | WSL (headless) | One `_render_visible` per zoom; no visual change; existing zoom/fit/rotate tests still green |
+| **B** (in the M80 PR) | **Coalesce the gesture**: accumulate wheel deltas and apply once per frame (~16 ms timer) so a burst becomes one rebuild instead of N. Fits the `_WHEEL_QUIET_MS` idiom M78 already established. | WSLg | A burst of N wheel events produces ~1 rebuild per frame; the final zoom matches applying them individually; single detents still feel immediate |
+| **M82.1** Adaptive prefetch (**F**) | `_PREFETCH = 2` is a **fixed constant** — sound when a page was 1.5 MB, actively harmful once it is 198 MB (see M83). At 500% it prefetches ±2 pages that cannot come into view soon: ~800 MB of pure waste. Scale the prefetch band down as pixmap bytes grow. Highest value-per-line item on the list. | WSL (model+tests) | Prefetch shrinks as zoom/page size grows; the visible band is never starved; normal-zoom behaviour unchanged |
+| **M82.2** Cache: count → **global byte ceiling** | Four changes, each answering a specific defect. (1) **Global, not per-window** — `self._cache` is a `PdfView` instance attribute, one `PdfView` per `MainWindow`, one window per document, so **N open documents = N independent caches**; every figure quoted before this was silently per-window. (2) **Byte ceiling, not entry count** — 48 entries is 70 MB of A4 but **4.5 GB of A0**, because a rendered page costs `w × h × 3` and nothing else. (3) **Visible pages pinned, never evicted** — a better guarantee than a byte floor: thrashing becomes impossible by construction, and a single page larger than the whole budget (A0 at 500% ≈ 600 MB) still displays, temporarily exceeding the nominal ceiling. That is the graceful behaviour, not a leak. (4) **Background windows drop their pixmaps** — only one window is ever in front; re-render on focus is ~6 ms/page for text. | WSL (model+tests) | Ceiling honoured across windows; visible pages survive any eviction pass; a single over-budget page still renders; a backgrounded window releases; no thrash while scrolling |
+
+**The sizing policy (owner, 2026-07-27) — two numbers, not one.** "I am okay to go up to 1 GB
+(global, 3.125% on a 32 GB machine) **only if we are dealing with exceptionally heavy documents** …
+just because resources are available should not imply that we stop being stingy." So retention is
+driven by **what responsiveness needs** (the visible band + a bounded scrollback, expressed in pages),
+and the byte ceiling is a **backstop that only binds when pages are genuinely enormous** — never a
+target to fill. Concretely: ordinary documents settle in the tens of MB; a 500%-zoomed large-format
+document may climb toward the ceiling, because there it must.
+
+**Why the document's file size and richness are irrelevant to cache sizing** — the owner asked whether
+the cache should scale with document properties. Measured, and it settles the question:
+
+| Document | File size | Pixmap @200% | Render time |
+| --- | --- | --- | --- |
+| A4, text only | ~0 MB | **5.8 MB** | 6 ms |
+| A4, 4,000 vector strokes | 0.7 MB | **5.8 MB** | 88 ms |
+| A4, full-page scan image | ~0 MB | **5.8 MB** | 82 ms |
+| A0 poster, text only | 0.1 MB | **96.4 MB** | 29 ms |
+
+Three wildly different A4s produce **byte-identical** pixmaps: by cache time the content that made
+those pixels is gone. The property that drives memory is **page dimensions** (the A0 is 16.6× an A4
+from a 0.1 MB file); the property complexity drives is **render time** (a 14× spread), which changes
+how *valuable* a hit is, not how *large*. A byte ceiling is therefore already the document-adaptive
+mechanism — it holds ~88 A4s or ~5 A0s automatically. The count-based limit is the one that ignores
+the document.
+
+### M83 — DPI correctness: what "100%" means (owner-reported 2026-07-27)
+
+**The report:** "why does the document appear smaller in our app compared to Edge and Brave at the
+same zoom percentage?" Because `actual_size` is documented as "1 PDF point per pixel", a PDF point is
+1/72", and the display is 96 logical DPI — so a 612 pt (8.5") Letter page renders 612 logical px =
+**6.375 inches**. We show **75% of physical size and call it 100%**. Browsers and Acrobat define 100%
+as true physical size (×96/72 = 1.333), so Edge's 100% is our 133%.
+
+Investigating it surfaced a **second, worse defect**: `devicePixelRatio` is handled **nowhere** in the
+codebase. The owner's machine has a 1.75× laptop panel and a 1.0× external Dell, both at 96 logical
+DPI. We render at logical-pixel resolution and hand Qt a pixmap with no DPR set, so on the laptop the
+page is **upscaled 1.75× and the text is blurry** — on the higher-resolution screen of the two. Wrong
+size is a preference you can zoom around; blurry text is the thing this app exists to get right.
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M83.1** 100% means physical size | Map 1 pt → 1/72" on screen (×`logicalDpi/72`). Owner-decided: match Edge/Brave/Chrome/Acrobat. | WSLg / Windows | A Letter page measures 8.5" at 100%; matches Edge side by side |
+| **M83.2** Honour `devicePixelRatio` | Render at `zoom × dpr` and `setDevicePixelRatio(dpr)` on the pixmap, so logical layout is unchanged and pixels are native. | Windows (**hands-on**, both screens) | Text is crisp on the 1.75× panel; layout/geometry unchanged |
+| **M83.3** DPR changes at runtime | **Not polish — required.** With a 1.75× and a 1.0× screen, dragging the window between them changes DPR live; a naive fix is correct only on the screen the window opened on. Hook the screen-change signal and re-render. | Windows (**hands-on**) | Dragging between the two screens keeps the page sharp and the same physical size |
+| **M83.4** Re-base "Actual Size" | Ctrl+0 becomes **true physical size**. Owner-decided: otherwise the menu item's name is a lie. | WSLg | Ctrl+0 gives a physically-correct page |
+| **M83.5** Migrate saved zooms | `view_state()` persists `{page, zoom, rotation}` per document and `apply_state()` range-checks it, so changing the semantics silently redefines every remembered zoom. Scale stored values on read, versioned. Owner-decided: migrate — "remembers where I was" is exactly the kind of trust that silent state changes destroy. | WSL (model+tests) | A pre-change saved zoom reopens at the same *apparent* size; an out-of-range value falls back cleanly |
+| **M83.6** Zoom range → **25–500%** | Owner-decided, and deliberately sequenced **after** M83.1: correcting the DPI shifts every number, so deciding earlier means deciding twice. Also drops a 10% view that rendered a page at 62×80 px — illegible. | WSLg | Clamps at the new bounds; the preset list and the % widget agree |
+
+**Print, export and thumbnails are unaffected** — each computes its own scale from a real DPI target
+(`printer.resolution()/72`, `dpi/72`), so M83 is **view-only**, consistent with the M49 principle.
+
+**The interaction that must be respected: M83 makes every page ~5.4× heavier**, so M82's sizing has to
+be decided against post-M83 numbers, not today's:
+
+| Case | Pixels | MB |
+| --- | --- | --- |
+| Today, 100%, either screen | 612×792 | 1.5 |
+| After, 100% physical, Dell (DPR 1.0) | 816×1056 | 2.6 |
+| After, 100% physical, laptop (DPR 1.75) | 1428×1848 | **7.9** |
+| After, 200% physical, laptop | 2856×3696 | 31.7 |
+| After, 500% physical (new max), laptop | 7140×9240 | **197.9** |
+
+Correct rendering is not free: sharp text at true size on a 1.75× panel genuinely needs 5.4× the
+pixels. The owner's stated common case — **several small PDFs open and juggled** — costs ~198 MB of
+*visible* pixmaps across five windows after M83, which is what makes M82.2's background-window drop
+(→ ~40 MB) and M82.1's adaptive prefetch load-bearing rather than optional.
+
+### Deferred, with the condition for revisiting
+
+- **C — scale existing pixmaps during the gesture, re-rasterise on settle.** Gives 60 fps zoom feel,
+  slightly soft mid-gesture. Revisit only if A+B+F leave zoom sluggish on real hardware.
+  **Independent of E** (owner correction, 2026-07-27, and correct): E keeps the *app responsive*, C
+  keeps the *page visible*. An earlier note here claiming E supersedes C had it backwards — under
+  async rendering every new zoom is a miss whose pixels arrive later, so a gesture would show blank
+  placeholders, and C is precisely what fills that gap. **E makes C more valuable.**
+- **D — quantise zoom to a `1.25^n` ladder.** Would restore cache hits cheaply, but buys that by
+  giving back the smooth touchpad response M80 exists to deliver, and would make M81.5's pinch feel
+  ratchety. Recommended against; recorded so it isn't re-proposed as a free win.
+- **E — render pages off the UI thread.** All rendering today is synchronous (verified: zero
+  threading in `viewer/`, `organize/`, `model/`, `app.py`, `main_window.py`). The white/black page
+  rect placeholder already exists in `_build_scene`, but a reader never sees it — the UI *freezes*
+  until the batch finishes instead of degrading to placeholders. E is the only item that answers "the
+  app must not appear blocked on a heavy document". **Owner call: F now, E only if still needed after
+  A+B+F** — threading brings cancellation, ordering and race surface that tests catch less reliably,
+  so it needs the measurement to justify it.
+
 ## Future enhancements (deferred beyond the roadmap)
 
 Captured but not yet scheduled:
