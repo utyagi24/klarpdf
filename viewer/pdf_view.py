@@ -724,7 +724,8 @@ class PdfView(QGraphicsView):
         super().keyPressEvent(event)
 
     def wheelEvent(self, event) -> None:
-        """In the slideshow the wheel steps whole slides (M78); everywhere else it scrolls.
+        """**Ctrl+wheel zooms** (M80); in the slideshow the wheel steps whole slides (M78);
+        everywhere else it scrolls.
 
         Free-scrolling a mode that shows *one page per screen* is what let the view come to rest
         straddling two pages — and from a straddle the projected page and the page under the
@@ -740,6 +741,9 @@ class PdfView(QGraphicsView):
         two apart: a fresh scroll comes after a pause, a coast doesn't.
         """
         if not self.slideshow:
+            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                self._wheel_zoom(event)
+                return
             super().wheelEvent(event)
             return
         # Qt fills the timestamp from the platform message; a plugin that leaves it at 0 falls back
@@ -763,6 +767,35 @@ class PdfView(QGraphicsView):
         while self._wheel_accum <= -_WHEEL_NOTCH:
             self._wheel_accum += _WHEEL_NOTCH
             self.step_slide(1)
+        event.accept()
+
+    def _wheel_zoom(self, event) -> None:
+        """Ctrl+wheel zoom, anchored on the pointer (M80) — the gesture every browser, Acrobat and
+        Explorer share, and the one thing a reader reaches for that this view did not have.
+
+        **One detent is exactly one Ctrl+± step**: the factor is ``_ZOOM_STEP ** (delta /
+        _WHEEL_NOTCH)``, continuous rather than quantised to whole detents like the slideshow's
+        stepper. That is deliberate — a precision touchpad sends small fractional deltas, and
+        rounding them to detents would either swallow them or make two-finger zoom lurch; a
+        proportional factor makes the same code smooth there and exact on a notched mouse wheel.
+
+        **Anchored on the pointer**, unlike every other zoom entry point (which holds the viewport
+        centre — see :meth:`_anchor_at`): that is what makes it a *pointing* gesture. The word under
+        the cursor stays under the cursor, so zooming into a figure in the page's corner needs no
+        follow-up scroll to find it again.
+
+        The event is accepted unconditionally — including at the zoom limits and on a stray
+        horizontal-only delta — so a Ctrl+wheel can never fall through to ``super()`` and **scroll**,
+        which is precisely what it did before this existed (Ctrl held, page jumps: the worst
+        outcome, since the user asked for zoom and got motion).
+
+        Not reached in the slideshow: that mode's contract is one page per screen at Fit Page
+        (M78), so the wheel there keeps stepping slides whatever the modifier.
+        """
+        delta = event.angleDelta().y()
+        if delta:
+            self.set_zoom(self._zoom * (_ZOOM_STEP ** (delta / _WHEEL_NOTCH)),
+                          anchor_pos=event.position().toPoint())
         event.accept()
 
     def _update_hover_cursor(self, scene_pt) -> None:
@@ -1143,56 +1176,80 @@ class PdfView(QGraphicsView):
         if box[2] - box[0] >= 8 and box[3] - box[1] >= 8:
             self.cropDragged.emit(page_index, box)
 
-    def _center_anchor(self) -> "tuple[int, float, float] | None":
-        """The content point under the viewport centre as ``(page_index, fx, fy)``, where fx/fy are
-        fractions of that page's scene rect. The rect scales uniformly with zoom, so the fractions
-        are zoom-invariant — a handle that lets a zoom hold the centre fixed instead of snapping to
-        a page top / left edge. ``None`` before any page exists."""
+    def _anchor_at(self, view_pos=None) -> "tuple[int, float, float] | None":
+        """The content point under viewport point ``view_pos`` as ``(page_index, fx, fy)``, where
+        fx/fy are fractions of that page's scene rect. The rect scales uniformly with zoom, so the
+        fractions are zoom-invariant — a handle that lets a zoom hold a chosen point fixed instead
+        of snapping to a page top / left edge. ``None`` before any page exists.
+
+        ``view_pos`` of ``None`` means the viewport centre — the right anchor for every zoom with
+        no pointer behind it (menu, toolbar, typed percentage, Ctrl+±); the pointer case is the
+        Ctrl+wheel gesture (M80).
+        """
         if not self._pages:
             return None
-        center = self.mapToScene(self.viewport().rect().center())
+        pt = self.mapToScene(self.viewport().rect().center() if view_pos is None else view_pos)
         pi = self._current
         for i, p in enumerate(self._pages):
-            if p["y"] <= center.y() <= p["y"] + p["h"]:
+            if p["y"] <= pt.y() <= p["y"] + p["h"]:
                 pi = i
                 break
         p = self._pages[pi]
-        fx = (center.x() - p["x"]) / p["w"] if p["w"] else 0.5
-        fy = (center.y() - p["y"]) / p["h"] if p["h"] else 0.5
+        fx = (pt.x() - p["x"]) / p["w"] if p["w"] else 0.5
+        fy = (pt.y() - p["y"]) / p["h"] if p["h"] else 0.5
         return pi, fx, fy
 
-    def _restore_center_anchor(self, anchor: "tuple[int, float, float]") -> None:
-        """Scroll so the ``(page_index, fx, fy)`` from :meth:`_center_anchor` sits back under the
-        viewport centre. ``centerOn`` clamps to the scene bounds, and the view alignment re-centres
-        a page that now fits without scrollbars — so both zoom-out-to-fit and zoom-in-past-edge land
-        where the eye expects."""
+    def _restore_anchor(self, anchor: "tuple[int, float, float]", view_pos=None) -> None:
+        """Scroll so the ``(page_index, fx, fy)`` from :meth:`_anchor_at` sits back under
+        ``view_pos`` — or under the viewport centre when it is ``None``.
+
+        The centre case uses ``centerOn``, which clamps to the scene bounds, and the view alignment
+        re-centres a page that now fits without scrollbars — so both zoom-out-to-fit and
+        zoom-in-past-edge land where the eye expects. The pointer case (Ctrl+wheel) can't use
+        ``centerOn``: it has to put the point back under a spot that is *not* the centre, so it
+        nudges the scrollbars by the scene delta directly. That is a pixel delta because the view
+        transform stays identity — zoom rebuilds the scene at the new page size rather than scaling
+        the view (see :meth:`_build_scene`). The scrollbars clamp on their own, which is the wanted
+        behaviour at the edges: as far toward the pointer as the document allows.
+        """
         pi, fx, fy = anchor
         if not (0 <= pi < len(self._pages)):
             return
         p = self._pages[pi]
-        self.centerOn(p["x"] + fx * p["w"], p["y"] + fy * p["h"])
+        target = QPointF(p["x"] + fx * p["w"], p["y"] + fy * p["h"])
+        if view_pos is None:
+            self.centerOn(target)
+        else:
+            now = self.mapToScene(view_pos)
+            hbar, vbar = self.horizontalScrollBar(), self.verticalScrollBar()
+            hbar.setValue(round(hbar.value() + target.x() - now.x()))
+            vbar.setValue(round(vbar.value() + target.y() - now.y()))
         self._render_visible()
 
-    def set_zoom(self, zoom: float, keep_page: bool = True, fit: "str | None" = None) -> None:
+    def set_zoom(self, zoom: float, keep_page: bool = True, fit: "str | None" = None,
+                 anchor_pos=None) -> None:
         # ``fit`` records the sticky fit-mode this zoom represents ("width" / "page"); it is re-applied
         # on a viewport resize so the fit follows the window (e.g. a Pages-sidebar toggle). A manual
         # zoom passes None, which cancels any sticky fit.
+        # ``anchor_pos`` is the viewport point to hold fixed — the pointer, for the Ctrl+wheel
+        # gesture (M80). None means the viewport centre, which is right for every zoom that has no
+        # pointer behind it (menu, toolbar, typed percentage, Ctrl+±).
         self._fit_mode = fit
         zoom = max(_MIN_ZOOM, min(_MAX_ZOOM, zoom))
         if abs(zoom - self._zoom) < 1e-6:
             return
-        anchor = self._current
-        # A manual zoom (no sticky fit) holds the content under the viewport centre fixed, so the
-        # view zooms *into* what you're looking at rather than drifting toward a corner. A fit zoom
+        page_anchor = self._current
+        # A manual zoom (no sticky fit) holds the content under the anchor point fixed, so the view
+        # zooms *into* what you're looking at rather than drifting toward a corner. A fit zoom
         # re-lands on the current page's top — its own contract (see fit_width/_center_horizontally).
-        center = self._center_anchor() if fit is None else None
+        held = self._anchor_at(anchor_pos) if fit is None else None
         self._zoom = zoom
         self._build_scene()
         if keep_page:
-            if center is not None:
-                self._restore_center_anchor(center)
+            if held is not None:
+                self._restore_anchor(held, anchor_pos)
             else:
-                self.goto_page(anchor)
+                self.goto_page(page_anchor)
         self.zoomChanged.emit(self._zoom)
 
     def zoom_in(self) -> None:

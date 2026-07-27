@@ -1191,6 +1191,49 @@ lightness; honesty) carries over unchanged and binds every milestone below.
 
 **M78.2–M78.6 are late additions (owner, 2026-07-23)** — five enhancements approved during owner testing after the M71–M78 build, shipping before the M79 release cut. The decimal numbers are positional (as with M79.1–.3): **M78.1** was already the view-mode-nav fix. Two are object-editing (arrow-key nudge · text-box width), one an icon-polish pass, two markup-UI (H/U/S arming swatches · splitting the shared style button). Zero new dependencies, like the rest of the tranche.
 
+### M80 — Ctrl+wheel pointer zoom, and the input-conventions audit (owner-reported 2026-07-27)
+
+**The report:** "many applications support Ctrl+mouse-scroll for zooming; ours does not — and are
+there other common shortcuts we're missing?" Both halves are recorded here: the fix, and the audit
+that answers the second question so it isn't re-derived later.
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M80** Ctrl+wheel pointer zoom | `PdfView.wheelEvent` intercepts a Ctrl-modified wheel and zooms instead of scrolling. **Anchored on the pointer**, not the viewport centre: `_center_anchor`/`_restore_center_anchor` generalise to `_anchor_at(view_pos=None)`/`_restore_anchor(anchor, view_pos=None)`, and `set_zoom` grows an `anchor_pos` argument — `None` keeps the existing centre behaviour for every zoom with no pointer behind it (menu, toolbar, typed %, Ctrl+±). The zoom factor is **continuous** — `_ZOOM_STEP ** (delta / _WHEEL_NOTCH)` — so one detent equals exactly one Ctrl+± step while a precision touchpad's fractional deltas stay smooth instead of being swallowed. The event is accepted unconditionally (limits included) so the gesture can never fall through to a scroll. **Not** active in the slideshow: that mode's contract is one page per screen at Fit Page (M78), so the wheel there keeps stepping slides. No model, file or dependency change — view-only, like every other zoom. | WSLg / Windows (offscreen GUI) | Ctrl+wheel zooms one step per detent; the point under the cursor stays under the cursor; four quarter-detents equal one detent; a plain wheel still scrolls; the sticky fit is cancelled; the limits don't leak into a scroll; the slideshow still steps |
+
+**The audit (measured, not assumed — every line below was exercised against a running offscreen
+window on 2026-07-27, not read off the source).** What the app already has: `Ctrl+O/S/Shift+S/P/W`,
+`Ctrl+Z/Y`, `Ctrl+X/C/V`, `Ctrl+F` + `F3`/`Shift+F3`, `Ctrl+D`, `Ctrl+L`/`Ctrl+R`, `Ctrl+G`,
+`Ctrl+0/1/2`, `Ctrl+±`, `Ctrl+H`/`Ctrl+U`, `Ctrl+Shift+R`, `Ctrl+Shift+M`, `F11`, `F5`,
+`Ctrl+[`/`]` (± Shift), arrow-key nudge, `Esc`, and `PgUp`/`PgDn` + arrows for scrolling (inherited
+from `QAbstractScrollArea`). What is **missing**, in the order the audit ranks them:
+
+1. **Ctrl+wheel zoom** — fixed above (M80). It did not merely do nothing: it *scrolled*, the worst
+   outcome, since the reader asks for zoom and gets motion.
+2. **`Home` / `End` / `Ctrl+Home` / `Ctrl+End` — verified dead.** `QAbstractScrollArea` handles
+   `PgUp`/`PgDn`/arrows but not these, so "jump to the start / end of the document" — universal in
+   Preview, Acrobat, Edge and every browser — has no binding at all outside the slideshow (where
+   M78 does bind `Home`/`End`).
+3. **`Space` / `Shift+Space` — verified dead.** Page-down / page-up by spacebar is how most people
+   actually read a long PDF (Preview, Acrobat, Edge, Chrome). Bound in the slideshow (M78) and
+   nowhere else.
+4. **`Shift+wheel` horizontal scroll — verified absent**: with the h-scrollbar at full range,
+   `Shift+wheel` scrolls *vertically* (Qt's default), so a zoomed-in wide page has no wheel gesture
+   for panning across it.
+5. **Temporary hand-pan** — hold `Space` (Acrobat) or middle-drag (near-universal) to pan without
+   leaving the current tool. The Grab **mode** exists (M46); what is missing is the *momentary*
+   form, which is what makes it usable mid-markup.
+6. **`Ctrl+A` select-all text** — `QKeySequence.SelectAll` is unbound and `TextSelection` has no
+   select-all entry point, so "select the page's text and copy it" needs a manual drag.
+7. **`Ctrl+=` as a `Zoom In` alias.** Qt's `StandardKey.ZoomIn` resolves to `Ctrl++` on Windows —
+   which on a US layout means `Ctrl+Shift+=`. Browsers all bind bare `Ctrl+=` (and the numpad `+`)
+   for exactly this reason; we bind only Qt's default.
+8. **Pinch-zoom on a precision touchpad** (`QNativeGestureEvent` / `Qt::ZoomNativeGesture`) —
+   Windows delivers it, nothing consumes it. The natural companion to M80, and the same
+   `set_zoom(..., anchor_pos=…)` seam serves it.
+
+Items 2–8 are **not yet scheduled** — they are a menu for an owner call, not a decided scope.
+
 ## Future enhancements (deferred beyond the roadmap)
 
 Captured but not yet scheduled:

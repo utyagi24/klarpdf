@@ -52,13 +52,13 @@ def _click(view):
         Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier))
 
 
-def _wheel(view, notches, ts=0):
+def _wheel(view, notches, ts=0, mods=Qt.KeyboardModifier.NoModifier):
     """One mouse-wheel detent per notch (negative = away from the reader, i.e. forward).
     ``ts`` is the event timestamp in ms — what tells a coasting wheel from a fresh gesture."""
     pt = QPointF(view.viewport().rect().center())
     delta = QPoint(0, 120 * notches)
     event = QWheelEvent(pt, view.viewport().mapToGlobal(pt), delta, delta,
-                        Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier,
+                        Qt.MouseButton.NoButton, mods,
                         Qt.ScrollPhase.NoScrollPhase, False)
     event.setTimestamp(ts)
     view.wheelEvent(event)
@@ -265,6 +265,20 @@ def test_slideshow_wheel_steps_whole_pages(qapp, win):
     _wheel(view, 2)                                 # two detents back, in one event
     assert view.current_page == 0
     assert view.verticalScrollBar().value() == _page_top(view, 0)
+    _esc(win)
+
+
+def test_slideshow_ctrl_wheel_still_steps_slides(qapp, win):
+    """Ctrl+wheel zooms everywhere else (M80) — but not here. The mode's contract is one page per
+    screen at Fit Page, so a zoom would leave it straddling exactly the way free scrolling did;
+    the wheel keeps stepping slides whatever the modifier."""
+    win._a_slideshow.trigger()
+    qapp.processEvents()
+    view = win.view
+    zoom = view.zoom
+    _wheel(view, -1, mods=Qt.KeyboardModifier.ControlModifier)
+    assert view.current_page == 1                   # stepped, as an unmodified wheel would
+    assert view.zoom == pytest.approx(zoom)         # …and did not zoom
     _esc(win)
 
 
