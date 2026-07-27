@@ -1396,10 +1396,100 @@ pixels. The owner's stated common case — **several small PDFs open and juggled
 *visible* pixmaps across five windows after M83, which is what makes M82.2's background-window drop
 (→ ~40 MB) and M82.1's adaptive prefetch load-bearing rather than optional.
 
+### M84 — current-page tracking is wrong for short pages (owner-reported 2026-07-27)
+
+**The report**, on `IAS_CaseStudy.pdf` (18 slides, every page 1920×1080 pt): *"I clicked on slide 1
+thumbnail and it resulted in showing both Slide 1 and 2 as selected. Then as I grabbed the right edge
+and made the window wider, the current slide changed to 4 and then to 5 without me clicking on any
+thumbnail."* **Reproduced headlessly** with a tall/narrow window and the same page geometry:
+
+```
+click Slide 3 (prior state)     thumb.current=3  selected=[3]  view.page=3
+click Slide 1  <-- the action   thumb.current=1  selected=[0]  view.page=1   <-- TWO MARKED
+```
+
+**One root cause, two symptoms.** `_update_current()` decides the current page by asking **what sits
+under the viewport centre**. That holds for portrait pages taller than the viewport and breaks for
+short ones: a 16:9 slide at fit-width in a tall window was 403 px tall in a 966 px viewport, so the
+centre landed **1.2 pages down** — jump to page 0 and the centre is already inside page 1. The trigger
+is purely geometric — **page height < half the viewport height**, i.e. for 16:9 pages any viewport
+taller than ~1.125× its width. Ordinary A4 documents never reach it, which is why this survived to
+M84.
+
+* **Two marked thumbnails.** Click Slide 1 → selection = row 0; the view jumps to page 0; the tracker
+  reports page **1**; `currentPageChanged(1)` → `ThumbnailPanel.set_current(1)` moves the current row.
+  But `setCurrentRow` under `ExtendedSelection` **leaves the selection untouched**, so row 0 stays
+  selected while row 1 becomes current — and the panel paints *both* (a 2 px border on every selected
+  row, a 3 px ring on the current one), which reads as "it selected two".
+* **The current page drifts while resizing.** Each resize re-applies the sticky Fit Width →
+  `goto_page(current)` puts page N at the viewport top → the tracker re-derives from the centre →
+  returns N+1. The next resize starts from N+1 and yields N+2: **one page per resize step, no click
+  involved.** It self-limits as the window widens, because a wider window raises the fit zoom until
+  pages are tall enough to contain the centre again.
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M84.1** Track the page by **largest visible area** | Replace the viewport-centre test in `_update_current` with "the page occupying the most of the viewport". Correct for short pages, tall pages and the facing layout alike, and what other viewers do. Removes both symptoms on its own. | WSL (headless) | The repro above yields `current == clicked row`; resizing no longer advances the page; existing current-page tests stay green |
+| **M84.2** Keep current and selection in step | When the **view** drives the current row and the selection is a *single* row, move the selection with it, so the two markers can never disagree. **Multi-row selections are deliberately left alone** — a Ctrl-click selection of pages 3–7 staged for a page operation must survive scrolling. | WSL (headless) | A view-driven page change moves a single-row selection; a multi-row selection is preserved across scrolling |
+
+**Independent of the performance work** — none of A, B, F, E or M83 touch this. It is a correctness
+bug in page tracking that `IAS_CaseStudy.pdf` merely exposed, by being the first content opened with
+pages wider than they are tall.
+
+### The corner-case document — what it taught us (measured 2026-07-27)
+
+`IAS_CaseStudy.pdf`: 75.6 MB, 18 pages, all 1920×1080 pt, **no text layer at all** (`chars == 0` on
+every page), 95 MB of embedded images — 3–13 MB per page. Owner-supplied as a deliberate corner case.
+Kept here because it corrects two assumptions the M82/M83 plans were resting on.
+
+**Open + first frame: 11.19 s**, and the profile leaves no ambiguity:
+
+```
+10.000 s  fz_run_display_list          (11 calls, ~0.91 s each)
+ 0.157 s  fz_new_display_list_from_page
+```
+
+*Building* the display list is nearly free; **running** it — decoding the embedded imagery — is the
+whole cost.
+
+**Correction 1 — this class of document is decode-bound, not fill-bound, so render cost is flat
+across scale.** An earlier estimate in this plan predicted M83's DPR work would make such documents
+~3× slower. Measured, it will not:
+
+| Scale | Pixels | Page 0 | Page 5 |
+| --- | --- | --- | --- |
+| 0.625 (today's fit) | 1200×675 | 1231 ms | 2688 ms |
+| 1.094 (after DPR 1.75) | 2101×1182 | 1134 ms | 2820 ms |
+| 0.833 (after DPR 1.0) | 1600×900 | 1077 ms | 2898 ms |
+
+Three times the pixels, the same time. **M83 costs such documents ~3× the memory and essentially no
+extra time.** The "~5.4× heavier" figure elsewhere in §M83 is about *bytes*, and stands; it is not a
+time multiplier for image-heavy pages.
+
+**Correction 2 — the cost recurs at every new zoom value.** Re-rendering a page at the *same* zoom
+takes 47–126 ms (cached); at a *different* zoom it costs full price again (1976 ms, 4831 ms). So
+**every distinct zoom re-decodes every visible page** — which is precisely the reported zoom lag, and
+why M80's continuous zoom factor is expensive here beyond the cache-miss argument already recorded.
+
+**What the planned work actually does for it:** **B** is large (each distinct zoom costs 1–3 s/page,
+so collapsing a 20-event burst is a 20× saving); **F** is large on open (the ±2 prefetch is two extra
+page decodes ≈ 2–6 s of the 11 s); **A** is small (passes 2–3 hit the cache, so it saves scene work,
+not decodes); **M82.2's byte ceiling does nothing here** — this document peaks at 13–32 MB, memory was
+never its problem.
+
+**And one behaviour to expect rather than treat as a regression:** with no text layer, **M81.6's
+Ctrl+A selects nothing and Find never matches** in this document. Edge behaves identically; it is
+correct for an image-only PDF.
+
 ### Deferred, with the condition for revisiting
 
 - **C — scale existing pixmaps during the gesture, re-rasterise on settle.** Gives 60 fps zoom feel,
-  slightly soft mid-gesture. Revisit only if A+B+F leave zoom sluggish on real hardware.
+  slightly soft mid-gesture. Revisit only if A+B+F leave zoom sluggish on real hardware. **Worth far
+  more than first estimated for decode-bound documents** (see the corner-case section above): their
+  render cost is flat across scale yet the cache is keyed *per zoom*, so today they re-decode
+  identical imagery at every zoom step. C would let such a document decode **once** and reuse the
+  pixels across every zoom — close to a 100× win on zoom for that class, versus the modest polish it
+  represents for ordinary text documents.
   **Independent of E** (owner correction, 2026-07-27, and correct): E keeps the *app responsive*, C
   keeps the *page visible*. An earlier note here claiming E supersedes C had it backwards — under
   async rendering every new zoom is a miss whose pixels arrive later, so a gesture would show blank
@@ -1413,7 +1503,12 @@ pixels. The owner's stated common case — **several small PDFs open and juggled
   until the batch finishes instead of degrading to placeholders. E is the only item that answers "the
   app must not appear blocked on a heavy document". **Owner call: F now, E only if still needed after
   A+B+F** — threading brings cancellation, ordering and race surface that tests catch less reliably,
-  so it needs the measurement to justify it.
+  so it needs the measurement to justify it. **That measurement has since arrived** (corner-case
+  section above): `IAS_CaseStudy.pdf` spends **1–3 s per page per new zoom** decoding imagery, which
+  is irreducible — A, B and F reduce *how often* we pay it, but nothing except moving the work off the
+  UI thread stops the app freezing while we do. On this evidence E is required rather than
+  conditional; the "only if still needed" gate has been met, and the open question is now scheduling,
+  not justification.
 
 ## Future enhancements (deferred beyond the roadmap)
 

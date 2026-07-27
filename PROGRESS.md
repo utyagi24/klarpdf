@@ -1116,12 +1116,35 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   - [ ] **M83.4** Re-base Ctrl+0 "Actual Size" to physical size, so the name stops being a lie
   - [ ] **M83.5** Migrate saved per-document zooms, so "remembers where I was" survives the change
   - [ ] **M83.6** Zoom range → **25–500%**, sequenced *after* M83.1 (which shifts every number)
+- [ ] **M84** Current-page tracking is wrong for short pages (owner-reported 2026-07-27 on
+  `IAS_CaseStudy.pdf`: "I clicked on slide 1 thumbnail and it resulted in showing both Slide 1 and 2
+  as selected… then as I made the window wider, the current slide changed to 4 and then to 5 without
+  me clicking"). **Reproduced headlessly.** One root cause: `_update_current` picks the page under the
+  **viewport centre**, which breaks once a page is shorter than half the viewport — a 16:9 slide at
+  fit-width was 403 px tall in a 966 px viewport, so the centre landed 1.2 pages down. Ordinary A4
+  documents never reach it. Independent of the performance work — no part of A/B/F/E/M83 touches it.
+  Spec in `PLAN.md` §M84.
+  - [ ] **M84.1** Track the current page by **largest visible area**, not the viewport centre. Fixes
+    both symptoms on its own
+  - [ ] **M84.2** Keep the thumbnail's current row and selection in step when the *view* drives the
+    change — but leave **multi-row** selections alone, so a Ctrl-click selection staged for a page
+    operation survives scrolling
+- **Corner-case document analysis** (`PLAN.md` §The corner-case document) — `IAS_CaseStudy.pdf`,
+  owner-supplied: 75.6 MB, 18 pages of 1920×1080 pt, **no text layer**, 95 MB of embedded images.
+  Opens in **11.19 s**, of which **10.0 s is `fz_run_display_list`** — decoding imagery, not our
+  overhead. Corrects two planning assumptions: such documents are **decode-bound, so render cost is
+  flat across scale** (M83 costs them ~3× memory but no extra time — an earlier estimate of ~3× slower
+  was wrong), and **every distinct zoom re-decodes every visible page** (47–126 ms at the same zoom,
+  1976–4831 ms at a new one), which is the reported zoom lag.
 - **Deferred, with the condition to revisit** (`PLAN.md` §Deferred): **C** pixmap preview during the
   gesture — only if A+B+F leave zoom sluggish; **independent of E**, and E would make C *more*
   valuable, not redundant (owner correction). **D** quantised zoom ladder — argued against, recorded
   so it isn't re-proposed as a free win. **E** background rendering — the only item that answers "the
   app must not appear blocked on a heavy document"; all rendering is synchronous today (verified: zero
-  threading in the codebase). Owner call: **F now, E only if still needed after A+B+F.**
+  threading in the codebase). Owner call was **F now, E only if still needed after A+B+F** — and the
+  corner-case measurement above **has met that gate**: 1–3 s per page per new zoom is irreducible
+  decode work, so A/B/F reduce how often we pay it but only E stops the freeze. Now a scheduling
+  question, not a justification one.
 
 ## Public-Release Readiness — go open-source under AGPL-3.0 (planned)
 
