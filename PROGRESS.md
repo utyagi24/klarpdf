@@ -1193,14 +1193,50 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     described, grabbed offscreen before and after. A single-row selection now moves with the current
     row (`ClearAndSelect`); a multi-row or empty one is left exactly as the reader left it
     (`NoUpdate`, which also stops a scroll from quietly *adding* rows to a staged selection)
-- [ ] **M86** The two cheap zoom fixes (out of profiling M80). M80 did not make a zoom step slower —
-  it made steps arrive **10–60× more often**, exposing costs that were always there. Measured:
-  **124 ms/event** notched wheel, **79 ms/event** touchpad, cache saturated after one sweep. These
-  two were meant to ride M80's PR; **#197 merged without them**, so `main` carries the un-coalesced
-  wheel until they land. Spec in `PLAN.md` §M86.
-  - [ ] **M86.1** Collapse the 3 redundant `_render_visible()` passes per zoom to 1 (**A**).
-    Pre-existing waste, so it speeds up every zoom, fit, rotate and two-page toggle
-  - [ ] **M86.2** Coalesce the wheel gesture — accumulate deltas, apply once per frame (**B**)
+- [x] **M86** The two cheap zoom fixes (out of profiling M80). M80 did not make a zoom step slower —
+  it made steps arrive **10–60× more often**, exposing costs that were always there. These two were
+  meant to ride M80's PR; **#197 merged without them**, so `main` carried the un-coalesced wheel
+  until now. Spec in `PLAN.md` §M86. — *Windows (offscreen GUI, measured before/after on a 60-page
+  document at 1200×900)* — 12 new tests (7 of them verified red against a build with both mechanisms
+  neutralised), 1381 green
+  - [x] **M86.1** Collapse the 3 redundant `_render_visible()` passes per zoom to 1 (**A**), via a
+    `_hold_render()` block that defers rasterising until the whole geometry change has landed.
+    Pre-existing waste, so it is applied at every geometry change, not just zoom — **measured 3→1
+    per zoom, 2→1 for fit / rotate / two-page toggle / reload / reopen / resize**, nested blocks
+    collapsing into the outermost (a layout switch rebuilds, then re-fits, which zooms).
+    **The spec's cost claim was wrong in both directions, and the second measurement is the one
+    that matters.** The extra passes are *not* "two-thirds of the most expensive work": they never
+    rasterise anything. Across five regimes the **cache-miss count is identical** with and without
+    the fix (165/165, 160/160, 126/126, 165/165, 367/367), because all three passes of one
+    `set_zoom` run at the *same* zoom value — the first populates the cache, the rest hit it. That
+    holds even at 8 s of rasterising per sweep, so cache pressure never converts them into real
+    work. But the first correction then **under-sold it by measuring a 60-page document**:
+    `_render_visible` walks **every page in the document** twice (`_visible_range`, then the
+    drop-offscreen loop), so one pass costs **O(document length)** no matter how few pages are on
+    screen. Measured over a 40-step zoom sweep, median of 5:
+
+    | document | rasterising before → after | per geometry change |
+    | --- | --- | --- |
+    | 60 pages, moderate zoom | 718 → 679 ms (−5%) | 1.0 ms |
+    | 60 pages, high zoom | 8004 → 7997 ms (−0.1%) | 0.2 ms |
+    | 60 pages, A1-size | 1649 → 1632 ms (−1%) | 0.4 ms |
+    | **320 pages, moderate zoom** | **1550 → 933 ms (−40%)** | **15.4 ms** |
+    | **320 pages, zoomed out** | **1284 → 683 ms (−47%)** | **15.0 ms** |
+
+    So the win **scales with page count, not pixel work** — ~15 ms per zoom step, about one frame,
+    on exactly the long documents where zoom already feels worst, and nothing measurable on short
+    ones. Wall time on the 320-page sweep: 2186 → 1552 ms (−29%)
+  - [x] **M86.2** Coalesce the wheel gesture — accumulate deltas, apply once per frame (**B**). A
+    **throttle, not a debounce**: the timer is started by the first event of a frame and left to
+    run, because restarting it per event would hold the zoom back for as long as the gesture
+    continued and a sustained touchpad zoom would show nothing until the fingers stopped. Exact
+    rather than approximate — the factor is `_ZOOM_STEP ** (delta / _WHEEL_NOTCH)`, so multiplying
+    the per-event factors and exponentiating the summed delta are the same number. Measured on a
+    40-delta touchpad gesture: **75 → 9 render passes and 289 ms → 103 ms of rasterising** when the
+    events are paced 6 ms apart (75 → 1 pass, 331 ms → 0.2 ms when they arrive inside one frame,
+    which is the ceiling rather than the everyday figure). A 10-detent notched flick paced 25 ms
+    apart coalesces little **by design** — events arriving slower than a frame have nothing to
+    merge — and still drops 21 → 7 passes, which is M86.1 doing the work
 - [ ] **M87** Render-resource discipline — what the app *keeps*. **Sized against post-M88 numbers**,
   since the DPI correction makes every page ~5.4× heavier. Spec in `PLAN.md` §M87.
   - [ ] **M87.1** Adaptive prefetch (**F**) — `_PREFETCH = 2` is a fixed constant, fine at
@@ -1477,6 +1513,18 @@ tree or history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI 
 ## Open follow-ups (carried)
 
 Carried items — none block work:
+
+- **`_render_visible` is O(document length), not O(visible band)** — surfaced by M86.1's
+  benchmark, and it is what made that fix worth 15 ms per zoom step on a 320-page document. Each
+  pass walks every page twice: `_visible_range()` scans all pages to find the intersecting range,
+  then the body loops over all pages again to drop offscreen pixmaps. Measured at **~6 ms per pass
+  on 320 pages**, so even after M86.1 collapsed three passes to one, ~246 ms of the remaining
+  933 ms in a 40-step sweep is spent walking pages that are nowhere near the viewport. Both walks
+  are avoidable: the visible range is a **binary search** over a y-sorted list, and the drop pass
+  only needs the set of pages *currently holding* a pixmap, which the view could track instead of
+  rediscovering. Deferred to **M87**, whose whole subject is what the app keeps rendered — this is
+  the same question asked about the walk rather than the cache, and it wants M87's verification
+  rather than riding a PR that has already shipped its measurement.
 
 - ~~**On open, no thumbnail is marked at all**~~ — **fixed 2026-07-28 with M89.4** (owner-reported
   during the M86 verification pass: "reopening the document lands me at the last page but in the
