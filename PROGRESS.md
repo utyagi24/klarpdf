@@ -1127,15 +1127,25 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     test that called the overlay directly would not have reproduced it. Pinned to the same words
     the identical drag selects on unmarked text, plus Ctrl+C, plus a zero-drag click no longer
     outlining the reviewer's mark
-- [ ] **M83** The annotations tuple is heterogeneous, and only four of five hit-tests know it
+- [x] **M83** The annotations tuple is heterogeneous, and only four of five hit-tests knew it
   (owner-reported from a console traceback, filed as "expose any unknown gap"). Spec in
-  `PLAN.md` §M83.
-  - [ ] **M83.1** `annotation_at` raises `AttributeError` on `ForeignDeletion`/`ForeignMove`, which
+  `PLAN.md` §M83. — *Windows (headless + offscreen GUI)* — 23 new tests (5 of them verified red
+  before the fix, reproducing the reported traceback verbatim), 1341 green
+  - [x] **M83.1** `annotation_at` raised `AttributeError` on `ForeignDeletion`/`ForeignMove`, which
     carry no geometry. **Not a crash** — Qt swallows exceptions from Python overrides of its
-    virtuals, so the **context menu silently never appears**; every right-click in the page view is
-    dead once a foreign annotation has been deleted, moved or adopted
-  - [ ] **M83.2** Replace the convention with a chokepoint — one `is_geometric()`/`rects_of()` that
-    every hit-test uses. Four of five sites guard correctly today by habit, not by construction
+    virtuals, so the **context menu silently never appeared**; every right-click in the page view was
+    dead once a foreign annotation had been deleted, moved or adopted. Worth recording *when* it
+    bites: the tuple is walked reversed, so a click that lands on a mark above the bookkeeping entry
+    returns before reaching it. The dead menu is therefore worst on **bare page** — which is most of
+    the page, and is what "every right-click is dead" actually described
+  - [x] **M83.2** Convention replaced with a chokepoint — `rects_of()` / `is_geometric()` in
+    `model/page_edits.py`. `rects_of` is **total**: it never raises, and a descriptor declaring no
+    geometry yields `()`, so the hit-tests skip it by iterating zero times rather than by each site
+    remembering to guard. That is the direction that fails safe, and it is duck-typed rather than a
+    type list, so the *next* non-geometric descriptor is handled without anyone registering it —
+    there is a test that invents one. `mark_bounds()` was rewritten as the union of `rects_of`, so
+    the outline/handle geometry and the hit-test geometry now have a single source instead of two
+    that happened to agree
 - [ ] **M84** Highlights render dull — **the preview alpha-blends what the file multiplies**
   (owner-reported: "our highlight color appear very dull compared to Edge, can we revisit our
   palette?"). **Investigated: the palette is fine and stays unchanged.** `setAlpha(110)` washes
