@@ -11,7 +11,9 @@ import json
 import os
 
 import pymupdf as fitz
-from PySide6.QtCore import QByteArray, QMimeData, QPoint, QRectF, QSize, Qt, Signal
+from PySide6.QtCore import (
+    QByteArray, QItemSelectionModel, QMimeData, QPoint, QRectF, QSize, Qt, Signal,
+)
 from PySide6.QtGui import (
     QColor,
     QDrag,
@@ -526,10 +528,22 @@ class ThumbnailPanel(QListWidget):
         self._render_visible_thumbs()
 
     def set_current(self, index: int) -> None:
-        """Highlight ``index`` without triggering a jump back to the view."""
+        """Highlight ``index`` without triggering a jump back to the view.
+
+        The selection flag is the whole point (M85). Under ``ExtendedSelection`` the plain
+        ``setCurrentRow()`` applies ``SelectCurrent``, which **adds** the new current row to the
+        selection — so one click on Slide 1 left two thumbnails marked (the clicked row keeping its
+        2 px selection border, the view-driven current row taking the 3 px ring), and every scroll
+        quietly grew the selection. A *single*-row selection is just the last click, so move it
+        along with the current row; a **multi**-row selection is deliberate staging for a page
+        operation (Ctrl-click 3–7, scroll, delete) and must survive scrolling untouched — as must
+        an empty one, which is not a selection to carry.
+        """
         if 0 <= index < self.count() and index != self.currentRow():
             self._syncing = True
-            self.setCurrentRow(index)
+            lone = len(self.selectedIndexes()) == 1
+            self.setCurrentRow(index, QItemSelectionModel.SelectionFlag.ClearAndSelect if lone
+                               else QItemSelectionModel.SelectionFlag.NoUpdate)
             self.scrollToItem(self.item(index))
             self._syncing = False
 

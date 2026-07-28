@@ -1025,13 +1025,29 @@ class PdfView(QGraphicsView):
         self._update_current(first, last)
 
     def _update_current(self, first: int, last: int) -> None:
-        center = self.mapToScene(self.viewport().rect().center()).y()
-        current = first
+        """The current page is the one **occupying the most of the viewport**.
+
+        Not the page under the viewport *centre* (M85): that names the page you are reading only
+        while pages are taller than half the viewport. A 16:9 slide at Fit Width in a tall window
+        was 403 px in a 966 px viewport, so the centre landed 1.2 pages down — jump to page 0 and
+        the centre already sits inside page 1. Ordinary A4 documents never reach it, which is how
+        it survived to M84. Largest visible area is right for short pages, tall pages and the
+        facing spread alike, and is what other viewers do.
+
+        Ties go to the **earlier** page, so a fully-visible facing spread resolves to its left-hand
+        page, and landing a short page exactly at the viewport top keeps that page current rather
+        than the equally-visible one below it. The epsilon is what makes that tie *stable*: the two
+        areas are computed from different scene coordinates and can differ by an ulp, which without
+        it would let the later page win at random.
+        """
+        view_rect = self.mapToScene(self.viewport().rect()).boundingRect()
+        current, most = first, -1.0
         for i in range(first, last + 1):
             p = self._pages[i]
-            if p["y"] <= center <= p["y"] + p["h"]:
-                current = i
-                break
+            shown = view_rect.intersected(QRectF(p["x"], p["y"], p["w"], p["h"]))
+            area = shown.width() * shown.height()
+            if area > most + 1.0:   # 1 px² — far below any difference a reader could mean
+                current, most = i, area
         if current != self._current:
             self._current = current
             self.currentPageChanged.emit(current)

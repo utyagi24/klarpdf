@@ -1170,16 +1170,29 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     wired case went vivid. The existing M76.2 test caught it; the table no longer carries a
     highlight entry at all, and the whole tool — wired or not — resolves in one place. Redact and
     the plain selection stay source-over: a selection indicator is not a mark
-- [ ] **M85** Current-page tracking is wrong for short pages (owner-reported on `IAS_CaseStudy.pdf`:
+- [x] **M85** Current-page tracking is wrong for short pages (owner-reported on `IAS_CaseStudy.pdf`:
   "I clicked on slide 1 thumbnail and it resulted in showing both Slide 1 and 2 as selected… then as
   I made the window wider, the current slide changed to 4 and then to 5 without me clicking").
-  **Reproduced headlessly.** One root cause: `_update_current` picks the page under the **viewport
-  centre**, which breaks once a page is shorter than half the viewport — a 16:9 slide at fit-width
-  was 403 px tall in a 966 px viewport, so the centre landed 1.2 pages down. Ordinary A4 documents
-  never reach it. Spec in `PLAN.md` §M85.
-  - [ ] **M85.1** Track the current page by **largest visible area**. Fixes both symptoms alone
-  - [ ] **M85.2** Keep the thumbnail's current row and selection in step when the *view* drives the
-    change — but leave **multi-row** selections alone, so a page-op selection survives scrolling
+  **Reproduced headlessly**, both symptoms, on a synthetic 16:9 deck in a tall window. One root
+  cause: `_update_current` picks the page under the **viewport centre**, which breaks once a page is
+  shorter than half the viewport — a 16:9 slide at fit-width was 403 px tall in a 966 px viewport,
+  so the centre landed 1.2 pages down. Ordinary A4 documents never reach it. Spec in `PLAN.md` §M85.
+  — *Windows (headless + offscreen GUI)* — 9 new tests (8 of them verified red before the fix,
+  reproducing the report's numbers verbatim), 1369 green
+  - [x] **M85.1** Track the current page by **largest visible area** — the intersection of each page
+    with the viewport, not a point test. Fixes both symptoms alone. Ties go to the **earlier** page,
+    so a landed short page stays current over the equally-visible one below it and a facing spread
+    resolves to its left-hand page; the tie is held by a 1 px² epsilon, without which the two areas
+    (computed from different scene coordinates) can differ by an ulp and hand the later page a
+    random win
+  - [x] **M85.2** Keep the thumbnail's current row and selection in step when the *view* drives the
+    change — but leave **multi-row** selections alone, so a page-op selection survives scrolling.
+    The mechanism is the selection flag: under `ExtendedSelection` the plain `setCurrentRow()`
+    applies `SelectCurrent`, so a lone click left the clicked row wearing the 2 px selection border
+    while the view-driven current row took the 3 px ring — the two marked thumbnails the report
+    described, grabbed offscreen before and after. A single-row selection now moves with the current
+    row (`ClearAndSelect`); a multi-row or empty one is left exactly as the reader left it
+    (`NoUpdate`, which also stops a scroll from quietly *adding* rows to a staged selection)
 - [ ] **M86** The two cheap zoom fixes (out of profiling M80). M80 did not make a zoom step slower —
   it made steps arrive **10–60× more often**, exposing costs that were always there. Measured:
   **124 ms/event** notched wheel, **79 ms/event** touchpad, cache saturated after one sweep. These
@@ -1436,6 +1449,16 @@ tree or history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI 
 ## Open follow-ups (carried)
 
 Carried items — none block work:
+
+- **On open, no thumbnail is marked at all.** `ThumbnailPanel`'s current row starts at `-1` and only
+  moves when `currentPageChanged` fires; opening a document leaves `view.current_page` at 0, which is
+  what it already was, so the signal never fires and the sidebar shows a document with no you-are-here
+  marker until the reader scrolls or clicks. **Pre-existing and uniform** — measured on an ordinary
+  portrait document both before and after M85. It was *invisible* on `IAS_CaseStudy.pdf` only because
+  the M85 bug mis-fired the signal on open and marked Slide 3; with the tracking fixed, the deck now
+  opens like every other document. The fix is one call on the open path (seed the panel from
+  `view.current_page`), but it is open-path behaviour for **every** document and wants its own
+  verification rather than riding a tracking bug-fix branch.
 
 - **A search is still one uninterruptible pass over every page.** M78.7 made the pass ~400× cheaper
   and stopped typing from launching one per keystroke, but the shape is unchanged: `search()` walks
