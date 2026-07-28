@@ -1102,15 +1102,31 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     and say nothing; the **four drawn kinds** — ink, line, square, circle — have no field for one,
     so there the loss is real and is now reported as "its comment". That is what makes *empty means
     adoption is lossless* true for the first time rather than true-for-some-types
-- [ ] **M82** Foreign text markup is draggable — **and it steals the press from text selection**
+- [x] **M82** Foreign text markup was draggable — **and it stole the press from text selection**
   (owner-reported on the Edge file). Our own HUS marks are deliberately undraggable (their quads
-  describe *text*); the foreign path has no type gate. Worse, `begin_foreign_move` runs **before text
-  selection** in the default SELECT mode, so **dragging across an Edge-highlighted passage drags the
-  highlight instead of selecting the text**. Same symptom `covers_page()` was written to fix for
-  watermarks, never generalised. Spec in `PLAN.md` §M82.
-  - [ ] **M82.1** Gate the foreign hit-test/move on free-placed types; sticky notes, stamps and
-    drawings stay draggable, delete stays available for every type
-  - [ ] **M82.2** Regression: press-drag across a foreign highlight selects the text under it
+  describe *text*); the foreign path had no type gate. Worse, `begin_foreign_move` runs **before text
+  selection** in the default SELECT mode, so **dragging across an Edge-highlighted passage dragged the
+  highlight instead of selecting the text** — the reader could not select or copy the very words a
+  reviewer had marked for their attention. Same symptom `covers_page()` was written to fix for
+  watermarks, never generalised; this generalises it. And because a `ForeignMove` is applied at
+  materialise, the displacement was becoming **permanent in the saved file** — a file-modifying
+  action a reader could trigger by accident while merely trying to read. Spec in `PLAN.md` §M82.
+  — *Windows (headless + offscreen GUI)* — 16 new tests (6 of them verified red before the fix),
+  1318 green
+  - [x] **M82.1** Gate the foreign hit-test/move on free-placed types; sticky notes, stamps and
+    drawings stay draggable, delete stays available for every type. One rule, in the model:
+    `TEXT_MARKUP_KINDS` + `is_free_placed()` (`model/foreign_annots.py`) — Highlight, Underline,
+    StrikeOut and **Squiggly**, which rides along as text markup even though it is not adoptable.
+    The viewer's `foreign_annotation_at` grew a `free_placed_only` flag that the *drag* caller
+    alone passes, so delete (M66) and double-click adopt (M68) keep seeing every type. The filter
+    runs **inside** the hit-test loop rather than on its result: a sticky note lying under an Edge
+    highlight is still the mark the press meant, where filtering afterwards would have let the
+    undraggable mark on top shield it
+  - [x] **M82.2** Regression: press-drag across a foreign highlight selects the text under it,
+    driven through `PdfView`'s real press/move/release handlers — the *ordering* is the bug, so a
+    test that called the overlay directly would not have reproduced it. Pinned to the same words
+    the identical drag selects on unmarked text, plus Ctrl+C, plus a zero-drag click no longer
+    outlining the reviewer's mark
 - [ ] **M83** The annotations tuple is heterogeneous, and only four of five hit-tests know it
   (owner-reported from a console traceback, filed as "expose any unknown gap"). Spec in
   `PLAN.md` §M83.

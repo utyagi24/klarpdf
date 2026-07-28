@@ -145,6 +145,34 @@ class ForeignMove:
     label: str = ""
 
 
+# ---- what may be dragged (M82) --------------------------------------------------
+#
+# A text markup's quads *describe text*: move it and it marks nothing — the reader is left with a
+# yellow bar floating beside the sentence it was drawn on. Our **own** Highlight / Underline /
+# Strikeout are deliberately undraggable for exactly that reason (they appear in neither
+# `viewer.annotations.OBJECT_TYPES` nor `model.page_edits.PLACEABLE_TYPES`), but the foreign path
+# had no equivalent gate, so marks from another tool got a capability our identical ones are denied
+# — and, because the move is applied at materialise, the displacement became permanent in the file.
+#
+# Squiggly rides along: it is text markup by the same definition, even though it is not among
+# MODELED_KINDS and so cannot be adopted.
+TEXT_MARKUP_KINDS = frozenset({
+    fitz.PDF_ANNOT_HIGHLIGHT,
+    fitz.PDF_ANNOT_UNDERLINE,
+    fitz.PDF_ANNOT_STRIKE_OUT,
+    fitz.PDF_ANNOT_SQUIGGLY,
+})
+
+
+def is_free_placed(mark: ForeignAnnot) -> bool:
+    """Does this foreign mark sit **free on the page**, rather than describing text under it?
+
+    The drag gate, and only the drag gate. Delete (M66) and adopt (M68) stay available for every
+    type — nothing about *removing* or *editing* a mark depends on it being movable.
+    """
+    return mark.kind not in TEXT_MARKUP_KINDS
+
+
 # Annotation dictionary keys holding page geometry as flat number arrays (x y x y …). All of them
 # have to travel with a move, or the drawn appearance and the annotation's own geometry desync —
 # a highlight whose /Rect moved but whose /QuadPoints did not would be re-derived back to its old
