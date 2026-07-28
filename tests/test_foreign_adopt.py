@@ -63,7 +63,10 @@ def adopt_pdf(tmp_path) -> str:
     doc = fitz.open()
     page = doc.new_page()
     page.insert_text((60, 500), "BODYTEXT", fontsize=12)
-    _foreign(page, "square", (100, 100, 200, 160), "a square")
+    # No /Contents on the square: it is the *plain* specimen the degradation tests below measure
+    # against, and since M81.3 a comment on a drawn mark is itself a reported loss (a Shape has no
+    # field to hold one). Commented marks are exercised in test_markup_notes.py.
+    _foreign(page, "square", (100, 100, 200, 160))
     _foreign(page, "text", (300, 100, 320, 120), "a sticky note")   # not a modeled type
     doc.save(path)
     doc.close()
