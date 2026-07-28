@@ -1049,6 +1049,29 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
 - [x] **M79** Verify + release → tagged **v0.16.1** (v0.16.0 tagged but never published — see the
   Status note) — 1273 headless tests green — *Windows*
 
+**Post-R6 (unreleased)**
+
+- [x] **M80** **Ctrl+wheel zoom**, anchored on the pointer (owner-reported 2026-07-27: "many
+  applications support Ctrl+scroll for zooming; ours does not"). It wasn't inert — a Ctrl-modified
+  wheel fell through to `QAbstractScrollArea` and **scrolled**, so the reader asking for zoom got
+  motion. `wheelEvent` now intercepts it and zooms with the **content under the cursor held fixed**
+  (every other zoom entry point holds the viewport centre — there is no pointer behind a menu item);
+  the centre anchor generalised into `_anchor_at(view_pos=None)` / `_restore_anchor(anchor, view_pos)`
+  plus a `set_zoom(..., anchor_pos=…)` argument, so the existing paths are byte-for-byte unchanged in
+  behaviour. The factor is **continuous** (`_ZOOM_STEP ** (delta / _WHEEL_NOTCH)`): one detent is
+  exactly one Ctrl+± step, and a precision touchpad's fractional deltas zoom smoothly rather than
+  being swallowed as sub-detent noise. The event is accepted even at the zoom limits, so the gesture
+  can never degrade back into the scroll it replaced; the **slideshow** deliberately keeps stepping
+  slides whatever the modifier (its contract is one page per screen at Fit Page — M78). View-only:
+  no model, file or dependency change. — *Windows (headless + offscreen GUI)* — 6 new tests (5 of
+  them verified red before the fix), full suite green
+  - **Also recorded: the input-conventions audit** the same report asked for — seven further gaps,
+    each *measured* against a running window rather than read off the source (`Home`/`End`/`Ctrl+Home`
+    /`Ctrl+End` dead · `Space`/`Shift+Space` dead · `Shift+wheel` scrolls vertically, not
+    horizontally · no momentary hand-pan · no `Ctrl+A` · `Ctrl+=` unbound because Qt's `ZoomIn` is
+    `Ctrl++` · pinch-zoom unconsumed). Listed in `PLAN.md` §M80; **awaiting an owner call**, not
+    scheduled.
+
 ## Public-Release Readiness — go open-source under AGPL-3.0 (planned)
 
 **The repo is public** as of **2026-07-17**, as an `AGPL-3.0-or-later` project — the flip (G8) is done.
