@@ -67,6 +67,18 @@ def _instant_search(monkeypatch):
     monkeypatch.setattr(viewer.search, "SEARCH_DEBOUNCE_MS", 0)
 
 
+@pytest.fixture(autouse=True)
+def _instant_zoom(monkeypatch):
+    """Apply Ctrl+wheel zoom on the next event-loop pass instead of a frame later. In the app a
+    wheel event only *accumulates* (``_ZOOM_COALESCE_MS``), because a burst rebuilt the scene once
+    per event; tests send a detent and assert on the next line, with no event loop to let a 16 ms
+    timer expire. ``test_zoom_coalescing.py`` restores the real interval to test the coalescing
+    itself — the same arrangement ``_instant_search`` has with ``test_search_perf.py``."""
+    import viewer.pdf_view
+
+    monkeypatch.setattr(viewer.pdf_view, "_ZOOM_COALESCE_MS", 0)
+
+
 def _build(path: str, texts: list[str], field_value: str) -> None:
     doc = fitz.open()
     for i, text in enumerate(texts):

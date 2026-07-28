@@ -1193,14 +1193,33 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     described, grabbed offscreen before and after. A single-row selection now moves with the current
     row (`ClearAndSelect`); a multi-row or empty one is left exactly as the reader left it
     (`NoUpdate`, which also stops a scroll from quietly *adding* rows to a staged selection)
-- [ ] **M86** The two cheap zoom fixes (out of profiling M80). M80 did not make a zoom step slower —
-  it made steps arrive **10–60× more often**, exposing costs that were always there. Measured:
-  **124 ms/event** notched wheel, **79 ms/event** touchpad, cache saturated after one sweep. These
-  two were meant to ride M80's PR; **#197 merged without them**, so `main` carries the un-coalesced
-  wheel until they land. Spec in `PLAN.md` §M86.
-  - [ ] **M86.1** Collapse the 3 redundant `_render_visible()` passes per zoom to 1 (**A**).
-    Pre-existing waste, so it speeds up every zoom, fit, rotate and two-page toggle
-  - [ ] **M86.2** Coalesce the wheel gesture — accumulate deltas, apply once per frame (**B**)
+- [x] **M86** The two cheap zoom fixes (out of profiling M80). M80 did not make a zoom step slower —
+  it made steps arrive **10–60× more often**, exposing costs that were always there. These two were
+  meant to ride M80's PR; **#197 merged without them**, so `main` carried the un-coalesced wheel
+  until now. Spec in `PLAN.md` §M86. — *Windows (offscreen GUI, measured before/after on a 60-page
+  document at 1200×900)* — 12 new tests (7 of them verified red against a build with both mechanisms
+  neutralised), 1381 green
+  - [x] **M86.1** Collapse the 3 redundant `_render_visible()` passes per zoom to 1 (**A**), via a
+    `_hold_render()` block that defers rasterising until the whole geometry change has landed.
+    Pre-existing waste, so it is applied at every geometry change, not just zoom — **measured 3→1
+    per zoom, 2→1 for fit / rotate / two-page toggle / reload / reopen / resize**, nested blocks
+    collapsing into the outermost (a layout switch rebuilds, then re-fits, which zooms).
+    **One claim in the spec did not survive contact and is corrected there:** the two extra passes
+    were *not* two-thirds of the work. They re-walk the visible band but hit the pixmap cache — a
+    single zoom made **11–12 `_render_pixmap` calls of which only 4 were misses**, and after the fix
+    makes 4 calls, all 4 misses. Same 4 pages rasterised, so a single zoom's wall time is unchanged
+    (18.7 ms → 18.5 ms). Real overhead removed, but the time win lives in the gesture cases below
+  - [x] **M86.2** Coalesce the wheel gesture — accumulate deltas, apply once per frame (**B**). A
+    **throttle, not a debounce**: the timer is started by the first event of a frame and left to
+    run, because restarting it per event would hold the zoom back for as long as the gesture
+    continued and a sustained touchpad zoom would show nothing until the fingers stopped. Exact
+    rather than approximate — the factor is `_ZOOM_STEP ** (delta / _WHEEL_NOTCH)`, so multiplying
+    the per-event factors and exponentiating the summed delta are the same number. Measured on a
+    40-delta touchpad gesture: **75 → 9 render passes and 289 ms → 103 ms of rasterising** when the
+    events are paced 6 ms apart (75 → 1 pass, 331 ms → 0.2 ms when they arrive inside one frame,
+    which is the ceiling rather than the everyday figure). A 10-detent notched flick paced 25 ms
+    apart coalesces little **by design** — events arriving slower than a frame have nothing to
+    merge — and still drops 21 → 7 passes, which is M86.1 doing the work
 - [ ] **M87** Render-resource discipline — what the app *keeps*. **Sized against post-M88 numbers**,
   since the DPI correction makes every page ~5.4× heavier. Spec in `PLAN.md` §M87.
   - [ ] **M87.1** Adaptive prefetch (**F**) — `_PREFETCH = 2` is a fixed constant, fine at

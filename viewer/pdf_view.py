@@ -15,9 +15,10 @@ from __future__ import annotations
 
 import time
 from collections import OrderedDict
+from contextlib import contextmanager
 
 import pymupdf as fitz
-from PySide6.QtCore import QPointF, QRectF, Qt, Signal
+from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QImage, QPen, QPixmap, QTransform
 from PySide6.QtWidgets import QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsScene, QGraphicsView
 
@@ -33,6 +34,7 @@ _MIN_ZOOM, _MAX_ZOOM = 0.1, 8.0
 _ZOOM_STEP = 1.25
 _WHEEL_NOTCH = 120      # one mouse-wheel detent, in eighths of a degree (Qt's unit)
 _WHEEL_QUIET_MS = 250   # gap that ends a wheel gesture (a flywheel wheel coasts well past the hand)
+_ZOOM_COALESCE_MS = 16  # one frame at 60 Hz — the Ctrl+wheel accumulator's flush interval (M86.2)
 
 # Arrow key → unit (dx, dy) direction for nudging an object selection (M78.2); page-y grows down.
 _NUDGE_KEYS = {
@@ -135,6 +137,16 @@ class PdfView(QGraphicsView):
         self._wheel_accum = 0
         self._wheel_muted = False
         self._last_wheel_ts = 0
+        # One geometry change = one rasterise (M86.1). ``_render_held`` counts open
+        # :meth:`_hold_render` blocks; while any is open, _render_visible defers.
+        self._render_held = 0
+        # Ctrl+wheel deltas accumulate here and apply once a frame (M86.2), so a burst is one
+        # scene rebuild instead of N. ``_zoom_anchor`` is the pointer the flush anchors on.
+        self._zoom_pending = 0.0
+        self._zoom_anchor = None
+        self._zoom_timer = QTimer(self)
+        self._zoom_timer.setSingleShot(True)
+        self._zoom_timer.timeout.connect(self._flush_wheel_zoom)
         self._build_scene()
         self.verticalScrollBar().valueChanged.connect(self._on_scroll)
 
@@ -791,12 +803,38 @@ class PdfView(QGraphicsView):
 
         Not reached in the slideshow: that mode's contract is one page per screen at Fit Page
         (M78), so the wheel there keeps stepping slides whatever the modifier.
+
+        **Deltas are coalesced to one zoom per frame** (M86.2). The gesture can deliver 10–60
+        events a second — a precision touchpad sends a fine delta every few milliseconds — and each
+        one rebuilt the scene and rasterised the visible band. Accumulating them and applying once
+        per frame makes a burst cost one rebuild where it cost N, and it is **exact, not an
+        approximation**: the factor is ``_ZOOM_STEP ** (delta / _WHEEL_NOTCH)``, so multiplying the
+        per-event factors and exponentiating the summed delta are the same number
+        (``Π s^(dᵢ/n) == s^(Σdᵢ/n)``) — one power is if anything the more accurate of the two.
         """
         delta = event.angleDelta().y()
         if delta:
-            self.set_zoom(self._zoom * (_ZOOM_STEP ** (delta / _WHEEL_NOTCH)),
-                          anchor_pos=event.position().toPoint())
+            self._zoom_pending += delta
+            self._zoom_anchor = event.position().toPoint()  # the pointer as of the latest event
+            if not self._zoom_timer.isActive():
+                # Throttle, not debounce: the timer is started by the first event of a frame and
+                # left to run. Restarting it on every event would push the flush back for as long
+                # as the gesture continued, so a sustained touchpad zoom would show nothing at all
+                # until the fingers stopped — the opposite of smooth.
+                self._zoom_timer.start(_ZOOM_COALESCE_MS)
         event.accept()
+
+    def _flush_wheel_zoom(self) -> None:
+        """Apply one frame's worth of accumulated Ctrl+wheel delta (M86.2).
+
+        Deltas that reverse inside a single frame cancel, which is the right answer for a hand that
+        genuinely moved both ways — the one case it differs from applying each event separately is
+        a reversal that also hits a zoom limit mid-frame, and no hand reverses a wheel in 16 ms.
+        """
+        delta, anchor = self._zoom_pending, self._zoom_anchor
+        self._zoom_pending, self._zoom_anchor = 0.0, None
+        if delta:
+            self.set_zoom(self._zoom * (_ZOOM_STEP ** (delta / _WHEEL_NOTCH)), anchor_pos=anchor)
 
     def _update_hover_cursor(self, scene_pt) -> None:
         """Show a pointing-hand over an internal link (SELECT — it's clickable) and a move cursor
@@ -1006,9 +1044,40 @@ class PdfView(QGraphicsView):
         first, last = self._visible_range()
         return max(0, first - _PREFETCH), min(len(self._pages) - 1, last + _PREFETCH)
 
+    @contextmanager
+    def _hold_render(self):
+        """Defer rasterising until the whole geometry change has landed, then do it **once**.
+
+        A single ``set_zoom`` used to rasterise the visible band three times (M86.1, profiler:
+        ``ncalls=3``): :meth:`_build_scene` renders at the end of its rebuild, the anchor restore
+        renders again once it has scrolled, and the scrollbar write fires :meth:`_on_scroll`, which
+        renders a third time. Only the last pass could be right — the first two rasterise a band the
+        scroll is about to move off screen — so two-thirds of the most expensive work in the app was
+        computed and thrown away.
+
+        **Pre-existing, not M80's**: the old ``centerOn`` path did the same. Ctrl+wheel merely made
+        it matter, by driving zoom 10–60× a second where a toolbar click drove it once. Holding it
+        here rather than at each call site is what makes every geometry change — zoom, fit, rotate,
+        two-page toggle, reload, reopen — cost one pass instead of three or four.
+
+        Nested blocks collapse into the outermost (``set_page_layout`` rebuilds and then re-fits,
+        which zooms). On an exception nothing is rendered and the flag still unwinds: the geometry
+        is half-built, so painting it would only put a corrupt frame on screen ahead of the
+        traceback, and the next scroll renders anyway.
+        """
+        self._render_held += 1
+        try:
+            yield
+        finally:
+            self._render_held -= 1
+        if not self._render_held:
+            self._render_visible()
+
     def _render_visible(self) -> None:
         if not self._pages or not self._shown_once:
             return
+        if self._render_held:
+            return          # inside _hold_render — one pass runs when the outermost block closes
         first, last = self._visible_range()
         lo, hi = max(0, first - _PREFETCH), min(len(self._pages) - 1, last + _PREFETCH)
         for i, p in enumerate(self._pages):
@@ -1062,8 +1131,10 @@ class PdfView(QGraphicsView):
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
-        self._reapply_fit()  # a sticky Fit Width/Page follows the new viewport (e.g. sidebar toggle)
-        self._render_visible()
+        with self._hold_render():
+            # A sticky Fit Width/Page follows the new viewport (e.g. a Pages-sidebar toggle). Its
+            # set_zoom holds too, so a drag-resize costs one rasterise per step, not two.
+            self._reapply_fit()
 
     # ---- public API: zoom / fit / rotate / navigation ---------------------------
 
@@ -1260,12 +1331,13 @@ class PdfView(QGraphicsView):
         # re-lands on the current page's top — its own contract (see fit_width/_center_horizontally).
         held = self._anchor_at(anchor_pos) if fit is None else None
         self._zoom = zoom
-        self._build_scene()
-        if keep_page:
-            if held is not None:
-                self._restore_anchor(held, anchor_pos)
-            else:
-                self.goto_page(page_anchor)
+        with self._hold_render():   # rebuild + scroll, then rasterise once (M86.1)
+            self._build_scene()
+            if keep_page:
+                if held is not None:
+                    self._restore_anchor(held, anchor_pos)
+                else:
+                    self.goto_page(page_anchor)
         self.zoomChanged.emit(self._zoom)
 
     def zoom_in(self) -> None:
@@ -1328,8 +1400,9 @@ class PdfView(QGraphicsView):
         """Rotate the whole view by ``delta`` degrees (a multiple of 90)."""
         self._rotation = (self._rotation + delta) % 360
         anchor = self._current
-        self._build_scene()
-        self.goto_page(anchor)
+        with self._hold_render():
+            self._build_scene()
+            self.goto_page(anchor)
 
     # ---- page layout (M78) ------------------------------------------------------
 
@@ -1345,10 +1418,11 @@ class PdfView(QGraphicsView):
             return
         self._page_layout = layout
         anchor = self._current
-        self._build_scene()          # unconditionally: set_zoom below no-ops on an equal zoom
-        if self._fit_mode is not None:
-            self._reapply_fit()      # rebuilds again only if the re-fitted zoom differs
-        self.goto_page(anchor)
+        with self._hold_render():    # the re-fit's own hold nests into this one
+            self._build_scene()      # unconditionally: set_zoom below no-ops on an equal zoom
+            if self._fit_mode is not None:
+                self._reapply_fit()  # rebuilds again only if the re-fitted zoom differs
+            self.goto_page(anchor)
         self._slide_row = self._row_of(self._current)
 
     # ---- slideshow (M78) --------------------------------------------------------
@@ -1426,18 +1500,18 @@ class PdfView(QGraphicsView):
         # A **content-only** edit (annotation, form fill) leaves every page's geometry alone, so the
         # exact scroll offset is still meaningful — keep it. Snapping to the current page's top
         # would yank the reader away from the spot they just marked up, and the "current" page is
-        # whichever owns the viewport centre, which may not even be the page they edited.
+        # whichever fills most of the viewport (M85), which may not be the page they edited.
         # A **structural** edit (insert / delete / reorder / rotate / crop) remaps the layout, so
         # there the current-page anchor is the only sensible place to land.
         layout = self._layout_signature()
         offset = self.verticalScrollBar().value()
-        self._build_scene()
-        structural = self._layout_signature() != layout
-        if not structural:
-            self.verticalScrollBar().setValue(offset)
-            self._render_visible()
-        else:
-            self.goto_page(self._current)
+        with self._hold_render():
+            self._build_scene()
+            structural = self._layout_signature() != layout
+            if not structural:
+                self.verticalScrollBar().setValue(offset)
+            else:
+                self.goto_page(self._current)
         return structural
 
     def _layout_signature(self) -> tuple:
@@ -1496,8 +1570,9 @@ class PdfView(QGraphicsView):
         zoom = state.get("zoom")
         if isinstance(zoom, (int, float)) and _MIN_ZOOM <= zoom <= _MAX_ZOOM:
             self._zoom = float(zoom)
-        self._build_scene()
-        self.goto_page(int(state.get("page", 0)))
+        with self._hold_render():
+            self._build_scene()
+            self.goto_page(int(state.get("page", 0)))
         # apply_state sets _zoom directly (bypassing set_zoom), so announce it for the indicator.
         self.zoomChanged.emit(self._zoom)
 
@@ -1527,7 +1602,10 @@ class PdfView(QGraphicsView):
         self._current = page                          # _fit_zoom sizes against *this* page's row
         self._zoom = self._fit_zoom(fit_height=True)  # Fit Page, computed against the final viewport
         self._fit_mode = "page"                       # default view tracks Fit Page (re-fits on resize)
-        self._build_scene()                           # geometry + the first (and only) render
-        self.goto_page(page)                          # resume the remembered page
-        self._center_horizontally()                   # centre even if a rotated page widens the scene
+        with self._hold_render():                     # geometry + the first (and only) render
+            self._build_scene()
+            self.goto_page(page)                      # resume the remembered page — the LOCAL, not
+            self._center_horizontally()               # `self._current`: the hold happens to keep the
+                                                      # field intact here, but the restore must not
+                                                      # depend on a render optimisation (see above).
         self.zoomChanged.emit(self._zoom)
