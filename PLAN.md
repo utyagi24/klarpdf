@@ -1646,6 +1646,47 @@ green, `#8FDEF9` blue, read from the owner's test file). The only substantive di
 offers **Red** where we offer **Orange**; adding red is a separate, optional palette question and not
 part of this fix.
 
+### M88 — foreign text markup is draggable, and it steals the press from text selection
+
+**Owner-reported 2026-07-27**, testing the Edge-annotated file: *"our app lets me grab the text
+highlight added by Edge and drag it around like normal drawing objects and place it arbitrarily. We
+should **not** be able to drag the highlights."*
+
+**It is an asymmetry, not a general drag problem.** Our **own** `Highlight` / `Underline` /
+`Strikeout` appear in neither `OBJECT_TYPES` (`viewer/annotations.py`) nor `PLACEABLE_TYPES`
+(`model/page_edits.py`) — deliberately not draggable, because a text markup's quads *describe text*:
+move it and it marks nothing. The **foreign** path has no equivalent gate —
+`foreign_annotation_at()` hit-tests every foreign annotation by its rect with no type filter, so
+M67's move applies to text markup too. Edge's highlights get a capability our own identical marks are
+denied, and the resulting `ForeignMove` is applied at materialise, so the displacement becomes
+permanent in the saved file.
+
+**The more serious consequence is that it pre-empts text selection.** `begin_foreign_move` is tried in
+the **SELECT mode** press path — the default mode — in this order:
+
+```
+selected object → form field → our own marks → foreign annotation → text selection
+```
+
+So on any document reviewed in Edge or Acrobat, **dragging across a highlighted passage to select the
+text drags the highlight instead**. The user cannot select or copy the very text a reviewer marked for
+their attention — the worst possible passage to lose selection on.
+
+**This codebase has already met this failure mode once.** `covers_page()` exists precisely because a
+grabbable full-page watermark meant "text selection stopped working entirely" (its docstring). Same
+symptom, different cause; the lesson was fixed locally and never generalised into a rule about what
+may claim a press ahead of text selection.
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M88.1** Text markup is not a drag target | Gate the foreign hit-test/move on **free-placed** types, excluding text markup (Highlight, Underline, StrikeOut, Squiggly) — mirroring the `OBJECT_TYPES` / `PLACEABLE_TYPES` rule our own marks already follow. Free-placed foreign marks (sticky notes, stamps, drawings) stay draggable exactly as M67 intended, and **delete (M66) stays available for every type**. | WSL + WSLg | Dragging a foreign highlight selects the text under it instead of moving the mark; a foreign sticky note still drags; a foreign highlight still deletes |
+| **M88.2** Selecting text over foreign markup works | Regression test on the owner's file: press-drag across an Edge highlight yields a text selection. | WSL (headless) | The selection matches the same drag on unhighlighted text; Ctrl+C copies it |
+
+**Two side benefits.** Fewer `ForeignMove` descriptors reach the annotations tuple, which narrows
+exposure to **M86.1** (the dead context menu) — though M86.1 must still be fixed on its own terms,
+since deletion and adoption also produce non-geometric descriptors. And it removes a silent
+file-modifying action a reader can trigger by accident while merely trying to read.
+
 ### Deferred, with the condition for revisiting
 
 - **C — scale existing pixmaps during the gesture, re-rasterise on settle.** Gives 60 fps zoom feel,

@@ -1175,6 +1175,18 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   - [ ] **M87.1** Multiply-blend the committed highlight (a `_MultiplyRectItem` sibling)
   - [ ] **M87.2** Same for the live drag-over-text preview, or arming looks pale and the mark jumps
     vivid on release
+- [ ] **M88** Foreign text markup is draggable — **and it steals the press from text selection**
+  (owner-reported 2026-07-27 on the Edge file: "lets me grab the text highlight added by Edge and
+  drag it around… we should **not** be able to"). An asymmetry: our own Highlight/Underline/Strikeout
+  are in neither `OBJECT_TYPES` nor `PLACEABLE_TYPES` — text markup describes *text*, so moving it
+  marks nothing — but the foreign path hit-tests every annotation by rect with no type gate. Worse,
+  `begin_foreign_move` runs **before text selection** in the default SELECT mode, so **dragging across
+  an Edge-highlighted passage drags the highlight instead of selecting the text** — the very passages
+  a reviewer marked for attention. Same symptom `covers_page()` was written to fix for watermarks,
+  never generalised. Spec in `PLAN.md` §M88.
+  - [ ] **M88.1** Gate the foreign hit-test/move on free-placed types; sticky notes, stamps and
+    drawings stay draggable, delete stays available for every type
+  - [ ] **M88.2** Regression: press-drag across a foreign highlight selects the text under it
 - **Corner-case document analysis** (`PLAN.md` §The corner-case document) — `IAS_CaseStudy.pdf`,
   owner-supplied: 75.6 MB, 18 pages of 1920×1080 pt, **no text layer**, 95 MB of embedded images.
   Opens in **11.19 s**, of which **10.0 s is `fz_run_display_list`** — decoding imagery, not our
