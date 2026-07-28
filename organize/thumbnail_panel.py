@@ -547,6 +547,27 @@ class ThumbnailPanel(QListWidget):
             self.scrollToItem(self.item(index))
             self._syncing = False
 
+    def mark_open_page(self, index: int) -> None:
+        """Mark the page a document **opens** on.
+
+        Without this the sidebar opened with nothing marked at all: the current row starts at -1,
+        and opening restores a page the view was already sitting on, so ``currentPageChanged``
+        never fires and :meth:`set_current` is never called — the reader had to scroll or click
+        before the panel would say where they were. (It looked like it worked on a 16:9 deck only
+        because the M85 tracking bug mis-fired the signal on open and marked the *wrong* page.)
+
+        Selects as well as makes current, unlike :meth:`set_current`. That method's careful
+        ``NoUpdate`` branch exists to protect a **reader's** staged multi-row selection from being
+        disturbed by scrolling; at open there is no such selection to protect — the panel has just
+        been populated — and the marker should look exactly like the one a click leaves, which is
+        what "the page is not selected" described.
+        """
+        if 0 <= index < self.count():
+            self._syncing = True
+            self.setCurrentRow(index, QItemSelectionModel.SelectionFlag.ClearAndSelect)
+            self.scrollToItem(self.item(index))
+            self._syncing = False
+
     def _on_row_changed(self, row: int) -> None:
         if not self._syncing and row >= 0:
             self.pageActivated.emit(row)

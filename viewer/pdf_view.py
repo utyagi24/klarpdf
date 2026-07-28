@@ -1464,9 +1464,29 @@ class PdfView(QGraphicsView):
     # ---- persistence ------------------------------------------------------------
 
     def view_state(self) -> dict:
+        """The per-document state saved on close. **Page and rotation resume; zoom does not.**
+
+        ``zoom`` is written on purpose even though nothing reads it back. A document opens at
+        **Fit Page** — an owner decision from v0.9.1 (PR #61: "Default zoom is Fit Page — the whole
+        page is visible — instead of Fit Width… Per-document page + rotation still resume on
+        reopen"), taken because a remembered magnification kept reopening documents too large for
+        the window. Keeping the value in the file costs one float and leaves the option open should
+        we ever decide to restore it; dropping it would mean every existing state file lost the
+        magnification the day we changed our minds.
+
+        So a reader reporting "the zoom isn't remembered" is describing the design, not a bug — see
+        :meth:`open_at`, and `PLAN.md` §Future enhancements for what restoring it would take.
+        """
         return {"page": self._current, "zoom": self._zoom, "rotation": self._rotation}
 
     def apply_state(self, state: dict) -> None:
+        """Restore page + rotation + **zoom** into an already-shown view.
+
+        The one path that honours a saved zoom — and the app does not currently call it: opening is
+        :meth:`open_at`'s job, and that lands at Fit Page by the decision recorded in
+        :meth:`view_state`. Kept as the seam a future "restore my last magnification" would use
+        (and exercised by the state round-trip tests), not dead-by-accident.
+        """
         if not state:
             return
         self._fit_mode = None  # a restored, explicit zoom is manual — not a sticky fit
@@ -1485,16 +1505,29 @@ class PdfView(QGraphicsView):
         """First show: restore the remembered page + rotation, open at **Fit Page**, and do the
         first pixmap render — once, at the now-final viewport size. Rendering was suppressed until
         here (``_shown_once``), so the page paints exactly once at the fit zoom — no zoom-1.0 frame,
-        no re-render after a remembered zoom, no flicker."""
+        no re-render after a remembered zoom, no flicker.
+
+        **Fit Page is deliberate, not an oversight**: the saved ``zoom`` is read past on purpose
+        (v0.9.1, PR #61) because a remembered magnification kept reopening documents too large for
+        the window — the rationale, and why the value is still saved, is in :meth:`view_state`.
+        """
         self._shown_once = True
         state = state or {}
         rotation = int(state.get("rotation", 0)) % 360
         if rotation in (0, 90, 180, 270):
             self._rotation = rotation
-        self._current = max(0, min(int(state.get("page", 0)), self._vdoc.page_count - 1))
+        # Hold the remembered page in a LOCAL across the rebuild. `_build_scene` renders at the end
+        # of its work, and that render re-derives the current page from the viewport — which is
+        # still scrolled to the top, so it resets `_current` to 0. Passing `self._current` to
+        # `goto_page` below therefore asked for page 0 and the remembered page was silently never
+        # restored (measured: a document saved on page 3 reopened on page 1). `rotate_view` and
+        # `set_page_layout` already take a local `anchor` across their rebuilds for this exact
+        # reason; this is the one rebuild that read the field back out afterwards.
+        page = max(0, min(int(state.get("page", 0)), self._vdoc.page_count - 1))
+        self._current = page                          # _fit_zoom sizes against *this* page's row
         self._zoom = self._fit_zoom(fit_height=True)  # Fit Page, computed against the final viewport
         self._fit_mode = "page"                       # default view tracks Fit Page (re-fits on resize)
         self._build_scene()                           # geometry + the first (and only) render
-        self.goto_page(self._current)                 # resume the remembered page
+        self.goto_page(page)                          # resume the remembered page
         self._center_horizontally()                   # centre even if a rotated page widens the scene
         self.zoomChanged.emit(self._zoom)

@@ -1222,14 +1222,42 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   - [ ] **M88.3** Handle DPR changing at runtime when the window moves between the 1.75× and 1.0×
     screens — required, not polish
   - [ ] **M88.4** Re-base Ctrl+0 "Actual Size" to physical size, so the name stops being a lie
-  - [ ] **M88.5** Migrate saved per-document zooms
+  - [ ] **M88.5** Migrate saved per-document zooms — ⚠️ **premise does not hold, re-scope first**:
+    nothing reopens at a saved zoom (documents open at Fit Page by the v0.9.1 decision, and
+    `apply_state()` has no production caller), so there is no remembered magnification for M88.1 to
+    redefine and nothing to migrate. Reduces to *either nothing, or a versioning stamp written now*
+    so a future "restore my zoom" can tell pre- from post-M88 values. See `PLAN.md` §M88.5
   - [ ] **M88.6** Zoom range → **25–500%**, sequenced *after* M88.1 (which shifts every number)
-- [ ] **M89** The rest of the reading-input conventions. Six parts, all view-only; three PRs
-  (M89.1–.4 together, M89.5 alone, M89.6 alone). Spec in `PLAN.md` §M89.
+- [ ] **M89** The rest of the reading-input conventions. Six parts, all view-only; **now two PRs**
+  (M89.1–.3 together, M89.5 alone, M89.6 alone) — **M89.4 shipped early**, see below. Spec in
+  `PLAN.md` §M89.
   - [ ] **M89.1** `Home`/`End`/`Ctrl+Home`/`Ctrl+End` → **document** start/end (all four one verb)
   - [ ] **M89.2** `Space`/`Shift+Space` → page down/up
   - [ ] **M89.3** `Shift+wheel` → horizontal pan (an *override*: Qt's own scrolls vertically)
-  - [ ] **M89.4** `Ctrl+=` as a Zoom In alias (Qt's `ZoomIn` is `Ctrl++` = `Ctrl+Shift+=` on US)
+  - [x] **M89.4** `Ctrl+=` as a Zoom In alias (Qt's `ZoomIn` is `Ctrl++` = `Ctrl+Shift+=` on US) —
+    **pulled out of M89 and shipped on its own**, with two open-path bugs the same testing pass
+    turned up. The owner hit the dead accelerator by hand while verifying M86 ("Zoom with Ctrl+- is
+    working but not with Ctrl++"), which made it a reported bug rather than a predicted one; waiting
+    for the rest of M89 would have meant knowingly shipping a dead key. — *Windows (offscreen GUI)*
+    — 10 new tests (7 verified red), 1379 green
+    - **The alias.** `Ctrl+-` is unshifted and always worked; `Ctrl++` demands `Ctrl+Shift+=` on a
+      US layout, so plain `Ctrl+=` matched nothing. `Ctrl++` stays the *first* binding, so the menu
+      row still advertises the standard accelerator
+    - **The sidebar opened with no page marked at all** (the M85 follow-up, now closed). The panel's
+      current row starts at -1 and `open_at` restores a page without *changing* it, so
+      `currentPageChanged` never fired. New `ThumbnailPanel.mark_open_page()` — it *selects* as well
+      as makes current, unlike `set_current`, whose `NoUpdate` branch exists to protect a reader's
+      staged multi-row selection; at open there is nothing to protect and the marker should look
+      like the one a click leaves
+    - **Reopening never restored the remembered page** — long-standing, uncovered, and found only
+      because the marker sat on top of it. `open_at` passed `self._current` to `goto_page`, but
+      `_build_scene` renders at the end of its rebuild and that render re-derives the current page
+      from a viewport still scrolled to the top, resetting the field to 0. A document saved on page
+      3 reopened on page 1. The page is now carried in a **local** across the rebuild, the idiom
+      `rotate_view` and `set_page_layout` already used. Worth recording that **M86 (#205) masks this
+      by accident** — its `_hold_render` suppresses the intermediate render, so the field survives;
+      that is why the owner saw the page restore correctly while testing that branch. Fixing it here
+      keeps the restore correct on its own terms rather than as a side effect of a perf change
   - [ ] **M89.5** Pinch-zoom, anchored at the gesture centre — **needs hands-on Windows validation**
   - [ ] **M89.6** `Ctrl+A` → select all text in the **whole** document (Edge/Brave behaviour),
     **plus** the repaint rework it depends on: painting clipped to visible pages + each line's run
@@ -1450,15 +1478,11 @@ tree or history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI 
 
 Carried items — none block work:
 
-- **On open, no thumbnail is marked at all.** `ThumbnailPanel`'s current row starts at `-1` and only
-  moves when `currentPageChanged` fires; opening a document leaves `view.current_page` at 0, which is
-  what it already was, so the signal never fires and the sidebar shows a document with no you-are-here
-  marker until the reader scrolls or clicks. **Pre-existing and uniform** — measured on an ordinary
-  portrait document both before and after M85. It was *invisible* on `IAS_CaseStudy.pdf` only because
-  the M85 bug mis-fired the signal on open and marked Slide 3; with the tracking fixed, the deck now
-  opens like every other document. The fix is one call on the open path (seed the panel from
-  `view.current_page`), but it is open-path behaviour for **every** document and wants its own
-  verification rather than riding a tracking bug-fix branch.
+- ~~**On open, no thumbnail is marked at all**~~ — **fixed 2026-07-28 with M89.4** (owner-reported
+  during the M86 verification pass: "reopening the document lands me at the last page but in the
+  thumbnail bar the page is not selected"). `ThumbnailPanel.mark_open_page()` seeds the marker from
+  the open path. The same fix uncovered a bigger one sitting underneath it — reopening had never
+  restored the remembered page at all — see the M89.4 entry above. Nothing carried.
 
 - **A search is still one uninterruptible pass over every page.** M78.7 made the pass ~400× cheaper
   and stopped typing from launching one per keystroke, but the shape is unchanged: `search()` walks

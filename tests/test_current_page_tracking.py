@@ -154,6 +154,9 @@ def test_a_view_driven_page_change_moves_a_single_row_selection(win, qapp):
 def test_a_multi_row_selection_survives_scrolling(win, qapp):
     """A Ctrl-click selection staged for a page operation must not be collapsed by a scroll."""
     view, thumbs = win.view, win.thumbs
+    # A real Ctrl-click multi-select begins from a plain click, which clears what was there — here
+    # that is the marker the document opened with (page 1), which would otherwise ride along.
+    thumbs.clearSelection()
     for row in (2, 3, 4):
         thumbs.item(row).setSelected(True)
     qapp.processEvents()
