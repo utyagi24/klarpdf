@@ -304,9 +304,65 @@ def translate_mark(mark, dx: float, dy: float):
     raise TypeError(f"not a movable mark: {type(mark).__name__}")
 
 
+# ---- the geometry chokepoint (M83.2) --------------------------------------------
+#
+# A ``PageRef.annotations`` tuple is **heterogeneous**: real marks plus non-geometric bookkeeping
+# descriptors — `ForeignDeletion` (fingerprint, label) and `ForeignMove` (fingerprint, dx, dy,
+# label). Riding the same tuple is deliberate (M66/M67): it is how they snapshot for undo and follow
+# their page through a reorder. But nothing enforced the split. Five places walked the tuple; four
+# happened to `isinstance`-guard first and one resolved geometry with
+# `annot.rects if hasattr(annot, "rects") else annot.rect`, which assumed every entry had some. On a
+# document with a foreign annotation deleted, moved or adopted it raised `AttributeError` inside a
+# Qt virtual — Qt swallows those, so the app survived and **every right-click in the page view went
+# dead**, silently (M83.1).
+#
+# So the question "does this descriptor describe a region of the page?" gets exactly one answer,
+# here, and every hit-test asks it. `rects_of` is **total**: it never raises, and a descriptor that
+# declares no geometry at all yields `()` — so the hit-tests skip it by iterating zero times rather
+# than by remembering to guard. That is the direction that fails safe, and it is what makes the
+# next non-geometric descriptor a no-op instead of a repeat of this bug.
+
+
+def rects_of(mark) -> tuple:
+    """Every box ``mark`` paints, in unrotated page points — ``()`` if it paints none.
+
+    The single source of "what geometry does this descriptor have". Text markup and redactions carry
+    ``rects`` (one bar per text line); drawn marks derive one box from their own points via
+    ``bounding_rect()``; free-placed marks carry a ``rect``. Anything else — the foreign-annotation
+    bookkeeping — has no geometry and says so.
+    """
+    rects = getattr(mark, "rects", None)
+    if rects is not None:
+        return tuple(rects)
+    if hasattr(mark, "bounding_rect"):
+        return (mark.bounding_rect(),)
+    rect = getattr(mark, "rect", None)
+    return (rect,) if rect is not None else ()
+
+
+def is_geometric(mark) -> bool:
+    """Does ``mark`` describe any region of its page? False for the bookkeeping descriptors.
+
+    The predicate form of :func:`rects_of`, for the sites that ask the question without needing the
+    boxes. One implementation, so the two can never disagree.
+    """
+    return bool(rects_of(mark))
+
+
 def mark_bounds(mark) -> tuple:
-    """A free-placed mark's bounding rect: a text box's own rect, else ``bounding_rect()``."""
-    return mark.rect if isinstance(mark, TextBox) else mark.bounding_rect()
+    """A mark's single bounding rect — the union of :func:`rects_of`, so it shares one geometry
+    source with the hit-tests rather than re-deriving it (a text box's own rect, a drawn mark's
+    ``bounding_rect()``, and now also the union of a multi-line markup's bars).
+
+    Raises ``ValueError`` on a descriptor with no geometry: every caller here is asking "where do I
+    draw this mark's outline / handles", a question a ``ForeignDeletion`` has no answer to, and a
+    silent zero rect would put selection chrome at the page corner.
+    """
+    boxes = rects_of(mark)
+    if not boxes:
+        raise ValueError(f"no geometry on {type(mark).__name__}")
+    return (min(b[0] for b in boxes), min(b[1] for b in boxes),
+            max(b[2] for b in boxes), max(b[3] for b in boxes))
 
 
 # A page's annotation tuple **is** its z-order: later entries paint on top (both in the viewer

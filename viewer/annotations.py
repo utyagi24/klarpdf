@@ -59,6 +59,7 @@ from model.page_edits import (
     TextBox,
     Underline,
     mark_bounds,
+    rects_of,
     restyle_mark,
     scale_mark,
     translate_mark,
@@ -828,7 +829,16 @@ class AnnotationOverlay:
     def annotation_at(self, scene_pt):
         """The ``(page_index, annotation)`` whose painted area contains ``scene_pt``, else None.
         Topmost (most recently added) wins. Uses the rotation-aware scene mapping, so it works on
-        rotated pages too."""
+        rotated pages too.
+
+        Geometry comes from :func:`~model.page_edits.rects_of` (M83.2), which answers ``()`` for the
+        non-geometric bookkeeping descriptors that share this tuple — so they are skipped by
+        iterating zero times rather than by this site remembering to guard. It used to read
+        ``annot.rects if hasattr(annot, "rects") else annot.rect``, which raised ``AttributeError``
+        on a ``ForeignDeletion``; Qt swallows exceptions from a Python override of one of its
+        virtuals, so the app survived and the **context menu silently never appeared** for the rest
+        of the session (M83.1). This is the only caller of this hit-test, and it *is* the menu.
+        """
         page_index, local = self._view.page_and_local_at(scene_pt)
         if page_index is None:
             return None
@@ -839,8 +849,7 @@ class AnnotationOverlay:
                 if self._drawn_hit(annot, local.x(), local.y()):
                     return page_index, annot
                 continue
-            boxes = annot.rects if hasattr(annot, "rects") else (annot.rect,)
-            for box in boxes:
+            for box in rects_of(annot):
                 if self._view.scene_rect_for_box(page_index, box).contains(scene_pt):
                     return page_index, annot
         return None
