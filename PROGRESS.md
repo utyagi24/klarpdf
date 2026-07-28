@@ -1071,24 +1071,37 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     horizontally · no momentary hand-pan · no `Ctrl+A` · `Ctrl+=` unbound because Qt's `ZoomIn` is
     `Ctrl++` · pinch-zoom unconsumed). Listed in `PLAN.md` §M80 → **now scheduled as M81** below,
     all but the hand-pan (dropped).
-- [ ] **M81** **Notes: the model, the round-trip, and the data loss it cures.** Two things in one
+- [x] **M81** **Notes: the model, the round-trip, and the data loss it cures.** Two things in one
   milestone because they are the same code. (1) ⚠️ **Live data loss in v0.16.2** — adopting a
-  *commented* foreign highlight silently destroys the comment: `parse_annotation` never reads
-  `/Contents` for HUS marks and `degradations()` never checks it, so M68's "empty means adoption is
-  lossless" contract is broken in two clicks on any Acrobat/Preview/Edge-reviewed PDF. (2) The
+  *commented* foreign highlight silently destroyed the comment: `parse_annotation` never read
+  `/Contents` for HUS marks and `degradations()` never checked it, so M68's "empty means adoption is
+  lossless" contract was broken in two clicks on any Acrobat/Preview/Edge-reviewed PDF. (2) The
   **note model** the owner specified — a note attached to exactly one Highlight/Underline/Strikeout,
   stored as that annotation's `/Contents`, which is precisely what Edge and Acrobat already write.
-  Adding `note` to the three dataclasses **cures the data loss outright** rather than papering over
-  it with a warning, which is why it leads the tranche. Headless; the interface is M90. Spec in
-  `PLAN.md` §M81.
-  - [ ] **M81.1** `note: str = ""` on the HUS dataclasses; baked via `set_info(content=…)`; parsed
-    back in `parse_annotation`. Verified on the pinned PyMuPDF: round-trips beside our `/T` tag, and
-    note text reaches neither `search_for` nor `get_text()`, so Find stays body-text-only with **no
-    change** to the PR #190 search filter
-  - [ ] **M81.2** Merge preserves notes — `merge_markup` rebuilds an absorbed mark from bars+colour
-    only, so a note would be *silently destroyed* by highlighting adjacent text. Owner call: **keep
-    and join**
-  - [ ] **M81.3** Adoption carries the comment across, and `degradations()` stops lying
+  Adding `note` to the three dataclasses **cured the data loss outright** rather than papering over
+  it with a warning, which is why it led the tranche. The note being a **field of its host** rather
+  than an object is what makes the owner's rules 2 and 5 ("removing the mark removes its note", "a
+  later mark over the same text neither moves nor copies it") hold with no code at all: there is no
+  second object, no parent pointer and no referential integrity to keep. **Three lines of behaviour
+  change, six of guard** — the cost was in finding the two places that quietly dropped text, not in
+  writing them. Headless; the interface is M90. Spec in `PLAN.md` §M81.
+  — *Windows (headless)* — 22 new tests (20 of them verified red before the fix), 1302 green
+  - [x] **M81.1** `note: str = ""` on the HUS dataclasses; baked via `set_info(content=…)`; parsed
+    back in `parse_annotation`. Verified on the pinned PyMuPDF (1.27.2.3): round-trips beside our
+    `/T` tag and stays stable across save→reopen→save; an **empty note writes no `/Contents` key at
+    all** (`set_info` tests the string's truth), so an unnoted highlight's bytes are exactly what
+    they were before M81; and note text reaches neither `search_for` nor `get_text()`, so Find stays
+    body-text-only with **no change** to the PR #190 search filter
+  - [x] **M81.2** Merge preserves notes — `merge_markup` rebuilt an absorbed mark from bars+colour
+    only, so a note *was* silently destroyed by highlighting adjacent text, with the user having
+    deleted nothing. Owner call taken: **keep and join**, in document order, a blank line apart. The
+    different-colour *trim* path one line above already preserved them (`dataclasses.replace`), and
+    is now pinned by a test — it is the near-identical neighbour of the path that did not
+  - [x] **M81.3** Adoption carries the comment across, and `degradations()` stops lying. The five
+    kinds that can now hold a comment (HUS + FreeText, whose `/Contents` *is* its text) lose nothing
+    and say nothing; the **four drawn kinds** — ink, line, square, circle — have no field for one,
+    so there the loss is real and is now reported as "its comment". That is what makes *empty means
+    adoption is lossless* true for the first time rather than true-for-some-types
 - [ ] **M82** Foreign text markup is draggable — **and it steals the press from text selection**
   (owner-reported on the Edge file). Our own HUS marks are deliberately undraggable (their quads
   describe *text*); the foreign path has no type gate. Worse, `begin_foreign_move` runs **before text

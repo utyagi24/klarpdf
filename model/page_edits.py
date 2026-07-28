@@ -116,12 +116,23 @@ _TEXTLIKE = frozenset(
 KLARPDF_AUTHOR = "klarpdf"
 
 
+# A note is a *field of its host mark*, not an object of its own (M81). That is what makes the
+# owner's rules 2 and 5 — "removing the mark removes its note", "a later mark over the same text
+# neither moves nor copies it" — fall out with no code: there is no second object, no parent
+# pointer and no referential integrity to keep. The PDF side already exists: a markup annotation's
+# ``/Contents`` *is* a comment on that mark, which is what Acrobat, Preview and Edge read and write,
+# so the note round-trips through :func:`apply_annotations` / :func:`parse_annotation` with no new
+# PDF construct. Verified on the pinned PyMuPDF: the text reaches neither ``search_for`` nor
+# ``get_text``, so notes stay invisible to Find (annotation text is not body text — PR #190).
+
+
 @dataclass(frozen=True)
 class Highlight:
     """A text highlight over one or more word boxes (non-destructive — the text stays intact)."""
 
     rects: tuple[tuple[float, float, float, float], ...]
     color: tuple[float, float, float] = (1.0, 0.86, 0.10)  # marker yellow
+    note: str = ""    # the mark's comment — its PDF /Contents (M81); "" writes no key at all
 
 
 @dataclass(frozen=True)
@@ -130,6 +141,7 @@ class Underline:
 
     rects: tuple[tuple[float, float, float, float], ...]
     color: tuple[float, float, float] = (0.86, 0.10, 0.10)  # redline red
+    note: str = ""
 
 
 @dataclass(frozen=True)
@@ -138,6 +150,7 @@ class Strikeout:
 
     rects: tuple[tuple[float, float, float, float], ...]
     color: tuple[float, float, float] = (0.86, 0.10, 0.10)
+    note: str = ""
 
 
 @dataclass(frozen=True)
@@ -370,6 +383,9 @@ _MIN_BAR_WIDTH = 1.0
 # saved-and-reopened mark comes back through PDF floats (read_klarpdf_annotations), so an exact
 # == against a palette tuple would miss and wrongly treat a re-highlight as a colour change.
 _TOL = 0.01
+# Separator when a merge absorbs several noted marks into one (M81.2). A blank line, so two
+# inherited notes read as the two separate remarks they were rather than one run-on sentence.
+_NOTE_JOIN = "\n\n"
 
 
 def _same_line(a: tuple, b: tuple) -> bool:
@@ -444,6 +460,12 @@ def merge_markup(annotations: tuple, bars, mark_type, color: tuple) -> tuple:
     The merged mark inherits the earliest absorbed mark's z-position (else it is appended), so
     re-marking never shuffles paint order against a co-located mark of another type. Other types
     and foreign annotations are passed through untouched.
+
+    **Notes survive the fold (M81).** The survivor is rebuilt from scratch, so an absorbed mark's
+    ``note`` would otherwise be destroyed by a user who deleted nothing — they highlighted adjacent
+    text and their typed note vanished. Absorbed notes are inherited in document order, joined by
+    :data:`_NOTE_JOIN` when several marks carry one. (The different-colour *trim* path uses
+    ``replace``, which already preserves every field but ``rects``.)
     """
     from dataclasses import replace
 
@@ -451,6 +473,7 @@ def merge_markup(annotations: tuple, bars, mark_type, color: tuple) -> tuple:
     if not new_bars:
         return annotations
     absorbed = list(new_bars)      # grows as same-colour marks are folded in
+    notes: list[str] = []          # …and so do their notes — a fold must not destroy typed text
     result: list = []
     insert_at = None
     for mark in annotations:
@@ -461,6 +484,8 @@ def merge_markup(annotations: tuple, bars, mark_type, color: tuple) -> tuple:
             continue
         if _same_color(mark.color, color):
             absorbed.extend(mark.rects)
+            if mark.note:
+                notes.append(mark.note)
             if insert_at is None:
                 insert_at = len(result)          # take over the topmost slot we vacate
             continue
@@ -468,7 +493,7 @@ def merge_markup(annotations: tuple, bars, mark_type, color: tuple) -> tuple:
         trimmed = _subtract_bars(mark.rects, new_bars)
         if trimmed:
             result.append(replace(mark, rects=trimmed))
-    merged = mark_type(_union_bars(absorbed), color=color)
+    merged = mark_type(_union_bars(absorbed), color=color, note=_NOTE_JOIN.join(notes))
     result.insert(len(result) if insert_at is None else insert_at, merged)
     return tuple(result)
 
@@ -622,7 +647,7 @@ def apply_annotations(page: fitz.Page, annotations: tuple) -> None:
         if isinstance(annotation, Highlight):
             annot = page.add_highlight_annot([fitz.Rect(r) for r in annotation.rects])
             annot.set_colors(stroke=annotation.color)
-            annot.set_info(title=KLARPDF_AUTHOR)
+            annot.set_info(title=KLARPDF_AUTHOR, content=annotation.note)
             annot.update()
         elif isinstance(annotation, (Underline, Strikeout)):
             add = (
@@ -632,7 +657,7 @@ def apply_annotations(page: fitz.Page, annotations: tuple) -> None:
             )
             annot = add([fitz.Rect(r) for r in annotation.rects])
             annot.set_colors(stroke=annotation.color)
-            annot.set_info(title=KLARPDF_AUTHOR)
+            annot.set_info(title=KLARPDF_AUTHOR, content=annotation.note)
             annot.update()
         elif isinstance(annotation, InkStroke):
             annot = page.add_ink_annot([list(path) for path in annotation.paths])  # seq of (x, y)
@@ -832,12 +857,14 @@ def parse_annotation(annot: fitz.Annot):
     if kind == fitz.PDF_ANNOT_HIGHLIGHT:
         stroke = annot.colors.get("stroke")
         color = tuple(stroke) if stroke else Highlight.color
-        result.append(Highlight(_quads_to_rects(annot.vertices), color=color))
+        result.append(Highlight(_quads_to_rects(annot.vertices), color=color,
+                                note=annot.info.get("content", "")))
     elif kind in (fitz.PDF_ANNOT_UNDERLINE, fitz.PDF_ANNOT_STRIKE_OUT):
         cls = Underline if kind == fitz.PDF_ANNOT_UNDERLINE else Strikeout
         stroke = annot.colors.get("stroke")
         color = tuple(stroke) if stroke else cls.color
-        result.append(cls(_quads_to_rects(annot.vertices), color=color))
+        result.append(cls(_quads_to_rects(annot.vertices), color=color,
+                          note=annot.info.get("content", "")))
     elif kind == fitz.PDF_ANNOT_INK:
         paths = tuple(tuple((p[0], p[1]) for p in path) for path in annot.vertices)
         result.append(InkStroke(paths, color=_stroke_color(annot, InkStroke.color),

@@ -278,6 +278,15 @@ def degradations(annot: "fitz.Annot") -> list[str]:
         lost.append("its callout line")
     if has("IRT"):
         lost.append("its reply thread")
+    # /Contents — the mark's comment (M81.3). Until M81 this was checked nowhere, so adopting a
+    # commented foreign highlight dropped the comment in silence and this function's own contract
+    # ("empty means adoption is lossless") was false in two clicks on any reviewed PDF. The text
+    # markup kinds now *carry* it (`note` on Highlight/Underline/Strikeout) and a FreeText's
+    # /Contents **is** its text, so for those five nothing is lost and nothing is said. The four
+    # drawn kinds have no field to hold a comment, so there the loss is real — and must be said.
+    if kind in (fitz.PDF_ANNOT_INK, fitz.PDF_ANNOT_LINE,
+                fitz.PDF_ANNOT_SQUARE, fitz.PDF_ANNOT_CIRCLE) and has("Contents"):
+        lost.append("its comment")
     dash = doc.xref_get_key(annot.xref, "BS/D")
     if dash[0] == "array" and dash[1].strip("[] "):
         lost.append("its dashed border")
