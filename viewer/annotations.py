@@ -736,16 +736,24 @@ class AnnotationOverlay:
             live.append(annot)
         return tuple(live)
 
-    def foreign_annotation_at(self, scene_pt):
+    def foreign_annotation_at(self, scene_pt, *, free_placed_only: bool = False):
         """The ``(page_index, ForeignAnnot)`` under ``scene_pt``, topmost first, else None.
 
         Deliberately consulted *after* our own marks everywhere it is used: an editable mark the user
         just placed should win over a foreign one it happens to sit on.
+
+        ``free_placed_only`` skips text markup (M82) — the *drag* callers pass it, so a highlight is
+        transparent to a press. Filtering inside the loop rather than at the result matters: a
+        sticky note lying under an Edge highlight is still the mark the press meant.
         """
+        from model.foreign_annots import is_free_placed
+
         page_index, local = self._view.page_and_local_at(scene_pt)
         if page_index is None:
             return None
         for annot in reversed(self.foreign_annotations(page_index)):
+            if free_placed_only and not is_free_placed(annot):
+                continue
             x0, y0, x1, y1 = annot.rect
             if (x0 - _HIT_PAD <= local.x() <= x1 + _HIT_PAD
                     and y0 - _HIT_PAD <= local.y() <= y1 + _HIT_PAD):
@@ -753,16 +761,24 @@ class AnnotationOverlay:
         return None
 
     def begin_foreign_move(self, scene_pt) -> bool:
-        """Press on a foreign annotation → start dragging it (M67). True if it grabbed one.
+        """Press on a **free-placed** foreign annotation → start dragging it (M67). True if it
+        grabbed one.
 
         Tried only *after* our own marks, so an editable mark always wins a shared spot. The drag
         previews as a dashed ghost box, the same affordance our own marks use — the annotation
         itself keeps rendering in place until the move commits, because its appearance lives in the
         page pixmap and is exactly what must not be re-rendered.
+
+        **Text markup is not a drag target** (M82). It is not merely that moving a highlight marks
+        nothing: this runs in the SELECT-mode press path *before* text selection, so without the
+        gate, dragging across an Edge- or Acrobat-highlighted passage dragged the highlight instead
+        of selecting the words — the reader could not select the very text a reviewer had marked for
+        their attention. :meth:`covers_page` exists because a grabbable full-page watermark caused
+        the same symptom for our own marks; this is that lesson generalised.
         """
         if self._view.rotation != 0:
             return False
-        hit = self.foreign_annotation_at(scene_pt)
+        hit = self.foreign_annotation_at(scene_pt, free_placed_only=True)
         if hit is None:
             return False
         page_index, mark = hit
