@@ -57,10 +57,15 @@ def test_armed_text_tool_paints_the_selection_in_its_target_colour(view):
     """An armed Highlight / Redact-text paints the live selection in the tool's final colour, so
     there's no blue→colour flip when it lands on release; a plain selection stays selection-blue.
     Highlight follows the sticky colour the window keeps on the view (M76.2), falling back to the
-    default yellow when none is wired (this raw-view fixture)."""
+    default yellow when none is wired (this raw-view fixture).
+
+    Since **M84.2** a highlight preview is **opaque** — it paints through ``MultiplyRectItem``, and
+    multiply supplies the translucency, so an alpha here would wash the colour a second time and
+    make the mark jump vivid on release. Redact and the plain selection are unchanged: they are
+    ordinary source-over fills. See test_highlight_blending.py for the pixel-level contract."""
     from PySide6.QtGui import QColor
 
-    from viewer.text_selection import _HIGHLIGHT_ARMED, _REDACT_ARMED, _SELECTION
+    from viewer.text_selection import _HIGHLIGHT_FALLBACK, _REDACT_ARMED, _SELECTION
     from viewer.tools import ArmedTool
 
     sel = view.selection
@@ -72,16 +77,15 @@ def test_armed_text_tool_paints_the_selection_in_its_target_colour(view):
         assert sel._items, "expected a painted selection rect"
         return sel._items[0].brush().color()
 
-    assert colour_after(lambda: view.arm(ArmedTool.HIGHLIGHT)) == _HIGHLIGHT_ARMED  # fallback
+    assert colour_after(lambda: view.arm(ArmedTool.HIGHLIGHT)) == QColor.fromRgbF(
+        *_HIGHLIGHT_FALLBACK)                                              # fallback, full alpha
     assert colour_after(lambda: view.arm(ArmedTool.REDACT_TEXT)) == _REDACT_ARMED
     assert colour_after(lambda: view.disarm()) == _SELECTION
 
     # With a sticky colour wired, an armed Highlight previews *that* colour from the first drag —
     # the fix for the owner-reported yellow flash that only "converted" on release.
     view.highlight_preview_color = (0.55, 0.80, 1.00)  # blue
-    expected = QColor.fromRgbF(0.55, 0.80, 1.00)
-    expected.setAlpha(120)
-    assert colour_after(lambda: view.arm(ArmedTool.HIGHLIGHT)) == expected
+    assert colour_after(lambda: view.arm(ArmedTool.HIGHLIGHT)) == QColor.fromRgbF(0.55, 0.80, 1.00)
 
 
 def test_mode_toggle_in_toolbar_is_exclusive(qapp, a_pdf, tmp_path):

@@ -18,6 +18,7 @@ from __future__ import annotations
 from PySide6.QtGui import QBrush, QColor, QGuiApplication
 from PySide6.QtWidgets import QGraphicsRectItem
 
+from viewer.blend import MultiplyRectItem
 from viewer.tools import ArmedTool
 
 _SELECTION = QColor(0, 120, 215, 80)   # translucent selection blue (normal text selection)
@@ -29,10 +30,15 @@ _SELECTION = QColor(0, 120, 215, 80)   # translucent selection blue (normal text
 # chosen, which then visibly "converted" on release; owner report). Underline/strikeout stay the
 # selection blue on purpose: their mark is a thin line, and washing the whole band in opaque red
 # would preview something the release does not produce. Black ~ the opaque redaction bar.
-_HIGHLIGHT_ARMED = QColor(255, 219, 26, 120)   # the default-yellow fallback (no provider wired)
+#
+# The armed *highlight* is not in the table below, because since M84.2 it is not a colour but a
+# whole paint recipe — opaque, multiply-blended, matching the committed mark exactly. Keeping its
+# fallback here as a fourth QColor would have left two paths for one tool, and the un-wired one
+# (this fixture-only case) would still have alpha-blended: pale preview, vivid mark. It lives in
+# `_highlight_preview_rgb` with the wired case instead, as raw RGB.
+_HIGHLIGHT_FALLBACK = (1.0, 0.86, 0.10)   # Highlight's own default, for when nothing is wired
 _REDACT_ARMED = QColor(0, 0, 0, 130)
 _ARMED_SELECTION_COLOUR = {
-    ArmedTool.HIGHLIGHT: _HIGHLIGHT_ARMED,
     ArmedTool.REDACT_TEXT: _REDACT_ARMED,
 }
 _DRAG_THRESHOLD = 4.0  # scene units the pointer must move before a drag counts as a selection
@@ -220,20 +226,32 @@ class TextSelection:
                 pass  # already destroyed by scene.clear() during a rebuild
         self._items.clear()
 
+    def _highlight_preview_rgb(self):
+        """The sticky highlight colour when a Highlight drag is armed, else ``None``.
+
+        Split out because the answer decides **two** things — the brush *and* the blend mode — and
+        a preview that got one without the other is exactly the flip M84.2 exists to prevent.
+        """
+        if self._view.armed is ArmedTool.HIGHLIGHT:
+            return self._view.highlight_preview_color or _HIGHLIGHT_FALLBACK
+        return None
+
     def _armed_brush(self) -> QBrush:
         """The colour the live selection paints in. A plain selection is the selection blue; an
         armed drag-over-text tool previews in its *final* colour so the applied mark replaces it
         seamlessly (no colour flip on release). Highlight reads the sticky colour the window keeps
         on the view (M76.2), so the chosen colour shows from the first drag — the constant here is
-        only the default-yellow fallback when no colour has been wired."""
-        armed = self._view.armed
-        if armed is ArmedTool.HIGHLIGHT:
-            rgb = self._view.highlight_preview_color
-            if rgb is not None:
-                colour = QColor.fromRgbF(*rgb)
-                colour.setAlpha(120)  # the same translucency the old fixed yellow used
-                return QBrush(colour)
-        return QBrush(_ARMED_SELECTION_COLOUR.get(armed, _SELECTION))
+        only the default-yellow fallback when no colour has been wired.
+
+        A highlight preview is **opaque**, because it paints through :class:`MultiplyRectItem`
+        (M84.2): multiply supplies the translucency, and the alpha 120 this used to carry would
+        wash the colour a second time — leaving the preview pale and making the committed mark
+        jump vivid on release. The M73 sticky-markup flow shows that preview constantly, so the
+        two have to move together."""
+        rgb = self._highlight_preview_rgb()
+        if rgb is not None:
+            return QBrush(QColor.fromRgbF(*rgb))
+        return QBrush(_ARMED_SELECTION_COLOUR.get(self._view.armed, _SELECTION))
 
     def repaint(self) -> None:
         """Rebuild highlight rects from the logical selection (also called after zoom/rebuild)."""
@@ -242,9 +260,13 @@ class TextSelection:
             return
         scene = self._view.scene()
         brush = self._armed_brush()
+        # Only a highlight preview multiplies. A plain selection is a *selection indicator*, not a
+        # mark — the selection blue must stay source-over, and so must the underline / strikeout
+        # bands, whose committed mark is a thin line rather than a fill.
+        item_type = QGraphicsRectItem if self._highlight_preview_rgb() is None else MultiplyRectItem
         for page_index, _i, w in self.selected_words():
             rect = self._view.scene_rect_for_box(page_index, (w[0], w[1], w[2], w[3]))
-            item = QGraphicsRectItem(rect)
+            item = item_type(rect)
             item.setBrush(brush)
             item.setPen(QColor(0, 0, 0, 0))
             item.setZValue(10)
