@@ -1146,17 +1146,30 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     there is a test that invents one. `mark_bounds()` was rewritten as the union of `rects_of`, so
     the outline/handle geometry and the hit-test geometry now have a single source instead of two
     that happened to agree
-- [ ] **M84** Highlights render dull — **the preview alpha-blends what the file multiplies**
+- [x] **M84** Highlights rendered dull — **the preview alpha-blended what the file multiplies**
   (owner-reported: "our highlight color appear very dull compared to Edge, can we revisit our
-  palette?"). **Investigated: the palette is fine and stays unchanged.** `setAlpha(110)` washes
+  palette?"). **Investigated: the palette is fine and is unchanged.** `setAlpha(110)` washed
   colours toward the white page — measured saturation **2.3×–2.4× lower** than it should be, and
-  black text under a highlight washed to olive, so the mark *reduces* legibility. Meanwhile PyMuPDF
-  writes our saved highlights with `/BM /Multiply`, so **our viewer shows them duller than the file
-  we just wrote**. The idiom already exists in the same module (`_MultiplyPixmapItem`, whose
-  docstring argues this very point). Spec in `PLAN.md` §M84.
-  - [ ] **M84.1** Multiply-blend the committed highlight (a `_MultiplyRectItem` sibling)
-  - [ ] **M84.2** Same for the live drag-over-text preview, or arming looks pale and the mark jumps
-    vivid on release
+  black text under a highlight washed to olive, so the mark *reduced* legibility. Meanwhile PyMuPDF
+  writes our saved highlights with `/BM /Multiply`, so **our viewer showed them duller than the file
+  we had just written**. The idiom already existed in the same module (`_MultiplyPixmapItem`, whose
+  docstring argues this very point) — highlights simply never got it, which is why both multiply
+  items now live in **`viewer/blend.py`**: two overlays need them, and burying the principle beside
+  one caller is how it went five milestones unnoticed. Spec in `PLAN.md` §M84.
+  — *Windows (offscreen GUI, pixel-measured)* — 21 new tests (16 of them verified red before the
+  fix), 1362 green
+  - [x] **M84.1** Multiply-blend the committed highlight (a `MultiplyRectItem` sibling), at **full
+    alpha** — multiply supplies the translucency, and an alpha on top of it would wash the colour a
+    second time. Measured against a running window: yellow over paper goes (255, 240, 156) →
+    **(255, 219, 26)**, and black text under it (110, 95, 11) → **(0, 0, 0)**, matching the
+    investigation's numbers exactly. The strongest test renders the **saved PDF** with PyMuPDF at
+    the same scale and compares pixel to pixel — the claim is fidelity, not taste
+  - [x] **M84.2** Same for the live drag-over-text preview, or arming looks pale and the mark jumps
+    vivid on release. This turned up a **third** path: the un-wired fallback colour lived in the
+    armed-colour table as a fourth `QColor` at alpha 120, so it would have stayed pale while the
+    wired case went vivid. The existing M76.2 test caught it; the table no longer carries a
+    highlight entry at all, and the whole tool — wired or not — resolves in one place. Redact and
+    the plain selection stay source-over: a selection indicator is not a mark
 - [ ] **M85** Current-page tracking is wrong for short pages (owner-reported on `IAS_CaseStudy.pdf`:
   "I clicked on slide 1 thumbnail and it resulted in showing both Slide 1 and 2 as selected… then as
   I made the window wider, the current slide changed to 4 and then to 5 without me clicking").

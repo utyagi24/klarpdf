@@ -64,6 +64,7 @@ from model.page_edits import (
     scale_mark,
     translate_mark,
 )
+from viewer.blend import MultiplyPixmapItem, MultiplyRectItem
 from viewer.markup_style import MarkupStyle
 from viewer.resize_handles import ResizeHandles, resized_rect
 from viewer.tools import ArmedTool
@@ -226,22 +227,6 @@ def mark_noun(mark) -> str:
 
 def _move_label(mark) -> str:
     return f"Move {mark_noun(mark)}"
-
-
-class _MultiplyPixmapItem(QGraphicsPixmapItem):
-    """A pixmap painted with **multiply** blending — the under-the-content watermark preview.
-
-    A watermark bakes *beneath* the page content (``show_pdf_page(overlay=False)``), and a scene
-    item cannot be painted beneath the page's own pixmap: z-order below the page just hides it.
-    Multiply reproduces what the reader actually sees, because painting a translucent mark under
-    black text and multiplying a translucent mark over black text give the same result — the text
-    stays black and the mark shows everywhere else. The saved file is unaffected either way; this
-    is purely so the preview does not lie about legibility.
-    """
-
-    def paint(self, painter, option, widget=None) -> None:
-        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Multiply)
-        super().paint(painter, option, widget)
 
 
 class _TextBoxEditor(QPlainTextEdit):
@@ -431,11 +416,15 @@ class AnnotationOverlay:
             for index, annot in enumerate(annotations):
                 z = self._annot_z(index, count)
                 if isinstance(annot, Highlight):
-                    fill = QColor.fromRgbF(*annot.color)
-                    fill.setAlpha(110)
-                    brush = QBrush(fill)
+                    # Multiply, at full alpha (M84.1) — see viewer/blend.py. This used to be
+                    # `setAlpha(110)`, plain source-over, which washed yellow from (255, 219, 26)
+                    # to (255, 240, 156) and turned the black text under it olive (110, 95, 11):
+                    # a highlighter that *reduced* legibility. The saved file was never wrong —
+                    # PyMuPDF bakes highlights with /BM /Multiply — so the same passage looked
+                    # more vivid reopened in Edge than it did in the app that drew it.
+                    brush = QBrush(QColor.fromRgbF(*annot.color))
                     for box in annot.rects:
-                        item = QGraphicsRectItem(self._view.scene_rect_for_box(page_index, box))
+                        item = MultiplyRectItem(self._view.scene_rect_for_box(page_index, box))
                         item.setBrush(brush)
                         item.setPen(QColor(0, 0, 0, 0))
                         item.setZValue(z)
@@ -553,7 +542,7 @@ class AnnotationOverlay:
         # a rotated mark ends up smaller than its box. Reproduce that shrink here or the preview
         # overstates a diagonal watermark by ~1.8x.
         fit = _rotation_fit(annot)
-        item = _MultiplyPixmapItem(pixmap) if annot.under else QGraphicsPixmapItem(pixmap)
+        item = MultiplyPixmapItem(pixmap) if annot.under else QGraphicsPixmapItem(pixmap)
         item.setTransformationMode(Qt.TransformationMode.SmoothTransformation)
         item.setScale(rect.width() * fit / pixmap.width())
         # Qt applies scale *and* rotation about the transform origin, leaving that one point fixed
