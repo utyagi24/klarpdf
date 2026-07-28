@@ -1481,6 +1481,77 @@ never its problem.
 Ctrl+A selects nothing and Find never matches** in this document. Edge behaves identically; it is
 correct for an image-only PDF.
 
+### M85 — Notes on text markup (owner-specified 2026-07-27)
+
+Closes the gap §Future enhancements never recorded: KlarPDF can *display, move and delete* a foreign
+sticky note but has never been able to make one, and M77's own wording flagged it — foreign notes are
+"'notes' arriving from another tool **ahead of our own**".
+
+**The owner's specification.** A note is **attached to exactly one Highlight / Underline / Strikeout**
+(HUS) mark, never free-floating:
+
+1. A note can be attached to **any** existing HUS mark.
+2. Removing the host mark removes its note.
+3. The note's background is its host's colour.
+4. Applying a note to a **text selection** resolves its host by what is already there: if the
+   selection **already carries an HUS mark, the note attaches to that mark** — no new mark is
+   created; only if the selection is **plain text with no pre-existing HUS** does it **create a
+   Highlight** in the current highlight colour and attach the note to that. (Owner clarification,
+   2026-07-27: attaching is the primary act; creating a highlight is the fallback when there is
+   nothing to attach to.)
+5. Adding further HUS marks over the same text does not move or copy the note — it dies with **its
+   own** host, not with any mark covering that passage.
+6. **Host resolution when several marks qualify** (owner, 2026-07-27): the app deliberately allows
+   layered HUS — M59.10 scopes merging *per type*, so a yellow highlight and a red underline on the
+   same words are independent marks. When a selection carries more than one, **a Highlight wins;
+   failing that, the topmost** of the underline/strikeout marks. Deterministic, and it keeps a note's
+   background usually the highlight colour a reader already associates with the passage (rule 3).
+
+**Why this shape is cheap: the note is a *field of the host*, not an object.** `Highlight`,
+`Underline` and `Strikeout` are frozen dataclasses carrying only `rects` and `color`; adding
+`note: str = ""` makes rules 2 and 5 **fall out with no code** — there is no second object, no parent
+pointer, and no referential integrity to keep. Deleting the mark deletes the note because the note
+*is* part of the mark.
+
+**And the PDF representation already exists.** A markup annotation's `/Contents` **is** a comment on
+that highlight — what Acrobat, Preview and Edge all read and write. We already call
+`annot.set_info(title=KLARPDF_AUTHOR)` when baking, so this becomes
+`set_info(title=…, content=note)`; read-back mirrors what `TextBox` already does with
+`info["content"]`. **Verified 2026-07-27** on the pinned PyMuPDF: `/Contents` round-trips on a
+Highlight alongside our `/T` tag, and — importantly — the note text does **not** appear in
+`search_for` or `get_text()`, so notes stay invisible to Find with **no change to the PR #190 search
+filter**, exactly as that decision intends (annotation text is not body text). PyMuPDF writes no
+`/Popup` object; `/Contents` alone is valid and other viewers display it.
+
+**The one collision the specification did not cover — `merge_markup`.** Re-marking absorbs same-colour
+marks and rebuilds the survivor from scratch: `merged = mark_type(_union_bars(absorbed), color=color)`
+— bars and colour only. A note on an absorbed mark would be **silently destroyed**, with the user
+having deleted nothing: they highlighted adjacent text and their typed note vanished. (The
+different-colour *trim* path one line above uses `dataclasses.replace` and already preserves extra
+fields, so only the absorb path is unsafe.) **Owner decision: the merged mark keeps the notes** —
+inherit, and where several absorbed marks carry notes, join them with a separator. Nothing typed is
+ever lost, and undo restores the prior state.
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M85.1** Model + round-trip | `note: str = ""` on `Highlight` / `Underline` / `Strikeout`; baked via `set_info(content=…)`; parsed back in `parse_annotation` beside the existing `TextBox` content read. No new mark type, no new PDF construct. | WSL (model+tests) | A noted mark saves, reopens and still carries its note; a note survives save→reopen→save unchanged; Find never matches note text |
+| **M85.2** Merge preserves notes | The absorb path in `merge_markup` carries notes onto the survivor, joining multiples with a separator; the trim path already preserves them via `replace`. | WSL (model+tests) | Extending a noted highlight keeps the note; sweeping across two noted marks yields both notes joined; a trimmed mark keeps its own note; one undo step restores everything |
+| **M85.3** Create + edit | **Note** verb on the **Markup ▾** dropdown (no new toolbar slot — it is a text-markup verb, and §Design budgets holds the bar at ~10) plus **Add / Edit / Remove Note** on the existing M76 markup context menu. Applying to a selection **resolves the host first** (rule 4): an existing HUS under the selection receives the note as-is; only plain text with no HUS creates a Highlight, and that creation plus the attach is **one undo macro**. One-shot, not sticky like M73's HUS quartet — writing a note is a deliberate single act. Clearing a note's text removes the note and **leaves the mark**. | WSLg | A selection already carrying a highlight gets the note on *that* mark with no second mark created and its geometry unchanged; a plain selection makes a highlight in the current colour with the note attached, one undo; a selection carrying both a highlight and an underline attaches to the **highlight** (rule 6); emptying the text drops the note, not the highlight |
+| **M85.4** On-page affordance | A small note glyph on the marked passage — without one a note is invisible until the exact mark is right-clicked. Click/hover opens it. The editor reuses the `_TextBoxEditor` idiom (a `QPlainTextEdit` child of the viewport), so focus, clipboard routing and the Space/Home key guards of M81 behave as they already do. | WSLg | The glyph appears only on noted marks, is legible at low zoom, does not obscure the marked text, and re-tints with the theme |
+| **M85.5** Annotations sidebar | Noted marks show their note in the M77 panel — the panel that already exists as "a reading of the document's margin" — and are editable there. | WSLg | A note shows in the sidebar; editing there and on the page agree; deleting the host removes the row |
+| **M85.6** Foreign notes | A foreign markup's `/Contents` displays as a **read-only** note and lists in the sidebar, consistent with M68 (foreign marks are not editable until adopted). **Adopting** one (M68 double-click) carries the note across into the editable KlarPDF mark. M66/M67 already parse and move these annotations, so the read side is largely built. | WSL + WSLg | An Acrobat/Preview commented highlight shows its note read-only; adopting it makes the note editable and it round-trips as ours |
+
+**Owner decisions, recorded so they are not relitigated** (all 2026-07-27): merged marks **keep and
+join** notes rather than dropping them or refusing to merge; a note takes **its host's** colour, so a
+note on a red underline is red (not always highlight-yellow); foreign comments are **shown read-only
+and adopted on edit** rather than ignored; and the affordance is **both** an on-page glyph and the
+sidebar, because a sidebar-only note is undiscoverable when the sidebar is closed.
+
+**Interactions to respect.** Notes ride the HUS marks, which are exactly the types M77 already lists
+(`is_listed`), so no panel-existence logic changes. `Ctrl+A` (M81.6) and Find remain body-text-only, so
+neither reaches note text. And a document whose *only* marks are notes-on-highlights already has
+listed markup, so the Annotations tab's existence check needs nothing new.
+
 ### Deferred, with the condition for revisiting
 
 - **C — scale existing pixmaps during the gesture, re-rasterise on settle.** Gives 60 fps zoom feel,

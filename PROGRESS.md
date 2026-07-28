@@ -1129,6 +1129,26 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   - [ ] **M84.2** Keep the thumbnail's current row and selection in step when the *view* drives the
     change — but leave **multi-row** selections alone, so a Ctrl-click selection staged for a page
     operation survives scrolling
+- [ ] **M85** **Notes on text markup** (owner-specified 2026-07-27). Closes a gap the plan never
+  recorded: we can display, move and delete a *foreign* sticky note but have never been able to make
+  one — M77's own wording called foreign notes "'notes' arriving from another tool **ahead of our
+  own**". A note attaches to **exactly one** Highlight/Underline/Strikeout, never free-floating.
+  Spec + the six rules in `PLAN.md` §M85.
+  - [ ] **M85.1** Model + round-trip — `note: str = ""` on the three HUS dataclasses, baked as the
+    annotation's `/Contents`. **Cheap by construction**: the note is a *field of the host*, so "delete
+    the mark, delete the note" needs no code, and `/Contents` is what Acrobat/Preview/Edge already
+    use, so notes interoperate with no custom encoding. Verified on the pinned PyMuPDF: round-trips
+    beside our `/T` tag, and note text does **not** reach `search_for`/`get_text()`, so Find stays
+    body-text-only with **no change** to the PR #190 search filter
+  - [ ] **M85.2** Merge preserves notes — **the one case the spec didn't cover**: `merge_markup`
+    rebuilds an absorbed mark from bars+colour only, so a note would be *silently destroyed* by
+    highlighting adjacent text. Owner call: the merged mark **keeps and joins** them
+  - [ ] **M85.3** Create + edit — Note verb on **Markup ▾** (no new toolbar slot) + the M76 context
+    menu. Attaching is primary; creating a highlight is the fallback when the selection has no HUS
+  - [ ] **M85.4** On-page glyph, so a note isn't invisible until you right-click the exact mark
+  - [ ] **M85.5** Annotations sidebar shows and edits notes (M77 panel, already "a reading of the
+    document's margin")
+  - [ ] **M85.6** Foreign `/Contents` shows **read-only**, and M68 adopt-on-edit carries it across
 - **Corner-case document analysis** (`PLAN.md` §The corner-case document) — `IAS_CaseStudy.pdf`,
   owner-supplied: 75.6 MB, 18 pages of 1920×1080 pt, **no text layer**, 95 MB of embedded images.
   Opens in **11.19 s**, of which **10.0 s is `fz_run_display_list`** — decoding imagery, not our
