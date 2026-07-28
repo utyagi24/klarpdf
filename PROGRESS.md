@@ -1071,122 +1071,113 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     horizontally · no momentary hand-pan · no `Ctrl+A` · `Ctrl+=` unbound because Qt's `ZoomIn` is
     `Ctrl++` · pinch-zoom unconsumed). Listed in `PLAN.md` §M80 → **now scheduled as M81** below,
     all but the hand-pan (dropped).
-- [ ] **M81** The rest of the reading-input conventions (owner-decided 2026-07-27, after a review
-  pass on the M80 audit). Six parts, all view-only, **stacked on M80** — M81.3 edits the same
-  `wheelEvent` and M81.5 calls M80's `anchor_pos` seam. Spec + rationale in `PLAN.md` §M81.
-  - [ ] **M81.1** `Home`/`End`/`Ctrl+Home`/`Ctrl+End` → **document** start/end (all four one verb)
-  - [ ] **M81.2** `Space`/`Shift+Space` → page down/up
-  - [ ] **M81.3** `Shift+wheel` → horizontal pan (an *override*: Qt's own scrolls vertically)
-  - [ ] **M81.4** `Ctrl+=` as a Zoom In alias (Qt's `ZoomIn` is `Ctrl++` = `Ctrl+Shift+=` on US)
-  - [ ] **M81.5** Pinch-zoom, anchored at the gesture centre — **needs hands-on Windows validation**
-  - [ ] **M81.6** `Ctrl+A` → select all text in the **whole** document (Edge/Brave behaviour),
-    **plus** the repaint rework it depends on: painting clipped to visible pages + each line's run
-    coalesced into one rect. Not optional — measured, one scene item per selected word makes
-    `scene.clear()` cost **20.6 s at 247k words** (a 500-page document), and `_build_scene` clears
-    on every zoom step. A pre-existing latent bug (a long drag-selection reaches it today); Ctrl+A
-    merely makes it one keystroke. The coalescing changes how *every* selection looks, so it is
-    reviewed on a rendered grab before merge.
-- [ ] **M82** Render-resource discipline (owner-decided 2026-07-27, out of profiling M80). M80 did not
-  make a zoom step slower — it made steps arrive **10–60× more often**, exposing costs that were
-  always there. Measured: **124 ms/event** on a notched wheel, **79 ms/event** on a touchpad, cache
-  saturated after one sweep. Spec + all measurements in `PLAN.md` §M82.
-  - [ ] **A** Collapse the 3 redundant `_render_visible()` passes per zoom to 1 — *lands in the M80
-    PR* (owner call: `main` must never hold the laggy version). Pre-existing waste, so it speeds up
-    every zoom, fit, rotate and two-page toggle
-  - [ ] **B** Coalesce the wheel gesture — accumulate deltas, apply once per frame — *lands in the
-    M80 PR*
-  - [ ] **M82.1** Adaptive prefetch (**F**) — `_PREFETCH = 2` is a fixed constant, fine at 1.5 MB/page
-    and harmful at 198 MB/page (~800 MB of unviewable prefetch at 500%). Highest value-per-line item
-  - [ ] **M82.2** Cache: entry count → **global byte ceiling**. Four defects: it is **per-window**
-    (N documents = N caches — every earlier figure was silently per-window), bounded by count not
-    bytes (48 entries = 70 MB of A4 but **4.5 GB of A0**), evicts pages still on screen, and holds
-    pixmaps for windows nobody is looking at. Sizing policy: retention driven by what responsiveness
-    needs, with a **1 GB global backstop** that only binds on exceptionally heavy documents — "just
-    because resources are available should not imply that we stop being stingy" (owner)
-- [ ] **M83** DPI correctness — what "100%" means (owner-reported 2026-07-27: "why does the document
-  appear smaller than in Edge and Brave at the same zoom percentage?"). Because our 100% is 1 pt →
-  1 logical px at 96 DPI, so we show **75% of physical size and call it 100%**. Investigating it
-  surfaced a worse defect: **`devicePixelRatio` is handled nowhere**, so on the owner's 1.75× laptop
-  panel every page is upscaled and the **text is blurry** — on the sharper of their two screens.
-  View-only (print/export/thumbnails compute their own scale). Spec in `PLAN.md` §M83.
-  - [ ] **M83.1** 100% means true physical size (match Edge/Brave/Chrome/Acrobat)
-  - [ ] **M83.2** Honour `devicePixelRatio` — render at `zoom × dpr` — **needs hands-on Windows**
-  - [ ] **M83.3** Handle DPR changing at runtime when the window moves between the 1.75× and 1.0×
-    screens — required, not polish: a naive fix is right only on the screen it opened on
-  - [ ] **M83.4** Re-base Ctrl+0 "Actual Size" to physical size, so the name stops being a lie
-  - [ ] **M83.5** Migrate saved per-document zooms, so "remembers where I was" survives the change
-  - [ ] **M83.6** Zoom range → **25–500%**, sequenced *after* M83.1 (which shifts every number)
-- [ ] **M84** Current-page tracking is wrong for short pages (owner-reported 2026-07-27 on
-  `IAS_CaseStudy.pdf`: "I clicked on slide 1 thumbnail and it resulted in showing both Slide 1 and 2
-  as selected… then as I made the window wider, the current slide changed to 4 and then to 5 without
-  me clicking"). **Reproduced headlessly.** One root cause: `_update_current` picks the page under the
-  **viewport centre**, which breaks once a page is shorter than half the viewport — a 16:9 slide at
-  fit-width was 403 px tall in a 966 px viewport, so the centre landed 1.2 pages down. Ordinary A4
-  documents never reach it. Independent of the performance work — no part of A/B/F/E/M83 touches it.
-  Spec in `PLAN.md` §M84.
-  - [ ] **M84.1** Track the current page by **largest visible area**, not the viewport centre. Fixes
-    both symptoms on its own
-  - [ ] **M84.2** Keep the thumbnail's current row and selection in step when the *view* drives the
-    change — but leave **multi-row** selections alone, so a Ctrl-click selection staged for a page
-    operation survives scrolling
-- [ ] **M85** **Notes on text markup** (owner-specified 2026-07-27). Closes a gap the plan never
-  recorded: we can display, move and delete a *foreign* sticky note but have never been able to make
-  one — M77's own wording called foreign notes "'notes' arriving from another tool **ahead of our
-  own**". A note attaches to **exactly one** Highlight/Underline/Strikeout, never free-floating.
-  Spec + the six rules in `PLAN.md` §M85.
-  - [ ] **M85.1** Model + round-trip — `note: str = ""` on the three HUS dataclasses, baked as the
-    annotation's `/Contents`. **Cheap by construction**: the note is a *field of the host*, so "delete
-    the mark, delete the note" needs no code, and `/Contents` is what Acrobat/Preview/Edge already
-    use, so notes interoperate with no custom encoding. Verified on the pinned PyMuPDF: round-trips
-    beside our `/T` tag, and note text does **not** reach `search_for`/`get_text()`, so Find stays
-    body-text-only with **no change** to the PR #190 search filter
-  - [ ] **M85.2** Merge preserves notes — **the one case the spec didn't cover**: `merge_markup`
-    rebuilds an absorbed mark from bars+colour only, so a note would be *silently destroyed* by
-    highlighting adjacent text. Owner call: the merged mark **keeps and joins** them
-  - [ ] **M85.3** Create + edit — Note verb on **Markup ▾** (no new toolbar slot) + the M76 context
-    menu. Attaching is primary; creating a highlight is the fallback when the selection has no HUS
-  - [ ] **M85.4** On-page glyph, so a note isn't invisible until you right-click the exact mark
-  - [ ] **M85.5** Annotations sidebar shows and edits notes (M77 panel, already "a reading of the
-    document's margin")
-  - [ ] **M85.6** Foreign `/Contents` shows **read-only**, and M68 adopt-on-edit carries it across
-- [ ] **M86** The annotations tuple is heterogeneous, and only four of five hit-tests know it
-  (owner-reported 2026-07-27 while testing Edge interop, filed as "expose any unknown gap"). Spec in
-  `PLAN.md` §M86.
-  - [ ] **M86.1** `annotation_at` raises `AttributeError` on `ForeignDeletion`/`ForeignMove`, which
+- [ ] **M81** **Notes: the model, the round-trip, and the data loss it cures.** Two things in one
+  milestone because they are the same code. (1) ⚠️ **Live data loss in v0.16.2** — adopting a
+  *commented* foreign highlight silently destroys the comment: `parse_annotation` never reads
+  `/Contents` for HUS marks and `degradations()` never checks it, so M68's "empty means adoption is
+  lossless" contract is broken in two clicks on any Acrobat/Preview/Edge-reviewed PDF. (2) The
+  **note model** the owner specified — a note attached to exactly one Highlight/Underline/Strikeout,
+  stored as that annotation's `/Contents`, which is precisely what Edge and Acrobat already write.
+  Adding `note` to the three dataclasses **cures the data loss outright** rather than papering over
+  it with a warning, which is why it leads the tranche. Headless; the interface is M90. Spec in
+  `PLAN.md` §M81.
+  - [ ] **M81.1** `note: str = ""` on the HUS dataclasses; baked via `set_info(content=…)`; parsed
+    back in `parse_annotation`. Verified on the pinned PyMuPDF: round-trips beside our `/T` tag, and
+    note text reaches neither `search_for` nor `get_text()`, so Find stays body-text-only with **no
+    change** to the PR #190 search filter
+  - [ ] **M81.2** Merge preserves notes — `merge_markup` rebuilds an absorbed mark from bars+colour
+    only, so a note would be *silently destroyed* by highlighting adjacent text. Owner call: **keep
+    and join**
+  - [ ] **M81.3** Adoption carries the comment across, and `degradations()` stops lying
+- [ ] **M82** Foreign text markup is draggable — **and it steals the press from text selection**
+  (owner-reported on the Edge file). Our own HUS marks are deliberately undraggable (their quads
+  describe *text*); the foreign path has no type gate. Worse, `begin_foreign_move` runs **before text
+  selection** in the default SELECT mode, so **dragging across an Edge-highlighted passage drags the
+  highlight instead of selecting the text**. Same symptom `covers_page()` was written to fix for
+  watermarks, never generalised. Spec in `PLAN.md` §M82.
+  - [ ] **M82.1** Gate the foreign hit-test/move on free-placed types; sticky notes, stamps and
+    drawings stay draggable, delete stays available for every type
+  - [ ] **M82.2** Regression: press-drag across a foreign highlight selects the text under it
+- [ ] **M83** The annotations tuple is heterogeneous, and only four of five hit-tests know it
+  (owner-reported from a console traceback, filed as "expose any unknown gap"). Spec in
+  `PLAN.md` §M83.
+  - [ ] **M83.1** `annotation_at` raises `AttributeError` on `ForeignDeletion`/`ForeignMove`, which
     carry no geometry. **Not a crash** — Qt swallows exceptions from Python overrides of its
     virtuals, so the **context menu silently never appears**; every right-click in the page view is
     dead once a foreign annotation has been deleted, moved or adopted
-  - [ ] **M86.2** Replace the convention with a chokepoint — one `is_geometric()`/`rects_of()` that
+  - [ ] **M83.2** Replace the convention with a chokepoint — one `is_geometric()`/`rects_of()` that
     every hit-test uses. Four of five sites guard correctly today by habit, not by construction
-  - [ ] **M86.3** ⚠️ **Live data loss in v0.16.2** — adopting a *commented* foreign highlight
-    silently destroys the comment. `parse_annotation` never reads `/Contents` for HUS marks and
-    `degradations()` never checks it, so M68's "empty means adoption is lossless" contract is broken.
-    Two clicks on any Acrobat/Preview/Edge-reviewed PDF. **M85.1 cures it**; until then it must at
-    least warn
-- [ ] **M87** Highlights render dull — **the preview alpha-blends what the file multiplies**
-  (owner-reported 2026-07-27: "our highlight color appear very dull compared to Edge, can we revisit
-  our palette?"). **Investigated: the palette is fine and stays unchanged.** We paint with
-  `setAlpha(110)`, plain source-over, which washes colours toward the white page — measured
-  saturation is **2.3×–2.4× lower** than it should be, and black text under a highlight is washed to
-  olive, so the mark *reduces* legibility. Meanwhile PyMuPDF writes our saved highlights with
-  `/BM /Multiply`, so **our viewer shows them duller than the file we just wrote**. The idiom already
-  exists in the same module (`_MultiplyPixmapItem`, whose docstring argues this very point for the
-  watermark preview). Spec in `PLAN.md` §M87.
-  - [ ] **M87.1** Multiply-blend the committed highlight (a `_MultiplyRectItem` sibling)
-  - [ ] **M87.2** Same for the live drag-over-text preview, or arming looks pale and the mark jumps
+- [ ] **M84** Highlights render dull — **the preview alpha-blends what the file multiplies**
+  (owner-reported: "our highlight color appear very dull compared to Edge, can we revisit our
+  palette?"). **Investigated: the palette is fine and stays unchanged.** `setAlpha(110)` washes
+  colours toward the white page — measured saturation **2.3×–2.4× lower** than it should be, and
+  black text under a highlight washed to olive, so the mark *reduces* legibility. Meanwhile PyMuPDF
+  writes our saved highlights with `/BM /Multiply`, so **our viewer shows them duller than the file
+  we just wrote**. The idiom already exists in the same module (`_MultiplyPixmapItem`, whose
+  docstring argues this very point). Spec in `PLAN.md` §M84.
+  - [ ] **M84.1** Multiply-blend the committed highlight (a `_MultiplyRectItem` sibling)
+  - [ ] **M84.2** Same for the live drag-over-text preview, or arming looks pale and the mark jumps
     vivid on release
-- [ ] **M88** Foreign text markup is draggable — **and it steals the press from text selection**
-  (owner-reported 2026-07-27 on the Edge file: "lets me grab the text highlight added by Edge and
-  drag it around… we should **not** be able to"). An asymmetry: our own Highlight/Underline/Strikeout
-  are in neither `OBJECT_TYPES` nor `PLACEABLE_TYPES` — text markup describes *text*, so moving it
-  marks nothing — but the foreign path hit-tests every annotation by rect with no type gate. Worse,
-  `begin_foreign_move` runs **before text selection** in the default SELECT mode, so **dragging across
-  an Edge-highlighted passage drags the highlight instead of selecting the text** — the very passages
-  a reviewer marked for attention. Same symptom `covers_page()` was written to fix for watermarks,
-  never generalised. Spec in `PLAN.md` §M88.
-  - [ ] **M88.1** Gate the foreign hit-test/move on free-placed types; sticky notes, stamps and
-    drawings stay draggable, delete stays available for every type
-  - [ ] **M88.2** Regression: press-drag across a foreign highlight selects the text under it
+- [ ] **M85** Current-page tracking is wrong for short pages (owner-reported on `IAS_CaseStudy.pdf`:
+  "I clicked on slide 1 thumbnail and it resulted in showing both Slide 1 and 2 as selected… then as
+  I made the window wider, the current slide changed to 4 and then to 5 without me clicking").
+  **Reproduced headlessly.** One root cause: `_update_current` picks the page under the **viewport
+  centre**, which breaks once a page is shorter than half the viewport — a 16:9 slide at fit-width
+  was 403 px tall in a 966 px viewport, so the centre landed 1.2 pages down. Ordinary A4 documents
+  never reach it. Spec in `PLAN.md` §M85.
+  - [ ] **M85.1** Track the current page by **largest visible area**. Fixes both symptoms alone
+  - [ ] **M85.2** Keep the thumbnail's current row and selection in step when the *view* drives the
+    change — but leave **multi-row** selections alone, so a page-op selection survives scrolling
+- [ ] **M86** The two cheap zoom fixes (out of profiling M80). M80 did not make a zoom step slower —
+  it made steps arrive **10–60× more often**, exposing costs that were always there. Measured:
+  **124 ms/event** notched wheel, **79 ms/event** touchpad, cache saturated after one sweep. These
+  two were meant to ride M80's PR; **#197 merged without them**, so `main` carries the un-coalesced
+  wheel until they land. Spec in `PLAN.md` §M86.
+  - [ ] **M86.1** Collapse the 3 redundant `_render_visible()` passes per zoom to 1 (**A**).
+    Pre-existing waste, so it speeds up every zoom, fit, rotate and two-page toggle
+  - [ ] **M86.2** Coalesce the wheel gesture — accumulate deltas, apply once per frame (**B**)
+- [ ] **M87** Render-resource discipline — what the app *keeps*. **Sized against post-M88 numbers**,
+  since the DPI correction makes every page ~5.4× heavier. Spec in `PLAN.md` §M87.
+  - [ ] **M87.1** Adaptive prefetch (**F**) — `_PREFETCH = 2` is a fixed constant, fine at
+    1.5 MB/page and harmful at 198 MB/page (~800 MB of unviewable prefetch at 500%)
+  - [ ] **M87.2** Cache: entry count → **global byte ceiling**. Four defects: it is **per-window**
+    (N documents = N caches), bounded by count not bytes (48 entries = 70 MB of A4 but **4.5 GB of
+    A0**), evicts pages still on screen, and holds pixmaps for windows nobody is looking at. Sizing:
+    retention driven by what responsiveness needs, with a **1 GB global backstop** that only binds on
+    exceptionally heavy documents — "just because resources are available should not imply that we
+    stop being stingy" (owner)
+- [ ] **M88** DPI correctness — what "100%" means (owner-reported: "why does the document appear
+  smaller than in Edge and Brave at the same zoom percentage?"). Because our 100% is 1 pt → 1 logical
+  px at 96 DPI, so we show **75% of physical size and call it 100%**. Investigating it surfaced a
+  worse defect: **`devicePixelRatio` is handled nowhere**, so on a 1.75× laptop panel every page is
+  upscaled and the **text is blurry**. View-only. **Must follow M87** — see the renumbering note in
+  `PLAN.md`. Spec in `PLAN.md` §M88.
+  - [ ] **M88.1** 100% means true physical size (match Edge/Brave/Chrome/Acrobat)
+  - [ ] **M88.2** Honour `devicePixelRatio` — **needs hands-on Windows**
+  - [ ] **M88.3** Handle DPR changing at runtime when the window moves between the 1.75× and 1.0×
+    screens — required, not polish
+  - [ ] **M88.4** Re-base Ctrl+0 "Actual Size" to physical size, so the name stops being a lie
+  - [ ] **M88.5** Migrate saved per-document zooms
+  - [ ] **M88.6** Zoom range → **25–500%**, sequenced *after* M88.1 (which shifts every number)
+- [ ] **M89** The rest of the reading-input conventions. Six parts, all view-only; three PRs
+  (M89.1–.4 together, M89.5 alone, M89.6 alone). Spec in `PLAN.md` §M89.
+  - [ ] **M89.1** `Home`/`End`/`Ctrl+Home`/`Ctrl+End` → **document** start/end (all four one verb)
+  - [ ] **M89.2** `Space`/`Shift+Space` → page down/up
+  - [ ] **M89.3** `Shift+wheel` → horizontal pan (an *override*: Qt's own scrolls vertically)
+  - [ ] **M89.4** `Ctrl+=` as a Zoom In alias (Qt's `ZoomIn` is `Ctrl++` = `Ctrl+Shift+=` on US)
+  - [ ] **M89.5** Pinch-zoom, anchored at the gesture centre — **needs hands-on Windows validation**
+  - [ ] **M89.6** `Ctrl+A` → select all text in the **whole** document (Edge/Brave behaviour),
+    **plus** the repaint rework it depends on: painting clipped to visible pages + each line's run
+    coalesced into one rect. Not optional — measured, one scene item per selected word makes
+    `scene.clear()` cost **20.6 s at 247k words**, and `_build_scene` clears on every zoom step. A
+    pre-existing latent bug; Ctrl+A merely makes it one keystroke. The coalescing changes how *every*
+    selection looks, so it is reviewed on a rendered grab before merge
+- [ ] **M90** Notes: the interface — the visible half of M81. Spec in `PLAN.md` §M90.
+  - [ ] **M90.1** Create + edit — Note verb on **Markup ▾** (no new toolbar slot) + the M76 context
+    menu. Attaching is primary; creating a highlight is the fallback when the selection has no HUS
+  - [ ] **M90.2** On-page glyph, so a note isn't invisible until you right-click the exact mark
+  - [ ] **M90.3** Annotations sidebar shows and edits notes (M77 panel)
+  - [ ] **M90.4** Foreign `/Contents` shows **read-only**, and M68 adopt-on-edit carries it across
 - **Corner-case document analysis** (`PLAN.md` §The corner-case document) — `IAS_CaseStudy.pdf`,
   owner-supplied: 75.6 MB, 18 pages of 1920×1080 pt, **no text layer**, 95 MB of embedded images.
   Opens in **11.19 s**, of which **10.0 s is `fz_run_display_list`** — decoding imagery, not our
@@ -1195,11 +1186,11 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   was wrong), and **every distinct zoom re-decodes every visible page** (47–126 ms at the same zoom,
   1976–4831 ms at a new one), which is the reported zoom lag.
 - **Deferred, with the condition to revisit** (`PLAN.md` §Deferred): **C** pixmap preview during the
-  gesture — only if A+B+F leave zoom sluggish; **independent of E**, and E would make C *more*
+  gesture — only if M86 + M87.1 leave zoom sluggish; **independent of E**, and E would make C *more*
   valuable, not redundant (owner correction). **D** quantised zoom ladder — argued against, recorded
   so it isn't re-proposed as a free win. **E** background rendering — the only item that answers "the
   app must not appear blocked on a heavy document"; all rendering is synchronous today (verified: zero
-  threading in the codebase). Owner call was **F now, E only if still needed after A+B+F** — and the
+  threading in the codebase). Owner call was **F now, E only if still needed after M86 + M87.1** — and the
   corner-case measurement above **has met that gate**: 1–3 s per page per new zoom is irreducible
   decode work, so A/B/F reduce how often we pay it but only E stops the freeze. Now a scheduling
   question, not a justification one.
