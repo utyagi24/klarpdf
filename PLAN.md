@@ -1558,10 +1558,35 @@ The other half of the zoom work: what the app *keeps*, rather than how often it 
 against **post-M88** numbers, because the DPI correction makes every page ~5.4x heavier in memory —
 tuning this against today's figures would bake in an assumption that breaks the day M88 lands.
 
+**Premise check (2026-07-28, measured before building — offscreen, 60-page Letter at 1200×900).**
+Every number this milestone rested on was a projection. Three held, one was wrong, and one changes
+the milestone's priority:
+
+* **The byte figures below were ~27–33% low.** `QPixmap` is **32 bpp**, not the 24 bpp (`w × h × 3`)
+  assumed throughout — Qt stores it in the display format. Measured 1.85 MB for a Letter page at
+  100% where the tables said 1.5. The **5.4× ratio is unaffected** (it is geometric); every absolute
+  MB is not. The §M88 table below is corrected.
+* **The cache blowup is already live on `main` — it is not a post-M88 risk.** One 40-step Ctrl+wheel
+  sweep to max zoom on an ordinary 60-page Letter document peaks at **4.3 GB**, confirmed against
+  process working set (RSS 127 MB → **4431 MB**, peak 4669 MB), and the cache sits at exactly **48
+  entries** the whole way — the count-based limit does not bound bytes even slightly. Sweep ceilings:
+  → 2.0× = 286 MB, → 4.0× = 1100 MB, → 8.0× = 4317 MB. This makes **M87.2 a user-facing defect fix
+  today**, not preparation for M88, and is why it should ship first.
+* **M87.1's premise holds and was understated.** At zoom ≥ 2 the visible band is 2 pages while the
+  render band is 6, so **67% of rendered bytes are prefetch** — at 8× that is 237 MB visible against
+  **473 MB prefetched**. Confirmed for every zoom ≥ 1 (57% at 1.0×, 67% from 2.0× up).
+* **The five-window projection was accurate.** Five documents at post-M88 "100% physical" on the
+  1.75× panel: **199.6 MB** total (the estimate said ~198 MB), of which the focused window is
+  39.9 MB and the four background windows **159.7 MB** — so M87.2's background-drop target of
+  ~40 MB is exactly right.
+* **Ruled out, so nobody re-opens it: there is no leak on close.** `closeEvent` never clears
+  `_cache`, which looks like one, but destroying the view releases everything — 2124 MB → 90.6 MB
+  once the last reference goes. A `_cache.clear()` in `closeEvent` would be redundant.
+
 | Milestone | What | Where | Verify |
 | --- | --- | --- | --- |
-| **M87.1** Adaptive prefetch (**F**) | `_PREFETCH = 2` is a **fixed constant** — sound when a page was 1.5 MB, actively harmful once it is 198 MB (see M88). At 500% it prefetches ±2 pages that cannot come into view soon: ~800 MB of pure waste. Scale the prefetch band down as pixmap bytes grow. Highest value-per-line item on the list. | WSL (model+tests) | Prefetch shrinks as zoom/page size grows; the visible band is never starved; normal-zoom behaviour unchanged |
-| **M87.2** Cache: count → **global byte ceiling** | Four changes, each answering a specific defect. (1) **Global, not per-window** — `self._cache` is a `PdfView` instance attribute, one `PdfView` per `MainWindow`, one window per document, so **N open documents = N independent caches**; every figure quoted before this was silently per-window. (2) **Byte ceiling, not entry count** — 48 entries is 70 MB of A4 but **4.5 GB of A0**, because a rendered page costs `w × h × 3` and nothing else. (3) **Visible pages pinned, never evicted** — a better guarantee than a byte floor: thrashing becomes impossible by construction, and a single page larger than the whole budget (A0 at 500% ≈ 600 MB) still displays, temporarily exceeding the nominal ceiling. That is the graceful behaviour, not a leak. (4) **Background windows drop their pixmaps** — only one window is ever in front; re-render on focus is ~6 ms/page for text. | WSL (model+tests) | Ceiling honoured across windows; visible pages survive any eviction pass; a single over-budget page still renders; a backgrounded window releases; no thrash while scrolling |
+| **M87.1** Adaptive prefetch (**F**) — *premise measured, holds* | `_PREFETCH = 2` is a **fixed constant** — sound when a page was 1.85 MB, actively harmful once it is 264 MB (see M88). Scale the prefetch band down as pixmap bytes grow. **Measured 2026-07-28**: at zoom ≥ 2 the visible band is 2 pages and the render band 6, so **67% of rendered bytes are prefetch** — 237 MB visible against **473 MB prefetched** at 8×, and 57% waste even at 1.0×. The "~800 MB at 500%" estimate was the right shape; it is 473 MB at today's 8× ceiling and larger after M88. | WSL (model+tests) | Prefetch shrinks as zoom/page size grows; the visible band is never starved; normal-zoom behaviour unchanged |
+| **M87.2** Cache: count → **global byte ceiling** — *measured as a live defect; ship this first* | **Measured 2026-07-28**: one Ctrl+wheel sweep to max zoom on an ordinary 60-page Letter document takes the process from 127 MB to **4431 MB** of working set, with the cache pinned at exactly 48 entries throughout. That is on `main` **today**, with no DPI change involved — so this row is not preparation for M88, it is a defect a user can hit now, and it should lead the milestone. Four changes, each answering a specific defect. (1) **Global, not per-window** — `self._cache` is a `PdfView` instance attribute, one `PdfView` per `MainWindow`, one window per document, so **N open documents = N independent caches**; every figure quoted before this was silently per-window. (2) **Byte ceiling, not entry count** — 48 entries is 89 MB of A4 but **4.3 GB of zoomed Letter, measured**, because a rendered page costs `w × h × 4` and nothing else. (3) **Visible pages pinned, never evicted** — a better guarantee than a byte floor: thrashing becomes impossible by construction, and a single page larger than the whole budget (A0 at 500% ≈ 600 MB) still displays, temporarily exceeding the nominal ceiling. That is the graceful behaviour, not a leak. (4) **Background windows drop their pixmaps** — only one window is ever in front; re-render on focus is ~6 ms/page for text. | WSL (model+tests) | Ceiling honoured across windows; visible pages survive any eviction pass; a single over-budget page still renders; a backgrounded window releases; no thrash while scrolling |
 **The sizing policy (owner, 2026-07-27) — two numbers, not one.** "I am okay to go up to 1 GB
 (global, 3.125% on a 32 GB machine) **only if we are dealing with exceptionally heavy documents** …
 just because resources are available should not imply that we stop being stingy." So retention is
@@ -1616,13 +1641,19 @@ size is a preference you can zoom around; blurry text is the thing this app exis
 **The interaction that must be respected: this correction makes every page ~5.4× heavier**, so M87's sizing has to
 be decided against post-M88 numbers, not today's:
 
-| Case | Pixels | MB |
-| --- | --- | --- |
-| Today, 100%, either screen | 612×792 | 1.5 |
-| After, 100% physical, Dell (DPR 1.0) | 816×1056 | 2.6 |
-| After, 100% physical, laptop (DPR 1.75) | 1428×1848 | **7.9** |
-| After, 200% physical, laptop | 2856×3696 | 31.7 |
-| After, 500% physical (new max), laptop | 7140×9240 | **197.9** |
+Corrected 2026-07-28 to **measured** bytes. The original column assumed `w × h × 3`; `QPixmap` is
+32 bpp, so every figure was ~33% low. Pixel counts were right, and the ~5.4× ratio is unchanged.
+
+| Case | Pixels | MB (was) | **MB (measured)** |
+| --- | --- | --- | --- |
+| Today, 100%, either screen | 612×792 | 1.5 | **1.85** |
+| After, 100% physical, Dell (DPR 1.0) | 816×1056 | 2.6 | **3.29** |
+| After, 100% physical, laptop (DPR 1.75) | 1428×1848 | 7.9 | **10.07** |
+| After, 200% physical, laptop | 2856×3696 | 31.7 | **40.27** |
+| After, 500% physical (new max), laptop | 7140×9240 | 197.9 | **~264** |
+
+(The last row is extrapolated — today's 8× ceiling measures 118.34 MB at 4896×6336, and the ratio
+holds exactly.)
 
 Correct rendering is not free: sharp text at true size on a 1.75× panel genuinely needs 5.4× the
 pixels. The owner's stated common case — **several small PDFs open and juggled** — costs ~198 MB of

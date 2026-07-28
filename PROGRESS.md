@@ -1239,11 +1239,26 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     merge — and still drops 21 → 7 passes, which is M86.1 doing the work
 - [ ] **M87** Render-resource discipline — what the app *keeps*. **Sized against post-M88 numbers**,
   since the DPI correction makes every page ~5.4× heavier. Spec in `PLAN.md` §M87.
+  **Premise check done 2026-07-28 before building** (numbers + method in `PLAN.md` §M87). Three of
+  the milestone's four assumptions held, one was wrong, and one reorders the work:
+  **M87.2 goes first — it is a live defect, not preparation for M88.** One Ctrl+wheel sweep to max
+  zoom on an ordinary 60-page Letter document takes the process from **127 MB to 4431 MB** of
+  working set on `main` today, with the cache pinned at exactly 48 entries the whole way. Separately,
+  every byte figure in the plan was **~27–33% low**: `QPixmap` is **32 bpp**, not the 24 bpp the
+  tables assumed (the ~5.4× ratio is geometric and unaffected). Also ruled out, so it stays ruled
+  out: **there is no leak on close** — `closeEvent` never clears `_cache`, but destroying the view
+  releases it all (2124 MB → 90.6 MB)
   - [ ] **M87.1** Adaptive prefetch (**F**) — `_PREFETCH = 2` is a fixed constant, fine at
-    1.5 MB/page and harmful at 198 MB/page (~800 MB of unviewable prefetch at 500%)
-  - [ ] **M87.2** Cache: entry count → **global byte ceiling**. Four defects: it is **per-window**
-    (N documents = N caches), bounded by count not bytes (48 entries = 70 MB of A4 but **4.5 GB of
-    A0**), evicts pages still on screen, and holds pixmaps for windows nobody is looking at. Sizing:
+    1.85 MB/page and harmful at 264 MB/page. **Premise measured and understated**: at zoom ≥ 2 the
+    visible band is 2 pages and the render band 6, so **67% of rendered bytes are prefetch** —
+    237 MB visible against **473 MB prefetched** at 8×, and 57% waste even at 1.0×
+  - [ ] **M87.2** Cache: entry count → **global byte ceiling** — **do this one first** (measured as
+    a live defect: 127 MB → 4431 MB of working set from one zoom sweep on `main`, cache at 48
+    entries throughout). Four defects: it is **per-window**
+    (N documents = N caches), bounded by count not bytes (48 entries = 89 MB of A4 but **4.3 GB of
+    zoomed Letter, measured**), evicts pages still on screen, and holds pixmaps for windows nobody
+    is looking at — the last one measured at **159.7 MB across four background windows** against
+    39.9 MB for the focused one, so the ~40 MB drop target is exactly right. Sizing:
     retention driven by what responsiveness needs, with a **1 GB global backstop** that only binds on
     exceptionally heavy documents — "just because resources are available should not imply that we
     stop being stingy" (owner)
