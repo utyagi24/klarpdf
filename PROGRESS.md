@@ -1149,6 +1149,20 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   - [ ] **M85.5** Annotations sidebar shows and edits notes (M77 panel, already "a reading of the
     document's margin")
   - [ ] **M85.6** Foreign `/Contents` shows **read-only**, and M68 adopt-on-edit carries it across
+- [ ] **M86** The annotations tuple is heterogeneous, and only four of five hit-tests know it
+  (owner-reported 2026-07-27 while testing Edge interop, filed as "expose any unknown gap"). Spec in
+  `PLAN.md` §M86.
+  - [ ] **M86.1** `annotation_at` raises `AttributeError` on `ForeignDeletion`/`ForeignMove`, which
+    carry no geometry. **Not a crash** — Qt swallows exceptions from Python overrides of its
+    virtuals, so the **context menu silently never appears**; every right-click in the page view is
+    dead once a foreign annotation has been deleted, moved or adopted
+  - [ ] **M86.2** Replace the convention with a chokepoint — one `is_geometric()`/`rects_of()` that
+    every hit-test uses. Four of five sites guard correctly today by habit, not by construction
+  - [ ] **M86.3** ⚠️ **Live data loss in v0.16.2** — adopting a *commented* foreign highlight
+    silently destroys the comment. `parse_annotation` never reads `/Contents` for HUS marks and
+    `degradations()` never checks it, so M68's "empty means adoption is lossless" contract is broken.
+    Two clicks on any Acrobat/Preview/Edge-reviewed PDF. **M85.1 cures it**; until then it must at
+    least warn
 - **Corner-case document analysis** (`PLAN.md` §The corner-case document) — `IAS_CaseStudy.pdf`,
   owner-supplied: 75.6 MB, 18 pages of 1920×1080 pt, **no text layer**, 95 MB of embedded images.
   Opens in **11.19 s**, of which **10.0 s is `fz_run_display_list`** — decoding imagery, not our

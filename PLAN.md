@@ -1552,6 +1552,59 @@ sidebar, because a sidebar-only note is undiscoverable when the sidebar is close
 neither reaches note text. And a document whose *only* marks are notes-on-highlights already has
 listed markup, so the Annotations tab's existence check needs nothing new.
 
+### M86 — the annotations tuple is heterogeneous, and only four of five hit-tests know it
+
+**Owner-reported 2026-07-27** while testing interop with a PDF annotated in Edge — a console
+traceback, deliberately filed as "expose any unknown gap" rather than as a fix request:
+
+```
+AttributeError: 'ForeignDeletion' object has no attribute 'rect'
+  viewer/annotations.py:826 in annotation_at
+```
+
+**What the user sees is not a crash.** Qt swallows exceptions raised from a Python override of one of
+its virtuals, so the app survives and the **context menu silently never appears**. Once a document is
+in this state every right-click in the page view is dead, with no error surfaced — which is why it
+reached the console instead of a failure dialog.
+
+**Cause.** `PageRef.annotations` is a **heterogeneous tuple**: real marks *plus* non-geometric
+bookkeeping descriptors — `ForeignDeletion` (`fingerprint`, `label`) and `ForeignMove`
+(`fingerprint`, `dx`, `dy`, `label`). Riding the same tuple is deliberate (M66/M67): it is how they
+snapshot for undo and follow their page through a reorder. But `annotation_at` resolves geometry with
+`annot.rects if hasattr(annot, "rects") else (annot.rect,)`, which assumes every entry has some.
+
+**Trigger, matching the report exactly.** An Edge **sticky note is an unmodeled type**, so M68 leaves
+it delete/move-only — and deleting one is the obvious thing to try when testing interop. That puts a
+`ForeignDeletion` in the tuple. Adopting an Edge *highlight* does the same, since M68 is implemented
+as a deletion plus a parsed descriptor in one macro.
+
+**Scope: one site.** All five iterations over the tuple were checked — the other four guard with
+`isinstance` first, and `covers_page` guards before touching geometry. Only line 826 uses the
+`hasattr` fallback.
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M86.1** Fix the hit-test | `annotation_at` skips descriptors that carry no geometry. | WSL (headless) | Right-click works after deleting, moving or adopting a foreign annotation — the regression test is exactly the owner's repro |
+| **M86.2** Make it structural, not conventional | One predicate — `is_geometric(mark)` / `rects_of(mark)` — that every hit-test routes through, so "which descriptors have geometry" is answered in a single place. | WSL (model+tests) | Every hit-test uses it; a new non-geometric descriptor type cannot silently break a hit-test |
+| **M86.3** **Adoption silently destroys a foreign comment** — *live data loss in v0.16.2* | Found while investigating the above, on the same file. `parse_annotation` builds `Highlight(rects, color)` / `Underline` / `Strikeout` and **never reads `/Contents`**, while `degradations()` checks `/RC`, `/IT /FreeTextCallout`, `/IRT`, `/BS/D` and opacity but **not `/Contents`**. So double-clicking a commented foreign highlight to edit it (M68 adoption = strip the original + re-add ours) **drops the comment with no warning**, contradicting that function's own contract — "Empty means adoption is lossless." Reachable in two clicks on any Acrobat/Preview/Edge-reviewed PDF. **M85.1 cures it outright** (once HUS marks carry `note`, the comment survives adoption); until then `degradations()` must at least *report* it. Only adoption is affected — a foreign mark merely displayed, moved (M67) or deleted (M66) never has its `/Contents` rewritten. | WSL (model+tests) | Adopting a commented foreign highlight either preserves the comment (post-M85.1) or warns before dropping it; a comment-free mark warns about nothing |
+
+**The gap this exposes, which is the reason it is written up rather than just patched.** The tuple's
+heterogeneity has **no enforced contract**. There is no "does this have geometry?" predicate anywhere;
+`mark_bounds()` looks like the chokepoint but assumes `bounding_rect()` and is safe only because its
+callers happen to guard first. It works **by convention, not construction** — four of five sites got
+it right, one did not, and nothing would have caught it. M85 is safe (it adds a *field* to existing
+marks), but the next non-geometric descriptor lands the same trap. M86.2 is the same
+"single chokepoint" discipline §How we work already applies to path identity.
+
+**The test file is also a direct validation of M85's design.** `ClientStatements_5752_043026.pdf`
+(owner-supplied, annotated in Edge) holds three Highlight annotations, **two of which carry
+`/Contents`** — "Comment to yello highlight" and "Comment to Pink highlight" — with an empty `/T`, so
+they read as foreign. That is M85's model exactly: a note *is* a comment on a highlight, stored in
+`/Contents`. The design was chosen from the PDF spec before this file existed; the file confirms Edge
+implements it the same way. Two consequences: M85.6 would surface two comments that are **completely
+invisible in KlarPDF today**, and the same file is the natural regression fixture for M85.1, M85.6 and
+M86.3.
+
 ### Deferred, with the condition for revisiting
 
 - **C — scale existing pixmaps during the gesture, re-rasterise on settle.** Gives 60 fps zoom feel,
