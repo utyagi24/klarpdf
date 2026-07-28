@@ -1163,6 +1163,18 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     `degradations()` never checks it, so M68's "empty means adoption is lossless" contract is broken.
     Two clicks on any Acrobat/Preview/Edge-reviewed PDF. **M85.1 cures it**; until then it must at
     least warn
+- [ ] **M87** Highlights render dull — **the preview alpha-blends what the file multiplies**
+  (owner-reported 2026-07-27: "our highlight color appear very dull compared to Edge, can we revisit
+  our palette?"). **Investigated: the palette is fine and stays unchanged.** We paint with
+  `setAlpha(110)`, plain source-over, which washes colours toward the white page — measured
+  saturation is **2.3×–2.4× lower** than it should be, and black text under a highlight is washed to
+  olive, so the mark *reduces* legibility. Meanwhile PyMuPDF writes our saved highlights with
+  `/BM /Multiply`, so **our viewer shows them duller than the file we just wrote**. The idiom already
+  exists in the same module (`_MultiplyPixmapItem`, whose docstring argues this very point for the
+  watermark preview). Spec in `PLAN.md` §M87.
+  - [ ] **M87.1** Multiply-blend the committed highlight (a `_MultiplyRectItem` sibling)
+  - [ ] **M87.2** Same for the live drag-over-text preview, or arming looks pale and the mark jumps
+    vivid on release
 - **Corner-case document analysis** (`PLAN.md` §The corner-case document) — `IAS_CaseStudy.pdf`,
   owner-supplied: 75.6 MB, 18 pages of 1920×1080 pt, **no text layer**, 95 MB of embedded images.
   Opens in **11.19 s**, of which **10.0 s is `fz_run_display_list`** — decoding imagery, not our

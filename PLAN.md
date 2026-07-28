@@ -1605,6 +1605,47 @@ implements it the same way. Two consequences: M85.6 would surface two comments t
 invisible in KlarPDF today**, and the same file is the natural regression fixture for M85.1, M85.6 and
 M86.3.
 
+### M87 — highlights render dull because the preview alpha-blends what the file multiplies
+
+**Owner-reported 2026-07-27:** *"our highlight color appear very dull compared to the color used by
+Edge. can we revisit our palette?"* **Investigated: the palette is not the problem and needs no
+change.** `viewer/annotations.py` paints a highlight with `fill.setAlpha(110)` — plain source-over at
+43% — which washes every colour toward the white page. Measured, over white:
+
+| Colour | Mode | Renders as | Saturation | Black text under it becomes |
+| --- | --- | --- | --- | --- |
+| Yellow | alpha 110 (today) | (255, 240, 156) | 0.39 | (110, 95, 11) — olive |
+| Yellow | **multiply** | (255, 219, 26) | **0.90** | **(0, 0, 0)** — stays black |
+| Green | alpha 110 (today) | (206, 246, 194) | 0.21 | (61, 101, 50) |
+| Green | **multiply** | (140, 235, 115) | **0.51** | **(0, 0, 0)** |
+| Pink | alpha 110 (today) | (255, 216, 238) | 0.15 | (110, 72, 94) |
+| Pink | **multiply** | (255, 166, 217) | **0.35** | **(0, 0, 0)** |
+
+**Two defects, not one.** Saturation is **2.3×–2.4× lower** than it should be — that is the reported
+dullness. And the *text* under a highlight is washed out with it: black becomes olive, so our
+highlight actively reduces legibility, which is the opposite of a highlighter's purpose.
+
+**Our viewer contradicts our own saved file.** PyMuPDF writes highlight annotations with
+`/BM /Multiply` (verified on our pinned version), so a passage highlighted in KlarPDF, saved, and
+reopened in Edge looks **more vivid than it did in KlarPDF**. This is a preview-fidelity bug, not a
+taste question.
+
+**The idiom already exists in the same module.** `_MultiplyPixmapItem` was written for the
+under-content watermark preview, and its docstring states this exact principle — *"the text stays
+black and the mark shows everywhere else. The saved file is unaffected either way; this is purely so
+the preview does not lie about legibility."* Highlights simply never got it.
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M87.1** Multiply-blend the committed highlight | A `_MultiplyRectItem` sibling of the existing `_MultiplyPixmapItem`, replacing the alpha-110 fill. **Palette unchanged.** | WSLg (offscreen grab) | A rendered highlight matches the saved PDF's appearance; black text under it stays black; measured saturation matches the multiply column above |
+| **M87.2** The live selection preview must match | `TextSelection._armed_brush` uses alpha 120 for the drag-over-text preview. Fixing only the committed mark would make arming look pale and the committed mark jump vivid on release — the M73 sticky-markup flow shows that preview constantly, so the two must change together. | WSLg | Preview and committed mark are the same colour; no flip on release |
+
+**Palette: keep as is.** Rendered with multiply, our colours are comparable to — and in the case of
+yellow, richer than — the five Edge uses (`#FFF066` yellow, `#EB4949` red, `#F799D1` pink, `#7DF066`
+green, `#8FDEF9` blue, read from the owner's test file). The only substantive difference is that Edge
+offers **Red** where we offer **Orange**; adding red is a separate, optional palette question and not
+part of this fix.
+
 ### Deferred, with the condition for revisiting
 
 - **C — scale existing pixmaps during the gesture, re-rasterise on settle.** Gives 60 fps zoom feel,
