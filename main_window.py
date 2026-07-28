@@ -482,10 +482,14 @@ class MainWindow(QMainWindow):
         # holds what never touches the file. R3's Markup/Draw and R4's Stamp land here too.
         tools_menu = menu.addMenu("&Tools")
 
-        def act(text, slot, shortcut=None, icon=None, to_menu=None):
+        def act(text, slot, shortcut=None, icon=None, to_menu=None, extra_shortcuts=()):
             a = QAction(text, self)
             if shortcut:
                 a.setShortcut(shortcut if isinstance(shortcut, QKeySequence) else QKeySequence(shortcut))
+                # Aliases keep the *first* sequence as the action's advertised accelerator (that is
+                # what the menu row shows) and add the rest as equally live bindings.
+                if extra_shortcuts:
+                    a.setShortcuts(a.shortcuts() + [QKeySequence(s) for s in extra_shortcuts])
             if icon:
                 a.setIcon(icons.icon(icon))
                 a.setProperty("iconName", icon)  # so _retint_icons can re-tint on theme change
@@ -586,7 +590,12 @@ class MainWindow(QMainWindow):
 
         # View
         a_zout = act("Zoom Out", self.view.zoom_out, QKeySequence.StandardKey.ZoomOut, icon="zoom-out", to_menu=view_menu)
-        a_zin = act("Zoom In", self.view.zoom_in, QKeySequence.StandardKey.ZoomIn, icon="zoom-in", to_menu=view_menu)
+        # Qt's StandardKey.ZoomIn resolves to `Ctrl++` — and on a US layout `+` *is* Shift+`=`, so
+        # that sequence physically demands Ctrl+Shift+=, and plain Ctrl+= matched nothing. Zoom Out
+        # needed no alias: `Ctrl+-` is an unshifted key, which is why Zoom Out worked and Zoom In
+        # appeared dead (owner-reported). Every browser binds bare Ctrl+= for exactly this reason.
+        a_zin = act("Zoom In", self.view.zoom_in, QKeySequence.StandardKey.ZoomIn, icon="zoom-in",
+                    to_menu=view_menu, extra_shortcuts=("Ctrl+=",))
         # Live magnification indicator + preset/typed zoom (1.0 == 100%).
         self.zoom_widget = ZoomWidget(self.view)
         # self._a_* refs: these actions are also routed into the view's context menu (M46) — the
@@ -2845,6 +2854,9 @@ class MainWindow(QMainWindow):
         # at Fit Page, resuming the remembered page/rotation. No fit/resize happens after the first
         # paint, so there's no flicker.
         self.view.open_at(self._settings.get_doc_state(self.path))
+        # Seed the sidebar's you-are-here marker. open_at restores a page without *changing* it, so
+        # currentPageChanged never fires and the panel would otherwise open with no row marked.
+        self.thumbs.mark_open_page(self.view.current_page)
 
     def _confirm_discard(self):
         return QMessageBox.question(
