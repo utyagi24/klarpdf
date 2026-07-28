@@ -14,6 +14,7 @@ Text selection (M3) and drag-reorder (M4) build on the same scene later.
 from __future__ import annotations
 
 import time
+from bisect import bisect_right
 from contextlib import contextmanager
 
 import pymupdf as fitz
@@ -83,6 +84,10 @@ class PdfView(QGraphicsView):
         # two copies of one source page can differ. Value is (page, owning doc).
         self._foreign_docs: dict[int, tuple] = {}
         self._pages: list[dict] = []   # per page: {bg, pix, x, y, w, h}
+        # Two indexes that keep the render pass O(visible band) instead of O(document length),
+        # both maintained by _build_scene / _render_visible (M87.3):
+        self._page_tops: list[float] = []   # each page's scene y, non-decreasing — binary-searched
+        self._painted: set[int] = set()     # the pages currently holding a pixmap
         self._current = 0
         # Overlay controllers (set by MainWindow): text selection + search (M3), form fill (M14),
         # annotations (M20). They own their items and expose repaint(), called after every rebuild.
@@ -247,6 +252,8 @@ class PdfView(QGraphicsView):
         scene = self.scene()
         scene.clear()
         self._pages.clear()
+        self._page_tops.clear()
+        self._painted.clear()   # scene.clear() destroyed the items, so nothing holds a pixmap
         page_pen = QPen(QColor(0x80, 0x80, 0x80))
         # Night mode paints the not-yet-rendered page black — the inverse of the white page —
         # so a page scrolling into view doesn't flash bright before its pixmap lands.
@@ -290,6 +297,7 @@ class PdfView(QGraphicsView):
             pix = QGraphicsPixmapItem(bg)  # child of bg → shares its position
             pix.setPos(0, 0)
             self._pages.append({"bg": bg, "pix": pix, "x": x, "y": py, "w": w, "h": h})
+            self._page_tops.append(py)  # non-decreasing by construction — see _visible_range
 
         scene.setSceneRect(0, 0, widest + 2 * _PAGE_GAP, y)
         self._render_visible()
@@ -1033,11 +1041,32 @@ class PdfView(QGraphicsView):
         return QPointF(d[0] * self._zoom, d[1] * self._zoom)
 
     def _visible_range(self) -> tuple[int, int]:
+        """The pages intersecting the viewport, found by **binary search** (M87.3).
+
+        This used to scan every page in the document to find the handful on screen, which made a
+        render pass cost O(document length) however few pages were visible — measured at ~6 ms per
+        pass on 320 pages, so ~246 ms of a 40-step zoom sweep went on pages nowhere near the
+        viewport (the follow-up M86.1's benchmark surfaced).
+
+        ``_page_tops`` is non-decreasing by construction: rows are laid out top to bottom, and the
+        two pages of a facing row share a y. So ``bisect_right`` lands on the first row that can
+        reach ``top``, and the forward scan below stops at the first page past ``bottom`` — both
+        bounded by the number of pages actually on screen.
+        """
         view_rect = self.mapToScene(self.viewport().rect()).boundingRect()
         top, bottom = view_rect.top(), view_rect.bottom()
+        # The last page starting at or above `top` is the only one that can reach down into the
+        # viewport from above — a preceding row ends a full gap before this row starts. Its facing
+        # partner shares its y and needs the step back.
+        start = max(0, bisect_right(self._page_tops, top) - 1)
+        while start > 0 and self._page_tops[start - 1] == self._page_tops[start]:
+            start -= 1
         first, last = None, None
-        for i, p in enumerate(self._pages):
-            if p["y"] + p["h"] >= top and p["y"] <= bottom:
+        for i in range(start, len(self._pages)):
+            page = self._pages[i]
+            if page["y"] > bottom:
+                break
+            if page["y"] + page["h"] >= top:
                 first = i if first is None else first
                 last = i
         if first is None:  # nothing intersects (e.g. between renders) — fall back to current
@@ -1125,14 +1154,19 @@ class PdfView(QGraphicsView):
         # "no thrash while scrolling" true by construction rather than by picking a large enough
         # budget: nothing rendered in this pass can be evicted by a later page of the same pass.
         self._cache.pin(self._pixmap_key(i) for i in range(lo, hi + 1))
-        for i, p in enumerate(self._pages):
-            if lo <= i <= hi:
-                pixmap = self._render_pixmap(i)
-                if pixmap is not None:
-                    p["pix"].setPixmap(pixmap)
-                    p["pix"].setPos(self._pixmap_offset(i))  # inset only in the un-crop edge case
-            elif not p["pix"].pixmap().isNull():
-                p["pix"].setPixmap(QPixmap())  # drop offscreen pixels to bound memory
+        for i in range(lo, hi + 1):
+            pixmap = self._render_pixmap(i)
+            if pixmap is not None:
+                p = self._pages[i]
+                p["pix"].setPixmap(pixmap)
+                p["pix"].setPos(self._pixmap_offset(i))  # inset only in the un-crop edge case
+                self._painted.add(i)
+        # Drop what scrolled off. This used to be the `else` arm of a loop over **every page in the
+        # document**, asking each one whether it held a pixmap; tracking the answer costs a set
+        # membership and makes the pass proportional to what is actually painted (M87.3).
+        for i in [i for i in self._painted if not lo <= i <= hi]:
+            self._pages[i]["pix"].setPixmap(QPixmap())
+            self._painted.discard(i)
         # Content marks ride the same band as the pixmaps, so a stamp scrolls in with its page.
         if self.annotations is not None:
             self.annotations._paint_visible_content()
@@ -1157,9 +1191,9 @@ class PdfView(QGraphicsView):
         """
         self._cache.clear(keep_pinned=keep_visible)
         if not keep_visible:
-            for p in self._pages:
-                if not p["pix"].pixmap().isNull():
-                    p["pix"].setPixmap(QPixmap())
+            for i in self._painted:
+                self._pages[i]["pix"].setPixmap(QPixmap())
+            self._painted.clear()
 
     def restore_pixmaps(self) -> None:
         """Re-render the band after a :meth:`release_pixmaps` that dropped the visible pages."""
