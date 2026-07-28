@@ -995,10 +995,22 @@ class MainWindow(QMainWindow):
             # re-sync them to redraw against the new palette (set_style doesn't re-emit).
             for style_button in getattr(self, "_markup_style_buttons", ()):
                 style_button.set_style(style_button.style())
-        elif event.type() == QEvent.Type.ActivationChange and self.isActiveWindow():
-            # Returning to this window is when we surface an external change noticed in the
-            # background (and re-check, since a watcher event can be missed on some filesystems).
-            self._check_external_change()
+        elif event.type() == QEvent.Type.ActivationChange:
+            if self.isActiveWindow():
+                # Returning to this window is when we surface an external change noticed in the
+                # background (and re-check, since a watcher event can be missed on some filesystems).
+                self._check_external_change()
+            else:
+                # Losing focus releases the scrollback but not the pixels still on screen (M87.2 —
+                # see PdfView.release_pixmaps for why the visible band survives).
+                self.view.release_pixmaps(keep_visible=True)
+        elif event.type() == QEvent.Type.WindowStateChange:
+            # Minimised there is nothing to look at, so the visible band goes too — the full
+            # ~40 MB/window drop M87.2 is sized around. Restoring re-renders it.
+            if self.isMinimized():
+                self.view.release_pixmaps(keep_visible=False)
+            elif event.oldState() & Qt.WindowState.WindowMinimized:
+                self.view.restore_pixmaps()
         super().changeEvent(event)
 
     def _open_dialog(self) -> None:
@@ -2882,6 +2894,7 @@ class MainWindow(QMainWindow):
         # intentionally not remembered — every launch opens centred at Fit Page (see showEvent).
         self._settings.set_doc_state(self.path, self.view.view_state())
         self.view._drop_render_docs()  # release the fresh-opened render copies' file handles
+        self.view._cache.release()     # hand this window's entries back to the shared store (M87.2)
         self.thumbs._close_baked()     # release the thumbnails' kept-open edits render, if any
         self._app.forget_window(self.path)
         super().closeEvent(event)

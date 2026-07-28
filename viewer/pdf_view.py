@@ -14,7 +14,6 @@ Text selection (M3) and drag-reorder (M4) build on the same scene later.
 from __future__ import annotations
 
 import time
-from collections import OrderedDict
 from contextlib import contextmanager
 
 import pymupdf as fitz
@@ -24,12 +23,12 @@ from PySide6.QtWidgets import QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsS
 
 from model.virtual_document import VirtualDocument
 from model.form_fields import NewField
+from viewer.pixmap_cache import pixmap_cache
 from viewer.resize_handles import cursor_for
 from viewer.tools import ArmedTool, InteractionMode
 
 _PAGE_GAP = 14          # px between pages in the strip
 _PREFETCH = 2           # pages to render above/below the viewport
-_CACHE_LIMIT = 48       # max rendered pixmaps held at once
 _MIN_ZOOM, _MAX_ZOOM = 0.1, 8.0
 _ZOOM_STEP = 1.25
 _WHEEL_NOTCH = 120      # one mouse-wheel detent, in eighths of a degree (Qt's unit)
@@ -61,7 +60,12 @@ class PdfView(QGraphicsView):
         self._vdoc = vdoc
         self._zoom = 1.0
         self._rotation = 0  # view rotation in degrees: 0/90/180/270
-        self._cache: "OrderedDict[tuple, QPixmap]" = OrderedDict()
+        # This view's handle on the **process-global** pixmap store (M87.2). Formerly a private
+        # OrderedDict bounded at 48 entries — which bounded pages, not bytes, and so let one
+        # Ctrl+wheel sweep reach 4.3 GB. See viewer/pixmap_cache.py for the budgets and why there
+        # are two of them. Shared means a closed window must hand its entries back — closeEvent
+        # does, and the handle releases on collection as a backstop.
+        self._cache = pixmap_cache.owner()
         # Per-source fresh copies used to render edited pages: form fills applied (M14) and our
         # baked annotations stripped (M31 — they redraw as editable overlays). Keyed by source id;
         # rebuilt after each edit (reload clears them). Kept separate from the shared read-only
@@ -950,12 +954,16 @@ class PdfView(QGraphicsView):
         self._render_docs.clear()
         self._drop_foreign_docs()
 
+    def _pixmap_key(self, index: int) -> tuple:
+        """What identifies a rendered page in the store: the page and everything that changes its
+        pixels. ``_page_extra`` is the per-page rotation override, ``_rotation`` the view spin."""
+        return (index, round(self._zoom, 4), (self._page_extra(index) + self._rotation) % 360)
+
     def _render_pixmap(self, index: int) -> QPixmap | None:
-        total = (self._page_extra(index) + self._rotation) % 360  # per-page override + view spin
-        key = (index, round(self._zoom, 4), total)
+        key = self._pixmap_key(index)
+        total = key[2]
         hit = self._cache.get(key)
         if hit is not None:
-            self._cache.move_to_end(key)
             return hit
         ref = self._vdoc.ordered[index]
         try:
@@ -983,10 +991,7 @@ class PdfView(QGraphicsView):
                 pixmap = pixmap.transformed(QTransform().rotate(total))
         except Exception:
             return None
-        self._cache[key] = pixmap
-        self._cache.move_to_end(key)
-        while len(self._cache) > _CACHE_LIMIT:
-            self._cache.popitem(last=False)
+        self._cache.put(key, pixmap)
         return pixmap
 
     def _renderable_crop(self, index: int) -> tuple | None:
@@ -1080,6 +1085,11 @@ class PdfView(QGraphicsView):
             return          # inside _hold_render — one pass runs when the outermost block closes
         first, last = self._visible_range()
         lo, hi = max(0, first - _PREFETCH), min(len(self._pages) - 1, last + _PREFETCH)
+        # Pin the band **before** rendering it (M87.2). The plan asks for the visible pages; this
+        # pins the whole band the pass is about to populate, which is a superset and is what makes
+        # "no thrash while scrolling" true by construction rather than by picking a large enough
+        # budget: nothing rendered in this pass can be evicted by a later page of the same pass.
+        self._cache.pin(self._pixmap_key(i) for i in range(lo, hi + 1))
         for i, p in enumerate(self._pages):
             if lo <= i <= hi:
                 pixmap = self._render_pixmap(i)
@@ -1092,6 +1102,33 @@ class PdfView(QGraphicsView):
         if self.annotations is not None:
             self.annotations._paint_visible_content()
         self._update_current(first, last)
+
+    # ---- giving pixels back when nobody is reading this window (M87.2) ------------
+
+    def release_pixmaps(self, *, keep_visible: bool = True) -> None:
+        """Hand this view's rendered pixels back to the shared store.
+
+        Two tiers, because "background window" means two different things:
+
+        * ``keep_visible=True`` — the window is no longer *focused* but may still be on screen
+          beside the one that is. The scrollback goes (that is the bulk of it, and after a zoom
+          sweep it can be most of the process); the band the reader can still see stays, so nothing
+          blanks and coming back is free. This is the deviation from the plan's flat "background
+          windows drop their pixmaps": on Windows, windows tile, and painting a visible window's
+          pages white on deactivation would be a defect traded for memory nobody asked to trade.
+        * ``keep_visible=False`` — the window is minimised or hidden, so there is nothing to blank.
+          Everything goes, including the scene items' own references, which the store cannot reach.
+          :meth:`restore_pixmaps` puts it back at ~6 ms/page for text.
+        """
+        self._cache.clear(keep_pinned=keep_visible)
+        if not keep_visible:
+            for p in self._pages:
+                if not p["pix"].pixmap().isNull():
+                    p["pix"].setPixmap(QPixmap())
+
+    def restore_pixmaps(self) -> None:
+        """Re-render the band after a :meth:`release_pixmaps` that dropped the visible pages."""
+        self._render_visible()
 
     def _update_current(self, first: int, last: int) -> None:
         """The current page is the one **occupying the most of the viewport**.
