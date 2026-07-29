@@ -4,8 +4,14 @@ A ``QGraphicsView``/``QGraphicsScene`` lays every page of the ``VirtualDocument`
 single vertical strip. Page *geometry* is cheap (from ``page.rect``, no rendering), so the whole
 strip is laid out up front; page *pixels* are rendered lazily — only pages intersecting the
 viewport (plus a small prefetch) get a PyMuPDF pixmap, cached in a bounded LRU keyed by
-``(index, zoom, rotation)``. Zoom (incl. fit-width/fit-page) and 90° view rotation are scalar
-re-layouts.
+``(index, device_scale, rotation)``. Zoom (incl. fit-width/fit-page) and 90° view rotation are
+scalar re-layouts.
+
+**Three scales, not one** (M88). ``zoom`` is the magnification the reader asks for, where 1.0 means
+true physical size; ``scale`` (= ``zoom × logicalDpi/72``) is what the *layout* uses, scene units
+per PDF point; ``device_scale`` (= ``scale × devicePixelRatio``) is what the *rasteriser* uses. The
+three collapsed into one before M88, which is why 100% drew a Letter page 6.375" wide and a 1.75×
+laptop panel showed an upscaled, blurry page.
 
 This is the M2 view surface: render / scroll / zoom / fit / rotate / current-page tracking.
 Text selection (M3) and drag-reorder (M4) build on the same scene later.
@@ -18,8 +24,8 @@ from bisect import bisect_right
 from contextlib import contextmanager
 
 import pymupdf as fitz
-from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import QBrush, QColor, QImage, QPen, QPixmap, QTransform
+from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, QTimer, Signal
+from PySide6.QtGui import QBrush, QColor, QGuiApplication, QImage, QPen, QPixmap, QTransform
 from PySide6.QtWidgets import QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsScene, QGraphicsView
 
 from model.virtual_document import VirtualDocument
@@ -38,6 +44,13 @@ _PREFETCH = 2           # pages to render above/below the viewport, at ordinary 
 _PREFETCH_BYTES = 48 * 1024 * 1024
 _MIN_ZOOM, _MAX_ZOOM = 0.1, 8.0
 _ZOOM_STEP = 1.25
+# One PDF point is 1/72", so a page is drawn at true physical size when one point maps to
+# ``logicalDpi / 72`` of the screen's logical pixels — 1.333 at the 96 logical DPI Windows reports
+# for every screen (M88.1). Before M88 a point was one logical pixel, so we drew a 612 pt Letter
+# page 612 px = 6.375" wide and called it 100%: three-quarters of physical size. Browsers and
+# Acrobat all define 100% as physical, which is why the same document looked smaller here than in
+# Edge at the same percentage. 96 is the fallback for a screen we cannot ask (see _refresh_display).
+_FALLBACK_LOGICAL_DPI = 96.0
 _WHEEL_NOTCH = 120      # one mouse-wheel detent, in eighths of a degree (Qt's unit)
 _WHEEL_QUIET_MS = 250   # gap that ends a wheel gesture (a flywheel wheel coasts well past the hand)
 _ZOOM_COALESCE_MS = 16  # one frame at 60 Hz — the Ctrl+wheel accumulator's flush interval (M86.2)
@@ -65,7 +78,13 @@ class PdfView(QGraphicsView):
     def __init__(self, vdoc: VirtualDocument, parent=None) -> None:
         super().__init__(parent)
         self._vdoc = vdoc
+        # **Three numbers, not one** (M88). ``_zoom`` is the magnification the *reader* asks for and
+        # the % indicator shows; the two derived scales below are what the code actually draws with.
+        # Before M88 all three were this one field, which is why 100% was neither physical size nor
+        # native resolution. See :meth:`scale` / :meth:`device_scale` for what each one means.
         self._zoom = 1.0
+        self._logical_dpi = _FALLBACK_LOGICAL_DPI  # this screen's logical DPI (M88.1)
+        self._dpr = 1.0                            # this screen's devicePixelRatio (M88.2)
         self._rotation = 0  # view rotation in degrees: 0/90/180/270
         # This view's handle on the **process-global** pixmap store (M87.2). Formerly a private
         # OrderedDict bounded at 48 entries — which bounded pages, not bytes, and so let one
@@ -162,8 +181,124 @@ class PdfView(QGraphicsView):
         self._zoom_timer = QTimer(self)
         self._zoom_timer.setSingleShot(True)
         self._zoom_timer.timeout.connect(self._flush_wheel_zoom)
+        # A screen change (M88.3) answers on the event loop, not inside the Qt callback that
+        # reported it — see :meth:`event`. Parented to this view, so it dies with it.
+        self._display_pending = ""
+        self._display_timer = QTimer(self)
+        self._display_timer.setSingleShot(True)
+        self._display_timer.timeout.connect(self._apply_display_change)
+        self._refresh_display()   # logical DPI + DPR, before the first layout is computed
         self._build_scene()
         self.verticalScrollBar().valueChanged.connect(self._on_scroll)
+
+    # ---- display metrics: what a PDF point is worth on *this* screen (M88) ---------
+
+    @property
+    def scale(self) -> float:
+        """**Scene units per PDF point** — the layout scale, ``zoom × logicalDpi/72`` (M88.1).
+
+        Everything that maps page points to scene coordinates uses this, not :attr:`zoom`: the page
+        rects in :meth:`_build_scene`, every hit-test, and the annotation overlay. A scene unit is a
+        *logical* pixel (the view transform is identity — zoom rebuilds the scene rather than scaling
+        the view), so at ``zoom = 1.0`` a 612 pt Letter page is 816 logical px = 8.5 real inches.
+        """
+        return self._zoom * self._logical_dpi / 72.0
+
+    @property
+    def device_scale(self) -> float:
+        """**Device pixels per PDF point** — ``scale × devicePixelRatio`` (M88.2).
+
+        The only thing this is for is rasterising: the PyMuPDF matrix and the cache key. Handing Qt
+        a pixmap rendered at :attr:`scale` on a 1.75× panel made the compositor upscale it 1.75×,
+        which is why text was blurry on the *higher*-resolution of the owner's two screens. Render
+        here and set the same ratio on the pixmap and the geometry is untouched — Qt lays a DPR'd
+        pixmap out at its ``deviceIndependentSize()``, i.e. back at :attr:`scale`.
+        """
+        return self.scale * self._dpr
+
+    def _refresh_display(self) -> str:
+        """Re-read this view's screen metrics; name what changed (M88.3).
+
+        Returns ``""`` (nothing moved), ``"render"`` (only the device pixel ratio — the layout is
+        in *logical* units and is therefore unaffected, but every cached pixmap is now the wrong
+        resolution) or ``"layout"`` (the logical DPI moved, so the page rects themselves are stale).
+        On Windows the logical DPI is 96 on every screen and the scaling rides entirely in the DPR,
+        so dragging between monitors is the cheap ``"render"`` case in practice.
+
+        Not one-shot setup: the owner's machine pairs a 1.75× laptop panel with a 1.0× external
+        Dell, so dragging the window across changes DPR *live* — a value sampled once is correct
+        only on the screen the window opened on. ``QWidget.screen()`` falls back to the primary
+        screen before the window is mapped, and to nothing at all under some offscreen platforms,
+        which is what the 96 DPI default covers.
+        """
+        screen = self.screen() or QGuiApplication.primaryScreen()
+        dpi = screen.logicalDotsPerInch() if screen is not None else _FALLBACK_LOGICAL_DPI
+        dpr = self.devicePixelRatioF()
+        if not dpi:                      # a screen reporting 0 would collapse the layout to nothing
+            dpi = _FALLBACK_LOGICAL_DPI
+        if dpi == self._logical_dpi and dpr == self._dpr:
+            return ""
+        kind = "layout" if dpi != self._logical_dpi else "render"
+        self._logical_dpi, self._dpr = dpi, dpr
+        return kind
+
+    def event(self, ev) -> bool:
+        """Notice a screen change through Qt's own **widget** events (M88.3).
+
+        Deliberately not a ``QWindow.screenChanged`` connection, which is what this first shipped as
+        and which **segfaulted CI on Linux**. Two lifetime hazards, both removed by asking the
+        widget instead of a foreign object:
+
+        * the sender is the *window's* ``QWindow``, not this view, so the connection outlives a
+          destroyed view — and a slot invoked on freed memory is a crash, not an exception. These
+          events are delivered to the widget and die with it.
+        * the old handler rebuilt the scene **inside** the callback, so ``scene.clear()`` destroyed
+          every item while Qt was mid-show. The response is now deferred to the event loop (see
+          ``_display_timer``), which also collapses a burst of events into one rebuild.
+        """
+        if ev.type() in (QEvent.Type.DevicePixelRatioChange, QEvent.Type.ScreenChangeInternal):
+            self._sync_display()
+        return super().event(ev)
+
+    def showEvent(self, event) -> None:
+        """Re-read the metrics once the widget is mapped — the construction-time read hit the
+        primary screen, which is not necessarily the one this window opens on. It only *schedules*
+        a response; the first build is :meth:`open_at`'s job and already uses the fresh numbers."""
+        super().showEvent(event)
+        self._sync_display()
+
+    def _sync_display(self) -> None:
+        """Re-read the metrics and schedule the response on the event loop, never inline.
+
+        The timer is parented to this view, so it is cancelled when the view dies and can never
+        fire into a half-destroyed object — the property the old signal connection lacked.
+        """
+        kind = self._refresh_display()
+        if not kind:
+            return
+        # "layout" wins over a pending "render": it is the strictly larger response.
+        if kind == "layout" or self._display_pending != "layout":
+            self._display_pending = kind
+        self._display_timer.start(0)
+
+    def _apply_display_change(self, kind: "str | None" = None) -> None:
+        """Re-lay-out and/or re-rasterise for the screen this view is now on.
+
+        A DPR change needs only a re-render: the layout is in logical units, and the cache key
+        carries ``device_scale``, so the stale-resolution pixmaps are not reachable — they are
+        simply re-rendered at the new ratio. A logical-DPI change moves the page rects too.
+        """
+        kind = kind or self._display_pending
+        self._display_pending = ""
+        if not self._pages or not kind:
+            return
+        if kind == "layout":
+            anchor = self._current
+            with self._hold_render():
+                self._build_scene()
+                self.goto_page(anchor)
+        else:
+            self._render_visible()
 
     # ---- natural geometry -------------------------------------------------------
 
@@ -263,7 +398,7 @@ class PdfView(QGraphicsView):
         # pair side by side, the row taking the taller page's height. ``widest`` spans the widest
         # row, so pairs centre as a unit exactly as single pages centred alone.
         rows = self._layout_rows()
-        z = self._zoom
+        z = self.scale   # scene units per point — zoom × logicalDpi/72, not the bare zoom (M88.1)
         sizes = {i: self._natural_size(i) for row in rows for i in row}
         row_width = {
             row: sum(sizes[i][0] for i in row) * z + (len(row) - 1) * _PAGE_GAP for row in rows
@@ -340,8 +475,8 @@ class PdfView(QGraphicsView):
                                   abs(scene_pt.x() - (c[1]["x"] + c[1]["w"])))),
         )
         i, p = chosen
-        dx = (scene_pt.x() - p["x"]) / self._zoom
-        dy = (scene_pt.y() - p["y"]) / self._zoom
+        dx = (scene_pt.x() - p["x"]) / self.scale
+        dy = (scene_pt.y() - p["y"]) / self.scale
         w, h = self._unrotated_size(i)
         lx, ly = self._point_to_source(w, h, self._display_rotation(i), dx, dy)
         ox, oy = self._crop_origin(i)  # displayed frame → content coords
@@ -352,7 +487,7 @@ class PdfView(QGraphicsView):
         per-page rotation so overlays align with the displayed (spun) page. ``box`` is in content
         coords; a crop override shifts the displayed frame, so its origin is subtracted first."""
         p = self._pages[page_index]
-        z = self._zoom
+        z = self.scale
         w, h = self._unrotated_size(page_index)
         ox, oy = self._crop_origin(page_index)
         box = (box[0] - ox, box[1] - oy, box[2] - ox, box[3] - oy)
@@ -365,7 +500,7 @@ class PdfView(QGraphicsView):
         the redaction rubber-band and the crop drag to record the marked region in the coordinate
         space the materialise pass works in."""
         p = self._pages[page_index]
-        z = self._zoom
+        z = self.scale
         w, h = self._unrotated_size(page_index)
         rot = self._display_rotation(page_index)
         ox, oy = self._crop_origin(page_index)
@@ -390,7 +525,7 @@ class PdfView(QGraphicsView):
         total = self._display_rotation(page_index)
         tr = QTransform()
         tr.translate(p["x"], p["y"])
-        tr.scale(self._zoom, self._zoom)
+        tr.scale(self.scale, self.scale)
         # Compose the same unrotated→display mapping as _box_to_display (Qt applies the last-added
         # op to the point first), so a point (x,y) lands exactly where scene_rect_for_box puts it.
         if total == 90:
@@ -411,8 +546,8 @@ class PdfView(QGraphicsView):
         clamped). Unlike :meth:`page_and_local_at` it targets a fixed page, so a drag that strays
         past the page edge still maps to that page's frame — used by the text-box move."""
         p = self._pages[page_index]
-        dx = (scene_pt.x() - p["x"]) / self._zoom
-        dy = (scene_pt.y() - p["y"]) / self._zoom
+        dx = (scene_pt.x() - p["x"]) / self.scale
+        dy = (scene_pt.y() - p["y"]) / self.scale
         w, h = self._unrotated_size(page_index)
         lx, ly = self._point_to_source(w, h, self._display_rotation(page_index), dx, dy)
         ox, oy = self._crop_origin(page_index)
@@ -970,8 +1105,15 @@ class PdfView(QGraphicsView):
 
     def _pixmap_key(self, index: int) -> tuple:
         """What identifies a rendered page in the store: the page and everything that changes its
-        pixels. ``_page_extra`` is the per-page rotation override, ``_rotation`` the view spin."""
-        return (index, round(self._zoom, 4), (self._page_extra(index) + self._rotation) % 360)
+        pixels. ``_page_extra`` is the per-page rotation override, ``_rotation`` the view spin.
+
+        Keyed on :attr:`device_scale`, not :attr:`zoom` (M88.2): two screens of different DPR render
+        the *same* zoom at different resolutions, and the store is process-global (M87.2), so a zoom
+        would hand the 1.0× Dell's pixmap to the 1.75× laptop — the exact blur this milestone is
+        fixing, cached.
+        """
+        return (index, round(self.device_scale, 4),
+                (self._page_extra(index) + self._rotation) % 360)
 
     def _render_pixmap(self, index: int) -> QPixmap | None:
         key = self._pixmap_key(index)
@@ -995,14 +1137,21 @@ class PdfView(QGraphicsView):
                 clip = fitz.Rect(
                     self._box_to_display(cropbox.width, cropbox.height, page.rotation, visible)
                 )
-            pm = page.get_pixmap(matrix=fitz.Matrix(self._zoom, self._zoom), clip=clip, alpha=False)
+            # Rasterise at **device** resolution (M88.2) — zoom × logicalDpi/72 × devicePixelRatio.
+            ds = self.device_scale
+            pm = page.get_pixmap(matrix=fitz.Matrix(ds, ds), clip=clip, alpha=False)
             img = QImage(pm.samples, pm.width, pm.height, pm.stride, QImage.Format.Format_RGB888)
             img = img.copy()  # detach from pm.samples buffer
             if self._night:
                 img.invertPixels()  # M49: view-only — save/print/export render elsewhere
+            # Tell Qt these are device pixels *before* the QPixmap conversion, which inherits the
+            # ratio. Without it Qt reads the extra pixels as extra size and the page lays out 1.75×
+            # too big; with it the item occupies deviceIndependentSize() — exactly `scale` units,
+            # so the layout is byte-for-byte what it would be at DPR 1.0, only sharper.
+            img.setDevicePixelRatio(self._dpr)
             pixmap = QPixmap.fromImage(img)
             if total:
-                pixmap = pixmap.transformed(QTransform().rotate(total))
+                pixmap = pixmap.transformed(QTransform().rotate(total))  # preserves the ratio
         except Exception:
             return None
         self._cache.put(key, pixmap)
@@ -1038,7 +1187,7 @@ class PdfView(QGraphicsView):
         shifted = (visible[0] - crop[0], visible[1] - crop[1],
                    visible[2] - crop[0], visible[3] - crop[1])
         d = self._box_to_display(w, h, self._display_rotation(index), shifted)
-        return QPointF(d[0] * self._zoom, d[1] * self._zoom)
+        return QPointF(d[0] * self.scale, d[1] * self.scale)
 
     def _visible_range(self) -> tuple[int, int]:
         """The pages intersecting the viewport, found by **binary search** (M87.3).
@@ -1076,11 +1225,17 @@ class PdfView(QGraphicsView):
     def _page_bytes(self, index: int) -> int:
         """What page ``index`` will cost as a pixmap at the current zoom.
 
-        The layout already holds the page's on-screen size (``sizes[i] * zoom``), so this needs no
+        The layout already holds the page's on-screen size (``sizes[i] * scale``), so this needs no
         rendering — which is the point: the band has to be decided *before* anything is rasterised.
+
+        **Scaled by ``dpr²``** (M88.2): the layout is in logical units but the pixmap is rasterised
+        at device resolution, so on the owner's 1.75× panel a page costs 3.06× what its rect
+        suggests. Without this the M87.1 prefetch allowance and the ceiling it feeds would both
+        under-count by that factor on exactly the machine that can least afford it.
         """
         page = self._pages[index]
-        return int(page["w"]) * int(page["h"]) * (QPixmap.defaultDepth() // 8)
+        dpr2 = self._dpr * self._dpr
+        return int(int(page["w"]) * int(page["h"]) * dpr2) * (QPixmap.defaultDepth() // 8)
 
     def _prefetch(self, first: int, last: int) -> int:
         """How many pages either side of the viewport are worth rendering ahead (M87.1).
@@ -1453,7 +1608,13 @@ class PdfView(QGraphicsView):
         self.set_zoom(self._zoom / _ZOOM_STEP)
 
     def actual_size(self) -> None:
-        """Reset to 100% — 1 PDF point per pixel (no scaling)."""
+        """Reset to 100% — the page at **true physical size** (M88.4).
+
+        Ctrl+0 used to mean "1 PDF point per logical pixel", which drew a Letter page 6.375" wide
+        and so made the menu item's name a lie. It now means what it says: hold a ruler to the
+        screen and an 8.5" page measures 8.5". Nothing here changed — the re-basing is in
+        :attr:`scale`, which is the point of routing every magnification through one definition.
+        """
         self.set_zoom(1.0)
 
     def _fit_dims(self) -> tuple[float, float, float]:
@@ -1466,14 +1627,20 @@ class PdfView(QGraphicsView):
                 float((len(row) - 1) * _PAGE_GAP))
 
     def _fit_zoom(self, fit_height: bool) -> float:
+        """The **zoom** that fits the current row to the viewport.
+
+        The division yields scene units per point; dividing by the DPI factor converts that back to
+        a magnification, because :attr:`scale` multiplies it straight back in when the scene is
+        built (M88.1). Skip that and Fit Page would overshoot the viewport by 1.333×.
+        """
         margin = 2 * _PAGE_GAP
         w_pt, h_pt, extra = self._fit_dims()
         avail_w = max(1, self.viewport().width() - margin - extra)
-        zoom = avail_w / w_pt
+        scale = avail_w / w_pt
         if fit_height:
             avail_h = max(1, self.viewport().height() - margin)
-            zoom = min(zoom, avail_h / h_pt)
-        return zoom
+            scale = min(scale, avail_h / h_pt)
+        return scale / (self._logical_dpi / 72.0)
 
     def fit_width(self) -> None:
         self.set_zoom(self._fit_zoom(fit_height=False), fit="width")

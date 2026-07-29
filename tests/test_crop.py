@@ -212,11 +212,19 @@ def test_viewer_geometry_and_mapping_reflect_the_crop(app, pdf):
 
 
 def test_viewer_renders_the_cropped_pixmap(app, pdf):
+    """The pixmap covers the crop, not the whole page.
+
+    Sized in **device pixels per point** (``device_scale``) rather than against the raw 300x250 pt
+    crop: since M88 a point is no longer one pixel at 100% — it is ``logicalDpi/72`` logical pixels
+    times the screen's DPR — so a literal 300 here would pin the old identity rather than the
+    property under test, and would re-break on any DPR but 1.0.
+    """
     win = _win(app, pdf)
     win.undo_stack.push(CropPagesCommand(win.vdoc, [0], _CROP))
     win.view.set_zoom(1.0)  # explicit zoom: the sticky fit re-fits on resize, timing-dependent
     pixmap = win.view._render_pixmap(0)
-    assert abs(pixmap.width() - 300) <= 1 and abs(pixmap.height() - 250) <= 1
+    ds = win.view.device_scale
+    assert abs(pixmap.width() - 300 * ds) <= 1 and abs(pixmap.height() - 250 * ds) <= 1
 
 
 def test_crop_drag_asks_scope_and_pushes_one_undo_step(app, pdf, monkeypatch):

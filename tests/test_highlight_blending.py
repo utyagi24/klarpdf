@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import pymupdf as fitz
 import pytest
-from PySide6.QtCore import QRectF
+from PySide6.QtCore import Qt, QRectF
 from PySide6.QtGui import QColor, QImage, QPainter
 from PySide6.QtWidgets import QGraphicsRectItem
 
@@ -98,12 +98,21 @@ def _sample(win, box):
     The lightest pixel is the mark over white paper; the darkest is the mark over a black glyph.
     Rendering the *scene* rather than the page pixmap is the point — the blend mode only exists
     during composition, so anything that inspects the item's brush would not see this bug at all.
+
+    ``IgnoreAspectRatio`` because ``render()`` otherwise defaults to ``KeepAspectRatio`` and
+    letterboxes: the source rect is fractional and the target integer, so it fits the source inside
+    the image and leaves **white bars** down both sides. Those bars are paper, and the probe below
+    looks for the *lightest* pixel, so they read as "the highlight did not paint". The bars were
+    ~1 px wide before M88.1 and ``_INSET`` hid them by luck; at the 1.333x scene scale they grew to
+    ~3 px and started leaking in. Not scaling the source at all removes the artefact outright,
+    rather than re-tuning a constant that would drift again at the next scale change.
     """
     rect = win.view.scene_rect_for_box(0, box)
     image = QImage(int(rect.width()), int(rect.height()), QImage.Format.Format_RGB32)
     image.fill(0xFFFFFFFF)
     painter = QPainter(image)
-    win.view.scene().render(painter, QRectF(image.rect()), rect)
+    win.view.scene().render(painter, QRectF(image.rect()), rect,
+                            Qt.AspectRatioMode.IgnoreAspectRatio)
     painter.end()
     pixels = [image.pixelColor(x, y)
               for y in range(_INSET, image.height() - _INSET)

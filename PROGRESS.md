@@ -1353,11 +1353,60 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   worse defect: **`devicePixelRatio` is handled nowhere**, so on a 1.75× laptop panel every page is
   upscaled and the **text is blurry**. View-only. **Must follow M87** — see the renumbering note in
   `PLAN.md`. Spec in `PLAN.md` §M88.
-  - [ ] **M88.1** 100% means true physical size (match Edge/Brave/Chrome/Acrobat)
-  - [ ] **M88.2** Honour `devicePixelRatio` — **needs hands-on Windows**
-  - [ ] **M88.3** Handle DPR changing at runtime when the window moves between the 1.75× and 1.0×
-    screens — required, not polish
-  - [ ] **M88.4** Re-base Ctrl+0 "Actual Size" to physical size, so the name stops being a lie
+  **Premise check done 2026-07-28 before building, on the owner's own two screens** — every figure
+  in the spec held exactly. Laptop panel `\\.\DISPLAY1` DPR **1.75**, external `DELL U2722DE` DPR
+  **1.0**, both **96 logical DPI**; `logicalDpi/72` = 1.3333; a Letter page measured **6.375 in** at
+  our "100%" (75% of physical, so Edge's 100% was our 133%); a fresh `QPixmap` reported
+  `devicePixelRatio` **1.0**, i.e. DPR handled nowhere. Also confirmed the four Qt mechanics the fix
+  rests on, none of which the spec had checked: `QGraphicsPixmapItem` lays a DPR'd pixmap out at its
+  **`deviceIndependentSize()`** (so geometry is untouched), `QPixmap.fromImage` **inherits** the
+  ratio from the `QImage`, `transformed()` **preserves** it (the rotation path), and
+  `QWindow.screenChanged` fires on **both** directions of a drag between screens.
+  - [x] **M88.1 + M88.2 + M88.3 + M88.4** shipped together — they are one mechanism, not four:
+    **three scales where the code had one**. `zoom` stays what the reader asks for and the %
+    indicator shows; **`scale`** (= `zoom × logicalDpi/72`) is scene units per point and drives all
+    *geometry*; **`device_scale`** (= `scale × devicePixelRatio`) drives only the rasteriser and the
+    cache key. — *Windows (offscreen GUI + hands-on, both screens)* — 17 new tests, 1448 green
+    - **Measured on the 1.75× panel, at 100%**: layout `816 × 1056` logical px = **8.500 in** wide
+      (was 6.375), pixmap `1428 × 1848` device px at `dpr = 1.75` — **1.75 device px per logical px,
+      i.e. native, no upscaling**. The blur is gone because the pixels are real, not interpolated
+    - **M88.3 verified by actually dragging the window** between the two screens and back. The
+      layout is **byte-identical on both** (816 × 1056, 8.500 in) while the pixmap re-renders
+      native each way — 1428 × 1848 on the panel, 816 × 1056 on the Dell. That is the whole
+      contract: a screen change moves *pixels*, never *layout*
+    - **The cache key is `device_scale`, not `zoom`.** The store went process-global in M87.2, so a
+      zoom key would have handed the 1.0× Dell's pixmap to the 1.75× laptop — this milestone's own
+      bug, cached and durable
+    - **One M87 interaction the spec did not call out**: `_page_bytes` sizes M87.1's prefetch
+      allowance off the *layout*, which is in logical units, so on a 1.75× panel it under-counted
+      the real pixmap by **3.06×** — on exactly the machine that can least afford it. It now carries
+      the `dpr²` term
+    - **The plan's post-M88 projections were right to two decimal places.** Measured on the panel:
+      **10.07 MiB** per page at 100%, **40.27 MiB** at 200% — the exact figures `PLAN.md` §M88
+      predicted — and M87.1's band degrades **2 → 1 → 0** across 1×/2×/4× just as its curve said it
+      would post-M88
+    - **M88.3's first mechanism segfaulted Linux CI, and the mechanism was replaced rather than
+      patched.** It connected to the **window's** `QWindow.screenChanged` and rebuilt the scene
+      *inside* that callback — two lifetime hazards: the sender is not the view and outlives it (a
+      slot invoked on a destroyed view is a **crash**, not an exception — measured: PySide6 does not
+      reliably drop the connection when the receiver dies), and `scene.clear()` destroyed every item
+      while Qt was mid-show. Now the view listens for Qt's own **widget** events
+      (`DevicePixelRatioChange` / `ScreenChangeInternal`), which are delivered to the view and die
+      with it, and answers on a `QTimer` parented to the view — nothing to dangle, nothing rebuilt
+      inside a Qt callback, and a burst of screen events collapses into one pass. It is also
+      **cheaper**: a DPR change now costs a re-render rather than a relayout, since the layout is in
+      logical units; only a logical-DPI move restates the page rects, which on Windows never happens
+      (every screen reports 96 DPI and the scaling rides in the DPR). **Windows and WSL both ran the
+      suite green** — CI was the only place it showed, and the crash was in Qt rather than Python so
+      it surfaced ~74% into the run, far from its cause
+    - **Six existing tests had the old identity baked in** and were re-based, not weakened: three
+      converted to the scale they actually mean (`device_scale` for pixmap probes, `scale` for the
+      WYSIWYG text-box editor), one re-picked its zoom to keep the same scene geometry, and the
+      adaptive-prefetch pair moved to post-M88 page weights — an A0 sheet at 100% now costs 55 MiB,
+      past the whole 48 MB allowance, so the test pins two rungs (A1 → 1, A0 → 0) with real ISO
+      sizes instead of one. A seventh, the highlight-blend probe, was a **latent fixture bug** the
+      new scale exposed: `scene.render()` letterboxes by default, and the white bars it leaves grew
+      from ~1 px to ~3 px and defeated a fixed inset — fixed by not scaling the source at all
   - [ ] **M88.5** Migrate saved per-document zooms — ⚠️ **premise does not hold, re-scope first**:
     nothing reopens at a saved zoom (documents open at Fit Page by the v0.9.1 decision, and
     `apply_state()` has no production caller), so there is no remembered magnification for M88.1 to

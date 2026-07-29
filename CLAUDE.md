@@ -63,6 +63,20 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   deeper stays a link.
 
 ## Gotchas (cost real time if missed)
+- **A green Windows + WSL suite does not mean CI is green — and Qt failures are *segfaults*, not
+  assertion failures.** M88.3 crashed the Ubuntu runner inside `QGraphicsView`'s constructor ~74%
+  into the suite while both local platforms ran it green, because the fault was in Qt's C++ and
+  surfaced far from its cause. When CI fails and the local suite passes, read the log for
+  `Fatal Python error: Segmentation fault` before assuming a flaky test.
+- **Never connect a widget's slot to a signal on a QObject that outlives it** — in particular
+  `self.window().windowHandle()`. PySide6 does **not** reliably drop such a connection when the
+  receiver is destroyed (measured), so the slot is later invoked on freed memory: a crash, not an
+  exception. Prefer the **widget events** Qt delivers to the widget itself (e.g.
+  `QEvent.Type.DevicePixelRatioChange`, `ScreenChangeInternal`), which die with it.
+- **Never rebuild the scene inside a Qt callback.** `scene.clear()` during `showEvent` /
+  `paintEvent` / an event handler destroys every `QGraphicsItem` while Qt is still walking them.
+  Defer to the event loop with a `QTimer` **parented to the view** (it is then cancelled on
+  destruction, and a burst of events collapses into one pass).
 - **Windows Python must be python.org 3.12.x**, not the Microsoft Store stub (which can't build).
 - **WSL dev venv installs from `requirements-dev.txt`** (same `==` versions, **no hashes**):
   `pip install --require-hashes` fails on Linux by design (manylinux wheel hashes ≠ the `win_amd64`
