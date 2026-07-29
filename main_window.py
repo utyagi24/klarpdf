@@ -184,6 +184,7 @@ class MainWindow(QMainWindow):
         self.view.cropDragged.connect(self._on_crop_dragged)
         self.view.foreignMoved.connect(self._move_foreign_annotation)
         self.view.foreignAdopt.connect(self._adopt_foreign_annotation)
+        self.view.noteGlyphClicked.connect(self._note_mark)   # click the badge → edit its note (M90.2)
         self.find_bar = FindBar(self.view)  # hidden until Ctrl+F
         # Doc-wide search hit list (M47): a band under the find bar, hidden until List All.
         self.search_results = SearchResultsPanel(self.view)

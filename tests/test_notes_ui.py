@@ -375,3 +375,145 @@ def test_note_is_one_shot_not_sticky(win):
     _drag_over_word(win)
     assert win.view.armed is None
     win.view.annotations.notes.close()
+
+
+# ---- M90.2: the on-page glyph -------------------------------------------------------
+#
+# Without one a note is invisible until the exact mark is right-clicked, which is no affordance
+# at all. The four things the milestone asks of it: present only on noted marks, legible at low
+# zoom, obscuring no text, and opening the note.
+
+
+def _glyphs(win) -> list:
+    return win.view.annotations._note_glyphs
+
+
+def _page_rect(win, page_index: int = 0):
+    pw, ph = win.view._unrotated_size(page_index)
+    return win.view.scene_rect_for_box(page_index, (0.0, 0.0, pw, ph))
+
+
+def test_a_glyph_appears_only_on_noted_marks(win):
+    """One badge per noted mark and none anywhere else — a highlight without a note is unchanged
+    on the page, which is what keeps the badge meaningful."""
+    win.view.arm(ArmedTool.HIGHLIGHT)       # sticky (M73), so both pages mark on one arm
+    _drag_over_word(win, page_index=0)
+    _drag_over_word(win, page_index=1)
+    win.view.annotations.repaint()
+    assert _glyphs(win) == []                        # two highlights, neither noted
+
+    _note_over_word(win, "noted one", page_index=0)
+    win.view.annotations.repaint()
+    assert len(_glyphs(win)) == 1
+    page_index, mark, _box = _glyphs(win)[0]
+    assert (page_index, mark.note) == (0, "noted one")
+
+
+def test_removing_the_note_removes_the_glyph(win):
+    """The badge is painted from the model, so clearing the note clears it — no stale chrome
+    pointing at a note that no longer exists."""
+    _note_over_word(win, "temporary")
+    win.view.annotations.repaint()
+    assert len(_glyphs(win)) == 1
+
+    (mark,) = _marks(win, Highlight)
+    win._remove_note(0, mark)
+    win.view.annotations.repaint()
+    assert _glyphs(win) == []
+
+
+def test_the_glyph_obscures_no_text(win):
+    """It sits in the page's **right margin**, on the line the mark ends on — not at the end of the
+    marked run, where it would cover whatever text follows the highlight, and not straddling the
+    mark's own corner, where it would cover the very passage it annotates."""
+    _note_over_word(win, "in the margin")
+    win.view.annotations.repaint()
+    (_page, mark, box) = _glyphs(win)[0]
+
+    for bar in mark.rects:
+        assert not box.intersects(win.view.scene_rect_for_box(0, bar))
+    page = _page_rect(win)
+    assert page.contains(box)                        # …and never floating in the gutter
+    assert box.right() > page.center().x()           # right margin, not left
+
+
+def test_the_glyph_sits_on_its_marks_line(win):
+    """A margin badge that drifted off the mark's line would point at the wrong passage on a dense
+    page. It is centred on the last bar's vertical middle."""
+    _note_over_word(win, "same line", n=0)
+    win.view.annotations.repaint()
+    (_page, mark, box) = _glyphs(win)[0]
+    bar = win.view.scene_rect_for_box(0, mark.rects[-1])
+    assert box.center().y() == pytest.approx(bar.center().y(), abs=1.0)
+
+
+def test_the_glyph_is_the_same_size_at_every_zoom(win):
+    """"Legible at low zoom" is a *screen*-size requirement, and it falls out of sizing the badge
+    in scene units: zoom rebuilds the scene rather than scaling the view, so a scene unit is a
+    logical pixel at any zoom. Page-point sizing would have shrunk it away at Fit Page."""
+    _note_over_word(win, "readable")
+    sizes = []
+    for zoom in (1.0, 0.4, 2.5):
+        win.view.set_zoom(zoom)
+        win.view.annotations.repaint()
+        sizes.append(_glyphs(win)[0][2].width())
+    assert sizes[0] == sizes[1] == sizes[2]
+
+
+def test_the_glyph_wears_its_hosts_colour(win):
+    """Rule 3 again, and the tie that says *which* mark this badge belongs to on a page carrying
+    several. Washed like the popup, so badge and editor read as one thing."""
+    from PySide6.QtGui import QColor
+
+    win.view.arm(ArmedTool.HIGHLIGHT)
+    win._set_highlight_color(GREEN)
+    _drag_over_word(win)
+    _note_over_word(win, "green host")
+    win.view.annotations.repaint()
+
+    item = next(i for i in win.view.annotations._items
+                if i.brush().color() == wash(GREEN, 0.62))
+    assert item.brush().color() != QColor.fromRgbF(*GREEN)   # washed, not the raw mark colour
+
+
+def test_hovering_the_glyph_reads_the_note(win):
+    """The cheap half of "click/hover opens it": the badge carries the note as its tooltip, so a
+    passing reader gets the remark without opening anything."""
+    _note_over_word(win, "hover reads this")
+    win.view.annotations.repaint()
+    (_page, _mark, box) = _glyphs(win)[0]
+    item = next(i for i in win.view.annotations._items if i.toolTip() == "hover reads this")
+    centre = item.sceneBoundingRect().center()       # the tooltip belongs to the badge you see
+    assert centre.x() == pytest.approx(box.center().x(), abs=2.0)
+    assert centre.y() == pytest.approx(box.center().y(), abs=2.0)
+
+
+def test_clicking_the_glyph_opens_its_note(win):
+    """The affordance's whole point. Routed through the real press handler, so it also pins that
+    the badge beats text selection to the click."""
+    _note_over_word(win, "click to edit")
+    win.view.annotations.repaint()
+    (_page, _mark, box) = _glyphs(win)[0]
+
+    point = QPointF(win.view.mapFromScene(box.center()))
+    win.view.mousePressEvent(QMouseEvent(QEvent.Type.MouseButtonPress, point, point,
+        Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier))
+
+    notes = win.view.annotations.notes
+    assert notes.is_open
+    assert notes.text == "click to edit"
+    assert not win.view.selection.selected_words()   # the click did not start a text selection
+    notes.close()
+
+
+def test_the_glyph_paints_above_every_mark(win):
+    """A note badge is chrome *about* a mark, so it must never be buried by one — including a
+    filled shape brought to the front over the same words."""
+    from viewer.annotations import _NOTE_GLYPH_Z
+
+    _note_over_word(win, "on top")
+    win.view.annotations.repaint()
+    item = next(i for i in win.view.annotations._items if i.toolTip() == "on top")
+    others = [i.zValue() for i in win.view.annotations._items if i is not item]
+    assert item.zValue() == _NOTE_GLYPH_Z
+    assert all(z < _NOTE_GLYPH_Z for z in others)

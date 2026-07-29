@@ -1581,7 +1581,27 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
       already keeps by capturing its editor. Found by a test, verified red
     - Note is **one-shot, not sticky** like the M73 HUS quartet, and carries **no swatch row** on
       Markup ▾ — a note takes its host's colour, so there is no fourth colour to choose
-  - [ ] **M90.2** On-page glyph, so a note isn't invisible until you right-click the exact mark
+  - [x] **M90.2** On-page glyph, so a note isn't invisible until you right-click the exact mark
+    — *Windows (headless + offscreen GUI)* — 9 new tests, 1530 green
+    - **It sits in the page's right margin**, on the line the mark ends on — *not* at the end of
+      the marked run, which is where it first went and where the render showed it covering the
+      text that *follows* the highlight ("jum" of "jumps"). Straddling the mark's own corner was
+      the other option and obscures the very passage it annotates. A margin is empty by
+      construction on a text page; a mark that runs into it pushes the badge just past its end,
+      still clamped inside the page
+    - **Sized in scene units, not page points**, which is the whole of "legible at low zoom": zoom
+      rebuilds the scene rather than scaling the view, so a scene unit *is* a logical pixel and the
+      badge is 15 px at Fit Page and at 400% alike. Page-point sizing would have failed the
+      criterion by construction. Pinned by a test across three zooms
+    - **It does not re-tint with the app theme, deliberately** — a stated departure from the
+      milestone wording. The badge sits on the *page*, not on chrome: a page is white under every
+      theme, and Night Reading Mode inverts the page render rather than theming it, so a
+      palette-tinted glyph would turn light in dark mode and vanish on a yellow highlight. It is
+      opaque in its host's washed colour (rule 3) with dark ink — the same `wash` the popup uses,
+      so badge and editor read as one thing
+    - Click opens the note, hover reads it from the badge's tooltip. Routed in `PdfView` right
+      after the resize handles — the next most specific target, mode-independent, and below the
+      armed tools so arming still wins the press
   - [ ] **M90.3** Annotations sidebar shows and edits notes (M77 panel)
   - [ ] **M90.4** Foreign `/Contents` shows **read-only**, and M68 adopt-on-edit carries it across
 - **Corner-case document analysis** (`PLAN.md` §The corner-case document) — `IAS_CaseStudy.pdf`,

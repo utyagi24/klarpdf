@@ -66,7 +66,7 @@ from model.page_edits import (
 )
 from viewer.blend import MultiplyPixmapItem, MultiplyRectItem
 from viewer.markup_style import MarkupStyle
-from viewer.note_editor import NoteEditor
+from viewer.note_editor import NoteEditor, wash
 from viewer.resize_handles import ResizeHandles, resized_rect
 from viewer.tools import ArmedTool
 from viewer.text_format_bar import TextBoxStyle, TextFormatBar, qt_font
@@ -81,6 +81,17 @@ _HIT_PAD = 3.0                    # grab slack around thin drawn marks (page poi
 # AnnotationOverlay.covers_page). Just under 1 so a watermark laid on the page box still counts
 # after floating-point rounding, and so a nearly-full-page mark behaves like a full-page one.
 _PAGE_COVER = 0.98
+
+# The on-page note glyph (M90.2), in **logical pixels** rather than page points — deliberately.
+# Zoom rebuilds the scene rather than scaling the view (``PdfView.scale``), so a scene-unit size is
+# a constant on-screen size: the badge stays legible at Fit Page on a 300-page report and never
+# balloons at 400%. Page-point sizing would have failed the "legible at low zoom" criterion by
+# construction.
+_NOTE_GLYPH_PX = 15.0
+_NOTE_GLYPH_MARGIN = 3.0    # gap between the badge and the page edge it sits against
+# Above every mark (the [6, 7) band) and below the transient UI — search hits (9), selection (10),
+# live gestures (11+). A note glyph is chrome *about* a mark, so it must never be buried by one.
+_NOTE_GLYPH_Z = 8.0
 
 # The markup / draw style (colour · width · fill) is picked from the shared, sticky
 # :class:`~viewer.markup_style.MarkupStyle` (M59.5) — its defaults are the old M58 fixed
@@ -221,6 +232,26 @@ _MARK_NOUNS = {
 }
 
 
+def _note_bubble_path(box: QRectF) -> QPainterPath:
+    """A speech bubble filling ``box`` — a rounded body over a tail at the bottom-left.
+
+    Drawn as one closed path rather than a rounded rect plus a triangle, so the badge takes a
+    single 1px outline all the way round instead of showing the seam where the two would meet.
+    Proportions are tuned at :data:`_NOTE_GLYPH_PX`: the body takes the top ~72% and the tail drops
+    from just inside the left rounding, which is what still reads as *speech* at 15 px.
+    """
+    w, h = box.width(), box.height()
+    body = QRectF(box.left(), box.top(), w, h * 0.72)
+    path = QPainterPath()
+    path.addRoundedRect(body, w * 0.22, w * 0.22)
+    tail = QPainterPath()
+    tail.moveTo(box.left() + w * 0.26, body.bottom() - 1.0)
+    tail.lineTo(box.left() + w * 0.26, box.bottom())
+    tail.lineTo(box.left() + w * 0.60, body.bottom() - 1.0)
+    tail.closeSubpath()
+    return path.united(tail).simplified()
+
+
 def mark_noun(mark) -> str:
     """What to call a mark in an undo label. Falls back to the class name so a future descriptor
     gets a serviceable label instead of a KeyError in the middle of a drag."""
@@ -341,6 +372,10 @@ class AnnotationOverlay:
         # the text-box editor — a note is a *field of an HUS mark*, so its editor belongs with the
         # marks rather than as a fourth overlay on the view.
         self.notes = NoteEditor(view)
+        # Where each on-page note glyph landed (M90.2), as (page_index, mark, scene box). Recorded
+        # at paint rather than re-derived at hit-test, so the badge you click is provably the badge
+        # you can see — the placement clamps to the page, and a second derivation could disagree.
+        self._note_glyphs: list = []
 
     # ---- preview painting -------------------------------------------------------
 
@@ -353,6 +388,7 @@ class AnnotationOverlay:
             except RuntimeError:
                 pass  # already dropped by scene.clear() during a rebuild
         self._items.clear()
+        self._note_glyphs.clear()   # the badges are among _items; their hit boxes go with them
 
     @staticmethod
     def _annot_z(index: int, count: int) -> float:
@@ -462,6 +498,62 @@ class AnnotationOverlay:
                     self._paint_textbox(scene, page_index, annot, z)
                 elif isinstance(annot, Redaction):
                     self._paint_redaction(scene, page_index, annot)
+                # A note is a field of its host, not a mark of its own, so it is painted *after*
+                # the host rather than as another branch of this dispatch (M90.2).
+                if getattr(annot, "note", ""):
+                    self._paint_note_glyph(scene, page_index, annot)
+
+    def _paint_note_glyph(self, scene, page_index: int, annot) -> None:
+        """A small speech bubble marking a noted mark (M90.2) — without one a note is invisible
+        until the exact mark is right-clicked, which is no affordance at all.
+
+        **It sits in the page's right margin**, on the line the mark ends on, rather than at the
+        end of the marked run. At the end of the run it would cover whatever text *follows* the
+        highlight — a badge over "jum" of "jumps" is still page text obscured — and the alternative
+        of straddling the mark's own corner obscures the very passage it annotates. The margin is
+        empty by construction on a text page, keeps the badge on the mark's own line, and is where
+        a reader looks for a remark. A mark that runs *into* the margin pushes the badge just past
+        its end instead, still clamped inside the page, so a full-bleed page shows it over content
+        rather than floating in the gutter.
+
+        It is **opaque, in its host's washed colour, with dark ink, and it does not re-tint with
+        the app theme** — a deliberate departure from the milestone's wording. It sits on the
+        *page*, not on chrome: a page is white under every theme, and Night Reading Mode inverts
+        the page render rather than theming it. A palette-tinted glyph would turn light in dark
+        mode and vanish on a yellow highlight. The wash is the same
+        :func:`~viewer.note_editor.wash` the popup uses, so badge and editor read as one thing.
+        """
+        anchor = max(annot.rects, key=lambda r: (r[3], r[2]))    # last bar: lowest, then rightmost
+        bar = self._view.scene_rect_for_box(page_index, anchor)
+        pw, ph = self._view._unrotated_size(page_index)
+        page = self._view.scene_rect_for_box(page_index, (0.0, 0.0, pw, ph))
+        size = _NOTE_GLYPH_PX
+        x = min(max(page.right() - _NOTE_GLYPH_MARGIN - size, bar.right() + _NOTE_GLYPH_MARGIN),
+                page.right() - size)
+        y = min(page.bottom() - size, max(page.top(), bar.center().y() - size / 2.0))
+        box = QRectF(x, y, size, size)
+        item = QGraphicsPathItem(_note_bubble_path(box))
+        # A stronger wash than the popup's: 15 px of colour needs more of it to register than a
+        # 240 px panel does, and nothing is typed on top of the badge.
+        item.setBrush(QBrush(wash(annot.color, 0.62)))
+        item.setPen(QPen(QColor(25, 25, 25), 1.2))
+        item.setZValue(_NOTE_GLYPH_Z)
+        item.setToolTip(annot.note)     # hover reads the note without opening anything
+        scene.addItem(item)
+        self._items.append(item)
+        self._note_glyphs.append((page_index, annot, box))
+
+    def note_glyph_at(self, scene_pt):
+        """The ``(page_index, mark)`` whose note glyph contains ``scene_pt``, else ``None``.
+
+        Walked **last-painted first** so the topmost badge wins where two overlap, matching every
+        other hit-test here. A slack margin is deliberately absent: the badge is already sized in
+        screen pixels, so it is the same easy target at every zoom.
+        """
+        for page_index, annot, box in reversed(self._note_glyphs):
+            if box.contains(scene_pt):
+                return page_index, annot
+        return None
 
     def _paint_text_line(self, scene, page_index: int, annot, z: float) -> None:
         """Underline / strikeout preview (M56): an opaque thin bar per line rect — along the
