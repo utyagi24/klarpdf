@@ -1347,12 +1347,15 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
       is not safe; the handle is a plain Python object instead, holding no reference back to the view
     - **Five windows, one budget**: five documents open simultaneously → 585.1 MB RSS / 23 entries /
       410.9 MB cached, against the five independent 48-entry caches `main` would have allowed
-- [ ] **M88** DPI correctness — what "100%" means (owner-reported: "why does the document appear
+- [x] **M88** DPI correctness — what "100%" means (owner-reported: "why does the document appear
   smaller than in Edge and Brave at the same zoom percentage?"). Because our 100% is 1 pt → 1 logical
   px at 96 DPI, so we show **75% of physical size and call it 100%**. Investigating it surfaced a
   worse defect: **`devicePixelRatio` is handled nowhere**, so on a 1.75× laptop panel every page is
   upscaled and the **text is blurry**. View-only. **Must follow M87** — see the renumbering note in
-  `PLAN.md`. Spec in `PLAN.md` §M88.
+  `PLAN.md`. Spec in `PLAN.md` §M88. Shipped as **two PRs plus one closed row**:
+  M88.1–.4 together ([#211](https://github.com/utyagi24/klarpdf/pull/211)) since they are one
+  mechanism, M88.6 after them as the plan sequenced it
+  ([#212](https://github.com/utyagi24/klarpdf/pull/212)), and M88.5 closed as no work required.
   **Premise check done 2026-07-28 before building, on the owner's own two screens** — every figure
   in the spec held exactly. Laptop panel `\\.\DISPLAY1` DPR **1.75**, external `DELL U2722DE` DPR
   **1.0**, both **96 logical DPI**; `logicalDpi/72` = 1.3333; a Letter page measured **6.375 in** at
@@ -1407,11 +1410,16 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
       sizes instead of one. A seventh, the highlight-blend probe, was a **latent fixture bug** the
       new scale exposed: `scene.render()` letterboxes by default, and the white bars it leaves grew
       from ~1 px to ~3 px and defeated a fixed inset — fixed by not scaling the source at all
-  - [ ] **M88.5** Migrate saved per-document zooms — ⚠️ **premise does not hold, re-scope first**:
-    nothing reopens at a saved zoom (documents open at Fit Page by the v0.9.1 decision, and
-    `apply_state()` has no production caller), so there is no remembered magnification for M88.1 to
-    redefine and nothing to migrate. Reduces to *either nothing, or a versioning stamp written now*
-    so a future "restore my zoom" can tell pre- from post-M88 values. See `PLAN.md` §M88.5
+  - [x] **M88.5** Migrate saved per-document zooms — **closed as no work required (owner call,
+    2026-07-28)**. The premise was re-checked while building M88.1: nothing reopens at a saved zoom
+    (documents open at Fit Page by the v0.9.1 decision, and `apply_state()` still has **no
+    production caller** — only tests), so there was no remembered magnification for M88.1 to
+    redefine and nothing to migrate. That left the narrower question the plan reserved — write a
+    *basis stamp* now so a future "restore my zoom" could tell pre- from post-M88 values, or write
+    nothing. **Owner chose nothing**: the feature may never be built, and if it is, it can start
+    clean rather than migrate values of unknown era. The trade being accepted is recorded in
+    `PLAN.md` §M88.5 so it does not get rediscovered as a bug — a pre-M88 stored `1.0` meant 6.375″
+    and now means 8.5″, so any future restore that honours old values reopens them ~33% larger
   - [x] **M88.6** Zoom range → **25–500%** (was 10–800%), sequenced *after* M88.1 as the plan
     required, since the DPI correction shifts what every percentage draws. — *Windows (offscreen
     GUI)* — 7 new tests, 1455 green
