@@ -899,6 +899,15 @@ class PdfView(QGraphicsView):
                                                      auto_repeat=event.isAutoRepeat()):
                     event.accept()
                     return
+        # Ctrl+A selects every word in the **whole document** (M89.6) — what Edge and Brave do, and
+        # the only non-arbitrary answer in a viewer that scrolls continuously. It lives here, not on
+        # a window-level QAction, for exactly the reason :meth:`_navigation_key` sets out below: a
+        # focused inline editor must keep its own select-all.
+        if event.key() == Qt.Key.Key_A and event.modifiers() == Qt.KeyboardModifier.ControlModifier \
+                and self.selection is not None:
+            self.selection.select_all()
+            event.accept()
+            return
         if self._navigation_key(event):     # M89.1 / M89.2
             event.accept()
             return
@@ -919,10 +928,11 @@ class PdfView(QGraphicsView):
         the current page for free. ``Space`` is the same ``SliderPageStep`` the working
         ``PgDn``/``PgUp`` already trigger.
 
-        **These live here rather than as window-level ``QAction`` shortcuts on purpose.** A window
-        shortcut fires wherever focus is, so ``Home``/``Space`` bound that way would hijack those
-        keys from the inline text-box editor and the form-field editors — children of this
-        viewport — where they mean line-start and a literal space. Routed through the view, a
+        **These live here rather than as window-level ``QAction`` shortcuts on purpose** — as does
+        the ``Ctrl+A`` above, which points at this paragraph. A window shortcut fires wherever focus
+        is, so ``Home`` / ``Space`` / ``Ctrl+A`` bound that way would hijack those keys from the
+        inline text-box editor and the form-field editors — children of this viewport — where they
+        mean line-start, a literal space, and select-all-in-this-field. Routed through the view, a
         focused editor consumes them first and never sees ours; the same reasoning that put the
         clipboard verbs behind ``_edit_copy``'s focus router (M59).
 
@@ -1388,6 +1398,22 @@ class PdfView(QGraphicsView):
         if not self._render_held:
             self._render_visible()
 
+    def overlay_band(self) -> tuple[int, int]:
+        """The pages an **overlay** should paint: those intersecting the viewport, plus the
+        ``_PREFETCH`` margin so a scroll of a page or two finds the marks already there.
+
+        Public, and deliberately not the byte-budgeted band :meth:`_render_visible` computes for
+        pixmaps: an overlay item is a handful of rects, not megabytes, so the adaptive shrink M87.1
+        applies to rasterising has nothing to weigh here — and this is called on every scroll and
+        every drag update, where the flat constant costs a binary search and the budgeted one costs
+        a page-weight scan.
+
+        Used by :class:`~viewer.text_selection.TextSelection` to bound the scene item count by
+        viewport size instead of document length (M89.6).
+        """
+        first, last = self._visible_range()
+        return max(0, first - _PREFETCH), min(len(self._pages) - 1, last + _PREFETCH)
+
     def _render_visible(self) -> None:
         if not self._pages or not self._shown_once:
             return
@@ -1477,6 +1503,11 @@ class PdfView(QGraphicsView):
     def _on_scroll(self, _value: int) -> None:
         self._render_visible()
         self._reposition_overlay_editors()  # keep an open inline editor on its field while scrolling
+        if self.selection is not None:
+            # The selection's rects now live only for the pages on screen (M89.6), so a scroll can
+            # uncover selected text that has nothing painted over it. Cheap: it returns immediately
+            # unless the band actually moved.
+            self.selection.repaint_for_scroll()
         if self._slideshow:
             # A scroll from anywhere else (the scrollbar, a pan) re-seats the projected row, so the
             # next step continues from what is on screen. Steps of our own re-assert it afterwards.

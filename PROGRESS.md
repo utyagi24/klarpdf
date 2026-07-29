@@ -1438,10 +1438,11 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
       rather than only by typing; no preset sits outside the bounds, so none silently clamps to a
       different number than the item clicked. A saved zoom outside the new range (old files hold
       10% / 800%) is ignored by `apply_state`'s existing range check and the view keeps what it had
-- [ ] **M89** The rest of the reading-input conventions. Six parts, all view-only; **now two PRs**
-  (M89.1–.3 together, M89.5 alone, M89.6 alone) — **M89.4 shipped early**, see below. Spec in
-  `PLAN.md` §M89. M89.1–.3 are in
-  ([#214](https://github.com/utyagi24/klarpdf/pull/214)); M89.5 and M89.6 remain.
+- [ ] **M89** The rest of the reading-input conventions. Six parts, all view-only. **M89.4 shipped
+  early** on its own; **M89.1–.3** landed together
+  ([#214](https://github.com/utyagi24/klarpdf/pull/214)) and **M89.6** alone
+  ([#216](https://github.com/utyagi24/klarpdf/pull/216)). Spec in `PLAN.md` §M89; each part's status
+  is on its own line below, not restated here.
   - [x] **M89.1 + M89.2 + M89.3** shipped together as the plan sequenced them — the first two edit
     the same `keyPressEvent` and the third the `wheelEvent` beside it, so separate PRs would have
     meant rebasing against one function three times for no review benefit. — *Windows (offscreen
@@ -1497,12 +1498,36 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
       that is why the owner saw the page restore correctly while testing that branch. Fixing it here
       keeps the restore correct on its own terms rather than as a side effect of a perf change
   - [ ] **M89.5** Pinch-zoom, anchored at the gesture centre — **needs hands-on Windows validation**
-  - [ ] **M89.6** `Ctrl+A` → select all text in the **whole** document (Edge/Brave behaviour),
-    **plus** the repaint rework it depends on: painting clipped to visible pages + each line's run
-    coalesced into one rect. Not optional — measured, one scene item per selected word makes
-    `scene.clear()` cost **20.6 s at 247k words**, and `_build_scene` clears on every zoom step. A
-    pre-existing latent bug; Ctrl+A merely makes it one keystroke. The coalescing changes how *every*
-    selection looks, so it is reviewed on a rendered grab before merge
+  - [x] **M89.6** `Ctrl+A` → select all text in the **whole** document, **plus** the repaint rework
+    it depends on. — *Windows (headless + offscreen GUI)* — 16 new tests (15 verified red), 1475 green
+    - **Whole document, not the current page** (owner call — Edge and Brave both do): a viewer that
+      scrolls continuously has no page boundary a reader would recognise as the limit of "all".
+      Nearly free in the model, which has always carried the selection as a `(page, word)`
+      anchor/cursor pair spanning pages — `select_all` pins it to the two ends. The ends are the
+      first and last pages that **have words**, not simply page 0 and page n−1: a leading or
+      trailing scanned page has none, and an anchor on a non-existent word index would select
+      nothing at all. A document with no text layer selects nothing and does not error
+    - **The repaint rework was not optional, and the measurement now has both columns.** On a
+      200-page / 104,000-word document, offscreen on this machine: **104,000 scene items, 8.85 s to
+      select and 9.59 s for one zoom step** before → **120 items, 0.02 s and 0.07 s** after. Two
+      changes did it: painting is clipped to `PdfView.overlay_band()` (the visible pages plus the
+      `_PREFETCH` margin), so the item count follows viewport size rather than document length; and
+      each line's run coalesces into one rect. **Pre-existing and latent**, not something Ctrl+A
+      introduced — a drag carried across several hundred pages already reached that state
+    - **`overlay_band` is deliberately the flat `_PREFETCH` margin, not the byte-budgeted band
+      `_render_visible` computes.** An overlay item is a handful of rects, not megabytes, so
+      M87.1's adaptive shrink has nothing to weigh — and this runs on every scroll and every drag
+      update, where the constant costs a binary search and the budgeted one a page-weight scan
+    - **Clipping forces a repaint on scroll**, or selected text scrolling in would have nothing
+      painted over it. `repaint_for_scroll` returns immediately unless the band actually moved,
+      which is the common case for a scroll event
+    - **The coalescing closed a gap that predated it.** The mark this app *commits* has always been
+      one bar per line (`_selection_line_bars`), so the per-word preview was the odd one out and a
+      highlight visibly re-flowed on release. The grouping now lives on the selection as
+      `line_bars()` and `MainWindow._selection_line_bars` delegates to it, so preview and mark
+      **cannot** drift; reviewed on rendered grabs, which are pixel-identical
+    - Bound in `PdfView.keyPressEvent`, not as a window `QAction` — a focused inline editor must
+      keep its own select-all, and a test pins that
 - [ ] **M90** Notes: the interface — the visible half of M81. Spec in `PLAN.md` §M90.
   - [ ] **M90.1** Create + edit — Note verb on **Markup ▾** (no new toolbar slot) + the M76 context
     menu. Attaching is primary; creating a highlight is the fallback when the selection has no HUS

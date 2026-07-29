@@ -149,7 +149,7 @@ def test_selection_highlights_rescale_on_zoom(qapp, text_pdf):
     view = _view(qapp, text_pdf)
     _drag(view, _word_point(view, 0, "Hello", 0.2), _word_point(view, 0, "foo", 0.8))
     n = len(view.selection._items)
-    assert n == 3  # Hello world foo
+    assert n == 1  # "Hello world foo" is one line, so one bar — per word until M89.6
     view.set_zoom(2.0)  # triggers _build_scene -> overlay repaint
     assert len(view.selection._items) == n  # survived rebuild
 
