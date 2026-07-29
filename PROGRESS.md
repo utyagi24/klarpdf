@@ -1602,7 +1602,19 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     - Click opens the note, hover reads it from the badge's tooltip. Routed in `PdfView` right
       after the resize handles — the next most specific target, mode-independent, and below the
       armed tools so arming still wins the press
-  - [ ] **M90.3** Annotations sidebar shows and edits notes (M77 panel)
+  - [x] **M90.3** Annotations sidebar shows and edits notes (M77 panel) — *Windows (headless +
+    offscreen GUI)* — 6 new tests, 1536 green
+    - The note is **appended to the row, not substituted for the passage**: the snippet is what
+      lets a reader recognise *which* mark a row is, so it stays even when the remark is the more
+      interesting half. Clipped harder than the snippet (32 vs 48 chars) with the **full note as
+      the row's tooltip** — a remark you can only read half of is worse than one you can hover
+    - **Editing there is the same popup, not a second editor.** A double-clicked row reveals the
+      mark and opens the on-page editor, so "editing in the sidebar and on the page agree" is true
+      **by construction** rather than by keeping two implementations in step — the drift this
+      codebase has been bitten by before (preview vs committed mark, M89.6). An unnoted row writes
+      its first note the same way, so the list is a creation path too
+    - "Deleting the host removes the row" needed no code: `populate()` re-runs on every edit and
+      reads the live model, and the note is a *field* of the mark it lists
   - [ ] **M90.4** Foreign `/Contents` shows **read-only**, and M68 adopt-on-edit carries it across
 - **Corner-case document analysis** (`PLAN.md` §The corner-case document) — `IAS_CaseStudy.pdf`,
   owner-supplied: 75.6 MB, 18 pages of 1920×1080 pt, **no text layer**, 95 MB of embedded images.

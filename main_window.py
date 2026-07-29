@@ -310,6 +310,7 @@ class MainWindow(QMainWindow):
             self.annotations_panel = AnnotationsPanel(
                 self.vdoc, self.view.annotations.foreign_annotations)
             self.annotations_panel.markActivated.connect(self._goto_mark)
+            self.annotations_panel.noteRequested.connect(self._note_from_sidebar)
             self._annotations_tab_shown = True   # this window is carrying it now
             extra.append((self.annotations_panel, "Annotations"))
         if extra:
@@ -2091,9 +2092,23 @@ class MainWindow(QMainWindow):
         self._open_note_editor(page_index, bars, host, by_page)
 
     def _note_mark(self, page_index: int, mark) -> None:
-        """The context menu's Add / Edit Note on a right-clicked markup — the host is not in
-        question here, so it goes straight to the editor on that mark's own bars."""
+        """The context menu's Add / Edit Note on a right-clicked markup, and the M90.2 glyph's
+        click — the host is not in question in either case, so it goes straight to the editor on
+        that mark's own bars."""
         self._open_note_editor(page_index, tuple(mark.rects), mark)
+
+    def _note_from_sidebar(self, page_index: int, mark) -> None:
+        """An Annotations row was double-clicked (M90.3) → scroll the mark into view, then open
+        **the same popup** the glyph and the context menu open.
+
+        Reveal first, or the editor would open over a mark that is off-screen — you would be typing
+        a remark about a passage you cannot see. Reusing the one editor is what makes "editing in
+        the sidebar and editing on the page agree" true by construction rather than by keeping two
+        implementations in step.
+        """
+        self.view.ensure_box_visible(page_index, mark_bounds(mark))
+        self.view.set_current_page(page_index)
+        self._note_mark(page_index, mark)
 
     def _open_note_editor(self, page_index: int, bars: tuple, host, by_page=None) -> None:
         """Open the note popup over ``bars``, pre-filled from ``host`` (``None`` = nothing marked

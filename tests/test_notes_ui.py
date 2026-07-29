@@ -517,3 +517,126 @@ def test_the_glyph_paints_above_every_mark(win):
     others = [i.zValue() for i in win.view.annotations._items if i is not item]
     assert item.zValue() == _NOTE_GLYPH_Z
     assert all(z < _NOTE_GLYPH_Z for z in others)
+
+
+# ---- M90.3: the Annotations sidebar ---------------------------------------------------
+#
+# M77's panel is already "a reading of the document's margin". For a noted mark the note *is* the
+# margin remark, so it belongs on the row — and the row is a second place to write one.
+
+
+@pytest.fixture
+def sidebar_win(qapp, a_pdf, tmp_path):
+    """A window with the Annotations tab mounted the way a reader mounts it (M79.3)."""
+    qapp.settings = Settings(tmp_path / "vs.json")
+    qapp.settings.set_pref("sidebar_tabs", ["annotations", "outline"])
+    w = qapp.open_document(a_pdf)
+    w.show()
+    qapp.processEvents()
+    yield w
+    w.undo_stack.setClean()
+    w.close()
+
+
+def _rows(win) -> list[str]:
+    panel = win.annotations_panel
+    return [panel.item(i).text() for i in range(panel.count())]
+
+
+def _mount_annotations(win) -> None:
+    win._sidebar_tab_actions["annotations"].setChecked(True)
+
+
+def test_a_noted_mark_shows_its_note_on_its_row(sidebar_win):
+    """The passage stays — it is what lets you recognise *which* mark the row is — and the note
+    follows it. Appended, not substituted."""
+    win = sidebar_win
+    _note_over_word(win, "check this figure")
+    _mount_annotations(win)
+
+    (row,) = _rows(win)
+    assert row.startswith("p. 1 · highlight · ")
+    assert row.endswith(" — check this figure")
+    assert "ALPHA-zero-A0" in row                     # …the passage, still there
+
+
+def test_an_unnoted_mark_reads_exactly_as_it_did_before(sidebar_win):
+    """M77's row format is unchanged where there is no note — no dangling separator."""
+    win = sidebar_win
+    win.view.arm(ArmedTool.HIGHLIGHT)
+    _drag_over_word(win)
+    _mount_annotations(win)
+
+    (row,) = _rows(win)
+    assert row == "p. 1 · highlight · ALPHA-zero-A0"
+
+
+def test_a_long_note_is_clipped_but_the_row_keeps_its_tooltip(sidebar_win):
+    """A remark you can only read half of is worse than one you can hover, so the row clips and
+    the tooltip carries it whole."""
+    win = sidebar_win
+    long_note = "a considered remark that runs well past what one sidebar row can show"
+    _note_over_word(win, long_note)
+    _mount_annotations(win)
+
+    panel = win.annotations_panel
+    assert panel.item(0).text().endswith("…")
+    assert long_note not in panel.item(0).text()
+    assert panel.item(0).toolTip() == long_note      # …in full, on hover
+
+
+def test_the_row_follows_an_edit_and_dies_with_its_host(sidebar_win):
+    """`populate()` re-runs on every edit and reads the live model, so the list tracks add /
+    edit / remove / undo without the note needing any bookkeeping of its own."""
+    win = sidebar_win
+    _note_over_word(win, "first")
+    _mount_annotations(win)
+    assert _rows(win)[0].endswith(" — first")
+
+    (mark,) = _marks(win, Highlight)
+    win._commit_note(0, tuple(mark.rects), mark, "second")
+    assert _rows(win)[0].endswith(" — second")
+
+    (mark,) = _marks(win, Highlight)
+    win.view.annotations.remove(0, mark)             # deleting the host removes the row
+    assert win.annotations_panel is None or win.annotations_panel.count() == 0
+
+
+def test_double_clicking_a_row_opens_that_marks_note(sidebar_win):
+    """Editable *there* — by revealing the mark and opening the one on-page popup, so "the sidebar
+    and the page agree" is true by construction rather than by two editors kept in step."""
+    win = sidebar_win
+    _note_over_word(win, "from the page")
+    _mount_annotations(win)
+    panel = win.annotations_panel
+
+    panel.itemDoubleClicked.emit(panel.item(0))
+    notes = win.view.annotations.notes
+    assert notes.is_open
+    assert notes.text == "from the page"
+
+    notes._popup.setPlainText("from the sidebar")
+    notes._commit()
+    (mark,) = _marks(win, Highlight)
+    assert mark.note == "from the sidebar"           # …and the write lands on the same field
+    assert _rows(win)[0].endswith(" — from the sidebar")
+
+
+def test_double_clicking_an_unnoted_row_writes_a_first_note(sidebar_win):
+    """The sidebar is a creation path too — a row with no note is exactly where you notice you
+    want one."""
+    win = sidebar_win
+    win.view.arm(ArmedTool.HIGHLIGHT)
+    _drag_over_word(win)
+    _mount_annotations(win)
+    panel = win.annotations_panel
+
+    panel.itemDoubleClicked.emit(panel.item(0))
+    notes = win.view.annotations.notes
+    assert notes.is_open and notes.text == ""
+    notes._popup.setPlainText("written from the list")
+    notes._commit()
+
+    (mark,) = _marks(win, Highlight)
+    assert mark.note == "written from the list"
+    assert len(_marks(win, Highlight)) == 1          # no second mark was created
