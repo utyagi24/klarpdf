@@ -303,16 +303,20 @@ def test_placement_off_page_is_rejected(win):
 
 
 def test_editor_font_matches_box_and_fits_text(win):
-    """The editor font is the box font at the current zoom, and the box is wide enough for the text
-    at that font — so the rendered text never spills past the box edge."""
+    """The editor font is the box font at the current **view scale**, and the box is wide enough for
+    the text at that font — so the rendered text never spills past the box edge.
+
+    ``scale``, not ``zoom`` (M88.1): the editor is a widget laid over the scene, so being WYSIWYG
+    with the box it covers means matching the scale that box is drawn at.
+    """
     from PySide6.QtGui import QFontMetricsF
 
     win.view.arm(ArmedTool.TEXTBOX)
     ov = win.view.annotations
     ov.place_textbox(win.view.scene_rect_for_box(0, (80, 100, 100, 120)).center())
     ov._editor.setPlainText("Some sample annotation text")
-    z = win.view.zoom
-    assert ov._editor.font().pixelSize() == max(1, round(11 * z))  # WYSIWYG: 11 pt × zoom
+    z = win.view.scale
+    assert ov._editor.font().pixelSize() == max(1, round(11 * z))  # WYSIWYG: 11 pt × scale
     fm = QFontMetricsF(ov._editor.font())
     box_w_px = (ov._editor_rect[2] - ov._editor_rect[0]) * z
     assert box_w_px >= fm.horizontalAdvance("Some sample annotation text")  # fits → no spill
@@ -400,7 +404,7 @@ def test_bar_controls_update_overlay_style_and_editor(win):
     assert ov.current_style.fontname == "cour"
     assert ov.current_style.fontsize == 18.0
     assert ov.current_style.border_width == 1.0
-    assert ov._editor.font().pixelSize() == max(1, round(18 * win.view.zoom))  # editor tracked size
+    assert ov._editor.font().pixelSize() == max(1, round(18 * win.view.scale))  # editor tracked size
 
 
 def test_reedit_loads_the_box_style_into_the_bar(win):

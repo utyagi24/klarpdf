@@ -141,11 +141,14 @@ def _interior_dark_pixels(win, name) -> int:
 
     The synthetic form's page is otherwise blank around the fields, so dark interior pixels mean
     the entered value actually rendered.
+
+    The field rect is in page points and the pixmap is in **device** pixels, so it converts through
+    ``device_scale`` (M88.2) — ``zoom`` was the same number only while a point was one pixel.
     """
     f = _field(win, name)
     pm = win.view._render_pixmap(f.page_index)
     img = pm.toImage()
-    z = win.view.zoom
+    z = win.view.device_scale
     x0, y0, x1, y1 = (int(v * z) for v in f.rect)
     count = 0
     for y in range(y0 + 2, y1 - 2):

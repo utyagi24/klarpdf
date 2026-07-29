@@ -967,7 +967,7 @@ class AnnotationOverlay:
         editor = self._editor
         if editor is None:
             return
-        z = self._view.zoom
+        z = self._view.scale   # scene units per point, not the bare zoom (M88.1)
         font = qt_font(self._style.fontname, self._editor_fontsize * z)  # family + zoomed size
         editor.setFont(font)
         pw, ph = self._view._unrotated_size(self._editor_page)
@@ -1216,9 +1216,12 @@ class AnnotationOverlay:
 
     def _hit_tol(self, mark) -> float:
         """Click tolerance in page points for a thin mark: half the stroke width plus a fixed
-        on-screen slack (converted to page points via the zoom), so the grab band feels the same
-        ~6 px at any zoom and a thicker stroke is correspondingly easier to hit."""
-        return getattr(mark, "width", 2.0) / 2.0 + 6.0 / max(self._view.zoom, 0.05)
+        on-screen slack (converted to page points via the view scale), so the grab band feels the
+        same ~6 px at any zoom and a thicker stroke is correspondingly easier to hit.
+
+        Divides by :attr:`~viewer.pdf_view.PdfView.scale`, not ``zoom`` — the slack is 6 *scene
+        units*, and after M88.1 those differ by the 1.333 DPI factor."""
+        return getattr(mark, "width", 2.0) / 2.0 + 6.0 / max(self._view.scale, 0.05)
 
     def _drawn_hit(self, mark, lx: float, ly: float) -> bool:
         """Whether the unrotated page point ``(lx, ly)`` hits ``mark``. Pen/line → near the drawn

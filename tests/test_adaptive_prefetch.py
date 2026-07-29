@@ -83,18 +83,29 @@ def test_the_band_shrinks_as_the_pages_get_heavier(qapp, tmp_path, settings):
 
 def test_a_large_format_page_shrinks_the_band_without_any_zoom(qapp, tmp_path, settings):
     """It is page *size* that drives memory, not zoom (PLAN.md §M87: three wildly different A4s
-    produce byte-identical pixmaps, and the A0 from a 0.1 MB file is 16.6x any of them). At 100% an
-    A0 sheet is ~32 MB, which buys one page of prefetch where a Letter sheet buys the full two; at
-    200% it is ~128 MB and buys none."""
-    a0 = _doc(tmp_path, pages=6, width=2384, height=3370, name="a0.pdf")   # ISO A0 in points
-    win = _open(qapp, a0, zoom=1.0)
+    produce byte-identical pixmaps, and the A0 from a 0.1 MB file is 16.6x any of them).
+
+    Two rungs of the curve, both at 100% and both real ISO sizes: an **A1** sheet costs 27 MiB and
+    buys one page of prefetch where a Letter sheet buys the full two; an **A0** costs 55 MiB — more
+    than the whole 48 MB allowance — and buys none.
+
+    **Re-based for M88.1.** These were one rung (A0 -> 1 at 100%, -> 0 at 200%) against the
+    pre-M88 scale, where a point was one pixel and an A0 was 31 MiB. Physical-size rendering makes
+    every page 1.78x heavier at DPR 1.0, so the A0 crossed a bucket. The mechanism is untouched —
+    only what a page weighs — which is the interaction PLAN.md §M88 flagged when it said M87 had to
+    be sized against post-M88 numbers.
+    """
+    a1 = _doc(tmp_path, pages=6, width=1684, height=2384, name="a1.pdf")   # ISO A1 in points
+    win = _open(qapp, a1, zoom=1.0)
     first, last = win.view._visible_range()
     assert _PREFETCH_BYTES // 2 < win.view._page_bytes(first) <= _PREFETCH_BYTES
     assert win.view._prefetch(first, last) == 1
+    win.close()
 
-    win.view.set_zoom(2.0)
-    qapp.processEvents()
+    a0 = _doc(tmp_path, pages=6, width=2384, height=3370, name="a0.pdf")   # ISO A0 in points
+    win = _open(qapp, a0, zoom=1.0)
     first, last = win.view._visible_range()
+    assert win.view._page_bytes(first) > _PREFETCH_BYTES   # one page outweighs the whole allowance
     assert win.view._prefetch(first, last) == 0
     win.close()
 
@@ -134,8 +145,10 @@ def test_the_heaviest_page_in_view_sets_the_band(qapp, tmp_path, settings):
     doc.close()
     win = _open(qapp, path, zoom=1.0)
     assert win.view._prefetch(0, 0) == _PREFETCH       # the Letter sheet alone: the full band
-    assert win.view._prefetch(1, 1) == 1               # the A0 alone: one page
-    assert win.view._prefetch(0, 1) == 1               # both in view: the A0 sets it, not the mean
+    assert win.view._prefetch(1, 1) == 0               # the A0 alone (55 MiB post-M88.1): none
+    # Both in view: the A0's answer, not the Letter's and not the mean of the two — which is the
+    # whole claim. A mean of 3.3 and 54.5 MiB would be 29 MiB, comfortably inside the allowance.
+    assert win.view._prefetch(0, 1) == 0
     win.close()
 
 

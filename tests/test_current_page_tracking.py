@@ -125,7 +125,9 @@ def test_two_page_view_marks_the_left_page_of_the_spread(win, qapp):
     """
     view = win.view
     view.set_page_layout("facing")
-    view.set_zoom(0.4)  # rows ~432 px in a ~1000 px viewport — still the short-page case
+    # Rows ~432 px in a ~1000 px viewport — still the short-page case. Was 0.4 before M88.1, when
+    # a point was one pixel; the same 432 px now costs 0.3, because 100% draws 1.333x larger.
+    view.set_zoom(0.3)
     view._center_horizontally()
     qapp.processEvents()
     assert view._pages[2]["h"] < view.viewport().height() / 2
