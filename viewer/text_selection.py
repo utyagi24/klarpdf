@@ -55,6 +55,7 @@ class TextSelection:
         self._press = None              # scene point where the press started
         self._pending_anchor = None     # nearest word at press, promoted to anchor once dragging
         self._moved = False             # has the drag passed the threshold yet?
+        self._band: tuple[int, int] | None = None   # page range the painted items cover (M89.6)
 
     # ---- word data --------------------------------------------------------------
 
@@ -181,19 +182,83 @@ class TextSelection:
 
     # ---- selection content ------------------------------------------------------
 
-    def selected_words(self) -> list[tuple[int, int, tuple]]:
-        """Return ``(page_index, order_index, word_tuple)`` for the inclusive selection."""
+    def select_all(self) -> bool:
+        """Select every word in the **whole document** (M89.6). Returns whether anything was
+        selected.
+
+        Whole document, not the current page: both Edge and Brave do it that way, and in a viewer
+        that scrolls continuously there is no page boundary a reader would recognise as the limit of
+        "all". It is nearly free in the model, which has always carried the selection as a
+        ``(page_index, word_index)`` anchor/cursor pair spanning pages — this just pins it to the
+        two ends.
+
+        The ends are the first and last pages that **have words**, not simply page 0 and page n−1:
+        a leading or trailing scanned page has none, and an anchor on a non-existent word index
+        would select nothing at all. A document with no text layer anywhere selects nothing and
+        does not error — Edge behaves identically, and it is the right answer for an image-only PDF.
+        """
+        if self._view.rotation != 0:
+            return False       # selection is rotation-0 only, as elsewhere in this class
+        pages = range(len(self._view._vdoc.ordered))
+        first = next((p for p in pages if self._words_for(p)), None)
+        self.clear()
+        if first is None:
+            return False
+        last = next(p for p in reversed(pages) if self._words_for(p))
+        self._anchor = (first, 0)
+        self._cursor = (last, len(self._words_for(last)) - 1)
+        self.repaint()
+        return True
+
+    def selected_words(self, band: "tuple[int, int] | None" = None) -> list[tuple[int, int, tuple]]:
+        """``(page_index, order_index, word_tuple)`` for the inclusive selection.
+
+        ``band`` clips the result to a range of page indices — what :meth:`repaint` passes so that
+        painting costs the pages on screen rather than the pages selected (M89.6). Everything that
+        asks *what is selected* (copy, the markup verbs) still asks for all of it.
+        """
         if self._anchor is None or self._cursor is None:
             return []
         lo, hi = sorted((self._anchor, self._cursor))
+        first, last = lo[0], hi[0]
+        if band is not None:
+            first, last = max(first, band[0]), min(last, band[1])
         out: list[tuple[int, int, tuple]] = []
-        for page_index in range(lo[0], hi[0] + 1):
+        for page_index in range(first, last + 1):
             words = self._words_for(page_index)
             start = lo[1] if page_index == lo[0] else 0
             end = hi[1] if page_index == hi[0] else len(words) - 1
             for i in range(start, end + 1):
                 out.append((page_index, i, words[i]))
         return out
+
+    def line_bars(self, band: "tuple[int, int] | None" = None) -> dict[int, list[tuple]]:
+        """The selection as one unioned box **per line, per page** — ``{page_index: [box, …]}``,
+        each box a ``(x0, y0, x1, y1)`` tuple in page coordinates.
+
+        Words already carry their block and line numbers, so a selected run on one line is a
+        contiguous index range whose boxes union cleanly. This is not a new shape: it is exactly
+        what :meth:`MainWindow._selection_line_bars` has always built before committing a highlight
+        or a redaction bar — a continuous strip with no inter-word gaps, which for redaction also
+        hides word lengths. Painting the *preview* per word was the odd one out, and coalescing it
+        makes what you drag and what you get the same picture.
+
+        ``band`` clips to a page range; see :meth:`selected_words`.
+        """
+        bars: dict[tuple, list] = {}
+        for page_index, _i, w in self.selected_words(band):
+            key = (page_index, w[5], w[6])          # (page, block_no, line_no)
+            x0, y0, x1, y1 = w[:4]
+            bar = bars.get(key)
+            if bar is None:
+                bars[key] = [x0, y0, x1, y1]
+            else:
+                bar[0], bar[1] = min(bar[0], x0), min(bar[1], y0)
+                bar[2], bar[3] = max(bar[2], x1), max(bar[3], y1)
+        by_page: dict[int, list[tuple]] = {}
+        for (page_index, _b, _l), bar in bars.items():
+            by_page.setdefault(page_index, []).append(tuple(bar))
+        return by_page
 
     def selected_text(self) -> str:
         parts: list[str] = []
@@ -254,9 +319,31 @@ class TextSelection:
         return QBrush(_ARMED_SELECTION_COLOUR.get(self._view.armed, _SELECTION))
 
     def repaint(self) -> None:
-        """Rebuild highlight rects from the logical selection (also called after zoom/rebuild)."""
+        """Rebuild the selection's rects from the logical selection (also called after zoom/rebuild).
+
+        **The model holds the whole selection; the scene holds only what is on screen** (M89.6).
+        This used to put one ``QGraphicsRectItem`` in the scene per selected *word*, over every
+        selected page — and ``_build_scene`` calls ``scene.clear()`` on every zoom step, which is
+        O(items). Measured offscreen (2026-07-27):
+
+        ======================  ==============  ================
+        Selected words          Add to scene    ``scene.clear()``
+        ======================  ==============  ================
+        25,000 (~50 pages)      0.08 s          0.24 s
+        100,000 (~200 pages)    0.39 s          2.96 s
+        247,500 (~500 pages)    0.91 s          **20.64 s**
+        ======================  ==============  ================
+
+        So a document-wide selection followed by one zoom step froze the app for twenty seconds.
+        This is a **pre-existing latent bug, not one Ctrl+A introduces** — a drag carried across
+        several hundred pages reaches the same state today; M89.6 merely makes it one keystroke.
+        Two changes bound it: painting is clipped to :meth:`PdfView.overlay_band`, so the item count
+        follows viewport size rather than document length, and each line's run is coalesced into one
+        rect (:meth:`line_bars`), which takes roughly another order of magnitude off what remains.
+        """
         self._clear_items()
         if self._view.rotation != 0:
+            self._band = None
             return
         scene = self._view.scene()
         brush = self._armed_brush()
@@ -264,11 +351,26 @@ class TextSelection:
         # mark — the selection blue must stay source-over, and so must the underline / strikeout
         # bands, whose committed mark is a thin line rather than a fill.
         item_type = QGraphicsRectItem if self._highlight_preview_rgb() is None else MultiplyRectItem
-        for page_index, _i, w in self.selected_words():
-            rect = self._view.scene_rect_for_box(page_index, (w[0], w[1], w[2], w[3]))
-            item = item_type(rect)
-            item.setBrush(brush)
-            item.setPen(QColor(0, 0, 0, 0))
-            item.setZValue(10)
-            scene.addItem(item)
-            self._items.append(item)
+        self._band = self._view.overlay_band()
+        for page_index, boxes in self.line_bars(self._band).items():
+            for box in boxes:
+                item = item_type(self._view.scene_rect_for_box(page_index, box))
+                item.setBrush(brush)
+                item.setPen(QColor(0, 0, 0, 0))
+                item.setZValue(10)
+                scene.addItem(item)
+                self._items.append(item)
+
+    def repaint_for_scroll(self) -> None:
+        """Repaint when a scroll has moved the painted band (M89.6).
+
+        Necessary *because* :meth:`repaint` clips: selected text scrolling in from off screen has
+        nothing painted over it until the band that owns it is redrawn. Returns immediately when
+        nothing is selected or the band has not moved, which is the overwhelmingly common case for a
+        scroll event.
+        """
+        if self._anchor is None or self._cursor is None:
+            return
+        if self._view.overlay_band() == self._band:
+            return
+        self.repaint()

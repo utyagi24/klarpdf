@@ -63,7 +63,8 @@ def test_highlight_unions_words_into_one_bar_per_line(win):
         (35, 10, 60, 20, "bar", 0, 0, 1),
         (10, 30, 40, 40, "baz", 0, 1, 0),
     ]
-    win.view.selection.selected_words = lambda: [(0, i, w) for i, w in enumerate(words)]
+    # `band` is M89.6's page-range clip — the preview passes one, the commit path never does.
+    win.view.selection.selected_words = lambda band=None: [(0, i, w) for i, w in enumerate(words)]
     win._highlight_selection()
     hl = next(a for a in win.vdoc.page_annotations(0) if isinstance(a, Highlight))
     assert len(hl.rects) == 2                       # one bar per line, not per word
