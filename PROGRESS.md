@@ -1548,7 +1548,11 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
       **cannot** drift; reviewed on rendered grabs, which are pixel-identical
     - Bound in `PdfView.keyPressEvent`, not as a window `QAction` — a focused inline editor must
       keep its own select-all, and a test pins that
-- [ ] **M90** Notes: the interface — the visible half of M81. Spec in `PLAN.md` §M90.
+- [x] **M90** Notes: the interface — the visible half of M81. Spec in `PLAN.md` §M90.
+  A note is a **field of its host mark**, and every surface here follows from that: there is one
+  editor, one write path, and nothing to keep in step. The four parts below are one PR
+  ([#219](https://github.com/utyagi24/klarpdf/pull/219)) because the glyph, the sidebar row and the
+  foreign badge are all views of the field M90.1 writes — reviewed apart, each points at nothing.
   - [x] **M90.1** Create + edit — Note verb on **Markup ▾** (no new toolbar slot) + the M76 context
     menu. Attaching is primary; creating a highlight is the fallback when the selection has no HUS
     — *Windows (headless + offscreen GUI)* — 23 new tests, 1521 green
@@ -1615,7 +1619,28 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
       its first note the same way, so the list is a creation path too
     - "Deleting the host removes the row" needed no code: `populate()` re-runs on every edit and
       reads the live model, and the note is a *field* of the mark it lists
-  - [ ] **M90.4** Foreign `/Contents` shows **read-only**, and M68 adopt-on-edit carries it across
+  - [x] **M90.4** Foreign `/Contents` shows **read-only**, and M68 adopt-on-edit carries it across
+    — *Windows (headless + offscreen GUI)* — 7 new tests, 1543 green
+    - A foreign markup's comment gets **M90.2's badge in grey**, and grey does two jobs that
+      agree: a `ForeignAnnot` carries no colour to take, and grey is the signal that this note is
+      **read-only** until the mark is adopted (M68's rule). So the badge says whose note it is
+      before it is opened. Only **commented text markups** are badged — an uncommented one has
+      nothing to show, and a sticky note already draws its own icon into the page pixmap
+    - **The same popup, read-only**: a reader should not have to learn a second place remarks
+      appear based on who wrote one. It has no commit callback at all, so nothing can be saved by
+      accident, and its placeholder names the way to make it editable — M68's existing
+      double-click adoption, not a new verb
+    - **The foreign pass is band-gated** like the content marks, because finding these comments
+      reads each page's annotation dictionaries — document-wide on every edit is exactly the
+      O(document) trap M87.3 and M78.8 were spent closing, and a reviewed 200-page PDF is the file
+      it would have been slowest on. Pinned by a test
+    - **A foreign sidebar row now reads like one of ours** — `type · passage — comment`. It read
+      `type · comment` before, putting the comment in the slot our own rows use for the *passage*,
+      so the same position on the same list meant two different things depending on who wrote the
+      mark, and a commented foreign highlight never showed the words it covered at all
+    - Adoption needed no new model work: **M81.3 already carries the comment across**. What M90.4
+      adds is the interface following it — the grey read-only badge becomes a coloured editable one
+      holding the same words, pinned end to end
 - **Corner-case document analysis** (`PLAN.md` §The corner-case document) — `IAS_CaseStudy.pdf`,
   owner-supplied: 75.6 MB, 18 pages of 1920×1080 pt, **no text layer**, 95 MB of embedded images.
   Opens in **11.19 s**, of which **10.0 s is `fz_run_display_list`** — decoding imagery, not our

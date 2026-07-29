@@ -640,3 +640,149 @@ def test_double_clicking_an_unnoted_row_writes_a_first_note(sidebar_win):
     (mark,) = _marks(win, Highlight)
     assert mark.note == "written from the list"
     assert len(_marks(win, Highlight)) == 1          # no second mark was created
+
+
+# ---- M90.4: another tool's comments ---------------------------------------------------
+#
+# A foreign markup's /Contents *is* a note on that passage — what Acrobat, Preview and Edge
+# write. It shows read-only, because M68's rule is that a foreign mark is not editable until it
+# is adopted; adopting it (M81.3) carries the comment across into a note we own.
+
+
+@pytest.fixture
+def reviewed_pdf(tmp_path) -> str:
+    """What a reviewer's tool leaves behind: a commented highlight, an uncommented underline, and
+    a commented sticky note (which draws its own icon into the page)."""
+    import pymupdf as fitz
+
+    path = str(tmp_path / "reviewed.pdf")
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 100), "REVIEWED passage here", fontsize=13)
+    words = page.get_text("words")
+    commented = page.add_highlight_annot(fitz.Rect(words[0][:4]))
+    commented.set_info(title="Alice", content="please rewrite this")
+    commented.update()
+    silent = page.add_underline_annot(fitz.Rect(words[1][:4]))
+    silent.update()
+    sticky = page.add_text_annot(fitz.Point(300, 300), "a loose remark")
+    sticky.update()
+    doc.save(path)
+    doc.close()
+    return path
+
+
+@pytest.fixture
+def reviewed_win(qapp, reviewed_pdf, tmp_path):
+    qapp.settings = Settings(tmp_path / "vs.json")
+    qapp.settings.set_pref("sidebar_tabs", ["annotations", "outline"])
+    w = qapp.open_document(reviewed_pdf)
+    w.show()
+    qapp.processEvents()
+    w.view.annotations.repaint()
+    yield w
+    w.undo_stack.setClean()
+    w.close()
+
+
+def test_a_foreign_comment_gets_a_grey_badge(reviewed_win):
+    """Grey, not the host's colour — a `ForeignAnnot` carries no colour to take, and grey is the
+    signal that this comment is read-only until the mark is adopted."""
+    from viewer.annotations import FOREIGN_NOTE_GREY
+
+    win = reviewed_win
+    (_page, mark, _box) = _glyphs(win)[0]
+    assert mark.contents == "please rewrite this"
+    item = next(i for i in win.view.annotations._items
+                if i.toolTip() == "please rewrite this")
+    assert item.brush().color() == wash(FOREIGN_NOTE_GREY, 0.62)
+
+
+def test_only_the_commented_text_markup_is_badged(reviewed_win):
+    """Three foreign annotations, one badge. An **uncommented** markup has no note to show, and a
+    **sticky note** already draws its own icon into the page pixmap — badging it would be our
+    chrome duplicating the file's."""
+    win = reviewed_win
+    assert len(_glyphs(win)) == 1
+    (_page, mark, _box) = _glyphs(win)[0]
+    assert mark.kind_name == "Highlight"
+
+
+def test_clicking_a_foreign_badge_shows_the_comment_read_only(reviewed_win):
+    """The same popup as our own notes, deliberately: a reader should not have to learn a second
+    place remarks appear based on who wrote one. What differs is that it cannot be typed in."""
+    win = reviewed_win
+    (_page, _mark, box) = _glyphs(win)[0]
+    point = QPointF(win.view.mapFromScene(box.center()))
+    win.view.mousePressEvent(QMouseEvent(QEvent.Type.MouseButtonPress, point, point,
+        Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier))
+
+    notes = win.view.annotations.notes
+    assert notes.is_open
+    assert notes.text == "please rewrite this"
+    assert notes.is_read_only
+    assert notes._on_commit is None                  # nothing can be saved even by accident
+    notes.close()
+
+
+def test_a_foreign_row_reads_like_one_of_ours(reviewed_win):
+    """Before M90.4 a foreign row read ``type · comment``, putting the comment in the slot our own
+    rows use for the *passage* — the same position on the same list meaning two different things
+    depending on who wrote the mark, with the covered words never shown at all."""
+    win = reviewed_win
+    win._sidebar_tab_actions["annotations"].setChecked(True)
+    rows = _rows(win)
+    highlight = next(r for r in rows if "please rewrite this" in r)
+    assert highlight == "p. 1 · highlight · REVIEWED — please rewrite this"
+
+
+def test_adopting_a_commented_mark_makes_its_note_ours(reviewed_win):
+    """M68 adoption, end to end at the UI: the grey read-only badge becomes a coloured editable
+    one carrying the same words. M81.3 made the model carry the comment across; this pins that the
+    interface follows it."""
+    from viewer.annotations import FOREIGN_NOTE_GREY
+
+    win = reviewed_win
+    (page_index, foreign, _box) = _glyphs(win)[0]
+    win._adopt_foreign_annotation(page_index, foreign)
+    win.view.annotations.repaint()
+
+    (mark,) = _marks(win, Highlight)
+    assert mark.note == "please rewrite this"        # …now a note we own
+    (_page, badged, _box) = _glyphs(win)[0]
+    assert badged is mark
+    item = next(i for i in win.view.annotations._items
+                if i.toolTip() == "please rewrite this")
+    assert item.brush().color() != wash(FOREIGN_NOTE_GREY, 0.62)   # no longer read-only grey
+
+
+def test_an_adopted_note_is_editable(reviewed_win):
+    """The point of adopting: what was another tool's fixed comment is now a field we can write."""
+    win = reviewed_win
+    (page_index, foreign, _box) = _glyphs(win)[0]
+    win._adopt_foreign_annotation(page_index, foreign)
+    win.view.annotations.repaint()
+
+    (_page, mark, _box) = _glyphs(win)[0]
+    win._note_mark(0, mark)
+    notes = win.view.annotations.notes
+    assert not notes.is_read_only
+    notes._popup.setPlainText("rewritten by me")
+    notes._commit()
+    assert _marks(win, Highlight)[0].note == "rewritten by me"
+
+
+def test_foreign_badges_are_not_read_for_the_whole_document(reviewed_win):
+    """Finding them means reading each page's annotation dictionaries, so the pass is band-gated
+    like the content marks — the O(document)-per-edit trap M87.3 and M78.8 were spent closing, and
+    a reviewed 200-page PDF is exactly the file it would have been slowest on."""
+    win = reviewed_win
+    seen = []
+    original = win.view.annotations.foreign_annotations
+    win.view.annotations.foreign_annotations = lambda i: (seen.append(i), original(i))[1]
+    try:
+        win.view.annotations.repaint()
+    finally:
+        del win.view.annotations.foreign_annotations
+    band = win.view.content_band()
+    assert band is None or set(seen) <= set(range(band[0], band[1] + 1))

@@ -116,10 +116,8 @@ class AnnotationsPanel(QListWidget):
             for annot in self._foreign(page_index):
                 if not is_listed_foreign(annot):
                     continue
-                label = annot.kind_name.lower()
-                snippet = _clip(annot.contents)
-                self._add_row(page_index, annot,
-                              f"{label} · {snippet}" if snippet else label, annot.rect)
+                self._add_row(page_index, annot, self._describe_foreign(page_index, annot),
+                              annot.rect, note=annot.contents)
 
     def _add_row(self, page_index: int, mark, label: str, bounds: tuple,
                  note: str = "") -> None:
@@ -143,6 +141,21 @@ class AnnotationsPanel(QListWidget):
         # which mark this is, so it stays even when the note is the more interesting half.
         note = _clip(getattr(mark, "note", ""), _NOTE_CHARS)
         return f"{row}{_NOTE_LEAD}{note}" if note else row
+
+    def _describe_foreign(self, page_index: int, annot) -> str:
+        """A foreign row, in **the same shape as one of ours**: type · passage — comment (M90.4).
+
+        Before this it read ``type · comment``, which put the *comment* in the slot our own rows
+        use for the *passage* — so the same position on the same list meant two different things
+        depending on who wrote the mark, and a commented foreign highlight never showed the words
+        it covered at all. A sticky note has no passage under it and correctly shows none.
+        """
+        row = annot.kind_name.lower()
+        snippet = _clip(self._covered_text(page_index, (annot.rect,)))
+        if snippet:
+            row = f"{row} · {snippet}"
+        comment = _clip(annot.contents, _NOTE_CHARS)
+        return f"{row}{_NOTE_LEAD}{comment}" if comment else row
 
     def _covered_text(self, page_index: int, rects) -> str:
         """The page text under a text-anchored mark's bars — what a highlight row should read as.

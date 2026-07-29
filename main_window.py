@@ -77,7 +77,12 @@ from ui import icons
 from util.paths import normalize_path
 from model.content_marks import ImageStamp, is_content_mark
 from model.form_fields import FIELD_KINDS, kind_label
-from viewer.annotations import OBJECT_TYPES, AnnotationOverlay, mark_noun
+from viewer.annotations import (
+    FOREIGN_NOTE_GREY,
+    OBJECT_TYPES,
+    AnnotationOverlay,
+    mark_noun,
+)
 from viewer.form_fill import FormFiller
 from viewer.markup_style import (
     HIGHLIGHT_COLORS,
@@ -2094,8 +2099,31 @@ class MainWindow(QMainWindow):
     def _note_mark(self, page_index: int, mark) -> None:
         """The context menu's Add / Edit Note on a right-clicked markup, and the M90.2 glyph's
         click — the host is not in question in either case, so it goes straight to the editor on
-        that mark's own bars."""
+        that mark's own bars.
+
+        A **foreign** mark arrives here too (its grey badge shares the hit-test) and gets its
+        comment read-only, per M68's rule that another tool's mark is not editable until adopted.
+        """
+        from model.foreign_annots import ForeignAnnot
+
+        if isinstance(mark, ForeignAnnot):
+            self._show_foreign_note(page_index, mark)
+            return
         self._open_note_editor(page_index, tuple(mark.rects), mark)
+
+    def _show_foreign_note(self, page_index: int, annot) -> None:
+        """Display another tool's comment (M90.4) — the same popup, read-only and grey.
+
+        **The same popup on purpose**: a reader should not have to learn a second place remarks
+        appear based on who wrote one. What differs is what it says about itself — it cannot be
+        typed in, and its placeholder names the way to make it editable, which is M68's existing
+        double-click adoption rather than anything new here. Adoption already carries the comment
+        across (M81.3), so the note the reader was just shown is the note they then own.
+        """
+        self.view.annotations.notes.open_on(
+            page_index, annot.rect, annot.contents, FOREIGN_NOTE_GREY, read_only=True,
+            placeholder="Double-click the mark to make it editable",
+        )
 
     def _note_from_sidebar(self, page_index: int, mark) -> None:
         """An Annotations row was double-clicked (M90.3) → scroll the mark into view, then open

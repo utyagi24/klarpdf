@@ -102,6 +102,10 @@ class NoteEditor:
         return self._popup is not None
 
     @property
+    def is_read_only(self) -> bool:
+        return self._popup is not None and self._popup.isReadOnly()
+
+    @property
     def text(self) -> str:
         return self._popup.toPlainText() if self._popup is not None else ""
 
@@ -111,19 +115,26 @@ class NoteEditor:
 
     # ---- open / close -----------------------------------------------------------
 
-    def open_on(self, page_index: int, anchor: tuple, text: str, color, on_commit) -> None:
+    def open_on(self, page_index: int, anchor: tuple, text: str, color, on_commit=None,
+                *, read_only: bool = False, placeholder: str = "Note…") -> None:
         """Open the popup over the passage at ``anchor`` (page points), pre-filled with ``text``.
 
         ``on_commit(text)`` is called once, with the text as typed — including empty, which is how
         a note is removed (clearing the text drops the note and **leaves the mark**, owner rule).
+
+        ``read_only`` shows a comment that cannot be written back — a foreign annotation's
+        ``/Contents`` until the mark is adopted (M90.4). It is the *same* popup deliberately: one
+        surface for reading a note means a reader never has to learn where a remark will appear
+        based on who wrote it. There is no commit callback, so nothing can be saved by accident.
         """
         self.close()
         self._page = page_index
         self._anchor = tuple(anchor)
-        self._on_commit = on_commit
+        self._on_commit = None if read_only else on_commit
         popup = _NotePopup(self._view.viewport(), self._commit, self.close)
-        popup.setPlaceholderText("Note…")
+        popup.setPlaceholderText(placeholder)
         popup.setPlainText(text)
+        popup.setReadOnly(read_only)
         popup.setStyleSheet(
             f"QPlainTextEdit {{ background: {wash(color).name()}; color: #111111; "
             "border: 1px solid rgba(0,0,0,0.35); border-radius: 3px; padding: 3px; }}"

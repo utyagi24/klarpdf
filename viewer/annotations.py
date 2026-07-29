@@ -92,6 +92,15 @@ _NOTE_GLYPH_MARGIN = 3.0    # gap between the badge and the page edge it sits ag
 # Above every mark (the [6, 7) band) and below the transient UI — search hits (9), selection (10),
 # live gestures (11+). A note glyph is chrome *about* a mark, so it must never be buried by one.
 _NOTE_GLYPH_Z = 8.0
+# A **foreign** comment's badge is grey (M90.4), not its host's colour: a ForeignAnnot carries no
+# colour to take, and grey is exactly the right signal for a comment that is read-only until the
+# mark is adopted. So the badge says whose note it is before it is opened. Public because the
+# window's read-only popup washes itself in the same grey — one colour for "not yours (yet)".
+FOREIGN_NOTE_GREY = (0.52, 0.52, 0.57)
+# Which foreign kinds get a badge: the **text markups**, not the sticky note. A `Text` annotation
+# already draws its own note icon into the page pixmap, so a badge beside it would be our chrome
+# duplicating the file's.
+_FOREIGN_NOTE_KINDS = frozenset({"Highlight", "Underline", "StrikeOut", "Squiggly"})
 
 # The markup / draw style (colour · width · fill) is picked from the shared, sticky
 # :class:`~viewer.markup_style.MarkupStyle` (M59.5) — its defaults are the old M58 fixed
@@ -448,7 +457,22 @@ class AnnotationOverlay:
             for annot in vdoc.ordered[page_index].annotations:
                 if isinstance(annot, CONTENT_MARK_TYPES):
                     self._paint_content_mark(scene, page_index, annot)
+            self._paint_foreign_notes(scene, page_index)
             self._content_pages.add(page_index)
+
+    def _paint_foreign_notes(self, scene, page_index: int) -> None:
+        """Badge every commented foreign text markup on ``page_index`` (M90.4).
+
+        **Lazy for the same reason content marks are**, and gated by the same page set: finding
+        them means reading the page's annotation dictionaries through
+        :meth:`foreign_annotations`, which is real per-page work — doing it document-wide on every
+        edit is precisely the O(document) trap M87.3 and M78.8 were spent closing. A reviewed
+        200-page PDF is exactly the file this would have been measured on, and exactly the file it
+        would have been slowest on.
+        """
+        for annot in self.foreign_annotations(page_index):
+            if annot.contents and annot.kind_name in _FOREIGN_NOTE_KINDS:
+                self._paint_foreign_note_glyph(scene, page_index, annot)
 
     def repaint(self) -> None:
         """Redraw every page's annotations from the model (also after zoom / scene rebuild)."""
@@ -502,6 +526,12 @@ class AnnotationOverlay:
                 # the host rather than as another branch of this dispatch (M90.2).
                 if getattr(annot, "note", ""):
                     self._paint_note_glyph(scene, page_index, annot)
+            # Another tool's comments on this page (M90.4) — band-gated like the content marks
+            # above, and tracked by the same page set, because finding them reads the page's
+            # annotation dictionaries.
+            if self._content_band_contains(page_index, band):
+                self._paint_foreign_notes(scene, page_index)
+                self._content_pages.add(page_index)
 
     def _paint_note_glyph(self, scene, page_index: int, annot) -> None:
         """A small speech bubble marking a noted mark (M90.2) — without one a note is invisible
@@ -523,7 +553,23 @@ class AnnotationOverlay:
         mode and vanish on a yellow highlight. The wash is the same
         :func:`~viewer.note_editor.wash` the popup uses, so badge and editor read as one thing.
         """
-        anchor = max(annot.rects, key=lambda r: (r[3], r[2]))    # last bar: lowest, then rightmost
+        self._note_badge(scene, page_index, annot.rects, annot.color, annot.note, annot)
+
+    def _paint_foreign_note_glyph(self, scene, page_index: int, annot) -> None:
+        """The same badge for **another tool's** comment (M90.4), in grey.
+
+        A foreign markup's ``/Contents`` *is* a note on that passage — what Acrobat, Preview and
+        Edge write — and until M90.4 it was reachable only by right-clicking the exact mark, the
+        very invisibility M90.2 exists to cure. It is grey rather than the host's colour for two
+        reasons that agree: a :class:`ForeignAnnot` carries no colour to take, and grey is the
+        signal that this note is **read-only** until the mark is adopted (M68).
+        """
+        self._note_badge(scene, page_index, (annot.rect,), FOREIGN_NOTE_GREY,
+                         annot.contents, annot)
+
+    def _note_badge(self, scene, page_index: int, bars, color, note: str, target) -> None:
+        """Place one badge for ``note`` against the last of ``bars``, and record its hit box."""
+        anchor = max(bars, key=lambda r: (r[3], r[2]))           # last bar: lowest, then rightmost
         bar = self._view.scene_rect_for_box(page_index, anchor)
         pw, ph = self._view._unrotated_size(page_index)
         page = self._view.scene_rect_for_box(page_index, (0.0, 0.0, pw, ph))
@@ -535,13 +581,13 @@ class AnnotationOverlay:
         item = QGraphicsPathItem(_note_bubble_path(box))
         # A stronger wash than the popup's: 15 px of colour needs more of it to register than a
         # 240 px panel does, and nothing is typed on top of the badge.
-        item.setBrush(QBrush(wash(annot.color, 0.62)))
+        item.setBrush(QBrush(wash(color, 0.62)))
         item.setPen(QPen(QColor(25, 25, 25), 1.2))
         item.setZValue(_NOTE_GLYPH_Z)
-        item.setToolTip(annot.note)     # hover reads the note without opening anything
+        item.setToolTip(note)           # hover reads the note without opening anything
         scene.addItem(item)
         self._items.append(item)
-        self._note_glyphs.append((page_index, annot, box))
+        self._note_glyphs.append((page_index, target, box))
 
     def note_glyph_at(self, scene_pt):
         """The ``(page_index, mark)`` whose note glyph contains ``scene_pt``, else ``None``.
