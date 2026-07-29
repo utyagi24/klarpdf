@@ -1438,11 +1438,12 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
       rather than only by typing; no preset sits outside the bounds, so none silently clamps to a
       different number than the item clicked. A saved zoom outside the new range (old files hold
       10% / 800%) is ignored by `apply_state`'s existing range check and the view keeps what it had
-- [ ] **M89** The rest of the reading-input conventions. Six parts, all view-only. **M89.4 shipped
-  early** on its own; **M89.1–.3** landed together
+- [x] **M89** The rest of the reading-input conventions — **complete**: five parts shipped, one
+  closed unmerged. All view-only. **M89.4 shipped early** on its own; **M89.1–.3** landed together
   ([#214](https://github.com/utyagi24/klarpdf/pull/214)) and **M89.6** alone
-  ([#216](https://github.com/utyagi24/klarpdf/pull/216)). Spec in `PLAN.md` §M89; each part's status
-  is on its own line below, not restated here.
+  ([#216](https://github.com/utyagi24/klarpdf/pull/216)); **M89.5 was closed, not merged**, once
+  hands-on validation showed the gesture never reaches it. Spec in `PLAN.md` §M89; each part's
+  status is on its own line below, not restated here.
   - [x] **M89.1 + M89.2 + M89.3** shipped together as the plan sequenced them — the first two edit
     the same `keyPressEvent` and the third the `wheelEvent` beside it, so separate PRs would have
     meant rebasing against one function three times for no review benefit. — *Windows (offscreen
@@ -1497,7 +1498,26 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
       by accident** — its `_hold_render` suppresses the intermediate render, so the field survives;
       that is why the owner saw the page restore correctly while testing that branch. Fixing it here
       keeps the restore correct on its own terms rather than as a side effect of a perf change
-  - [ ] **M89.5** Pinch-zoom, anchored at the gesture centre — **needs hands-on Windows validation**
+  - [x] **M89.5** Pinch-zoom — **closed unmerged (owner call, 2026-07-29): the handler is
+    unreachable on Windows.** PR [#215](https://github.com/utyagi24/klarpdf/pull/215) closed, not
+    merged. Full measurement in `PLAN.md` §M89.
+    - It was written, unit-tested and flagged for hands-on validation, because the suite can
+      construct a `QNativeGestureEvent` but cannot prove Windows *delivers* one. Validated on a
+      Synaptics Precision Touchpad + HID touchscreen with both zoom paths instrumented — **neither
+      route reaches the handler**: the touchpad driver translates a pinch into **Ctrl+wheel**
+      (`delta = ±120`, one whole detent per step; a native gesture would report a *fractional*
+      value), and on the touchscreen Qt synthesises **mouse** events because the app never sets
+      `WA_AcceptTouchEvents`, so the second finger is discarded. The plan's premise — "Windows
+      delivers the event today and nothing consumes it" — was simply wrong
+    - **Nothing user-facing is lost: pinch already zooms**, through M80's Ctrl+wheel path, and
+      pointer-anchored at that, since the cursor sits where the fingers are. What M89.5 would have
+      added is *continuity*, and the driver's whole-detent quantisation puts that out of reach
+      without raw Precision-Touchpad HID input Qt does not surface
+    - Reaching the touchscreen would take `WA_AcceptTouchEvents` + a pinch recogniser, which changes
+      Qt's mouse synthesis for all touch input and risks the finger-drag selection and long-press
+      menu that work today — declined for a gesture the touchpad already performs
+    - **Shipping a handler no machine can reach is worse than not shipping it**, which is why this
+      is a closure rather than a merge. The hands-on flag did its job
   - [x] **M89.6** `Ctrl+A` → select all text in the **whole** document, **plus** the repaint rework
     it depends on. — *Windows (headless + offscreen GUI)* — 16 new tests (15 verified red), 1475 green
     - **Whole document, not the current page** (owner call — Edge and Brave both do): a viewer that

@@ -1673,13 +1673,14 @@ file-format or dependency change. M80 has **shipped to `main`** (#197), so these
 normally — the earlier stacking note is obsolete. They still *build on* M80: M89.3 edits the same
 `wheelEvent`, and M89.5 calls the `set_zoom(..., anchor_pos=…)` seam M80 introduced.
 
-**Now two PRs, not three — M89.4 already shipped.** The original split was **M89.1–M89.4** together
-(all small, and the first two edit the *same* `keyPressEvent`, so separate PRs would mean rebasing
-four times against one function for no review benefit), leaving **M89.1–M89.3** to ride together now.
-**M89.5** goes alone, being the
-one part the headless suite cannot certify. **M89.6** goes alone, being much the largest, touching
-`TextSelection` rather than `PdfView`, and carrying a visual change that needs reviewing on a rendered
-grab.
+**Two PRs in the end, and one closure.** The original split was **M89.1–M89.4** together (all small,
+and the first two edit the *same* `keyPressEvent`, so separate PRs would mean rebasing four times
+against one function for no review benefit); **M89.4 shipped early** on its own, leaving
+**M89.1–M89.3** to ride together. **M89.6** went alone, being much the largest, touching
+`TextSelection` rather than `PdfView`, and carrying a visual change reviewed on a rendered grab.
+**M89.5** also went alone — being the one part the headless suite cannot certify — and that is
+exactly what it turned out to need: it was **closed unmerged** once hands-on validation showed the
+gesture never reaches the handler (below).
 
 | Milestone | What | Where | Verify |
 | --- | --- | --- | --- |
@@ -1687,7 +1688,7 @@ grab.
 | **M89.2** Spacebar paging | `Space` scrolls down one screenful, `Shift+Space` up one — the same `SliderPageStepAdd`/`Sub` as `PgDn`/`PgUp`, on the key most readers actually reach for. Verified dead today outside the slideshow. | WSLg | Space/Shift+Space page down/up; typing a space into a text box or form field still types a space |
 | **M89.3** Shift+wheel horizontal pan | `Shift+wheel` pans **horizontally**. This is an *override*, not a gap: Qt's own `Shift+wheel` scrolls vertically here (measured with the h-bar at full range), so a page zoomed wider than the viewport has no wheel gesture to cross it. A wheel with a genuine horizontal component (tilt wheels, most touchpads) is left to `super()`, which already routes it correctly. | WSLg | Shift+wheel moves the h-scrollbar; inert with no h-range; a plain wheel still scrolls vertically; Ctrl+wheel still zooms (M80) |
 | **M89.4** `Ctrl+=` zoom-in alias — ✅ **shipped early** (see PROGRESS) | Add `Ctrl+=` to the existing **Zoom In** action's shortcut list. Qt's `StandardKey.ZoomIn` resolves to `Ctrl++`, which on a US layout physically means `Ctrl+Shift+=`; browsers all bind bare `Ctrl+=` for exactly that reason. `Ctrl+-` already works, so Zoom Out needs nothing. Pure binding — no behaviour change, still centre-anchored. **Pulled out of M89 and shipped on its own**: the owner hit it by hand during the M86 verification pass ("Zoom with Ctrl+- is working but not with Ctrl++"), which turned a predicted papercut into a reported one. Waiting for the rest of M89 would have meant knowingly shipping a dead accelerator. | WSLg | `Ctrl+=` zooms in one step; `Ctrl++` and `Ctrl+-` keep working; the menu still shows the standard accelerator |
-| **M89.5** Pinch-zoom | Consume `QNativeGestureEvent` / `Qt::ZoomNativeGesture` on the viewport and zoom **anchored at the gesture centre** — the same pointer-anchored contract M80 gives Ctrl+wheel, through the same `anchor_pos` seam. Qt reports the value as an *incremental* change in the zoom factor, so the new magnification is `zoom * (1 + value)`: already continuous, no accumulation needed. Windows delivers the event today and nothing consumes it. | Windows (**hands-on**) | Two-finger pinch zooms continuously, anchored under the fingers; the handler is unit-tested from a constructed event, but delivery is validated on real hardware — see the note below |
+| ~~**M89.5** Pinch-zoom~~ — **closed unmerged, 2026-07-29 (owner call): the handler is unreachable on Windows.** The premise — *"Windows delivers the event today and nothing consumes it"* — was **wrong**, and hands-on validation is what caught it (see the measurement below). The code was written and unit-tested; PR [#215] was closed rather than merged, because shipping a handler no machine can reach is worse than not shipping it. **Nothing user-facing is lost: pinch already zooms** through M80's Ctrl+wheel path. | Windows (**hands-on**) | — |
 | **M89.6** `Ctrl+A` select all text | Select every word in the **whole document**, not the current page (owner call: "both Edge and Brave select text from all the document — why should we be different?"). Nearly free in the model, which has always carried the selection as a `(page_index, word_index)` anchor/cursor pair spanning pages — `select_all` just pins it to the two ends. **Paired with the repaint rework below, which is not optional.** | WSL (model+tests) + WSLg | Ctrl+A selects across every page; Ctrl+C copies the document's text; an image-only document selects nothing rather than erroring |
 
 **The repaint rework M89.6 depends on — and the measurement that forces it.** `TextSelection.repaint`
@@ -1730,10 +1731,35 @@ description.
   occasionally wrong — and the Grab *mode* (M46) already covers the deliberate case. Revisit only if
   panning mid-markup proves annoying in practice, and then bind it to middle-drag alone.
 
-**Validation limit, stated up front:** M89.5 cannot be certified by the headless suite. A constructed
-`QNativeGestureEvent` exercises our handler, but "Windows actually delivers the gesture to this
-widget" is only demonstrable on a machine with a precision touchpad. It ships flagged for hands-on
-validation rather than reported green.
+**M89.5 — what hands-on validation found, and why it was closed (2026-07-29).** The milestone was
+flagged from the start as the one part the headless suite could not certify: a constructed
+`QNativeGestureEvent` exercises the handler, but *"Windows actually delivers the gesture to this
+widget"* is only demonstrable on real hardware. It was validated on a Synaptics Precision Touchpad
++ HID touchscreen machine, with the two zoom paths instrumented so the console named which one
+fired. **Neither input route reaches the handler:**
+
+| Route | What actually arrives | Reaches `_pinch_zoom`? |
+| --- | --- | --- |
+| Precision touchpad | **Ctrl+wheel**, `delta = ±120` — one whole detent per pinch step; the driver translates the gesture before Qt sees it. (A native gesture reports a *fractional* `value`; ±120 is the mouse-wheel unit.) | No |
+| Touchscreen | Synthesised **mouse** events — the app never sets `WA_AcceptTouchEvents` (grep: no `grabGesture` / `PinchGesture` / `QTouchEvent` anywhere), so Qt converts touch to mouse and the second finger is discarded before any recogniser sees it. This is also why one finger drags a text selection and a long press opens the context menu. | No |
+
+Three conclusions worth keeping:
+
+- **Pinch-to-zoom already works** — through M80's Ctrl+wheel handler, and *pointer-anchored*, since
+  the cursor sits where the fingers are. The milestone's user-visible goal was already met before it
+  was written; what M89.5 would have added is continuity.
+- **That continuity is not ours to give.** The driver quantises to whole detents, so M80's
+  continuous factor is fed exactly one `_ZOOM_STEP` per step. Recovering it would need raw
+  Precision-Touchpad HID input, which Qt does not surface — well outside this milestone.
+- **The touchscreen could be reached, but the price is wrong.** It would take
+  `WA_AcceptTouchEvents` on the viewport plus a pinch recogniser, which changes Qt's mouse synthesis
+  for *all* touch input and so risks the finger-drag selection and long-press menu that work today —
+  for a gesture the touchpad already performs. Revisit only if raw touch input is wanted for its own
+  sake.
+
+**The generalisable lesson: "the platform delivers this event" is a claim, not a given.** It sat in
+this plan as settled fact and was false. A milestone resting on one is worth a ten-minute
+instrumented check *before* it is built, not after.
 
 ### M90 — Notes: the interface (owner-specified 2026-07-27)
 
@@ -1818,8 +1844,12 @@ correct for an image-only PDF.
   async rendering every new zoom is a miss whose pixels arrive later, so a gesture would show blank
   placeholders, and C is precisely what fills that gap. **E makes C more valuable.**
 - **D — quantise zoom to a `1.25^n` ladder.** Would restore cache hits cheaply, but buys that by
-  giving back the smooth touchpad response M80 exists to deliver, and would make M89.5's pinch feel
-  ratchety. Recommended against; recorded so it isn't re-proposed as a free win.
+  giving back the smooth touchpad response M80 exists to deliver. Still recommended against —
+  but **one of the two arguments against it has since been measured away**: it also said a ladder
+  would make M89.5's pinch ratchety, and M89.5's validation found the touchpad driver **already
+  delivers exactly whole `1.25` steps** for a pinch (§M89). So a ladder would cost pinch nothing on
+  this hardware; what it would still cost is Ctrl+wheel and a real hi-res wheel. Recorded so it
+  isn't re-proposed as a free win *and* isn't rejected for a reason that no longer holds.
 - **E — render pages off the UI thread.** All rendering today is synchronous (verified: zero
   threading in `viewer/`, `organize/`, `model/`, `app.py`, `main_window.py`). The white/black page
   rect placeholder already exists in `_build_scene`, but a reader never sees it — the UI *freezes*
