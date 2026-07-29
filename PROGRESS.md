@@ -1366,7 +1366,7 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     **three scales where the code had one**. `zoom` stays what the reader asks for and the %
     indicator shows; **`scale`** (= `zoom × logicalDpi/72`) is scene units per point and drives all
     *geometry*; **`device_scale`** (= `scale × devicePixelRatio`) drives only the rasteriser and the
-    cache key. — *Windows (offscreen GUI + hands-on, both screens)* — 17 new tests, 1431 green
+    cache key. — *Windows (offscreen GUI + hands-on, both screens)* — 17 new tests, 1448 green
     - **Measured on the 1.75× panel, at 100%**: layout `816 × 1056` logical px = **8.500 in** wide
       (was 6.375), pixmap `1428 × 1848` device px at `dpr = 1.75` — **1.75 device px per logical px,
       i.e. native, no upscaling**. The blur is gone because the pixels are real, not interpolated
