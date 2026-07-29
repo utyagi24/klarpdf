@@ -68,15 +68,21 @@ def _highlights(win, page_index=0) -> list:
 # ---- the shape the owner asked for -------------------------------------------
 
 
-def test_menu_is_three_swatch_rows_and_nothing_else(win):
-    """Preview's layout: Highlight · Underline · Strike Out sections, each one dot row — and no
-    worded entries at all."""
+def test_the_layer_change_set_is_three_swatch_rows_and_no_words(win):
+    """Preview's layout: Highlight · Underline · Strike Out sections, each one dot row — and not a
+    single worded entry among them.
+
+    The rows are the *complete* change set for which layers sit on the words, which is what M76.1
+    stripped the trailing "Remove <noun>" to make true. M90.1's note verbs sit below them behind a
+    divider and are excluded here deliberately: a note is a property of the mark, not a layer on
+    the text, and it duplicates no dot (see :func:`test_exactly_one_removal_path_per_layer`)."""
     box = _word_box(win)
     win.vdoc.add_annotation(0, Highlight((box,), color=YELLOW))
     win.view.reload()
     menu = _menu_over(win, box)
     assert [r.title for r in _rows(menu)] == ["Highlight", "Underline", "Strike Out"]
-    assert [a.text() for a in menu.actions() if a.text()] == []  # dots, not words
+    words = [a.text() for a in menu.actions() if a.text()]
+    assert words == ["Add Note…"]                                # dots, not words — bar the note
     assert [b for r in _rows(menu) for b in r.buttons] == (
         [n for n, _ in HIGHLIGHT_COLORS] + [n for n, _ in TEXT_LINE_COLORS] * 2)
 

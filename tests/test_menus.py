@@ -61,7 +61,9 @@ def test_tools_menu_holds_the_modes_and_armed_tools(app, b_pdf):
     assert _titles(win, "&Tools") == [
         "Select", "Grab", "Objects",
         "Pen", "Line", "Rectangle", "Ellipse",  # Arrow merged into Line (M74)
-        "Add Text Box", "Highlight", "Underline", "Strike Out",
+        # Note (M90.1) closes the text-markup group: it is a text-markup verb, and it rides the
+        # Markup ▾ dropdown rather than a toolbar slot of its own.
+        "Add Text Box", "Highlight", "Underline", "Strike Out", "Note",
         # One entry, not two (M69.3): a watermark is a Stamp with `under=True`, so stamps and
         # watermarks are one dialog with a Place control rather than two menu items.
         "Stamp / Watermark…", "Signature / Image…",
@@ -92,7 +94,7 @@ def test_tools_menu_groups_match_the_markup_toolbar(app, b_pdf):
     assert groups == [
         ["Select", "Grab", "Objects"],
         ["Pen", "Line", "Rectangle", "Ellipse"],
-        ["Add Text Box", "Highlight", "Underline", "Strike Out"],
+        ["Add Text Box", "Highlight", "Underline", "Strike Out", "Note"],
         ["Stamp / Watermark…", "Signature / Image…"],
         ["Redact", "Find and Redact…"],
         ["Add Form Field"],

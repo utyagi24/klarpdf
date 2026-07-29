@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+from dataclasses import replace
 
 from PySide6.QtCore import QEvent, QRect, QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QActionGroup, QCursor, QGuiApplication, QKeySequence, QUndoStack
@@ -64,6 +65,7 @@ from model.page_edits import (
     merge_markup,
     remove_markup,
     reorder_marks,
+    resolve_note_host,
     translate_mark,
 )
 from model.edit_engine import PyMuPDFEngine
@@ -644,6 +646,12 @@ class MainWindow(QMainWindow):
         a_underline.setToolTip("Underline — drag over text, passage after passage (Esc or click again to stop)")
         a_strikeout = act("Strike Out", lambda: self._arm_tool(ArmedTool.STRIKEOUT), icon="strikeout")
         a_strikeout.setToolTip("Strike Out — drag over text, passage after passage (Esc or click again to stop)")
+        # Note (M90.1): a text-markup verb, so it rides the Markup ▾ dropdown rather than taking a
+        # toolbar slot of its own (§Design budgets holds the bar at ~10). One-shot, not sticky like
+        # the HUS trio above — writing a note is a deliberate single act, not a sweep you repeat.
+        a_note = act("Note", lambda: self._arm_tool(ArmedTool.NOTE), icon="note")
+        a_note.setToolTip("Note — drag over text to write a note on the markup there "
+                          "(plain text gets a highlight to hold it)")
         # Draw tools (M58): pen path capture + line/rect/ellipse press-drag-release (Shift
         # constrains: square / circle / 45° line). Pen is sticky (M73); the shapes stay one-shot.
         a_pen = act("Pen", lambda: self._arm_tool(ArmedTool.PEN), icon="pen")
@@ -711,7 +719,7 @@ class MainWindow(QMainWindow):
         tools_groups = (
             [a_select, a_grab, a_objects],                    # modes  (toolbar group 1)
             [a_pen, a_line, a_rect, a_ellipse],               # draw   (toolbar group 2, minus style)
-            [a_textbox, a_highlight, a_underline, a_strikeout],  # text markup (toolbar group 3)
+            [a_textbox, a_highlight, a_underline, a_strikeout, a_note],  # text markup (toolbar group 3)
             [a_stamp, a_signature],                           # stamps (toolbar group 4, first half)
             [a_redact, a_redact_find],                        # redact (toolbar group 4, second half)
             [field_menu],                                     # menu-only
@@ -747,6 +755,7 @@ class MainWindow(QMainWindow):
             ArmedTool.HIGHLIGHT: a_highlight,
             ArmedTool.UNDERLINE: a_underline,
             ArmedTool.STRIKEOUT: a_strikeout,
+            ArmedTool.NOTE: a_note,
             ArmedTool.PEN: a_pen,
             ArmedTool.LINE: a_line,
             ArmedTool.RECT: a_rect,
@@ -781,8 +790,9 @@ class MainWindow(QMainWindow):
             )
             return button
 
-        # Markup ▾ (M56): highlight / underline / strikeout. Draw ▾ (M58): the draw tools.
-        self._markup_button = split_button((a_highlight, a_underline, a_strikeout))
+        # Markup ▾ (M56): highlight / underline / strikeout, joined by Note (M90.1). Draw ▾ (M58):
+        # the draw tools.
+        self._markup_button = split_button((a_highlight, a_underline, a_strikeout, a_note))
         # The text-markup colours live here (M59.9), with the verbs they colour — not on the
         # pen/shapes style button, and not in a new toolbar slot. Since M78.5 each verb has its own
         # **arming swatch row**: clicking a colour both sets that verb's colour *and* arms the verb
@@ -810,11 +820,15 @@ class MainWindow(QMainWindow):
             markup_menu, "Strike Out", TEXT_LINE_COLORS, self._strike_color,
             close_on_pick=True, include_remove=False, show_title=False)
         self._strike_color_row.picked.connect(self._pick_strike_color)
-        markup_menu.addAction(self._strike_color_row)
+        markup_menu.insertAction(a_note, self._strike_color_row)
+        # Note carries **no swatch row of its own**: a note takes its host's colour (owner rule 3),
+        # so there is no fourth colour to choose — offering one would be chrome for a setting that
+        # cannot apply. It sits last, after its own divider.
         # A divider between each verb group, so it reads unambiguously which swatches belong to
         # which verb (owner call): …Highlight swatches | ─── | Underline action…
         markup_menu.insertSeparator(a_underline)
         markup_menu.insertSeparator(a_strikeout)
+        markup_menu.insertSeparator(a_note)
         self._draw_button = split_button((a_pen, a_line, a_rect, a_ellipse))
         # Stamp ▾ (M62): the text mark · signature in one slot, the slot §Design budgets reserved
         # for R4. Each opens its dialog rather than arming directly — the mark has to be composed
@@ -1749,6 +1763,7 @@ class MainWindow(QMainWindow):
             ArmedTool.UNDERLINE: self._underline_selection,
             ArmedTool.STRIKEOUT: self._strikeout_selection,
             ArmedTool.REDACT_TEXT: self._redact_selection,
+            ArmedTool.NOTE: self._note_selection,
         }.get(tool)
         if handler is not None:
             handler()
@@ -1927,6 +1942,21 @@ class MainWindow(QMainWindow):
                 self._on_layer_picked(page_index, rects, t, n, ex, value))
             menu.addAction(row)
 
+    def _note_menu_entries(self, menu, page_index: int, annot) -> None:
+        """Add / Edit / Remove Note under the M76 swatch rows (M90.1).
+
+        The swatch rows above change *which layers* are on the words; a note is about the mark
+        itself, so it sits below them behind a divider rather than among them. **Add** and **Edit**
+        are the same verb under the label that tells you which one this is — the one thing a menu
+        can say that an on-page glyph cannot — and Remove appears only when there is a note to
+        remove (inapplicable chrome is invisible, not greyed out).
+        """
+        menu.addSeparator()
+        menu.addAction("Edit Note…" if annot.note else "Add Note…",
+                       lambda: self._note_mark(page_index, annot))
+        if annot.note:
+            menu.addAction("Remove Note", lambda: self._remove_note(page_index, annot))
+
     def _on_layer_picked(self, page_index: int, rects, mark_type, noun: str,
                          existed: bool, value) -> None:
         """A swatch-row dot was clicked (M76.1): ``value`` is a colour → recolour/lay the layer
@@ -2030,6 +2060,109 @@ class MainWindow(QMainWindow):
 
     def _redact_selection(self) -> None:
         self._apply_selection_bars(Redaction, "Redact selection")
+
+    # ---- notes on text markup (M90.1; the M81 model) ----------------------------
+    #
+    # A note is a **field of its host mark**, so there is nothing to place and no second object to
+    # keep in step — the whole interface is: decide which mark, collect text, write it to that
+    # mark's ``note``. The two entry points differ only in how the host is decided (a swept
+    # selection resolves one, a right-clicked mark *is* one) and converge on :meth:`_edit_note`.
+
+    def _note_selection(self) -> None:
+        """The armed Note tool was released on a text selection → write a note on the markup there.
+
+        **Attaching is the primary act** (owner rule 4): the mark already under the selection
+        receives the note as-is — no second mark, no geometry change — and a Highlight is created
+        only when the span carries no markup at all. Which existing mark wins is
+        :func:`resolve_note_host` (rule 6: a Highlight, else the topmost underline / strikeout).
+
+        The editor opens **before** anything is created, so the fallback highlight and the note it
+        holds land together as one undo step, and abandoning the popup leaves the document exactly
+        as it was rather than a stray highlight the user never asked for.
+        """
+        by_page = self._selection_line_bars()
+        if not by_page:
+            return
+        page_index = min(by_page)
+        bars = tuple(by_page[page_index])
+        host = resolve_note_host(self.vdoc.ordered[page_index].annotations, bars)
+        self.view.selection.clear()   # the popup is the feedback now, not the blue selection
+        self._open_note_editor(page_index, bars, host, by_page)
+
+    def _note_mark(self, page_index: int, mark) -> None:
+        """The context menu's Add / Edit Note on a right-clicked markup — the host is not in
+        question here, so it goes straight to the editor on that mark's own bars."""
+        self._open_note_editor(page_index, tuple(mark.rects), mark)
+
+    def _open_note_editor(self, page_index: int, bars: tuple, host, by_page=None) -> None:
+        """Open the note popup over ``bars``, pre-filled from ``host`` (``None`` = nothing marked
+        there yet, so the popup shows the colour of the highlight that would be created).
+
+        ``by_page`` carries the rest of a multi-page selection, so the fallback highlight covers
+        everything that was swept rather than only the page the note ends up on.
+        """
+        anchor = mark_bounds(host) if host is not None else (
+            min(b[0] for b in bars), min(b[1] for b in bars),
+            max(b[2] for b in bars), max(b[3] for b in bars))
+        self.view.annotations.notes.open_on(
+            page_index, anchor,
+            host.note if host is not None else "",
+            host.color if host is not None else self._highlight_color,
+            lambda text: self._commit_note(page_index, bars, host, text, by_page),
+        )
+
+    def _commit_note(self, page_index: int, bars: tuple, host, text: str, by_page=None) -> None:
+        """Write the typed note to its host, creating that host first if there wasn't one.
+
+        One :class:`SetAnnotationsCommand` per touched page inside one macro, so "highlight this
+        and note it" is a **single** undo step (owner rule 4). Three no-ops fall out and are worth
+        naming: an unchanged note pushes nothing; an abandoned popup over plain text creates no
+        highlight; and clearing the text writes ``note=""``, which drops the note and **leaves the
+        mark** — a note is a field of the mark, so removing it is not removing the mark.
+        """
+        text = text.strip()
+        if host is None and not text:
+            return                     # nothing typed and nothing to attach to: leave no trace
+        updates: dict[int, tuple] = {}
+        if host is None:
+            # Rule 4's fallback. Painted through the M59.10 merge, so a note-created highlight is
+            # the same mark "Highlight Selection" would have made — including how it folds into a
+            # neighbour — rather than a second kind of highlight.
+            for index, rects in (by_page or {page_index: bars}).items():
+                current = self.vdoc.ordered[index].annotations
+                merged = merge_markup(current, tuple(rects), Highlight, self._highlight_color)
+                if merged != current:
+                    updates[index] = merged
+            host = resolve_note_host(
+                updates.get(page_index, self.vdoc.ordered[page_index].annotations), bars)
+            if host is None:
+                return                 # the merge produced nothing to hold the note — bail cleanly
+            label = "Highlight and note"
+        else:
+            label = "Remove note" if not text else "Edit note" if host.note else "Add note"
+        annotations = updates.get(page_index, self.vdoc.ordered[page_index].annotations)
+        if host.note != text:
+            # Identity, not equality: two marks on a page can compare equal (frozen value objects)
+            # and only one of them is the host. It also means an **undo while the popup was open**
+            # takes the host out of the tuple — then nothing matches, the rebuild is identical, and
+            # the commit correctly does nothing instead of pushing an empty undo entry.
+            updated = tuple(
+                replace(mark, note=text) if mark is host else mark for mark in annotations
+            )
+            if updated != annotations:
+                updates[page_index] = updated
+        if not updates:
+            return                     # re-committed unchanged text: nothing to undo
+        self._note_edit_on(page_index)
+        self.undo_stack.beginMacro(label)
+        for index, updated in sorted(updates.items()):
+            self.undo_stack.push(SetAnnotationsCommand(self.vdoc, index, updated, label))
+        self.undo_stack.endMacro()
+
+    def _remove_note(self, page_index: int, mark) -> None:
+        """The context menu's Remove Note — the same write with empty text, so there is one path
+        that clears a note and it cannot drift from what emptying the editor does."""
+        self._commit_note(page_index, tuple(mark.rects), mark, "")
 
     def _delete_foreign_annotation(self, page_index: int, mark) -> None:
         """Mark a foreign annotation for removal at save (M66) — undoable like any page edit.
@@ -2346,6 +2479,7 @@ class MainWindow(QMainWindow):
             # same verb under a second wording (the duplication the owner reported).
             if isinstance(annot, (Highlight, Underline, Strikeout)):
                 self._markup_layer_menu(menu, page_index, annot)
+                self._note_menu_entries(menu, page_index, annot)
                 return menu
             # `mark_noun` already names every free-placed mark for the undo labels; deferring to it
             # keeps one vocabulary in the app and means a new descriptor gets a real name here

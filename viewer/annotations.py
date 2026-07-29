@@ -66,6 +66,7 @@ from model.page_edits import (
 )
 from viewer.blend import MultiplyPixmapItem, MultiplyRectItem
 from viewer.markup_style import MarkupStyle
+from viewer.note_editor import NoteEditor
 from viewer.resize_handles import ResizeHandles, resized_rect
 from viewer.tools import ArmedTool
 from viewer.text_format_bar import TextBoxStyle, TextFormatBar, qt_font
@@ -336,6 +337,10 @@ class AnnotationOverlay:
         self._resize_line = None            # (Line, moved_end) while dragging a line endpoint
         self._resize_textbox = None         # the TextBox while dragging its width handle (M78.3)
         self._resize_ghost = None
+        # The note popup (M90.1). Owned here so it rides the same zoom/scroll reposition hook as
+        # the text-box editor — a note is a *field of an HUS mark*, so its editor belongs with the
+        # marks rather than as a fourth overlay on the view.
+        self.notes = NoteEditor(view)
 
     # ---- preview painting -------------------------------------------------------
 
@@ -963,7 +968,12 @@ class AnnotationOverlay:
         drawn, so text no longer spills past the box edge. Measured with ``QFontMetricsF`` (the
         ``QPlainTextDocumentLayout`` reports height in *line* units / ``idealWidth`` as 0, so it
         can't size the box). The box maps to ``rect * zoom`` view pixels, so pixels ÷ zoom gives
-        the page-point size. Called on text change and after any zoom / scroll."""
+        the page-point size. Called on text change and after any zoom / scroll.
+
+        It also drives the **note popup** (M90.1), which the view knows nothing about: this is the
+        one hook the view already calls on every zoom and scroll, so hanging the note editor off it
+        is what keeps the two inline editors from needing two different ways to stay put."""
+        self.notes.reposition()
         editor = self._editor
         if editor is None:
             return

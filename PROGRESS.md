@@ -1549,8 +1549,38 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     - Bound in `PdfView.keyPressEvent`, not as a window `QAction` — a focused inline editor must
       keep its own select-all, and a test pins that
 - [ ] **M90** Notes: the interface — the visible half of M81. Spec in `PLAN.md` §M90.
-  - [ ] **M90.1** Create + edit — Note verb on **Markup ▾** (no new toolbar slot) + the M76 context
+  - [x] **M90.1** Create + edit — Note verb on **Markup ▾** (no new toolbar slot) + the M76 context
     menu. Attaching is primary; creating a highlight is the fallback when the selection has no HUS
+    — *Windows (headless + offscreen GUI)* — 23 new tests, 1521 green
+    - **Attaching is the primary act, and the fallback is the only thing that creates** (owner
+      rule 4). `resolve_note_host` is the whole of rule 6 in the model, headless: a **Highlight**
+      wins, failing that the **topmost** underline / strikeout — "topmost" being the last match in
+      the page's annotation tuple, since that tuple *is* the z-order. A layered passage therefore
+      has one deterministic host, and the note keeps the colour the reader already associates with
+      the passage (rule 3)
+    - **The popup opens before anything is created**, which is what makes "the creation plus the
+      attach is one undo macro" true *and* leaves an abandoned sweep with no trace. Commit resolves
+      the host again, merges the fallback highlight through the **M59.10 merge** (so a note-created
+      highlight is the same mark Highlight Selection would have made, including how it folds into a
+      neighbour), and pushes one `SetAnnotationsCommand` per touched page inside one macro
+    - **Clearing the text removes the note and leaves the mark** — the one place in the app where
+      emptying an editor is not a delete. It falls out of M81's shape: the note is a *field* of the
+      mark, so `note=""` is an edit of the mark, not its removal. Remove Note on the context menu
+      is the same write, so the two cannot drift
+    - `viewer/note_editor.py` is a **new module, not a fourth branch of the text-box editor**: it
+      reuses that editor's *idiom* (a `QPlainTextEdit` child of the viewport committing on
+      focus-out, so M89's key guards and clipboard routing behave as they already do) but none of
+      its WYSIWYG page-rect sizing, which a note has no use for. Fixed viewport-pixel size, anchored
+      under the passage and flipped above it near the viewport bottom, washed towards white from the
+      host's colour so black text stays legible on every palette entry
+    - **The stale-callback trap bit again, in a new costume.** Opening a second note while the first
+      is still alive delivers the *outgoing* widget's focus-out **during the incoming one's**
+      `setFocus()` — so an unscoped callback commits and closes the popup that just opened (the
+      re-open read back empty). Every callback now passes its own widget and the controller ignores
+      one from a popup that is no longer current; this is the same guard `_on_editor_focus_out`
+      already keeps by capturing its editor. Found by a test, verified red
+    - Note is **one-shot, not sticky** like the M73 HUS quartet, and carries **no swatch row** on
+      Markup ▾ — a note takes its host's colour, so there is no fourth colour to choose
   - [ ] **M90.2** On-page glyph, so a note isn't invisible until you right-click the exact mark
   - [ ] **M90.3** Annotations sidebar shows and edits notes (M77 panel)
   - [ ] **M90.4** Foreign `/Contents` shows **read-only**, and M68 adopt-on-edit carries it across

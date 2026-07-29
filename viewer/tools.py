@@ -27,7 +27,10 @@ Two layers:
     of the two gestures runs — a drag starting on a word is the text-flow redaction, a drag
     starting elsewhere rubber-bands a block. Resolved at press to the concrete tool above, so
     everything downstream (selection tint, release, one-shot disarm) is exactly theirs;
-  - **CROP** — drag the rectangle to keep; the rest of the page is hidden, not removed (M48).
+  - **CROP** — drag the rectangle to keep; the rest of the page is hidden, not removed (M48);
+  - **NOTE** — drag over text to write a note on the markup there (M90). It is the one
+    drag-over-text tool that marks nothing itself: the sweep only says *which* mark, and a
+    Highlight is created solely when the span carries no markup to attach to.
 """
 
 from __future__ import annotations
@@ -56,22 +59,26 @@ class ArmedTool(Enum):
     ELLIPSE = "ellipse"
     STAMP = "stamp"     # M62 — drag the box a composed stamp / signature lands in
     FIELD = "field"     # M69 — drag the box a new form field occupies
+    NOTE = "note"       # M90 — drag over text to attach a note to the mark there (or a new one)
 
     @property
     def drags_text(self) -> bool:
-        """True for tools driven by a drag-over-text selection (the markup trio + text-redact)."""
+        """True for tools driven by a drag-over-text selection (the markup trio + text-redact,
+        plus Note — which marks no text itself, but resolves its host from the span you sweep)."""
         return self in (
             ArmedTool.HIGHLIGHT,
             ArmedTool.UNDERLINE,
             ArmedTool.STRIKEOUT,
             ArmedTool.REDACT_TEXT,
+            ArmedTool.NOTE,
         )
 
     @property
     def sticky(self) -> bool:
         """True for the repeat-use markup tools that stay armed across gestures (M73): the HUS
         trio + Pen. Everything else is one-shot — placement tools because repeat use is rare,
-        the destructive tools (redact, crop) because a stuck destructive mode is a trap."""
+        the destructive tools (redact, crop) because a stuck destructive mode is a trap, and
+        **Note** (M90) because writing one is a deliberate single act, not a sweep you repeat."""
         return self in (
             ArmedTool.HIGHLIGHT,
             ArmedTool.UNDERLINE,

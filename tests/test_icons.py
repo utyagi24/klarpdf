@@ -25,6 +25,7 @@ ACTION_ICONS = [
     "pen",                               # the Pen draw tool (main_window._build_actions)
     "stamp", "signature", "watermark",   # M62 — the Stamp ▾ split-button
     "markup",                            # M71 — the reading bar's Markup toggle
+    "note",                              # M90.1 — the Note verb on Markup ▾
 ]
 
 # The three glyphs redrawn in M78.4 (owner-chosen from rendered candidates, 2026-07-23): Grab (a

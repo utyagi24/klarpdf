@@ -456,8 +456,9 @@ class PdfView(QGraphicsView):
         self._reposition_overlay_editors()  # an open inline editor follows the zoom
 
     def _reposition_overlay_editors(self) -> None:
-        """Move any open inline editor (form field / text box) back onto its target after the view
-        geometry changes (zoom or scroll), so it doesn't get left behind."""
+        """Move any open inline editor (form field / text box, and the M90 note popup the
+        annotation overlay carries) back onto its target after the view geometry changes (zoom or
+        scroll), so it doesn't get left behind."""
         for overlay in (self.form, self.annotations):
             if overlay is not None:
                 overlay.reposition_editor()

@@ -583,8 +583,10 @@ def remove_markup(annotations: tuple, bars, mark_type) -> tuple:
 
 
 def marks_over(annotations: tuple, bars, mark_type) -> list:
-    """The ``mark_type`` marks among ``annotations`` overlapping any of ``bars`` — the existence /
-    tick-state query behind the M76 layer toggles (same overlap test the merge machinery uses)."""
+    """The ``mark_type`` marks among ``annotations`` overlapping any of ``bars``, in z-order — the
+    existence / tick-state query behind the M76 layer toggles (same overlap test the merge
+    machinery uses). ``mark_type`` may be a tuple of types, as ``isinstance`` takes: that is how
+    :func:`resolve_note_host` asks for "any underline or strikeout" in one pass."""
     probe = tuple(tuple(bar) for bar in bars)
     return [
         mark for mark in annotations
@@ -592,6 +594,27 @@ def marks_over(annotations: tuple, bars, mark_type) -> list:
             _x_overlap(bar, other) for bar in mark.rects for other in probe
         )
     ]
+
+
+def resolve_note_host(annotations: tuple, bars):
+    """The HUS mark a note applied to ``bars`` attaches to — or ``None`` when that span carries no
+    text markup at all and the caller must create a Highlight for it (M90.1, owner rule 4).
+
+    **Attaching is the primary act**: a note applied to a selection lands on the mark already
+    there, unchanged in geometry and colour, and only plain text creates anything. Where several
+    marks qualify — the app deliberately allows layered HUS, since M59.10 scopes merging *per
+    type* — owner rule 6 decides: **a Highlight wins; failing that, the topmost** underline /
+    strikeout. Deterministic, and it keeps a note's background (rule 3) the highlight colour a
+    reader already associates with the passage.
+
+    "Topmost" is the last qualifying mark in the tuple, because the page's annotation tuple *is*
+    its z-order (:func:`reorder_marks` — ``front`` moves to the end).
+    """
+    highlights = marks_over(annotations, bars, Highlight)
+    if highlights:
+        return highlights[-1]
+    lines = marks_over(annotations, bars, (Underline, Strikeout))
+    return lines[-1] if lines else None
 
 
 def scale_mark(mark, sx: float, sy: float, ox: float, oy: float):
