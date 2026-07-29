@@ -68,6 +68,22 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   into the suite while both local platforms ran it green, because the fault was in Qt's C++ and
   surfaced far from its cause. When CI fails and the local suite passes, read the log for
   `Fatal Python error: Segmentation fault` before assuming a flaky test.
+- **Two different bugs have now worn that same costume — so *attribute* the segfault, don't pattern-
+  match it.** M88.3 was a genuine lifetime bug (a slot on a freed view). The M89 one looked identical
+  — same crash, same constructor, ~74% in — but was **the suite exhausting the runner's memory**: it
+  leaked every window it opened, reaching ~107,000 widgets and 8 GiB RSS. The tell that separates
+  them: if the *reported test moves* when you change something unrelated, it is resource exhaustion,
+  not a bug in the named test. The cheap way to find out is `workflow_dispatch` probe branches
+  (`gh workflow run test.yml --ref <branch>`) that split the change into parts, plus a `conftest`
+  hook printing RSS / fd / `QApplication.allWidgets()` growth — an answer in two CI runs instead of a
+  guess. `tests/test_no_widget_leak.py` now pins the invariant.
+- **Closing a Qt window does not destroy it, and `gc.collect()` will not save you.** `MainWindow` is
+  a parentless top-level, and the overlay controllers hold *bound methods of the window* as
+  callbacks, so the reference cycle spans into C++ where the collector cannot follow (measured:
+  collecting frees nothing). Tests must destroy explicitly — `conftest.py`'s
+  `pytest_runtest_teardown` hook does it suite-wide, and its docstring records the four traps
+  (hookwrapper vs autouse fixture ordering; drain pending `singleShot`s first;
+  `sendPostedEvents(DeferredDelete)` because `processEvents` skips them; clear `PdfApp._windows`).
 - **Never connect a widget's slot to a signal on a QObject that outlives it** — in particular
   `self.window().windowHandle()`. PySide6 does **not** reliably drop such a connection when the
   receiver is destroyed (measured), so the slot is later invoked on freed memory: a crash, not an

@@ -11,6 +11,7 @@ These run with no Qt display (offscreen), so they execute in WSL, CI, and web se
 
 from __future__ import annotations
 
+import gc
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")  # headless: no display needed
@@ -27,6 +28,64 @@ import pytest
 # Unique, searchable strings per page so we can assert a specific page's text survived a move.
 A_TEXT = ["ALPHA-zero-A0", "ALPHA-one-A1", "ALPHA-two-A2"]
 B_TEXT = ["BETA-zero-B0", "BETA-one-B1"]
+
+
+@pytest.hookimpl(hookwrapper=True, trylast=True)
+def pytest_runtest_teardown(item, nextitem):
+    """Destroy every widget the finished test left behind — **the suite leaked all of them**.
+
+    Closing a window does not destroy it. ``MainWindow`` is a parentless top-level, so Qt hands
+    ownership to Python — and Python could not free it either, because the overlay controllers hold
+    *bound methods of the window* (``_add_annotation``, ``_set_field_value``, …) as callbacks, so
+    window → view → overlay → bound method → window is a cycle that also spans into C++, where the
+    collector cannot follow. ``gc.collect()`` on its own frees **nothing** (measured).
+
+    So every test that opened a document left the whole window alive. Measured on the CI runner
+    before this hook: **~107,000 live widgets, ~16,000 of them top-level, and 8 GiB RSS** by the end
+    of the suite, growing linearly from the first twenty-five tests. That is what has been
+    segfaulting the Ubuntu runner — memory exhaustion inside whatever allocation happened to be next,
+    which is why the crash reported itself from ``QGraphicsView``'s constructor in a test that had
+    nothing to do with the change, and why the *reported* test moved with every edit. After this
+    hook: **0 widgets, 0 top-level, a flat ~200 MiB** across all of it.
+
+    Four details, each of which cost a wrong attempt:
+
+    * **A ``trylast`` hookwrapper, not an autouse fixture.** An autouse fixture declared here is set
+      up first and therefore torn down *last*-to-first — i.e. **before** the test's own ``win``
+      fixture has finished with the window. Everything after this ``yield`` runs after every
+      finaliser.
+    * **Drain pending events first.** The inline text-box editor defers its commit with
+      ``QTimer.singleShot(0, …)``; delete the widgets first and that callback fires against a freed
+      C++ object ("Internal C++ object already deleted") on the way out of an unrelated test.
+    * **``sendPostedEvents(DeferredDelete)``, not ``processEvents()``.** ``processEvents`` documents
+      that it does *not* deliver ``DeferredDelete`` — Qt only delivers those when the event loop that
+      posted them returns, and this suite never runs one. ``deleteLater()`` alone would post events
+      nothing ever collects.
+    * **Clear ``PdfApp._windows``.** The registry keeps a window until its ``closeEvent`` runs, so a
+      test that never closed one leaves a wrapper pointing at an object destroyed here; the next
+      test's fixture then calls ``.close()`` on it and dies. The registry must not outlive the
+      widgets.
+
+    Deliberately **not** ``close()``: ``closeEvent`` prompts on a dirty document, and the
+    ``_no_real_modals`` guard would turn that into a baffling teardown error. Destroying a widget
+    does not run ``closeEvent``, and everything that hook releases (render copies, cache entries,
+    file handles) is released by destruction anyway.
+    """
+    yield
+    from PySide6.QtCore import QEvent
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    if app is None:
+        return
+    app.processEvents()                       # let deferred callbacks finish while their widgets live
+    registry = getattr(app, "_windows", None)
+    if registry is not None:
+        registry.clear()
+    for widget in app.topLevelWidgets():
+        widget.deleteLater()
+    app.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    gc.collect()
 
 
 @pytest.fixture(autouse=True)
