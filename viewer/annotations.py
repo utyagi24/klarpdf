@@ -109,6 +109,7 @@ OBJECT_TYPES = _DRAWN_TYPES + CONTENT_MARK_TYPES + (NewField,)
 # by its index in the page's tuple (see :meth:`AnnotationOverlay._annot_z`), so paint order follows
 # the model's z-order instead of the mark's type. Redactions sit one band below (M59.9). Above:
 # search hits (9), text selection (10), the live gesture (11), selection chrome (12–14).
+_UNSET = object()  # "no band supplied" — distinct from a genuine `None` band (paint everything)
 _ANNOT_Z_BASE = 6.0
 _REDACTION_Z = 5.0
 # Content marks bake into the page's *content stream*, so they belong below every annotation but
@@ -366,10 +367,16 @@ class AnnotationOverlay:
         """
         return _ANNOT_Z_BASE + index / (count + 1)
 
-    def _content_band_contains(self, page_index: int) -> bool:
+    def _content_band_contains(self, page_index: int, band=_UNSET) -> bool:
         """Whether ``page_index`` is close enough to the viewport to be worth rasterising a content
-        mark for. Shares the view's own prefetch band, so marks appear with the page they sit on."""
-        band = self._view.content_band()
+        mark for. Shares the view's own prefetch band, so marks appear with the page they sit on.
+
+        ``band`` is passed in by callers that test more than one page (M87.3): deriving it costs a
+        viewport-to-scene map and a search of the page list, and doing that *per page* is what made
+        a repaint O(document length) — 318 band lookups per pass on a 320-page document.
+        """
+        if band is _UNSET:
+            band = self._view.content_band()
         return band is None or band[0] <= page_index <= band[1]
 
     def _paint_visible_content(self) -> None:
@@ -389,8 +396,13 @@ class AnnotationOverlay:
             return
         scene = self._view.scene()
         vdoc = self._view._vdoc
-        for page_index in range(vdoc.page_count):
-            if page_index in self._content_pages or not self._content_band_contains(page_index):
+        # Walk the band, not the document (M87.3). The old loop asked every page in the file
+        # whether it was in the band, re-deriving the band each time — so the "lazy" pass that
+        # exists to avoid O(document) work was itself O(document) before it painted anything.
+        band = self._view.content_band()
+        pages = range(vdoc.page_count) if band is None else range(band[0], band[1] + 1)
+        for page_index in pages:
+            if page_index in self._content_pages:
                 continue
             for annot in vdoc.ordered[page_index].annotations:
                 if isinstance(annot, CONTENT_MARK_TYPES):
@@ -410,6 +422,7 @@ class AnnotationOverlay:
             return
         scene = self._view.scene()
         vdoc = self._view._vdoc
+        band = self._view.content_band()   # derived once, not once per page (M87.3)
         for page_index in range(vdoc.page_count):
             annotations = vdoc.ordered[page_index].annotations
             count = len(annotations)
@@ -437,7 +450,7 @@ class AnnotationOverlay:
                 elif isinstance(annot, CONTENT_MARK_TYPES):
                     # Deferred unless the page is near the viewport — see _paint_visible_content
                     # for why this one mark type cannot afford to be painted document-wide.
-                    if self._content_band_contains(page_index):
+                    if self._content_band_contains(page_index, band):
                         self._paint_content_mark(scene, page_index, annot)
                         self._content_pages.add(page_index)
                 elif isinstance(annot, TextBox):

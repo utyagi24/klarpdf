@@ -1278,6 +1278,34 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
       binding there — the store fills to its budget either way, only with more useful pages. Where
       it shows is what a *window* holds: a deactivated window drops to 242.3 MB from 490.8, and five
       windows open together to **336.7 MB from 585.1**
+  - [x] **M87.3** A render pass costs the **band**, not the document — the carried M86.1 follow-up,
+    assigned to M87 by the premise check because it is the same question asked about the walk rather
+    than the cache. `_visible_range()` becomes a **binary search** over a y-sorted index of page
+    tops, and the drop-offscreen pass reads a **tracked set** of the pages actually holding a pixmap
+    instead of asking all N. — *Windows (offscreen GUI)* — 16 new tests, 1431 green
+    - **There was a third walk, and it made the pass quadratic.** The follow-up filed two (the range
+      scan and the drop loop) and measured ~6 ms/pass on 320 pages. Found while verifying the fix:
+      `AnnotationOverlay._paint_visible_content` looped over **every page in the document** asking
+      `_content_band_contains`, which re-derived the band — a viewport-to-scene map and a full page
+      scan — **once per page**. O(N) pages × O(N) scan, so the lazy pass that exists to avoid
+      O(document) work was itself the worst offender. Both it and `repaint()` now derive the band
+      once
+    - **Measured against `main`, same machine, 80 scrolled passes per point:**
+
+      | pages | `main` | **M87.3** | |
+      | --- | --- | --- | --- |
+      | 20 | 1.89 ms | 1.66 ms | |
+      | 60 | 2.89 ms | 1.97 ms | |
+      | 320 | 15.36 ms | **2.07 ms** | 7.4× |
+      | 1000 | **127.37 ms** | **2.64 ms** | 48× |
+
+      `main`'s curve is the quadratic — 320 → 1000 pages is 3.1× the document and 8.3× the time. The
+      fixed pass is flat in everything but the band
+    - **The differential test is the substance.** A search rewrite is only as good as its agreement
+      with the scan it replaced, so the old linear scan is kept as an oracle and cross-checked at
+      every scroll position, three zooms, both page layouts and five page-size regimes — including
+      facing pages that **share a y** (the case a plain `bisect` gets wrong) and a page taller than
+      the viewport whose top sits far above it
   - [x] **M87.2** Cache: entry count → **global byte ceiling** — shipped first, as the premise check
     said it should be, because it is a live defect rather than preparation for M88. The 48-entry
     `OrderedDict` on each `PdfView` becomes one process-global `viewer/pixmap_cache.py` store with
@@ -1586,17 +1614,10 @@ tree or history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI 
 
 Carried items — none block work:
 
-- **`_render_visible` is O(document length), not O(visible band)** — surfaced by M86.1's
-  benchmark, and it is what made that fix worth 15 ms per zoom step on a 320-page document. Each
-  pass walks every page twice: `_visible_range()` scans all pages to find the intersecting range,
-  then the body loops over all pages again to drop offscreen pixmaps. Measured at **~6 ms per pass
-  on 320 pages**, so even after M86.1 collapsed three passes to one, ~246 ms of the remaining
-  933 ms in a 40-step sweep is spent walking pages that are nowhere near the viewport. Both walks
-  are avoidable: the visible range is a **binary search** over a y-sorted list, and the drop pass
-  only needs the set of pages *currently holding* a pixmap, which the view could track instead of
-  rediscovering. Deferred to **M87**, whose whole subject is what the app keeps rendered — this is
-  the same question asked about the walk rather than the cache, and it wants M87's verification
-  rather than riding a PR that has already shipped its measurement.
+- ~~**`_render_visible` is O(document length), not O(visible band)**~~ — **fixed 2026-07-28 as
+  M87.3** (see the M87 entry above). It was worse than filed: a *third* walk, the annotation
+  overlay re-deriving the band once per page, made the pass **quadratic** rather than linear —
+  127 ms at 1000 pages against the ~6 ms/pass on 320 that the follow-up recorded. Nothing carried.
 
 - ~~**On open, no thumbnail is marked at all**~~ — **fixed 2026-07-28 with M89.4** (owner-reported
   during the M86 verification pass: "reopening the document lands me at the last page but in the
