@@ -1468,7 +1468,29 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
       by accident** — its `_hold_render` suppresses the intermediate render, so the field survives;
       that is why the owner saw the page restore correctly while testing that branch. Fixing it here
       keeps the restore correct on its own terms rather than as a side effect of a perf change
-  - [ ] **M89.5** Pinch-zoom, anchored at the gesture centre — **needs hands-on Windows validation**
+  - [x] **M89.5** Pinch-zoom, anchored at the gesture centre — **flagged for hands-on Windows
+    validation, not reported green** (see below). — *Windows (offscreen GUI)* — 9 new tests (5
+    verified red)
+    - Windows had been delivering `QNativeGestureEvent` / `ZoomNativeGesture` all along and
+      **nothing consumed it**, so the gesture every touchpad user tries first did nothing here. It
+      gets the same pointer-anchored contract M80 gave Ctrl+wheel, through the same `anchor_pos`
+      seam: what is between your fingers stays between your fingers
+    - **Caught in `viewportEvent`, not `event`** — a native gesture targets the widget under the
+      fingers, which for a scroll area is the *viewport*; caught any higher, `QGraphicsView` hands
+      it to the scene
+    - **Qt reports the value as an increment to the zoom factor**, so the new magnification is
+      `zoom × (1 + value)` — continuous with nothing to accumulate to make it so. It is nonetheless
+      folded into the **same per-frame accumulator Ctrl+wheel uses** (M86.2), converted to wheel
+      units, because a pinch delivers events faster than a scene rebuild and zoom should not have
+      two throttling stories. The conversion is exact, not an approximation:
+      `Π(1 + vᵢ) == _ZOOM_STEP ** (Σdᵢ / _WHEEL_NOTCH)` by construction, and a test pins it
+    - **Inert in the slideshow**, where the mode's contract is one page per screen at Fit Page and
+      Ctrl+wheel does not zoom either — consumed rather than ignored, so the gesture means one thing
+      everywhere. Only `ZoomNativeGesture` is claimed; rotate/swipe fall through untouched
+    - **What the suite cannot certify.** The handler is exercised by a constructed event sent to the
+      viewport, which is exactly how Qt delivers the real one — but "Windows actually delivers this
+      gesture to this widget on this machine" needs a precision touchpad and a hand. Recorded as a
+      limit up front (`PLAN.md` §M89) rather than discovered later
   - [ ] **M89.6** `Ctrl+A` → select all text in the **whole** document (Edge/Brave behaviour),
     **plus** the repaint rework it depends on: painting clipped to visible pages + each line's run
     coalesced into one rect. Not optional — measured, one scene item per selected word makes

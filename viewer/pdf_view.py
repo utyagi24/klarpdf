@@ -22,6 +22,7 @@ from __future__ import annotations
 import time
 from bisect import bisect_right
 from contextlib import contextmanager
+from math import log
 
 import pymupdf as fitz
 from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, QTimer, Signal
@@ -247,6 +248,52 @@ class PdfView(QGraphicsView):
         kind = "layout" if dpi != self._logical_dpi else "render"
         self._logical_dpi, self._dpr = dpi, dpr
         return kind
+
+    def viewportEvent(self, ev) -> bool:
+        """Intercept the **pinch** gesture (M89.5), which Windows delivers to the *viewport*.
+
+        It has to be caught here rather than in :meth:`event`: a native gesture targets the widget
+        under the fingers, which for a scroll area is the viewport, and ``QGraphicsView`` would
+        otherwise hand it on to the scene. Everything else falls straight through.
+        """
+        if ev.type() == QEvent.Type.NativeGesture and self._pinch_zoom(ev):
+            return True
+        return super().viewportEvent(ev)
+
+    def _pinch_zoom(self, ev) -> bool:
+        """Two-finger pinch → zoom, **anchored between the fingers** (M89.5). Returns whether the
+        gesture was ours.
+
+        Windows has been delivering this event all along and nothing consumed it, so the gesture
+        every touchpad user tries first did nothing here. It gets the same pointer-anchored contract
+        M80 gives Ctrl+wheel, through the same ``anchor_pos`` seam: what is between your fingers
+        stays between your fingers.
+
+        **Qt reports the value as an incremental change in the zoom factor**, so the new
+        magnification is ``zoom × (1 + value)`` — already continuous, with no accumulation needed to
+        make it so. It is nonetheless folded into the *same* per-frame accumulator Ctrl+wheel uses
+        (converted to wheel units, which is exact: ``Π(1 + vᵢ) == _ZOOM_STEP ** (Σdᵢ / _WHEEL_NOTCH)``
+        by construction), because a pinch delivers events far faster than a scene rebuild — the
+        problem M86.2 exists to solve, and there is no reason for zoom to have two throttling stories.
+
+        **Inert in the slideshow**, where the mode's contract is one page per screen at Fit Page
+        (M78) and Ctrl+wheel does not zoom either. Consumed rather than ignored, so the gesture means
+        one thing everywhere.
+
+        **Validation limit, stated up front** (`PLAN.md` §M89): the handler is unit-tested from a
+        constructed event, but "Windows actually delivers the gesture to this widget" is only
+        demonstrable on a machine with a precision touchpad. It ships flagged for hands-on
+        validation, not reported green.
+        """
+        if ev.gestureType() != Qt.NativeGestureType.ZoomNativeGesture:
+            return False
+        if not self.slideshow:
+            factor = 1.0 + ev.value()
+            if factor > 0:      # a value ≤ -1 would mean a non-positive magnification
+                self._accumulate_zoom(log(factor) / log(_ZOOM_STEP) * _WHEEL_NOTCH,
+                                      ev.position().toPoint())
+        ev.accept()
+        return True
 
     def event(self, ev) -> bool:
         """Notice a screen change through Qt's own **widget** events (M88.3).
@@ -971,17 +1018,25 @@ class PdfView(QGraphicsView):
         per-event factors and exponentiating the summed delta are the same number
         (``Π s^(dᵢ/n) == s^(Σdᵢ/n)``) — one power is if anything the more accurate of the two.
         """
-        delta = event.angleDelta().y()
-        if delta:
-            self._zoom_pending += delta
-            self._zoom_anchor = event.position().toPoint()  # the pointer as of the latest event
-            if not self._zoom_timer.isActive():
-                # Throttle, not debounce: the timer is started by the first event of a frame and
-                # left to run. Restarting it on every event would push the flush back for as long
-                # as the gesture continued, so a sustained touchpad zoom would show nothing at all
-                # until the fingers stopped — the opposite of smooth.
-                self._zoom_timer.start(_ZOOM_COALESCE_MS)
+        self._accumulate_zoom(event.angleDelta().y(), event.position().toPoint())
         event.accept()
+
+    def _accumulate_zoom(self, delta: float, anchor) -> None:
+        """Add ``delta`` wheel units of anchored zoom, to be applied on the next frame (M86.2).
+
+        Shared by Ctrl+wheel and the pinch gesture (M89.5) so the two cannot drift: one accumulator,
+        one anchoring contract, one rebuild per frame however the reader asked for it.
+        """
+        if not delta:
+            return
+        self._zoom_pending += delta
+        self._zoom_anchor = anchor          # the pointer/fingers as of the latest event
+        if not self._zoom_timer.isActive():
+            # Throttle, not debounce: the timer is started by the first event of a frame and left
+            # to run. Restarting it on every event would push the flush back for as long as the
+            # gesture continued, so a sustained touchpad zoom would show nothing at all until the
+            # fingers stopped — the opposite of smooth.
+            self._zoom_timer.start(_ZOOM_COALESCE_MS)
 
     def _flush_wheel_zoom(self) -> None:
         """Apply one frame's worth of accumulated Ctrl+wheel delta (M86.2).
