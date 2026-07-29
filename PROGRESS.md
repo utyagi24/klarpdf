@@ -1385,6 +1385,20 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
       **10.07 MiB** per page at 100%, **40.27 MiB** at 200% — the exact figures `PLAN.md` §M88
       predicted — and M87.1's band degrades **2 → 1 → 0** across 1×/2×/4× just as its curve said it
       would post-M88
+    - **M88.3's first mechanism segfaulted Linux CI, and the mechanism was replaced rather than
+      patched.** It connected to the **window's** `QWindow.screenChanged` and rebuilt the scene
+      *inside* that callback — two lifetime hazards: the sender is not the view and outlives it (a
+      slot invoked on a destroyed view is a **crash**, not an exception — measured: PySide6 does not
+      reliably drop the connection when the receiver dies), and `scene.clear()` destroyed every item
+      while Qt was mid-show. Now the view listens for Qt's own **widget** events
+      (`DevicePixelRatioChange` / `ScreenChangeInternal`), which are delivered to the view and die
+      with it, and answers on a `QTimer` parented to the view — nothing to dangle, nothing rebuilt
+      inside a Qt callback, and a burst of screen events collapses into one pass. It is also
+      **cheaper**: a DPR change now costs a re-render rather than a relayout, since the layout is in
+      logical units; only a logical-DPI move restates the page rects, which on Windows never happens
+      (every screen reports 96 DPI and the scaling rides in the DPR). **Windows and WSL both ran the
+      suite green** — CI was the only place it showed, and the crash was in Qt rather than Python so
+      it surfaced ~74% into the run, far from its cause
     - **Six existing tests had the old identity baked in** and were re-based, not weakened: three
       converted to the scale they actually mean (`device_scale` for pixmap probes, `scale` for the
       WYSIWYG text-box editor), one re-picked its zoom to keep the same scene geometry, and the
