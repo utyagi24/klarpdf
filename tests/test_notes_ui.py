@@ -519,6 +519,112 @@ def test_the_glyph_paints_above_every_mark(win):
     assert all(z < _NOTE_GLYPH_Z for z in others)
 
 
+# ---- layered marks each keep a visible badge (owner-reported 2026-07-29) --------------
+#
+# The report: underline a passage and note it, then highlight the *same* passage and note that —
+# the first note becomes invisible, and reappears only when the highlight is removed. The model
+# was right (owner rule 5: each mark keeps its **own** note); the badges were not. Both anchor to
+# the same line, so both landed on exactly the same pixel and the second painted hid the first.
+
+
+def _layered(win, page_index: int = 0):
+    """Underline a passage and note it, then highlight the same passage and note that."""
+    win.view.arm(ArmedTool.UNDERLINE)
+    _drag_over_word(win, page_index)
+    win.view.arm(ArmedTool.HIGHLIGHT)
+    _drag_over_word(win, page_index)
+    (underline,) = _marks(win, Underline, page_index)
+    (highlight,) = _marks(win, Highlight, page_index)
+    win._commit_note(page_index, underline.rects, underline, "on the underline")
+    (highlight,) = _marks(win, Highlight, page_index)
+    win._commit_note(page_index, highlight.rects, highlight, "on the highlight")
+    # Highlight is sticky (M73), and an armed drag-over-text tool deliberately wins the press
+    # ahead of the note glyph — so leaving it armed is an artefact of this helper, not the
+    # scenario. A user reaches the badges the same way: Esc, or clicking the lit button.
+    win.view.disarm()
+    win.view.annotations.repaint()
+
+
+def test_two_notes_on_one_passage_get_two_visible_badges(win):
+    """The reported fault: both badges anchor to the same line, so without a layout pass the
+    second one painted covered the first completely — a note the user had written was invisible
+    and unreachable on the page."""
+    _layered(win)
+    boxes = [box for _p, _m, box in _glyphs(win)]
+    assert len(boxes) == 2
+    assert not boxes[0].intersects(boxes[1])         # …no longer stacked on the same pixel
+
+
+def test_the_fanned_badges_stay_on_their_own_line(win):
+    """They fan **sideways**, not downwards: the badge's vertical position is what says which line
+    the remark is about, so pushing one down would claim the wrong passage."""
+    _layered(win)
+    first, second = (box for _p, _m, box in _glyphs(win))
+    assert first.center().y() == pytest.approx(second.center().y(), abs=0.5)
+    assert second.right() <= first.left()            # the later one slides left along the margin
+
+
+def test_each_badge_wears_its_own_hosts_colour(win):
+    """Which is what tells the two apart once they sit side by side (owner rule 3)."""
+    _layered(win)
+    fills = {}
+    for _p, mark, box in _glyphs(win):
+        item = next(i for i in win.view.annotations._items if i.toolTip() == mark.note)
+        fills[type(mark).__name__] = item.brush().color()
+    assert fills["Underline"] == wash(win._underline_color, 0.62)
+    assert fills["Highlight"] == wash(win._highlight_color, 0.62)
+    assert fills["Underline"] != fills["Highlight"]
+
+
+def test_each_badge_opens_its_own_note(win):
+    """The other half of being hidden: the covered badge could not be clicked either, because the
+    hit-test walks last-painted-first and both boxes contained the same points."""
+    _layered(win)
+    opened = []
+    for _p, mark, box in _glyphs(win):
+        point = QPointF(win.view.mapFromScene(box.center()))
+        win.view.mousePressEvent(QMouseEvent(QEvent.Type.MouseButtonPress, point, point,
+            Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier))
+        notes = win.view.annotations.notes
+        assert notes.is_open
+        opened.append(notes.text)
+        notes.close()
+    assert sorted(opened) == ["on the highlight", "on the underline"]
+
+
+def test_removing_one_layer_leaves_the_others_note_alone(win):
+    """The half of the report that was already correct, pinned so it stays that way: a note dies
+    with **its own** host (owner rule 2), so removing the highlight takes the highlight's note and
+    leaves the underline's — which then takes the margin slot back."""
+    _layered(win)
+    (highlight,) = _marks(win, Highlight)
+    win.view.annotations.remove(0, highlight)
+    win.view.annotations.repaint()
+
+    assert _marks(win, Highlight) == []
+    (underline,) = _marks(win, Underline)
+    assert underline.note == "on the underline"
+    (_p, mark, box) = _glyphs(win)[0]
+    assert mark is underline
+    page = _page_rect(win)
+    assert box.right() > page.center().x()           # back in the margin, nothing to fan around
+
+
+def test_a_lone_badge_on_another_line_does_not_fan(win):
+    """The cry-wolf guard: the layout pass only shifts a badge that would actually overlap one
+    already placed, so an unrelated mark keeps the plain margin position."""
+    _layered(win)
+    win.view.arm(ArmedTool.HIGHLIGHT)
+    _drag_over_word(win, page_index=1)
+    (other,) = _marks(win, Highlight, 1)
+    win._commit_note(1, other.rects, other, "another page")
+    win.view.annotations.repaint()
+
+    (_p, _m, box) = next(g for g in _glyphs(win) if g[0] == 1)
+    page = _page_rect(win, 1)
+    assert box.right() == pytest.approx(page.right() - 3.0, abs=0.5)   # the plain margin slot
+
+
 # ---- M90.3: the Annotations sidebar ---------------------------------------------------
 #
 # M77's panel is already "a reading of the document's margin". For a noted mark the note *is* the

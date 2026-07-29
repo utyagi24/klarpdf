@@ -577,7 +577,7 @@ class AnnotationOverlay:
         x = min(max(page.right() - _NOTE_GLYPH_MARGIN - size, bar.right() + _NOTE_GLYPH_MARGIN),
                 page.right() - size)
         y = min(page.bottom() - size, max(page.top(), bar.center().y() - size / 2.0))
-        box = QRectF(x, y, size, size)
+        box = self._free_note_slot(page_index, QRectF(x, y, size, size), page)
         item = QGraphicsPathItem(_note_bubble_path(box))
         # A stronger wash than the popup's: 15 px of colour needs more of it to register than a
         # 240 px panel does, and nothing is typed on top of the badge.
@@ -588,6 +588,29 @@ class AnnotationOverlay:
         scene.addItem(item)
         self._items.append(item)
         self._note_glyphs.append((page_index, target, box))
+
+    def _free_note_slot(self, page_index: int, box: QRectF, page: QRectF) -> QRectF:
+        """``box`` shifted left until it clears the badges already placed on this page.
+
+        **The app deliberately allows layered HUS** — M59.10 scopes merging *per type*, so a
+        highlight and an underline on the same words are independent marks, and owner rule 5 gives
+        each its **own** note. Their badges therefore anchor to the same line and, without this,
+        landed on exactly the same pixel: the second one painted hid the first completely and won
+        every click, so a note the user had written was invisible and unreachable on the page. It
+        reappeared only when its neighbour was deleted, which is how it was reported.
+
+        **Left, not down.** The badge's vertical position is what says *which line* the remark is
+        about; pushing it down would park it against another line's text and claim the wrong
+        passage. Sliding along the margin keeps the anchor honest and reads as what it is — two
+        remarks on this line. If a line carries so many notes that the fan reaches the page edge,
+        the remainder are allowed to overlap rather than march off the page: at that density some
+        overlap is unavoidable in any layout, and the sidebar lists them all regardless.
+        """
+        step = _NOTE_GLYPH_PX + _NOTE_GLYPH_MARGIN
+        taken = [placed for index, _mark, placed in self._note_glyphs if index == page_index]
+        while any(box.intersects(placed) for placed in taken) and box.left() - step >= page.left():
+            box.moveLeft(box.left() - step)
+        return box
 
     def note_glyph_at(self, scene_pt):
         """The ``(page_index, mark)`` whose note glyph contains ``scene_pt``, else ``None``.

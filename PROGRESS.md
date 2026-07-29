@@ -1606,6 +1606,17 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     - Click opens the note, hover reads it from the badge's tooltip. Routed in `PdfView` right
       after the resize handles — the next most specific target, mode-independent, and below the
       armed tools so arming still wins the press
+    - **Layered marks fan along the margin** (owner-reported during testing): the app deliberately
+      allows layered HUS — M59.10 scopes merging *per type* — and owner rule 5 gives each mark its
+      **own** note, so an underline and a highlight on one passage carry two notes. Both badges
+      anchor to the same line and landed on **exactly the same pixel**: the second painted hid the
+      first completely and won every click, so a note the user had written was invisible *and*
+      unreachable, reappearing only when its neighbour was deleted. A badge now slides left until
+      it clears the ones already placed on that page. **Left, not down** — the vertical position is
+      what says which line the remark is about, so pushing it down would claim the wrong passage.
+      (The other half of that report was already correct and is now pinned: removing the highlight
+      takes the highlight's note and leaves the underline's — a note dies with **its own** host,
+      owner rule 2)
   - [x] **M90.3** Annotations sidebar shows and edits notes (M77 panel) — *Windows (headless +
     offscreen GUI)* — 6 new tests, 1536 green
     - The note is **appended to the row, not substituted for the passage**: the snippet is what
