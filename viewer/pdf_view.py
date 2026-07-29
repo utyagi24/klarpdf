@@ -28,7 +28,13 @@ from viewer.resize_handles import cursor_for
 from viewer.tools import ArmedTool, InteractionMode
 
 _PAGE_GAP = 14          # px between pages in the strip
-_PREFETCH = 2           # pages to render above/below the viewport
+_PREFETCH = 2           # pages to render above/below the viewport, at ordinary page sizes
+# What one direction of prefetch may spend (M87.1). Prefetch is *speculative* — pages the reader
+# has not asked for and at high zoom cannot reach without several more scrolls — so it gets a byte
+# allowance rather than a page count. 48 MB is ~26 Letter pages at 100%, far more than the 2 the
+# band ever wants, so ordinary reading is untouched; it falls to 1 page once a page passes 48 MB
+# and to 0 past 96 MB, which is where prefetching a page costs more than the whole visible band.
+_PREFETCH_BYTES = 48 * 1024 * 1024
 _MIN_ZOOM, _MAX_ZOOM = 0.1, 8.0
 _ZOOM_STEP = 1.25
 _WHEEL_NOTCH = 120      # one mouse-wheel detent, in eighths of a degree (Qt's unit)
@@ -1038,16 +1044,44 @@ class PdfView(QGraphicsView):
             return self._current, self._current
         return first, last
 
+    def _page_bytes(self, index: int) -> int:
+        """What page ``index`` will cost as a pixmap at the current zoom.
+
+        The layout already holds the page's on-screen size (``sizes[i] * zoom``), so this needs no
+        rendering — which is the point: the band has to be decided *before* anything is rasterised.
+        """
+        page = self._pages[index]
+        return int(page["w"]) * int(page["h"]) * (QPixmap.defaultDepth() // 8)
+
+    def _prefetch(self, first: int, last: int) -> int:
+        """How many pages either side of the viewport are worth rendering ahead (M87.1).
+
+        ``_PREFETCH`` was a **fixed 2** — sound when a page was 1.85 MB, actively harmful once it is
+        264 MB. Measured 2026-07-28 (PR #207): at zoom >= 2 the visible band is 2 pages and the
+        render band 6, so **67% of everything rendered is prefetch** — 237 MB visible against 473 MB
+        prefetched at 8x, and 57% waste even at 1.0x. Those are pages the reader cannot reach
+        without several more scrolls, rendered at the exact zoom where a page is most expensive.
+
+        Scaled by the **heaviest page in view**, not the average: in a mixed-size document one A0
+        sheet is what would blow the band, and it is the one the reader is most likely looking at.
+        """
+        heaviest = max((self._page_bytes(i) for i in range(first, last + 1)), default=0)
+        if heaviest <= 0:
+            return _PREFETCH
+        return int(min(_PREFETCH, _PREFETCH_BYTES // heaviest))
+
     def content_band(self) -> tuple[int, int] | None:
         """The page range worth rasterising for, or ``None`` before the first show (paint it all).
 
         The same band :meth:`_render_visible` uses for page pixmaps, exposed so the annotation
-        overlay's rasterised content marks can be just as lazy as the pages they sit on.
+        overlay's rasterised content marks can be just as lazy as the pages they sit on — including
+        the same adaptive prefetch, or a heavy page's content marks would out-live its pixmap.
         """
         if not self._pages or not self._shown_once:
             return None
         first, last = self._visible_range()
-        return max(0, first - _PREFETCH), min(len(self._pages) - 1, last + _PREFETCH)
+        prefetch = self._prefetch(first, last)
+        return max(0, first - prefetch), min(len(self._pages) - 1, last + prefetch)
 
     @contextmanager
     def _hold_render(self):
@@ -1084,7 +1118,8 @@ class PdfView(QGraphicsView):
         if self._render_held:
             return          # inside _hold_render — one pass runs when the outermost block closes
         first, last = self._visible_range()
-        lo, hi = max(0, first - _PREFETCH), min(len(self._pages) - 1, last + _PREFETCH)
+        prefetch = self._prefetch(first, last)   # shrinks as the pages get heavier (M87.1)
+        lo, hi = max(0, first - prefetch), min(len(self._pages) - 1, last + prefetch)
         # Pin the band **before** rendering it (M87.2). The plan asks for the visible pages; this
         # pins the whole band the pass is about to populate, which is a superset and is what makes
         # "no thrash while scrolling" true by construction rather than by picking a large enough

@@ -1248,10 +1248,36 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   tables assumed (the ~5.4× ratio is geometric and unaffected). Also ruled out, so it stays ruled
   out: **there is no leak on close** — `closeEvent` never clears `_cache`, but destroying the view
   releases it all (2124 MB → 90.6 MB)
-  - [ ] **M87.1** Adaptive prefetch (**F**) — `_PREFETCH = 2` is a fixed constant, fine at
+  - [x] **M87.1** Adaptive prefetch (**F**) — `_PREFETCH = 2` was a fixed constant, fine at
     1.85 MB/page and harmful at 264 MB/page. **Premise measured and understated**: at zoom ≥ 2 the
     visible band is 2 pages and the render band 6, so **67% of rendered bytes are prefetch** —
-    237 MB visible against **473 MB prefetched** at 8×, and 57% waste even at 1.0×
+    237 MB visible against **473 MB prefetched** at 8×, and 57% waste even at 1.0×. The band is now
+    bought with a **byte allowance** (`_PREFETCH_BYTES`, 48 MB per direction) rather than a page
+    count, scaled by the **heaviest page in view**. — *Windows (offscreen GUI)* — 8 new tests,
+    1415 green
+    - **The curve.** 48 MB is ~26 Letter pages at 100%, so ordinary reading never notices it and
+      the fixed cap of 2 is still what binds; the band falls to 1 page once a page passes 48 MB and
+      to 0 past 96 MB. Post-M88 that is: 100% on the 1.75× panel (10.07 MB) → 2, 200% (40.27 MB) →
+      1, 500% (~264 MB) → 0. It is **page size**, not zoom, that drives it — an A0 sheet at 100% is
+      ~32 MB and already down to 1
+    - **Measured A/B, same process, same run** — the fixed band forced back on for the control.
+      40 zoom steps to 8.0, then 20 page-steps of scrolling:
+
+      | phase | fixed band (`main`) | **adaptive (M87.1)** |
+      | --- | --- | --- |
+      | zoom sweep | 180 pages / **6081.7 MB** / 6.38 s | 132 pages / **2450.7 MB** / **2.74 s** |
+      | scrolling at 8× | 3 pages / 372.3 MB / 0.43 s | 3 pages / 372.3 MB / 0.43 s |
+
+      **60% fewer bytes rasterised and 57% less time** in the sweep; the scroll phase is
+      byte-for-byte identical, which is the control that shows the visible band is not starved —
+      the pages a reader actually arrives at are rendered either way
+    - **What the trade costs**: at high zoom a page now rasterises as it comes into view rather than
+      ahead of it. That is the intent (prefetching a 124 MB page the reader is several scrolls away
+      from is the waste being removed), and normal-zoom reading is untouched
+    - **The cache sweep barely moves** (1183.7 → 1174.0 MB) because M87.2's ceiling was already
+      binding there — the store fills to its budget either way, only with more useful pages. Where
+      it shows is what a *window* holds: a deactivated window drops to 242.3 MB from 490.8, and five
+      windows open together to **336.7 MB from 585.1**
   - [x] **M87.2** Cache: entry count → **global byte ceiling** — shipped first, as the premise check
     said it should be, because it is a live defect rather than preparation for M88. The 48-entry
     `OrderedDict` on each `PdfView` becomes one process-global `viewer/pixmap_cache.py` store with
