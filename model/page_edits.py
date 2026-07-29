@@ -519,9 +519,19 @@ def merge_markup(annotations: tuple, bars, mark_type, color: tuple) -> tuple:
 
     **Notes survive the fold (M81).** The survivor is rebuilt from scratch, so an absorbed mark's
     ``note`` would otherwise be destroyed by a user who deleted nothing — they highlighted adjacent
-    text and their typed note vanished. Absorbed notes are inherited in document order, joined by
-    :data:`_NOTE_JOIN` when several marks carry one. (The different-colour *trim* path uses
-    ``replace``, which already preserves every field but ``rects``.)
+    text and their typed note vanished. Inherited notes join in document order, separated by
+    :data:`_NOTE_JOIN` when several marks carry one.
+
+    **The rule is "no note is lost unless its mark was deleted", and it takes both branches**
+    (owner-reported 2026-07-29). M81.2 fixed the absorb path and reasoned that the trim path beside
+    it was already safe *because it uses* ``replace`` — true only while something **survives the
+    cut to be replaced**. A **recolour covers the mark completely**: the trim leaves nothing, the
+    mark is dropped, and its note went with a mark the user never deleted. So a fully-consumed
+    mark's note is inherited too, and the distinction that matters is not same-colour vs
+    different-colour but *did a host survive*: a partial recolour leaves the original standing, and
+    its note stays with **its own** host (owner rule 5) rather than being copied onto the new
+    colour. Deleting a layer outright is :func:`remove_markup`, where the note is *meant* to go
+    with it (rule 2).
     """
     from dataclasses import replace
 
@@ -548,7 +558,12 @@ def merge_markup(annotations: tuple, bars, mark_type, color: tuple) -> tuple:
         # Only what the user *just* painted erases — absorbed geometry was already on the page.
         trimmed = _subtract_bars(mark.rects, new_bars)
         if trimmed:
-            result.append(replace(mark, rects=trimmed))
+            result.append(replace(mark, rects=trimmed))     # survives, and `replace` keeps its note
+        elif mark.note:
+            # Nothing survived the cut, so there is no host left to carry the note — inherit it,
+            # exactly as the absorb path above does. This is the recolour case: covering a mark
+            # completely in another colour deletes nothing, so nothing typed may be lost.
+            notes.append(mark.note)
     merged = mark_type(_union_bars(absorbed), color=color, note=_NOTE_JOIN.join(notes))
     result.insert(len(result) if insert_at is None else insert_at, merged)
     return tuple(result)

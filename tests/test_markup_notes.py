@@ -232,13 +232,74 @@ def test_remarking_a_noted_span_is_still_a_no_op():
 
 
 def test_a_trimmed_mark_keeps_its_own_note():
-    """The different-colour path uses ``replace``, so it already preserved every field but
-    ``rects`` — pinned here because it is one line above the path that did not."""
+    """The different-colour path uses ``replace``, so it preserves every field but ``rects`` —
+    **when the mark survives the cut**. That qualifier is the whole of the bug below."""
     before = (Highlight((_bar(70, 220),), color=YELLOW, note="mine"),)
     after = merge_markup(before, (_bar(150, 220),), Highlight, GREEN)
     trimmed = next(m for m in after if m.color == YELLOW)
     assert trimmed.note == "mine"
     assert next(m for m in after if m.color == GREEN).note == ""   # the new paint carries none
+
+
+# ---- recolouring a noted mark must not eat the note (owner-reported 2026-07-29) ----
+#
+# M81.2 fixed the *absorb* path and reasoned the trim path beside it was already safe "because it
+# uses ``replace``". That is true only while something survives the cut to be replaced. A
+# **recolour covers the mark completely**, so the trim leaves nothing, the mark is dropped — and
+# the note goes with a mark the user never deleted. Reachable in two clicks from the M76 context
+# menu the moment a note exists, and by sweeping a second colour over a noted passage.
+
+
+def test_recolouring_a_noted_mark_keeps_its_note():
+    """The report: pick another colour from the context menu's Highlight row and the note is gone.
+
+    Recolouring deletes nothing — the passage is still marked, in a different colour — so nothing
+    the user typed may be lost (the owner's *keep and join* rule, M81)."""
+    before = (Highlight((LINE1,), color=YELLOW, note="check this figure"),)
+    after = merge_markup(before, (LINE1,), Highlight, GREEN)
+    (mark,) = after
+    assert mark.color == GREEN
+    assert mark.note == "check this figure"
+
+
+@pytest.mark.parametrize("mark_type", [Highlight, Underline, Strikeout])
+def test_recolouring_keeps_the_note_for_every_markup_type(mark_type):
+    """Underline and strike-out have their own colour rows on the same menu, and the merge is one
+    code path — so the fault and the fix are shared, and so is the guard."""
+    before = (mark_type((LINE1,), color=YELLOW, note="a remark"),)
+    (mark,) = merge_markup(before, (LINE1,), mark_type, GREEN)
+    assert (mark.color, mark.note) == (GREEN, "a remark")
+
+
+def test_recolouring_across_two_noted_marks_joins_both_notes():
+    """Consistent with the absorb path (M81.2): several consumed notes join in document order
+    rather than the later one winning."""
+    before = (
+        Highlight((_bar(70, 110),), color=YELLOW, note="first"),
+        Highlight((_bar(180, 220),), color=YELLOW, note="second"),
+    )
+    after = merge_markup(before, (_bar(60, 230),), Highlight, GREEN)
+    (mark,) = after
+    assert mark.note == "first\n\nsecond"
+
+
+def test_a_recolour_does_not_copy_a_note_off_a_mark_that_survives():
+    """The other half of the rule, and the reason the fix is scoped to *fully consumed* marks: a
+    partial recolour leaves the original standing, so its note stays with **its own** host (owner
+    rule 5) instead of being duplicated onto the new colour."""
+    before = (Highlight((_bar(70, 220),), color=YELLOW, note="mine"),)
+    after = merge_markup(before, (_bar(150, 220),), Highlight, GREEN)
+    assert next(m for m in after if m.color == YELLOW).note == "mine"
+    assert next(m for m in after if m.color == GREEN).note == ""
+
+
+def test_removing_a_layer_still_takes_its_note_with_it():
+    """The cry-wolf guard for the fix: *removing* a mark is not recolouring it. The slashed dot on
+    the same menu row is an explicit delete, and owner rule 2 says the note dies with its host."""
+    from model.page_edits import remove_markup
+
+    before = (Highlight((LINE1,), color=YELLOW, note="goes with it"),)
+    assert remove_markup(before, (LINE1,), Highlight) == ()
 
 
 def test_a_note_does_not_cross_mark_types():
