@@ -70,9 +70,13 @@ def win(qapp, settings, letter):
 
 
 def _fake_dpr(view, dpr):
-    """Pin this view's devicePixelRatio and re-read the metrics, as a screen change would."""
+    """Pin this view's devicePixelRatio and apply the change, as moving to that screen would.
+
+    Applied synchronously rather than through ``_sync_display``'s timer, so the assertions do not
+    depend on an event-loop turn; the deferral itself is covered by its own test below.
+    """
     view.devicePixelRatioF = lambda: dpr     # instance attr shadows the QWidget method
-    view._on_screen_changed()
+    view._apply_display_change(view._refresh_display())
 
 
 # ---- M88.1 100% means physical size -------------------------------------------
@@ -230,11 +234,62 @@ def test_a_screen_change_re_renders_at_the_new_ratio(win, qapp):
 
 
 def test_an_unchanged_screen_does_not_rebuild(win):
-    """`screenChanged` also fires for moves between two identical screens; rebuilding the scene and
-    re-rasterising the band for a no-op would make a window drag stutter."""
+    """The screen events also fire for moves between two identical screens; rebuilding the scene
+    and re-rasterising the band for a no-op would make a window drag stutter."""
     view = win.view
     view.set_zoom(1.0)
-    assert view._refresh_display() is False   # nothing changed since construction
+    assert view._refresh_display() == ""      # nothing changed since construction
+
+
+def test_only_a_logical_dpi_change_costs_a_relayout(win):
+    """A DPR change leaves the layout alone — it is in logical units — so it needs a re-render and
+    nothing more. Only a logical-DPI move makes the page rects themselves stale. On Windows every
+    screen reports 96 DPI and the scaling rides in the DPR, so dragging between monitors is the
+    cheap case; spending a full scene rebuild on it would be wasted work on the common path."""
+    view = win.view
+    view.set_zoom(1.0)
+    view.devicePixelRatioF = lambda: 2.0
+    assert view._refresh_display() == "render"
+    view._logical_dpi = 120.0                 # pretend the next screen reports a different DPI
+    assert view._refresh_display() == "layout"
+
+
+def test_a_screen_change_is_answered_off_the_callback_not_inside_it(win, qapp):
+    """The CI regression, pinned. This first shipped rebuilding the scene *inside* the Qt callback
+    that reported the change — `scene.clear()` destroying every item while Qt was mid-show — and
+    segfaulted the Linux runner. `_sync_display` must only *schedule*."""
+    view = win.view
+    view.set_zoom(1.0)
+    qapp.processEvents()
+    items_before = len(view.scene().items())
+
+    view.devicePixelRatioF = lambda: 2.0
+    view._sync_display()
+    assert view._display_timer.isActive(), "the response was not deferred"
+    assert len(view.scene().items()) == items_before, "the scene was rebuilt inside the callback"
+
+    qapp.processEvents()                      # let the timer fire
+    assert not view._display_timer.isActive()
+    assert view._dpr == pytest.approx(2.0)
+
+
+def test_the_view_holds_no_connection_to_a_foreign_object(win):
+    """The other half of the CI regression: the first version connected to the *window's*
+    `QWindow.screenChanged`, a sender that outlives the view — and a slot invoked on a destroyed
+    view is a segfault, not an exception. Qt's own widget events die with the widget, so there is
+    nothing to leak; this pins that no such connection is made."""
+    import warnings
+
+    view = win.view
+    handle = win.windowHandle()
+    if handle is None:
+        pytest.skip("no window handle in this offscreen environment")
+    # Nothing on the view is wired to the window's screenChanged, so there is nothing to drop.
+    # PySide reports a failed disconnect by returning False and warning, rather than raising.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        assert handle.screenChanged.disconnect(view._sync_display) is False
+        assert handle.screenChanged.disconnect(view._apply_display_change) is False
 
 
 def test_a_screen_with_no_metrics_falls_back_rather_than_collapsing(win):
@@ -249,6 +304,22 @@ def test_a_screen_with_no_metrics_falls_back_rather_than_collapsing(win):
     view._refresh_display()
     assert view.scale > 0
     assert view._logical_dpi > 0
+
+
+def test_a_screen_reporting_zero_dpi_does_not_collapse_the_layout(win):
+    """A screen answering 0 DPI would make `scale` zero and lay every page out at nothing —
+    an invisible document. The fallback keeps it readable."""
+    view = win.view
+
+    class _ZeroScreen:
+        def logicalDotsPerInch(self):
+            return 0.0
+
+    view.screen = lambda: _ZeroScreen()
+    view._logical_dpi = 1.0               # force the comparison to see a change
+    view._refresh_display()
+    assert view._logical_dpi == pytest.approx(96.0)
+    assert view.scale > 0
 
 
 # ---- the mapping stays invertible at the new scale --------------------------------

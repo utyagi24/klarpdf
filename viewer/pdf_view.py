@@ -24,7 +24,7 @@ from bisect import bisect_right
 from contextlib import contextmanager
 
 import pymupdf as fitz
-from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QGuiApplication, QImage, QPen, QPixmap, QTransform
 from PySide6.QtWidgets import QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsScene, QGraphicsView
 
@@ -181,6 +181,12 @@ class PdfView(QGraphicsView):
         self._zoom_timer = QTimer(self)
         self._zoom_timer.setSingleShot(True)
         self._zoom_timer.timeout.connect(self._flush_wheel_zoom)
+        # A screen change (M88.3) answers on the event loop, not inside the Qt callback that
+        # reported it — see :meth:`event`. Parented to this view, so it dies with it.
+        self._display_pending = ""
+        self._display_timer = QTimer(self)
+        self._display_timer.setSingleShot(True)
+        self._display_timer.timeout.connect(self._apply_display_change)
         self._refresh_display()   # logical DPI + DPR, before the first layout is computed
         self._build_scene()
         self.verticalScrollBar().valueChanged.connect(self._on_scroll)
@@ -210,8 +216,14 @@ class PdfView(QGraphicsView):
         """
         return self.scale * self._dpr
 
-    def _refresh_display(self) -> bool:
-        """Re-read this view's screen metrics. True if they changed (M88.3).
+    def _refresh_display(self) -> str:
+        """Re-read this view's screen metrics; name what changed (M88.3).
+
+        Returns ``""`` (nothing moved), ``"render"`` (only the device pixel ratio — the layout is
+        in *logical* units and is therefore unaffected, but every cached pixmap is now the wrong
+        resolution) or ``"layout"`` (the logical DPI moved, so the page rects themselves are stale).
+        On Windows the logical DPI is 96 on every screen and the scaling rides entirely in the DPR,
+        so dragging between monitors is the cheap ``"render"`` case in practice.
 
         Not one-shot setup: the owner's machine pairs a 1.75× laptop panel with a 1.0× external
         Dell, so dragging the window across changes DPR *live* — a value sampled once is correct
@@ -225,37 +237,68 @@ class PdfView(QGraphicsView):
         if not dpi:                      # a screen reporting 0 would collapse the layout to nothing
             dpi = _FALLBACK_LOGICAL_DPI
         if dpi == self._logical_dpi and dpr == self._dpr:
-            return False
+            return ""
+        kind = "layout" if dpi != self._logical_dpi else "render"
         self._logical_dpi, self._dpr = dpi, dpr
-        return True
+        return kind
 
-    def _on_screen_changed(self, _screen=None) -> None:
-        """The window moved to a screen with different metrics — re-lay-out and re-rasterise.
+    def event(self, ev) -> bool:
+        """Notice a screen change through Qt's own **widget** events (M88.3).
 
-        A DPR change alone leaves the *layout* identical and only invalidates the pixmaps, but the
-        rebuild is one pass either way (M86.1's :meth:`_hold_render`) and a logical-DPI change does
-        move the geometry, so this takes the general path rather than two near-identical ones.
+        Deliberately not a ``QWindow.screenChanged`` connection, which is what this first shipped as
+        and which **segfaulted CI on Linux**. Two lifetime hazards, both removed by asking the
+        widget instead of a foreign object:
+
+        * the sender is the *window's* ``QWindow``, not this view, so the connection outlives a
+          destroyed view — and a slot invoked on freed memory is a crash, not an exception. These
+          events are delivered to the widget and die with it.
+        * the old handler rebuilt the scene **inside** the callback, so ``scene.clear()`` destroyed
+          every item while Qt was mid-show. The response is now deferred to the event loop (see
+          ``_display_timer``), which also collapses a burst of events into one rebuild.
         """
-        if not self._refresh_display():
-            return
-        anchor = self._current
-        with self._hold_render():
-            self._build_scene()
-            self.goto_page(anchor)
+        if ev.type() in (QEvent.Type.DevicePixelRatioChange, QEvent.Type.ScreenChangeInternal):
+            self._sync_display()
+        return super().event(ev)
 
     def showEvent(self, event) -> None:
-        """Bind to the window's ``screenChanged`` once there *is* a window handle to bind to, and
-        re-read the metrics — the construction-time read hit the primary screen, which is not
-        necessarily the one this window opens on."""
+        """Re-read the metrics once the widget is mapped — the construction-time read hit the
+        primary screen, which is not necessarily the one this window opens on. It only *schedules*
+        a response; the first build is :meth:`open_at`'s job and already uses the fresh numbers."""
         super().showEvent(event)
-        handle = self.window().windowHandle()
-        if handle is not None:
-            # Qt tolerates a duplicate connect, so UniqueConnection keeps a re-show from stacking
-            # a second slot on the same signal (show/hide is not once-per-view — Full Screen and
-            # the slideshow both re-show the window).
-            handle.screenChanged.connect(self._on_screen_changed,
-                                         Qt.ConnectionType.UniqueConnection)
-        self._on_screen_changed()
+        self._sync_display()
+
+    def _sync_display(self) -> None:
+        """Re-read the metrics and schedule the response on the event loop, never inline.
+
+        The timer is parented to this view, so it is cancelled when the view dies and can never
+        fire into a half-destroyed object — the property the old signal connection lacked.
+        """
+        kind = self._refresh_display()
+        if not kind:
+            return
+        # "layout" wins over a pending "render": it is the strictly larger response.
+        if kind == "layout" or self._display_pending != "layout":
+            self._display_pending = kind
+        self._display_timer.start(0)
+
+    def _apply_display_change(self, kind: "str | None" = None) -> None:
+        """Re-lay-out and/or re-rasterise for the screen this view is now on.
+
+        A DPR change needs only a re-render: the layout is in logical units, and the cache key
+        carries ``device_scale``, so the stale-resolution pixmaps are not reachable — they are
+        simply re-rendered at the new ratio. A logical-DPI change moves the page rects too.
+        """
+        kind = kind or self._display_pending
+        self._display_pending = ""
+        if not self._pages or not kind:
+            return
+        if kind == "layout":
+            anchor = self._current
+            with self._hold_render():
+                self._build_scene()
+                self.goto_page(anchor)
+        else:
+            self._render_visible()
 
     # ---- natural geometry -------------------------------------------------------
 
