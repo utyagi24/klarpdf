@@ -26,7 +26,14 @@ from contextlib import contextmanager
 import pymupdf as fitz
 from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QGuiApplication, QImage, QPen, QPixmap, QTransform
-from PySide6.QtWidgets import QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsScene, QGraphicsView
+from PySide6.QtWidgets import (
+    QAbstractSlider,
+    QApplication,
+    QGraphicsPixmapItem,
+    QGraphicsRectItem,
+    QGraphicsScene,
+    QGraphicsView,
+)
 
 from model.virtual_document import VirtualDocument
 from model.form_fields import NewField
@@ -892,11 +899,57 @@ class PdfView(QGraphicsView):
                                                      auto_repeat=event.isAutoRepeat()):
                     event.accept()
                     return
+        if self._navigation_key(event):     # M89.1 / M89.2
+            event.accept()
+            return
         super().keyPressEvent(event)
 
+    def _navigation_key(self, event) -> bool:
+        """``Home``/``End`` jump to the document's start/end (M89.1); ``Space``/``Shift+Space``
+        page down/up (M89.2). Returns whether the key was ours.
+
+        Qt leaves all five dead in this view: ``QAbstractScrollArea`` binds ``Home``/``End`` only on
+        macOS, and ``Space`` nowhere — so the two gestures a reader reaches for most in a long
+        document did nothing, while ``PgUp``/``PgDn`` worked.
+
+        **All four of Home / End / Ctrl+Home / Ctrl+End are one verb** (owner call): a continuous
+        strip has no "line" for the bare form to go to the start of, to a reader the Ctrl'd and bare
+        forms are the same gesture, and Preview, Edge and Chrome bind them alike in a PDF. Both are
+        the scrollbar's minimum/maximum — the literal reading, and it lets :meth:`_on_scroll` update
+        the current page for free. ``Space`` is the same ``SliderPageStep`` the working
+        ``PgDn``/``PgUp`` already trigger.
+
+        **These live here rather than as window-level ``QAction`` shortcuts on purpose.** A window
+        shortcut fires wherever focus is, so ``Home``/``Space`` bound that way would hijack those
+        keys from the inline text-box editor and the form-field editors — children of this
+        viewport — where they mean line-start and a literal space. Routed through the view, a
+        focused editor consumes them first and never sees ours; the same reasoning that put the
+        clipboard verbs behind ``_edit_copy``'s focus router (M59).
+
+        The slideshow's own ``Home``/``End``/``Space`` bindings (M78) are untouched: that branch
+        returns long before this one.
+        """
+        key, mods = event.key(), event.modifiers()
+        none, ctrl = Qt.KeyboardModifier.NoModifier, Qt.KeyboardModifier.ControlModifier
+        shift = Qt.KeyboardModifier.ShiftModifier
+        # The keypad's Home/End carry KeypadModifier, so an exact match on the modifier set would
+        # accept the main keyboard's key and quietly ignore the numeric keypad's — a difference no
+        # reader means. Drop it before comparing; it says which key was pressed, not what was meant.
+        if mods & Qt.KeyboardModifier.KeypadModifier:
+            mods = mods ^ Qt.KeyboardModifier.KeypadModifier
+        vbar = self.verticalScrollBar()
+        if key in (Qt.Key.Key_Home, Qt.Key.Key_End) and mods in (none, ctrl):
+            vbar.setValue(vbar.minimum() if key == Qt.Key.Key_Home else vbar.maximum())
+            return True
+        if key == Qt.Key.Key_Space and mods in (none, shift):
+            vbar.triggerAction(QAbstractSlider.SliderAction.SliderPageStepSub if mods == shift
+                               else QAbstractSlider.SliderAction.SliderPageStepAdd)
+            return True
+        return False
+
     def wheelEvent(self, event) -> None:
-        """**Ctrl+wheel zooms** (M80); in the slideshow the wheel steps whole slides (M78);
-        everywhere else it scrolls.
+        """**Ctrl+wheel zooms** (M80), **Shift+wheel pans horizontally** (M89.3); in the slideshow
+        the wheel steps whole slides (M78); everywhere else it scrolls.
 
         Free-scrolling a mode that shows *one page per screen* is what let the view come to rest
         straddling two pages — and from a straddle the projected page and the page under the
@@ -914,6 +967,8 @@ class PdfView(QGraphicsView):
         if not self.slideshow:
             if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
                 self._wheel_zoom(event)
+                return
+            if self._wheel_pan(event):      # Shift+wheel → horizontal (M89.3)
                 return
             super().wheelEvent(event)
             return
@@ -939,6 +994,37 @@ class PdfView(QGraphicsView):
             self._wheel_accum += _WHEEL_NOTCH
             self.step_slide(1)
         event.accept()
+
+    def _wheel_pan(self, event) -> bool:
+        """``Shift+wheel`` pans **horizontally** across a page wider than the viewport (M89.3).
+        Returns whether the gesture was ours.
+
+        This is an *override*, not a gap. Qt's own ``Shift+wheel`` scrolls this view **vertically**
+        (measured, with the h-bar at full range), so a page zoomed wider than the window had no
+        wheel gesture that could cross it — the reader had to reach for the scrollbar. Every
+        browser and Acrobat read the shifted wheel as the horizontal axis.
+
+        A wheel with a **genuine horizontal component** — a tilt wheel, most precision touchpads —
+        is left to ``super()``, which already routes it correctly; only the vertical axis Shift is
+        decorating gets reinterpreted. And the gesture is consumed even when the page fits across
+        the viewport, so a shifted wheel is *inert* there rather than silently scrolling down: it
+        means one thing everywhere, which is how it behaves in a browser.
+
+        One detent moves what ``wheelScrollLines`` × the bar's single step is worth — the same
+        arithmetic Qt applies to the vertical axis, so the two feel alike.
+        """
+        if not event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+            return False
+        if event.angleDelta().x():
+            return False                    # a real horizontal wheel — Qt already handles it
+        delta = event.angleDelta().y()
+        if delta:
+            hbar = self.horizontalScrollBar()
+            lines = QApplication.wheelScrollLines()
+            hbar.setValue(hbar.value()
+                          - round(delta / _WHEEL_NOTCH * lines * hbar.singleStep()))
+        event.accept()
+        return True
 
     def _wheel_zoom(self, event) -> None:
         """Ctrl+wheel zoom, anchored on the pointer (M80) — the gesture every browser, Acrobat and

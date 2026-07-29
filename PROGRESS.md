@@ -1440,10 +1440,38 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
       10% / 800%) is ignored by `apply_state`'s existing range check and the view keeps what it had
 - [ ] **M89** The rest of the reading-input conventions. Six parts, all view-only; **now two PRs**
   (M89.1–.3 together, M89.5 alone, M89.6 alone) — **M89.4 shipped early**, see below. Spec in
-  `PLAN.md` §M89.
-  - [ ] **M89.1** `Home`/`End`/`Ctrl+Home`/`Ctrl+End` → **document** start/end (all four one verb)
-  - [ ] **M89.2** `Space`/`Shift+Space` → page down/up
-  - [ ] **M89.3** `Shift+wheel` → horizontal pan (an *override*: Qt's own scrolls vertically)
+  `PLAN.md` §M89. M89.1–.3 are in
+  ([#214](https://github.com/utyagi24/klarpdf/pull/214)); M89.5 and M89.6 remain.
+  - [x] **M89.1 + M89.2 + M89.3** shipped together as the plan sequenced them — the first two edit
+    the same `keyPressEvent` and the third the `wheelEvent` beside it, so separate PRs would have
+    meant rebasing against one function three times for no review benefit. — *Windows (offscreen
+    GUI)* — 18 new tests (12 verified red), 1477 green
+    - **M89.1** `Home` / `End` / `Ctrl+Home` / `Ctrl+End` → the **document's** start/end, all four
+      one verb. Every one of them was **dead**: `QAbstractScrollArea` binds Home/End only on macOS,
+      so the two keys a reader reaches for in a long document did nothing while `PgUp`/`PgDn`
+      worked. Implemented as the vertical scrollbar's minimum/maximum — the literal reading, and it
+      gets the page-indicator update for free, since `_on_scroll` already does it
+    - **The keypad's Home/End had to be spelled out.** Qt sets `KeypadModifier` on them, so an
+      exact match on the modifier set would have taken the main keyboard's key and silently ignored
+      the numeric keypad's — a distinction no reader means. It is stripped before comparing
+    - **M89.2** `Space` / `Shift+Space` → one screenful down/up, the same `SliderPageStep` the
+      working `PgDn`/`PgUp` already trigger. Also dead before this
+    - **M89.3** `Shift+wheel` pans **horizontally**. An *override*, not a gap, and the test that
+      pins it went red the expected way: Qt's own `Shift+wheel` scrolled this view **down** with the
+      h-bar at full range, so a page zoomed wider than the window had no wheel gesture that could
+      cross it. A wheel carrying a genuine horizontal component (tilt wheels, most touchpads) is
+      left to `super()`, which already routes it correctly — only the vertical axis Shift is
+      decorating gets reinterpreted
+    - **The shifted wheel is consumed even when the page fits across the viewport**, so it is
+      *inert* there rather than quietly scrolling down. It means one thing everywhere, which is how
+      a browser behaves; a gesture that changes meaning based on invisible state is worse than one
+      that sometimes does nothing
+    - **All five keys live in `PdfView.keyPressEvent`, never as window-level `QAction` shortcuts**
+      — a window shortcut fires wherever focus is, so `Home`/`Space` bound that way would hijack
+      those keys from the inline text-box and form-field editors (children of this viewport), where
+      they mean line-start and a literal space. Two tests pin the decision rather than the
+      mechanism: one types a space into a live form-field editor and asserts the page did not move,
+      one walks every `QAction` in the window and fails if any claims Space/Home/End
   - [x] **M89.4** `Ctrl+=` as a Zoom In alias (Qt's `ZoomIn` is `Ctrl++` = `Ctrl+Shift+=` on US) —
     **pulled out of M89 and shipped on its own**, with two open-path bugs the same testing pass
     turned up. The owner hit the dead accelerator by hand while verifying M86 ("Zoom with Ctrl+- is
