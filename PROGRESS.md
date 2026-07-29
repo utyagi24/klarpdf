@@ -1252,16 +1252,47 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     1.85 MB/page and harmful at 264 MB/page. **Premise measured and understated**: at zoom ≥ 2 the
     visible band is 2 pages and the render band 6, so **67% of rendered bytes are prefetch** —
     237 MB visible against **473 MB prefetched** at 8×, and 57% waste even at 1.0×
-  - [ ] **M87.2** Cache: entry count → **global byte ceiling** — **do this one first** (measured as
-    a live defect: 127 MB → 4431 MB of working set from one zoom sweep on `main`, cache at 48
-    entries throughout). Four defects: it is **per-window**
-    (N documents = N caches), bounded by count not bytes (48 entries = 89 MB of A4 but **4.3 GB of
-    zoomed Letter, measured**), evicts pages still on screen, and holds pixmaps for windows nobody
-    is looking at — the last one measured at **159.7 MB across four background windows** against
-    39.9 MB for the focused one, so the ~40 MB drop target is exactly right. Sizing:
-    retention driven by what responsiveness needs, with a **1 GB global backstop** that only binds on
-    exceptionally heavy documents — "just because resources are available should not imply that we
-    stop being stingy" (owner)
+  - [x] **M87.2** Cache: entry count → **global byte ceiling** — shipped first, as the premise check
+    said it should be, because it is a live defect rather than preparation for M88. The 48-entry
+    `OrderedDict` on each `PdfView` becomes one process-global `viewer/pixmap_cache.py` store with
+    **two budgets**: retention in pages (24 — the band plus ~3 screenfuls of scrollback, ~44 MB of
+    ordinary Letter) and a **1 GB byte backstop** that only binds once pages are genuinely enormous.
+    Four defects answered: **per-window** (N documents were N independent budgets), **count not
+    bytes**, **evicting pages still on screen**, and **holding pixmaps for windows nobody is looking
+    at**. — *Windows (offscreen GUI + headless)* — 16 new tests (3 verified red), 1407 green
+    - **Measured before/after, same machine, same script** — 60-page Letter at 1200×900, 40 zoom
+      steps to the 8.0 ceiling. The store now *falls* as pages grow, which is the whole point: a
+      page count cannot do that.
+
+      | step | zoom | `main` RSS / entries / cached | **M87.2** RSS / entries / cached |
+      | --- | --- | --- | --- |
+      | open | 0.85 | 131.2 MB / 8 / 13.8 MB | 131.6 MB / 8 / 13.8 MB |
+      | 16 | 2.62 | 426.0 MB / 48 / 307.8 MB | 339.1 MB / 24 / 220.8 MB |
+      | 32 | 6.67 | 2104.1 MB / 48 / 1985.7 MB | 1156.2 MB / **15** / 1037.7 MB |
+      | 40 | 8.00 | **3243.5 MB** / 48 / 3125.0 MB | **1183.7 MB** / **9** / 1065.2 MB |
+      | | | peak working set **3450.9 MB** | peak **1498.2 MB** |
+
+      (This sweep's schedule is gentler than the premise check's, which reached 4431 MB — both
+      columns here are the same run shape, so the comparison is internal.)
+    - **Pinning is what makes "no thrash" structural.** The view pins the band *before* painting it,
+      so no page of a pass can evict a page of the same pass — a guarantee, not a big-enough number.
+      It is also why a single page larger than the whole budget (an A0 poster at 500% ≈ 600 MB)
+      still displays, putting the store over its nominal ceiling; that is graceful, not a leak
+    - **Background release is two tiers, not one — a deliberate deviation from the spec's flat
+      "background windows drop their pixmaps".** Losing *focus* drops the scrollback but keeps the
+      band on screen (measured 1183.7 → 490.8 MB); **minimised**, where there is nothing to blank,
+      drops everything including the scene items' own references (→ 118.5 MB, i.e. back to the
+      as-opened figure). On Windows, windows tile — painting a still-visible window's pages white on
+      deactivation would trade a visible defect for memory nobody asked to trade. Owner call if the
+      full drop on deactivation is wanted anyway
+    - **One new obligation the shared store creates**: the premise check ruled out a leak on close
+      *under the old per-view dict*, which died with the view. A global store has no such luck, so
+      `closeEvent` releases the window's entries and the handle releases again on collection.
+      Tying that to the view's `destroyed` signal was tried first and **crashed the suite with an
+      access violation** — dispatching a Python slot from inside Qt's C++ teardown during a GC pass
+      is not safe; the handle is a plain Python object instead, holding no reference back to the view
+    - **Five windows, one budget**: five documents open simultaneously → 585.1 MB RSS / 23 entries /
+      410.9 MB cached, against the five independent 48-entry caches `main` would have allowed
 - [ ] **M88** DPI correctness — what "100%" means (owner-reported: "why does the document appear
   smaller than in Edge and Brave at the same zoom percentage?"). Because our 100% is 1 pt → 1 logical
   px at 96 DPI, so we show **75% of physical size and call it 100%**. Investigating it surfaced a
