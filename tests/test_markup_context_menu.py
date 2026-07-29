@@ -103,6 +103,38 @@ def test_exactly_one_removal_path_per_layer(win):
     assert win.undo_stack.canUndo()             # …undoably, like the old entry
 
 
+def test_recolouring_from_the_menu_keeps_an_attached_note(win):
+    """Owner-reported 2026-07-29: *"when I change the highlight colour via context menu, any
+    previously attached note is gone"*.
+
+    The exact reported gesture, end to end — the swatch dot, not the merge function underneath it.
+    A recolour deletes nothing, so nothing typed may be lost; the cause was `merge_markup` dropping
+    a fully-covered mark without rescuing its note (see `test_markup_notes.py`).
+    """
+    box = _word_box(win)
+    win.vdoc.add_annotation(0, Highlight((box,), color=YELLOW, note="check this figure"))
+    win.view.reload()
+
+    _row(_menu_over(win, box), "Highlight").buttons["Green"].click()
+
+    (mark,) = _highlights(win)
+    assert mark.color == GREEN
+    assert mark.note == "check this figure"        # …and the remark came with it
+    win.undo_stack.undo()
+    assert _highlights(win)[0].note == "check this figure"
+
+
+def test_removing_a_layer_from_the_menu_still_takes_its_note(win):
+    """The other side of that fix: the slashed dot is an explicit delete, and a note dies with its
+    host (owner rule 2). Guards against "keep the note" being applied one branch too widely."""
+    box = _word_box(win)
+    win.vdoc.add_annotation(0, Highlight((box,), color=YELLOW, note="goes with it"))
+    win.view.reload()
+
+    _row(_menu_over(win, box), "Highlight").remove_button.click()
+    assert _highlights(win) == []
+
+
 def test_rows_ring_the_current_state(win):
     box = _word_box(win)
     win.vdoc.add_annotation(0, Highlight((box,), color=YELLOW))
