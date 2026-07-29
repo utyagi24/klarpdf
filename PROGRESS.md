@@ -1412,7 +1412,24 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     `apply_state()` has no production caller), so there is no remembered magnification for M88.1 to
     redefine and nothing to migrate. Reduces to *either nothing, or a versioning stamp written now*
     so a future "restore my zoom" can tell pre- from post-M88 values. See `PLAN.md` §M88.5
-  - [ ] **M88.6** Zoom range → **25–500%**, sequenced *after* M88.1 (which shifts every number)
+  - [x] **M88.6** Zoom range → **25–500%** (was 10–800%), sequenced *after* M88.1 as the plan
+    required, since the DPI correction shifts what every percentage draws. — *Windows (offscreen
+    GUI)* — 7 new tests, 1455 green
+    - **A hard floor would have broken Fit Page, and this was measured before choosing.** Fit Page
+      on an **A0** sheet in a 1100×850 window wants **17%**; clamped to 25% the page *overshoots
+      the viewport* — in portrait **and** landscape. A "Fit Page" that does not fit the page is
+      broken, so the floor drops to the Fit Page zoom whenever that is smaller. The plan did not
+      anticipate this
+    - **The floor is derived from Fit Page, not from the current zoom** — the first attempt held it
+      at `min(_MIN_ZOOM, current)` ("no step may zoom you *in*", which is true) and the new tests
+      caught that it **traps**: zoom in one step from a 17% fit and the floor follows you up, so
+      stepping back out to the fit becomes impossible. Fit Page is the natural bottom of zooming
+      out, it is the smallest fit (Fit Width is never smaller), and it is computable at any moment,
+      so one bound covers fits and manual steps with no special case
+    - The preset list gains **500%**, so both ends of the range are reachable from the dropdown
+      rather than only by typing; no preset sits outside the bounds, so none silently clamps to a
+      different number than the item clicked. A saved zoom outside the new range (old files hold
+      10% / 800%) is ignored by `apply_state`'s existing range check and the view keeps what it had
 - [ ] **M89** The rest of the reading-input conventions. Six parts, all view-only; **now two PRs**
   (M89.1–.3 together, M89.5 alone, M89.6 alone) — **M89.4 shipped early**, see below. Spec in
   `PLAN.md` §M89.
