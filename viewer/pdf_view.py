@@ -42,7 +42,13 @@ _PREFETCH = 2           # pages to render above/below the viewport, at ordinary 
 # band ever wants, so ordinary reading is untouched; it falls to 1 page once a page passes 48 MB
 # and to 0 past 96 MB, which is where prefetching a page costs more than the whole visible band.
 _PREFETCH_BYTES = 48 * 1024 * 1024
-_MIN_ZOOM, _MAX_ZOOM = 0.1, 8.0
+# The magnification a reader may *ask* for, 25%–500% (M88.6). Sequenced after M88.1 on purpose:
+# the DPI correction shifts every number, so choosing bounds before it meant choosing twice. The old
+# floor of 10% drew a Letter page 62x80 px — a thumbnail, not a view — and the old 800% ceiling was
+# set when a page there cost 118 MB; at physical scale on a 1.75x panel the same ceiling would cost
+# ~670 MB for one page. Note these bound the *ask*, not every possible zoom: see _clamp_zoom, which
+# lets a Fit go below the floor, because a fit that does not fit is not a fit.
+_MIN_ZOOM, _MAX_ZOOM = 0.25, 5.0
 _ZOOM_STEP = 1.25
 # One PDF point is 1/72", so a page is drawn at true physical size when one point maps to
 # ``logicalDpi / 72`` of the screen's logical pixels — 1.333 at the 96 logical DPI Windows reports
@@ -1574,6 +1580,25 @@ class PdfView(QGraphicsView):
             vbar.setValue(round(vbar.value() + target.y() - now.y()))
         self._render_visible()
 
+    def _clamp_zoom(self, zoom: float) -> float:
+        """Hold ``zoom`` inside 25%–500% (M88.6) — except that **you can always zoom out until the
+        whole page fits**.
+
+        A hard 25% floor breaks Fit Page on large-format sheets: an A0 in a 1100x850 window wants
+        ~17%, and clamping that to 25% overshoots the viewport in both portrait and landscape
+        (measured while building this). A "Fit Page" that does not fit the page is simply broken, so
+        the floor drops to the Fit Page zoom whenever that is the smaller number.
+
+        Deriving the floor from *Fit Page* rather than from the current zoom is what keeps it a
+        floor instead of a trap. The first attempt held it at ``min(_MIN_ZOOM, self._zoom)`` — no
+        step may zoom you *in* — which is true but leaves a reader who zooms in from a 17% fit
+        unable to step back out to it, because by then the floor has followed them up. Fit Page is
+        the natural bottom of zooming out, it is the *smallest* fit (Fit Width is never smaller),
+        and it is computable at any moment, so one bound covers fits and manual steps alike with no
+        special case for either.
+        """
+        return max(min(_MIN_ZOOM, self._fit_zoom(fit_height=True)), min(_MAX_ZOOM, zoom))
+
     def set_zoom(self, zoom: float, keep_page: bool = True, fit: "str | None" = None,
                  anchor_pos=None) -> None:
         # ``fit`` records the sticky fit-mode this zoom represents ("width" / "page"); it is re-applied
@@ -1583,7 +1608,7 @@ class PdfView(QGraphicsView):
         # gesture (M80). None means the viewport centre, which is right for every zoom that has no
         # pointer behind it (menu, toolbar, typed percentage, Ctrl+±).
         self._fit_mode = fit
-        zoom = max(_MIN_ZOOM, min(_MAX_ZOOM, zoom))
+        zoom = self._clamp_zoom(zoom)
         if abs(zoom - self._zoom) < 1e-6:
             return
         page_anchor = self._current
