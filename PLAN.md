@@ -1866,6 +1866,19 @@ single direction (Rotate Left, as Preview's own toolbar does). Rejected with rea
 button (a frequent verb for sideways scans would lose its one-click path), and *restoring both
 directions* (a mirrored pair is exactly what v0.16.2 set out to remove).
 
+**The corner and the direction are coupled — measured 2026-07-30, and it constrains any future
+redraw.** Asked to see the corner sweep on the **top-right** instead of the top-left, we drew it, and
+it fails for a reason worth keeping. Rotate Left is counter-clockwise, so a sweep ending at the
+top-right must point **back to the left, over the page**; an arrowhead's arms open backwards from its
+tip, which puts one arm along the inside of the arc it just travelled. With a 12-unit page, a
+6.5-unit arc and 2-unit strokes inside a 24-unit box, that arm lands **1.3 units** from its own arc —
+less than a stroke width once both are inked — and at 20 px the head and the arc merge into a blob.
+Only two resolutions exist: let the sweep **start** at the right corner and cross the whole top (the
+head then lands in open space at the left), or keep the sweep at the right corner and accept that it
+reads **clockwise**, i.e. Rotate *Right*. So: **a compact corner sweep can only face the direction
+its corner allows** — top-left for counter-clockwise, top-right for clockwise. **Owner call
+2026-07-30:** the top-left corner sweep, keeping Rotate Left on the bar.
+
 **M91.3 — why it is needed, and what it costs.** `sidebar_visible` defaults to **`False`**, so out of
 the box the app gives a reader **no** position indication whatsoever: the sidebar's current-thumbnail
 highlight is the only one that exists today, and on a 320-page document that is the difference between

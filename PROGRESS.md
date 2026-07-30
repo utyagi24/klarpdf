@@ -1688,13 +1688,26 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     identifier), while every all-blank drop stays. Also recorded: the headless platform resolves
     **no font at all** (every glyph, space included, measures exactly 1 em), so no test here may
     assert an absolute text pixel offset
-  - [ ] **M91.2** **Rotate stops reading as Undo** — `rotate-left.svg` is Feather's `rotate-ccw`: a
+  - [x] **M91.2** **Rotate stops reading as Undo** — `rotate-left.svg` is Feather's `rotate-ccw`: a
     ~340° circle with an arrowhead and **nothing being rotated**, i.e. the universal undo/reload
     mark. So it reads as Undo *on its own merits*, which is why v0.16.2's removal of the neighbouring
-    curved arrows didn't fix it. Redraw both rotate glyphs as **a page with an arrow arcing over one
-    corner** (3 candidates rendered for the owner to pick, as M78.4 did); the bar already establishes
-    *rounded rect = the page* in fit-width/fit-page. Owner call: redraw, keep the single direction —
-    dropping the button and restoring both directions were both rejected
+    curved arrows didn't fix it. Both rotate glyphs are now **a page with an arc sweeping over its
+    top-left corner** — the bar already establishes *rounded rect = the page* in fit-width/fit-page.
+    Owner call: redraw, keep the single direction — dropping the button and restoring both directions
+    were both rejected — *Windows (offscreen render)* — 5 new tests, 1568 green
+    ([#223](https://github.com/utyagi24/klarpdf/pull/223))
+    - **The corner and the direction turn out to be coupled** (`PLAN.md` §M91). Asked for the sweep
+      on the **top-right** instead, we drew it: Rotate Left is counter-clockwise, so a sweep ending
+      there must point back left over the page, and an arrowhead's arms open backwards from its tip —
+      one arm lands **1.3 units** from the arc it just travelled, less than a stroke width once inked,
+      and at 20 px head and arc merge into a blob. A compact corner sweep can only face the direction
+      its corner allows. Owner picked the top-left corner, keeping Rotate Left on the bar
+    - Candidates were rendered through **Qt's own rasteriser** at 16/20/24 px and dropped into the
+      reading bar's real run — the browser's SVG renderer flatters all of them, and the question was
+      never how the drawing looks but what the toolbar paints
+    - Rotate Right is the exact mirror, and a test compares the two as **rasters** so they cannot
+      drift apart; both names joined `POLISHED_ICONS`, and a second test pins the thing the milestone
+      is actually about — the glyph must *contain a page*
   - [ ] **M91.3** A **page counter on the reading bar** — `[ 10 ] of 320`, editable, two-way bound to
     `currentPageChanged` exactly as `ZoomWidget` is bound to `zoomChanged`. `sidebar_visible`
     defaults to **`False`**, so today a reader gets **no** position indication out of the box; the
