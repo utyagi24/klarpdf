@@ -89,6 +89,15 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   receiver is destroyed (measured), so the slot is later invoked on freed memory: a crash, not an
   exception. Prefer the **widget events** Qt delivers to the widget itself (e.g.
   `QEvent.Type.DevicePixelRatioChange`, `ScreenChangeInternal`), which die with it.
+- **A key routed "through the view" never arrives if a child widget accepted it — and
+  `QAbstractItemView` accepts `Space`.** Qt walks a key up the parent chain only while it stays
+  *unaccepted*, so M89.2's `Space` was simply gone whenever focus sat in a sidebar panel, and the
+  document could not be paged at all until you clicked back on the page (M91.4). Worse, the panel
+  did something with it: `selectionCommand → Select` adds the current row to the very selection
+  Delete Pages acts on. The fix pattern is `event.ignore()` in the panel + a fallback in
+  `MainWindow.keyPressEvent` — **never** a `QAction` shortcut, which fires *before* the focused
+  widget and would steal the key from the inline editors. When a key "does nothing", find out who
+  accepted it before assuming nothing is bound.
 - **A plain `QWidget` added to a `QToolBar` will eat the bar.** `addWidget` leaves it on the default
   **Preferred** size policy and the toolbar's layout hands it every spare pixel — M91.3's page counter
   stretched to 627 px in an 1100 px window and pushed the whole zoom cluster *off the right-hand end*.
