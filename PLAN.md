@@ -1985,6 +1985,38 @@ again … requires multiple attempts" — the click was a no-op and the `Space` 
 were being eaten by the panel. `OutlinePanel` and `AnnotationsPanel` already jump from `itemClicked`;
 this makes the three agree.
 
+**The page counter was fighting the reader too (owner re-test, 2026-07-30).** "Press spacebar, the
+first page flickers but stays at 1" reproduced only once focus was accounted for, and the answer was
+the counter M91.3 had just added — two independent faults in the same 44 px box, both measured:
+
+- **`Space` was eaten.** The field is integer-validated, so a space can never be valid input — but
+  `QLineEdit` accepts the key regardless and the validator silently drops the character. A reader who
+  clicked the field once found the commonest gesture in the app dead for the rest of the session,
+  with nothing on screen to say why. (`PgUp`/`PgDn` already worked from there, because `QLineEdit`
+  *declines* those — which is the shape of the fix: `PageField` declines `Space` too.)
+- **An unedited focus-out re-applied the field.** `editingFinished` fires on Enter *and* on every
+  focus-out with acceptable input — Qt does **not** require the text to have changed (measured; the
+  documented "contents have changed" wording does not match `QLineEdit::focusOutEvent`). So clicking
+  the field and clicking back onto the page re-ran `goto_page` with the displayed number, and
+  `goto_page` re-seats the view on that page's **top**. That is the flicker: the reader was pulled
+  back to where the field last said they were. `isModified` is the exact question — Qt sets it when
+  the *user* edits and clears it on `setText`, which is how `show_page` marks a value as the view's
+  rather than the reader's.
+
+Recorded so it is not "fixed" in the wrong place: **`ZoomWidget` has the identical wiring and is not
+wrong.** Re-applying a stale zoom is a genuine no-op because `set_zoom` returns early on an unchanged
+value; `goto_page` has no such early-out **and must not**, since jumping to the page you are already
+on is exactly what a reader means by clicking its thumbnail. Enter also hands the keyboard back to
+the page: a page field is a one-shot instruction, not somewhere to leave the focus.
+
+**`open_at` must announce the page it restored.** Reopening a document closed on page 10 showed page
+10 with the counter reading 1. `open_at` assigns `_current` **directly**, because the Fit Page zoom
+has to be sized against that page's row before there is a scene to derive it from — so when
+`goto_page` then scrolls there, `_update_current` finds the page it already holds and stays silent.
+The sidebar never showed the bug because `MainWindow.showEvent` carried a private workaround
+(`mark_open_page`) for exactly this; the counter had none, and neither would the next indicator
+bound to that signal. The emit belongs at the source, so no consumer has to know.
+
 ### The corner-case document — what it taught us (measured 2026-07-27)
 
 `IAS_CaseStudy.pdf`: 75.6 MB, 18 pages, all 1920×1080 pt, **no text layer at all** (`chars == 0` on

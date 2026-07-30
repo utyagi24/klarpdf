@@ -97,7 +97,15 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   Delete Pages acts on. The fix pattern is `event.ignore()` in the panel + a fallback in
   `MainWindow.keyPressEvent` — **never** a `QAction` shortcut, which fires *before* the focused
   widget and would steal the key from the inline editors. When a key "does nothing", find out who
-  accepted it before assuming nothing is bound.
+  accepted it before assuming nothing is bound. **A `QLineEdit` with a validator is the same trap
+  wearing gloves**: it accepts the key and the validator drops the character, so the press is
+  invisible — that is how `Space` died in the M91.3 page counter.
+- **`editingFinished` fires on *every* focus-out, not only after an edit.** The Qt docs say
+  "contents have changed"; `QLineEdit::focusOutEvent` says `if (hasAcceptableInput() || fixup())
+  emit editingFinished()` — measured, no modification check. So a field wired straight to an action
+  re-runs it every time the reader clicks away, and if that action *moves* something (M91.4:
+  `goto_page` re-seats the view on the page's top) it silently fights them. Guard on `isModified()`,
+  which Qt sets on user edits and clears on `setText`.
 - **A plain `QWidget` added to a `QToolBar` will eat the bar.** `addWidget` leaves it on the default
   **Preferred** size policy and the toolbar's layout hands it every spare pixel — M91.3's page counter
   stretched to 627 px in an 1100 px window and pushed the whole zoom cluster *off the right-hand end*.

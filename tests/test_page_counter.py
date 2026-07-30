@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import pytest
 from PySide6.QtCore import Qt
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QToolBar
 
 from app import PdfApp
@@ -35,9 +36,17 @@ def win(qapp, a_pdf, tmp_path):
 
 
 def _type(win, text: str) -> None:
-    """Type into the field and commit, the way Enter or a click-away does."""
-    win.page_widget.field.setText(text)
-    win.page_widget.field.editingFinished.emit()
+    """Type into the field and commit, the way Enter or a click-away does.
+
+    **Really typed** (`keyClicks`), not `setText`. Since M91.4 a commit only applies when the
+    *reader* changed the value — Qt's `isModified` flag is the question asked, and `setText` clears
+    it. The old helper set the text behind the flag's back, which is exactly why it could not have
+    caught the defect that rule fixes: an *unmodified* commit re-seating the view.
+    """
+    field = win.page_widget.field
+    field.selectAll()               # ... so the typing replaces what is there, as a reader's does
+    QTest.keyClicks(field, text)
+    field.editingFinished.emit()
 
 
 # ---- the view drives the field ------------------------------------------------
@@ -90,9 +99,15 @@ def test_an_out_of_range_page_clamps_and_echoes_the_clamped_value(win):
 
 
 def test_garbage_restores_the_live_value(win):
+    """Emptying the field and committing restores the live page. (Letters cannot get in at all —
+    the validator refuses them keystroke by keystroke — so this is the reachable half of "garbage".)
+    """
     win.view.goto_page(1)
-    _type(win, "")
-    assert win.page_widget.field.text() == "2"
+    field = win.page_widget.field
+    field.selectAll()
+    QTest.keyClick(field, Qt.Key.Key_Delete)
+    field.editingFinished.emit()
+    assert field.text() == "2"
     assert win.view.current_page == 1
 
 
@@ -107,6 +122,102 @@ def test_deleting_pages_updates_the_total_and_undo_restores_it(win):
     assert win.page_widget.total.text() == "of 2"
     win.undo_stack.undo()
     assert win.page_widget.total.text() == "of 3"
+
+
+# ---- M91.4: the field must not fight the reader ------------------------------
+
+
+def test_clicking_the_field_and_away_does_not_move_the_view(win):
+    """**The owner's "the first page flickers but stays at 1".**
+
+    `editingFinished` fires on *every* focus-out with valid contents — Qt does not require the text
+    to have changed — so merely clicking the field and clicking away re-applied the number it was
+    showing. Not the no-op it looks like: `goto_page` re-seats the view on that page's **top**, so a
+    reader who clicked the field, read on, and clicked back onto the page was yanked backwards.
+    """
+    field = win.page_widget.field
+    win.view.verticalScrollBar().setValue(300)     # part-way down page 1; still page 1
+    PdfApp.instance().processEvents()
+    field.setFocus(Qt.FocusReason.MouseFocusReason)
+    PdfApp.instance().processEvents()
+    assert field.hasFocus() and field.text() == "1"
+    win.view.setFocus()                            # click back on the page → focus-out → commit
+    PdfApp.instance().processEvents()
+    assert win.view.verticalScrollBar().value() == 300
+
+
+def test_space_in_the_field_pages_the_document(win):
+    """The other half of the same report. The field is integer-validated, so `Space` can never be
+    valid input — but `QLineEdit` accepted the key and the validator dropped the character, leaving
+    the reader's commonest gesture dead for as long as the field held focus."""
+    field, vbar = win.page_widget.field, win.view.verticalScrollBar()
+    field.setFocus(Qt.FocusReason.MouseFocusReason)
+    PdfApp.instance().processEvents()
+    before = vbar.value()
+    QTest.keyClick(field, Qt.Key.Key_Space)
+    PdfApp.instance().processEvents()
+    assert vbar.value() > before
+    assert win.view.current_page == 1
+    assert field.text() == "2"                     # ... and the readout followed
+
+
+def test_enter_hands_the_keyboard_back_to_the_page(win):
+    """A page field is a one-shot instruction, not a place to leave the focus — otherwise typing a
+    page number costs the reader every reading key until they remember to click the document."""
+    field = win.page_widget.field
+    field.setFocus(Qt.FocusReason.MouseFocusReason)
+    PdfApp.instance().processEvents()
+    field.selectAll()
+    QTest.keyClicks(field, "3")
+    assert field.hasFocus()
+    QTest.keyClick(field, Qt.Key.Key_Return)
+    PdfApp.instance().processEvents()
+    assert win.view.current_page == 2
+    assert win.view.hasFocus() and not field.hasFocus()
+
+
+def test_a_typed_page_still_jumps_to_the_page_you_are_on(win):
+    """The `isModified` guard must not cost the deliberate case: typing the page you are already
+    reading is a request to go back to its **top**, the same thing clicking its thumbnail means."""
+    win.view.goto_page(1)
+    win.view.verticalScrollBar().setValue(win.view.verticalScrollBar().value() + 60)
+    PdfApp.instance().processEvents()
+    moved = win.view.verticalScrollBar().value()
+    _type(win, "2")
+    assert win.view.current_page == 1
+    assert win.view.verticalScrollBar().value() < moved      # re-seated on the page's top
+
+
+def test_the_counter_shows_the_restored_page_when_a_document_reopens(qapp, a_pdf, tmp_path):
+    """**The owner's second report**: reopen a document closed on page 10 and the view is on page 10
+    while the counter reads 1.
+
+    `open_at` assigns `_current` directly — the fit has to be sized against that page's row before a
+    scene exists to derive it from — so `_update_current` found the page it already held and stayed
+    silent. The sidebar had a private workaround (`mark_open_page`); the counter did not, and nor
+    would the next indicator. Announced at the source now.
+    """
+    qapp.settings = Settings(tmp_path / "reopen.json")
+    first = qapp.open_document(a_pdf)
+    first.resize(1100, 700)
+    first.show()
+    qapp.processEvents()
+    first.view.goto_page(2)
+    assert first.page_widget.field.text() == "3"
+    first.undo_stack.setClean()
+    first.close()
+    qapp.processEvents()
+
+    again = qapp.open_document(a_pdf)
+    again.resize(1100, 700)
+    again.show()
+    qapp.processEvents()
+    try:
+        assert again.view.current_page == 2                  # the view resumed…
+        assert again.page_widget.field.text() == "3"         # …and said so
+    finally:
+        again.undo_stack.setClean()
+        again.close()
 
 
 # ---- it must not cost the reader anything ------------------------------------

@@ -2133,4 +2133,13 @@ class PdfView(QGraphicsView):
             self._center_horizontally()               # `self._current`: the hold happens to keep the
                                                       # field intact here, but the restore must not
                                                       # depend on a render optimisation (see above).
+        # **Announce the restored page** (M91.4). ``_current`` was assigned directly above, because
+        # the fit has to be sized against that page's row before a scene exists to derive it from —
+        # so by the time ``goto_page`` scrolls there, :meth:`_update_current` finds the page it
+        # already holds and stays silent. Every indicator bound to this signal therefore opened
+        # reading **page 1 while the view sat on page 10** (owner report, 2026-07-30). The sidebar
+        # had a private workaround for exactly this (``MainWindow.showEvent`` → ``mark_open_page``),
+        # which is why it was the one indicator that looked right and why the next one would have
+        # been wrong too. Announced at the source, no consumer needs to know.
+        self.currentPageChanged.emit(self._current)
         self.zoomChanged.emit(self._zoom)

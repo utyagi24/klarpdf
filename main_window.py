@@ -3091,8 +3091,10 @@ class MainWindow(QMainWindow):
         # at Fit Page, resuming the remembered page/rotation. No fit/resize happens after the first
         # paint, so there's no flicker.
         self.view.open_at(self._settings.get_doc_state(self.path))
-        # Seed the sidebar's you-are-here marker. open_at restores a page without *changing* it, so
-        # currentPageChanged never fires and the panel would otherwise open with no row marked.
+        # Seed the sidebar's you-are-here marker. `open_at` now announces the restored page (M91.4),
+        # so the row is already current by here — but a **selection** marker is what "the page is not
+        # selected" described (M85), and `set_current` deliberately leaves an *empty* selection alone
+        # rather than inventing one. This is that one marker, not a second copy of the highlight.
         self.thumbs.mark_open_page(self.view.current_page)
 
     def _confirm_discard(self):

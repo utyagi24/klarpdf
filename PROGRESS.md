@@ -1771,8 +1771,8 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     stop** — each page's top, plus a tall page cut into the fewest *equal* steps that each fit a
     screenful — and takes the **furthest** one within a screenful, so a zoomed-out view still
     advances every page it shows. `PgDn`/`PgUp` come off Qt to keep M89.2's promise that they and
-    `Space` are one verb — *Windows (offscreen GUI)* — 16 new tests, 13 of them verified red,
-    1601 green ([#225](https://github.com/utyagi24/klarpdf/pull/225))
+    `Space` are one verb — *Windows (offscreen GUI)* — 21 new tests, 17 of them verified red,
+    1608 green ([#225](https://github.com/utyagi24/klarpdf/pull/225))
     - **The sidebar was not inert — it was eating the key.** `QAbstractItemView` *accepts* `Space`,
       so Qt's propagation stopped at the panel and the document could not be paged at all while
       focus was there; and what Qt does with it is add the current row to **the selection Delete
@@ -1791,6 +1791,23 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     - Only `Space` is handed over. The arrows, `PgUp`/`PgDn` and `Home`/`End` all mean something in a
       page list and each jumps the view through `pageActivated` anyway — pinned, so the next person
       to reach for "route the reading keys to the document" learns the boundary from a test
+    - **The page counter was fighting the reader too** (owner re-test): "press spacebar, the first
+      page flickers but stays at 1" reproduced only once focus was accounted for, and the culprit was
+      the field M91.3 had just added — **two** faults in the same 44 px box. `Space` was *eaten*
+      (integer-validated, so `QLineEdit` accepts the key and the validator drops the character —
+      dead for the rest of the session once the field had been clicked); and `editingFinished` fires
+      on **every** focus-out with acceptable input, Qt not requiring the text to have changed, so
+      clicking the field and clicking back onto the page re-ran `goto_page` and **re-seated the view
+      on that page's top** — the flicker. Guarded on `isModified`, which is the exact question. Enter
+      now also hands the keyboard back to the page. Recorded so it is not "fixed" in the wrong place:
+      `ZoomWidget` has the identical wiring and is *not* wrong, because `set_zoom` early-outs on an
+      unchanged value while `goto_page` has no such early-out and must not
+    - **`open_at` now announces the page it restored** — reopening a document closed on page 10
+      showed page 10 with the counter reading **1**. `_current` is assigned directly there (the fit
+      is sized against that page's row before a scene exists), so `_update_current` found the page it
+      already held and stayed silent. The sidebar never showed it because `showEvent` carried a
+      private workaround (`mark_open_page`); the counter had none, and neither would the next
+      indicator bound to that signal
 - **Corner-case document analysis** (`PLAN.md` §The corner-case document) — `IAS_CaseStudy.pdf`,
   owner-supplied: 75.6 MB, 18 pages of 1920×1080 pt, **no text layer**, 95 MB of embedded images.
   Opens in **11.19 s**, of which **10.0 s is `fz_run_display_list`** — decoding imagery, not our
