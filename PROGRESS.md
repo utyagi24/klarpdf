@@ -1603,9 +1603,25 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
       palette-tinted glyph would turn light in dark mode and vanish on a yellow highlight. It is
       opaque in its host's washed colour (rule 3) with dark ink — the same `wash` the popup uses,
       so badge and editor read as one thing
-    - Click opens the note, hover reads it from the badge's tooltip. Routed in `PdfView` right
-      after the resize handles — the next most specific target, mode-independent, and below the
-      armed tools so arming still wins the press
+    - **Click toggles** the note open and shut, hover reads it from the badge's tooltip. Routed in
+      `PdfView` right after the resize handles — the next most specific target, mode-independent,
+      and below the armed tools so arming still wins the press. The toggle needed a mechanism
+      because a real click reaches the popup's **focus-out before** the view's press (measured):
+      the popup is already gone by the time the click is handled, so a naive handler reopened it
+      and the second click was a visible no-op. The close now records *which* note it was, armed
+      **only by a genuine focus-out** — a programmatic close is nobody's click, and arming it there
+      let the flag outlive its dispatch and swallow the next legitimate open. The key is
+      `(page, bounds, type)`, not the mark object: descriptors are frozen, so committing an edit
+      replaces the host and identity went stale the moment the text changed; and layered marks
+      share bounds, so without the type, clicking one while the other was open closed it instead of
+      switching. Toggling shut **commits** — it is the same "I'm done" as clicking away — and Esc
+      stays the way to abandon an edit. No close button: three dismissals already exist, and
+      §Design budgets does not spend chrome on a fourth
+    - The popup's stylesheet was built by implicit concatenation where only the **first** literal
+      was an f-string, so the second's `}}` stayed *two* closing braces and Qt logged
+      "Could not parse stylesheet of object _NotePopup" on every note. The braces now live in plain
+      literals with the interpolation in an f-string of its own, so there is nothing to escape and
+      it cannot recur
     - **Layered marks fan along the margin** (owner-reported during testing): the app deliberately
       allows layered HUS — M59.10 scopes merging *per type* — and owner rule 5 gives each mark its
       **own** note, so an underline and a highlight on one passage carry two notes. Both badges

@@ -2103,9 +2103,23 @@ class MainWindow(QMainWindow):
 
         A **foreign** mark arrives here too (its grey badge shares the hit-test) and gets its
         comment read-only, per M68's rule that another tool's mark is not editable until adopted.
+
+        **Clicking an open note's badge closes it** (owner-reported): the badge is one control, so
+        it toggles rather than being a one-way opener. It needs two checks because the two possible
+        orderings both happen. A real click on the viewport takes focus off the popup, so its
+        focus-out commit lands *before* this handler runs (measured) — by then the popup is gone
+        and only :meth:`consume_just_closed` can tell "closed by this very click" from "was never
+        open". A programmatic call reaches here with the popup still open, and the first check
+        catches that. Either way the text is **committed**, never discarded: a toggle-shut is the
+        same "I'm done" as clicking away, and Esc remains the way to abandon an edit.
         """
         from model.foreign_annots import ForeignAnnot
 
+        notes = self.view.annotations.notes
+        if notes.target is mark or notes.consume_just_closed(notes.key_for(page_index, mark)):
+            if notes.is_open:
+                notes.commit()
+            return
         if isinstance(mark, ForeignAnnot):
             self._show_foreign_note(page_index, mark)
             return
@@ -2122,7 +2136,7 @@ class MainWindow(QMainWindow):
         """
         self.view.annotations.notes.open_on(
             page_index, annot.rect, annot.contents, FOREIGN_NOTE_GREY, read_only=True,
-            placeholder="Double-click the mark to make it editable",
+            placeholder="Double-click the mark to make it editable", target=annot,
         )
 
     def _note_from_sidebar(self, page_index: int, mark) -> None:
@@ -2153,6 +2167,7 @@ class MainWindow(QMainWindow):
             host.note if host is not None else "",
             host.color if host is not None else self._highlight_color,
             lambda text: self._commit_note(page_index, bars, host, text, by_page),
+            target=host,
         )
 
     def _commit_note(self, page_index: int, bars: tuple, host, text: str, by_page=None) -> None:

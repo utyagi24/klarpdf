@@ -519,6 +519,121 @@ def test_the_glyph_paints_above_every_mark(win):
     assert all(z < _NOTE_GLYPH_Z for z in others)
 
 
+# ---- the badge toggles, and the popup's stylesheet parses (owner-reported 2026-07-29) --
+#
+# These use **QTest.mouseClick**, not a direct ``mousePressEvent`` call, and the difference is the
+# whole point: a real click moves focus off the popup, so its focus-out commit lands *before* the
+# view's press handler (measured). A direct call skips Qt's focus machinery and would pass against
+# code that is broken in the app.
+
+
+def _real_click(win, box) -> None:
+    from PySide6.QtCore import QPoint
+    from PySide6.QtTest import QTest
+
+    point = win.view.mapFromScene(box.center())
+    QTest.mouseClick(win.view.viewport(), Qt.MouseButton.LeftButton,
+                     pos=QPoint(int(point.x()), int(point.y())))
+    win.view.annotations._view.window().windowHandle()   # let posted events settle
+    PdfApp.instance().processEvents()
+
+
+def test_the_popup_stylesheet_parses(win):
+    """Qt logged *"Could not parse stylesheet of object _NotePopup"* on every note.
+
+    The rule was built by implicit concatenation where only the **first** literal was an f-string,
+    so the second's ``}}`` stayed two closing braces instead of one. Braces balance now, and Qt
+    keeps no complaint — asserted by capturing its message handler, because a malformed rule is
+    silently *partly* applied rather than raising.
+    """
+    from PySide6.QtCore import qInstallMessageHandler
+
+    seen: list[str] = []
+    previous = qInstallMessageHandler(lambda _mode, _ctx, text: seen.append(text))
+    try:
+        _note_over_word(win, "styled")
+        (mark,) = _marks(win, Highlight)
+        win._note_mark(0, mark)
+        sheet = win.view.annotations.notes._popup.styleSheet()
+        win.view.annotations.notes.close()
+    finally:
+        qInstallMessageHandler(previous)
+
+    assert sheet.count("{") == sheet.count("}") == 1
+    assert not [m for m in seen if "stylesheet" in m.lower()]
+
+
+def test_clicking_an_open_notes_badge_closes_it(win):
+    """Owner-reported: the badge is one control, so it toggles. It did not, because the click's own
+    focus-out closed the popup first and the press then reopened it — a visible no-op."""
+    _note_over_word(win, "toggle me")
+    win.view.disarm()
+    win.view.annotations.repaint()
+    (_p, _m, box) = _glyphs(win)[0]
+    notes = win.view.annotations.notes
+
+    _real_click(win, box)
+    assert notes.is_open
+    _real_click(win, box)
+    assert not notes.is_open                         # …shut, not reopened
+    _real_click(win, box)
+    assert notes.is_open                             # …and open again
+    notes.close()
+
+
+def test_toggling_shut_saves_the_edit(win):
+    """A toggle-shut is the same "I'm done" as clicking away, so it commits. Discarding is Esc's
+    job, and this is the case that broke the first cut: committing an edit **replaces** the frozen
+    descriptor, so a toggle keyed on the mark object silently reverted to reopening."""
+    _note_over_word(win, "before")
+    win.view.disarm()
+    win.view.annotations.repaint()
+    (_p, _m, box) = _glyphs(win)[0]
+
+    _real_click(win, box)
+    win.view.annotations.notes._popup.setPlainText("after")
+    _real_click(win, box)
+
+    assert not win.view.annotations.notes.is_open
+    assert _marks(win, Highlight)[0].note == "after"
+
+
+def test_clicking_a_neighbouring_badge_switches_rather_than_closing(win):
+    """The layered case, and the reason the toggle key carries the mark's *type*: a highlight and
+    an underline on one passage have **identical bounds**, so on position alone clicking one while
+    the other was open was swallowed as a toggle-off."""
+    _layered(win)
+    notes = win.view.annotations.notes
+    first, second = (box for _p, _m, box in _glyphs(win))
+
+    _real_click(win, first)
+    assert notes.is_open
+    opened_first = notes.text
+    _real_click(win, second)
+    assert notes.is_open                             # switched, not closed
+    assert notes.text != opened_first
+    assert sorted([opened_first, notes.text]) == ["on the highlight", "on the underline"]
+    notes.close()
+
+
+def test_escape_still_abandons_the_edit(win):
+    """The guard for making the toggle commit: Esc must stay the way out that keeps nothing."""
+    from PySide6.QtTest import QTest
+
+    _note_over_word(win, "keep this")
+    win.view.disarm()
+    win.view.annotations.repaint()
+    (_p, _m, box) = _glyphs(win)[0]
+
+    _real_click(win, box)
+    win.view.annotations.notes._popup.setPlainText("discard me")
+    QTest.keyClick(win.view.annotations.notes._popup, Qt.Key.Key_Escape)
+    PdfApp.instance().processEvents()
+
+    assert not win.view.annotations.notes.is_open
+    assert _marks(win, Highlight)[0].note == "keep this"
+
+
 # ---- layered marks each keep a visible badge (owner-reported 2026-07-29) --------------
 #
 # The report: underline a passage and note it, then highlight the *same* passage and note that —
