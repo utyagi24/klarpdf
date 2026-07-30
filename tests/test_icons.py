@@ -28,9 +28,11 @@ ACTION_ICONS = [
     "note",                              # M90.1 — the Note verb on Markup ▾
 ]
 
-# The three glyphs redrawn in M78.4 (owner-chosen from rendered candidates, 2026-07-23): Grab (a
-# filled outline hand with separated fingers), Text Box (a T in a box), Pen (a pencil on a baseline).
-POLISHED_ICONS = ["grab", "textbox", "pen"]
+# Glyphs redrawn from rendered candidates on an owner pick, and held to the extra polish assertions
+# below. M78.4 (2026-07-23): Grab (a filled outline hand with separated fingers), Text Box (a T in a
+# box), Pen (a pencil on a baseline). M91.2 (2026-07-30): both rotates — a page with an arc sweeping
+# over one corner, replacing Feather's bare `rotate-ccw` circle, which read as Undo on its own merits.
+POLISHED_ICONS = ["grab", "textbox", "pen", "rotate-left", "rotate-right"]
 ICO_PATH = Path(__file__).resolve().parents[1] / "packaging" / "klarpdf.ico"
 
 
@@ -96,9 +98,9 @@ def test_action_icons_tint_to_theme_text_colour(qapp):
 
 @pytest.mark.parametrize("name", POLISHED_ICONS)
 def test_polished_icon_is_qtsvg_safe_and_not_blank(qapp, name):
-    """M78.4: the three redrawn glyphs must parse under QtSvg and render actual ink — a malformed
-    path or a mis-scaled ``<g transform>`` (the Grab hand is authored in a 640-unit space) would
-    render blank while still passing the mere "non-null pixmap" check."""
+    """M78.4: a redrawn glyph must parse under QtSvg and render actual ink — a malformed path or a
+    mis-scaled ``<g transform>`` (the Grab hand is authored in a 640-unit space) would render blank
+    while still passing the mere "non-null pixmap" check."""
     from PySide6.QtSvg import QSvgRenderer
 
     path = icons.svg_path(name)
@@ -110,6 +112,52 @@ def test_polished_icon_is_qtsvg_safe_and_not_blank(qapp, name):
     span, cx, cy = _bbox_span(name, 24)
     assert span >= 0.15, f"{name} renders nearly blank (spans {span:.0%})"
     assert abs(cx - 11.5) <= 4.0 and abs(cy - 11.5) <= 4.0, f"{name} is not roughly centred"
+
+
+@pytest.mark.parametrize("name", ["rotate-left", "rotate-right"])
+def test_a_rotate_glyph_contains_a_page(qapp, name):
+    """M91.2's whole point: the glyph must contain **something being rotated**.
+
+    Feather's ``rotate-ccw`` — a bare ~340° circle with an arrowhead — is the universal undo/reload
+    mark, so the button read as Undo on its own merits, which is why v0.16.2's removal of the
+    neighbouring curved arrows did not fix it. The reading bar already establishes *rounded rect =
+    the page* in ``fit-width`` and ``fit-page``; a rotate glyph with no page is the odd one out.
+    """
+    text = icons.svg_path(name).read_text(encoding="utf-8")
+    assert "<rect" in text and "rx=" in text, f"{name} has no page to rotate"
+    assert "<path" in text, f"{name} has no arc"
+
+
+def test_the_two_rotate_glyphs_are_mirror_images(qapp):
+    """One drawing, used both ways. Rotate Right is Rotate Left reflected about the box's centre —
+    if the two ever drift apart, the Edit menu's pair stops reading as a pair. Compared as rasters
+    rather than as path data, since that is what the user sees, and the mirror is what the eye
+    checks: a hand-edited coordinate would show up here and nowhere else."""
+    from PySide6.QtSvg import QSvgRenderer
+    from PySide6.QtGui import QImage, QPainter
+
+    def raster(name, size=48):
+        image = QImage(size, size, QImage.Format.Format_ARGB32)
+        image.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(image)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        QSvgRenderer(str(icons.svg_path(name))).render(painter)
+        painter.end()
+        return image
+
+    left = raster("rotate-left")
+    right = raster("rotate-right").flipped(Qt.Orientation.Horizontal)
+    # Antialiasing is not bit-identical across a mirror, so compare coverage per pixel with a
+    # tolerance rather than demanding equality.
+    differing = sum(
+        1
+        for y in range(left.height())
+        for x in range(left.width())
+        if abs(left.pixelColor(x, y).alpha() - right.pixelColor(x, y).alpha()) > 40
+    )
+    assert differing <= 0.01 * left.width() * left.height(), (
+        f"the rotate glyphs are not mirrors: {differing} px differ"
+    )
 
 
 def test_app_icon_keeps_its_colours(qapp):
