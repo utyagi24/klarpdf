@@ -89,6 +89,11 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   receiver is destroyed (measured), so the slot is later invoked on freed memory: a crash, not an
   exception. Prefer the **widget events** Qt delivers to the widget itself (e.g.
   `QEvent.Type.DevicePixelRatioChange`, `ScreenChangeInternal`), which die with it.
+- **A plain `QWidget` added to a `QToolBar` will eat the bar.** `addWidget` leaves it on the default
+  **Preferred** size policy and the toolbar's layout hands it every spare pixel — M91.3's page counter
+  stretched to 627 px in an 1100 px window and pushed the whole zoom cluster *off the right-hand end*.
+  Always `setSizePolicy(Fixed, …)` (or a fixed width, which is why `ZoomWidget` never showed it). The
+  failure mode is chrome that is simply **not there**, so grab the bar and look.
 - **Never rebuild the scene inside a Qt callback.** `scene.clear()` during `showEvent` /
   `paintEvent` / an event handler destroys every `QGraphicsItem` while Qt is still walking them.
   Defer to the event loop with a `QTimer` **parented to the view** (it is then cancelled on

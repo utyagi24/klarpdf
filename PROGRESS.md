@@ -1695,14 +1695,32 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     corner** (3 candidates rendered for the owner to pick, as M78.4 did); the bar already establishes
     *rounded rect = the page* in fit-width/fit-page. Owner call: redraw, keep the single direction —
     dropping the button and restoring both directions were both rejected
-  - [ ] **M91.3** A **page counter on the reading bar** — `[ 10 ] of 320`, editable, two-way bound to
+  - [x] **M91.3** A **page counter on the reading bar** — `[ 10 ] of 320`, editable, two-way bound to
     `currentPageChanged` exactly as `ZoomWidget` is bound to `zoomChanged`. `sidebar_visible`
     defaults to **`False`**, so today a reader gets **no** position indication out of the box; the
     sidebar's current-thumbnail highlight is the only one that exists. Owner call: the 11th slot
     against the "~10, modes-only" budget is **taken** — a live indicator is not a mode, the bar
     already carries one, and the field replaces the Ctrl+G dialog trip rather than adding a verb.
     Non-goals recorded so they aren't re-proposed: no ◀ ▶ buttons, nothing in Full Screen /
-    Slideshow, and Two-Page shows the current page (M85's definition), not a `10–11` span
+    Slideshow, and Two-Page shows the current page (M85's definition), not a `10–11` span —
+    *Windows (offscreen GUI)* — 10 new tests, 1573 green
+    ([#224](https://github.com/utyagi24/klarpdf/pull/224))
+    - **A plain `QWidget` in a `QToolBar` eats the bar** — now in `CLAUDE.md` §Gotchas. `addWidget`
+      leaves it on the default **Preferred** policy and the layout hands it every spare pixel: the
+      counter stretched to **627 px** in an 1100 px window and pushed the entire zoom cluster *off the
+      right-hand end*. `ZoomWidget` never showed it because it fixes its own width, and it is the only
+      other widget on either bar. Caught by grabbing the bar and looking — the failure mode is chrome
+      that is simply **not there**, which no assertion about the widget itself would have found
+    - **The total is pushed, the position is signalled.** There is no `pageCountChanged`, and
+      insert / delete / undo change the count *without* moving the current page, so binding the total
+      to `currentPageChanged` would have left `of 320` on screen after deleting ten pages
+    - `editingFinished` (Enter **and** focus-out) is what makes clicking away from a half-typed number
+      harmless; out-of-range clamps **and echoes the clamped value**, because the field is a readout as
+      well as an input and one that disagrees with the view is worse than none
+    - Full Screen / Slideshow needed no code — M78 hides the whole reading bar — but it is pinned, so
+      the next person to add a floating readout learns it from a test rather than from a report
+    - Built: the reading bar is **555 px** of an 1100 px window, the counter costing 119 px with its
+      separator (§Design budgets' argument was never about space)
 - **Corner-case document analysis** (`PLAN.md` §The corner-case document) — `IAS_CaseStudy.pdf`,
   owner-supplied: 75.6 MB, 18 pages of 1920×1080 pt, **no text layer**, 95 MB of embedded images.
   Opens in **11.19 s**, of which **10.0 s is `fz_run_display_list`** — decoding imagery, not our

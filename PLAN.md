@@ -1873,7 +1873,17 @@ reading and guessing. The field makes the reading bar **11 slots** against §Des
 ~10" — **owner call 2026-07-29: taken**, on three grounds. A live indicator is not a mode; the bar
 already carries one (zoom), so this is the established pattern rather than a new kind of thing; and the
 field *replaces* a dialog trip (Ctrl+G) for the common case instead of adding a verb. Measured, the bar
-uses 436 px of an 1100 px window, so space was never the constraint — the budget was.
+uses 436 px of an 1100 px window, so space was never the constraint — the budget was. (Built: **555 px**,
+the counter costing 119 px including its separator.)
+
+**A `QWidget` in a `QToolBar` will eat the bar — measured 2026-07-30.** `QToolBar.addWidget` leaves a
+plain widget on the default **Preferred** size policy, and the toolbar's layout hands every spare pixel
+to whatever will take it: `PageWidget` stretched to **627 px** in an 1100 px window and pushed the entire
+zoom cluster off the right-hand end. `ZoomWidget` never showed the problem because it calls
+`setFixedWidth` on itself — it is the only other widget on either bar, which is why the trap went
+unmet until now, and why it will be waiting for the next one. The fix is one line —
+`setSizePolicy(Fixed, Preferred)` — and `test_page_counter.py` pins it, because the failure mode is
+*invisible chrome*, which no assertion about the widget itself would have caught.
 
 **Recorded non-goals**, so they are not re-proposed as free wins: no ◀ ▶ prev/next buttons (two more
 slots for what the wheel, PgUp/PgDn and M89.1's Home/End already do); no counter in Full Screen or
