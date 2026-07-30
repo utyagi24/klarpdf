@@ -1691,20 +1691,29 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   - [x] **M91.2** **Rotate stops reading as Undo** — `rotate-left.svg` is Feather's `rotate-ccw`: a
     ~340° circle with an arrowhead and **nothing being rotated**, i.e. the universal undo/reload
     mark. So it reads as Undo *on its own merits*, which is why v0.16.2's removal of the neighbouring
-    curved arrows didn't fix it. Both rotate glyphs are now **a page with an arc sweeping over its
-    top-left corner** — the bar already establishes *rounded rect = the page* in fit-width/fit-page.
-    Owner call: redraw, keep the single direction — dropping the button and restoring both directions
-    were both rejected — *Windows (offscreen render)* — 5 new tests, 1568 green
-    ([#223](https://github.com/utyagi24/klarpdf/pull/223))
-    - **The corner and the direction turn out to be coupled** (`PLAN.md` §M91). Asked for the sweep
-      on the **top-right** instead, we drew it: Rotate Left is counter-clockwise, so a sweep ending
-      there must point back left over the page, and an arrowhead's arms open backwards from its tip —
-      one arm lands **1.3 units** from the arc it just travelled, less than a stroke width once inked,
-      and at 20 px head and arc merge into a blob. A compact corner sweep can only face the direction
-      its corner allows. Owner picked the top-left corner, keeping Rotate Left on the bar
-    - Candidates were rendered through **Qt's own rasteriser** at 16/20/24 px and dropped into the
-      reading bar's real run — the browser's SVG renderer flatters all of them, and the question was
-      never how the drawing looks but what the toolbar paints
+    curved arrows didn't fix it. Both rotate glyphs are now **a full portrait page with the sweep
+    traced parallel to its own top-left corner** — the bar already establishes *rounded rect = the
+    page* in fit-width/fit-page. Owner call: redraw, keep the single direction — dropping the button
+    and restoring both directions were both rejected — *Windows (offscreen render)* — 5 new tests,
+    1568 green ([#223](https://github.com/utyagi24/klarpdf/pull/223))
+    - **The shipped drawing is "Corner gutter", designed in Claude Design** (project *Sheaf PDF
+      application branding*, `Rotate glyph candidates.dc.html`) and imported over the design MCP after
+      two in-house rounds were rejected. Its idea is one our hand-drawn attempts did not have: the
+      sweep is an **offset curve of the page outline** — top rail, corner arc of r 7.2 (= the page's
+      own r 2.2 + 5), left rail — so the clearance is uniform *by construction* rather than tuned, and
+      the two shapes visibly belong to each other
+    - **The corner and the direction are coupled** (`PLAN.md` §M91), and that finding is what the
+      design brief was built on. Asked for the sweep on the **top-right**, we drew it: Rotate Left is
+      counter-clockwise, so a sweep ending there must point back left over the page, and an
+      arrowhead's arms open backwards from its tip — one arm lands **1.3 units** from the arc it just
+      travelled, less than a stroke width once inked, and at 20 px head and arc merge into a blob. A
+      compact corner sweep can only face the direction its corner allows
+    - **The imported SVG was re-measured against our own gate, not accepted on the design doc's
+      numbers**: parses under QtSvg, no banned construct, ink span **62%** of the canvas, centre
+      **(11.5, 11.5)** — dead on — nothing across the 2 px margin, and the hand-derived mirror is
+      pixel-exact (**0** differing px at 48 px). Rendered through **Qt's own rasteriser** at 16/20/24 px
+      and grabbed from the real toolbar: a browser's SVG renderer flatters every candidate, and the
+      question was never how the drawing looks but what the toolbar paints
     - Rotate Right is the exact mirror, and a test compares the two as **rasters** so they cannot
       drift apart; both names joined `POLISHED_ICONS`, and a second test pins the thing the milestone
       is actually about — the glyph must *contain a page*

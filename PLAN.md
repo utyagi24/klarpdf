@@ -1879,6 +1879,24 @@ reads **clockwise**, i.e. Rotate *Right*. So: **a compact corner sweep can only 
 its corner allows** — top-left for counter-clockwise, top-right for clockwise. **Owner call
 2026-07-30:** the top-left corner sweep, keeping Rotate Left on the bar.
 
+**The shipped drawing came from Claude Design, and its construction is the part worth keeping.** Two
+in-house rounds were rejected by the owner, so the constraints above were written up as a brief and
+the glyph was designed in the project *Sheaf PDF application branding*
+(`Rotate glyph candidates.dc.html`), then imported over the design MCP. The chosen candidate,
+**"Corner gutter"**, does something our hand-drawn arcs did not: the sweep is an **offset curve of the
+page outline** — top rail, corner arc of r 7.2 (the page's own r 2.2 **+ 5**), left rail — so the
+clearance between arrow and page is uniform *by construction* instead of tuned per candidate, and the
+two shapes read as belonging to each other. That is the rule to reuse for any future glyph pairing a
+mark with the page keyshape. The page also stays a **full portrait document** rather than shrinking to
+make room, which is what kept it optically level with `fit-page`'s rect.
+
+**Imported artwork is re-measured, never accepted on the design doc's own numbers.** The doc stated
+its own span and clearances; we re-ran them through the code `tests/test_icons.py` uses and through
+Qt's rasteriser (a browser's flatters every candidate). Measured on the shipped file: parses under
+QtSvg, no banned construct, ink span **62%** of the canvas, centre **(11.5, 11.5)**, nothing across
+the 2 px margin, and the mirror **0** differing pixels at 48 px. The two numbers that disagreed with
+the doc were both in our favour; the gate is ours either way.
+
 **M91.3 — why it is needed, and what it costs.** `sidebar_visible` defaults to **`False`**, so out of
 the box the app gives a reader **no** position indication whatsoever: the sidebar's current-thumbnail
 highlight is the only one that exists today, and on a 320-page document that is the difference between
