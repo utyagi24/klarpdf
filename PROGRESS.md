@@ -1674,7 +1674,7 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   in `PLAN.md` §M91. **The numbering is the build order** (owner request), which is not the order the
   three were reported in: fidelity bugs before features, the owner-gated pick in the middle so it is
   in flight while something else is reviewable, and the part that *adds* surface last.
-  - [ ] **M91.1** **A text box paints its leading spaces.** Owner-reported as truncation, then
+  - [x] **M91.1** **A text box paints its leading spaces.** Owner-reported as truncation, then
     refined on re-test: the spaces *are* saved, the box *paints* without them, and they reappear only
     in edit mode. Measured: the model, the bake (`(    hello) Tj`) and the round-trip are all
     correct — **`QGraphicsSimpleTextItem` reserves leading whitespace in `boundingRect()` but paints
@@ -1687,7 +1687,21 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     field dialog's initial *value* stop stripping too (the field *name* keeps its strip; it is an
     identifier), while every all-blank drop stays. Also recorded: the headless platform resolves
     **no font at all** (every glyph, space included, measures exactly 1 em), so no test here may
-    assert an absolute text pixel offset
+    assert an absolute text pixel offset — *Windows (offscreen GUI)* — 12 new tests, 1575 green
+    ([#222](https://github.com/utyagi24/klarpdf/pull/222))
+    - **Verified against the file, not just the tests**: the same three boxes rendered through the
+      overlay and baked to a PDF put the ink in the same place. That comparison *is* the milestone —
+      the defect was the two disagreeing — and it is the check the pixel-free headless assertions
+      cannot make, since the test platform resolves no font
+    - The paint is now **one item per line**, which is also what makes differing per-line indents
+      expressible at all: a single item can only be positioned once. A blank line paints nothing and
+      still spaces, and vertical centring moved to `len(lines) * lineSpacing()` because no one item
+      spans the box any more
+    - The wrap holds the paragraph's indent **out of** the word loop rather than passing it through:
+      it is charged against the width on the first line (so an indented line wraps earlier) and not
+      repeated on continuations — a continuation is not separately indented
+    - 9 of the 12 new tests fail without the fix; the 3 that pass either way are the all-blank drops
+      and the line spacing, which were already right and are pinned so the fix cannot cost them
   - [ ] **M91.2** **Rotate stops reading as Undo** — `rotate-left.svg` is Feather's `rotate-ccw`: a
     ~340° circle with an arrowhead and **nothing being rotated**, i.e. the universal undo/reload
     mark. So it reads as Undo *on its own merits*, which is why v0.16.2's removal of the neighbouring

@@ -2195,8 +2195,14 @@ class MainWindow(QMainWindow):
         naming: an unchanged note pushes nothing; an abandoned popup over plain text creates no
         highlight; and clearing the text writes ``note=""``, which drops the note and **leaves the
         mark** — a note is a field of the mark, so removing it is not removing the mark.
+
+        **Whitespace decides whether the note exists, never how it reads** (M91.1). An all-blank
+        note still drops the note and leaves the mark, but a note that *has* words keeps the
+        indentation and trailing space the user typed — ``text.strip()`` used to quietly rewrite
+        ``"    indented note"`` on its way into the model.
         """
-        text = text.strip()
+        stripped = text.strip()
+        text = text if stripped else ""
         if host is None and not text:
             return                     # nothing typed and nothing to attach to: leave no trace
         updates: dict[int, tuple] = {}
