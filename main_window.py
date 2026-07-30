@@ -974,17 +974,17 @@ class MainWindow(QMainWindow):
         # rotate-left as the bar's only curved arrow. Open's return beside Save is a one-line review
         # call at the M71 pass.
         #
-        # The page counter (M91.3) takes its own group between Save and the zoom cluster, making the
-        # reading bar **11 slots** against §Design budgets' "modes-only, ~10". Owner call: taken. A
-        # live indicator is not a mode; the bar already carries one, so this is the established
-        # pattern rather than a new kind of thing; and the field *replaces* the Ctrl+G dialog trip
-        # for the common case instead of adding a verb. Space was never the constraint — the bar
-        # uses 436 px of an 1100 px window — the budget was.
+        # The page counter (M91.3) takes its own group **between the fit buttons and rotate** (owner
+        # placement, 2026-07-30), making the reading bar **11 slots** against §Design budgets'
+        # "modes-only, ~10". Owner call: taken. A live indicator is not a mode; the bar already
+        # carries one, so this is the established pattern rather than a new kind of thing; and the
+        # field *replaces* the Ctrl+G dialog trip for the common case instead of adding a verb.
+        # Space was never the constraint — the bar uses 436 px of an 1100 px window — the budget was.
         reading_groups = (
             [self._sidebar_button],
             [a_save],
-            [self.page_widget],
             [a_zout, self.zoom_widget, a_zin, a_fitw, a_fitp],
+            [self.page_widget],
             [a_rotl],
             [markup_toggle],
             [a_find_toggle],

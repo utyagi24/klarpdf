@@ -132,8 +132,12 @@ def test_the_counter_does_not_stretch_across_the_bar(win):
     bar = win.findChildren(QToolBar)[0]
     zoom = win.zoom_widget
     assert zoom.isVisible()
-    assert zoom.geometry().right() < bar.width(), "the zoom cluster was pushed off the bar"
-    assert counter.geometry().right() <= zoom.geometry().left()  # its own group, before zoom
+    assert counter.geometry().right() < bar.width(), "the counter ran off the bar"
+    # Owner placement (2026-07-30): its own group **after** the zoom/fit cluster and before rotate.
+    assert counter.geometry().left() >= zoom.geometry().right()
+    rotate = bar.widgetForAction(win._a_rotl)
+    assert rotate is not None and rotate.geometry().left() >= counter.geometry().right()
+    assert rotate.geometry().right() < bar.width(), "rotate was pushed off the bar"
 
 
 def test_full_screen_carries_no_counter(win):
