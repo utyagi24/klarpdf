@@ -103,7 +103,13 @@ class FieldDialog(QDialog):
             self.warning.setVisible(False)
 
     def field(self, rect=(0.0, 0.0, 1.0, 1.0)) -> NewField:
-        """The composed descriptor at a placeholder rect — the placement drag supplies the real one."""
+        """The composed descriptor at a placeholder rect — the placement drag supplies the real one.
+
+        **The name is stripped, the value is not** (M91.1): a field name is an identifier — it is
+        matched, warned about on a clash, and a blank one disables OK — while the value is content
+        the user typed, and whitespace there decides only whether the value exists, not how it
+        reads. A dropdown's choices are identifiers too, so they keep their strip.
+        """
         options = tuple(
             line.strip() for line in self.options.toPlainText().splitlines() if line.strip()
         )
@@ -111,6 +117,6 @@ class FieldDialog(QDialog):
             rect=rect,
             name=self.name.text().strip(),
             kind=self.selected_kind(),
-            value=self.value.text().strip(),
+            value=self.value.text(),
             options=options if self.selected_kind() == "dropdown" else (),
         )

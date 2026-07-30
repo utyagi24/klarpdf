@@ -796,19 +796,29 @@ class AnnotationOverlay:
         unbroken — it overflows rather than being chopped mid-word. Returns ``(lines, metrics)``, so
         callers reuse the same :class:`QFontMetricsF` for the line height. Page-point measurement:
         the font's pixelSize is the point size, matching :meth:`_paint_textbox` and the round-trip
-        ``fitz.get_text_length`` inference — one wrap, one source of truth."""
+        ``fitz.get_text_length`` inference — one wrap, one source of truth.
+
+        **A paragraph's leading whitespace is its indent, and the wrap keeps it** (M91.1). It is
+        held out of the word loop rather than passed through it: ``"    a b".split(" ")`` yields
+        four empty tokens that the ``if current and …`` guard discards, which is how the indent
+        used to be destroyed on *every* paragraph, not just a wrapped one. Only the first line of
+        the paragraph carries it — a continuation line is not separately indented — and it is
+        charged against ``avail_pt`` there, so an indented first line wraps earlier, as it must."""
         fm = QFontMetricsF(qt_font(fontname, fontsize))
         lines: list[str] = []
         for para in text.split("\n"):
+            body = para.lstrip()
+            indent = para[: len(para) - len(body)]
             current = ""
-            for word in para.split(" "):
+            for word in body.split(" "):
                 trial = word if not current else current + " " + word
-                if current and fm.horizontalAdvance(trial) > avail_pt:
-                    lines.append(current)
+                if current and fm.horizontalAdvance(indent + trial) > avail_pt:
+                    lines.append(indent + current)
+                    indent = ""                       # only the paragraph's own first line
                     current = word
                 else:
                     current = trial
-            lines.append(current)
+            lines.append(indent + current)
         return lines, fm
 
     def _reflow_textbox_rect(self, box: TextBox, width_pt: float, page_index: int) -> tuple:
@@ -841,28 +851,41 @@ class AnnotationOverlay:
         self._items.append(box)
         # A fixed-width box (M78.3) wraps its text at the box width; an auto-width box shows the
         # verbatim text (its explicit newlines only) and hugs its longest line.
+        font = qt_font(annot.fontname, annot.fontsize)
         if not annot.auto_width:
-            lines, _fm = self._wrap_textbox_lines(annot.text, annot.fontname, annot.fontsize,
-                                                  max(1.0, (x1 - x0) - 2 * _TEXT_INSET))
-            display = "\n".join(lines)
+            lines, fm = self._wrap_textbox_lines(annot.text, annot.fontname, annot.fontsize,
+                                                 max(1.0, (x1 - x0) - 2 * _TEXT_INSET))
         else:
-            display = annot.text
-        text = QGraphicsSimpleTextItem(display)
-        text.setFont(qt_font(annot.fontname, annot.fontsize))
-        text.setBrush(QColor.fromRgbF(*annot.color))
+            lines, fm = annot.text.split("\n"), QFontMetricsF(font)
         # Vertically centre the text within the box. The box auto-hugs the text, so a baked FreeText
         # — which PyMuPDF top-aligns (no vertical-align on the simple appearance path) — lands in
         # nearly the same place; centring here keeps the overlay tidy for any residual slack (e.g.
         # the minimum box height). Horizontal inset stays a small fixed gap.
-        text_h = text.boundingRect().height()  # in page points (font pixelSize == fontsize)
+        text_h = len(lines) * fm.lineSpacing()      # page points (font pixelSize == fontsize)
         ty = y0 + max(1.0, (y1 - y0 - text_h) / 2.0)
-        # The text is a **child** of the box, not a sibling on its own z band (M59.11): a child
-        # paints directly above its parent and nowhere else, so the text can never float above a
-        # mark that covers the box. Child coordinates are the parent's local space — page points —
-        # so it inherits the page transform (zoom/rotation, and the font's pixelSize scaling) and
-        # needs only its offset here.
-        text.setParentItem(box)
-        text.setPos(x0 + 2, ty)
+        brush = QColor.fromRgbF(*annot.color)
+        # **One item per line, with each line's indent paid as an x offset** (M91.1).
+        # `QGraphicsSimpleTextItem` *reserves* leading whitespace in its bounding rect but paints
+        # the glyphs flush left — measured at 24 pt, `"    hello"` reserves 288 px against
+        # `"hello"`'s 160 px, and both ink their first column at x = 2. So a single item for the
+        # whole text put the indent on the **right**, as slack, and the overlay disagreed with both
+        # edit mode and the saved file, which bakes `(    hello) Tj` faithfully. Stripping the
+        # indent off the string and re-applying it as an advance puts the ink where the PDF has it.
+        for row, line in enumerate(lines):
+            body = line.lstrip()
+            if not body:
+                continue                            # a blank line paints nothing; it still spaces
+            text = QGraphicsSimpleTextItem(body)
+            text.setFont(font)
+            text.setBrush(brush)
+            # The text is a **child** of the box, not a sibling on its own z band (M59.11): a child
+            # paints directly above its parent and nowhere else, so the text can never float above
+            # a mark that covers the box. Child coordinates are the parent's local space — page
+            # points — so it inherits the page transform (zoom/rotation, and the font's pixelSize
+            # scaling) and needs only its offset here.
+            text.setParentItem(box)
+            indent = fm.horizontalAdvance(line[: len(line) - len(body)])
+            text.setPos(x0 + 2 + indent, ty + row * fm.lineSpacing())
 
     # ---- hit-testing ------------------------------------------------------------
 

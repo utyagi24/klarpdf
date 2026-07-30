@@ -1668,13 +1668,13 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     - Adoption needed no new model work: **M81.3 already carries the comment across**. What M90.4
       adds is the interface following it — the grey read-only badge becomes a coloured editable one
       holding the same words, pinned end to end
-- [ ] **M91** Whitespace fidelity, glyph legibility, reading position — three defects from the
+- [x] **M91** Whitespace fidelity, glyph legibility, reading position — three defects from the
   owner's post-M90 testing pass (2026-07-29). Independent of one another, all three **view-layer**
   (no model, no save path, no round-trip), **one PR per part**. Spec + the measurements behind each
   in `PLAN.md` §M91. **The numbering is the build order** (owner request), which is not the order the
   three were reported in: fidelity bugs before features, the owner-gated pick in the middle so it is
   in flight while something else is reviewable, and the part that *adds* surface last.
-  - [ ] **M91.1** **A text box paints its leading spaces.** Owner-reported as truncation, then
+  - [x] **M91.1** **A text box paints its leading spaces.** Owner-reported as truncation, then
     refined on re-test: the spaces *are* saved, the box *paints* without them, and they reappear only
     in edit mode. Measured: the model, the bake (`(    hello) Tj`) and the round-trip are all
     correct — **`QGraphicsSimpleTextItem` reserves leading whitespace in `boundingRect()` but paints
@@ -1687,7 +1687,21 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     field dialog's initial *value* stop stripping too (the field *name* keeps its strip; it is an
     identifier), while every all-blank drop stays. Also recorded: the headless platform resolves
     **no font at all** (every glyph, space included, measures exactly 1 em), so no test here may
-    assert an absolute text pixel offset
+    assert an absolute text pixel offset — *Windows (offscreen GUI)* — 12 new tests, 1575 green
+    ([#222](https://github.com/utyagi24/klarpdf/pull/222))
+    - **Verified against the file, not just the tests**: the same three boxes rendered through the
+      overlay and baked to a PDF put the ink in the same place. That comparison *is* the milestone —
+      the defect was the two disagreeing — and it is the check the pixel-free headless assertions
+      cannot make, since the test platform resolves no font
+    - The paint is now **one item per line**, which is also what makes differing per-line indents
+      expressible at all: a single item can only be positioned once. A blank line paints nothing and
+      still spaces, and vertical centring moved to `len(lines) * lineSpacing()` because no one item
+      spans the box any more
+    - The wrap holds the paragraph's indent **out of** the word loop rather than passing it through:
+      it is charged against the width on the first line (so an indented line wraps earlier) and not
+      repeated on continuations — a continuation is not separately indented
+    - 9 of the 12 new tests fail without the fix; the 3 that pass either way are the all-blank drops
+      and the line spacing, which were already right and are pinned so the fix cannot cost them
   - [x] **M91.2** **Rotate stops reading as Undo** — `rotate-left.svg` is Feather's `rotate-ccw`: a
     ~340° circle with an arrowhead and **nothing being rotated**, i.e. the universal undo/reload
     mark. So it reads as Undo *on its own merits*, which is why v0.16.2's removal of the neighbouring
@@ -1717,14 +1731,32 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     - Rotate Right is the exact mirror, and a test compares the two as **rasters** so they cannot
       drift apart; both names joined `POLISHED_ICONS`, and a second test pins the thing the milestone
       is actually about — the glyph must *contain a page*
-  - [ ] **M91.3** A **page counter on the reading bar** — `[ 10 ] of 320`, editable, two-way bound to
+  - [x] **M91.3** A **page counter on the reading bar** — `[ 10 ] of 320`, editable, two-way bound to
     `currentPageChanged` exactly as `ZoomWidget` is bound to `zoomChanged`. `sidebar_visible`
     defaults to **`False`**, so today a reader gets **no** position indication out of the box; the
     sidebar's current-thumbnail highlight is the only one that exists. Owner call: the 11th slot
     against the "~10, modes-only" budget is **taken** — a live indicator is not a mode, the bar
     already carries one, and the field replaces the Ctrl+G dialog trip rather than adding a verb.
     Non-goals recorded so they aren't re-proposed: no ◀ ▶ buttons, nothing in Full Screen /
-    Slideshow, and Two-Page shows the current page (M85's definition), not a `10–11` span
+    Slideshow, and Two-Page shows the current page (M85's definition), not a `10–11` span —
+    *Windows (offscreen GUI)* — 10 new tests, 1573 green
+    ([#224](https://github.com/utyagi24/klarpdf/pull/224))
+    - **A plain `QWidget` in a `QToolBar` eats the bar** — now in `CLAUDE.md` §Gotchas. `addWidget`
+      leaves it on the default **Preferred** policy and the layout hands it every spare pixel: the
+      counter stretched to **627 px** in an 1100 px window and pushed the entire zoom cluster *off the
+      right-hand end*. `ZoomWidget` never showed it because it fixes its own width, and it is the only
+      other widget on either bar. Caught by grabbing the bar and looking — the failure mode is chrome
+      that is simply **not there**, which no assertion about the widget itself would have found
+    - **The total is pushed, the position is signalled.** There is no `pageCountChanged`, and
+      insert / delete / undo change the count *without* moving the current page, so binding the total
+      to `currentPageChanged` would have left `of 320` on screen after deleting ten pages
+    - `editingFinished` (Enter **and** focus-out) is what makes clicking away from a half-typed number
+      harmless; out-of-range clamps **and echoes the clamped value**, because the field is a readout as
+      well as an input and one that disagrees with the view is worse than none
+    - Full Screen / Slideshow needed no code — M78 hides the whole reading bar — but it is pinned, so
+      the next person to add a floating readout learns it from a test rather than from a report
+    - Built: the reading bar is **555 px** of an 1100 px window, the counter costing 119 px with its
+      separator (§Design budgets' argument was never about space)
 - **Corner-case document analysis** (`PLAN.md` §The corner-case document) — `IAS_CaseStudy.pdf`,
   owner-supplied: 75.6 MB, 18 pages of 1920×1080 pt, **no text layer**, 95 MB of embedded images.
   Opens in **11.19 s**, of which **10.0 s is `fz_run_display_list`** — decoding imagery, not our
