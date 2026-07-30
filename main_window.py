@@ -98,6 +98,7 @@ from viewer.pdf_view import PdfView
 from viewer.search import FindBar, SearchController, SearchResultsPanel
 from viewer.text_selection import TextSelection
 from viewer.tools import REDACT_TOOLS, ArmedTool, InteractionMode
+from viewer.page_widget import PageWidget
 from viewer.zoom_widget import ZoomWidget
 
 # Preference key for the sticky mark style. Style only — never the page range, whose stale value
@@ -607,6 +608,9 @@ class MainWindow(QMainWindow):
                     to_menu=view_menu, extra_shortcuts=("Ctrl+=",))
         # Live magnification indicator + preset/typed zoom (1.0 == 100%).
         self.zoom_widget = ZoomWidget(self.view)
+        # Live reading position + typed jump — `10 of 320` (M91.3). Built here, beside the zoom
+        # indicator it is modelled on: both are live readouts of the view, bound the same way.
+        self.page_widget = PageWidget(self.view)
         # self._a_* refs: these actions are also routed into the view's context menu (M46) — the
         # same QAction objects, so labels/shortcuts/enabled-state stay single-sourced.
         self._a_actual = act("Actual Size", self.view.actual_size, "Ctrl+0", to_menu=view_menu)  # reset to 100%
@@ -969,10 +973,18 @@ class MainWindow(QMainWindow):
         # and the redundant Rotate Right (Ctrl+R, Edit ▸ Rotate Right, sidebar right-click) leaves
         # rotate-left as the bar's only curved arrow. Open's return beside Save is a one-line review
         # call at the M71 pass.
+        #
+        # The page counter (M91.3) takes its own group **between the fit buttons and rotate** (owner
+        # placement, 2026-07-30), making the reading bar **11 slots** against §Design budgets'
+        # "modes-only, ~10". Owner call: taken. A live indicator is not a mode; the bar already
+        # carries one, so this is the established pattern rather than a new kind of thing; and the
+        # field *replaces* the Ctrl+G dialog trip for the common case instead of adding a verb.
+        # Space was never the constraint — the bar uses 436 px of an 1100 px window — the budget was.
         reading_groups = (
             [self._sidebar_button],
             [a_save],
             [a_zout, self.zoom_widget, a_zin, a_fitw, a_fitp],
+            [self.page_widget],
             [a_rotl],
             [markup_toggle],
             [a_find_toggle],
@@ -1420,6 +1432,11 @@ class MainWindow(QMainWindow):
         if self._edited_page is not None:
             self.view.set_current_page(self._edited_page)
             self._edited_page = None
+        # The counter's *total* is pushed from here rather than signalled: there is no
+        # `pageCountChanged`, and insert / delete / undo change the count without moving the current
+        # page, so binding it to `currentPageChanged` would leave "of 320" on screen after deleting
+        # ten pages. The current-page half needs nothing — the view emits it (M91.3).
+        self.page_widget.show_count()
         self.thumbs.populate()
         if self.outline is not None:
             self.outline.populate()  # live remapped_toc: the tree shows what a Save would write
