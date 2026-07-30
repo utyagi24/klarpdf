@@ -99,6 +99,15 @@ class OutlinePanel(QTreeWidget):
 
     # ---- navigation -------------------------------------------------------------
 
+    def keyPressEvent(self, event) -> None:
+        # `Space` pages the document, from this tab as much as from the Pages tab (M91.4) — the
+        # rule and the reason live in MainWindow.keyPressEvent; leaving it unaccepted is what
+        # carries it there. Everything else is the tree's own.
+        if event.key() == Qt.Key.Key_Space:
+            event.ignore()
+            return
+        super().keyPressEvent(event)
+
     def _on_current_item_changed(self, item, _previous) -> None:
         # Fires for clicks *and* keyboard moves; suppressed while we highlight programmatically.
         if not self._syncing and item is not None:

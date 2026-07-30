@@ -186,6 +186,15 @@ class AnnotationsPanel(QListWidget):
 
     # ---- activation -------------------------------------------------------------
 
+    def keyPressEvent(self, event) -> None:
+        # `Space` pages the document, from this tab as much as from the Pages tab (M91.4) — the
+        # rule and the reason live in MainWindow.keyPressEvent; leaving it unaccepted is what
+        # carries it there. Everything else is the list's own.
+        if event.key() == Qt.Key.Key_Space:
+            event.ignore()
+            return
+        super().keyPressEvent(event)
+
     def _on_item_clicked(self, item) -> None:
         page_index, mark, bounds = item.data(_ROLE)
         self.markActivated.emit(page_index, mark, bounds)

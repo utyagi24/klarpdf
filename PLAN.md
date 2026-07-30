@@ -1922,6 +1922,69 @@ Slideshow, which M78 made deliberately chrome-free; and in Two-Page mode the fie
 page as the rest of the app already defines it (M85 — largest visible area, ties to the earlier page)
 rather than a `10–11` span, so the field, the sidebar highlight and the outline tab cannot disagree.
 
+#### M91.4 — Space pages by a page, and the sidebar hands it over (owner-reported 2026-07-30)
+
+Three reports from the owner's testing pass on the new page counter, all against **M89.2's** `Space`
+paging. Two are the same defect seen from different sides; the third is a question, answered "no".
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M91.4** Space pages by a page | `Space` / `Shift+Space` / `PgDn` / `PgUp` step to a **reading stop** (`PdfView._reading_stops`) instead of the scrollbar's `SliderPageStep`: the top of each page, plus a tall page cut into the fewest **equal** steps that each fit a screenful. The sidebar panels leave `Space` unaccepted so it propagates to `MainWindow.keyPressEvent`, which hands it to `PdfView.reading_key`. A thumbnail **click** jumps even when it lands on the already-current row. | Windows (offscreen GUI) | Twelve presses from page 1 land on twelve page tops, each equal to `goto_page`'s offset; `PgDn` matches `Space`; a page taller than the screen takes equal steps ending on the next page's top; zoomed out, one press advances every page that fits; `Space` with focus in the Pages / Outline tab pages the document and leaves a staged multi-row selection alone; clicking the current thumbnail re-seats the view |
+
+**The drift is one `_PAGE_GAP` per press, and it is arithmetic, not a race (measured 2026-07-30).**
+`SliderPageStepAdd` advances by the scrollbar's `pageStep`, which `QGraphicsView` sets to the
+**viewport height**. The strip advances by the **page pitch**. At Fit Page those are not the same
+number and cannot be: `_fit_zoom` reserves `2 * _PAGE_GAP` of margin, so the page is `viewport −
+2·gap` tall, and the layout puts one gap back between consecutive pages — pitch `= viewport − gap`.
+Measured in an 1100×800 window: viewport 746, page 718, pitch 732, `pageStep` 746. **Every press
+overshoots by exactly 14 px**, and nothing ever resets it:
+
+| press | scroll offset | page 1's own top | slip | what fills the window |
+| --- | --- | --- | --- | --- |
+| 1 | 746 | 732 | 14 | page 2 (100%), 2% of page 3 |
+| 9 | 6714 | 6588 | 126 | page 10 (84%), 18% of page 11 |
+| ~27 | — | — | ~380 | **the counter says 28 while page 27 fills the top half** |
+
+That last row is the owner's report verbatim — "if I am on page 10, what I see on screen is bottom
+half of page 9 and top half of page 10". The counter is not lying: M85 resolves the current page by
+largest visible area, so once the slip passes half a screen the *next* page wins the count while the
+*previous* one still fills the top of the window. Both readings are correct; the scroll offset is
+what is wrong.
+
+**Why a reading stop, and why the subdivision is equal.** One rule covers three cases that would
+otherwise each need their own: a page that fits advances exactly one page; several pages that fit at
+once (zoomed out) advance as many whole pages as the screen holds, still aligned — hence *furthest*
+stop within reach, not nearest; and a page taller than the screen takes equal steps. Equal, rather
+than "a screenful, then whatever is left", because the remainder can be a handful of pixels — a press
+that visibly does nothing — and since every page of a document is usually the same height, it would
+do nothing **once per page, for the whole document**. Consecutive stops are at most a screenful apart
+by construction, so a press always finds one. `PgDn`/`PgUp` are taken off Qt for the same reason:
+M89.2's promise is that they and `Space` are one verb, and left to the base class they would have
+drifted from the page *and* from `Space`.
+
+**The sidebar was not inert — it was eating the key.** `QAbstractItemView::keyPressEvent` **accepts**
+`Space`, so Qt's key propagation stopped at the panel and the view never saw it: with focus in the
+sidebar the document could not be paged at all, and the only way back was to click the page. Worse,
+what Qt does with the key is `selectionCommand` → `Select`, which **adds the current row to the
+selection** — the selection Delete Pages and Rotate act on. So the answer to "is that expected?" is
+no twice over: the key was dead *and* it was quietly staging a page the reader never picked.
+
+The fallback lives in `MainWindow.keyPressEvent`, which is the same decision M89.2 recorded, read the
+other way round. A **`QAction` shortcut** fires *before* the focused widget sees the key, which is why
+`Space` must never be one — it would be stolen from the inline text-box and form-field editors. A
+**window `keyPressEvent`** runs only after every widget in the chain has declined it, so an editor
+still types its space and a reader in the sidebar still turns the page. Only `Space` is handed over:
+the arrows, `PgUp`/`PgDn` and `Home`/`End` all mean something in a page list, and each jumps the view
+through `pageActivated` anyway.
+
+**And a thumbnail click must always jump.** `ThumbnailPanel` announced clicks through
+`currentRowChanged`, which fires only when the row **changes** — but the view drags the highlight
+along as the reader scrolls, so scrolling away from page 1 and clicking page 1's thumbnail to get
+back did *nothing*: the row was already 0. That is the second half of the owner's "clicking on page 1
+again … requires multiple attempts" — the click was a no-op and the `Space` presses that followed
+were being eaten by the panel. `OutlinePanel` and `AnnotationsPanel` already jump from `itemClicked`;
+this makes the three agree.
+
 ### The corner-case document — what it taught us (measured 2026-07-27)
 
 `IAS_CaseStudy.pdf`: 75.6 MB, 18 pages, all 1920×1080 pt, **no text layer at all** (`chars == 0` on

@@ -1365,6 +1365,21 @@ class MainWindow(QMainWindow):
             self._exit_chromeless()
             event.accept()
             return
+        # **A paging key nothing else claimed belongs to the document** (M91.4). Qt delivers a key
+        # to the focused widget and propagates it up the parent chain only while it stays
+        # *unaccepted*, so with focus in the sidebar `Space` never reached the view at all — and
+        # `QAbstractItemView` accepts it, quietly adding the current thumbnail to the very selection
+        # Delete Pages and Rotate act on. So the panels hand it over (see ThumbnailPanel.
+        # keyPressEvent) and it lands here, one step below the window: the reader's eyes are on the
+        # page whatever the focus ring says, which is how Preview, Acrobat and Edge read it too.
+        #
+        # This is the fallback M89.2 deliberately refused to make a **QAction shortcut** — and the
+        # distinction is the whole point. A shortcut fires *before* the focused widget sees the key,
+        # so `Space` would be stolen from the inline text-box and form-field editors; this runs only
+        # after every widget in the chain has declined it, so an editor still types its space.
+        if self.view.reading_key(event):
+            event.accept()
+            return
         super().keyPressEvent(event)
 
     def _show_properties(self) -> None:

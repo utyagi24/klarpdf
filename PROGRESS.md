@@ -1669,11 +1669,12 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
       adds is the interface following it — the grey read-only badge becomes a coloured editable one
       holding the same words, pinned end to end
 - [x] **M91** Whitespace fidelity, glyph legibility, reading position — three defects from the
-  owner's post-M90 testing pass (2026-07-29). Independent of one another, all three **view-layer**
-  (no model, no save path, no round-trip), **one PR per part**. Spec + the measurements behind each
-  in `PLAN.md` §M91. **The numbering is the build order** (owner request), which is not the order the
-  three were reported in: fidelity bugs before features, the owner-gated pick in the middle so it is
-  in flight while something else is reviewable, and the part that *adds* surface last.
+  owner's post-M90 testing pass (2026-07-29), plus **M91.4**, three more the pass on M91.3 itself
+  turned up. Independent of one another, all **view-layer** (no model, no save path, no
+  round-trip), **one PR per part**. Spec + the measurements behind each in `PLAN.md` §M91. **The
+  numbering is the build order** (owner request), which is not the order the first three were
+  reported in: fidelity bugs before features, the owner-gated pick in the middle so it is in flight
+  while something else is reviewable, and the part that *adds* surface last.
   - [x] **M91.1** **A text box paints its leading spaces.** Owner-reported as truncation, then
     refined on re-test: the spaces *are* saved, the box *paints* without them, and they reappear only
     in edit mode. Measured: the model, the bake (`(    hello) Tj`) and the round-trip are all
@@ -1757,6 +1758,39 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
       the next person to add a floating readout learns it from a test rather than from a report
     - Built: the reading bar is **555 px** of an 1100 px window, the counter costing 119 px with its
       separator (§Design budgets' argument was never about space)
+  - [x] **M91.4** **`Space` pages by a page, and the sidebar hands it over** — three reports from the
+    owner's testing pass on the new counter (2026-07-30), all against **M89.2**. `Space` was the
+    scrollbar's `SliderPageStepAdd`, which advances by the **viewport height**; the strip advances by
+    the **page pitch**, and at Fit Page those cannot be equal — `_fit_zoom` reserves `2 * _PAGE_GAP`
+    of margin and the layout puts one gap back between pages, so the pitch is one gap *less*.
+    Measured at 1100×800: viewport 746, page 718, pitch 732 — **every press overshoots by exactly
+    14 px and nothing resets it** (126 px by page 10, past half a screen by page ~27, where M85's
+    largest-visible-area rule hands the count to the *next* page while the previous one still fills
+    the top of the window: the owner's "it says 10, I'm looking at the bottom half of 9"). Both
+    readings were right; the scroll offset was wrong. Now every paging key steps to a **reading
+    stop** — each page's top, plus a tall page cut into the fewest *equal* steps that each fit a
+    screenful — and takes the **furthest** one within a screenful, so a zoomed-out view still
+    advances every page it shows. `PgDn`/`PgUp` come off Qt to keep M89.2's promise that they and
+    `Space` are one verb — *Windows (offscreen GUI)* — 16 new tests, 13 of them verified red,
+    1601 green ([#225](https://github.com/utyagi24/klarpdf/pull/225))
+    - **The sidebar was not inert — it was eating the key.** `QAbstractItemView` *accepts* `Space`,
+      so Qt's propagation stopped at the panel and the document could not be paged at all while
+      focus was there; and what Qt does with it is add the current row to **the selection Delete
+      Pages and Rotate act on**. So "is that expected behaviour?" is no twice over: dead *and*
+      quietly staging a page the reader never picked. The panels now leave it unaccepted and
+      `MainWindow.keyPressEvent` hands it to the view — which is M89.2's own decision read the other
+      way round: a **`QAction` shortcut** fires *before* the focused widget, so `Space` must never be
+      one; a **window `keyPressEvent`** runs only after every widget has declined it, so the inline
+      editors still type their space. Pinned by the existing form-field test
+    - **A thumbnail click now jumps even onto the already-current row.** It was announced through
+      `currentRowChanged`, which fires only when the row *changes* — but the view drags the highlight
+      along as you read, so scrolling away from page 1 and clicking page 1's thumbnail to get back
+      did nothing. That is the other half of "clicking on page 1 again … requires multiple attempts":
+      a no-op click, then presses the panel swallowed. `OutlinePanel`/`AnnotationsPanel` already
+      jumped from `itemClicked`; the three now agree
+    - Only `Space` is handed over. The arrows, `PgUp`/`PgDn` and `Home`/`End` all mean something in a
+      page list and each jumps the view through `pageActivated` anyway — pinned, so the next person
+      to reach for "route the reading keys to the document" learns the boundary from a test
 - **Corner-case document analysis** (`PLAN.md` §The corner-case document) — `IAS_CaseStudy.pdf`,
   owner-supplied: 75.6 MB, 18 pages of 1920×1080 pt, **no text layer**, 95 MB of embedded images.
   Opens in **11.19 s**, of which **10.0 s is `fz_run_display_list`** — decoding imagery, not our

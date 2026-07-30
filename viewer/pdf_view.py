@@ -27,7 +27,6 @@ import pymupdf as fitz
 from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QGuiApplication, QImage, QPen, QPixmap, QTransform
 from PySide6.QtWidgets import (
-    QAbstractSlider,
     QApplication,
     QGraphicsPixmapItem,
     QGraphicsRectItem,
@@ -924,11 +923,24 @@ class PdfView(QGraphicsView):
             return
         super().keyPressEvent(event)
 
-    def _navigation_key(self, event) -> bool:
-        """``Home``/``End`` jump to the document's start/end (M89.1); ``Space``/``Shift+Space``
-        page down/up (M89.2). Returns whether the key was ours.
+    def reading_key(self, event) -> bool:
+        """Handle a paging key that reached the **window** because nothing with focus claimed it.
 
-        Qt leaves all five dead in this view: ``QAbstractScrollArea`` binds ``Home``/``End`` only on
+        The sidebar panels hand ``Space`` over rather than swallowing it (M91.4), and it arrives
+        here by ordinary key propagation — see :meth:`main_window.MainWindow.keyPressEvent`, which
+        is the one caller. Returns whether the key was ours.
+
+        The slideshow keeps its own keys: there the reader is stepping *slides*, and a scroll would
+        be the wrong verb. Nothing routes here in that mode anyway — M78 hides the sidebar — but the
+        guard is what makes that a decision rather than an accident.
+        """
+        return False if self._slideshow else self._navigation_key(event)
+
+    def _navigation_key(self, event) -> bool:
+        """``Home``/``End`` jump to the document's start/end (M89.1); ``Space``/``Shift+Space`` and
+        ``PgDn``/``PgUp`` page down/up (M89.2, corrected by M91.4). Returns whether the key was ours.
+
+        Qt left all five dead in this view: ``QAbstractScrollArea`` binds ``Home``/``End`` only on
         macOS, and ``Space`` nowhere — so the two gestures a reader reaches for most in a long
         document did nothing, while ``PgUp``/``PgDn`` worked.
 
@@ -936,8 +948,11 @@ class PdfView(QGraphicsView):
         strip has no "line" for the bare form to go to the start of, to a reader the Ctrl'd and bare
         forms are the same gesture, and Preview, Edge and Chrome bind them alike in a PDF. Both are
         the scrollbar's minimum/maximum — the literal reading, and it lets :meth:`_on_scroll` update
-        the current page for free. ``Space`` is the same ``SliderPageStep`` the working
-        ``PgDn``/``PgUp`` already trigger.
+        the current page for free.
+
+        ``PgDn``/``PgUp`` are **taken off Qt** here (M91.4) rather than left to the base class: they
+        page by the same wrong distance ``Space`` did, and M89.2's own promise is that the two keys
+        are one verb. Only the bare form; anything modified falls through untouched.
 
         **These live here rather than as window-level ``QAction`` shortcuts on purpose** — as does
         the ``Ctrl+A`` above, which points at this paragraph. A window shortcut fires wherever focus
@@ -963,10 +978,94 @@ class PdfView(QGraphicsView):
             vbar.setValue(vbar.minimum() if key == Qt.Key.Key_Home else vbar.maximum())
             return True
         if key == Qt.Key.Key_Space and mods in (none, shift):
-            vbar.triggerAction(QAbstractSlider.SliderAction.SliderPageStepSub if mods == shift
-                               else QAbstractSlider.SliderAction.SliderPageStepAdd)
+            self._page_scroll(forward=mods != shift)
+            return True
+        if key in (Qt.Key.Key_PageDown, Qt.Key.Key_PageUp) and mods == none:
+            self._page_scroll(forward=key == Qt.Key.Key_PageDown)
             return True
         return False
+
+    def _reading_stops(self, near: int, reach: int) -> list[int]:
+        """The scroll offsets a paging key may land on within ``reach`` of offset ``near``,
+        ascending: **the top of each page**, plus — for a page taller than the viewport — that page
+        cut into the fewest **equal** steps that each still fit a screenful.
+
+        This list is the whole of M91.4. ``Space`` used to be the scrollbar's own ``SliderPageStep``,
+        which advances by the **viewport height**; the strip advances by the **page pitch**, which at
+        Fit Page is one ``_PAGE_GAP`` *less* (the fit leaves ``2 * _PAGE_GAP`` of margin and the
+        layout puts one gap back between the pages). So every press overshot by exactly 14 px and the
+        error accumulated: measured 126 px into the screen by page 10 and past half a screen by page
+        ~27, at which point the page counter reads one ahead of the page filling the top of the
+        window — the owner's "bottom half of page 9 and top half of page 10 while it says 10".
+
+        Landing on a stop instead of a raw screenful fixes that by construction and is one rule for
+        three cases: **a page that fits** advances exactly one page; **several pages that fit at
+        once** (zoomed out) advance as many whole pages as the screen holds, still aligned; **a page
+        taller than the screen** takes equal steps whose last one lands exactly on the next page's
+        top. That last part is why the subdivision is *equal* rather than "a screenful, then the
+        remainder": the remainder can be a handful of pixels, i.e. a press that visibly does nothing,
+        and — since every page of a document is usually the same height — it would do nothing once
+        per page, for ever.
+
+        Consecutive stops are at most a screenful apart by construction, so :meth:`_page_scroll`
+        always finds one within reach; a reader who wheeled to an arbitrary offset is put back on the
+        page's own grid by their next press.
+
+        **Bounded by the viewport, not the document.** Only the pages a single step could reach are
+        walked — ``_page_tops`` is non-decreasing, so two bisections find them — which keeps this the
+        same work in a 5000-page document as in a five-page one. Building the whole list would cost a
+        few milliseconds per press and be invisible next to the rasterise a page turn already pays,
+        but O(document) in an input path is the trap M87.3 and M78.8 were spent closing, and it does
+        not get to come back through the keyboard.
+        """
+        vbar = self.verticalScrollBar()
+        screen = max(1, vbar.pageStep())
+        if not self._page_tops:
+            return []
+        # ``_page_tops`` holds each page's scene y; the offset that puts its top edge under the
+        # viewport's is that minus the gap above it — goto_page's arithmetic, so a paged step and a
+        # clicked thumbnail land on the same pixel. Hence the +_PAGE_GAP converting the wanted band
+        # of *offsets* back into the scene y the bisections search.
+        first = max(0, bisect_right(self._page_tops, near - reach + _PAGE_GAP) - 1)
+        last = min(len(self._page_tops) - 1,
+                   bisect_right(self._page_tops, near + reach + _PAGE_GAP))
+        edges = sorted({int(y) - _PAGE_GAP for y in self._page_tops[first:last + 1]})
+        # The edge that *closes* the last page's segment: the top of the next page, or the end of
+        # the document when there is none. Found by value, not by ``last + 1`` — a facing row's two
+        # pages share a y (M78), and the page after `last` can be its partner rather than the next
+        # row, which would close the segment against itself and leave the row unsteppable.
+        after = bisect_right(self._page_tops, self._page_tops[last])
+        edges.append(int(self._page_tops[after]) - _PAGE_GAP if after < len(self._page_tops)
+                     else max(vbar.maximum(), edges[-1]))
+        stops: list[int] = []
+        for lo, hi in zip(edges, edges[1:]):
+            span = hi - lo
+            if span <= 0:
+                stops.append(lo)                # a facing row's second page: same top, no segment
+                continue
+            n = -(-span // screen)          # ceil: the fewest equal steps that each fit a screenful
+            stops.extend(lo + round(j * span / n) for j in range(n))
+        stops.append(edges[-1])
+        # Zoomed out far enough, the strip is barely longer than the viewport and the last pages'
+        # tops sit past where the bar can scroll to. A stop the bar cannot reach is not a stop.
+        return sorted({min(max(s, vbar.minimum()), vbar.maximum()) for s in stops})
+
+    def _page_scroll(self, forward: bool) -> None:
+        """One paging step — the **furthest reading stop within one screenful**.
+
+        Furthest, not nearest, so a zoomed-out view showing five pages still advances five. With no
+        stop in reach (only at the very end of the document, where the last stop is behind us) it
+        falls back to the plain screenful and the bar clamps it, so the key still means "onwards".
+        """
+        vbar = self.verticalScrollBar()
+        value, screen = vbar.value(), vbar.pageStep()
+        stops = self._reading_stops(value, screen)
+        if forward:
+            reachable = [s for s in stops if value < s <= value + screen]
+            vbar.setValue(max(reachable) if reachable else value + screen)
+        else:
+            reachable = [s for s in stops if value - screen <= s < value]
+            vbar.setValue(min(reachable) if reachable else value - screen)
 
     def wheelEvent(self, event) -> None:
         """**Ctrl+wheel zooms** (M80), **Shift+wheel pans horizontally** (M89.3); in the slideshow
