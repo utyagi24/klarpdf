@@ -1785,44 +1785,30 @@ sidebar, because a sidebar-only note is undiscoverable when the sidebar is close
 neither reaches note text. And a document whose *only* marks are notes-on-highlights already has
 listed markup, so the Annotations tab's existence check needs nothing new.
 
-### M91 — Reading position, glyph legibility, whitespace fidelity (owner-reported 2026-07-29)
+### M91 — Whitespace fidelity, glyph legibility, reading position (owner-reported 2026-07-29)
 
 Three defects from the owner's post-M90 testing pass. Independent of one another and grouped only
 because they arrived together, each is small, and all three are **view-layer**: no model change, no
 save path, no round-trip. One PR per part.
 
+**The numbering is the build order** (owner request, 2026-07-29), which is *not* the order the three
+were reported in. Three reasons, in decreasing weight. **Fidelity bugs before features:** M91.1 is the
+only part where what the app shows and what it saves disagree, and a viewer that renders its own
+annotations wrongly is a worse thing to be carrying than a missing indicator. **The owner-gated part
+sits in the middle:** M91.2 cannot be finished without a pick from rendered candidates, so it wants to
+be in flight while something else is reviewable, not first (where it blocks) or last (where it delays
+the release on a round-trip). **The part that adds surface goes last:** M91.3 is the only one that adds
+a widget, a toolbar slot and a new binding rather than correcting something that exists, so it is the
+one whose review is worth having the other two already settled — and the only one that spends the
+slot the §Design budgets note argues over, which is a decision better made against a finished bar.
+
 | Milestone | What | Where | Verify |
 | --- | --- | --- | --- |
-| **M91.1** Page counter | An **editable page field on the reading bar** — `[ 10 ] of 320` — two-way bound to `PdfView.currentPageChanged` exactly as `ZoomWidget` is bound to `zoomChanged`: the view is the one source of truth, typing a number + Enter calls `goto_page`, out-of-range clamps and echoes the clamped value back, garbage restores the live one. New `viewer/page_widget.py`, mirroring `viewer/zoom_widget.py`. The **total** refreshes from `_on_doc_changed` — there is no `pageCountChanged` signal, and insert / delete / undo change the count without moving the current page. Its own group between Save and the zoom cluster. | WSLg / Windows (offscreen GUI) | Opens showing `1 of N`; scrolling updates it; typing a page jumps; out-of-range clamps; deleting pages updates the total and undo restores it; a wheel scroll over the bar never steals focus from the view |
+| **M91.1** A text box paints its leading spaces | `_paint_textbox` draws **one `QGraphicsSimpleTextItem` per line**, each line's leading-whitespace run removed from the string and paid for as an **x offset** (`QFontMetricsF.horizontalAdvance(indent)`); vertical centring switches to `len(lines) * lineSpacing()` since no single item spans the box any more. Separately, `_wrap_textbox_lines` stops eating the indent of every line it wraps. Two other surfaces strip under the same rule and are fixed with it. | WSL (model) + WSLg | A box typed `"    hello"` paints its ink indented with no slack left on the right; a two-line box paints each line at its own indent; a width-dragged box keeps the indents when it wraps; an all-whitespace box is still dropped; the round-trip tests do not move — this is a paint fix, so the saved bytes are unchanged |
 | **M91.2** Rotate stops reading as Undo | Redraw `rotate-left.svg` — and `rotate-right.svg`, which shares the Edit menu and the sidebar context menu — as **a page with an arrow arcing over one corner**, replacing the bare circular arrow. Three candidates rendered at 16/20/24 px for the owner to pick from, as M78.4 did for Grab / Text Box / Pen; both names join `POLISHED_ICONS` in `tests/test_icons.py` so the QtSvg-safety, not-blank and centring assertions cover them. | WSLg (rendered grabs) | At 20 px the glyph is unmistakably a page being turned; `test_icons.py`'s polish assertions pass for both names; both re-tint on a theme change (they already carry `iconName`, so `_retint_icons` covers them) |
-| **M91.3** A text box paints its leading spaces | `_paint_textbox` draws **one `QGraphicsSimpleTextItem` per line**, each line's leading-whitespace run removed from the string and paid for as an **x offset** (`QFontMetricsF.horizontalAdvance(indent)`); vertical centring switches to `len(lines) * lineSpacing()` since no single item spans the box any more. Separately, `_wrap_textbox_lines` stops eating the indent of every line it wraps. Two other surfaces strip under the same rule and are fixed with it. | WSL (model) + WSLg | A box typed `"    hello"` paints its ink indented with no slack left on the right; a two-line box paints each line at its own indent; a width-dragged box keeps the indents when it wraps; an all-whitespace box is still dropped; the round-trip tests do not move — this is a paint fix, so the saved bytes are unchanged |
+| **M91.3** Page counter | An **editable page field on the reading bar** — `[ 10 ] of 320` — two-way bound to `PdfView.currentPageChanged` exactly as `ZoomWidget` is bound to `zoomChanged`: the view is the one source of truth, typing a number + Enter calls `goto_page`, out-of-range clamps and echoes the clamped value back, garbage restores the live one. New `viewer/page_widget.py`, mirroring `viewer/zoom_widget.py`. The **total** refreshes from `_on_doc_changed` — there is no `pageCountChanged` signal, and insert / delete / undo change the count without moving the current page. Its own group between Save and the zoom cluster. | WSLg / Windows (offscreen GUI) | Opens showing `1 of N`; scrolling updates it; typing a page jumps; out-of-range clamps; deleting pages updates the total and undo restores it; a wheel scroll over the bar never steals focus from the view |
 
-**M91.1 — why it is needed, and what it costs.** `sidebar_visible` defaults to **`False`**, so out of
-the box the app gives a reader **no** position indication whatsoever: the sidebar's current-thumbnail
-highlight is the only one that exists today, and on a 320-page document that is the difference between
-reading and guessing. The field makes the reading bar **11 slots** against §Design budgets' "modes-only,
-~10" — **owner call 2026-07-29: taken**, on three grounds. A live indicator is not a mode; the bar
-already carries one (zoom), so this is the established pattern rather than a new kind of thing; and the
-field *replaces* a dialog trip (Ctrl+G) for the common case instead of adding a verb. Measured, the bar
-uses 436 px of an 1100 px window, so space was never the constraint — the budget was.
-
-**Recorded non-goals**, so they are not re-proposed as free wins: no ◀ ▶ prev/next buttons (two more
-slots for what the wheel, PgUp/PgDn and M89.1's Home/End already do); no counter in Full Screen or
-Slideshow, which M78 made deliberately chrome-free; and in Two-Page mode the field shows the **current**
-page as the rest of the app already defines it (M85 — largest visible area, ties to the earlier page)
-rather than a `10–11` span, so the field, the sidebar highlight and the outline tab cannot disagree.
-
-**M91.2 — why v0.16.2 did not already fix this.** `rotate-left.svg` is Feather's `rotate-ccw`: a ~340°
-circle with an arrowhead and **nothing being rotated**. That is the universal *undo / reload* mark, so
-the button reads as Undo **on its own merits**, which is why removing its neighbouring curved arrows in
-v0.16.2 left the misreading intact — the owner still reports having to remind himself not to click it to
-undo. The same bar already establishes *rounded rect = the page* in `fit-width` and `fit-page`; rotate is
-the one page operation whose glyph contains no page. **Owner call 2026-07-29:** redraw, and keep the
-single direction (Rotate Left, as Preview's own toolbar does). Rejected with reasons: *dropping* the
-button (a frequent verb for sideways scans would lose its one-click path), and *restoring both
-directions* (a mirrored pair is exactly what v0.16.2 set out to remove).
-
-**M91.3 — the fault is not where it looks (measured 2026-07-29).** The owner reported a text box
+**M91.1 — the fault is not where it looks (measured 2026-07-29).** The owner reported a text box
 truncating leading spaces, then re-tested and refined it: the spaces **are** saved, but the box **paints**
 without them, and they reappear only on double-click into edit mode. That is exactly right, and it
 narrows to one Qt behaviour:
@@ -1869,6 +1855,31 @@ tofu fallback's metrics and pass for the wrong reason. Assert the relative invar
 line's item starts further right than the same line unindented, by that font's own measured advance for
 that indent. (This is also why the zoom combo renders as `□□□` in offscreen grabs — a rendering artifact
 of the test platform, not a defect.)
+
+**M91.2 — why v0.16.2 did not already fix this.** `rotate-left.svg` is Feather's `rotate-ccw`: a ~340°
+circle with an arrowhead and **nothing being rotated**. That is the universal *undo / reload* mark, so
+the button reads as Undo **on its own merits**, which is why removing its neighbouring curved arrows in
+v0.16.2 left the misreading intact — the owner still reports having to be reminded not to click it to
+undo. The same bar already establishes *rounded rect = the page* in `fit-width` and `fit-page`; rotate is
+the one page operation whose glyph contains no page. **Owner call 2026-07-29:** redraw, and keep the
+single direction (Rotate Left, as Preview's own toolbar does). Rejected with reasons: *dropping* the
+button (a frequent verb for sideways scans would lose its one-click path), and *restoring both
+directions* (a mirrored pair is exactly what v0.16.2 set out to remove).
+
+**M91.3 — why it is needed, and what it costs.** `sidebar_visible` defaults to **`False`**, so out of
+the box the app gives a reader **no** position indication whatsoever: the sidebar's current-thumbnail
+highlight is the only one that exists today, and on a 320-page document that is the difference between
+reading and guessing. The field makes the reading bar **11 slots** against §Design budgets' "modes-only,
+~10" — **owner call 2026-07-29: taken**, on three grounds. A live indicator is not a mode; the bar
+already carries one (zoom), so this is the established pattern rather than a new kind of thing; and the
+field *replaces* a dialog trip (Ctrl+G) for the common case instead of adding a verb. Measured, the bar
+uses 436 px of an 1100 px window, so space was never the constraint — the budget was.
+
+**Recorded non-goals**, so they are not re-proposed as free wins: no ◀ ▶ prev/next buttons (two more
+slots for what the wheel, PgUp/PgDn and M89.1's Home/End already do); no counter in Full Screen or
+Slideshow, which M78 made deliberately chrome-free; and in Two-Page mode the field shows the **current**
+page as the rest of the app already defines it (M85 — largest visible area, ties to the earlier page)
+rather than a `10–11` span, so the field, the sidebar highlight and the outline tab cannot disagree.
 
 ### The corner-case document — what it taught us (measured 2026-07-27)
 

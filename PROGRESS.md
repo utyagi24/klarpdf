@@ -1668,26 +1668,13 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     - Adoption needed no new model work: **M81.3 already carries the comment across**. What M90.4
       adds is the interface following it — the grey read-only badge becomes a coloured editable one
       holding the same words, pinned end to end
-- [ ] **M91** Reading position, glyph legibility, whitespace fidelity — three defects from the
+- [ ] **M91** Whitespace fidelity, glyph legibility, reading position — three defects from the
   owner's post-M90 testing pass (2026-07-29). Independent of one another, all three **view-layer**
   (no model, no save path, no round-trip), **one PR per part**. Spec + the measurements behind each
-  in `PLAN.md` §M91.
-  - [ ] **M91.1** A **page counter on the reading bar** — `[ 10 ] of 320`, editable, two-way bound to
-    `currentPageChanged` exactly as `ZoomWidget` is bound to `zoomChanged`. `sidebar_visible`
-    defaults to **`False`**, so today a reader gets **no** position indication out of the box; the
-    sidebar's current-thumbnail highlight is the only one that exists. Owner call: the 11th slot
-    against the "~10, modes-only" budget is **taken** — a live indicator is not a mode, the bar
-    already carries one, and the field replaces the Ctrl+G dialog trip rather than adding a verb.
-    Non-goals recorded so they aren't re-proposed: no ◀ ▶ buttons, nothing in Full Screen /
-    Slideshow, and Two-Page shows the current page (M85's definition), not a `10–11` span
-  - [ ] **M91.2** **Rotate stops reading as Undo** — `rotate-left.svg` is Feather's `rotate-ccw`: a
-    ~340° circle with an arrowhead and **nothing being rotated**, i.e. the universal undo/reload
-    mark. So it reads as Undo *on its own merits*, which is why v0.16.2's removal of the neighbouring
-    curved arrows didn't fix it. Redraw both rotate glyphs as **a page with an arrow arcing over one
-    corner** (3 candidates rendered for the owner to pick, as M78.4 did); the bar already establishes
-    *rounded rect = the page* in fit-width/fit-page. Owner call: redraw, keep the single direction —
-    dropping the button and restoring both directions were both rejected
-  - [ ] **M91.3** **A text box paints its leading spaces.** Owner-reported as truncation, then
+  in `PLAN.md` §M91. **The numbering is the build order** (owner request), which is not the order the
+  three were reported in: fidelity bugs before features, the owner-gated pick in the middle so it is
+  in flight while something else is reviewable, and the part that *adds* surface last.
+  - [ ] **M91.1** **A text box paints its leading spaces.** Owner-reported as truncation, then
     refined on re-test: the spaces *are* saved, the box *paints* without them, and they reappear only
     in edit mode. Measured: the model, the bake (`(    hello) Tj`) and the round-trip are all
     correct — **`QGraphicsSimpleTextItem` reserves leading whitespace in `boundingRect()` but paints
@@ -1701,6 +1688,21 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     identifier), while every all-blank drop stays. Also recorded: the headless platform resolves
     **no font at all** (every glyph, space included, measures exactly 1 em), so no test here may
     assert an absolute text pixel offset
+  - [ ] **M91.2** **Rotate stops reading as Undo** — `rotate-left.svg` is Feather's `rotate-ccw`: a
+    ~340° circle with an arrowhead and **nothing being rotated**, i.e. the universal undo/reload
+    mark. So it reads as Undo *on its own merits*, which is why v0.16.2's removal of the neighbouring
+    curved arrows didn't fix it. Redraw both rotate glyphs as **a page with an arrow arcing over one
+    corner** (3 candidates rendered for the owner to pick, as M78.4 did); the bar already establishes
+    *rounded rect = the page* in fit-width/fit-page. Owner call: redraw, keep the single direction —
+    dropping the button and restoring both directions were both rejected
+  - [ ] **M91.3** A **page counter on the reading bar** — `[ 10 ] of 320`, editable, two-way bound to
+    `currentPageChanged` exactly as `ZoomWidget` is bound to `zoomChanged`. `sidebar_visible`
+    defaults to **`False`**, so today a reader gets **no** position indication out of the box; the
+    sidebar's current-thumbnail highlight is the only one that exists. Owner call: the 11th slot
+    against the "~10, modes-only" budget is **taken** — a live indicator is not a mode, the bar
+    already carries one, and the field replaces the Ctrl+G dialog trip rather than adding a verb.
+    Non-goals recorded so they aren't re-proposed: no ◀ ▶ buttons, nothing in Full Screen /
+    Slideshow, and Two-Page shows the current page (M85's definition), not a `10–11` span
 - **Corner-case document analysis** (`PLAN.md` §The corner-case document) — `IAS_CaseStudy.pdf`,
   owner-supplied: 75.6 MB, 18 pages of 1920×1080 pt, **no text layer**, 95 MB of embedded images.
   Opens in **11.19 s**, of which **10.0 s is `fz_run_display_list`** — decoding imagery, not our
