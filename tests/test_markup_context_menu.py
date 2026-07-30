@@ -68,15 +68,21 @@ def _highlights(win, page_index=0) -> list:
 # ---- the shape the owner asked for -------------------------------------------
 
 
-def test_menu_is_three_swatch_rows_and_nothing_else(win):
-    """Preview's layout: Highlight · Underline · Strike Out sections, each one dot row — and no
-    worded entries at all."""
+def test_the_layer_change_set_is_three_swatch_rows_and_no_words(win):
+    """Preview's layout: Highlight · Underline · Strike Out sections, each one dot row — and not a
+    single worded entry among them.
+
+    The rows are the *complete* change set for which layers sit on the words, which is what M76.1
+    stripped the trailing "Remove <noun>" to make true. M90.1's note verbs sit below them behind a
+    divider and are excluded here deliberately: a note is a property of the mark, not a layer on
+    the text, and it duplicates no dot (see :func:`test_exactly_one_removal_path_per_layer`)."""
     box = _word_box(win)
     win.vdoc.add_annotation(0, Highlight((box,), color=YELLOW))
     win.view.reload()
     menu = _menu_over(win, box)
     assert [r.title for r in _rows(menu)] == ["Highlight", "Underline", "Strike Out"]
-    assert [a.text() for a in menu.actions() if a.text()] == []  # dots, not words
+    words = [a.text() for a in menu.actions() if a.text()]
+    assert words == ["Add Note…"]                                # dots, not words — bar the note
     assert [b for r in _rows(menu) for b in r.buttons] == (
         [n for n, _ in HIGHLIGHT_COLORS] + [n for n, _ in TEXT_LINE_COLORS] * 2)
 
@@ -95,6 +101,38 @@ def test_exactly_one_removal_path_per_layer(win):
     row.remove_button.click()
     assert _highlights(win) == []               # the dot removes…
     assert win.undo_stack.canUndo()             # …undoably, like the old entry
+
+
+def test_recolouring_from_the_menu_keeps_an_attached_note(win):
+    """Owner-reported 2026-07-29: *"when I change the highlight colour via context menu, any
+    previously attached note is gone"*.
+
+    The exact reported gesture, end to end — the swatch dot, not the merge function underneath it.
+    A recolour deletes nothing, so nothing typed may be lost; the cause was `merge_markup` dropping
+    a fully-covered mark without rescuing its note (see `test_markup_notes.py`).
+    """
+    box = _word_box(win)
+    win.vdoc.add_annotation(0, Highlight((box,), color=YELLOW, note="check this figure"))
+    win.view.reload()
+
+    _row(_menu_over(win, box), "Highlight").buttons["Green"].click()
+
+    (mark,) = _highlights(win)
+    assert mark.color == GREEN
+    assert mark.note == "check this figure"        # …and the remark came with it
+    win.undo_stack.undo()
+    assert _highlights(win)[0].note == "check this figure"
+
+
+def test_removing_a_layer_from_the_menu_still_takes_its_note(win):
+    """The other side of that fix: the slashed dot is an explicit delete, and a note dies with its
+    host (owner rule 2). Guards against "keep the note" being applied one branch too widely."""
+    box = _word_box(win)
+    win.vdoc.add_annotation(0, Highlight((box,), color=YELLOW, note="goes with it"))
+    win.view.reload()
+
+    _row(_menu_over(win, box), "Highlight").remove_button.click()
+    assert _highlights(win) == []
 
 
 def test_rows_ring_the_current_state(win):

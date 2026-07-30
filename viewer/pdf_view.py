@@ -87,6 +87,7 @@ class PdfView(QGraphicsView):
     cropDragged = Signal(int, tuple)  # an armed CROP drag finished: (page_index, content box) — M48
     foreignMoved = Signal(int, object, float, float)  # a foreign annotation was dragged — M67
     foreignAdopt = Signal(int, object)  # a foreign annotation was double-clicked — M68
+    noteGlyphClicked = Signal(int, object)  # an on-page note badge was clicked: (page, mark) — M90.2
 
     def __init__(self, vdoc: VirtualDocument, parent=None) -> None:
         super().__init__(parent)
@@ -456,8 +457,9 @@ class PdfView(QGraphicsView):
         self._reposition_overlay_editors()  # an open inline editor follows the zoom
 
     def _reposition_overlay_editors(self) -> None:
-        """Move any open inline editor (form field / text box) back onto its target after the view
-        geometry changes (zoom or scroll), so it doesn't get left behind."""
+        """Move any open inline editor (form field / text box, and the M90 note popup the
+        annotation overlay carries) back onto its target after the view geometry changes (zoom or
+        scroll), so it doesn't get left behind."""
         for overlay in (self.form, self.annotations):
             if overlay is not None:
                 overlay.reposition_editor()
@@ -629,6 +631,15 @@ class PdfView(QGraphicsView):
             if self.annotations is not None:
                 handle = self.annotations.handle_at(scene_pt)
                 if handle is not None and self.annotations.begin_resize(handle, scene_pt):
+                    event.accept()
+                    return
+            # A note glyph (M90.2) is the next most specific target, and likewise mode-independent:
+            # it is a 15 px badge the user aimed at, and nothing else lives where it sits. Below
+            # the armed tools above, so arming a tool still wins the press.
+            if self.annotations is not None:
+                noted = self.annotations.note_glyph_at(scene_pt)
+                if noted is not None:
+                    self.noteGlyphClicked.emit(*noted)
                     event.accept()
                     return
             if self._mode == InteractionMode.OBJECT and self.annotations is not None:

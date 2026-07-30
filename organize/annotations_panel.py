@@ -34,6 +34,11 @@ from organize.thumbnail_panel import _SIDEBAR_W  # one default width for all sid
 
 _ROLE = Qt.ItemDataRole.UserRole  # row payload: (page_index, mark, bounds)
 _SNIPPET_CHARS = 48
+# A note is clipped harder than the passage it annotates (M90.3). The snippet is what identifies
+# the row — you find the mark by recognising the words — while the note is the *content*, read in
+# full from the row's tooltip or by opening it. A long remark must not push the passage off the row.
+_NOTE_CHARS = 32
+_NOTE_LEAD = " — "   # an em dash sets the remark off from the passage without looking like more of it
 
 # The text markups, ours and by PDF subtype. Squiggly is a wavy underline — a markup we cannot
 # draw but can perfectly well list; Text is the sticky note, which is the "notes" of the list's
@@ -54,9 +59,9 @@ def is_listed_foreign(annot) -> bool:
     return annot.kind_name in _LISTED_FOREIGN_KINDS
 
 
-def _clip(text: str) -> str:
+def _clip(text: str, limit: int = _SNIPPET_CHARS) -> str:
     text = " ".join((text or "").split())
-    return text if len(text) <= _SNIPPET_CHARS else text[: _SNIPPET_CHARS - 1] + "…"
+    return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
 def _union(rects) -> tuple:
@@ -68,6 +73,7 @@ class AnnotationsPanel(QListWidget):
     """Flat list of every mark in the document, in page order; click to jump + select."""
 
     markActivated = Signal(int, object, tuple)  # (page_index, mark | ForeignAnnot, bounds)
+    noteRequested = Signal(int, object)         # double-clicked one of ours: write / edit its note
 
     def __init__(self, vdoc: VirtualDocument, foreign_provider, parent=None) -> None:
         super().__init__(parent)
@@ -76,6 +82,7 @@ class AnnotationsPanel(QListWidget):
         self._page_text: dict[int, PageText] = {}   # one index per page, per rebuild
         self.setUniformItemSizes(True)
         self.itemClicked.connect(self._on_item_clicked)
+        self.itemDoubleClicked.connect(self._on_item_double_clicked)
         self.populate()
 
     def sizeHint(self) -> QSize:
@@ -105,19 +112,20 @@ class AnnotationsPanel(QListWidget):
                 if not is_listed(mark):
                     continue
                 self._add_row(page_index, mark, self._describe(page_index, mark),
-                              self._bounds(mark))
+                              self._bounds(mark), note=getattr(mark, "note", ""))
             for annot in self._foreign(page_index):
                 if not is_listed_foreign(annot):
                     continue
-                label = annot.kind_name.lower()
-                snippet = _clip(annot.contents)
-                self._add_row(page_index, annot,
-                              f"{label} · {snippet}" if snippet else label, annot.rect)
+                self._add_row(page_index, annot, self._describe_foreign(page_index, annot),
+                              annot.rect, note=annot.contents)
 
-    def _add_row(self, page_index: int, mark, label: str, bounds: tuple) -> None:
+    def _add_row(self, page_index: int, mark, label: str, bounds: tuple,
+                 note: str = "") -> None:
         item = QListWidgetItem(f"p. {page_index + 1} · {label}")
         item.setData(_ROLE, (page_index, mark, tuple(bounds)))
-        item.setToolTip(f"Page {page_index + 1}")
+        # The **full** note is the tooltip when there is one (M90.3): the row clips it to keep the
+        # passage readable, and a remark you can only read half of is worse than one you can hover.
+        item.setToolTip(note or f"Page {page_index + 1}")
         self.addItem(item)
 
     def _describe(self, page_index: int, mark) -> str:
@@ -127,7 +135,27 @@ class AnnotationsPanel(QListWidget):
         # Every listed mark of ours is text-anchored, so the snippet is always the covered text —
         # which is the row's whole value: a highlight row reads back the passage you highlighted.
         snippet = _clip(self._covered_text(page_index, mark.rects))
-        return f"{noun} · {snippet}" if snippet else noun
+        row = f"{noun} · {snippet}" if snippet else noun
+        # …and since M90.3 the note follows it, because for a *noted* mark the remark is the point
+        # of the row. Appended rather than substituted: the passage is what lets you recognise
+        # which mark this is, so it stays even when the note is the more interesting half.
+        note = _clip(getattr(mark, "note", ""), _NOTE_CHARS)
+        return f"{row}{_NOTE_LEAD}{note}" if note else row
+
+    def _describe_foreign(self, page_index: int, annot) -> str:
+        """A foreign row, in **the same shape as one of ours**: type · passage — comment (M90.4).
+
+        Before this it read ``type · comment``, which put the *comment* in the slot our own rows
+        use for the *passage* — so the same position on the same list meant two different things
+        depending on who wrote the mark, and a commented foreign highlight never showed the words
+        it covered at all. A sticky note has no passage under it and correctly shows none.
+        """
+        row = annot.kind_name.lower()
+        snippet = _clip(self._covered_text(page_index, (annot.rect,)))
+        if snippet:
+            row = f"{row} · {snippet}"
+        comment = _clip(annot.contents, _NOTE_CHARS)
+        return f"{row}{_NOTE_LEAD}{comment}" if comment else row
 
     def _covered_text(self, page_index: int, rects) -> str:
         """The page text under a text-anchored mark's bars — what a highlight row should read as.
@@ -161,3 +189,19 @@ class AnnotationsPanel(QListWidget):
     def _on_item_clicked(self, item) -> None:
         page_index, mark, bounds = item.data(_ROLE)
         self.markActivated.emit(page_index, mark, bounds)
+
+    def _on_item_double_clicked(self, item) -> None:
+        """Double-click a row of **ours** → write or edit that mark's note (M90.3).
+
+        The window answers this by jumping to the mark and opening the *same on-page popup* the
+        glyph and the context menu open — deliberately, rather than growing a second editor inside
+        the sidebar. "Editing here and on the page agree" is then true by construction instead of
+        by two implementations being kept in step, which is the drift this codebase has been bitten
+        by before (preview vs committed mark, M89.6).
+
+        Foreign rows are excluded: another tool's comment is read-only until the mark is adopted
+        (M90.4), and offering an editor that refuses to save would be worse than offering none.
+        """
+        page_index, mark, _bounds = item.data(_ROLE)
+        if is_listed(mark):     # ours — a ForeignAnnot is not a descriptor and fails this
+            self.noteRequested.emit(page_index, mark)

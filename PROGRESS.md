@@ -1548,12 +1548,126 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
       **cannot** drift; reviewed on rendered grabs, which are pixel-identical
     - Bound in `PdfView.keyPressEvent`, not as a window `QAction` — a focused inline editor must
       keep its own select-all, and a test pins that
-- [ ] **M90** Notes: the interface — the visible half of M81. Spec in `PLAN.md` §M90.
-  - [ ] **M90.1** Create + edit — Note verb on **Markup ▾** (no new toolbar slot) + the M76 context
+- [x] **M90** Notes: the interface — the visible half of M81. Spec in `PLAN.md` §M90.
+  A note is a **field of its host mark**, and every surface here follows from that: there is one
+  editor, one write path, and nothing to keep in step. The four parts below are one PR
+  ([#219](https://github.com/utyagi24/klarpdf/pull/219)) because the glyph, the sidebar row and the
+  foreign badge are all views of the field M90.1 writes — reviewed apart, each points at nothing.
+  - [x] **M90.1** Create + edit — Note verb on **Markup ▾** (no new toolbar slot) + the M76 context
     menu. Attaching is primary; creating a highlight is the fallback when the selection has no HUS
-  - [ ] **M90.2** On-page glyph, so a note isn't invisible until you right-click the exact mark
-  - [ ] **M90.3** Annotations sidebar shows and edits notes (M77 panel)
-  - [ ] **M90.4** Foreign `/Contents` shows **read-only**, and M68 adopt-on-edit carries it across
+    — *Windows (headless + offscreen GUI)* — 23 new tests, 1521 green
+    - **Attaching is the primary act, and the fallback is the only thing that creates** (owner
+      rule 4). `resolve_note_host` is the whole of rule 6 in the model, headless: a **Highlight**
+      wins, failing that the **topmost** underline / strikeout — "topmost" being the last match in
+      the page's annotation tuple, since that tuple *is* the z-order. A layered passage therefore
+      has one deterministic host, and the note keeps the colour the reader already associates with
+      the passage (rule 3)
+    - **The popup opens before anything is created**, which is what makes "the creation plus the
+      attach is one undo macro" true *and* leaves an abandoned sweep with no trace. Commit resolves
+      the host again, merges the fallback highlight through the **M59.10 merge** (so a note-created
+      highlight is the same mark Highlight Selection would have made, including how it folds into a
+      neighbour), and pushes one `SetAnnotationsCommand` per touched page inside one macro
+    - **Clearing the text removes the note and leaves the mark** — the one place in the app where
+      emptying an editor is not a delete. It falls out of M81's shape: the note is a *field* of the
+      mark, so `note=""` is an edit of the mark, not its removal. Remove Note on the context menu
+      is the same write, so the two cannot drift
+    - `viewer/note_editor.py` is a **new module, not a fourth branch of the text-box editor**: it
+      reuses that editor's *idiom* (a `QPlainTextEdit` child of the viewport committing on
+      focus-out, so M89's key guards and clipboard routing behave as they already do) but none of
+      its WYSIWYG page-rect sizing, which a note has no use for. Fixed viewport-pixel size, anchored
+      under the passage and flipped above it near the viewport bottom, washed towards white from the
+      host's colour so black text stays legible on every palette entry
+    - **The stale-callback trap bit again, in a new costume.** Opening a second note while the first
+      is still alive delivers the *outgoing* widget's focus-out **during the incoming one's**
+      `setFocus()` — so an unscoped callback commits and closes the popup that just opened (the
+      re-open read back empty). Every callback now passes its own widget and the controller ignores
+      one from a popup that is no longer current; this is the same guard `_on_editor_focus_out`
+      already keeps by capturing its editor. Found by a test, verified red
+    - Note is **one-shot, not sticky** like the M73 HUS quartet, and carries **no swatch row** on
+      Markup ▾ — a note takes its host's colour, so there is no fourth colour to choose
+  - [x] **M90.2** On-page glyph, so a note isn't invisible until you right-click the exact mark
+    — *Windows (headless + offscreen GUI)* — 9 new tests, 1530 green
+    - **It sits in the page's right margin**, on the line the mark ends on — *not* at the end of
+      the marked run, which is where it first went and where the render showed it covering the
+      text that *follows* the highlight ("jum" of "jumps"). Straddling the mark's own corner was
+      the other option and obscures the very passage it annotates. A margin is empty by
+      construction on a text page; a mark that runs into it pushes the badge just past its end,
+      still clamped inside the page
+    - **Sized in scene units, not page points**, which is the whole of "legible at low zoom": zoom
+      rebuilds the scene rather than scaling the view, so a scene unit *is* a logical pixel and the
+      badge is 15 px at Fit Page and at 400% alike. Page-point sizing would have failed the
+      criterion by construction. Pinned by a test across three zooms
+    - **It does not re-tint with the app theme, deliberately** — a stated departure from the
+      milestone wording. The badge sits on the *page*, not on chrome: a page is white under every
+      theme, and Night Reading Mode inverts the page render rather than theming it, so a
+      palette-tinted glyph would turn light in dark mode and vanish on a yellow highlight. It is
+      opaque in its host's washed colour (rule 3) with dark ink — the same `wash` the popup uses,
+      so badge and editor read as one thing
+    - **Click toggles** the note open and shut, hover reads it from the badge's tooltip. Routed in
+      `PdfView` right after the resize handles — the next most specific target, mode-independent,
+      and below the armed tools so arming still wins the press. The toggle needed a mechanism
+      because a real click reaches the popup's **focus-out before** the view's press (measured):
+      the popup is already gone by the time the click is handled, so a naive handler reopened it
+      and the second click was a visible no-op. The close now records *which* note it was, armed
+      **only by a genuine focus-out** — a programmatic close is nobody's click, and arming it there
+      let the flag outlive its dispatch and swallow the next legitimate open. The key is
+      `(page, bounds, type)`, not the mark object: descriptors are frozen, so committing an edit
+      replaces the host and identity went stale the moment the text changed; and layered marks
+      share bounds, so without the type, clicking one while the other was open closed it instead of
+      switching. Toggling shut **commits** — it is the same "I'm done" as clicking away — and Esc
+      stays the way to abandon an edit. No close button: three dismissals already exist, and
+      §Design budgets does not spend chrome on a fourth
+    - The popup's stylesheet was built by implicit concatenation where only the **first** literal
+      was an f-string, so the second's `}}` stayed *two* closing braces and Qt logged
+      "Could not parse stylesheet of object _NotePopup" on every note. The braces now live in plain
+      literals with the interpolation in an f-string of its own, so there is nothing to escape and
+      it cannot recur
+    - **Layered marks fan along the margin** (owner-reported during testing): the app deliberately
+      allows layered HUS — M59.10 scopes merging *per type* — and owner rule 5 gives each mark its
+      **own** note, so an underline and a highlight on one passage carry two notes. Both badges
+      anchor to the same line and landed on **exactly the same pixel**: the second painted hid the
+      first completely and won every click, so a note the user had written was invisible *and*
+      unreachable, reappearing only when its neighbour was deleted. A badge now slides left until
+      it clears the ones already placed on that page. **Left, not down** — the vertical position is
+      what says which line the remark is about, so pushing it down would claim the wrong passage.
+      (The other half of that report was already correct and is now pinned: removing the highlight
+      takes the highlight's note and leaves the underline's — a note dies with **its own** host,
+      owner rule 2)
+  - [x] **M90.3** Annotations sidebar shows and edits notes (M77 panel) — *Windows (headless +
+    offscreen GUI)* — 6 new tests, 1536 green
+    - The note is **appended to the row, not substituted for the passage**: the snippet is what
+      lets a reader recognise *which* mark a row is, so it stays even when the remark is the more
+      interesting half. Clipped harder than the snippet (32 vs 48 chars) with the **full note as
+      the row's tooltip** — a remark you can only read half of is worse than one you can hover
+    - **Editing there is the same popup, not a second editor.** A double-clicked row reveals the
+      mark and opens the on-page editor, so "editing in the sidebar and on the page agree" is true
+      **by construction** rather than by keeping two implementations in step — the drift this
+      codebase has been bitten by before (preview vs committed mark, M89.6). An unnoted row writes
+      its first note the same way, so the list is a creation path too
+    - "Deleting the host removes the row" needed no code: `populate()` re-runs on every edit and
+      reads the live model, and the note is a *field* of the mark it lists
+  - [x] **M90.4** Foreign `/Contents` shows **read-only**, and M68 adopt-on-edit carries it across
+    — *Windows (headless + offscreen GUI)* — 7 new tests, 1543 green
+    - A foreign markup's comment gets **M90.2's badge in grey**, and grey does two jobs that
+      agree: a `ForeignAnnot` carries no colour to take, and grey is the signal that this note is
+      **read-only** until the mark is adopted (M68's rule). So the badge says whose note it is
+      before it is opened. Only **commented text markups** are badged — an uncommented one has
+      nothing to show, and a sticky note already draws its own icon into the page pixmap
+    - **The same popup, read-only**: a reader should not have to learn a second place remarks
+      appear based on who wrote one. It has no commit callback at all, so nothing can be saved by
+      accident, and its placeholder names the way to make it editable — M68's existing
+      double-click adoption, not a new verb
+    - **The foreign pass is band-gated** like the content marks, because finding these comments
+      reads each page's annotation dictionaries — document-wide on every edit is exactly the
+      O(document) trap M87.3 and M78.8 were spent closing, and a reviewed 200-page PDF is the file
+      it would have been slowest on. Pinned by a test
+    - **A foreign sidebar row now reads like one of ours** — `type · passage — comment`. It read
+      `type · comment` before, putting the comment in the slot our own rows use for the *passage*,
+      so the same position on the same list meant two different things depending on who wrote the
+      mark, and a commented foreign highlight never showed the words it covered at all
+    - Adoption needed no new model work: **M81.3 already carries the comment across**. What M90.4
+      adds is the interface following it — the grey read-only badge becomes a coloured editable one
+      holding the same words, pinned end to end
 - **Corner-case document analysis** (`PLAN.md` §The corner-case document) — `IAS_CaseStudy.pdf`,
   owner-supplied: 75.6 MB, 18 pages of 1920×1080 pt, **no text layer**, 95 MB of embedded images.
   Opens in **11.19 s**, of which **10.0 s is `fz_run_display_list`** — decoding imagery, not our

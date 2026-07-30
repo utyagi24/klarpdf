@@ -519,9 +519,19 @@ def merge_markup(annotations: tuple, bars, mark_type, color: tuple) -> tuple:
 
     **Notes survive the fold (M81).** The survivor is rebuilt from scratch, so an absorbed mark's
     ``note`` would otherwise be destroyed by a user who deleted nothing — they highlighted adjacent
-    text and their typed note vanished. Absorbed notes are inherited in document order, joined by
-    :data:`_NOTE_JOIN` when several marks carry one. (The different-colour *trim* path uses
-    ``replace``, which already preserves every field but ``rects``.)
+    text and their typed note vanished. Inherited notes join in document order, separated by
+    :data:`_NOTE_JOIN` when several marks carry one.
+
+    **The rule is "no note is lost unless its mark was deleted", and it takes both branches**
+    (owner-reported 2026-07-29). M81.2 fixed the absorb path and reasoned that the trim path beside
+    it was already safe *because it uses* ``replace`` — true only while something **survives the
+    cut to be replaced**. A **recolour covers the mark completely**: the trim leaves nothing, the
+    mark is dropped, and its note went with a mark the user never deleted. So a fully-consumed
+    mark's note is inherited too, and the distinction that matters is not same-colour vs
+    different-colour but *did a host survive*: a partial recolour leaves the original standing, and
+    its note stays with **its own** host (owner rule 5) rather than being copied onto the new
+    colour. Deleting a layer outright is :func:`remove_markup`, where the note is *meant* to go
+    with it (rule 2).
     """
     from dataclasses import replace
 
@@ -548,7 +558,12 @@ def merge_markup(annotations: tuple, bars, mark_type, color: tuple) -> tuple:
         # Only what the user *just* painted erases — absorbed geometry was already on the page.
         trimmed = _subtract_bars(mark.rects, new_bars)
         if trimmed:
-            result.append(replace(mark, rects=trimmed))
+            result.append(replace(mark, rects=trimmed))     # survives, and `replace` keeps its note
+        elif mark.note:
+            # Nothing survived the cut, so there is no host left to carry the note — inherit it,
+            # exactly as the absorb path above does. This is the recolour case: covering a mark
+            # completely in another colour deletes nothing, so nothing typed may be lost.
+            notes.append(mark.note)
     merged = mark_type(_union_bars(absorbed), color=color, note=_NOTE_JOIN.join(notes))
     result.insert(len(result) if insert_at is None else insert_at, merged)
     return tuple(result)
@@ -583,8 +598,10 @@ def remove_markup(annotations: tuple, bars, mark_type) -> tuple:
 
 
 def marks_over(annotations: tuple, bars, mark_type) -> list:
-    """The ``mark_type`` marks among ``annotations`` overlapping any of ``bars`` — the existence /
-    tick-state query behind the M76 layer toggles (same overlap test the merge machinery uses)."""
+    """The ``mark_type`` marks among ``annotations`` overlapping any of ``bars``, in z-order — the
+    existence / tick-state query behind the M76 layer toggles (same overlap test the merge
+    machinery uses). ``mark_type`` may be a tuple of types, as ``isinstance`` takes: that is how
+    :func:`resolve_note_host` asks for "any underline or strikeout" in one pass."""
     probe = tuple(tuple(bar) for bar in bars)
     return [
         mark for mark in annotations
@@ -592,6 +609,27 @@ def marks_over(annotations: tuple, bars, mark_type) -> list:
             _x_overlap(bar, other) for bar in mark.rects for other in probe
         )
     ]
+
+
+def resolve_note_host(annotations: tuple, bars):
+    """The HUS mark a note applied to ``bars`` attaches to — or ``None`` when that span carries no
+    text markup at all and the caller must create a Highlight for it (M90.1, owner rule 4).
+
+    **Attaching is the primary act**: a note applied to a selection lands on the mark already
+    there, unchanged in geometry and colour, and only plain text creates anything. Where several
+    marks qualify — the app deliberately allows layered HUS, since M59.10 scopes merging *per
+    type* — owner rule 6 decides: **a Highlight wins; failing that, the topmost** underline /
+    strikeout. Deterministic, and it keeps a note's background (rule 3) the highlight colour a
+    reader already associates with the passage.
+
+    "Topmost" is the last qualifying mark in the tuple, because the page's annotation tuple *is*
+    its z-order (:func:`reorder_marks` — ``front`` moves to the end).
+    """
+    highlights = marks_over(annotations, bars, Highlight)
+    if highlights:
+        return highlights[-1]
+    lines = marks_over(annotations, bars, (Underline, Strikeout))
+    return lines[-1] if lines else None
 
 
 def scale_mark(mark, sx: float, sy: float, ox: float, oy: float):

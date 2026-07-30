@@ -228,11 +228,13 @@ def test_each_swatch_row_sits_under_its_verb_action_with_no_duplicate_label(win)
             entries.append("---")
         else:
             entries.append(a.title if isinstance(a, SwatchRowAction) else a.text())
-    # Verb action → its swatch row → a divider, per verb (no trailing divider). The divider makes
-    # it unambiguous which swatches belong to which verb.
+    # Verb action → its swatch row → a divider, per verb. Note (M90.1) trails behind the last
+    # divider carrying **no swatch row**: a note takes its host's colour (owner rule 3), so there
+    # is no fourth colour to choose and a row there would be chrome for a setting that can't apply.
     assert entries == ["Highlight", "Highlight", "---",
                        "Underline", "Underline", "---",
-                       "Strike Out", "Strike Out"]
+                       "Strike Out", "Strike Out", "---",
+                       "Note"]
     # each row shows its colour dots but no header QLabel repeating the verb name.
     from PySide6.QtWidgets import QLabel
 
