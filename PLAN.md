@@ -2009,6 +2009,35 @@ value; `goto_page` has no such early-out **and must not**, since jumping to the 
 on is exactly what a reader means by clicking its thumbnail. Enter also hands the keyboard back to
 the page: a page field is a one-shot instruction, not somewhere to leave the focus.
 
+**And the one that made it look intermittent: a coasting wheel undoes a deliberate step — in every
+mode, not just the slideshow (owner re-test, 2026-07-30).** With focus never leaving the page and no
+click anywhere, spinning the wheel **hard** back to page 1 and pressing `Space` makes the page
+"flicker and stay on page 1", and the next press "moves only half a page" — **100% reproducible on a
+fast spin, never on a slow one.**
+
+That is M78's bug, met a second time. A flywheel wheel (and Windows' smooth scrolling) keeps emitting
+long after the hand has left it, so the coast walks the view back out of the step the key just made;
+a harder flick coasts longer, which is why the count of dead presses tracked how hard the owner spun
+— and why the first round's "growing count" report was real and the first round's repro, which fired
+keys directly with no wheel in flight, could not see it. The reason it hides so well: **scrolling up
+at offset 0 is a no-op**, so the coast is invisible until a paging key gives it somewhere to go, at
+which point the *key* looks broken rather than the wheel still running.
+
+M78 diagnosed and fixed exactly this, then scoped the guard inside `if self.slideshow` — so ordinary
+reading, where the same wheel drives the same view, never got it. M91.4 hoists the mute to the top of
+`wheelEvent` and arms it from every deliberate navigation: the paging keys, Home/End, the slideshow's
+`_deliberate_step`, and `goto_page`, which is where the thumbnail, the outline, the counter, Ctrl+G
+and internal links all arrive. Two things the generalisation needed:
+
+- **A wheel-driven move must not park the wheel that drove it.** `step_slide` lands by calling
+  `goto_page`, so arming there made the wheel mute *itself* after one detent and a four-detent flick
+  moved one slide (caught by M78's own tests). `_wheel_driving` is set only inside `wheelEvent`.
+- **The quiet test must fail open on a backwards clock.** The elapsed check gained a `0 <=` lower
+  bound: `event.timestamp()` and the `time.monotonic()` fallback are different clocks, and before
+  this only the slideshow kept the timestamp, so the mixed-source case could not arise. Now that
+  every wheel event updates it, one unstamped event followed by a stamped one would have left the
+  wheel muted for ever. A mute that cannot lift is a dead wheel.
+
 **`open_at` must announce the page it restored.** Reopening a document closed on page 10 showed page
 10 with the counter reading 1. `open_at` assigns `_current` **directly**, because the Fit Page zoom
 has to be sized against that page's row before there is a scene to derive it from — so when

@@ -184,6 +184,9 @@ class PdfView(QGraphicsView):
         self._wheel_accum = 0
         self._wheel_muted = False
         self._last_wheel_ts = 0
+        # True only while inside wheelEvent, so a move the *wheel* made does not park the wheel
+        # (M91.4) — the slideshow steps via goto_page, which arms the mute for everyone else.
+        self._wheel_driving = False
         # One geometry change = one rasterise (M86.1). ``_render_held`` counts open
         # :meth:`_hold_render` blocks; while any is open, _render_visible defers.
         self._render_held = 0
@@ -975,6 +978,7 @@ class PdfView(QGraphicsView):
             mods = mods ^ Qt.KeyboardModifier.KeypadModifier
         vbar = self.verticalScrollBar()
         if key in (Qt.Key.Key_Home, Qt.Key.Key_End) and mods in (none, ctrl):
+            self._park_coasting_wheel()
             vbar.setValue(vbar.minimum() if key == Qt.Key.Key_Home else vbar.maximum())
             return True
         if key == Qt.Key.Key_Space and mods in (none, shift):
@@ -1056,7 +1060,11 @@ class PdfView(QGraphicsView):
         Furthest, not nearest, so a zoomed-out view showing five pages still advances five. With no
         stop in reach (only at the very end of the document, where the last stop is behind us) it
         falls back to the plain screenful and the bar clamps it, so the key still means "onwards".
+
+        Parks a coasting wheel first, or the step is undone by events the hand stopped asking for
+        seconds ago — see :meth:`wheelEvent`.
         """
+        self._park_coasting_wheel()
         vbar = self.verticalScrollBar()
         value, screen = vbar.value(), vbar.pageStep()
         stops = self._reading_stops(value, screen)
@@ -1076,14 +1084,53 @@ class PdfView(QGraphicsView):
         viewport centre disagree, so the next click appeared to jump to the wrong page. One detent,
         one slide; a hi-res wheel's fractional deltas accumulate to a detent first.
 
-        A **coasting** wheel is parked. A flywheel wheel (and Windows' smooth scrolling) keeps
-        emitting long after the hand has left it, so a click or arrow key pressed during the
-        coast-down was immediately undone by the events still arriving — the reported "clicked
-        eight times and the first slide never moved", worse after every flick because a harder
-        flick coasts longer. A deliberate step therefore mutes the wheel until it has actually gone
-        quiet (:data:`_WHEEL_QUIET_MS` with no wheel event), which is also how a reader tells the
-        two apart: a fresh scroll comes after a pause, a coast doesn't.
+        A **coasting** wheel is parked — **in every mode since M91.4**, not just here. A flywheel
+        wheel (and Windows' smooth scrolling) keeps emitting long after the hand has left it, so a
+        click or key pressed during the coast-down is immediately undone by the events still
+        arriving. M78 met this as "clicked eight times and the first slide never moved"; the owner
+        met the *same* wheel again in ordinary reading (2026-07-30): spin hard back to page 1, press
+        ``Space``, and the page "flickers and stays on page 1" — then the next press "moves only
+        half a page". Both are the coast eating the step, which is why it reproduced **100% of the
+        time when spun fast and never when scrolled slowly**, and why the count of dead presses grew
+        with the flick: a harder spin coasts longer. Scrolling *up* at offset 0 is a no-op, so the
+        coast is invisible until a deliberate step gives it somewhere to go — which is exactly why
+        it looked like the key was broken rather than the wheel still running.
+
+        The mute is armed by any deliberate navigation (:meth:`_page_scroll`, Home/End,
+        :meth:`goto_page`, the slideshow's :meth:`_deliberate_step`) and lifts once the wheel has
+        actually gone quiet (:data:`_WHEEL_QUIET_MS` with no wheel event) — which is also how a
+        *reader* tells the two apart: a fresh scroll comes after a pause, a coast doesn't.
         """
+        # Qt fills the timestamp from the platform message; a plugin that leaves it at 0 falls back
+        # to our own clock, so an unstamped wheel still un-mutes (fail-open: at worst the wheel
+        # behaves as it did before this guard, never dead).
+        ts = event.timestamp() or int(time.monotonic() * 1000)
+        # ``0 <=`` matters as much as the upper bound: a *backwards* step cannot be the same gesture,
+        # it means the clock under us changed — which is reachable, because the fallback above is a
+        # different clock from the platform's and the two are not comparable. Before M91.4 only the
+        # slideshow kept this timestamp, so the mixed-source case could not arise; now that every
+        # wheel event updates it, an unstamped event followed by a stamped one would otherwise leave
+        # the wheel muted for ever. Fail open, always: a mute that cannot lift is a dead wheel.
+        elapsed = ts - self._last_wheel_ts
+        if self._wheel_muted:
+            if 0 <= elapsed < _WHEEL_QUIET_MS:
+                self._last_wheel_ts = ts        # same gesture, still coasting — swallow it
+                event.accept()
+                return
+            self._wheel_muted = False           # the wheel stopped; this is a new gesture
+        self._last_wheel_ts = ts
+        # **A wheel-driven move must not park the wheel that drove it.** The slideshow steps by
+        # calling ``goto_page``, which arms the mute for every other caller — so without this the
+        # wheel muted itself after one detent and a four-detent flick moved one slide (caught by
+        # M78's own tests). The flag says "we are inside the wheel handler"; nothing else reads it.
+        self._wheel_driving = True
+        try:
+            self._apply_wheel(event)
+        finally:
+            self._wheel_driving = False
+
+    def _apply_wheel(self, event) -> None:
+        """The wheel's actual effect, once :meth:`wheelEvent` has decided it is not a coast."""
         if not self.slideshow:
             if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
                 self._wheel_zoom(event)
@@ -1092,17 +1139,6 @@ class PdfView(QGraphicsView):
                 return
             super().wheelEvent(event)
             return
-        # Qt fills the timestamp from the platform message; a plugin that leaves it at 0 falls back
-        # to our own clock, so an unstamped wheel still un-mutes (fail-open: at worst the wheel
-        # behaves as it did before this guard, never dead).
-        ts = event.timestamp() or int(time.monotonic() * 1000)
-        if self._wheel_muted:
-            if ts - self._last_wheel_ts < _WHEEL_QUIET_MS:
-                self._last_wheel_ts = ts        # same gesture, still coasting — swallow it
-                event.accept()
-                return
-            self._wheel_muted = False           # the wheel stopped; this is a new gesture
-        self._last_wheel_ts = ts
         delta = event.angleDelta().y()
         if delta and (delta > 0) != (self._wheel_accum > 0):
             self._wheel_accum = 0                    # a reversal starts counting afresh
@@ -2001,9 +2037,25 @@ class PdfView(QGraphicsView):
     def _deliberate_step(self, delta: int) -> None:
         """A step the reader asked for by hand — a click or a key, never the wheel. It parks a
         coasting wheel (see :meth:`wheelEvent`) so the slide it lands on stays put."""
-        self._wheel_muted = True
+        self._park_coasting_wheel()
         self._wheel_accum = 0
         self.step_slide(delta)
+
+    def _park_coasting_wheel(self) -> None:
+        """Mute the wheel until it has actually gone quiet, so a deliberate move survives the
+        events a flywheel wheel is still emitting (see :meth:`wheelEvent` for the full account).
+
+        Called by every navigation the *reader* asked for — the paging keys, Home/End, a slideshow
+        step, and :meth:`goto_page`, which is where the thumbnail, the outline, the page counter,
+        Ctrl+G and internal links all arrive. Arming it when no wheel is spinning costs nothing: the
+        next wheel event is then more than :data:`_WHEEL_QUIET_MS` from the last one, so it lifts
+        the mute and scrolls, which is why the internal callers of ``goto_page`` (rebuilds, zoom,
+        reopen) can share the entry point without a special case.
+
+        The one caller that must **not** arm it is the wheel itself — see :meth:`wheelEvent`.
+        """
+        if not self._wheel_driving:
+            self._wheel_muted = True
 
     def reload(self) -> bool:
         """Rebuild after the ordered list changed (edit). Page indices remap, so the pixmap
@@ -2056,6 +2108,10 @@ class PdfView(QGraphicsView):
     def goto_page(self, index: int) -> None:
         if not (0 <= index < len(self._pages)):
             return
+        # Every "take me to this page" gesture lands here — the thumbnail, the outline, the page
+        # counter, Ctrl+G, an internal link — so this is the one place that has to park a coasting
+        # wheel for all of them (M91.4).
+        self._park_coasting_wheel()
         p = self._pages[index]
         self.verticalScrollBar().setValue(int(p["y"]) - _PAGE_GAP)
         self._render_visible()

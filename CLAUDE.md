@@ -100,6 +100,15 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   accepted it before assuming nothing is bound. **A `QLineEdit` with a validator is the same trap
   wearing gloves**: it accepts the key and the validator drops the character, so the press is
   invisible — that is how `Space` died in the M91.3 page counter.
+- **When a *key* looks broken, suspect the wheel that is still running.** A flywheel mouse and
+  Windows' smooth scrolling keep emitting wheel events for seconds after the hand leaves them, and
+  those events undo whatever a key or click just did. It hides well: scrolling up at offset 0 is a
+  no-op, so the coast is invisible until a paging key gives it somewhere to go. The tells are
+  **speed-dependence** ("100% if I spin fast, never if I scroll slowly") and a **count of dead
+  presses that tracks how hard they spun**. This has now been diagnosed twice — M78 in the
+  slideshow, M91.4 in ordinary reading, because the first fix was scoped inside `if self.slideshow`.
+  A repro that fires keys with no wheel in flight cannot see it, so **replay the wheel with
+  timestamps** (`QWheelEvent.setTimestamp`) when a report is intermittent.
 - **`editingFinished` fires on *every* focus-out, not only after an edit.** The Qt docs say
   "contents have changed"; `QLineEdit::focusOutEvent` says `if (hasAcceptableInput() || fixup())
   emit editingFinished()` — measured, no modification check. So a field wired straight to an action

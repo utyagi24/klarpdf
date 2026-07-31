@@ -1771,8 +1771,8 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     stop** — each page's top, plus a tall page cut into the fewest *equal* steps that each fit a
     screenful — and takes the **furthest** one within a screenful, so a zoomed-out view still
     advances every page it shows. `PgDn`/`PgUp` come off Qt to keep M89.2's promise that they and
-    `Space` are one verb — *Windows (offscreen GUI)* — 21 new tests, 17 of them verified red,
-    1608 green ([#225](https://github.com/utyagi24/klarpdf/pull/225))
+    `Space` are one verb — *Windows (offscreen GUI)* — 24 new tests, 19 of them verified red,
+    1611 green ([#225](https://github.com/utyagi24/klarpdf/pull/225))
     - **The sidebar was not inert — it was eating the key.** `QAbstractItemView` *accepts* `Space`,
       so Qt's propagation stopped at the panel and the document could not be paged at all while
       focus was there; and what Qt does with it is add the current row to **the selection Delete
@@ -1802,6 +1802,23 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
       now also hands the keyboard back to the page. Recorded so it is not "fixed" in the wrong place:
       `ZoomWidget` has the identical wiring and is *not* wrong, because `set_zoom` early-outs on an
       unchanged value while `goto_page` has no such early-out and must not
+    - **A coasting wheel undoing a deliberate step — M78's bug, met a second time.** The owner's
+      100%-reproducible case: no click anywhere, spin the wheel **hard** back to page 1, press
+      `Space`, and "the page flickers and stays on page 1"; the next press "moves only half a page".
+      A flywheel wheel (and Windows' smooth scrolling) keeps emitting long after the hand has left
+      it, so the coast walks the view back out of the step — a harder flick coasts longer, which is
+      what the **growing count** of dead presses was all along, and why round one's repro (keys
+      fired with no wheel in flight) could not see it. It hides because **scrolling up at offset 0
+      is a no-op**: the coast is invisible until a key gives it somewhere to go, so the *key* looks
+      broken. M78 diagnosed and fixed this — then scoped the guard inside `if self.slideshow`, so
+      ordinary reading never got it. Now hoisted to the top of `wheelEvent` and armed by every
+      deliberate navigation (paging keys, Home/End, `_deliberate_step`, `goto_page`)
+    - Two things the generalisation needed, both caught by M78's own tests: **a wheel-driven move
+      must not park the wheel that drove it** (`step_slide` lands via `goto_page`, so the wheel muted
+      itself after one detent and a four-detent flick moved one slide), and **the quiet test must
+      fail open on a backwards clock** — `event.timestamp()` and the `time.monotonic()` fallback are
+      different clocks, and once *every* wheel event keeps the timestamp, an unstamped event followed
+      by a stamped one would have left the wheel muted for ever
     - **`open_at` now announces the page it restored** — reopening a document closed on page 10
       showed page 10 with the counter reading **1**. `_current` is assigned directly there (the fit
       is sized against that page's row before a scene exists), so `_update_current` found the page it

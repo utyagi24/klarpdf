@@ -91,13 +91,20 @@ def _key(view, key, mods=NONE):
     view.keyPressEvent(QKeyEvent(QEvent.Type.KeyPress, key, mods))
 
 
-def _wheel(view, notches, mods=NONE, x_notches=0):
-    """One mouse-wheel detent per notch (positive = towards the reader / up-and-left)."""
+def _wheel(view, notches, mods=NONE, x_notches=0, ts=0):
+    """One mouse-wheel detent per notch (positive = towards the reader / up-and-left).
+
+    ``ts`` is the event timestamp in ms — what tells a coasting wheel from a fresh gesture (M78,
+    generalised to every mode by M91.4). Left at 0 the view falls back to its own clock, which is
+    the fail-open path and what every test that does not care about coasting wants.
+    """
     pt = QPointF(view.viewport().rect().center())
     delta = QPoint(_WHEEL_NOTCH * x_notches, _WHEEL_NOTCH * notches)
-    view.wheelEvent(QWheelEvent(pt, view.viewport().mapToGlobal(pt), delta, delta,
-                                Qt.MouseButton.NoButton, mods,
-                                Qt.ScrollPhase.NoScrollPhase, False))
+    event = QWheelEvent(pt, view.viewport().mapToGlobal(pt), delta, delta,
+                        Qt.MouseButton.NoButton, mods, Qt.ScrollPhase.NoScrollPhase, False)
+    if ts:
+        event.setTimestamp(ts)
+    view.wheelEvent(event)
 
 
 def _widen(view, zoom=3.0):
@@ -291,6 +298,62 @@ def test_the_facing_layout_pages_by_a_spread(deck):
     assert view.verticalScrollBar().value() == _top_of(view, 2)   # the 3|4 spread, not 2|3
     assert view.current_page == 2
     view.set_page_layout("single")
+
+
+def test_a_coasting_wheel_cannot_undo_a_paging_key(deck):
+    """**The owner's 100%-reproducible report**: spin hard back to page 1, press `Space`, and the
+    page "flickers and stays on page 1"; press again and it "moves only half a page".
+
+    A flywheel wheel (and Windows' smooth scrolling) keeps emitting long after the hand has left it,
+    so the coast walks the view back out of the step the key just made. Scrolling *up* at offset 0
+    is a no-op, which is why the coast is invisible until a key gives it somewhere to go — and why
+    it looked like `Space` was broken rather than the wheel still running. It reproduced only on a
+    *fast* spin because a harder flick coasts longer, which is also why the count of dead presses
+    grew with it.
+
+    M78 fixed exactly this for the slideshow (`test_a_coasting_wheel_cannot_undo_a_deliberate_step`)
+    and the guard stayed scoped to that mode; M91.4 lifts it to every mode.
+    """
+    view = deck.view
+    vbar = view.verticalScrollBar()
+    view.goto_page(5)
+    for i in range(8):                                   # a hard spin back — 15 ms apart
+        _wheel(view, 1, ts=1000 + 15 * i)
+    parked = vbar.value()
+    _key(view, Qt.Key.Key_Space)                         # the reader pages on, mid-coast
+    stepped = vbar.value()
+    assert stepped > parked
+    for i in range(10):                                  # …and the wheel coasts on
+        _wheel(view, 1, ts=1130 + 15 * i)
+    assert vbar.value() == stepped                       # …moving nothing: not back, not half-way
+    _wheel(view, 1, ts=1130 + 15 * 9 + 400)              # a fresh gesture, after the wheel went quiet
+    assert vbar.value() < stepped                        # …scrolls again as normal
+
+
+def test_a_coasting_wheel_cannot_undo_a_thumbnail_jump(deck):
+    """The same guard covers every "take me to this page" gesture, because they all land in
+    `goto_page` — the thumbnail, the outline, the page counter, Ctrl+G and internal links."""
+    view = deck.view
+    vbar = view.verticalScrollBar()
+    view.verticalScrollBar().setValue(vbar.maximum())
+    for i in range(8):
+        _wheel(view, 1, ts=2000 + 15 * i)
+    view.goto_page(3)
+    landed = vbar.value()
+    for i in range(10):
+        _wheel(view, 1, ts=2130 + 15 * i)
+    assert vbar.value() == landed
+
+
+def test_an_ordinary_wheel_still_scrolls_after_a_key(deck):
+    """The mute must cost nothing when no wheel is spinning: arming it with the wheel at rest has
+    to leave the reader's *next* scroll untouched, or every paging key would eat one detent."""
+    view = deck.view
+    vbar = view.verticalScrollBar()
+    _key(view, Qt.Key.Key_Space)
+    before = vbar.value()
+    _wheel(view, -1, ts=5000)                            # long after any previous wheel event
+    assert vbar.value() > before
 
 
 def test_space_at_the_end_stays_at_the_end(deck):
