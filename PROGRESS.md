@@ -1831,7 +1831,7 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   it in `PLAN.md` §M92. **Touchpad scrolling is out of scope** by owner call (*"though not perfect I
   am satisfied with it for now"*); the inertia work it would need — and the reason it is the
   expensive half — is recorded in `PLAN.md` §Future enhancements. **One PR per part.**
-  - [ ] **M92.1** **A wheel detent moves a defined distance.** Qt's `QGraphicsView` sets the vertical
+  - [x] **M92.1** **A wheel detent moves a defined distance.** Qt's `QGraphicsView` sets the vertical
     `singleStep` to **`viewportHeight / 20`** (confirmed: viewport 846 → 42, viewport 832 → 41), so a
     detent is `wheelScrollLines × singleStep` = **15% of the window height and nothing else** —
     unrelated to document, text or zoom, and worse the more screen the window is given. `_place_window`
@@ -1840,8 +1840,16 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     `singleStep` 61 → **one detent = 183 px = 19.1% of a page = 10.1 lines of body text**. The rule
     becomes **`wheelScrollLines × 40 px × zoom`** — 40 px/line is the Chromium/Gecko convention, so
     Windows' *lines to scroll* setting finally means what it means everywhere else; window-independent,
-    and zoom-scaled so a detent always moves the same amount of *document*. **109 px at that 91% zoom,
-    a 1.7× reduction.** — *WSL + WSLg*
+    and zoom-scaled so a detent always moves the same amount of *document*. **Verified on the same
+    display after the change: 109 px at Fit Page (1.68× smaller), and 11.4% of a page at 91%, 100%
+    and 200% alike** — the zoom-invariance Qt's rule never had. **Scope is the mouse only**:
+    `_is_mouse_detent` leaves a precision device on Qt's path, by `pixelDelta` where the platform
+    fills it in and by delta granularity on Windows, where it never does (a notched wheel reports
+    whole multiples of 120, a touchpad reports fractions). **Known gap**: a hi-res wheel in
+    *free-spin* mode also reports fractions and so keeps the old step — that is the owner's mouse with
+    free-spin **on**, off today. Settling it properly means asking the device (`event.device().type()`),
+    which needs real hardware: **`tools/probe_wheel.py`** is that probe, added with this milestone.
+    — *WSL + WSLg* — [#227](https://github.com/utyagi24/klarpdf/pull/227)
   - [ ] **M92.2** **The step is eased, not teleported.** A clock-driven animator: a tick moves a
     target, a ~16 ms timer walks the bar to it on an ease-out over ~130 ms, and a tick arriving
     mid-animation **extends the target** from the current position instead of restarting from rest.
