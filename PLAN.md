@@ -2124,10 +2124,113 @@ correct for an image-only PDF.
   conditional; the "only if still needed" gate has been met, and the open question is now scheduling,
   not justification.
 
+### M92 — Mouse-wheel scrolling (owner-reported 2026-07-30)
+
+One defect, one polish, in that order of weight. The owner reported that **one detent of the mouse
+wheel moves too much of the page**, and separately that scrolling is less fluid than Edge. Measured
+on the owner's display, the first is a real defect with a specific cause; the second is a much
+smaller effect once the first is fixed. Touchpad scrolling is explicitly **out of scope** (owner,
+2026-07-30: *"though not perfect I am satisfied with it for now"*) — the inertia/fling work that
+would need is recorded under §Future enhancements, not here.
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M92.1** A wheel detent moves a defined distance | `PdfView.wheelEvent` stops delegating the plain (unmodified) wheel to `super()` and computes its own step: **`wheelScrollLines × _WHEEL_LINE_PX × zoom`**, applied to the vertical scrollbar. `_WHEEL_LINE_PX = 40` logical px — the constant Chromium/Gecko share, so Windows' *lines to scroll* setting finally means to us what it means to every other app. Proportional to the raw `angleDelta` (`delta/120`), so a hi-res wheel's fragments accumulate rather than quantise. | WSL + WSLg | One detent moves exactly `wheelScrollLines × 40 × zoom` px; the distance is **unchanged by window height** (the defect) and **scales with zoom**; N detents accumulate to N × step with no lost delta; hi-res fragments summing to 120 move exactly one step; `Ctrl`/`Shift`/slideshow paths unchanged |
+| **M92.2** The step is eased, not teleported | A clock-driven scroll animator on `PdfView`: a wheel tick moves a **target**, a ~16 ms `QTimer` (parented to the view) walks the scrollbar to it on an **ease-out** curve over `_WHEEL_EASE_MS ≈ 130`. A tick arriving mid-animation **extends the target and re-times the curve** from the current position rather than restarting from rest. A **Smooth scrolling** preference turns it off, restoring M92.1's direct write. | WSLg / Windows | A detent's motion is spread over ~130 ms and lands on **exactly** the M92.1 pixel; held spinning reads as continuous motion, not a train of lurches; a reversal collapses the target instead of unwinding it; a deliberate nav (`Space`, `goto_page`, Home/End) cancels the animation; with the pref off, behaviour is byte-for-byte M92.1 |
+
+**The defect, measured on the owner's display (2026-07-30).** Qt's `QGraphicsView` sets the vertical
+scrollbar's `singleStep` to **`viewportHeight / 20`** — confirmed directly: viewport 846 px →
+`singleStep` 42, viewport 832 px → 41. A wheel detent is `wheelScrollLines × singleStep`, so **our
+step is 15% of the window height and nothing else** — unrelated to the document, the text, or the
+zoom, and it gets *worse* the more screen the window is given. `_place_window` opens the window at
+the **full available screen height** by design (§M84), which puts that derivation at its maximum:
+
+```
+screen   2560x1440 @ 100%    window 1000x1353    viewport 770x1246    zoom 91% (Fit Page)
+wheelScrollLines 3   singleStep 61 (= 1246/20)
+ONE DETENT = 183 logical px = 19.1% of a page = 10.1 lines of body text
+```
+
+Ten lines of text on one click of the wheel. Chromium's convention is **40 px per line × 3 lines =
+120 px**, fixed; the owner's side-by-side (discrete-detent wheel, same zoom) put Edge at roughly half
+of ours, which brackets the same place. **The proposed rule gives 109 px at that 91% zoom, a 1.7×
+reduction**, and unlike today's it is invariant under window size and moves the same amount of
+*document* at every zoom.
+
+**An earlier draft of this plan proposed 3 real text lines** (`wheelScrollLines × 15pt-line ×
+scale`), which measures **55 px** on the same setup — meaningfully *slower* than the Edge behaviour
+the owner said is acceptable. Recorded because it is the obvious next tune if 109 px still reads as
+too far, and because the reasoning matters: the semantically pure rule and the comfortable rule are
+not the same number, and the owner's judgement of feel is the tiebreak. It is one constant either way.
+
+**Why the step, not the animation, is the headline** — and a correction to this plan's own first
+draft. The initial proposal led with smooth animation on the strength of a *recalled* Chromium
+constant compared against a detent measured in a 900 px-tall bench window, which put us at 126 px and
+Edge at 120 px — "comparable", and therefore the difference had to be the easing. Both halves were
+wrong: the real window is 1353 px tall (183 px per detent, not 126), and the owner's direct
+observation on real hardware is the better evidence. The lesson is the repo's own rule read back at
+itself — **measure on the machine that has the problem, in the window it actually opens at**, before
+attributing a felt difference to a mechanism.
+
+**Cost, measured (2026-07-30, this machine, offscreen harness).** M92.2 is the only part with any
+runtime cost, and it is small:
+
+* **Per animation frame: ~0.11–0.15 ms of `_on_scroll` plus ~0.7–1.2 ms of viewport repaint** — about
+  1 ms of a 16.7 ms frame, ~6% of one core, and **only while an animation runs** (~130 ms per
+  detent; zero at rest). The handler cost is **flat** across zoom (1.0×–2.0×), DPR (1.0/1.75) and
+  document content: measured **0.148 ms with no marks and 0.143 ms with 880 marks over 40 pages**,
+  because `_on_scroll` is band-bounded by M87.3's binary search and the overlay work early-returns.
+* **Memory: no change.** The band comes from `_visible_range` + the M87.1 adaptive prefetch and is
+  identical whether a distance is crossed in one jump or thirty frames. Resting cache on a 60-page
+  Letter document: **79 MB @1.0×, 140 MB @1.5×, 197 MB @2.0×**, bounded by `RETAIN_PAGES` and the
+  1 GB backstop. The animator itself is a few floats and a timer.
+* **The one real risk is a rasterise landing mid-glide.** Rendering a page is synchronous on the UI
+  thread inside `_on_scroll`: **4.1 ms** (text, DPR 1.0, zoom 1.0) rising to **40.8 ms** (text, DPR
+  1.75, zoom 2.0) and **48.3 ms** (full-page scanned image, DPR 1.75, zoom 2.0). Today that lands
+  inside a discrete jump where nobody perceives it; inside a glide it is a visible hitch. **Two
+  things keep it small here**: a detent is ~110 px, so a single step rarely crosses a page boundary
+  at all (this is the risk that made the touchpad-fling case expensive, and dropping that scope drops
+  most of it), and the animator is driven from the **wall clock, not a per-frame increment** — a
+  blocked frame costs smoothness for two frames but the motion still lands on the right pixel at the
+  right time. An increment-driven animator would stretch and drift instead.
+
+**Interactions to preserve.** `Ctrl+wheel` zoom (already coalesced per frame, §M86.2), `Shift+wheel`
+horizontal pan (§M89.3), and the slideshow's whole-slide stepping (§M78) all sit **before** the
+scroll path and must be untouched — animating slideshow steps would break its one-page-per-screen
+contract. One genuine coupling: **`_park_coasting_wheel` must also stop the animator**, or a `Space`
+pressed mid-glide is undone by our own animation — M91.4's defect wearing a new hat, except that this
+time we own the coast and can end it deterministically instead of inferring it from a 250 ms quiet
+gap.
+
+**Considered and rejected.** `QScroller` — built for kinetic touch-drag, grabs gestures at the widget
+level, and would contend with the wheel handling already there for zoom, pan and slideshow. **Wheel
+acceleration** (a bigger step for faster spinning) — Chromium does not do it for the wheel, and it is
+a reliable source of "the scroll feels unpredictable"; M92.2's target extension already makes fast
+spinning cover ground fast without it.
+
 ## Future enhancements (deferred beyond the roadmap)
 
 Captured but not yet scheduled:
 
+- **Touchpad inertia (a fling that decays instead of stopping dead)** — deferred out of M92 by owner
+  call (2026-07-30: *"touchpad experience though not perfect I am satisfied with it for now"*). A
+  Windows precision touchpad sends `pixelDelta` while the fingers are down and simply **stops** when
+  they lift; Qt does not continue the motion, so our scroll ends abruptly where Edge's coasts to
+  rest. Edge is not doing anything the OS gives it — Chromium tracks the gesture's velocity and runs
+  its own friction decay. Ours would be the same: velocity from the last few `pixelDelta` events, a
+  decay animation on gesture end, cancelled by any new input, reusing M92.2's animator.
+  **Blocked on one hardware probe that cannot be run headlessly**: whether Qt's Windows plugin
+  reports `QWheelEvent.phase()` (`ScrollBegin`/`ScrollEnd`) or leaves it `NoScrollPhase`. With the
+  phase, gesture-end is exact; without it, it has to be inferred from a quiet gap, as M91.4's
+  coast-mute already does.
+  **This is also the expensive half of smooth scrolling** (§M92 §Cost): a fling crosses several pages
+  in one gesture, and a page rasterise is 4–48 ms synchronously on the UI thread — up to ~120 ms of
+  stall inside a ~500 ms fling, ~7 dropped frames, worst at high DPR on image-heavy documents where
+  the M87.1 adaptive prefetch has already shrunk the lead to one page. Making a fling stay smooth
+  therefore needs *one of*: a velocity-and-direction-aware prefetch (costs one or two extra pages,
+  3–40 MB), a cheap scaled placeholder for a page not yet rasterised (deferred item **C**), or
+  background rendering (deferred item **E**) — which is the honest reason this is a separate,
+  larger piece of work rather than a follow-on constant.
 - **Search matches the page's printed text only — the live-model decoupling fix** (owner-reported
   2026-07-24, three symptoms, one cause; **implemented 2026-07-24, PR #190**).
   `SearchController.search` scans the raw source pages (`viewer/pdf_view.py` → `_vdoc.sources[...]`)
