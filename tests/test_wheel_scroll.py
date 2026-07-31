@@ -195,7 +195,14 @@ def test_a_precision_device_keeps_qts_own_arithmetic(view):
     """**Touchpad scrolling is out of M92's scope** (owner, 2026-07-30). A precision device reports
     fractions of a detent — that granularity is the discriminator on Windows, where `pixelDelta` is
     null for every device — and must reach `super().wheelEvent()` unchanged, i.e. move by Qt's
-    `singleStep`-derived distance, not ours."""
+    `singleStep`-derived distance, not ours.
+
+    Zoomed to 200% first, and the precondition asserted, because the two rules are only *usually*
+    different: in this fixture's window at 100% they happen to coincide (Qt's `viewportHeight / 20`
+    lands on the same number our constant does), and a test whose two sides agree by accident asserts
+    nothing. Zoom separates them, since ours scales with it and Qt's does not."""
+    view.set_zoom(2.0)
+    PdfApp.instance().processEvents()
     vbar = view.verticalScrollBar()
     qt_step = QApplication.wheelScrollLines() * vbar.singleStep()
     assert qt_step != pytest.approx(_expected_step(view), abs=2), \
@@ -214,13 +221,20 @@ def test_a_pixel_delta_event_keeps_qts_own_arithmetic(view):
     **`angleDelta`** and ignores `pixelDelta` entirely, so declining the event yields Qt's
     `singleStep`-based number, not the 13 px the device reported. That is pre-M92.1 behaviour
     preserved exactly, which is all this arm promises — improving Qt's handling of precision devices
-    is the deferred touchpad work, not M92.1."""
+    is the deferred touchpad work, not M92.1.
+
+    Zoomed to 200% for the same reason as the test above: it is what makes Qt's number and ours
+    distinguishable in this window."""
+    view.set_zoom(2.0)
+    PdfApp.instance().processEvents()
     vbar = view.verticalScrollBar()
     qt_step = QApplication.wheelScrollLines() * vbar.singleStep()
+    assert qt_step != pytest.approx(_expected_step(view), abs=2), \
+        "fixture: the two rules must differ here or the assertion below proves nothing"
+
     vbar.setValue(0)
     _wheel(view, -_WHEEL_NOTCH, pixel=-13)
     assert vbar.value() == pytest.approx(qt_step, abs=2)
-    assert vbar.value() != pytest.approx(_expected_step(view), abs=2)
 
 
 def test_a_tilt_wheel_still_scrolls_horizontally(view):

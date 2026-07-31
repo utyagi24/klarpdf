@@ -67,17 +67,26 @@ _WHEEL_NOTCH = 120      # one mouse-wheel detent, in eighths of a degree (Qt's u
 _WHEEL_QUIET_MS = 250   # gap that ends a wheel gesture (a flywheel wheel coasts well past the hand)
 # What one *line* of a mouse-wheel detent moves, in logical px at 100% zoom (M92.1). Multiplied by
 # Windows' "lines to scroll" setting (``QApplication.wheelScrollLines()``, default 3) and by the
-# zoom, so a detent is 120 px at 100% and always moves the same amount of *document*.
+# zoom, so a detent is 96 px at 100% and always moves the same amount of *document*.
 #
-# 40 is the constant Chromium and Gecko share, which is why every browser feels alike and why this
-# number makes the OS slider mean to us what it means to them. What it replaces was not a considered
-# choice at all: Qt's ``QGraphicsView`` sets the vertical ``singleStep`` to **viewportHeight / 20**
-# (measured: viewport 846 -> 42, viewport 832 -> 41), so a detent was 15% of the *window height* and
-# nothing else — unrelated to the document, the text or the zoom, and worse the more screen the
-# window was given. `_place_window` opens at the full available screen height by design, which put
-# that derivation at its maximum: on the owner's 2560x1440 display the viewport is 1246 px tall, so
-# one detent moved **183 px — 19% of a page, ten lines of body text** (measured 2026-07-30).
-_WHEEL_LINE_PX = 40.0
+# What it replaces was not a considered choice at all: Qt's ``QGraphicsView`` sets the vertical
+# ``singleStep`` to **viewportHeight / 20** (measured: viewport 846 -> 42, viewport 832 -> 41), so a
+# detent was 15% of the *window height* and nothing else — unrelated to the document, the text or the
+# zoom, and worse the more screen the window was given. `_place_window` opens at the full available
+# screen height by design, which put that derivation at its maximum: on the owner's 2560x1440 display
+# the viewport is 1246 px tall, so one detent moved **183 px — 19% of a page, ten lines of body
+# text** (measured 2026-07-30).
+#
+# **32 is measured against Edge, not borrowed from it.** This shipped at **40** — the constant
+# Chromium and Gecko share for the *web* — and the owner's side-by-side then put us at **10 lines**
+# per detent against Edge's **8** in the same document (2026-07-31). 40 x 0.8 = 32. Two independent
+# observations agree on the target: "Edge moves about half" of the old 183 px is ~91 px, and 8/10 of
+# the 40-constant's 109 px is ~87 px. The likely reason the web constant was the wrong one to borrow
+# is that Edge renders PDFs through **PDFium**, not the generic web scroll path, so its viewer never
+# used the 40 px/line figure in the first place. Recorded because the temptation on any future tune
+# is to reach back for the "standard" number: the standard is for web pages, and this is a PDF
+# viewer. The reader's own control remains the Windows lines-to-scroll slider.
+_WHEEL_LINE_PX = 32.0
 
 _ZOOM_COALESCE_MS = 16  # one frame at 60 Hz — the Ctrl+wheel accumulator's flush interval (M86.2)
 

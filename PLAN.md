@@ -2135,7 +2135,7 @@ would need is recorded under §Future enhancements, not here.
 
 | Milestone | What | Where | Verify |
 | --- | --- | --- | --- |
-| **M92.1** A wheel detent moves a defined distance | `PdfView.wheelEvent` stops delegating the plain (unmodified) wheel to `super()` and computes its own step: **`wheelScrollLines × _WHEEL_LINE_PX × zoom`**, applied to the vertical scrollbar. `_WHEEL_LINE_PX = 40` logical px — the constant Chromium/Gecko share, so Windows' *lines to scroll* setting finally means to us what it means to every other app. Proportional to the raw `angleDelta` (`delta/120`), so a hi-res wheel's fragments accumulate rather than quantise. | WSL + WSLg | One detent moves exactly `wheelScrollLines × 40 × zoom` px; the distance is **unchanged by window height** (the defect) and **scales with zoom**; N detents accumulate to N × step with no lost delta; hi-res fragments summing to 120 move exactly one step; `Ctrl`/`Shift`/slideshow paths unchanged |
+| **M92.1** A wheel detent moves a defined distance | `PdfView.wheelEvent` stops delegating the plain (unmodified) wheel to `super()` and computes its own step: **`wheelScrollLines × _WHEEL_LINE_PX × zoom`**, applied to the vertical scrollbar. `_WHEEL_LINE_PX = 32` logical px, **set from the owner's side-by-side against Edge** (see below), so Windows' *lines to scroll* setting finally means to us what it means to every other app. Proportional to the raw `angleDelta` (`delta/120`), so a hi-res wheel's fragments accumulate rather than quantise. | WSL + WSLg | One detent moves exactly `wheelScrollLines × _WHEEL_LINE_PX × zoom` px; the distance is **unchanged by window height** (the defect) and **scales with zoom**; N detents accumulate to N × step with no lost delta; hi-res fragments summing to 120 move exactly one step; `Ctrl`/`Shift`/slideshow paths unchanged |
 | **M92.2** The step is eased, not teleported | A clock-driven scroll animator on `PdfView`: a wheel tick moves a **target**, a ~16 ms `QTimer` (parented to the view) walks the scrollbar to it on an **ease-out** curve over `_WHEEL_EASE_MS ≈ 130`. A tick arriving mid-animation **extends the target and re-times the curve** from the current position rather than restarting from rest. A **Smooth scrolling** preference turns it off, restoring M92.1's direct write. | WSLg / Windows | A detent's motion is spread over ~130 ms and lands on **exactly** the M92.1 pixel; held spinning reads as continuous motion, not a train of lurches; a reversal collapses the target instead of unwinding it; a deliberate nav (`Space`, `goto_page`, Home/End) cancels the animation; with the pref off, behaviour is byte-for-byte M92.1 |
 
 **The defect, measured on the owner's display (2026-07-30).** Qt's `QGraphicsView` sets the vertical
@@ -2151,17 +2151,25 @@ wheelScrollLines 3   singleStep 61 (= 1246/20)
 ONE DETENT = 183 logical px = 19.1% of a page = 10.1 lines of body text
 ```
 
-Ten lines of text on one click of the wheel. Chromium's convention is **40 px per line × 3 lines =
-120 px**, fixed; the owner's side-by-side (discrete-detent wheel, same zoom) put Edge at roughly half
-of ours, which brackets the same place. **The proposed rule gives 109 px at that 91% zoom, a 1.7×
-reduction**, and unlike today's it is invariant under window size and moves the same amount of
-*document* at every zoom.
+Ten lines of text on one click of the wheel. The replacement rule is invariant under window size and
+moves the same amount of *document* at every zoom; what remained was to fix its one constant.
 
-**An earlier draft of this plan proposed 3 real text lines** (`wheelScrollLines × 15pt-line ×
-scale`), which measures **55 px** on the same setup — meaningfully *slower* than the Edge behaviour
-the owner said is acceptable. Recorded because it is the obvious next tune if 109 px still reads as
-too far, and because the reasoning matters: the semantically pure rule and the comfortable rule are
-not the same number, and the owner's judgement of feel is the tiebreak. It is one constant either way.
+**The constant was borrowed, then measured (2026-07-30 → 07-31).** It shipped at
+**`_WHEEL_LINE_PX = 40`** — the figure Chromium and Gecko share, giving `40 × 3 = 120 px` at 100%
+zoom and **109 px** at the owner's Fit Page. The owner's side-by-side then settled it: in the same
+document a detent moved **10 lines against Edge's 8**, so `40 × 0.8 = ` **32**, and one detent is
+**87 px at Fit Page — 2.09× smaller than Qt's 183**. Two independent observations agree on the
+target: *"Edge moves about half"* of 183 px is ~91 px, and 8/10 of 109 px is ~87 px. The likely
+reason the web constant was the wrong one to borrow is that **Edge renders PDFs through PDFium**, not
+the generic web scroll path, so its viewer never used 40 px/line at all. Worth keeping in view on any
+future tune: the "standard" number is a standard for *web pages*, and this is a PDF viewer — the
+owner's side-by-side is the better authority, and the reader's own control is the Windows
+lines-to-scroll slider.
+
+**A third candidate, recorded because it is the one a purist would reach for:** 3 *real* text lines
+(`wheelScrollLines × 15pt-line × scale`) measures **55 px** on the same setup — well past Edge in the
+other direction. The semantically pure rule and the comfortable rule are not the same number, and the
+owner's judgement of feel is the tiebreak.
 
 **Why the step, not the animation, is the headline** — and a correction to this plan's own first
 draft. The initial proposal led with smooth animation on the strength of a *recalled* Chromium

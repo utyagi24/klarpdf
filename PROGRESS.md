@@ -1838,11 +1838,16 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     opens at the **full available screen height** by design, which puts that at its maximum. Measured
     on the owner's display: 2560×1440 @ 100%, window 1000×1353, viewport 770×1246, Fit Page 91% →
     `singleStep` 61 → **one detent = 183 px = 19.1% of a page = 10.1 lines of body text**. The rule
-    becomes **`wheelScrollLines × 40 px × zoom`** — 40 px/line is the Chromium/Gecko convention, so
-    Windows' *lines to scroll* setting finally means what it means everywhere else; window-independent,
-    and zoom-scaled so a detent always moves the same amount of *document*. **Verified on the same
-    display after the change: 109 px at Fit Page (1.68× smaller), and 11.4% of a page at 91%, 100%
-    and 200% alike** — the zoom-invariance Qt's rule never had. **Scope is the mouse only**:
+    becomes **`wheelScrollLines × _WHEEL_LINE_PX × zoom`** — window-independent, and zoom-scaled so a
+    detent always moves the same amount of *document*; Windows' *lines to scroll* setting finally
+    means what it means everywhere else. **Verified on the same display after the change: 87 px at Fit
+    Page (2.09× smaller), and 9.1% of a page at 91%, 100% and 200% alike** — the zoom-invariance Qt's
+    rule never had. **The constant is measured, not borrowed**: it shipped at 40 (the Chromium/Gecko
+    *web* figure) and the owner's side-by-side then put us at 10 lines per detent against Edge's 8 in
+    the same document (2026-07-31), so 40 × 0.8 = **32**. Two independent observations agree on the
+    target — "Edge moves about half" of 183 px is ~91 px, and 8/10 of 109 px is ~87 px — and the
+    likely reason the web constant was wrong to borrow is that **Edge renders PDFs through PDFium**,
+    not the generic web scroll path. **Scope is the mouse only**:
     `_is_mouse_detent` leaves a precision device on Qt's path, by `pixelDelta` where the platform
     fills it in and by delta granularity on Windows, where it never does (a notched wheel reports
     whole multiples of 120, a touchpad reports fractions). **Known gap**: a hi-res wheel in
