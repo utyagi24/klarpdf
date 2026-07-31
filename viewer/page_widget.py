@@ -23,6 +23,23 @@ from PySide6.QtGui import QIntValidator
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QSizePolicy, QWidget
 
 
+class PageField(QLineEdit):
+    """The number itself — a `QLineEdit` that declines the keys it has no use for (M91.4)."""
+
+    def keyPressEvent(self, event) -> None:
+        # **`Space` belongs to the document.** This field is integer-validated, so a space can never
+        # be valid input here — but `QLineEdit` accepts the key anyway and the validator quietly
+        # drops the character, so the press did *nothing at all*. A reader who had clicked the field
+        # once (to read it, or to type a page) then found the most common reading gesture in the app
+        # dead for the rest of the session, with no way to tell why. Leaving it unaccepted carries
+        # it to `MainWindow.keyPressEvent`, which pages the view — the same rule the sidebar panels
+        # follow, and the reason `PgUp`/`PgDn` already worked from here while `Space` did not.
+        if event.key() == Qt.Key.Key_Space:
+            event.ignore()
+            return
+        super().keyPressEvent(event)
+
+
 class PageWidget(QWidget):
     """``[ 10 ] of 320`` — the field jumps, the label counts."""
 
@@ -36,7 +53,7 @@ class PageWidget(QWidget):
         # because it sets a fixed width on itself.
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
 
-        self.field = QLineEdit()
+        self.field = PageField()
         self.field.setAlignment(Qt.AlignmentFlag.AlignCenter)
         # ClickFocus, like the zoom combo: a wheel scroll or a Tab pass over the reading bar must
         # never take the keyboard away from the page — the arrow keys are navigation (M78.2).
@@ -58,6 +75,7 @@ class PageWidget(QWidget):
         layout.addWidget(self.total)
 
         self.field.editingFinished.connect(self._apply_text)
+        self.field.returnPressed.connect(self._commit)
         view.currentPageChanged.connect(self.show_page)
         self.show_count()
         self.show_page(view.current_page)
@@ -76,12 +94,40 @@ class PageWidget(QWidget):
 
     # ---- the display drives the view --------------------------------------------
 
+    def _commit(self) -> None:
+        """Enter: jump, then **hand the keyboard back to the page**.
+
+        A page field is a one-shot instruction, not a place to leave the focus. Keeping it meant a
+        reader who typed a page number was left with the caret in a 44 px box while looking at the
+        document — every reading key from then on either did nothing or belonged to the field. This
+        is the same reasoning as :meth:`PageField.keyPressEvent`, one step earlier: the reader's
+        attention went back to the page, so the keyboard should follow it.
+        """
+        self._apply_text()
+        self._view.setFocus()
+
     def _apply_text(self) -> None:
         """Jump to the typed page, clamped; garbage restores the live value.
 
-        ``editingFinished`` fires on Enter **and** on focus-out, which is what makes clicking away
-        from a half-typed number harmless rather than a jump to page 1.
+        **Only when the reader actually typed something** (M91.4). ``editingFinished`` fires on
+        Enter *and* on every focus-out with valid contents — Qt does not require the text to have
+        changed — so merely clicking the field and clicking away re-applied whatever number it was
+        showing. That is not the no-op it looks like: ``goto_page`` re-seats the view on that page's
+        **top**, so a reader who clicked the field, scrolled on with the wheel and then clicked back
+        onto the page was yanked to the top of the page they started from. Owner report,
+        2026-07-30: "the first page flickers but stays at 1" — the flicker was this jump, and every
+        `Space` in between was being eaten by the field (see :class:`PageField`).
+
+        ``isModified`` is the exact question to ask: Qt sets it when the *user* edits and clears it
+        on ``setText``, which is how :meth:`show_page` marks the value as the view's rather than
+        theirs. The zoom box next door has the same ``editingFinished`` wiring and is **not** wrong,
+        which is worth recording so this is not "fixed" there too: re-applying a stale zoom is a
+        genuine no-op because ``set_zoom`` returns early on an unchanged value, while ``goto_page``
+        has no such early-out and must not — jumping to the page you are already on is exactly what
+        a reader means by clicking its thumbnail (M91.4).
         """
+        if not self.field.isModified():
+            return
         raw = self.field.text().strip()
         try:
             page = int(raw)
@@ -89,6 +135,7 @@ class PageWidget(QWidget):
             self.show_page(self._view.current_page)   # ignore garbage, restore the live value
             return
         count = self._view._vdoc.page_count
+        self.field.setModified(False)   # applied — a following focus-out must not repeat the jump
         self._view.goto_page(max(1, min(page, count)) - 1)
         # Echo the clamped result: typing 900 into a 320-page document must not leave 900 on screen.
         # goto_page scrolls, which emits currentPageChanged and updates the field — except when the

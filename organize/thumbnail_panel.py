@@ -100,6 +100,11 @@ class ThumbnailPanel(QListWidget):
         self.verticalScrollBar().valueChanged.connect(self._render_visible_thumbs)
 
         self.currentRowChanged.connect(self._on_row_changed)
+        # A click jumps even when it lands on the row that is already current (M91.4) — see
+        # _on_clicked. `clicked` rather than a mouse handler: Qt emits it only for a real left
+        # click on one index, so a drag-reorder never counts as one.
+        self._row_at_press = -1
+        self.clicked.connect(self._on_clicked)
         # Repaint the whole viewport on any selection change so every selection marker (drawn in
         # paintEvent) updates — Qt otherwise only invalidates individual changed item rects.
         self.itemSelectionChanged.connect(self.viewport().update)
@@ -326,7 +331,40 @@ class ThumbnailPanel(QListWidget):
                 self.deleteRequested.emit(rows)
                 event.accept()
                 return
+        # `Space` belongs to the **document** (M91.4). Leaving it unaccepted is what lets Qt
+        # propagate it up to MainWindow, which pages the view — see MainWindow.keyPressEvent for
+        # why the fallback lives there and not on a shortcut. `QAbstractItemView` would otherwise
+        # accept it and *select the current row*: invisible on a row a click already selected, and
+        # not inert either — that is the selection Delete Pages and Rotate act on.
+        #
+        # Only `Space`. The other reading keys mean something here: the arrows and PgUp/PgDn move
+        # the current thumbnail, Home/End go to the first/last page, and each of those jumps the
+        # view through `pageActivated` anyway.
+        if event.key() == Qt.Key.Key_Space:
+            event.ignore()
+            return
         super().keyPressEvent(event)
+
+    def mousePressEvent(self, event) -> None:
+        # Which row was current *before* the press, so :meth:`_on_clicked` can tell a click that
+        # moved the current row (already announced by `currentRowChanged`) from one that did not.
+        self._row_at_press = self.currentRow()
+        super().mousePressEvent(event)
+
+    def _on_clicked(self, index) -> None:
+        """A click on the **already-current** thumbnail still jumps (M91.4).
+
+        `currentRowChanged` fires only when the row *changes*, and the view drags the highlight
+        along as the reader scrolls — so by the time a reader scrolls away from page 1 and clicks
+        page 1's thumbnail to get back, the row is already 0 and the click did **nothing**. Clicking
+        a thumbnail is a "show me this page" gesture; it has to mean that every time. The sibling
+        panels already work this way (`OutlinePanel`/`AnnotationsPanel` both jump from `itemClicked`).
+
+        Guarded against the double jump: when the click *did* move the row, `_on_row_changed` has
+        emitted already.
+        """
+        if index.row() >= 0 and index.row() == self._row_at_press:
+            self.pageActivated.emit(index.row())
 
     def _edited_render(self) -> "fitz.Document | None":
         """The edits-applied output document (rotation + redactions + annotations + form fills baked

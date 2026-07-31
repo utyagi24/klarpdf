@@ -27,7 +27,6 @@ import pymupdf as fitz
 from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QGuiApplication, QImage, QPen, QPixmap, QTransform
 from PySide6.QtWidgets import (
-    QAbstractSlider,
     QApplication,
     QGraphicsPixmapItem,
     QGraphicsRectItem,
@@ -185,6 +184,9 @@ class PdfView(QGraphicsView):
         self._wheel_accum = 0
         self._wheel_muted = False
         self._last_wheel_ts = 0
+        # True only while inside wheelEvent, so a move the *wheel* made does not park the wheel
+        # (M91.4) — the slideshow steps via goto_page, which arms the mute for everyone else.
+        self._wheel_driving = False
         # One geometry change = one rasterise (M86.1). ``_render_held`` counts open
         # :meth:`_hold_render` blocks; while any is open, _render_visible defers.
         self._render_held = 0
@@ -924,11 +926,24 @@ class PdfView(QGraphicsView):
             return
         super().keyPressEvent(event)
 
-    def _navigation_key(self, event) -> bool:
-        """``Home``/``End`` jump to the document's start/end (M89.1); ``Space``/``Shift+Space``
-        page down/up (M89.2). Returns whether the key was ours.
+    def reading_key(self, event) -> bool:
+        """Handle a paging key that reached the **window** because nothing with focus claimed it.
 
-        Qt leaves all five dead in this view: ``QAbstractScrollArea`` binds ``Home``/``End`` only on
+        The sidebar panels hand ``Space`` over rather than swallowing it (M91.4), and it arrives
+        here by ordinary key propagation — see :meth:`main_window.MainWindow.keyPressEvent`, which
+        is the one caller. Returns whether the key was ours.
+
+        The slideshow keeps its own keys: there the reader is stepping *slides*, and a scroll would
+        be the wrong verb. Nothing routes here in that mode anyway — M78 hides the sidebar — but the
+        guard is what makes that a decision rather than an accident.
+        """
+        return False if self._slideshow else self._navigation_key(event)
+
+    def _navigation_key(self, event) -> bool:
+        """``Home``/``End`` jump to the document's start/end (M89.1); ``Space``/``Shift+Space`` and
+        ``PgDn``/``PgUp`` page down/up (M89.2, corrected by M91.4). Returns whether the key was ours.
+
+        Qt left all five dead in this view: ``QAbstractScrollArea`` binds ``Home``/``End`` only on
         macOS, and ``Space`` nowhere — so the two gestures a reader reaches for most in a long
         document did nothing, while ``PgUp``/``PgDn`` worked.
 
@@ -936,8 +951,11 @@ class PdfView(QGraphicsView):
         strip has no "line" for the bare form to go to the start of, to a reader the Ctrl'd and bare
         forms are the same gesture, and Preview, Edge and Chrome bind them alike in a PDF. Both are
         the scrollbar's minimum/maximum — the literal reading, and it lets :meth:`_on_scroll` update
-        the current page for free. ``Space`` is the same ``SliderPageStep`` the working
-        ``PgDn``/``PgUp`` already trigger.
+        the current page for free.
+
+        ``PgDn``/``PgUp`` are **taken off Qt** here (M91.4) rather than left to the base class: they
+        page by the same wrong distance ``Space`` did, and M89.2's own promise is that the two keys
+        are one verb. Only the bare form; anything modified falls through untouched.
 
         **These live here rather than as window-level ``QAction`` shortcuts on purpose** — as does
         the ``Ctrl+A`` above, which points at this paragraph. A window shortcut fires wherever focus
@@ -960,13 +978,102 @@ class PdfView(QGraphicsView):
             mods = mods ^ Qt.KeyboardModifier.KeypadModifier
         vbar = self.verticalScrollBar()
         if key in (Qt.Key.Key_Home, Qt.Key.Key_End) and mods in (none, ctrl):
+            self._park_coasting_wheel()
             vbar.setValue(vbar.minimum() if key == Qt.Key.Key_Home else vbar.maximum())
             return True
         if key == Qt.Key.Key_Space and mods in (none, shift):
-            vbar.triggerAction(QAbstractSlider.SliderAction.SliderPageStepSub if mods == shift
-                               else QAbstractSlider.SliderAction.SliderPageStepAdd)
+            self._page_scroll(forward=mods != shift)
+            return True
+        if key in (Qt.Key.Key_PageDown, Qt.Key.Key_PageUp) and mods == none:
+            self._page_scroll(forward=key == Qt.Key.Key_PageDown)
             return True
         return False
+
+    def _reading_stops(self, near: int, reach: int) -> list[int]:
+        """The scroll offsets a paging key may land on within ``reach`` of offset ``near``,
+        ascending: **the top of each page**, plus — for a page taller than the viewport — that page
+        cut into the fewest **equal** steps that each still fit a screenful.
+
+        This list is the whole of M91.4. ``Space`` used to be the scrollbar's own ``SliderPageStep``,
+        which advances by the **viewport height**; the strip advances by the **page pitch**, which at
+        Fit Page is one ``_PAGE_GAP`` *less* (the fit leaves ``2 * _PAGE_GAP`` of margin and the
+        layout puts one gap back between the pages). So every press overshot by exactly 14 px and the
+        error accumulated: measured 126 px into the screen by page 10 and past half a screen by page
+        ~27, at which point the page counter reads one ahead of the page filling the top of the
+        window — the owner's "bottom half of page 9 and top half of page 10 while it says 10".
+
+        Landing on a stop instead of a raw screenful fixes that by construction and is one rule for
+        three cases: **a page that fits** advances exactly one page; **several pages that fit at
+        once** (zoomed out) advance as many whole pages as the screen holds, still aligned; **a page
+        taller than the screen** takes equal steps whose last one lands exactly on the next page's
+        top. That last part is why the subdivision is *equal* rather than "a screenful, then the
+        remainder": the remainder can be a handful of pixels, i.e. a press that visibly does nothing,
+        and — since every page of a document is usually the same height — it would do nothing once
+        per page, for ever.
+
+        Consecutive stops are at most a screenful apart by construction, so :meth:`_page_scroll`
+        always finds one within reach; a reader who wheeled to an arbitrary offset is put back on the
+        page's own grid by their next press.
+
+        **Bounded by the viewport, not the document.** Only the pages a single step could reach are
+        walked — ``_page_tops`` is non-decreasing, so two bisections find them — which keeps this the
+        same work in a 5000-page document as in a five-page one. Building the whole list would cost a
+        few milliseconds per press and be invisible next to the rasterise a page turn already pays,
+        but O(document) in an input path is the trap M87.3 and M78.8 were spent closing, and it does
+        not get to come back through the keyboard.
+        """
+        vbar = self.verticalScrollBar()
+        screen = max(1, vbar.pageStep())
+        if not self._page_tops:
+            return []
+        # ``_page_tops`` holds each page's scene y; the offset that puts its top edge under the
+        # viewport's is that minus the gap above it — goto_page's arithmetic, so a paged step and a
+        # clicked thumbnail land on the same pixel. Hence the +_PAGE_GAP converting the wanted band
+        # of *offsets* back into the scene y the bisections search.
+        first = max(0, bisect_right(self._page_tops, near - reach + _PAGE_GAP) - 1)
+        last = min(len(self._page_tops) - 1,
+                   bisect_right(self._page_tops, near + reach + _PAGE_GAP))
+        edges = sorted({int(y) - _PAGE_GAP for y in self._page_tops[first:last + 1]})
+        # The edge that *closes* the last page's segment: the top of the next page, or the end of
+        # the document when there is none. Found by value, not by ``last + 1`` — a facing row's two
+        # pages share a y (M78), and the page after `last` can be its partner rather than the next
+        # row, which would close the segment against itself and leave the row unsteppable.
+        after = bisect_right(self._page_tops, self._page_tops[last])
+        edges.append(int(self._page_tops[after]) - _PAGE_GAP if after < len(self._page_tops)
+                     else max(vbar.maximum(), edges[-1]))
+        stops: list[int] = []
+        for lo, hi in zip(edges, edges[1:]):
+            span = hi - lo
+            if span <= 0:
+                stops.append(lo)                # a facing row's second page: same top, no segment
+                continue
+            n = -(-span // screen)          # ceil: the fewest equal steps that each fit a screenful
+            stops.extend(lo + round(j * span / n) for j in range(n))
+        stops.append(edges[-1])
+        # Zoomed out far enough, the strip is barely longer than the viewport and the last pages'
+        # tops sit past where the bar can scroll to. A stop the bar cannot reach is not a stop.
+        return sorted({min(max(s, vbar.minimum()), vbar.maximum()) for s in stops})
+
+    def _page_scroll(self, forward: bool) -> None:
+        """One paging step — the **furthest reading stop within one screenful**.
+
+        Furthest, not nearest, so a zoomed-out view showing five pages still advances five. With no
+        stop in reach (only at the very end of the document, where the last stop is behind us) it
+        falls back to the plain screenful and the bar clamps it, so the key still means "onwards".
+
+        Parks a coasting wheel first, or the step is undone by events the hand stopped asking for
+        seconds ago — see :meth:`wheelEvent`.
+        """
+        self._park_coasting_wheel()
+        vbar = self.verticalScrollBar()
+        value, screen = vbar.value(), vbar.pageStep()
+        stops = self._reading_stops(value, screen)
+        if forward:
+            reachable = [s for s in stops if value < s <= value + screen]
+            vbar.setValue(max(reachable) if reachable else value + screen)
+        else:
+            reachable = [s for s in stops if value - screen <= s < value]
+            vbar.setValue(min(reachable) if reachable else value - screen)
 
     def wheelEvent(self, event) -> None:
         """**Ctrl+wheel zooms** (M80), **Shift+wheel pans horizontally** (M89.3); in the slideshow
@@ -977,14 +1084,53 @@ class PdfView(QGraphicsView):
         viewport centre disagree, so the next click appeared to jump to the wrong page. One detent,
         one slide; a hi-res wheel's fractional deltas accumulate to a detent first.
 
-        A **coasting** wheel is parked. A flywheel wheel (and Windows' smooth scrolling) keeps
-        emitting long after the hand has left it, so a click or arrow key pressed during the
-        coast-down was immediately undone by the events still arriving — the reported "clicked
-        eight times and the first slide never moved", worse after every flick because a harder
-        flick coasts longer. A deliberate step therefore mutes the wheel until it has actually gone
-        quiet (:data:`_WHEEL_QUIET_MS` with no wheel event), which is also how a reader tells the
-        two apart: a fresh scroll comes after a pause, a coast doesn't.
+        A **coasting** wheel is parked — **in every mode since M91.4**, not just here. A flywheel
+        wheel (and Windows' smooth scrolling) keeps emitting long after the hand has left it, so a
+        click or key pressed during the coast-down is immediately undone by the events still
+        arriving. M78 met this as "clicked eight times and the first slide never moved"; the owner
+        met the *same* wheel again in ordinary reading (2026-07-30): spin hard back to page 1, press
+        ``Space``, and the page "flickers and stays on page 1" — then the next press "moves only
+        half a page". Both are the coast eating the step, which is why it reproduced **100% of the
+        time when spun fast and never when scrolled slowly**, and why the count of dead presses grew
+        with the flick: a harder spin coasts longer. Scrolling *up* at offset 0 is a no-op, so the
+        coast is invisible until a deliberate step gives it somewhere to go — which is exactly why
+        it looked like the key was broken rather than the wheel still running.
+
+        The mute is armed by any deliberate navigation (:meth:`_page_scroll`, Home/End,
+        :meth:`goto_page`, the slideshow's :meth:`_deliberate_step`) and lifts once the wheel has
+        actually gone quiet (:data:`_WHEEL_QUIET_MS` with no wheel event) — which is also how a
+        *reader* tells the two apart: a fresh scroll comes after a pause, a coast doesn't.
         """
+        # Qt fills the timestamp from the platform message; a plugin that leaves it at 0 falls back
+        # to our own clock, so an unstamped wheel still un-mutes (fail-open: at worst the wheel
+        # behaves as it did before this guard, never dead).
+        ts = event.timestamp() or int(time.monotonic() * 1000)
+        # ``0 <=`` matters as much as the upper bound: a *backwards* step cannot be the same gesture,
+        # it means the clock under us changed — which is reachable, because the fallback above is a
+        # different clock from the platform's and the two are not comparable. Before M91.4 only the
+        # slideshow kept this timestamp, so the mixed-source case could not arise; now that every
+        # wheel event updates it, an unstamped event followed by a stamped one would otherwise leave
+        # the wheel muted for ever. Fail open, always: a mute that cannot lift is a dead wheel.
+        elapsed = ts - self._last_wheel_ts
+        if self._wheel_muted:
+            if 0 <= elapsed < _WHEEL_QUIET_MS:
+                self._last_wheel_ts = ts        # same gesture, still coasting — swallow it
+                event.accept()
+                return
+            self._wheel_muted = False           # the wheel stopped; this is a new gesture
+        self._last_wheel_ts = ts
+        # **A wheel-driven move must not park the wheel that drove it.** The slideshow steps by
+        # calling ``goto_page``, which arms the mute for every other caller — so without this the
+        # wheel muted itself after one detent and a four-detent flick moved one slide (caught by
+        # M78's own tests). The flag says "we are inside the wheel handler"; nothing else reads it.
+        self._wheel_driving = True
+        try:
+            self._apply_wheel(event)
+        finally:
+            self._wheel_driving = False
+
+    def _apply_wheel(self, event) -> None:
+        """The wheel's actual effect, once :meth:`wheelEvent` has decided it is not a coast."""
         if not self.slideshow:
             if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
                 self._wheel_zoom(event)
@@ -993,17 +1139,6 @@ class PdfView(QGraphicsView):
                 return
             super().wheelEvent(event)
             return
-        # Qt fills the timestamp from the platform message; a plugin that leaves it at 0 falls back
-        # to our own clock, so an unstamped wheel still un-mutes (fail-open: at worst the wheel
-        # behaves as it did before this guard, never dead).
-        ts = event.timestamp() or int(time.monotonic() * 1000)
-        if self._wheel_muted:
-            if ts - self._last_wheel_ts < _WHEEL_QUIET_MS:
-                self._last_wheel_ts = ts        # same gesture, still coasting — swallow it
-                event.accept()
-                return
-            self._wheel_muted = False           # the wheel stopped; this is a new gesture
-        self._last_wheel_ts = ts
         delta = event.angleDelta().y()
         if delta and (delta > 0) != (self._wheel_accum > 0):
             self._wheel_accum = 0                    # a reversal starts counting afresh
@@ -1902,9 +2037,25 @@ class PdfView(QGraphicsView):
     def _deliberate_step(self, delta: int) -> None:
         """A step the reader asked for by hand — a click or a key, never the wheel. It parks a
         coasting wheel (see :meth:`wheelEvent`) so the slide it lands on stays put."""
-        self._wheel_muted = True
+        self._park_coasting_wheel()
         self._wheel_accum = 0
         self.step_slide(delta)
+
+    def _park_coasting_wheel(self) -> None:
+        """Mute the wheel until it has actually gone quiet, so a deliberate move survives the
+        events a flywheel wheel is still emitting (see :meth:`wheelEvent` for the full account).
+
+        Called by every navigation the *reader* asked for — the paging keys, Home/End, a slideshow
+        step, and :meth:`goto_page`, which is where the thumbnail, the outline, the page counter,
+        Ctrl+G and internal links all arrive. Arming it when no wheel is spinning costs nothing: the
+        next wheel event is then more than :data:`_WHEEL_QUIET_MS` from the last one, so it lifts
+        the mute and scrolls, which is why the internal callers of ``goto_page`` (rebuilds, zoom,
+        reopen) can share the entry point without a special case.
+
+        The one caller that must **not** arm it is the wheel itself — see :meth:`wheelEvent`.
+        """
+        if not self._wheel_driving:
+            self._wheel_muted = True
 
     def reload(self) -> bool:
         """Rebuild after the ordered list changed (edit). Page indices remap, so the pixmap
@@ -1957,6 +2108,10 @@ class PdfView(QGraphicsView):
     def goto_page(self, index: int) -> None:
         if not (0 <= index < len(self._pages)):
             return
+        # Every "take me to this page" gesture lands here — the thumbnail, the outline, the page
+        # counter, Ctrl+G, an internal link — so this is the one place that has to park a coasting
+        # wheel for all of them (M91.4).
+        self._park_coasting_wheel()
         p = self._pages[index]
         self.verticalScrollBar().setValue(int(p["y"]) - _PAGE_GAP)
         self._render_visible()
@@ -2034,4 +2189,13 @@ class PdfView(QGraphicsView):
             self._center_horizontally()               # `self._current`: the hold happens to keep the
                                                       # field intact here, but the restore must not
                                                       # depend on a render optimisation (see above).
+        # **Announce the restored page** (M91.4). ``_current`` was assigned directly above, because
+        # the fit has to be sized against that page's row before a scene exists to derive it from —
+        # so by the time ``goto_page`` scrolls there, :meth:`_update_current` finds the page it
+        # already holds and stays silent. Every indicator bound to this signal therefore opened
+        # reading **page 1 while the view sat on page 10** (owner report, 2026-07-30). The sidebar
+        # had a private workaround for exactly this (``MainWindow.showEvent`` → ``mark_open_page``),
+        # which is why it was the one indicator that looked right and why the next one would have
+        # been wrong too. Announced at the source, no consumer needs to know.
+        self.currentPageChanged.emit(self._current)
         self.zoomChanged.emit(self._zoom)

@@ -1365,6 +1365,21 @@ class MainWindow(QMainWindow):
             self._exit_chromeless()
             event.accept()
             return
+        # **A paging key nothing else claimed belongs to the document** (M91.4). Qt delivers a key
+        # to the focused widget and propagates it up the parent chain only while it stays
+        # *unaccepted*, so with focus in the sidebar `Space` never reached the view at all — and
+        # `QAbstractItemView` accepts it, quietly adding the current thumbnail to the very selection
+        # Delete Pages and Rotate act on. So the panels hand it over (see ThumbnailPanel.
+        # keyPressEvent) and it lands here, one step below the window: the reader's eyes are on the
+        # page whatever the focus ring says, which is how Preview, Acrobat and Edge read it too.
+        #
+        # This is the fallback M89.2 deliberately refused to make a **QAction shortcut** — and the
+        # distinction is the whole point. A shortcut fires *before* the focused widget sees the key,
+        # so `Space` would be stolen from the inline text-box and form-field editors; this runs only
+        # after every widget in the chain has declined it, so an editor still types its space.
+        if self.view.reading_key(event):
+            event.accept()
+            return
         super().keyPressEvent(event)
 
     def _show_properties(self) -> None:
@@ -3076,8 +3091,10 @@ class MainWindow(QMainWindow):
         # at Fit Page, resuming the remembered page/rotation. No fit/resize happens after the first
         # paint, so there's no flicker.
         self.view.open_at(self._settings.get_doc_state(self.path))
-        # Seed the sidebar's you-are-here marker. open_at restores a page without *changing* it, so
-        # currentPageChanged never fires and the panel would otherwise open with no row marked.
+        # Seed the sidebar's you-are-here marker. `open_at` now announces the restored page (M91.4),
+        # so the row is already current by here — but a **selection** marker is what "the page is not
+        # selected" described (M85), and `set_current` deliberately leaves an *empty* selection alone
+        # rather than inventing one. This is that one marker, not a second copy of the highlight.
         self.thumbs.mark_open_page(self.view.current_page)
 
     def _confirm_discard(self):

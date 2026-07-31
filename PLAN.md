@@ -1922,6 +1922,130 @@ Slideshow, which M78 made deliberately chrome-free; and in Two-Page mode the fie
 page as the rest of the app already defines it (M85 — largest visible area, ties to the earlier page)
 rather than a `10–11` span, so the field, the sidebar highlight and the outline tab cannot disagree.
 
+#### M91.4 — Space pages by a page, and the sidebar hands it over (owner-reported 2026-07-30)
+
+Three reports from the owner's testing pass on the new page counter, all against **M89.2's** `Space`
+paging. Two are the same defect seen from different sides; the third is a question, answered "no".
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M91.4** Space pages by a page | `Space` / `Shift+Space` / `PgDn` / `PgUp` step to a **reading stop** (`PdfView._reading_stops`) instead of the scrollbar's `SliderPageStep`: the top of each page, plus a tall page cut into the fewest **equal** steps that each fit a screenful. The sidebar panels leave `Space` unaccepted so it propagates to `MainWindow.keyPressEvent`, which hands it to `PdfView.reading_key`. A thumbnail **click** jumps even when it lands on the already-current row. | Windows (offscreen GUI) | Twelve presses from page 1 land on twelve page tops, each equal to `goto_page`'s offset; `PgDn` matches `Space`; a page taller than the screen takes equal steps ending on the next page's top; zoomed out, one press advances every page that fits; `Space` with focus in the Pages / Outline tab pages the document and leaves a staged multi-row selection alone; clicking the current thumbnail re-seats the view |
+
+**The drift is one `_PAGE_GAP` per press, and it is arithmetic, not a race (measured 2026-07-30).**
+`SliderPageStepAdd` advances by the scrollbar's `pageStep`, which `QGraphicsView` sets to the
+**viewport height**. The strip advances by the **page pitch**. At Fit Page those are not the same
+number and cannot be: `_fit_zoom` reserves `2 * _PAGE_GAP` of margin, so the page is `viewport −
+2·gap` tall, and the layout puts one gap back between consecutive pages — pitch `= viewport − gap`.
+Measured in an 1100×800 window: viewport 746, page 718, pitch 732, `pageStep` 746. **Every press
+overshoots by exactly 14 px**, and nothing ever resets it:
+
+| press | scroll offset | page 1's own top | slip | what fills the window |
+| --- | --- | --- | --- | --- |
+| 1 | 746 | 732 | 14 | page 2 (100%), 2% of page 3 |
+| 9 | 6714 | 6588 | 126 | page 10 (84%), 18% of page 11 |
+| ~27 | — | — | ~380 | **the counter says 28 while page 27 fills the top half** |
+
+That last row is the owner's report verbatim — "if I am on page 10, what I see on screen is bottom
+half of page 9 and top half of page 10". The counter is not lying: M85 resolves the current page by
+largest visible area, so once the slip passes half a screen the *next* page wins the count while the
+*previous* one still fills the top of the window. Both readings are correct; the scroll offset is
+what is wrong.
+
+**Why a reading stop, and why the subdivision is equal.** One rule covers three cases that would
+otherwise each need their own: a page that fits advances exactly one page; several pages that fit at
+once (zoomed out) advance as many whole pages as the screen holds, still aligned — hence *furthest*
+stop within reach, not nearest; and a page taller than the screen takes equal steps. Equal, rather
+than "a screenful, then whatever is left", because the remainder can be a handful of pixels — a press
+that visibly does nothing — and since every page of a document is usually the same height, it would
+do nothing **once per page, for the whole document**. Consecutive stops are at most a screenful apart
+by construction, so a press always finds one. `PgDn`/`PgUp` are taken off Qt for the same reason:
+M89.2's promise is that they and `Space` are one verb, and left to the base class they would have
+drifted from the page *and* from `Space`.
+
+**The sidebar was not inert — it was eating the key.** `QAbstractItemView::keyPressEvent` **accepts**
+`Space`, so Qt's key propagation stopped at the panel and the view never saw it: with focus in the
+sidebar the document could not be paged at all, and the only way back was to click the page. Worse,
+what Qt does with the key is `selectionCommand` → `Select`, which **adds the current row to the
+selection** — the selection Delete Pages and Rotate act on. So the answer to "is that expected?" is
+no twice over: the key was dead *and* it was quietly staging a page the reader never picked.
+
+The fallback lives in `MainWindow.keyPressEvent`, which is the same decision M89.2 recorded, read the
+other way round. A **`QAction` shortcut** fires *before* the focused widget sees the key, which is why
+`Space` must never be one — it would be stolen from the inline text-box and form-field editors. A
+**window `keyPressEvent`** runs only after every widget in the chain has declined it, so an editor
+still types its space and a reader in the sidebar still turns the page. Only `Space` is handed over:
+the arrows, `PgUp`/`PgDn` and `Home`/`End` all mean something in a page list, and each jumps the view
+through `pageActivated` anyway.
+
+**And a thumbnail click must always jump.** `ThumbnailPanel` announced clicks through
+`currentRowChanged`, which fires only when the row **changes** — but the view drags the highlight
+along as the reader scrolls, so scrolling away from page 1 and clicking page 1's thumbnail to get
+back did *nothing*: the row was already 0. That is the second half of the owner's "clicking on page 1
+again … requires multiple attempts" — the click was a no-op and the `Space` presses that followed
+were being eaten by the panel. `OutlinePanel` and `AnnotationsPanel` already jump from `itemClicked`;
+this makes the three agree.
+
+**The page counter was fighting the reader too (owner re-test, 2026-07-30).** "Press spacebar, the
+first page flickers but stays at 1" reproduced only once focus was accounted for, and the answer was
+the counter M91.3 had just added — two independent faults in the same 44 px box, both measured:
+
+- **`Space` was eaten.** The field is integer-validated, so a space can never be valid input — but
+  `QLineEdit` accepts the key regardless and the validator silently drops the character. A reader who
+  clicked the field once found the commonest gesture in the app dead for the rest of the session,
+  with nothing on screen to say why. (`PgUp`/`PgDn` already worked from there, because `QLineEdit`
+  *declines* those — which is the shape of the fix: `PageField` declines `Space` too.)
+- **An unedited focus-out re-applied the field.** `editingFinished` fires on Enter *and* on every
+  focus-out with acceptable input — Qt does **not** require the text to have changed (measured; the
+  documented "contents have changed" wording does not match `QLineEdit::focusOutEvent`). So clicking
+  the field and clicking back onto the page re-ran `goto_page` with the displayed number, and
+  `goto_page` re-seats the view on that page's **top**. That is the flicker: the reader was pulled
+  back to where the field last said they were. `isModified` is the exact question — Qt sets it when
+  the *user* edits and clears it on `setText`, which is how `show_page` marks a value as the view's
+  rather than the reader's.
+
+Recorded so it is not "fixed" in the wrong place: **`ZoomWidget` has the identical wiring and is not
+wrong.** Re-applying a stale zoom is a genuine no-op because `set_zoom` returns early on an unchanged
+value; `goto_page` has no such early-out **and must not**, since jumping to the page you are already
+on is exactly what a reader means by clicking its thumbnail. Enter also hands the keyboard back to
+the page: a page field is a one-shot instruction, not somewhere to leave the focus.
+
+**And the one that made it look intermittent: a coasting wheel undoes a deliberate step — in every
+mode, not just the slideshow (owner re-test, 2026-07-30).** With focus never leaving the page and no
+click anywhere, spinning the wheel **hard** back to page 1 and pressing `Space` makes the page
+"flicker and stay on page 1", and the next press "moves only half a page" — **100% reproducible on a
+fast spin, never on a slow one.**
+
+That is M78's bug, met a second time. A flywheel wheel (and Windows' smooth scrolling) keeps emitting
+long after the hand has left it, so the coast walks the view back out of the step the key just made;
+a harder flick coasts longer, which is why the count of dead presses tracked how hard the owner spun
+— and why the first round's "growing count" report was real and the first round's repro, which fired
+keys directly with no wheel in flight, could not see it. The reason it hides so well: **scrolling up
+at offset 0 is a no-op**, so the coast is invisible until a paging key gives it somewhere to go, at
+which point the *key* looks broken rather than the wheel still running.
+
+M78 diagnosed and fixed exactly this, then scoped the guard inside `if self.slideshow` — so ordinary
+reading, where the same wheel drives the same view, never got it. M91.4 hoists the mute to the top of
+`wheelEvent` and arms it from every deliberate navigation: the paging keys, Home/End, the slideshow's
+`_deliberate_step`, and `goto_page`, which is where the thumbnail, the outline, the counter, Ctrl+G
+and internal links all arrive. Two things the generalisation needed:
+
+- **A wheel-driven move must not park the wheel that drove it.** `step_slide` lands by calling
+  `goto_page`, so arming there made the wheel mute *itself* after one detent and a four-detent flick
+  moved one slide (caught by M78's own tests). `_wheel_driving` is set only inside `wheelEvent`.
+- **The quiet test must fail open on a backwards clock.** The elapsed check gained a `0 <=` lower
+  bound: `event.timestamp()` and the `time.monotonic()` fallback are different clocks, and before
+  this only the slideshow kept the timestamp, so the mixed-source case could not arise. Now that
+  every wheel event updates it, one unstamped event followed by a stamped one would have left the
+  wheel muted for ever. A mute that cannot lift is a dead wheel.
+
+**`open_at` must announce the page it restored.** Reopening a document closed on page 10 showed page
+10 with the counter reading 1. `open_at` assigns `_current` **directly**, because the Fit Page zoom
+has to be sized against that page's row before there is a scene to derive it from — so when
+`goto_page` then scrolls there, `_update_current` finds the page it already holds and stays silent.
+The sidebar never showed the bug because `MainWindow.showEvent` carried a private workaround
+(`mark_open_page`) for exactly this; the counter had none, and neither would the next indicator
+bound to that signal. The emit belongs at the source, so no consumer has to know.
+
 ### The corner-case document — what it taught us (measured 2026-07-27)
 
 `IAS_CaseStudy.pdf`: 75.6 MB, 18 pages, all 1920×1080 pt, **no text layer at all** (`chars == 0` on
