@@ -1825,6 +1825,43 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
       already held and stayed silent. The sidebar never showed it because `showEvent` carried a
       private workaround (`mark_open_page`); the counter had none, and neither would the next
       indicator bound to that signal
+- [ ] **M92** Mouse-wheel scrolling — the owner reported (2026-07-30) that **one detent moves too
+  much of the page**, and separately that scrolling is less fluid than Edge. Measured on the owner's
+  display, those are one defect and one polish, in that order of weight. Spec + every number behind
+  it in `PLAN.md` §M92. **Touchpad scrolling is out of scope** by owner call (*"though not perfect I
+  am satisfied with it for now"*); the inertia work it would need — and the reason it is the
+  expensive half — is recorded in `PLAN.md` §Future enhancements. **One PR per part.**
+  - [ ] **M92.1** **A wheel detent moves a defined distance.** Qt's `QGraphicsView` sets the vertical
+    `singleStep` to **`viewportHeight / 20`** (confirmed: viewport 846 → 42, viewport 832 → 41), so a
+    detent is `wheelScrollLines × singleStep` = **15% of the window height and nothing else** —
+    unrelated to document, text or zoom, and worse the more screen the window is given. `_place_window`
+    opens at the **full available screen height** by design, which puts that at its maximum. Measured
+    on the owner's display: 2560×1440 @ 100%, window 1000×1353, viewport 770×1246, Fit Page 91% →
+    `singleStep` 61 → **one detent = 183 px = 19.1% of a page = 10.1 lines of body text**. The rule
+    becomes **`wheelScrollLines × 40 px × zoom`** — 40 px/line is the Chromium/Gecko convention, so
+    Windows' *lines to scroll* setting finally means what it means everywhere else; window-independent,
+    and zoom-scaled so a detent always moves the same amount of *document*. **109 px at that 91% zoom,
+    a 1.7× reduction.** — *WSL + WSLg*
+  - [ ] **M92.2** **The step is eased, not teleported.** A clock-driven animator: a tick moves a
+    target, a ~16 ms timer walks the bar to it on an ease-out over ~130 ms, and a tick arriving
+    mid-animation **extends the target** from the current position instead of restarting from rest.
+    Driven from the **wall clock, not a per-frame increment**, so a frame blocked by a page rasterise
+    costs smoothness but never the landing pixel. Behind a **Smooth scrolling** preference. — *WSLg /
+    Windows*
+  - **Cost, measured before committing to it** (`PLAN.md` §M92 §Cost): per animation frame
+    **~0.11–0.15 ms handler + ~0.7–1.2 ms repaint** ≈ 1 ms of a 16.7 ms budget, ~6% of one core, only
+    while animating. **Flat** across zoom, DPR and content — 0.148 ms with no marks vs **0.143 ms with
+    880 marks over 40 pages**. **Memory unchanged**: the band is decided by `_visible_range` + M87.1
+    prefetch regardless of how the distance is crossed (79/140/197 MB resting at 1.0×/1.5×/2.0× on a
+    60-page Letter doc). The one risk is a **4.1–48.3 ms synchronous page rasterise** landing
+    mid-glide; a ~110 px detent rarely crosses a page boundary, which is most of why dropping the
+    touchpad scope dropped the cost.
+  - **The first draft of this plan led with the animation and was wrong** — it compared a *recalled*
+    Chromium constant against a detent measured in a 900 px bench window (126 px vs Edge's ~120), read
+    them as comparable, and concluded the easing must be the whole difference. The real window is
+    1353 px tall and the real detent 183 px. Kept as the standing lesson: **measure on the machine
+    that has the problem, in the window it actually opens at**, before attributing a felt difference
+    to a mechanism.
 - **Corner-case document analysis** (`PLAN.md` §The corner-case document) — `IAS_CaseStudy.pdf`,
   owner-supplied: 75.6 MB, 18 pages of 1920×1080 pt, **no text layer**, 95 MB of embedded images.
   Opens in **11.19 s**, of which **10.0 s is `fz_run_display_list`** — decoding imagery, not our
