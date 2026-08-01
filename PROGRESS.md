@@ -1910,6 +1910,22 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     deferred work landing between detents was still counted. **Honest limit**: outrun the queue and
     the page you reach is rasterised synchronously, a stall like the old one but only on genuinely
     outpacing prefetch; removing that needs `PLAN.md` §Deferred item **E**. — *WSL + WSLg*
+  - [x] **M92.5** **Page 1 and the last page arrive smoothly** — owner-reported 2026-08-01: free-spin
+    back from page 3–4 and *"when about 70% or 80% of the first page is visible there is an abrupt
+    jerky stop… this might be related to how we have implemented the ease-out."* Right on both counts.
+    Every detent reset `_glide_origin` / `_glide_start`, so each one re-entered the ease-out's **fast
+    opening**: velocity snapped up, decayed, snapped up. Mid-document that is invisible (the target
+    keeps advancing, and the run-up is *meant* to accelerate); against a target **pinned by the clamp
+    at an end**, the same shrinking distance is re-traversed and the sawtooth is all that is left.
+    Replayed with the owner's own probe gap pattern, the arrival ran **129, 66, 84, 43, 54, 30, 35 px
+    per frame** — speeding up twice while "stopping", squarely in the 74–90% band reported — then took
+    **240 ms to crawl the final 23 px**, because 23% of a small remainder is a pixel at a time.
+    `_scroll_by` now returns without restarting when the target equals the one already in flight,
+    which happens *only* at the ends. After: **673 562 462 370 290 219 158 107 … 0**, monotone, top
+    reached at t=496 ms instead of t=944. **Two harness mistakes are recorded in `PLAN.md`** because
+    each produced a confident wrong picture first: firing a detent and ticking at the same instant
+    cannot move anything (zero elapsed), and asserting that the *whole* spin decelerates is wrong —
+    only everything after peak speed must. — *WSL + WSLg*
   - **Cost, measured before committing to it** (`PLAN.md` §M92 §Cost): per animation frame
     **~0.11–0.15 ms handler + ~0.7–1.2 ms repaint** ≈ 1 ms of a 16.7 ms budget, ~6% of one core, only
     while animating. **Flat** across zoom, DPR and content — 0.148 ms with no marks vs **0.143 ms with

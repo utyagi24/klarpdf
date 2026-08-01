@@ -12,6 +12,9 @@ once — rather than just its endpoint, and it keeps a 200 ms animation a sub-mi
 The interesting cases are the ones where a glide meets something else: a second detent mid-flight
 (extend the target, don't restart), a reversal (collapse it, don't unwind), and any deliberate
 navigation (stop, or M91.4's defect comes back wearing our own animation).
+
+The last group covers **M92.5**, landing at the ends of the document — where a detent's target is
+pinned by the clamp and restarting the curve turns the arrival into a sawtooth.
 """
 
 from __future__ import annotations
@@ -279,3 +282,88 @@ def test_a_stalled_frame_does_not_stretch_the_glide(view):
 
     assert stalled[-1] == smooth[-1], "a stalled frame moved the landing point"
     assert stalled[1] == smooth[5], "position did not follow the clock across the stall"
+
+
+# ---- M92.5: landing at the ends of the document ---------------------------------
+
+
+def _spin_into(view, up: bool, detents: int, frames: int = 45):
+    """Free-spin towards one end of the document, one detent per frame for ``detents`` frames, then
+    let the last curve play out. Returns the px moved on each frame that moved.
+
+    Note the order inside the loop — **tick, then detent**. Firing a detent and ticking at the same
+    instant cannot move anything: `_scroll_by` sets `_glide_start` to now, so the tick sees zero
+    elapsed. (That mistake made an earlier version of this helper report a motionless glide.)
+    """
+    vbar = view.verticalScrollBar()
+    view._glide_clock = 0.0
+    _wheel(view, +1 if up else -1)
+    prev, speeds = vbar.value(), []
+    for i in range(1, frames):
+        view._glide_clock = i * 16.0
+        if view._glide_timer.isActive():
+            view._glide_tick()
+        now = vbar.value()
+        if now != prev:
+            speeds.append(abs(prev - now))
+        prev = now
+        if i < detents:
+            _wheel(view, +1 if up else -1)
+    return speeds
+
+
+def test_a_clamped_detent_does_not_restart_the_curve(view):
+    """**The M92.5 fix.** At an end the clamp pins the target, so a further detent asks for nothing
+    new — and restarting the curve for it re-enters the ease-out's fast opening, which is what made
+    the arrival jerky."""
+    vbar = view.verticalScrollBar()
+    vbar.setValue(int(_step(view) // 2))          # less than one detent from the top
+    _wheel(view, +1)
+    assert view._glide_target == 0, "fixture: the target should have clamped to the top"
+    origin, start = view._glide_origin, view._glide_start
+
+    _at(view, 30)
+    _wheel(view, +1)                              # another detent, target still pinned at 0
+    assert view._glide_origin == origin, "the curve was restarted against a pinned target"
+    assert view._glide_start == start
+
+
+def test_the_landing_at_the_top_only_decelerates(view):
+    """The reported symptom: arriving at page 1 the motion *sped up again* twice while stopping —
+    measured at 129, 66, **84**, 43, **54**, 30, 35 px per frame. The arrival is the part the reader
+    is actually watching, so it has to be monotone.
+
+    Asserted from **peak speed onwards**, not over the whole spin: the run-up genuinely accelerates
+    while detents keep arriving, because the reader is still asking for more. It is only the arrival
+    that must never speed up again.
+    """
+    view.verticalScrollBar().setValue(1500)
+    speeds = _spin_into(view, up=True, detents=20)
+    assert view.verticalScrollBar().value() == 0, "did not land on the top"
+    tail = speeds[speeds.index(max(speeds)):]     # everything after peak speed is the landing
+    assert tail == sorted(tail, reverse=True), f"the landing sped up again: {speeds}"
+
+
+def test_the_landing_at_the_bottom_only_decelerates(view):
+    """The clamp is symmetric, so the end of the document must behave like the start."""
+    vbar = view.verticalScrollBar()
+    vbar.setValue(max(0, vbar.maximum() - 1500))
+    speeds = _spin_into(view, up=False, detents=20)
+    assert vbar.value() == vbar.maximum(), "did not land on the bottom"
+    tail = speeds[speeds.index(max(speeds)):]     # everything after peak speed is the landing
+    assert tail == sorted(tail, reverse=True), f"the landing sped up again: {speeds}"
+
+
+def test_the_last_pixels_do_not_crawl(view):
+    """The other half of the report — *"before the rest of the page shows up"*. Restarting against a
+    pinned target moved 23% of a shrinking remainder each time, i.e. **a pixel at a time for 240 ms**
+    once the remainder was small. Letting the curve finish bounds the arrival by the glide itself."""
+    view.verticalScrollBar().setValue(1500)
+    _spin_into(view, up=True, detents=20)
+    frames_at_the_end = 0
+    view._glide_clock += 16
+    while view._glide_timer.isActive() and frames_at_the_end < 60:
+        view._glide_tick()
+        view._glide_clock += 16
+        frames_at_the_end += 1
+    assert frames_at_the_end < 4, f"still crawling after the spin: {frames_at_the_end} frames"
