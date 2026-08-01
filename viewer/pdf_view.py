@@ -88,6 +88,30 @@ _WHEEL_QUIET_MS = 250   # gap that ends a wheel gesture (a flywheel wheel coasts
 # viewer. The reader's own control remains the Windows lines-to-scroll slider.
 _WHEEL_LINE_PX = 32.0
 
+# How long a wheel detent's glide lasts, in ms (M92.2). **Owner's pick, made with the wheel in
+# hand** against a live toggle (`[`/`]` in the throwaway demo), and it sits at the outer edge of the
+# two bounds the benchmark drew rather than comfortably inside them — recorded so the edge is a
+# choice and not an oversight:
+#
+# * **lag** — how far the page trails where the wheel has already asked it to be, during a sustained
+#   5-detent/second spin: 60 px at 130 ms, 66 px at 170 ms, **88 px at 200 ms**. One detent is 87 px,
+#   so at 200 ms the page runs about one whole click behind the hand.
+# * **duty cycle** — the share of wall time a glide is in flight during that spin: 70% at 130 ms,
+#   86% at 170 ms, and 100% at 200 ms *as the bound was originally measured*. At 100% the page never
+#   rests where it was asked to be, and every page-boundary rasterise (4-48 ms, synchronous — see
+#   `_render_pixmap`) is *certain* to land mid-glide, where it reads as a stutter rather than being
+#   invisible inside a jump.
+#
+# **That second bound no longer binds at 200 ms, because `_glide_tick` ends on the pixels rather
+# than on the clock.** An ease-out asymptotes, so a detent's motion is complete at t = 0.80 — 160 ms,
+# measured — and stopping there cuts duty at 5 detents/second from **100% to 80%**, and at 3/second
+# from 60% to 48%. The lag bound is the one that still argues for less: 88 px against a detent of 87.
+#
+# 170 ms is the largest value inside both bounds as first drawn, if this ever wants walking back.
+# What 200 ms buys is measured too: the worst single-frame content jump falls from **87 px to 20 px**
+# (19 px on the real display), against 12 distinct positions where there used to be one.
+_WHEEL_EASE_MS = 200.0
+
 _ZOOM_COALESCE_MS = 16  # one frame at 60 Hz — the Ctrl+wheel accumulator's flush interval (M86.2)
 
 # Arrow key → unit (dx, dy) direction for nudging an object selection (M78.2); page-y grows down.
@@ -214,6 +238,15 @@ class PdfView(QGraphicsView):
         # fraction each detent leaves over is kept and spent on the next one. Without it a wheel
         # whose step lands just under a pixel boundary loses ground on every event.
         self._scroll_remainder = 0.0
+        # The M92.2 glide: a detent moves a *target*, and this timer walks the bar to it on an
+        # ease-out curve. ``_glide_target is None`` means nothing is in flight. Parented to the
+        # view, so it dies with it (the repo rule for view-owned timers).
+        self._smooth_scrolling = True
+        self._glide_target: float | None = None
+        self._glide_origin = 0.0
+        self._glide_start = 0.0
+        self._glide_timer = QTimer(self)
+        self._glide_timer.timeout.connect(self._glide_tick)
         # One geometry change = one rasterise (M86.1). ``_render_held`` counts open
         # :meth:`_hold_render` blocks; while any is open, _render_visible defers.
         self._render_held = 0
@@ -233,6 +266,9 @@ class PdfView(QGraphicsView):
         self._refresh_display()   # logical DPI + DPR, before the first layout is computed
         self._build_scene()
         self.verticalScrollBar().valueChanged.connect(self._on_scroll)
+        # Grabbing the scrollbar is a deliberate move; a glide still running would fight the thumb
+        # (M92.2). The keyboard and goto_page routes are covered by _park_coasting_wheel instead.
+        self.verticalScrollBar().sliderPressed.connect(self.stop_glide)
 
     # ---- display metrics: what a PDF point is worth on *this* screen (M88) ---------
 
@@ -1264,16 +1300,140 @@ class PdfView(QGraphicsView):
         dy, dx = event.angleDelta().y(), event.angleDelta().x()
         if abs(dx) > abs(dy):
             return False                    # a tilt wheel — Qt already routes it to the h-bar
-        vbar = self.verticalScrollBar()
         step = QApplication.wheelScrollLines() * _WHEEL_LINE_PX * self.zoom
         # Wheel *up* (positive delta) means scroll *back*, i.e. a smaller scrollbar value.
-        moved = self._scroll_remainder - dy / _WHEEL_NOTCH * step
-        whole = int(moved)                  # truncates toward zero; the rest funds the next event
-        self._scroll_remainder = moved - whole
-        if whole:
-            vbar.setValue(vbar.value() + whole)
+        self._scroll_by(-dy / _WHEEL_NOTCH * step)
         event.accept()
         return True
+
+    # ---- the glide (M92.2) -------------------------------------------------------
+
+    @property
+    def smooth_scrolling(self) -> bool:
+        """Whether a wheel step is eased (M92.2) or written straight to the bar (M92.1)."""
+        return self._smooth_scrolling
+
+    @smooth_scrolling.setter
+    def smooth_scrolling(self, on: bool) -> None:
+        self._smooth_scrolling = bool(on)
+        if not self._smooth_scrolling:
+            self.stop_glide()               # never leave a glide running with the feature off
+
+    def _glide_now_ms(self) -> float:
+        """The animator's clock. A method so tests can drive the curve without sleeping — and
+        deliberately ``monotonic``, which no clock change can run backwards."""
+        return time.monotonic() * 1000.0
+
+    def _glide_interval_ms(self) -> int:
+        """One tick, sized to **this screen's refresh rate** rather than a hardcoded 16 ms.
+
+        Not for phase — a plain ``QTimer`` cannot lock to vblank, and on a raster ``QWidget`` Qt
+        does not vsync-lock painting on Windows anyway (measured: this display refreshes at
+        59.95 Hz, i.e. every 16.68 ms, and no integer millisecond divides that). It is for **rate**:
+        a fixed 16 ms would produce 62 updates a second on a 144 Hz panel, which is needlessly
+        coarser than the panel can show.
+
+        Truncated rather than rounded, so we always produce *at least* one update per display
+        frame. Rounding 16.68 up to 17 ms yields 58.8 Hz — under-sampling, where the display shows
+        the same position twice and the motion micro-stalls. Over-sampling merely computes a frame
+        nobody sees, which costs ~1 ms and is the safer error.
+
+        Sampled per glide, not cached: the owner's machine pairs a 1.75× laptop panel with a 1.0×
+        external Dell, and a window dragged between screens can change refresh rate as well as DPR.
+        """
+        screen = self.screen() or QGuiApplication.primaryScreen()
+        hz = screen.refreshRate() if screen is not None else 0.0
+        if not 24.0 <= hz <= 400.0:         # a screen that cannot answer, or answers absurdly
+            return 16
+        return max(4, int(1000.0 / hz))
+
+    def stop_glide(self) -> None:
+        """Abandon any glide in flight, leaving the view exactly where it has got to.
+
+        Called by :meth:`_park_coasting_wheel` — so every deliberate navigation (the paging keys,
+        Home/End, :meth:`goto_page`, a slideshow step) ends the glide rather than fighting it — and
+        by the scrollbar's ``sliderPressed``. This is the M91.4 lesson applied to our own motion:
+        there, a *flywheel* kept emitting events that undid a keypress, and the fix had to infer the
+        coast from a quiet gap. A glide we own needs no inference; it can simply be stopped.
+        """
+        self._glide_timer.stop()
+        self._glide_target = None
+
+    def _scroll_by(self, px: float) -> None:
+        """Move the view ``px`` down (negative = up) — eased when smooth scrolling is on (M92.2),
+        written straight to the bar when it is off (M92.1 behaviour, byte for byte).
+
+        **Target-based, and a mid-glide detent extends the target** rather than restarting from
+        rest: the new distance is added to where the glide was already heading, and the curve is
+        re-timed from where the view actually *is*. That is what makes a held spin read as one
+        continuous motion instead of a train of separate lurches — the single biggest thing M92.2
+        buys, since a lone detent at 87 px is not far enough for easing to matter much.
+
+        **A reversal collapses the outstanding distance** instead of unwinding it. Flick back and
+        the target becomes ``current + px``, not ``old_target + px``, so the view turns round
+        immediately rather than first travelling the rest of the way to a place the reader has
+        already changed their mind about.
+        """
+        vbar = self.verticalScrollBar()
+        if not self._smooth_scrolling:
+            moved = self._scroll_remainder + px
+            whole = int(moved)              # truncates toward zero; the rest funds the next event
+            self._scroll_remainder = moved - whole
+            if whole:
+                vbar.setValue(vbar.value() + whole)
+            return
+        current = float(vbar.value())
+        base = current
+        if self._glide_target is not None and (self._glide_target - current) * px > 0:
+            base = self._glide_target       # same direction — extend what is already in flight
+        target = max(float(vbar.minimum()), min(float(vbar.maximum()), base + px))
+        if round(target) == round(current):
+            self.stop_glide()               # nothing to travel (clamped at an end) — don't animate
+            return
+        self._glide_origin = current
+        self._glide_target = target
+        self._glide_start = self._glide_now_ms()
+        if not self._glide_timer.isActive():
+            self._glide_timer.setInterval(self._glide_interval_ms())
+            self._glide_timer.start()
+
+    def _glide_tick(self) -> None:
+        """One frame of the glide: an **ease-out** from origin to target over :data:`_WHEEL_EASE_MS`.
+
+        **Position comes from the clock, not from a per-frame increment.** A frame delayed by a page
+        rasterise (4-48 ms, synchronous — :meth:`_render_pixmap`) therefore costs smoothness for a
+        frame or two and nothing else; the motion still lands on the right pixel at the right time.
+        An increment-driven animator would stretch by exactly the time it lost, and a burst of them
+        would drift the landing point somewhere the reader never asked for.
+
+        Ease-out (``1 - (1-t)³``) rather than ease-in-out: the motion has to begin on the same frame
+        as the click or the wheel feels laggy — this curve moves 20 px of an 87 px step in the first
+        frame, where ease-in-out moves 0.2 px and reads as the app hesitating. The cost, measured, is
+        that ease-out keeps the largest single-frame jump of the three candidates (20 px against a
+        uniform 7.3 px for linear); linear, though, stops dead, which is the abruptness this
+        milestone exists to remove.
+        """
+        if self._glide_target is None:
+            self._glide_timer.stop()
+            return
+        vbar = self.verticalScrollBar()
+        t = (self._glide_now_ms() - self._glide_start) / _WHEEL_EASE_MS
+        if t >= 1.0:
+            vbar.setValue(round(self._glide_target))
+            self.stop_glide()
+            return
+        eased = 1.0 - (1.0 - max(t, 0.0)) ** 3
+        pos = round(self._glide_origin + (self._glide_target - self._glide_origin) * eased)
+        vbar.setValue(pos)
+        # **End on the pixels, not on the clock.** An ease-out asymptotes, so the tail of the curve
+        # moves less than half a pixel per frame and the reader sees nothing at all: measured on the
+        # owner's display, a detent's motion finished at 161 ms of a 200 ms glide, leaving ~2.5
+        # frames of timer that changed nothing. Stopping when the rounded position reaches the
+        # rounded target lands on exactly the same pixel, and it matters beyond the saved frames —
+        # duty cycle is the share of time a glide is in flight, and a glide that outlives its own
+        # motion inflates the one number that argued against 200 ms (see :data:`_WHEEL_EASE_MS`).
+        if pos == round(self._glide_target):
+            self.stop_glide()
 
     def _wheel_pan(self, event) -> bool:
         """``Shift+wheel`` pans **horizontally** across a page wider than the viewport (M89.3).
@@ -2177,7 +2337,13 @@ class PdfView(QGraphicsView):
         reopen) can share the entry point without a special case.
 
         The one caller that must **not** arm it is the wheel itself — see :meth:`wheelEvent`.
+
+        Since M92.2 this also ends any **glide** in flight, for the same reason and with none of the
+        guesswork: a hardware coast has to be waited out, but our own animation can simply be
+        stopped. Without it, ``Space`` pressed mid-glide would be undone by our easing — M91.4's
+        defect re-created by the very milestone that had the means to avoid it.
         """
+        self.stop_glide()
         if not self._wheel_driving:
             self._wheel_muted = True
 

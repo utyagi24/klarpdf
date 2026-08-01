@@ -1860,12 +1860,23 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     mouse, and the **87 px lattice a detented wheel imposes is unreachable by software**. And
     `phase()` is **`NoScrollPhase` everywhere**, which answers an open question for the deferred
     touchpad-inertia work. — *WSL + WSLg* — [#227](https://github.com/utyagi24/klarpdf/pull/227)
-  - [ ] **M92.2** **The step is eased, not teleported.** A clock-driven animator: a tick moves a
-    target, a ~16 ms timer walks the bar to it on an ease-out over ~130 ms, and a tick arriving
+  - [x] **M92.2** **The step is eased, not teleported.** A clock-driven animator: a tick moves a
+    target, a timer walks the bar to it on an ease-out over **200 ms**, and a tick arriving
     mid-animation **extends the target** from the current position instead of restarting from rest.
     Driven from the **wall clock, not a per-frame increment**, so a frame blocked by a page rasterise
-    costs smoothness but never the landing pixel. Behind a **Smooth scrolling** preference. — *WSLg /
-    Windows*
+    costs smoothness but never the landing pixel (pinned by a test that stalls a frame 80 ms).
+    Behind **View ▸ Smooth Scrolling**, on by default, off = M92.1 byte for byte. Verified on the
+    owner's display with the real clock: one detent traces `19 36 48 59 67 74 79 83 85 86 87` px over
+    12 distinct positions and lands on the M92.1 pixel — **worst single-frame jump 19 px against 87
+    unglided**. **The duration was chosen with the wheel in hand** against a throwaway toggle demo,
+    not from the benchmark; 200 ms sat on the edge of both bounds the benchmark drew (lag 88 px vs a
+    detent of 87; duty 100%), and then **`_glide_tick` ending on the pixels rather than the clock
+    moved one of them** — an ease-out's tail moves under half a pixel a frame, so the motion is
+    complete at t = 0.80 and duty at 5 detents/s falls **100% → 80%** for the same landing pixel.
+    170 ms stays recorded as the largest value inside both bounds as first drawn. The timer interval
+    comes from `QScreen.refreshRate()` (truncated, so we never under-sample); a hypothesis that
+    `CoarseTimer` would be too loose on Windows was **disproven** — indistinguishable from
+    `PreciseTimer` at 16 ms (mean 16.01 vs 16.00, sd 0.21 both). — *WSLg / Windows*
   - **Cost, measured before committing to it** (`PLAN.md` §M92 §Cost): per animation frame
     **~0.11–0.15 ms handler + ~0.7–1.2 ms repaint** ≈ 1 ms of a 16.7 ms budget, ~6% of one core, only
     while animating. **Flat** across zoom, DPR and content — 0.148 ms with no marks vs **0.143 ms with

@@ -2136,7 +2136,7 @@ would need is recorded under §Future enhancements, not here.
 | Milestone | What | Where | Verify |
 | --- | --- | --- | --- |
 | **M92.1** A wheel detent moves a defined distance | `PdfView.wheelEvent` stops delegating the plain (unmodified) wheel to `super()` and computes its own step: **`wheelScrollLines × _WHEEL_LINE_PX × zoom`**, applied to the vertical scrollbar. `_WHEEL_LINE_PX = 32` logical px, **set from the owner's side-by-side against Edge** (see below), so Windows' *lines to scroll* setting finally means to us what it means to every other app. Proportional to the raw `angleDelta` (`delta/120`), so a hi-res wheel's fragments accumulate rather than quantise. | WSL + WSLg | One detent moves exactly `wheelScrollLines × _WHEEL_LINE_PX × zoom` px; the distance is **unchanged by window height** (the defect) and **scales with zoom**; N detents accumulate to N × step with no lost delta; hi-res fragments summing to 120 move exactly one step; `Ctrl`/`Shift`/slideshow paths unchanged |
-| **M92.2** The step is eased, not teleported | A clock-driven scroll animator on `PdfView`: a wheel tick moves a **target**, a ~16 ms `QTimer` (parented to the view) walks the scrollbar to it on an **ease-out** curve over `_WHEEL_EASE_MS ≈ 130`. A tick arriving mid-animation **extends the target and re-times the curve** from the current position rather than restarting from rest. A **Smooth scrolling** preference turns it off, restoring M92.1's direct write. | WSLg / Windows | A detent's motion is spread over ~130 ms and lands on **exactly** the M92.1 pixel; held spinning reads as continuous motion, not a train of lurches; a reversal collapses the target instead of unwinding it; a deliberate nav (`Space`, `goto_page`, Home/End) cancels the animation; with the pref off, behaviour is byte-for-byte M92.1 |
+| **M92.2** The step is eased, not teleported | A clock-driven scroll animator on `PdfView`: a wheel tick moves a **target**, a `QTimer` (parented to the view, interval from `QScreen.refreshRate()`) walks the scrollbar to it on an **ease-out** curve over **`_WHEEL_EASE_MS = 200`** — the owner's pick, made with the wheel in hand against a live toggle. A tick arriving mid-animation **extends the target and re-times the curve** from the current position rather than restarting from rest. `_glide_tick` ends **on the pixels, not on the clock**. A **View ▸ Smooth Scrolling** preference turns it off, restoring M92.1's direct write. | WSLg / Windows | A detent's motion is spread over ~200 ms and lands on **exactly** the M92.1 pixel; held spinning reads as continuous motion, not a train of lurches; a reversal collapses the target instead of unwinding it; a deliberate nav (`Space`, `goto_page`, Home/End) cancels the animation; a stalled frame does not stretch the glide; with the pref off, behaviour is byte-for-byte M92.1 |
 
 **The defect, measured on the owner's display (2026-07-30).** Qt's `QGraphicsView` sets the vertical
 scrollbar's `singleStep` to **`viewportHeight / 20`** — confirmed directly: viewport 846 px →
@@ -2217,6 +2217,37 @@ resolution. So the lattice is a property of the hardware, and glide is the only 
 to us. Recorded so the option is not re-proposed: it was checked, on this mouse, and it is not there.
 Per-frame motion at 200 ms, for reference — ease-out `20.0 16.7 13.6 10.9 8.5 6.4 4.6 3.1 1.9 1.0 0.3`,
 linear a uniform `7.3`, no glide a single `87.0`.
+
+**Choosing the duration (owner, 2026-07-31), and the bound that stopped binding.** The pick was made
+against a **throwaway toggle demo** — the real app with easing on a live key, plus `[`/`]` to walk the
+duration and a key to cycle the curve — rather than from the benchmark alone, because the only
+question that mattered was whether it *feels* better. Two bounds framed the range: **lag** (how far
+the page trails the hand during a 5-detent/second spin: 60 px at 130 ms, 66 px at 170 ms, 88 px at
+200 ms, against a detent of 87 px) and **duty cycle** (70% / 86% / 100%). 200 ms sat on the edge of
+both.
+
+Then the implementation moved one of them. `_glide_tick` **ends when the rounded position reaches the
+rounded target**, not when the clock runs out — an ease-out asymptotes, so the tail moves under half
+a pixel a frame and the reader sees nothing. Measured on the owner's display, a detent's motion is
+complete at **t = 0.80, i.e. 160 ms of the 200**, and stopping there cuts duty at 5 detents/second
+from **100% to 80%** (3/second: 60% → 48%) for exactly the same landing pixel. The lag bound still
+argues for less, and **170 ms remains the largest value inside both bounds as first drawn**, recorded
+in case this ever wants walking back.
+
+**Why the timer interval comes from `QScreen.refreshRate()`.** Not for phase — a plain `QTimer`
+cannot lock to vblank, and Qt does not vsync-lock raster `QWidget` painting on Windows in any case
+(measured: this display refreshes at **59.95 Hz**, every 16.68 ms, and no integer millisecond divides
+it). It is for **rate**: a hardcoded 16 ms would produce 62 updates a second on a 144 Hz panel, needlessly
+coarser than the panel can show. **Truncated, not rounded**, so we always produce at least one update
+per display frame — 17 ms would give 58.8 Hz, under-sampling, where the display shows a position
+twice and the motion micro-stalls; over-sampling merely computes a frame nobody sees, at ~1 ms.
+A related hypothesis was **disproven**: `QTimer`'s default `CoarseTimer` was expected to be too loose
+on Windows, but measured over 2 s at 16 ms it is indistinguishable from `PreciseTimer` (mean 16.01 vs
+16.00 ms, sd 0.21 both), so the default stays and `PreciseTimer`'s power cost is not incurred.
+
+**Verified end to end on the owner's display**, real clock rather than the tests' injected one: one
+detent traces `19 36 48 59 67 74 79 83 85 86 87` px across 12 distinct positions and lands on the
+M92.1 pixel — **worst single-frame jump 19 px against 87 px unglided**.
 
 **Interactions to preserve.** `Ctrl+wheel` zoom (already coalesced per frame, §M86.2), `Shift+wheel`
 horizontal pan (§M89.3), and the slideshow's whole-slide stepping (§M78) all sit **before** the
