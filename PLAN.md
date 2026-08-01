@@ -2249,6 +2249,45 @@ on Windows, but measured over 2 s at 16 ms it is indistinguishable from `Precise
 detent traces `19 36 48 59 67 74 79 83 85 86 87` px across 12 distinct positions and lands on the
 M92.1 pixel — **worst single-frame jump 19 px against 87 px unglided**.
 
+### M92.3 — the coast-mute is bounded (owner-reported 2026-07-31)
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M92.3** The wheel can never be dead for long | `wheelEvent`'s mute test moves into `_mute_still_applies`, which keeps M91.4's quiet-gap escape and adds two the mute **cannot renew**: a **ceiling** of `_WHEEL_MUTE_MAX_MS = 800` measured from when it was armed, and a **direction reversal**. | WSL + WSLg | Four seconds of continuous events after `Space` recover inside the ceiling; a continuous stream cannot push the ceiling back; a coast *inside* the window is still swallowed (M91.4 must not regress); the quiet gap still lifts it; a reversal lifts it at once; re-arming forgets the previous coast's direction |
+
+**The defect.** Owner, 2026-07-31: *"if I scroll with mouse wheel really fast and press space bar
+while pages are scrolling, the scrolling stops but the mouse wheel becomes unavailable to resume
+scrolling again for a long duration; I have to click around before it becomes responsive."*
+
+M91.4's mute lifts once the wheel has been quiet for `_WHEEL_QUIET_MS`, but **a swallowed event still
+refreshed `_last_wheel_ts`** — so the quiet window could never elapse while events kept arriving, and
+the mute was **indefinitely renewable**. Reproduced: **200 consecutive events over 4 seconds, every
+one swallowed**, recovering only after a 300 ms pause. The cruelty is the feedback loop — the
+instinctive response to "scrolling stopped working" is to scroll *more*, which is exactly what holds
+the mute open, and "clicking around" works only because it is time spent *not* touching the wheel.
+
+**Pre-existing (M91.4), surfaced by M92.** The mute block was untouched by M92.1/M92.2. What changed
+is the exposure: M92.1 cut the step 2.09×, so covering a document takes about twice the spinning —
+the coast probe caught 589 events in a single discrete-mode burst, ~51 000 px, nearly a whole 60-page
+file — and M92.2 gave "the pages are moving" a visible duration that invites pressing `Space` into it.
+
+**800 ms is measured.** A coast probe on the owner's hardware recorded the decelerating tail after a
+hard spin at **~660 ms in discrete mode and ~720 ms in free-spin**, with **no inter-event gap
+reaching 250 ms until the very end** — which is why the quiet-gap test essentially never fires
+*during* a coast and the trap was so easy to fall into. The ceiling must cover that tail or M91.4's
+defect returns, so 800 ms clears both with a little room while bounding the worst case from
+*unbounded* to a hiccup. **It is the one number that trades the owner's two reports against each
+other** and is deliberately easy to move.
+
+**A hypothesis disproven on the way:** discrete/ratchet mode was expected not to coast at all — which
+would have meant the mute was swallowing deliberate input on a false premise. The probe shows it
+coasts much like free-spin (660 vs 720 ms). The mute's premise holds; only its renewability was wrong.
+
+**Two clocks, never compared.** The ceiling is timed on `PdfView._now_ms` (monotonic, shared with
+M92.2's glide — hence the rename from `_glide_now_ms`), while the gap test keeps using
+`QWheelEvent.timestamp()` from the platform message. Each test is internally consistent, which is
+what keeps the mixed-clock trap `wheelEvent` documents from reappearing in the ceiling.
+
 **Interactions to preserve.** `Ctrl+wheel` zoom (already coalesced per frame, §M86.2), `Shift+wheel`
 horizontal pan (§M89.3), and the slideshow's whole-slide stepping (§M78) all sit **before** the
 scroll path and must be untouched — animating slideshow steps would break its one-page-per-screen

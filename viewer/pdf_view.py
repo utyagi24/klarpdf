@@ -65,6 +65,23 @@ _ZOOM_STEP = 1.25
 _FALLBACK_LOGICAL_DPI = 96.0
 _WHEEL_NOTCH = 120      # one mouse-wheel detent, in eighths of a degree (Qt's unit)
 _WHEEL_QUIET_MS = 250   # gap that ends a wheel gesture (a flywheel wheel coasts well past the hand)
+# The longest the M91.4 coast-mute may keep the wheel silent, however many events keep arriving
+# (M92.3). **This is the number that makes the mute non-renewable**, and without it the wheel could
+# be dead indefinitely — owner-reported 2026-07-31 as *"the mouse wheel becomes unavailable to resume
+# scrolling again for a long duration; I have to click around before it becomes responsive"*, and
+# reproduced at **200 consecutive events over 4 seconds, every one swallowed**, recovering only after
+# a 300 ms pause. The cause is that a swallowed event still refreshed ``_last_wheel_ts``, so the
+# quiet window could never elapse while events kept coming — and the reader's instinct on finding
+# that scrolling has stopped is to scroll *more*, which is exactly what held it open. Clicking around
+# "fixed" it only because it is time spent not touching the wheel.
+#
+# **800 ms is measured, not picked.** A coast probe on the owner's hardware (2026-07-31) recorded the
+# decelerating tail after a hard spin at **~660 ms in discrete mode and ~720 ms in free-spin** — and
+# note that discrete/ratchet mode coasts too, which contradicted the guess that it would not. The
+# ceiling has to cover that tail or M91.4's defect returns; 800 ms clears both with a little room and
+# bounds the worst case to a hiccup rather than a fault. It is the one number here that trades the
+# owner's two reports against each other, so it is deliberately easy to move.
+_WHEEL_MUTE_MAX_MS = 800.0
 # What one *line* of a mouse-wheel detent moves, in logical px at 100% zoom (M92.1). Multiplied by
 # Windows' "lines to scroll" setting (``QApplication.wheelScrollLines()``, default 3) and by the
 # zoom, so a detent is 96 px at 100% and always moves the same amount of *document*.
@@ -231,6 +248,11 @@ class PdfView(QGraphicsView):
         self._wheel_accum = 0
         self._wheel_muted = False
         self._last_wheel_ts = 0
+        # The M92.3 ceiling: when the mute was armed (this view's monotonic clock), and the
+        # direction of the coast it is swallowing (0 until the first swallowed event). Together
+        # these make the mute non-renewable — see :data:`_WHEEL_MUTE_MAX_MS`.
+        self._wheel_mute_start = 0.0
+        self._wheel_mute_dir = 0
         # True only while inside wheelEvent, so a move the *wheel* made does not park the wheel
         # (M91.4) — the slideshow steps via goto_page, which arms the mute for everyone else.
         self._wheel_driving = False
@@ -1176,7 +1198,7 @@ class PdfView(QGraphicsView):
         # the wheel muted for ever. Fail open, always: a mute that cannot lift is a dead wheel.
         elapsed = ts - self._last_wheel_ts
         if self._wheel_muted:
-            if 0 <= elapsed < _WHEEL_QUIET_MS:
+            if self._mute_still_applies(event, elapsed):
                 self._last_wheel_ts = ts        # same gesture, still coasting — swallow it
                 event.accept()
                 return
@@ -1191,6 +1213,39 @@ class PdfView(QGraphicsView):
             self._apply_wheel(event)
         finally:
             self._wheel_driving = False
+
+    def _mute_still_applies(self, event, elapsed: int) -> bool:
+        """Whether this wheel event is still part of the coast the mute was armed against (M92.3).
+
+        Three ways out, and **the mute can never renew itself through any of them** — which is the
+        whole of M92.3. Before it, a swallowed event refreshed ``_last_wheel_ts``, so the quiet
+        window could not elapse while events kept arriving; the wheel then stayed dead for as long as
+        the reader kept scrolling, and scrolling is exactly what a reader does when scrolling stops
+        working (reproduced: 200 events over 4 s, every one swallowed).
+
+        * **The gap test** (M91.4, unchanged): a pause of :data:`_WHEEL_QUIET_MS` means the wheel
+          genuinely stopped, so what follows is a new gesture. This handles the ordinary case and is
+          why the ceiling below is rarely reached.
+        * **The ceiling** (M92.3): :data:`_WHEEL_MUTE_MAX_MS` after arming, the mute lifts whatever
+          is still arriving. Timed on :meth:`_now_ms` rather than the event timestamp, so the two
+          clocks are never compared with one another.
+        * **A reversal** (M92.3): a coast runs one way — it is the wheel losing speed, not changing
+          its mind. Scrolling the *other* way is unambiguously a fresh decision, and recovering
+          instantly is worth more here than anywhere else, because "go back" is precisely what a
+          reader wants after a deliberate step landed somewhere they did not expect.
+        """
+        if not 0 <= elapsed < _WHEEL_QUIET_MS:
+            return False                        # the wheel went quiet — M91.4's original test
+        if self._now_ms() - self._wheel_mute_start >= _WHEEL_MUTE_MAX_MS:
+            return False                        # aged out: a mute may not outlive its own coast
+        dy = event.angleDelta().y()
+        sign = (dy > 0) - (dy < 0)
+        if sign:
+            if not self._wheel_mute_dir:
+                self._wheel_mute_dir = sign     # first swallowed event names the coast's direction
+            elif sign != self._wheel_mute_dir:
+                return False                    # turned round — a hand, not a flywheel
+        return True
 
     def _apply_wheel(self, event) -> None:
         """The wheel's actual effect, once :meth:`wheelEvent` has decided it is not a coast."""
@@ -1319,9 +1374,16 @@ class PdfView(QGraphicsView):
         if not self._smooth_scrolling:
             self.stop_glide()               # never leave a glide running with the feature off
 
-    def _glide_now_ms(self) -> float:
-        """The animator's clock. A method so tests can drive the curve without sleeping — and
-        deliberately ``monotonic``, which no clock change can run backwards."""
+    def _now_ms(self) -> float:
+        """This view's own monotonic clock, in ms. A method so tests can drive time without
+        sleeping — and deliberately ``monotonic``, which no clock change can run backwards.
+
+        Used by the glide (M92.2) *and* by the coast-mute ceiling (M92.3). Note that the mute's
+        other test — the gap between events — uses ``QWheelEvent.timestamp()`` instead, which comes
+        from the platform message and is a **different clock**. The two are never compared with each
+        other: each test is internally consistent, which is what keeps the mixed-clock trap
+        :meth:`wheelEvent` documents from reappearing in the ceiling.
+        """
         return time.monotonic() * 1000.0
 
     def _glide_interval_ms(self) -> int:
@@ -1392,7 +1454,7 @@ class PdfView(QGraphicsView):
             return
         self._glide_origin = current
         self._glide_target = target
-        self._glide_start = self._glide_now_ms()
+        self._glide_start = self._now_ms()
         if not self._glide_timer.isActive():
             self._glide_timer.setInterval(self._glide_interval_ms())
             self._glide_timer.start()
@@ -1417,7 +1479,7 @@ class PdfView(QGraphicsView):
             self._glide_timer.stop()
             return
         vbar = self.verticalScrollBar()
-        t = (self._glide_now_ms() - self._glide_start) / _WHEEL_EASE_MS
+        t = (self._now_ms() - self._glide_start) / _WHEEL_EASE_MS
         if t >= 1.0:
             vbar.setValue(round(self._glide_target))
             self.stop_glide()
@@ -2346,6 +2408,11 @@ class PdfView(QGraphicsView):
         self.stop_glide()
         if not self._wheel_driving:
             self._wheel_muted = True
+            # Start the M92.3 ceiling running, and forget any previous coast's direction — this is
+            # a fresh mute, and inheriting the last one's direction would let a reversal that had
+            # already been used lift it on its first event.
+            self._wheel_mute_start = self._now_ms()
+            self._wheel_mute_dir = 0
 
     def reload(self) -> bool:
         """Rebuild after the ordered list changed (edit). Page indices remap, so the pixmap
