@@ -4,7 +4,7 @@ M92.1 fixed *how far* a detent moves; this fixes *how it gets there*. The distan
 so is the landing pixel — the tests below assert exactly that, because a glide that quietly altered
 where you end up would be a worse bug than the jump it replaced.
 
-**These tests never sleep.** `PdfView._glide_now_ms` is the animator's only clock and is a method
+**These tests never sleep.** `PdfView._now_ms` is the view's only monotonic clock and is a method
 precisely so a test can drive the curve: `_at(view, ms)` sets the clock and fires one tick. That is
 what makes it possible to assert the *shape* of the motion — front-loaded, monotone, landing exactly
 once — rather than just its endpoint, and it keeps a 200 ms animation a sub-millisecond test.
@@ -53,7 +53,7 @@ def view(win):
     v.smooth_scrolling = True
     v.verticalScrollBar().setValue(0)
     v._glide_clock = 0.0
-    v._glide_now_ms = lambda: v._glide_clock          # the injected clock (see module docstring)
+    v._now_ms = lambda: v._glide_clock                # the injected clock (see module docstring)
     return v
 
 

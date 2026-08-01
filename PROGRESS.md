@@ -1877,6 +1877,23 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     comes from `QScreen.refreshRate()` (truncated, so we never under-sample); a hypothesis that
     `CoarseTimer` would be too loose on Windows was **disproven** — indistinguishable from
     `PreciseTimer` at 16 ms (mean 16.01 vs 16.00, sd 0.21 both). — *WSLg / Windows*
+  - [x] **M92.3** **The coast-mute is bounded** — owner-reported 2026-07-31: *"scroll really fast,
+    press space, and the mouse wheel becomes unavailable for a long duration; I have to click around
+    before it becomes responsive."* M91.4's mute lifts after `_WHEEL_QUIET_MS` of quiet, but **a
+    swallowed event still refreshed the timestamp**, so the window could never elapse while events
+    kept arriving — the mute was **indefinitely renewable**. Reproduced at **200 events over 4
+    seconds, every one swallowed**, recovering only after a 300 ms pause; the feedback loop is what
+    makes it vicious, since the instinct on finding scrolling broken is to scroll *more*.
+    **Pre-existing (M91.4), surfaced by M92** — the mute block was untouched, but M92.1's 2.09×
+    smaller step doubles how much spinning a document takes (the probe caught 589 events, ~51 000 px,
+    in one discrete-mode burst). `_mute_still_applies` keeps the quiet-gap escape and adds two that
+    **cannot be renewed**: a **ceiling of 800 ms** from when the mute was armed, and a **direction
+    reversal**. 800 ms is measured — the coast tail after a hard spin is **~660 ms discrete, ~720 ms
+    free-spin**, with no gap reaching 250 ms until the very end, which is exactly why the quiet test
+    never fires mid-coast. **A hypothesis was disproven on the way**: discrete/ratchet mode was
+    expected not to coast at all, which would have meant the mute swallowed deliberate input on a
+    false premise — it coasts much like free-spin, so the premise holds and only the renewability was
+    wrong. — *WSL + WSLg*
   - **Cost, measured before committing to it** (`PLAN.md` §M92 §Cost): per animation frame
     **~0.11–0.15 ms handler + ~0.7–1.2 ms repaint** ≈ 1 ms of a 16.7 ms budget, ~6% of one core, only
     while animating. **Flat** across zoom, DPR and content — 0.148 ms with no marks vs **0.143 ms with
