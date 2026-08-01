@@ -2288,6 +2288,57 @@ M92.2's glide — hence the rename from `_glide_now_ms`), while the gap test kee
 `QWheelEvent.timestamp()` from the platform message. Each test is internally consistent, which is
 what keeps the mixed-clock trap `wheelEvent` documents from reappearing in the ceiling.
 
+### M92.4 — prefetch off the scroll's critical path (owner-reported 2026-08-01)
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M92.4** The glide stops stalling on image pages | `_render_visible` rasterises **only the visible pages**; the prefetch margin goes to `_queue_prefetch`, drained by a view-owned timer **one page per tick** and **never while a glide is running**. The queue is ordered direction-of-travel first, nearest first. | WSL + WSLg | Only visible pages are painted synchronously; the queue holds exactly the margin, ordered towards travel; the drain paints one page per tick and stops when empty; a running glide defers it and settling resumes it; a rebuild drops stale indices; `release_pixmaps` stops it; a visible page is never left to the queue |
+
+**The defect.** Owner, 2026-08-01: *"with smooth scrolling on, scrolling tends to stall on pages with
+images, while the pages with texts glide past smoothly."*
+
+**It was entirely prefetch, and that is not what anyone would have guessed.** Measured on a 40-page
+document alternating text and full-page images, scrolling one glide-frame at a time across six pages:
+
+| zoom | frames over 60 Hz | worst frame | **visible**-page render | **prefetch** render |
+| --- | --- | --- | --- | --- |
+| 0.91 | 0 | 14.7 ms | **0 ms** | 48 ms |
+| 1.50 | 3 | 26.8 ms | **0 ms** | 101 ms |
+| 2.00 | 6 | 45.9 ms | **0 ms** | 166 ms |
+| 3.00 | 6 | 91.1 ms | **0 ms** | 356 ms |
+
+The reader **never waits for a page they are looking at** — visible-page rendering is 0 ms at every
+zoom, because prefetch had already cached it. **100% of the stall is speculative work for pages one
+or two ahead that are not on screen yet**, paid synchronously in the scroll handler: on the thread
+that also has to animate, at the moment that can least afford it. The stall therefore lands one or
+two pages *before* the image page the reader blames. Prefetch was doing its job and destroying the
+thing it exists to protect.
+
+**After**, A/B under the real animator (60 detents at 5/s, counting only frames where the page is
+actually **in motion** — work that lands in the idle gap between detents cannot be seen):
+
+| zoom | inline (before) | deferred (after) |
+| --- | --- | --- |
+| 1.5 | 3 frames over budget, worst 27.4 ms | **1**, worst 26.5 ms |
+| 2.0 | 3 frames over budget, worst 41.9 ms | **0**, worst **0.8 ms** |
+| 3.0 | 5 frames over budget, worst 91.4 ms | **0**, worst **1.0 ms** |
+
+The work did not vanish — idle-gap work rises from ~99 ms to ~474 ms at 3x, which is the same ~6 page
+renders at ~85 ms each, now paid where nothing is moving on screen.
+
+**Measuring this needed the right metric, twice.** A first A/B counted *every* frame and made the fix
+look **worse** (7 over budget against 3), because deferred work landing in the idle gap was still
+being counted as a frame. Only frames during motion can be perceived as a stutter. Recorded because
+the wrong metric was actively misleading, not merely uninformative.
+
+**What is deliberately not done.** The band stays **symmetric**: trimming the margin behind would
+halve the work, but it would blank the page above on every small reversal, and since the work is now
+off the critical path its *total* matters much less than its *timing*. And **the honest limit**: a
+reader who outruns the queue reaches a page it has not rendered yet, which `_render_visible` must
+then rasterise synchronously — a stall like the old one, but only on genuinely outpacing prefetch
+rather than on every image page. Removing that case needs rendering off the UI thread (§Deferred,
+item **E**), whose gate this milestone does not attempt to meet.
+
 **Interactions to preserve.** `Ctrl+wheel` zoom (already coalesced per frame, §M86.2), `Shift+wheel`
 horizontal pan (§M89.3), and the slideshow's whole-slide stepping (§M78) all sit **before** the
 scroll path and must be untouched — animating slideshow steps would break its one-page-per-screen

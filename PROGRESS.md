@@ -1894,6 +1894,22 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     expected not to coast at all, which would have meant the mute swallowed deliberate input on a
     false premise — it coasts much like free-spin, so the premise holds and only the renewability was
     wrong. — *WSL + WSLg*
+  - [x] **M92.4** **Prefetch off the scroll's critical path** — owner-reported 2026-08-01: *"with
+    smooth scrolling on, scrolling tends to stall on pages with images, while the pages with texts
+    glide past smoothly."* **The stall was entirely prefetch**, which is not what it looks like:
+    measured across a text/image document, **visible-page rendering costs 0 ms at every zoom** — the
+    reader never waits for a page they are looking at — while prefetch cost 48/101/166/356 ms at zoom
+    0.91/1.5/2/3, all paid synchronously inside the scroll handler. So the stall lands one or two
+    pages *before* the image page the reader blames, and prefetch was destroying the smoothness it
+    exists to protect. `_render_visible` now rasterises only the visible pages and queues the margin,
+    drained **one page per tick** and **never while a glide is running**, ordered direction-of-travel
+    first. A/B under the real animator, counting only frames where the page is **in motion**: at zoom
+    2 and 3 the over-budget frames go **3 → 0** and **5 → 0**, worst frame **41.9 ms → 0.8 ms** and
+    **91.4 ms → 1.0 ms**; the same work now lands in the idle gaps. **The metric had to be fixed
+    first** — a first A/B counted every frame and made the fix look *worse* (7 vs 3), because
+    deferred work landing between detents was still counted. **Honest limit**: outrun the queue and
+    the page you reach is rasterised synchronously, a stall like the old one but only on genuinely
+    outpacing prefetch; removing that needs `PLAN.md` §Deferred item **E**. — *WSL + WSLg*
   - **Cost, measured before committing to it** (`PLAN.md` §M92 §Cost): per animation frame
     **~0.11–0.15 ms handler + ~0.7–1.2 ms repaint** ≈ 1 ms of a 16.7 ms budget, ~6% of one core, only
     while animating. **Flat** across zoom, DPR and content — 0.148 ms with no marks vs **0.143 ms with

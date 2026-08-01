@@ -48,6 +48,10 @@ _PREFETCH = 2           # pages to render above/below the viewport, at ordinary 
 # band ever wants, so ordinary reading is untouched; it falls to 1 page once a page passes 48 MB
 # and to 0 past 96 MB, which is where prefetching a page costs more than the whole visible band.
 _PREFETCH_BYTES = 48 * 1024 * 1024
+# How often the deferred prefetch drains one page (M92.4). One frame at 60 Hz: often enough that the
+# band is ready again within a couple of frames of a gesture ending, slow enough that the event loop
+# gets a turn between two pages that may cost 91 ms each. See :meth:`PdfView._drain_prefetch`.
+_PREFETCH_TICK_MS = 16
 # The magnification a reader may *ask* for, 25%–500% (M88.6). Sequenced after M88.1 on purpose:
 # the DPI correction shifts every number, so choosing bounds before it meant choosing twice. The old
 # floor of 10% drew a Letter page 62x80 px — a thumbnail, not a view — and the old 800% ceiling was
@@ -184,6 +188,16 @@ class PdfView(QGraphicsView):
         # both maintained by _build_scene / _render_visible (M87.3):
         self._page_tops: list[float] = []   # each page's scene y, non-decreasing — binary-searched
         self._painted: set[int] = set()     # the pages currently holding a pixmap
+        # Prefetch runs off the scroll's critical path (M92.4): _render_visible queues the margin
+        # here and this timer rasterises one page per tick, never while a glide is animating.
+        # ``_scroll_dir`` (+1 down, -1 up, 0 unknown) orders the queue towards where the reader is
+        # going. Parented to the view, so it dies with it.
+        self._prefetch_queue: list[int] = []
+        self._scroll_dir = 0
+        self._last_scroll_value = 0
+        self._prefetch_timer = QTimer(self)
+        self._prefetch_timer.setInterval(_PREFETCH_TICK_MS)
+        self._prefetch_timer.timeout.connect(self._drain_prefetch)
         self._current = 0
         # Overlay controllers (set by MainWindow): text selection + search (M3), form fill (M14),
         # annotations (M20). They own their items and expose repaint(), called after every rebuild.
@@ -490,6 +504,11 @@ class PdfView(QGraphicsView):
         self._pages.clear()
         self._page_tops.clear()
         self._painted.clear()   # scene.clear() destroyed the items, so nothing holds a pixmap
+        # ...and the queued prefetch indices refer to pages that no longer exist (M92.4). A rebuild
+        # can change the page *count* (an edit, a two-page toggle), so a stale index is not merely
+        # wrong, it is out of range; the next render pass queues afresh against the new layout.
+        self._prefetch_queue.clear()
+        self._prefetch_timer.stop()
         page_pen = QPen(QColor(0x80, 0x80, 0x80))
         # Night mode paints the not-yet-rendered page black — the inverse of the white page —
         # so a page scrolling into view doesn't flash bright before its pixmap lands.
@@ -1906,6 +1925,80 @@ class PdfView(QGraphicsView):
         first, last = self._visible_range()
         return max(0, first - _PREFETCH), min(len(self._pages) - 1, last + _PREFETCH)
 
+    def _paint_page(self, index: int) -> None:
+        """Rasterise page ``index`` (or take the cache hit) and hang it on its scene item."""
+        pixmap = self._render_pixmap(index)
+        if pixmap is not None:
+            page = self._pages[index]
+            page["pix"].setPixmap(pixmap)
+            page["pix"].setPos(self._pixmap_offset(index))  # inset only in the un-crop edge case
+            self._painted.add(index)
+
+    def _queue_prefetch(self, first: int, last: int, lo: int, hi: int) -> None:
+        """Hand the prefetch margin to :meth:`_drain_prefetch` instead of rasterising it now (M92.4).
+
+        **Prefetch was the whole of the stall.** The owner reported (2026-08-01) that with smooth
+        scrolling on, *"pages with images slow down and then pick speed again when pages with text
+        come in"*. Measured on a 40-page document alternating text and full-page images, scrolling
+        one glide-frame at a time across six pages:
+
+        =====  ===================  ===========  =====================  ====================
+        zoom   frames over 60 Hz    worst frame  **visible** page work  **prefetch** work
+        =====  ===================  ===========  =====================  ====================
+        0.91   0                    14.7 ms      0 ms                   48 ms
+        1.50   3                    26.8 ms      0 ms                   101 ms
+        2.00   6                    45.9 ms      0 ms                   166 ms
+        3.00   6                    91.1 ms      0 ms                   356 ms
+        =====  ===================  ===========  =====================  ====================
+
+        **The reader never waits for a page they are looking at** — visible-page rendering is 0 ms at
+        every zoom, because prefetch had already cached it. 100% of the stalling is speculative work
+        for pages one or two ahead that are not on screen yet, and it was being paid synchronously
+        inside the scroll handler: on the one thread that also has to animate, at the one moment that
+        cannot afford it. A worst frame of 46 ms at 2x is three dropped frames; 91 ms at 3x is five.
+        That is the "slow down, then pick up speed" exactly — it happens as each image page enters the
+        *prefetch* band, one or two pages **before** the reader sees it.
+
+        So the fix is not to render less, or to render it differently — it is to render it **later**,
+        in the gaps between gestures. The queue is ordered **direction of travel first, nearest
+        first**, so the page being scrolled towards is ready before the one being left behind. The
+        band itself is unchanged (still symmetric), which keeps a small back-and-forth scroll free:
+        trimming the margin behind would halve the work but blank the page above on every reversal.
+        """
+        after = list(range(last + 1, hi + 1))            # nearest-first, ahead of the viewport
+        before = list(range(first - 1, lo - 1, -1))      # nearest-first, behind it
+        order = before + after if self._scroll_dir < 0 else after + before
+        self._prefetch_queue = [i for i in order if i not in self._painted]
+        if self._prefetch_queue and not self._prefetch_timer.isActive():
+            self._prefetch_timer.start()
+
+    def _drain_prefetch(self) -> None:
+        """Rasterise **one** queued prefetch page per tick, and never while a glide is running.
+
+        One page per tick because a single page is 4 ms of text and up to 91 ms of image at 3x zoom:
+        draining the queue in a loop would simply move the stall rather than remove it. Yielding to
+        the event loop between pages keeps the window responsive even mid-drain.
+
+        Skipping while :attr:`_glide_timer` is active is what actually buys the smooth glide —
+        prefetch is speculative, so it can always wait for the animation to finish. The tick keeps
+        firing meanwhile and finds its moment as soon as the motion settles.
+
+        **The honest limit** (recorded so it is not mistaken for a bug): a reader who scrolls fast
+        enough to *outrun* the queue reaches a page it has not reached yet, and that page must be
+        rasterised synchronously by :meth:`_render_visible` — a stall like the old one, but only on
+        genuinely outpacing prefetch rather than on every image page. Removing that case needs
+        rendering off the UI thread (`PLAN.md` §Deferred, item **E**).
+        """
+        if self._glide_timer.isActive():
+            return                          # the animation owns the frame; try again next tick
+        while self._prefetch_queue:
+            index = self._prefetch_queue.pop(0)
+            if 0 <= index < len(self._pages) and index not in self._painted:
+                self._paint_page(index)
+                break                       # exactly one page per tick
+        if not self._prefetch_queue:
+            self._prefetch_timer.stop()     # emptied — don't spend a tick discovering that
+
     def _render_visible(self) -> None:
         if not self._pages or not self._shown_once:
             return
@@ -1919,13 +2012,11 @@ class PdfView(QGraphicsView):
         # "no thrash while scrolling" true by construction rather than by picking a large enough
         # budget: nothing rendered in this pass can be evicted by a later page of the same pass.
         self._cache.pin(self._pixmap_key(i) for i in range(lo, hi + 1))
-        for i in range(lo, hi + 1):
-            pixmap = self._render_pixmap(i)
-            if pixmap is not None:
-                p = self._pages[i]
-                p["pix"].setPixmap(pixmap)
-                p["pix"].setPos(self._pixmap_offset(i))  # inset only in the un-crop edge case
-                self._painted.add(i)
+        # **Only the pages the reader can actually see are rasterised here** (M92.4). The prefetch
+        # margin is queued instead — see :meth:`_queue_prefetch` for the measurement that moved it.
+        for i in range(first, last + 1):
+            self._paint_page(i)
+        self._queue_prefetch(first, last, lo, hi)
         # Drop what scrolled off. This used to be the `else` arm of a loop over **every page in the
         # document**, asking each one whether it held a pixmap; tracking the answer costs a set
         # membership and makes the pass proportional to what is actually painted (M87.3).
@@ -1959,6 +2050,10 @@ class PdfView(QGraphicsView):
             for i in self._painted:
                 self._pages[i]["pix"].setPixmap(QPixmap())
             self._painted.clear()
+        # Whatever tier, stop speculating: this window is not the one being read, and a queue left
+        # running would rasterise pages straight back into the store we just handed back (M92.4).
+        self._prefetch_queue.clear()
+        self._prefetch_timer.stop()
 
     def restore_pixmaps(self) -> None:
         """Re-render the band after a :meth:`release_pixmaps` that dropped the visible pages."""
@@ -1993,6 +2088,12 @@ class PdfView(QGraphicsView):
             self.currentPageChanged.emit(current)
 
     def _on_scroll(self, _value: int) -> None:
+        # Which way the reader is going, so prefetch queues towards it first (M92.4). Read before
+        # _render_visible, which is what consumes it; unchanged position leaves the last direction
+        # standing rather than resetting to "unknown", so a glide's final frame does not forget.
+        if _value != self._last_scroll_value:
+            self._scroll_dir = 1 if _value > self._last_scroll_value else -1
+            self._last_scroll_value = _value
         self._render_visible()
         self._reposition_overlay_editors()  # keep an open inline editor on its field while scrolling
         if self.selection is not None:
