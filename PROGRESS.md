@@ -1850,11 +1850,16 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     not the generic web scroll path. **Scope is the mouse only**:
     `_is_mouse_detent` leaves a precision device on Qt's path, by `pixelDelta` where the platform
     fills it in and by delta granularity on Windows, where it never does (a notched wheel reports
-    whole multiples of 120, a touchpad reports fractions). **Known gap**: a hi-res wheel in
-    *free-spin* mode also reports fractions and so keeps the old step — that is the owner's mouse with
-    free-spin **on**, off today. Settling it properly means asking the device (`event.device().type()`),
-    which needs real hardware: **`tools/probe_wheel.py`** is that probe, added with this milestone.
-    — *WSL + WSLg* — [#227](https://github.com/utyagi24/klarpdf/pull/227)
+    whole multiples of 120, a touchpad reports fractions). **`tools/probe_wheel.py`**, added with this
+    milestone, has since **run on the owner's hardware (2026-07-31) and validated exactly that**:
+    wheel-discrete **50/50** and wheel-free-spin **160/160** whole detents, touchpad **1/376**. Three
+    findings came with it. `event.device()` reports **`Mouse` / "core pointer" for all three** — Qt's
+    Windows plugin cannot tell a touchpad from a mouse, so granularity is not a stand-in for a better
+    test, it is the only test. **Free-spin is mechanical, not hi-res** — it emits *more* whole detents
+    (160 vs 50), not finer ones, so the "hi-res wheel keeps the old step" gap does not exist on this
+    mouse, and the **87 px lattice a detented wheel imposes is unreachable by software**. And
+    `phase()` is **`NoScrollPhase` everywhere**, which answers an open question for the deferred
+    touchpad-inertia work. — *WSL + WSLg* — [#227](https://github.com/utyagi24/klarpdf/pull/227)
   - [ ] **M92.2** **The step is eased, not teleported.** A clock-driven animator: a tick moves a
     target, a ~16 ms timer walks the bar to it on an ease-out over ~130 ms, and a tick arriving
     mid-animation **extends the target** from the current position instead of restarting from rest.

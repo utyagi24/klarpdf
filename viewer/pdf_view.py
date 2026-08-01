@@ -1200,11 +1200,36 @@ class PdfView(QGraphicsView):
           notched wheel reports exactly ±120 per click, while a precision touchpad reports the fine
           fractions of 120 that make its scrolling smooth in the first place.
 
-        **The known gap** is a hi-res mouse wheel in free-spin mode, which also reports fractions and
-        so keeps the pre-M92.1 step. That is the owner's own mouse with free-spin switched *on* — it
-        is switched off today, which is what made the coarse step so visible (`PLAN.md` §M92). The
-        honest fix is to ask the device what it is (``event.device().type()``), which needs a probe on
-        real hardware rather than a guess; ``tools/probe_wheel.py`` is that probe.
+        **Granularity is not a heuristic standing in for a better test — on Windows it is the only
+        test there is.** Measured with ``tools/probe_wheel.py`` on the owner's hardware (2026-07-31),
+        across three devices:
+
+        =================  ======  ==========================  ====================
+        device             events  ``angleDelta.y``            whole multiples of 120
+        =================  ======  ==========================  ====================
+        wheel, discrete       50   ±120 only                   50 / 50
+        wheel, free-spin     160   ±120 only                   160 / 160
+        touchpad             376   -44 … -31 (and the rest)    1 / 376
+        =================  ======  ==========================  ====================
+
+        Three findings, each of which closes a question this docstring used to leave open:
+
+        * **``event.device()`` cannot tell them apart.** All three report ``DeviceType.Mouse``, named
+          ``"core pointer"`` — Qt's Windows plugin does not distinguish a touchpad from a mouse. The
+          earlier note here proposing ``device().type()`` as the honest fix pointed at a dead end.
+        * **Free-spin is mechanical, not hi-res.** It disengages the ratchet so the wheel coasts
+          longer and emits *more* detents (160 against 50 for comparable hand motion); the encoder
+          resolution is unchanged, and every event is still a whole ±120. So the "hi-res wheel keeps
+          the old step" gap this once warned about **does not exist on this hardware**, and the
+          87 px lattice a detented wheel imposes is not reachable by any software change.
+        * **``phase()`` is ``NoScrollPhase`` for every device, touchpad included** — so the deferred
+          touchpad-inertia work (`PLAN.md` §Future enhancements) must infer gesture end from a quiet
+          gap, as M91.4's coast-mute already does. That was an open question; it is now answered.
+
+        Accuracy on that sample: **210/210** wheel events classified as mouse, **375/376** touchpad
+        events as precision. The single stray was a touchpad report that happened to land on exactly
+        120; it costs one frame of a gesture moving 87 px where Qt would have moved ~183 — a momentary
+        slowing inside a stream of hundreds, not a jump.
         """
         if not event.pixelDelta().isNull():
             return False

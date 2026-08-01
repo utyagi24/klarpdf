@@ -2202,6 +2202,22 @@ runtime cost, and it is small:
   blocked frame costs smoothness for two frames but the motion still lands on the right pixel at the
   right time. An increment-driven animator would stretch and drift instead.
 
+**What M92.2 cannot fix, and the measurement that settles it (2026-07-31).** The owner asked why a
+finger drag on the touchpad looks *continuous* where the wheel looks *quantised*, and the answer is
+not frame rate, transit smoothness, or anything easing touches. A finger drag has **no minimum
+unit**; a detented wheel does, so after M92.1 the positions the page can come to **rest** at form a
+**lattice of 87 px**. There is no wheel gesture that moves the document 30 px. M92.2 smooths the
+*transit* between lattice points — the worst single-frame jump falls from **87 px to 20 px** at 200 ms
+ease-out, and held spinning becomes one motion instead of a train — but the lattice is untouched.
+
+The obvious escape was **hi-res wheel reporting** (a mouse sending ~15 units per notch instead of 120,
+which would dissolve the lattice), and the probe closed it: this mouse's **free-spin mode is purely
+mechanical**, emitting 160 whole ±120 detents where discrete emitted 50, with no change in encoder
+resolution. So the lattice is a property of the hardware, and glide is the only improvement available
+to us. Recorded so the option is not re-proposed: it was checked, on this mouse, and it is not there.
+Per-frame motion at 200 ms, for reference — ease-out `20.0 16.7 13.6 10.9 8.5 6.4 4.6 3.1 1.9 1.0 0.3`,
+linear a uniform `7.3`, no glide a single `87.0`.
+
 **Interactions to preserve.** `Ctrl+wheel` zoom (already coalesced per frame, §M86.2), `Shift+wheel`
 horizontal pan (§M89.3), and the slideshow's whole-slide stepping (§M78) all sit **before** the
 scroll path and must be untouched — animating slideshow steps would break its one-page-per-screen
@@ -2227,10 +2243,12 @@ Captured but not yet scheduled:
   rest. Edge is not doing anything the OS gives it — Chromium tracks the gesture's velocity and runs
   its own friction decay. Ours would be the same: velocity from the last few `pixelDelta` events, a
   decay animation on gesture end, cancelled by any new input, reusing M92.2's animator.
-  **Blocked on one hardware probe that cannot be run headlessly**: whether Qt's Windows plugin
-  reports `QWheelEvent.phase()` (`ScrollBegin`/`ScrollEnd`) or leaves it `NoScrollPhase`. With the
-  phase, gesture-end is exact; without it, it has to be inferred from a quiet gap, as M91.4's
-  coast-mute already does.
+  **The probe has since run** (`tools/probe_wheel.py`, owner's hardware, 2026-07-31) and settled the
+  question it was blocked on: Qt's Windows plugin reports **`NoScrollPhase` for every device,
+  touchpad included**, so there is no `ScrollBegin`/`ScrollEnd` to key on and gesture-end must be
+  inferred from a quiet gap, exactly as M91.4's coast-mute already does. It also found the touchpad
+  sending **376 events with `angleDelta.y` in the -31…-44 range** (1 of them a whole detent) against
+  the wheel's uniform ±120 — the fine, continuous stream that inertia would decay.
   **This is also the expensive half of smooth scrolling** (§M92 §Cost): a fling crosses several pages
   in one gesture, and a page rasterise is 4–48 ms synchronously on the UI thread — up to ~120 ms of
   stall inside a ~500 ms fling, ~7 dropped frames, worst at high DPR on image-heavy documents where
