@@ -65,6 +65,29 @@ _ZOOM_STEP = 1.25
 _FALLBACK_LOGICAL_DPI = 96.0
 _WHEEL_NOTCH = 120      # one mouse-wheel detent, in eighths of a degree (Qt's unit)
 _WHEEL_QUIET_MS = 250   # gap that ends a wheel gesture (a flywheel wheel coasts well past the hand)
+# What one *line* of a mouse-wheel detent moves, in logical px at 100% zoom (M92.1). Multiplied by
+# Windows' "lines to scroll" setting (``QApplication.wheelScrollLines()``, default 3) and by the
+# zoom, so a detent is 96 px at 100% and always moves the same amount of *document*.
+#
+# What it replaces was not a considered choice at all: Qt's ``QGraphicsView`` sets the vertical
+# ``singleStep`` to **viewportHeight / 20** (measured: viewport 846 -> 42, viewport 832 -> 41), so a
+# detent was 15% of the *window height* and nothing else — unrelated to the document, the text or the
+# zoom, and worse the more screen the window was given. `_place_window` opens at the full available
+# screen height by design, which put that derivation at its maximum: on the owner's 2560x1440 display
+# the viewport is 1246 px tall, so one detent moved **183 px — 19% of a page, ten lines of body
+# text** (measured 2026-07-30).
+#
+# **32 is measured against Edge, not borrowed from it.** This shipped at **40** — the constant
+# Chromium and Gecko share for the *web* — and the owner's side-by-side then put us at **10 lines**
+# per detent against Edge's **8** in the same document (2026-07-31). 40 x 0.8 = 32. Two independent
+# observations agree on the target: "Edge moves about half" of the old 183 px is ~91 px, and 8/10 of
+# the 40-constant's 109 px is ~87 px. The likely reason the web constant was the wrong one to borrow
+# is that Edge renders PDFs through **PDFium**, not the generic web scroll path, so its viewer never
+# used the 40 px/line figure in the first place. Recorded because the temptation on any future tune
+# is to reach back for the "standard" number: the standard is for web pages, and this is a PDF
+# viewer. The reader's own control remains the Windows lines-to-scroll slider.
+_WHEEL_LINE_PX = 32.0
+
 _ZOOM_COALESCE_MS = 16  # one frame at 60 Hz — the Ctrl+wheel accumulator's flush interval (M86.2)
 
 # Arrow key → unit (dx, dy) direction for nudging an object selection (M78.2); page-y grows down.
@@ -187,6 +210,10 @@ class PdfView(QGraphicsView):
         # True only while inside wheelEvent, so a move the *wheel* made does not park the wheel
         # (M91.4) — the slideshow steps via goto_page, which arms the mute for everyone else.
         self._wheel_driving = False
+        # Sub-pixel carry for the M92.1 wheel step: the scrollbar takes whole pixels, so the
+        # fraction each detent leaves over is kept and spent on the next one. Without it a wheel
+        # whose step lands just under a pixel boundary loses ground on every event.
+        self._scroll_remainder = 0.0
         # One geometry change = one rasterise (M86.1). ``_render_held`` counts open
         # :meth:`_hold_render` blocks; while any is open, _render_visible defers.
         self._render_held = 0
@@ -1137,6 +1164,8 @@ class PdfView(QGraphicsView):
                 return
             if self._wheel_pan(event):      # Shift+wheel → horizontal (M89.3)
                 return
+            if self._wheel_scroll(event):   # a mouse detent moves a defined distance (M92.1)
+                return
             super().wheelEvent(event)
             return
         delta = event.angleDelta().y()
@@ -1150,6 +1179,101 @@ class PdfView(QGraphicsView):
             self._wheel_accum += _WHEEL_NOTCH
             self.step_slide(1)
         event.accept()
+
+    def _is_mouse_detent(self, event) -> bool:
+        """Whether this wheel event is a **discrete mouse-wheel detent** rather than a precision
+        device (a touchpad, or a free-spinning hi-res wheel).
+
+        The distinction exists because M92.1 deliberately changes only the *mouse*. Touchpad
+        scrolling was declared out of scope by the owner (2026-07-30: *"though not perfect I am
+        satisfied with it for now"*), and a precision device's whole point is that it reports how far
+        the fingers moved — imposing a per-detent step on it would replace a measured distance with a
+        quantised guess. Anything that fails this test falls through to ``super()``, i.e. to exactly
+        the behaviour shipped before M92.1.
+
+        Two tests, because the platforms differ:
+
+        * **``pixelDelta`` is set** — the device told us the distance in pixels. Qt fills this on
+          macOS and Wayland; it is null on Windows for every device, so this arm is the portable one,
+          not the one that fires here.
+        * **``angleDelta`` is a whole multiple of a detent.** This is the Windows discriminator: a
+          notched wheel reports exactly ±120 per click, while a precision touchpad reports the fine
+          fractions of 120 that make its scrolling smooth in the first place.
+
+        **Granularity is not a heuristic standing in for a better test — on Windows it is the only
+        test there is.** Measured with ``tools/probe_wheel.py`` on the owner's hardware (2026-07-31),
+        across three devices:
+
+        =================  ======  ==========================  ====================
+        device             events  ``angleDelta.y``            whole multiples of 120
+        =================  ======  ==========================  ====================
+        wheel, discrete       50   ±120 only                   50 / 50
+        wheel, free-spin     160   ±120 only                   160 / 160
+        touchpad             376   -44 … -31 (and the rest)    1 / 376
+        =================  ======  ==========================  ====================
+
+        Three findings, each of which closes a question this docstring used to leave open:
+
+        * **``event.device()`` cannot tell them apart.** All three report ``DeviceType.Mouse``, named
+          ``"core pointer"`` — Qt's Windows plugin does not distinguish a touchpad from a mouse. The
+          earlier note here proposing ``device().type()`` as the honest fix pointed at a dead end.
+        * **Free-spin is mechanical, not hi-res.** It disengages the ratchet so the wheel coasts
+          longer and emits *more* detents (160 against 50 for comparable hand motion); the encoder
+          resolution is unchanged, and every event is still a whole ±120. So the "hi-res wheel keeps
+          the old step" gap this once warned about **does not exist on this hardware**, and the
+          87 px lattice a detented wheel imposes is not reachable by any software change.
+        * **``phase()`` is ``NoScrollPhase`` for every device, touchpad included** — so the deferred
+          touchpad-inertia work (`PLAN.md` §Future enhancements) must infer gesture end from a quiet
+          gap, as M91.4's coast-mute already does. That was an open question; it is now answered.
+
+        Accuracy on that sample: **210/210** wheel events classified as mouse, **375/376** touchpad
+        events as precision. The single stray was a touchpad report that happened to land on exactly
+        120; it costs one frame of a gesture moving 87 px where Qt would have moved ~183 — a momentary
+        slowing inside a stream of hundreds, not a jump.
+        """
+        if not event.pixelDelta().isNull():
+            return False
+        dy = event.angleDelta().y()
+        return dy != 0 and dy % _WHEEL_NOTCH == 0
+
+    def _wheel_scroll(self, event) -> bool:
+        """**One mouse-wheel detent moves a defined distance** (M92.1) — ``wheelScrollLines ×
+        _WHEEL_LINE_PX × zoom``. Returns whether the gesture was ours.
+
+        This replaces the ``super().wheelEvent()`` delegation, and with it Qt's ``singleStep`` of
+        ``viewportHeight / 20`` — a step derived from the *window* rather than the document, which on
+        the owner's full-height window threw the page 183 px (ten lines of body text) per click. See
+        :data:`_WHEEL_LINE_PX` for the measurement and the replacement constant.
+
+        **Scaled by zoom**, so a detent always moves the same amount of *document*: zoom to 200% and
+        the text is twice as tall, so the same pixel distance would carry you half as far through the
+        page. This is the property Qt's rule lacked in the other direction — its step ignored zoom
+        entirely and tracked window height instead, which is neither of the two things a reader means.
+
+        **Proportional to the raw delta**, not quantised to whole detents like the slideshow's
+        stepper: a wheel that reports 240 in one event (a fast spin coalesced by the driver) moves two
+        detents' worth, and the sub-pixel remainder each event leaves over is carried in
+        :attr:`_scroll_remainder` rather than rounded away.
+
+        **A horizontal-dominant wheel is left to** ``super()`` — that is a tilt wheel, and
+        ``QAbstractScrollArea`` already routes the larger axis to the matching scrollbar. Only the
+        vertical axis is taken over, the same division of labour :meth:`_wheel_pan` draws.
+        """
+        if not self._is_mouse_detent(event):
+            return False
+        dy, dx = event.angleDelta().y(), event.angleDelta().x()
+        if abs(dx) > abs(dy):
+            return False                    # a tilt wheel — Qt already routes it to the h-bar
+        vbar = self.verticalScrollBar()
+        step = QApplication.wheelScrollLines() * _WHEEL_LINE_PX * self.zoom
+        # Wheel *up* (positive delta) means scroll *back*, i.e. a smaller scrollbar value.
+        moved = self._scroll_remainder - dy / _WHEEL_NOTCH * step
+        whole = int(moved)                  # truncates toward zero; the rest funds the next event
+        self._scroll_remainder = moved - whole
+        if whole:
+            vbar.setValue(vbar.value() + whole)
+        event.accept()
+        return True
 
     def _wheel_pan(self, event) -> bool:
         """``Shift+wheel`` pans **horizontally** across a page wider than the viewport (M89.3).

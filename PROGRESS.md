@@ -1831,17 +1831,35 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   it in `PLAN.md` §M92. **Touchpad scrolling is out of scope** by owner call (*"though not perfect I
   am satisfied with it for now"*); the inertia work it would need — and the reason it is the
   expensive half — is recorded in `PLAN.md` §Future enhancements. **One PR per part.**
-  - [ ] **M92.1** **A wheel detent moves a defined distance.** Qt's `QGraphicsView` sets the vertical
+  - [x] **M92.1** **A wheel detent moves a defined distance.** Qt's `QGraphicsView` sets the vertical
     `singleStep` to **`viewportHeight / 20`** (confirmed: viewport 846 → 42, viewport 832 → 41), so a
     detent is `wheelScrollLines × singleStep` = **15% of the window height and nothing else** —
     unrelated to document, text or zoom, and worse the more screen the window is given. `_place_window`
     opens at the **full available screen height** by design, which puts that at its maximum. Measured
     on the owner's display: 2560×1440 @ 100%, window 1000×1353, viewport 770×1246, Fit Page 91% →
     `singleStep` 61 → **one detent = 183 px = 19.1% of a page = 10.1 lines of body text**. The rule
-    becomes **`wheelScrollLines × 40 px × zoom`** — 40 px/line is the Chromium/Gecko convention, so
-    Windows' *lines to scroll* setting finally means what it means everywhere else; window-independent,
-    and zoom-scaled so a detent always moves the same amount of *document*. **109 px at that 91% zoom,
-    a 1.7× reduction.** — *WSL + WSLg*
+    becomes **`wheelScrollLines × _WHEEL_LINE_PX × zoom`** — window-independent, and zoom-scaled so a
+    detent always moves the same amount of *document*; Windows' *lines to scroll* setting finally
+    means what it means everywhere else. **Verified on the same display after the change: 87 px at Fit
+    Page (2.09× smaller), and 9.1% of a page at 91%, 100% and 200% alike** — the zoom-invariance Qt's
+    rule never had. **The constant is measured, not borrowed**: it shipped at 40 (the Chromium/Gecko
+    *web* figure) and the owner's side-by-side then put us at 10 lines per detent against Edge's 8 in
+    the same document (2026-07-31), so 40 × 0.8 = **32**. Two independent observations agree on the
+    target — "Edge moves about half" of 183 px is ~91 px, and 8/10 of 109 px is ~87 px — and the
+    likely reason the web constant was wrong to borrow is that **Edge renders PDFs through PDFium**,
+    not the generic web scroll path. **Scope is the mouse only**:
+    `_is_mouse_detent` leaves a precision device on Qt's path, by `pixelDelta` where the platform
+    fills it in and by delta granularity on Windows, where it never does (a notched wheel reports
+    whole multiples of 120, a touchpad reports fractions). **`tools/probe_wheel.py`**, added with this
+    milestone, has since **run on the owner's hardware (2026-07-31) and validated exactly that**:
+    wheel-discrete **50/50** and wheel-free-spin **160/160** whole detents, touchpad **1/376**. Three
+    findings came with it. `event.device()` reports **`Mouse` / "core pointer" for all three** — Qt's
+    Windows plugin cannot tell a touchpad from a mouse, so granularity is not a stand-in for a better
+    test, it is the only test. **Free-spin is mechanical, not hi-res** — it emits *more* whole detents
+    (160 vs 50), not finer ones, so the "hi-res wheel keeps the old step" gap does not exist on this
+    mouse, and the **87 px lattice a detented wheel imposes is unreachable by software**. And
+    `phase()` is **`NoScrollPhase` everywhere**, which answers an open question for the deferred
+    touchpad-inertia work. — *WSL + WSLg* — [#227](https://github.com/utyagi24/klarpdf/pull/227)
   - [ ] **M92.2** **The step is eased, not teleported.** A clock-driven animator: a tick moves a
     target, a ~16 ms timer walks the bar to it on an ease-out over ~130 ms, and a tick arriving
     mid-animation **extends the target** from the current position instead of restarting from rest.
