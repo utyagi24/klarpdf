@@ -1471,6 +1471,21 @@ class PdfView(QGraphicsView):
         if round(target) == round(current):
             self.stop_glide()               # nothing to travel (clamped at an end) — don't animate
             return
+        if self._glide_target is not None and round(target) == round(self._glide_target):
+            # **The target did not move, so do not restart the curve** (M92.5). This happens only at
+            # the document's ends, where the clamp pins the target while detents keep arriving — and
+            # restarting there is what made the landing jerky. Each restart re-enters the ease-out's
+            # *fast opening*, so velocity snaps up, decays, snaps up: a sawtooth. Mid-document it is
+            # masked because the target keeps advancing; against a pinned target the same shrinking
+            # distance is re-traversed and the sawtooth is all there is. Measured arriving at page 1
+            # (owner-reported 2026-08-01), the frames ran 129, 66, **84**, 43, **54**, 30, 35 px —
+            # visibly speeding up twice while "stopping" — and then took **240 ms to crawl the last
+            # 23 px**, because 23% of a tiny remainder is a pixel at a time.
+            #
+            # Letting the curve finish instead means the boundary gets one clean ease-out that
+            # decelerates into it, which is what the reader is asking for: the arrival is the part
+            # they are watching.
+            return
         self._glide_origin = current
         self._glide_target = target
         self._glide_start = self._now_ms()

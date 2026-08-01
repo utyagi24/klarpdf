@@ -2339,6 +2339,61 @@ then rasterise synchronously — a stall like the old one, but only on genuinely
 rather than on every image page. Removing that case needs rendering off the UI thread (§Deferred,
 item **E**), whose gate this milestone does not attempt to meet.
 
+### M92.5 — landing at the ends of the document (owner-reported 2026-08-01)
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M92.5** Page 1 and the last page arrive smoothly | `_scroll_by` returns without touching `_glide_origin` / `_glide_start` when the new target **equals the one already in flight** — which happens only at the ends, where the clamp pins it. The curve in progress is left to land. | WSL + WSLg | A clamped detent does not restart the curve; from peak speed onwards the arrival at the top and at the bottom only decelerates; the last pixels do not crawl; mid-document target extension (M92.2) is unchanged |
+
+**The defect.** Owner, 2026-08-01: *"starting from page 3 or 4, if I scroll back using free spin, we
+scroll back quickly to first page and when about 70% or 80% of the first page is visible there is an
+abrupt jerky stop before the rest of the page shows up… this might be related to how we have
+implemented the ease-out."* Correct on both counts, and the fix is the anticipation asked for.
+
+Replaying the owner's own probe gap pattern into the top of a document, the frames arriving at page 1
+were:
+
+```
+offset 426  moved 129   p1 74% visible
+offset 360  moved  66   p1 78%
+offset 276  moved  84   <-- speeds UP again
+offset 233  moved  43   p1 86%
+offset 179  moved  54   <-- and again
+...
+offset  23  moved   6
+offset   0  moved   1   <-- 240 ms to crawl the last 23 px
+```
+
+**Two symptoms, one cause.** Every detent set `_glide_origin = current` and `_glide_start = now`, so
+each one re-entered the ease-out's **fast opening**: velocity snapped up, decayed, snapped up — a
+sawtooth, landing squarely in the 74–90% band the owner named. Mid-document it is invisible because
+the target keeps advancing and the run-up is *supposed* to accelerate; against a target **pinned by
+the clamp**, the same shrinking distance is re-traversed and the sawtooth is all that is left. The
+second symptom is the same arithmetic at the other end of the scale: restarting takes 23% of the
+remainder, so once the remainder is small it moves **a pixel at a time**.
+
+**After** — the arrival is monotone and bounded by the glide itself:
+
+```
+673 562 462 370 290 219 158 107 ... 0        reaches the top at t=496 ms (was t=944 ms)
+```
+
+**Not a new animation, a removed one.** The fix is to stop *re-issuing* the curve when nothing was
+asked for. The clamp already decided the destination; the curve already knows how to decelerate into
+it. Mid-document behaviour (M92.2's target extension) is untouched, because there the target always
+moves.
+
+**Two harness mistakes worth recording**, both of which produced confident, wrong pictures before the
+real one:
+
+* **Firing a detent and ticking the glide at the same instant cannot move anything** — `_scroll_by`
+  sets `_glide_start` to now, so the tick sees zero elapsed. A first replay therefore showed a
+  motionless spin followed by one 12-frame rush, and would have sent the fix after the wrong thing.
+  Detents and frames must be merged onto a **timeline** and processed in time order.
+* **Asserting the whole spin decelerates is wrong** — the run-up genuinely accelerates while detents
+  keep arriving, because the reader is still asking for more. The property is that everything **after
+  peak speed** never speeds up again.
+
 **Interactions to preserve.** `Ctrl+wheel` zoom (already coalesced per frame, §M86.2), `Shift+wheel`
 horizontal pan (§M89.3), and the slideshow's whole-slide stepping (§M78) all sit **before** the
 scroll path and must be untouched — animating slideshow steps would break its one-page-per-screen
