@@ -53,6 +53,12 @@ def view(win):
     v = win.view
     v.set_zoom(1.0)
     PdfApp.instance().processEvents()
+    # **Smooth scrolling off here on purpose.** This file tests the *distance* rule; M92.2's glide
+    # is tested in `test_wheel_glide.py`, and with it on a wheel event moves the bar by nothing at
+    # all until the animator ticks. That is not a hypothetical: turning the glide on by default
+    # made six of these fail outright and quietly made two others pass *vacuously* — the
+    # window-height and zoom-scaling tests compare two measurements, and `0 == 0` satisfies both.
+    v.smooth_scrolling = False
     v.verticalScrollBar().setValue(0)
     return v
 

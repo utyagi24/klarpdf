@@ -876,6 +876,16 @@ class MainWindow(QMainWindow):
         if bool(self._settings.get_pref("night_mode", False)):
             self._a_night.setChecked(True)
             self.view.set_night_mode(True)  # pre-show: nothing rendered yet, so no flash
+        # Smooth scrolling (M92.2): ease a wheel detent over 200 ms instead of jumping it.
+        # **On by default, and a real toggle rather than a formality** — the glide costs ~200 ms of
+        # arrival latency, and a reader who spins the wheel to *hunt* through a document rather than
+        # read down it can legitimately prefer the jump. Off restores M92.1 exactly.
+        self._a_smooth_scroll = act("Smooth Scrolling", self._toggle_smooth_scrolling,
+                                    to_menu=view_menu)
+        self._a_smooth_scroll.setCheckable(True)
+        smooth = bool(self._settings.get_pref("smooth_scrolling", True))
+        self._a_smooth_scroll.setChecked(smooth)
+        self.view.smooth_scrolling = smooth
         view_menu.addSeparator()
         # View modes (M78) — the reading modes Preview offers, all view-only (the M49 principle:
         # file, print and export untouched). Full Screen strips the chrome; Slideshow adds
@@ -1258,6 +1268,12 @@ class MainWindow(QMainWindow):
         """View ▸ Night Reading Mode (M49): invert the page pixels, view-only; remembered."""
         self.view.set_night_mode(checked)
         self._settings.set_pref("night_mode", checked)
+
+    def _toggle_smooth_scrolling(self, checked: bool) -> None:
+        """View ▸ Smooth Scrolling (M92.2): ease a wheel detent rather than jump it; remembered
+        app-wide, like Night Reading Mode. Off is exactly M92.1 — same distance, no animation."""
+        self.view.smooth_scrolling = checked
+        self._settings.set_pref("smooth_scrolling", checked)
 
     # ---- view modes (M78) — Full Screen · Slideshow · Two-Page, all view-only ----
 
