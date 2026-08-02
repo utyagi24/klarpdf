@@ -1959,6 +1959,29 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     each produced a confident wrong picture first: firing a detent and ticking at the same instant
     cannot move anything (zero elapsed), and asserting that the *whole* spin decelerates is wrong —
     only everything after peak speed must. — *WSL + WSLg*
+  - [x] **M92.6** **The Pages sidebar rolls continuously.** Owner-reported 2026-08-01: *"scrolling on
+    the thumbnails sidebar jumps three thumbnails at a time… can't this be improved to have a
+    continuous rolling of thumbnails?"*, and then, having tested the Windows slider, *"changing mouse
+    setting in Windows 'Lines to scroll at a time' to 1 changed our app behavior also"* — which
+    identified the second of **two wrong factors multiplied together**. Qt sets an `IconMode` list's
+    `singleStep` to **one whole item**, so every "line" of the Windows setting was already a whole
+    page here (measured: 245 px icon + 8 px spacing = **253 px pitch**); × the Windows default of 3 =
+    759 px, which Qt then **clamps to `pageStep`** — so a detent delivered **one entire viewport, 698
+    px, 2.76 thumbnails**. `ThumbnailPanel.wheelEvent` now moves `angleDelta / notch × pitch / 3`.
+    **Continuous, not stepped**, because the reference the owner named is Edge — *"in Edge even
+    Thumbnails move continuously, no in step of 1. So I can scroll thumbnail such that only half or a
+    fraction of it is visible on the top"* — and a whole-thumbnail step would re-frame the strip
+    identically at every click; a third lands on the two intermediate fractions with the page still
+    the legible unit. **Independent of `wheelScrollLines`** by owner request: it is a *lines of text*
+    preference and the sidebar has no text (the document view still honours it, M92.1). **Scaled by
+    the measured row pitch, not a pixel constant**, because thumbnails scale with the bar — verified
+    **0.331 / 0.332 / 0.332** thumbnails per detent at bar widths 150 / 210 / 276, the sidebar's
+    analogue of M92.1's zoom-scaling. At the default width that is **84 px**, within a few px of the
+    **87 px** the document view moves at Fit Page, so the two surfaces agree without either being
+    tuned to the other. **Easing is deliberately not folded in** (`PLAN.md` §M92.6) — the animator is
+    `PdfView`-owned, and whether the sidebar should glide under View ▸ Smooth Scrolling is a separate
+    question with a separate cost. — *Windows (offscreen GUI)* — 13 new tests, 9 of which fail
+    without the change
   - **Cost, measured before committing to it** (`PLAN.md` §M92 §Cost): per animation frame
     **~0.11–0.15 ms handler + ~0.7–1.2 ms repaint** ≈ 1 ms of a 16.7 ms budget, ~6% of one core, only
     while animating. **Flat** across zoom, DPR and content — 0.148 ms with no marks vs **0.143 ms with

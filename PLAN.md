@@ -2408,6 +2408,57 @@ acceleration** (a bigger step for faster spinning) — Chromium does not do it f
 a reliable source of "the scroll feels unpredictable"; M92.2's target extension already makes fast
 spinning cover ground fast without it.
 
+### M92.6 — the Pages sidebar rolls continuously (owner-reported 2026-08-01)
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M92.6** The thumbnail sidebar scrolls a fraction of a page per detent | `ThumbnailPanel.wheelEvent` replaces Qt's `wheelScrollLines × singleStep` with `angleDelta / notch × pitch / _NOTCH_PER_THUMB` — a third of a thumbnail per detent, measured from the real row pitch, and not inheriting Windows' *lines to scroll at a time*. | WSL + WSLg | One detent moves a third of a thumbnail and not a viewport; identical at `wheelScrollLines` 1 / 3 / 10; successive detents land mid-thumbnail; the third holds at every sidebar width; a sub-notch delta moves proportionally; a tilt wheel and an unscrollable document still reach `super()` |
+
+**The defect.** Owner, 2026-08-01: *"scrolling on the thumbnails sidebar jumps three thumbnails at a
+time. Cant this be improved to have a continuous rolling of thumbnails?"* — then, having tested the
+Windows slider: *"changing mouse setting in Windows 'Lines to scroll at a time' to 1 changed our app
+behavior also"*.
+
+**Two wrong factors, multiplied.** Measured on a 30-page document in a 210 × 700 sidebar:
+
+```
+item height 245 + spacing 8   ->  row pitch          253 px
+Qt singleStep                                        253 px   (one whole thumbnail)
+x wheelScrollLines                                       3    (the Windows default)
+= 759 px asked for, clamped by Qt to pageStep        698 px   = 2.76 thumbnails per detent
+```
+
+Qt sets an `IconMode` list's `singleStep` to a whole item, so *every* line of the Windows setting was
+already a whole page here; the clamp to `pageStep` then turned the request into "scroll one entire
+viewport". Setting the slider to 1 changing the app's behaviour is the direct confirmation of the
+second factor — and the reason the fix cannot simply be a smaller `singleStep`.
+
+**The rule.** A detent moves `pitch / 3`:
+
+* **Continuous, not stepped.** The reference is Edge, named by the owner: *"in Edge even Thumbnails
+  move continuously, no in step of 1. So I can scroll thumbnail such that only half or a fraction of
+  it is visible on the top."* A whole-thumbnail step would land on a boundary every time and re-frame
+  the strip identically at each click; a third lands on the two intermediate fractions. The page stays
+  the legible unit — three clicks to the next one.
+* **Independent of `wheelScrollLines`**, by owner request. It is a *lines of text* preference, the
+  sidebar has no text, and inheriting it is what let a reasonable "3" mean three whole pages. The
+  document view still honours it (§M92.1), where it means what it is for.
+* **Scaled by the pitch, not a pixel constant.** Thumbnails scale with the bar width
+  (`_apply_thumb_size`, 110–240 px), so a fixed constant would drift from a third of a thumbnail to a
+  half across that range. Measured after: **0.331 / 0.332 / 0.332** thumbnails per detent at bar
+  widths 150 / 210 / 276. This is the sidebar's analogue of §M92.1 scaling the document view's detent
+  by zoom — *a detent moves the same amount of document wherever you are*.
+* **Proportional to the raw delta**, not quantised to whole detents, so a free-spin or hi-res wheel
+  reporting fractions of a notch moves a matching fraction.
+
+At the default bar width a detent lands on **84 px**, within a few pixels of the **87 px** the
+document view moves at Fit Page (§M92.1) — the distance already tuned against Edge, so the two
+surfaces agree without either being tuned to the other.
+
+**Not done here: easing.** The step is a jump, as M92.1's was before M92.2 eased it. Whether the
+sidebar should glide under **View ▸ Smooth Scrolling** too is a separate question with a separate
+cost (the animator is `PdfView`-owned), left open rather than folded in.
+
 ## Future enhancements (deferred beyond the roadmap)
 
 Captured but not yet scheduled:
