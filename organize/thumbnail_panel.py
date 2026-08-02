@@ -43,6 +43,15 @@ _SIDEBAR_CHROME = 36  # scrollbar + frame + the 2*spacing margin, added around t
 # Custom drag payload so a drop knows the source document + rows even across windows; the plain
 # QListWidget item-move MIME can't cross processes/windows and InternalMove can't leave the view.
 _PAGES_MIME = "application/x-klarpdf-pages"
+# One mouse-wheel detent, in eighths of a degree — Qt's fixed unit for `angleDelta`, not a tuning
+# knob. Deliberately a local copy of `viewer.pdf_view._WHEEL_NOTCH` rather than an import: it keeps
+# `organize/` from depending on `viewer/` for a platform invariant that cannot drift.
+_WHEEL_NOTCH = 120
+# Wheel detents to cross one thumbnail (M92.6) — the tuning knob for the sidebar's scroll speed.
+# 3 makes a detent a third of a page: continuous like Edge's sidebar (it lands on the two
+# intermediate fractions, not only on thumbnail boundaries) while keeping the page the legible unit.
+# See `ThumbnailPanel.wheelEvent` for why the step is a fraction of the pitch and not a pixel count.
+_NOTCH_PER_THUMB = 3
 
 
 class ThumbnailPanel(QListWidget):
@@ -564,6 +573,64 @@ class ThumbnailPanel(QListWidget):
         super().resizeEvent(event)
         self._apply_thumb_size()  # thumbnails grow/shrink with the bar (Preview-style)
         self._render_visible_thumbs()
+
+    # ---- wheel scrolling (M92.6) ------------------------------------------------
+
+    def _row_pitch(self) -> int:
+        """Vertical distance from one thumbnail to the next, spacing included.
+
+        Measured **between two laid-out rows** where there are two, so it is the real pitch whatever
+        margins the style adds around an item; derived from the icon otherwise. The fallback is only
+        ever reached by a document too short to scroll, so it just has to be sane.
+        """
+        if self.count() > 1:
+            pitch = self.visualItemRect(self.item(1)).top() - self.visualItemRect(self.item(0)).top()
+            if pitch > 0:
+                return pitch
+        return self.iconSize().height() + self.spacing()
+
+    def wheelEvent(self, event) -> None:
+        """One wheel detent rolls the strip a **third of a thumbnail** (M92.6).
+
+        Deliberately not Qt's path, which is ``wheelScrollLines × singleStep``, and which produced
+        the defect the owner reported (2026-08-01): *"scrolling on the thumbnails sidebar jumps three
+        thumbnails at a time"*. Both factors were wrong for this widget. Qt sets an ``IconMode``
+        list's ``singleStep`` to **one whole thumbnail** (measured: 253 px at the default bar width —
+        245 px icon + 8 px spacing), and Windows' *lines to scroll at a time* defaults to **3**, so a
+        detent asked for three pages at once; Qt then clamps a wheel scroll to ``pageStep``, so what
+        the reader actually got was **one whole viewport — 698 px, 2.76 thumbnails — per click**.
+        Confirmed from the other end too: setting the Windows slider to 1 changed the app's
+        behaviour, which is what identified ``wheelScrollLines`` as one of the two factors.
+
+        Two properties, both owner calls:
+
+        * **Continuous, not stepped.** Edge's sidebar rolls to any offset — *"I can scroll thumbnail
+          such that only half or a fraction of it is visible on the top"* — so the step is a fraction
+          of a thumbnail rather than a whole one. A page is still the legible unit, hence a third:
+          three clicks to the next page, and the two intermediate positions are the fractions.
+        * **Independent of the Windows setting**, by owner request. ``wheelScrollLines`` is a
+          *lines of text* preference; the sidebar has no text, and inheriting it is what let a
+          reasonable "3" mean three whole pages here. The document view still honours it (M92.1),
+          where it means what it is for.
+
+        Scaling by the **pitch** rather than a pixel constant keeps a detent at a third of a
+        thumbnail at every sidebar width — the thumbnails scale with the bar (:meth:`_apply_thumb_size`),
+        so a fixed constant would drift from a third to a half across that range. This is the
+        sidebar's analogue of M92.1 scaling the document view's detent by zoom. At the default width
+        it lands on **84 px**, within a few pixels of the 87 px the document view moves at Fit Page —
+        which is the distance the owner already tuned against Edge, so the two surfaces agree.
+        """
+        dy = event.angleDelta().y()
+        bar = self.verticalScrollBar()
+        if dy == 0 or bar.maximum() <= bar.minimum():
+            # A horizontal/tilt wheel, or a document too short to scroll — leave it to Qt, which
+            # also lets an unusable event propagate to the parent instead of being swallowed here.
+            super().wheelEvent(event)
+            return
+        # Proportional to the raw delta, not quantised to whole detents, so a free-spin or hi-res
+        # wheel that reports fractions of a notch moves a matching fraction of the step.
+        bar.setValue(bar.value() - round(dy / _WHEEL_NOTCH * self._row_pitch() / _NOTCH_PER_THUMB))
+        event.accept()
 
     def set_current(self, index: int) -> None:
         """Highlight ``index`` without triggering a jump back to the view.
