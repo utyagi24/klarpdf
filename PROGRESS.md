@@ -7,7 +7,40 @@ it merges, check the box here in the same PR and append the PR link.
 > release links, milestone ticks, and open follow-ups. `PLAN.md` (design/spec) and `CLAUDE.md`
 > (conventions) **link here, they don't restate it** — see CLAUDE.md §How we work → "Where things live".
 
-**Status:** ✅ **v0.16.2 shipped** — a reading-bar legibility fix, following the Preview model.
+**Status:** ✅ **v0.17.0 shipped** — **scrolling that behaves**, delivering **M91** (whitespace
+fidelity, glyph legibility, reading position) and **M92** (mouse-wheel scrolling). The wheel moves a
+**defined distance** — `wheelScrollLines × 32 px × zoom` — instead of Qt's `viewportHeight / 20`,
+which on the owner's full-height window threw the page **183 px, a fifth of a page, ten lines of body
+text per click**; the new rule is window-independent and zoom-scaled, measured at **87 px at Fit
+Page** (M92.1). Each step is **eased over 200 ms**, chosen with the wheel in hand against a live
+toggle, behind **View ▸ Smooth Scrolling** (M92.2). Using it then surfaced three more defects, each
+measured before it was fixed: the coast-mute was **indefinitely renewable**, so the wheel could stay
+dead for as long as the reader kept scrolling (M92.3); **prefetch was being paid on the scroll's
+critical path**, which is the whole of the image-page stall — visible-page rendering costs 0 ms at
+every zoom (M92.4); and the glide **restarted its curve against a clamped target**, so arriving at
+page 1 sped up twice while stopping and then crawled the last 23 px for 240 ms (M92.5). M91 brought
+the **page counter**, `Space`/`PgUp`/`PgDn` paging from anywhere including the sidebar, leading-space
+fidelity in text boxes, and a Rotate glyph that no longer reads as Undo.
+1650 headless tests green (3 expected skips — two Poppler `pdftotext` cross-checks, one off-Windows
+mutex guard).
+
+**Toward 1.0 (owner call, 2026-08-01).** The feature roadmap is complete, and **1.0 was deliberately
+not taken here**: on a public repo it is a claim about readiness for *other people*, and what remains
+open is almost entirely in that category. The gate, all small and all concrete:
+
+- [ ] **Clean-machine install** — the one deferred M9 item: `klarpdf-setup-x64.exe` on Windows with
+  **no Python and networking disabled**. It is the first thing a stranger does and has never been
+  watched. (Win10 Home has no Sandbox → VirtualBox / spare machine / fresh local user.)
+- [ ] **The Donate link points at a Sponsors listing that does not exist** — and it *redirects*
+  rather than 404s, so no test can catch it. A dead link inside the app.
+- [ ] **Two known flaky tests** (`test_single_instance`, the save path's `os.replace`) — `pytest` is
+  a required check, so a flake is both a red X on a stranger's first CI run and a merge blocker.
+- [ ] **Item E — background rendering** (`PLAN.md` §Deferred): 1–3 s of frozen UI per page per zoom
+  on image-heavy documents. Its gate is already met; this is scheduling, not justification.
+- **Code signing** stays deferred (needs a certificate) — it is the one gate item that may never be
+  purchasable, so it is explicitly *not* a blocker for 1.0.
+
+**v0.16.2** — a reading-bar legibility fix, following the Preview model.
 Undo/Redo and rotate-left/right were four mirrored curved-arrow glyphs that read as two
 near-identical pairs at toolbar size, so the resting **reading bar** now drops **Undo/Redo** and the
 **second rotate direction**, leaving a single Rotate button as its only curved arrow — exactly what

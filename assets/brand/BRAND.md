@@ -100,9 +100,22 @@ the attribute and keeps the element). Brand colour can therefore only arrive thr
 
 - **Hero** — `github-hero-{light,dark}.svg`, 1200×300, the canonical gradient band with the white
   lockup, at the top of `README.md`.
-- **Screenshots** — `assets/screenshots/klarpdf-{light,dark}.png`: the real app, captured from a real
-  build by forcing `QStyleHints.setColorScheme()` (**not** by changing a Windows setting — the app
-  already follows the palette, so this drives the same code path a real theme switch does).
+- **Screenshots** — `assets/screenshots/klarpdf-{light,dark}.png`: the real app, regenerated with
+  **`tools/make_screenshots.py`** (`.venv/Scripts/python.exe tools/make_screenshots.py`, on a real
+  display). It builds its own four-page demo document, so a screenshot can never contain anything
+  real — never point it at a file off the machine, since whatever is in frame is published.
+  **Run it on every release**: these rotted silently once, showing a toolbar two milestones out of
+  date (no M91.3 page counter, the pre-M91.2 rotate glyph), because the original recipe was manual
+  and was not written down.
+
+  Two things it has to do, both learned the hard way and both now enforced in the tool:
+  **the colour scheme is forced before the window is created**, one fresh window per theme —
+  `setColorScheme()` on an existing window repaints the chrome but leaves Qt's own text widgets
+  unpainted, so the page field and zoom box photograph **blank** while reporting themselves visible
+  and populated; and the capture is **`QScreen.grabWindow()`**, not `QWidget.grab()`, which
+  re-renders offscreen and drops the same text. An earlier note here claimed forcing the scheme
+  "drives the same code path a real theme switch does" — measured, it does not, and that claim is
+  what made the blank fields look like a capture bug rather than a palette one.
 - **Social preview** — `social-preview.png`, 1280×640. Upload at **Settings ▸ General ▸ Social
   preview**; it is **manual**, there is no REST API for it. It is what renders when the repo link is
   pasted into Slack / X / Discord, and it is GitHub's `og:image`.
