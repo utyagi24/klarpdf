@@ -134,7 +134,14 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   spare machine / a fresh local user with networking disabled.
 
 ## Status
-**Current: v0.16.2 shipped** — a reading-bar legibility patch: the resting reading bar drops
+**Current: v0.17.0 shipped** — **scrolling that behaves**: M91 (whitespace fidelity, glyph
+legibility, reading position) + M92 (mouse-wheel scrolling). A wheel click moves a defined,
+zoom-scaled distance instead of a slice of the window, eased over 200 ms behind **View ▸ Smooth
+Scrolling**; the coast-mute is bounded, prefetch is off the scroll's critical path, and the glide
+lands on the first/last page instead of restarting into it. Reading gains an editable page counter
+and `Space`/`PgUp`/`PgDn` paging from anywhere. **1.0 was deliberately not taken** — the gate (clean
+-machine install, the dead Donate link, two flaky tests, background rendering) is listed in
+`PROGRESS.md`. It supersedes **v0.16.2** — a reading-bar legibility patch: the resting reading bar drops
 **Undo/Redo** and the second **Rotate** button (they were four mirrored curved-arrow glyphs that read
 as two near-identical pairs), leaving one Rotate button, following Preview's toolbar; every verb
 stays on its shortcut + menu ([#194](https://github.com/utyagi24/klarpdf/pull/194)). It refines

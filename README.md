@@ -29,11 +29,16 @@ the unit of audit; it ships as a pinned, fully offline Windows installer.
 <p align="center"><sub>The real app, captured from a real build — and it follows the Windows theme, so
 this screenshot follows your GitHub one.</sub></p>
 
-**Status: `v0.16.2` shipped** — [download the installer or portable exe](https://github.com/utyagi24/klarpdf/releases/latest).
-**New in v0.16.2:** a calmer reading bar — **Undo/Redo** and the second **Rotate** button leave the
-toolbar (four near-identical curved-arrow glyphs read as two confusable pairs), following Preview's
-own toolbar. Nothing is lost: undo/redo stay on **Ctrl+Z / Ctrl+Y** and the Edit menu, and **Rotate
-Right** stays on **Ctrl+R**, the Edit menu, and the page right-click menu.
+**Status: `v0.17.0` shipped** — [download the installer or portable exe](https://github.com/utyagi24/klarpdf/releases/latest).
+**New in v0.17.0 — scrolling that behaves:** the mouse wheel now moves a **defined distance** instead
+of a slice of the window (Qt's default made one click throw a full-height window a fifth of a page —
+ten lines of text), and that distance **scales with zoom**, so a click always covers the same amount
+of document. Each step is **eased over 200 ms** rather than teleported — on by default, and
+switchable at **View ▸ Smooth Scrolling**. Three defects found by using it went with it: the wheel
+could stop responding for as long as you kept scrolling after a keypress, image-heavy pages stalled
+the glide (page prefetch was being paid on the scroll's critical path), and arriving at the first or
+last page jerked instead of landing. Reading also gains an **editable page counter** on the toolbar,
+and **Space / PgUp / PgDn** now step by a page from anywhere, including the sidebar.
 Full release notes live on
 [GitHub Releases](https://github.com/utyagi24/klarpdf/releases); live status — milestones
 (**M0–M38 + R1–R6 complete**), per-release notes, open follow-ups — in [PROGRESS.md](PROGRESS.md).
@@ -46,6 +51,8 @@ Everything here works **fully offline**: the app makes no network connection, ev
 **Read & navigate**
 - **Two-tier toolbar** — a calm reading bar at rest; the markup kit appears only when you summon it.
 - **Continuous scroll** with zoom, a live readout, and sticky **Fit Width / Fit Page**.
+- **Scrolling that behaves** — a wheel click moves a defined distance that scales with zoom (not with your window size), eased over 200 ms; **Space / PgUp / PgDn** step a page from anywhere. Turn the easing off at **View ▸ Smooth Scrolling**.
+- **An editable page counter** on the toolbar — `[ 10 ] of 320`; type a number to jump.
 - **View modes** — **Full Screen** (F11), **Slideshow**, and a **Two-Page** facing layout.
 - **Select & copy** the real text layer; **Night mode** inverts the page (file, print and export stay true-colour).
 - **Search** with highlighted hits, next/previous, **Match case** + **Whole words**, and **List All** — every match with its context line, click to jump.
