@@ -2278,6 +2278,31 @@ Carried items — none block work:
 - **Dependency vuln: pypdf → 6.13.3** → ✅ fixed in **v0.9.4**: bumped `pypdf` 6.13.2 → 6.13.3
   (**GHSA-jm82-fx9c-mx94**, Moderate memory-DoS in the `pypdf` fallback edit engine), recompiled the
   locks + regenerated `vendor/wheels-sources.md`, and removed the audit-gate ignore.
+- **Dependency vuln: pypdf → 6.15.0** → ✅ fixed on `main`, **not yet released**. Bumped `pypdf`
+  6.14.2 → 6.15.0, clearing **two** Moderate advisories — **GHSA-fwg2-594c-jp42** (CVE-2026-71852,
+  unusually large CID font width ranges) and **GHSA-fp3f-mc75-235c** (CVE-2026-71870, unusually large
+  `/ToUnicode` streams). Both are CPU/memory-DoS on **parse**, reached through `PyPdfEngine`'s
+  `PdfReader` in `model/edit_engine.py`, so a crafted PDF is the attack surface. The weekly `audit`
+  job caught it first — the 2026-08-10 scheduled run went **red** (`pip-audit`: "Found 2 known
+  vulnerabilities in 1 package"). Bumped via `RELEASE.md` §2 → §1: floor pin in `requirements.in`,
+  `invoke lock --package pypdf==6.15.0`, `invoke vendor`; all three locks now audit clean. Reaches
+  users at the next release.
+- **Dependabot security-update PRs are ON, but `RELEASE.md` §2 says they are OFF** — an unresolved
+  contradiction that has now cost a real PR. §2 records Dependabot as **detection-only** ("alerts are
+  on … security-update PRs and version-update PRs are both disabled"), because Dependabot compiles on
+  **Linux** and would write the wrong lock; the repo setting says otherwise — G8 above enabled
+  `automated-security-fixes`. So Dependabot opened
+  [#234](https://github.com/utyagi24/klarpdf/pull/234) for this very pypdf bump and
+  `close-external-prs.yml` closed it automatically, Dependabot's `author_association` being neither
+  OWNER, COLLABORATOR nor MEMBER. The auto-close was the **right outcome for the wrong reason**:
+  #234's diff dropped `colorama` from `requirements-dev.txt` — pytest's win32-only dep, precisely the
+  wrong-platform compile §2 warns about. (Its pypdf *hashes* were fine; pypdf is a pure-Python wheel.
+  The hash hazard §2 names is real only for the native deps.) Closing it unmerged also makes
+  Dependabot stop offering 6.15.0, so the bump was done by hand regardless. **Decide one way:** turn
+  `automated-security-fixes` **off** to match §2 — alerts still fire, and alerts are all §2's flow
+  consumes — or keep it on and exempt Dependabot in `close-external-prs.yml`, accepting that every
+  such lock diff must be recompiled on Windows before merge. Note reopening #234 is *not* a shortcut:
+  the closer fires on `reopened` too, so it would close again until the workflow changes.
 - **Clean-machine install** — the one deferred M9 verification item: run `klarpdf-setup-x64.exe` on a
   Windows VM with **no Python and networking disabled** (Win10 Home has no Sandbox → VirtualBox /
   spare machine / fresh local user). Everything else in the Verification matrix is green.
