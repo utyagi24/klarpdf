@@ -7,7 +7,28 @@ it merges, check the box here in the same PR and append the PR link.
 > release links, milestone ticks, and open follow-ups. `PLAN.md` (design/spec) and `CLAUDE.md`
 > (conventions) **link here, they don't restate it** — see CLAUDE.md §How we work → "Where things live".
 
-**Status:** ✅ **v0.17.0 shipped** — **scrolling that behaves**, delivering **M91** (whitespace
+**Status:** ✅ **v0.17.1 shipped** — a **security patch plus the last M92 fix**; both are fixes, so
+this stays a patch under `RELEASE.md` §3's SemVer rule.
+
+**(1) `pypdf` 6.14.2 → 6.15.0**, clearing two Moderate advisories — **GHSA-fwg2-594c-jp42**
+(CVE-2026-71852, oversized CID font width ranges) and **GHSA-fp3f-mc75-235c** (CVE-2026-71870,
+oversized `/ToUnicode` streams). Both are CPU/memory exhaustion **on parse**, reached through
+`PyPdfEngine`'s `PdfReader`, so a crafted PDF is the attack surface rather than a local misuse. The
+weekly `audit` job found it, not a person: the 2026-08-10 scheduled run went red. The bump was made
+by hand on Windows per `RELEASE.md` §2 rather than taken from Dependabot's PR, which had recompiled
+on Linux and dropped `colorama` from the dev lock — see Open follow-ups for the full account,
+including the settled Dependabot-policy contradiction it exposed.
+[#235](https://github.com/utyagi24/klarpdf/pull/235) · [#236](https://github.com/utyagi24/klarpdf/pull/236)
+
+**(2) M92.6 — the Pages sidebar rolls continuously** ([#233](https://github.com/utyagi24/klarpdf/pull/233)),
+which landed after the v0.17.0 tag and so ships here. A detent threw the strip a whole viewport
+(**698 px, 2.76 thumbnails**) because Qt's one-item `singleStep` was multiplied by the Windows
+lines-to-scroll default and then clamped to `pageStep`; it now moves a third of a row pitch,
+scaled by the measured pitch so it holds across sidebar widths. Detail in the M92.6 entry below.
+
+1672 headless tests green (3 expected skips).
+
+**v0.17.0** — **scrolling that behaves**, delivering **M91** (whitespace
 fidelity, glyph legibility, reading position) and **M92** (mouse-wheel scrolling). The wheel moves a
 **defined distance** — `wheelScrollLines × 32 px × zoom` — instead of Qt's `viewportHeight / 20`,
 which on the owner's full-height window threw the page **183 px, a fifth of a page, ten lines of body
@@ -2281,15 +2302,16 @@ Carried items — none block work:
 - **Dependency vuln: pypdf → 6.13.3** → ✅ fixed in **v0.9.4**: bumped `pypdf` 6.13.2 → 6.13.3
   (**GHSA-jm82-fx9c-mx94**, Moderate memory-DoS in the `pypdf` fallback edit engine), recompiled the
   locks + regenerated `vendor/wheels-sources.md`, and removed the audit-gate ignore.
-- **Dependency vuln: pypdf → 6.15.0** → ✅ fixed on `main`, **not yet released**. Bumped `pypdf`
+- **Dependency vuln: pypdf → 6.15.0** → ✅ fixed in **v0.17.1**. Bumped `pypdf`
   6.14.2 → 6.15.0, clearing **two** Moderate advisories — **GHSA-fwg2-594c-jp42** (CVE-2026-71852,
   unusually large CID font width ranges) and **GHSA-fp3f-mc75-235c** (CVE-2026-71870, unusually large
   `/ToUnicode` streams). Both are CPU/memory-DoS on **parse**, reached through `PyPdfEngine`'s
   `PdfReader` in `model/edit_engine.py`, so a crafted PDF is the attack surface. The weekly `audit`
   job caught it first — the 2026-08-10 scheduled run went **red** (`pip-audit`: "Found 2 known
   vulnerabilities in 1 package"). Bumped via `RELEASE.md` §2 → §1: floor pin in `requirements.in`,
-  `invoke lock --package pypdf==6.15.0`, `invoke vendor`; all three locks now audit clean. Reaches
-  users at the next release.
+  `invoke lock --package pypdf==6.15.0`, `invoke vendor`; all three locks audit clean and the
+  `audit` run on `main` went red → green. All four Dependabot alerts (#6–#9, two advisories × two
+  manifests) auto-closed as `fixed` once the graph re-scanned.
 - ~~**Dependabot security-update PRs are ON, but `RELEASE.md` §2 says they are OFF**~~ — **settled
   2026-08-11: turned off**, so the documented policy is now the true one. Worth keeping the story,
   because a *doc asserting a setting, with nothing checking it* is the failure mode. §2 records

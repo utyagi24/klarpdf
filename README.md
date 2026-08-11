@@ -29,16 +29,16 @@ the unit of audit; it ships as a pinned, fully offline Windows installer.
 <p align="center"><sub>The real app, captured from a real build — and it follows the Windows theme, so
 this screenshot follows your GitHub one.</sub></p>
 
-**Status: `v0.17.0` shipped** — [download the installer or portable exe](https://github.com/utyagi24/klarpdf/releases/latest).
-**New in v0.17.0 — scrolling that behaves:** the mouse wheel now moves a **defined distance** instead
-of a slice of the window (Qt's default made one click throw a full-height window a fifth of a page —
-ten lines of text), and that distance **scales with zoom**, so a click always covers the same amount
-of document. Each step is **eased over 200 ms** rather than teleported — on by default, and
-switchable at **View ▸ Smooth Scrolling**. Three defects found by using it went with it: the wheel
-could stop responding for as long as you kept scrolling after a keypress, image-heavy pages stalled
-the glide (page prefetch was being paid on the scroll's critical path), and arriving at the first or
-last page jerked instead of landing. Reading also gains an **editable page counter** on the toolbar,
-and **Space / PgUp / PgDn** now step by a page from anywhere, including the sidebar.
+**Status: `v0.17.1` shipped** — [download the installer or portable exe](https://github.com/utyagi24/klarpdf/releases/latest).
+**New in v0.17.1 — a security patch, and the Pages sidebar rolls smoothly:** the bundled `pypdf`
+library moves **6.14.2 → 6.15.0**, closing two advisories where a **crafted PDF** could make parsing
+burn unbounded CPU and memory (oversized CID font width ranges, oversized `/ToUnicode` streams).
+Alongside it, **scrolling the Pages sidebar no longer jumps** — a wheel click used to throw the strip
+an entire viewport, about **2.76 thumbnails**, because two wrong factors were multiplied together.
+It now rolls **continuously**, a third of a thumbnail per click, so a thumbnail can sit half-visible
+at the top the way it does in Edge; the distance scales with the sidebar's width, and it deliberately
+ignores the Windows "lines to scroll" setting, which is a *text* preference the document view still
+honours. No other behaviour changes from v0.17.0.
 Full release notes live on
 [GitHub Releases](https://github.com/utyagi24/klarpdf/releases); live status — milestones
 (**M0–M38 + R1–R6 complete**), per-release notes, open follow-ups — in [PROGRESS.md](PROGRESS.md).
