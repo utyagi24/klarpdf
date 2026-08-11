@@ -134,14 +134,22 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   spare machine / a fresh local user with networking disabled.
 
 ## Status
-**Current: v0.17.0 shipped** — **scrolling that behaves**: M91 (whitespace fidelity, glyph
+**Current: v0.17.1 shipped** — a **security patch plus the last M92 fix**. `pypdf` 6.14.2 → 6.15.0
+clears two Moderate parse-DoS advisories (GHSA-fwg2-594c-jp42, GHSA-fp3f-mc75-235c) reachable through
+`PyPdfEngine`'s `PdfReader`, so a crafted PDF is the attack surface; it was found by the weekly
+`audit` job, not a person, and bumped by hand on Windows per `RELEASE.md` §2 — the episode also
+settled a month-old contradiction where Dependabot security-update PRs were enabled against a policy
+documenting them as off (`PROGRESS.md` §Open follow-ups). **M92.6** rides along, having merged after
+the v0.17.0 tag: the Pages sidebar rolls continuously instead of jumping 2.76 thumbnails a detent.
+Both are fixes, so this stays a patch. It supersedes
+**v0.17.0** — **scrolling that behaves**: M91 (whitespace fidelity, glyph
 legibility, reading position) + M92 (mouse-wheel scrolling). A wheel click moves a defined,
 zoom-scaled distance instead of a slice of the window, eased over 200 ms behind **View ▸ Smooth
 Scrolling**; the coast-mute is bounded, prefetch is off the scroll's critical path, and the glide
 lands on the first/last page instead of restarting into it. Reading gains an editable page counter
 and `Space`/`PgUp`/`PgDn` paging from anywhere. **1.0 was deliberately not taken** — the gate (clean
 -machine install, the dead Donate link, two flaky tests, background rendering) is listed in
-`PROGRESS.md`. It supersedes **v0.16.2** — a reading-bar legibility patch: the resting reading bar drops
+`PROGRESS.md`. v0.17.0 in turn superseded **v0.16.2** — a reading-bar legibility patch: the resting reading bar drops
 **Undo/Redo** and the second **Rotate** button (they were four mirrored curved-arrow glyphs that read
 as two near-identical pairs), leaving one Rotate button, following Preview's toolbar; every verb
 stays on its shortcut + menu ([#194](https://github.com/utyagi24/klarpdf/pull/194)). It refines
