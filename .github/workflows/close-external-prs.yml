@@ -14,6 +14,11 @@
 # Note `github.event.pull_request.author_association` is evaluated against the *base* repository.
 # For a user-owned repo the values that matter are OWNER and COLLABORATOR; MEMBER only appears on
 # organisation-owned repos, and is included so this keeps working if the repo is ever transferred.
+#
+# BOTS ARE NOT EXEMPT. Dependabot's author_association is none of the three above, so this job closes
+# its PRs too — it did, to #234. That is currently harmless *because* Dependabot security-update PRs
+# are disabled at the repo level (it only files alerts). If you ever re-enable them, exempt Dependabot
+# here first or they will be closed unread. See RELEASE.md §2 for the policy and its verify commands.
 
 name: Close external PRs
 
