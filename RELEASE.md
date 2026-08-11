@@ -112,6 +112,21 @@ and version-update PRs are both disabled**. Dependabot runs on Linux and would w
 (manylinux) hashes into the `win_amd64` locks for native deps, so we never let it auto-edit them — it
 tells you *what* and *how severe*, and you do the bump yourself.
 
+> **Verify the two settings actually match this paragraph** — they drifted apart for a month once
+> (see `PROGRESS.md` "Open follow-ups"), which is how Dependabot came to open #234 against this very
+> policy:
+> ```sh
+> gh api repos/utyagi24/klarpdf/automated-security-fixes   # -> {"enabled": false}  (PR-writing: OFF)
+> gh api -i repos/utyagi24/klarpdf/vulnerability-alerts    # -> HTTP 204            (alerts: ON)
+> ```
+> In the web UI these live at **Settings ▸ Advanced Security** (`/settings/security_analysis`) and are
+> labelled **"Dependabot security updates"** / **"Dependabot alerts"** — the string
+> `automated-security-fixes` is the REST name only and appears nowhere on the page.
+>
+> If security-update PRs are ever switched back on, note that `close-external-prs.yml` will close them
+> on sight: Dependabot's `author_association` is neither OWNER, COLLABORATOR nor MEMBER. Exempt it
+> there first, or the setting is just noise.
+
 > The alert (repo ▸ Security ▸ Dependabot) carries the advisory ID, **severity (CVSS)**, the
 > vulnerable range, and the **first patched version** — that's the source of truth.
 
