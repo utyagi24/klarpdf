@@ -362,6 +362,34 @@ def test_a_missing_output_directory_is_rejected(a_pdf, tmp_path):
         T.delete_pages(a_pdf, [1], str(tmp_path / "nope" / "out.pdf"))
 
 
+def test_a_transform_survives_a_transient_lock_on_its_temp(a_pdf, tmp_path, monkeypatch):
+    """The transform write path goes through M38.5's `atomic_replace`, not a bare `os.replace`.
+
+    Same Windows race as the GUI's Save: the rename needs exclusive access to both paths, and an
+    antivirus scanner holding the just-written temp fails a write that would succeed 200 ms later.
+    Two write paths in one codebase should not disagree about that.
+    """
+    from util import atomic
+
+    calls: list[int] = []
+    real = os.replace
+
+    def flaky(src, dst):
+        calls.append(1)
+        if len(calls) <= 2:
+            raise PermissionError(5, "Access is denied")
+        return real(src, dst)
+
+    monkeypatch.setattr(atomic.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(atomic.os, "replace", flaky)
+
+    out = tmp_path / "locked.pdf"
+    T.delete_pages(a_pdf, [1], str(out))
+
+    assert out.exists()
+    assert len(calls) == 3  # retried past the lock rather than failing the transform
+
+
 def test_a_failed_write_leaves_no_debris(a_pdf, tmp_path, monkeypatch):
     """The temp-then-rename exists so a caller can never read back a half-written PDF."""
     from model.edit_engine import PyMuPDFEngine
