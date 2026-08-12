@@ -841,29 +841,42 @@ first. **No new dependency** — both are native PyMuPDF.
 | **M33** Internal link remap **+ navigation** | `model/links_remap.py`: at materialize, rebuild internal **GoTo *and* named-destination** links against the new page order (both resolve to a target page, re-emitted as remapped GoTo — `insert_pdf` drops named dests entirely, and cross-run GoTo links). Plus **in-viewer navigation** (`viewer/links.py`): clicking an internal link jumps to its target page (pointing-hand on hover), resolved via the same map so it follows reorder/delete live. | WSL (model+tests) + WSLg | Reordered/deleted pages keep internal links working; clicking a link in the viewer jumps to its target |
 | **M38** Verify + release | Headless suite green (369 tests); Windows validation; tag **v0.9.0**. | **Win** | Matrix green → v0.9.0 released |
 
-## MCP / Agent Bridge roadmap (v0.11.0 — planned)
+## MCP / Agent Bridge roadmap (planned; version assigned at tag time)
 
 A new surface, not a GUI feature: expose KlarPDF's PDF engine to **Claude Code, Claude Desktop, and
 other agentic clients** as a local **MCP (Model Context Protocol) server**. Same offline/native/
 audited principles as the app; the GUI is untouched.
 
+**Revised 2026-08-12** after a premise review: this roadmap was written 2026-06-22, and five releases
+shipped past the version it reserved. What changed and the eight decisions the review settled are in
+§Revision note (2026-08-12) at the end of this section.
+
 ### Why (the niche)
 
 Claude already *reads* PDFs natively (the API renders each page to image + extracts text), so an MCP
-server is **not** about "helping Claude read." Native reading has two gaps this fills:
+server is **not** about "helping Claude read." Native reading has two gaps this fills — and they are
+no longer equally weighted:
 
-1. **Transform, not just read.** Native PDF support is read-only ingestion. KlarPDF is an *editor* —
-   redaction, splice/split/merge, lossless save, form fill, encrypted-PDF handling. No LLM and no
-   existing PDF MCP server (`pdf-mcp`, `mcp-pdf` cover extraction/search/OCR only) gives an agent the
-   **destructive-redaction + lossless** half. **This is the reason to build.**
-2. **Keep big PDFs out of context.** Native reading loads the whole file into the context window and
-   re-sends it every turn (bounded at ~600 pages / 32 MB on the API; 20 pages/read in Claude Code).
-   Tool-mediated access lets the agent pull only the pages/answers it needs. Cheap **query/metadata**
-   tools (`get_info`, `get_outline`, `search`) also let the agent *route intelligently* — see a
-   doc is 800 pages, then `search` + `extract_text` a slice instead of loading it whole.
+1. **Transform, not just read — the reason to build, and now the only load-bearing one.** Native PDF
+   support is read-only ingestion. KlarPDF is an *editor* — redaction, splice/split/merge, lossless
+   save, form fill, encrypted-PDF handling. The differentiator is specifically the
+   **destructive-redaction + cross-engine leak-verified** half. The 2026-08 sweep found the niche
+   still open and the stakes higher: `redact_mcp`, the one PDF-redaction MCP server in the wild,
+   applies a **visual overlay only with no leak verification** — precisely the false-secure output
+   M41's `fitz` + Poppler cross-check exists to catch. The gap did not close; it grew a hazard.
+2. **Keep big PDFs out of context — real, but materially weaker than when written.** Native reading
+   loads the whole file into the context window (bounded at ~600 pages / 32 MB on the API, 100 pages
+   on 200k-context models; 20 pages per `Read` in Claude Code). Tool-mediated access still lets an
+   agent pull only the pages it needs, and cheap `get_info` / `get_outline` / `search` routing still
+   beats loading an 800-page file whole. But **1M-token context is now standard on current models,
+   and prompt caching bills a repeated prefix at ~10%**, so the "re-sends it every turn" cost
+   argument no longer carries a milestone by itself. This is a supporting benefit, not a
+   justification — **do not revive the bridge on this premise alone.**
 
 The leverage: the headless `model/` core already implements every transform. The only new logic is a
-thin set of read-only query helpers + the MCP tool layer.
+thin set of read-only query helpers + the MCP tool layer — and **less of that than first scoped**:
+`model/page_text.py` (M78.7) landed after this roadmap was written, is Qt-free, lives in `model/`,
+and already produces the page + snippet output `search` needs.
 
 ### Architecture (a quarantined seam, like `packaging/`)
 
@@ -873,12 +886,31 @@ thin set of read-only query helpers + the MCP tool layer.
   `page_edits`, `links_remap`, `toc_remap` — **not** `model/edit_commands.py` (it imports
   `QUndoCommand`); the server calls `VirtualDocument` ops directly, so it runs **without PySide6/Qt**.
   M39 confirms no Qt import reaches the server path.
-- **FastMCP, stdio transport** (works for Claude Code *and* Claude Desktop local servers). Optional
-  Streamable-HTTP later if the API MCP connector / remote use is wanted.
+- **Same repo** (decided 2026-08-12). `mcp/` sits beside `model/` and imports it directly — the same
+  quarantined-seam pattern as `packaging/`, not a repo boundary. A sibling repo was rejected because
+  the bridge's whole leverage is that `model/` already implements every transform: splitting would
+  put a versioning seam through that leverage, and `model/` is not a publishable library today
+  (`pyproject.toml` is `0.0.0`, no distribution build). Same-repo also keeps the round-trip tests on
+  the existing `A.pdf`/`B.pdf` fixtures and `test_materialize.py` invariants for free.
+- **Official `mcp` SDK, 2.x line, stdio transport** (decided 2026-08-12). Not standalone FastMCP:
+  that package *wraps* the official SDK (it pins `mcp>=1.24,<2`) and adds ~25 more packages —
+  `authlib`, `joserfc`, `websockets`, `watchfiles`, `openapi-pydantic`, `pyperclip` — so it can only
+  widen the audit surface, never narrow it. 2.x rather than 1.x because **1.x is maintenance-mode,
+  security-fixes-only** on a `v1.x` branch, and because a 2.x server answers *both* the 2026-07-28
+  spec's `server/discover` and the legacy `initialize` handshake — the broader client compatibility,
+  not the narrower. Note `pip install mcp` now resolves to 2.x, and the SDK renamed its server class
+  `FastMCP` → `MCPServer`; the class name in this section's earlier drafts was the 1.x one.
+- **Streamable HTTP is an explicit non-goal**, not a deferral (decided 2026-08-12). stdio is the
+  universal denominator — Claude Code, Claude Desktop, Codex CLI, Grok Build, Cursor and VS Code all
+  take a stdio server as `command` + `args`. HTTP would mean a listening port on a product whose
+  selling point is that it never touches the network, breaking the no-outbound-connections
+  verification item below; it also attaches AGPL §13 remote-network-interaction obligations that a
+  stdio subprocess never triggers. Revisit only on a concrete request.
 - **New headless helpers** (the only genuinely new code) in `model/` (or `mcp/queries.py`):
   `extract_text(path, pages)`, `search(path, query)`, `render_page(path, page, dpi)`,
-  `document_info(path)` — `viewer/search.py` is Qt-bound, so search is reimplemented headlessly over
-  `page.search_for`.
+  `document_info(path)`. `viewer/search.py` is Qt-bound, but **`model/page_text.py` is not** and
+  already supplies the per-hit snippet machinery, so `search` wraps `page.search_for` + `PageText`
+  rather than being reimplemented from scratch.
 
 ### Tool surface
 
@@ -907,26 +939,70 @@ thin set of read-only query helpers + the MCP tool layer.
   the host's file access); refuse paths outside it.
 - **Return-size caps** so a mis-call (`extract_text` on 800 pages) degrades gracefully, not a context blow-out.
 - **Read-only mode** — a launch flag exposing only query tools, for users who want zero write risk.
+  **Writes are on by default** (decided 2026-08-12): no write tool can destroy data by construction —
+  every one requires an explicit *new* output path, in-place save is never exposed, and "source left
+  byte-identical" is a verification-matrix item — so the flag is the cautious opt-*out*, not the
+  default. A read-only-first release was rejected for shipping the half of the justification that
+  weakened (§Why, point 2) while withholding the half that did not.
 
 ### Dependencies & packaging (keep the shipped app's audit surface tiny)
 
-- The `mcp` SDK + transitive deps (pydantic, anyio, …) go in a **separate optional lock**
-  (`requirements-mcp.in` → `requirements-mcp.txt`), following the same `pip-compile` discipline —
-  **not** added to the GUI ship lock. `klarpdf-setup-x64.exe` is unchanged; the server is opt-in.
-- `klarpdf-mcp` console entry point (a second `[project.scripts]` / spec target).
-- Docs: a `.mcp.json` snippet for Claude Code and a `claude_desktop_config.json` block for Desktop;
-  optionally package a one-click **Desktop Extension** (`.mcpb`).
+- **Separate optional component** (decided 2026-08-12) — `klarpdf-setup-x64.exe` is untouched: same
+  size, same hashed offline lock, same clean-machine install test. Bundling was rejected on a measured
+  footprint plus an audience mismatch (the installer serves Windows users replacing Preview; the
+  bridge serves developers running agentic clients).
+- The `mcp` SDK goes in a **separate optional lock** (`requirements-mcp.in` → `requirements-mcp.txt`),
+  same `pip-compile` discipline, **not** in the GUI ship lock. Budget for it honestly: `mcp` 2.0.0
+  carries **14 direct runtime deps** and the HTTP server stack is non-optional even for stdio-only use
+  — `starlette`, `uvicorn`, `sse-starlette`, `python-multipart`, `pyjwt[crypto]` (→ `cryptography`),
+  plus `opentelemetry-api`, `jsonschema`, `pydantic`, `httpx2`, and an exact pin on
+  `mcp-types==2.0.0` that constrains lock resolution. Roughly 25–35 wheels once transitive.
+- **`audit.yml` gains a fourth `pip-audit` step** for `requirements-mcp.txt`. Its `pull_request`
+  trigger already globs `requirements*.txt`, so the new lock joins the **weekly** sweep automatically
+  — meaning `cryptography` and `starlette`, both far more CVE-active than `pypdf`, come under the
+  same watch that went red on `pypdf` in 2026-08. `audit` is not a required check, so that is signal,
+  not a merge blocker. Mirror the step in `tools/audit-deps.ps1`.
+- `klarpdf-mcp` console entry point — the project's **first** `[project.scripts]` (there are none
+  today). **No general-purpose CLI** (decided 2026-08-12): it would be a second permanent entry point
+  for an audience that has not asked, its testing value is already covered by the headless suite, and
+  it is *not* a prerequisite for a Skill — a Skill can wrap the MCP tools directly, which also keeps
+  Claude Desktop in reach where a bash-invoked CLI cannot. Deferred, not forbidden: because the tools
+  are thin adapters over `model/`, a CLI stays cheap to add if a real request arrives.
+- **The server is platform-independent — unlike the app — and the lock must not undo that.** `model/`
+  contains no platform-specific code (no `sys.platform` / `os.name` / `win32` / `winreg`), the
+  headless suite already proves it on Linux every CI run, PyMuPDF ships manylinux/macOS/Windows
+  wheels, and `mcp`'s only Windows dependency (`pywin32`) is platform-marked. Nothing the server
+  imports touches `platform_integration.py`, `packaging/`, or the ship lock. **So
+  `requirements-mcp.txt` is a cross-platform `==`-pinned lock without hashes** (the
+  `requirements-dev.txt` pattern), *not* a `--generate-hashes` `win_amd64` lock: hashed locks are
+  platform-specific and `--require-hashes` fails on Linux by design (see CLAUDE.md §Gotchas). Compile
+  it from `requirements-mcp.in` with plain `pip-compile`. Getting this wrong makes the bridge
+  accidentally Windows-only, which defeats its whole audience.
+- Docs: a `.mcp.json` snippet for Claude Code and a `claude_desktop_config.json` block for Desktop,
+  **plus a one-click Desktop Extension (`.mcpb`)** — committed at the 2026-08-12 review, no longer
+  optional, so Desktop users are not left hand-editing JSON. The format is current and
+  Anthropic-maintained (renamed from `.dxt` in 2025-09), and covers **macOS + Windows**, which is
+  where Claude Desktop ships.
+- **The `.mcpb` must be `server.type = "uv"`, not `"python"`.** The MCPB guide states plainly that a
+  bundle **cannot portably vendor compiled dependencies** — and we have two, PyMuPDF (C) and pydantic
+  (Rust, via the `mcp` SDK). A `"python"` bundle vendoring `server/lib/` would therefore need one
+  build per platform; the `uv` type has the host resolve Python and dependencies and works
+  cross-platform with no user Python install, so **one bundle serves both OSes**. Accept the
+  consequence knowingly: the `.mcpb` path **installs online**, diverging from the app's
+  vendored-offline discipline. That is defensible only because this is the opt-in developer
+  component — the audited offline installer is untouched — and it must be said out loud in the docs
+  rather than discovered by a user expecting the app's offline guarantees.
 
 ### Milestones (one PR each; ⭐ = keystone, GUI-free, fully headless-testable)
 
 | Milestone | Where | Done when |
 |---|---|---|
-| **M39 ⭐** MCP scaffold + read-only core | WSL | `mcp/` FastMCP stdio server; `get_info`/`get_outline`/`search`/`extract_text`/`render_page`/`get_form_fields` wired to headless helpers; no PySide6 import on the server path; headless tests green |
+| **M39 ⭐** MCP scaffold + read-only core | WSL | `mcp/` stdio server on the official `mcp` 2.x SDK (`MCPServer`); `get_info`/`get_outline`/`search`/`extract_text`/`render_page`/`get_form_fields` wired to headless helpers (`search` reuses `model/page_text.py`, not a fresh implementation); no PySide6 import on the server path — assert it in a test, don't just observe it; headless tests green |
 | **M40** Transform tools | WSL | `split`/`merge`/`reorder`/`delete_pages`/`rotate`/`fill_form`/`flatten`/`export_images` → explicit out path; never overwrites source; lossless (OCR/TOC/forms survive); headless tests |
 | **M41** Redaction + encrypted | WSL | `redact_regions`/`redact_text` (destructive + leak-verified) and encrypted-input (`password`) tools; headless cross-engine leak assertion |
-| **M42** Dependency lock + packaging | Windows | `requirements-mcp.{in,txt}` (hashed where applicable, GUI lock untouched); `klarpdf-mcp` entry point; `.mcp.json` + Desktop config docs; optional `.mcpb` |
-| **M43** Hardening + docs | WSL | path allowlist, return-size caps, read-only flag, error handling; README usage + example agent workflows |
-| **M44** Verify + release | Windows | verification matrix green (below) → tag **v0.11.0** → GitHub Release |
+| **M42** Dependency lock + packaging | WSL + Windows | `requirements-mcp.{in,txt}` — **cross-platform, `==`-pinned, unhashed**, GUI lock untouched; fourth `pip-audit` step in `audit.yml` + `tools/audit-deps.ps1`; `klarpdf-mcp` entry point; `.mcp.json` + Desktop config docs; **`.mcpb` bundle (committed, `server.type = "uv"`)** |
+| **M43** Hardening + docs | WSL | path allowlist, return-size caps, `--read-only` flag (opt-out; writes are on by default), error handling; README usage + example agent workflows |
+| **M44** Verify + release | Windows | verification matrix green (below) → tag (**version assigned at tag time**; v0.11.0 is long gone) → GitHub Release |
 
 ### Verification (adds to the existing matrix)
 
@@ -935,19 +1011,58 @@ thin set of read-only query helpers + the MCP tool layer.
   indices, both form fields preserved, dup-name handled.
 - **Redaction leak-free:** `redact_*` output passes `fitz` + Poppler `pdftotext` cross-engine — the
   secret is gone from the written file.
-- **No network:** the server makes no outbound connections (same audit as the app; stdio only).
+- **No network:** the server makes no outbound connections and **binds no port** (same audit as the
+  app; stdio only — see the HTTP non-goal above).
+- **No Qt on the server path:** a test asserts `PySide6` is absent from `sys.modules` after the
+  server and every tool have been exercised. Observation is not verification — this is the invariant
+  the whole "reuses the GUI-free core" claim rests on.
+- **Cross-platform:** the server installs from `requirements-mcp.txt` and passes its tool round-trips
+  on **Linux and Windows** — CI already runs the headless suite on `ubuntu-latest`, so this is mostly
+  a matter of not regressing it. Unlike the app, the bridge is not Windows-first; a lock that only
+  resolves on `win_amd64` is a defect, not a scoping choice.
 - **Lives with a client:** the server registers and the tools work from **Claude Code** (`.mcp.json`)
-  and **Claude Desktop** (config / `.mcpb`).
+  and **Claude Desktop** (config *and* one-click `.mcpb`). A third-party client — **Codex CLI** via
+  `~/.codex/config.toml`, or **Grok Build** — is a spot check, not a gate: stdio is the universal
+  denominator, so a failure there is a bug worth knowing about before strangers find it.
 - **Source untouched:** every write tool leaves the input file byte-identical.
 
-### Decisions to confirm with owner
+### Revision note (2026-08-12)
 
-1. **Packaging:** separate optional component (recommended — keeps the audited GUI bundle tiny) vs.
-   bundled into `klarpdf-setup-x64.exe`.
-2. **Write tools default-on, or read-only-first release** (query tools only in v0.11.0, transforms in v0.12.0)?
-3. **Transport:** stdio only (Code + Desktop) for v0.11.0, HTTP deferred — confirm HTTP isn't needed now.
-4. **Repo layout:** keep the server in this repo (shared `model/` core) vs. a sibling repo importing
-   KlarPDF as a dependency.
+The roadmap was written 2026-06-22 and sat unexecuted while R1–R6 shipped. A premise review before
+scheduling it found the **build case intact and sharper**, and the **plan around it stale**.
+
+**Premises that changed.** *Dead:* the v0.11.0 reservation (v0.12.0 → v0.17.1 shipped past it) and
+the "assuming the bridge ships first" sequencing note below. *Weakened:* the context-economics
+argument (§Why, point 2). *Strengthened:* the transform/redaction argument, by the discovery of a
+visual-overlay-only redaction MCP server. *Shrunk:* M39, because `model/page_text.py` landed in the
+interim. *Ambiguous, now resolved:* "FastMCP" names two different things since the official SDK
+renamed its class and standalone FastMCP 3.x went its own way. *Held up well:* stdio-first, the
+`.mcpb` bet, and the Qt-free-core architecture — `model/` is still Qt-free apart from the already
+excluded `edit_commands.py`.
+
+**One question the original plan could not have asked:** Agent Skills. A Skill supplies *procedure*,
+not *access*, so it must invoke something — bash + a CLI, or MCP tools. Since a fresh Claude Desktop
+has no standing filesystem or exec access, the Skill-plus-CLI path is a **strict subset** of what a
+stdio MCP server already reaches, and it is the one that loses Desktop. MCP stays the primary
+surface. A Skill layered *over* the MCP tools remains attractive after M41 — one markdown file, zero
+dependencies — to encode the procedure the tools can't ("search first, present hits for review,
+apply, then confirm the leak check passed").
+
+**Decisions settled (all eight, owner-confirmed 2026-08-12):** ship the bridge next rather than
+after 1.0, the tracks being independent; fix the `os.replace` flake first as a one-PR prerequisite
+and leave `test_single_instance` alone (no reproduction, no fix plan — and neither flake has ever
+failed the required `ubuntu-latest` check in 200 recorded runs); official `mcp` 2.x; no CLI;
+separate component **plus** `.mcpb`; full tool surface with writes enabled; stdio only with HTTP a
+non-goal; this repo. Each is recorded inline above next to the design it governs, so this note is
+the index, not the source of truth.
+
+**Two constraints the review surfaced only when the packaging decision was pressed on portability**,
+both now written into §Dependencies & packaging because both are the kind that are cheap to honour
+up front and expensive to discover at M42: the bridge is **platform-independent while the app is
+not**, so its lock must be cross-platform and unhashed or `--require-hashes` silently makes the
+server Windows-only; and the `.mcpb` must use `server.type = "uv"`, because MCPB cannot portably
+vendor compiled dependencies and we have two (PyMuPDF, pydantic) — which in turn makes the bundle an
+**online-installing** path, the one deliberate break from the app's vendored-offline discipline.
 
 ## GUI feature roadmap — the post-v0.10 tranche R1–R6 (planned; M45–M79)
 
@@ -961,10 +1076,12 @@ inside the vendored wheels), so `requirements.in` and the hashed offline lock st
 shipped. (Releases are numbered **R1–R5** — "R" for release — because **G#** is already taken by the
 Public-Release Readiness track's G1–G8 milestones; R# also matches the decision report's bundle names.)
 
-**Sequencing vs the MCP bridge:** v0.11.0 is reserved for the MCP / Agent Bridge roadmap above
-(M39–M44). The releases below are provisionally **v0.12.0 → v0.16.0** assuming the bridge ships
-first; whether it does is the owner's call, and version numbers are assigned at tag time (precedent:
-the v0.7.0 → v0.9.0 re-scope). Theme names and milestone numbers are stable either way.
+**Sequencing vs the MCP bridge (settled 2026-08-12):** the bridge did *not* ship first. This tranche
+did — R1–R6 shipped as v0.12.0 → v0.16.2, and v0.17.x followed, so the v0.11.0 reservation the
+roadmap above once held is spent and the "provisionally v0.12.0 → v0.16.0" hedge below resolved
+itself. The bridge is now scheduled **next**, after a one-PR `os.replace` flake fix, with its version
+assigned at tag time. Kept here as the record of a plan that was overtaken by events — the precedent
+being the v0.7.0 → v0.9.0 re-scope.
 
 ### Design budgets (binding for every milestone in this tranche)
 

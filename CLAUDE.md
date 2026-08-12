@@ -161,7 +161,9 @@ toggle reveals; collapses Redact to one gesture-detecting tool; makes Highlight/
 to the find bar, an **Annotations sidebar tab**, and **Full Screen / Slideshow / Two-Page** view
 modes; and (M78.2–.6) adds arrow-key nudge, text-box reflow, HUS arming swatches and a split style
 button, with the sidebar (M79.1–.3) losing its title bar and showing optional tabs only on demand.
-**M0–M38 and R1–R6 are all complete**; v0.11.0 stays reserved for the MCP / Agent Bridge (M39–M44).
+**M0–M38 and R1–R6 are all complete**; the **MCP / Agent Bridge (M39–M44) is scheduled next**, after
+a one-PR `os.replace` flake fix — its reserved v0.11.0 is long spent, so its version is assigned at
+tag time.
 For live status — shipped versions, per-release notes, release links, milestone ticks, and **Open
 follow-ups** — see `PROGRESS.md` (the single source of status; read it first). Design/spec, including
 §Future enhancements for what's next, lives in `PLAN.md`.
