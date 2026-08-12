@@ -409,13 +409,20 @@ items, which are independent of it.
   occurrences rather than testing presence — a presence check destroyed a correct output when the
   redacted word was a substring of surviving text (redacting "Smith" out of "Smith and
   Smithsonian"); the rule and its two-way exactness are in `PLAN.md` §Safety model.
-- [ ] **M42** Dependency lock + packaging — `requirements-mcp.{in,txt}`, **cross-platform and
+- [x] **M42** Dependency lock + packaging — `requirements-mcp.{in,txt}`, **cross-platform and
   unhashed** (a hashed `win_amd64` lock would make the bridge accidentally Windows-only); GUI lock
   untouched; fourth `pip-audit` step in `audit.yml` + `tools/audit-deps.ps1`; `klarpdf-mcp` entry
-  point; `.mcp.json` + Claude Desktop config docs; **`.mcpb` bundle** (`server.type = "uv"`, since
-  MCPB cannot portably vendor PyMuPDF/pydantic) with `==` pins in its `pyproject.toml`, a README note
-  that this path installs **online**, and a test of whether the host honours a `uv.lock` — *WSL +
-  Windows*
+  point; `.mcp.json` + Claude Desktop config docs; **`.mcpb` bundle** with `==` pins in its
+  `pyproject.toml`, a README note that this path installs **online** — *WSL*
+  ([#243](https://github.com/utyagi24/klarpdf/pull/243)). **`server.type = "uv"` does not exist** —
+  `mcpb` 2.1.2 accepts only `python | node | binary`, so the manifest declares `python` while its
+  command *is* `uv`, preserving every property the decision was made for and adding one
+  prerequisite (`uv` on PATH). The correction and its evidence are in `PLAN.md` §Dependencies &
+  packaging. Bundle measured at 95 KiB / 25 files, no vendored env, no PySide6.
+  - **Carried to M44 (Windows/macOS):** whether the host honours a `uv.lock`, and the
+    Desktop/one-click install itself. Both need Claude Desktop, which WSL does not have. The
+    audit-scope gap (the `.mcpb` resolves online, so `pip-audit` covers the pip/pipx path only)
+    stays open and is stated in `mcp_bridge/README.md` rather than glossed.
 - [ ] **M43** Hardening + docs — path allowlist, return-size caps, `--read-only` opt-out flag
   (writes are on by default), error handling; README usage + example agent workflows — *WSL*
 - [ ] **M44** Verify + release → tag (version at tag time) — tool round-trips + leak verify +

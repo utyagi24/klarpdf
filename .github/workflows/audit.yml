@@ -57,3 +57,14 @@ jobs:
 
       - name: Audit build lock (requirements-build-win.txt)
         run: pip-audit -r requirements-build-win.txt --no-deps --desc
+
+      # The MCP bridge's own lock (M42). It brings `cryptography` and `starlette` into the repo —
+      # both far more CVE-active than pypdf, which is what went red here in 2026-08 — so this is the
+      # step most likely to fire next. The `pull_request` globs above already cover it.
+      #
+      # SCOPE CAVEAT: this audits the pip/pipx install path ONLY. The .mcpb Desktop Extension
+      # resolves its own dependencies at install time via `uv` (server.type = "uv"), so what a
+      # Desktop user actually gets is NOT this lock. Do not describe the audit as covering "the
+      # bridge" without that qualification (PLAN.md §Dependencies & packaging).
+      - name: Audit MCP bridge lock (requirements-mcp.txt)
+        run: pip-audit -r requirements-mcp.txt --no-deps --desc
