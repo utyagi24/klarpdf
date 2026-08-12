@@ -54,8 +54,14 @@ open is almost entirely in that category. The gate, all small and all concrete:
   watched. (Win10 Home has no Sandbox → VirtualBox / spare machine / fresh local user.)
 - [ ] **The Donate link points at a Sponsors listing that does not exist** — and it *redirects*
   rather than 404s, so no test can catch it. A dead link inside the app.
-- [ ] **Two known flaky tests** (`test_single_instance`, the save path's `os.replace`) — `pytest` is
-  a required check, so a flake is both a red X on a stranger's first CI run and a merge blocker.
+- [ ] **Two known flaky tests** (`test_single_instance`, the save path's `os.replace`). **Re-measured
+  2026-08-12 and the stakes were overstated:** both were only ever seen on *local Windows* runs,
+  while the required `pytest` check runs on `ubuntu-latest` — and across 200 recorded `test.yml` runs
+  neither has failed it (191 green; all 9 failures trace to the 2026-07-29 widget-leak episode, the
+  2026-07-25 reading-bar PR, and the workflow's own first run). So this is a release-prep annoyance,
+  not the merge blocker described. Split accordingly: **`os.replace` is scheduled as M38.5** (it has
+  a diagnosis and a fix plan, and the retry is a real user-facing win); **`test_single_instance` is
+  left alone** — one failure, never reproduced, no fix plan, nothing actionable to write.
 - [ ] **Item E — background rendering** (`PLAN.md` §Deferred): 1–3 s of frozen UI per page per zoom
   on image-heavy documents. Its gate is already met; this is scheduling, not justification.
 - **Code signing** stays deferred (needs a certificate) — it is the one gate item that may never be
@@ -184,6 +190,9 @@ conftest guard that fails loudly on any unexpected modal); and a **save-fidelity
 PyMuPDF's `insert_pdf` silently drops (unbalanced-paren URIs, seen in the wild) are restored at
 materialise ([#122](https://github.com/utyagi24/klarpdf/pull/122)). **v0.11.0 stays reserved for
 the MCP / Agent Bridge** (owner decision, PR #116) — hence R1 = v0.12.0. 485 headless tests green.
+*(That reservation was never used and is now spent — the bridge is scheduled with its version
+assigned at tag time; see the MCP / Agent Bridge roadmap section below. Left as written because it
+is the record of why R1 skipped v0.11.0.)*
 
 **v0.10.1** — a patch fixing the Windows shell integration v0.10.0 got wrong.
 **The app icon is now a tile.** The brand mark is a portrait page, so it spanned only **59%** of the
@@ -356,30 +365,45 @@ GUI-free core, fully headless-testable).
 - [x] **M33** Internal link remap **+ navigation** — `links_remap` rebuilds GoTo **and** named-destination links at materialize (reorder/delete/Save keeps them working; named dests baked to GoTo — insert_pdf drops them entirely), **and** the viewer makes internal links clickable (click → jump to target page; pointing-hand on hover, `viewer/links.py`) — *WSL (model+tests) + WSLg* — [#58](https://github.com/utyagi24/pdfproj/pull/58)
 - [x] **M38** Verify + release → tag **v0.9.0** (version bump + docs; 369 headless tests green) — *Windows* — [#59](https://github.com/utyagi24/pdfproj/pull/59)
 
-## Roadmap — v0.11.0 "MCP / Agent Bridge" (planned)
+## Roadmap — "MCP / Agent Bridge" (**next**; version assigned at tag time)
 
 Spec + architecture in `PLAN.md` §MCP / Agent Bridge roadmap. Same conventions: **one PR per
 milestone**, tick the box here on merge. ⭐ marks the keystone (GUI-free, fully headless-testable).
 A new MCP server surface (`mcp/` package) that reuses the GUI-free `model/` core **without PySide6**
-and ships as a separate optional component — the `klarpdf-setup.exe` audit surface is untouched.
+and ships as a separate optional component — the `klarpdf-setup-x64.exe` audit surface is untouched.
 
-- [ ] **M39** ⭐ MCP scaffold + read-only core — `mcp/` FastMCP stdio server; headless query/metadata
-  tools (`get_info`, `get_outline`, `search`, `extract_text`, `render_page`, `get_form_fields`); no
-  PySide6 import on the server path; headless tests — *WSL*
+**Scheduled 2026-08-12** after a premise review (the roadmap was written 2026-06-22 and sat while
+R1–R6 shipped). The eight decisions it settled, and the premises that died with it, are in
+`PLAN.md` §MCP / Agent Bridge roadmap → Revision note (2026-08-12) — **not restated here**. Two
+status facts that belong here: the reserved **v0.11.0 is spent** (v0.12.0 → v0.17.1 shipped past it),
+so M44 assigns a version at tag time; and the bridge goes **before** the three remaining 1.0 gate
+items, which are independent of it.
+
+- [ ] **M38.5** *(prerequisite)* Bounded retry around the save path's `os.replace` — clears the
+  flake recorded in Open follow-ups and fixes the real user-facing case behind it (a transient lock
+  on the freshly written temp, antivirus the usual suspect, surfacing as a spurious "Save failed").
+  `test_single_instance` is **deliberately not** in scope: no reproduction and no fix plan, and
+  neither flake has ever failed the required `ubuntu-latest` check in 200 recorded runs — *WSL*
+- [ ] **M39** ⭐ MCP scaffold + read-only core — `mcp/` stdio server on the official **`mcp` 2.x** SDK
+  (`MCPServer`); headless query/metadata tools (`get_info`, `get_outline`, `search`, `extract_text`,
+  `render_page`, `get_form_fields`), `search` reusing `model/page_text.py`; a **test asserting** no
+  PySide6 on the server path; headless tests — *WSL*
 - [ ] **M40** Transform tools — `split` / `merge` / `reorder` / `delete_pages` / `rotate` /
   `fill_form` / `flatten` / `export_images` to an explicit out path (never overwrites source;
   lossless OCR/TOC/forms); headless tests — *WSL*
 - [ ] **M41** Redaction + encrypted — `redact_regions` / `redact_text` (destructive + cross-engine
   leak verify) and encrypted-input (`password`) tools; headless leak assertion — *WSL*
-- [ ] **M42** Dependency lock + packaging — separate `requirements-mcp.{in,txt}` (GUI lock untouched);
-  `klarpdf-mcp` entry point; `.mcp.json` + Claude Desktop config docs; optional `.mcpb` — *Windows*
-- [ ] **M43** Hardening + docs — path allowlist, return-size caps, read-only flag, error handling;
-  README usage + example agent workflows — *WSL*
-- [ ] **M44** Verify + release → tag **v0.11.0** (tool round-trips + leak verify + no-network +
-  runs from Code/Desktop) — *Windows*
-
-> Decisions to confirm with owner (see `PLAN.md` §MCP / Agent Bridge roadmap → Decisions): packaging
-> (separate vs bundled), write-tools-now vs read-only-first, stdio-only vs HTTP, same-repo vs sibling repo.
+- [ ] **M42** Dependency lock + packaging — `requirements-mcp.{in,txt}`, **cross-platform and
+  unhashed** (a hashed `win_amd64` lock would make the bridge accidentally Windows-only); GUI lock
+  untouched; fourth `pip-audit` step in `audit.yml` + `tools/audit-deps.ps1`; `klarpdf-mcp` entry
+  point; `.mcp.json` + Claude Desktop config docs; **`.mcpb` bundle** (`server.type = "uv"`, since
+  MCPB cannot portably vendor PyMuPDF/pydantic) with `==` pins in its `pyproject.toml`, a README note
+  that this path installs **online**, and a test of whether the host honours a `uv.lock` — *WSL +
+  Windows*
+- [ ] **M43** Hardening + docs — path allowlist, return-size caps, `--read-only` opt-out flag
+  (writes are on by default), error handling; README usage + example agent workflows — *WSL*
+- [ ] **M44** Verify + release → tag (version at tag time) — tool round-trips + leak verify +
+  no-network/no-port + no-Qt assertion + cross-platform + runs from Code/Desktop — *Windows*
 
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 
@@ -2298,7 +2322,11 @@ Carried items — none block work:
   **required status check**, so a flake no longer merely looks bad, it **blocks the merge** until
   someone re-runs the job. (The bypass list is empty by design, so there is no override; the escape is
   re-running the check, or flipping `enforcement` to `disabled` and back.) Note the check runs on
-  `ubuntu-latest` while the observed flake was on Windows.
+  `ubuntu-latest` while the observed flake was on Windows. → **Reassessed 2026-08-12: not the most
+  actionable follow-up, and deliberately left alone.** That parenthetical turns out to be the whole
+  story — the required check has never failed on this in 200 recorded runs, so the merge-blocking
+  risk is theoretical. With one unreproduced failure and no fix plan, there is nothing to write;
+  reopen it if it ever fires on `ubuntu-latest`, which would be new information.
 - **Dependency vuln: pypdf → 6.13.3** → ✅ fixed in **v0.9.4**: bumped `pypdf` 6.13.2 → 6.13.3
   (**GHSA-jm82-fx9c-mx94**, Moderate memory-DoS in the `pypdf` fallback edit engine), recompiled the
   locks + regenerated `vendor/wheels-sources.md`, and removed the audit-gate ignore.
@@ -2365,7 +2393,11 @@ Carried items — none block work:
   machine) fails the rename; the resulting "Save failed" modal is what the conftest guard reports.
   Environmental rather than a code defect, but it is a **release-gate** annoyance and shares the
   "red X on a stranger's CI run" stakes with the single-instance flake above. Worth a bounded
-  retry around the `os.replace` before declaring the save failed.
+  retry around the `os.replace` before declaring the save failed. → **Scheduled 2026-08-12 as M38.5**,
+  the prerequisite PR before the MCP bridge. Note the framing above overstated the CI stakes: this
+  was only ever seen on local Windows runs, and the required check runs on `ubuntu-latest` (see the
+  1.0 gate entry). The retry is worth doing on its own merits — any user with real-time antivirus can
+  hit the same transient lock and get a spurious "Save failed" modal.
 
 - **`MarkupStyleButton.style()` shadows `QWidget.style()`** (it returns the `MarkupStyle`
   dataclass). Harmless in paint — Qt calls the C++ method — but any Python-level `button.style()`
