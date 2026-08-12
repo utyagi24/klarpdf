@@ -199,7 +199,7 @@ ui/ · store/ · util/       # icons + About · view-state/recents · path ident
 platform_integration.py    # ALL OS-specific code, quarantined behind one seam
 packaging/                 # PyInstaller spec, Inno Setup script, build.ps1
 vendor/ · requirements-*   # the pinned + vendored offline dependency ship-set
-tests/                     # 1868 headless tests (offscreen Qt), run in CI on every PR
+tests/                     # 1879 headless tests (offscreen Qt), run in CI on every PR
 ```
 
 ## Develop (WSL)
@@ -210,7 +210,7 @@ sudo apt install -y python3.12-venv
 
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements-dev.txt
-invoke test                     # 1273 headless tests (offscreen Qt) — or run `pytest`
+invoke test                     # 1879 headless tests (offscreen Qt) — or run `pytest`
 invoke --list                   # all build/release tasks: test · audit · lock · build · tag · publish
 python launcher.py file.pdf     # run the GUI via WSLg
 ```
