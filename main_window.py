@@ -74,6 +74,7 @@ from organize.thumbnail_panel import ThumbnailPanel
 from store.file_watch import FileWatcher
 from store.settings import Settings
 from ui import icons
+from util.atomic import atomic_replace
 from util.paths import normalize_path
 from model.content_marks import ImageStamp, is_content_mark
 from model.form_fields import FIELD_KINDS, kind_label
@@ -2758,7 +2759,7 @@ class MainWindow(QMainWindow):
         os.close(fd)
         try:
             PyMuPDFEngine().materialize(self.vdoc, tmp)
-            os.replace(tmp, target_path)
+            atomic_replace(tmp, target_path)
         except Exception as exc:  # surface, don't crash; leave the original file intact
             if os.path.exists(tmp):
                 os.remove(tmp)
@@ -2803,7 +2804,7 @@ class MainWindow(QMainWindow):
         os.close(fd)
         try:
             result = write(self.vdoc, tmp)
-            os.replace(tmp, path)
+            atomic_replace(tmp, path)
         except Exception as exc:  # surface, don't crash; leave any existing target intact
             if os.path.exists(tmp):
                 os.remove(tmp)

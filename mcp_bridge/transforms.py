@@ -16,7 +16,9 @@ asserts the same invariants as `tests/test_materialize.py`, against the same fix
 * **Existing files are not clobbered** unless the caller passes ``overwrite=True``. PLAN.md only
   required protecting the *source*; refusing to silently overwrite an unrelated file is the same
   argument applied consistently, and an agent that meant it can say so in one word.
-* **Writes go to a sibling temp and are renamed into place**, so a failure leaves nothing
+* **Writes go to a sibling temp and are renamed into place** — through the same
+  :func:`util.atomic.atomic_replace` the GUI's Save uses (M38.5), so a transient antivirus lock on
+  the fresh temp cannot fail a write that would succeed a moment later, and a failure leaves nothing
   half-written for the caller to read back as a corrupt PDF.
 """
 
@@ -28,6 +30,7 @@ import tempfile
 from model.edit_engine import PyMuPDFEngine
 from model.virtual_document import PageRef, VirtualDocument
 from mcp_bridge.queries import open_document, resolve_pages
+from util.atomic import atomic_replace
 from util.paths import normalize_path
 
 # Rotation is stored as a multiple of 90 (PDF /Rotate); anything else is a caller mistake.
@@ -64,9 +67,10 @@ def _write(vdoc: VirtualDocument, out: str, writer=None) -> None:
 
     ``writer(vdoc, tmp)`` overrides the default materialise for the derived exports (flatten).
 
-    NB: this is a plain ``os.replace``. Once M38.5 lands, it should become
-    ``util.atomic.atomic_replace`` — the same antivirus-holds-the-temp race applies here, and the
-    two write paths should not diverge. Left as a follow-up rather than a cross-branch dependency.
+    The rename goes through :func:`util.atomic.atomic_replace` (M38.5), the same helper the GUI's
+    Save and Export use: on Windows the rename needs exclusive access to both paths, and an
+    on-access antivirus scanner holding the just-written temp is enough to fail a write that would
+    succeed 200 ms later. The two write paths deliberately do not diverge on this.
     """
     directory = os.path.dirname(out) or "."
     fd, tmp = tempfile.mkstemp(suffix=".pdf", dir=directory)
@@ -76,7 +80,7 @@ def _write(vdoc: VirtualDocument, out: str, writer=None) -> None:
             PyMuPDFEngine().materialize(vdoc, tmp)
         else:
             writer(vdoc, tmp)
-        os.replace(tmp, out)
+        atomic_replace(tmp, out)
     except BaseException:
         if os.path.exists(tmp):
             os.remove(tmp)
