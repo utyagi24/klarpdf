@@ -1,9 +1,23 @@
 # Dev dependencies = runtime + test tooling. Compiled (NO hashes) to requirements-dev.txt:
 #   pip-compile requirements-dev.in -o requirements-dev.txt
-# Note: a Windows compile includes pytest's win32-only `colorama` (pip-tools has no cross-platform
-# marker mode); that line is a harmless no-op extra if you install on Linux. Hashes are omitted on
-# purpose: Linux manylinux wheel hashes differ from the Windows win_amd64 hashes in
-# requirements-win.txt, so --require-hashes can't be shared across platforms (PLAN.md).
+# Note: pytest pulls `colorama` on win32 only, and pip-tools has no cross-platform marker mode — so
+# whichever platform ran the compile decided whether the lock mentioned it at all. The committed lock
+# was compiled on Windows; recompiling on Linux for the MCP SDK silently dropped the line, and with
+# it coloured pytest output on the release machine. Declaring it here as a **direct, unmarkered**
+# dependency ends the flip-flop: it now survives a compile on either platform. A marker
+# (`; sys_platform == "win32"`) does NOT work — pip-tools evaluates markers against the compiling
+# interpreter and drops the ones that are false, which is the whole problem. Installing it on Linux
+# is the harmless no-op the original note described. Hashes are omitted on purpose: Linux manylinux
+# wheel hashes differ from the Windows win_amd64 hashes in requirements-win.txt, so --require-hashes
+# can't be shared across platforms (PLAN.md).
+colorama>=0.4   # pytest's colour output on Windows; see above for why it is unmarkered
 -r requirements.in
 pytest>=8
 invoke>=3.0   # task runner — `invoke <task>` orchestrates build steps (tasks.py); see RELEASE.md
+# The MCP SDK is a *dev* dependency because tests/test_mcp_*.py are part of the headless suite and
+# CI installs only this lock — without it those files fail at collection and the required `pytest`
+# check goes red. It is NOT a dependency of the shipped GUI: requirements.in (→ the hashed
+# requirements-win.txt the installer bundles) is untouched, and mcp_bridge/ is never imported by
+# app.py/launcher.py. M42 adds requirements-mcp.{in,txt} — the separate, cross-platform lock that a
+# *bridge user* installs — plus its own pip-audit step. Different artifacts, different audiences.
+mcp>=2,<3
