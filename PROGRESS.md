@@ -54,13 +54,13 @@ open is almost entirely in that category. The gate, all small and all concrete:
   watched. (Win10 Home has no Sandbox → VirtualBox / spare machine / fresh local user.)
 - [ ] **The Donate link points at a Sponsors listing that does not exist** — and it *redirects*
   rather than 404s, so no test can catch it. A dead link inside the app.
-- [ ] **Two known flaky tests** (`test_single_instance`, the save path's `os.replace`). **Re-measured
+- [ ] **One known flaky test** (`test_single_instance`) — down from two. **Re-measured
   2026-08-12 and the stakes were overstated:** both were only ever seen on *local Windows* runs,
   while the required `pytest` check runs on `ubuntu-latest` — and across 200 recorded `test.yml` runs
   neither has failed it (191 green; all 9 failures trace to the 2026-07-29 widget-leak episode, the
   2026-07-25 reading-bar PR, and the workflow's own first run). So this is a release-prep annoyance,
-  not the merge blocker described. Split accordingly: **`os.replace` is scheduled as M38.5** (it has
-  a diagnosis and a fix plan, and the retry is a real user-facing win); **`test_single_instance` is
+  not the merge blocker described. Split accordingly: **the save path's `os.replace` was fixed in
+  M38.5** ([#239](https://github.com/utyagi24/klarpdf/pull/239)); **`test_single_instance` is
   left alone** — one failure, never reproduced, no fix plan, nothing actionable to write.
 - [ ] **Item E — background rendering** (`PLAN.md` §Deferred): 1–3 s of frozen UI per page per zoom
   on image-heavy documents. Its gate is already met; this is scheduling, not justification.
@@ -379,11 +379,13 @@ status facts that belong here: the reserved **v0.11.0 is spent** (v0.12.0 → v0
 so M44 assigns a version at tag time; and the bridge goes **before** the three remaining 1.0 gate
 items, which are independent of it.
 
-- [ ] **M38.5** *(prerequisite)* Bounded retry around the save path's `os.replace` — clears the
+- [x] **M38.5** *(prerequisite)* Bounded retry around the save path's `os.replace` — clears the
   flake recorded in Open follow-ups and fixes the real user-facing case behind it (a transient lock
   on the freshly written temp, antivirus the usual suspect, surfacing as a spurious "Save failed").
   `test_single_instance` is **deliberately not** in scope: no reproduction and no fix plan, and
   neither flake has ever failed the required `ubuntu-latest` check in 200 recorded runs — *WSL*
+  ([#239](https://github.com/utyagi24/klarpdf/pull/239)) — `util/atomic.py:atomic_replace` retries
+  `PermissionError` four times over ~0.75 s; both write sites (Save and every Export) now use it
 - [x] **M39** ⭐ MCP scaffold + read-only core — `mcp_bridge/` stdio server on the official **`mcp` 2.x** SDK
   (`MCPServer`); headless query/metadata tools (`get_info`, `get_outline`, `search`, `extract_text`,
   `render_page`, `get_form_fields`), `search` reusing `model/page_text.py`; a **test asserting** no
@@ -400,8 +402,8 @@ items, which are independent of it.
   ([#241](https://github.com/utyagi24/klarpdf/pull/241)). Losslessness is asserted with
   `test_materialize.py`'s own invariants on the same fixtures. Two additions to the safety model,
   recorded in `PLAN.md` §Safety model: an **existing output** is refused unless `overwrite=true`,
-  and writes go to a **sibling temp + rename** so a failure leaves no half-written PDF. One
-  follow-up carried: that rename should become M38.5's `atomic_replace` once [#239] merges.
+  and writes go to a **sibling temp + rename** so a failure leaves no half-written PDF, through
+  M38.5's `atomic_replace` — the two write paths do not diverge on the antivirus race.
 - [x] **M41** Redaction + encrypted — `redact_regions` / `redact_text` (destructive + cross-engine
   leak verify) and encrypted-input (`password`) tools; headless leak assertion — *WSL*
   ([#242](https://github.com/utyagi24/klarpdf/pull/242)). A failed verification **deletes the
@@ -2421,6 +2423,12 @@ Carried items — none block work:
   was only ever seen on local Windows runs, and the required check runs on `ubuntu-latest` (see the
   1.0 gate entry). The retry is worth doing on its own merits — any user with real-time antivirus can
   hit the same transient lock and get a spurious "Save failed" modal.
+  → **CLOSED 2026-08-12 by M38.5** ([#239](https://github.com/utyagi24/klarpdf/pull/239)):
+  `util/atomic.py:atomic_replace` retries `PermissionError` (WinError 5 / 32) four times over ~0.75 s
+  before giving up, and both write sites — `_write_to` (Save / Save As) and `_export_pdf` (every
+  Export) — go through it. Only lock contention is retried; `FileNotFoundError` and a cross-device
+  `OSError` still fail on the first attempt. Kept here rather than deleted because the *diagnosis* is
+  the durable part: if a "Save failed" ever returns, it is no longer this.
 
 - **`MarkupStyleButton.style()` shadows `QWidget.style()`** (it returns the `MarkupStyle`
   dataclass). Harmless in paint — Qt calls the C++ method — but any Python-level `button.style()`

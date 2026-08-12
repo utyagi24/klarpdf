@@ -520,7 +520,10 @@ Each step is tagged **(WSL)** / **(WSLg)** / **(Windows)** per the Development e
 7. **Headless model tests — (WSL).** pytest over the GUI-free model/edit-engine layer (can land as
    early as step 5; no Qt display required). Runs in WSL and CI. See Verification.
 8. **Save / Save As — (WSL).** Atomic `os.replace` for Save (also atomic on Windows, same volume);
-   Save As dialog.
+   Save As dialog. The rename goes through `util/atomic.py:atomic_replace` (M38.5), which retries a
+   `PermissionError` on a bounded backoff: on Windows the rename needs exclusive access to both
+   paths, and an on-access antivirus scanner holding the just-written temp open is enough to fail a
+   save that would succeed 200 ms later.
 9. **Freeze + installer + release pipeline — (Windows ONLY).** `packaging/klarpdf.spec` (PyInstaller
    `--onedir --noconsole` for the installer **plus a `--onefile` portable `.exe`**) →
    `packaging/installer.iss` (Inno Setup) bundling `dist/klarpdf/`, writing the `HKCU` ProgID + `.pdf`
@@ -958,9 +961,10 @@ and already produces the page + snippet output `search` needs.
   *source*; this is the same argument applied consistently, and an agent that meant it says so in
   one word.
 - **Writes go to a sibling temp and are renamed into place**, so a failed transform leaves nothing
-  half-written for the caller to read back as a corrupt PDF. *(Follow-up: this still uses a plain
-  `os.replace`; it should adopt M38.5's `util.atomic.atomic_replace`, since the same
-  antivirus-holds-the-temp race applies and the two write paths should not diverge.)*
+  half-written for the caller to read back as a corrupt PDF. The rename is M38.5's
+  `util.atomic.atomic_replace`, the same helper the GUI's Save and Export use — the
+  antivirus-holds-the-temp race applies identically here, and the two write paths deliberately do
+  not diverge on it.
 - **A mistake is an error, never a quiet partial success.** `fill_form` rejects an unknown field
   name rather than writing nothing and reporting success; `reorder` demands a full permutation so it
   cannot silently drop a page; `delete_pages` refuses to empty a document; an out-of-range page
