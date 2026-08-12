@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 from pathlib import Path
 
@@ -125,6 +126,79 @@ def test_the_console_script_points_at_something_that_exists():
     assert callable(main)
 
 
+def test_the_built_metadata_declares_dependencies():
+    """The bug this exists for: `pyproject.toml` had no `dependencies`, so the built metadata
+    carried **zero `Requires-Dist`** and the documented `pipx install .` produced a `klarpdf-mcp`
+    that died on `import mcp`. Found by hand; nothing in CI noticed, because every other test ran
+    against a working tree where the imports resolve anyway.
+
+    Builds the real metadata through the declared backend rather than re-parsing the TOML, so it
+    checks what a *user's installer* would see. No network: the backend is called directly, which
+    skips build isolation.
+    """
+    import tempfile
+
+    from setuptools.build_meta import prepare_metadata_for_build_wheel
+
+    cwd = os.getcwd()
+    out = tempfile.mkdtemp()
+    try:
+        os.chdir(ROOT)
+        dist_info = prepare_metadata_for_build_wheel(out)
+    finally:
+        os.chdir(cwd)
+
+    metadata = (Path(out) / dist_info / "METADATA").read_text(encoding="utf-8")
+    requires = [
+        line.split(":", 1)[1].strip()
+        for line in metadata.splitlines()
+        if line.startswith("Requires-Dist")
+    ]
+    assert requires, "no Requires-Dist — `pipx install .` would install a script with no deps"
+    joined = " ".join(requires).lower()
+    assert "mcp" in joined and "pymupdf" in joined
+
+    entry_points = (Path(out) / dist_info / "entry_points.txt").read_text(encoding="utf-8")
+    assert "klarpdf-mcp" in entry_points
+
+
+def test_the_declared_floors_match_the_locks_input():
+    """`pyproject.toml`'s floors and `requirements-mcp.in`'s must not drift: one is what an install
+    resolves against, the other is what the audited lock is compiled from."""
+    declared = re.search(r"dependencies = \[(.*?)\n\]", PROJECT_PYPROJECT.read_text("utf-8"), re.S)
+    pins = {p.strip().lower() for p in re.findall(r'"([^"]+)"', declared.group(1))}
+    wanted = {
+        line.strip().lower()
+        for line in (ROOT / "requirements-mcp.in").read_text("utf-8").splitlines()
+        if line.strip() and not line.startswith("#")
+    }
+    assert pins == wanted, f"pyproject floors {pins} != requirements-mcp.in {wanted}"
+
+
+def test_nothing_tells_a_user_to_run_the_module_form():
+    """`python -m mcp_bridge` only works when the CWD *is* the repo — `-m` puts the working
+    directory on `sys.path`, never the interpreter's location — and a client launches its servers
+    from its own directory. Both the checked-in `.mcp.json` and the README said to use it, and it
+    failed for exactly that reason the first time anyone ran it from a real folder of PDFs.
+
+    `mcp_bridge/__main__.py` stays (it is a genuine convenience *inside* a checkout); what must not
+    come back is documenting it as the way to wire up a client.
+    """
+    config = json.loads(MCP_JSON.read_text(encoding="utf-8"))
+    assert config["mcpServers"]["klarpdf"]["command"] == "klarpdf-mcp"
+    assert "args" not in config["mcpServers"]["klarpdf"]
+
+    for doc in (ROOT / "mcp_bridge" / "README.md", ROOT / "README.md"):
+        for line in doc.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if "python -m mcp_bridge" not in stripped:
+                continue
+            # Allowed only where the text is warning against it, not prescribing it.
+            assert any(
+                word in stripped for word in ("not", "fails", "only works", "must")
+            ), f"{doc.name} prescribes `python -m mcp_bridge`: {stripped!r}"
+
+
 def test_an_install_carries_the_core_but_not_the_gui():
     """The quarantined seam as a package boundary — `pip install` for the bridge pulls no PySide6."""
     text = PROJECT_PYPROJECT.read_text(encoding="utf-8")
@@ -201,11 +275,13 @@ def test_the_bundle_never_ships_a_vendored_environment(build_mcpb):
 # ---- the Claude Code config -----------------------------------------------------------
 
 
-def test_the_checked_in_mcp_json_names_the_server_and_a_real_entry_point():
+def test_the_checked_in_mcp_json_names_a_real_entry_point():
+    """It must name the console script `pyproject.toml` actually declares — the two drifting apart
+    is a config that looks right and fails at launch with `command not found`."""
     config = json.loads(MCP_JSON.read_text(encoding="utf-8"))
-    server = config["mcpServers"]["klarpdf"]
-    assert server["args"] == ["-m", "mcp_bridge"]
+    command = config["mcpServers"]["klarpdf"]["command"]
+    assert f"{command} =" in PROJECT_PYPROJECT.read_text(encoding="utf-8")
 
-    import importlib.util
+    from mcp_bridge.server import main
 
-    assert importlib.util.find_spec("mcp_bridge.__main__") is not None
+    assert callable(main)

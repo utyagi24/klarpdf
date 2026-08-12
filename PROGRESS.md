@@ -432,6 +432,18 @@ items, which are independent of it.
   server already runs with the user's own file access — the reasoning is in `PLAN.md` §Safety
   model); caps truncate text and hits with the real total, but *error* on an oversized render,
   because half an image is not a partial answer.
+- [x] **M43.1** *(unplanned)* Three defects the first hands-on session with a real client found,
+  none of which any test had caught, all sharing a cause — the suite exercises the code from inside
+  a working checkout, which is the one place they cannot happen
+  ([#246](https://github.com/utyagi24/klarpdf/pull/246)) — *WSL*
+  - **No "extract pages" tool.** Asked to pull pages out, the agent shelled out to `pdfunite`.
+    `extract_pages` now wraps `export_selected_pages` (M51), which existed unexposed.
+  - **`python -m mcp_bridge` only works with the repo as CWD**, so the checked-in `.mcp.json` and
+    both READMEs failed the moment a client was pointed at a folder of PDFs. `klarpdf-mcp` is the
+    documented command everywhere now.
+  - **`pipx install .` installed a script with no dependencies** — `pyproject.toml` had no
+    `dependencies`, so the built metadata carried zero `Requires-Dist`. Floors added; a test now
+    builds the metadata and asserts them. Detail in `PLAN.md` §Tool surface.
 - [ ] **M44** Verify + release → tag (version at tag time) — tool round-trips + leak verify +
   no-network/no-port + no-Qt assertion + cross-platform + runs from Code/Desktop — *Windows*
   **Runbook written 2026-08-12: `RELEASE.md` §4.** Of the ten matrix items, **six are automated and

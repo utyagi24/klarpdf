@@ -79,6 +79,9 @@ _CHILD = textwrap.dedent(
         await server.call_tool("split", {"path": PDF, "out_dir": WORK, "ranges": ["1-2"]})
         await server.call_tool("merge", {"paths": [PDF, PDF], "out": out("m.pdf")})
         await server.call_tool(
+            "extract_pages", {"path": PDF, "pages": [1, 2], "out": out("x.pdf")}
+        )
+        await server.call_tool(
             "fill_form", {"path": PDF, "values": {"name": "x"}, "out": out("f.pdf")}
         )
         await server.call_tool("flatten", {"path": PDF, "out": out("fl.pdf")})

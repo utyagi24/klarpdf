@@ -195,6 +195,60 @@ def test_split_rejects_a_missing_directory(a_pdf, tmp_path):
         T.split(a_pdf, str(tmp_path / "nope"))
 
 
+# ---- extract_pages -----------------------------------------------------------------------
+
+
+def test_extract_pulls_named_pages_into_one_file(a_pdf, out):
+    """The tool that was missing. `split(ranges=["2-3"])` could already produce this file, but it
+    is named for cutting a document up and picks its own filename, so an agent asked to *extract*
+    did not find it and shelled out to `pdfunite` instead."""
+    result = T.extract_pages(a_pdf, [2, 3], out)
+    assert result["pages"] == 2  # the OUTPUT's count, not the source's
+    assert result["source_pages"] == [2, 3]
+    assert _pages(out) == 2
+    assert A_TEXT[1] in _text(out, 0)
+    assert A_TEXT[2] in _text(out, 1)
+
+
+def test_extract_writes_pages_in_document_order(a_pdf, out):
+    """Asking for [3, 1] extracts pages 1 and 3 in reading order — `reorder` is the tool for
+    changing sequence, and quietly doing both here would make neither predictable."""
+    T.extract_pages(a_pdf, [3, 1], out)
+    assert A_TEXT[0] in _text(out, 0)
+    assert A_TEXT[2] in _text(out, 1)
+
+
+def test_extract_carries_the_bookmarks_of_the_pages_it_took(a_pdf, out):
+    T.extract_pages(a_pdf, [3], out)
+    assert [entry[1] for entry in _toc(out)] == ["Chapter 2"]
+
+
+def test_extract_keeps_a_form_field_on_an_extracted_page(a_pdf, out):
+    T.extract_pages(a_pdf, [1], out)
+    assert _field_names(out) == ["name"]
+
+
+def test_extract_a_single_page(a_pdf, out):
+    T.extract_pages(a_pdf, [2], out)
+    assert _pages(out) == 1
+
+
+def test_extract_rejects_an_empty_selection(a_pdf, out):
+    with pytest.raises(ValueError, match="must select something"):
+        T.extract_pages(a_pdf, [], out)
+    assert not os.path.exists(out)
+
+
+def test_extract_rejects_an_out_of_range_page(a_pdf, out):
+    with pytest.raises(ValueError, match="out of range"):
+        T.extract_pages(a_pdf, [99], out)
+
+
+def test_extract_will_not_write_over_its_input(a_pdf):
+    with pytest.raises(ValueError, match="refusing to write over the input"):
+        T.extract_pages(a_pdf, [1], a_pdf)
+
+
 # ---- merge ----------------------------------------------------------------------------
 
 
