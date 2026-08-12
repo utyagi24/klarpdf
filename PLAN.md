@@ -520,7 +520,10 @@ Each step is tagged **(WSL)** / **(WSLg)** / **(Windows)** per the Development e
 7. **Headless model tests — (WSL).** pytest over the GUI-free model/edit-engine layer (can land as
    early as step 5; no Qt display required). Runs in WSL and CI. See Verification.
 8. **Save / Save As — (WSL).** Atomic `os.replace` for Save (also atomic on Windows, same volume);
-   Save As dialog.
+   Save As dialog. The rename goes through `util/atomic.py:atomic_replace` (M38.5), which retries a
+   `PermissionError` on a bounded backoff: on Windows the rename needs exclusive access to both
+   paths, and an on-access antivirus scanner holding the just-written temp open is enough to fail a
+   save that would succeed 200 ms later.
 9. **Freeze + installer + release pipeline — (Windows ONLY).** `packaging/klarpdf.spec` (PyInstaller
    `--onedir --noconsole` for the installer **plus a `--onefile` portable `.exe`**) →
    `packaging/installer.iss` (Inno Setup) bundling `dist/klarpdf/`, writing the `HKCU` ProgID + `.pdf`
