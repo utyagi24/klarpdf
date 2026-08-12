@@ -961,7 +961,9 @@ and already produces the page + snippet output `search` needs.
   trigger already globs `requirements*.txt`, so the new lock joins the **weekly** sweep automatically
   — meaning `cryptography` and `starlette`, both far more CVE-active than `pypdf`, come under the
   same watch that went red on `pypdf` in 2026-08. `audit` is not a required check, so that is signal,
-  not a merge blocker. Mirror the step in `tools/audit-deps.ps1`.
+  not a merge blocker. Mirror the step in `tools/audit-deps.ps1`. **Scope caveat:** this audits the
+  pip/pipx install path only — the `.mcpb` resolves its own dependencies at install time (see the
+  `server.type = "uv"` bullet below), so it is outside the lock's guarantee.
 - `klarpdf-mcp` console entry point — the project's **first** `[project.scripts]` (there are none
   today). **No general-purpose CLI** (decided 2026-08-12): it would be a second permanent entry point
   for an audience that has not asked, its testing value is already covered by the headless suite, and
@@ -983,15 +985,31 @@ and already produces the page + snippet output `search` needs.
   optional, so Desktop users are not left hand-editing JSON. The format is current and
   Anthropic-maintained (renamed from `.dxt` in 2025-09), and covers **macOS + Windows**, which is
   where Claude Desktop ships.
-- **The `.mcpb` must be `server.type = "uv"`, not `"python"`.** The MCPB guide states plainly that a
-  bundle **cannot portably vendor compiled dependencies** — and we have two, PyMuPDF (C) and pydantic
-  (Rust, via the `mcp` SDK). A `"python"` bundle vendoring `server/lib/` would therefore need one
-  build per platform; the `uv` type has the host resolve Python and dependencies and works
-  cross-platform with no user Python install, so **one bundle serves both OSes**. Accept the
-  consequence knowingly: the `.mcpb` path **installs online**, diverging from the app's
-  vendored-offline discipline. That is defensible only because this is the opt-in developer
-  component — the audited offline installer is untouched — and it must be said out loud in the docs
-  rather than discovered by a user expecting the app's offline guarantees.
+- **The `.mcpb` is `server.type = "uv"`** (decided 2026-08-12, after the type's consequences were
+  spelled out). MCPB manifests take four server types — `node`, `python`, `binary`, `uv` — and the
+  guide states plainly that a bundle **cannot portably vendor compiled dependencies**; we have two,
+  PyMuPDF (C) and pydantic (Rust, via the `mcp` SDK). The `uv` type has the host resolve Python *and*
+  dependencies, so **one bundle serves macOS and Windows** with no user Python install. The bundle
+  therefore ships **source plus a `pyproject.toml` only**: the spec requires `pyproject.toml` with
+  dependencies and says the bundle **"must NOT include `server/lib/` or `server/venv/`"** — vendoring
+  is forbidden by the format for this type, not declined by us.
+- **Consequences of that choice, accepted knowingly — and to be stated in the README, not
+  discovered.** The `.mcpb` path **installs online**: at install/first run the host runs `uv`, which
+  fetches wheels from PyPI matching that machine's OS, arch and Python. Three follow-ons: (a) it
+  needs network, unlike everything else this project ships; (b) dependencies resolve from
+  `pyproject.toml`, so **pin with `==`**, not floors, to hold drift down — two users installing a
+  month apart should not get different transitive sets; (c) **the audited lock is not what the
+  `.mcpb` installs**, so `requirements-mcp.txt` and its `pip-audit` step cover the pip/pipx path and
+  *not* the Desktop path. Do not describe the audit as covering "the bridge" without that
+  qualification. **M42 must test whether the host honours a `uv.lock`** (and hash verification): the
+  spec is silent on both, and if it does, most of gap (c) closes.
+- **`binary` was considered and rejected** (2026-08-12) — a PyInstaller-frozen `klarpdf-mcp` shipped
+  as a compiled executable would have been offline, hash-verifiable, Python-free on the user's
+  machine, and reused `packaging/klarpdf.spec`. It loses on reach: it is platform-specific, and the
+  bridge — unlike the app — is cross-platform and worth offering to Desktop users who do not run
+  KlarPDF at all. Revisit if the online-install requirement ever proves unacceptable. **`python` is
+  the worst option for us** and is not on the table: vendored and offline, but it requires a Python
+  already installed, which frozen-exe users precisely do not have.
 
 ### Milestones (one PR each; ⭐ = keystone, GUI-free, fully headless-testable)
 

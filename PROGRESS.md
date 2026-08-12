@@ -397,7 +397,9 @@ items, which are independent of it.
   unhashed** (a hashed `win_amd64` lock would make the bridge accidentally Windows-only); GUI lock
   untouched; fourth `pip-audit` step in `audit.yml` + `tools/audit-deps.ps1`; `klarpdf-mcp` entry
   point; `.mcp.json` + Claude Desktop config docs; **`.mcpb` bundle** (`server.type = "uv"`, since
-  MCPB cannot portably vendor PyMuPDF/pydantic) — *WSL + Windows*
+  MCPB cannot portably vendor PyMuPDF/pydantic) with `==` pins in its `pyproject.toml`, a README note
+  that this path installs **online**, and a test of whether the host honours a `uv.lock` — *WSL +
+  Windows*
 - [ ] **M43** Hardening + docs — path allowlist, return-size caps, `--read-only` opt-out flag
   (writes are on by default), error handling; README usage + example agent workflows — *WSL*
 - [ ] **M44** Verify + release → tag (version at tag time) — tool round-trips + leak verify +
