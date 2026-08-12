@@ -961,9 +961,10 @@ and already produces the page + snippet output `search` needs.
   *source*; this is the same argument applied consistently, and an agent that meant it says so in
   one word.
 - **Writes go to a sibling temp and are renamed into place**, so a failed transform leaves nothing
-  half-written for the caller to read back as a corrupt PDF. *(Follow-up: this still uses a plain
-  `os.replace`; it should adopt M38.5's `util.atomic.atomic_replace`, since the same
-  antivirus-holds-the-temp race applies and the two write paths should not diverge.)*
+  half-written for the caller to read back as a corrupt PDF. The rename is M38.5's
+  `util.atomic.atomic_replace`, the same helper the GUI's Save and Export use — the
+  antivirus-holds-the-temp race applies identically here, and the two write paths deliberately do
+  not diverge on it.
 - **A mistake is an error, never a quiet partial success.** `fill_form` rejects an unknown field
   name rather than writing nothing and reporting success; `reorder` demands a full permutation so it
   cannot silently drop a page; `delete_pages` refuses to empty a document; an out-of-range page

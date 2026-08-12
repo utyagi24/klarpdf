@@ -402,8 +402,8 @@ items, which are independent of it.
   ([#241](https://github.com/utyagi24/klarpdf/pull/241)). Losslessness is asserted with
   `test_materialize.py`'s own invariants on the same fixtures. Two additions to the safety model,
   recorded in `PLAN.md` §Safety model: an **existing output** is refused unless `overwrite=true`,
-  and writes go to a **sibling temp + rename** so a failure leaves no half-written PDF. One
-  follow-up carried: that rename should become M38.5's `atomic_replace` once [#239] merges.
+  and writes go to a **sibling temp + rename** so a failure leaves no half-written PDF, through
+  M38.5's `atomic_replace` — the two write paths do not diverge on the antivirus race.
 - [ ] **M41** Redaction + encrypted — `redact_regions` / `redact_text` (destructive + cross-engine
   leak verify) and encrypted-input (`password`) tools; headless leak assertion — *WSL*
 - [ ] **M42** Dependency lock + packaging — `requirements-mcp.{in,txt}`, **cross-platform and
