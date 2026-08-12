@@ -11,9 +11,10 @@ asserting something about the *test suite*, not about the server. The only hones
 interpreter that imports nothing but the bridge. PLAN.md's wording is deliberate here: *assert it in
 a test, don't just observe it.*
 
-The child exercises every tool before checking, because an import that only happens inside a tool
-body — ``model.edit_engine`` in ``render_page``, ``model.page_edits`` in ``get_form_fields`` — is
-exactly the one a load-time check would miss.
+The child exercises every tool before checking — reads *and* writes — because an import that only
+happens inside a tool body (``model.edit_engine`` in ``render_page``, ``model.page_edits`` in
+``get_form_fields``, ``model.export`` in ``flatten``, ``util.page_range`` in ``split``) is exactly
+the one a load-time check would miss.
 """
 
 from __future__ import annotations
@@ -56,14 +57,34 @@ _CHILD = textwrap.dedent(
 
     from mcp_bridge.server import server
 
+    import os, tempfile
+    WORK = tempfile.mkdtemp()
+    def out(name):
+        return os.path.join(WORK, name)
+
     async def exercise():
         await server.list_tools()
+        # reads
         await server.call_tool("get_info", {"path": PDF})
         await server.call_tool("get_outline", {"path": PDF})
         await server.call_tool("search", {"path": PDF, "query": "ALPHA"})
         await server.call_tool("extract_text", {"path": PDF, "pages": [1]})
         await server.call_tool("render_page", {"path": PDF, "page": 1, "dpi": 36})
         await server.call_tool("get_form_fields", {"path": PDF})
+        # writes — each pulls its own import chain (model.export, model.page_edits,
+        # util.page_range), which is exactly what a load-time-only check would miss
+        await server.call_tool("delete_pages", {"path": PDF, "pages": [2], "out": out("d.pdf")})
+        await server.call_tool("reorder", {"path": PDF, "order": [3, 2, 1], "out": out("r.pdf")})
+        await server.call_tool("rotate", {"path": PDF, "degrees": 90, "out": out("t.pdf")})
+        await server.call_tool("split", {"path": PDF, "out_dir": WORK, "ranges": ["1-2"]})
+        await server.call_tool("merge", {"paths": [PDF, PDF], "out": out("m.pdf")})
+        await server.call_tool(
+            "fill_form", {"path": PDF, "values": {"name": "x"}, "out": out("f.pdf")}
+        )
+        await server.call_tool("flatten", {"path": PDF, "out": out("fl.pdf")})
+        await server.call_tool(
+            "export_images", {"path": PDF, "out_dir": WORK, "pages": [1], "dpi": 36}
+        )
 
     asyncio.run(exercise())
 
