@@ -432,6 +432,11 @@ items, which are independent of it.
   because half an image is not a partial answer.
 - [ ] **M44** Verify + release → tag (version at tag time) — tool round-trips + leak verify +
   no-network/no-port + no-Qt assertion + cross-platform + runs from Code/Desktop — *Windows*
+  **Runbook written 2026-08-12: `RELEASE.md` §4.** Of the ten matrix items, **six are automated and
+  green on every PR** (round-trips, cross-engine leak verify, no-socket, no-Qt, source
+  byte-identical, Linux). Three need a machine WSL does not have — the Windows lock resolve, Claude
+  Desktop config + one-click `.mcpb` — and the tenth (does the host honour a `uv.lock`) is the open
+  question M42 could not answer. Then the tag, which is an owner action.
 
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 
