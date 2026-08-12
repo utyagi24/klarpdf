@@ -402,8 +402,13 @@ items, which are independent of it.
   recorded in `PLAN.md` §Safety model: an **existing output** is refused unless `overwrite=true`,
   and writes go to a **sibling temp + rename** so a failure leaves no half-written PDF. One
   follow-up carried: that rename should become M38.5's `atomic_replace` once [#239] merges.
-- [ ] **M41** Redaction + encrypted — `redact_regions` / `redact_text` (destructive + cross-engine
+- [x] **M41** Redaction + encrypted — `redact_regions` / `redact_text` (destructive + cross-engine
   leak verify) and encrypted-input (`password`) tools; headless leak assertion — *WSL*
+  ([#242](https://github.com/utyagi24/klarpdf/pull/242)). A failed verification **deletes the
+  output and raises**, so a returned path always names a file that was re-read. Verification counts
+  occurrences rather than testing presence — a presence check destroyed a correct output when the
+  redacted word was a substring of surviving text (redacting "Smith" out of "Smith and
+  Smithsonian"); the rule and its two-way exactness are in `PLAN.md` §Safety model.
 - [ ] **M42** Dependency lock + packaging — `requirements-mcp.{in,txt}`, **cross-platform and
   unhashed** (a hashed `win_amd64` lock would make the bridge accidentally Windows-only); GUI lock
   untouched; fourth `pip-audit` step in `audit.yml` + `tools/audit-deps.ps1`; `klarpdf-mcp` entry

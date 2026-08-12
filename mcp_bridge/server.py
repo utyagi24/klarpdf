@@ -25,7 +25,7 @@ from __future__ import annotations
 from mcp.server import MCPServer
 from mcp.server.mcpserver import Image
 
-from mcp_bridge import queries, transforms
+from mcp_bridge import queries, redaction, transforms
 from version import __version__
 
 INSTRUCTIONS = """\
@@ -276,6 +276,74 @@ def export_images(
         fmt=fmt,
         password=password,
         overwrite=overwrite,
+    )
+
+
+# ---- redaction (M41): destructive, and verified before success is reported ----
+
+
+@server.tool()
+def redact_text(
+    path: str,
+    query: str,
+    out: str,
+    match_case: bool = False,
+    whole_words: bool = False,
+    pages: list[int] | None = None,
+    password: str | None = None,
+    overwrite: bool = False,
+) -> dict:
+    """**Destructively** remove every occurrence of `query` and write a verified copy.
+
+    This deletes content. The text is physically removed from the output — not covered by a black
+    box — and the removal is confirmed by re-reading the written file with PyMuPDF and, when it is
+    installed, with Poppler, a different engine from the one that did the removing. If anything is
+    still recoverable the output is **deleted** and this call fails, so a path coming back always
+    points at a file that was checked.
+
+    **Run `search` with the same `query`, `match_case` and `whole_words` first and show the
+    caller the snippets.** Matching is the app's find-bar behaviour: with `whole_words` off, "Smith"
+    also matches inside "Smithsonian" — and this tool deletes what it finds. Fails rather than
+    writing an untouched copy when nothing matches.
+
+    The guarantee covers the **text layer**. Text that is part of a scanned image has no text to
+    verify; `verified_text` will be empty and `cross_engine_verified` tells you whether the second
+    engine ran at all.
+    """
+    return redaction.redact_text(
+        path,
+        query,
+        out,
+        match_case=match_case,
+        whole_words=whole_words,
+        pages=pages,
+        password=password,
+        overwrite=overwrite,
+    )
+
+
+@server.tool()
+def redact_regions(
+    path: str,
+    regions: list[dict],
+    out: str,
+    password: str | None = None,
+    overwrite: bool = False,
+) -> dict:
+    """**Destructively** remove rectangular regions and write a verified copy.
+
+    `regions` is a list of `{"page": 1, "box": [x0, y0, x1, y1]}` in page points — the same
+    coordinate space `search` and `get_form_fields` report boxes in, so a hit can be handed straight
+    back as a region. Use this when you know *where* rather than *what*: a signature block, a
+    letterhead, a photo, a table cell.
+
+    Same contract as `redact_text`: content is physically deleted, the written file is re-read and
+    verified (PyMuPDF, plus Poppler when installed), and the output is deleted if anything survives.
+    Images and vector graphics under a box are removed too — but only text can be verified, so a
+    region over a scanned image comes back with an empty `verified_text`.
+    """
+    return redaction.redact_regions(
+        path, regions, out, password=password, overwrite=overwrite
     )
 
 
