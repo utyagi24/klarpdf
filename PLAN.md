@@ -985,9 +985,29 @@ and already produces the page + snippet output `search` needs.
     unlocked for verification with the same password — a check that silently cannot read the file
     must not be mistaken for a check that found nothing.
 - **Path scoping.** A configurable allowlist of roots the server may read/write (an MCP tool runs with
-  the host's file access); refuse paths outside it.
-- **Return-size caps** so a mis-call (`extract_text` on 800 pages) degrades gracefully, not a context blow-out.
+  the host's file access); refuse paths outside it. Landed at M43 as `--allow-root DIR` (repeatable)
+  / `KLARPDF_MCP_ALLOW_ROOTS`, in `mcp_bridge/config.py:PathPolicy`. **Unrestricted by default, and
+  that is the honest default rather than a lax one:** a stdio server is a subprocess the user
+  launched, running as them, with exactly the file access they already have — a client that can
+  start it can already read their disk, so defaulting to some arbitrary root would buy no security
+  and break every reasonable call. The allowlist is for wanting a *smaller* blast radius than one's
+  own account, which only the user can define. Containment resolves through `normalize_path` before
+  comparing, so `..`, a symlink planted inside a root, and a shared-prefix sibling
+  (`/data/docs-private` vs `/data/docs`) are all refused; outputs are checked on their parent, so a
+  new file inside a root still works. Enforced in the tool layer, not just the policy object —
+  tested, because a policy nothing calls is decoration.
+- **Return-size caps** so a mis-call (`extract_text` on 800 pages) degrades gracefully, not a context
+  blow-out. M43: 200k characters, 500 search hits, 8 MiB per rendered image. Text and hits are
+  **truncated with `truncated: true`** plus the real total and a note on how to narrow — the partial
+  answer is usually still useful, and silence about the cut is the only unacceptable outcome. An
+  oversized render is an *error* instead, because half an image is not a partial answer; the message
+  names the fix (lower `dpi`).
 - **Read-only mode** — a launch flag exposing only query tools, for users who want zero write risk.
+  M43: `--read-only` / `KLARPDF_MCP_READ_ONLY`. It **withholds** the write tools rather than
+  refusing them when called — a tool the model can see is a tool it will try, and a server that
+  lists sixteen and errors on ten is worse than one that lists six. Conditional registration is why
+  the tools are built by `create_server(config)` instead of at import time, and the server's
+  instructions say it is read-only so the model is not left hunting for tools it was told about.
   **Writes are on by default** (decided 2026-08-12): no write tool can destroy data by construction —
   every one requires an explicit *new* output path, in-place save is never exposed, and "source left
   byte-identical" is a verification-matrix item — so the flag is the cautious opt-*out*, not the

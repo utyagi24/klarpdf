@@ -423,8 +423,13 @@ items, which are independent of it.
     Desktop/one-click install itself. Both need Claude Desktop, which WSL does not have. The
     audit-scope gap (the `.mcpb` resolves online, so `pip-audit` covers the pip/pipx path only)
     stays open and is stated in `mcp_bridge/README.md` rather than glossed.
-- [ ] **M43** Hardening + docs — path allowlist, return-size caps, `--read-only` opt-out flag
+- [x] **M43** Hardening + docs — path allowlist, return-size caps, `--read-only` opt-out flag
   (writes are on by default), error handling; README usage + example agent workflows — *WSL*
+  ([#244](https://github.com/utyagi24/klarpdf/pull/244)). `--read-only` **withholds** the write
+  tools rather than refusing them when called; `--allow-root` is unrestricted by default (a stdio
+  server already runs with the user's own file access — the reasoning is in `PLAN.md` §Safety
+  model); caps truncate text and hits with the real total, but *error* on an oversized render,
+  because half an image is not a partial answer.
 - [ ] **M44** Verify + release → tag (version at tag time) — tool round-trips + leak verify +
   no-network/no-port + no-Qt assertion + cross-platform + runs from Code/Desktop — *Windows*
 
