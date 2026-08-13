@@ -151,9 +151,9 @@ def test_multi_word_hits_come_in_reading_order(phrase_win):
     bar.show_bar()
     bar._edit.setText("heater electric")         # query order is irrelevant
     hits = phrase_win.view.search.hits()
-    assert [page for page, _box, _snip in hits] == [0, 0, 1, 1]
-    assert hits[0][1][0] < hits[1][1][0]         # "electric" before "heater" on page 1
-    assert hits[2][1][0] < hits[3][1][0]         # …and on page 2
+    assert [page for page, _boxes, _snip in hits] == [0, 0, 1, 1]
+    assert hits[0][1][0][0] < hits[1][1][0][0]   # "electric" before "heater" on page 1
+    assert hits[2][1][0][0] < hits[3][1][0][0]   # …and on page 2
 
 
 def test_hit_verbs_are_dead_without_results(win):
@@ -189,3 +189,60 @@ def test_find_and_redact_dialog_is_unaffected(win, monkeypatch):
     assert dialog.case_sensitive.isChecked() is False   # …dialog default untouched
     assert dialog.whole_word.isChecked() is False
     dialog.deleteLater()
+
+
+# ---- a phrase that wraps a line break is one match, not two ---------------------
+
+
+@pytest.fixture
+def wrapped_win(qapp, tmp_path):
+    """A page where "electric heater" is broken across a line, the way a paragraph breaks one,
+    plus one that fits on a single line so the two cases sit side by side."""
+    path = str(tmp_path / "wrapped.pdf")
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 100), "the hall contains one electric", fontsize=11)
+    page.insert_text((72, 120), "heater and nothing else.", fontsize=11)
+    page.insert_text((72, 160), "a second electric heater upstairs", fontsize=11)
+    doc.save(path)
+    doc.close()
+    qapp.settings = Settings(tmp_path / "vs.json")
+    w = qapp.open_document(path)
+    w.show()
+    qapp.processEvents()
+    yield w
+    w.undo_stack.setClean()
+    w.close()
+
+
+def test_a_wrapped_phrase_counts_as_one_match(wrapped_win):
+    """MuPDF returns a wrapped match as one rect per line. Both rects are real and redaction needs
+    them, but the *count* is occurrences: the bar must say 2, not 3, and next/prev must step twice.
+    """
+    bar = wrapped_win.find_bar
+    bar.show_bar()
+    bar._edit.setText("electric heater")
+    bar._word_box.setChecked(True)
+    assert _hits(wrapped_win) == 2
+    hits = wrapped_win.view.search.hits()
+    assert [len(boxes) for _p, boxes, _s in hits] == [2, 1]   # wrapped first, then the single line
+
+
+def test_both_halves_of_a_wrapped_match_are_highlighted(wrapped_win):
+    """One match, two rectangles on the page — highlighting only the first is what made the second
+    half look unmatched."""
+    bar = wrapped_win.find_bar
+    bar.show_bar()
+    bar._edit.setText("electric heater")
+    bar._word_box.setChecked(True)
+    assert len(wrapped_win.view.search._items) == 3   # 2 rects for the wrapped hit + 1 for the other
+
+
+def test_a_wrapped_match_reads_as_the_whole_phrase_in_the_panel(wrapped_win):
+    """The snippet joins the lines, so the row shows the phrase rather than the half that fitted."""
+    bar = wrapped_win.find_bar
+    bar.show_bar()
+    bar._edit.setText("electric heater")
+    bar._word_box.setChecked(True)
+    snippet = wrapped_win.view.search.hits()[0][2]
+    assert "electric" in snippet and "heater" in snippet

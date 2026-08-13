@@ -118,27 +118,31 @@ class SearchController:
             for page_index in range(self._view._vdoc.page_count):
                 ref = self._view._vdoc.ordered[page_index]
                 page = self._view._vdoc.sources[ref.source_id][ref.source_page_index]
-                found = [(r, term) for term in terms for r in page.search_for(term)]
-                if not found:
+                per_term = [(term, [(r.x0, r.y0, r.x1, r.y1) for r in page.search_for(term)])
+                            for term in terms]
+                if not any(boxes for _term, boxes in per_term):
                     continue
-                if len(terms) > 1:   # one term already comes back in reading order
-                    found.sort(key=lambda f: (round(f[0].y0, 1), f[0].x0))
                 text = PageText(page)   # one extraction + index serves the page's hits
+                # A phrase wrapping a line break comes back as one box per line; group them so a
+                # match is an occurrence, not a fragment (the count and next/prev both read it).
+                found = [(boxes, term) for term, term_boxes in per_term
+                         for boxes in text.group_matches(term_boxes, term)]
+                if len(terms) > 1:   # one term already comes back in reading order
+                    found.sort(key=lambda f: (round(f[0][0][1], 1), f[0][0][0]))
                 overlay_rects = _overlay_text_rects(page)  # typed boxes / fields — excluded below
                 seen: set = set()
-                for r, term in found:
-                    box = (r.x0, r.y0, r.x1, r.y1)
-                    key = tuple(round(v, 2) for v in box)
+                for boxes, term in found:
+                    key = tuple(tuple(round(v, 2) for v in box) for box in boxes)
                     if key in seen:
                         continue    # two terms landing on the same text is still one hit
                     seen.add(key)
-                    if overlay_rects and _center_in_any(box, overlay_rects):
+                    if overlay_rects and any(_center_in_any(b, overlay_rects) for b in boxes):
                         continue    # a text box / form-field hit, not the printed page (Direction A)
-                    if whole_word and not text.is_whole_word(box):
+                    if whole_word and not all(text.is_whole_word(b) for b in boxes):
                         continue
-                    if case_sensitive and not text.matches_case(box, term):
+                    if case_sensitive and not all(text.matches_case(b, term) for b in boxes):
                         continue
-                    self._hits.append((page_index, box, text.snippet(box)))
+                    self._hits.append((page_index, boxes, text.snippet_for(boxes)))
             if self._hits:
                 self._idx = 0
         self.repaint()
@@ -147,7 +151,12 @@ class SearchController:
         return len(self._hits)
 
     def hits(self) -> list[tuple[int, tuple, str]]:
-        """Every hit as ``(page_index, box, snippet)`` in document order (M47 results panel)."""
+        """Every hit as ``(page_index, boxes, snippet)`` in document order (M47 results panel).
+
+        ``boxes`` is a tuple of one box per line the match occupies — normally one, and two when
+        the match wraps a line break. It is a *match*, not a rectangle: the count, next/prev and
+        the results panel all speak in occurrences.
+        """
         return list(self._hits)
 
     def position(self) -> tuple[int, int]:
@@ -180,8 +189,8 @@ class SearchController:
         self._clear_items()
 
     def _reveal(self) -> None:
-        page_index, box, _snippet = self._hits[self._idx]
-        self._view.ensure_box_visible(page_index, box)
+        page_index, boxes, _snippet = self._hits[self._idx]
+        self._view.ensure_box_visible(page_index, boxes[0])   # a wrapped match starts on line 1
 
     def _clear_items(self) -> None:
         scene = self._view.scene()
@@ -199,15 +208,16 @@ class SearchController:
             return
         scene = self._view.scene()
         page_count = len(self._view._pages)
-        for i, (page_index, box, _snippet) in enumerate(self._hits):
+        for i, (page_index, boxes, _snippet) in enumerate(self._hits):
             if page_index >= page_count:
                 continue  # a structural edit shrank the doc; these stale hits are about to be cleared
-            item = QGraphicsRectItem(self._view.scene_rect_for_box(page_index, box))
-            item.setBrush(QBrush(_CURRENT if i == self._idx else _HIT))
-            item.setPen(QColor(0, 0, 0, 0))
-            item.setZValue(9)
-            scene.addItem(item)
-            self._items.append(item)
+            for box in boxes:   # one rect per line the match occupies
+                item = QGraphicsRectItem(self._view.scene_rect_for_box(page_index, box))
+                item.setBrush(QBrush(_CURRENT if i == self._idx else _HIT))
+                item.setPen(QColor(0, 0, 0, 0))
+                item.setZValue(9)
+                scene.addItem(item)
+                self._items.append(item)
 
 
 class SearchResultsPanel(QListWidget):
@@ -247,7 +257,12 @@ class SearchResultsPanel(QListWidget):
             self.setCurrentRow(idx)
 
     def checked_hits(self) -> list[tuple[int, tuple]]:
-        """``(page_index, box)`` for every ticked row — what a redaction would actually cover."""
+        """``(page_index, box)`` for every ticked row — what a redaction would actually cover.
+
+        One row can yield **more than one box**: a match wrapping a line break occupies a rectangle
+        on each, and redacting only the first is what leaves the tail of the phrase readable under
+        a black box. A row is a match; redaction works in rectangles, so the rows are flattened.
+        """
         hits = self._view.search.hits()
         chosen = []
         for row in range(self.count()):
@@ -256,8 +271,8 @@ class SearchResultsPanel(QListWidget):
                 continue
             index = item.data(self._INDEX_ROLE)
             if 0 <= index < len(hits):
-                page_index, box, _snippet = hits[index]
-                chosen.append((page_index, box))
+                page_index, boxes, _snippet = hits[index]
+                chosen.extend((page_index, box) for box in boxes)
         return chosen
 
     def set_all_checked(self, checked: bool) -> None:
