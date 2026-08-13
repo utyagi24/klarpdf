@@ -370,22 +370,33 @@ def redact_regions(
     """Destructively remove rectangular regions and verify the removal.
 
     ``regions`` is a list of ``{"page": 1-based, "box": [x0, y0, x1, y1]}`` in page points — the
-    coordinate space ``search`` and ``get_form_fields`` already report boxes in, so a hit can be fed
-    straight back in as a region.
+    coordinate space ``search`` and ``get_form_fields`` already report boxes in.
+
+    ``boxes`` (a list of rectangles) is accepted in place of ``box``, which is what a ``search`` hit
+    carries: a match wrapping a line break occupies a rectangle on each line, so a hit goes straight
+    back in as one region without the caller having to take it apart — and without the trap of
+    passing ``boxes[0]`` and redacting half a phrase.
     """
     target = _resolve_out(out, sources=[path], overwrite=overwrite)
     with open_document(path, password) as vdoc:
         per_page: dict[int, list[tuple]] = {}
         for region in regions:
-            if not isinstance(region, dict) or "page" not in region or "box" not in region:
-                raise ValueError(f"each region needs 'page' and 'box'; got {region!r}")
+            if (not isinstance(region, dict) or "page" not in region
+                    or not ("box" in region or "boxes" in region)):
+                raise ValueError(f"each region needs 'page' and 'box' (or 'boxes'); got {region!r}")
+            if "box" in region and "boxes" in region:
+                raise ValueError(f"each region needs 'box' or 'boxes', not both; got {region!r}")
             (index0,) = resolve_pages(vdoc, [region["page"]])
-            box = tuple(float(v) for v in region["box"])
-            if len(box) != 4:
-                raise ValueError(f"box must be [x0, y0, x1, y1]; got {region['box']!r}")
-            if box[0] >= box[2] or box[1] >= box[3]:
-                raise ValueError(f"box {list(box)} is empty or inverted")
-            per_page.setdefault(index0, []).append(box)
+            raw = [region["box"]] if "box" in region else list(region["boxes"])
+            if not raw:
+                raise ValueError(f"region {region!r} carries no boxes")
+            for entry in raw:
+                box = tuple(float(v) for v in entry)
+                if len(box) != 4:
+                    raise ValueError(f"box must be [x0, y0, x1, y1]; got {entry!r}")
+                if box[0] >= box[2] or box[1] >= box[3]:
+                    raise ValueError(f"box {list(box)} is empty or inverted")
+                per_page.setdefault(index0, []).append(box)
         if not per_page:
             raise ValueError("no regions given — redaction must remove something")
         expectations = _apply(vdoc, per_page, path, password)
@@ -435,32 +446,37 @@ def redact_text(
     with open_document(path, password) as vdoc:
         scope = resolve_pages(vdoc, pages)
         per_page: dict[int, list[tuple]] = {}
+        matches = 0
         for index0 in scope:
             ref = vdoc.ordered[index0]
             page = vdoc.sources[ref.source_id][ref.source_page_index]
-            found = [(r, term) for term in terms for r in page.search_for(term)]
-            if not found:
+            per_term = [(term, [(r.x0, r.y0, r.x1, r.y1) for r in page.search_for(term)])
+                        for term in terms]
+            if not any(boxes for _term, boxes in per_term):
                 continue
             text = PageText(page)
             seen: set = set()
-            for rect, term in found:
-                box = (rect.x0, rect.y0, rect.x1, rect.y1)
-                key = tuple(round(v, 2) for v in box)
-                if key in seen:
-                    continue
-                seen.add(key)
-                if whole_words and not text.is_whole_word(box):
-                    continue
-                if match_case and not text.matches_case(box, term):
-                    continue
-                per_page.setdefault(index0, []).append(box)
+            for term, term_boxes in per_term:
+                # Grouped, so a match wrapping a line break is one occurrence — and **every** box
+                # it occupies is redacted. Clearing only the first is what left the tail of the
+                # phrase legible next to a black box in TC-001.
+                for boxes in text.group_matches(term_boxes, term):
+                    key = tuple(tuple(round(v, 2) for v in box) for box in boxes)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    if whole_words and not all(text.is_whole_word(box) for box in boxes):
+                        continue
+                    if match_case and not all(text.matches_case(box, term) for box in boxes):
+                        continue
+                    per_page.setdefault(index0, []).extend(boxes)
+                    matches += 1
         if not per_page:
             raise ValueError(
                 f"{query!r} was not found — nothing was redacted and no file was written "
                 "(use `search` to check what matches before redacting)"
             )
         expectations = _apply(vdoc, per_page, path, password)
-        hits = sum(len(boxes) for boxes in per_page.values())
         return _finish(
             vdoc,
             target,
@@ -476,6 +492,7 @@ def redact_text(
                 password=password,
             ),
             query=query,
-            hits=hits,
+            matches=matches,
+            boxes_redacted=sum(len(boxes) for boxes in per_page.values()),
             pages_redacted=sorted(expectations),
         )

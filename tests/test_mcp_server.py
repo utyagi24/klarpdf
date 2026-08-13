@@ -290,7 +290,7 @@ def test_a_refusal_reaches_the_client_as_a_tool_error(a_pdf):
 def test_redact_text_through_the_server(a_pdf, tmp_path):
     out = str(tmp_path / "red.pdf")
     result = payload("redact_text", path=a_pdf, query=A_TEXT[0], out=out)
-    assert result["hits"] == 1
+    assert result["matches"] == 1
     assert result["pages_redacted"] == [1]
     assert "pymupdf" in result["verified_with"]
 
@@ -299,7 +299,8 @@ def test_redact_regions_through_the_server(a_pdf, tmp_path):
     hit = payload("search", path=a_pdf, query=A_TEXT[1])["hits"][0]
     out = str(tmp_path / "reg.pdf")
     result = payload(
-        "redact_regions", path=a_pdf, regions=[{"page": hit["page"], "box": hit["box"]}], out=out
+        "redact_regions", path=a_pdf,
+        regions=[{"page": hit["page"], "boxes": hit["boxes"]}], out=out
     )
     assert result["regions"] == 1
     assert result["source_unchanged"] is True

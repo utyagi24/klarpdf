@@ -464,6 +464,20 @@ items, which are independent of it.
     extracted text. The second is the load-bearing one — a matcher cannot see an occurrence it
     failed to redact, so a check that reuses it inherits its blind spots. `residual_matches` reports
     the verified count.
+- [x] **M43.3** *(unplanned)* A wrapped match counted as two — found by the owner while checking
+  M43.2's output ([#249](https://github.com/utyagi24/klarpdf/pull/249) viewer,
+  [#250](https://github.com/utyagi24/klarpdf/pull/250) bridge) — *WSL*
+  - Searching `regular expression` reported **7 matches for 5 occurrences**: MuPDF returns a match
+    spanning a line break as one rect per line, and both the find bar and `search` appended a hit
+    per rect. The bar read "4 of 7", Next stepped through one occurrence twice, and a row's snippet
+    showed only the half of the phrase that fitted on the first line. Pre-existing since M64 and
+    masked until M43.2 — the second fragment usually ended in punctuation and was being dropped by
+    the whole-word bug, so the miscount sat behind a worse defect.
+  - A hit is now an **occurrence** carrying one box per line it occupies. `PageText.group_matches`
+    folds a term's boxes by accumulating the text under them until it spells the term; a run that
+    does not spell it is emitted box by box, because an ungrouped box costs a miscount while a
+    missing one costs a leak. `search` returns `boxes`, `redact_text` reports `matches` and
+    `boxes_redacted`, and `redact_regions` accepts `boxes` so a hit goes back in whole.
 - [ ] **M44** Verify + release → tag (version at tag time) — tool round-trips + leak verify +
   no-network/no-port + no-Qt assertion + cross-platform + runs from Code/Desktop — *Windows*
   **Runbook written 2026-08-12: `RELEASE.md` §4.** Of the ten matrix items, **six are automated and

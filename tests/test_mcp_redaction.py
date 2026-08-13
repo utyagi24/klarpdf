@@ -158,7 +158,9 @@ def test_a_search_hit_can_be_fed_straight_back_as_a_region(secret_pdf, out):
     """The coordinate spaces line up on purpose — find it with `search`, remove it with
     `redact_regions`, which is the review-then-apply workflow the tools are shaped for."""
     hit = queries.search(secret_pdf, SECRET)[0]
-    redaction.redact_regions(secret_pdf, [{"page": hit["page"], "box": hit["box"]}], out)
+    # The whole hit, `boxes` and all — a wrapped match carries more than one, and taking only the
+    # first is the mistake the plural key exists to prevent.
+    redaction.redact_regions(secret_pdf, [{"page": hit["page"], "boxes": hit["boxes"]}], out)
     assert SECRET not in _text(out, 0)
 
 
@@ -320,7 +322,7 @@ def locked_pdf(tmp_path) -> str:
 
 def test_an_encrypted_document_can_be_redacted_with_its_password(locked_pdf, out):
     result = redaction.redact_text(locked_pdf, SECRET, out, password="secret")
-    assert result["hits"] == 1
+    assert result["matches"] == 1
     with fitz.open(out) as doc:
         assert doc.authenticate("secret")
         assert SECRET not in doc[0].get_text("text")
@@ -451,3 +453,40 @@ def test_redact_regions_makes_no_residual_claim(secret_pdf, out):
     box = _box_of(secret_pdf, 0, SECRET)
     result = redaction.redact_regions(secret_pdf, [{"page": 1, "box": box}], out)
     assert "residual_matches" not in result
+
+
+def test_a_wrapped_phrase_is_one_match_carrying_both_boxes(phrase_pdf, out):
+    """`search` counts occurrences; `redact_text` clears every rectangle each one occupies.
+
+    The two numbers differ exactly when a match wraps, and conflating them is what made the tool
+    report "hits: 4" for a phrase occurring 5 times in TC-001.
+    """
+    hits = queries.search(phrase_pdf, PHRASE, whole_words=True)
+    assert len(hits) == 3                                    # three occurrences on the page
+    assert sorted(len(hit["boxes"]) for hit in hits) == [1, 1, 2]   # one of them wraps
+    result = redaction.redact_text(phrase_pdf, PHRASE, out, whole_words=True)
+    assert result["matches"] == 3
+    assert result["boxes_redacted"] == 4                     # …and all four rectangles are cleared
+
+
+def test_a_wrapped_hit_snippet_reads_as_the_whole_phrase(phrase_pdf):
+    wrapped = next(h for h in queries.search(phrase_pdf, PHRASE, whole_words=True)
+                   if len(h["boxes"]) == 2)
+    assert "regular" in wrapped["snippet"] and "expression" in wrapped["snippet"]
+
+
+def test_a_whole_search_hit_can_be_redacted_as_one_region(phrase_pdf, out):
+    """The interop the plural key exists for: hand the hit back untouched and both halves go."""
+    wrapped = next(h for h in queries.search(phrase_pdf, PHRASE, whole_words=True)
+                   if len(h["boxes"]) == 2)
+    redaction.redact_regions(phrase_pdf, [{"page": wrapped["page"], "boxes": wrapped["boxes"]}], out)
+    left = queries.search(out, PHRASE, whole_words=True)
+    assert len(left) == 2                             # the other two occurrences, untouched
+    assert all(len(hit["boxes"]) == 1 for hit in left)  # the wrapped one is wholly gone
+
+
+def test_a_region_cannot_carry_both_box_and_boxes(secret_pdf, out):
+    box = _box_of(secret_pdf, 0, SECRET)
+    with pytest.raises(ValueError, match="not both"):
+        redaction.redact_regions(secret_pdf, [{"page": 1, "box": box, "boxes": [box]}], out)
+    assert not os.path.exists(out)
