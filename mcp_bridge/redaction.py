@@ -18,7 +18,14 @@ So the contract here is deliberately stronger than "we called `apply_redactions`
    text is gone — with PyMuPDF always, and with Poppler's `pdftotext` whenever it is on the machine.
    Two engines matter because the claim "the text is gone" should not rest on the same library that
    performed the removal.
-4. **Never report success on an unverified file.** If verification fails the output is **deleted**
+4. **Verify the *query*, not just the boxes.** Step 3 asks "did the regions I redacted lose their
+   text?", and on its own that is a check which cannot fail on a matching bug: it derives its budget
+   from the boxes it chose, so an occurrence the matcher never found simply widens the allowance by
+   exactly the amount it then leaks. `redact_text` therefore re-runs its own search against the
+   output and requires **zero** surviving matches — the document-level property a caller reads a
+   success as promising. M44's verification pass found this the expensive way (TC-001): a phrase
+   redaction left two thirds of its occurrences legible and every box-level check passed.
+5. **Never report success on an unverified file.** If either check fails the output is **deleted**
    and the tool raises. A caller must not be handed a path to a file that looks redacted and is not.
 
 **Where the guarantee stops, stated rather than implied** (PLAN.md §Honesty principle): this covers
@@ -38,7 +45,7 @@ import pymupdf as fitz
 
 from model.page_edits import Redaction
 from model.page_text import PageText
-from mcp_bridge.queries import open_document, resolve_pages
+from mcp_bridge.queries import open_document, resolve_pages, search
 from mcp_bridge.transforms import _resolve_out, _write
 
 # Poppler's extractor. A *different* implementation from the PyMuPDF writer, which is the whole
@@ -108,6 +115,13 @@ def _verify(out: str, expectations: dict[int, dict], password: str | None) -> di
 
     ``expectations`` maps 1-based page → ``{"boxes": {token: n}, "fitz_before": {token: n},
     "poppler_before": {token: n}}``. Raises :class:`RedactionLeak` on the first shortfall.
+
+    **What this cannot catch**, and why :func:`_no_residual_match` exists: the budget above is
+    derived from the boxes this call chose, so a match the *matcher* never found is not a shortfall
+    here — it is an occurrence that was never counted as covered, and its surviving text is spent
+    against the allowance it was never charged for. The arithmetic stays self-consistent while the
+    output leaks. Proving the boxes were emptied is a different claim from proving the query is
+    gone, and only the second one catches a matching bug.
     """
     engines = ["pymupdf"]
     poppler_available = shutil.which(_PDFTOTEXT) is not None
@@ -156,6 +170,109 @@ def _verify(out: str, expectations: dict[int, dict], password: str | None) -> di
     }
 
 
+def _word_bounded(haystack: str, needle: str, start: int) -> bool:
+    """Do whole-word boundaries hold around ``haystack[start:start + len(needle)]``?
+
+    The textual twin of :meth:`PageText.is_whole_word`, and deliberately the *same rule*: expand to
+    the whitespace-delimited token on each side and require that whatever sits between the token's
+    edge and the match carries no word content. ``expression.`` is a match for ``expression``;
+    ``ALPHA-zero-A0`` is not one for ``ALPHA``. Two checks that disagreed about what "whole word"
+    means would be worse than one.
+
+    Assumes ``haystack`` has already been flattened to single spaces, so a token boundary is a
+    space or an end of string.
+    """
+    end = start + len(needle)
+    left = haystack.rfind(" ", 0, start) + 1
+    right = haystack.find(" ", end)
+    right = len(haystack) if right == -1 else right
+    outside = haystack[left:start] + haystack[end:right]
+    return not any(ch.isalnum() or ch == "_" for ch in outside)
+
+
+def _residual_in_text(text: str, query: str, *, match_case: bool, whole_words: bool) -> int:
+    """How many times ``query`` still matches in ``text``, by the tool's own search semantics.
+
+    Whitespace is flattened first, which is what lets this see a phrase the page broke across a
+    line — the exact shape that survived redaction in TC-001, and one a naive substring scan of
+    extracted text misses entirely.
+    """
+    flat = " ".join(text.split())
+    terms = [query] if whole_words else query.split()
+    if not match_case:
+        flat, terms = flat.lower(), [term.lower() for term in terms]
+    total = 0
+    for term in terms:
+        start = flat.find(term)
+        while start != -1:
+            if not whole_words or _word_bounded(flat, term, start):
+                total += 1
+            start = flat.find(term, start + 1)
+    return total
+
+
+def _no_residual_match(
+    out: str,
+    query: str,
+    *,
+    match_case: bool,
+    whole_words: bool,
+    scope: set[int],
+    password: str | None,
+) -> int:
+    """Confirm ``query`` no longer matches the written output anywhere in scope.
+
+    Two passes, because they fail for different reasons and only both together are worth much:
+
+    1. **Re-run the tool's own search.** This makes the contract checkable by the caller in the
+       obvious way — `search` on the returned path comes back empty. It catches a *coverage* gap:
+       the matcher saw an occurrence and the redaction did not clear it (a wrapped phrase where
+       only one fragment was boxed is exactly this).
+    2. **Scan each engine's extracted text directly**, with :func:`_residual_in_text`. This is the
+       one that matters, because pass 1 shares a matcher with the redaction and therefore shares
+       its blind spots — a matcher that cannot see an occurrence cannot see it on the way out
+       either, and would report a clean file twice. TC-001 was precisely that: the phrase was
+       invisible to the matcher at both ends. A textual scan owes the matcher nothing, and when
+       Poppler is installed it does not even share the extractor.
+
+    Scoped to the pages the call was asked to redact — an occurrence on page 7 of a ``pages=[2]``
+    request is out of scope, not a leak, and failing on it would make the page filter unusable.
+
+    Returns the verified residual count (always 0) so the caller can report the number it checked.
+    """
+    leaks = [hit for hit in search(out, query, match_case=match_case,
+                                   whole_words=whole_words, password=password)
+             if hit["page"] in scope]
+    if leaks:
+        where = "; ".join(f"page {hit['page']} at {hit['box']}" for hit in leaks[:5])
+        more = f" (+{len(leaks) - 5} more)" if len(leaks) > 5 else ""
+        raise RedactionLeak(
+            f"{query!r} still matches {len(leaks)} time(s) in {out!r} — {where}{more}. The "
+            "redacted boxes came back clean, so this is a coverage gap rather than a removal "
+            "failure: some occurrences were never boxed. The output has been deleted."
+        )
+
+    doc = _open_verified(out, password)
+    try:
+        extracted = [("PyMuPDF", page1, doc[page1 - 1].get_text("text")) for page1 in sorted(scope)]
+    finally:
+        doc.close()
+    if shutil.which(_PDFTOTEXT) is not None:
+        extracted += [("Poppler", page1, _poppler_text(out, page1, password) or "")
+                      for page1 in sorted(scope)]
+
+    for engine, page1, text in extracted:
+        found = _residual_in_text(text, query, match_case=match_case, whole_words=whole_words)
+        if found:
+            raise RedactionLeak(
+                f"page {page1}: {query!r} still reads back {found} time(s) from {out!r} "
+                f"({engine}), even though the tool's own search reported the file clean. A matcher "
+                "cannot see an occurrence it failed to redact, which is why this check does not "
+                "use it. The output has been deleted."
+            )
+    return 0
+
+
 def _tokens_under(page: fitz.Page, boxes: list[tuple]) -> list[str]:
     """The text under ``boxes``, split into tokens worth checking for individually.
 
@@ -202,12 +319,26 @@ def _apply(vdoc, per_page: dict[int, list[tuple]], source: str, password: str | 
 
 
 def _finish(
-    vdoc, target: str, expectations: dict, source: str, password: str | None, **extra
+    vdoc,
+    target: str,
+    expectations: dict,
+    source: str,
+    password: str | None,
+    residual=None,
+    **extra,
 ) -> dict:
-    """Write, verify, and delete the output if verification fails."""
+    """Write, verify, and delete the output if any check fails.
+
+    ``residual`` is the optional document-level check (:func:`_no_residual_match`), passed by
+    ``redact_text`` because only a query-driven redaction has a query to re-run. It runs inside the
+    same ``try`` as :func:`_verify` so both failures take the one delete-and-raise path — the
+    "never leave a false-secure file behind" invariant is not a thing to reimplement per caller.
+    """
     _write(vdoc, target)
     try:
         report = _verify(target, expectations, password)
+        if residual is not None:
+            report["residual_matches"] = residual(target)
     except RedactionLeak:
         if os.path.exists(target):
             os.remove(target)  # never leave a false-secure file behind
@@ -287,6 +418,13 @@ def redact_text(
     matches inside "Smithsonian", and this tool *deletes* what it finds. Preview with ``search``
     first — its snippets are what let a caller see that before it is irreversible.
 
+    Verified twice over, because the two checks answer different questions. :func:`_verify` proves
+    the removal was *destructive* — the text under each box is gone from the file, confirmed by a
+    second engine. :func:`_no_residual_match` proves it was *complete* — re-running this same
+    search against the output finds nothing left in scope. A box-level check alone cannot fail on a
+    matching bug, which is the failure mode with teeth: it is how M44's verification pass got a
+    file with a legible `regular expression.` in it and a success report to go with it (TC-001).
+
     Raises rather than writing an untouched copy when nothing matches: a redaction tool reporting
     success over a file it did not change is how a secret ships.
     """
@@ -313,7 +451,7 @@ def redact_text(
                 seen.add(key)
                 if whole_words and not text.is_whole_word(box):
                     continue
-                if match_case and text.text_under(box).strip() != term:
+                if match_case and not text.matches_case(box, term):
                     continue
                 per_page.setdefault(index0, []).append(box)
         if not per_page:
@@ -329,6 +467,14 @@ def redact_text(
             expectations,
             path,
             password,
+            residual=lambda written: _no_residual_match(
+                written,
+                query,
+                match_case=match_case,
+                whole_words=whole_words,
+                scope={index0 + 1 for index0 in scope},
+                password=password,
+            ),
             query=query,
             hits=hits,
             pages_redacted=sorted(expectations),

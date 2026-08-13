@@ -444,6 +444,26 @@ items, which are independent of it.
   - **`pipx install .` installed a script with no dependencies** — `pyproject.toml` had no
     `dependencies`, so the built metadata carried zero `Requires-Dist`. Floors added; a test now
     builds the metadata and asserts them. Detail in `PLAN.md` §Tool surface.
+- [x] **M43.2** *(unplanned)* A phrase redaction that leaked, and the verification that certified
+  it — found by M44's own verification pass, test case TC-001
+  ([#248](https://github.com/utyagi24/klarpdf/pull/248)) — *WSL*
+  - **`redact_text "regular expression"` with `whole_words: true` removed 2 of 5 occurrences and
+    reported success**, leaving a fully legible `regular expression.` in the output. Root cause is
+    older than the bridge and shipped in the viewer: `PageText.is_whole_word` was purely geometric,
+    and MuPDF splits `get_text("words")` on whitespace, so `expression.` is one word whose box
+    includes the period — a hit covering just the letters read as *inside a longer word*. Every
+    whole-word match at a sentence end has been dropped by the find bar since M64. Fixed in
+    [#247](https://github.com/utyagi24/klarpdf/pull/247).
+  - **A case-sensitive phrase lost anything that wrapped a line.** MuPDF returns a wrapped phrase as
+    one box per line fragment; the filter compared each fragment against the whole term. Also #247.
+  - **The verification could not fail on a matching bug.** It was box-scoped — it proved the regions
+    it chose had lost their text, deriving its budget from those same regions, so an occurrence the
+    matcher never found widened the allowance by exactly the amount it leaked (measured: budget
+    `regular ≤ 1`, `expression ≤ 3`; residue exactly 1 and 3). `redact_text` now also proves the
+    *query* is gone, twice: re-running its own search, and a textual scan of each engine's
+    extracted text. The second is the load-bearing one — a matcher cannot see an occurrence it
+    failed to redact, so a check that reuses it inherits its blind spots. `residual_matches` reports
+    the verified count.
 - [ ] **M44** Verify + release → tag (version at tag time) — tool round-trips + leak verify +
   no-network/no-port + no-Qt assertion + cross-platform + runs from Code/Desktop — *Windows*
   **Runbook written 2026-08-12: `RELEASE.md` §4.** Of the ten matrix items, **six are automated and

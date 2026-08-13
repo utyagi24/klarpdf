@@ -182,6 +182,11 @@ def search(
       inside a longer word.
     * ``match_case`` compares the text under the box against the term that found it.
 
+    A phrase that wraps a line break yields **one hit per line fragment** — MuPDF returns the match
+    that way and the fragments are kept, because each is a real part of the match and
+    ``redact_text`` has to clear all of them. So a hit count can exceed the number of occurrences a
+    reader would count, and a fragment's ``snippet`` shows only its own line.
+
     Per-hit text comes from :class:`~model.page_text.PageText`, which indexes a page once and serves
     every hit on it. This is the reuse the milestone was shrunk for: the naive ``get_textbox`` call
     re-extracts the whole page per hit (~31 ms), which took ~37 minutes on a one-letter query over a
@@ -213,7 +218,7 @@ def search(
                 seen.add(key)
                 if whole_words and not text.is_whole_word(box):
                     continue
-                if match_case and text.text_under(box).strip() != term:
+                if match_case and not text.matches_case(box, term):
                     continue
                 hits.append(
                     {

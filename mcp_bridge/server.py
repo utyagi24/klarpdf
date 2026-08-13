@@ -172,6 +172,10 @@ def create_server(config: Config | None = None) -> MCPServer:
         With `whole_words` off (the default) the query is a list of words and any one of them
         matches, including inside longer words. With it on, the query is a single phrase and neither
         end may sit inside a longer word. `match_case` filters against the text under each hit.
+
+        A phrase that wraps a line break comes back as **one hit per line fragment**, the way a
+        find bar highlights a wrapped match — so a `count` can exceed the number of occurrences a
+        reader would count on the page. Each box is still a real, redactable part of the match.
         """
         hits = queries.search(
             check(path),
@@ -449,15 +453,26 @@ def create_server(config: Config | None = None) -> MCPServer:
         """**Destructively** remove every occurrence of `query` and write a verified copy.
 
         This deletes content. The text is physically removed from the output — not covered by a
-        black box — and the removal is confirmed by re-reading the written file with PyMuPDF and,
-        when it is installed, with Poppler, a different engine from the one that did the removing.
-        If anything is still recoverable the output is **deleted** and this call fails, so a path
-        coming back always points at a file that was checked.
+        black box — and the written file is then checked twice: that the redacted regions really
+        lost their text (PyMuPDF, plus Poppler when installed — a different engine from the one
+        that did the removing), and that re-running this same search against the output finds
+        **zero** remaining matches in the pages redacted. If either check fails the output is
+        **deleted** and this call fails, so a path coming back always points at a file where the
+        query no longer matches. `residual_matches` reports the count that was verified.
 
         **Run `search` with the same `query`, `match_case` and `whole_words` first and show the
-        caller the snippets.** Matching is the app's find-bar behaviour: with `whole_words` off,
-        "Smith" also matches inside "Smithsonian" — and this tool deletes what it finds. Fails
-        rather than writing an untouched copy when nothing matches.
+        caller the snippets** — this tool deletes what it finds. Matching is the app's find-bar
+        behaviour, and `whole_words` chooses **what the query is**, not just how strictly it
+        matches:
+
+        * `whole_words: true` — the query is **one phrase**, matched whole, and neither end may sit
+          inside a longer word. This is the mode to use for a phrase like "regular expression".
+        * `whole_words: false` (the default) — the query is a **list of words**, any of which
+          matches on its own and each of which still matches inside longer words. "Smith" also
+          matches inside "Smithsonian"; "regular expression" removes every "regular" and every
+          "expression" separately, wherever they appear.
+
+        Fails rather than writing an untouched copy when nothing matches.
 
         The guarantee covers the **text layer**. Text that is part of a scanned image has no text to
         verify; `verified_text` will be empty and `cross_engine_verified` tells you whether the
@@ -490,10 +505,15 @@ def create_server(config: Config | None = None) -> MCPServer:
         straight back as a region. Use this when you know *where* rather than *what*: a signature
         block, a letterhead, a photo, a table cell.
 
-        Same contract as `redact_text`: content is physically deleted, the written file is re-read
-        and verified (PyMuPDF, plus Poppler when installed), and the output is deleted if anything
-        survives. Images and vector graphics under a box are removed too — but only text can be
-        verified, so a region over a scanned image comes back with an empty `verified_text`.
+        Content is physically deleted, the written file is re-read and verified (PyMuPDF, plus
+        Poppler when installed), and the output is deleted if anything survives. Images and vector
+        graphics under a box are removed too — but only text can be verified, so a region over a
+        scanned image comes back with an empty `verified_text`.
+
+        There is no `residual_matches` here, and the difference is worth knowing: `redact_text` can
+        re-run its own query against the output to prove it covered every occurrence, while a
+        region redaction has no query to re-run. You said *where*, so the boxes are the whole of
+        the request — and the check confirms those boxes are empty, nothing wider.
         """
         return redaction.redact_regions(
             check(path), regions, check(out), password=password, overwrite=overwrite
