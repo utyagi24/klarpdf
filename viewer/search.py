@@ -69,10 +69,13 @@ def _center_in_any(box: tuple, rects: list) -> bool:
 def is_whole_word(words: list, box: tuple, tol: float = 0.5) -> bool:
     """Is the hit at ``box`` a whole word rather than part of a longer one? (M64)
 
-    Geometric rather than textual: a hit is a whole word when the words it touches do not extend
-    past it on either side. Searching "Smith" matches inside "Smithsonian", whose word box runs well
-    beyond the hit — which is precisely the false positive the review step exists to catch, and this
-    toggle to prevent wholesale.
+    A hit is a whole word when the words it touches do not extend past it on either side. Searching
+    "Smith" matches inside "Smithsonian", whose word box runs well beyond the hit — precisely the
+    false positive the review step exists to catch, and this toggle to prevent wholesale.
+
+    Words-only, so the answer is purely geometric: punctuation glued to a word cannot be told from
+    more word without characters to look at (see :meth:`PageText.is_whole_word`). Callers holding a
+    page should use that method directly — the controller below does.
     """
     return PageText(words=words).is_whole_word(box, tol)
 
@@ -133,7 +136,7 @@ class SearchController:
                         continue    # a text box / form-field hit, not the printed page (Direction A)
                     if whole_word and not text.is_whole_word(box):
                         continue
-                    if case_sensitive and text.text_under(box).strip() != term:
+                    if case_sensitive and not text.matches_case(box, term):
                         continue
                     self._hits.append((page_index, box, text.snippet(box)))
             if self._hits:
