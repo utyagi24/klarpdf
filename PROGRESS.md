@@ -2060,6 +2060,40 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   decode work, so A/B/F reduce how often we pay it but only E stops the freeze. Now a scheduling
   question, not a justification one.
 
+- [x] **M93** *(unplanned)* **A save no longer throws away the document it was given.** Found while
+  filling a federal form through the MCP bridge (test case TC-002, 2026-08-13), but the defect is in
+  the app: `main_window.py`'s Save calls the same `materialize`, so **every document the shipped
+  viewer wrote was affected**. Design + the precise guarantee in `PLAN.md` §Key design idea — *WSL* —
+  ([#253](https://github.com/utyagi24/klarpdf/pull/253))
+  - **What happened.** Save assembled its output by grafting pages into an *empty* document.
+    `insert_pdf` copies **pages**; a PDF keeps the accessibility structure tree, `/MarkInfo`, Reader
+    Extensions `/Perms`, the `/Names` tree and encryption at the **document** level, and none of it
+    rides along with a page. A tagged, AES-128 SSA-3 came back untagged, unencrypted, with every
+    permission granted, and with both hyperlinks rewritten into `/Launch` actions naming local files
+    that do not exist. It hid perfectly: the pages and the values were correct, so the output looked
+    right in every viewer.
+
+    | | tagged | permissions | encryption | `/Launch` |
+    |---|---|---|---|---|
+    | input | ✅ | `-1052` | AES-128 | 0 |
+    | before | ❌ | `-4` (all granted) | none | **2** |
+    | after | ✅ | `-1052` | AES-128 | 0 |
+
+  - **The fix.** Two routes, chosen by `page_set_unchanged()`: an unchanged page set edits a copy of
+    the origin, anything structural still grafts. Output page `i` is `ordered[i]` either way, so
+    every existing pass applied unmodified — the reason this was a small change. Encryption needed
+    two more repairs: `fresh_source` was passing no encryption to `tobytes()`, which defaults to
+    writing the copy **decrypted** (harmless while it was only an `insert_pdf` donor, fatal once it
+    became a save's starting point), and `_encryption_args` only ever covered documents that *need* a
+    password — an owner-password-restricted file has none to record, so it saved unencrypted.
+  - **One test changed on purpose.** `test_named_links_survive_identity_save_as_goto` asserted that
+    an identity save bakes named destinations into direct GoTos. That bake was a *repair* for
+    `insert_pdf` dropping the name tree; with no graft there is nothing to repair, and the named
+    destination now survives with the `/XYZ` view the bake discarded. It asserts where the link lands
+    rather than how it is spelled.
+  - **Deliberate trade-off:** outputs are larger, because nothing is discarded any more. The old
+    output was *smaller than its own input* precisely because of what was missing from it.
+
 ## Public-Release Readiness — go open-source under AGPL-3.0 (planned)
 
 **The repo is public** as of **2026-07-17**, as an `AGPL-3.0-or-later` project — the flip (G8) is done.
@@ -2252,6 +2286,13 @@ tree or history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI 
 ## Open follow-ups (carried)
 
 Carried items — none block work:
+
+- **A reorder still loses the accessibility structure tree** (M93). The unchanged-page-set route
+  keeps it; the grafting route cannot, because a structure tree is a tree of references into page
+  content and moving pages means **rewriting** it rather than copying it. So reorder / delete / merge
+  remain lossless for *content* and lossy for *document structure* — stated in `PLAN.md` §Key design
+  idea rather than rounded up to "lossless". Worth doing if tagged PDFs become a real workflow; the
+  same pass would need to carry `/Perms` and the `/Names` tree. Not scheduled. — *WSL*
 
 - ~~**`_render_visible` is O(document length), not O(visible band)**~~ — **fixed 2026-07-28 as
   M87.3** (see the M87 entry above). It was worse than filed: a *third* walk, the annotation
