@@ -29,6 +29,7 @@ from PySide6.QtWidgets import QAbstractItemView, QListWidget, QListWidgetItem
 
 from model.edit_engine import PyMuPDFEngine
 from model.virtual_document import IMAGE_EXTENSIONS, VirtualDocument
+from util.reveal import is_settled
 
 _DRAG_W = 96    # width of the page image carried under the cursor while dragging
 _ACCENT = QColor(0, 120, 215)  # drop-marker + count-badge colour
@@ -632,6 +633,28 @@ class ThumbnailPanel(QListWidget):
         bar.setValue(bar.value() - round(dy / _WHEEL_NOTCH * self._row_pitch() / _NOTCH_PER_THUMB))
         event.accept()
 
+    def _reveal_row(self, index: int) -> None:
+        """Scroll row ``index`` into the strip, centred unless it is already comfortably in it.
+
+        ``scrollToItem``'s default ``EnsureVisible`` hint scrolls the **minimum** distance, so the
+        marked thumbnail ended up jammed against the top or the bottom of the sidebar depending on
+        which way the reader was going — the same defect the page view had, reported right after it
+        (owner, 2026-08-13). ``PositionAtCenter`` alone would over-correct the other way: it scrolls
+        *every* time, so simply reading down a page would keep tugging the strip even while the
+        current thumbnail was plainly in sight.
+
+        So the shared policy applies here too — leave it alone when it is already well inside the
+        strip, centre it otherwise. See :mod:`util.reveal`.
+        """
+        item = self.item(index)
+        if item is None:
+            return
+        rect = self.visualItemRect(item)
+        port = self.viewport().rect()
+        if is_settled(rect.top(), rect.bottom(), port.top(), port.bottom()):
+            return
+        self.scrollToItem(item, QAbstractItemView.ScrollHint.PositionAtCenter)
+
     def set_current(self, index: int) -> None:
         """Highlight ``index`` without triggering a jump back to the view.
 
@@ -649,7 +672,7 @@ class ThumbnailPanel(QListWidget):
             lone = len(self.selectedIndexes()) == 1
             self.setCurrentRow(index, QItemSelectionModel.SelectionFlag.ClearAndSelect if lone
                                else QItemSelectionModel.SelectionFlag.NoUpdate)
-            self.scrollToItem(self.item(index))
+            self._reveal_row(index)
             self._syncing = False
 
     def mark_open_page(self, index: int) -> None:
@@ -670,7 +693,7 @@ class ThumbnailPanel(QListWidget):
         if 0 <= index < self.count():
             self._syncing = True
             self.setCurrentRow(index, QItemSelectionModel.SelectionFlag.ClearAndSelect)
-            self.scrollToItem(self.item(index))
+            self._reveal_row(index)
             self._syncing = False
 
     def _on_row_changed(self, row: int) -> None:

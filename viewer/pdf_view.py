@@ -39,6 +39,7 @@ from model.form_fields import NewField
 from viewer.pixmap_cache import pixmap_cache
 from viewer.resize_handles import cursor_for
 from viewer.tools import ArmedTool, InteractionMode
+from util.reveal import is_settled
 
 _PAGE_GAP = 14          # px between pages in the strip
 _PREFETCH = 2           # pages to render above/below the viewport, at ordinary page sizes
@@ -134,12 +135,6 @@ _WHEEL_LINE_PX = 32.0
 _WHEEL_EASE_MS = 200.0
 
 _ZOOM_COALESCE_MS = 16  # one frame at 60 Hz — the Ctrl+wheel accumulator's flush interval (M86.2)
-
-# Clear space a revealed hit must already have above and below it before `ensure_box_visible`
-# decides the view is fine as it is. A fraction of the window, floored in pixels so a short one
-# still gets a usable band — 15% of a 900 px window is 135 px, of a 400 px window it is the floor.
-_REVEAL_BAND = 0.15
-_REVEAL_BAND_MIN_PX = 60.0
 
 # Arrow key → unit (dx, dy) direction for nudging an object selection (M78.2); page-y grows down.
 _NUDGE_KEYS = {
@@ -702,9 +697,7 @@ class PdfView(QGraphicsView):
         """
         rect = self.scene_rect_for_box(page_index, box)
         visible = self.mapToScene(self.viewport().rect()).boundingRect()
-        band = max(_REVEAL_BAND_MIN_PX, visible.height() * _REVEAL_BAND)
-        settled = (rect.top() >= visible.top() + band
-                   and rect.bottom() <= visible.bottom() - band)
+        settled = is_settled(rect.top(), rect.bottom(), visible.top(), visible.bottom())
         off_to_the_side = rect.left() < visible.left() or rect.right() > visible.right()
         if settled and not off_to_the_side:
             return
