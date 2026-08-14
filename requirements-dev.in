@@ -1,5 +1,7 @@
 # Dev dependencies = runtime + test tooling. Compiled (NO hashes) to requirements-dev.txt:
-#   pip-compile requirements-dev.in -o requirements-dev.txt
+#   pip-compile --allow-unsafe requirements-dev.in -o requirements-dev.txt
+# `--allow-unsafe` is required, not optional: pip-tools classes `setuptools` as "unsafe" and leaves
+# it out of the lock without it, which is the whole reason the flag is here (see setuptools below).
 # Note: pytest pulls `colorama` on win32 only, and pip-tools has no cross-platform marker mode — so
 # whichever platform ran the compile decided whether the lock mentioned it at all. The committed lock
 # was compiled on Windows; recompiling on Linux for the MCP SDK silently dropped the line, and with
@@ -21,3 +23,12 @@ invoke>=3.0   # task runner — `invoke <task>` orchestrates build steps (tasks.
 # app.py/launcher.py. M42 adds requirements-mcp.{in,txt} — the separate, cross-platform lock that a
 # *bridge user* installs — plus its own pip-audit step. Different artifacts, different audiences.
 mcp>=2,<3
+# setuptools is a *test* dependency, which is not the same thing as being the build backend.
+# `pyproject.toml` already declares it in `[build-system] requires`, but pip honours that only for
+# an **isolated** build — and `tests/test_mcp_packaging.py` calls `setuptools.build_meta` directly,
+# on purpose, so the metadata check needs no network. Skipping isolation means skipping the thing
+# that would have installed it. Python 3.12's `ensurepip` no longer ships setuptools, so CI's fresh
+# interpreter does not have it and the test failed with `ModuleNotFoundError` from the day it was
+# written, while every dev machine passed on a setuptools left over from some earlier install.
+# Pinning it here also makes the backend under test deterministic instead of whatever is lying about.
+setuptools>=68   # keep in step with the floor in pyproject.toml's [build-system] requires
