@@ -150,6 +150,11 @@ class VirtualDocument:
         # M32's save-unencrypted deferral); _source_passwords records what opened each source.
         self._password: str | None = None
         self._permissions: int = -1
+        # Has the user made an explicit encryption decision this session? It is the difference
+        # between "no password set" and "password deliberately removed", which are the same
+        # ``_password is None`` but must save differently: the first keeps whatever protection the
+        # document arrived with, the second is a request to drop it.
+        self._encryption_staged: bool = False
         self._source_passwords: dict[str, str] = {}
         # Cache: does a registered source carry baked KlarPDF annotations? Keyed by source id;
         # source bytes are immutable, so this never changes for a given source (cleared only when
@@ -180,6 +185,13 @@ class VirtualDocument:
         # Carry-through (M54): a document opened with a password saves back with that password
         # unless the user changes/removes it. None for an unencrypted original.
         vd._password = vd._source_passwords.get(source_id)
+        # …and so do its **restrictions**. Left at the -1 default, "allow everything" was the
+        # answer to a question nobody had asked: the password dialog pre-ticks its boxes from
+        # `vdoc.permissions` (`ui/encrypt_dialog.py`), so every box arrived ticked whatever the
+        # document actually said, and setting a password on a restricted file silently granted
+        # copying, modification and assembly. Seeding from the origin makes the dialog show what
+        # the document restricts and makes accepting it unchanged a no-op (M93).
+        vd._permissions = vd.sources[source_id].permissions
         vd.ordered = vd._seed_ordered(source_id)
         vd.dirty = False
         return vd
@@ -340,6 +352,8 @@ class VirtualDocument:
         that opened freely but restricts permissions (an owner password only) was never decrypted,
         still reports its encryption, and is the case M54 does not cover.
         """
+        if self._encryption_staged:
+            return False        # the user has said what they want; do not second-guess it
         origin = self.origin_source_id
         if origin is None or origin not in self.sources:
             return False
@@ -424,7 +438,7 @@ class VirtualDocument:
             tuple(self.ordered),
             dict(self._form_values),
             None if override is None else dict(override),
-            (self._password, self._permissions),
+            (self._password, self._permissions, self._encryption_staged),
             self.dirty,
         )
 
@@ -433,7 +447,7 @@ class VirtualDocument:
         self.ordered = list(ordered)
         self._form_values = dict(form_values)
         self._metadata_override = None if metadata_override is None else dict(metadata_override)
-        self._password, self._permissions = encryption
+        self._password, self._permissions, self._encryption_staged = encryption
         self.dirty = dirty
 
     # ---- list edits (each marks the document dirty) -----------------------------
@@ -596,7 +610,11 @@ class VirtualDocument:
     @property
     def permissions(self) -> int:
         """The advisory permission flags a Save writes (-1 = everything allowed). Advisory:
-        honored by most viewers, not cryptographically enforced — only the password is."""
+        honored by most viewers, not cryptographically enforced — only the password is.
+
+        Seeded from the origin at open, so a document that arrived restricted stays restricted
+        unless the user says otherwise. PyMuPDF reports these in the same encoding ``save`` takes,
+        so the value round-trips exactly (verified: -1052 in, -1052 out)."""
         return self._permissions
 
     def set_encryption(self, password: "str | None", permissions: int = -1) -> None:
@@ -606,6 +624,7 @@ class VirtualDocument:
         the encryption dictionary, so restrictions without a password don't exist."""
         self._password = password
         self._permissions = -1 if password is None else int(permissions)
+        self._encryption_staged = True
         self.dirty = True
 
     # ---- form field values (document-level; applied at materialise) -------------

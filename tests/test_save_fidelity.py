@@ -177,3 +177,39 @@ def test_a_reordered_document_still_saves(tagged_pdf, tmp_path):
         assert doc.page_count == 3
         assert "page 0" in doc[2].get_text()
         assert "page 2" in doc[0].get_text()
+
+
+# ---- restrictions survive a password change --------------------------------------
+
+
+def test_a_documents_restrictions_are_read_at_open(restricted_pdf):
+    """`_permissions` used to start at -1, "allow everything", whatever the document said."""
+    v = VirtualDocument.from_path(restricted_pdf)
+    with fitz.open(restricted_pdf) as doc:
+        assert v.permissions == doc.permissions != -1
+
+
+def test_setting_a_password_keeps_the_existing_restrictions(restricted_pdf, tmp_path):
+    """The defect: the password dialog pre-ticks its boxes from `vdoc.permissions`, so with the -1
+    default every box arrived ticked whatever the file restricted — and accepting the dialog
+    granted copying, modification and assembly on a document that forbade them. Nobody was told.
+    """
+    v = VirtualDocument.from_path(restricted_pdf)
+    before = v.permissions
+    v.set_encryption("secret", v.permissions)      # what the dialog now stages unchanged
+    out = _materialize(v, tmp_path)
+    with fitz.open(out) as doc:
+        assert doc.authenticate("secret")
+        assert doc.permissions == before != -4     # -4 would be "everything allowed"
+
+
+def test_removing_a_password_drops_the_restrictions_with_it(restricted_pdf, tmp_path):
+    """The other direction, unchanged: permission bits live inside the encryption dictionary, so
+    restrictions without a password are not a thing that exists."""
+    v = VirtualDocument.from_path(restricted_pdf)
+    v.set_encryption(None)
+    assert v.permissions == -1
+    out = _materialize(v, tmp_path)
+    with fitz.open(out) as doc:
+        assert not doc.needs_pass
+        assert doc.metadata["encryption"] in (None, "")

@@ -2086,6 +2086,14 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     writing the copy **decrypted** (harmless while it was only an `insert_pdf` donor, fatal once it
     became a save's starting point), and `_encryption_args` only ever covered documents that *need* a
     password — an owner-password-restricted file has none to record, so it saved unencrypted.
+  - **Restrictions survive a password change.** Found by the owner's manual pass: setting a
+    password on a restricted document granted copying, modification and assembly. `_permissions`
+    started at `-1` ("allow everything") and was never seeded from the file, and the password
+    dialog pre-ticks its boxes from it — so every box arrived ticked whatever the document said,
+    and accepting the dialog unchanged lifted the restrictions. Seeded from the origin at open, so
+    the dialog now shows what the document restricts. A new `_encryption_staged` flag rides the
+    undo snapshot and separates "no password set" from "password deliberately removed", which are
+    the same `password is None` but must save differently.
   - **One test changed on purpose.** `test_named_links_survive_identity_save_as_goto` asserted that
     an identity save bakes named destinations into direct GoTos. That bake was a *repair* for
     `insert_pdf` dropping the name tree; with no graft there is nothing to repair, and the named
