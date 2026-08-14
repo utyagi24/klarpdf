@@ -71,6 +71,27 @@ def _authenticate_and_decrypt(
     return fitz.open(stream=decrypted, filetype="pdf"), password
 
 
+_ALL_PERMISSIONS = (
+    fitz.PDF_PERM_PRINT | fitz.PDF_PERM_MODIFY | fitz.PDF_PERM_COPY | fitz.PDF_PERM_ANNOTATE
+    | fitz.PDF_PERM_FORM | fitz.PDF_PERM_ACCESSIBILITY | fitz.PDF_PERM_ASSEMBLE
+    | fitz.PDF_PERM_PRINT_HQ
+)
+
+
+def _restrictions_of(doc: "fitz.Document") -> int:
+    """A document's advisory permission flags, normalised to the model's ``-1 = unrestricted``.
+
+    PyMuPDF answers ``-4`` for a document that restricts nothing — the raw ``/P`` value with only
+    the two reserved low bits clear — while this model has always used ``-1`` as its
+    "everything allowed" sentinel, and :func:`~model.edit_engine._encryption_args` keys on it to
+    decide whether the owner password may equal the user password. Passing ``-4`` straight through
+    would quietly retire that rule for every ordinary document, so anything granting the full set
+    normalises back to ``-1`` and only a genuinely restricted file keeps its exact bits.
+    """
+    permissions = doc.permissions
+    return -1 if permissions & _ALL_PERMISSIONS == _ALL_PERMISSIONS else permissions
+
+
 @dataclass(frozen=True, slots=True)
 class PageRef:
     """A reference to one source page. Immutable so snapshots are cheap and safe.
@@ -191,7 +212,7 @@ class VirtualDocument:
         # document actually said, and setting a password on a restricted file silently granted
         # copying, modification and assembly. Seeding from the origin makes the dialog show what
         # the document restricts and makes accepting it unchanged a no-op (M93).
-        vd._permissions = vd.sources[source_id].permissions
+        vd._permissions = _restrictions_of(vd.sources[source_id])
         vd.ordered = vd._seed_ordered(source_id)
         vd.dirty = False
         return vd

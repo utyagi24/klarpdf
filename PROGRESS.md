@@ -2093,7 +2093,11 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     and accepting the dialog unchanged lifted the restrictions. Seeded from the origin at open, so
     the dialog now shows what the document restricts. A new `_encryption_staged` flag rides the
     undo snapshot and separates "no password set" from "password deliberately removed", which are
-    the same `password is None` but must save differently.
+    the same `password is None` but must save differently. Seeding alone was **not enough**: a
+    checkbox covers several permission bits, ticks when *any* of them is set and grants *all* of
+    them when applied, so a document allowing annotation and form filling while denying
+    modification and assembly still lost two restrictions to a dialog nobody touched. An untouched
+    group now passes the document's own bits through; a deliberate toggle still means what it says.
   - **One test changed on purpose.** `test_named_links_survive_identity_save_as_goto` asserted that
     an identity save bakes named destinations into direct GoTos. That bake was a *repair* for
     `insert_pdf` dropping the name tree; with no graft there is nothing to repair, and the named
