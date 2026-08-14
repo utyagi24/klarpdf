@@ -294,8 +294,56 @@ class VirtualDocument:
         Reusing one ``fitz`` source object across multiple ``insert_pdf`` calls drops its widgets
         after the first call (a PyMuPDF graft-state quirk), which would silently strip form fields
         from a second save and from re-rendered filled pages. A fresh copy resets that state.
+
+        ``PDF_ENCRYPT_KEEP`` because ``tobytes()`` defaults to writing the copy **unencrypted**.
+        That did not matter while the copy was only ever a donor for ``insert_pdf``, but the copy is
+        now also the *starting point* of an unchanged-page-set save (see
+        :meth:`~model.edit_engine.PyMuPDFEngine._build_output`), and a decrypted starting point can
+        only ever produce a decrypted output. Measured on an owner-password form: without the flag
+        the copy came back ``permissions=-4``, encryption ``None``; with it, ``-1052`` and
+        AES-128, matching the source.
         """
-        return fitz.open(stream=self.sources[source_id].tobytes(), filetype="pdf")
+        return fitz.open(
+            stream=self.sources[source_id].tobytes(encryption=fitz.PDF_ENCRYPT_KEEP),
+            filetype="pdf",
+        )
+
+    def page_set_unchanged(self) -> bool:
+        """Is the output exactly the origin's pages, all of them, in their original order?
+
+        True when nothing structural has happened — no reorder, no delete, no insert, no page from
+        a second document. Per-page edits (rotation, crop, annotations, redactions, form fills) do
+        **not** affect this: they are applied to a page, whichever document that page ends up in.
+
+        This is the question that decides whether a save has to *rebuild* the document or can edit a
+        copy of it. It matters because everything a PDF keeps at the document level rather than on a
+        page — the accessibility structure tree, ``/MarkInfo``, Reader-Extensions ``/Perms``, the
+        ``/Names`` tree, encryption — is invisible to ``insert_pdf``, which copies pages. Those
+        cannot be reconstructed afterwards the way the outline and the metadata are (M33, M53); the
+        only way to keep them is not to throw them away.
+        """
+        origin = self.origin_source_id
+        if origin is None or origin not in self.sources:
+            return False
+        if len(self.ordered) != self.sources[origin].page_count:
+            return False
+        return all(ref.source_id == origin and ref.source_page_index == i
+                   for i, ref in enumerate(self.ordered))
+
+    def origin_carries_encryption(self) -> bool:
+        """Is the origin source still an encrypted document in memory?
+
+        The discriminator for whether a save should preserve encryption it was never given a
+        password for. A document that *needed* a password was decrypted at open and its password
+        recorded (M54), so it no longer reports encryption here and is re-encrypted from
+        ``password`` instead — and a password the user has since removed stays removed. A document
+        that opened freely but restricts permissions (an owner password only) was never decrypted,
+        still reports its encryption, and is the case M54 does not cover.
+        """
+        origin = self.origin_source_id
+        if origin is None or origin not in self.sources:
+            return False
+        return bool(self.sources[origin].metadata.get("encryption"))
 
     # ---- queries ----------------------------------------------------------------
 

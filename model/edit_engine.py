@@ -43,6 +43,16 @@ def _encryption_args(vdoc: VirtualDocument) -> dict:
     so a shared owner/user password would authenticate every reader as owner and silently void
     the flags. Losing that owner secret costs nothing — we re-encrypt from the decrypted
     in-memory sources on every save, never by re-authenticating as owner.
+
+    **Two kinds of encrypted document, and M54 only covered one.** A document that *needs* a
+    password to open is decrypted at open and its password recorded, which is the branch below. A
+    document that opens freely but restricts what you may do with it — an owner password only, the
+    common shape for a published form — was never decrypted and has no password to record, so this
+    returned ``{}`` and the save produced a file with no encryption and every permission granted.
+    Nobody was told (TC-002, 2026-08-13). That case is now carried by keeping the encryption the
+    output copy already has, which only the unchanged-page-set route can do — see
+    :func:`_keep_encryption`. A rebuild genuinely cannot: it is a new document, and reproducing the
+    original's encryption would need the owner password, which we do not have and must not need.
     """
     if vdoc.password is None:
         return {}
@@ -58,6 +68,20 @@ def _encryption_args(vdoc: VirtualDocument) -> dict:
         "owner_pw": owner_pw,
         "permissions": vdoc.permissions,
     }
+
+
+def _keep_encryption(vdoc: VirtualDocument) -> dict:
+    """``{"encryption": PDF_ENCRYPT_KEEP}`` when the output should retain the encryption it has.
+
+    Only meaningful on the unchanged-page-set route, where the output *is* a copy of the origin and
+    therefore still carries its encryption dictionary. It applies exactly when the origin was
+    encrypted but never decrypted — i.e. it opened without a password. A document the user opened
+    with a password, or whose password they have since removed, was decrypted at open and no longer
+    reports encryption here, so a removed password stays removed.
+    """
+    if vdoc.password is None and vdoc.origin_carries_encryption():
+        return {"encryption": fitz.PDF_ENCRYPT_KEEP}
+    return {}
 
 
 def _contiguous_runs(ordered) -> list[list]:
@@ -91,9 +115,17 @@ class PyMuPDFEngine(EditEngine):
     """Default engine. Lossless object-level page copy + outline rebuild via PyMuPDF."""
 
     def materialize(self, vdoc: VirtualDocument, out_path: str) -> None:
+        """Write ``vdoc``'s current state to ``out_path``.
+
+        ``_encryption_args`` wins when the user has set a password; otherwise an unchanged page set
+        keeps whatever encryption its copy of the origin already carries. A rebuild has nothing to
+        keep, so it saves as it always did.
+        """
+        keep = _keep_encryption(vdoc) if vdoc.page_set_unchanged() else {}
         out = self._build_output(vdoc)
         try:
-            out.save(out_path, garbage=4, deflate=True, clean=True, **_encryption_args(vdoc))
+            out.save(out_path, garbage=4, deflate=True, clean=True,
+                     **(_encryption_args(vdoc) or keep))
         finally:
             out.close()
 
@@ -111,7 +143,119 @@ class PyMuPDFEngine(EditEngine):
         return self._build_output(vdoc)
 
     def _build_output(self, vdoc: VirtualDocument) -> fitz.Document:
-        """Build the materialised output document (open, unsaved). Shared by save + render."""
+        """Build the materialised output document (open, unsaved). Shared by save + render.
+
+        Two routes, chosen by :meth:`~model.virtual_document.VirtualDocument.page_set_unchanged`:
+
+        * **The page set is unchanged** — every page of the origin, in order. Start from a *copy of
+          the origin* and edit it. Output page ``i`` is still ``ordered[i]``, so every pass below is
+          unchanged; what differs is that the document arrives with its own furniture intact.
+        * **Anything structural happened** — reorder, delete, insert, a second document. Then a new
+          document genuinely has to be assembled, and the graft below is the only way to do it.
+
+        The first route exists because ``insert_pdf`` copies **pages**, and a PDF keeps a great deal
+        at the *document* level: the accessibility structure tree and ``/MarkInfo``, Reader
+        Extensions ``/Perms``, the ``/Names`` tree, and encryption. None of it rides along with a
+        page, so grafting into an empty document silently dropped all of it — a tagged, AES-encrypted
+        federal form came back untagged, unencrypted and with every permission granted, and the two
+        hyperlinks in it were rewritten into ``/Launch`` actions pointing at local files that do not
+        exist (TC-002, 2026-08-13).
+
+        The pattern was already visible here: the outline and internal links get rebuilt (M33) and
+        the metadata stores get carried across (M53), each pass added after a save was found to be
+        dropping something ``insert_pdf`` had never copied. The structure tree is the next item on
+        that list and the one that **cannot** have such a pass written for it — it is a tree of
+        references into page content, not a store that can be copied over afterwards. So the answer
+        for the unchanged case is to stop discarding it.
+
+        This costs output size: nothing is being thrown away any more. The same form saved 379
+        objects rather than 97, and the 97-object version was smaller than its own input precisely
+        because of what was missing from it.
+        """
+        if vdoc.page_set_unchanged():
+            return self._edit_origin_copy(vdoc)
+        return self._graft_output(vdoc)
+
+    def _edit_origin_copy(self, vdoc: VirtualDocument) -> fitz.Document:
+        """The unchanged-page-set route: apply the per-page edits to a copy of the origin.
+
+        ``remap_internal_links`` and ``set_toc`` are deliberately **not** run here. Both exist to
+        repair what the graft breaks, and neither has anything to repair when no page has moved —
+        running them anyway would flatten named destinations into direct GoTos and rewrite a rich
+        outline (colours, open state, named targets) through ``set_toc``'s simple triples, losing
+        fidelity to fix nothing. The metadata pass stays: it is how a user's *edit* to the Info dict
+        or XMP is applied, which has nothing to do with grafting.
+        """
+        out = vdoc.fresh_source(vdoc.origin_source_id)
+        try:
+            self._apply_page_edits(out, vdoc)
+            from model.metadata import apply_metadata
+
+            apply_metadata(out, vdoc)
+        except Exception:
+            out.close()
+            raise
+        return out
+
+    def _apply_page_edits(self, out: fitz.Document, vdoc: VirtualDocument) -> None:
+        """Apply every per-page edit to ``out``, where output page ``i`` is ``ordered[i]``.
+
+        Shared by both routes: these act on a page and do not care which document it sits in, which
+        is exactly why the unchanged-page-set route can skip the graft and still be correct.
+        """
+        # Round-trip (M31): a copied page carries every source annotation, including the KlarPDF
+        # marks a prior save baked in. The model now owns those (read back on open, with any move /
+        # edit / removal applied), so strip the copies and re-add from the model — the model is the
+        # single source of truth. Stripping runs on *every* page (even one with no model
+        # annotations) so a removed mark is actually dropped; foreign annotations are preserved.
+        # Then redactions run first as a destructive pass (apply_redactions rewrites the page and
+        # would otherwise strip overlapping annotations); the non-destructive highlight/text-box
+        # overlays go on top afterwards.
+        from model.content_marks import apply_content_marks
+        from model.foreign_annots import apply_foreign_edits
+        from model.page_edits import (
+            apply_annotations,
+            apply_redactions,
+            strip_klarpdf_annotations,
+        )
+
+        for i, ref in enumerate(vdoc.ordered):
+            if ref.rotation_override is not None:
+                out[i].set_rotation(ref.rotation_override)
+            if ref.crop_override is not None:
+                _apply_crop(out[i], ref.crop_override)  # set_cropbox takes unrotated coords
+            strip_klarpdf_annotations(out[i])
+            # Foreign-annotation deletions (M66) run next, while the copied annotations are still
+            # exactly as they arrived — fingerprints are computed against that state. Everything
+            # not named here passes through untouched, which is what keeps this
+            # zero-fidelity-risk for annotation types the model cannot draw.
+            if ref.annotations:
+                apply_foreign_edits(out[i], ref.annotations)
+            if ref.annotations:
+                apply_redactions(out[i], ref.annotations)
+                # R4 content marks sit between the two annotation passes: after redaction (which
+                # rewrites the content stream and would erase a stamp drawn under it) and before
+                # the overlays (which stay annotations, so they float above page content — a
+                # stamp included, exactly as they do above the page's own ink).
+                apply_content_marks(out[i], ref.annotations)
+                apply_annotations(out[i], ref.annotations)
+
+        # Create any new AcroForm fields (M69) **before** the fill pass, so a value typed into a
+        # field created in this same session lands on it like any other fill.
+        from model.form_fields import apply_new_fields
+
+        for i, ref in enumerate(vdoc.ordered):
+            if ref.annotations:
+                apply_new_fields(out[i], ref.annotations)
+
+        # Apply AcroForm fills onto the widgets (M14). Done on the output, so the shared read-only
+        # sources are never touched.
+        from model.page_edits import apply_form_values
+
+        apply_form_values(out, vdoc.form_values)
+
+    def _graft_output(self, vdoc: VirtualDocument) -> fitz.Document:
+        """The structural route: assemble a new document out of the ordered pages."""
         out = fitz.open()
         # Fresh per-source copies: reusing a live source across insert_pdf calls (or across save
         # attempts) drops its widgets after the first graft, which would strip form fields from the
@@ -138,57 +282,7 @@ class PyMuPDFEngine(EditEngine):
                     final=(i == len(runs) - 1),
                 )
 
-            # Apply absolute rotation overrides + per-page edits (output page i == ordered[i]).
-            # Round-trip (M31): insert_pdf(annots=True) copied every source annotation, including
-            # the KlarPDF marks a prior save baked in. The model now owns those (read back on open,
-            # with any move / edit / removal applied), so strip the copies and re-add from the
-            # model — the model is the single source of truth. Stripping runs on *every* page (even
-            # one with no model annotations) so a removed mark is actually dropped; foreign
-            # annotations are preserved. Then redactions run first as a destructive pass
-            # (apply_redactions rewrites the page and would otherwise strip overlapping annotations);
-            # the non-destructive highlight/text-box overlays go on top afterwards.
-            from model.content_marks import apply_content_marks
-            from model.foreign_annots import apply_foreign_edits
-            from model.page_edits import (
-                apply_annotations,
-                apply_redactions,
-                strip_klarpdf_annotations,
-            )
-
-            for i, ref in enumerate(vdoc.ordered):
-                if ref.rotation_override is not None:
-                    out[i].set_rotation(ref.rotation_override)
-                if ref.crop_override is not None:
-                    _apply_crop(out[i], ref.crop_override)  # set_cropbox takes unrotated coords
-                strip_klarpdf_annotations(out[i])
-                # Foreign-annotation deletions (M66) run next, while the copied annotations are
-                # still exactly as `insert_pdf` brought them across — fingerprints are computed
-                # against that state. Everything not named here passes through untouched, which is
-                # what keeps this zero-fidelity-risk for annotation types the model cannot draw.
-                if ref.annotations:
-                    apply_foreign_edits(out[i], ref.annotations)
-                if ref.annotations:
-                    apply_redactions(out[i], ref.annotations)
-                    # R4 content marks sit between the two annotation passes: after redaction (which
-                    # rewrites the content stream and would erase a stamp drawn under it) and before
-                    # the overlays (which stay annotations, so they float above page content — a
-                    # stamp included, exactly as they do above the page's own ink).
-                    apply_content_marks(out[i], ref.annotations)
-                    apply_annotations(out[i], ref.annotations)
-
-            # Create any new AcroForm fields (M69) **before** the fill pass, so a value typed into
-            # a field created in this same session lands on it like any other fill.
-            from model.form_fields import apply_new_fields
-
-            for i, ref in enumerate(vdoc.ordered):
-                if ref.annotations:
-                    apply_new_fields(out[i], ref.annotations)
-
-            # Apply AcroForm fills onto the copied widgets (M14). Done here, on the output, so the
-            # shared read-only sources are never touched.
-            from model.page_edits import apply_form_values
-
-            apply_form_values(out, vdoc.form_values)
+            self._apply_page_edits(out, vdoc)
 
             # Rebuild internal GoTo links + the outline against the new page order (M33 / M1):
             # insert_pdf drops cross-run internal links and never copies the outline, so both are
