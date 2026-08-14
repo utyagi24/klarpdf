@@ -120,11 +120,19 @@ class PyMuPDFEngine(EditEngine):
         ``_encryption_args`` wins when the user has set a password; otherwise an unchanged page set
         keeps whatever encryption its copy of the origin already carries. A rebuild has nothing to
         keep, so it saves as it always did.
+
+        ``use_objstms=1`` packs objects into object streams and writes a compressed cross-reference
+        (PDF 1.5, 2003 — universally supported). Without it every object is written as a plain
+        uncompressed dictionary, which is what the save has always done and what made keeping the
+        document's own structure look expensive: a 9-page tagged form came back at 316 KB against a
+        233 KB input. With it the same save is **151 KB — smaller than the input** while keeping
+        everything. Most real PDFs arrive using object streams (that form had 26 of them), so this
+        is closer to preserving how the file was written than to compressing it further.
         """
         keep = _keep_encryption(vdoc) if vdoc.page_set_unchanged() else {}
         out = self._build_output(vdoc)
         try:
-            out.save(out_path, garbage=4, deflate=True, clean=True,
+            out.save(out_path, garbage=4, deflate=True, clean=True, use_objstms=1,
                      **(_encryption_args(vdoc) or keep))
         finally:
             out.close()

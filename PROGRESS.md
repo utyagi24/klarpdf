@@ -2091,8 +2091,11 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     `insert_pdf` dropping the name tree; with no graft there is nothing to repair, and the named
     destination now survives with the `/XYZ` view the bake discarded. It asserts where the link lands
     rather than how it is spelled.
-  - **Deliberate trade-off:** outputs are larger, because nothing is discarded any more. The old
-    output was *smaller than its own input* precisely because of what was missing from it.
+  - **Output size.** Keeping the document means keeping more objects, which exposed something the
+    save had always done: it wrote every object as a plain uncompressed dictionary and never used
+    **object streams**, though most real PDFs arrive using them. `use_objstms=1` turns a 9-page
+    tagged form that saved at 316 KB (against a 233 KB input) into **151 KB** — so the structure is
+    kept *and* the file gets smaller, rather than being traded off against it.
 
 ## Public-Release Readiness — go open-source under AGPL-3.0 (planned)
 

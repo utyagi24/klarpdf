@@ -138,7 +138,11 @@ record and is carried by keeping the encryption the origin copy already holds. A
 this: reproducing the original's encryption would need the owner password, which we do not have and
 must not need.
 
-Keeping the origin costs output size, deliberately: nothing is being discarded any more.
+Keeping the origin means keeping more objects, so the save writes **object streams**
+(`use_objstms=1`, PDF 1.5) — which it never did, leaving every object a plain uncompressed
+dictionary. Most real PDFs already arrive that way, so this restores how the file was written
+rather than compressing it further, and it more than pays for the retained structure: a 9-page
+tagged form that saved at 316 KB against a 233 KB input now saves at **151 KB**.
 
 This centralizes outline remapping in one place and makes every editing operation O(list-edit).
 

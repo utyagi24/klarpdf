@@ -153,12 +153,18 @@ def test_owner_password_encryption_and_permissions_round_trip(restricted_pdf, tm
 
 
 def test_a_scheme_less_web_link_is_not_turned_into_a_launch_action(weblink_pdf, tmp_path):
-    """Asserted on the written bytes, not on what PyMuPDF reads back: PyMuPDF *reads* this link as
-    a file link either way, which is exactly why the corruption went unnoticed."""
+    """Asserted on the link's **action dictionary**, not on what PyMuPDF reads back.
+
+    ``get_links()`` reports this link as a *file* link either way — that misreading is the bug's
+    cause, so it cannot also be the test's oracle. Reading the raw object is the way round it, and
+    ``xref_object`` decodes objects out of object streams, which a byte grep of the file cannot.
+    """
     out = _materialize(VirtualDocument.from_path(weblink_pdf), tmp_path)
-    written = open(out, "rb").read()
-    assert b"/Launch" not in written
-    assert written.count(b"/URI") >= 1
+    with fitz.open(out) as doc:
+        actions = [doc.xref_object(link["xref"]) for link in doc[0].get_links()]
+    assert actions, "the link did not survive at all"
+    assert any("/S /URI" in a for a in actions)
+    assert not any("/Launch" in a for a in actions)
 
 
 def test_a_reordered_document_still_saves(tagged_pdf, tmp_path):
