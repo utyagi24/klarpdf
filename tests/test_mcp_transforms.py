@@ -300,6 +300,86 @@ def test_fill_form_rejects_an_unknown_field(a_pdf, out):
     assert not os.path.exists(out)
 
 
+def test_a_boolean_ticks_a_checkbox_whatever_its_export_value_is(awkward_form_pdf, out):
+    """The convenience TC-002 found working and undocumented: a caller sends ``True`` and the
+    widget's own on-state is written — ``"2"`` here, not the ``"Yes"`` a guess would produce.
+    `get_form_fields` now reports it too, so the explicit route works as well."""
+    T.fill_form(awkward_form_pdf, {"married": True}, out)
+    doc = fitz.open(out)
+    try:
+        page = doc[0]
+        values = {w.field_name: w.field_value for w in page.widgets()}
+        assert values["married"] == "2"
+    finally:
+        doc.close()
+
+
+def test_the_explicit_export_value_ticks_it_too(awkward_form_pdf, out):
+    T.fill_form(awkward_form_pdf, {"married": "2"}, out)
+    doc = fitz.open(out)
+    try:
+        page = doc[0]
+        assert {w.field_name: w.field_value for w in page.widgets()}["married"] == "2"
+    finally:
+        doc.close()
+
+
+# ---- fill_form on an XFA form (TC-002 ISSUE 3) ---------------------------------------------
+
+
+def test_an_ordinary_form_says_nothing_about_xfa(a_pdf, out):
+    result = T.fill_form(a_pdf, {"name": "Ada"}, out)
+    assert "xfa" not in result and "warnings" not in result
+
+
+def test_filling_a_static_xfa_form_warns_that_its_datasets_packet_is_stale(static_xfa_pdf, out):
+    """The fill writes the AcroForm widgets and leaves the XFA ``datasets`` packet byte-identical,
+    so the file asserts two different things. The owner's decision (2026-08-15) is to report that
+    rather than resolve it, so what the bridge owes the caller is that they are told."""
+    result = T.fill_form(static_xfa_pdf, {"remarks": "filled through the bridge"}, out)
+    assert result["xfa"] == {"present": True, "dynamic": False, "datasets_updated": False}
+    assert "datasets" in result["warnings"][0]
+    assert "static" in result["warnings"][0]
+
+    doc = fitz.open(out)
+    try:
+        page = doc[0]
+        values = {w.field_name: w.field_value for w in page.widgets()}
+        assert values["remarks"] == "filled through the bridge"   # the widgets really were filled
+    finally:
+        doc.close()
+
+
+def test_a_dynamic_xfa_form_is_called_out_as_the_case_that_renders_wrong(dynamic_xfa_pdf, out):
+    """The case TC-002 flagged as untested and the likeliest hard failure: Acrobat builds a dynamic
+    form's pages from the XFA template, so filling only the AcroForm side can leave it *looking*
+    empty as well as reading empty. The warning has to distinguish the two — a caller told "static"
+    can pass the file on, and a caller told "dynamic" must check it first."""
+    result = T.fill_form(dynamic_xfa_pdf, {"remarks": "filled"}, out)
+    assert result["xfa"]["dynamic"] is True
+    assert "dynamic" in result["warnings"][0] and "Acrobat" in result["warnings"][0]
+
+
+def test_the_datasets_packet_is_left_untouched_rather_than_half_written(static_xfa_pdf, out):
+    """Reporting is the whole behaviour: nothing writes a partial XFA data island."""
+    before = _xfa_datasets(static_xfa_pdf)
+    T.fill_form(static_xfa_pdf, {"remarks": "filled"}, out)
+    assert _xfa_datasets(out) == before
+
+
+def _xfa_datasets(path: str) -> bytes:
+    """The bytes of the document's XFA ``datasets`` packet."""
+    import re
+
+    doc = fitz.open(path)
+    try:
+        _kind, value = doc.xref_get_key(doc.pdf_catalog(), "AcroForm/XFA")
+        packets = {n: int(x) for n, x in re.findall(r"\((.*?)\)\s*(\d+)\s+0\s+R", value)}
+        return doc.xref_stream(packets["datasets"])
+    finally:
+        doc.close()
+
+
 # ---- flatten ------------------------------------------------------------------------------
 
 

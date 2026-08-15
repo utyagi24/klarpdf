@@ -2,10 +2,16 @@
 
 The same split as :mod:`mcp_bridge.queries`: plain Python over ``model/``, no SDK import, JSON-ready
 returns. Every function here drives a :class:`~model.virtual_document.VirtualDocument` exactly the
-way the GUI's own Save does and then materialises it, which is what makes the transforms **lossless**
-for free — object-level page copy, per-page edits, outline remap and internal-link remap all come
-from the shared engine rather than from anything written here. `tests/test_mcp_transforms.py`
-asserts the same invariants as `tests/test_materialize.py`, against the same fixtures.
+way the GUI's own Save does and then materialises it — object-level page copy, per-page edits,
+outline remap and internal-link remap all come from the shared engine rather than from anything
+written here. `tests/test_mcp_transforms.py` asserts the same invariants as
+`tests/test_materialize.py`, against the same fixtures.
+
+That shared engine is also what bounds the word **lossless** here, and the bound is worth stating
+because the tool docs used to overstate it (TC-002 ISSUE 2). Content — text layer, annotations,
+form fields, bookmarks, internal links — always survives. Everything a PDF keeps at the *document*
+level, the structure tree included, survives only when the page set is unchanged, because moving
+pages means grafting a new document and pages do not carry it. PLAN.md §Key design idea, M93.
 
 **The safety model (PLAN.md §Safety model — agent-driven means untrusted caller):**
 
@@ -194,8 +200,9 @@ def split(
     entry, using the same parser as the app's own dialogs (``util/page_range.py``), so the syntax an
     agent uses is the syntax a person types. Omit ``ranges`` to write one file per page.
 
-    Each part is a lossless extract: text layer, form fields and the bookmarks whose targets landed
-    in that part all survive.
+    Each part keeps the content of its pages: text layer, form fields, annotations, and the
+    bookmarks whose targets landed in that part. A split is a page-set change, so the parts do not
+    inherit the document-level structure of the original — see this module's docstring.
     """
     from util.page_range import parse_page_range
 
@@ -327,6 +334,12 @@ def fill_form(
     them, because the name is what carries the value. Use ``get_form_fields`` first — an unknown
     name is an error rather than a silent no-op, since a typo that writes nothing and reports
     success is the worst outcome here.
+
+    A checkbox takes ``True``/``False`` and the widget's own on-state is looked up for you, or the
+    export value itself (``"1"``, ``"2"``, ``"Off"`` — it is per-widget) if you would rather be
+    explicit. ``get_form_fields`` reports it as ``on_state``.
+
+    An **XFA** input is filled on its AcroForm side only and says so — see :func:`_describe_xfa`.
     """
     target = _resolve_out(out, sources=[path], overwrite=overwrite)
     from model.page_edits import read_form_fields
@@ -341,7 +354,45 @@ def fill_form(
         for name, value in values.items():
             vdoc.set_field_value(name, value)
         _write(vdoc, target)
-        return _result(target, vdoc, path, filled=sorted(values))
+        return _result(target, vdoc, path, filled=sorted(values), **_describe_xfa(vdoc))
+
+
+def _describe_xfa(vdoc: VirtualDocument) -> dict:
+    """``{}`` for an ordinary AcroForm; an ``xfa`` block and a ``warnings`` list for an XFA one.
+
+    An XFA form (LiveCycle Designer) keeps a second copy of itself as XML under ``/AcroForm/XFA``,
+    and its ``datasets`` packet is where an XFA-aware consumer reads the values from. A fill writes
+    the AcroForm widgets, which is what every ordinary viewer renders, and leaves ``datasets``
+    byte-identical — so the file ends up asserting two different things (TC-002 ISSUE 3).
+
+    **The bridge reports this rather than resolving it, deliberately** (owner decision,
+    2026-08-15). Writing the values into ``datasets`` too means mapping AcroForm names onto XFA
+    nodes, where a wrong write is worse than no write; dropping ``/XFA`` so the file degrades to a
+    plain AcroForm is the conventional fix but removes the only thing that renders a *dynamic*
+    form. Both remain open (`PROGRESS.md` §Open follow-ups); neither is silently guessed at here.
+    """
+    from model.page_edits import describe_xfa
+
+    origin = vdoc.origin_source_id
+    xfa = describe_xfa(vdoc.sources[origin]) if origin in vdoc.sources else None
+    if xfa is None:
+        return {}
+    warning = (
+        "this is an XFA (LiveCycle) form: the AcroForm widgets were filled but the XFA `datasets` "
+        "packet was not, so a consumer that reads the XFA data — Acrobat's form-data export, "
+        "agency intake tooling — sees an empty form. "
+    ) + (
+        "This one is **dynamic** XFA, which is the case that also renders wrong: Acrobat builds "
+        "its pages from the XFA template rather than from the page content, so it may show the "
+        "form unfilled. Check the output in Acrobat before sending it anywhere."
+        if xfa["dynamic"]
+        else "This one is static XFA, so the values are visible on the page in every viewer, "
+        "including `render_page`."
+    )
+    return {
+        "xfa": {"present": True, "dynamic": xfa["dynamic"], "datasets_updated": False},
+        "warnings": [warning],
+    }
 
 
 def flatten(

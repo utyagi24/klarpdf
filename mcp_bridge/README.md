@@ -2,8 +2,8 @@
 
 KlarPDF's PDF engine as [MCP](https://modelcontextprotocol.io) tools, for Claude Code, Claude
 Desktop, and any other client that speaks stdio. Seventeen tools: read a document without pulling it
-whole into context, transform it losslessly to a new file, and redact it destructively with
-cross-engine verification.
+whole into context, transform it to a new file without losing its content, and redact it
+destructively with cross-engine verification.
 
 **It is a separate, optional component.** The Windows app (`klarpdf-setup-x64.exe`) does not contain
 it, is not made bigger by it, and does not depend on it. Nothing here imports PySide6 — a test
@@ -101,19 +101,19 @@ error, never a silent clamp.
 
 | Read | |
 |---|---|
-| `get_info` | Pages, size, page sizes, encrypted, **has-text-layer**, outline. Call it first. |
+| `get_info` | Pages, size, page sizes, encryption + permissions, **has-text-layer**, outline. Call it first. |
 | `get_outline` | Bookmarks as `{level, title, page}`. |
 | `search` | Hits with page, snippet and box. `match_case`, `whole_words`. |
 | `extract_text` | Text of named pages. |
 | `render_page` | One page as a PNG image block. |
-| `get_form_fields` | Fillable fields, one entry per occurrence. |
+| `get_form_fields` | Fillable fields, one entry per occurrence, with each one's checkbox on-state and read-only / required / multiline / max-length. |
 
 | Transform — writes a **new** file | |
 |---|---|
 | `extract_pages` | Named pages out as one new document — the "give me pages 10-20" tool. |
 | `delete_pages` · `reorder` · `rotate` | Page-set edits; bookmarks follow their pages. |
 | `split` · `merge` | Cut into several files by print-dialog ranges (`"1-3"`, `"5-"`) / concatenate; merge renames colliding fields. |
-| `fill_form` · `flatten` | Fill (still editable) / bake in (no longer editable). |
+| `fill_form` · `flatten` | Fill (still editable; checkboxes take `true`) / bake in (no longer editable). `fill_form` warns on an XFA form. |
 | `export_images` | Rasterise pages to png/jpg files. |
 
 | Redact — **destructive**, verified | |
@@ -129,8 +129,14 @@ error, never a silent clamp.
   the destination. "The source is left byte-identical" is a test, not a claim.
 - **Nothing else is clobbered either.** An existing output is refused unless you pass
   `overwrite: true`.
-- **Lossless.** Text layer, form fields and bookmarks survive, and bookmarks are re-pointed at
-  pages' new positions rather than left dangling.
+- **Lossless for content; for document structure, only if the page set is unchanged.** Text layer,
+  form fields, annotations and bookmarks always survive, and bookmarks are re-pointed at pages' new
+  positions rather than left dangling. But a tool that *moves* pages (`reorder`, `delete_pages`,
+  `extract_pages`, `split`, `merge`) builds a new document, and the accessibility structure tree,
+  `/Perms`, the `/Names` tree and encryption do not survive that — they are document-level, and
+  copying pages does not copy them. A tool that leaves every page in place (`fill_form`, `flatten`,
+  the redactions) edits a copy of the original instead and keeps all of it. See PLAN.md §Key design
+  idea for the table.
 - **A mistake is an error, not a quiet partial success.** An unknown form-field name, a `reorder`
   that is not a full permutation, a `delete_pages` that would empty the document, a `redact_text`
   that matches nothing — all fail loudly rather than writing something plausible.
