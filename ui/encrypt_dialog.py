@@ -77,12 +77,16 @@ class PasswordDialog(QDialog):
         form.addRow("New password:" if protected else "Password:", self._new)
         form.addRow("Confirm:", self._confirm)
 
+        # What the document already restricts, and how each box started, so an untouched box can
+        # pass the document's own bits through rather than overwrite them — see _permissions().
+        self._original = vdoc.permissions
         self._flags: list[QCheckBox] = []
         for label, bits in FLAG_GROUPS:
             box = QCheckBox(label)
             box.setChecked(vdoc.permissions == -1 or bool(vdoc.permissions & bits))
             self._flags.append(box)
             form.addRow(box)
+        self._initial = [box.isChecked() for box in self._flags]
         flags_note = QLabel(_FLAGS_HONESTY)
         flags_note.setWordWrap(True)
         form.addRow(flags_note)
@@ -108,12 +112,27 @@ class PasswordDialog(QDialog):
             widget.setEnabled(not removing)
 
     def _permissions(self) -> int:
-        if all(box.isChecked() for box in self._flags):
-            return -1  # nothing restricted → the plain everything-allowed encryption
+        """The flags to write: the user's choices, with **untouched groups left as the document
+        had them**.
+
+        A group is several PDF permission bits behind one checkbox, and the two directions are not
+        symmetric: the box is ticked when *any* of its bits is set, but ticking it grants *all* of
+        them. So a document allowing annotation and form filling while denying modification and
+        assembly — one real form did exactly that — arrived with the box ticked and left with two
+        restrictions silently lifted, from a dialog nobody had touched (M93, owner-reported).
+
+        Passing a group's original bits through unless its box actually *changed* fixes that
+        without pretending a coarse checkbox can express a fine-grained flag set: accepting the
+        dialog unchanged is now a no-op, and toggling a box still means exactly what it says.
+        """
+        if all(box.isChecked() for box in self._flags) and self._original == -1:
+            return -1  # nothing restricted, nothing was → the everything-allowed encryption
         bits = _BASE
-        for box, (_label, group) in zip(self._flags, FLAG_GROUPS):
-            if box.isChecked():
-                bits |= group
+        for box, initial, (_label, group) in zip(self._flags, self._initial, FLAG_GROUPS):
+            if box.isChecked() == initial:
+                bits |= self._original & group      # untouched → whatever the document said
+            elif box.isChecked():
+                bits |= group                       # newly allowed → the whole group
         return bits
 
     def _validate_and_accept(self) -> None:

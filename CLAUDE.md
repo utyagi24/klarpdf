@@ -58,11 +58,38 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   **Features** inventory; a visitor won't go read `PROGRESS.md`. That restatement is exactly what
   rots: README sat on `v0.9.4` through both v0.9.5 and v0.9.6. So the release checklist
   (`RELEASE.md` §3 step 2) names `README.md` alongside `PROGRESS.md` and `CLAUDE.md`, and the
-  version bump, the three status lines, and the release PR all land **together** — including a
-  Features-inventory update whenever the release adds or changes a user-facing feature. Everything
-  deeper stays a link.
+  version bump and the three status lines land **together** with the release PR. Everything deeper
+  stays a link.
+  **But the Features inventory is not a status line, and it rides the change, not the release.** A
+  version can only be written once it exists; "what the app does" is true the moment the code lands,
+  and parking it until some future release PR is precisely the rot this bullet is about — someone
+  has to remember, and the README sat on `v0.9.4` through two releases because nobody did. So: a PR
+  that adds or changes a user-facing behaviour updates the Features list *in that PR* (M93 did, for
+  document fidelity and permission carry-through); only the version, the what's-new line and the
+  release links wait for the tag.
+- **Every non-trivial change gets both a `PLAN.md` design entry and a `PROGRESS.md` milestone** —
+  in the *same* PR as the code, not afterwards. "Non-trivial" is anything that changes how the app
+  behaves or how it is built: a new route through the save path, a contract change, a defect whose
+  cause is worth knowing. A one-line typo fix is not; a fix that changes what a Save *writes* is.
+  The milestone gets the next free number and `*(unplanned)*` when it was not on the roadmap (see
+  M43.1, M93). This is the rule that keeps the design docs from becoming a description of the app as
+  it was first imagined rather than as it is.
 
 ## Gotchas (cost real time if missed)
+- **`insert_pdf` copies pages, not documents.** Everything a PDF keeps at the *catalog* level — the
+  accessibility structure tree, `/MarkInfo`, Reader Extensions `/Perms`, the `/Names` tree,
+  encryption — is invisible to it and vanishes without a word. It hides well, because the pages come
+  through perfectly: the output opens correctly in every viewer while a tagged, AES-encrypted form
+  has quietly become untagged, unencrypted and fully permitted (M93, found by TC-002 — *the app*
+  did this, not just the bridge). **The tell is to check the catalog, not the pages**:
+  `doc.xref_get_key(doc.pdf_catalog(), "StructTreeRoot")`, `doc.permissions`,
+  `doc.metadata["encryption"]`. Two of these can be repaired afterwards and were (the outline M33,
+  the metadata stores M53); the structure tree cannot, which is why the save now avoids the graft
+  entirely when no page has moved.
+- **`tobytes()` writes the copy *decrypted* unless told otherwise**, and `Document.is_encrypted` is
+  False for a file that opened without a password — so an owner-password-restricted document reads
+  as "not encrypted" and silently saves that way. Ask `doc.metadata["encryption"]` (or
+  `doc.permissions != -4`), never `is_encrypted`, when the question is "was this file protected".
 - **A green Windows + WSL suite does not mean CI is green — and Qt failures are *segfaults*, not
   assertion failures.** M88.3 crashed the Ubuntu runner inside `QGraphicsView`'s constructor ~74%
   into the suite while both local platforms ran it green, because the fault was in Qt's C++ and
