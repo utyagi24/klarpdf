@@ -31,6 +31,7 @@ READ_TOOLS = {
     "get_form_fields",
 }
 WRITE_TOOLS = {
+    "extract_pages",
     "delete_pages",
     "reorder",
     "rotate",
@@ -248,6 +249,13 @@ def test_rotate_through_the_server(a_pdf, tmp_path):
 def test_split_through_the_server(a_pdf, tmp_path):
     result = payload("split", path=a_pdf, out_dir=str(tmp_path), ranges=["1-2", "3"])
     assert result["count"] == 2
+
+
+def test_extract_pages_through_the_server(a_pdf, tmp_path):
+    out = str(tmp_path / "x.pdf")
+    result = payload("extract_pages", path=a_pdf, pages=[2, 3], out=out)
+    assert result["pages"] == 2
+    assert result["source_pages"] == [2, 3]
 
 
 def test_merge_through_the_server(a_pdf, b_pdf, tmp_path):

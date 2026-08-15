@@ -242,6 +242,45 @@ def split(
     }
 
 
+def extract_pages(
+    path: str,
+    pages: list[int],
+    out: str,
+    *,
+    password: str | None = None,
+    overwrite: bool = False,
+) -> dict:
+    """Write ``pages`` (1-based) to a single new PDF, in document order.
+
+    The operation everybody actually asks for by name — "give me pages 10-20 as a file" — and the
+    one the first tool surface was missing. :func:`split` could already produce it via
+    ``ranges=["10-20"]``, but it is named for a different intent and picks the output filename
+    itself, so an agent asked to *extract* did not find it and fell back to shelling out to
+    `pdfunite`. That is what a missing tool looks like from the outside.
+
+    Runs `model/export.py:export_selected_pages` (M51 — the app's Export ▸ Selected Pages as PDF),
+    so it is the same object-level extract the GUI does: text layer, form fields and annotations
+    carried, rotation/crop applied, and the origin bookmarks **and internal links remapped to the
+    extracted page numbers** rather than left dangling.
+    """
+    from model.export import export_selected_pages
+
+    target = _resolve_out(out, sources=[path], overwrite=overwrite)
+    with open_document(path, password) as vdoc:
+        indices = resolve_pages(vdoc, pages)
+        if not indices:
+            raise ValueError("no pages given — extract_pages must select something")
+        _write(vdoc, target, writer=lambda doc, tmp: export_selected_pages(doc, indices, tmp))
+        return {
+            "out": target,
+            "pages": len(indices),  # the OUTPUT's page count, not the source's
+            "source_pages": [i + 1 for i in indices],
+            "bytes": os.path.getsize(target),
+            "source": os.path.abspath(path),
+            "source_unchanged": True,
+        }
+
+
 def merge(paths: list[str], out: str, *, overwrite: bool = False) -> dict:
     """Concatenate ``paths`` into one PDF, in the order given.
 

@@ -1,7 +1,7 @@
 # KlarPDF MCP bridge
 
 KlarPDF's PDF engine as [MCP](https://modelcontextprotocol.io) tools, for Claude Code, Claude
-Desktop, and any other client that speaks stdio. Sixteen tools: read a document without pulling it
+Desktop, and any other client that speaks stdio. Seventeen tools: read a document without pulling it
 whole into context, transform it losslessly to a new file, and redact it destructively with
 cross-engine verification.
 
@@ -15,34 +15,48 @@ fetches its dependencies from PyPI when Claude Desktop installs it.)
 
 ## Install
 
-Two paths. Pick by where you want to run it from.
-
-**From a checkout** — you are working in this repo:
+**Install it — do not try to run it in place.** From a clone:
 
 ```bash
-pip install -r requirements-mcp.txt     # the audited, cross-platform lock
-python -m mcp_bridge                    # serves on stdio; Ctrl-C to stop
+pip install -r requirements-mcp.txt   # the audited, cross-platform pins
+pip install -e .                      # puts `klarpdf-mcp` on PATH
+klarpdf-mcp                           # serves on stdio; Ctrl-C to stop
 ```
 
-**As a command** — you want it available anywhere:
+Or isolated, if you never want to touch it again:
 
 ```bash
-pipx install .        # from a clone; puts `klarpdf-mcp` on PATH
-klarpdf-mcp
+pipx install .
 ```
 
-`requirements-mcp.txt` is `==`-pinned, unhashed and **cross-platform** on purpose. The app is
-Windows-first; the bridge is not, and a hashed `win_amd64` lock would silently make it
-Windows-only — `pip install --require-hashes` fails on other platforms by design.
+`klarpdf-mcp` is the command to give any client. **`python -m mcp_bridge` is not** — it only works
+when the current directory happens to be the repo, because `-m` puts the *working directory* on
+`sys.path`, never the interpreter's location. A client launches its servers from its own working
+directory, which is essentially never your checkout, so `python -m` fails there with
+`No module named mcp_bridge` even when you point it at the right virtualenv's Python. (If you must,
+`PYTHONPATH=/path/to/klarpdf` fixes it — but installing is the answer.)
+
+Install the two lines together: `requirements-mcp.txt` carries the exact versions we audit weekly,
+and `pip install -e .` on its own would resolve fresh ones. That lock is `==`-pinned, unhashed and
+**cross-platform** on purpose — the app is Windows-first, the bridge is not, and a hashed
+`win_amd64` lock would silently make it Windows-only, because `pip install --require-hashes` fails
+on other platforms by design.
 
 ## Claude Code
 
-A `.mcp.json` is already checked in at the repo root, so inside this project Claude Code offers the
-server and you just approve it. From anywhere else, add it yourself:
+Install first (above), then:
 
 ```bash
 claude mcp add klarpdf -- klarpdf-mcp
 ```
+
+A `.mcp.json` is also checked in at the repo root, so inside this project Claude Code offers the
+server and you approve it — but it too needs the install, since it invokes `klarpdf-mcp`.
+
+Confirm with `/mcp`: it should say **klarpdf — 17 tools**. If it says *failed*, run the command by
+hand in the same shell you launch Claude from; the error is almost always `command not found`
+(nothing installed, or a different virtualenv active) or `No module named mcp` (installed the
+package but not its dependencies).
 
 ## Claude Desktop
 
@@ -96,8 +110,9 @@ error, never a silent clamp.
 
 | Transform — writes a **new** file | |
 |---|---|
+| `extract_pages` | Named pages out as one new document — the "give me pages 10-20" tool. |
 | `delete_pages` · `reorder` · `rotate` | Page-set edits; bookmarks follow their pages. |
-| `split` · `merge` | By print-dialog ranges (`"1-3"`, `"5-"`); merge renames colliding fields. |
+| `split` · `merge` | Cut into several files by print-dialog ranges (`"1-3"`, `"5-"`) / concatenate; merge renames colliding fields. |
 | `fill_form` · `flatten` | Fill (still editable) / bake in (no longer editable). |
 | `export_images` | Rasterise pages to png/jpg files. |
 

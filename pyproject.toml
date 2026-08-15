@@ -8,15 +8,27 @@ description = "Local, offline, native-Windows PDF viewer + page editor"
 # Relaxing to `>=3.12` for the bridge's sake is a real option — its dependencies all support 3.13 —
 # but it is untested here and is an owner call, so it is not taken silently.
 requires-python = ">=3.12,<3.13"
-# Dependency VERSIONS have a single source of truth in requirements.in (compiled to
+# The GUI's dependency VERSIONS have a single source of truth in requirements.in (compiled to
 # requirements-win.txt for the Windows ship and requirements-dev.txt for WSL dev). They are
 # intentionally NOT duplicated here. See PLAN.md "Packaging, dependencies & installer".
 #
-# `dependencies` is likewise absent on purpose. This project is installed from a *lock*, never
-# resolved from here: the bridge from requirements-mcp.txt, dev from requirements-dev.txt, the
-# Windows ship from the hashed requirements-win.txt. The one place dependencies ARE declared is
-# packaging/mcpb/pyproject.toml, because the .mcpb format requires it (MCPB `server.type = "uv"`
-# resolves at install time) — and they are `==` pins there for exactly that reason.
+# `dependencies` below covers what an INSTALL of this project is: the MCP bridge. `packages` is
+# mcp_bridge + model + util, and the only entry point is klarpdf-mcp — the Windows app is never
+# pip-installed, it is PyInstaller-frozen from the hashed lock.
+#
+# M42 left this list out, reasoning that the project installs from a lock and never resolves from
+# here. That was right for the app and wrong for a package whose whole purpose is a console script:
+# the built metadata carried **zero Requires-Dist**, so the `pipx install .` the README documents
+# produced a `klarpdf-mcp` that died on `import mcp`. Found by hand, not by CI — which is why
+# tests/test_mcp_packaging.py now builds the metadata and asserts these are in it.
+#
+# FLOORS here, PINS in requirements-mcp.txt. That is the ordinary split: this file says what the
+# code needs to work, the lock says the exact set we audited and recommend. Keep the floors equal to
+# requirements-mcp.in's — a test enforces it.
+dependencies = [
+    "PyMuPDF>=1.25.5",
+    "mcp>=2,<3",
+]
 
 # The project's FIRST console script (M42). It is the MCP bridge's entry point and nothing else;
 # there is deliberately no general-purpose CLI (PLAN.md §Dependencies & packaging — a second
