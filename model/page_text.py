@@ -153,6 +153,44 @@ class PageText:
         text = " ".join(w[4] for w in line[lo:hi])
         return ("… " if lo > 0 else "") + text + (" …" if hi < len(line) else "")
 
+    def group_matches(self, boxes: list[tuple], term: str) -> list[tuple[tuple, ...]]:
+        """Fold one term's hit boxes, in reading order, into one entry per **occurrence**.
+
+        MuPDF returns a match that wraps a line break as one rect per line, so a phrase occurring
+        five times can come back as seven boxes. Every box is real and redaction has to clear all
+        of them — dropping the second is what left a legible ``expression.`` under a black box in
+        TC-001 — but *counting* a fragment as a match is a different claim, and a wrong one: the
+        find bar would say "4 of 7" and step through one occurrence twice.
+
+        Occurrences are recovered by reading the page rather than by guessing from geometry: the
+        text under each box is accumulated until it spells the term, which is exactly the condition
+        that closes an occurrence. A run that stops building toward the term is emitted box by box
+        instead — **a box is never dropped**, because the caller may be about to redact it, and an
+        ungrouped box costs a miscount while a missing one costs a leak.
+        """
+        wanted = " ".join(term.split()).casefold()
+        groups: list[tuple[tuple, ...]] = []
+        pending: list[tuple] = []
+        acc = ""
+        for box in boxes:
+            piece = self.text_under(box).strip()
+            acc = f"{acc} {piece}".strip() if pending else piece
+            pending.append(box)
+            if acc.casefold() == wanted:
+                groups.append(tuple(pending))
+                pending, acc = [], ""
+            elif not wanted.startswith(acc.casefold()):
+                groups.extend((box,) for box in pending)   # not one occurrence after all
+                pending, acc = [], ""
+        groups.extend((box,) for box in pending)           # never leave a box behind
+        return groups
+
+    def snippet_for(self, boxes: list[tuple]) -> str:
+        """Context snippet for a whole match: the per-line snippets joined when it wraps, so a
+        reader sees the phrase rather than the half of it that fitted on the first line."""
+        parts = [part for part in (self.snippet(box) for box in boxes) if part]
+        return " ".join(parts)
+
     def _char_lines(self) -> list:
         """Per-line char index ``(y0, y1, [(x0, y0, x1, y1, char), …])``, built on first use."""
         if self._chars is None:
