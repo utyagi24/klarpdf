@@ -58,9 +58,15 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   **Features** inventory; a visitor won't go read `PROGRESS.md`. That restatement is exactly what
   rots: README sat on `v0.9.4` through both v0.9.5 and v0.9.6. So the release checklist
   (`RELEASE.md` §3 step 2) names `README.md` alongside `PROGRESS.md` and `CLAUDE.md`, and the
-  version bump, the three status lines, and the release PR all land **together** — including a
-  Features-inventory update whenever the release adds or changes a user-facing feature. Everything
-  deeper stays a link.
+  version bump and the three status lines land **together** with the release PR. Everything deeper
+  stays a link.
+  **But the Features inventory is not a status line, and it rides the change, not the release.** A
+  version can only be written once it exists; "what the app does" is true the moment the code lands,
+  and parking it until some future release PR is precisely the rot this bullet is about — someone
+  has to remember, and the README sat on `v0.9.4` through two releases because nobody did. So: a PR
+  that adds or changes a user-facing behaviour updates the Features list *in that PR* (M93 did, for
+  document fidelity and permission carry-through); only the version, the what's-new line and the
+  release links wait for the tag.
 - **Every non-trivial change gets both a `PLAN.md` design entry and a `PROGRESS.md` milestone** —
   in the *same* PR as the code, not afterwards. "Non-trivial" is anything that changes how the app
   behaves or how it is built: a new route through the save path, a contract change, a defect whose
