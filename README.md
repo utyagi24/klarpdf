@@ -120,6 +120,60 @@ No Python and no network needed at install or runtime. Unsigned for now → a on
 as a separate application, and the old uninstaller is the only thing that removes its file
 association. Then delete `%LOCALAPPDATA%\pdfproj` by hand.
 
+## Use it from an agent (MCP)
+
+The same PDF engine, exposed to **Claude Code, Claude Desktop** and other agentic clients as a local
+[MCP](https://modelcontextprotocol.io) server. It is a **separate, optional component** — the
+Windows installer above does not contain it and is not made bigger by it — and like the app it makes
+no network connections.
+
+```bash
+pip install -r requirements-mcp.txt   # cross-platform, ==-pinned, audited weekly
+claude mcp add klarpdf -- python -m mcp_bridge
+```
+
+Full install options, the Claude Desktop config, and the one-click `.mcpb` bundle are in
+**[mcp_bridge/README.md](mcp_bridge/README.md)**.
+
+Sixteen tools in three groups. **Read** — `get_info`, `get_outline`, `search`, `extract_text`,
+`render_page`, `get_form_fields` — let an agent pull only the pages it needs instead of loading an
+800-page file whole. **Transform** — `split`, `merge`, `reorder`, `delete_pages`, `rotate`,
+`fill_form`, `flatten`, `export_images` — are lossless and always write a *new* file. **Redact** —
+`redact_text`, `redact_regions` — physically delete the content and then re-read the written file to
+prove it, with a second engine when Poppler is installed; if anything is still recoverable the
+output is deleted and the call fails.
+
+<details>
+<summary><b>What that looks like in practice</b></summary>
+
+**"Which pages of this 400-page contract mention indemnity, and what do they say?"**
+`get_info` (400 pages, has a text layer) → `search "indemnity"` (11 hits with snippets) →
+`extract_text pages=[87, 88, 213]`. Three pages enter the conversation instead of four hundred.
+
+**"Send them just the appendix."**
+`get_outline` finds "Appendix A" starting at page 361 → `split ranges=["361-"]`. The part keeps its
+text layer, its form fields, and the bookmarks that landed in it.
+
+**"Remove the bank details before this goes out."**
+`search "Sort Code"` first — read the snippets, confirm the eleventh hit is a heading and not a
+number — then `redact_text` for the ones that matter. The reply says which engines verified the
+removal. Preview before you delete: with `whole_words` off, "Smith" also matches inside
+"Smithsonian".
+
+**"Fill this form and lock it."**
+`get_form_fields` (names, types, choices, current values) → `fill_form` → `flatten`. Two files, the
+original untouched.
+
+**"This scan is unreadable — what does page 3 say?"**
+`get_info` reports `has_text_layer: false`, so searching is pointless → `render_page page=3` and
+read it as an image.
+</details>
+
+Two switches for a smaller blast radius: `--read-only` withholds the write tools entirely (they are
+not registered, so the model never sees them), and `--allow-root DIR` confines the server to a
+directory tree. Both are opt-in — a stdio server is a subprocess running as you, with the file
+access you already have.
+
 ## The repo — docs & layout
 
 | Doc | What |
@@ -139,13 +193,14 @@ Source layout, briefly:
 launcher.py                # entry point — single-instance logic, then hands off to app.py
 app.py · main_window.py    # Qt application + the document window
 model/                     # edit engine: virtual document, page edits, save, outline/link remap
+mcp_bridge/                # the MCP server — reuses model/ with no Qt; the GUI never imports it
 viewer/                    # rendering, selection, search, annotations, forms, printing
 organize/                  # Pages sidebar (thumbnails, drag-and-drop)
 ui/ · store/ · util/       # icons + About · view-state/recents · path identity + resources
 platform_integration.py    # ALL OS-specific code, quarantined behind one seam
 packaging/                 # PyInstaller spec, Inno Setup script, build.ps1
 vendor/ · requirements-*   # the pinned + vendored offline dependency ship-set
-tests/                     # 1273 headless tests (offscreen Qt), run in CI on every PR
+tests/                     # 1879 headless tests (offscreen Qt), run in CI on every PR
 ```
 
 ## Develop (WSL)
@@ -156,7 +211,7 @@ sudo apt install -y python3.12-venv
 
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements-dev.txt
-invoke test                     # 1273 headless tests (offscreen Qt) — or run `pytest`
+invoke test                     # 1879 headless tests (offscreen Qt) — or run `pytest`
 invoke --list                   # all build/release tasks: test · audit · lock · build · tag · publish
 python launcher.py file.pdf     # run the GUI via WSLg
 ```
