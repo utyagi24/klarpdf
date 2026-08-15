@@ -258,3 +258,49 @@ def test_gui_save_writes_encrypted_and_reopens_via_prompt(app, a_pdf, monkeypatc
     win2 = MainWindow(app, a_pdf, app.settings)   # the second open path: the GUI prompt
     assert win2.vdoc.page_count == 3
     assert win2.vdoc.password == "gui-pw"         # carry-through armed for the next save
+
+
+def test_an_untouched_flag_group_keeps_the_documents_own_bits(qapp, tmp_path):
+    """A checkbox covers several PDF permission bits, and the two directions are not symmetric: it
+    ticks when *any* bit is set but grants *all* of them when applied. So a document allowing
+    annotation and form filling while denying modification and assembly — a real SSA form did
+    exactly that — arrived with the box ticked and left with two restrictions silently lifted, from
+    a dialog nobody had touched (M93, owner-reported 2026-08-14).
+    """
+    path = str(tmp_path / "restricted.pdf")
+    doc = fitz.open()
+    doc.new_page().insert_text((72, 72), "restricted", fontsize=20)
+    keep = (fitz.PDF_PERM_PRINT | fitz.PDF_PERM_PRINT_HQ | fitz.PDF_PERM_ANNOTATE
+            | fitz.PDF_PERM_FORM | fitz.PDF_PERM_ACCESSIBILITY)   # denies MODIFY, COPY, ASSEMBLE
+    doc.save(path, encryption=fitz.PDF_ENCRYPT_AES_128, owner_pw="owner", permissions=keep)
+    doc.close()
+
+    v = VirtualDocument.from_path(path)
+    dialog = PasswordDialog(v)
+    dialog._new.setText("pw")
+    dialog._confirm.setText("pw")
+    dialog._validate_and_accept()
+    _password, permissions = dialog.staged()
+    for denied in (fitz.PDF_PERM_MODIFY, fitz.PDF_PERM_COPY, fitz.PDF_PERM_ASSEMBLE):
+        assert not permissions & denied, "accepting the dialog unchanged lifted a restriction"
+    for allowed in (fitz.PDF_PERM_ANNOTATE, fitz.PDF_PERM_FORM, fitz.PDF_PERM_PRINT):
+        assert permissions & allowed, "accepting the dialog unchanged withdrew a permission"
+
+
+def test_unticking_a_group_still_denies_all_of_it(qapp, tmp_path):
+    """Carrying untouched bits through must not make a *deliberate* toggle a half-measure."""
+    path = str(tmp_path / "plain.pdf")
+    doc = fitz.open()
+    doc.new_page().insert_text((72, 72), "plain", fontsize=20)
+    doc.save(path)
+    doc.close()
+
+    v = VirtualDocument.from_path(path)
+    dialog = PasswordDialog(v)
+    dialog._new.setText("pw")
+    dialog._confirm.setText("pw")
+    dialog._flags[1].setChecked(False)          # "Allow copying text and images" — off
+    dialog._validate_and_accept()
+    _password, permissions = dialog.staged()
+    assert not permissions & fitz.PDF_PERM_COPY
+    assert permissions & fitz.PDF_PERM_PRINT and permissions & fitz.PDF_PERM_MODIFY

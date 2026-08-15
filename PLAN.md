@@ -76,7 +76,7 @@ its exact tag/commit) satisfies that. This is no longer hypothetical: the obliga
 the About dialog's tagged corresponding-source link (G4) is what discharges it per release. The
 alternatives remain: an Artifex commercial license, or a pypdf-only fallback build.
 
-### Key design idea — Virtual-document / edit-list model (lossless)
+### Key design idea — Virtual-document / edit-list model
 
 Never mutate the on-disk PDF while editing. Each window holds a `VirtualDocument`: an ordered
 list of `PageRef = (source_id, source_page_index, rotation_override)` plus a registry of open
@@ -87,13 +87,62 @@ read-only `fitz.Document` sources.
 - **Cross-window move/copy is trivial:** dragging/pasting a page from window B into window A
   just splices B's `PageRef`s (registering B's `fitz.Document` in A's sources). Copy keeps B's
   ref; move also removes it from B. Nothing is rewritten until Save.
-- **Materialize-on-Save** (the only write): iterate the ordered list and copy contiguous
-  same-source runs via `out.insert_pdf(src, from_page, to_page, start_at=-1, links=True,
-  annots=True, widgets=True, final=...)`, apply rotation overrides with `page.set_rotation()`
-  (absolute, not additive — set the final angle, don't accumulate), **rebuild the outline**
-  (remap old→new page indices, drop bookmarks whose target page was deleted), then
-  `out.save(path, garbage=4, deflate=True, clean=True)`. Object-level copies preserve the OCR
-  text layer, annotations, and form fields by construction (never rasterize/flatten).
+- **Materialize-on-Save** (the only write) takes **one of two routes**, chosen by
+  `VirtualDocument.page_set_unchanged()` — *is the output every page of the origin, in its original
+  order?*
+  - **Unchanged page set → edit a copy of the origin.** Open a fresh copy and apply the per-page
+    edits to it. This is the common case: filling a form, annotating, redacting, rotating, cropping.
+    Per-page edits deliberately do **not** count as structural — they act on a page wherever it lives.
+  - **Anything structural → graft a new document.** Reorder, delete, insert, or a page from a second
+    source: copy contiguous same-source runs via `out.insert_pdf(src, from_page, to_page,
+    start_at=-1, links=True, annots=True, widgets=True, final=...)`, then **rebuild the outline**
+    (remap old→new page indices, drop bookmarks whose target page was deleted) and the internal
+    links, both of which the graft drops.
+
+  Both routes then apply rotation overrides with `page.set_rotation()` (absolute, not additive — set
+  the final angle, don't accumulate), the page-edit layer and the form fills, and finish with
+  `out.save(path, garbage=4, deflate=True, clean=True)`. Output page `i` is `ordered[i]` either way,
+  which is what lets every per-page pass be shared verbatim between the two.
+
+**Why two routes, and what "lossless" actually covers (M93).** `insert_pdf` copies **pages**. A PDF
+also keeps a great deal at the **document** level, and none of it rides along with a page: the
+accessibility structure tree and `/MarkInfo`, Reader Extensions `/Perms`, the `/Names` tree, and
+encryption. Grafting into an empty document dropped every one of them *silently* — the pages came
+through perfectly, so the output looked right in every viewer while a tagged, AES-encrypted federal
+form came back untagged, unencrypted, with every permission granted, and with its two hyperlinks
+rewritten into `/Launch` actions naming local files that do not exist.
+
+The engine had already been patched twice for the same shape of problem: the outline and internal
+links are rebuilt (M33) and the metadata stores carried across (M53), each pass added after a save
+was caught dropping something `insert_pdf` never copied. The structure tree is the next item on that
+list and **the one that cannot have such a pass written for it** — it is a tree of references into
+page content, so it can be kept but never reconstructed. Hence the split: the case that needs no new
+document no longer gets one.
+
+The guarantee is therefore precise rather than absolute:
+
+| | text layer, annotations, form fields, bookmarks, internal links | structure tree, `/MarkInfo`, `/Perms`, `/Names`, encryption |
+|---|---|---|
+| **unchanged page set** | preserved | **preserved** |
+| **reorder / delete / merge** | preserved (outline + links rebuilt) | **lost** |
+
+Preserving a structure tree across *moved* pages means rewriting it rather than copying it — a
+separate project, carried in `PROGRESS.md` §Open follow-ups. Until then the reordering route is
+lossless for **content** and not for **document structure**, and the docs say so rather than
+rounding up.
+
+Encryption has two cases and M54 only covered one: a document that *needs* a password is decrypted
+at open and re-encrypted from the recorded password, while one that opens freely but restricts what
+you may do with it (an owner password — the common shape for a published form) has no password to
+record and is carried by keeping the encryption the origin copy already holds. A rebuild cannot do
+this: reproducing the original's encryption would need the owner password, which we do not have and
+must not need.
+
+Keeping the origin means keeping more objects, so the save writes **object streams**
+(`use_objstms=1`, PDF 1.5) — which it never did, leaving every object a plain uncompressed
+dictionary. Most real PDFs already arrive that way, so this restores how the file was written
+rather than compressing it further, and it more than pays for the retained structure: a 9-page
+tagged form that saved at 316 KB against a 233 KB input now saves at **151 KB**.
 
 This centralizes outline remapping in one place and makes every editing operation O(list-edit).
 
