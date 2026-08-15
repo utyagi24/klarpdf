@@ -129,16 +129,17 @@ no network connections.
 
 ```bash
 pip install -r requirements-mcp.txt   # cross-platform, ==-pinned, audited weekly
-claude mcp add klarpdf -- python -m mcp_bridge
+pip install -e .                      # puts `klarpdf-mcp` on PATH
+claude mcp add klarpdf -- klarpdf-mcp
 ```
 
 Full install options, the Claude Desktop config, and the one-click `.mcpb` bundle are in
 **[mcp_bridge/README.md](mcp_bridge/README.md)**.
 
-Sixteen tools in three groups. **Read** — `get_info`, `get_outline`, `search`, `extract_text`,
+Seventeen tools in three groups. **Read** — `get_info`, `get_outline`, `search`, `extract_text`,
 `render_page`, `get_form_fields` — let an agent pull only the pages it needs instead of loading an
-800-page file whole. **Transform** — `split`, `merge`, `reorder`, `delete_pages`, `rotate`,
-`fill_form`, `flatten`, `export_images` — are lossless and always write a *new* file. **Redact** —
+800-page file whole. **Transform** — `extract_pages`, `split`, `merge`, `reorder`, `delete_pages`,
+`rotate`, `fill_form`, `flatten`, `export_images` — are lossless and always write a *new* file. **Redact** —
 `redact_text`, `redact_regions` — physically delete the content and then re-read the written file to
 prove it, with a second engine when Poppler is installed; if anything is still recoverable the
 output is deleted and the call fails.
@@ -151,8 +152,9 @@ output is deleted and the call fails.
 `extract_text pages=[87, 88, 213]`. Three pages enter the conversation instead of four hundred.
 
 **"Send them just the appendix."**
-`get_outline` finds "Appendix A" starting at page 361 → `split ranges=["361-"]`. The part keeps its
-text layer, its form fields, and the bookmarks that landed in it.
+`get_outline` finds "Appendix A" starting at page 361 → `extract_pages pages=[361…]` (or `split` to
+cut the whole document up at once). The part keeps its text layer, its form fields, and the
+bookmarks that landed in it.
 
 **"Remove the bank details before this goes out."**
 `search "Sort Code"` first — read the snippets, confirm the eleventh hit is a heading and not a
@@ -200,7 +202,7 @@ ui/ · store/ · util/       # icons + About · view-state/recents · path ident
 platform_integration.py    # ALL OS-specific code, quarantined behind one seam
 packaging/                 # PyInstaller spec, Inno Setup script, build.ps1
 vendor/ · requirements-*   # the pinned + vendored offline dependency ship-set
-tests/                     # 1879 headless tests (offscreen Qt), run in CI on every PR
+tests/                     # 1891 headless tests (offscreen Qt), run in CI on every PR
 ```
 
 ## Develop (WSL)
@@ -211,7 +213,7 @@ sudo apt install -y python3.12-venv
 
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements-dev.txt
-invoke test                     # 1879 headless tests (offscreen Qt) — or run `pytest`
+invoke test                     # 1891 headless tests (offscreen Qt) — or run `pytest`
 invoke --list                   # all build/release tasks: test · audit · lock · build · tag · publish
 python launcher.py file.pdf     # run the GUI via WSLg
 ```

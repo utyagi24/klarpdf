@@ -13,36 +13,104 @@
   "documentation": "https://github.com/utyagi24/klarpdf/blob/main/mcp_bridge/README.md",
   "support": "https://github.com/utyagi24/klarpdf/issues",
   "license": "AGPL-3.0-or-later",
-  "keywords": ["pdf", "redaction", "split", "merge", "forms", "offline"],
+  "keywords": [
+    "pdf",
+    "redaction",
+    "split",
+    "merge",
+    "forms",
+    "offline"
+  ],
   "server": {
     "type": "python",
     "entry_point": "server/mcp_bridge/server.py",
     "mcp_config": {
       "command": "uv",
-      "args": ["run", "--directory", "${__dirname}/server", "klarpdf-mcp"],
+      "args": [
+        "run",
+        "--directory",
+        "${__dirname}/server",
+        "klarpdf-mcp"
+      ],
       "env": {}
     }
   },
   "tools": [
-    { "name": "get_info", "description": "Page count, size, encryption, text layer, outline." },
-    { "name": "get_outline", "description": "The document's bookmarks." },
-    { "name": "search", "description": "Find text; returns pages, snippets and boxes." },
-    { "name": "extract_text", "description": "Text of named pages." },
-    { "name": "render_page", "description": "Render one page to a PNG image." },
-    { "name": "get_form_fields", "description": "List fillable form fields." },
-    { "name": "delete_pages", "description": "Write a copy without the named pages." },
-    { "name": "reorder", "description": "Write a copy with pages in a new order." },
-    { "name": "rotate", "description": "Turn pages by a multiple of 90 degrees." },
-    { "name": "split", "description": "Split into several PDFs by page range." },
-    { "name": "merge", "description": "Concatenate several PDFs into one." },
-    { "name": "fill_form", "description": "Fill AcroForm fields, keeping them editable." },
-    { "name": "flatten", "description": "Bake annotations and fields into page content." },
-    { "name": "export_images", "description": "Rasterise pages to image files." },
-    { "name": "redact_text", "description": "Destructively remove matching text, verified." },
-    { "name": "redact_regions", "description": "Destructively remove regions, verified." }
+    {
+      "name": "get_info",
+      "description": "Page count, size, encryption, text layer, outline."
+    },
+    {
+      "name": "get_outline",
+      "description": "The document's bookmarks."
+    },
+    {
+      "name": "search",
+      "description": "Find text; returns pages, snippets and boxes."
+    },
+    {
+      "name": "extract_text",
+      "description": "Text of named pages."
+    },
+    {
+      "name": "render_page",
+      "description": "Render one page to a PNG image."
+    },
+    {
+      "name": "get_form_fields",
+      "description": "List fillable form fields."
+    },
+    {
+      "name": "extract_pages",
+      "description": "Write named pages out as one new PDF."
+    },
+    {
+      "name": "delete_pages",
+      "description": "Write a copy without the named pages."
+    },
+    {
+      "name": "reorder",
+      "description": "Write a copy with pages in a new order."
+    },
+    {
+      "name": "rotate",
+      "description": "Turn pages by a multiple of 90 degrees."
+    },
+    {
+      "name": "split",
+      "description": "Split into several PDFs by page range."
+    },
+    {
+      "name": "merge",
+      "description": "Concatenate several PDFs into one."
+    },
+    {
+      "name": "fill_form",
+      "description": "Fill AcroForm fields, keeping them editable."
+    },
+    {
+      "name": "flatten",
+      "description": "Bake annotations and fields into page content."
+    },
+    {
+      "name": "export_images",
+      "description": "Rasterise pages to image files."
+    },
+    {
+      "name": "redact_text",
+      "description": "Destructively remove matching text, verified."
+    },
+    {
+      "name": "redact_regions",
+      "description": "Destructively remove regions, verified."
+    }
   ],
   "compatibility": {
-    "platforms": ["darwin", "win32", "linux"],
+    "platforms": [
+      "darwin",
+      "win32",
+      "linux"
+    ],
     "runtimes": {
       "python": ">=3.12,<3.13"
     }

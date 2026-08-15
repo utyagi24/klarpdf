@@ -1,19 +1,23 @@
 {
   "_comment": [
-    "Project-scoped MCP server config for Claude Code (M42). Claude Code asks before enabling a",
-    "project server, so checking this in offers the bridge to anyone working in the repo without",
-    "turning it on behind their back.",
+    "Project-scoped MCP server config for Claude Code. Claude Code asks before enabling a project",
+    "server, so checking this in offers the bridge to anyone working in the repo without turning it",
+    "on behind their back.",
     "",
-    "This form runs the server straight out of the checkout, so it needs the MCP SDK in whatever",
-    "python resolves to:  pip install -r requirements-mcp.txt  (or requirements-dev.txt, which",
-    "already carries it). To use the bridge from OUTSIDE this repo, install it instead --",
-    "  pipx install .  -- and point `command` at the `klarpdf-mcp` script pipx puts on PATH.",
-    "See mcp_bridge/README.md for that and for the Claude Desktop equivalents."
+    "PREREQUISITE: install the bridge into the environment you launch Claude Code from --",
+    "  pip install -e .        (from this repo; add -r requirements-mcp.txt for the audited pins)",
+    "That is what puts `klarpdf-mcp` on PATH.",
+    "",
+    "This used to say `python -m mcp_bridge`, which only worked if the current directory happened to",
+    "be this repo -- `-m` puts the CWD on sys.path, never the interpreter's location, and a client",
+    "launches its servers from ITS working directory, which is essentially never the repo. The",
+    "console script has no such dependency on where it is started.",
+    "",
+    "See mcp_bridge/README.md for installing without a clone, and for the Claude Desktop equivalents."
   ],
   "mcpServers": {
     "klarpdf": {
-      "command": "python",
-      "args": ["-m", "mcp_bridge"]
+      "command": "klarpdf-mcp"
     }
   }
 }

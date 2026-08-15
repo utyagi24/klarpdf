@@ -277,6 +277,96 @@ Inno Setup 6 installed (see `DEPENDENCIES.md`). Artifacts land in `dist/`.
 
 ---
 
+## 4. The MCP bridge — the extra verification before a release that ships it
+
+The bridge has **no version of its own**: it ships under the app's tag and reads `version.py`, so
+"releasing the bridge" is §3 plus the checks below. Run them once, on the release that first carries
+`mcp_bridge/`, and after that only when something in `mcp_bridge/`, `requirements-mcp.*` or
+`packaging/mcpb/` has changed.
+
+This is PLAN.md §MCP / Agent Bridge roadmap → Verification, turned into things you can actually do.
+**Most of it is already automated** — the point of the table is to make the small remainder obvious
+rather than to re-check what CI checks on every PR.
+
+| # | Matrix item | How it is checked | Where |
+|---|---|---|---|
+| 1 | Tool round-trips preserve OCR text / TOC / form fields | `tests/test_mcp_transforms.py` — the same invariants as `test_materialize.py`, same fixtures | **automated**, every PR |
+| 2 | Redaction is leak-free, cross-engine | `tests/test_mcp_redaction.py` + `test_redaction.py::…poppler_cross_engine`; `test.yml` asserts the Poppler test **did not skip** | **automated**, every PR |
+| 3 | No outbound connection, no listening port | `tests/test_mcp_no_qt.py` — the child runs every tool with `socket.connect`/`bind` poisoned | **automated**, every PR |
+| 4 | No Qt on the server path | same file — a fresh interpreter, all 16 tools exercised, then `PySide6`/`shiboken6`/`model.edit_commands` asserted absent. Has a negative control | **automated**, every PR |
+| 5 | Source left byte-identical by every write tool | `tests/test_mcp_transforms.py`, parametrised over every write tool | **automated**, every PR |
+| 6 | Cross-platform — **Linux** | CI runs the whole suite on `ubuntu-latest`; `tests/test_mcp_packaging.py` asserts the lock is unhashed and platform-marker-free | **automated**, every PR |
+| 7 | Cross-platform — **Windows** | the two commands below | **manual, Windows** |
+| 8 | Lives with Claude Code | the `.mcp.json` at the repo root; verified end-to-end against the SDK's own stdio client (initialize → list → call → image → error) | done in WSL; re-check on Windows with #7 |
+| 9 | Lives with Claude Desktop — config **and** one-click `.mcpb` | the steps below | **manual, Windows or macOS** |
+| 10 | Does the host honour a `uv.lock`? | carried from M42 — see below | **open question** |
+
+### 7 — Windows
+
+From the Windows checkout, in a throwaway venv so the app's `.venv` is untouched:
+
+```powershell
+py -3.12 -m venv $env:TEMP\klarpdf-mcp-check
+& $env:TEMP\klarpdf-mcp-check\Scripts\python.exe -m pip install -r requirements-mcp.txt
+& $env:TEMP\klarpdf-mcp-check\Scripts\python.exe -m pytest tests\test_mcp_*.py
+```
+
+Expect green, with **one skip**: the Poppler cross-engine redaction check, because `pdftotext` is
+not on a stock Windows PATH. That skip is exactly why `test.yml` installs `poppler-utils` and
+asserts the test ran on Linux — between the two platforms it is never skipped everywhere.
+
+The point of this step is not the tests (CI already ran them) — it is that
+`pip install -r requirements-mcp.txt` **resolves at all** on Windows. A lock that only resolves on
+one platform is the specific defect PLAN.md flags as expensive to discover late.
+
+### 9 — Claude Desktop
+
+```bash
+python packaging/mcpb/build_mcpb.py     # -> dist/klarpdf-<version>.mcpb
+```
+
+Needs Node (for `npx @anthropic-ai/mcpb`) and, on the *installing* machine,
+[`uv`](https://docs.astral.sh/uv/) on PATH. Then:
+
+1. Open the `.mcpb`. Claude Desktop should offer to install it.
+2. Confirm all **16** tools appear in the tool list.
+3. Call `get_info` on a real PDF, then `redact_text` on a throwaway copy, and check the reply
+   carries `cross_engine_verified` (`true` only if Poppler is installed on that machine).
+4. Confirm the input file is **byte-identical** afterwards.
+5. Also check the plain-config path (Option B in `mcp_bridge/README.md`), since it is the fallback
+   for anyone without `uv`.
+
+**A third-party client is a spot check, not a gate** — Codex CLI via `~/.codex/config.toml`, or Grok
+Build. stdio is the universal denominator, so a failure there is a bug worth knowing about before
+strangers find it, not a reason to hold the release.
+
+### 10 — the `uv.lock` question, still open
+
+PLAN.md asked M42 to test whether the host honours a `uv.lock` (and hash verification), because if
+it does, most of the "the audited lock is not what the `.mcpb` installs" gap closes. **It could not
+be answered**, and the reason changed the question: there is no `uv` server type (M42 measured
+`mcpb` 2.1.2 accepting only `python | node | binary`), so there is no host-managed `uv` invocation
+to honour a lock. What the bundle actually does is `uv run --directory server`, and whether *that*
+consults a committed `uv.lock` can only be seen by installing the bundle.
+
+While answering it, try: drop a `uv.lock` beside the bundle's `pyproject.toml`, install, and compare
+the resolved versions against `requirements-mcp.txt`. If they match, commit the lock into the bundle
+and say so in `mcp_bridge/README.md`. **Until then the README's statement stands as written** — the
+`.mcpb` path installs online and is not covered by `pip-audit`. Do not soften that wording without
+evidence.
+
+### Release notes — the two things to say plainly
+
+Whatever else the notes cover, these two are the ones a reader can be misled about:
+
+- The bridge is a **separate, optional component**. `klarpdf-setup-x64.exe` is unchanged: same size,
+  same hashed offline lock, same clean-machine install test. Nobody installing the app gets any of
+  this.
+- The `.mcpb` path **installs online**, and its dependencies are therefore not the ones `pip-audit`
+  covers. Every other path this project ships is offline; this one is the deliberate exception.
+
+---
+
 ## See also
 - **Dependency scanning:** `tools/audit-deps.ps1` (local, isolated `pip-audit`),
   `.github/workflows/audit.yml` (CI: weekly cron + on release tag + on lock-touching PRs). For the

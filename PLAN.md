@@ -990,12 +990,38 @@ and already produces the page + snippet output `search` needs.
 | `extract_text(path, pages)` | new helper (`page.get_text`) | query |
 | `render_page(path, page, dpi)` → image block | `export_page_images` (single page) | query |
 | `get_form_fields(path)` | `page_edits.read_form_fields` | query |
+| `extract_pages(path, pages, out)` | `export.export_selected_pages` (M51) | transform |
 | `split` / `merge` / `reorder` / `delete_pages` / `rotate` → out path | `VirtualDocument` ops + `materialize` | transform |
 | `fill_form(path, values, out)` | `set_field_value` + `materialize` | transform |
 | `flatten(path, out)` | `export.export_flattened_pdf` | transform |
 | `export_images(path, pages, dpi, out_dir)` | `export.export_page_images` | transform |
 | `redact_regions` / `redact_text(path, …, out)` | `Redaction` + `apply_redactions` + cross-engine leak verify | secure |
 | (encrypted input) | `password` param → `from_path(password_provider=…)` | all |
+
+**Two corrections from the first hands-on session with a real client (2026-08-12).** Both were
+shipped defects that every test passed over, and both are worth recording because they share a
+cause: the tests exercised the code *from inside a working checkout*, which is the one place the
+bugs cannot happen.
+
+- **The tool table had no "extract these pages" row, and that is a hole, not a simplification.**
+  Asked to pull pages out of a PDF, an agent with the sixteen-tool surface found nothing named for
+  it and **shelled out to `pdfunite`** instead. `split(ranges=["10-20"])` produces exactly the right
+  file, but it is named for cutting a document up and chooses the output filename itself, so it does
+  not read as the answer. The primitive already existed unexposed —
+  `model/export.py:export_selected_pages`, the app's own Export ▸ Selected Pages as PDF (M51) — so
+  `extract_pages` is a thin wrapper over tested code. **A tool the model cannot find is a tool that
+  does not exist**, which is the same lesson `--read-only` encodes from the other direction.
+- **`python -m mcp_bridge` cannot be the documented command, and `pyproject.toml` must declare
+  dependencies.** `-m` puts the *working directory* on `sys.path`, never the interpreter's location,
+  and a client launches its server from its own directory — so the checked-in `.mcp.json` and the
+  README both failed with `No module named mcp_bridge` the first time anyone pointed a client at a
+  folder of PDFs. Worse, the documented fallback (`pipx install .`) was broken too: M42 left
+  `dependencies` out of `pyproject.toml` on the reasoning that the project installs from a lock, so
+  the built metadata carried **zero `Requires-Dist`** and produced a `klarpdf-mcp` that died on
+  `import mcp`. That reasoning was right for the app and wrong for a package whose entire purpose is
+  a console script. Floors now live in `pyproject.toml`, pins stay in `requirements-mcp.txt`, and
+  `klarpdf-mcp` is the command everywhere. `tests/test_mcp_packaging.py` builds the real metadata
+  through the backend and asserts `Requires-Dist` is populated — the check that was missing.
 
 ### Safety model (agent-driven = untrusted caller)
 

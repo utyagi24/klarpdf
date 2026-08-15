@@ -343,6 +343,28 @@ def create_server(config: Config | None = None) -> MCPServer:
 
     @server.tool()
     @guarded
+    def extract_pages(
+        path: str,
+        pages: list[int],
+        out: str,
+        password: str | None = None,
+        overwrite: bool = False,
+    ) -> dict:
+        """Write `pages` (1-based) to a single new PDF — "give me pages 10-20 as a file".
+
+        Use this whenever someone asks to **extract**, **pull out**, or **save a few pages as their
+        own document**. `split` is for cutting a document into several files at once; this is for
+        taking one piece out of it, and it lets you name the output.
+
+        Lossless: the text layer, form fields and annotations come with the pages, and bookmarks and
+        internal links are re-pointed at the extracted page numbers instead of dangling.
+        """
+        return transforms.extract_pages(
+            check(path), pages, check(out), password=password, overwrite=overwrite
+        )
+
+    @server.tool()
+    @guarded
     def merge(paths: list[str], out: str, overwrite: bool = False) -> dict:
         """Concatenate two or more PDFs into one, in the order given.
 
