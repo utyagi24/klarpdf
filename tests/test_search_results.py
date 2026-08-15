@@ -100,11 +100,12 @@ def test_list_all_populates_and_click_jumps(app, prose_pdf):
     assert rows[0].startswith("p. 1") and rows[1].startswith("p. 3") and rows[2].startswith("p. 3")
     win.search_results._on_item_clicked(win.search_results.item(1))  # a row click
     assert win.view.search.position()[0] == 1  # that hit is now current…
-    page_index, box, _ = win.view.search.hits()[1]
+    page_index, (box, *_rest), _ = win.view.search.hits()[1]
     viewport_scene = win.view.mapToScene(win.view.viewport().rect()).boundingRect()
-    # …and revealed: the same ensureVisible contract as next/prev (scrolls enough to show the
-    # hit — the viewport *centre*, which defines current_page, may lag a page behind).
-    assert viewport_scene.intersects(win.view.scene_rect_for_box(page_index, box))
+    # …and revealed: the same contract as next/prev. **Containment, not intersection** — an
+    # `intersects` assertion passes on a hit one pixel inside the edge, which is exactly how the
+    # reveal came to park every Next-hit hard against the bottom of the window unnoticed.
+    assert viewport_scene.contains(win.view.scene_rect_for_box(page_index, box))
 
 
 def test_panel_follows_the_query_as_typed(app, prose_pdf):

@@ -102,13 +102,13 @@ def test_whole_words_only_excludes_the_decoy(dialog, win):
     row on that line mentions "Smithsonian" whether or not it is the one that matched inside it.
     """
     dialog.query.setText(TARGET)
-    # Keyed by (page, box): both pages carry a "Smith" at the same coordinates, so boxes alone
-    # would collapse two distinct hits into one.
-    before = {(page, box) for page, box, _s in win.view.search.hits()}
+    # Keyed by (page, boxes): both pages carry a "Smith" at the same coordinates, so boxes alone
+    # would collapse two distinct hits into one. A single-line hit carries one box.
+    before = {(page, boxes) for page, boxes, _s in win.view.search.hits()}
     dialog.whole_word.setChecked(True)
-    after = {(page, box) for page, box, _s in win.view.search.hits()}
+    after = {(page, boxes) for page, boxes, _s in win.view.search.hits()}
     assert len(before) == 5 and len(after) == 4
-    _page, dropped = (before - after).pop()
+    _page, (dropped,) = (before - after).pop()
     # The excluded hit is the one sitting inside a longer word.
     ref = win.vdoc.ordered[0]
     words = win.vdoc.sources[ref.source_id][ref.source_page_index].get_text("words")
@@ -363,3 +363,42 @@ def test_is_whole_word_rejects_a_substring_hit():
     words = [(100.0, 10.0, 180.0, 22.0, DECOY, 0, 0, 0)]
     assert is_whole_word(words, (100.0, 10.0, 130.0, 22.0)) is False   # "Smith" inside it
     assert is_whole_word(words, (100.0, 10.0, 180.0, 22.0)) is True    # the whole word
+
+
+# ---- a wrapped match is one row that redacts two rectangles ---------------------
+
+
+@pytest.fixture
+def wrapped_win(app, tmp_path):
+    """"electric heater" broken across a line break, plus one that fits on a single line."""
+    path = str(tmp_path / "wrapped.pdf")
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((60, 100), "the hall contains one electric", fontsize=11)
+    page.insert_text((60, 120), "heater and nothing else.", fontsize=11)
+    page.insert_text((60, 160), "a second electric heater upstairs", fontsize=11)
+    doc.save(path)
+    doc.close()
+    w = MainWindow(app, path, app.settings)
+    yield w
+    w.undo_stack.setClean()
+    w.close()
+
+
+def test_one_row_redacts_both_halves_of_a_wrapped_match(wrapped_win, monkeypatch):
+    """The review list is in occurrences, but redaction works in rectangles. Ticking the one row a
+    wrapped match produces has to cover both lines — covering only the first is what leaves the
+    tail of the phrase legible beside a black box.
+    """
+    _mark(wrapped_win, monkeypatch, "electric heater", whole_word=True)
+    boxes = _all_boxes(wrapped_win)
+    assert len(boxes) == 3          # 2 for the wrapped occurrence + 1 for the single-line one
+    # The two halves sit on different lines, which is the thing being asserted.
+    tops = sorted({round(box[1], 1) for box in boxes})
+    assert len(tops) == 3
+
+
+def test_unticking_a_wrapped_row_drops_both_of_its_boxes(wrapped_win, monkeypatch):
+    """The converse: a row is one decision, so unticking it must not leave half a redaction."""
+    _mark(wrapped_win, monkeypatch, "electric heater", whole_word=True, drop_rows=(0,))
+    assert len(_all_boxes(wrapped_win)) == 1   # only the single-line occurrence remains

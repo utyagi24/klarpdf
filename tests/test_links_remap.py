@@ -53,6 +53,23 @@ def _goto_targets(path, page_index) -> list[int]:
     return targets
 
 
+def _internal_targets(path, page_index) -> list[int]:
+    """Pages the internal links on ``page_index`` land on, however they are expressed.
+
+    A named destination and a direct GoTo are two spellings of "jump to this page", and which one
+    an output carries now depends on the route the save took: a rebuild has to bake names into
+    GoTos (``insert_pdf`` drops the name tree), while an unchanged page set keeps the original
+    named destination — and with it the ``/XYZ`` view the GoTo bake discards. Asserting on the
+    destination rather than the spelling is what makes the two routes comparable.
+    """
+    doc = fitz.open(path)
+    kinds = (fitz.LINK_GOTO, fitz.LINK_NAMED)
+    targets = sorted(link["page"] for link in doc[page_index].get_links()
+                     if link["kind"] in kinds and link.get("page", -1) >= 0)
+    doc.close()
+    return targets
+
+
 # ---- the pure index map -----------------------------------------------------
 
 
@@ -151,10 +168,21 @@ def test_named_links_dropped_by_insert_pdf_without_the_remap(named_pdf):
     out_doc.close()
 
 
-def test_named_links_survive_identity_save_as_goto(named_pdf, tmp_path):
+def test_named_links_survive_an_identity_save(named_pdf, tmp_path):
+    """A save that moves no page keeps the named destination itself, rather than baking a GoTo.
+
+    It used to bake one, because the save rebuilt the document and ``insert_pdf`` drops the name
+    tree — the GoTo was a repair. An unchanged page set no longer rebuilds, so there is nothing to
+    repair and the original link survives *with its ``/XYZ`` view*, which the bake threw away. The
+    assertion is on where the link lands, since that is the part a reader cares about and the part
+    both routes must agree on.
+    """
     out = _materialize(VirtualDocument.from_path(named_pdf), tmp_path)
-    assert _goto_targets(out, 0) == [2]  # page0's named dest (page 2) baked to a working GoTo
-    assert _goto_targets(out, 1) == [3]
+    assert _internal_targets(out, 0) == [2]
+    assert _internal_targets(out, 1) == [3]
+    with fitz.open(out) as doc:
+        assert doc.resolve_names()["dA"]["page"] == 2       # the name tree came through…
+        assert doc[0].get_links()[0]["nameddest"] == "dA"   # …and the link still uses it
 
 
 def test_named_links_follow_reorder(named_pdf, tmp_path):

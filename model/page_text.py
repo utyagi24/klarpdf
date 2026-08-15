@@ -36,6 +36,11 @@ def boxes_touch(a: tuple, b: tuple) -> bool:
     return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
 
 
+def _is_word_char(ch: str) -> bool:
+    """Does ``ch`` carry word content, as opposed to being punctuation wrapped around it?"""
+    return ch.isalnum() or ch == "_"
+
+
 class PageText:
     """A page's words (and, on demand, its characters) indexed by line for box lookups.
 
@@ -69,12 +74,70 @@ class PageText:
         return found
 
     def is_whole_word(self, box: tuple, tol: float = 0.5) -> bool:
-        """Is ``box`` a whole word rather than part of a longer one? Geometric: true when the words
-        it touches do not extend past it on either side."""
+        """Is ``box`` a whole word rather than part of a longer one?
+
+        Geometry first: when the words the box touches stop at its edges, nothing can contradict it
+        and no character index is needed. That fast path is the common case and is what keeps a
+        whole-word search over a long document cheap.
+
+        When a word *does* run past an edge, the overhang decides — because geometry alone gets
+        that case wrong. MuPDF splits ``get_text("words")`` on **whitespace**, so ``expression.``
+        is a single word whose box includes the period; a hit covering just the letters ends
+        ~2.4 pt short of it, and the purely-geometric test this replaces read that period as more
+        word and rejected the match. Every whole-word hit at the end of a sentence was silently
+        dropped — in the find bar since M64, and in the MCP bridge's ``search`` / ``redact_text``,
+        where M44's verification pass caught it leaving a redacted phrase legible (TC-001).
+
+        So the characters the word puts *outside* the box are consulted instead: the box is a whole
+        word when none of them is a letter, digit or underscore. Read the other way round, a whole
+        word is the struck token stripped of the punctuation around it — ``expression.`` matches,
+        and ``expressionless`` does not.
+
+        Deliberately **not** a regex ``\\b``, which tests only the single adjacent character and
+        would therefore find ``ALPHA`` inside ``ALPHA-zero-A0``. This app has treated a hyphenated
+        compound as one word since M64 and its find bar is tested on exactly that string; widening
+        the boundary must not widen the match.
+        """
         struck = self.struck(box)
         if not struck:
             return True                  # nothing to contradict it (e.g. a box with no word boxes)
-        return struck[0][1][0] >= box[0] - tol and struck[-1][1][2] <= box[2] + tol
+        return (self._edge_is_boundary(struck[0][1], box[0], right=False, tol=tol)
+                and self._edge_is_boundary(struck[-1][1], box[2], right=True, tol=tol))
+
+    def _edge_is_boundary(self, word: tuple, edge: float, *, right: bool, tol: float) -> bool:
+        """Does ``word`` stop at ``edge``, or is everything it puts past ``edge`` non-word text?
+
+        Only ``word``'s **own** characters are considered, and that scoping is what makes the test
+        reliable without a gap heuristic: MuPDF has already decided where the whitespace breaks
+        are, so a character on the far side of a space can never be mistaken for part of this word.
+        A PDF that positions its words without emitting space glyphs — common — would otherwise
+        offer the ``n`` of ``given`` as the neighbour of ``regular`` and reject a good match.
+
+        Falls back to the geometric answer when there is no character index to consult, which is the
+        case for a words-only :class:`PageText` (see :func:`viewer.search.is_whole_word`).
+        """
+        if (word[2] <= edge + tol) if right else (word[0] >= edge - tol):
+            return True                  # the word ends at the box; geometry already settles it
+        chars = self._chars_under(word[:4])
+        if not chars:
+            return False                 # no char index: geometry is all we have, and it says no
+        centres = [((c[0] + c[2]) / 2, c[4]) for c in chars]
+        overhang = [ch for cx, ch in centres if (cx > edge if right else cx < edge)]
+        return not any(_is_word_char(ch) for ch in overhang)
+
+    def matches_case(self, box: tuple, term: str) -> bool:
+        """Does the text under ``box`` match ``term`` case-sensitively?
+
+        MuPDF's ``search_for`` is always case-insensitive, so this is how a case-sensitive search
+        gets filtered. The test is **containment, not equality**, because a phrase that wraps a
+        line break comes back as one hit box per line fragment: the box under ``regular`` is a
+        genuine part of a case-sensitive match for ``regular expression``, and comparing it against
+        the whole term dropped the occurrence outright — which in ``redact_text`` meant leaving it
+        in the file. For a hit that does not wrap, the fragment *is* the whole term and
+        containment is equality, so nothing is loosened for the ordinary case.
+        """
+        under = self.text_under(box).strip()
+        return bool(under) and under in term
 
     def snippet(self, box: tuple) -> str:
         """Context snippet for ``box``: the words of its line, windowed to ±``_SNIPPET_WORDS``
@@ -89,6 +152,44 @@ class PageText:
         hi = min(len(line), matched[-1] + 1 + _SNIPPET_WORDS)
         text = " ".join(w[4] for w in line[lo:hi])
         return ("… " if lo > 0 else "") + text + (" …" if hi < len(line) else "")
+
+    def group_matches(self, boxes: list[tuple], term: str) -> list[tuple[tuple, ...]]:
+        """Fold one term's hit boxes, in reading order, into one entry per **occurrence**.
+
+        MuPDF returns a match that wraps a line break as one rect per line, so a phrase occurring
+        five times can come back as seven boxes. Every box is real and redaction has to clear all
+        of them — dropping the second is what left a legible ``expression.`` under a black box in
+        TC-001 — but *counting* a fragment as a match is a different claim, and a wrong one: the
+        find bar would say "4 of 7" and step through one occurrence twice.
+
+        Occurrences are recovered by reading the page rather than by guessing from geometry: the
+        text under each box is accumulated until it spells the term, which is exactly the condition
+        that closes an occurrence. A run that stops building toward the term is emitted box by box
+        instead — **a box is never dropped**, because the caller may be about to redact it, and an
+        ungrouped box costs a miscount while a missing one costs a leak.
+        """
+        wanted = " ".join(term.split()).casefold()
+        groups: list[tuple[tuple, ...]] = []
+        pending: list[tuple] = []
+        acc = ""
+        for box in boxes:
+            piece = self.text_under(box).strip()
+            acc = f"{acc} {piece}".strip() if pending else piece
+            pending.append(box)
+            if acc.casefold() == wanted:
+                groups.append(tuple(pending))
+                pending, acc = [], ""
+            elif not wanted.startswith(acc.casefold()):
+                groups.extend((box,) for box in pending)   # not one occurrence after all
+                pending, acc = [], ""
+        groups.extend((box,) for box in pending)           # never leave a box behind
+        return groups
+
+    def snippet_for(self, boxes: list[tuple]) -> str:
+        """Context snippet for a whole match: the per-line snippets joined when it wraps, so a
+        reader sees the phrase rather than the half of it that fitted on the first line."""
+        parts = [part for part in (self.snippet(box) for box in boxes) if part]
+        return " ".join(parts)
 
     def _char_lines(self) -> list:
         """Per-line char index ``(y0, y1, [(x0, y0, x1, y1, char), …])``, built on first use."""
@@ -105,10 +206,14 @@ class PageText:
                                                 max(c[3] for c in chars), chars))
         return self._chars
 
+    def _chars_under(self, box: tuple) -> list:
+        """The character entries whose centres fall inside ``box``, in reading order. Empty for a
+        words-only :class:`PageText`, which has no page to take characters from."""
+        x0, y0, x1, y1 = box
+        return [c for _ly0, _ly1, chars in self._band(self._char_lines(), box) for c in chars
+                if x0 <= (c[0] + c[2]) / 2 <= x1 and y0 <= (c[1] + c[3]) / 2 <= y1]
+
     def text_under(self, box: tuple) -> str:
         """The text actually under ``box`` — every character whose centre falls inside it, in
         reading order. See the module docstring for why this is not ``page.get_textbox(box)``."""
-        x0, y0, x1, y1 = box
-        return "".join(c[4] for _ly0, _ly1, chars in self._band(self._char_lines(), box)
-                       for c in chars
-                       if x0 <= (c[0] + c[2]) / 2 <= x1 and y0 <= (c[1] + c[3]) / 2 <= y1)
+        return "".join(c[4] for c in self._chars_under(box))
