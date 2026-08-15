@@ -354,3 +354,100 @@ def test_transforms_carry_encryption_through_too(locked_pdf, tmp_path):
         assert doc.needs_pass  # PyMuPDF returns 1, not True
         assert doc.authenticate("secret")
         assert doc[0].rotation == 90
+
+
+# ---- coverage: the query is gone, not merely the boxes -------------------------
+#
+# TC-001, the defect M44's verification pass found. `redact_text "regular expression"` with
+# `whole_words: true` redacted 2 of 5 occurrences and reported success, because both checks in
+# place at the time were box-scoped: they confirmed the regions chosen for redaction had lost
+# their text, which they had. An occurrence the matcher never found was never a region, so it
+# was never checked — and it widened the count budget by exactly the amount it leaked.
+
+PHRASE = "regular expression"
+
+
+@pytest.fixture
+def phrase_pdf(tmp_path) -> str:
+    """The three layouts the phrase takes in the javadoc extract that produced TC-001.
+
+    Line 1 ends the sentence — the trailing-period boundary. Lines 2–3 wrap the phrase across a
+    break, so MuPDF returns it as one box per fragment and *both* have to be cleared. Line 4 is
+    the plain mid-line case that always worked, kept so a failure localises.
+    """
+    path = str(tmp_path / "phrases.pdf")
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((60, 100), "matches the given regular expression.", fontsize=11)
+    page.insert_text((60, 130), "around matches of the given regular", fontsize=11)
+    page.insert_text((60, 150), "expression. Trailing words follow.", fontsize=11)
+    page.insert_text((60, 180), f"the given {PHRASE} with the given", fontsize=11)
+    page.insert_text((60, 210), PUBLIC, fontsize=11)
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def test_a_phrase_is_redacted_wherever_it_wraps_or_ends_a_sentence(phrase_pdf, out):
+    """The end-to-end TC-001 assertion: nothing the caller searched for survives."""
+    redaction.redact_text(phrase_pdf, PHRASE, out, whole_words=True)
+    assert queries.search(out, PHRASE, whole_words=True) == []
+    assert queries.search(out, "regular") == []
+    assert queries.search(out, "expression") == []
+    assert PUBLIC in _text(out, 0)  # neighbouring text untouched
+
+
+def test_the_result_reports_the_residual_count_it_verified(phrase_pdf, out):
+    result = redaction.redact_text(phrase_pdf, PHRASE, out, whole_words=True)
+    assert result["residual_matches"] == 0
+
+
+def test_a_matching_gap_is_caught_and_the_output_deleted(phrase_pdf, out, monkeypatch):
+    """The check that would have failed TC-001 instead of passing it.
+
+    The pre-fix boundary test is restored here — purely geometric, so a word box carrying a
+    trailing period reads as a longer word and the match is dropped. The redaction then covers
+    2 of 5 occurrences, and every box-scoped check still passes, exactly as it did in the report.
+    The textual scan is what catches it: it owes the matcher nothing, so a match the matcher
+    cannot see is still visible to it.
+    """
+    from model.page_text import PageText
+
+    def geometric_only(self, box, tol=0.5):
+        struck = self.struck(box)
+        if not struck:
+            return True
+        return struck[0][1][0] >= box[0] - tol and struck[-1][1][2] <= box[2] + tol
+
+    monkeypatch.setattr(PageText, "is_whole_word", geometric_only)
+    with pytest.raises(RedactionLeak, match="still reads back"):
+        redaction.redact_text(phrase_pdf, PHRASE, out, whole_words=True)
+    assert not os.path.exists(out)
+
+
+def test_the_residual_check_respects_the_page_scope(secret_pdf, out):
+    """An occurrence outside the requested pages is out of scope, not a leak — otherwise every
+    scoped redaction of a repeated string would delete its own output."""
+    result = redaction.redact_text(secret_pdf, SECRET, out, pages=[1])
+    assert result["residual_matches"] == 0
+    assert SECRET in _text(out, 1)  # page 2 still has it, and that is correct
+
+
+def test_a_substring_of_a_longer_word_is_not_reported_as_a_leak(tmp_path, out):
+    """The false-positive `_verify` was built to avoid, which the new check must not reintroduce:
+    redacting the standalone "Smith" leaves "Smithsonian", and that is a clean output."""
+    path = str(tmp_path / "names.pdf")
+    doc = fitz.open()
+    doc.new_page().insert_text((60, 100), "Smith met Smithsonian staff.", fontsize=11)
+    doc.save(path)
+    doc.close()
+    result = redaction.redact_text(path, "Smith", out, whole_words=True)
+    assert result["residual_matches"] == 0
+    assert "Smithsonian" in _text(out, 0)
+
+
+def test_redact_regions_makes_no_residual_claim(secret_pdf, out):
+    """There is no query to re-run, so the payload must not imply the wider check happened."""
+    box = _box_of(secret_pdf, 0, SECRET)
+    result = redaction.redact_regions(secret_pdf, [{"page": 1, "box": box}], out)
+    assert "residual_matches" not in result
