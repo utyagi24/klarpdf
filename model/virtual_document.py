@@ -71,6 +71,27 @@ def _authenticate_and_decrypt(
     return fitz.open(stream=decrypted, filetype="pdf"), password
 
 
+_ALL_PERMISSIONS = (
+    fitz.PDF_PERM_PRINT | fitz.PDF_PERM_MODIFY | fitz.PDF_PERM_COPY | fitz.PDF_PERM_ANNOTATE
+    | fitz.PDF_PERM_FORM | fitz.PDF_PERM_ACCESSIBILITY | fitz.PDF_PERM_ASSEMBLE
+    | fitz.PDF_PERM_PRINT_HQ
+)
+
+
+def _restrictions_of(doc: "fitz.Document") -> int:
+    """A document's advisory permission flags, normalised to the model's ``-1 = unrestricted``.
+
+    PyMuPDF answers ``-4`` for a document that restricts nothing — the raw ``/P`` value with only
+    the two reserved low bits clear — while this model has always used ``-1`` as its
+    "everything allowed" sentinel, and :func:`~model.edit_engine._encryption_args` keys on it to
+    decide whether the owner password may equal the user password. Passing ``-4`` straight through
+    would quietly retire that rule for every ordinary document, so anything granting the full set
+    normalises back to ``-1`` and only a genuinely restricted file keeps its exact bits.
+    """
+    permissions = doc.permissions
+    return -1 if permissions & _ALL_PERMISSIONS == _ALL_PERMISSIONS else permissions
+
+
 @dataclass(frozen=True, slots=True)
 class PageRef:
     """A reference to one source page. Immutable so snapshots are cheap and safe.
@@ -150,6 +171,11 @@ class VirtualDocument:
         # M32's save-unencrypted deferral); _source_passwords records what opened each source.
         self._password: str | None = None
         self._permissions: int = -1
+        # Has the user made an explicit encryption decision this session? It is the difference
+        # between "no password set" and "password deliberately removed", which are the same
+        # ``_password is None`` but must save differently: the first keeps whatever protection the
+        # document arrived with, the second is a request to drop it.
+        self._encryption_staged: bool = False
         self._source_passwords: dict[str, str] = {}
         # Cache: does a registered source carry baked KlarPDF annotations? Keyed by source id;
         # source bytes are immutable, so this never changes for a given source (cleared only when
@@ -180,6 +206,13 @@ class VirtualDocument:
         # Carry-through (M54): a document opened with a password saves back with that password
         # unless the user changes/removes it. None for an unencrypted original.
         vd._password = vd._source_passwords.get(source_id)
+        # …and so do its **restrictions**. Left at the -1 default, "allow everything" was the
+        # answer to a question nobody had asked: the password dialog pre-ticks its boxes from
+        # `vdoc.permissions` (`ui/encrypt_dialog.py`), so every box arrived ticked whatever the
+        # document actually said, and setting a password on a restricted file silently granted
+        # copying, modification and assembly. Seeding from the origin makes the dialog show what
+        # the document restricts and makes accepting it unchanged a no-op (M93).
+        vd._permissions = _restrictions_of(vd.sources[source_id])
         vd.ordered = vd._seed_ordered(source_id)
         vd.dirty = False
         return vd
@@ -294,8 +327,58 @@ class VirtualDocument:
         Reusing one ``fitz`` source object across multiple ``insert_pdf`` calls drops its widgets
         after the first call (a PyMuPDF graft-state quirk), which would silently strip form fields
         from a second save and from re-rendered filled pages. A fresh copy resets that state.
+
+        ``PDF_ENCRYPT_KEEP`` because ``tobytes()`` defaults to writing the copy **unencrypted**.
+        That did not matter while the copy was only ever a donor for ``insert_pdf``, but the copy is
+        now also the *starting point* of an unchanged-page-set save (see
+        :meth:`~model.edit_engine.PyMuPDFEngine._build_output`), and a decrypted starting point can
+        only ever produce a decrypted output. Measured on an owner-password form: without the flag
+        the copy came back ``permissions=-4``, encryption ``None``; with it, ``-1052`` and
+        AES-128, matching the source.
         """
-        return fitz.open(stream=self.sources[source_id].tobytes(), filetype="pdf")
+        return fitz.open(
+            stream=self.sources[source_id].tobytes(encryption=fitz.PDF_ENCRYPT_KEEP),
+            filetype="pdf",
+        )
+
+    def page_set_unchanged(self) -> bool:
+        """Is the output exactly the origin's pages, all of them, in their original order?
+
+        True when nothing structural has happened — no reorder, no delete, no insert, no page from
+        a second document. Per-page edits (rotation, crop, annotations, redactions, form fills) do
+        **not** affect this: they are applied to a page, whichever document that page ends up in.
+
+        This is the question that decides whether a save has to *rebuild* the document or can edit a
+        copy of it. It matters because everything a PDF keeps at the document level rather than on a
+        page — the accessibility structure tree, ``/MarkInfo``, Reader-Extensions ``/Perms``, the
+        ``/Names`` tree, encryption — is invisible to ``insert_pdf``, which copies pages. Those
+        cannot be reconstructed afterwards the way the outline and the metadata are (M33, M53); the
+        only way to keep them is not to throw them away.
+        """
+        origin = self.origin_source_id
+        if origin is None or origin not in self.sources:
+            return False
+        if len(self.ordered) != self.sources[origin].page_count:
+            return False
+        return all(ref.source_id == origin and ref.source_page_index == i
+                   for i, ref in enumerate(self.ordered))
+
+    def origin_carries_encryption(self) -> bool:
+        """Is the origin source still an encrypted document in memory?
+
+        The discriminator for whether a save should preserve encryption it was never given a
+        password for. A document that *needed* a password was decrypted at open and its password
+        recorded (M54), so it no longer reports encryption here and is re-encrypted from
+        ``password`` instead — and a password the user has since removed stays removed. A document
+        that opened freely but restricts permissions (an owner password only) was never decrypted,
+        still reports its encryption, and is the case M54 does not cover.
+        """
+        if self._encryption_staged:
+            return False        # the user has said what they want; do not second-guess it
+        origin = self.origin_source_id
+        if origin is None or origin not in self.sources:
+            return False
+        return bool(self.sources[origin].metadata.get("encryption"))
 
     # ---- queries ----------------------------------------------------------------
 
@@ -376,7 +459,7 @@ class VirtualDocument:
             tuple(self.ordered),
             dict(self._form_values),
             None if override is None else dict(override),
-            (self._password, self._permissions),
+            (self._password, self._permissions, self._encryption_staged),
             self.dirty,
         )
 
@@ -385,7 +468,7 @@ class VirtualDocument:
         self.ordered = list(ordered)
         self._form_values = dict(form_values)
         self._metadata_override = None if metadata_override is None else dict(metadata_override)
-        self._password, self._permissions = encryption
+        self._password, self._permissions, self._encryption_staged = encryption
         self.dirty = dirty
 
     # ---- list edits (each marks the document dirty) -----------------------------
@@ -548,7 +631,11 @@ class VirtualDocument:
     @property
     def permissions(self) -> int:
         """The advisory permission flags a Save writes (-1 = everything allowed). Advisory:
-        honored by most viewers, not cryptographically enforced — only the password is."""
+        honored by most viewers, not cryptographically enforced — only the password is.
+
+        Seeded from the origin at open, so a document that arrived restricted stays restricted
+        unless the user says otherwise. PyMuPDF reports these in the same encoding ``save`` takes,
+        so the value round-trips exactly (verified: -1052 in, -1052 out)."""
         return self._permissions
 
     def set_encryption(self, password: "str | None", permissions: int = -1) -> None:
@@ -558,6 +645,7 @@ class VirtualDocument:
         the encryption dictionary, so restrictions without a password don't exist."""
         self._password = password
         self._permissions = -1 if password is None else int(permissions)
+        self._encryption_staged = True
         self.dirty = True
 
     # ---- form field values (document-level; applied at materialise) -------------

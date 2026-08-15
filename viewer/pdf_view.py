@@ -39,6 +39,7 @@ from model.form_fields import NewField
 from viewer.pixmap_cache import pixmap_cache
 from viewer.resize_handles import cursor_for
 from viewer.tools import ArmedTool, InteractionMode
+from util.reveal import is_settled
 
 _PAGE_GAP = 14          # px between pages in the strip
 _PREFETCH = 2           # pages to render above/below the viewport, at ordinary page sizes
@@ -675,7 +676,35 @@ class PdfView(QGraphicsView):
         return QPointF(lx + ox, ly + oy)
 
     def ensure_box_visible(self, page_index: int, box: tuple) -> None:
-        self.ensureVisible(self.scene_rect_for_box(page_index, box), 60, 60)
+        """Bring ``box`` into view and leave it somewhere a reader will actually look.
+
+        Deliberately **not** ``ensureVisible``, which scrolls the *minimum* distance and so parks
+        the box hard against whichever edge it travelled towards. Stepping forward through search
+        results left every match ~60 px above the bottom of the window; stepping back left it ~60 px
+        below the top. Same call, same margin — the asymmetry is the direction of travel, which is
+        why Previous felt right and Next felt broken (owner-reported 2026-08-13; measured over 14
+        consecutive presses each way on a 320-page prospectus, bottom margin 59.6–60.4 px on every
+        Next). The taller the window, the worse it reads: on a maximised 1440p screen a hit lands in
+        the bottom 5% of the page, which is nobody's idea of "revealed".
+
+        So the rule is the one Preview and the browsers use. A box already sitting comfortably in
+        view is **left alone** — stepping between two matches on the same screen must not shove the
+        page around — and anything else is **centred**, which makes the two directions symmetric and
+        stops the result depending on window height or zoom.
+
+        Horizontal position is held unless the box is actually off to one side, since a document
+        that fits the window sideways should not slide about while the reader pages through hits.
+        """
+        rect = self.scene_rect_for_box(page_index, box)
+        visible = self.mapToScene(self.viewport().rect()).boundingRect()
+        settled = is_settled(rect.top(), rect.bottom(), visible.top(), visible.bottom())
+        off_to_the_side = rect.left() < visible.left() or rect.right() > visible.right()
+        if settled and not off_to_the_side:
+            return
+        # centerOn clamps to the scroll range itself, so a hit near either end of the document
+        # simply lands as close to centred as the document allows.
+        x = rect.center().x() if off_to_the_side else visible.center().x()
+        self.centerOn(x, rect.center().y() if not settled else visible.center().y())
 
     # ---- mouse → text selection -------------------------------------------------
 

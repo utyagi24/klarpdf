@@ -67,6 +67,7 @@ Everything here works **fully offline**: the app makes no network connection, ev
 - **Crop** to hide (this / selected / all), with **Remove Crop** to restore — even a crop the file arrived with.
 - **Extract** pages to a new file; **cut / copy / paste** pages, even **between two open documents**.
 - **Lossless saves** — text layer, form fields, bookmarks and internal links all survive a reorder or delete.
+- **Your document comes back whole** — an edit that doesn't move pages (filling a form, annotating, redacting, rotating) also keeps the accessibility tags, the permissions, the encryption and the links exactly as they were. Reordering or deleting pages rebuilds the file and loses the tags.
 - **Undo / redo** every page edit (Ctrl+Z / Ctrl+Y).
 
 **Annotate & mark up**
@@ -92,7 +93,7 @@ Everything here works **fully offline**: the app makes no network connection, ev
 
 **Files, security & Windows**
 - **Properties** — edit or strip metadata (both stores cleared, not just the visible one).
-- **Password-protect** with **AES-256** — set, change, or remove.
+- **Password-protect** with **AES-256** — set, change, or remove. A document that already restricts printing, copying or editing keeps those restrictions unless you change them.
 - **File safety** — Revert to Saved, a warning when another program changes the open file, an overwrite guard, and a Save / Discard / Cancel prompt on close.
 - **A native Windows citizen** — registers in the `.pdf` **Open With** list; **single instance, one window per document**; per-user install (no admin) or a single-file portable exe.
 

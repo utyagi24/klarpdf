@@ -173,3 +173,42 @@ def test_the_case_filter_still_rejects_a_wrong_case_word(boundaries_pdf):
     with fitz.open(boundaries_pdf) as doc:
         assert _hits(doc[0], "EXPRESSION", match_case=True) == []
         assert len(_hits(doc[0], "expression", match_case=True)) == len(BOUNDARIES)
+
+
+# ---- fragments regrouped into occurrences ---------------------------------------
+
+
+def test_group_matches_folds_a_wrapped_phrase_into_one_occurrence(wrapped_pdf):
+    """Seven boxes for five occurrences is what the raw matcher gives; a caller counting matches
+    wants five. Grouping reads the page to decide, closing an occurrence when the accumulated
+    text spells the term."""
+    with fitz.open(wrapped_pdf) as doc:
+        page = doc[0]
+        text = PageText(page)
+        boxes = [(r.x0, r.y0, r.x1, r.y1) for r in page.search_for("regular expression")]
+        groups = text.group_matches(boxes, "regular expression")
+        assert len(boxes) == 2          # the raw matcher split it across the line break
+        assert len(groups) == 1         # …and it is one occurrence
+        assert len(groups[0]) == 2      # carrying both rectangles
+
+
+def test_group_matches_leaves_an_unwrapped_hit_alone(boundaries_pdf):
+    with fitz.open(boundaries_pdf) as doc:
+        page = doc[0]
+        text = PageText(page)
+        boxes = [(r.x0, r.y0, r.x1, r.y1) for r in page.search_for("expression")]
+        groups = text.group_matches(boxes, "expression")
+        assert [len(g) for g in groups] == [1] * len(BOUNDARIES)
+
+
+def test_group_matches_never_drops_a_box(wrapped_pdf):
+    """The safety property. A caller may be about to redact these, and an ungrouped box costs a
+    miscount while a missing one costs a leak — so a run that does not spell the term is emitted
+    box by box rather than discarded."""
+    with fitz.open(wrapped_pdf) as doc:
+        page = doc[0]
+        text = PageText(page)
+        boxes = [(r.x0, r.y0, r.x1, r.y1) for r in page.search_for("regular expression")]
+        # A term the boxes cannot possibly spell: every box must still come back, singly.
+        groups = text.group_matches(boxes, "something else entirely")
+        assert [b for g in groups for b in g] == boxes
