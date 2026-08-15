@@ -472,6 +472,20 @@ items, which are independent of it.
     extracted text. The second is the load-bearing one — a matcher cannot see an occurrence it
     failed to redact, so a check that reuses it inherits its blind spots. `residual_matches` reports
     the verified count.
+- [x] **M43.3** *(unplanned)* A wrapped match counted as two — found by the owner while checking
+  M43.2's output ([#249](https://github.com/utyagi24/klarpdf/pull/249) viewer,
+  [#250](https://github.com/utyagi24/klarpdf/pull/250) bridge) — *WSL*
+  - Searching `regular expression` reported **7 matches for 5 occurrences**: MuPDF returns a match
+    spanning a line break as one rect per line, and both the find bar and `search` appended a hit
+    per rect. The bar read "4 of 7", Next stepped through one occurrence twice, and a row's snippet
+    showed only the half of the phrase that fitted on the first line. Pre-existing since M64 and
+    masked until M43.2 — the second fragment usually ended in punctuation and was being dropped by
+    the whole-word bug, so the miscount sat behind a worse defect.
+  - A hit is now an **occurrence** carrying one box per line it occupies. `PageText.group_matches`
+    folds a term's boxes by accumulating the text under them until it spells the term; a run that
+    does not spell it is emitted box by box, because an ungrouped box costs a miscount while a
+    missing one costs a leak. `search` returns `boxes`, `redact_text` reports `matches` and
+    `boxes_redacted`, and `redact_regions` accepts `boxes` so a hit goes back in whole.
 - [ ] **M44** Verify + release → tag (version at tag time) — tool round-trips + leak verify +
   no-network/no-port + no-Qt assertion + cross-platform + runs from Code/Desktop — *Windows*
   **Runbook written 2026-08-12: `RELEASE.md` §4.** Of the ten matrix items, **six are automated and
@@ -2374,6 +2388,39 @@ tree or history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI 
 ## Open follow-ups (carried)
 
 Carried items — none block work:
+
+- **TC-002 — three MCP-side defects still open.** From the second hands-on session (2026-08-13,
+  report at `/mnt/c/Users/umesh/Downloads/pdfs/klarpdf-tests/TC-002-fill_form-ssa-3.md`): filling an
+  SSA-3 through `fill_form` worked, but the write degraded the document seven ways. **Four are
+  fixed** — links, accessibility tags, encryption and usage rights — by **M93**
+  ([#253](https://github.com/utyagi24/klarpdf/pull/253)), which found the cause was the *app's* save
+  engine, not the bridge. These three are bridge-only and were never started:
+  - **`get_info` misreports encryption** (report's ISSUE 5). `mcp_bridge/queries.py` returns
+    `"encrypted": vdoc.password is not None` — which answers *"did the caller give me a password?"*,
+    not *"is this file encrypted?"*. An owner-password document (opens freely, restricts copying)
+    reports `false`. Ask the document instead: `doc.metadata["encryption"]` is the reliable signal,
+    **not** `is_encrypted`, which is `False` once a file opens without a password. Add a
+    `permissions` field while there.
+  - **`get_form_fields` hides what a caller needs to fill a checkbox** (ISSUE 6). `choices` comes
+    from `widget.choice_values`, which is populated for combo/list only, so a checkbox's on-state
+    (`"2"` on that form, and it differs per widget) is undiscoverable. `fill_form` accepts a boolean
+    and resolves it — good behaviour, documented nowhere, so the natural guess is `"Yes"`/`"On"`.
+    Report on/off states via `widget.button_states()`, expose `field_flags`
+    (read-only / required / multiline / max-length — the form has 3-pt plumbing fields
+    indistinguishable from real ones today), and document the boolean.
+  - **XFA data island left stale** (ISSUE 3) — **needs an owner decision**. The form is XFA
+    (LiveCycle); `fill_form` updates the AcroForm widgets and leaves the `datasets` packet
+    byte-identical, so the file asserts two different things. Not the catastrophe it would be for a
+    *dynamic* XFA form — this one is static (XFAF), so Acrobat renders from the AcroForm
+    appearances — but any XFA-aware consumer reads an empty form. Three options, in the report's
+    preference order: write the values into `datasets` too; drop `/XFA` on write so the file
+    degrades to a plain AcroForm everyone agrees on; or warn when `/XFA` is present. **A dynamic
+    XFA form is untested and is the likeliest hard failure.**
+  - Also outstanding: the tool docs still say *"Transforms are lossless: the text layer, form fields
+    and bookmarks survive"*. M93 narrowed that claim in `PLAN.md` §Key design idea — an unchanged
+    page set keeps the document's structure, a reorder does not — and the MCP wording should match.
+  - `klarpdf-tests/inspect_pdf.py` (beside the report) dumps the document-level properties a save
+    can drop, and diffs two files; it takes `--password` or prompts.
 
 - **A reorder still loses the accessibility structure tree** (M93). The unchanged-page-set route
   keeps it; the grafting route cannot, because a structure tree is a tree of references into page

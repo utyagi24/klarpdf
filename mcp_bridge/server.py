@@ -162,8 +162,9 @@ def create_server(config: Config | None = None) -> MCPServer:
         whole_words: bool = False,
         password: str | None = None,
     ) -> dict:
-        """Find text across the whole document. Returns a `count` and `hits` — one entry per match
-        with `page`, a `snippet` of the surrounding line, and the `box` it occupies in page points.
+        """Find text across the whole document. Returns a `count` and `hits` — one entry per
+        occurrence with `page`, a `snippet` of the surrounding text, and `boxes`, the rectangles it
+        occupies in page points.
 
         Use this to locate content before extracting it, and to check what a phrase actually matches
         before acting on it — the snippet is what tells you a search for "Smith" also caught
@@ -173,9 +174,11 @@ def create_server(config: Config | None = None) -> MCPServer:
         matches, including inside longer words. With it on, the query is a single phrase and neither
         end may sit inside a longer word. `match_case` filters against the text under each hit.
 
-        A phrase that wraps a line break comes back as **one hit per line fragment**, the way a
-        find bar highlights a wrapped match — so a `count` can exceed the number of occurrences a
-        reader would count on the page. Each box is still a real, redactable part of the match.
+        `boxes` is normally a single rectangle. A phrase that wraps a line break occupies one on
+        **each** line, the way a find bar highlights a wrapped match, and all of them come back
+        under the one hit — so `count` counts occurrences, not fragments. Redact every box of a
+        hit: clearing only the first leaves the tail of the phrase legible. Passing the whole hit
+        to `redact_regions` as `{"page": hit["page"], "boxes": hit["boxes"]}` does that for you.
         """
         hits = queries.search(
             check(path),
@@ -501,8 +504,9 @@ def create_server(config: Config | None = None) -> MCPServer:
         """**Destructively** remove rectangular regions and write a verified copy.
 
         `regions` is a list of `{"page": 1, "box": [x0, y0, x1, y1]}` in page points — the same
-        coordinate space `search` and `get_form_fields` report boxes in, so a hit can be handed
-        straight back as a region. Use this when you know *where* rather than *what*: a signature
+        coordinate space `search` and `get_form_fields` report boxes in. A region may carry
+        `boxes` (a list) instead of `box`, which is the shape a `search` hit already has, so a hit
+        can be handed straight back as one region without being taken apart. Use this when you know *where* rather than *what*: a signature
         block, a letterhead, a photo, a table cell.
 
         Content is physically deleted, the written file is re-read and verified (PyMuPDF, plus

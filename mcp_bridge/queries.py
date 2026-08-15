@@ -171,7 +171,7 @@ def search(
     whole_words: bool = False,
     password: str | None = None,
 ) -> list[dict]:
-    """Locate ``query`` and return one hit per match: page, snippet, and box.
+    """Locate ``query`` and return one hit per **occurrence**: page, snippet, and boxes.
 
     The same semantics as the app's find bar (M75.1), because they are the same primitives — MuPDF's
     ``search_for`` is always case-insensitive and always matches inside words, so both filters are
@@ -182,10 +182,11 @@ def search(
       inside a longer word.
     * ``match_case`` compares the text under the box against the term that found it.
 
-    A phrase that wraps a line break yields **one hit per line fragment** — MuPDF returns the match
-    that way and the fragments are kept, because each is a real part of the match and
-    ``redact_text`` has to clear all of them. So a hit count can exceed the number of occurrences a
-    reader would count, and a fragment's ``snippet`` shows only its own line.
+    A phrase that wraps a line break occupies a rectangle on **each** line — MuPDF returns the
+    match that way, and every rectangle is real because ``redact_text`` has to clear all of them.
+    They are grouped back into one hit rather than reported as several, so a count is a count of
+    occurrences: ``boxes`` is normally one box, and two when the match wraps. The ``snippet`` joins
+    the lines, so a wrapped match reads as the whole phrase.
 
     Per-hit text comes from :class:`~model.page_text.PageText`, which indexes a page once and serves
     every hit on it. This is the reuse the milestone was shrunk for: the naive ``get_textbox`` call
@@ -203,28 +204,30 @@ def search(
     with open_document(path, password) as vdoc:
         for index0 in range(vdoc.page_count):
             page = _page_of(vdoc, index0)
-            found = [(r, term) for term in terms for r in page.search_for(term)]
-            if not found:
+            per_term = [(term, [(r.x0, r.y0, r.x1, r.y1) for r in page.search_for(term)])
+                        for term in terms]
+            if not any(boxes for _term, boxes in per_term):
                 continue
-            if len(terms) > 1:  # one term already arrives in reading order
-                found.sort(key=lambda f: (round(f[0].y0, 1), f[0].x0))
             text = PageText(page)
+            found = [(boxes, term) for term, term_boxes in per_term
+                     for boxes in text.group_matches(term_boxes, term)]
+            if len(terms) > 1:  # one term already arrives in reading order
+                found.sort(key=lambda f: (round(f[0][0][1], 1), f[0][0][0]))
             seen: set = set()
-            for rect, term in found:
-                box = (rect.x0, rect.y0, rect.x1, rect.y1)
-                key = tuple(round(v, 2) for v in box)
+            for boxes, term in found:
+                key = tuple(tuple(round(v, 2) for v in box) for box in boxes)
                 if key in seen:
                     continue  # two terms landing on the same text is still one hit
                 seen.add(key)
-                if whole_words and not text.is_whole_word(box):
+                if whole_words and not all(text.is_whole_word(box) for box in boxes):
                     continue
-                if match_case and not text.matches_case(box, term):
+                if match_case and not all(text.matches_case(box, term) for box in boxes):
                     continue
                 hits.append(
                     {
                         "page": index0 + 1,
-                        "snippet": text.snippet(box),
-                        "box": [round(v, 2) for v in box],
+                        "snippet": text.snippet_for(boxes),
+                        "boxes": [[round(v, 2) for v in box] for box in boxes],
                     }
                 )
     return hits

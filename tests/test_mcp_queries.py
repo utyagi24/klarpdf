@@ -108,7 +108,7 @@ def test_search_finds_the_page_and_a_snippet(a_pdf):
     assert len(hits) == 1
     assert hits[0]["page"] == 2  # 1-based: A_TEXT[1] is on the second page
     assert A_TEXT[1] in hits[0]["snippet"]
-    assert len(hits[0]["box"]) == 4
+    assert len(hits[0]["boxes"]) == 1 and len(hits[0]["boxes"][0]) == 4
 
 
 def test_search_is_case_insensitive_by_default_and_match_case_filters(a_pdf):
