@@ -85,6 +85,18 @@ _CHILD = textwrap.dedent(
         await server.call_tool(
             "export_images", {"path": PDF, "out_dir": WORK, "pages": [1], "dpi": 36}
         )
+        # redaction — pulls model.page_edits' destructive path and the Poppler subprocess
+        await server.call_tool(
+            "redact_text", {"path": PDF, "query": "ALPHA", "out": out("rt.pdf")}
+        )
+        await server.call_tool(
+            "redact_regions",
+            {
+                "path": PDF,
+                "regions": [{"page": 1, "box": [70, 60, 300, 90]}],
+                "out": out("rr.pdf"),
+            },
+        )
 
     asyncio.run(exercise())
 

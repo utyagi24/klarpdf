@@ -40,7 +40,8 @@ WRITE_TOOLS = {
     "flatten",
     "export_images",
 }
-EXPECTED_TOOLS = READ_TOOLS | WRITE_TOOLS
+REDACT_TOOLS = {"redact_text", "redact_regions"}
+EXPECTED_TOOLS = READ_TOOLS | WRITE_TOOLS | REDACT_TOOLS
 
 
 def call(name: str, **arguments):
@@ -220,7 +221,7 @@ def test_every_write_tool_requires_an_explicit_output(a_pdf):
     required = {
         t.name: set(t.input_schema.get("required", []))
         for t in asyncio.run(server.list_tools())
-        if t.name in WRITE_TOOLS
+        if t.name in WRITE_TOOLS | REDACT_TOOLS
     }
     for name, args in required.items():
         assert {"out", "out_dir"} & args, f"{name} does not require an output path"
@@ -273,3 +274,37 @@ def test_a_refusal_reaches_the_client_as_a_tool_error(a_pdf):
     """The source-protection refusal has to arrive as an error the agent can read, not a crash."""
     with pytest.raises(ToolError, match="refusing to write over the input"):
         call("delete_pages", path=a_pdf, pages=[1], out=a_pdf)
+
+
+# ---- redaction (M41) through the protocol ------------------------------------------
+
+
+def test_redact_text_through_the_server(a_pdf, tmp_path):
+    out = str(tmp_path / "red.pdf")
+    result = payload("redact_text", path=a_pdf, query=A_TEXT[0], out=out)
+    assert result["hits"] == 1
+    assert result["pages_redacted"] == [1]
+    assert "pymupdf" in result["verified_with"]
+
+
+def test_redact_regions_through_the_server(a_pdf, tmp_path):
+    hit = payload("search", path=a_pdf, query=A_TEXT[1])["hits"][0]
+    out = str(tmp_path / "reg.pdf")
+    result = payload(
+        "redact_regions", path=a_pdf, regions=[{"page": hit["page"], "box": hit["box"]}], out=out
+    )
+    assert result["regions"] == 1
+    assert result["source_unchanged"] is True
+
+
+def test_the_verification_verdict_is_in_the_payload(a_pdf, tmp_path):
+    """The caller must be able to read *which* engines checked, not just that it succeeded — the
+    difference between a cross-engine guarantee and a single-engine one."""
+    result = payload("redact_text", path=a_pdf, query=A_TEXT[0], out=str(tmp_path / "v.pdf"))
+    assert isinstance(result["cross_engine_verified"], bool)
+    assert result["verification_note"]
+
+
+def test_redacting_a_missing_string_is_a_tool_error_not_a_silent_copy(a_pdf, tmp_path):
+    with pytest.raises(ToolError, match="was not found"):
+        call("redact_text", path=a_pdf, query="ABSENT-STRING", out=str(tmp_path / "n.pdf"))

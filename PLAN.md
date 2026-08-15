@@ -1019,7 +1019,24 @@ and already produces the page + snippet output `search` needs.
   cannot silently drop a page; `delete_pages` refuses to empty a document; an out-of-range page
   number is refused rather than clamped.
 - **Redaction stays a point of no return** — destructive `apply_redactions` + the existing
-  `fitz`+Poppler leak verification before the tool reports success.
+  `fitz`+Poppler leak verification before the tool reports success. Landed at M41 in
+  `mcp_bridge/redaction.py`, with two consequences worth stating because they are what separate this
+  from `redact_mcp`'s visual overlay:
+  - **A failed verification deletes the output and raises.** A caller must never be handed a path to
+    a file that looks redacted and is not, so the tool's success is a claim about a file that was
+    re-read, not about a function that returned.
+  - **Verification counts occurrences, it does not test for presence** — and the difference is not
+    pedantry, it was a real bug caught by a test. Redacting the standalone "Smith" out of "Smith and
+    Smithsonian" leaves a page that still *contains* the substring "Smith"; a presence check calls
+    that a leak and destroys a good output. The rule is
+    `occurrences_after <= occurrences_before − boxes_that_covered_it`, per page and per engine,
+    which is exact in both directions: unrelated surviving text cannot trip it, and it still catches
+    two boxes covering the same word when only one was removed — which a presence check would pass.
+  - **The report says which engines actually ran.** Poppler is not installed everywhere, and
+    `cross_engine_verified: false` plus an explicit note is the honest answer; the tool never claims
+    a cross-engine check it did not perform (§Honesty principle). An **encrypted** output is
+    unlocked for verification with the same password — a check that silently cannot read the file
+    must not be mistaken for a check that found nothing.
 - **Path scoping.** A configurable allowlist of roots the server may read/write (an MCP tool runs with
   the host's file access); refuse paths outside it.
 - **Return-size caps** so a mis-call (`extract_text` on 800 pages) degrades gracefully, not a context blow-out.
