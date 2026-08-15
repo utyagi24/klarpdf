@@ -1,11 +1,47 @@
 [project]
 name = "klarpdf"
-version = "0.0.0"
+dynamic = ["version"]
 description = "Local, offline, native-Windows PDF viewer + page editor"
+# The GUI still requires exactly python.org 3.12 for the Windows build (CLAUDE.md §Gotchas), and the
+# MCP bridge inherits that ceiling rather than widening it unilaterally: `uv` resolving the .mcpb
+# will fetch a 3.12 interpreter, which makes the Desktop install *more* deterministic, not less.
+# Relaxing to `>=3.12` for the bridge's sake is a real option — its dependencies all support 3.13 —
+# but it is untested here and is an owner call, so it is not taken silently.
 requires-python = ">=3.12,<3.13"
 # Dependency VERSIONS have a single source of truth in requirements.in (compiled to
 # requirements-win.txt for the Windows ship and requirements-dev.txt for WSL dev). They are
 # intentionally NOT duplicated here. See PLAN.md "Packaging, dependencies & installer".
+#
+# `dependencies` is likewise absent on purpose. This project is installed from a *lock*, never
+# resolved from here: the bridge from requirements-mcp.txt, dev from requirements-dev.txt, the
+# Windows ship from the hashed requirements-win.txt. The one place dependencies ARE declared is
+# packaging/mcpb/pyproject.toml, because the .mcpb format requires it (MCPB `server.type = "uv"`
+# resolves at install time) — and they are `==` pins there for exactly that reason.
+
+# The project's FIRST console script (M42). It is the MCP bridge's entry point and nothing else;
+# there is deliberately no general-purpose CLI (PLAN.md §Dependencies & packaging — a second
+# permanent entry point for an audience that has not asked for one).
+[project.scripts]
+klarpdf-mcp = "mcp_bridge.server:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+# An install carries the bridge and the GUI-free core it stands on — and NOT the GUI. That is the
+# quarantined seam expressed as a package boundary: `pip install klarpdf` for the bridge pulls no
+# PySide6, matching what tests/test_mcp_no_qt.py asserts at runtime.
+#
+# NB `model/edit_commands.py` rides along inside `model` and imports QUndoCommand, so it would fail
+# to import on a GUI-less install. Nothing on the server path imports it (that is the invariant the
+# keystone test pins), so it is inert — listed here so its presence is a known quantity rather than
+# a surprise.
+[tool.setuptools]
+packages = ["mcp_bridge", "model", "util"]
+py-modules = ["version"]
+
+[tool.setuptools.dynamic]
+version = { attr = "version.__version__" }
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

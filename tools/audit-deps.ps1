@@ -4,9 +4,13 @@
   .github/workflows/audit.yml CI job.
 
 .DESCRIPTION
-  Runs pip-audit (PyPA's scanner; OSV + PyPI advisory DB) over the three pinned locks in a THROWAWAY
+  Runs pip-audit (PyPA's scanner; OSV + PyPI advisory DB) over the four pinned locks in a THROWAWAY
   venv created in $env:TEMP, so neither pip-audit nor its transitive deps ever touch the project's
   pinned .venv. The venv is deleted on exit.
+
+  SCOPE CAVEAT for requirements-mcp.txt: it audits the pip/pipx install path only. The .mcpb Desktop
+  Extension resolves its own dependencies at install time via 'uv', so a Desktop user does not get
+  this lock. See PLAN.md "Dependencies and packaging".
 
   Needs network (queries the advisory DB) and python.org 3.12 reachable via the 'py -3.12' launcher.
 
@@ -33,7 +37,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
-$Locks = "requirements-win.txt", "requirements-dev.txt", "requirements-build-win.txt"
+$Locks = "requirements-win.txt", "requirements-dev.txt", "requirements-build-win.txt",
+         "requirements-mcp.txt"
 $Venv = Join-Path $env:TEMP ("klarpdf-audit-" + [guid]::NewGuid().ToString("N").Substring(0, 8))
 
 Push-Location $RepoRoot

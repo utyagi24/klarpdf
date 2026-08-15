@@ -1,0 +1,50 @@
+{
+  "manifest_version": "0.2",
+  "name": "klarpdf",
+  "display_name": "KlarPDF",
+  "version": "0.17.1",
+  "description": "Local, offline PDF engine for agents: read, transform, and verifiably redact.",
+  "long_description": "Exposes KlarPDF's PDF engine to Claude Desktop as MCP tools. Read a document without pulling it whole into context (get_info, get_outline, search, extract_text, render_page); transform it losslessly to a new file (split, merge, reorder, delete_pages, rotate, fill_form, flatten, export_images); and redact destructively with cross-engine leak verification, so the text is physically removed rather than covered by a black box. Every write tool takes an explicit output path and leaves the input byte-identical. The tools make no network connections.",
+  "author": {
+    "name": "utyagi24",
+    "url": "https://github.com/utyagi24"
+  },
+  "homepage": "https://github.com/utyagi24/klarpdf",
+  "documentation": "https://github.com/utyagi24/klarpdf/blob/main/mcp_bridge/README.md",
+  "support": "https://github.com/utyagi24/klarpdf/issues",
+  "license": "AGPL-3.0-or-later",
+  "keywords": ["pdf", "redaction", "split", "merge", "forms", "offline"],
+  "server": {
+    "type": "python",
+    "entry_point": "server/mcp_bridge/server.py",
+    "mcp_config": {
+      "command": "uv",
+      "args": ["run", "--directory", "${__dirname}/server", "klarpdf-mcp"],
+      "env": {}
+    }
+  },
+  "tools": [
+    { "name": "get_info", "description": "Page count, size, encryption, text layer, outline." },
+    { "name": "get_outline", "description": "The document's bookmarks." },
+    { "name": "search", "description": "Find text; returns pages, snippets and boxes." },
+    { "name": "extract_text", "description": "Text of named pages." },
+    { "name": "render_page", "description": "Render one page to a PNG image." },
+    { "name": "get_form_fields", "description": "List fillable form fields." },
+    { "name": "delete_pages", "description": "Write a copy without the named pages." },
+    { "name": "reorder", "description": "Write a copy with pages in a new order." },
+    { "name": "rotate", "description": "Turn pages by a multiple of 90 degrees." },
+    { "name": "split", "description": "Split into several PDFs by page range." },
+    { "name": "merge", "description": "Concatenate several PDFs into one." },
+    { "name": "fill_form", "description": "Fill AcroForm fields, keeping them editable." },
+    { "name": "flatten", "description": "Bake annotations and fields into page content." },
+    { "name": "export_images", "description": "Rasterise pages to image files." },
+    { "name": "redact_text", "description": "Destructively remove matching text, verified." },
+    { "name": "redact_regions", "description": "Destructively remove regions, verified." }
+  ],
+  "compatibility": {
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": {
+      "python": ">=3.12,<3.13"
+    }
+  }
+}

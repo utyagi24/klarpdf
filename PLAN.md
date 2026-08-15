@@ -1107,6 +1107,27 @@ and already produces the page + snippet output `search` needs.
   therefore ships **source plus a `pyproject.toml` only**: the spec requires `pyproject.toml` with
   dependencies and says the bundle **"must NOT include `server/lib/` or `server/venv/`"** — vendoring
   is forbidden by the format for this type, not declined by us.
+- **CORRECTION (M42): there is no `uv` server type.** Measured against the real tool rather than the
+  guide: `mcpb` **2.1.2** validates `server.type` against exactly `python | node | binary`, and does
+  so on every manifest version it accepts (`0.1`/`0.2`/`0.3`; `1.0` and above are rejected outright
+  as "unrecognized or unsupported"). The decision above is therefore unbuildable as written, and the
+  bullet is kept rather than deleted because the *reasoning* in it is still correct and still what
+  the implementation does.
+  **What shipped instead:** the manifest declares the supported **`python`** type while its
+  `mcp_config.command` **is `uv`** (`uv run --directory ${__dirname}/server klarpdf-mcp`). That
+  preserves every property the original decision was made for — resolve-at-install, no vendoring,
+  one file for macOS + Windows + Linux — and changes exactly one thing: **`uv` must be on the user's
+  PATH**, because the host is no longer the component supplying it. That prerequisite is stated in
+  `mcp_bridge/README.md` rather than left to be discovered. `tests/test_mcp_packaging.py` pins the
+  command, so a later edit back to a bare interpreter cannot quietly reintroduce the need for
+  vendored dependencies the format forbids.
+  **How it is built:** `packaging/mcpb/build_mcpb.py` assembles `server/` from the checkout
+  (`mcp_bridge/`, `model/`, `util/`, `version.py`, minus `model/edit_commands.py` — the one
+  Qt-importing file), generates the bundle's `pyproject.toml` **from `requirements-mcp.txt** so the
+  two cannot drift, and runs `mcpb pack`. The `.mcpb` is a **release artifact in `dist/`, not a
+  committed file** — same treatment as the installer; what is committed is the script, the manifest
+  and the generated `pyproject.toml`, so the inputs are reviewable. Measured output: 95 KiB,
+  25 files, no `server/lib/`, no `server/venv/`, no PySide6.
 - **Consequences of that choice, accepted knowingly — and to be stated in the README, not
   discovered.** The `.mcpb` path **installs online**: at install/first run the host runs `uv`, which
   fetches wheels from PyPI matching that machine's OS, arch and Python. Three follow-ons: (a) it
@@ -1117,6 +1138,15 @@ and already produces the page + snippet output `search` needs.
   *not* the Desktop path. Do not describe the audit as covering "the bridge" without that
   qualification. **M42 must test whether the host honours a `uv.lock`** (and hash verification): the
   spec is silent on both, and if it does, most of gap (c) closes.
+  **M42 outcome on the `uv.lock` question: still open, and it is now a different question.** With no
+  `uv` server type (see the correction above), there is no host-managed `uv` invocation to honour a
+  lock — the bundle runs `uv run --directory server`, and whether *that* consults a committed
+  `uv.lock` is answerable only by installing the bundle in Claude Desktop, which is a Windows/macOS
+  step. Carried to M44's "lives with a client" item. Gap (c) is therefore **not** closed, and the
+  README says so plainly rather than implying the audit covers the Desktop path. What M42 *did*
+  narrow: the bundle's `pyproject.toml` is generated from `requirements-mcp.txt` and a test fails if
+  it drifts, so the set of versions the bundle asks for is the audited set even though the install
+  that fetches them is not itself audited.
 - **`binary` was considered and rejected** (2026-08-12) — a PyInstaller-frozen `klarpdf-mcp` shipped
   as a compiled executable would have been offline, hash-verifiable, Python-free on the user's
   machine, and reused `packaging/klarpdf.spec`. It loses on reach: it is platform-specific, and the
