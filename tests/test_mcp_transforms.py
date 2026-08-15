@@ -1,0 +1,410 @@
+"""M40 — the transform tools: lossless, and physically unable to touch the input.
+
+Two things are being tested and they are not the same thing.
+
+**Losslessness** is asserted with the invariants ``tests/test_materialize.py`` pins for the GUI's
+own Save, against the same `A.pdf`/`B.pdf` fixtures: OCR text rides along with a moved page, the
+outline re-points at new indices and drops nothing dangling, colliding form fields are renamed
+rather than lost. If those hold, the transforms inherited the shared engine correctly — which is the
+whole architectural claim, and the reason the tools are thin.
+
+**The safety model** is asserted separately and adversarially, because "agent-driven means untrusted
+caller" only means something if the refusals actually fire: writing over the source through a
+symlink, through `..`, or through an existing-file path all have to be rejected, and a failed
+transform must leave no debris.
+"""
+
+from __future__ import annotations
+
+import os
+
+import pymupdf as fitz
+import pytest
+
+from mcp_bridge import transforms as T
+from tests.conftest import A_TEXT, B_TEXT
+
+
+def _text(path: str, index: int) -> str:
+    doc = fitz.open(path)
+    try:
+        return doc[index].get_text("text")
+    finally:
+        doc.close()
+
+
+def _toc(path: str) -> list:
+    doc = fitz.open(path)
+    try:
+        return doc.get_toc(simple=True)
+    finally:
+        doc.close()
+
+
+def _field_names(path: str) -> list[str]:
+    doc = fitz.open(path)
+    try:
+        return [w.field_name for page in doc for w in page.widgets()]
+    finally:
+        doc.close()
+
+
+def _pages(path: str) -> int:
+    doc = fitz.open(path)
+    try:
+        return doc.page_count
+    finally:
+        doc.close()
+
+
+@pytest.fixture
+def out(tmp_path) -> str:
+    return str(tmp_path / "out.pdf")
+
+
+# ---- delete_pages ---------------------------------------------------------------
+
+
+def test_delete_removes_the_page_and_keeps_the_rest(a_pdf, out):
+    result = T.delete_pages(a_pdf, [2], out)
+    assert result["pages"] == 2
+    assert A_TEXT[0] in _text(out, 0)
+    assert A_TEXT[2] in _text(out, 1)
+
+
+def test_delete_remaps_the_outline_and_drops_dangling_bookmarks(a_pdf, out):
+    """The `test_materialize.py` invariant: "Section 1.1" targeted the deleted page, so it goes;
+    the survivors point at their NEW 1-based positions and the levels are repaired."""
+    T.delete_pages(a_pdf, [2], out)
+    assert _toc(out) == [[1, "Chapter 1", 1], [1, "Chapter 2", 2]]
+
+
+def test_delete_refuses_to_empty_the_document(a_pdf, out):
+    with pytest.raises(ValueError, match="every page"):
+        T.delete_pages(a_pdf, [1, 2, 3], out)
+    assert not os.path.exists(out)
+
+
+# ---- reorder ---------------------------------------------------------------------
+
+
+def test_reorder_moves_pages_and_their_text(a_pdf, out):
+    T.reorder(a_pdf, [3, 1, 2], out)
+    assert A_TEXT[2] in _text(out, 0)
+    assert A_TEXT[0] in _text(out, 1)
+    assert A_TEXT[1] in _text(out, 2)
+
+
+def test_reorder_remaps_the_outline_to_follow_its_pages(a_pdf, out):
+    T.reorder(a_pdf, [3, 2, 1], out)
+    titles = {entry[1]: entry[2] for entry in _toc(out)}
+    assert titles["Chapter 1"] == 3  # was page 1, now last
+    assert titles["Chapter 2"] == 1  # was page 3, now first
+
+
+def test_reorder_demands_a_full_permutation(a_pdf, out):
+    """A partial list would silently drop pages — which is what delete_pages is for."""
+    with pytest.raises(ValueError, match="every page exactly once"):
+        T.reorder(a_pdf, [1, 2], out)
+    with pytest.raises(ValueError, match="every page exactly once"):
+        T.reorder(a_pdf, [1, 1, 2], out)
+    assert not os.path.exists(out)
+
+
+# ---- rotate -----------------------------------------------------------------------
+
+
+def test_rotate_turns_every_page_by_default(a_pdf, out):
+    T.rotate(a_pdf, 90, out)
+    doc = fitz.open(out)
+    try:
+        assert [page.rotation for page in doc] == [90, 90, 90]
+    finally:
+        doc.close()
+
+
+def test_rotate_takes_a_page_subset(a_pdf, out):
+    T.rotate(a_pdf, 180, out, pages=[2])
+    doc = fitz.open(out)
+    try:
+        assert [page.rotation for page in doc] == [0, 180, 0]
+    finally:
+        doc.close()
+
+
+def test_rotation_is_a_delta_not_an_absolute(a_pdf, tmp_path):
+    """90 twice is 180 — the verb's meaning, and what keeps an already-rotated scan consistent."""
+    once = str(tmp_path / "once.pdf")
+    twice = str(tmp_path / "twice.pdf")
+    T.rotate(a_pdf, 90, once)
+    T.rotate(once, 90, twice)
+    doc = fitz.open(twice)
+    try:
+        assert doc[0].rotation == 180
+    finally:
+        doc.close()
+
+
+@pytest.mark.parametrize("degrees", [45, 1, -30, 100])
+def test_rotate_rejects_a_non_quarter_turn(a_pdf, out, degrees):
+    with pytest.raises(ValueError, match="multiple of 90"):
+        T.rotate(a_pdf, degrees, out)
+
+
+# ---- split --------------------------------------------------------------------------
+
+
+def test_split_without_ranges_writes_one_file_per_page(a_pdf, tmp_path):
+    result = T.split(a_pdf, str(tmp_path))
+    assert result["count"] == 3
+    for i, part in enumerate(result["parts"]):
+        assert _pages(part["out"]) == 1
+        assert A_TEXT[i] in _text(part["out"], 0)
+
+
+def test_split_takes_print_dialog_ranges(a_pdf, tmp_path):
+    result = T.split(a_pdf, str(tmp_path), ranges=["1-2", "3-"])
+    assert [part["pages"] for part in result["parts"]] == [2, 1]
+    assert result["parts"][0]["source_pages"] == [1, 2]
+    assert A_TEXT[2] in _text(result["parts"][1]["out"], 0)
+
+
+def test_split_parts_keep_the_bookmarks_that_landed_in_them(a_pdf, tmp_path):
+    """Losslessness survives the extract: page 3 carries "Chapter 2" into its own file."""
+    result = T.split(a_pdf, str(tmp_path), ranges=["3"])
+    assert [entry[1] for entry in _toc(result["parts"][0]["out"])] == ["Chapter 2"]
+
+
+def test_split_rejects_an_empty_range(a_pdf, tmp_path):
+    """`parse_page_range("")` means *every page* — the right default for a dialog's untouched Pages
+    box, and a trap in a split list, where `["1-2", ""]` would quietly make part two the whole
+    document. Refused rather than obeyed."""
+    with pytest.raises(ValueError, match="every page"):
+        T.split(a_pdf, str(tmp_path), ranges=["1-2", ""])
+
+
+def test_split_rejects_a_nonsense_range(a_pdf, tmp_path):
+    from util.page_range import PageRangeError
+
+    with pytest.raises(PageRangeError):
+        T.split(a_pdf, str(tmp_path), ranges=["not-a-page"])
+
+
+def test_split_rejects_a_missing_directory(a_pdf, tmp_path):
+    with pytest.raises(ValueError, match="does not exist"):
+        T.split(a_pdf, str(tmp_path / "nope"))
+
+
+# ---- merge ----------------------------------------------------------------------------
+
+
+def test_merge_concatenates_in_order(a_pdf, b_pdf, out):
+    result = T.merge([a_pdf, b_pdf], out)
+    assert result["pages"] == 5
+    assert A_TEXT[0] in _text(out, 0)
+    assert B_TEXT[0] in _text(out, 3)
+
+
+def test_merge_renames_colliding_form_fields_rather_than_dropping_one(a_pdf, b_pdf, out):
+    """The `test_materialize.py` dedup invariant. A and B both have a field called `name`; both
+    must survive as working fields, cross-checked with a different engine."""
+    T.merge([a_pdf, b_pdf], out)
+    names = _field_names(out)
+    assert len(names) == 2 and len(set(names)) == 2
+    assert any(n == "name" for n in names)
+    assert all(n.startswith("name") for n in names)
+
+    from pypdf import PdfReader
+
+    fields = PdfReader(out).get_fields()
+    assert fields is not None and len(fields) == 2
+
+
+def test_merge_needs_at_least_two_documents(a_pdf, out):
+    with pytest.raises(ValueError, match="at least two"):
+        T.merge([a_pdf], out)
+
+
+# ---- fill_form ---------------------------------------------------------------------------
+
+
+def test_fill_form_writes_the_value_and_keeps_the_field_editable(a_pdf, out):
+    T.fill_form(a_pdf, {"name": "Ada Lovelace"}, out)
+    doc = fitz.open(out)
+    try:
+        widgets = [w for page in doc for w in page.widgets()]
+        assert len(widgets) == 1  # still a widget, not baked away
+        assert widgets[0].field_value == "Ada Lovelace"
+    finally:
+        doc.close()
+
+
+def test_fill_form_rejects_an_unknown_field(a_pdf, out):
+    """A typo that writes nothing and reports success is the worst outcome, so it is an error."""
+    with pytest.raises(ValueError, match="no such form field"):
+        T.fill_form(a_pdf, {"nmae": "typo"}, out)
+    assert not os.path.exists(out)
+
+
+# ---- flatten ------------------------------------------------------------------------------
+
+
+def test_flatten_bakes_the_field_away_but_keeps_the_text(a_pdf, out):
+    filled = os.path.join(os.path.dirname(out), "filled.pdf")
+    T.fill_form(a_pdf, {"name": "BAKED-VALUE"}, filled)
+    T.flatten(filled, out)
+
+    doc = fitz.open(out)
+    try:
+        assert [w for page in doc for w in page.widgets()] == []  # no editable widgets left
+        assert "BAKED-VALUE" in doc[0].get_text("text")  # the value is now page content
+        assert A_TEXT[0] in doc[0].get_text("text")  # the original text layer survives
+    finally:
+        doc.close()
+
+
+# ---- export_images ---------------------------------------------------------------------------
+
+
+def test_export_images_writes_one_file_per_page(a_pdf, tmp_path):
+    result = T.export_images(a_pdf, str(tmp_path), dpi=36)
+    assert result["count"] == 3
+    for written in result["files"]:
+        assert os.path.getsize(written) > 0
+        assert written.endswith(".png")
+
+
+def test_export_images_takes_a_page_subset_and_a_format(a_pdf, tmp_path):
+    result = T.export_images(a_pdf, str(tmp_path), pages=[2], dpi=36, fmt="jpg")
+    assert result["count"] == 1
+    assert result["files"][0].endswith(".jpg")
+
+
+def test_export_images_rejects_a_bad_format(a_pdf, tmp_path):
+    with pytest.raises(ValueError, match="png or jpg"):
+        T.export_images(a_pdf, str(tmp_path), fmt="webp")
+
+
+def test_export_images_will_not_clobber_without_permission(a_pdf, tmp_path):
+    T.export_images(a_pdf, str(tmp_path), pages=[1], dpi=36)
+    with pytest.raises(ValueError, match="already exists"):
+        T.export_images(a_pdf, str(tmp_path), pages=[1], dpi=36)
+    T.export_images(a_pdf, str(tmp_path), pages=[1], dpi=36, overwrite=True)  # allowed when asked
+
+
+# ---- the safety model, tested adversarially -------------------------------------------------
+
+
+ALL_TRANSFORMS = [
+    ("delete_pages", lambda src, out: T.delete_pages(src, [1], out)),
+    ("reorder", lambda src, out: T.reorder(src, [3, 2, 1], out)),
+    ("rotate", lambda src, out: T.rotate(src, 90, out)),
+    ("fill_form", lambda src, out: T.fill_form(src, {"name": "x"}, out)),
+    ("flatten", lambda src, out: T.flatten(src, out)),
+]
+
+
+@pytest.mark.parametrize("name, run", ALL_TRANSFORMS, ids=[n for n, _ in ALL_TRANSFORMS])
+def test_no_transform_will_write_over_its_input(a_pdf, name, run):
+    before = open(a_pdf, "rb").read()
+    with pytest.raises(ValueError, match="refusing to write over the input"):
+        run(a_pdf, a_pdf)
+    assert open(a_pdf, "rb").read() == before
+
+
+@pytest.mark.parametrize("name, run", ALL_TRANSFORMS, ids=[n for n, _ in ALL_TRANSFORMS])
+def test_every_transform_leaves_the_source_byte_identical(a_pdf, tmp_path, name, run):
+    """The verification-matrix item: "every write tool leaves the input file byte-identical"."""
+    before = open(a_pdf, "rb").read()
+    run(a_pdf, str(tmp_path / f"{name}.pdf"))
+    assert open(a_pdf, "rb").read() == before
+
+
+def test_the_source_cannot_be_smuggled_in_through_a_relative_path(a_pdf, out):
+    """A string compare would miss `dir/../A.pdf`; `normalize_path` does not."""
+    sneaky = os.path.join(os.path.dirname(a_pdf), "sub", "..", os.path.basename(a_pdf))
+    os.makedirs(os.path.join(os.path.dirname(a_pdf), "sub"), exist_ok=True)
+    with pytest.raises(ValueError, match="refusing to write over the input"):
+        T.delete_pages(a_pdf, [1], sneaky)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX symlink semantics")
+def test_the_source_cannot_be_smuggled_in_through_a_symlink(a_pdf, tmp_path):
+    link = str(tmp_path / "link.pdf")
+    os.symlink(a_pdf, link)
+    with pytest.raises(ValueError, match="refusing to write over the input"):
+        T.delete_pages(a_pdf, [1], link)
+
+
+def test_merge_will_not_write_over_any_of_its_inputs(a_pdf, b_pdf):
+    with pytest.raises(ValueError, match="refusing to write over the input"):
+        T.merge([a_pdf, b_pdf], b_pdf)  # the *second* input, not just the first
+
+
+def test_an_existing_target_is_not_clobbered_without_permission(a_pdf, tmp_path):
+    target = tmp_path / "existing.pdf"
+    target.write_bytes(b"do not lose me")
+    with pytest.raises(ValueError, match="already exists"):
+        T.delete_pages(a_pdf, [1], str(target))
+    assert target.read_bytes() == b"do not lose me"
+
+    T.delete_pages(a_pdf, [1], str(target), overwrite=True)
+    assert target.read_bytes() != b"do not lose me"
+
+
+def test_a_target_directory_is_rejected(a_pdf, tmp_path):
+    with pytest.raises(ValueError, match="is a directory"):
+        T.delete_pages(a_pdf, [1], str(tmp_path))
+
+
+def test_a_missing_output_directory_is_rejected(a_pdf, tmp_path):
+    with pytest.raises(ValueError, match="output directory"):
+        T.delete_pages(a_pdf, [1], str(tmp_path / "nope" / "out.pdf"))
+
+
+def test_a_transform_survives_a_transient_lock_on_its_temp(a_pdf, tmp_path, monkeypatch):
+    """The transform write path goes through M38.5's `atomic_replace`, not a bare `os.replace`.
+
+    Same Windows race as the GUI's Save: the rename needs exclusive access to both paths, and an
+    antivirus scanner holding the just-written temp fails a write that would succeed 200 ms later.
+    Two write paths in one codebase should not disagree about that.
+    """
+    from util import atomic
+
+    calls: list[int] = []
+    real = os.replace
+
+    def flaky(src, dst):
+        calls.append(1)
+        if len(calls) <= 2:
+            raise PermissionError(5, "Access is denied")
+        return real(src, dst)
+
+    monkeypatch.setattr(atomic.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(atomic.os, "replace", flaky)
+
+    out = tmp_path / "locked.pdf"
+    T.delete_pages(a_pdf, [1], str(out))
+
+    assert out.exists()
+    assert len(calls) == 3  # retried past the lock rather than failing the transform
+
+
+def test_a_failed_write_leaves_no_debris(a_pdf, tmp_path, monkeypatch):
+    """The temp-then-rename exists so a caller can never read back a half-written PDF."""
+    from model.edit_engine import PyMuPDFEngine
+
+    def boom(self, vdoc, out_path):
+        with open(out_path, "wb") as handle:
+            handle.write(b"%PDF-partial")  # a real materialise had started writing
+        raise RuntimeError("engine exploded")
+
+    monkeypatch.setattr(PyMuPDFEngine, "materialize", boom)
+    target_dir = tmp_path / "dest"  # a directory of its own, so the fixture PDF is not in the glob
+    target_dir.mkdir()
+    out = target_dir / "out.pdf"
+    with pytest.raises(RuntimeError, match="engine exploded"):
+        T.delete_pages(a_pdf, [1], str(out))
+
+    assert not out.exists()
+    assert list(target_dir.iterdir()) == []  # and no orphaned temp either

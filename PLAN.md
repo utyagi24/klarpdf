@@ -1000,7 +1000,24 @@ and already produces the page + snippet output `search` needs.
 ### Safety model (agent-driven = untrusted caller)
 
 - **Never overwrite the source.** Write tools require an explicit *new* output path; in-place save is
-  not exposed.
+  not exposed. Implemented at M40 in `mcp_bridge/transforms.py:_resolve_out`, and the identity test
+  goes through `util/paths.py:normalize_path` — the project's single "are these the same file"
+  chokepoint — so a symlink, a `..` segment or a case-different spelling on Windows cannot smuggle
+  the input back in as the destination. A string compare would miss all three; there are tests for
+  each. Every write tool's schema *requires* `out`/`out_dir`, so no argument shape means "in place".
+- **No silent clobbering of anything else either** (added at M40). An output that already exists is
+  refused unless the caller passes `overwrite=true`. The roadmap only required protecting the
+  *source*; this is the same argument applied consistently, and an agent that meant it says so in
+  one word.
+- **Writes go to a sibling temp and are renamed into place**, so a failed transform leaves nothing
+  half-written for the caller to read back as a corrupt PDF. The rename is M38.5's
+  `util.atomic.atomic_replace`, the same helper the GUI's Save and Export use — the
+  antivirus-holds-the-temp race applies identically here, and the two write paths deliberately do
+  not diverge on it.
+- **A mistake is an error, never a quiet partial success.** `fill_form` rejects an unknown field
+  name rather than writing nothing and reporting success; `reorder` demands a full permutation so it
+  cannot silently drop a page; `delete_pages` refuses to empty a document; an out-of-range page
+  number is refused rather than clamped.
 - **Redaction stays a point of no return** — destructive `apply_redactions` + the existing
   `fitz`+Poppler leak verification before the tool reports success.
 - **Path scoping.** A configurable allowlist of roots the server may read/write (an MCP tool runs with
@@ -1096,7 +1113,7 @@ and already produces the page + snippet output `search` needs.
 | Milestone | Where | Done when |
 |---|---|---|
 | **M39 ⭐** MCP scaffold + read-only core | WSL | `mcp_bridge/` stdio server on the official `mcp` 2.x SDK (`MCPServer`); `get_info`/`get_outline`/`search`/`extract_text`/`render_page`/`get_form_fields` wired to headless helpers (`search` reuses `model/page_text.py`, not a fresh implementation); no PySide6 import on the server path — assert it in a test, don't just observe it; headless tests green |
-| **M40** Transform tools | WSL | `split`/`merge`/`reorder`/`delete_pages`/`rotate`/`fill_form`/`flatten`/`export_images` → explicit out path; never overwrites source; lossless (OCR/TOC/forms survive); headless tests |
+| **M40** Transform tools | WSL | `split`/`merge`/`reorder`/`delete_pages`/`rotate`/`fill_form`/`flatten`/`export_images` → explicit out path; never overwrites source; lossless (OCR/TOC/forms survive); headless tests. Landed in `mcp_bridge/transforms.py`; `split` reuses `util/page_range.py` so an agent types the same range syntax a person does |
 | **M41** Redaction + encrypted | WSL | `redact_regions`/`redact_text` (destructive + leak-verified); headless cross-engine leak assertion. **Encrypted input landed early, at M39**: every read tool already takes `password`, because `open_document` had to handle an encrypted source anyway — the model's provider re-prompts on a wrong password and there is no user behind an agent call, so the adapter must decline the retry or the server hangs. Tested there; M41 extends it to the write tools |
 | **M42** Dependency lock + packaging | WSL + Windows | `requirements-mcp.{in,txt}` — **cross-platform, `==`-pinned, unhashed**, GUI lock untouched; fourth `pip-audit` step in `audit.yml` + `tools/audit-deps.ps1`; `klarpdf-mcp` entry point; `.mcp.json` + Desktop config docs; **`.mcpb` bundle (committed, `server.type = "uv"`)** |
 | **M43** Hardening + docs | WSL | path allowlist, return-size caps, `--read-only` flag (opt-out; writes are on by default), error handling; README usage + example agent workflows |

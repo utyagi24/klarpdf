@@ -396,9 +396,14 @@ items, which are independent of it.
   **encrypted input landed here rather than at M41**, because opening an encrypted source had to be
   handled anyway; and the SDK joined **`requirements-dev.in`** so CI can run the new tests at all,
   with M42 still owning the separate `requirements-mcp.{in,txt}` a bridge user installs.
-- [ ] **M40** Transform tools — `split` / `merge` / `reorder` / `delete_pages` / `rotate` /
+- [x] **M40** Transform tools — `split` / `merge` / `reorder` / `delete_pages` / `rotate` /
   `fill_form` / `flatten` / `export_images` to an explicit out path (never overwrites source;
   lossless OCR/TOC/forms); headless tests — *WSL*
+  ([#241](https://github.com/utyagi24/klarpdf/pull/241)). Losslessness is asserted with
+  `test_materialize.py`'s own invariants on the same fixtures. Two additions to the safety model,
+  recorded in `PLAN.md` §Safety model: an **existing output** is refused unless `overwrite=true`,
+  and writes go to a **sibling temp + rename** so a failure leaves no half-written PDF, through
+  M38.5's `atomic_replace` — the two write paths do not diverge on the antivirus race.
 - [ ] **M41** Redaction + encrypted — `redact_regions` / `redact_text` (destructive + cross-engine
   leak verify) and encrypted-input (`password`) tools; headless leak assertion — *WSL*
 - [ ] **M42** Dependency lock + packaging — `requirements-mcp.{in,txt}`, **cross-platform and

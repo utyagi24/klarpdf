@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import os
 
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError
@@ -21,7 +22,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp_bridge.server import server
 from tests.conftest import A_TEXT
 
-EXPECTED_TOOLS = {
+READ_TOOLS = {
     "get_info",
     "get_outline",
     "search",
@@ -29,6 +30,17 @@ EXPECTED_TOOLS = {
     "render_page",
     "get_form_fields",
 }
+WRITE_TOOLS = {
+    "delete_pages",
+    "reorder",
+    "rotate",
+    "split",
+    "merge",
+    "fill_form",
+    "flatten",
+    "export_images",
+}
+EXPECTED_TOOLS = READ_TOOLS | WRITE_TOOLS
 
 
 def call(name: str, **arguments):
@@ -197,3 +209,67 @@ def test_the_server_survives_a_failed_call(a_pdf, tmp_path):
     with pytest.raises(ToolError):
         call("get_info", path=str(tmp_path / "absent.pdf"))
     assert payload("get_info", path=a_pdf)["pages"] == 3
+
+
+# ---- the transform tools (M40) through the protocol -------------------------------
+
+
+def test_every_write_tool_requires_an_explicit_output(a_pdf):
+    """The safety model at schema level: no write tool can be called without saying where the
+    result goes, so there is no argument shape that means "in place"."""
+    required = {
+        t.name: set(t.input_schema.get("required", []))
+        for t in asyncio.run(server.list_tools())
+        if t.name in WRITE_TOOLS
+    }
+    for name, args in required.items():
+        assert {"out", "out_dir"} & args, f"{name} does not require an output path"
+
+
+def test_delete_pages_through_the_server(a_pdf, tmp_path):
+    out = str(tmp_path / "d.pdf")
+    result = payload("delete_pages", path=a_pdf, pages=[2], out=out)
+    assert result["pages"] == 2
+    assert result["source_unchanged"] is True
+    assert os.path.exists(out)
+
+
+def test_reorder_through_the_server(a_pdf, tmp_path):
+    out = str(tmp_path / "r.pdf")
+    assert payload("reorder", path=a_pdf, order=[3, 1, 2], out=out)["pages"] == 3
+
+
+def test_rotate_through_the_server(a_pdf, tmp_path):
+    out = str(tmp_path / "t.pdf")
+    assert payload("rotate", path=a_pdf, degrees=90, out=out, pages=[1])["rotated"] == [1]
+
+
+def test_split_through_the_server(a_pdf, tmp_path):
+    result = payload("split", path=a_pdf, out_dir=str(tmp_path), ranges=["1-2", "3"])
+    assert result["count"] == 2
+
+
+def test_merge_through_the_server(a_pdf, b_pdf, tmp_path):
+    out = str(tmp_path / "m.pdf")
+    assert payload("merge", paths=[a_pdf, b_pdf], out=out)["pages"] == 5
+
+
+def test_fill_form_through_the_server(a_pdf, tmp_path):
+    out = str(tmp_path / "f.pdf")
+    assert payload("fill_form", path=a_pdf, values={"name": "Ada"}, out=out)["filled"] == ["name"]
+
+
+def test_flatten_through_the_server(a_pdf, tmp_path):
+    out = str(tmp_path / "fl.pdf")
+    assert payload("flatten", path=a_pdf, out=out)["flattened"] is True
+
+
+def test_export_images_through_the_server(a_pdf, tmp_path):
+    result = payload("export_images", path=a_pdf, out_dir=str(tmp_path), pages=[1], dpi=36)
+    assert result["count"] == 1
+
+
+def test_a_refusal_reaches_the_client_as_a_tool_error(a_pdf):
+    """The source-protection refusal has to arrive as an error the agent can read, not a crash."""
+    with pytest.raises(ToolError, match="refusing to write over the input"):
+        call("delete_pages", path=a_pdf, pages=[1], out=a_pdf)
