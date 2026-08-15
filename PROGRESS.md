@@ -369,7 +369,7 @@ GUI-free core, fully headless-testable).
 
 Spec + architecture in `PLAN.md` §MCP / Agent Bridge roadmap. Same conventions: **one PR per
 milestone**, tick the box here on merge. ⭐ marks the keystone (GUI-free, fully headless-testable).
-A new MCP server surface (`mcp/` package) that reuses the GUI-free `model/` core **without PySide6**
+A new MCP server surface (`mcp_bridge/` package) that reuses the GUI-free `model/` core **without PySide6**
 and ships as a separate optional component — the `klarpdf-setup-x64.exe` audit surface is untouched.
 
 **Scheduled 2026-08-12** after a premise review (the roadmap was written 2026-06-22 and sat while
@@ -386,10 +386,16 @@ items, which are independent of it.
   neither flake has ever failed the required `ubuntu-latest` check in 200 recorded runs — *WSL*
   ([#239](https://github.com/utyagi24/klarpdf/pull/239)) — `util/atomic.py:atomic_replace` retries
   `PermissionError` four times over ~0.75 s; both write sites (Save and every Export) now use it
-- [ ] **M39** ⭐ MCP scaffold + read-only core — `mcp/` stdio server on the official **`mcp` 2.x** SDK
+- [x] **M39** ⭐ MCP scaffold + read-only core — `mcp_bridge/` stdio server on the official **`mcp` 2.x** SDK
   (`MCPServer`); headless query/metadata tools (`get_info`, `get_outline`, `search`, `extract_text`,
   `render_page`, `get_form_fields`), `search` reusing `model/page_text.py`; a **test asserting** no
   PySide6 on the server path; headless tests — *WSL*
+  ([#240](https://github.com/utyagi24/klarpdf/pull/240)). Three deviations from the roadmap, each
+  recorded next to the design it changes in `PLAN.md` §MCP / Agent Bridge roadmap: the package is
+  **`mcp_bridge/`, not `mcp/`** (a local `mcp/` shadows the SDK it is built on — measured);
+  **encrypted input landed here rather than at M41**, because opening an encrypted source had to be
+  handled anyway; and the SDK joined **`requirements-dev.in`** so CI can run the new tests at all,
+  with M42 still owning the separate `requirements-mcp.{in,txt}` a bridge user installs.
 - [ ] **M40** Transform tools — `split` / `merge` / `reorder` / `delete_pages` / `rotate` /
   `fill_form` / `flatten` / `export_images` to an explicit out path (never overwrites source;
   lossless OCR/TOC/forms); headless tests — *WSL*

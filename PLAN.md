@@ -932,13 +932,20 @@ and already produces the page + snippet output `search` needs.
 
 ### Architecture (a quarantined seam, like `packaging/`)
 
-- **New `mcp/` package**, isolated the same way OS code is quarantined behind `platform_integration.py` —
-  never inlined into `app.py`/`launcher.py`. The GUI build does not import it.
+- **New `mcp_bridge/` package**, isolated the same way OS code is quarantined behind
+  `platform_integration.py` — never inlined into `app.py`/`launcher.py`. The GUI build does not
+  import it.
+- **It cannot be called `mcp/`** (found at M39, correcting this section's original name). The
+  official SDK *is* the top-level module `mcp`, and the repo root is on `sys.path` (pytest's
+  `pythonpath = ["."]`, plus a script's own directory), so a local `mcp/` package shadows the
+  installed one and `from mcp.server import MCPServer` dies with `ModuleNotFoundError: No module
+  named 'mcp.server'` — measured before a line of the server was written, not theorised. The name
+  in the milestone table below is `mcp_bridge/` for the same reason.
 - **Reuses the GUI-free core only.** Imports `model/virtual_document`, `edit_engine`, `export`,
   `page_edits`, `links_remap`, `toc_remap` — **not** `model/edit_commands.py` (it imports
   `QUndoCommand`); the server calls `VirtualDocument` ops directly, so it runs **without PySide6/Qt**.
   M39 confirms no Qt import reaches the server path.
-- **Same repo** (decided 2026-08-12). `mcp/` sits beside `model/` and imports it directly — the same
+- **Same repo** (decided 2026-08-12). `mcp_bridge/` sits beside `model/` and imports it directly — the same
   quarantined-seam pattern as `packaging/`, not a repo boundary. A sibling repo was rejected because
   the bridge's whole leverage is that `model/` already implements every transform: splitting would
   put a versioning seam through that leverage, and `model/` is not a publishable library today
@@ -958,11 +965,20 @@ and already produces the page + snippet output `search` needs.
   selling point is that it never touches the network, breaking the no-outbound-connections
   verification item below; it also attaches AGPL §13 remote-network-interaction obligations that a
   stdio subprocess never triggers. Revisit only on a concrete request.
-- **New headless helpers** (the only genuinely new code) in `model/` (or `mcp/queries.py`):
+- **New headless helpers** (the only genuinely new code) — landed in `mcp_bridge/queries.py`:
   `extract_text(path, pages)`, `search(path, query)`, `render_page(path, page, dpi)`,
-  `document_info(path)`. `viewer/search.py` is Qt-bound, but **`model/page_text.py` is not** and
-  already supplies the per-hit snippet machinery, so `search` wraps `page.search_for` + `PageText`
-  rather than being reimplemented from scratch.
+  `document_info(path)`, `outline(path)`, `form_fields(path)`. `viewer/search.py` is Qt-bound, but
+  **`model/page_text.py` is not** and already supplies the per-hit snippet machinery, so `search`
+  wraps `page.search_for` + `PageText` rather than being reimplemented from scratch. They hold no
+  SDK import, so the PDF behaviour is tested by calling functions rather than by driving a protocol,
+  and `server.py` stays a schema adapter.
+- **Page numbers are 1-based at the tool boundary** (M39), matching the viewer's page counter and a
+  PDF outline's own targets; `model/` stays 0-based and the conversion happens only in
+  `mcp_bridge/queries.py`. Out-of-range page numbers are an error, never a silent clamp.
+- **List-returning tools return a `{count, items}` dict**, not a bare list (M39). The SDK serialises
+  a bare `list` into one content block *per element*, so a 500-hit search would arrive as 500
+  blocks; the wrapper makes it one and hands the caller the total before the items — which is the
+  number that decides whether to narrow the query, and where M43's size caps report a truncation.
 
 ### Tool surface
 
@@ -1009,6 +1025,18 @@ and already produces the page + snippet output `search` needs.
   — `starlette`, `uvicorn`, `sse-starlette`, `python-multipart`, `pyjwt[crypto]` (→ `cryptography`),
   plus `opentelemetry-api`, `jsonschema`, `pydantic`, `httpx2`, and an exact pin on
   `mcp-types==2.0.0` that constrains lock resolution. Roughly 25–35 wheels once transitive.
+  **Measured at M39: 28 new packages**, and the estimate held — every named dependency above turned
+  up, `httpx2`/`truststore` included.
+- **The SDK is also a *dev* dependency, added to `requirements-dev.in` at M39** — a different
+  artifact for a different audience, not a duplicate of the lock above. `tests/test_mcp_*.py` are
+  part of the headless suite and CI installs `requirements-dev.txt` and nothing else, so without it
+  those files fail at **collection** and the required `pytest` check goes red. `requirements.in` —
+  and therefore the hashed `requirements-win.txt` the installer bundles — is untouched, which is
+  what keeps "the shipped app's audit surface is unchanged" true. Recompiling that lock on Linux
+  exposed a latent trap worth knowing: pytest's win32-only `colorama` had been present only because
+  the committed lock happened to be compiled on Windows, and a Linux compile silently dropped it.
+  It is now a direct, **unmarkered** entry in `requirements-dev.in`; a marker does not work, because
+  pip-tools evaluates markers against the compiling interpreter and drops the false ones.
 - **`audit.yml` gains a fourth `pip-audit` step** for `requirements-mcp.txt`. Its `pull_request`
   trigger already globs `requirements*.txt`, so the new lock joins the **weekly** sweep automatically
   — meaning `cryptography` and `starlette`, both far more CVE-active than `pypdf`, come under the
@@ -1067,9 +1095,9 @@ and already produces the page + snippet output `search` needs.
 
 | Milestone | Where | Done when |
 |---|---|---|
-| **M39 ⭐** MCP scaffold + read-only core | WSL | `mcp/` stdio server on the official `mcp` 2.x SDK (`MCPServer`); `get_info`/`get_outline`/`search`/`extract_text`/`render_page`/`get_form_fields` wired to headless helpers (`search` reuses `model/page_text.py`, not a fresh implementation); no PySide6 import on the server path — assert it in a test, don't just observe it; headless tests green |
+| **M39 ⭐** MCP scaffold + read-only core | WSL | `mcp_bridge/` stdio server on the official `mcp` 2.x SDK (`MCPServer`); `get_info`/`get_outline`/`search`/`extract_text`/`render_page`/`get_form_fields` wired to headless helpers (`search` reuses `model/page_text.py`, not a fresh implementation); no PySide6 import on the server path — assert it in a test, don't just observe it; headless tests green |
 | **M40** Transform tools | WSL | `split`/`merge`/`reorder`/`delete_pages`/`rotate`/`fill_form`/`flatten`/`export_images` → explicit out path; never overwrites source; lossless (OCR/TOC/forms survive); headless tests |
-| **M41** Redaction + encrypted | WSL | `redact_regions`/`redact_text` (destructive + leak-verified) and encrypted-input (`password`) tools; headless cross-engine leak assertion |
+| **M41** Redaction + encrypted | WSL | `redact_regions`/`redact_text` (destructive + leak-verified); headless cross-engine leak assertion. **Encrypted input landed early, at M39**: every read tool already takes `password`, because `open_document` had to handle an encrypted source anyway — the model's provider re-prompts on a wrong password and there is no user behind an agent call, so the adapter must decline the retry or the server hangs. Tested there; M41 extends it to the write tools |
 | **M42** Dependency lock + packaging | WSL + Windows | `requirements-mcp.{in,txt}` — **cross-platform, `==`-pinned, unhashed**, GUI lock untouched; fourth `pip-audit` step in `audit.yml` + `tools/audit-deps.ps1`; `klarpdf-mcp` entry point; `.mcp.json` + Desktop config docs; **`.mcpb` bundle (committed, `server.type = "uv"`)** |
 | **M43** Hardening + docs | WSL | path allowlist, return-size caps, `--read-only` flag (opt-out; writes are on by default), error handling; README usage + example agent workflows |
 | **M44** Verify + release | Windows | verification matrix green (below) → tag (**version assigned at tag time**; v0.11.0 is long gone) → GitHub Release |
