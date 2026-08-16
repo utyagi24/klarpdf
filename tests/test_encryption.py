@@ -129,6 +129,91 @@ def test_no_restrictions_means_full_permissions(a_pdf, tmp_path):
         doc.close()
 
 
+# ---- carry-through of the *origin's* restrictions (M94) ----------------------
+
+
+def _restricted(tmp_path, name, **encryption) -> tuple[str, int]:
+    """A one-page document that denies MODIFY, COPY and ASSEMBLE, and its permission bits."""
+    path = str(tmp_path / name)
+    doc = fitz.open()
+    doc.new_page().insert_text((72, 72), "restricted", fontsize=20)
+    keep = (fitz.PDF_PERM_PRINT | fitz.PDF_PERM_PRINT_HQ | fitz.PDF_PERM_ANNOTATE
+            | fitz.PDF_PERM_FORM | fitz.PDF_PERM_ACCESSIBILITY)
+    doc.save(path, permissions=keep, **encryption)
+    doc.close()
+    return path, keep
+
+
+@pytest.mark.parametrize(
+    "name, encryption, password",
+    [
+        ("owner.pdf", {"encryption": fitz.PDF_ENCRYPT_AES_128, "owner_pw": "owner"}, None),
+        ("user.pdf", {"encryption": fitz.PDF_ENCRYPT_AES_256, "user_pw": "pw",
+                      "owner_pw": "owner"}, "pw"),
+    ],
+)
+def test_a_restricted_document_saves_back_restricted(tmp_path, name, encryption, password):
+    """Both kinds of protection keep their restrictions across a save (M94).
+
+    M93 fixed the **owner-password** case, where the source is never decrypted and its bits read
+    straight off it. The **user-password** case still lost them: the source is decrypted at open
+    (M32) and the decrypted copy grants everything, so a document forbidding copying came back
+    permitting it — measured -1052 in, -4 out — while the password itself carried through fine.
+    Same defect as M93, one door further along, and invisible because the file still *looks*
+    protected: it asks for the password, then allows what it used to forbid.
+    """
+    path, keep = _restricted(tmp_path, name, **encryption)
+    provider = (lambda _p, retry: None if retry else password) if password else None
+
+    v = VirtualDocument.from_path(path, password_provider=provider)
+    for denied in (fitz.PDF_PERM_MODIFY, fitz.PDF_PERM_COPY, fitz.PDF_PERM_ASSEMBLE):
+        assert not v.permissions & denied, "the model read a restriction as a permission"
+
+    out = _materialized(v, tmp_path)
+    doc = fitz.open(out)
+    try:
+        if password:
+            assert doc.authenticate(password)
+        assert doc.metadata["encryption"], "the output lost its encryption"
+        for denied in (fitz.PDF_PERM_MODIFY, fitz.PDF_PERM_COPY, fitz.PDF_PERM_ASSEMBLE):
+            assert not doc.permissions & denied, "the save lifted a restriction"
+        for allowed in (fitz.PDF_PERM_PRINT, fitz.PDF_PERM_ANNOTATE, fitz.PDF_PERM_FORM):
+            assert doc.permissions & allowed, "the save withdrew a permission"
+    finally:
+        doc.close()
+
+
+def test_the_origin_encryption_is_reported_for_both_kinds_of_protection(tmp_path):
+    """``origin_encryption`` answers about the *file*, which ``is_encrypted`` does not: it is False
+    for anything that opened without a password, and the in-memory copy of a user-password document
+    is not encrypted at all."""
+    owner, _ = _restricted(tmp_path, "o.pdf", encryption=fitz.PDF_ENCRYPT_AES_128, owner_pw="own")
+    user, _ = _restricted(tmp_path, "u.pdf", encryption=fitz.PDF_ENCRYPT_AES_256, user_pw="pw")
+    plain = str(tmp_path / "p.pdf")
+    doc = fitz.open()
+    doc.new_page()
+    doc.save(plain)
+    doc.close()
+
+    assert "AES" in VirtualDocument.from_path(owner).origin_encryption()
+    assert "AES" in VirtualDocument.from_path(
+        user, password_provider=lambda _p, retry: None if retry else "pw"
+    ).origin_encryption()
+    assert VirtualDocument.from_path(plain).origin_encryption() is None
+
+
+def test_a_reload_keeps_the_restrictions_of_an_owner_password_document(tmp_path):
+    """``reload_from_file`` (the redaction commit's point of no return) re-baselines from the file
+    it reloads. Zeroing the flags whenever no password came back was right for a file that is no
+    longer encrypted and wrong for an owner-password one, which opens without a password and still
+    forbids copying — M93's defect re-entered through the reload door."""
+    path, _ = _restricted(tmp_path, "r.pdf", encryption=fitz.PDF_ENCRYPT_AES_128, owner_pw="own")
+    v = VirtualDocument.from_path(path)
+    v.reload_from_file(path)
+    assert not v.permissions & fitz.PDF_PERM_COPY
+    assert v.permissions & fitz.PDF_PERM_PRINT
+
+
 # ---- model state -------------------------------------------------------------
 
 

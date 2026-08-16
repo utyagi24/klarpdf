@@ -30,6 +30,20 @@ from model.virtual_document import PasswordRequired, VirtualDocument
 # answers on page 1; the scan of an 800-page scanned file is what this bound exists to stop.
 _TEXT_LAYER_SAMPLE_PAGES = 20
 
+# The advisory permission bits, named — a bitfield is not an answer an agent can act on. The model
+# normalises "restricts nothing" to -1, which has every bit set, so an unrestricted document falls
+# out as all-true here with no special case.
+_PERMISSION_BITS = {
+    "print": fitz.PDF_PERM_PRINT,
+    "modify": fitz.PDF_PERM_MODIFY,
+    "copy": fitz.PDF_PERM_COPY,
+    "annotate": fitz.PDF_PERM_ANNOTATE,
+    "fill_forms": fitz.PDF_PERM_FORM,
+    "accessibility": fitz.PDF_PERM_ACCESSIBILITY,
+    "assemble": fitz.PDF_PERM_ASSEMBLE,
+    "print_high_quality": fitz.PDF_PERM_PRINT_HQ,
+}
+
 
 def _password_provider(password: str | None):
     """Adapt a plain password string to the model's ``(path, retry) -> str | None`` provider.
@@ -94,18 +108,29 @@ def document_info(path: str, password: str | None = None) -> dict:
     to search, extract, or rasterise, instead of pulling an 800-page file into its context to find
     out. An encrypted document with no password reports what it is rather than failing, so the
     caller learns to supply one.
+
+    **``encrypted`` is a fact about the file, not about this call.** It used to be
+    ``password is not None`` — which answers "did the caller hand me a password?" — so an
+    owner-password document, the kind that opens freely and still forbids copying, reported
+    ``false`` from the one tool documented as the call that answers what changes everything else
+    (TC-002 ISSUE 5). Two distinct protections have to come back true here: a *user* password,
+    without which the file will not open, and an *owner* password, which restricts what may be
+    done with it. ``needs_password`` is what separates them.
     """
     size = os.path.getsize(path)
     try:
         with open_document(path, password) as vdoc:
             first = _first_page_with_text(vdoc)
             info = vdoc.effective_metadata()
+            encryption = vdoc.origin_encryption()
             return {
                 "path": os.path.abspath(path),
                 "pages": vdoc.page_count,
                 "size_bytes": size,
-                "encrypted": vdoc.password is not None,
+                "encrypted": encryption is not None,
+                "encryption": encryption,
                 "needs_password": False,
+                "permissions": _permissions(vdoc.permissions),
                 "has_text_layer": first is not None,
                 "first_page_with_text": first,
                 "has_outline": vdoc.has_outline(),
@@ -120,6 +145,12 @@ def document_info(path: str, password: str | None = None) -> dict:
             "encrypted": True,
             "needs_password": True,
         }
+
+
+def _permissions(flags: int) -> dict[str, bool]:
+    """The document's advisory permissions, named. Advisory: honoured by most viewers, enforced by
+    nothing but the password, so this reports what the document *asks* for."""
+    return {name: bool(flags & bit) for name, bit in _PERMISSION_BITS.items()}
 
 
 def _first_page_with_text(vdoc: VirtualDocument) -> int | None:
@@ -286,10 +317,22 @@ def render_page(path: str, page: int, dpi: int = 150, password: str | None = Non
 
 
 def form_fields(path: str, password: str | None = None) -> list[dict]:
-    """Every fillable widget, in page order — the input `fill_form` (M40) will take.
+    """Every fillable widget, in page order — the input ``fill_form`` (M40) takes.
 
     One entry per *occurrence*: a field appearing on three pages is three entries sharing a ``name``
     and therefore a value, which is what a caller has to know before filling it.
+
+    Beyond locating each field this reports what it takes to **fill** it, which is a different
+    question and was unanswerable before M94 (TC-002 ISSUE 6):
+
+    * ``on_state`` / ``states`` — a checkbox's ticked value is per-widget, not a convention. The
+      SSA-3 uses ``"1"`` on one box and ``"2"`` on another, and ``choices`` cannot carry it because
+      PyMuPDF populates ``choice_values`` for combo/list only. A caller with neither has to guess
+      ``"Yes"``. (``fill_form`` also takes a plain ``true``, which is the easy path — but a tool
+      that only works if you know an undocumented convenience is a tool that does not work.)
+    * ``read_only`` / ``required`` / ``multiline`` / ``max_len`` — the SSA-3 carries three 3-pt
+      plumbing fields (``P2_PAReadOnly_FLD`` and friends) that were indistinguishable from the
+      fields a person is meant to fill.
     """
     from model.page_edits import read_form_fields
 
@@ -302,6 +345,12 @@ def form_fields(path: str, password: str | None = None) -> list[dict]:
                 "rect": [round(v, 2) for v in field.rect],
                 "choices": list(field.choices) if field.choices else None,
                 "value": field.current_value,
+                "on_state": field.on_state,
+                "states": list(field.states) or None,
+                "read_only": field.read_only,
+                "required": field.required,
+                "multiline": field.multiline,
+                "max_len": field.max_len,
             }
             for field in read_form_fields(vdoc)
         ]

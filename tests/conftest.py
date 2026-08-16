@@ -173,3 +173,94 @@ def b_pdf(tmp_path) -> str:
     path = str(tmp_path / "B.pdf")
     _build(path, B_TEXT, field_value="B-value")
     return path
+
+
+# ---- forms as they arrive in the wild (M94, modelled on the SSA-3 of TC-002) ----
+
+
+@pytest.fixture
+def awkward_form_pdf(tmp_path) -> str:
+    """A form with the three properties a caller cannot guess and could not previously read.
+
+    Everything here is copied from a real federal form rather than invented: a checkbox whose
+    ticked value is ``"2"`` and not ``"Yes"``; a text field marked read-only that is form plumbing
+    rather than something to offer a person; and a length-capped multiline field.
+    """
+    path = str(tmp_path / "awkward.pdf")
+    doc = fitz.open()
+    page = doc.new_page()
+    for name, kind, rect, flags in (
+        ("married", fitz.PDF_WIDGET_TYPE_CHECKBOX, (72, 72, 92, 92), 0),
+        ("remarks", fitz.PDF_WIDGET_TYPE_TEXT, (72, 110, 500, 300),
+         fitz.PDF_TX_FIELD_IS_MULTILINE),
+        ("plumbing", fitz.PDF_WIDGET_TYPE_TEXT, (72, 320, 75, 324),
+         fitz.PDF_FIELD_IS_READ_ONLY),
+        ("ssn", fitz.PDF_WIDGET_TYPE_TEXT, (72, 340, 272, 360), fitz.PDF_FIELD_IS_REQUIRED),
+    ):
+        widget = fitz.Widget()
+        widget.field_name = name
+        widget.field_type = kind
+        widget.rect = fitz.Rect(*rect)
+        widget.field_flags = flags
+        if name == "ssn":
+            widget.text_maxlen = 9
+        page.add_widget(widget)
+    doc.save(path)
+    doc.close()
+
+    # The checkbox's on-state: PyMuPDF writes "Yes", real forms write whatever they like, and it is
+    # the appearance-state name that decides. Renaming it in /AP/N is what makes this a fixture for
+    # the bug rather than for the happy path.
+    doc = fitz.open(path)
+    page = doc[0]
+    for widget in page.widgets():
+        if widget.field_name == "married":
+            _kind, appearances = doc.xref_get_key(widget.xref, "AP/N")
+            doc.xref_set_key(widget.xref, "AP/N", appearances.replace("/Yes", "/2"))
+    doc.save(path, incremental=True, encryption=fitz.PDF_ENCRYPT_KEEP)
+    doc.close()
+    return path
+
+
+def _xfa_packets(path: str, *, dynamic: bool) -> None:
+    """Graft an XFA packet set onto ``path`` in place — an AcroForm form becomes an XFA one.
+
+    Two packets is enough for what is being tested: ``config``, which is where ``dynamicRender``
+    decides static vs dynamic, and ``datasets``, the value store that a fill leaves stale.
+    """
+    doc = fitz.open(path)
+    render = "required" if dynamic else "forbidden"
+    packets = {
+        "config": (
+            "<config xmlns='http://www.xfa.org/schema/xci/3.0/'><acrobat><acrobat7>"
+            f"<dynamicRender>{render}</dynamicRender></acrobat7></acrobat></config>"
+        ).encode(),
+        "datasets": (
+            b"<xfa:datasets xmlns:xfa='http://www.xfa.org/schema/xfa-data/1.0/'><xfa:data>"
+            b"<topmostSubform><married/><remarks/></topmostSubform></xfa:data></xfa:datasets>"
+        ),
+    }
+    references = []
+    for name, data in packets.items():
+        xref = doc.get_new_xref()
+        doc.update_object(xref, "<<>>")
+        doc.update_stream(xref, data)
+        references.append(f"({name}) {xref} 0 R")
+    doc.xref_set_key(doc.pdf_catalog(), "AcroForm/XFA", "[" + " ".join(references) + "]")
+    doc.save(path, incremental=True, encryption=fitz.PDF_ENCRYPT_KEEP)
+    doc.close()
+
+
+@pytest.fixture
+def static_xfa_pdf(awkward_form_pdf) -> str:
+    """An XFA form Acrobat renders from its AcroForm appearances (``dynamicRender: forbidden``)."""
+    _xfa_packets(awkward_form_pdf, dynamic=False)
+    return awkward_form_pdf
+
+
+@pytest.fixture
+def dynamic_xfa_pdf(awkward_form_pdf) -> str:
+    """An XFA form Acrobat builds from the XFA template (``dynamicRender: required``) — the case
+    TC-002 flagged as untested and the likeliest hard failure."""
+    _xfa_packets(awkward_form_pdf, dynamic=True)
+    return awkward_form_pdf

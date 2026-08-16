@@ -44,8 +44,8 @@ from model.virtual_document import PasswordRequired
 from version import __version__
 
 INSTRUCTIONS = """\
-KlarPDF exposes a local, offline PDF engine: reading, lossless page transforms, and verified
-redaction. Nothing here touches the network.
+KlarPDF exposes a local, offline PDF engine: reading, page transforms, and verified redaction.
+Nothing here touches the network.
 
 Route with the cheap tools first. `get_info` tells you the page count, whether the file has a text
 layer at all, and whether it is encrypted; `get_outline` and `search` locate the part you want.
@@ -54,8 +54,16 @@ text layer cannot answer the question (scans, figures, layout, signatures).
 
 The write tools never touch the document you give them. Each one takes an explicit `out` path,
 writes a new file, and refuses if `out` is the input or an existing file (pass `overwrite: true` if
-replacing one is intended). Transforms are lossless: the text layer, form fields and bookmarks
-survive, and bookmarks are re-pointed at pages' new positions.
+replacing one is intended).
+
+What survives a write depends on whether the **page set** changed. A tool that leaves every page in
+place — `fill_form`, `flatten`, the redactions — edits a copy of the original, so everything the
+document holds comes through, including its accessibility structure tree and its encryption. A tool
+that moves pages — `reorder`, `delete_pages`, `extract_pages`, `split`, `merge` — builds a new
+document: the text layer, annotations and form fields come with the pages and the bookmarks and
+internal links are re-pointed, but the structure tree, `/Perms`, the `/Names` tree and encryption do
+not survive the move. Say so if that matters for the file in hand — a tagged form reordered is no
+longer tagged.
 
 `redact_text` and `redact_regions` DELETE content and verify the result before reporting success.
 Preview with `search` first and show the user what matched.
@@ -130,14 +138,22 @@ def create_server(config: Config | None = None) -> MCPServer:
     @guarded
     def get_info(path: str, password: str | None = None) -> dict:
         """Summarise a PDF without loading its content: page count, file size, page sizes, whether
-        it is encrypted, whether it has an outline, and whether it has a text layer.
+        it is encrypted and what it permits, whether it has an outline, and whether it has a text
+        layer.
 
         Call this first. It is the cheapest way to decide what to do next, and it answers the
         question that changes everything else — a document with no text layer is a scan, so `search`
         and `extract_text` will come back empty and `render_page` is the only way in.
 
         `has_text_layer` is sampled over the first 20 pages, so `false` means "no text that far in".
-        An encrypted file with no password returns `needs_password: true` rather than failing.
+
+        `encrypted` describes the **file**, not this call: it is `true` both for a file that needs a
+        password to open (`needs_password: true` — call again with `password`) and for one that
+        opens freely but restricts what may be done with it, which is the usual shape for a
+        published form. `permissions` names those restrictions (`copy`, `modify`, `assemble`, …);
+        they are advisory, honoured by most viewers and enforced by nothing but the password, so
+        treat a `false` as what the document asks for rather than as a wall. Tell the user when
+        they are about to act against one.
         """
         return queries.document_info(check(path), password)
 
@@ -273,6 +289,14 @@ def create_server(config: Config | None = None) -> MCPServer:
 
         One entry per occurrence — a field that appears on several pages is listed several times
         under the same `name` and shares one value.
+
+        Each entry also carries what it takes to *fill* it. For a checkbox or radio button,
+        `on_state` is the value that ticks **that** widget and `states` lists every value it
+        accepts: these are per-widget, not a convention — one form here uses `"1"` on one box and
+        `"2"` on another, and `"Yes"` on neither. (`fill_form` also takes plain `true`/`false` and
+        resolves the on-state for you.) `read_only`, `required`, `multiline` and `max_len` describe
+        the field: a `read_only` field is form plumbing, not something to offer the user — real
+        forms carry 3-pt slivers that are indistinguishable from real fields without it.
         """
         fields = queries.form_fields(check(path), password)
         return {"count": len(fields), "fields": fields}
@@ -376,8 +400,10 @@ def create_server(config: Config | None = None) -> MCPServer:
         own document**. `split` is for cutting a document into several files at once; this is for
         taking one piece out of it, and it lets you name the output.
 
-        Lossless: the text layer, form fields and annotations come with the pages, and bookmarks and
-        internal links are re-pointed at the extracted page numbers instead of dangling.
+        The text layer, form fields and annotations come with the pages, and bookmarks and internal
+        links are re-pointed at the extracted page numbers instead of dangling. What does not come
+        is what a PDF keeps at the document level: an extract of a tagged document is not tagged,
+        and an extract of an encrypted one is not encrypted.
         """
         return transforms.extract_pages(
             check(path), pages, check(out), password=password, overwrite=overwrite
@@ -407,6 +433,23 @@ def create_server(config: Config | None = None) -> MCPServer:
         `values` maps field name to value. Call `get_form_fields` first: an unknown field name is an
         error, not a silent no-op, so a typo cannot report success while writing nothing. A field
         that appears on several pages is filled on all of them.
+
+        For a checkbox or radio button, send `true` / `false` and the widget's own on-state is
+        looked up for you — or send that export value (`get_form_fields` reports it as `on_state`)
+        if you would rather be explicit. Anything else is an **error** naming the states the widget
+        accepts, and nothing is written: a state the button does not have used to be resolved as
+        "off", so asking to tick a box with `"3"` on a form whose states are `"1"` and `"2"` cleared
+        it and reported success.
+
+        Filling a field the document marks **read-only** is allowed — you may be stamping a value
+        into a signature line deliberately — but it comes back in `warnings`, because a reader
+        cannot edit or clear it afterwards.
+
+        The page set does not change, so the output keeps everything the original held: its tags,
+        its encryption and permissions, its links. The exception is an **XFA** (LiveCycle) form,
+        which stores a second copy of its values as XML: only the AcroForm side is filled, and the
+        result then carries `warnings` and an `xfa` block saying so. Pass that on to the user —
+        the page looks right, but a system that reads the XFA data will see an empty form.
         """
         return transforms.fill_form(
             check(path), values, check(out), password=password, overwrite=overwrite

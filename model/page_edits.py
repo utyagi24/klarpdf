@@ -13,13 +13,16 @@ document (the same field can have widgets on several pages, sharing one value), 
 by field name — not by page. This module provides:
 
 * :func:`read_form_fields` — enumerate the fillable widgets (name/type/geometry/page) for the UI;
-* :func:`apply_form_values` — write the stored values onto a materialised output document.
+* :func:`apply_form_values` — write the stored values onto a materialised output document;
+* :func:`describe_xfa` — report whether a document is an XFA form, which changes what filling
+  its AcroForm widgets actually accomplishes (M94).
 
-Both are GUI-free and headless-testable.
+All three are GUI-free and headless-testable.
 """
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 import pymupdf as fitz
@@ -51,6 +54,30 @@ class FormField:
     rect: tuple[float, float, float, float]  # widget box in unrotated page points
     choices: tuple[str, ...] | None  # options for combo/list, else None
     current_value: object            # the source widget's existing value
+    # What it takes to *fill* this widget, as opposed to locate it (M94). Defaulted because a
+    # NewField has none of it yet: it is not a widget until materialise, so its export values do
+    # not exist to be reported.
+    on_state: str | None = None      # a button's "on" export value — per widget, not a convention
+    states: tuple[str, ...] = ()     # every appearance state it defines, e.g. ("Off", "2")
+    flags: int = 0                   # raw /Ff
+    max_len: int | None = None       # a text field's /MaxLen, else None
+
+    # `read_only` / `required` are /Ff bits 1 and 2 and mean the same on every field type; the
+    # rest do not, which is why only these three are named. Bit 13 is `multiline` on a text field,
+    # `edit` on a choice field and unused on a button, so it is read only where it means that.
+    @property
+    def read_only(self) -> bool:
+        return bool(self.flags & fitz.PDF_FIELD_IS_READ_ONLY)
+
+    @property
+    def required(self) -> bool:
+        return bool(self.flags & fitz.PDF_FIELD_IS_REQUIRED)
+
+    @property
+    def multiline(self) -> bool:
+        return self.type == fitz.PDF_WIDGET_TYPE_TEXT and bool(
+            self.flags & fitz.PDF_TX_FIELD_IS_MULTILINE
+        )
 
 
 def read_form_fields(vdoc) -> list[FormField]:
@@ -93,9 +120,96 @@ def read_form_fields(vdoc) -> list[FormField]:
                     rect=(r.x0, r.y0, r.x1, r.y1),
                     choices=choices,
                     current_value=widget.field_value,
+                    on_state=widget.on_state(),
+                    states=_button_states(widget),
+                    flags=widget.field_flags or 0,
+                    max_len=widget.text_maxlen or None,
                 )
             )
     return fields
+
+
+def _button_states(widget) -> tuple[str, ...]:
+    """Every appearance state a checkbox / radio defines, ``()`` for anything else.
+
+    PyMuPDF splits them by appearance stream — ``{"normal": [...], "down": [...]}`` — and the two
+    lists disagree in practice: the SSA-3's checkboxes report ``normal: ["1"]`` and
+    ``down: ["1", "Off"]``, so reading either alone loses a state a caller may legitimately write.
+    They are merged, because what the caller wants is the set of values the widget accepts, not
+    which stream draws them.
+
+    **Ordered on-state first, then the rest sorted**, rather than in the order PyMuPDF happens to
+    report. That order comes from the ``/AP/N`` dictionary's keys, which a write rebuilds: the same
+    SSA-3 checkbox reports ``["2", "Off"]`` before a fill and ``["Off", "2"]`` after one, so the
+    field changed under a round-trip that changed nothing about the widget. That breaks the obvious
+    equality assertion in a caller's regression test and makes diffing two listings noisy for no
+    reason (TC-002 retest, NEW ISSUE 10). On-state first because it is the actionable half.
+    """
+    try:
+        states = widget.button_states() or {}
+        on_state = widget.on_state()
+    except Exception:  # noqa: BLE001 — a malformed /AP is not worth failing a whole listing over
+        return ()
+    merged = {state for group in ("normal", "down") for state in states.get(group) or ()}
+    if not merged:
+        return ()
+    lead = [on_state] if on_state in merged else []
+    return tuple(lead + sorted(merged - set(lead)))
+
+
+# ---- XFA (M94) ---------------------------------------------------------------
+#
+# An XFA form (Adobe LiveCycle Designer) carries a second, parallel description of itself: an XML
+# packet set under `/AcroForm/XFA`, of which `datasets` holds the values. Filling the AcroForm
+# widgets does not touch it, so the file ends up asserting two different things — the widgets say
+# filled, `datasets` says empty. Whether that matters depends on which half the reader believes:
+#
+# * **static** XFA (XFAF) — Acrobat renders the AcroForm appearance streams, so the values are
+#   visible and correct on screen. Any consumer that reads `datasets` (agency intake tooling,
+#   Acrobat's own form-data export) still sees an empty form.
+# * **dynamic** XFA — the page content *is* generated from the XFA template, and the AcroForm
+#   widgets are a fallback for viewers that cannot do that.
+#
+# The discriminator is `<dynamicRender>` in the `config` packet, and it must be read by **value**,
+# not by presence: the SSA-3 that prompted this contains the element set to `forbidden`, so a
+# presence check calls the one form we have measured dynamic when it is static.
+
+# `[(name) N 0 R ...]` — the /XFA array alternates packet names with the streams holding them.
+_XFA_PACKET = re.compile(r"\((?P<name>[^()]*)\)\s*(?P<xref>\d+)\s+0\s+R")
+_DYNAMIC_RENDER = re.compile(r"<dynamicRender[^>]*>\s*([^<\s]*)")
+
+
+def describe_xfa(doc: "fitz.Document") -> dict | None:
+    """Describe ``doc``'s XFA form, or ``None`` if it has none.
+
+    Returns ``{"packets": [...], "dynamic": bool}``. ``dynamic`` is conservative in the direction
+    that matters: an unreadable or absent ``config`` packet reports ``False``, matching the PDF
+    spec's default (static), while anything that says ``required`` reports ``True``.
+    """
+    try:
+        kind, value = doc.xref_get_key(doc.pdf_catalog(), "AcroForm/XFA")
+    except Exception:  # noqa: BLE001 — not a PDF with a catalog we can read; not an XFA form
+        return None
+    if kind == "null" or not value:
+        return None
+    packets = {name: int(xref) for name, xref in _XFA_PACKET.findall(value)}
+    if not packets:
+        # `/XFA` may be a single stream rather than the named-packet array. It is still XFA; we
+        # just cannot name its parts, and `config` is not separately addressable.
+        return {"packets": [], "dynamic": False}
+    return {"packets": sorted(packets), "dynamic": _is_dynamic(doc, packets.get("config"))}
+
+
+def _is_dynamic(doc: "fitz.Document", config_xref: int | None) -> bool:
+    """Does the ``config`` packet ask for dynamic rendering?"""
+    if not config_xref:
+        return False
+    try:
+        config = doc.xref_stream(config_xref).decode("utf-8", "replace")
+    except Exception:  # noqa: BLE001 — a packet we cannot read tells us nothing; assume static
+        return False
+    match = _DYNAMIC_RENDER.search(config)
+    return bool(match) and match.group(1).strip() == "required"
 
 
 # Text-like fields whose "empty" means cleared (vs a checkbox's Off / a radio's deselect).

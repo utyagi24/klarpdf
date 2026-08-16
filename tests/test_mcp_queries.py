@@ -43,6 +43,21 @@ def encrypted_pdf(tmp_path) -> str:
     return path
 
 
+@pytest.fixture
+def restricted_pdf(tmp_path) -> str:
+    """Encrypted with an **owner** password only: it opens with no password and still forbids
+    copying, modification and assembly. The shape a published form arrives in, and the one
+    ``is_encrypted`` reports as False."""
+    path = str(tmp_path / "restricted.pdf")
+    doc = fitz.open()
+    doc.new_page().insert_text((72, 100), "restricted", fontsize=14)
+    keep = (fitz.PDF_PERM_PRINT | fitz.PDF_PERM_PRINT_HQ | fitz.PDF_PERM_ANNOTATE
+            | fitz.PDF_PERM_FORM | fitz.PDF_PERM_ACCESSIBILITY)
+    doc.save(path, encryption=fitz.PDF_ENCRYPT_AES_128, owner_pw="owner", permissions=keep)
+    doc.close()
+    return path
+
+
 # ---- get_info: the routing call ---------------------------------------------
 
 
@@ -83,6 +98,31 @@ def test_info_with_the_password_reads_the_document(encrypted_pdf):
     assert info["needs_password"] is False
     assert info["encrypted"] is True  # still an encrypted file; we just have the key
     assert info["pages"] == 1
+
+
+def test_info_reports_an_owner_password_document_as_encrypted(restricted_pdf):
+    """TC-002 ISSUE 5. ``encrypted`` used to be ``password is not None`` — an answer to "did the
+    caller hand me a password?" — so the one file that opens freely *and* restricts what may be
+    done with it reported ``false``, from the tool documented as the call that answers what changes
+    everything else. ``is_encrypted`` is no better: it is False for anything that opened."""
+    info = queries.document_info(restricted_pdf)
+    assert info["encrypted"] is True
+    assert info["needs_password"] is False       # …and no password is needed to read it
+    assert "AES" in info["encryption"]
+
+
+def test_info_names_what_a_restricted_document_forbids(restricted_pdf):
+    permissions = queries.document_info(restricted_pdf)["permissions"]
+    assert permissions["copy"] is False
+    assert permissions["modify"] is False
+    assert permissions["assemble"] is False
+    assert permissions["print"] is True and permissions["fill_forms"] is True
+
+
+def test_info_reports_an_unprotected_document_as_permitting_everything(a_pdf):
+    info = queries.document_info(a_pdf)
+    assert info["encrypted"] is False and info["encryption"] is None
+    assert all(info["permissions"].values())
 
 
 # ---- get_outline -------------------------------------------------------------
@@ -218,6 +258,28 @@ def test_form_fields_are_listed_with_1_based_pages_and_values(a_pdf):
 
 def test_a_document_without_fields_returns_an_empty_list(scanned_pdf):
     assert queries.form_fields(scanned_pdf) == []
+
+
+def test_a_checkboxs_on_state_is_reported_because_it_cannot_be_guessed(awkward_form_pdf):
+    """TC-002 ISSUE 6: the value that ticks a box is per-widget — ``"2"`` here, ``"1"`` on the box
+    beside it in the form this is modelled on, ``"Yes"`` on neither. ``choices`` cannot carry it
+    (PyMuPDF fills ``choice_values`` for combo/list only), so a caller who could not read it had
+    nothing to do but guess."""
+    fields = {field["name"]: field for field in queries.form_fields(awkward_form_pdf)}
+    assert fields["married"]["on_state"] == "2"
+    assert set(fields["married"]["states"]) == {"2", "Off"}
+    assert fields["remarks"]["on_state"] is None       # not a button; nothing to report
+    assert fields["remarks"]["states"] is None
+
+
+def test_field_flags_separate_form_plumbing_from_fields_a_person_fills(awkward_form_pdf):
+    """The form this is modelled on carries three read-only 3-pt slivers that were indistinguishable
+    from real fields in the listing."""
+    fields = {field["name"]: field for field in queries.form_fields(awkward_form_pdf)}
+    assert fields["plumbing"]["read_only"] is True
+    assert fields["remarks"]["read_only"] is False and fields["remarks"]["multiline"] is True
+    assert fields["ssn"]["required"] is True and fields["ssn"]["max_len"] == 9
+    assert fields["married"]["multiline"] is False    # bit 13 means something else on a button
 
 
 # ---- encryption + resource hygiene -------------------------------------------

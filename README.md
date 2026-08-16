@@ -139,7 +139,7 @@ Full install options, the Claude Desktop config, and the one-click `.mcpb` bundl
 Seventeen tools in three groups. **Read** — `get_info`, `get_outline`, `search`, `extract_text`,
 `render_page`, `get_form_fields` — let an agent pull only the pages it needs instead of loading an
 800-page file whole. **Transform** — `extract_pages`, `split`, `merge`, `reorder`, `delete_pages`,
-`rotate`, `fill_form`, `flatten`, `export_images` — are lossless and always write a *new* file. **Redact** —
+`rotate`, `fill_form`, `flatten`, `export_images` — keep the content and always write a *new* file. **Redact** —
 `redact_text`, `redact_regions` — physically delete the content and then re-read the written file to
 prove it, with a second engine when Poppler is installed; if anything is still recoverable the
 output is deleted and the call fails.
@@ -165,8 +165,9 @@ so it is where a machine-generated document hides identifiers. Preview before yo
 `whole_words` off, "Smith" also matches inside "Smithsonian".
 
 **"Fill this form and lock it."**
-`get_form_fields` (names, types, choices, current values) → `fill_form` → `flatten`. Two files, the
-original untouched.
+`get_form_fields` (names, types, current values, and what each field will accept — a checkbox's
+export value is `"2"` on one form and `"1"` on the next) → `fill_form` → `flatten`. Two files, the
+original untouched, and the filled copy keeps the original's tags, permissions and encryption.
 
 **"This scan is unreadable — what does page 3 say?"**
 `get_info` reports `has_text_layer: false`, so searching is pointless → `render_page page=3` and
