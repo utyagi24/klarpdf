@@ -21,7 +21,7 @@ import os
 import pymupdf as fitz
 import pytest
 
-from mcp_bridge import transforms as T
+from mcp_bridge import queries, transforms as T
 from tests.conftest import A_TEXT, B_TEXT
 
 
@@ -542,3 +542,93 @@ def test_a_failed_write_leaves_no_debris(a_pdf, tmp_path, monkeypatch):
 
     assert not out.exists()
     assert list(target_dir.iterdir()) == []  # and no orphaned temp either
+
+
+# ---- TC-002 retest (2026-08-15): the three defects the review found in M94's own new surface ----
+
+
+@pytest.mark.parametrize("value, written", [
+    (True, "2"), (False, "Off"), ("2", "2"), ("Off", "Off"), ("Yes", "2"), (None, "Off"),
+])
+def test_every_accepted_way_to_set_a_checkbox_still_works(awkward_form_pdf, out, value, written):
+    """The convenience is the point and must survive the validation: a boolean, the widget's own
+    export value, and the boolean *words* PyMuPDF resolves all keep working."""
+    T.fill_form(awkward_form_pdf, {"married": value}, out)
+    doc = fitz.open(out)
+    try:
+        page = doc[0]
+        assert {w.field_name: w.field_value for w in page.widgets()}["married"] == written
+    finally:
+        doc.close()
+
+
+@pytest.mark.parametrize("typo", ["3", "Of", "ticked", 1])
+def test_a_state_the_button_does_not_have_is_an_error_not_a_silent_clear(
+    awkward_form_pdf, out, typo
+):
+    """NEW ISSUE 8. `fill_form` already refuses an unknown field *name* — "a typo that writes
+    nothing and reports success is the worst outcome here" — and the guarantee stopped one argument
+    short. An unrecognised state resolved as falsy and wrote `Off`, so asking to tick a box with
+    `"3"` on a form whose states are `"1"` and `"2"` **cleared** it and listed the field under
+    `filled`. Worse than the no-op the name check exists to prevent: a wrong answer, reported as
+    success.
+
+    `"Of"` is in here deliberately. It lands on `Off` today, which is what the caller meant — but
+    by falling down the same silent path that mishandles `"3"`, and one wrong input working by luck
+    is what makes the other hard to see (owner decision, 2026-08-16).
+    """
+    with pytest.raises(ValueError, match="is not a state of the button field"):
+        T.fill_form(awkward_form_pdf, {"married": typo}, out)
+    assert not os.path.exists(out)          # and nothing was written
+
+
+def test_the_error_names_the_states_the_widget_actually_accepts(awkward_form_pdf, out):
+    """Mirroring the field-name error, which lists the valid names: an error a caller can act on
+    beats one that only says no."""
+    with pytest.raises(ValueError, match=r"\['2', 'Off'\]"):
+        T.fill_form(awkward_form_pdf, {"married": "3"}, out)
+
+
+def test_a_text_field_still_takes_any_string(awkward_form_pdf, out):
+    """Only buttons are checked. A text field accepts arbitrary text by definition, and validating
+    it would break the tool's main job."""
+    T.fill_form(awkward_form_pdf, {"remarks": "3"}, out)
+    doc = fitz.open(out)
+    try:
+        assert {w.field_name: w.field_value for w in doc[0].widgets()}["remarks"] == "3"
+    finally:
+        doc.close()
+
+
+def test_filling_a_read_only_field_is_allowed_but_reported(awkward_form_pdf, out):
+    """NEW ISSUE 9. The caller may mean it — stamping a value into a field a person may not edit is
+    a legitimate thing to want. Doing it without a word is not, now that the server reads the flag
+    and reports it in `get_form_fields`."""
+    result = T.fill_form(awkward_form_pdf, {"plumbing": "stamped"}, out)
+    assert os.path.exists(result["out"])
+    assert "plumbing" in "\n".join(result["warnings"])
+    assert "read-only" in "\n".join(result["warnings"])
+
+
+def test_filling_ordinary_fields_says_nothing_about_read_only(awkward_form_pdf, out):
+    result = T.fill_form(awkward_form_pdf, {"remarks": "ordinary"}, out)
+    assert "warnings" not in result
+
+
+def test_the_read_only_warning_joins_the_xfa_one_rather_than_replacing_it(static_xfa_pdf, out):
+    """Two warning sources, one key. A plain `**` merge would keep whichever was built last."""
+    result = T.fill_form(static_xfa_pdf, {"plumbing": "stamped", "remarks": "x"}, out)
+    assert len(result["warnings"]) == 2
+    assert any("XFA" in w for w in result["warnings"])
+    assert any("read-only" in w for w in result["warnings"])
+
+
+def test_the_states_order_is_stable_across_a_round_trip(awkward_form_pdf, out):
+    """NEW ISSUE 10. The order used to come from the `/AP/N` dictionary, which a write rebuilds —
+    the same widget reported `["2", "Off"]` before a fill and `["Off", "2"]` after one, so a field
+    changed under a round-trip that changed nothing about the widget."""
+    before = {f["name"]: f for f in queries.form_fields(awkward_form_pdf)}["married"]
+    T.fill_form(awkward_form_pdf, {"married": True}, out)
+    after = {f["name"]: f for f in queries.form_fields(out)}["married"]
+    assert before["states"] == after["states"] == ["2", "Off"]   # on-state first, then the rest
+    assert before["states"][0] == before["on_state"]

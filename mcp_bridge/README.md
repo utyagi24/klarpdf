@@ -113,7 +113,7 @@ error, never a silent clamp.
 | `extract_pages` | Named pages out as one new document — the "give me pages 10-20" tool. |
 | `delete_pages` · `reorder` · `rotate` | Page-set edits; bookmarks follow their pages. |
 | `split` · `merge` | Cut into several files by print-dialog ranges (`"1-3"`, `"5-"`) / concatenate; merge renames colliding fields. |
-| `fill_form` · `flatten` | Fill (still editable; checkboxes take `true`) / bake in (no longer editable). `fill_form` warns on an XFA form. |
+| `fill_form` · `flatten` | Fill (still editable; checkboxes take `true` or their own export state, anything else is an error) / bake in (no longer editable). `fill_form` warns on an XFA form and on read-only fields. |
 | `export_images` | Rasterise pages to png/jpg files. |
 
 | Redact — **destructive**, verified | |

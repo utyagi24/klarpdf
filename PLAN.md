@@ -1331,6 +1331,30 @@ packet and it must be read **by value**: the SSA-3 contains the element set to `
 presence check calls the one form measured static dynamic instead. Both stronger options stay open
 in `PROGRESS.md` §Open follow-ups, and a dynamic-XFA fixture now exists to test them against.
 
+**The retest found three more, all in the surface this milestone had just added** (2026-08-15), and
+they are fixed here rather than filed: `on_state`, `states` and `read_only` did not exist before
+this PR, so they are its own loose ends and the review is the moment to close them.
+
+The load-bearing one is the same defect one argument along. `fill_form` refuses an unknown field
+**name** because "a typo that writes nothing and reports success is the worst outcome here" — and
+then accepted any **value** at all, resolving whatever it did not recognise as falsy. So `"3"`, the
+obvious slip on a form whose states are `"1"` and `"2"`, *cleared* the box and listed the field
+under `filled`. That is strictly worse than the no-op the name check exists to prevent: a no-op
+leaves the form unanswered, this writes the wrong answer and calls it success. The guarantee now
+covers both arguments — a button value must be a real export state or a boolean, and anything else
+is an error naming the states the widget accepts, with nothing written.
+
+`"Of"` is rejected with it, though it lands on `Off` today and that is what the caller meant. It
+gets there down the same unvalidated path that mishandles `"3"`, and an input that is wrong but
+happens to work is precisely what keeps the broken case invisible (owner decision, 2026-08-16).
+
+The other two are smaller and follow the same principle — say what you know. A **read-only** field
+can still be filled, because stamping a signature line may be exactly what the caller wants, but the
+names come back in `warnings` now that the server reads the flag at all. And `states` is ordered
+`on_state` first then sorted, rather than in `/AP/N` key order, which a write rebuilds: the same
+checkbox reported `["2", "Off"]` before a fill and `["Off", "2"]` after one, breaking equality in a
+caller's regression test for no reason.
+
 **"Lossless" was narrowed to what M93 established.** The tool docs promised that "the text layer,
 form fields and bookmarks survive", which is true and was being read as more than it says — TC-002
 quoted it back against a write that dropped the structure tree, `/Perms`, `/Names` and encryption.

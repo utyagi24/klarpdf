@@ -423,7 +423,14 @@ def create_server(config: Config | None = None) -> MCPServer:
 
         For a checkbox or radio button, send `true` / `false` and the widget's own on-state is
         looked up for you — or send that export value (`get_form_fields` reports it as `on_state`)
-        if you would rather be explicit. `"Yes"` is a guess, and usually a wrong one.
+        if you would rather be explicit. Anything else is an **error** naming the states the widget
+        accepts, and nothing is written: a state the button does not have used to be resolved as
+        "off", so asking to tick a box with `"3"` on a form whose states are `"1"` and `"2"` cleared
+        it and reported success.
+
+        Filling a field the document marks **read-only** is allowed — you may be stamping a value
+        into a signature line deliberately — but it comes back in `warnings`, because a reader
+        cannot edit or clear it afterwards.
 
         The page set does not change, so the output keeps everything the original held: its tags,
         its encryption and permissions, its links. The exception is an **XFA** (LiveCycle) form,

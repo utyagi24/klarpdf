@@ -2237,6 +2237,26 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     filled by both `true` and `"2"`; an owner-password document reported and round-tripped; a
     user-password document that keeps its restrictions across a save; and static **and dynamic** XFA
     forms — the dynamic case TC-002 named as untested now has a fixture.
+  - **Three defects the retest found in this milestone's own new surface** (2026-08-15), fixed here
+    rather than filed — `on_state`, `states` and `read_only` did not exist before this PR, so these
+    are its own loose ends. The retest otherwise closed 5 of the 7 original issues outright and
+    downgraded the XFA one to low/medium now that it is disclosed.
+    - **An invalid checkbox state was silently coerced to `Off` and reported as `filled`.** Now that
+      `states` is published, callers pass explicit state strings — and a value matching no state
+      resolved as falsy, so `"3"` (the obvious slip on a form whose states are `"1"` and `"2"`)
+      **cleared** the box and reported success. That is the failure the tool already refuses for a
+      field *name*, one argument short: worse than a no-op, because it writes a wrong answer.
+      `fill_form` now rejects any button value that is neither a real export state nor a boolean,
+      naming the states the widget accepts, and writes nothing. **`"Of"` is rejected too** — it
+      lands on `Off` today, which is what the caller meant, but by luck down the same silent path,
+      and one wrong input that works is what hides the other (owner decision, 2026-08-16).
+    - **Read-only fields were filled silently.** Allowed — a caller may be stamping a signature
+      line deliberately — but not quietly, now that the server reads the flag and reports it. The
+      written read-only fields come back named in `warnings`.
+    - **`states` ordering was not stable.** It came from the `/AP/N` dictionary, which a write
+      rebuilds: the same SSA-3 checkbox reported `["2", "Off"]` before a fill and `["Off", "2"]`
+      after one, so a field changed under a round-trip that changed nothing. Now `on_state` first,
+      then the rest sorted. Verified against the retest's own before/after artifacts.
 
 ## Public-Release Readiness — go open-source under AGPL-3.0 (planned)
 

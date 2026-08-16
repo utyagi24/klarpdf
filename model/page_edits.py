@@ -135,19 +135,26 @@ def _button_states(widget) -> tuple[str, ...]:
     PyMuPDF splits them by appearance stream — ``{"normal": [...], "down": [...]}`` — and the two
     lists disagree in practice: the SSA-3's checkboxes report ``normal: ["1"]`` and
     ``down: ["1", "Off"]``, so reading either alone loses a state a caller may legitimately write.
-    They are merged, order preserved, because what the caller wants is the set of values the
-    widget accepts, not which stream draws them.
+    They are merged, because what the caller wants is the set of values the widget accepts, not
+    which stream draws them.
+
+    **Ordered on-state first, then the rest sorted**, rather than in the order PyMuPDF happens to
+    report. That order comes from the ``/AP/N`` dictionary's keys, which a write rebuilds: the same
+    SSA-3 checkbox reports ``["2", "Off"]`` before a fill and ``["Off", "2"]`` after one, so the
+    field changed under a round-trip that changed nothing about the widget. That breaks the obvious
+    equality assertion in a caller's regression test and makes diffing two listings noisy for no
+    reason (TC-002 retest, NEW ISSUE 10). On-state first because it is the actionable half.
     """
     try:
         states = widget.button_states() or {}
+        on_state = widget.on_state()
     except Exception:  # noqa: BLE001 — a malformed /AP is not worth failing a whole listing over
         return ()
-    merged: list[str] = []
-    for group in ("normal", "down"):
-        for state in states.get(group) or ():
-            if state not in merged:
-                merged.append(state)
-    return tuple(merged)
+    merged = {state for group in ("normal", "down") for state in states.get(group) or ()}
+    if not merged:
+        return ()
+    lead = [on_state] if on_state in merged else []
+    return tuple(lead + sorted(merged - set(lead)))
 
 
 # ---- XFA (M94) ---------------------------------------------------------------

@@ -337,7 +337,11 @@ def fill_form(
 
     A checkbox takes ``True``/``False`` and the widget's own on-state is looked up for you, or the
     export value itself (``"1"``, ``"2"``, ``"Off"`` — it is per-widget) if you would rather be
-    explicit. ``get_form_fields`` reports it as ``on_state``.
+    explicit. ``get_form_fields`` reports it as ``on_state``. **Anything else is an error**, for
+    the reason the unknown-name check exists — see :func:`_check_button_values`.
+
+    Writing a **read-only** field is allowed and reported: the caller may mean it, but the document
+    says a person may not do it, so it is not something to do quietly.
 
     An **XFA** input is filled on its AcroForm side only and says so — see :func:`_describe_xfa`.
     """
@@ -345,16 +349,72 @@ def fill_form(
     from model.page_edits import read_form_fields
 
     with open_document(path, password) as vdoc:
-        known = {field.name for field in read_form_fields(vdoc)}
+        fields = read_form_fields(vdoc)
+        known = {field.name for field in fields}
         unknown = sorted(set(values) - known)
         if unknown:
             raise ValueError(
                 f"no such form field(s): {unknown} — the document has {sorted(known)}"
             )
+        _check_button_values(fields, values)
         for name, value in values.items():
             vdoc.set_field_value(name, value)
         _write(vdoc, target)
-        return _result(target, vdoc, path, filled=sorted(values), **_describe_xfa(vdoc))
+
+        extra = _describe_xfa(vdoc)
+        warnings = list(extra.pop("warnings", []))
+        written_read_only = sorted({f.name for f in fields if f.read_only and f.name in values})
+        if written_read_only:
+            warnings.append(
+                f"{len(written_read_only)} field(s) marked **read-only** by the document were "
+                f"filled: {written_read_only}. That is allowed and the values are written — but a "
+                "reader cannot edit or clear them in a viewer, and on a real form these are "
+                "usually either plumbing or a signature line. Check this is what you meant."
+            )
+        if warnings:
+            extra["warnings"] = warnings
+        return _result(target, vdoc, path, filled=sorted(values), **extra)
+
+
+# Values a caller may reasonably write for a button instead of naming its export state. PyMuPDF
+# resolves each to the widget's own on/off state, which is the convenience worth keeping — the
+# point of the check below is that it is a *closed* set, not that anything truthy will do.
+_BOOLEAN_WORDS = frozenset({"true", "false", "yes", "no", "on", "off"})
+
+
+def _check_button_values(fields, values: dict) -> None:
+    """Reject a checkbox/radio value that is neither a real export state nor a boolean.
+
+    ``fill_form`` already refuses an unknown field *name* — "a typo that writes nothing and reports
+    success is the worst outcome here" — and the guarantee stopped there, one argument short. A
+    state that matches nothing was resolved as falsy and written as ``Off``, so asking to tick a box
+    with ``"3"`` (the obvious slip on a form whose states are ``"1"`` and ``"2"``) **cleared** it
+    and reported the field under ``filled``. That is worse than the no-op the name check exists to
+    prevent: it is a wrong answer on a form, reported as success (TC-002 retest, NEW ISSUE 8).
+
+    Only buttons are checked, and only when the widget declares its states — a text field takes any
+    string by definition, and a button with no ``/AP`` states has nothing to validate against. A
+    bare ``None`` clears the field and is always allowed.
+
+    ``"Of"`` is rejected too, though it happens to do the right thing today: it lands on ``Off`` by
+    falling through the same silent path that mishandles ``"3"``, and keeping one wrong-input case
+    working *by luck* is what makes the other one hard to see. Owner decision, 2026-08-16.
+    """
+    states: dict[str, set[str]] = {}
+    for field in fields:
+        if field.states:
+            states.setdefault(field.name, set()).update(field.states)
+    for name, value in values.items():
+        allowed = states.get(name)
+        if not allowed or value is None or isinstance(value, bool):
+            continue
+        if str(value) in allowed or str(value).casefold() in _BOOLEAN_WORDS:
+            continue
+        raise ValueError(
+            f"{value!r} is not a state of the button field {name!r} — it accepts "
+            f"{sorted(allowed)}, or a boolean (true ticks it, false clears it). Nothing was "
+            "written; `get_form_fields` reports each widget's `on_state` and `states`."
+        )
 
 
 def _describe_xfa(vdoc: VirtualDocument) -> dict:
