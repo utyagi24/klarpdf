@@ -39,9 +39,10 @@ class PasswordRequired(Exception):
 
 def _authenticate_and_decrypt(
     doc: "fitz.Document", path: str, password_provider
-) -> "tuple[fitz.Document, str]":
+) -> "tuple[fitz.Document, str, str, int]":
     """Authenticate an encrypted ``doc`` (prompting via ``password_provider``), then return a fresh
-    **decrypted** in-memory copy plus the password that worked (M32; M54 records the password).
+    **decrypted** in-memory copy plus the password that worked (M32; M54 records the password) and
+    the two facts the decrypt is about to erase: the algorithm label and the permission flags.
 
     ``password_provider(path, retry)`` returns a password string, or ``None`` to cancel. The model
     loops on a wrong password (re-calling with ``retry=True``) until it succeeds or the user
@@ -53,6 +54,14 @@ def _authenticate_and_decrypt(
     NB: ``authenticate`` returns a truthy bitfield on success (``needs_pass`` stays set even then),
     and the decrypt ``tobytes`` passes no ``garbage``/``deflate`` — garbage-collecting an AES doc
     mid-decrypt corrupts its content streams; the materialise save cleans the decrypted output later.
+
+    **Both facts are read between the authenticate and the decrypt, and that window is the whole
+    reason they are read here at all.** Before authenticating, ``metadata`` is ``None`` and
+    ``permissions`` is 0 — the document has not been unlocked. After the ``tobytes``, the copy is a
+    plain unencrypted PDF that grants everything. Read a moment too early or too late and a file
+    that forbids copying and modification reports the opposite; that was M94's defect, a
+    user-password document round-tripping through Save to *fully permitted* (measured: -1052 in,
+    -4 out) while M93 had already fixed the owner-password case that never gets decrypted here.
     """
     if password_provider is None:
         doc.close()
@@ -66,9 +75,11 @@ def _authenticate_and_decrypt(
         if doc.authenticate(password):
             break
         retry = True
+    encryption = (doc.metadata or {}).get("encryption") or ""
+    restrictions = _restrictions_of(doc)
     decrypted = doc.tobytes(encryption=fitz.PDF_ENCRYPT_NONE)
     doc.close()
-    return fitz.open(stream=decrypted, filetype="pdf"), password
+    return fitz.open(stream=decrypted, filetype="pdf"), password, encryption, restrictions
 
 
 _ALL_PERMISSIONS = (
@@ -177,6 +188,13 @@ class VirtualDocument:
         # document arrived with, the second is a request to drop it.
         self._encryption_staged: bool = False
         self._source_passwords: dict[str, str] = {}
+        # What each source file said about its own protection *on disk*, captured at open (M94).
+        # Separate from the two fields above because they answer different questions: those are
+        # what the next Save will apply, these are what the file that was opened carries. They
+        # cannot be recovered later — a source that needed a password is stored decrypted — and
+        # without them a user-password document reports, and saves as, fully permitted.
+        self._source_encryption: dict[str, str] = {}    # source id -> algorithm label, "" = none
+        self._source_restrictions: dict[str, int] = {}  # source id -> flags (-1 = all allowed)
         # Cache: does a registered source carry baked KlarPDF annotations? Keyed by source id;
         # source bytes are immutable, so this never changes for a given source (cleared only when
         # sources are reset in reload_from_file). Lets the viewer / thumbnails keep the fast
@@ -211,8 +229,10 @@ class VirtualDocument:
         # `vdoc.permissions` (`ui/encrypt_dialog.py`), so every box arrived ticked whatever the
         # document actually said, and setting a password on a restricted file silently granted
         # copying, modification and assembly. Seeding from the origin makes the dialog show what
-        # the document restricts and makes accepting it unchanged a no-op (M93).
-        vd._permissions = _restrictions_of(vd.sources[source_id])
+        # the document restricts and makes accepting it unchanged a no-op (M93). Read from what
+        # was captured at open rather than from the stored source, which is the decrypted copy for
+        # a user-password document and grants everything (M94).
+        vd._permissions = vd._source_restrictions.get(source_id, -1)
         vd.ordered = vd._seed_ordered(source_id)
         vd.dirty = False
         return vd
@@ -273,14 +293,26 @@ class VirtualDocument:
 
         If the document is **encrypted** (``needs_pass``), it is authenticated via
         ``password_provider`` and stored **decrypted** (M32 — see :func:`_authenticate_and_decrypt`);
-        :class:`PasswordRequired` propagates if no password is available.
+        :class:`PasswordRequired` propagates if no password is available. What the file on disk
+        said about its own protection is recorded first (M94), because the stored copy no longer
+        knows: see :meth:`source_encryption`.
         """
         source_id = normalize_path(path)
         if source_id not in self.sources:
             doc = fitz.open(stream=Path(path).read_bytes(), filetype="pdf")
             if doc.needs_pass:
-                doc, password = _authenticate_and_decrypt(doc, path, password_provider)
+                doc, password, encryption, restrictions = _authenticate_and_decrypt(
+                    doc, path, password_provider
+                )
                 self._source_passwords[source_id] = password
+            else:
+                # Opened without a password — but that does not mean unprotected. An
+                # owner-password document opens freely and still restricts copying, and this copy
+                # is still the encrypted one, so both facts read straight off it.
+                encryption = (doc.metadata or {}).get("encryption") or ""
+                restrictions = _restrictions_of(doc)
+            self._source_encryption[source_id] = encryption
+            self._source_restrictions[source_id] = restrictions
             self.sources[source_id] = doc
         return source_id
 
@@ -379,6 +411,22 @@ class VirtualDocument:
         if origin is None or origin not in self.sources:
             return False
         return bool(self.sources[origin].metadata.get("encryption"))
+
+    def source_encryption(self, source_id: str) -> str | None:
+        """The encryption the source **file** carries, e.g. ``'Standard V4 R4 128-bit AES'``.
+
+        ``None`` for an unprotected file. Distinct from :meth:`origin_carries_encryption`, which
+        asks a save-path question ("is the copy in memory still encrypted?") and is therefore
+        False for a user-password document — decrypted at open, saved back from ``password``. This
+        one answers what the file on disk was, for both kinds of protection, which is what a
+        *reader* is asking. Captured at open; see :meth:`open_source`.
+        """
+        return self._source_encryption.get(source_id) or None
+
+    def origin_encryption(self) -> str | None:
+        """:meth:`source_encryption` for the document this was opened from."""
+        origin = self.origin_source_id
+        return None if origin is None else self.source_encryption(origin)
 
     # ---- queries ----------------------------------------------------------------
 
@@ -775,6 +823,8 @@ class VirtualDocument:
         self.sources = {}
         self._source_has_ours = {}  # new file's bytes → recompute whether our marks are baked in
         self._source_passwords = {}
+        self._source_encryption = {}
+        self._source_restrictions = {}
 
         def known_then_prompt(path_, retry):
             # A carry-through save (M54) wrote the file with the password we hold, so try it
@@ -791,8 +841,13 @@ class VirtualDocument:
         # Re-baseline the carry-through from what actually opened the file: the fallback may
         # have collected a different password, and a now-unencrypted file clears it.
         self._password = self._source_passwords.get(source_id)
-        if self._password is None:
-            self._permissions = -1
+        # …and re-baseline the restrictions from the reloaded file too. Zeroing them whenever no
+        # password came back was right for the case it was written for (a file that is simply no
+        # longer encrypted) and wrong for the other one: an owner-password document opens without
+        # a password and still forbids copying, so a redaction commit made `permissions` read
+        # "everything allowed" for a document that allowed nothing — M93's defect, re-entered
+        # through the reload door (M94).
+        self._permissions = self._source_restrictions.get(source_id, -1)
         self.origin_source_id = source_id
         self.path = path
         self._origin_toc = self.sources[source_id].get_toc(simple=False)

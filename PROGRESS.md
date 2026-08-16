@@ -2196,6 +2196,68 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     tagged form that saved at 316 KB (against a 233 KB input) into **151 KB** — so the structure is
     kept *and* the file gets smaller, rather than being traded off against it.
 
+- [x] **M94** *(unplanned)* **The bridge says what it knows.** The three MCP-side defects TC-002 left
+  open (2026-08-13), plus the encryption case M93 stopped one door short of. Every one of them is a
+  place where the server had the answer and did not hand it over — no wrong results, three guessing
+  callers. Design in `PLAN.md` §M94 — *WSL*
+  - **`get_info` reports the file's encryption, not the call's.** `encrypted` was
+    `password is not None`, which answers *"did the caller give me a password?"*, so an
+    owner-password document — AES-128, copying and modification forbidden, opens with no password —
+    came back `encrypted: false` from the one tool documented as the routing call. Now `true` for
+    both kinds of protection, with the algorithm named and `permissions` broken out as named
+    booleans (`copy`, `modify`, `assemble`, …) rather than a bitfield. `needs_password` is what
+    still separates "you cannot read this" from "you may not copy it".
+  - **A user-password document had been saving back **unrestricted**, and that is what the reporting
+    fix uncovered.** M93 fixed the owner-password case, which is never decrypted; a document that
+    *needs* a password is decrypted at open, and `_permissions` was seeded from the decrypted copy —
+    which grants everything. Measured `-1052` in, `-4` out, with the password itself carrying
+    through correctly, so the file still asked for a password and then allowed what it used to
+    forbid. `_authenticate_and_decrypt` now reads the algorithm and the flags between the
+    authenticate and the decrypt — the one moment both are legible — and `reload_from_file`
+    re-baselines from the same record, closing the third door where a redaction commit on an
+    owner-password document left `permissions` reading "everything allowed".
+  - **`get_form_fields` reports how to tick the box.** A button's ticked value is an appearance-state
+    name and it is per widget — `"1"` on one SSA-3 checkbox, `"2"` on the next, `"Yes"` on neither —
+    and `choices` cannot carry it (PyMuPDF fills `choice_values` for combo/list only). `on_state`
+    and `states` now do. The boolean shorthand `fill_form` already accepted is documented rather
+    than left to be discovered. `read_only` / `required` / `multiline` / `max_len` come too: the
+    form carries three read-only 3–5 pt slivers that were indistinguishable from real fields.
+  - **`fill_form` warns on an XFA form instead of half-filling it in silence.** An XFA form keeps a
+    second copy of its values as XML; the fill updates the AcroForm widgets and leaves the
+    `datasets` packet byte-identical. **Owner decision, 2026-08-15: report it, do not resolve it** —
+    the result carries `xfa: {present, dynamic, datasets_updated: false}` and a warning that
+    distinguishes the two cases, because a static form is correct on screen and wrong only to a
+    machine reading the XFA data, while a dynamic one can look empty too. Writing into `datasets`
+    and dropping `/XFA` both stay open below. The static/dynamic test is `<dynamicRender>` read **by
+    value**: the SSA-3 carries it set to `forbidden`, so a presence check gets that form backwards.
+  - **The "lossless" claim now matches M93's.** Server instructions, `mcp_bridge/README.md` and the
+    per-tool docstrings all say the same narrower thing: an unchanged page set keeps everything, a
+    reorder keeps the content and not the document structure.
+  - **Tests** follow the report's own suggested fixtures: a checkbox whose export value is `"2"`
+    filled by both `true` and `"2"`; an owner-password document reported and round-tripped; a
+    user-password document that keeps its restrictions across a save; and static **and dynamic** XFA
+    forms — the dynamic case TC-002 named as untested now has a fixture.
+  - **Three defects the retest found in this milestone's own new surface** (2026-08-15), fixed here
+    rather than filed — `on_state`, `states` and `read_only` did not exist before this PR, so these
+    are its own loose ends. The retest otherwise closed 5 of the 7 original issues outright and
+    downgraded the XFA one to low/medium now that it is disclosed.
+    - **An invalid checkbox state was silently coerced to `Off` and reported as `filled`.** Now that
+      `states` is published, callers pass explicit state strings — and a value matching no state
+      resolved as falsy, so `"3"` (the obvious slip on a form whose states are `"1"` and `"2"`)
+      **cleared** the box and reported success. That is the failure the tool already refuses for a
+      field *name*, one argument short: worse than a no-op, because it writes a wrong answer.
+      `fill_form` now rejects any button value that is neither a real export state nor a boolean,
+      naming the states the widget accepts, and writes nothing. **`"Of"` is rejected too** — it
+      lands on `Off` today, which is what the caller meant, but by luck down the same silent path,
+      and one wrong input that works is what hides the other (owner decision, 2026-08-16).
+    - **Read-only fields were filled silently.** Allowed — a caller may be stamping a signature
+      line deliberately — but not quietly, now that the server reads the flag and reports it. The
+      written read-only fields come back named in `warnings`.
+    - **`states` ordering was not stable.** It came from the `/AP/N` dictionary, which a write
+      rebuilds: the same SSA-3 checkbox reported `["2", "Off"]` before a fill and `["Off", "2"]`
+      after one, so a field changed under a round-trip that changed nothing. Now `on_state` first,
+      then the rest sorted. Verified against the retest's own before/after artifacts.
+
 ## Public-Release Readiness — go open-source under AGPL-3.0 (planned)
 
 **The repo is public** as of **2026-07-17**, as an `AGPL-3.0-or-later` project — the flip (G8) is done.
@@ -2389,38 +2451,30 @@ tree or history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI 
 
 Carried items — none block work:
 
-- **TC-002 — three MCP-side defects still open.** From the second hands-on session (2026-08-13,
-  report at `/mnt/c/Users/umesh/Downloads/pdfs/klarpdf-tests/TC-002-fill_form-ssa-3.md`): filling an
-  SSA-3 through `fill_form` worked, but the write degraded the document seven ways. **Four are
-  fixed** — links, accessibility tags, encryption and usage rights — by **M93**
-  ([#253](https://github.com/utyagi24/klarpdf/pull/253)), which found the cause was the *app's* save
-  engine, not the bridge. These three are bridge-only and were never started:
-  - **`get_info` misreports encryption** (report's ISSUE 5). `mcp_bridge/queries.py` returns
-    `"encrypted": vdoc.password is not None` — which answers *"did the caller give me a password?"*,
-    not *"is this file encrypted?"*. An owner-password document (opens freely, restricts copying)
-    reports `false`. Ask the document instead: `doc.metadata["encryption"]` is the reliable signal,
-    **not** `is_encrypted`, which is `False` once a file opens without a password. Add a
-    `permissions` field while there.
-  - **`get_form_fields` hides what a caller needs to fill a checkbox** (ISSUE 6). `choices` comes
-    from `widget.choice_values`, which is populated for combo/list only, so a checkbox's on-state
-    (`"2"` on that form, and it differs per widget) is undiscoverable. `fill_form` accepts a boolean
-    and resolves it — good behaviour, documented nowhere, so the natural guess is `"Yes"`/`"On"`.
-    Report on/off states via `widget.button_states()`, expose `field_flags`
-    (read-only / required / multiline / max-length — the form has 3-pt plumbing fields
-    indistinguishable from real ones today), and document the boolean.
-  - **XFA data island left stale** (ISSUE 3) — **needs an owner decision**. The form is XFA
-    (LiveCycle); `fill_form` updates the AcroForm widgets and leaves the `datasets` packet
-    byte-identical, so the file asserts two different things. Not the catastrophe it would be for a
-    *dynamic* XFA form — this one is static (XFAF), so Acrobat renders from the AcroForm
-    appearances — but any XFA-aware consumer reads an empty form. Three options, in the report's
-    preference order: write the values into `datasets` too; drop `/XFA` on write so the file
-    degrades to a plain AcroForm everyone agrees on; or warn when `/XFA` is present. **A dynamic
-    XFA form is untested and is the likeliest hard failure.**
-  - Also outstanding: the tool docs still say *"Transforms are lossless: the text layer, form fields
-    and bookmarks survive"*. M93 narrowed that claim in `PLAN.md` §Key design idea — an unchanged
-    page set keeps the document's structure, a reorder does not — and the MCP wording should match.
-  - `klarpdf-tests/inspect_pdf.py` (beside the report) dumps the document-level properties a save
-    can drop, and diffs two files; it takes `--password` or prompts.
+- ~~**TC-002 — three MCP-side defects still open**~~ — **closed 2026-08-15 by M94** (see the
+  milestone above). From the second hands-on session (2026-08-13, report at
+  `/mnt/c/Users/umesh/Downloads/pdfs/klarpdf-tests/TC-002-fill_form-ssa-3.md`): filling an SSA-3
+  through `fill_form` worked, but the write degraded the document seven ways. Four were the app's
+  save engine (**M93**, [#253](https://github.com/utyagi24/klarpdf/pull/253)); the three bridge-side
+  ones — `get_info` misreporting encryption (ISSUE 5), `get_form_fields` hiding a checkbox's
+  on-state and the field flags (ISSUE 6), and the stale XFA data island (ISSUE 3) — are M94, along
+  with the overstated "lossless" wording in the tool docs. **What M94 deliberately did not do**
+  carries on below. `klarpdf-tests/inspect_pdf.py` (beside the report) dumps the document-level
+  properties a save can drop, and diffs two files; it takes `--password` or prompts.
+
+- **An XFA form's `datasets` packet is still not written, by choice.** M94 reports the mismatch —
+  `fill_form` returns `xfa: {present, dynamic, datasets_updated: false}` and a warning — because the
+  owner chose reporting over resolving (2026-08-15). The two stronger answers remain available and
+  neither is scheduled:
+  - **Write the values into `datasets` too.** Highest fidelity: the file stops asserting two
+    different things. The work is the AcroForm-name → XFA-node mapping, where a wrong write is
+    worse than no write, and it needs a real dynamic form to test against.
+  - **Drop `/XFA` on write.** The conventional fix (pdftk's `drop_xfa`) — the output degrades to a
+    plain AcroForm every viewer agrees on. Safe for a static form; for a **dynamic** one it removes
+    the only thing that renders it, so it would have to be conditional or opt-in.
+  A synthetic dynamic-XFA fixture now exists (`tests/conftest.py:dynamic_xfa_pdf`), but a **real**
+  dynamic form is still untested and remains the likeliest hard failure — TC-002's own assessment,
+  unchanged.
 
 - **A reorder still loses the accessibility structure tree** (M93). The unchanged-page-set route
   keeps it; the grafting route cannot, because a structure tree is a tree of references into page

@@ -1272,6 +1272,97 @@ server Windows-only; and the `.mcpb` must use `server.type = "uv"`, because MCPB
 vendor compiled dependencies and we have two (PyMuPDF, pydantic) — which in turn makes the bundle an
 **online-installing** path, the one deliberate break from the app's vendored-offline discipline.
 
+### M94 *(unplanned)* — what the bridge would not tell a caller (TC-002, owner-reported 2026-08-13)
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M94** The three bridge-side defects TC-002 left open, plus the encryption case M93 did not reach | `get_info` reports the file's own encryption + named permissions; `get_form_fields` reports each button's on-state and the read-only / required / multiline / max-length flags; `fill_form` warns on an XFA form; `VirtualDocument` captures a source's protection *before* decrypting it | WSL | An owner-password document reads as encrypted with its restrictions named; a checkbox's `"2"` on-state is discoverable and a boolean still ticks it; an XFA fill carries a warning naming static vs dynamic and leaves `datasets` byte-identical; a **user**-password document saves back restricted |
+
+**Where these came from.** The second hands-on session ([TC-002](https://github.com/utyagi24/klarpdf),
+report held with the owner's test harness) filled an SSA-3 through `fill_form` and found the values
+correct and the document degraded seven ways. Four were the *app's* save engine and were fixed at
+M93. The three below are the bridge's own, and they share a shape worth naming: **each is a place
+where the server knew something and did not say it.** None is a wrong result; all three are a
+caller left to guess.
+
+**`get_info` answered a different question than it was asked.** `encrypted` was
+`vdoc.password is not None` — "did the caller hand me a password?" — so the SSA-3, AES-128 with
+copying and modification forbidden, came back `encrypted: false`. The tool documented as *the*
+routing call, the one that "answers the question that changes everything else", was the single place
+that hid it. Two protections have to read as encryption here and only one involves a password: a
+**user** password, without which the file will not open, and an **owner** password, which is how
+essentially every published form arrives. `is_encrypted` is not the fix — it is `False` the moment a
+document opens (CLAUDE.md §Gotchas) — and neither is asking the in-memory source, which for a
+user-password document is a decrypted copy. `permissions` rides along, named rather than as a
+bitfield, because "what does this document forbid" is the follow-up question in every case where the
+answer to the first one is yes.
+
+**The same decrypt was quietly discarding restrictions on the way out, too.** Reading the source
+after `open_source` cannot work, and that is not only a reporting problem: `from_path` seeded
+`_permissions` from exactly there, so a user-password document that forbade copying, modification
+and assembly *saved back permitting all three* — measured `-1052` in, `-4` out, with the password
+itself carrying through fine, which is what made it invisible. It is M93's defect one door further
+along, and it is fixed the only way it can be: `_authenticate_and_decrypt` reads the algorithm and
+the flags **between the authenticate and the decrypt**, the one moment both are legible, and
+`open_source` records them per source. `reload_from_file` re-baselines from the same record, closing
+a third door where a redaction commit on an owner-password document left `permissions` reading
+"everything allowed".
+
+**`get_form_fields` could not tell a caller how to tick a box.** A checkbox's ticked value is the
+name of an appearance state — `"1"` on one SSA-3 widget, `"2"` on the next, `"Yes"` on neither —
+and `choices` cannot carry it, because PyMuPDF populates `choice_values` for combo and list boxes
+only. `fill_form` does accept a plain `true` and resolve the on-state itself, which is why TC-002
+passed; a convenience nothing documents is not a contract, and the natural guess is `"Yes"`. Both
+routes now work and both are stated. The field flags are the same defect in a quieter register: the
+form carries three read-only 3–5 pt slivers named `P2_PAReadOnly_FLD` and friends, indistinguishable
+in the listing from the fields a person is meant to fill.
+
+**XFA is reported, not resolved — an owner decision (2026-08-15).** An XFA form keeps a second copy
+of itself as XML, and `fill_form` updates the AcroForm widgets while leaving the `datasets` packet
+byte-identical, so the file asserts two things at once. The three available answers were: write the
+values into `datasets` too (highest fidelity, and a wrong name-to-node mapping is worse than no
+write); drop `/XFA` so the document degrades to a plain AcroForm everyone agrees on (conventional,
+and it removes the only thing that renders a *dynamic* form); or say so. The owner chose to say so.
+The result carries `xfa: {present, dynamic, datasets_updated: false}` and a warning that names which
+case it is, because the two differ in what the caller must do: a static form is correct on screen
+and wrong only to a machine reading the XFA data, while a dynamic one — Acrobat builds its pages
+from the template — can look empty as well. The discriminator is `<dynamicRender>` in the `config`
+packet and it must be read **by value**: the SSA-3 contains the element set to `forbidden`, so a
+presence check calls the one form measured static dynamic instead. Both stronger options stay open
+in `PROGRESS.md` §Open follow-ups, and a dynamic-XFA fixture now exists to test them against.
+
+**The retest found three more, all in the surface this milestone had just added** (2026-08-15), and
+they are fixed here rather than filed: `on_state`, `states` and `read_only` did not exist before
+this PR, so they are its own loose ends and the review is the moment to close them.
+
+The load-bearing one is the same defect one argument along. `fill_form` refuses an unknown field
+**name** because "a typo that writes nothing and reports success is the worst outcome here" — and
+then accepted any **value** at all, resolving whatever it did not recognise as falsy. So `"3"`, the
+obvious slip on a form whose states are `"1"` and `"2"`, *cleared* the box and listed the field
+under `filled`. That is strictly worse than the no-op the name check exists to prevent: a no-op
+leaves the form unanswered, this writes the wrong answer and calls it success. The guarantee now
+covers both arguments — a button value must be a real export state or a boolean, and anything else
+is an error naming the states the widget accepts, with nothing written.
+
+`"Of"` is rejected with it, though it lands on `Off` today and that is what the caller meant. It
+gets there down the same unvalidated path that mishandles `"3"`, and an input that is wrong but
+happens to work is precisely what keeps the broken case invisible (owner decision, 2026-08-16).
+
+The other two are smaller and follow the same principle — say what you know. A **read-only** field
+can still be filled, because stamping a signature line may be exactly what the caller wants, but the
+names come back in `warnings` now that the server reads the flag at all. And `states` is ordered
+`on_state` first then sorted, rather than in `/AP/N` key order, which a write rebuilds: the same
+checkbox reported `["2", "Off"]` before a fill and `["Off", "2"]` after one, breaking equality in a
+caller's regression test for no reason.
+
+**"Lossless" was narrowed to what M93 established.** The tool docs promised that "the text layer,
+form fields and bookmarks survive", which is true and was being read as more than it says — TC-002
+quoted it back against a write that dropped the structure tree, `/Perms`, `/Names` and encryption.
+The server instructions, `mcp_bridge/README.md` and the per-tool docstrings now draw the line where
+§Key design idea draws it: **a tool that leaves the page set alone keeps everything; a tool that
+moves pages keeps the content and not the document structure.** The claim is smaller and, for the
+first time, the same in all four places it is made.
+
 ## GUI feature roadmap — the post-v0.10 tranche R1–R6 (planned; M45–M79)
 
 Owner-decided 2026-07-18 after a feature-exploration session (23 features approved, radio-button
