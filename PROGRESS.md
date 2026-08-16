@@ -2147,6 +2147,39 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   decode work, so A/B/F reduce how often we pay it but only E stops the freeze. Now a scheduling
   question, not a justification one.
 
+- [x] **M96** *(unplanned)* **Whole-word search stops letting the next line veto a match.** Found by
+  the owner while retesting TC-003 (TC-004, 2026-08-16, report beside it in `klarpdf-tests/`).
+  **Pre-existing — reproduced identically on `main`, so it is not from the M94/M95 branches.**
+  Design in `PLAN.md` §M96 — *WSL*
+  - **The defect.** `search "Security"` with `whole_words: true` on `ssa-3.pdf` page 1 returned
+    **1 of 5**; `Social` 3 of 5; `DATE` 2 of 4. Every miss is a free-standing word with a space on
+    each side, so this is nothing to do with the deliberate token semantics of TC-003 §3.
+  - **A word box is not the ink.** `get_text("words")` gives each word the font's full
+    ascender-to-descender height, so on tight leading consecutive lines' boxes overlap vertically
+    and `boxes_touch` — a plain 2-D intersection — cannot tell a neighbour from a word the hit
+    covers. `struck` was returning words from the line above: the box for `Security` at
+    y=[45.2, 58.8] struck `Discontinue` at y=[35.2, 48.8]. `is_whole_word` reads the first struck
+    word as the one at the hit's left edge, that neighbour's letters run left of the hit, and the
+    match was dropped.
+  - **One cause, not two.** The report separated a "first match per line only" symptom; it is the
+    same defect — the second `DATE` sits under `DECEASED` while the first has nothing above it — so
+    which occurrence survives is a fact about neighbours, not position. Recorded because "first per
+    line" points at `group_matches`, which is innocent. It also explains the inversion the report
+    flagged: a longer query spans a wider box and so has different edge words, which is why
+    `Social Security Number` found what `Social` missed.
+  - **The fix** is one predicate: a word is struck only when it shares a line with the box —
+    either vertical midline inside the other's span. Precision is untouched; `Smith`/`Smithsonian`,
+    `ALPHA-zero-A0` (M64) and `expression.` (TC-001) all resolve exactly as before, because those
+    turn on characters *within* the struck word.
+  - **This was shipped in the app too.** `viewer/search.py` shares `PageText.is_whole_word`, so
+    **Find ▸ Whole words** under-reported identically — 1 of 5 on the same document. That is the
+    larger half of the impact.
+  - **The M95 verifier caught it**, on a defect that did not exist as a known bug when it was
+    written: `redact_text` refused the write and deleted its own output, counts exact. `redact_
+    regions` has no query and so no such net — the tool docs say so.
+  - **Tests** use a fixture whose line boxes genuinely overlap (asserted, so it cannot silently
+    stop reproducing) and fail without the fix — including one for the find-bar path.
+
 - [x] **M93** *(unplanned)* **A save no longer throws away the document it was given.** Found while
   filling a federal form through the MCP bridge (test case TC-002, 2026-08-13), but the defect is in
   the app: `main_window.py`'s Save calls the same `materialize`, so **every document the shipped

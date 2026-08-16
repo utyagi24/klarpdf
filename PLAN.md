@@ -2942,6 +2942,62 @@ surfaces agree without either being tuned to the other.
 sidebar should glide under **View ▸ Smooth Scrolling** too is a separate question with a separate
 cost (the animator is `PdfView`-owned), left open rather than folded in.
 
+### M96 *(unplanned)* — a neighbouring line vetoed a whole-word match (TC-004, owner-reported 2026-08-16)
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M96** Whole-word search stops rejecting matches against words on an adjacent line | `PageText.struck` requires :func:`shares_line` as well as `boxes_touch` — a word belongs to a hit box only when one of the two vertical midlines falls inside the other | WSL | `search "Security"` on the SSA-3 returns 5, not 1; the find bar agrees; `Smith`/`Smithsonian`, `ALPHA-zero-A0` and `expression.` all still resolve as before |
+
+**The defect.** `search` with `whole_words: true` on `ssa-3.pdf` page 1 found **1 of 5** occurrences
+of `Security`, 3 of 5 `Social`, 2 of 4 `DATE`. Every missed occurrence is a free-standing word with
+a space on each side — there is no reading of "whole word" under which they should be dropped, so
+this is unrelated to the token semantics of TC-003 §3, which are deliberate.
+
+**A word box is not the ink.** `get_text("words")` reports each word's box spanning the font's full
+ascender-to-descender height, so on a tightly-leaded page consecutive lines' boxes **overlap
+vertically**. `boxes_touch` is a plain 2-D intersection and cannot tell that apart from a word the
+hit genuinely covers, so `struck` was returning words from the line above and below:
+
+```
+box for 'Security'   y=[45.2, 58.8]   x=[ 77.8, 114.0]
+struck               ['Discontinue', 'Prior', 'Security']
+'Discontinue'        y=[35.2, 48.8]   ← the previous line, overlapping by 3.6 pt
+```
+
+`is_whole_word` reads `struck[0]` and `struck[-1]` as the words at the hit's two edges. With a
+neighbour from the line above sitting at index 0, its letters of course run to the left of the hit,
+the left edge was judged to be inside a longer word, and the match was thrown away.
+
+**One cause, not two.** The report separated a "first match per line only" symptom from the
+under-count, reasonably — the second `DATE` on a line was consistently the one lost. It is the same
+defect: that `DATE` sits under `DECEASED` from the next line while the first `DATE` has nothing
+above it, so which occurrence survives is a fact about the neighbours, not about position. Worth
+recording because "first per line" points at `group_matches` and the dedup, which are innocent. The
+same cause also explains the inversion the report flagged as the signature to chase — a longer query
+spans a wider box, so its edge words are different neighbours, and `Social Security Number` found
+what `Social` had missed.
+
+**The rule.** A word counts as struck only if it :func:`shares_line` with the box: **either**
+vertical midline inside the other's span. One direction alone is not enough — testing only the
+word's midline fails a hit box shorter than its word, testing only the box's fails a box spanning a
+line of shorter words — while requiring either still puts a whole line's leading between a word and
+its neighbour's midline. Precision is unaffected: `Smith` inside `Smithsonian`, `ALPHA` inside
+`ALPHA-zero-A0` (M64) and the trailing period of `expression.` (TC-001) all resolve exactly as
+before, because those turn on characters *within* the struck word, not on which words are struck.
+
+**It is a shipped-app defect, not only a bridge one.** `viewer/search.py` routes through the same
+`PageText.is_whole_word`, so **Find ▸ Whole words** under-reported identically — measured 1 of 5 on
+the same document before the fix. That is the larger half of the impact and is what makes this
+worth a milestone rather than a footnote.
+
+**Found by the M95 verifier, on a defect nobody knew existed when it was written.** `redact_text`
+did not leak here: the literal residual scan refused the write and deleted its own output, with
+counts exactly right (2 missed for `Social Security`, 4 for `Security`). That is the independent
+-check design paying for itself, and the strongest argument on record for keeping the safety net's
+predicate separate from the matcher's. `redact_regions` has no query and therefore no such net —
+with the matcher fixed the upstream under-count is gone, but the asymmetry is real and stated in its
+tool docs.
+
 ## Future enhancements (deferred beyond the roadmap)
 
 Captured but not yet scheduled:

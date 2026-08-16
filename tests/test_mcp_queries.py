@@ -323,3 +323,117 @@ def test_queries_do_not_hold_the_file_open(a_pdf, tmp_path):
 def test_a_missing_file_raises_a_clear_error(tmp_path):
     with pytest.raises((FileNotFoundError, OSError)):
         queries.document_info(str(tmp_path / "nope.pdf"))
+
+
+# ---- M96 / TC-004: a neighbouring line must not veto a whole-word match ----------------------
+
+
+@pytest.fixture
+def tight_leading_pdf(tmp_path) -> str:
+    """Lines close enough that consecutive word boxes overlap vertically — the ordinary shape of a
+    dense form, and the one that broke whole-word search.
+
+    12 pt text on a 10 pt pitch: each word box spans ascender to descender (~13.8 pt), so every
+    line's boxes intrude into its neighbours' and `boxes_touch` cannot tell that from a word the
+    hit actually covers.
+    """
+    path = str(tmp_path / "tight.pdf")
+    doc = fitz.open()
+    page = doc.new_page()
+    for row, line in enumerate([
+        "Discontinue Prior Editions",
+        "Social Security Administration",
+        "SOCIAL SECURITY NUMBER",
+        "Spouse's Social Security Number",
+    ]):
+        page.insert_text((40, 60 + row * 10), line, fontsize=12)
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def test_the_fixture_really_has_overlapping_line_boxes(tight_leading_pdf):
+    """Guard the fixture: without the overlap it proves nothing, and the overlap is the whole
+    mechanism."""
+    doc = fitz.open(tight_leading_pdf)
+    try:
+        words = doc[0].get_text("words")
+        rows = sorted({(round(w[1], 1), round(w[3], 1)) for w in words})
+        assert any(rows[i + 1][0] < rows[i][1] for i in range(len(rows) - 1)), (
+            f"no line-box overlap in {rows} — the fixture does not reproduce the defect"
+        )
+    finally:
+        doc.close()
+
+
+@pytest.mark.parametrize("query, expected", [("Security", 3), ("Social", 3), ("Number", 2)])
+def test_whole_word_search_finds_every_free_standing_occurrence(
+    tight_leading_pdf, query, expected
+):
+    """TC-004. `search "Security"` on a real form returned **1 of 5**: each rejected hit was judged
+    against a word on the line above, whose letters naturally run past the hit's left edge, so the
+    edge looked like the middle of a word.
+
+    Every occurrence here is free-standing — spaces on both sides — so there is no reading of
+    "whole word" under which any of them should be dropped, and whole-word must agree with the
+    loose mode that already found them all.
+    """
+    tight = queries.search(tight_leading_pdf, query, whole_words=True)
+    loose = queries.search(tight_leading_pdf, query, whole_words=False)
+    assert len(tight) == len(loose) == expected
+
+
+def test_two_occurrences_on_one_line_are_both_found(tmp_path):
+    """The second symptom TC-004 reported as "first match per line only". It was the same defect —
+    the second `DATE` sat next to a word from the adjacent line — but it is worth its own test,
+    because a per-line dedup would be a genuinely different bug with the same appearance."""
+    path = str(tmp_path / "twice.pdf")
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((40, 100), "SPOUSE'S DATE OF BIRTH GIVE DATE OF DEATH", fontsize=12)
+    page.insert_text((40, 110), "IF SPOUSE IS DECEASED", fontsize=12)
+    doc.save(path)
+    doc.close()
+
+    assert len(queries.search(path, "DATE", whole_words=True)) == 2
+
+
+def test_a_longer_query_never_matches_more_often_than_a_word_inside_it(tight_leading_pdf):
+    """The signature TC-004 flagged as worth chasing: `Social` found 3 of 5 while
+    `Social Security Number` found the two it had missed. A longer, more specific query matching
+    *more* occurrences than a word contained in it is impossible under any consistent rule."""
+    short = queries.search(tight_leading_pdf, "Social", whole_words=True)
+    long = queries.search(tight_leading_pdf, "Social Security Number", whole_words=True)
+    assert len(long) <= len(short)
+
+
+def test_sub_word_matches_are_still_rejected(tmp_path):
+    """The fix must not buy recall with precision — these are the invariants whole-word exists for
+    (M64's hyphenated compound, TC-001's trailing period, and the plain longer-word case)."""
+    path = str(tmp_path / "reject.pdf")
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((40, 100), "Smith and Smithsonian", fontsize=12)
+    page.insert_text((40, 130), "ALPHA-zero-A0 and ALPHA", fontsize=12)
+    page.insert_text((40, 160), "expression. and expressionless", fontsize=12)
+    doc.save(path)
+    doc.close()
+
+    assert len(queries.search(path, "Smith", whole_words=True)) == 1
+    assert len(queries.search(path, "ALPHA", whole_words=True)) == 1
+    assert len(queries.search(path, "expression", whole_words=True)) == 1
+
+
+def test_the_app_find_bar_agrees_with_the_bridge(tight_leading_pdf):
+    """Both go through `PageText.is_whole_word`, so the shipped find bar had the same under-count —
+    on this fixture it is the words-only path, which reaches the same rule by a different route."""
+    from viewer.search import is_whole_word
+
+    doc = fitz.open(tight_leading_pdf)
+    try:
+        page, words = doc[0], doc[0].get_text("words")
+        shown = [r for r in page.search_for("Security")
+                 if is_whole_word(words, (r.x0, r.y0, r.x1, r.y1))]
+        assert len(shown) == len(page.search_for("Security"))
+    finally:
+        doc.close()
