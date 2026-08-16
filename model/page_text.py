@@ -36,6 +36,31 @@ def boxes_touch(a: tuple, b: tuple) -> bool:
     return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
 
 
+def shares_line(word: tuple, box: tuple) -> bool:
+    """Do ``word`` and ``box`` sit on the same line of text, rather than merely overlapping? (M96)
+
+    A word's box is not the ink — it spans the font's full ascender-to-descender height, so on a
+    tightly-leaded page consecutive lines' boxes **overlap vertically**. :func:`boxes_touch` is a
+    plain 2-D intersection and cannot tell that apart from a word the box genuinely covers, so a hit
+    was "striking" words from the line above and below it.
+
+    That is not cosmetic: :meth:`PageText.is_whole_word` reads the first and last struck word as the
+    ones at the hit's edges, so a neighbour from the previous line — whose letters of course extend
+    to the left of the hit — made the left edge look like the middle of a word and the match was
+    dropped. On the SSA-3, ``search "Security"`` with ``whole_words`` on returned **1 of 5**: four
+    were rejected against words on an adjacent line (TC-004).
+
+    The test is by **centre**, in either direction: a word belongs to the box when its own vertical
+    midline falls inside the box, or the box's midline falls inside the word. One direction alone is
+    not enough — the first fails a hit box shorter than its word, the second fails a box spanning a
+    line whose words are shorter than it — and requiring either keeps both cases while still putting
+    a whole line's leading between a word and its neighbour's midline.
+    """
+    word_middle = (word[1] + word[3]) / 2
+    box_middle = (box[1] + box[3]) / 2
+    return box[1] <= word_middle <= box[3] or word[1] <= box_middle <= word[3]
+
+
 def _is_word_char(ch: str) -> bool:
     """Does ``ch`` carry word content, as opposed to being punctuation wrapped around it?"""
     return ch.isalnum() or ch == "_"
@@ -66,10 +91,14 @@ class PageText:
         return [entry for entry in lines if entry[0] < box[3] and box[1] < entry[1]]
 
     def struck(self, box: tuple) -> list:
-        """The page words ``box`` overlaps, as ``(index, word)`` in document order (what a full
-        scan of ``words`` would return)."""
+        """The page words ``box`` covers, as ``(index, word)`` in document order.
+
+        Overlap alone is not the test — see :func:`shares_line`. A word from the neighbouring line
+        can intersect the box on a tightly-leaded page, and counting it here is what made
+        whole-word search drop four of five matches on a dense form (M96 / TC-004).
+        """
         found = [(i, w) for _ly0, _ly1, ws in self._band(self._lines, box)
-                 for i, w in ws if boxes_touch(w[:4], box)]
+                 for i, w in ws if boxes_touch(w[:4], box) and shares_line(w[:4], box)]
         found.sort(key=lambda t: t[0])
         return found
 

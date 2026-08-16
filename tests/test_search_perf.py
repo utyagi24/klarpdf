@@ -24,7 +24,7 @@ import pymupdf as fitz
 import pytest
 
 from app import PdfApp
-from model.page_text import PageText, boxes_touch
+from model.page_text import PageText, boxes_touch, shares_line
 from store.settings import Settings
 from viewer import search as search_mod
 
@@ -165,7 +165,10 @@ def test_page_index_agrees_with_a_full_scan(dense_pdf):
     text = PageText(page)
     for r in page.search_for("nan"):                   # sub-word hits, one per "banana"
         box = (r.x0, r.y0, r.x1, r.y1)
-        naive = [w for w in words if boxes_touch(w[:4], box)]
+        # The naive reference has to apply the same predicate the index does, or this stops
+        # testing the optimisation and starts testing the rule — which is what it looked like it
+        # was doing while `shares_line` was missing from both sides (M96).
+        naive = [w for w in words if boxes_touch(w[:4], box) and shares_line(w[:4], box)]
         assert [w for _i, w in text.struck(box)] == naive
         assert text.snippet(box) == search_mod._snippet_for(words, box)
         assert text.is_whole_word(box) == search_mod.is_whole_word(words, box)
