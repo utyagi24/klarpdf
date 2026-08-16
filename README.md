@@ -159,8 +159,10 @@ bookmarks that landed in it.
 **"Remove the bank details before this goes out."**
 `search "Sort Code"` first — read the snippets, confirm the eleventh hit is a heading and not a
 number — then `redact_text` for the ones that matter. The reply says which engines verified the
-removal. Preview before you delete: with `whole_words` off, "Smith" also matches inside
-"Smithsonian".
+removal, names anything that still matches the query literally, and tells you when a match was
+**invisible** on the page — white-on-white text is live to copy-paste and absent from every render,
+so it is where a machine-generated document hides identifiers. Preview before you delete: with
+`whole_words` off, "Smith" also matches inside "Smithsonian".
 
 **"Fill this form and lock it."**
 `get_form_fields` (names, types, choices, current values) → `fill_form` → `flatten`. Two files, the

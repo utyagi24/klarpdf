@@ -196,6 +196,14 @@ def search(
     Unlike the viewer, hits inside the app's own overlay text boxes and form widgets are **not**
     excluded — a freshly opened document has no pending overlays, and an agent searching a file
     wants what the file says.
+
+    Each hit carries ``invisible`` (M95): the text is in the file but is not drawn on the page —
+    white on white, transparent, or painted over. It is reported because a caller has no other way
+    to find out. ``search`` looks identical for visible and invisible text, ``render_page`` shows
+    nothing there, and a human comparing renders before and after a redaction sees a clean result
+    either way — which is how TC-003's bill kept its account number through a redaction that
+    everything reported as successful. See :meth:`~model.page_text.PageText.is_invisible` for what
+    the flag can and cannot see.
     """
     terms = [query] if whole_words else query.split()
     hits: list[dict] = []
@@ -228,6 +236,7 @@ def search(
                         "page": index0 + 1,
                         "snippet": text.snippet_for(boxes),
                         "boxes": [[round(v, 2) for v in box] for box in boxes],
+                        "invisible": any(text.is_invisible(box) for box in boxes),
                     }
                 )
     return hits

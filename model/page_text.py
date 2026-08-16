@@ -31,6 +31,30 @@ import pymupdf as fitz
 
 _SNIPPET_WORDS = 4   # context words kept either side of a match in a snippet
 
+# ---- invisible text (M95) ----------------------------------------------------
+#
+# White-on-white text is the classic redaction hazard: live to `get_text`, copy-paste and every
+# downstream indexer, and absent from the render a human signs off on. A machine-generated bill
+# found in TC-003 carried its account number twice that way, in 10 pt Arial at the extreme margins.
+#
+# **Colour alone cannot answer this, and the measurement is what says so.** That same page has 21
+# white spans; 19 of them are ordinary table headers — "Customer Name", "Bill Date" — painted on
+# dark banners and perfectly legible. A "white means invisible" rule would have flagged all 21, and
+# a flag that fires on every table header of every bill is one a reader learns to ignore, which is
+# worse than no flag on the two that matter.
+#
+# So colour is only a **pre-filter**, and the answer comes from rendering the box and asking whether
+# anything was actually drawn there. Measured on that page: contrast 1 for the two invisible tags,
+# 163-215 for all 19 legible headers. The gap is not close, which is what makes the threshold safe.
+_LIGHT_LUMINANCE = 200    # a span this pale is only legible on a dark ground — worth rendering
+_TRANSPARENT_ALPHA = 8    # …as is one that is barely painted at all
+_INVISIBLE_CONTRAST = 12  # rendered luminance spread below this: nothing was drawn
+
+
+def _luminance(color: int) -> float:
+    """Perceived brightness of a packed ``0xRRGGBB``, 0 (black) to 255 (white)."""
+    return ((color >> 16 & 0xFF) * 299 + (color >> 8 & 0xFF) * 587 + (color & 0xFF) * 114) / 1000
+
 
 def boxes_touch(a: tuple, b: tuple) -> bool:
     return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
@@ -58,6 +82,7 @@ class PageText:
         self._lines = [(min(w[1] for _, w in ws), max(w[3] for _, w in ws), ws)
                        for ws in self._by_key.values()]
         self._chars: list | None = None
+        self._spans: list | None = None
 
     @staticmethod
     def _band(lines: list, box: tuple) -> list:
@@ -124,6 +149,74 @@ class PageText:
         centres = [((c[0] + c[2]) / 2, c[4]) for c in chars]
         overhang = [ch for cx, ch in centres if (cx > edge if right else cx < edge)]
         return not any(_is_word_char(ch) for ch in overhang)
+
+    def is_invisible(self, box: tuple) -> bool:
+        """Is the text under ``box`` present in the file but absent from the page as drawn?
+
+        The question a redaction caller cannot otherwise ask. White-on-white text reads back from
+        ``get_text`` and from any indexer, and shows up in neither ``render_page`` nor the eye of
+        the person approving the redaction — so it is exactly where sensitive values hide, and
+        TC-003 found an account number sitting there twice.
+
+        **Rendered, not inferred**, for the reason recorded at :data:`_LIGHT_LUMINANCE`: on the page
+        that prompted this, 19 of 21 white spans were legible headers on dark banners. Colour picks
+        the candidates cheaply; the pixels decide. A box whose rendered clip has essentially no
+        luminance spread had nothing drawn in it.
+
+        Catching more than it was built for, and none of it by accident: text painted in the
+        background colour whatever that colour is, text with zero alpha, and text covered by an
+        opaque image drawn over it all render to the same flat patch. What it does **not** catch is
+        dark text on an equally dark ground — the pre-filter is for pale text, because a page's
+        ground is nearly always the pale one. ``False`` therefore means "not invisible in the way
+        this can see", which is why it reads as a flag and never as a guarantee.
+
+        Always ``False`` for a words-only :class:`PageText`: there is no page to render.
+        """
+        if self._page is None:
+            return False
+        spans = self._spans_under(box)
+        if not spans:
+            return False
+        if not any(_luminance(color) >= _LIGHT_LUMINANCE or alpha <= _TRANSPARENT_ALPHA
+                   for _bbox, color, alpha in spans):
+            return False        # ordinary ink on an ordinary ground; no render needed
+        return self._rendered_contrast(box) < _INVISIBLE_CONTRAST
+
+    def _rendered_contrast(self, box: tuple) -> float:
+        """Spread between the lightest and darkest pixel of ``box`` as the page actually draws it.
+
+        Rendered at 72 dpi — the glyphs only have to disturb the ground, not be readable, and a
+        pale-text page costs one small pixmap per candidate box (measured: ~3 ms).
+        """
+        try:
+            pixmap = self._page.get_pixmap(clip=fitz.Rect(*box), alpha=False)
+        except Exception:  # noqa: BLE001 — an unrenderable box is not a claim that it is invisible
+            return float("inf")
+        if not pixmap.width or not pixmap.height:
+            return float("inf")
+        samples, stride = pixmap.samples, pixmap.n
+        levels = [
+            (samples[i] * 299 + samples[i + 1] * 587 + samples[i + 2] * 114) / 1000
+            for i in range(0, len(samples) - stride + 1, stride)
+        ]
+        return max(levels) - min(levels) if levels else float("inf")
+
+    def _spans_under(self, box: tuple) -> list:
+        """``(bbox, colour, alpha)`` for the spans ``box`` touches. Lazy, and a cheaper extraction
+        than the character index: only the span's paint is wanted, not its glyphs."""
+        if self._spans is None:
+            self._spans = []
+            if self._page is not None:
+                raw = self._page.get_text("dict", flags=fitz.TEXTFLAGS_TEXT)
+                for block in raw.get("blocks", []):
+                    for line in block.get("lines", []):
+                        entries = [(span["bbox"], span.get("color", 0), span.get("alpha", 255))
+                                   for span in line.get("spans", [])]
+                        if entries:
+                            self._spans.append((min(e[0][1] for e in entries),
+                                                max(e[0][3] for e in entries), entries))
+        return [entry for _ly0, _ly1, entries in self._band(self._spans, box)
+                for entry in entries if boxes_touch(entry[0], box)]
 
     def matches_case(self, box: tuple, term: str) -> bool:
         """Does the text under ``box`` match ``term`` case-sensitively?

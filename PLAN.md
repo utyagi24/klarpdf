@@ -1272,6 +1272,73 @@ server Windows-only; and the `.mcpb` must use `server.type = "uv"`, because MCPB
 vendor compiled dependencies and we have two (PyMuPDF, pydantic) — which in turn makes the bundle an
 **online-installing** path, the one deliberate break from the app's vendored-offline discipline.
 
+### M95 *(unplanned)* — a verification that can fail (TC-003, owner-reported 2026-08-15)
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M95** The redaction safety net stops sharing the matcher's blind spot; invisible text is reported | `_literal_residuals` scans the written output for the query as a plain substring — no boundary rule, nothing borrowed — and reports `residual_literal` + `warnings`; `PageText.is_invisible` render-confirms text that is in the file but not on the page; `whole_words` documented as whole **token** | WSL | The TC-003 call that leaked now names both survivors; Smith/Smithsonian still succeeds; a deliberately broken matcher fails verification instead of passing it; a white-on-dark header is not flagged |
+
+**The defect.** TC-003 redacted an account number out of a utility bill with `whole_words: true` —
+the documented, natural choice for a single token — and got `matches: 2`, `residual_matches: 0`,
+`cross_engine_verified: true`, over a file that still contained the account number **twice**. It
+survived inside `<AccountNumber:220885-1063303>`, a machine-readable tag with no spaces in it.
+Reproduced here through the real code path before anything was changed.
+
+**Why the existing check did not catch it, which is not where the report looked.** The report
+diagnosed the verification as "circular — it re-runs the same query through the same matcher". That
+is true of pass 1 and misses what is actually there: `_no_residual_match` already ran a *second*
+pass, `_residual_in_text`, over both engines' extracted text through an entirely separate code path,
+written precisely against this criticism and carrying a docstring that said so — *"A textual scan
+owes the matcher nothing."*
+
+**That sentence was false, and it is the whole defect.** The textual pass calls `_word_bounded`,
+which is documented as *"deliberately the same rule"* as `PageText.is_whole_word` — on the reasoning
+that *"two checks that disagreed about what 'whole word' means would be worse than one."* For
+deciding **what to redact** that reasoning is right. For a **safety net** it is exactly inverted: a
+check that agrees with the thing it is checking cannot fail when that thing is wrong. So the second
+engine, the second extraction and the second code path all faithfully reproduced the first pass's
+blind spot, and the tool pronounced the file clean twice.
+
+The fix is therefore small and specific rather than a rebuild: a third pass that owes the matcher
+nothing **and can be held to it** — the query as a literal substring, no `whole_words`, no term
+splitting.
+
+**It warns; it never deletes.** A literal scan cannot be a leak test, because redacting whole-word
+`Smith` correctly leaves `Smithsonian`, which literally contains the query —
+`test_a_legitimate_survivor_is_not_mistaken_for_a_leak` pins that, and wiring the literal scan to
+the delete would destroy correct output. So it reports the **surrounding token**, which is what
+separates the two cases at a glance without the tool having to judge: `'Smithsonian'` reads as
+obviously fine, `'<AccountNumber:220885-1063303>'` reads as obviously not. A check that cannot be
+trusted to fail must not be wired to a delete; a check that cannot fail at all is decoration.
+
+**Invisible ink, and why colour cannot answer it.** The two surviving occurrences were 10 pt white
+text on white ground at the extreme margins — live to `get_text`, copy-paste and any indexer, absent
+from every render. The report proposed flagging a hit whose "fill colour equals the background".
+**Measured, that rule fires 21 times on this page and is right twice**: 19 of the white spans are
+ordinary table headers — *Customer Name*, *Bill Date* — painted on dark banners and perfectly
+legible. A flag that fires on every table header of every bill is one a reader learns to ignore,
+which leaves the two that matter worse off than before.
+
+So colour is a **pre-filter** and the pixels decide: render the box and ask whether anything was
+drawn in it. Measured separation on that page — contrast **1** for the two invisible tags, **163–215**
+for all 19 legible headers. It also catches, without special-casing any of them, zero-alpha text and
+text painted over by an opaque image. What it cannot see is dark text on an equally dark ground,
+because the pre-filter is for pale text; `False` therefore means "not invisible in the way this can
+see", and it is a flag, never a guarantee (§Honesty principle).
+
+Cost, measured on the 320-page `spaceX_prospectus.pdf`: **+7–12%** on `search` — one extra
+`get_text("dict")` per page that has a hit (2.15 ms/page, cheaper than the `words` extraction
+`PageText` already does), and a small pixmap only for pale candidates. The pathological one-letter
+query goes 4.60 s → 5.04 s.
+
+**`whole_words: true` means whole *token*, and the docs now say so.** The behaviour is deliberate —
+M64 treats `ALPHA-zero-A0` as one word and the find bar is tested on it — and was documented in
+`model/page_text.py` while the tool docs said only "matched whole", then steered the caller toward
+that mode for "one phrase". Facing an account number, a careful reader picks `true` and silently
+loses half the occurrences. The tool docs now state the limitation and name the shape it bites on
+(`<tag:VALUE>`, filenames, URLs, `key:value`), and point single-token queries at `whole_words: false`,
+which cannot over-match a query with no second word in it.
+
 ## GUI feature roadmap — the post-v0.10 tranche R1–R6 (planned; M45–M79)
 
 Owner-decided 2026-07-18 after a feature-exploration session (23 features approved, radio-button
