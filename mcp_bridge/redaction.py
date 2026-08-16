@@ -190,12 +190,55 @@ def _word_bounded(haystack: str, needle: str, start: int) -> bool:
     return not any(ch.isalnum() or ch == "_" for ch in outside)
 
 
+def _literal_residuals(text: str, query: str, *, match_case: bool) -> list[str]:
+    """The whitespace-delimited tokens of ``text`` that still contain ``query`` **literally**.
+
+    The check that owes the matcher nothing — no term splitting, no boundary rule, no
+    ``whole_words``. It exists because :func:`_residual_in_text`, the pass written to be
+    independent of the matcher, is not: it shares :func:`_word_bounded`, and a shared predicate
+    means a shared blind spot. TC-003 is the proof. Redacting ``220885-1063303`` with
+    ``whole_words: true`` cleared the two plain occurrences and left the two inside
+    ``<AccountNumber:220885-1063303>``, which neither the matcher nor its "independent" verifier
+    could see — so the tool reported ``residual_matches: 0``, ``cross_engine_verified: true``, and
+    handed back a file with the account number still in it.
+
+    **Reported, never fatal**, and that is not timidity — a literal scan cannot be a leak test.
+    Redacting whole-word ``Smith`` out of ``Smith and Smithsonian`` correctly leaves
+    ``Smithsonian``, which literally contains the query;
+    ``test_a_legitimate_survivor_is_not_mistaken_for_a_leak`` pins that, and failing here would
+    delete a perfectly good output. So the tokens come back instead of a count, and the token is
+    what tells the two apart at a glance: ``Smithsonian`` reads as obviously fine and
+    ``<AccountNumber:220885-1063303>`` reads as obviously not.
+    """
+    needle = " ".join(query.split())
+    if not needle:
+        return []
+    tokens = " ".join(text.split()).split(" ")
+    if not match_case:
+        needle = needle.casefold()
+    found: list[str] = []
+    # A query with spaces spans tokens, so the window has to be as wide as the query is.
+    width = len(needle.split())
+    for start in range(len(tokens)):
+        window = " ".join(tokens[start:start + width])
+        if needle in (window if match_case else window.casefold()) and window not in found:
+            found.append(window)
+    return found
+
+
 def _residual_in_text(text: str, query: str, *, match_case: bool, whole_words: bool) -> int:
     """How many times ``query`` still matches in ``text``, by the tool's own search semantics.
 
     Whitespace is flattened first, which is what lets this see a phrase the page broke across a
     line — the exact shape that survived redaction in TC-001, and one a naive substring scan of
     extracted text misses entirely.
+
+    **This shares the matcher's whole-word rule on purpose and is therefore not the independent
+    check it was once described as** (the docstring below used to claim it "owes the matcher
+    nothing"; it owes it :func:`_word_bounded`). Keeping the two in step is right for deciding
+    *what to redact* — two matchers disagreeing about what a word is would be worse than one — and
+    wrong for a safety net, which is only worth having if it can fail when the matcher does. That
+    is :func:`_literal_residuals`.
     """
     flat = " ".join(text.split())
     terms = [query] if whole_words else query.split()
@@ -219,26 +262,32 @@ def _no_residual_match(
     whole_words: bool,
     scope: set[int],
     password: str | None,
-) -> int:
+) -> dict:
     """Confirm ``query`` no longer matches the written output anywhere in scope.
 
-    Two passes, because they fail for different reasons and only both together are worth much:
+    Three passes, because they fail for different reasons and only together are they worth much:
 
     1. **Re-run the tool's own search.** This makes the contract checkable by the caller in the
        obvious way — `search` on the returned path comes back empty. It catches a *coverage* gap:
        the matcher saw an occurrence and the redaction did not clear it (a wrapped phrase where
        only one fragment was boxed is exactly this).
-    2. **Scan each engine's extracted text directly**, with :func:`_residual_in_text`. This is the
-       one that matters, because pass 1 shares a matcher with the redaction and therefore shares
-       its blind spots — a matcher that cannot see an occurrence cannot see it on the way out
-       either, and would report a clean file twice. TC-001 was precisely that: the phrase was
-       invisible to the matcher at both ends. A textual scan owes the matcher nothing, and when
-       Poppler is installed it does not even share the extractor.
+    2. **Scan each engine's extracted text**, with :func:`_residual_in_text`. It catches what pass 1
+       cannot see for having consumed the same search machinery, and with Poppler installed it does
+       not even share the extractor. TC-001 was this shape: a phrase invisible to the matcher at
+       both ends.
+    3. **Scan the same text literally**, with :func:`_literal_residuals` — no boundary rule, nothing
+       borrowed from the matcher. Passes 1 and 2 both honour ``whole_words``, so a query the
+       *matcher* cannot see is a query neither of them can see either, and the file is pronounced
+       clean twice over. That is TC-003, and it is why this pass exists.
+
+    Passes 1 and 2 **fail** the call and delete the output. Pass 3 **warns**: a literal hit is not
+    proof of a leak (redacting whole-word ``Smith`` legitimately leaves ``Smithsonian``), so it
+    reports the surrounding token and lets the caller judge. The distinction is the whole design —
+    a check that cannot be trusted to fail must not be wired to a delete, and a check that cannot
+    fail at all is decoration.
 
     Scoped to the pages the call was asked to redact — an occurrence on page 7 of a ``pages=[2]``
     request is out of scope, not a leak, and failing on it would make the page filter unusable.
-
-    Returns the verified residual count (always 0) so the caller can report the number it checked.
     """
     leaks = [hit for hit in search(out, query, match_case=match_case,
                                    whole_words=whole_words, password=password)
@@ -270,7 +319,29 @@ def _no_residual_match(
                 "cannot see an occurrence it failed to redact, which is why this check does not "
                 "use it. The output has been deleted."
             )
-    return 0
+
+    survivors: list[str] = []
+    for _engine, _page1, text in extracted:
+        for token in _literal_residuals(text, query, match_case=match_case):
+            if token not in survivors:
+                survivors.append(token)
+    report: dict = {"residual_matches": 0, "residual_literal": len(survivors)}
+    if survivors:
+        shown = ", ".join(repr(token) for token in survivors[:5])
+        more = f" (+{len(survivors) - 5} more)" if len(survivors) > 5 else ""
+        report["warnings"] = [
+            f"{query!r} still appears literally in {len(survivors)} place(s) that "
+            f"`whole_words: {str(whole_words).lower()}` does not match: {shown}{more}. "
+            + (
+                "Each is inside a longer unbroken run of characters — a machine-readable tag, an "
+                "identifier, a filename — which whole-word matching treats as a different word. If "
+                "any of those is the value you meant to remove, re-run with `whole_words: false`."
+                if whole_words
+                else "This is expected when the query is a substring of a longer word that was "
+                "meant to survive. Check each one before sending the file on."
+            )
+        ]
+    return report
 
 
 def _tokens_under(page: fitz.Page, boxes: list[tuple]) -> list[str]:
@@ -330,33 +401,54 @@ def _finish(
     """Write, verify, and delete the output if any check fails.
 
     ``residual`` is the optional document-level check (:func:`_no_residual_match`), passed by
-    ``redact_text`` because only a query-driven redaction has a query to re-run. It runs inside the
-    same ``try`` as :func:`_verify` so both failures take the one delete-and-raise path — the
-    "never leave a false-secure file behind" invariant is not a thing to reimplement per caller.
+    ``redact_text`` because only a query-driven redaction has a query to re-run. It returns the
+    fields it verified (and any ``warnings``), and runs inside the same ``try`` as :func:`_verify`
+    so both failures take the one delete-and-raise path — the "never leave a false-secure file
+    behind" invariant is not a thing to reimplement per caller.
     """
     _write(vdoc, target)
     try:
         report = _verify(target, expectations, password)
         if residual is not None:
-            report["residual_matches"] = residual(target)
+            report = _merged(report, residual(target))
     except RedactionLeak:
         if os.path.exists(target):
             os.remove(target)  # never leave a false-secure file behind
         raise
-    return {
-        "out": target,
-        "pages": vdoc.page_count,
-        "bytes": os.path.getsize(target),
-        "source": os.path.abspath(source),
-        "source_unchanged": True,
-        "verified_text": {
-            str(page1): sorted(expected["boxes"])
-            for page1, expected in expectations.items()
-            if expected["boxes"]
+    return _merged(
+        {
+            "out": target,
+            "pages": vdoc.page_count,
+            "bytes": os.path.getsize(target),
+            "source": os.path.abspath(source),
+            "source_unchanged": True,
+            "verified_text": {
+                str(page1): sorted(expected["boxes"])
+                for page1, expected in expectations.items()
+                if expected["boxes"]
+            },
         },
-        **report,
-        **extra,
-    }
+        report,
+        extra,
+    )
+
+
+def _merged(*parts: dict) -> dict:
+    """Combine result fragments, **concatenating** ``warnings`` instead of overwriting it.
+
+    Two independent checks now emit warnings — the literal residual scan and the invisible-text
+    report — and a plain ``{**a, **b}`` would keep whichever ran last and drop the other without a
+    word. On a tool whose job is to tell the caller what they cannot see for themselves, a silently
+    discarded warning is the same class of defect as the one this milestone exists to fix.
+    """
+    out: dict = {}
+    for part in parts:
+        for key, value in part.items():
+            if key == "warnings" and key in out:
+                out[key] = out[key] + value
+            else:
+                out[key] = value
+    return out
 
 
 def redact_regions(
@@ -446,6 +538,7 @@ def redact_text(
     with open_document(path, password) as vdoc:
         scope = resolve_pages(vdoc, pages)
         per_page: dict[int, list[tuple]] = {}
+        invisible: dict[int, list[str]] = {}
         matches = 0
         for index0 in scope:
             ref = vdoc.ordered[index0]
@@ -456,6 +549,7 @@ def redact_text(
                 continue
             text = PageText(page)
             seen: set = set()
+            page_invisible = invisible.setdefault(index0 + 1, [])
             for term, term_boxes in per_term:
                 # Grouped, so a match wrapping a line break is one occurrence — and **every** box
                 # it occupies is redacted. Clearing only the first is what left the tail of the
@@ -471,6 +565,8 @@ def redact_text(
                         continue
                     per_page.setdefault(index0, []).extend(boxes)
                     matches += 1
+                    if any(text.is_invisible(box) for box in boxes):
+                        page_invisible.append(text.snippet_for(boxes))
         if not per_page:
             raise ValueError(
                 f"{query!r} was not found — nothing was redacted and no file was written "
@@ -495,4 +591,38 @@ def redact_text(
             matches=matches,
             boxes_redacted=sum(len(boxes) for boxes in per_page.values()),
             pages_redacted=sorted(expectations),
+            **_invisible_report(invisible),
         )
+
+
+def _invisible_report(invisible: dict[int, list[str]]) -> dict:
+    """Report the occurrences that were removed but were never *visible* on the page.
+
+    Good news that has to be said out loud, because it is unverifiable by the caller any other way.
+    These were redacted — they are gone — but nobody looking at the document before or after could
+    have known they were there: they do not appear in a render, and a human approving the change by
+    comparing renders sees no difference. Saying so is what turns "the render looks right" from the
+    caller's evidence into what it actually is (TC-003 ISSUE 2).
+
+    It is also the tell for a document that hides data elsewhere. A bill that stamps its account
+    number into white-on-white tags very likely stamps other things there too, and the caller has
+    just learned that eyeballing the page is not enough for this file.
+    """
+    found = {page1: snippets for page1, snippets in invisible.items() if snippets}
+    if not found:
+        return {}
+    total = sum(len(snippets) for snippets in found.values())
+    shown = "; ".join(
+        f"page {page1}: {snippets[0][:70]!r}" for page1, snippets in sorted(found.items())
+    )
+    return {
+        "invisible_matches": total,
+        "warnings": [
+            f"{total} of the redacted occurrence(s) were **invisible** on the page — white-on-"
+            f"white, transparent, or painted over — and are gone now ({shown}). They never showed "
+            "in a render, so comparing the page before and after would not have revealed them, and "
+            "nothing outside this tool would have told the reader they existed. Machine-readable "
+            "tags like these often carry more than one identifier: consider `extract_text` on the "
+            "output to see what else is in the text layer but not on the page."
+        ],
+    }

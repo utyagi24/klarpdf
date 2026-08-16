@@ -103,7 +103,7 @@ error, never a silent clamp.
 |---|---|
 | `get_info` | Pages, size, page sizes, encryption + permissions, **has-text-layer**, outline. Call it first. |
 | `get_outline` | Bookmarks as `{level, title, page}`. |
-| `search` | Hits with page, snippet and box. `match_case`, `whole_words`. |
+| `search` | Hits with page, snippet, box, and whether the text is `invisible` on the page. `match_case`, `whole_words`. |
 | `extract_text` | Text of named pages. |
 | `render_page` | One page as a PNG image block. |
 | `get_form_fields` | Fillable fields, one entry per occurrence, with each one's checkbox on-state and read-only / required / multiline / max-length. |
@@ -158,3 +158,24 @@ install `poppler-utils` for the stronger check.
 Preview with `search` before `redact_text`. Matching is the app's find-bar behaviour, so with
 `whole_words` off a search for "Smith" also matches inside "Smithsonian" — and this tool deletes
 what it finds.
+
+**`whole_words: true` means whole *token*, and for a single-token query that is usually the wrong
+choice.** A "word" is a run of characters between spaces, so `220885-1063303` with `whole_words` on
+does not match `<AccountNumber:220885-1063303>` — the entire tag is one word. Machine-readable tags,
+filenames, URLs and `key:value` pairs all have that shape, and a bill that stamps its account number
+into such a tag will keep it through a redaction that looks like it worked. For a query with no
+spaces, `whole_words: false` is both safe (there is no second word to over-match) and the mode that
+finds the value wherever it is embedded.
+
+That case is why the reply carries two fields worth reading rather than just a success:
+
+- **`residual_literal`** — places the query still appears *literally* that the `whole_words` setting
+  does not match, each named in `warnings`. Deliberately a warning and not a failure: redacting
+  whole-word "Smith" legitimately leaves "Smithsonian". The named token is what separates the two —
+  `'Smithsonian'` reads as fine, `'<AccountNumber:220885-1063303>'` does not. This check shares
+  nothing with the matcher, which is the point: the older verification did, so it could confirm the
+  matcher's own blind spots as clean.
+- **`invisible_matches`** — removals that were never *visible* on the page (white-on-white,
+  transparent, painted over). They are gone, but they tell you this document stores data where no
+  reader, and no before/after render comparison, would ever find it. `search` flags the same thing
+  per hit as `invisible`.

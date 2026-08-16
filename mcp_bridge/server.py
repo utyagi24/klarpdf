@@ -190,6 +190,19 @@ def create_server(config: Config | None = None) -> MCPServer:
         matches, including inside longer words. With it on, the query is a single phrase and neither
         end may sit inside a longer word. `match_case` filters against the text under each hit.
 
+        **"Word" means a run of characters between spaces**, so `whole_words: true` will not find a
+        query buried inside a longer unbroken run: searching `220885-1063303` with it on misses
+        `<AccountNumber:220885-1063303>` entirely, because that whole tag is one word. Machine tags,
+        filenames, URLs and `key:value` pairs are all this shape. When a query is a single token
+        with no spaces — an account number, a reference, an ID — `whole_words: false` is usually the
+        right choice and cannot over-match, since a one-word query makes the two modes differ only
+        in the boundary rule.
+
+        Each hit also carries `invisible`. When true, the text is in the file but is not drawn on
+        the page — white-on-white, transparent, or painted over — so it will not appear in
+        `render_page` and the reader cannot see it. Tell the user: it is where sensitive values
+        hide, and it is invisible to every check they could run themselves.
+
         `boxes` is normally a single rectangle. A phrase that wraps a line break occupies one on
         **each** line, the way a find bar highlights a wrapped match, and all of them come back
         under the one hit — so `count` counts occurrences, not fragments. Redact every box of a
@@ -518,7 +531,23 @@ def create_server(config: Config | None = None) -> MCPServer:
           matches inside "Smithsonian"; "regular expression" removes every "regular" and every
           "expression" separately, wherever they appear.
 
+        **A "word" ends at a space, so `whole_words: true` cannot see a value embedded in a longer
+        unbroken run** — `220885-1063303` inside `<AccountNumber:220885-1063303>` is not a match,
+        because the whole tag is one word. For a single token with no spaces (an account number, a
+        reference, an ID) prefer `whole_words: false`: it cannot over-match a one-word query, and it
+        is the mode that finds the value wherever it is embedded.
+
         Fails rather than writing an untouched copy when nothing matches.
+
+        Read the reply, do not just check that it succeeded:
+
+        * `residual_literal` counts places the query still appears **literally** that the
+          `whole_words` setting does not match, with each one named in `warnings`. It is not
+          automatically a leak — redacting whole-word "Smith" leaves "Smithsonian" and says so — but
+          if a named survivor is the value you meant to remove, re-run with `whole_words: false`.
+          This is the check that catches the matcher being wrong, so it is the one worth reading.
+        * `invisible_matches` counts removals that were never visible on the page. They are gone,
+          but their presence means this document hides data where a reader cannot see it.
 
         The guarantee covers the **text layer**. Text that is part of a scanned image has no text to
         verify; `verified_text` will be empty and `cross_engine_verified` tells you whether the

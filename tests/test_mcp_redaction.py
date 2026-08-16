@@ -490,3 +490,178 @@ def test_a_region_cannot_carry_both_box_and_boxes(secret_pdf, out):
     with pytest.raises(ValueError, match="not both"):
         redaction.redact_regions(secret_pdf, [{"page": 1, "box": box, "boxes": [box]}], out)
     assert not os.path.exists(out)
+
+
+# ---- M95 / TC-003: the checks that can fail when the matcher is wrong ----------------
+#
+# The fixture is the shape TC-003 found in a real utility bill: the value appears twice as ordinary
+# visible text and twice more inside a machine-readable tag, in white-on-white 10 pt at the page
+# margins. Both properties matter and neither is decoration — the tag is what `whole_words: true`
+# cannot see, and the white ink is what a human approving the redaction cannot see.
+
+TAGGED = "220885-1063303"
+
+
+@pytest.fixture
+def tagged_pdf(tmp_path) -> str:
+    path = str(tmp_path / "tagged.pdf")
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 100), TAGGED, fontsize=12)                       # plain, visible
+    page.insert_text((72, 200), f"Account {TAGGED} due", fontsize=12)      # plain, visible
+    for y, tag in ((16, f"<AccountNumber:{TAGGED}>"), (760, f"</AccountNumber:{TAGGED}>")):
+        page.insert_text((72, y), tag, fontsize=10, color=(1, 1, 1))       # white on white
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def test_the_fixture_reproduces_the_shape_the_report_found(tagged_pdf):
+    """Guard the fixture itself: if these two counts ever agree, the tests below prove nothing."""
+    assert len(queries.search(tagged_pdf, TAGGED, whole_words=True)) == 2
+    assert len(queries.search(tagged_pdf, TAGGED, whole_words=False)) == 4
+
+
+def test_a_value_hidden_inside_a_tag_is_reported_not_silently_left(tagged_pdf, out):
+    """TC-003 ISSUE 1 — the defect this milestone exists for.
+
+    `whole_words: true` is the documented, natural choice for an account number, and it matches
+    only the two plain occurrences: a "word" ends at a space, so the whole `<AccountNumber:…>` tag
+    is one word and the value inside it is not a match. That much is by design. What was not is
+    that the verification then agreed — it re-checked with the same whole-word rule, found nothing,
+    and reported `residual_matches: 0` with two engines behind it, over a file that still contained
+    the account number twice.
+    """
+    result = redaction.redact_text(tagged_pdf, TAGGED, out, whole_words=True)
+
+    assert result["matches"] == 2                  # the matcher still behaves as designed…
+    assert result["residual_matches"] == 0         # …and the strict re-check still agrees…
+    assert result["residual_literal"] == 2         # …but the literal scan does not, and says so.
+
+    warning = "\n".join(result["warnings"])
+    assert f"<AccountNumber:{TAGGED}>" in warning  # named, so the caller can judge it
+    assert "whole_words: false" in warning         # and told what to do about it
+
+
+def test_the_literal_scan_warns_rather_than_destroying_a_good_output(tmp_path, out):
+    """It must never be wired to the delete. Redacting whole-word "Smith" correctly leaves
+    "Smithsonian", which literally contains the query — failing on that would throw away a correct
+    result, which is why this reports a token instead of a verdict."""
+    path = str(tmp_path / "smith.pdf")
+    doc = fitz.open()
+    doc.new_page().insert_text((72, 100), "Smith and Smithsonian", fontsize=12)
+    doc.save(path)
+    doc.close()
+
+    result = redaction.redact_text(path, "Smith", out, whole_words=True)
+    assert os.path.exists(result["out"])           # not deleted
+    assert result["residual_literal"] == 1
+    assert "'Smithsonian'" in "\n".join(result["warnings"])   # the token is what makes it benign
+
+
+def test_the_loose_mode_removes_the_tagged_value_and_reports_nothing_left(tagged_pdf, out):
+    """The correct call, and the one the report had to reach by distrusting the tool."""
+    result = redaction.redact_text(tagged_pdf, TAGGED, out, whole_words=False)
+    assert result["matches"] == 4
+    assert result["residual_literal"] == 0
+    assert TAGGED not in _text(out, 0)
+
+
+def test_a_matcher_that_cannot_see_an_occurrence_no_longer_passes_verification(
+    tagged_pdf, out, monkeypatch
+):
+    """The invariant TC-003 asked for by name: *"assert that the post-write check is not the same
+    code path as the matcher — a deliberately-broken matcher should fail the verification, not pass
+    it."*
+
+    So break the matcher outright — make every box look like part of a longer word, which is what
+    the tag did on the real document — and require the report to disagree with it. Before M95 both
+    checks consulted the same rule and this came back clean.
+    """
+    from model.page_text import PageText
+
+    monkeypatch.setattr(PageText, "is_whole_word", lambda self, box, tol=0.5: False)
+    with pytest.raises(ValueError, match="was not found"):
+        redaction.redact_text(tagged_pdf, TAGGED, out, whole_words=True)
+    assert not os.path.exists(out)
+
+    # And a matcher broken by *degree* rather than outright — it finds one occurrence and misses an
+    # identical one beside it — fails verification instead of certifying its own gap. This is the
+    # textual pass doing its job: it does not consult `is_whole_word` at all, so patching the
+    # matcher cannot patch the check.
+    first = queries.search(tagged_pdf, TAGGED, whole_words=False)[0]
+    boxes = {tuple(round(v, 1) for v in box) for box in first["boxes"]}
+    monkeypatch.setattr(
+        PageText, "is_whole_word",
+        lambda self, box, tol=0.5: tuple(round(v, 1) for v in box) in boxes,
+    )
+    with pytest.raises(RedactionLeak, match="still reads back"):
+        redaction.redact_text(tagged_pdf, TAGGED, out, whole_words=True)
+    assert not os.path.exists(out)          # and no false-secure file is left behind
+
+
+# ---- invisible text (TC-003 ISSUE 2) -------------------------------------------------
+
+
+def test_invisible_text_is_flagged_on_a_search_hit(tagged_pdf):
+    """A caller has no other way to learn this: the hit, the snippet and the box are identical to
+    visible text, and `render_page` shows nothing there."""
+    hits = queries.search(tagged_pdf, TAGGED, whole_words=False)
+    assert [hit["invisible"] for hit in hits] == [False, False, True, True]
+
+
+def test_visible_text_is_not_flagged_merely_for_being_white(tmp_path):
+    """The rule is "was anything drawn", not "is it white" — and that distinction is the whole
+    reason this renders instead of reading the colour. The bill this came from had 21 white spans,
+    19 of them ordinary table headers on dark banners; flagging those would have made the flag
+    worthless on the two that mattered."""
+    path = str(tmp_path / "banner.pdf")
+    doc = fitz.open()
+    page = doc.new_page()
+    page.draw_rect(fitz.Rect(60, 80, 300, 110), fill=(0, 0, 0))       # a dark banner…
+    page.insert_text((72, 100), "HEADERWORD", fontsize=12, color=(1, 1, 1))  # …with white text on it
+    doc.save(path)
+    doc.close()
+
+    hit = queries.search(path, "HEADERWORD")[0]
+    assert hit["invisible"] is False
+
+
+def test_redacting_invisible_text_says_so(tagged_pdf, out):
+    """It was removed — and the caller is told, because the render they would check it against
+    never showed it in the first place."""
+    result = redaction.redact_text(tagged_pdf, TAGGED, out, whole_words=False)
+    assert result["invisible_matches"] == 2
+    assert "invisible" in "\n".join(result["warnings"])
+
+
+def test_an_ordinary_redaction_carries_no_warnings(secret_pdf, out):
+    """The quiet case stays quiet, or the noisy one stops being read."""
+    result = redaction.redact_text(secret_pdf, SECRET, out)
+    assert result["residual_literal"] == 0
+    assert "warnings" not in result
+    assert result.get("invisible_matches", 0) == 0
+
+
+def test_both_warnings_survive_together(tmp_path, out):
+    """The two checks emit into the same key from different places, and a plain dict merge would
+    keep whichever ran last. A dropped warning is the defect this milestone is about.
+
+    Needs a document that triggers both at once: one invisible occurrence the matcher *does* reach
+    (so it is redacted and reported), and one inside a tag that it does not (so it survives and is
+    reported).
+    """
+    path = str(tmp_path / "both.pdf")
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 100), TAGGED, fontsize=12, color=(1, 1, 1))     # invisible, matchable
+    page.insert_text((72, 300), f"<Account:{TAGGED}>", fontsize=12)       # visible, unmatchable
+    doc.save(path)
+    doc.close()
+
+    result = redaction.redact_text(path, TAGGED, out, whole_words=True)
+    assert result["invisible_matches"] == 1
+    assert result["residual_literal"] == 1
+    assert len(result["warnings"]) == 2
+    assert any("invisible" in w for w in result["warnings"])
+    assert any("whole_words: false" in w for w in result["warnings"])

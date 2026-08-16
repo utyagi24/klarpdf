@@ -2258,6 +2258,52 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
       after one, so a field changed under a round-trip that changed nothing. Now `on_state` first,
       then the rest sorted. Verified against the retest's own before/after artifacts.
 
+- [x] **M95** *(unplanned)* **A redaction check that can fail when the matcher is wrong.** From the
+  third hands-on session (TC-003, 2026-08-15, report at
+  `/mnt/c/Users/umesh/Downloads/pdfs/klarpdf-tests/TC-003-redact_text-utility-bill-pii.md`):
+  redacting an account number out of a utility bill reported `matches: 2`, `residual_matches: 0`,
+  `cross_engine_verified: true` — over a file that still contained the account number **twice**.
+  Design in `PLAN.md` §M95 — *WSL*
+  - **The leak.** `220885-1063303` appears four times: twice as plain text and twice inside
+    `<AccountNumber:220885-1063303>`, a machine tag with no spaces in it. `whole_words: true` — the
+    documented, natural choice for a single token — matches only the two plain ones, because a
+    "word" ends at a space and the whole tag is one word. Reproduced through the real code path
+    before anything was changed.
+  - **The cause was not the missing check the report described; it was the check that was there.**
+    `_no_residual_match` already ran a second pass over both engines' extracted text through a
+    separate code path, with a docstring saying it *"owes the matcher nothing"*. It owed it
+    `_word_bounded` — written to be **deliberately the same rule** as the matcher's, on the
+    reasoning that two disagreeing definitions of "word" would be worse than one. Right for
+    choosing what to redact; exactly inverted for a safety net, which is only worth having if it
+    can fail when the matcher does. Two engines and two code paths faithfully reproduced one blind
+    spot.
+  - **The fix is a third pass that owes the matcher nothing and can be held to it** — the query as
+    a literal substring, no boundary rule, no term splitting. It reports `residual_literal` and
+    names each survivor in `warnings`; the TC-003 call now comes back with both tags named and
+    "re-run with `whole_words: false`".
+  - **It warns and never deletes**, deliberately: redacting whole-word `Smith` correctly leaves
+    `Smithsonian`, which literally contains the query, and failing on that would destroy a good
+    output (pinned by `test_a_legitimate_survivor_is_not_mistaken_for_a_leak`). The reported
+    **token** is what separates the two at a glance — `'Smithsonian'` reads as fine,
+    `'<AccountNumber:…>'` does not — so the tool surfaces the evidence rather than the verdict.
+  - **Invisible text is flagged, and colour alone could not have done it.** The two survivors were
+    10 pt white-on-white at the page margins — live to `get_text`, absent from every render, so a
+    human approving the redaction by comparing before/after sees nothing either way. The report
+    proposed matching the fill colour against the background; **measured, that fires 21 times on
+    this page and is right twice** — 19 of the white spans are ordinary table headers on dark
+    banners. So colour is only a pre-filter and the box is rendered to see whether anything was
+    drawn: contrast **1** for the two invisible tags against **163–215** for all 19 legible
+    headers. `search` hits carry `invisible`; `redact_text` reports `invisible_matches`.
+  - **`whole_words: true` means whole *token*, now stated.** The behaviour is deliberate (M64:
+    `ALPHA-zero-A0` is one word) and was documented in the code while the tool docs said only
+    "matched whole" and steered single tokens toward that mode. Corrected in `server.py` and
+    `mcp_bridge/README.md`, with the shapes it bites on named.
+  - **Cost**, measured on the 320-page `spaceX_prospectus.pdf`: `search` **+7–12%** — one extra
+    `get_text("dict")` per hit page, and a pixmap only for pale candidates. The pathological
+    one-letter query 4.60 s → 5.04 s.
+  - **Tests** are the report's four suggested fixtures, including the one it asked for by name:
+    *a deliberately broken matcher must fail verification, not pass it.*
+
 ## Public-Release Readiness — go open-source under AGPL-3.0 (planned)
 
 **The repo is public** as of **2026-07-17**, as an `AGPL-3.0-or-later` project — the flip (G8) is done.
