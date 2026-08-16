@@ -155,6 +155,14 @@ is removed along with the image, but there is no text to verify, so `verified_te
 and the result says so. `cross_engine_verified` tells you whether the second engine ran at all —
 install `poppler-utils` for the stronger check.
 
+**The two tools prove different things, and `redact_regions` proves the narrower one.** `redact_text`
+removes what you *named* and re-checks the whole document to prove it caught every occurrence.
+`redact_regions` removes what is *there* — you said where, so the boxes are the whole of the request,
+and the check confirms those boxes are empty, nothing wider. Read `verified_text` on a region
+redaction: it lists what actually came out, which is often more than you aimed at, since a rectangle
+over a name may take the address under it too. If you are removing **PII rather than blanking an
+area**, search those strings before sending the file on, or use `redact_text`.
+
 Preview with `search` before `redact_text`. Matching is the app's find-bar behaviour, so with
 `whole_words` off a search for "Smith" also matches inside "Smithsonian" — and this tool deletes
 what it finds.

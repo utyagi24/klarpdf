@@ -590,6 +590,12 @@ def create_server(config: Config | None = None) -> MCPServer:
         re-run its own query against the output to prove it covered every occurrence, while a
         region redaction has no query to re-run. You said *where*, so the boxes are the whole of
         the request — and the check confirms those boxes are empty, nothing wider.
+
+        So read `verified_text`: it lists what actually came out of the boxes, which is often more
+        than you aimed at — a rectangle over a name may take the address under it too. If you are
+        removing **PII rather than blanking an area**, search those strings before you send the
+        file on, or use `redact_text`, which proves it removed every occurrence rather than every
+        occurrence *here*.
         """
         return redaction.redact_regions(
             check(path), regions, check(out), password=password, overwrite=overwrite

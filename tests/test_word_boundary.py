@@ -212,3 +212,49 @@ def test_group_matches_never_drops_a_box(wrapped_pdf):
         # A term the boxes cannot possibly spell: every box must still come back, singly.
         groups = text.group_matches(boxes, "something else entirely")
         assert [b for g in groups for b in g] == boxes
+
+
+# ---- M97 / TC-005: a box covering two lines must not weld them together ----------------------
+
+
+@pytest.fixture
+def stacked_pdf(tmp_path) -> str:
+    """A mailing block — three stacked lines, the shape region redaction exists for."""
+    path = str(tmp_path / "stacked.pdf")
+    doc = fitz.open()
+    page = doc.new_page()
+    for row, line in enumerate(["UMESH TYAGI", "1703 PORCELLANO WAY", "DUBLIN, CA 94568"]):
+        page.insert_text((72, 100 + row * 14), line, fontsize=11)
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def test_text_under_separates_lines_instead_of_welding_them(stacked_pdf):
+    """TC-005. `"".join` over every character in a tall box ran the end of one line into the start
+    of the next, inventing `TYAGI1703` — a string in no document, and therefore one nothing could
+    ever find. Splitting on whitespace must give back the words that are really there."""
+    doc = fitz.open(stacked_pdf)
+    try:
+        text = PageText(doc[0])
+        words = doc[0].get_text("words")
+        top = min(w[1] for w in words)
+        two_lines = (70, top - 1, 200, min(w[3] for w in words if w[1] > top + 5) + 1)
+        under = text.text_under(two_lines)
+        assert "TYAGI1703" not in under
+        assert {"TYAGI", "1703"} <= set(under.split())
+    finally:
+        doc.close()
+
+
+def test_a_single_line_box_is_unchanged_by_the_separator(boundaries_pdf):
+    """The separator must not leak into the common case: a one-line box gains nothing, which is
+    what keeps `matches_case` and the hit-grouping working exactly as before."""
+    doc = fitz.open(boundaries_pdf)
+    try:
+        text = PageText(doc[0])
+        for rect in doc[0].search_for("expression"):
+            under = text.text_under((rect.x0, rect.y0, rect.x1, rect.y1))
+            assert "\n" not in under
+    finally:
+        doc.close()

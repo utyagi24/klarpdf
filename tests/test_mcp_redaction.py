@@ -665,3 +665,93 @@ def test_both_warnings_survive_together(tmp_path, out):
     assert len(result["warnings"]) == 2
     assert any("invisible" in w for w in result["warnings"])
     assert any("whole_words: false" in w for w in result["warnings"])
+
+
+# ---- M97 / TC-005: a region box spanning several text lines ----------------------------------
+
+
+@pytest.fixture
+def block_pdf(tmp_path) -> str:
+    """Three stacked lines — the "signature block, letterhead, table cell" case the tool's own
+    docs recommend region redaction for, and the one that always failed."""
+    path = str(tmp_path / "block.pdf")
+    doc = fitz.open()
+    page = doc.new_page()
+    for row, line in enumerate(["UMESH TYAGI", "1703 PORCELLANO WAY", "DUBLIN CA 94568"]):
+        page.insert_text((72, 100 + row * 14), line, fontsize=11)
+    page.insert_text((72, 300), "UMESH TYAGI appears again lower down", fontsize=11)
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def _line_boxes(path: str) -> list[list[float]]:
+    """One tight box per line of the block, top to bottom."""
+    with fitz.open(path) as doc:
+        words = [w for w in doc[0].get_text("words") if w[1] < 200]
+    rows: dict = {}
+    for w in words:
+        rows.setdefault(round(w[1], 1), []).append(w)
+    return [[min(w[0] for w in ws), min(w[1] for w in ws),
+             max(w[2] for w in ws), max(w[3] for w in ws)]
+            for _y, ws in sorted(rows.items())]
+
+
+@pytest.mark.parametrize("lines", [1, 2, 3])
+def test_a_region_box_covering_several_lines_succeeds(block_pdf, out, lines):
+    """TC-005, the whole of it. A single `box` over one line worked; the same box extended to touch
+    a second always failed and deleted its own correct output. The threshold was exactly one line,
+    because the verification derived its needle by concatenating the characters in the box —
+    welding `TYAGI` to `1703` into a token the document never had, whose budget was therefore
+    impossible to satisfy.
+    """
+    boxes = _line_boxes(block_pdf)
+    span = [boxes[0][0], boxes[0][1], max(b[2] for b in boxes[:lines]), boxes[lines - 1][3]]
+
+    result = redaction.redact_regions(block_pdf, [{"page": 1, "box": span}], out)
+    assert os.path.exists(result["out"])
+    assert "TYAGI1703" not in " ".join(result["verified_text"]["1"])
+    assert "TYAGI" in result["verified_text"]["1"]
+
+
+def test_one_tall_box_and_one_box_per_line_agree(block_pdf, tmp_path):
+    """The plural form was the workaround, so the fix is only complete when the two paths produce
+    the same answer — that is what says the tall box is now processed correctly rather than merely
+    not failing."""
+    boxes = _line_boxes(block_pdf)
+    span = [min(b[0] for b in boxes), boxes[0][1], max(b[2] for b in boxes), boxes[-1][3]]
+
+    tall = redaction.redact_regions(block_pdf, [{"page": 1, "box": span}], str(tmp_path / "1.pdf"))
+    each = redaction.redact_regions(block_pdf, [{"page": 1, "boxes": boxes}],
+                                    str(tmp_path / "2.pdf"))
+    assert tall["verified_text"] == each["verified_text"]
+
+
+def test_the_block_really_is_gone_and_the_copy_elsewhere_is_not(block_pdf, out):
+    """The contract the tool actually promises: these boxes are empty, nothing wider. The same name
+    lower down survives — which is correct, and is the gap the tool doc now points at."""
+    boxes = _line_boxes(block_pdf)
+    span = [min(b[0] for b in boxes), boxes[0][1], max(b[2] for b in boxes), boxes[-1][3]]
+    redaction.redact_regions(block_pdf, [{"page": 1, "box": span}], out)
+
+    text = _text(out, 0)
+    assert "94568" not in text                      # only ever appeared in the block
+    assert "appears again lower down" in text       # outside the boxes, untouched
+
+
+def test_an_impossible_budget_is_reported_as_such_not_as_a_contradiction(monkeypatch):
+    """The second half of TC-005's error. When more boxes claim a token than the source ever had,
+    the budget goes negative — and the message printed `max(allowed, 0)`, so an impossible -1 was
+    rendered as `at most 0 expected` beside `still appears 0 time(s)`. That reads as a
+    contradiction and sent the reporter hunting for a comparison bug that did not exist."""
+    from mcp_bridge.redaction import _shortfall
+
+    impossible = _shortfall(1, "TYAGI1703", "/tmp/x.pdf", found=0, allowed=-1,
+                            before=0, covered=1, engine="PyMuPDF")
+    assert "at most 0 expected" not in impossible
+    assert "no output could satisfy" in impossible
+    assert "not a leak" in impossible
+
+    ordinary = _shortfall(1, "SECRET", "/tmp/x.pdf", found=2, allowed=1,
+                          before=3, covered=2, engine="PyMuPDF")
+    assert "still appears 2 time(s)" in ordinary and "at most 1 expected" in ordinary

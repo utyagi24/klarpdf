@@ -2147,6 +2147,34 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   decode work, so A/B/F reduce how often we pay it but only E stops the freeze. Now a scheduling
   question, not a justification one.
 
+- [x] **M97** *(unplanned)* **A region redaction may cover more than one line.** From TC-005
+  (2026-08-16): a single `box` spanning two or more text lines **always** failed and deleted its own
+  correct output, on exactly the case the tool's docs recommend region redaction for — a signature
+  block, a letterhead, a table cell. Design in `PLAN.md` §M97 — *WSL*
+  - **The cause is one `join`.** `text_under` concatenated every character whose centre fell in the
+    box, which is right within a line and a fabrication across two: `UMESH TYAGI` + `1703 PORCELLANO
+    WAY` read back as `…TYAGI1703…`. The verification then took `TYAGI1703` as a token it had
+    covered, found the source contained it 0 times, and computed a budget of **−1** — so no output
+    could ever pass. Lines are now separated.
+  - **Two corrections to the report**, each pointing at a different fix. It read the message as
+    self-contradictory (*"`0 ≤ 0` is satisfied and it fails anyway"*) and concluded either fix alone
+    would do; the comparison was really `0 > −1` and the arithmetic was right — the message printed
+    `max(allowed, 0)`, rendering an impossible budget as a satisfied one. Fixing only that would
+    print "at most −1 expected" and still fail. It is fixed anyway, because hiding the real fault is
+    what cost the reporter the time. And its suggested "cheapest correct framing" — treat one `box`
+    as `boxes: [box]` — is a **no-op**: boxes are already processed one at a time, and the plural
+    form worked only because each rectangle was a single line.
+  - **Blast radius checked, not assumed:** every other `text_under` caller passes a single-line box
+    (the annotations panel reads one rect per line bar; `matches_case` / `group_matches` see only
+    `search_for` rectangles, which are already per line). Bridge-only — the app is unaffected,
+    unlike M96.
+  - **Part 2 declined, with reasons recorded** so it is not re-proposed from scratch: no
+    `elsewhere_in_document` warning. `residual_literal` and `invisible` disclose what a caller
+    *cannot* discover; this would disclose what is one `search` call away, since `verified_text`
+    already lists everything the boxes removed. It would also warn on `CA` and `1` from any table
+    cell. A sentence in the tool doc points at `verified_text` instead. Revisit if a real session
+    shows an agent doing visual region redaction on PII and missing occurrences.
+
 - [x] **M96** *(unplanned)* **Whole-word search stops letting the next line veto a match.** Found by
   the owner while retesting TC-003 (TC-004, 2026-08-16, report beside it in `klarpdf-tests/`).
   **Pre-existing — reproduced identically on `main`, so it is not from the M94/M95 branches.**
