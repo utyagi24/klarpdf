@@ -418,7 +418,10 @@ def _no_residual_match(
                                    whole_words=whole_words, password=password)
              if hit["page"] in scope]
     if leaks:
-        where = "; ".join(f"page {hit['page']} at {hit['box']}" for hit in leaks[:5])
+        # `boxes`, not `box`: a hit occupies one rectangle per line since #250, and reading the old
+        # singular key here raised `KeyError` instead of `RedactionLeak` — which `_finish` does not
+        # catch, so the unverified output was never deleted (M102).
+        where = "; ".join(f"page {hit['page']} at {hit['boxes']}" for hit in leaks[:5])
         more = f" (+{len(leaks) - 5} more)" if len(leaks) > 5 else ""
         raise RedactionLeak(
             f"{query!r} still matches {len(leaks)} time(s) in {out!r} — {where}{more}. The "

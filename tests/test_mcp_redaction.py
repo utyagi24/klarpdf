@@ -952,3 +952,38 @@ def test_scanned_and_found_nothing_is_not_spelled_the_same_way_as_never_scanned(
 def test_the_key_is_always_present(secret_pdf, out):
     """Absence of the key must never be a third answer."""
     assert "residual_normalized" in redaction.redact_text(secret_pdf, SECRET, out)
+
+
+# ---- M102: the coverage-gap report crashed instead of firing ----------------------------------
+
+
+def test_a_coverage_gap_raises_redaction_leak_and_not_a_key_error(secret_pdf):
+    """The **type** is the contract, because that is what deletes the output.
+
+    `_no_residual_match` pass 1 is the check that catches a matching bug — an occurrence the matcher
+    never boxed, which is the failure with teeth (TC-001). Building its message read `hit['box']`,
+    but a hit has carried `boxes` (one per line) since #250, so the line raised `KeyError` before it
+    could raise `RedactionLeak`. `_finish` catches only `RedactionLeak`, so the wrong exception
+    escaped **past the delete**: a file that had just failed verification stayed on disk, and the
+    "never leave a false-secure file behind" invariant was broken by its own error handler.
+
+    Asserted here against an un-redacted file, which is the honest way to make pass 1 find something
+    — no monkeypatching of the thing under test.
+    """
+    with pytest.raises(RedactionLeak, match="coverage gap"):
+        redaction._no_residual_match(
+            secret_pdf, "SECRET", match_case=False, whole_words=False,
+            scope={1}, password=None,
+        )
+
+
+def test_the_leak_message_names_where_it_found_them(secret_pdf):
+    """A message that cannot be built is worse than a vague one, so pin that it carries coordinates
+    a caller can act on rather than merely not crashing."""
+    with pytest.raises(RedactionLeak) as caught:
+        redaction._no_residual_match(
+            secret_pdf, "SECRET", match_case=False, whole_words=False,
+            scope={1}, password=None,
+        )
+    assert "page 1 at [[" in str(caught.value)
+    assert "has been deleted" in str(caught.value)

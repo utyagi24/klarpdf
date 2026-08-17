@@ -3153,6 +3153,42 @@ one identifier and silence for the next will reasonably conclude the second is c
 looks: overlapping terms produce overlapping boxes, and `_apply` counts box-hits per token, so two
 boxes covering one token drive the budget negative and trip M97's impossible-budget path.
 
+### M102 *(unplanned)* — the safety net crashed instead of firing (2026-08-17)
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M102** The coverage-gap leak report is built from a hit's `boxes`, so it raises `RedactionLeak` rather than `KeyError` | One key in `_no_residual_match`'s message | WSL | Pass 1 finding a residual match raises `RedactionLeak` and the message carries the coordinates; both tests fail on the old key |
+
+**One character wide and squarely on the invariant.** `_no_residual_match` pass 1 is the check that
+catches a *matching* bug — an occurrence the matcher never boxed, which is the failure mode with
+teeth and the shape of TC-001. Building its message read `hit['box']`; a hit has carried **`boxes`**,
+one rectangle per line, since [#250](https://github.com/utyagi24/klarpdf/pull/250). So the line
+raised `KeyError` **before** it could raise `RedactionLeak`.
+
+**The consequence is not a bad error message.** `_finish` catches `RedactionLeak` and nothing else:
+
+```python
+except RedactionLeak:
+    if os.path.exists(target):
+        os.remove(target)   # never leave a false-secure file behind
+    raise
+```
+
+A `KeyError` walks straight past that `except`, so the output of a redaction that had **just failed
+verification** stayed on disk, and the caller got an exception naming a missing dict key rather than
+a leak. The invariant this module is built around was broken by its own error handler, on the exact
+path that exists for the most dangerous failure it can have.
+
+**Why no test caught it.** Every redaction test drives a redaction that *works*, and pass 1 is
+silent on those — the leak branch only runs when the matcher has already gone wrong, which no
+fixture arranged. The regression tests call `_no_residual_match` against an **un-redacted** file so
+pass 1 genuinely finds something, rather than monkeypatching the function under test. Both assert
+the exception **type**, because the type is what deletes the file.
+
+Found while reading this function for §M100, not by a report. It is the same class as M93's
+`insert_pdf` catalog loss: an interface changed under a call site that still parsed, and the failure
+lives in a branch nothing exercises.
+
 ## Planned next — MCP capability milestones (M99–M101, scheduled 2026-08-16)
 
 Three milestones the hands-on sessions asked for, written up so a later session can pick any of them
