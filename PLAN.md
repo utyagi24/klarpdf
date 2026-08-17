@@ -3153,6 +3153,114 @@ one identifier and silence for the next will reasonably conclude the second is c
 looks: overlapping terms produce overlapping boxes, and `_apply` counts box-hits per token, so two
 boxes covering one token drive the budget negative and trip M97's impossible-budget path.
 
+## Planned next — MCP capability milestones (M99–M101, scheduled 2026-08-16)
+
+Three milestones the hands-on sessions asked for, written up so a later session can pick any of them
+up cold. None is a defect: TC-001 to TC-007 found the bridge *correct* on these paths and wanting
+more of them. They are ordered by cost-to-value, not by the order they were requested.
+
+### M99 — a region clip on `render_page` and `export_images`
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M99** Both imaging tools take an optional `clip` box, in the page-point space everything else uses | `queries.render_page` passes `clip` to `get_pixmap`; `model/export.py:export_page_images` threads one through to the same call | WSL | A clip returns only that region at the right pixel size; an out-of-page or inverted clip is refused; omitting it is byte-identical to today |
+
+**The gap.** Neither tool takes a region, so "extract this ID card as a PNG" cannot be finished inside
+the server — TC-007 exported a whole page at 200 dpi and cropped it outside. Asked for twice
+(TC-007, and TC-003-old before it).
+
+**Why it is worth more than the request it came from.** Boxes are already this server's native
+currency: `search` hands them back and `redact_regions` consumes them, so region→image is the same
+"I know *where*" workflow the bridge already serves, minus the destruction. The composition is the
+real prize — `search` → `render_page(clip=hit box)` lets an agent show a person **the actual pixels**
+of what it is about to delete. Every safety mechanism built across M95–M98 is a variation on
+*preview before you destroy*, and all of them are textual; this is the one that makes the preview
+visual, on a tool whose docs already say **"Always run `search` before `redact_text`."**
+
+**Cost is one keyword argument at each of the two call sites** (`get_pixmap(clip=fitz.Rect(...))`),
+plus validation and docs. And unlike most of this bridge's work it **cannot fail silently**: a wrong
+clip produces a visibly wrong image. That is rare enough here to be worth saying out loud.
+
+Take the `dpi` interaction seriously in the tests: the returned pixel size must follow the clip, not
+the page, or a caller sizing an image from `width_px` gets it wrong.
+
+### M100 — one redaction call, several queries
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M100** `redact_text` accepts `queries: [...]` and removes all of them in one verified pass | Coalesce overlapping boxes **before** `_apply`, then the API on top; per-query `matches` in the result | WSL | Overlapping terms (`607347469 203 1` + `607347469`) verify cleanly; one call equals the chained calls byte-for-byte in what it removes; a single `query` behaves exactly as today |
+
+**The argument is data hygiene, not ergonomics.** TC-007 needed four chained calls for six
+identifiers, which left **three intermediate files, each a partially-redacted copy holding live
+PII**, all of which had to be remembered and deleted. That sprawl is caused by our own design — every
+write demands a fresh `out`, so chaining necessarily strews copies — which makes it ours to fix
+rather than the caller's to remember. It also removes an ordering hazard the same session hit: terms
+must currently be removed longest-first, or the shorter query leaves ` 203 1` fragments behind.
+
+**Do the arithmetic first; the API is the easy half.** `_apply` counts *box-hits* per token, so two
+overlapping terms give `covered = 2` against `before = 1`, the budget goes to −1, and the call trips
+the impossible-budget path M97 added. Overlap is not an edge case here — it is the motivating example
+— so **rejecting overlapping terms would fail the very use this exists for**. Coalescing the boxes
+(union any that intersect, before `_apply` reads tokens under them) is the contained fix and is where
+this milestone should start.
+
+**Treat that code as the sharp edge it is.** The coverage arithmetic is what every safety guarantee in
+the bridge rests on, and it is also where the last two defects were: M97 *introduced* the
+impossible-budget path, and M98 needed M98.1 within hours. Any change here wants the same
+measure-first discipline the variant scan got, and a test that a multi-query call and the equivalent
+chain produce identical output.
+
+**Not urgent.** TC-007's own ranking put it second and called multi-query without variant reporting
+*"a faster way to be confidently wrong"* — M98 shipped the variant reporting, so the thing that made
+deferring it risky is already handled.
+
+### M101 — annotation tools, and the highlight → review → redact round trip ⭐
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M101** The bridge can *write* highlights / underlines / strike-throughs with notes, *read back* every annotation in a document, and *redact by annotation* | New `mcp_bridge/annotations.py` over `model/page_edits.py`; three tools — `annotate`, `get_annotations`, `redact_annotated` | WSL | A written highlight reopens as an editable mark in the app; a foreign (Acrobat) annotation is read back too; redact-by-colour removes exactly the marked regions and verifies them; nothing is deleted without the same cross-engine proof `redact_regions` gives |
+
+**The workflow this exists for** (owner, 2026-08-16): *"highlight all PII data in this document"* →
+a person reviews it in KlarPDF → *"redact everything highlighted in orange"*.
+
+**Why that shape is right, and not merely convenient.** Everything the bridge has learned across
+TC-001–TC-007 says the destructive step is the dangerous one and that the caller, not the tool, owns
+the semantics. This splits the job exactly along that seam: the agent **proposes** in a form that
+deletes nothing, a human **disposes** using the app's own Annotations sidebar (M79) — the review
+surface already exists and is better than anything a tool response can be — and the agent then
+**executes** only what the review approved. The colour is the verdict channel, and it is the
+reviewer's convention rather than the tool's: `redact_annotated` must never decide that orange means
+delete, only that the caller said so.
+
+**Almost all of the model work is already done**, which is what makes this a milestone rather than a
+project:
+
+* `Highlight`, `Underline`, `Strikeout` already carry `rects`, an RGB `color` and a `note` (their
+  PDF `/Contents`, M81), and `apply_annotations` bakes them tagged with `KLARPDF_AUTHOR`.
+* `read_klarpdf_annotations` reads *our* marks back into editable descriptors (M31), and
+  `parse_annotation` was deliberately split out so a **foreign** annotation parses identically
+  (M68's adopt-on-edit). `get_annotations` should report both, because a reviewer does not care who
+  wrote a mark — and it should say which, since only ours round-trip as editable.
+* `redact_annotated` is `redact_regions` with the boxes chosen by filter, so it inherits
+  `verified_text`, the cross-engine check, and the delete-the-output-on-failure rule for free.
+
+**Three things to get right, none of them the obvious one:**
+
+1. **Colour matching must be by tolerance, not equality.** A mark drawn in the app carries an exact
+   palette value; one drawn in Acrobat will not. Match within a distance and expose both the raw RGB
+   and a nearest name, so `"orange"` is a filter a person can type and an agent can verify.
+2. **`redact_annotated` inherits `redact_regions`' narrower promise**, and the docs must say so: there
+   is no query, so there is no `residual_literal` and no coverage claim beyond the marks themselves.
+   That asymmetry was examined and deliberately kept at M97 — see §M97, Part 2.
+3. **Annotating is a *write*, so it obeys every write rule**: explicit `out`, never the source, atomic
+   replace. A highlight pass is non-destructive but it is still a new file, and the intermediate-file
+   sprawl M100 is about applies here too — which is an argument for doing M100 first if both are
+   scheduled together.
+
+**Worth a fourth tool later, not now:** removing or recolouring an existing annotation from the
+bridge. The model supports it, but the review loop above does not need it, and every tool added is
+one the model must choose between.
+
 ## Future enhancements (deferred beyond the roadmap)
 
 Captured but not yet scheduled:

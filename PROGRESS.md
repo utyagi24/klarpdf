@@ -2147,6 +2147,34 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   decode work, so A/B/F reduce how often we pay it but only E stops the freeze. Now a scheduling
   question, not a justification one.
 
+- [ ] **M99** **A region `clip` on `render_page` and `export_images`** — scheduled 2026-08-16 from
+  TC-007's capability gap, asked for twice. "Extract this ID card as a PNG" cannot be finished inside
+  the server today; the page has to come out whole and be cropped elsewhere. One keyword argument at
+  each of two call sites (`get_pixmap(clip=…)`), and unlike most work here it **cannot fail
+  silently** — a wrong clip makes a visibly wrong image. Its best argument is one no report made:
+  `search` → `render_page(clip=hit box)` lets an agent show a person the actual pixels before
+  deleting them, making M95–M98's *preview before you destroy* visual rather than textual. Design in
+  `PLAN.md` §M99 — *WSL*
+
+- [ ] **M100** **`queries: [...]` — one redaction call, several terms** — scheduled 2026-08-16 from
+  TC-007. The argument is **data hygiene, not ergonomics**: six identifiers took four chained calls
+  and left three intermediate files, each a partially-redacted copy holding live PII. That sprawl is
+  caused by our own design (every write demands a fresh `out`), which makes it ours to fix. It also
+  removes an ordering hazard — terms must currently be removed longest-first or fragments survive.
+  **Start with the arithmetic, not the API**: overlapping terms give `covered=2` against `before=1`,
+  driving the budget to −1 and tripping M97's impossible-budget path, and overlap is the *motivating*
+  case so it cannot simply be rejected. Design in `PLAN.md` §M100 — *WSL*
+
+- [ ] **M101** ⭐ **Annotation tools, and the highlight → review → redact round trip** — owner-asked
+  2026-08-16: *"highlight all PII data in this document"* → a person reviews → *"redact everything
+  highlighted in orange"*. Three tools (`annotate`, `get_annotations`, `redact_annotated`) over the
+  model that already exists: `Highlight`/`Underline`/`Strikeout` carry an RGB colour and a note,
+  `apply_annotations` bakes them, and `parse_annotation` reads foreign marks as well as ours (M68).
+  **The shape is the point** — the agent proposes in a form that deletes nothing, a human decides in
+  the app's own Annotations sidebar (M79), and the agent executes only what was approved, with the
+  colour as the reviewer's verdict channel and never the tool's judgement. Design in `PLAN.md` §M101
+  — *WSL*
+
 - [x] **M98** *(unplanned)* **Redaction reports the two things it used to be silent about.** From
   TC-007 (2026-08-16), which found **no defects** — the delivery was correct with zero residuals —
   but two failure modes the tool says nothing about, both silent in the direction that matters.
@@ -2608,26 +2636,9 @@ tree or history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI 
 
 Carried items — none block work:
 
-- **`redact_text` takes one query per call (TC-007).** Six identifiers meant four chained calls and
-  three intermediate files, *each holding a partially-redacted copy with live PII in it* — that
-  sprawl is the real argument, above the ergonomics. A `queries: [...]` form would also remove an
-  ordering hazard the reporter hit: terms must currently be removed longest-first or the shorter one
-  leaves fragments behind, while one pass matches every term against the original text at once.
-  **It is not a thin wrapper, and the reason is M97's.** Overlapping terms produce overlapping
-  boxes, and `_apply` counts *box-hits* per token: two boxes covering `607347469` give `covered=2`
-  against `before=1`, so the budget goes to −1 and trips the impossible-budget path M97 added.
-  Needs boxes deduplicated, or coverage counted per occurrence rather than per box, before the
-  feature is safe. Ranked below the variant scan (M98) by the reporter's own test: multi-query
-  without variant reporting is *"a faster way to be confidently wrong."*
-
-- **No region clip on `render_page` / `export_images` (TC-007).** "Extract this ID card as a PNG"
-  cannot be completed inside the server — both tools render whole pages, so the page came out at
-  200 dpi and was cropped outside the MCP. A `clip` box in the same page-point space everything else
-  uses (`render_page {page: 3, clip: [396, 105, 792, 355]}`) would close it; boxes are already the
-  server's native currency, since `search` hands them back and `redact_regions` consumes them.
-  `render_page` is a one-parameter change (`get_pixmap(clip=…)`); `export_images` needs it threaded
-  through `model/export.py:export_page_images`. **Second time a testcase has wanted region→image**
-  (TC-003's highlight request was the first), which is the argument for doing it.
+- ~~**TC-007's two input-shape items and the annotation round trip**~~ — **scheduled 2026-08-16 as
+  M99–M101** (see the milestones above; design in `PLAN.md` §Planned next). They stopped being
+  carried follow-ups the moment they had numbers.
 
 - ~~**TC-002 — three MCP-side defects still open**~~ — **closed 2026-08-15 by M94** (see the
   milestone above). From the second hands-on session (2026-08-13, report at
