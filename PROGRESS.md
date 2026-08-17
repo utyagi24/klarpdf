@@ -2147,14 +2147,21 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   decode work, so A/B/F reduce how often we pay it but only E stops the freeze. Now a scheduling
   question, not a justification one.
 
-- [ ] **M99** **A region `clip` on `render_page` and `export_images`** — scheduled 2026-08-16 from
-  TC-007's capability gap, asked for twice. "Extract this ID card as a PNG" cannot be finished inside
-  the server today; the page has to come out whole and be cropped elsewhere. One keyword argument at
-  each of two call sites (`get_pixmap(clip=…)`), and unlike most work here it **cannot fail
-  silently** — a wrong clip makes a visibly wrong image. Its best argument is one no report made:
-  `search` → `render_page(clip=hit box)` lets an agent show a person the actual pixels before
-  deleting them, making M95–M98's *preview before you destroy* visual rather than textual. Design in
-  `PLAN.md` §M99 — *WSL*
+- [x] **M99** **A region `clip` on `render_page` and `export_images`** — scheduled 2026-08-16 from
+  TC-007's capability gap, asked for twice; built 2026-08-17. "Extract this ID card as a PNG" could
+  not be finished inside the server; the page had to come out whole and be cropped elsewhere. Its
+  best argument is one no report made: `search` → `render_page(clip=…)` lets an agent show a person
+  the actual pixels before deleting them, making M95–M98's *preview before you destroy* visual
+  rather than textual. **Three corrections to the scheduled design**, all found in the building:
+  the "cannot fail silently" claim holds for `export_images` and **not** for `render_page`, which
+  returns an image block and so has nowhere to report an adjusted clip — hence refuse-with-the-page
+  -rect rather than clamp; a `search` hit carries `boxes` (one per line,
+  [#250](https://github.com/utyagi24/klarpdf/pull/250)) so `clip` takes one
+  rect and the caller unions a wrapped hit, the list staying `redact_regions`-only because a union
+  across lines is helpful to *look* at and is data loss to *delete*; and `export_images` validates
+  **every** page before writing any file, since page sizes vary and a clip failing on page 7 must
+  not leave six behind. `resolve_clip` lives in `model/export.py`, shared with the app's Export.
+  Design in `PLAN.md` §M99 — *WSL*
 
 - [ ] **M100** **`queries: [...]` — one redaction call, several terms** — scheduled 2026-08-16 from
   TC-007. The argument is **data hygiene, not ergonomics**: six identifiers took four chained calls

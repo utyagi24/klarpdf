@@ -481,11 +481,15 @@ def export_images(
     fmt: str = "png",
     password: str | None = None,
     overwrite: bool = False,
+    clip: list[float] | None = None,
 ) -> dict:
     """Rasterise ``pages`` (1-based; ``None`` = all) to image files in ``out_dir``.
 
     Unlike ``render_page``, which hands one page back inline for the model to look at, this writes
     files — for when the images are the deliverable rather than something to read.
+
+    ``clip`` (M99) narrows every page to the same ``[x0, y0, x1, y1]`` region in page points, and is
+    rejected on any page it overhangs — see :func:`model.export.resolve_clip`.
     """
     if fmt.lower() not in {"png", "jpg", "jpeg"}:
         raise ValueError(f"format must be png or jpg, got {fmt!r}")
@@ -507,11 +511,12 @@ def export_images(
                     raise ValueError(
                         f"{existing!r} already exists; pass overwrite=true to replace it"
                     )
-        written = export_page_images(vdoc, indices, base, dpi=dpi)
+        written = export_page_images(vdoc, indices, base, dpi=dpi, clip=clip)
         return {
             "files": written,
             "count": len(written),
             "dpi": dpi,
+            "clip": None if clip is None else [float(v) for v in clip],
             "source": os.path.abspath(path),
             "source_unchanged": True,
         }

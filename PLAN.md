@@ -3184,6 +3184,36 @@ clip produces a visibly wrong image. That is rare enough here to be worth saying
 Take the `dpi` interaction seriously in the tests: the returned pixel size must follow the clip, not
 the page, or a caller sizing an image from `width_px` gets it wrong.
 
+**Built as scheduled, with three things the plan above got wrong** *(2026-08-17)*:
+
+1. **"A wrong clip produces a visibly wrong image" is true of `export_images` and false of
+   `render_page`** — and the difference decided the validation rule. `render_page` returns an MCP
+   *image block*, not JSON, so its reply has **nowhere to carry a note**. PyMuPDF intersects an
+   overhanging clip with the page and returns a smaller pixmap; the caller, having sized a layout
+   from the clip it asked for, would get different pixels with nothing saying so. So the refusal is
+   not a taste for strictness — the error message is the only channel the tool has, and it names the
+   page rect so a caller can correct in one step. `export_images` returns JSON and *could* have
+   reported an adjustment, but two imaging tools disagreeing about what a clip means is worse than
+   one strict rule.
+2. **A `search` hit has `boxes`, not a `box`** — one per line since
+   [#250](https://github.com/utyagi24/klarpdf/pull/250), so the composition this
+   milestone is named for does not typecheck as written above. `clip` stays a **single rectangle**
+   and the caller unions a wrapped hit's boxes. Keeping the list, as `redact_regions` does, was
+   considered and rejected: the union of two lines' boxes covers whatever sits between them, which
+   is *helpful* when looking and is *data loss* when deleting. The two tools taking different shapes
+   is the honest encoding of that.
+3. **`export_images` needs per-page validation, which "one keyword argument at each of the two call
+   sites" does not cover.** Page sizes vary within a document, so a region that sits comfortably on
+   page 1 can overhang page 3; validating once would export that page silently short. It is checked
+   for the whole set **before the first file is written**, so a clip that fails on page 7 of 10 does
+   not leave six files behind for the caller to clean up after handling the error.
+
+`resolve_clip` therefore lives in `model/export.py` beside the rasterisation it constrains, not in
+the bridge — the app's own Export shares the path, and two validators with two answers is the trap
+`_word_bounded` already documents. Tolerance is 0.01 pt, sub-pixel at any dpi either tool renders,
+so a computed box landing a ten-thousandth past the page edge is not an error while a real overhang
+still is.
+
 ### M100 — one redaction call, several queries
 
 | Milestone | What | Where | Verify |

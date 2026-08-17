@@ -288,15 +288,28 @@ def extract_text(path: str, pages: list[int] | None = None, password: str | None
         }
 
 
-def render_page(path: str, page: int, dpi: int = 150, password: str | None = None) -> dict:
-    """Rasterise one page to PNG bytes — for anything the text layer cannot answer.
+def render_page(
+    path: str,
+    page: int,
+    dpi: int = 150,
+    password: str | None = None,
+    clip: list[float] | None = None,
+) -> dict:
+    """Rasterise one page — or one region of it — to PNG bytes, for what text cannot answer.
 
     Rendered from :meth:`PyMuPDFEngine.render_output`, the same in-memory build a Save would write,
     so the image shows the document as it *would be* produced rather than as it was stored: page
     order, rotation and any pending edits are already applied. On a freshly opened file those are
     identity, but the transform tools share this path and must not need a second one.
+
+    ``clip`` (M99) narrows the render to ``[x0, y0, x1, y1]`` in page points — validated against the
+    *rendered* page rather than the stored one, because that is the rect ``get_pixmap`` will clip
+    against once rotation has been applied. ``width_px``/``height_px`` follow the clip, not the
+    page: a caller sizing anything from them would otherwise be told the dimensions of an image it
+    did not receive.
     """
     from model.edit_engine import PyMuPDFEngine
+    from model.export import resolve_clip
 
     if dpi <= 0:
         raise ValueError(f"dpi must be positive, got {dpi}")
@@ -304,10 +317,14 @@ def render_page(path: str, page: int, dpi: int = 150, password: str | None = Non
         (index0,) = resolve_pages(vdoc, [page])
         out = PyMuPDFEngine().render_output(vdoc)
         try:
-            pixmap = out[index0].get_pixmap(matrix=fitz.Matrix(dpi / 72.0, dpi / 72.0), alpha=False)
+            rect = resolve_clip(out[index0], clip)
+            pixmap = out[index0].get_pixmap(
+                matrix=fitz.Matrix(dpi / 72.0, dpi / 72.0), clip=rect, alpha=False
+            )
             return {
                 "page": page,
                 "dpi": dpi,
+                "clip": None if rect is None else [rect.x0, rect.y0, rect.x1, rect.y1],
                 "width_px": pixmap.width,
                 "height_px": pixmap.height,
                 "png": pixmap.tobytes("png"),

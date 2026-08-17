@@ -265,14 +265,28 @@ def create_server(config: Config | None = None) -> MCPServer:
     # unresolved strings under `from __future__ import annotations`, and the wrapper resolves them.
     @server.tool(structured_output=False)
     @guarded
-    def render_page(path: str, page: int, dpi: int = 150, password: str | None = None) -> Image:
+    def render_page(
+        path: str,
+        page: int,
+        dpi: int = 150,
+        password: str | None = None,
+        clip: list[float] | None = None,
+    ) -> Image:
         """Render one page (1-based) to a PNG image at `dpi` (default 150).
 
         For what the text layer cannot tell you: scanned pages, figures, tables whose structure
         matters, signatures, stamps, and any question about layout or appearance. Higher `dpi` costs
         proportionally more — 150 reads body text comfortably, 300 is for fine print.
+
+        `clip` renders just one region: `[x0, y0, x1, y1]` in page points, the same coordinates
+        `search` reports hits in — so you can pass a hit's box straight back to see the actual
+        pixels of a match. Use it before `redact_text` to show someone what is about to be deleted,
+        and to read a stamp, signature or table cell at high `dpi` without paying for the whole
+        page. A `search` hit carries `boxes` (one per line, so a match that wraps has several):
+        pass one, or their bounding box to see the whole match at once. A clip running off the edge
+        of the page is an error naming the page's rect, not a quietly smaller image.
         """
-        result = queries.render_page(check(path), page, dpi, password)
+        result = queries.render_page(check(path), page, dpi, password, clip=clip)
         if len(result["png"]) > limits.max_image_bytes:
             raise ValueError(
                 f"the rendered page is {len(result['png']) // 1024} KiB, over the "
@@ -479,11 +493,17 @@ def create_server(config: Config | None = None) -> MCPServer:
         fmt: str = "png",
         password: str | None = None,
         overwrite: bool = False,
+        clip: list[float] | None = None,
     ) -> dict:
         """Rasterise `pages` (1-based; omit for all) to image files in `out_dir`, as png or jpg.
 
         Use `render_page` instead when you want to *look* at a page — that hands the image back
         inline. This one is for when the image files are the deliverable.
+
+        `clip` crops every exported page to the same `[x0, y0, x1, y1]` region in page points — for
+        cutting one card, figure or signature out as a file. It is checked against each page
+        separately, so a region that overhangs any page in the set is an error rather than one file
+        that came out short.
         """
         return transforms.export_images(
             check(path),
@@ -493,6 +513,7 @@ def create_server(config: Config | None = None) -> MCPServer:
             fmt=fmt,
             password=password,
             overwrite=overwrite,
+            clip=clip,
         )
 
     # ---- redaction: destructive, and verified before success is reported ----

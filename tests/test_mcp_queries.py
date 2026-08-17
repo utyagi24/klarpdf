@@ -437,3 +437,92 @@ def test_the_app_find_bar_agrees_with_the_bridge(tight_leading_pdf):
         assert len(shown) == len(page.search_for("Security"))
     finally:
         doc.close()
+
+
+# ---- M99: a region clip on the imaging tools ------------------------------------
+
+
+def test_clip_pixel_size_follows_the_clip_not_the_page(a_pdf):
+    """The number a caller sizes a layout from must describe the image it actually received.
+
+    PyMuPDF derives the pixmap from the clip, so this is really pinning that we pass the clip at
+    all — but it is the exact failure PLAN.md §M99 names, and it is invisible without the assert:
+    a dropped `clip=` still returns a valid PNG, just of the whole page.
+    """
+    whole = queries.render_page(a_pdf, 1, dpi=72)
+    part = queries.render_page(a_pdf, 1, dpi=72, clip=[0, 0, 144, 72])
+
+    assert (part["width_px"], part["height_px"]) == (144, 72)
+    assert part["width_px"] < whole["width_px"] and part["height_px"] < whole["height_px"]
+    assert part["clip"] == [0.0, 0.0, 144.0, 72.0]
+    assert len(part["png"]) < len(whole["png"])
+
+
+def test_clip_scales_with_dpi(a_pdf):
+    """The clip is in points and the dpi multiplies it — the two must not fight."""
+    at72 = queries.render_page(a_pdf, 1, dpi=72, clip=[0, 0, 100, 50])
+    at144 = queries.render_page(a_pdf, 1, dpi=144, clip=[0, 0, 100, 50])
+    assert (at72["width_px"], at72["height_px"]) == (100, 50)
+    assert (at144["width_px"], at144["height_px"]) == (200, 100)
+
+
+def test_no_clip_is_byte_identical_to_before(a_pdf):
+    """The regression guard: adding the parameter must not have changed the default render."""
+    a = queries.render_page(a_pdf, 1, dpi=100)
+    b = queries.render_page(a_pdf, 1, dpi=100, clip=None)
+    assert a["png"] == b["png"]
+    assert a["clip"] is None
+
+
+def test_a_search_hit_feeds_straight_back_in_as_a_clip(a_pdf):
+    """The composition M99 exists for: `search` → look at the pixels of the match.
+
+    Whether the crop is *legible* is not something a test can assert, so this pins the two things
+    that would break the workflow mechanically — the hit's box is accepted verbatim, and the region
+    it selects is genuinely a small part of the page rather than the whole thing.
+    """
+    import pymupdf as fitz
+
+    (hit,) = [h for h in queries.search(a_pdf, A_TEXT[0]) if h["page"] == 1]
+    # A hit is `boxes`, one per line (#250). Union them — the documented pattern for seeing a whole
+    # match, and the reason `clip` takes one rect rather than the list `redact_regions` takes.
+    region = fitz.Rect(hit["boxes"][0])
+    for box in hit["boxes"][1:]:
+        region |= fitz.Rect(box)
+    rendered = queries.render_page(a_pdf, 1, dpi=150, clip=list(region))
+
+    assert rendered["clip"] == pytest.approx(list(region), abs=0.01)
+    whole = queries.render_page(a_pdf, 1, dpi=150)
+    assert rendered["width_px"] * rendered["height_px"] < whole["width_px"] * whole["height_px"] / 4
+
+
+@pytest.mark.parametrize(
+    "clip, expected",
+    [
+        ([100, 100, 100, 200], "empty or inverted"),      # zero width
+        ([100, 100, 50, 200], "empty or inverted"),       # x reversed
+        ([100, 200, 150, 100], "empty or inverted"),      # y reversed
+        ([-5, 0, 100, 100], "outside page 1"),            # off the left edge
+        ([0, 0, 100, 10_000], "outside page 1"),          # off the bottom
+        ([0, 0, 100], r"must be \[x0, y0, x1, y1\]"),     # three numbers
+        (["a", 0, 100, 100], "must be four numbers"),     # not numbers
+    ],
+)
+def test_a_bad_clip_is_refused_with_a_reason(a_pdf, clip, expected):
+    """Refused rather than clamped — `render_page` returns an image block, so a silently adjusted
+    clip has no channel to say so (see `model.export.resolve_clip`). The message names the page
+    rect because the caller otherwise cannot tell which edge overhung."""
+    with pytest.raises(ValueError, match=expected):
+        queries.render_page(a_pdf, 1, clip=clip)
+
+
+def test_a_clip_a_hair_over_the_edge_is_allowed(a_pdf):
+    """Float noise in a computed box must not be an error; a real overhang still is."""
+    import pymupdf as fitz
+
+    doc = fitz.open(a_pdf)
+    rect = doc[0].rect
+    doc.close()
+
+    rendered = queries.render_page(a_pdf, 1, dpi=72, clip=[0, 0, rect.x1 + 0.005, 50])
+    assert rendered["width_px"] == round(rect.x1 * 72 / 72)

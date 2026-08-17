@@ -172,6 +172,14 @@ original untouched, and the filled copy keeps the original's tags, permissions a
 **"This scan is unreadable — what does page 3 say?"**
 `get_info` reports `has_text_layer: false`, so searching is pointless → `render_page page=3` and
 read it as an image.
+
+**"Show me the signature block, and cut the ID card out as a PNG."**
+Both imaging tools take a `clip` — a rectangle in the same page-point coordinates `search` reports
+hits in. `render_page clip=[…]` reads one stamp or table cell at 300 dpi without paying for the
+whole page, and pairs with `search` to show a person the *actual pixels* of a match before
+`redact_text` deletes it. `export_images clip=[…]` crops the same region out of every page as
+files. A clip that runs off the edge of a page is an error naming that page's rect, never a quietly
+smaller image.
 </details>
 
 Two switches for a smaller blast radius: `--read-only` withholds the write tools entirely (they are
