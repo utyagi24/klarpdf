@@ -192,6 +192,12 @@ That case is why the reply carries two fields worth reading rather than just a s
   identifier broken by a line wrap. A literal scan sees none of these, so redacting one form used to
   report the file clean while the other stayed in it. Nothing is deleted for a variant — whether two
   spellings are one value is a fact about the document that only you have.
+  **`[]` and `null` mean different things.** `[]` is "the scan ran and found nothing"; `null` is
+  "the scan did not run", which happens for a short unpunctuated query like `000000`, where matching
+  across separators finds coincidence rather than spellings. `null` comes with a warning saying so,
+  because a feature that exists to close an invisible failure must not go quiet in a way that reads
+  as reassurance. A query you punctuated — `999 99 9999`, `AB 12 CD` — is always scanned: the
+  separators are you saying it is a structured value.
 - **`query_terms`** — the per-term match breakdown when `whole_words` is off and the query has
   several words, with a warning when one term did most of the deleting and the phrase itself is
   rare. This is the **over-redaction** counterweight: everything else here proves the query is

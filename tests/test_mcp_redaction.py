@@ -808,10 +808,17 @@ def test_an_identifier_broken_by_a_line_wrap_is_reported(tmp_path, out):
     assert result["residual_normalized"], "the wrapped copy was not reported"
 
 
-def test_no_variant_no_report(secret_pdf, out):
-    """The quiet case stays quiet, or the noisy one stops being read."""
+def test_no_variant_no_warning(secret_pdf, out):
+    """The quiet case stays quiet, or the noisy one stops being read.
+
+    Changed deliberately at M98.1: this used to assert the *key* was absent when nothing was found.
+    That is the contract the TC-007 retest asked to change, and rightly — omitting the field made
+    "looked and found none" indistinguishable from "never looked", and the second reads as the
+    first. The list is now always present; what stays quiet is the warning.
+    """
     result = redaction.redact_text(secret_pdf, SECRET, out)
-    assert "residual_normalized" not in result
+    assert result["residual_normalized"] == []
+    assert "warnings" not in result
 
 
 @pytest.mark.parametrize("query", ["1 2", "000000", "CA 1"])
@@ -871,3 +878,77 @@ def test_phrase_mode_is_never_warned_about_for_over_redaction(policy_pdf, out):
     result = redaction.redact_text(policy_pdf, "607347469 203 1", out, whole_words=True)
     assert "query_terms" not in result                  # one term; nothing was split
     assert not any("whole_words` was not set" in w for w in result.get("warnings", []))
+
+
+# ---- M98.1 / TC-007 retest: the floor was blunter than the risk ------------------------------
+
+
+@pytest.fixture
+def variants_pdf(tmp_path) -> str:
+    """Structured identifiers a person would type, each present in two or three spellings."""
+    path = str(tmp_path / "variants.pdf")
+    doc = fitz.open()
+    page = doc.new_page()
+    for row, line in enumerate([
+        "SSN 999 99 9999 on record", "also 999-99-9999 and 999999999",
+        "code AB 12 CD here", "also AB-12-CD there",
+        "card 4444 5555 issued", "also 4444-5555 noted",
+    ]):
+        page.insert_text((50, 70 + row * 18), line, fontsize=10)
+    doc.save(path)
+    doc.close()
+    return path
+
+
+@pytest.mark.parametrize("query, expected", [
+    ("999 99 9999", ["999-99-9999", "999999999"]),   # one repeated digit — was skipped
+    ("AB 12 CD", ["AB-12-CD"]),                      # six normalised characters — was skipped
+    ("4444 5555", ["4444-5555"]),                    # two distinct digits — was skipped
+])
+def test_a_punctuated_query_is_scanned_however_short_or_repetitive(
+    variants_pdf, out, query, expected
+):
+    """TC-007 retest. The first floor applied to every query and silently skipped three obviously
+    structured identifiers — two for repeating a character, one for being six characters long.
+
+    Separators are the caller saying *this is a structured value*: `999 99 9999` has already
+    declared what it is, while a bare `000000` could be anything and has to earn the scan. Measured
+    over the same 49 documents, scanning 36 more queries produced exactly the same 41 hits, so the
+    relaxation costs no precision.
+    """
+    result = redaction.redact_text(variants_pdf, query, out, whole_words=True)
+    assert [v["as_written"] for v in result["residual_normalized"]] == expected
+
+
+def test_a_bare_repetitive_run_is_still_not_scanned(tmp_path, out):
+    """The other side of the same rule, and the reason there is a floor at all: `000000` matched
+    across `708.000 0.00` in the corpus — digits from two unrelated numbers welded by dropping the
+    separators. An unpunctuated query has declared nothing and still has to earn it."""
+    path = str(tmp_path / "bare.pdf")
+    doc = fitz.open()
+    doc.new_page().insert_text((50, 70), "value 000000 and 708.000 0.00 here", fontsize=10)
+    doc.save(path)
+    doc.close()
+
+    result = redaction.redact_text(path, "000000", out)
+    assert result["residual_normalized"] is None
+
+
+def test_scanned_and_found_nothing_is_not_spelled_the_same_way_as_never_scanned(
+    variants_pdf, secret_pdf, out, tmp_path
+):
+    """TC-007 retest's own suggested minimum, and the sharpest point in it: the feature exists to
+    close an *invisible* failure, so when it declines it must not look like a clean result. A list
+    means it looked; `null` means it did not, and the `null` says why."""
+    looked = redaction.redact_text(secret_pdf, SECRET, out)
+    assert looked["residual_normalized"] == []          # looked, found none
+    assert not any("NOT scanned" in w for w in looked.get("warnings", []))
+
+    did_not_look = redaction.redact_text(variants_pdf, "AB", str(tmp_path / "b.pdf"))
+    assert did_not_look["residual_normalized"] is None  # did not look…
+    assert any("NOT scanned" in w for w in did_not_look["warnings"])   # …and says so
+
+
+def test_the_key_is_always_present(secret_pdf, out):
+    """Absence of the key must never be a third answer."""
+    assert "residual_normalized" in redaction.redact_text(secret_pdf, SECRET, out)

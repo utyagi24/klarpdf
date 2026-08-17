@@ -2177,6 +2177,23 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     query whose second word is commoner. Comparing against what the *phrase* would have matched
     answers the real question and stays quiet on a deliberate word list (phrase never occurs) and on
     a query behaving as expected. TC-007: 240 removed against a phrase occurring 9 times.
+  - **M98.1 — the floor was blunter than the risk** (retest, same day). The variant scan silently
+    skipped three obviously structured identifiers: `999 99 9999` and `4444 5555` (a repeated
+    character) and `AB 12 CD` (six normalised characters). The retest filed it as a bug of unknown
+    mechanism, having ruled the guards out — but `1111 2222 3333` was read as disproof of the
+    entropy floor while sitting exactly *on* it (3 distinct), and `AB 12 CD` fails the **length**
+    floor, not the entropy one; two guards were tested as one. All eleven reported cases are
+    predicted by the thresholds, so the code was doing what it was told and the instruction was
+    wrong.
+    **Separators are the caller declaring the value structured**, so the floor now applies only to
+    unpunctuated queries. Re-measured on the same 49 documents: 36 more queries scanned, **exactly
+    the same 41 hits** — no precision lost. The original probe could not have caught this: it
+    generated candidates with a digit-run regex and never asked what a person would type.
+    **Absence is also no longer an answer** — `residual_normalized` is always present, `[]` meaning
+    the scan ran and found nothing and `null` meaning it did not, with a warning saying why. A
+    feature that exists to close an invisible failure must not go quiet in a way that reads as
+    reassurance. One earlier test changed on purpose: it asserted the key was *absent* when nothing
+    was found, which is the contract this replaces.
   - **Not built: multi-query and region clip** — both wanted, neither a silent failure, both carried
     below with the overlap hazard that makes multi-query less thin than it looks.
 

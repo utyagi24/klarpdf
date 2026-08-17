@@ -3125,6 +3125,29 @@ real question and stays quiet in the two cases that must not warn — a query wh
 occurs is a deliberate word list, and one whose phrase accounts for most of the hits is behaving as
 expected. TC-007 removed 240 against a phrase occurring 9 times.
 
+**M98.1 — the floor was blunter than the risk it was guarding against** (TC-007 retest, same day).
+The retest confirmed both findings implemented and found that the variant scan silently skipped
+three obviously structured identifiers: `999 99 9999` and `4444 5555` for repeating a character, and
+`AB 12 CD` for normalising to six. It filed this as a bug of unknown mechanism, having ruled the
+guards out — reasonably, but wrongly: `1111 2222 3333` was read as disproof of the entropy floor
+while sitting exactly *on* it (3 distinct), and `AB 12 CD` fails the *length* floor rather than the
+entropy one, so two guards were being tested as if they were one. Every one of the eleven reported
+cases is predicted by the two thresholds.
+
+So the mechanism was working as designed and the design was wrong, which is the more useful finding.
+**Separators are the caller declaring the value structured.** `999 99 9999` has already said what it
+is; `000000` could be anything and still has to earn the scan by being long and varied. The floor
+now applies only to unpunctuated queries. Re-measured over the same 49 documents: scanning **36 more
+queries produced exactly the same 41 hits**, so the relaxation costs no precision — the original
+probe could not have caught this, because it generated candidates with a digit-run regex and so
+never asked what a *person* would type.
+
+**And absence is no longer an answer.** `residual_normalized` is always present: `[]` means the scan
+ran and found nothing, `null` means it did not run, and the `null` carries a warning saying why. The
+retest's own argument is the right one — a feature whose purpose is closing an *invisible* failure
+must not go quiet in a way that reads as reassurance, and a caller who sees a variant reported for
+one identifier and silence for the next will reasonably conclude the second is clean.
+
 **Not built: multi-query, and region clip.** Both are wanted and neither is a silent failure — see
 `PROGRESS.md` §Open follow-ups, including the interaction that makes multi-query less thin than it
 looks: overlapping terms produce overlapping boxes, and `_apply` counts box-hits per token, so two

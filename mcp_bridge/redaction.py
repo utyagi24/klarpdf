@@ -243,8 +243,21 @@ def _word_bounded(haystack: str, needle: str, start: int) -> bool:
 # Measured precision after both guards: **41 extra hits across the corpus, every one a real
 # variant** — including `526-\n5999`, an identifier broken by a line wrap, which no literal scan
 # can see at all.
-_MIN_NORMALISED_CHARS = 7   # shorter queries are where coincidence lives
-_MIN_DISTINCT_CHARS = 3     # …as are runs of one repeated character
+# **The floor applies to a query the caller wrote as a bare run, and not to one they punctuated.**
+# The first version applied it to every query and was wrong in a way the corpus could not show:
+# `999 99 9999`, `4444 5555` and `AB 12 CD` are obviously structured identifiers, and all three were
+# silently skipped — the first two for repeating a character, the third for being six characters
+# long (TC-007 retest). The probe missed it because it generated candidates from documents with a
+# digit-run regex, so it never asked what happens to a short or repetitive query that a *person*
+# typed with separators in it.
+#
+# Separators are the caller telling you this is a structured value. `000000` is a bare run and could
+# be anything, so it must earn the scan by being long and varied; `999 99 9999` has already said
+# what it is. Re-measured over the same 49 documents: scanning 36 more queries produced **exactly
+# the same 41 hits**, so the relaxation costs no precision at all.
+_MIN_NORMALISED_CHARS = 7   # a bare run this short is where coincidence lives…
+_MIN_DISTINCT_CHARS = 3     # …as is one that repeats a single character
+_MIN_STRUCTURED_CHARS = 4   # a punctuated query has declared itself; it only has to be non-trivial
 
 
 def _normalise(text: str, *, match_case: bool) -> tuple[str, list[int]]:
@@ -261,6 +274,22 @@ def _normalise(text: str, *, match_case: bool) -> tuple[str, list[int]]:
     return "".join(kept), index
 
 
+def _worth_scanning(query: str, *, match_case: bool) -> bool:
+    """Is ``query`` specific enough that a separator-insensitive match means something?
+
+    Two floors, because the two kinds of query carry different amounts of information. A query with
+    a separator in it — `999 99 9999`, `AB 12 CD` — has been *declared* a structured value by the
+    person who typed it, and only has to be non-trivial. A bare run like `000000` has declared
+    nothing, so it must be long and varied enough that finding it across a separator is unlikely to
+    be two unrelated numbers touching.
+    """
+    normalised, _ = _normalise(query, match_case=match_case)
+    if any(not char.isalnum() for char in query.strip()):
+        return len(normalised) >= _MIN_STRUCTURED_CHARS
+    return (len(normalised) >= _MIN_NORMALISED_CHARS
+            and len(set(normalised)) >= _MIN_DISTINCT_CHARS)
+
+
 def _variant_residuals(text: str, query: str, *, match_case: bool) -> list[str]:
     """Spellings of ``query`` still in ``text`` that differ from it only in separators.
 
@@ -268,9 +297,9 @@ def _variant_residuals(text: str, query: str, *, match_case: bool) -> list[str]:
     ``'6073474692031'`` next to a query of ``'607347469 203 1'`` is self-evidently the same policy
     number, and that judgement is theirs to make rather than the tool's to guess.
     """
-    needle, _ = _normalise(query, match_case=match_case)
-    if len(needle) < _MIN_NORMALISED_CHARS or len(set(needle)) < _MIN_DISTINCT_CHARS:
+    if not _worth_scanning(query, match_case=match_case):
         return []
+    needle, _ = _normalise(query, match_case=match_case)
     flat, index = _normalise(text, match_case=match_case)
     found: list[str] = []
     start = flat.find(needle)
@@ -440,7 +469,22 @@ def _no_residual_match(
 
     # The variant scan reads one engine's extraction, not both: it is advisory, and reporting the
     # same spelling twice because two extractors saw it would be noise dressed as thoroughness.
+    #
+    # **`[]` and absence are different answers, and the key is always present to keep them apart.**
+    # A scan that ran and found nothing is reassurance; a scan that never ran is not, and if both
+    # are spelled by omitting the field then the caller reads the second as the first — which is
+    # precisely the invisible failure this feature exists to close (TC-007 retest). So: a list means
+    # it looked, `null` means it did not, and the `null` says why.
     variants: dict[str, list[int]] = {}
+    if not _worth_scanning(query, match_case=match_case):
+        report["residual_normalized"] = None
+        report.setdefault("warnings", []).append(
+            f"{query!r} was NOT scanned for separator variants — it is a short unpunctuated run, "
+            "where matching across separators finds coincidence rather than spellings (digits from "
+            "two neighbouring numbers, say). Nothing here says the file is free of variants; it "
+            "says this query cannot be checked for them. Check by hand if it is an identifier."
+        )
+        return report
     for engine, page1, text in extracted:
         if engine != "PyMuPDF":
             continue
@@ -448,11 +492,11 @@ def _no_residual_match(
             pages = variants.setdefault(written, [])
             if page1 not in pages:
                 pages.append(page1)
+    report["residual_normalized"] = [
+        {"as_written": written, "pages": sorted(pages), "count": len(pages)}
+        for written, pages in variants.items()
+    ]
     if variants:
-        report["residual_normalized"] = [
-            {"as_written": written, "pages": sorted(pages), "count": len(pages)}
-            for written, pages in variants.items()
-        ]
         listed = "; ".join(f"{w!r} on page(s) {sorted(p)}" for w, p in list(variants.items())[:4])
         report.setdefault("warnings", []).append(
             f"the characters of {query!r} also appear written differently and are still in the "
