@@ -546,8 +546,21 @@ def create_server(config: Config | None = None) -> MCPServer:
           automatically a leak — redacting whole-word "Smith" leaves "Smithsonian" and says so — but
           if a named survivor is the value you meant to remove, re-run with `whole_words: false`.
           This is the check that catches the matcher being wrong, so it is the one worth reading.
+        * `residual_normalized` names spellings of the query still in the file that differ from it
+          **only in separators** — `6073474692031` against a query of `607347469 203 1`, or
+          `08/24/1970` against `08-24-1970`, or a number broken by a line wrap. Nothing was deleted
+          for these: whether two spellings are one value is a fact about the document that only you
+          have. If they are, redact those forms too. **An empty list and `null` are different
+          answers**: `[]` means the scan ran and found none, `null` means it did not run — a short
+          unpunctuated query like `000000` cannot be checked this way, because matching it across
+          separators finds coincidence rather than spellings. A `null` says so in `warnings`, and
+          means "unchecked", never "clean".
         * `invisible_matches` counts removals that were never visible on the page. They are gone,
           but their presence means this document hides data where a reader cannot see it.
+        * `query_terms` breaks the match count down per term when `whole_words` is off and the
+          query has several words. If one term did most of the deleting and the phrase itself is
+          rare, `warnings` says so — that is the **over-redaction** signal, and it is the only one
+          you get, because destroyed content leaves no trace in the output to check afterwards.
 
         The guarantee covers the **text layer**. Text that is part of a scanned image has no text to
         verify; `verified_text` will be empty and `cross_engine_verified` tells you whether the

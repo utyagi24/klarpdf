@@ -187,3 +187,20 @@ That case is why the reply carries two fields worth reading rather than just a s
   transparent, painted over). They are gone, but they tell you this document stores data where no
   reader, and no before/after render comparison, would ever find it. `search` flags the same thing
   per hit as `invisible`.
+- **`residual_normalized`** — spellings still in the file that differ from the query **only in
+  separators**: `6073474692031` against `607347469 203 1`, `08/24/1970` against `08-24-1970`, or an
+  identifier broken by a line wrap. A literal scan sees none of these, so redacting one form used to
+  report the file clean while the other stayed in it. Nothing is deleted for a variant — whether two
+  spellings are one value is a fact about the document that only you have.
+  **`[]` and `null` mean different things.** `[]` is "the scan ran and found nothing"; `null` is
+  "the scan did not run", which happens for a short unpunctuated query like `000000`, where matching
+  across separators finds coincidence rather than spellings. `null` comes with a warning saying so,
+  because a feature that exists to close an invisible failure must not go quiet in a way that reads
+  as reassurance. A query you punctuated — `999 99 9999`, `AB 12 CD` — is always scanned: the
+  separators are you saying it is a structured value.
+- **`query_terms`** — the per-term match breakdown when `whole_words` is off and the query has
+  several words, with a warning when one term did most of the deleting and the phrase itself is
+  rare. This is the **over-redaction** counterweight: everything else here proves the query is
+  *gone*, and all of it is silent when a query removed far more than you meant. It is also the only
+  warning you get, because destroyed content leaves no trace in the output — the only record it was
+  ever there is the input, which is never modified.

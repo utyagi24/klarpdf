@@ -217,6 +217,104 @@ def _word_bounded(haystack: str, needle: str, start: int) -> bool:
     return not any(ch.isalnum() or ch == "_" for ch in outside)
 
 
+# An identifier written two ways is still one identifier. `607347469 203 1` and `6073474692031`
+# are the same policy number, `08-24-1970` and `08/24/1970` the same date, and a literal scan sees
+# neither in the other — so a caller who redacts one form is told the file is clean while the other
+# form is still in it (TC-007). Dropping every non-alphanumeric character collapses the whole family
+# in one pass: separator *substitution* and separator *removal* normalise identically.
+#
+# **This reports; it never matches and never deletes.** Whitespace-insensitive *matching* in a
+# destructive tool would be dangerous — `12345` would start matching across table columns — and the
+# decision that two spellings denote one value is document semantics only the caller has. So the
+# scan runs after the write, on the output, and its entire output is a sentence.
+#
+# Two guards, both set by measurement over 49 documents and 270 identifier-shaped queries rather
+# than by taste (probe recorded in PLAN.md §M98):
+#
+# * **A floor on the query.** Without it `000000` matched across `708.000 0.00` — digits from two
+#   unrelated numbers, welded by dropping the separators. Every false positive in the corpus came
+#   from a query like that, and none survived the floor.
+# * **A boundary test on the *original* text, not the normalised stream.** TC-007 proposed
+#   "the match must not sit inside a longer alphanumeric run", which is vacuous once applied to the
+#   normalised form: stripping separators makes the whole stream alphanumeric, so every interior
+#   match is inside a longer run. It has to be read against the source, which needs the offset map
+#   below. Measured effect: 9 of 53 candidate hits suppressed.
+#
+# Measured precision after both guards: **41 extra hits across the corpus, every one a real
+# variant** — including `526-\n5999`, an identifier broken by a line wrap, which no literal scan
+# can see at all.
+# **The floor applies to a query the caller wrote as a bare run, and not to one they punctuated.**
+# The first version applied it to every query and was wrong in a way the corpus could not show:
+# `999 99 9999`, `4444 5555` and `AB 12 CD` are obviously structured identifiers, and all three were
+# silently skipped — the first two for repeating a character, the third for being six characters
+# long (TC-007 retest). The probe missed it because it generated candidates from documents with a
+# digit-run regex, so it never asked what happens to a short or repetitive query that a *person*
+# typed with separators in it.
+#
+# Separators are the caller telling you this is a structured value. `000000` is a bare run and could
+# be anything, so it must earn the scan by being long and varied; `999 99 9999` has already said
+# what it is. Re-measured over the same 49 documents: scanning 36 more queries produced **exactly
+# the same 41 hits**, so the relaxation costs no precision at all.
+_MIN_NORMALISED_CHARS = 7   # a bare run this short is where coincidence lives…
+_MIN_DISTINCT_CHARS = 3     # …as is one that repeats a single character
+_MIN_STRUCTURED_CHARS = 4   # a punctuated query has declared itself; it only has to be non-trivial
+
+
+def _normalise(text: str, *, match_case: bool) -> tuple[str, list[int]]:
+    """``text`` reduced to its alphanumerics, plus each kept character's index in the original.
+
+    The index map is what makes the boundary test possible: a hit is found in the normalised
+    stream and judged in the source, which is the only place the separators still exist.
+    """
+    kept, index = [], []
+    for i, ch in enumerate(text):
+        if ch.isalnum():
+            kept.append(ch if match_case else ch.casefold())
+            index.append(i)
+    return "".join(kept), index
+
+
+def _worth_scanning(query: str, *, match_case: bool) -> bool:
+    """Is ``query`` specific enough that a separator-insensitive match means something?
+
+    Two floors, because the two kinds of query carry different amounts of information. A query with
+    a separator in it — `999 99 9999`, `AB 12 CD` — has been *declared* a structured value by the
+    person who typed it, and only has to be non-trivial. A bare run like `000000` has declared
+    nothing, so it must be long and varied enough that finding it across a separator is unlikely to
+    be two unrelated numbers touching.
+    """
+    normalised, _ = _normalise(query, match_case=match_case)
+    if any(not char.isalnum() for char in query.strip()):
+        return len(normalised) >= _MIN_STRUCTURED_CHARS
+    return (len(normalised) >= _MIN_NORMALISED_CHARS
+            and len(set(normalised)) >= _MIN_DISTINCT_CHARS)
+
+
+def _variant_residuals(text: str, query: str, *, match_case: bool) -> list[str]:
+    """Spellings of ``query`` still in ``text`` that differ from it only in separators.
+
+    Returns each survivor **as the document writes it**, which is the part a caller can act on:
+    ``'6073474692031'`` next to a query of ``'607347469 203 1'`` is self-evidently the same policy
+    number, and that judgement is theirs to make rather than the tool's to guess.
+    """
+    if not _worth_scanning(query, match_case=match_case):
+        return []
+    needle, _ = _normalise(query, match_case=match_case)
+    flat, index = _normalise(text, match_case=match_case)
+    found: list[str] = []
+    start = flat.find(needle)
+    while start != -1:
+        first, last = index[start], index[start + len(needle) - 1]
+        before = text[first - 1] if first else ""
+        after = text[last + 1] if last + 1 < len(text) else ""
+        if not before.isalnum() and not after.isalnum():
+            written = " ".join(text[first:last + 1].split())
+            if written != " ".join(query.split()) and written not in found:
+                found.append(written)   # only the spellings that are NOT the query itself
+        start = flat.find(needle, start + 1)
+    return found
+
+
 def _literal_residuals(text: str, query: str, *, match_case: bool) -> list[str]:
     """The whitespace-delimited tokens of ``text`` that still contain ``query`` **literally**.
 
@@ -368,6 +466,45 @@ def _no_residual_match(
                 "meant to survive. Check each one before sending the file on."
             )
         ]
+
+    # The variant scan reads one engine's extraction, not both: it is advisory, and reporting the
+    # same spelling twice because two extractors saw it would be noise dressed as thoroughness.
+    #
+    # **`[]` and absence are different answers, and the key is always present to keep them apart.**
+    # A scan that ran and found nothing is reassurance; a scan that never ran is not, and if both
+    # are spelled by omitting the field then the caller reads the second as the first — which is
+    # precisely the invisible failure this feature exists to close (TC-007 retest). So: a list means
+    # it looked, `null` means it did not, and the `null` says why.
+    variants: dict[str, list[int]] = {}
+    if not _worth_scanning(query, match_case=match_case):
+        report["residual_normalized"] = None
+        report.setdefault("warnings", []).append(
+            f"{query!r} was NOT scanned for separator variants — it is a short unpunctuated run, "
+            "where matching across separators finds coincidence rather than spellings (digits from "
+            "two neighbouring numbers, say). Nothing here says the file is free of variants; it "
+            "says this query cannot be checked for them. Check by hand if it is an identifier."
+        )
+        return report
+    for engine, page1, text in extracted:
+        if engine != "PyMuPDF":
+            continue
+        for written in _variant_residuals(text, query, match_case=match_case):
+            pages = variants.setdefault(written, [])
+            if page1 not in pages:
+                pages.append(page1)
+    report["residual_normalized"] = [
+        {"as_written": written, "pages": sorted(pages), "count": len(pages)}
+        for written, pages in variants.items()
+    ]
+    if variants:
+        listed = "; ".join(f"{w!r} on page(s) {sorted(p)}" for w, p in list(variants.items())[:4])
+        report.setdefault("warnings", []).append(
+            f"the characters of {query!r} also appear written differently and are still in the "
+            f"file: {listed}. They differ only in spacing or punctuation, so if that is the same "
+            "value, redact those spellings too — nothing here was deleted. This is a report, not a "
+            "match: whether two spellings mean one thing is a fact about the document, and only "
+            "you have it."
+        )
     return report
 
 
@@ -566,6 +703,8 @@ def redact_text(
         scope = resolve_pages(vdoc, pages)
         per_page: dict[int, list[tuple]] = {}
         invisible: dict[int, list[str]] = {}
+        per_term_matches: dict[str, int] = {}
+        phrase_matches = 0
         matches = 0
         for index0 in scope:
             ref = vdoc.ordered[index0]
@@ -577,6 +716,12 @@ def redact_text(
             text = PageText(page)
             seen: set = set()
             page_invisible = invisible.setdefault(index0 + 1, [])
+            if len(terms) > 1 and not whole_words:
+                # What the caller would have got had they meant the phrase. Costs one extra
+                # `search_for` on pages that already matched, and it is the number that makes an
+                # over-redaction legible — see `_term_report`.
+                phrase_boxes = [(r.x0, r.y0, r.x1, r.y1) for r in page.search_for(query)]
+                phrase_matches += len(text.group_matches(phrase_boxes, query))
             for term, term_boxes in per_term:
                 # Grouped, so a match wrapping a line break is one occurrence — and **every** box
                 # it occupies is redacted. Clearing only the first is what left the tail of the
@@ -592,6 +737,7 @@ def redact_text(
                         continue
                     per_page.setdefault(index0, []).extend(boxes)
                     matches += 1
+                    per_term_matches[term] = per_term_matches.get(term, 0) + 1
                     if any(text.is_invisible(box) for box in boxes):
                         page_invisible.append(text.snippet_for(boxes))
         if not per_page:
@@ -619,7 +765,57 @@ def redact_text(
             boxes_redacted=sum(len(boxes) for boxes in per_page.values()),
             pages_redacted=sorted(expectations),
             **_invisible_report(invisible),
+            **_term_report(terms, per_term_matches, phrase_matches,
+                           whole_words=whole_words),
         )
+
+
+# How many times over the word-list reading has to out-delete the phrase before it is worth saying
+# so. The comparison is the signal, not any one term's share: **share alone is a bad test**, because
+# an ordinary two-word query whose second word is simply commoner ("John Smith", if Smith appears
+# three times as often) reaches any share threshold without anything being wrong. Asking instead
+# "how much more did this remove than the phrase you appear to have typed?" answers the actual
+# question, and it stays quiet in the two cases that must not warn: a query whose phrase never
+# occurs is a deliberate word list, and a query whose phrase accounts for most of the hits is
+# behaving as the caller expects. TC-007 removed 240 where its phrase occurs 9 times — 26x.
+_OVER_REDACTION_FACTOR = 3
+
+
+def _term_report(
+    terms: list[str], counts: dict[str, int], phrase_matches: int, *, whole_words: bool
+) -> dict:
+    """Per-term match counts, and a warning when the word-list split did most of the deleting.
+
+    **The counterweight to over-redaction**, which had none. Everything else here guards the
+    opposite failure: `residual_matches` and `residual_literal` prove the query is *gone*, and both
+    are silent when a query removed far more than the caller meant. TC-007 hit exactly that — the
+    default word-list mode split `607347469 203 1` into three terms, of which `1` matched every
+    standalone digit in a 22-page document, and the call reported 240 boxes redacted with zero
+    residuals, cross-engine verified, and nothing else to say.
+
+    The asymmetry is worth naming because it is structural, not an oversight: a missed occurrence
+    survives in the output and can be looked for, so it is checkable after the fact. Destroyed
+    content leaves no trace in the output at all — the only record that it was ever there is the
+    source, which this tool never touches. So the moment of the write is the only moment the
+    warning can be given, and the numbers to give it with are already in hand.
+    """
+    if len(terms) < 2 or not counts:
+        return {}
+    total = sum(counts.values())
+    report = {
+        "query_terms": [{"term": term, "matches": counts.get(term, 0)} for term in terms],
+    }
+    if not whole_words and phrase_matches and total >= phrase_matches * _OVER_REDACTION_FACTOR:
+        top, top_count = max(counts.items(), key=lambda kv: kv[1])
+        report["warnings"] = [
+            f"`whole_words` was not set, so this query was read as {len(terms)} separate words and "
+            f"each was redacted wherever it appeared: {total} occurrences in all, {top_count} of "
+            f"them from the single term {top!r}. The phrase {' '.join(terms)!r} itself occurs only "
+            f"{phrase_matches} time(s), so this removed roughly {total // max(phrase_matches, 1)}x "
+            "more than the phrase you appear to have meant. Re-run with `whole_words: true` if so "
+            "— the input is untouched, so this output can simply be discarded."
+        ]
+    return report
 
 
 def _invisible_report(invisible: dict[int, list[str]]) -> dict:
