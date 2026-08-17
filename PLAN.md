@@ -3064,6 +3064,72 @@ area to search those strings or use `redact_text`. Zero runtime cost, no noise, 
 occurrences it had no reason to look for**; the harness that produced TC-001–TC-005 is exactly what
 would surface that, and the feature stays cheap to add.
 
+### M98 *(unplanned)* — the two silent failures redaction had no counterweight for (TC-007, 2026-08-16)
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M98** `redact_text` reports separator-variant spellings it left behind, and over-redaction by a split query | `_variant_residuals` scans the output for the query's alphanumerics ignoring separators and reports each surviving **spelling**; `_term_report` breaks the count down per term and compares it against what the phrase alone would have matched | WSL | The unspaced policy number is named; a line-wrapped identifier is named; a degenerate query scans nothing; a deliberate word list is not warned about |
+
+TC-007 found **no defects** — the delivery was correct with zero residuals. It found two failure
+modes the tool is silent about, and both are silent in the direction that matters.
+
+**Variants: the same value written two ways.** `607347469 203 1` and `6073474692031` are one policy
+number; a literal scan sees neither in the other, so redacting one form reported the file clean
+while the other was still in it. Dropping every non-alphanumeric character collapses the whole
+family at once — separator *substitution* and separator *removal* normalise identically, so
+`08-24-1970` / `08/24/1970` and `999 99 9999` / `999-99-9999` come along for free.
+
+**Reported, never matched.** Whitespace-insensitive *matching* in a destructive tool would be
+dangerous (`12345` would begin matching across table columns) and the judgement that two spellings
+denote one value is document semantics the caller owns. So the scan runs after the write, on the
+output, and its whole output is a sentence. This is the same move as `residual_literal` (M95): change
+no matching behaviour, report what the matcher cannot see.
+
+**Both guards were set by measurement, not taste** — 49 documents, 270 identifier-shaped queries
+drawn from the documents themselves:
+
+| | |
+|---|---|
+| queries that would warn | **12 of 220** (5%) — not the every-call noise the report feared |
+| extra hits reported | **41**, and on inspection **every one a real variant** |
+| false positives before the query floor | all of them from degenerate queries — `000000` matching across `708.000 0.00`, digits welded from two unrelated numbers |
+| effect of the boundary rule | 9 of 53 candidate hits suppressed |
+
+Two design corrections came out of that measurement:
+
+* **The boundary test must read the *source*, not the normalised stream.** TC-007 proposed requiring
+  that a match "not sit inside a longer alphanumeric run", which is vacuous once applied to the
+  normalised form: stripping separators makes the whole stream alphanumeric, so *every* interior
+  match is inside a longer run. It has to be judged against the original text, which is why
+  :func:`_normalise` returns an offset map alongside the stripped string.
+* **A floor on the query is load-bearing**, and it is what makes the precision above hold: seven
+  normalised characters and three distinct ones. Every false positive in the corpus was a query
+  below it.
+
+The measurement also turned up a leak class **nobody had identified** — neither the report nor the
+plan for it. An identifier broken by a line wrap (`526-\n5999`) is invisible to any literal check,
+because the newline is a character the query does not contain. The variant scan sees it for free.
+
+**Over-redaction, the failure with no check at all.** The default word-list mode split
+`607347469 203 1` into three terms, one of them `1`, and destroyed every standalone digit in a
+22-page document — reporting 240 boxes redacted, zero residuals, cross-engine verified, and nothing
+else. The asymmetry is structural rather than an oversight: a missed occurrence survives in the
+output and can be searched for, so it is checkable after the fact, while destroyed content leaves no
+trace in the output at all. The only record it was ever there is the input, which this tool never
+modifies — so the moment of the write is the only moment the warning can be given.
+
+**The signal is a comparison, not a share.** "One term dominates" is a bad test: an ordinary
+two-word query whose second word is simply commoner reaches any share threshold with nothing wrong.
+Asking instead *how much more did this remove than the phrase you appear to have typed* answers the
+real question and stays quiet in the two cases that must not warn — a query whose phrase never
+occurs is a deliberate word list, and one whose phrase accounts for most of the hits is behaving as
+expected. TC-007 removed 240 against a phrase occurring 9 times.
+
+**Not built: multi-query, and region clip.** Both are wanted and neither is a silent failure — see
+`PROGRESS.md` §Open follow-ups, including the interaction that makes multi-query less thin than it
+looks: overlapping terms produce overlapping boxes, and `_apply` counts box-hits per token, so two
+boxes covering one token drive the budget negative and trip M97's impossible-budget path.
+
 ## Future enhancements (deferred beyond the roadmap)
 
 Captured but not yet scheduled:

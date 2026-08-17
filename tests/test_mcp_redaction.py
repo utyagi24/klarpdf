@@ -755,3 +755,119 @@ def test_an_impossible_budget_is_reported_as_such_not_as_a_contradiction(monkeyp
     ordinary = _shortfall(1, "SECRET", "/tmp/x.pdf", found=2, allowed=1,
                           before=3, covered=2, engine="PyMuPDF")
     assert "still appears 2 time(s)" in ordinary and "at most 1 expected" in ordinary
+
+
+# ---- M98 / TC-007: the two silent failures redaction had no counterweight for ------------------
+
+
+@pytest.fixture
+def policy_pdf(tmp_path) -> str:
+    """A policy number written two ways, plus a page full of standalone digits — the two halves of
+    TC-007 in one document."""
+    path = str(tmp_path / "policy.pdf")
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((60, 90), "Policy Number: 607347469 203 1", fontsize=10)
+    page.insert_text((60, 110), "Reference 6073474692031 on file", fontsize=10)
+    page.insert_text((60, 130), "item 1 of 1, line 1, note 1, page 1", fontsize=10)
+    page.insert_text((60, 150), "row 1 col 1 total 1 sum 1 count 1", fontsize=10)
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def test_a_variant_spelling_left_in_the_file_is_reported(policy_pdf, out):
+    """TC-007 FINDING 2. `607347469 203 1` and `6073474692031` are one policy number written two
+    ways, and a literal scan sees neither in the other — so redacting one form reported the file
+    clean while the other was still in it. Nothing is deleted here: the tool reports the spelling
+    and the caller decides, because whether two spellings mean one value is a fact about the
+    document."""
+    result = redaction.redact_text(policy_pdf, "607347469 203 1", out, whole_words=True)
+
+    assert result["residual_literal"] == 0            # the literal scan is genuinely blind to it
+    assert result["residual_normalized"] == [
+        {"as_written": "6073474692031", "pages": [1], "count": 1}
+    ]
+    assert "written differently" in "\n".join(result["warnings"])
+
+
+def test_an_identifier_broken_by_a_line_wrap_is_reported(tmp_path, out):
+    """Found while measuring the corpus rather than in the report: a number split across a line
+    break (`526-\\n5999`) is invisible to every literal check, because the newline is a character
+    the query does not have. Normalising separators is what makes it visible."""
+    path = str(tmp_path / "wrapped.pdf")
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((60, 90), "Call 526-5999 for support", fontsize=10)
+    page.insert_text((60, 130), "or dial 526-", fontsize=10)
+    page.insert_text((60, 145), "5999 after hours", fontsize=10)
+    doc.save(path)
+    doc.close()
+
+    result = redaction.redact_text(path, "526-5999", out, whole_words=True)
+    assert result["residual_normalized"], "the wrapped copy was not reported"
+
+
+def test_no_variant_no_report(secret_pdf, out):
+    """The quiet case stays quiet, or the noisy one stops being read."""
+    result = redaction.redact_text(secret_pdf, SECRET, out)
+    assert "residual_normalized" not in result
+
+
+@pytest.mark.parametrize("query", ["1 2", "000000", "CA 1"])
+def test_a_short_or_degenerate_query_never_triggers_a_variant_scan(tmp_path, out, query):
+    """The floor is set by measurement, not taste: over 49 documents every false positive came from
+    a query like these — `000000` matched across `708.000 0.00`, digits welded from two unrelated
+    numbers. Nothing below the floor is scanned."""
+    from mcp_bridge.redaction import _variant_residuals
+
+    assert _variant_residuals("708.000 0.00 and 1-2 and CA-1", query, match_case=False) == []
+
+
+def test_the_boundary_test_reads_the_source_not_the_normalised_stream():
+    """TC-007 proposed requiring that the match "not sit inside a longer alphanumeric run", which
+    is vacuous applied to the normalised form — stripping separators makes the whole stream
+    alphanumeric, so every interior match is inside a longer run. Judged against the source, a
+    query embedded in a longer identifier is correctly not a variant."""
+    from mcp_bridge.redaction import _variant_residuals
+
+    assert _variant_residuals("ref 1234567 here", "123-4567", match_case=False) == ["1234567"]
+    assert _variant_residuals("ref 99123456789 here", "123-4567", match_case=False) == []
+
+
+def test_over_redaction_is_reported_against_the_phrase_the_caller_meant(policy_pdf, out):
+    """TC-007 FINDING 1. Default mode is a word list, so this query became three words — one of
+    them `1` — and every standalone digit in the document was destroyed while the call reported
+    zero residuals and cross-engine verification. Under-redaction had two checks; over-redaction
+    had none, and it is the harder one to notice: a missed occurrence survives in the output and
+    can be looked for, while destroyed content leaves no trace there at all."""
+    result = redaction.redact_text(policy_pdf, "607347469 203 1", out)
+
+    assert result["matches"] > 10
+    terms = {entry["term"]: entry["matches"] for entry in result["query_terms"]}
+    assert terms["1"] > terms["607347469"]
+    warning = "\n".join(result["warnings"])
+    assert "whole_words" in warning and "more than the phrase" in warning
+
+
+def test_a_deliberate_word_list_is_not_warned_about(tmp_path, out):
+    """The signal is "did you mean the phrase?", not "is one term commoner?" — share alone would
+    fire on any two-word query whose second word happens to be more frequent. A query whose phrase
+    never occurs is unambiguously a word list, and must stay quiet."""
+    path = str(tmp_path / "names.pdf")
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((60, 90), "Smith reported and Jones agreed", fontsize=10)
+    page.insert_text((60, 110), "Smith again, and Smith once more", fontsize=10)
+    doc.save(path)
+    doc.close()
+
+    result = redaction.redact_text(path, "Smith Jones", out)
+    assert result["matches"] == 4                       # it did redact both words everywhere…
+    assert "warnings" not in result                     # …and that is what was asked for
+
+
+def test_phrase_mode_is_never_warned_about_for_over_redaction(policy_pdf, out):
+    result = redaction.redact_text(policy_pdf, "607347469 203 1", out, whole_words=True)
+    assert "query_terms" not in result                  # one term; nothing was split
+    assert not any("whole_words` was not set" in w for w in result.get("warnings", []))

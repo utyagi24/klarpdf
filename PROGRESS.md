@@ -2147,6 +2147,39 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   decode work, so A/B/F reduce how often we pay it but only E stops the freeze. Now a scheduling
   question, not a justification one.
 
+- [x] **M98** *(unplanned)* **Redaction reports the two things it used to be silent about.** From
+  TC-007 (2026-08-16), which found **no defects** — the delivery was correct with zero residuals —
+  but two failure modes the tool says nothing about, both silent in the direction that matters.
+  Design in `PLAN.md` §M98 — *WSL*
+  - **Separator variants** (`residual_normalized`). `607347469 203 1` and `6073474692031` are one
+    policy number; a literal scan sees neither in the other, so redacting one form reported the file
+    clean while the other stayed in it. Dropping every non-alphanumeric character collapses the
+    whole family — dates, SSNs and phone numbers come along free. **Reported, never matched**:
+    whitespace-insensitive *matching* in a destructive tool would start matching across table
+    columns, and whether two spellings are one value is the caller's fact. Same move as M95's
+    `residual_literal`.
+  - **Both guards were measured, not guessed** — 49 documents, 270 identifier-shaped queries: it
+    fires on **5% of calls**, produced **41 extra hits, every one a real variant**, and every false
+    positive found came from a degenerate query (`000000` matching across `708.000 0.00`). Hence a
+    floor of 7 normalised characters and 3 distinct ones. The report's boundary rule also needed
+    correcting: "must not sit inside a longer alphanumeric run" is vacuous on the normalised stream,
+    where *everything* is alphanumeric — it has to be read against the source, via an offset map.
+  - **A leak class nobody had named**: an identifier broken by a line wrap (`526-\n5999`) is
+    invisible to any literal check, because the newline is a character the query does not have. Found
+    while measuring the corpus; the variant scan catches it for free.
+  - **Over-redaction** (`query_terms`). The default word-list mode split `607347469 203 1` into three
+    terms — one of them `1` — and destroyed every standalone digit in a 22-page document, reporting
+    240 boxes, zero residuals, cross-engine verified, nothing else. The asymmetry is structural: a
+    missed occurrence survives in the output and can be looked for; destroyed content leaves no trace
+    there at all, and the only record is the input, which is never modified. So the write is the only
+    moment a warning can be given.
+  - **The signal is a comparison, not a share.** "One term dominates" would fire on any two-word
+    query whose second word is commoner. Comparing against what the *phrase* would have matched
+    answers the real question and stays quiet on a deliberate word list (phrase never occurs) and on
+    a query behaving as expected. TC-007: 240 removed against a phrase occurring 9 times.
+  - **Not built: multi-query and region clip** — both wanted, neither a silent failure, both carried
+    below with the overlap hazard that makes multi-query less thin than it looks.
+
 - [x] **M97** *(unplanned)* **A region redaction may cover more than one line.** From TC-005
   (2026-08-16): a single `box` spanning two or more text lines **always** failed and deleted its own
   correct output, on exactly the case the tool's docs recommend region redaction for — a signature
@@ -2557,6 +2590,27 @@ tree or history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI 
 ## Open follow-ups (carried)
 
 Carried items — none block work:
+
+- **`redact_text` takes one query per call (TC-007).** Six identifiers meant four chained calls and
+  three intermediate files, *each holding a partially-redacted copy with live PII in it* — that
+  sprawl is the real argument, above the ergonomics. A `queries: [...]` form would also remove an
+  ordering hazard the reporter hit: terms must currently be removed longest-first or the shorter one
+  leaves fragments behind, while one pass matches every term against the original text at once.
+  **It is not a thin wrapper, and the reason is M97's.** Overlapping terms produce overlapping
+  boxes, and `_apply` counts *box-hits* per token: two boxes covering `607347469` give `covered=2`
+  against `before=1`, so the budget goes to −1 and trips the impossible-budget path M97 added.
+  Needs boxes deduplicated, or coverage counted per occurrence rather than per box, before the
+  feature is safe. Ranked below the variant scan (M98) by the reporter's own test: multi-query
+  without variant reporting is *"a faster way to be confidently wrong."*
+
+- **No region clip on `render_page` / `export_images` (TC-007).** "Extract this ID card as a PNG"
+  cannot be completed inside the server — both tools render whole pages, so the page came out at
+  200 dpi and was cropped outside the MCP. A `clip` box in the same page-point space everything else
+  uses (`render_page {page: 3, clip: [396, 105, 792, 355]}`) would close it; boxes are already the
+  server's native currency, since `search` hands them back and `redact_regions` consumes them.
+  `render_page` is a one-parameter change (`get_pixmap(clip=…)`); `export_images` needs it threaded
+  through `model/export.py:export_page_images`. **Second time a testcase has wanted region→image**
+  (TC-003's highlight request was the first), which is the argument for doing it.
 
 - ~~**TC-002 — three MCP-side defects still open**~~ — **closed 2026-08-15 by M94** (see the
   milestone above). From the second hands-on session (2026-08-13, report at
