@@ -328,14 +328,42 @@ class PageText:
                                                 max(c[3] for c in chars), chars))
         return self._chars
 
+    def _lines_under(self, box: tuple) -> list[list]:
+        """The characters under ``box``, **grouped by the text line they sit on**, in reading order.
+
+        The grouping is the whole point: a box tall enough to cover two lines covers the end of one
+        and the start of the next, and those are not adjacent text. Flattening them first is what
+        made :meth:`text_under` report ``'TYAGI1703'`` for a mailing block (M97 / TC-005).
+        """
+        x0, y0, x1, y1 = box
+        found: list[list] = []
+        for _ly0, _ly1, chars in self._band(self._char_lines(), box):
+            inside = [c for c in chars
+                      if x0 <= (c[0] + c[2]) / 2 <= x1 and y0 <= (c[1] + c[3]) / 2 <= y1]
+            if inside:
+                found.append(inside)
+        return found
+
     def _chars_under(self, box: tuple) -> list:
         """The character entries whose centres fall inside ``box``, in reading order. Empty for a
         words-only :class:`PageText`, which has no page to take characters from."""
-        x0, y0, x1, y1 = box
-        return [c for _ly0, _ly1, chars in self._band(self._char_lines(), box) for c in chars
-                if x0 <= (c[0] + c[2]) / 2 <= x1 and y0 <= (c[1] + c[3]) / 2 <= y1]
+        return [c for line in self._lines_under(box) for c in line]
 
     def text_under(self, box: tuple) -> str:
         """The text actually under ``box`` — every character whose centre falls inside it, in
-        reading order. See the module docstring for why this is not ``page.get_textbox(box)``."""
-        return "".join(c[4] for c in self._chars_under(box))
+        reading order. See the module docstring for why this is not ``page.get_textbox(box)``.
+
+        **Lines are separated, not concatenated.** A box covering two lines ends one and begins the
+        next, and joining them edge to edge invents a word that is in no document: the mailing block
+
+            UMESH TYAGI
+            1703 PORCELLANO WAY
+
+        read back as ``'UMESH TYAGI1703 PORCELLANO WAY'``, whose tokens include ``TYAGI1703``.
+        Nothing downstream could find that string, because it does not exist — which is how a
+        correct region redaction came to fail its own verification and delete its output (M97 /
+        TC-005). Callers that split on whitespace get the two words they should always have had;
+        callers comparing against a single line are unaffected, because a single line gains no
+        separator.
+        """
+        return "\n".join("".join(c[4] for c in line) for line in self._lines_under(box))

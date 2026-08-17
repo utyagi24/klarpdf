@@ -2998,6 +2998,72 @@ predicate separate from the matcher's. `redact_regions` has no query and therefo
 with the matcher fixed the upstream under-count is gone, but the asymmetry is real and stated in its
 tool docs.
 
+### M97 *(unplanned)* — a region box may cover more than one line (TC-005, owner-reported 2026-08-16)
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M97** `redact_regions` stops failing, and deleting its own correct output, whenever a single `box` spans two or more text lines | `PageText.text_under` separates lines instead of concatenating them; the verification's shortfall message reports the real budget instead of clamping it | WSL | A 1-, 2- and 3-line region all succeed; one tall box and one box per line produce identical `verified_text`; a single-line box gains no separator |
+
+**The defect.** A single `box` covering one text line worked; the same box extended to touch a
+second always failed, deleted its output, and reported:
+
+```
+page 1: 'TYAGI1703' still appears 0 time(s) … (at most 0 expected after redaction) — PyMuPDF
+```
+
+`TYAGI1703` is the tail of `UMESH TYAGI` welded to the head of `1703 PORCELLANO WAY`. The threshold
+was exactly one line, and the case it broke is the one the tool's own docs recommend region
+redaction for: *"a signature block, a letterhead, a photo, a table cell."*
+
+**The cause is one `join`.** `text_under` answered with `"".join(...)` over every character whose
+centre fell in the box — correct within a line, and a fabrication across two, because the end of one
+line is not adjacent to the start of the next. `_tokens_under` then split that on whitespace and
+produced a token the document never contained, so the budget was
+`occurrences_in_source(0) − boxes_covering_it(1) = −1`, and `found(0) > −1` failed a check no output
+could ever pass.
+
+**Two things the report got wrong, both worth recording because each points at a different fix.**
+
+* It read the message as self-contradictory — *"reports `0 ≤ 0`, which is satisfied, and fails
+  anyway"* — and concluded that **either** fix alone would resolve the symptom. The comparison was
+  never `0 ≤ 0`: the budget was −1 and the arithmetic was right. The message printed
+  `max(allowed, 0)`, which renders an impossible budget as a satisfied one. Fixing only the message
+  would print *"at most −1 expected"* and still fail. It is fixed here anyway, because a message
+  that hides the real fault one layer down is what cost the reporter the time.
+* Its "cheapest correct framing" — *treat a single `box` as `boxes: [box]` internally* — is a
+  **no-op**. `_apply` already processes one box at a time; the plural form works because each
+  rectangle happens to be a single line, not because it is plural. Routing a tall box through it
+  produces the identical welded token.
+
+**Blast radius, checked rather than assumed:** every other `text_under` caller passes a single-line
+box. The annotations panel reads one rect per line bar, and `matches_case` / `group_matches` only
+ever see `search_for` rectangles, which MuPDF already returns one per line. So this was
+`redact_regions` alone, and the app is unaffected — unlike M96, which was shared with the find bar.
+
+**Part 2, considered and declined: no `elsewhere_in_document` warning.** The report proposed that a
+region redaction also scan the rest of the document for the strings it removed, as the exact analogue
+of M95's `residual_literal`. The analogy does not hold, and the difference is the one that decides
+whether a warning earns its place:
+
+* `residual_literal` and the `invisible` flag disclose things the caller **cannot** discover — a
+  matcher's blind spot is invisible by construction, and white-on-white text appears in no render.
+* This would disclose something **one obvious call away**. `verified_text` already reports every
+  string that came out of the boxes, so a caller who has just been told the box contained `UMESH`
+  can run `search "UMESH"` themselves.
+
+It would also be noisy in a way the others are not: a region over a table cell removes `CA` or `1`,
+and scanning the document for those warns on nearly every call — which is how a warning stops being
+read. And the contract is deliberate: `redact_text` removes what you *named* and proves coverage;
+`redact_regions` removes what is *there* and proves those boxes are empty. Collapsing that
+distinction makes two tools into one blurred one.
+
+What ships instead is a sentence in the tool doc pointing at `verified_text` — it lists what actually
+came out, often more than you aimed at — and telling a caller removing PII rather than blanking an
+area to search those strings or use `redact_text`. Zero runtime cost, no noise, same gap closed.
+**Revisit if a real session shows an agent doing visual region redaction on PII and missing
+occurrences it had no reason to look for**; the harness that produced TC-001–TC-005 is exactly what
+would surface that, and the feature stays cheap to add.
+
 ## Future enhancements (deferred beyond the roadmap)
 
 Captured but not yet scheduled:

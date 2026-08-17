@@ -99,6 +99,33 @@ def _count(text: str, token: str) -> int:
     return text.count(token)
 
 
+def _shortfall(
+    page1: int, token: str, out: str, found: int, allowed: int,
+    before: int, covered: int, engine: str,
+) -> str:
+    """Explain a failed budget — and say which of the two ways it failed.
+
+    ``allowed`` is negative when more boxes claimed to cover a token than the source ever contained
+    it, which is not a leak at all: it means the token was **derived wrongly**, so no output could
+    ever satisfy the check. That case used to print ``max(allowed, 0)``, rendering an impossible
+    budget of -1 as ``at most 0 expected`` beside ``still appears 0 time(s)`` — a message that reads
+    as a contradiction and sent TC-005's reporter looking for a comparison bug that was not there.
+    The arithmetic was right; only the number shown was wrong, and it hid the real fault one layer
+    down (M97).
+    """
+    if allowed < 0:
+        return (
+            f"page {page1}: cannot verify {token!r} in {out!r} — {covered} redaction box(es) claim "
+            f"to cover it but the source contained it {before} time(s), so no output could satisfy "
+            f"the check. That is a bug in how the token was derived, not a leak in the file "
+            f"({engine} found it {found} time(s) after redaction)."
+        )
+    return (
+        f"page {page1}: {token!r} still appears {found} time(s) in {out!r} "
+        f"(at most {allowed} expected after redaction) — {engine}"
+    )
+
+
 def _verify(out: str, expectations: dict[int, dict], password: str | None) -> dict:
     """Confirm each redacted token lost at least as many occurrences as boxes covered it.
 
@@ -137,8 +164,8 @@ def _verify(out: str, expectations: dict[int, dict], password: str | None) -> di
                 found = _count(after, token)
                 if found > allowed:
                     raise RedactionLeak(
-                        f"page {page1}: {token!r} still appears {found} time(s) in {out!r} "
-                        f"(at most {max(allowed, 0)} expected after redaction) — PyMuPDF"
+                        _shortfall(page1, token, out, found, allowed,
+                                   expected["fitz_before"].get(token, 0), covered, "PyMuPDF")
                     )
     finally:
         doc.close()
@@ -151,10 +178,10 @@ def _verify(out: str, expectations: dict[int, dict], password: str | None) -> di
                 found = _count(after, token)
                 if found > allowed:
                     raise RedactionLeak(
-                        f"page {page1}: {token!r} still appears {found} time(s) in {out!r} "
-                        f"(at most {max(allowed, 0)} expected) — Poppler. PyMuPDF reported it "
-                        "removed, so this is exactly the cross-engine disagreement the second "
-                        "check exists to catch"
+                        _shortfall(page1, token, out, found, allowed,
+                                   expected["poppler_before"].get(token, 0), covered, "Poppler")
+                        + ". PyMuPDF reported it removed, so this is exactly the cross-engine "
+                        "disagreement the second check exists to catch"
                     )
     return {
         "verified_with": engines,
