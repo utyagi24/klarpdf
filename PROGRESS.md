@@ -2147,6 +2147,18 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   decode work, so A/B/F reduce how often we pay it but only E stops the freeze. Now a scheduling
   question, not a justification one.
 
+- [x] **M102** *(unplanned)* **The redaction safety net crashed instead of firing** — found
+  2026-08-17 while reading `_no_residual_match` for M100, not by a report. Its **pass 1** is the
+  check that catches a *matching* bug — an occurrence the matcher never boxed, the TC-001 shape —
+  and building its message read `hit['box']` when a hit has carried `boxes`, one per line, since
+  [#250](https://github.com/utyagi24/klarpdf/pull/250). So it raised `KeyError` before it could
+  raise `RedactionLeak`, and **`_finish` catches only `RedactionLeak`**: the wrong exception walked
+  past the delete, leaving the output of a redaction that had just failed verification sitting on
+  disk. "Never leave a false-secure file behind" was broken by its own error handler, on the path
+  that exists for the most dangerous failure redaction has. No test caught it because every
+  redaction test drives a redaction that *works*, and pass 1 is silent on those. Design in
+  `PLAN.md` §M102 — *WSL*
+
 - [ ] **M99** **A region `clip` on `render_page` and `export_images`** — scheduled 2026-08-16 from
   TC-007's capability gap, asked for twice. "Extract this ID card as a PNG" cannot be finished inside
   the server today; the page has to come out whole and be cropped elsewhere. One keyword argument at
