@@ -3214,6 +3214,64 @@ chain produce identical output.
 *"a faster way to be confidently wrong"* — M98 shipped the variant reporting, so the thing that made
 deferring it risky is already handled.
 
+**Built 2026-08-17. The diagnosis above was right; the prescribed fix was wrong.**
+
+The measurement first, because it decided everything else. A probe over the TC-007 shape
+(`607347469 203 1` on one line, `607347469` on the next) reproduced the failure exactly as
+predicted — `covered=3` against `before=2`, budget `-1`, M97's impossible-budget path — and then
+showed **why**, which the plan had not asked. The double count is **textual, not geometric**: three
+*boxes* produced three counts of one token because `_tokens_under` was called per box and the same
+characters sat under two of them. Overlapping rectangles were never the problem; overlapping
+*characters* were.
+
+That distinction inverts the prescription. **Coalescing the boxes was the wrong fix**, and would
+have been a bad one: `fitz.Rect` unions to a *bounding* rect, so two boxes overlapping across a line
+break — the wrapped-identifier case M97 exists for — would union into a block covering everything
+between them and **delete text neither query matched**. Silently, because destroyed content leaves
+no trace in the output; the exact failure M98's `query_terms` was built to counterweight. The fix
+instead is to count each character once (`PageText.text_under_all`) and leave every rectangle alone:
+
+* **No boxes are merged**, so no redaction is widened by a milestone about counting.
+* It repairs `redact_regions` for free — a caller passing overlapping rectangles hit the same wall.
+* It corrects a **pre-existing** mispairing nobody had noticed: `fitz_before` counts *occurrences*
+  (`str.count`), while `_tokens_under` returned a `set` and so counted *distinct tokens per box*.
+  One box over `203 1 203` claimed a single removal against a before of two, and the surviving copy
+  was permitted by the budget. Occurrences on both sides is the arithmetic `_verify` documents.
+
+**One rule generalised, one trap re-sprung.** Concatenating a line's covered characters recreated
+M97's `TYAGI1703` bug *within* a line: redacting `Smith` and `Jones` from one line produced the
+token `SmithJones`, which the source contains zero times, so the budget went negative and a correct
+redaction deleted its own output — the identical failure by the identical mechanism, one axis over.
+Caught by M98's existing tests, not by a new one. A covered run therefore ends wherever an uncovered
+character interrupts it, on either axis.
+
+**The API half, as the plan said, was the easy one**, with two decisions it did not anticipate:
+
+1. **The reply shape follows which parameter was used, not how many queries survived.** `query`
+   returns exactly today's flat shape; `queries` always returns the list form, including for one
+   element and for a list whose duplicates collapsed to one. Branching on the *count* — which the
+   first implementation did, and a test caught — hands a caller iterating a variable-length list a
+   different shape on the days its list has one element in it.
+2. **A query matching nothing warns rather than failing the call.** The single-query rule ("a
+   redaction reporting success over a file it did not change is how a secret ships") does not
+   survive translation: failing the whole call would delete a verified output that correctly removed
+   the other five. The rule becomes *none* of them matched, and the individual miss is a
+   `matches: 0` plus a warning naming it.
+
+**Ordering is now provably irrelevant**, which was the second half of the argument for this
+milestone: every box is computed against the intact source before anything is applied, so the
+shortest-first and longest-first orders produce byte-identical output — asserted, alongside the
+chained equivalent, which still fails shortest-first.
+
+**Cost, measured rather than assumed.** Counting over the union initially dropped `_band`'s
+narrowing and tested every character against every box: **4.5x slower** on the hot path (90 boxes
+over a 540-word page — 16.0 ms against 3.5 ms), which a 22-page TC-007-scale redaction pays once per
+page. Applying the same band filter per line, read the other way round — only boxes whose vertical
+extent meets this line can hold any of its characters — brings it to **1.07x**, inside noise, and
+the whole 1 980-box redaction from 1.96 s to 1.64 s. Worth recording because the check is cheap and
+the previous performance claim on this file was wrong in the other direction (§M98: a "regression"
+that turned out to be my own probes loading the machine).
+
 ### M101 — annotation tools, and the highlight → review → redact round trip ⭐
 
 | Milestone | What | Where | Verify |

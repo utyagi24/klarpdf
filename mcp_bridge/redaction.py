@@ -508,20 +508,32 @@ def _no_residual_match(
     return report
 
 
-def _tokens_under(page: fitz.Page, boxes: list[tuple]) -> list[str]:
-    """The text under ``boxes``, split into tokens worth checking for individually.
+def _covered_tokens(page: fitz.Page, boxes: list[tuple]) -> dict[str, int]:
+    """How many times each checkable token is covered by ``boxes``, counting each one **once**.
 
     ``PageText`` indexes the page once and answers by character *centre* rather than by clipping,
     so a box gets what it actually covers instead of whatever shared its horizontal band — the
     difference matters here, because a verification string that was never under the box would make
     the check pass for the wrong reason.
+
+    **Counted over the union of the boxes, not box by box** (M100). Two boxes covering the same
+    characters — which is what a multi-query redaction produces the moment one term is a substring
+    of another's match — would otherwise each contribute the token, and the check would claim to
+    have removed ``607347469`` three times from a page that contained it twice. ``_verify`` reads
+    that as ``allowed = 2 - 3 = -1``, an expectation no output can satisfy, and deletes a correct
+    redaction. The union is taken by :meth:`PageText.text_under_all`, at the character rather than
+    the rectangle, because overlapping rectangles and shared characters are not the same question.
+
+    This also pairs the two sides of the budget correctly for the first time. ``fitz_before`` has
+    always counted *occurrences* (``str.count``), while this counted *distinct tokens per box* — so
+    one box over ``203 1 203`` claimed a single removal of ``203`` against a before of two, and the
+    surviving copy was permitted. Occurrences on both sides is the arithmetic ``_verify`` describes.
     """
-    text = PageText(page)
-    tokens: list[str] = []
-    for box in boxes:
-        under = text.text_under(box).strip()
-        tokens.extend(part for part in under.split() if len(part) >= 2)
-    return sorted(set(tokens))
+    counts: dict[str, int] = {}
+    for token in PageText(page).text_under_all(boxes).split():
+        if len(token) >= 2:
+            counts[token] = counts.get(token, 0) + 1
+    return counts
 
 
 def _apply(vdoc, per_page: dict[int, list[tuple]], source: str, password: str | None) -> dict:
@@ -537,10 +549,7 @@ def _apply(vdoc, per_page: dict[int, list[tuple]], source: str, password: str | 
         ref = vdoc.ordered[index0]
         page = vdoc.sources[ref.source_id][ref.source_page_index]
 
-        covered: dict[str, int] = {}
-        for box in boxes:
-            for token in _tokens_under(page, [box]):
-                covered[token] = covered.get(token, 0) + 1
+        covered = _covered_tokens(page, boxes)
 
         fitz_before = page.get_text("text")
         poppler_before = _poppler_text(source, page1, password) or ""
@@ -667,18 +676,42 @@ def redact_regions(
         )
 
 
+def _resolve_queries(query: str | None, queries: list[str] | None) -> list[str]:
+    """The list of queries to remove, from the one-or-many pair (M100).
+
+    Exactly one of the two, because a call carrying both has two readings and neither is safe to
+    guess at in a tool that deletes. Duplicates collapse — asking twice for the same string is not
+    an error, but reporting it twice would suggest the tool did something twice.
+    """
+    if (query is None) == (queries is None):
+        raise ValueError("pass either `query` (one string) or `queries` (a list), not both/neither")
+    given = [query] if queries is None else list(queries)
+    if not given:
+        raise ValueError("`queries` is empty — a redaction must remove something")
+    resolved: list[str] = []
+    for entry in given:
+        if not isinstance(entry, str):
+            raise ValueError(f"each query must be a string; got {entry!r}")
+        if not entry.split():
+            raise ValueError(f"query {entry!r} is empty — nothing to redact")
+        if entry not in resolved:
+            resolved.append(entry)
+    return resolved
+
+
 def redact_text(
     path: str,
-    query: str,
+    query: str | None,
     out: str,
     *,
+    queries: list[str] | None = None,
     match_case: bool = False,
     whole_words: bool = False,
     pages: list[int] | None = None,
     password: str | None = None,
     overwrite: bool = False,
 ) -> dict:
-    """Find every occurrence of ``query`` and destructively remove it, then verify.
+    """Find every occurrence of ``query`` — or of each of ``queries`` — remove it, then verify.
 
     Search semantics are the app's find bar exactly (see :func:`mcp_bridge.queries.search`), which
     matters more here than anywhere else: with ``whole_words`` off, a search for "Smith" also
@@ -691,83 +724,178 @@ def redact_text(
     search against the output finds nothing left in scope. A box-level check alone cannot fail on a
     matching bug, which is the failure mode with teeth: it is how M44's verification pass got a
     file with a legible `regular expression.` in it and a success report to go with it (TC-001).
+    With several queries **every one of them** is verified, to the same standard, against the one
+    output; a query whose residual check fails deletes that output exactly as it would alone.
+
+    **``queries`` exists for data hygiene, not for typing less** (M100). Chaining six identifiers
+    through six calls leaves five intermediate files on disk, each a partially-redacted copy still
+    holding live PII, and every one of them has to be remembered and deleted — sprawl caused by our
+    own rule that a write always needs a fresh ``out``, which makes it ours to remove. One pass also
+    retires an ordering hazard: chained calls had to run longest-query-first or a shorter one left
+    fragments of a longer match behind, whereas here every box is computed against the *intact*
+    source before anything is applied, so order cannot matter.
 
     Raises rather than writing an untouched copy when nothing matches: a redaction tool reporting
-    success over a file it did not change is how a secret ships.
+    success over a file it did not change is how a secret ships. With several queries the rule is
+    that **none** of them matched — one that finds nothing while another succeeds is reported in
+    its ``matches: 0`` and a warning, because failing the whole call would leave the caller with
+    nothing for the five that were found.
     """
     target = _resolve_out(out, sources=[path], overwrite=overwrite)
-    terms = [query] if whole_words else query.split()
-    if not terms:
-        raise ValueError("query is empty — nothing to redact")
+    all_queries = _resolve_queries(query, queries)
     with open_document(path, password) as vdoc:
         scope = resolve_pages(vdoc, pages)
         per_page: dict[int, list[tuple]] = {}
         invisible: dict[int, list[str]] = {}
-        per_term_matches: dict[str, int] = {}
-        phrase_matches = 0
-        matches = 0
+        stats: dict[str, dict] = {
+            q: {"matches": 0, "terms": {}, "phrase": 0} for q in all_queries
+        }
         for index0 in scope:
             ref = vdoc.ordered[index0]
             page = vdoc.sources[ref.source_id][ref.source_page_index]
-            per_term = [(term, [(r.x0, r.y0, r.x1, r.y1) for r in page.search_for(term)])
-                        for term in terms]
-            if not any(boxes for _term, boxes in per_term):
-                continue
-            text = PageText(page)
-            seen: set = set()
-            page_invisible = invisible.setdefault(index0 + 1, [])
-            if len(terms) > 1 and not whole_words:
-                # What the caller would have got had they meant the phrase. Costs one extra
-                # `search_for` on pages that already matched, and it is the number that makes an
-                # over-redaction legible — see `_term_report`.
-                phrase_boxes = [(r.x0, r.y0, r.x1, r.y1) for r in page.search_for(query)]
-                phrase_matches += len(text.group_matches(phrase_boxes, query))
-            for term, term_boxes in per_term:
-                # Grouped, so a match wrapping a line break is one occurrence — and **every** box
-                # it occupies is redacted. Clearing only the first is what left the tail of the
-                # phrase legible next to a black box in TC-001.
-                for boxes in text.group_matches(term_boxes, term):
-                    key = tuple(tuple(round(v, 2) for v in box) for box in boxes)
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    if whole_words and not all(text.is_whole_word(box) for box in boxes):
-                        continue
-                    if match_case and not all(text.matches_case(box, term) for box in boxes):
-                        continue
-                    per_page.setdefault(index0, []).extend(boxes)
-                    matches += 1
-                    per_term_matches[term] = per_term_matches.get(term, 0) + 1
-                    if any(text.is_invisible(box) for box in boxes):
-                        page_invisible.append(text.snippet_for(boxes))
+            text: PageText | None = None
+            page_invisible: list[str] | None = None
+            # Box-groups already added on this page, across **all** queries. Two queries matching
+            # the same run of text is the normal case for overlapping identifiers, and each should
+            # report its own `matches` — but the text is one piece and gets boxed once.
+            added: set = set()
+            for one in all_queries:
+                terms = [one] if whole_words else one.split()
+                per_term = [(term, [(r.x0, r.y0, r.x1, r.y1) for r in page.search_for(term)])
+                            for term in terms]
+                if not any(boxes for _term, boxes in per_term):
+                    continue
+                if text is None:
+                    text = PageText(page)
+                    page_invisible = invisible.setdefault(index0 + 1, [])
+                stat = stats[one]
+                if len(terms) > 1 and not whole_words:
+                    # What the caller would have got had they meant the phrase. Costs one extra
+                    # `search_for` on pages that already matched, and it is the number that makes an
+                    # over-redaction legible — see `_term_report`.
+                    phrase_boxes = [(r.x0, r.y0, r.x1, r.y1) for r in page.search_for(one)]
+                    stat["phrase"] += len(text.group_matches(phrase_boxes, one))
+                seen: set = set()
+                for term, term_boxes in per_term:
+                    # Grouped, so a match wrapping a line break is one occurrence — and **every** box
+                    # it occupies is redacted. Clearing only the first is what left the tail of the
+                    # phrase legible next to a black box in TC-001.
+                    for boxes in text.group_matches(term_boxes, term):
+                        key = tuple(tuple(round(v, 2) for v in box) for box in boxes)
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        if whole_words and not all(text.is_whole_word(box) for box in boxes):
+                            continue
+                        if match_case and not all(text.matches_case(box, term) for box in boxes):
+                            continue
+                        stat["matches"] += 1
+                        stat["terms"][term] = stat["terms"].get(term, 0) + 1
+                        if key in added:
+                            continue
+                        added.add(key)
+                        per_page.setdefault(index0, []).extend(boxes)
+                        if any(text.is_invisible(box) for box in boxes):
+                            page_invisible.append(text.snippet_for(boxes))
         if not per_page:
+            listed = all_queries[0] if len(all_queries) == 1 else all_queries
             raise ValueError(
-                f"{query!r} was not found — nothing was redacted and no file was written "
+                f"{listed!r} was not found — nothing was redacted and no file was written "
                 "(use `search` to check what matches before redacting)"
             )
+        matches = sum(stat["matches"] for stat in stats.values())
         expectations = _apply(vdoc, per_page, path, password)
+        page_scope = {index0 + 1 for index0 in scope}
         return _finish(
             vdoc,
             target,
             expectations,
             path,
             password,
-            residual=lambda written: _no_residual_match(
+            residual=lambda written: _query_reports(
                 written,
-                query,
+                all_queries,
+                stats,
                 match_case=match_case,
                 whole_words=whole_words,
-                scope={index0 + 1 for index0 in scope},
+                scope=page_scope,
                 password=password,
+                flat=queries is None,
             ),
-            query=query,
             matches=matches,
             boxes_redacted=sum(len(boxes) for boxes in per_page.values()),
             pages_redacted=sorted(expectations),
+            **({"query": query} if queries is None else {}),
             **_invisible_report(invisible),
-            **_term_report(terms, per_term_matches, phrase_matches,
-                           whole_words=whole_words),
         )
+
+
+def _query_reports(
+    written: str,
+    all_queries: list[str],
+    stats: dict[str, dict],
+    *,
+    match_case: bool,
+    whole_words: bool,
+    scope: set[int],
+    password: str | None,
+    flat: bool,
+) -> dict:
+    """Verify every query against the written output and shape the per-query half of the reply.
+
+    ``flat`` is **which parameter the caller used, not how many queries survived** — and the
+    distinction is the whole of the contract. A ``query`` returns exactly what it always did: the
+    residual fields and any ``query_terms`` at the top level, no ``queries`` list, so no existing
+    caller has to learn a new shape to keep doing what it was doing. A ``queries`` list always
+    returns the list form, *including* when it holds one entry or when duplicates collapsed it to
+    one. Branching on the count instead would hand a caller iterating a variable-length list a
+    different reply shape on the days its list happened to have one element in it, which is a
+    footgun of exactly the kind this module spends its time removing.
+
+    The list carries one entry per query, each with that query's ``matches`` beside its own residual
+    counts: those numbers only mean anything per query, and flattening six queries' fields into one
+    set would silently report the last one's results as the whole call's.
+
+    Warnings are concatenated across queries rather than merged, and stay legible because every
+    warning this module writes already names its own query. A dropped warning is the failure this
+    tool exists to prevent, which is why :func:`_merged` special-cases the key.
+
+    A query that matched **nothing** while others matched is reported here rather than raised.
+    Failing the whole call would delete a verified output that correctly removed the other five,
+    leaving the caller worse off than the warning does.
+    """
+    entries: list[dict] = []
+    warnings: list[str] = []
+    for one in all_queries:
+        stat = stats[one]
+        report = _no_residual_match(
+            written, one, match_case=match_case, whole_words=whole_words,
+            scope=scope, password=password,
+        )
+        terms = [one] if whole_words else one.split()
+        report = _merged(
+            report, _term_report(terms, stat["terms"], stat["phrase"], whole_words=whole_words)
+        )
+        warnings += report.pop("warnings", [])
+        if stat["matches"] == 0:
+            warnings.append(
+                f"{one!r} matched nothing and removed nothing — the other quer(ies) in this call "
+                "were still redacted and verified, and this output is theirs. If you expected this "
+                "one to be in the document, `search` for it before trusting its absence: with "
+                f"`whole_words: {str(whole_words).lower()}` it may be spelled in a way this mode "
+                "cannot see."
+            )
+        entries.append({"query": one, "matches": stat["matches"], **report})
+
+    if flat:
+        merged = dict(entries[0])
+        merged.pop("query", None)
+        merged.pop("matches", None)   # already reported at the top level
+    else:
+        merged = {"queries": entries}
+    if warnings:
+        merged["warnings"] = warnings
+    return merged
 
 
 # How many times over the word-list reading has to out-delete the phrase before it is worth saying
