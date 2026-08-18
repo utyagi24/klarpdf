@@ -67,18 +67,13 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   that adds or changes a user-facing behaviour updates the Features list *in that PR* (M93 did, for
   document fidelity and permission carry-through); only the version, the what's-new line and the
   release links wait for the tag.
-- **A to-do that lives only in the conversation does not exist.** Anything deferred, rejected,
-  noticed-but-not-fixed, or "we should do that later" is **written down in the same session it is
-  found** — a `PROGRESS.md` §Open follow-ups entry if it is unscheduled, a numbered milestone if it
-  is. Chat scrollback is not a backlog: sessions end, context is compacted, and an item carried only
-  in an assistant's working memory is silently lost the moment either happens. Three items from the
-  TC-007/TC-008 rounds were found this way on 2026-08-18 — the `get_info` rotation mismatch, the
-  single-term substring over-match, and the answer to TC-003's page-scope question — each raised in
-  conversation, agreed as real, and never committed anywhere.
-  **Record the rejections too, with their reason.** A decision not to do something is worth more
-  than silence: without it the next session re-opens a settled question and re-derives the argument.
-  The scoped-vs-document-wide residual scan is the model — it is in §Open follow-ups *as decided*,
-  pointing at the `PLAN.md` entry that argues it.
+- **Capture the follow-up in the session that found it.** *Where things live* routes open
+  follow-ups to `PROGRESS.md`; this is the part that rule assumes — that they get written at all. Anything deferred,
+  **rejected**, or noticed-but-not-fixed is committed before the session ends, rejections with
+  their reason so the next one does not re-derive a settled argument. Chat scrollback is not a
+  backlog: sessions end and context is compacted, and an item held only in an assistant's working
+  memory is lost silently at either boundary — three real findings from the TC-007/TC-008 rounds
+  were sitting there on 2026-08-18 (`PROGRESS.md` §Open follow-ups has them now).
 - **Every non-trivial change gets both a `PLAN.md` design entry and a `PROGRESS.md` milestone** —
   in the *same* PR as the code, not afterwards. "Non-trivial" is anything that changes how the app
   behaves or how it is built: a new route through the save path, a contract change, a defect whose
