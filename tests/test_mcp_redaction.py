@@ -1149,3 +1149,120 @@ def test_per_query_warnings_survive_together(tmp_path, out):
     warnings = " ".join(result["warnings"])
     assert "'Smith'" in warnings and "'Jones'" in warnings
     assert [entry["residual_literal"] for entry in result["queries"]] == [1, 1]
+
+
+# ---- M103 / TC-007+008: what the reply says about what it did not look at --------------------
+
+
+@pytest.fixture
+def three_page_pdf(tmp_path) -> str:
+    """The same value on every page — so `pages` genuinely leaves copies behind."""
+    path = str(tmp_path / "policy.pdf")
+    doc = fitz.open()
+    for _ in range(3):
+        doc.new_page().insert_text((40, 100), "policy 607347469 203 1 here", fontsize=12)
+    doc.save(path)
+    doc.close()
+    return path
+
+
+# --- Finding B: a single-character redaction was verified by nothing -------------------------
+
+
+def test_a_single_character_token_is_reported_and_verified(tmp_path, out):
+    """`verified_text: {}` beside `boxes_redacted: 2` was a contradiction in one reply — and worse
+    than cosmetic, because that dict *is* what `_verify` checks, so the box-level cross-engine
+    check ran zero assertions for the redaction (TC-008 Finding B)."""
+    path = str(tmp_path / "one.pdf")
+    doc = fitz.open()
+    doc.new_page().insert_text((40, 100), "Item 1 and item 1 again, ref 2031", fontsize=12)
+    doc.save(path)
+    doc.close()
+
+    result = redaction.redact_text(path, "1", out, whole_words=True)
+    assert result["boxes_redacted"] == 2
+    assert result["verified_text"] == {"1": ["1"]}
+
+
+def test_the_one_character_budget_can_actually_fail(tmp_path):
+    """The check has to be able to *fail*, or admitting the token is decoration.
+
+    Driven through `_verify` directly against an un-redacted file, claiming both occurrences of `1`
+    were covered. Monkeypatching `_count` — the first thing I tried — proves nothing: it inflates
+    the `before` and the `after` equally, the budget shifts by the same amount on both sides, and
+    the assertion passes exactly as it did before.
+    """
+    path = str(tmp_path / "one.pdf")
+    doc = fitz.open()
+    doc.new_page().insert_text((40, 100), "Item 1 and item 1 again", fontsize=12)
+    doc.save(path)
+    doc.close()
+
+    expectations = {1: {"boxes": {"1": 2},
+                        "fitz_before": {"1": 2},
+                        "poppler_before": {"1": 2}}}
+    with pytest.raises(redaction.RedactionLeak, match="'1'"):
+        redaction._verify(path, expectations, None)
+
+
+# --- Finding A: one warning per miss buried the one that mattered ----------------------------
+
+
+def test_many_misses_collapse_into_one_warning(secret_pdf, out):
+    """59 near-identical ~330-character warnings is not a size problem, it is a **dilution**
+    problem: a genuine over-redaction warning among them arrives as line 37 of 59 (TC-007 Finding
+    A). Uses `residual_literal`'s established `(+N more)` idiom."""
+    misses = [f"ZZ{i:03}NOTHERE" for i in range(8)]
+    result = redaction.redact_text(secret_pdf, None, out, queries=[SECRET, *misses])
+
+    zero = [w for w in result["warnings"] if "matched nothing" in w]
+    assert len(zero) == 1
+    assert "8 of 9 queries matched nothing" in zero[0]
+    assert "+5 more" in zero[0]
+    assert [e["matches"] for e in result["queries"]].count(0) == 8   # still per-query in `queries[]`
+
+
+def test_a_few_misses_are_still_named_individually(secret_pdf, out):
+    """Aggregation must not start so early that the useful case loses its detail."""
+    result = redaction.redact_text(secret_pdf, None, out, queries=[SECRET, "ZZNOPE", "ZZALSONOPE"])
+    (zero,) = [w for w in result["warnings"] if "matched nothing" in w]
+    assert "'ZZNOPE'" in zero and "'ZZALSONOPE'" in zero
+    assert "more" not in zero
+
+
+# --- Findings D and E: the reply never said which pages it read ------------------------------
+
+
+def test_the_reply_states_which_pages_the_scans_read(three_page_pdf, out):
+    """`residual_literal: 0` and `residual_normalized: []` are documented as "the scan ran and
+    found nothing". Under `pages` they described a document the scans read one page of, and
+    `pages_redacted` is not a substitute — it lists where boxes landed, a strictly smaller set."""
+    result = redaction.redact_text(three_page_pdf, "607347469 203 1", out,
+                                   whole_words=True, pages=[1, 2])
+    assert result["residual_scope"] == [1, 2]
+    assert any("covered pages [1, 2] only" in w for w in result["warnings"])
+
+
+def test_an_unscoped_call_reports_the_whole_document_and_does_not_warn(three_page_pdf, out):
+    """Omitting `pages` must stay exactly as it was — the scope is every page and there is nothing
+    to disclose, so no warning appears."""
+    result = redaction.redact_text(three_page_pdf, "607347469 203 1", out, whole_words=True)
+    assert result["residual_scope"] == [1, 2, 3]
+    assert not any("only" in w and "residual scans" in w for w in result.get("warnings", []))
+
+
+def test_a_zero_match_under_pages_blames_the_page_filter_not_the_spelling(three_page_pdf, out):
+    """It sent the caller to audit their query when the cause was their own page restriction — which
+    the response already knew about (TC-007 Finding E)."""
+    result = redaction.redact_text(three_page_pdf, None, out, whole_words=True, pages=[1],
+                                   queries=["607347469 203 1", "ABSENT-TERM"])
+    (zero,) = [w for w in result["warnings"] if "matched nothing" in w]
+    assert "restricted to pages [1]" in zero
+    assert "spelled in a way" not in zero
+
+
+def test_without_pages_the_zero_match_advice_is_unchanged(secret_pdf, out):
+    result = redaction.redact_text(secret_pdf, None, out, queries=[SECRET, "ZZNOPE"])
+    (zero,) = [w for w in result["warnings"] if "matched nothing" in w]
+    assert "spelled in a way" in zero
+    assert "restricted to pages" not in zero

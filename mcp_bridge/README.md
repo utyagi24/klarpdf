@@ -215,6 +215,15 @@ That case is why the reply carries two fields worth reading rather than just a s
   parse. A query that matches **nothing** does not fail the call when another matched — it comes
   back `matches: 0` with a warning, because failing would delete an output that correctly removed
   the others.
+- **`residual_scope`** — the pages the two scans above actually read. Every page, unless you passed
+  `pages`; then the scans cover that slice, exactly as the redaction did, and a warning says so.
+  Everything in a reply describes the operation you asked for — the tool never mixes page-scoped and
+  document-wide answers in one response. Don't read `pages_redacted` as a substitute: it lists only
+  where boxes landed, which is a smaller set (`[1]` for a call that scanned `[1, 2, 3]`).
+- **`matches` vs `boxes_redacted`** — different numbers, both correct. `matches` sums each query's
+  own hits, so text two queries both matched counts twice; `boxes_redacted` counts distinct
+  rectangles applied. Neither is "how many identifiers came out": a short query matching inside a
+  longer query's match makes two real boxes over one piece of text.
 - **`query_terms`** — the per-term match breakdown when `whole_words` is off and the query has
   several words, with a warning when one term did most of the deleting and the phrase itself is
   rare. This is the **over-redaction** counterweight: everything else here proves the query is
