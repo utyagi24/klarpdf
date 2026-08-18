@@ -482,6 +482,7 @@ def export_images(
     password: str | None = None,
     overwrite: bool = False,
     clip: list[float] | None = None,
+    name: str | None = None,
 ) -> dict:
     """Rasterise ``pages`` (1-based; ``None`` = all) to image files in ``out_dir``.
 
@@ -490,6 +491,19 @@ def export_images(
 
     ``clip`` (M99) narrows every page to the same ``[x0, y0, x1, y1]`` region in page points, and is
     rejected on any page it overhangs — see :func:`model.export.resolve_clip`.
+
+    **Every file carries its page number, and ``name`` replaces the stem** (M104, TC-008 Finding 1).
+    The old scheme wrote ``<stem>.png`` for a single page and ``<stem>-3.png`` only when there were
+    several, which was non-uniform and — the reason it mattered — meant two *clips* of one page
+    wanted the same filename. Cutting several regions out of one page is the use ``clip`` exists
+    for, so the naming was at odds with the feature: the second call hit the no-clobber refusal, and
+    the workarounds were a directory per region or ``overwrite: true``, which destroys the first.
+    The refusal itself was right; the names were wrong.
+
+    ``name`` is the caller's own stem — ``name="pacifica_card"`` writes ``pacifica_card-3.png`` —
+    because only the caller knows what a region *is*, and the server never can. It is a filename
+    component, not a path: :func:`_safe_stem` rejects separators and ``..`` rather than joining
+    them, so ``name`` cannot walk out of ``out_dir`` and around the path policy.
     """
     if fmt.lower() not in {"png", "jpg", "jpeg"}:
         raise ValueError(f"format must be png or jpg, got {fmt!r}")
@@ -499,7 +513,7 @@ def export_images(
         raise ValueError(f"the output directory {out_dir!r} does not exist")
     from model.export import export_page_images
 
-    stem = os.path.splitext(os.path.basename(path))[0]
+    stem = _safe_stem(name) if name is not None else os.path.splitext(os.path.basename(path))[0]
     base = os.path.join(os.path.abspath(out_dir), f"{stem}.{fmt.lower()}")
     with open_document(path, password) as vdoc:
         indices = resolve_pages(vdoc, pages)
@@ -511,7 +525,7 @@ def export_images(
                     raise ValueError(
                         f"{existing!r} already exists; pass overwrite=true to replace it"
                     )
-        written = export_page_images(vdoc, indices, base, dpi=dpi, clip=clip)
+        written = export_page_images(vdoc, indices, base, dpi=dpi, clip=clip, number_all=True)
         return {
             "files": written,
             "count": len(written),
@@ -522,10 +536,42 @@ def export_images(
         }
 
 
+_STEM_FORBIDDEN = set('/\\:*?"<>|')
+
+
+def _safe_stem(name: str) -> str:
+    """``name`` as a filename stem, or refuse it.
+
+    An output name is a *component*, never a path. Left alone, ``name="../../etc/passwd"`` would be
+    joined onto ``out_dir`` and walk straight out of it — around ``--allow-root`` and around the
+    caller's own expectation that everything lands where they said. So separators, ``..`` and the
+    characters Windows forbids in a filename are rejected outright rather than sanitised: silently
+    rewriting a name gives back a file under a different one than was asked for, which is its own
+    small lie in a tool whose replies are read by a machine.
+    """
+    stem = name.strip()
+    if not stem:
+        raise ValueError("name is empty — omit it to use the document's own filename")
+    if stem in {".", ".."} or any(char in _STEM_FORBIDDEN for char in stem):
+        raise ValueError(
+            f"name {name!r} must be a plain filename stem — no directory separators, no '..', "
+            "and none of : * ? \" < > |. It is joined onto out_dir, not resolved as a path."
+        )
+    if os.path.splitext(stem)[1]:
+        raise ValueError(
+            f"name {name!r} carries an extension — the format comes from `fmt`, so pass the stem "
+            "alone (e.g. 'pacifica_card', not 'pacifica_card.png')"
+        )
+    return stem
+
+
 def _predicted_image_paths(base: str, indices: list[int]) -> list[str]:
-    """The names ``export_page_images`` will write, so the no-clobber check can see them."""
-    if len(indices) == 1:
-        return [base]
+    """The names ``export_page_images`` will write, so the no-clobber check can see them.
+
+    Numbers every entry, matching the ``number_all=True`` this module passes (M104). A predictor
+    that disagreed with the writer would let the clobber check pass on a name the writer then
+    overwrote — the failure this function exists to prevent, wearing the writer's own clothes.
+    """
     root, ext = os.path.splitext(base)
     pad = len(str(max(i + 1 for i in indices)))
     return [f"{root}-{i + 1:0{pad}d}{ext}" for i in indices]

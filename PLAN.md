@@ -3269,8 +3269,29 @@ since telling them their clip had been changed is its own lie. And the refusal n
 rect plus the rotation, because a caller told their box is outside `[0, 0, 792, 612]` while the
 viewer shows 612×792 otherwise has no way to tell which of the two they are being measured against.
 
-Left for M104: the filename collision when two clips come off one page (TC-008 Finding 1) and the
-outward-to-whole-pixels rounding, which is the right policy but undocumented (Finding 2).
+**M104 — the naming was at odds with the feature** *(TC-008 Findings 1 and 2, 2026-08-18)*.
+`export_images` wrote `<stem>.png` for a single page and `<stem>-3.png` only when there were
+several. Non-uniform, and — the reason it mattered — two *clips* of one page therefore wanted the
+same filename, so the second call hit the no-clobber refusal. Cutting several regions out of one
+page is the use `clip` exists for, which made this a naming scheme arguing with its own feature; the
+refusal itself was correct and clear, so nothing was destroyed. The workarounds (a directory per
+region, or `overwrite: true`, which eats the first card) were both worse than a rename.
+
+Every file now carries its page number, and a new `name` chooses the stem — `name="card_front"` →
+`card_front-3.png`. The stem is the caller's because only the caller knows what a region *is*; the
+server never can. Two consequences worth stating. `name` is a filename **component**, so
+`_safe_stem` refuses separators, `..` and an extension rather than sanitising them: joined onto
+`out_dir` unchecked it would walk out of the directory and around `--allow-root`, and quietly
+rewriting it would hand back a file under a different name than was asked for. And `number_all`
+defaults **off** in `model/export.py`, because that function is shared with the app's Export ▸
+Images, where the filename comes from a save dialog — turning the user's `report.png` into
+`report-1.png` behind them would be its own small betrayal. Only the bridge passes it.
+
+Finding 2 needed no code. The clipped pixel size is `ceil(x1·dpi/72) − floor(x0·dpi/72)`, expanded
+outward to whole device pixels, so a 100 pt square at 150 dpi is **209 px** rather than the 208.33
+the naive formula gives. That is the right policy — no partial pixel of the requested region is
+dropped — but it was unstated, so it is now documented and pinned by a test, since an undocumented
+rounding rule is one a later change can break silently.
 
 `resolve_clip` therefore lives in `model/export.py` beside the rasterisation it constrains, not in
 the bridge — the app's own Export shares the path, and two validators with two answers is the trap

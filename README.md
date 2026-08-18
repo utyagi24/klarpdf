@@ -179,9 +179,9 @@ read it as an image.
 Both imaging tools take a `clip` — a rectangle in the same page-point coordinates `search` reports
 hits in. `render_page clip=[…]` reads one stamp or table cell at 300 dpi without paying for the
 whole page, and pairs with `search` to show a person the *actual pixels* of a match before
-`redact_text` deletes it. `export_images clip=[…]` crops the same region out of every page as
+`redact_text` deletes it. `export_images clip=[…] name="card_front"` crops the same region out of every page as
 files. A clip that runs off the edge of a page is an error naming that page's rect, never a quietly
-smaller image.
+smaller image, and it reads the same unrotated coordinates `search` reports even on a turned page.
 </details>
 
 Two switches for a smaller blast radius: `--read-only` withholds the write tools entirely (they are
