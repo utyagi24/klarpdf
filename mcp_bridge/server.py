@@ -285,6 +285,12 @@ def create_server(config: Config | None = None) -> MCPServer:
         page. A `search` hit carries `boxes` (one per line, so a match that wraps has several):
         pass one, or their bounding box to see the whole match at once. A clip running off the edge
         of the page is an error naming the page's rect, not a quietly smaller image.
+
+        On a **rotated** page, `clip` is in the same unrotated coordinates `search` reports and
+        `redact_regions` consumes, so a hit still feeds straight back; the image you get is the
+        region as displayed, with its width and height swapped for a quarter turn. Note that
+        `get_info.page_sizes` reports *displayed* dimensions, so a box may legitimately extend past
+        the width shown there.
         """
         result = queries.render_page(check(path), page, dpi, password, clip=clip)
         if len(result["png"]) > limits.max_image_bytes:

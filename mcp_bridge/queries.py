@@ -324,7 +324,11 @@ def render_page(
             return {
                 "page": page,
                 "dpi": dpi,
-                "clip": None if rect is None else [rect.x0, rect.y0, rect.x1, rect.y1],
+                # Echoed in the caller's own space, not `rect`'s. `resolve_clip` hands back a
+                # *displayed*-space rect for the rasteriser, and on a rotated page that is a
+                # different quadruple from the one that was passed in — reporting it would tell the
+                # caller their clip had been changed (M99.1).
+                "clip": None if clip is None else [float(v) for v in clip],
                 "width_px": pixmap.width,
                 "height_px": pixmap.height,
                 "png": pixmap.tobytes("png"),

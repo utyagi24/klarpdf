@@ -133,6 +133,20 @@ def resolve_clip(page: fitz.Page, clip) -> fitz.Rect | None:
     adjustment instead, but two imaging tools that disagreed about what a clip means would be worse
     than one strict rule. Lives here, beside the rasterisation it constrains, so the bridge and the
     app's own Export cannot drift into two validators with two answers.
+
+    **The clip is read in *unrotated* space and returned in *displayed* space** (M99.1, TC-008
+    Finding 3), and the split is the whole correctness of this function on a rotated page.
+    ``search_for`` reports boxes in the unrotated page — byte-identical coordinates whether the page
+    carries ``/Rotate 0`` or ``/Rotate 90`` — and ``redact_regions`` consumes them there. But
+    ``page.rect`` is the *displayed* rect, which swaps width and height under a quarter turn, and
+    that is also the space ``get_pixmap`` clips in. Validating against ``page.rect`` therefore put
+    ``clip`` on the opposite side of the rotation from every box a caller has, and it failed twice
+    over: a ``search`` box landed inside the displayed rect and **rendered blank** (measured: 671
+    dark pixels unrotated, 0 at ``/Rotate 90``), while a box beyond the displayed width was
+    **refused as off-page** although ``search`` had just returned it for that same page. So the
+    bounds check runs against ``page.rect * page.derotation_matrix`` — the unrotated rect, the one
+    the caller's numbers are in — and the result is mapped through ``page.rotation_matrix`` for the
+    rasteriser. Both matrices are the identity on an unrotated page, so nothing changes there.
     """
     if clip is None:
         return None
@@ -145,16 +159,20 @@ def resolve_clip(page: fitz.Page, clip) -> fitz.Rect | None:
     rect = fitz.Rect(*values)
     if rect.x0 >= rect.x1 or rect.y0 >= rect.y1:
         raise ValueError(f"clip {values} is empty or inverted")
-    bounds = page.rect
+    # The unrotated rect — what `search` measures against, not what the reader sees.
+    bounds = page.rect * page.derotation_matrix
     if (rect.x0 < bounds.x0 - _CLIP_TOLERANCE or rect.y0 < bounds.y0 - _CLIP_TOLERANCE
             or rect.x1 > bounds.x1 + _CLIP_TOLERANCE or rect.y1 > bounds.y1 + _CLIP_TOLERANCE):
         raise ValueError(
             f"clip {values} lies outside page {page.number + 1}, which is "
             f"[{bounds.x0:g}, {bounds.y0:g}, {bounds.x1:g}, {bounds.y1:g}] in points"
+            + (f" (the page is rotated {page.rotation}°; these are the unrotated coordinates "
+               "`search` reports boxes in)" if page.rotation else "")
         )
     # Absorb the tolerance: a clip allowed through a hair over the edge must still be a rect
     # `get_pixmap` can render, and the intersection is that clip to within a hundredth of a point.
-    return rect & bounds
+    # Then across to displayed space, which is where the rasteriser cuts.
+    return (rect & bounds) * page.rotation_matrix
 
 
 def export_page_images(

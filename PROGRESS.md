@@ -2173,6 +2173,17 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   across lines is helpful to *look* at and is data loss to *delete*; and `export_images` validates
   **every** page before writing any file, since page sizes vary and a clip failing on page 7 must
   not leave six behind. `resolve_clip` lives in `model/export.py`, shared with the app's Export.
+  - **M99.1 — the clip was on the wrong side of the rotation** (TC-008 Finding 3, 2026-08-18).
+    Validating against the *rendered* page put `clip` in **displayed** space while `search` reports
+    boxes **unrotated** and `redact_regions` consumes them there — so the headline promise, "pass a
+    `search` hit straight back", was false on any rotated page. It failed twice, neither safely: a
+    hit's box fitted inside the displayed rect and **rendered blank with no error** (671 dark pixels
+    unrotated, **0** at `/Rotate 90`), and a box past the displayed width was **refused as off-page**
+    though `search` had just returned it for that page. Worst of all, `redact_regions` was correct
+    throughout — so on a turned page the tool deleted the right region while the preview showed the
+    wrong one, disabling the human check `clip` exists to enable. Fixed by bounds-checking against
+    the unrotated rect and mapping through `page.rotation_matrix`; both matrices are the identity
+    when unrotated, so nothing else moved. Design in `PLAN.md` §M99.
   Design in `PLAN.md` §M99 — *WSL*
 
 - [ ] **M100** **`queries: [...]` — one redaction call, several terms** — scheduled 2026-08-16 from

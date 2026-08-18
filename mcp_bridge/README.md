@@ -159,6 +159,12 @@ one, or their bounding box to see the whole match. `clip` takes a single rectang
 `redact_regions` takes the list, and the asymmetry is deliberate: a union spanning two lines picks
 up whatever sits between them, which is helpful when looking and is data loss when deleting.
 
+**Rotation is handled for you.** `search` reports boxes in the page's *unrotated* space — the same
+coordinates at `/Rotate 0` and `/Rotate 90` — and `clip` reads them there, so a hit feeds straight
+back whatever the rotation. The image is the region as *displayed*, so a quarter turn swaps its
+width and height. One consequence worth knowing: `get_info.page_sizes` reports displayed
+dimensions, so on a turned page a perfectly valid box can extend past the width shown there.
+
 **A clip that runs off the edge of the page is an error, not a smaller image.** PyMuPDF would
 happily intersect it and hand back a cropped pixmap; `render_page` returns an image block, so its
 reply has nowhere to say that it did. The error names the page's rect instead, so the fix is one

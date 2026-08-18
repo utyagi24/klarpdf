@@ -3244,6 +3244,34 @@ the page, or a caller sizing an image from `width_px` gets it wrong.
    for the whole set **before the first file is written**, so a clip that fails on page 7 of 10 does
    not leave six files behind for the caller to clean up after handling the error.
 
+**M99.1 — the clip was on the wrong side of the rotation** *(TC-008 Finding 3, 2026-08-18)*. The
+correction above chose to validate against "the *rendered* page rather than the stored one, because
+that is the rect `get_pixmap` will clip against once rotation has been applied". Internally
+consistent, and the wrong space: `search_for` reports **unrotated** coordinates — byte-identical at
+`/Rotate 0` and `/Rotate 90` — and `redact_regions` consumes them there, while `page.rect` is the
+*displayed* rect. So `clip` sat on the opposite side of the rotation from every box a caller has,
+and the documented promise ("pass a `search` hit straight back") was false on any rotated page.
+
+It failed two ways, neither safe. A `search` box fits inside the displayed rect, so it **rendered
+blank with no error** — measured 671 dark pixels unrotated against **0** at `/Rotate 90`. And a box
+beyond the displayed width was **refused as off-page** although `search` had returned it for that
+same page one call earlier. The destructive tool was correct throughout, which is what makes it
+worse: on a turned page `redact_regions` deleted the right region while `clip` previewed the wrong
+one — and `clip`'s stated purpose is to show a person what is about to be deleted. Nothing was
+destroyed wrongly; the human check meant to catch a mistake was silently disabled.
+
+The fix is to read `clip` in the space the caller's numbers are actually in: bounds-check against
+`page.rect * page.derotation_matrix`, then map the result through `page.rotation_matrix` for the
+rasteriser. Both are the identity when the page is not turned, so unrotated behaviour is untouched
+(the rotation-0 case of the new parametrised test passes on the old code; the other three do not).
+Two details fall out. The reply echoes the caller's **own** quadruple rather than the mapped one,
+since telling them their clip had been changed is its own lie. And the refusal names the unrotated
+rect plus the rotation, because a caller told their box is outside `[0, 0, 792, 612]` while the
+viewer shows 612×792 otherwise has no way to tell which of the two they are being measured against.
+
+Left for M104: the filename collision when two clips come off one page (TC-008 Finding 1) and the
+outward-to-whole-pixels rounding, which is the right policy but undocumented (Finding 2).
+
 `resolve_clip` therefore lives in `model/export.py` beside the rasterisation it constrains, not in
 the bridge — the app's own Export shares the path, and two validators with two answers is the trap
 `_word_bounded` already documents. Tolerance is 0.01 pt, sub-pixel at any dpi either tool renders,
