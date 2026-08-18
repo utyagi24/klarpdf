@@ -85,6 +85,16 @@ def shares_line(word: tuple, box: tuple) -> bool:
     return box[1] <= word_middle <= box[3] or word[1] <= box_middle <= word[3]
 
 
+def _centre_inside(char: tuple, box: tuple) -> bool:
+    """Does ``char``'s centre fall inside ``box``? The rule the whole module answers by.
+
+    A character belongs to *one* box — the one containing its midpoint — which is what makes
+    "the text under this rectangle" well defined when rectangles overlap, and what lets
+    :meth:`PageText.text_under_all` deduplicate by character rather than by geometry.
+    """
+    return box[0] <= (char[0] + char[2]) / 2 <= box[2] and box[1] <= (char[1] + char[3]) / 2 <= box[3]
+
+
 def _is_word_char(ch: str) -> bool:
     """Does ``ch`` carry word content, as opposed to being punctuation wrapped around it?"""
     return ch.isalnum() or ch == "_"
@@ -335,11 +345,9 @@ class PageText:
         and the start of the next, and those are not adjacent text. Flattening them first is what
         made :meth:`text_under` report ``'TYAGI1703'`` for a mailing block (M97 / TC-005).
         """
-        x0, y0, x1, y1 = box
         found: list[list] = []
         for _ly0, _ly1, chars in self._band(self._char_lines(), box):
-            inside = [c for c in chars
-                      if x0 <= (c[0] + c[2]) / 2 <= x1 and y0 <= (c[1] + c[3]) / 2 <= y1]
+            inside = [c for c in chars if _centre_inside(c, box)]
             if inside:
                 found.append(inside)
         return found
@@ -367,3 +375,52 @@ class PageText:
         separator.
         """
         return "\n".join("".join(c[4] for c in line) for line in self._lines_under(box))
+
+    def text_under_all(self, boxes: list[tuple]) -> str:
+        """The text under **any** of ``boxes``, each character counted **once**, lines separated.
+
+        Not the same as joining :meth:`text_under` over the boxes, and the difference is the whole
+        reason this exists (M100). Two boxes covering the same characters — a phrase query and a
+        sub-phrase query that both matched the same run of text — each report those characters, so
+        a caller counting occurrences over the concatenation counts them twice. Verification then
+        claims to have covered a token more often than the page ever contained it, and the budget
+        ``before - covered`` goes negative: an impossible expectation that no output can satisfy,
+        which is M97's ``_shortfall`` path firing on a redaction that was actually correct.
+
+        Deduplication is at the **character**, not the rectangle. Overlapping rects are not the
+        question — a character belongs to whichever box contains its *centre*, so two rects can
+        intersect in a band holding no centres and share nothing at all, while one rect wholly
+        inside another shares everything. Merging the rectangles instead would answer the wrong
+        question and, across two lines, would widen the redaction to cover what sits between them.
+
+        **Separated into contiguous runs, not just into lines** — M97's rule generalised. That
+        milestone found that joining two *lines* edge to edge invents a token in no document
+        (``UMESH TYAGI`` + ``1703 PORCELLANO WAY`` → ``TYAGI1703``); a box set does the same thing
+        *within* a line, because two boxes on one line have uncovered text between them.
+        Concatenating a line's covered characters turned redactions of ``Smith`` and ``Jones`` into
+        the token ``SmithJones``, which the source contains zero times — so the budget went negative
+        and a correct redaction deleted its own output: the identical failure by the identical
+        mechanism, one axis over. A run therefore ends wherever an uncovered character interrupts
+        it, and each run is emitted separately.
+        """
+        if not boxes:
+            return ""
+        runs: list[str] = []
+        for ly0, ly1, chars in self._char_lines():
+            # The same narrowing :meth:`_band` does, read the other way round: only boxes whose
+            # vertical extent meets this line can hold any of its characters. Without it every
+            # character is tested against every box, which measured 4.5x slower than the per-box
+            # scan this replaced (90 boxes on a 540-word page: 16.0 ms against 3.5 ms).
+            near = [box for box in boxes if box[1] < ly1 and ly0 < box[3]]
+            if not near:
+                continue
+            run: list[str] = []
+            for char in chars:
+                if any(_centre_inside(char, box) for box in near):
+                    run.append(char[4])
+                elif run:
+                    runs.append("".join(run))
+                    run = []
+            if run:
+                runs.append("".join(run))
+        return "\n".join(runs)

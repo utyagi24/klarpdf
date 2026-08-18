@@ -987,3 +987,165 @@ def test_the_leak_message_names_where_it_found_them(secret_pdf):
         )
     assert "page 1 at [[" in str(caught.value)
     assert "has been deleted" in str(caught.value)
+
+
+# ---- M100: one call, several queries ---------------------------------------------------------
+
+
+@pytest.fixture
+def overlapping_pdf(tmp_path) -> str:
+    """The TC-007 shape: an identifier that also occurs inside a longer spelling of itself.
+
+    `607347469 203 1` on line 1 contains `607347469`, which also stands alone on line 2. Redacting
+    both is the *motivating* case for multi-query, so it cannot be rejected as an edge case — and it
+    is exactly what drives the coverage budget negative if boxes are counted rather than characters.
+    """
+    path = str(tmp_path / "policy.pdf")
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((40, 100), "Policy 607347469 203 1 issued", fontsize=12)
+    page.insert_text((40, 130), "Ref 607347469 on file", fontsize=12)
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def test_overlapping_queries_verify_in_one_pass(overlapping_pdf, out):
+    """The case that could not work before: two terms where one match contains the other.
+
+    Counting box-hits gave `covered=3` against a page containing the token twice, so the budget was
+    `2 - 3 = -1` — an expectation no output can satisfy — and M97's impossible-budget path deleted a
+    redaction that was entirely correct. Counting characters once fixes it without merging any
+    rectangles, which matters: a union across two lines would have widened the deletion.
+    """
+    result = redaction.redact_text(
+        overlapping_pdf, None, out, queries=["607347469 203 1", "607347469"], whole_words=True
+    )
+    assert "607347469" not in _text(out, 0)
+    assert result["queries"][0]["matches"] == 1
+    assert result["queries"][1]["matches"] == 2   # inside the phrase, and standalone
+    assert all(entry["residual_matches"] == 0 for entry in result["queries"])
+
+
+def test_the_result_is_the_same_whichever_order_the_queries_come_in(overlapping_pdf, tmp_path):
+    """The ordering hazard M100 retires. Chained calls had to run longest-query-first or the short
+    one ate the long one's text and left fragments; here every box is computed against the intact
+    source before anything is applied, so order cannot matter."""
+    long_first = str(tmp_path / "long.pdf")
+    short_first = str(tmp_path / "short.pdf")
+    redaction.redact_text(overlapping_pdf, None, long_first,
+                          queries=["607347469 203 1", "607347469"], whole_words=True)
+    redaction.redact_text(overlapping_pdf, None, short_first,
+                          queries=["607347469", "607347469 203 1"], whole_words=True)
+    assert _text(long_first, 0) == _text(short_first, 0)
+
+
+def test_one_call_removes_what_the_chain_removes(secret_pdf, tmp_path):
+    """The equivalence that makes this a convenience rather than a second behaviour."""
+    chained_a = str(tmp_path / "chain-a.pdf")
+    chained_b = str(tmp_path / "chain-b.pdf")
+    redaction.redact_text(secret_pdf, SECRET, chained_a)
+    redaction.redact_text(chained_a, PUBLIC, chained_b)
+
+    at_once = str(tmp_path / "once.pdf")
+    redaction.redact_text(secret_pdf, None, at_once, queries=[SECRET, PUBLIC])
+
+    assert _text(at_once, 0) == _text(chained_b, 0)
+    assert _text(at_once, 1) == _text(chained_b, 1)
+
+
+def test_every_query_is_verified_not_just_the_first(secret_pdf, out, monkeypatch):
+    """Each query gets the same residual check it would get alone — the guarantee that makes one
+    call as safe as the chain. Faked by making the *second* query's check find a leak, since a real
+    coverage gap needs a matcher bug to arrange."""
+    real = redaction._no_residual_match
+
+    def fail_on_public(written, query, **kwargs):
+        if query == PUBLIC:
+            raise redaction.RedactionLeak("planted: PUBLIC was not fully removed")
+        return real(written, query, **kwargs)
+
+    monkeypatch.setattr(redaction, "_no_residual_match", fail_on_public)
+    with pytest.raises(redaction.RedactionLeak, match="planted"):
+        redaction.redact_text(secret_pdf, None, out, queries=[SECRET, PUBLIC])
+    assert not os.path.exists(out)   # and the output is still deleted
+
+
+def test_a_query_that_matches_nothing_warns_instead_of_failing_the_call(overlapping_pdf, out):
+    """Failing the whole call would delete a verified output that correctly removed the others,
+    leaving the caller worse off than the warning does."""
+    result = redaction.redact_text(
+        overlapping_pdf, None, out, queries=["607347469", "NOT-IN-THIS-FILE"], whole_words=True
+    )
+    found, missing = result["queries"]
+    assert found["matches"] == 2 and missing["matches"] == 0
+    assert any("matched nothing" in w and "NOT-IN-THIS-FILE" in w for w in result["warnings"])
+    assert os.path.exists(out)
+
+
+def test_no_query_matching_anything_still_fails(overlapping_pdf, out):
+    """The rule that a redaction reporting success over a file it did not change is how a secret
+    ships — unchanged, just now applying to the whole set."""
+    with pytest.raises(ValueError, match="was not found"):
+        redaction.redact_text(overlapping_pdf, None, out, queries=["NOPE", "ALSO-NOPE"])
+    assert not os.path.exists(out)
+
+
+def test_a_single_query_still_returns_exactly_the_old_shape(secret_pdf, out):
+    """`queries` must not change what a one-query call replies, or every existing caller has to
+    learn a new shape to keep doing what it was doing."""
+    result = redaction.redact_text(secret_pdf, SECRET, out)
+    assert result["query"] == SECRET
+    assert "queries" not in result
+    assert result["residual_matches"] == 0
+    assert "residual_literal" in result and "residual_normalized" in result
+
+
+def test_one_query_given_as_a_list_reports_as_a_list(secret_pdf, out):
+    """The shape follows which parameter was used, not how many queries happened to be in it — a
+    caller that always passes `queries` gets one stable shape to parse."""
+    result = redaction.redact_text(secret_pdf, None, out, queries=[SECRET])
+    assert "query" not in result
+    assert [entry["query"] for entry in result["queries"]] == [SECRET]
+
+
+@pytest.mark.parametrize(
+    "kwargs, expected",
+    [
+        ({"query": "x", "queries": ["y"]}, "not both/neither"),
+        ({"query": None, "queries": None}, "not both/neither"),
+        ({"query": None, "queries": []}, "must remove something"),
+        ({"query": None, "queries": ["ok", "   "]}, "is empty"),
+        ({"query": None, "queries": ["ok", 7]}, "must be a string"),
+    ],
+)
+def test_the_one_or_many_pair_is_validated(secret_pdf, out, kwargs, expected):
+    """A call carrying both has two readings, and neither is safe to guess at in a tool that
+    deletes."""
+    query = kwargs.pop("query")
+    with pytest.raises(ValueError, match=expected):
+        redaction.redact_text(secret_pdf, query, out, **kwargs)
+    assert not os.path.exists(out)
+
+
+def test_a_repeated_query_is_not_reported_twice(secret_pdf, out):
+    """Asking twice is not an error, but reporting it twice would suggest the tool did it twice."""
+    result = redaction.redact_text(secret_pdf, None, out, queries=[SECRET, SECRET])
+    assert len(result["queries"]) == 1
+
+
+def test_per_query_warnings_survive_together(tmp_path, out):
+    """Two queries each producing their own warning must both arrive — `_merged` concatenates, and
+    a dropped warning is the failure this module exists to prevent."""
+    path = str(tmp_path / "two.pdf")
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((40, 100), "Smith and Smithsonian", fontsize=12)
+    page.insert_text((40, 130), "Jones and Jonestown", fontsize=12)
+    doc.save(path)
+    doc.close()
+
+    result = redaction.redact_text(path, None, out, queries=["Smith", "Jones"], whole_words=True)
+    warnings = " ".join(result["warnings"])
+    assert "'Smith'" in warnings and "'Jones'" in warnings
+    assert [entry["residual_literal"] for entry in result["queries"]] == [1, 1]

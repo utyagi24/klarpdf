@@ -298,6 +298,30 @@ def test_redact_text_through_the_server(a_pdf, tmp_path):
     assert "pymupdf" in result["verified_with"]
 
 
+def test_redact_text_takes_several_queries_through_the_server(a_pdf, tmp_path):
+    """M100 across the protocol: one call, one output file, per-query reporting."""
+    out = str(tmp_path / "multi.pdf")
+    result = payload("redact_text", path=a_pdf, queries=[A_TEXT[0], A_TEXT[1]], out=out)
+    assert result["matches"] == 2
+    assert [entry["query"] for entry in result["queries"]] == [A_TEXT[0], A_TEXT[1]]
+    assert all(entry["residual_matches"] == 0 for entry in result["queries"])
+    assert sorted(result["pages_redacted"]) == [1, 2]
+
+
+def test_query_and_queries_are_both_optional_but_not_both_omitted(a_pdf, tmp_path):
+    """Neither can be `required` in the schema, since either one alone is a valid call — so the
+    exactly-one rule is enforced at runtime and has to reach the client as a readable error."""
+    schema = {t.name: t.input_schema for t in asyncio.run(server.list_tools())}["redact_text"]
+    assert set(schema.get("required", [])) == {"path", "out"}
+    assert {"query", "queries"} <= set(schema.get("properties", {}))
+
+    out = str(tmp_path / "neither.pdf")
+    with pytest.raises(ToolError, match="not both/neither"):
+        call("redact_text", path=a_pdf, out=out)
+    with pytest.raises(ToolError, match="not both/neither"):
+        call("redact_text", path=a_pdf, out=out, query=A_TEXT[0], queries=[A_TEXT[1]])
+
+
 def test_redact_regions_through_the_server(a_pdf, tmp_path):
     hit = payload("search", path=a_pdf, query=A_TEXT[1])["hits"][0]
     out = str(tmp_path / "reg.pdf")

@@ -528,8 +528,9 @@ def create_server(config: Config | None = None) -> MCPServer:
     @guarded
     def redact_text(
         path: str,
-        query: str,
         out: str,
+        query: str | None = None,
+        queries: list[str] | None = None,
         match_case: bool = False,
         whole_words: bool = False,
         pages: list[int] | None = None,
@@ -537,6 +538,15 @@ def create_server(config: Config | None = None) -> MCPServer:
         overwrite: bool = False,
     ) -> dict:
         """**Destructively** remove every occurrence of `query` and write a verified copy.
+
+        Pass **either** `query` (one string) **or** `queries` (a list) — not both. Use `queries`
+        whenever you have more than one thing to remove from the same document: it removes them all
+        in one verified pass and writes **one** file. Chaining separate calls instead leaves an
+        intermediate file per step, each a partially-redacted copy still holding the live values you
+        have not got to yet, and every one of them is yours to remember and delete. One pass also
+        removes an ordering trap — chained calls had to run the longest query first, or a shorter
+        one ate part of a longer match and left fragments behind. Each query is verified separately
+        and to the same standard; the reply carries a `queries` list with each one's own counts.
 
         This deletes content. The text is physically removed from the output — not covered by a
         black box — and the written file is then checked twice: that the redacted regions really
@@ -589,6 +599,12 @@ def create_server(config: Config | None = None) -> MCPServer:
           rare, `warnings` says so — that is the **over-redaction** signal, and it is the only one
           you get, because destroyed content leaves no trace in the output to check afterwards.
 
+        With `queries`, each of those fields is reported **per query** inside `queries`, alongside
+        that query's own `matches`, rather than at the top level — six queries' counts flattened
+        into one set would report the last one's results as the whole call's. A query that matches
+        nothing does **not** fail the call when another matched: it comes back as `matches: 0` with
+        a warning, because failing would delete an output that correctly removed the others.
+
         The guarantee covers the **text layer**. Text that is part of a scanned image has no text to
         verify; `verified_text` will be empty and `cross_engine_verified` tells you whether the
         second engine ran at all.
@@ -597,6 +613,7 @@ def create_server(config: Config | None = None) -> MCPServer:
             check(path),
             query,
             check(out),
+            queries=queries,
             match_case=match_case,
             whole_words=whole_words,
             pages=pages,
