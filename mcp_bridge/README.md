@@ -118,7 +118,7 @@ error, never a silent clamp.
 
 | Redact — **destructive**, verified | |
 |---|---|
-| `redact_text` | Remove every match of a query. |
+| `redact_text` | Remove every match of a `query` — or of several `queries`, in one verified pass. |
 | `redact_regions` | Remove rectangles; a `search` hit's `box` feeds straight back in. |
 
 ### What the write tools guarantee
@@ -167,6 +167,15 @@ Preview with `search` before `redact_text`. Matching is the app's find-bar behav
 `whole_words` off a search for "Smith" also matches inside "Smithsonian" — and this tool deletes
 what it finds.
 
+**Removing several things? Use `queries`, not several calls.** The argument is data hygiene rather
+than convenience: every write needs a fresh `out`, so a chain of six redactions strews five
+intermediate files, each a partially-redacted copy still holding the values you have not reached
+yet, and each one yours to remember and delete. One pass writes one file. It also retires an
+ordering trap — chained calls had to run the **longest query first**, or a shorter one consumed part
+of a longer match and left fragments behind. In one pass every box is computed against the intact
+source before anything is applied, so the order of the list cannot matter. Overlapping terms
+(`607347469 203 1` and `607347469`) are the case this is *for*, not an edge case to avoid.
+
 **`whole_words: true` means whole *token*, and for a single-token query that is usually the wrong
 choice.** A "word" is a run of characters between spaces, so `220885-1063303` with `whole_words` on
 does not match `<AccountNumber:220885-1063303>` — the entire tag is one word. Machine-readable tags,
@@ -198,6 +207,14 @@ That case is why the reply carries two fields worth reading rather than just a s
   because a feature that exists to close an invisible failure must not go quiet in a way that reads
   as reassurance. A query you punctuated — `999 99 9999`, `AB 12 CD` — is always scanned: the
   separators are you saying it is a structured value.
+- **`queries`** — the per-query breakdown when you passed a list. Every field above is reported
+  **inside** it, per query, beside that query's own `matches`, because flattening six queries'
+  counts into one set would report the last one's numbers as the whole call's. The shape follows
+  which parameter you used, not how many queries you happened to put in it: a one-element `queries`
+  list still comes back as a list, so a caller iterating a variable-length list gets one shape to
+  parse. A query that matches **nothing** does not fail the call when another matched — it comes
+  back `matches: 0` with a warning, because failing would delete an output that correctly removed
+  the others.
 - **`query_terms`** — the per-term match breakdown when `whole_words` is off and the query has
   several words, with a warning when one term did most of the deleting and the phrase itself is
   rare. This is the **over-redaction** counterweight: everything else here proves the query is

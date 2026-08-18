@@ -2168,14 +2168,22 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   deleting them, making M95–M98's *preview before you destroy* visual rather than textual. Design in
   `PLAN.md` §M99 — *WSL*
 
-- [ ] **M100** **`queries: [...]` — one redaction call, several terms** — scheduled 2026-08-16 from
-  TC-007. The argument is **data hygiene, not ergonomics**: six identifiers took four chained calls
-  and left three intermediate files, each a partially-redacted copy holding live PII. That sprawl is
-  caused by our own design (every write demands a fresh `out`), which makes it ours to fix. It also
-  removes an ordering hazard — terms must currently be removed longest-first or fragments survive.
-  **Start with the arithmetic, not the API**: overlapping terms give `covered=2` against `before=1`,
-  driving the budget to −1 and tripping M97's impossible-budget path, and overlap is the *motivating*
-  case so it cannot simply be rejected. Design in `PLAN.md` §M100 — *WSL*
+- [x] **M100** **`queries: [...]` — one redaction call, several terms** — scheduled 2026-08-16 from
+  TC-007, built 2026-08-17. The argument is **data hygiene, not ergonomics**: six identifiers took
+  four chained calls and left three intermediate files, each a partially-redacted copy holding live
+  PII. That sprawl is caused by our own design (every write demands a fresh `out`), which makes it
+  ours to fix. It also retires an ordering hazard — chained terms had to be removed longest-first or
+  fragments survived; one pass computes every box against the *intact* source, so shortest-first and
+  longest-first now produce byte-identical output. **The scheduled diagnosis was right and its
+  prescribed fix was wrong.** A probe reproduced the negative budget exactly (`covered=3` against
+  `before=2`) and then showed the double count is **textual, not geometric** — the same *characters*
+  under two boxes, not overlapping rectangles. So coalescing the boxes, as planned, would have
+  unioned two boxes across a line break into a block covering everything between them and **deleted
+  text neither query matched**, silently. Counting each character once instead merges no rectangles
+  at all, fixes `redact_regions` for free, and corrects a pre-existing mispairing where `before`
+  counted occurrences while `covered` counted distinct tokens per box. Building it re-sprang M97's
+  `TYAGI1703` trap *within* a line (`Smith` + `Jones` → the token `SmithJones`), caught by M98's
+  existing tests. Design in `PLAN.md` §M100 — *WSL*
 
 - [ ] **M101** ⭐ **Annotation tools, and the highlight → review → redact round trip** — owner-asked
   2026-08-16: *"highlight all PII data in this document"* → a person reviews → *"redact everything
