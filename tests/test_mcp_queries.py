@@ -437,3 +437,196 @@ def test_the_app_find_bar_agrees_with_the_bridge(tight_leading_pdf):
         assert len(shown) == len(page.search_for("Security"))
     finally:
         doc.close()
+
+
+# ---- M99: a region clip on the imaging tools ------------------------------------
+
+
+def test_clip_pixel_size_follows_the_clip_not_the_page(a_pdf):
+    """The number a caller sizes a layout from must describe the image it actually received.
+
+    PyMuPDF derives the pixmap from the clip, so this is really pinning that we pass the clip at
+    all — but it is the exact failure PLAN.md §M99 names, and it is invisible without the assert:
+    a dropped `clip=` still returns a valid PNG, just of the whole page.
+    """
+    whole = queries.render_page(a_pdf, 1, dpi=72)
+    part = queries.render_page(a_pdf, 1, dpi=72, clip=[0, 0, 144, 72])
+
+    assert (part["width_px"], part["height_px"]) == (144, 72)
+    assert part["width_px"] < whole["width_px"] and part["height_px"] < whole["height_px"]
+    assert part["clip"] == [0.0, 0.0, 144.0, 72.0]
+    assert len(part["png"]) < len(whole["png"])
+
+
+def test_clip_scales_with_dpi(a_pdf):
+    """The clip is in points and the dpi multiplies it — the two must not fight."""
+    at72 = queries.render_page(a_pdf, 1, dpi=72, clip=[0, 0, 100, 50])
+    at144 = queries.render_page(a_pdf, 1, dpi=144, clip=[0, 0, 100, 50])
+    assert (at72["width_px"], at72["height_px"]) == (100, 50)
+    assert (at144["width_px"], at144["height_px"]) == (200, 100)
+
+
+def test_no_clip_is_byte_identical_to_before(a_pdf):
+    """The regression guard: adding the parameter must not have changed the default render."""
+    a = queries.render_page(a_pdf, 1, dpi=100)
+    b = queries.render_page(a_pdf, 1, dpi=100, clip=None)
+    assert a["png"] == b["png"]
+    assert a["clip"] is None
+
+
+def test_a_search_hit_feeds_straight_back_in_as_a_clip(a_pdf):
+    """The composition M99 exists for: `search` → look at the pixels of the match.
+
+    Whether the crop is *legible* is not something a test can assert, so this pins the two things
+    that would break the workflow mechanically — the hit's box is accepted verbatim, and the region
+    it selects is genuinely a small part of the page rather than the whole thing.
+    """
+    import pymupdf as fitz
+
+    (hit,) = [h for h in queries.search(a_pdf, A_TEXT[0]) if h["page"] == 1]
+    # A hit is `boxes`, one per line (#250). Union them — the documented pattern for seeing a whole
+    # match, and the reason `clip` takes one rect rather than the list `redact_regions` takes.
+    region = fitz.Rect(hit["boxes"][0])
+    for box in hit["boxes"][1:]:
+        region |= fitz.Rect(box)
+    rendered = queries.render_page(a_pdf, 1, dpi=150, clip=list(region))
+
+    assert rendered["clip"] == pytest.approx(list(region), abs=0.01)
+    whole = queries.render_page(a_pdf, 1, dpi=150)
+    assert rendered["width_px"] * rendered["height_px"] < whole["width_px"] * whole["height_px"] / 4
+
+
+@pytest.mark.parametrize(
+    "clip, expected",
+    [
+        ([100, 100, 100, 200], "empty or inverted"),      # zero width
+        ([100, 100, 50, 200], "empty or inverted"),       # x reversed
+        ([100, 200, 150, 100], "empty or inverted"),      # y reversed
+        ([-5, 0, 100, 100], "outside page 1"),            # off the left edge
+        ([0, 0, 100, 10_000], "outside page 1"),          # off the bottom
+        ([0, 0, 100], r"must be \[x0, y0, x1, y1\]"),     # three numbers
+        (["a", 0, 100, 100], "must be four numbers"),     # not numbers
+    ],
+)
+def test_a_bad_clip_is_refused_with_a_reason(a_pdf, clip, expected):
+    """Refused rather than clamped — `render_page` returns an image block, so a silently adjusted
+    clip has no channel to say so (see `model.export.resolve_clip`). The message names the page
+    rect because the caller otherwise cannot tell which edge overhung."""
+    with pytest.raises(ValueError, match=expected):
+        queries.render_page(a_pdf, 1, clip=clip)
+
+
+def test_a_clip_a_hair_over_the_edge_is_allowed(a_pdf):
+    """Float noise in a computed box must not be an error; a real overhang still is."""
+    import pymupdf as fitz
+
+    doc = fitz.open(a_pdf)
+    rect = doc[0].rect
+    doc.close()
+
+    rendered = queries.render_page(a_pdf, 1, dpi=72, clip=[0, 0, rect.x1 + 0.005, 50])
+    assert rendered["width_px"] == round(rect.x1 * 72 / 72)
+
+
+# ---- M99.1 / TC-008 Finding 3: a clip on a rotated page -----------------------------
+
+
+@pytest.fixture
+def landscape_pdf(tmp_path) -> str:
+    """A natively-landscape page with text near the right edge, past a rotated page's width.
+
+    792 wide, so a box out at x≈700 sits beyond the 612 the page reports once turned a quarter —
+    which is what made the second failure reachable rather than theoretical.
+    """
+    path = str(tmp_path / "landscape.pdf")
+    doc = fitz.open()
+    page = doc.new_page(width=792, height=612)
+    page.insert_text((488, 185), "PACIFICA", fontsize=11)
+    page.insert_text((700, 310), "1.800.252.4633", fontsize=11)
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def _ink(png: bytes) -> int:
+    """Dark pixels in a PNG — "did anything actually get drawn here?"."""
+    pixmap = fitz.Pixmap(png)
+    samples = pixmap.samples
+    return sum(1 for i in range(0, len(samples), pixmap.n) if samples[i] < 200)
+
+
+@pytest.mark.parametrize("degrees", [0, 90, 180, 270])
+def test_a_search_hit_clips_to_the_same_text_at_every_rotation(landscape_pdf, tmp_path, degrees):
+    """The promise `clip` is documented on: hand a `search` box straight back and see that match.
+
+    `search_for` reports **unrotated** coordinates — byte-identical at every rotation — while
+    `page.rect` is the *displayed* rect and is also what `get_pixmap` clips in. Validating against
+    `page.rect` put `clip` on the far side of the rotation from every box a caller has, and the
+    render came back **blank** with no error at all (TC-008 Finding 3). Ink is the assertion because
+    a wrong region still returns a perfectly valid PNG.
+    """
+    from mcp_bridge import transforms
+
+    path = landscape_pdf
+    if degrees:
+        path = str(tmp_path / f"rot{degrees}.pdf")
+        transforms.rotate(landscape_pdf, degrees, path)
+
+    (hit,) = [h for h in queries.search(path, "PACIFICA") if h["page"] == 1]
+    rendered = queries.render_page(path, 1, dpi=150, clip=hit["boxes"][0])
+
+    assert _ink(rendered["png"]) > 50, f"blank render at /Rotate {degrees} — wrong region clipped"
+    # A quarter turn swaps the image's axes; a half turn does not.
+    wide = rendered["width_px"] > rendered["height_px"]
+    assert wide is (degrees in (0, 180))
+
+
+def test_the_clip_echo_stays_in_the_callers_coordinates(landscape_pdf, tmp_path):
+    """`resolve_clip` hands the rasteriser a *displayed*-space rect, which on a rotated page is a
+    different quadruple from the one passed in. Echoing that would tell the caller their clip had
+    been altered."""
+    from mcp_bridge import transforms
+
+    rotated = str(tmp_path / "rot90.pdf")
+    transforms.rotate(landscape_pdf, 90, rotated)
+    (hit,) = [h for h in queries.search(rotated, "PACIFICA") if h["page"] == 1]
+    box = hit["boxes"][0]
+
+    assert queries.render_page(rotated, 1, dpi=72, clip=box)["clip"] == pytest.approx(box)
+
+
+def test_a_box_past_the_displayed_width_is_not_refused_on_a_rotated_page(landscape_pdf, tmp_path):
+    """The second half of Finding 3, and the more embarrassing one: one server, one page, one call
+    apart — `search` returned a box out to x≈776 and `clip` rejected it as off-page, because the
+    turned page reports a width of 612."""
+    from mcp_bridge import transforms
+
+    rotated = str(tmp_path / "rot90.pdf")
+    transforms.rotate(landscape_pdf, 90, rotated)
+    (hit,) = [h for h in queries.search(rotated, "1.800.252.4633") if h["page"] == 1]
+    assert hit["boxes"][0][2] > 612, "fixture no longer exercises the case"
+
+    rendered = queries.render_page(rotated, 1, dpi=150, clip=hit["boxes"][0])
+    assert _ink(rendered["png"]) > 50
+
+
+def test_a_genuinely_off_page_clip_is_still_refused_when_rotated(landscape_pdf, tmp_path):
+    """Widening the accepted space must not disable the check — the unrotated page is 792x612, so
+    y=700 is off it however the page is turned."""
+    from mcp_bridge import transforms
+
+    rotated = str(tmp_path / "rot90.pdf")
+    transforms.rotate(landscape_pdf, 90, rotated)
+    with pytest.raises(ValueError, match="outside page 1"):
+        queries.render_page(rotated, 1, dpi=72, clip=[0, 0, 100, 700])
+
+
+def test_the_refusal_says_the_page_is_rotated(landscape_pdf, tmp_path):
+    """A caller told their box is outside `[0, 0, 792, 612]` while looking at a page the viewer
+    shows as 612x792 needs to know which of the two they are being measured against."""
+    from mcp_bridge import transforms
+
+    rotated = str(tmp_path / "rot90.pdf")
+    transforms.rotate(landscape_pdf, 90, rotated)
+    with pytest.raises(ValueError, match="rotated 90"):
+        queries.render_page(rotated, 1, dpi=72, clip=[0, 0, 100, 700])

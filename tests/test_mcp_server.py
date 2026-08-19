@@ -88,7 +88,7 @@ def test_schemas_name_the_arguments_the_helpers_take():
     assert schemas["get_info"] == {"path", "password"}
     assert schemas["search"] == {"path", "query", "match_case", "whole_words", "password"}
     assert schemas["extract_text"] == {"path", "pages", "password"}
-    assert schemas["render_page"] == {"path", "page", "dpi", "password"}
+    assert schemas["render_page"] == {"path", "page", "dpi", "password", "clip"}
 
 
 def test_only_the_document_is_required(a_pdf):
@@ -194,6 +194,9 @@ def test_password_reaches_the_helper(tmp_path):
         ("extract_text", {"pages": [99]}),
         ("render_page", {"page": 99}),
         ("render_page", {"page": 1, "dpi": -5}),
+        ("render_page", {"page": 1, "clip": [10, 10, 5, 50]}),      # inverted
+        ("render_page", {"page": 1, "clip": [0, 0, 10_000, 50]}),   # off the page
+        ("render_page", {"page": 1, "clip": [0, 0, 10]}),           # not four numbers
     ],
 )
 def test_bad_arguments_raise_a_tool_error(a_pdf, name, arguments):

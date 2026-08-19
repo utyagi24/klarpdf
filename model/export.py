@@ -103,12 +103,85 @@ def export_reduced_pdf(
     return before, os.path.getsize(out_path)
 
 
+# How far outside the page a clip may stray before it is an error rather than float noise. A box
+# that came from `search` is computed, not typed, so its edge can land a ten-thousandth of a point
+# past the page edge; 0.01 pt is sub-pixel at any dpi anything here will render, so the tolerance
+# cannot hide a clip that is genuinely in the wrong place.
+_CLIP_TOLERANCE = 0.01
+
+
+def resolve_clip(page: fitz.Page, clip) -> fitz.Rect | None:
+    """Validate a ``[x0, y0, x1, y1]`` region against ``page``; ``None`` means the whole page (M99).
+
+    Page points — the space ``search`` reports boxes in and ``redact_regions`` consumes them from,
+    which is the composition this exists for.
+
+    **One rectangle, deliberately, even though a ``search`` hit carries a list.** Since #250 a hit
+    occupies one box *per line*, so a match wrapping a line break has several; the caller unions
+    them (``fitz.Rect`` folds a list in one ``|=``) and gets a region covering the whole match plus
+    whatever sits between the lines. That union is right for looking and wrong for deleting, which
+    is why ``redact_regions`` takes the boxes separately and this takes one rect: a render showing
+    a little extra context is helpful, and a redaction removing a little extra is data loss.
+
+    **A clip that is not wholly on the page is an error, not a clamp**, and the reason is specific
+    rather than a general taste for strictness: the bridge's ``render_page`` returns an *image
+    block*, so its reply has nowhere to carry a note. PyMuPDF would quietly intersect an overhanging
+    clip with the page and hand back a smaller pixmap, and the caller — who sized a layout from the
+    clip it asked for — would receive different pixels with nothing to say so. The error is the only
+    channel available, so it names the page rect: the caller can correct in one step instead of
+    guessing which edge overhung. ``export_images`` returns JSON and could have reported an
+    adjustment instead, but two imaging tools that disagreed about what a clip means would be worse
+    than one strict rule. Lives here, beside the rasterisation it constrains, so the bridge and the
+    app's own Export cannot drift into two validators with two answers.
+
+    **The clip is read in *unrotated* space and returned in *displayed* space** (M99.1, TC-008
+    Finding 3), and the split is the whole correctness of this function on a rotated page.
+    ``search_for`` reports boxes in the unrotated page — byte-identical coordinates whether the page
+    carries ``/Rotate 0`` or ``/Rotate 90`` — and ``redact_regions`` consumes them there. But
+    ``page.rect`` is the *displayed* rect, which swaps width and height under a quarter turn, and
+    that is also the space ``get_pixmap`` clips in. Validating against ``page.rect`` therefore put
+    ``clip`` on the opposite side of the rotation from every box a caller has, and it failed twice
+    over: a ``search`` box landed inside the displayed rect and **rendered blank** (measured: 671
+    dark pixels unrotated, 0 at ``/Rotate 90``), while a box beyond the displayed width was
+    **refused as off-page** although ``search`` had just returned it for that same page. So the
+    bounds check runs against ``page.rect * page.derotation_matrix`` — the unrotated rect, the one
+    the caller's numbers are in — and the result is mapped through ``page.rotation_matrix`` for the
+    rasteriser. Both matrices are the identity on an unrotated page, so nothing changes there.
+    """
+    if clip is None:
+        return None
+    try:
+        values = [float(v) for v in clip]
+    except (TypeError, ValueError):
+        raise ValueError(f"clip must be four numbers [x0, y0, x1, y1]; got {clip!r}") from None
+    if len(values) != 4:
+        raise ValueError(f"clip must be [x0, y0, x1, y1] in page points; got {clip!r}")
+    rect = fitz.Rect(*values)
+    if rect.x0 >= rect.x1 or rect.y0 >= rect.y1:
+        raise ValueError(f"clip {values} is empty or inverted")
+    # The unrotated rect — what `search` measures against, not what the reader sees.
+    bounds = page.rect * page.derotation_matrix
+    if (rect.x0 < bounds.x0 - _CLIP_TOLERANCE or rect.y0 < bounds.y0 - _CLIP_TOLERANCE
+            or rect.x1 > bounds.x1 + _CLIP_TOLERANCE or rect.y1 > bounds.y1 + _CLIP_TOLERANCE):
+        raise ValueError(
+            f"clip {values} lies outside page {page.number + 1}, which is "
+            f"[{bounds.x0:g}, {bounds.y0:g}, {bounds.x1:g}, {bounds.y1:g}] in points"
+            + (f" (the page is rotated {page.rotation}°; these are the unrotated coordinates "
+               "`search` reports boxes in)" if page.rotation else "")
+        )
+    # Absorb the tolerance: a clip allowed through a hair over the edge must still be a rect
+    # `get_pixmap` can render, and the intersection is that clip to within a hundredth of a point.
+    # Then across to displayed space, which is where the rasteriser cuts.
+    return (rect & bounds) * page.rotation_matrix
+
+
 def export_page_images(
     vdoc: VirtualDocument,
     page_indices,
     base_path: str,
     dpi: int = 150,
     jpg_quality: int = 90,
+    clip=None,
 ) -> list[str]:
     """Export pages of the **edits-applied** output to image files — one file per page (M36).
 
@@ -121,6 +194,11 @@ def export_page_images(
     Rasterised from :meth:`PyMuPDFEngine.render_output` at ``dpi`` (1 pt = dpi/72 px), so each image
     reflects the page order / rotation / annotations / fills / redactions a Save would write — and a
     *pending* redaction exports as removed without committing it (the render copy is a throwaway).
+
+    ``clip`` (M99) narrows every exported page to the same ``[x0, y0, x1, y1]`` region in page
+    points. It is validated **per page**, not once: page sizes vary within a document, so a region
+    that sits comfortably on page 1 can overhang page 2, and validating only the first would export
+    that page silently short.
     """
     indices = list(page_indices)
     if not indices:
@@ -134,9 +212,12 @@ def export_page_images(
     out = PyMuPDFEngine().render_output(vdoc)
     written: list[str] = []
     try:
+        # Validate the whole set before writing anything: a clip that fails on page 7 of 10 would
+        # otherwise leave six files behind from a call that raised.
+        rects = {index: resolve_clip(out[index], clip) for index in indices}
         for index in indices:
             target = base_path if single else f"{root}-{index + 1:0{pad}d}{ext}"
-            pix = out[index].get_pixmap(matrix=matrix, alpha=False)
+            pix = out[index].get_pixmap(matrix=matrix, clip=rects[index], alpha=False)
             if is_jpeg:
                 pix.save(target, jpg_quality=jpg_quality)
             else:

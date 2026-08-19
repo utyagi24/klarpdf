@@ -426,6 +426,62 @@ def test_export_images_will_not_clobber_without_permission(a_pdf, tmp_path):
     T.export_images(a_pdf, str(tmp_path), pages=[1], dpi=36, overwrite=True)  # allowed when asked
 
 
+# ---- M99: cropping the export to a region ----------------------------------------------------
+
+
+def _png_size(path: str) -> tuple[int, int]:
+    """Width/height straight out of the PNG IHDR — no image library needed for a 24-byte read."""
+    import struct
+
+    with open(path, "rb") as handle:
+        header = handle.read(24)
+    assert header[:8] == b"\x89PNG\r\n\x1a\n", path
+    return struct.unpack(">II", header[16:24])
+
+
+def test_export_clip_crops_every_page_to_the_region(a_pdf, tmp_path):
+    result = T.export_images(a_pdf, str(tmp_path), dpi=72, clip=[0, 0, 200, 100])
+    assert result["count"] == 3
+    assert result["clip"] == [0.0, 0.0, 200.0, 100.0]
+    for written in result["files"]:
+        assert _png_size(written) == (200, 100)
+
+
+def test_export_without_a_clip_is_unchanged(a_pdf, tmp_path):
+    """`clip=None` must be the identity — the whole page, exactly as before M99."""
+    os.makedirs(tmp_path / "a")
+    os.makedirs(tmp_path / "b")
+    plain = T.export_images(a_pdf, str(tmp_path / "a"), pages=[1], dpi=72)
+    explicit = T.export_images(a_pdf, str(tmp_path / "b"), pages=[1], dpi=72, clip=None)
+    with open(plain["files"][0], "rb") as one, open(explicit["files"][0], "rb") as two:
+        assert one.read() == two.read()
+    assert plain["clip"] is None
+
+
+def test_a_clip_that_overhangs_any_page_writes_nothing(a_pdf, tmp_path):
+    """Validated for the whole set **before** the first file is written.
+
+    The failure this prevents is the partial one: a clip legal on pages 1-2 and off the edge of
+    page 3 would otherwise raise having already left two files on disk, so a caller that handled
+    the error still has half an export to clean up. Page sizes vary within real documents, which is
+    what makes this reachable rather than theoretical.
+    """
+    import pymupdf as fitz
+
+    mixed = str(tmp_path / "mixed.pdf")
+    doc = fitz.open()
+    doc.new_page(width=600, height=800)
+    doc.new_page(width=200, height=800)  # narrower — a 300-wide clip runs off it
+    doc.save(mixed)
+    doc.close()
+
+    out_dir = tmp_path / "out"
+    os.makedirs(out_dir)
+    with pytest.raises(ValueError, match="outside page 2"):
+        T.export_images(mixed, str(out_dir), dpi=36, clip=[0, 0, 300, 100])
+    assert os.listdir(out_dir) == []
+
+
 # ---- the safety model, tested adversarially -------------------------------------------------
 
 

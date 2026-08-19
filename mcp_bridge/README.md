@@ -105,7 +105,7 @@ error, never a silent clamp.
 | `get_outline` | Bookmarks as `{level, title, page}`. |
 | `search` | Hits with page, snippet, box, and whether the text is `invisible` on the page. `match_case`, `whole_words`. |
 | `extract_text` | Text of named pages. |
-| `render_page` | One page as a PNG image block. |
+| `render_page` | One page — or one `clip` region of it — as a PNG image block. |
 | `get_form_fields` | Fillable fields, one entry per occurrence, with each one's checkbox on-state and read-only / required / multiline / max-length. |
 
 | Transform — writes a **new** file | |
@@ -114,7 +114,7 @@ error, never a silent clamp.
 | `delete_pages` · `reorder` · `rotate` | Page-set edits; bookmarks follow their pages. |
 | `split` · `merge` | Cut into several files by print-dialog ranges (`"1-3"`, `"5-"`) / concatenate; merge renames colliding fields. |
 | `fill_form` · `flatten` | Fill (still editable; checkboxes take `true` or their own export state, anything else is an error) / bake in (no longer editable). `fill_form` warns on an XFA form and on read-only fields. |
-| `export_images` | Rasterise pages to png/jpg files. |
+| `export_images` | Rasterise pages — or one `clip` region of each — to png/jpg files. |
 
 | Redact — **destructive**, verified | |
 |---|---|
@@ -140,6 +140,36 @@ error, never a silent clamp.
 - **A mistake is an error, not a quiet partial success.** An unknown form-field name, a `reorder`
   that is not a full permutation, a `delete_pages` that would empty the document, a `redact_text`
   that matches nothing — all fail loudly rather than writing something plausible.
+
+### Clipping to a region
+
+`render_page` and `export_images` both take an optional `clip` — `[x0, y0, x1, y1]` in **page
+points**, the same coordinate space `search` reports hits in and `redact_regions` consumes them
+from. Boxes are this server's native currency, so region→image is the "I know *where*" workflow it
+already serves, minus the destruction.
+
+The composition worth knowing: **`search` → `render_page(clip=…)` shows a person the actual pixels
+of what is about to be deleted.** Every other safety mechanism here is textual; this is the one that
+makes the preview visual, on tools whose docs already say to search before you redact. It also
+reads a stamp, signature or single table cell at 300 dpi without paying to render the page around
+it.
+
+A `search` hit carries **`boxes`**, one per line, so a match wrapping a line break has several. Pass
+one, or their bounding box to see the whole match. `clip` takes a single rectangle where
+`redact_regions` takes the list, and the asymmetry is deliberate: a union spanning two lines picks
+up whatever sits between them, which is helpful when looking and is data loss when deleting.
+
+**Rotation is handled for you.** `search` reports boxes in the page's *unrotated* space — the same
+coordinates at `/Rotate 0` and `/Rotate 90` — and `clip` reads them there, so a hit feeds straight
+back whatever the rotation. The image is the region as *displayed*, so a quarter turn swaps its
+width and height. One consequence worth knowing: `get_info.page_sizes` reports displayed
+dimensions, so on a turned page a perfectly valid box can extend past the width shown there.
+
+**A clip that runs off the edge of the page is an error, not a smaller image.** PyMuPDF would
+happily intersect it and hand back a cropped pixmap; `render_page` returns an image block, so its
+reply has nowhere to say that it did. The error names the page's rect instead, so the fix is one
+step rather than a guess. `export_images` checks **every** page in the set before writing anything —
+page sizes vary within a document, and a clip that dies on page 7 must not leave six files behind.
 
 ### What redaction guarantees, and where it stops
 
