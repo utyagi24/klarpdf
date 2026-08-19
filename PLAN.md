@@ -965,6 +965,22 @@ and already produces the page + snippet output `search` needs.
   selling point is that it never touches the network, breaking the no-outbound-connections
   verification item below; it also attaches AGPL §13 remote-network-interaction obligations that a
   stdio subprocess never triggers. Revisit only on a concrete request.
+- **A tool description is a budget, not a place** (M105). Clients truncate it: Claude Code cuts at
+  **2,048** characters and appends `… [truncated]` with no error, so a description that outgrows the
+  transport loses its tail in silence — and the tail is where the caveats collect. `redact_text`
+  lost 69% of 6,573 characters that way. Two rules follow, and they are standing design rather
+  than M105 cleanup. **(a)** Every description stays under the **1,900**-character budget that
+  `tests/test_mcp_docs.py` enforces over the *live* server, so a tool added later is covered the day
+  it is registered; the same budget covers the `instructions` block, which goes through the same
+  constant and is **not** the uncapped escape hatch it appears to be. **(b)** When a tool has more
+  to say than that, the overflow goes to the resource `klarpdf://docs/{tool}` — a resource read is
+  capped at 100,000 characters, not 2,048 — and **never** into a raised budget. Split by *kind*, not
+  by importance: what a caller must know **before** calling (that it destroys content, what a flag
+  changes, the traps) stays in the description; what they need to interpret the **reply** moves to
+  the resource. The resource serves the live registered description plus a disjoint appendix in
+  `mcp_bridge/docs.py`, never a second copy, so the two cannot drift. Only `redact_text` and
+  `search` need one today; the other fifteen sit comfortably inside the budget, and a resource for
+  them would be ceremony.
 - **New headless helpers** (the only genuinely new code) — landed in `mcp_bridge/queries.py`:
   `extract_text(path, pages)`, `search(path, query)`, `render_page(path, page, dpi)`,
   `document_info(path)`, `outline(path)`, `form_fields(path)`. `viewer/search.py` is Qt-bound, but

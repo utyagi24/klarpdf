@@ -159,6 +159,21 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   `paintEvent` / an event handler destroys every `QGraphicsItem` while Qt is still walking them.
   Defer to the event loop with a `QTimer` **parented to the view** (it is then cancelled on
   destruction, and a burst of events collapses into one pass).
+- **An MCP tool description over ~2 KB is cut in half in transit, and nothing errors.** Claude Code
+  truncates a tool description at **2,048** characters (`yfe` in the client binary) and appends
+  `… [truncated]`; the *same* constant truncates the server's `instructions` block, so that is not
+  the uncapped escape hatch it looks like — ours fits only because it is under the cap, with 195
+  characters to spare on the `--read-only` build. `redact_text` lost **69%** of its 6,573 characters
+  this way, and it was the wrong 69%: three milestones of agent-facing documentation written into a
+  channel that silently discards it, found by a tester saying "I cannot see this" rather than by any
+  test. **So a description is a budget: 1,900 characters, and the overflow goes to
+  `klarpdf://docs/{tool}` — never into a bigger description.** `tests/test_mcp_docs.py` enforces it
+  over the *live* server, so a new tool is covered the day it is registered; when it fails, move
+  reference material to the resource (capped at 100,000 chars) rather than raising the budget. Split
+  by kind — what the caller needs *before* calling stays, what they need to read the *reply* moves.
+  One trap underneath it: the SDK sends `fn.__doc__` **verbatim** (no `inspect.getdoc`), so a
+  docstring's indentation is billed against the cap — ~1,800 chars across the tools — which is why
+  `guarded` runs `cleandoc`. See `PLAN.md` §Architecture and §M105.
 - **Windows Python must be python.org 3.12.x**, not the Microsoft Store stub (which can't build).
 - **WSL dev venv installs from `requirements-dev.txt`** (same `==` versions, **no hashes**):
   `pip install --require-hashes` fails on Linux by design (manylinux wheel hashes ≠ the `win_amd64`
