@@ -141,8 +141,8 @@ error, never a silent clamp.
   that is not a full permutation, a `delete_pages` that would empty the document, a `redact_text`
   that matches nothing — all fail loudly rather than writing something plausible.
 - **A misspelled *parameter* is an error too.** Every tool rejects an argument name it does not
-  declare, naming it, suggesting the near miss, and listing what it does accept — before reading or
-  writing anything. This is not decoration: the MCP SDK's default is to **drop** an unrecognised
+  declare, naming it, suggesting the near miss (case-insensitively, so `PAGES` is answered with
+  `pages`), and listing what it does accept — before reading or writing anything. This is not decoration: the MCP SDK's default is to **drop** an unrecognised
   key, so `redact_text` called with `querys` instead of `queries` used to redact only the other
   query and report an unqualified success — `residual_matches: 0`, cross-engine verified — on a
   file that still held the value you asked it to remove. Nothing downstream can catch that, because

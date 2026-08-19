@@ -24,7 +24,7 @@ import os
 import pytest
 
 from mcp_bridge.server import create_server, server
-from mcp_bridge.strict_args import rejection_message, unknown_parameters
+from mcp_bridge.strict_args import rejection_message, suggestions, unknown_parameters
 
 # Borrowed rather than restated: the tool roster has exactly one owner, and a second copy of it
 # here would drift the moment a tool is added.
@@ -78,6 +78,12 @@ def test_a_fully_correct_argument_list_has_no_unknowns():
         ("querys", ["query", "queries"]),  # TC-009's original: both, because a plural means the list
         ("wholewords", ["whole_words"]),
         ("Query", ["query"]),
+        # Shapes the TC-009 retest probed, chosen to differ in kind from the reported strings so
+        # the fix could not be a lookup of them.
+        ("whole_word", ["whole_words"]),  # trailing character missing
+        ("match-case", ["match_case"]),  # hyphen for underscore
+        ("overwite", ["overwrite"]),  # internal deletion
+        ("pth", ["path"]),  # heavy abbreviation, distance 2
     ],
 )
 def test_a_near_miss_is_answered_with_a_did_you_mean(typo, expected):
@@ -85,6 +91,40 @@ def test_a_near_miss_is_answered_with_a_did_you_mean(typo, expected):
     assert "Did you mean" in message
     for name in expected:
         assert repr(name) in message
+
+
+@pytest.mark.parametrize(
+    "shouted, expected",
+    [
+        ("PAGES", "pages"),  # the TC-009 retest's finding: rejected, but with no hint at all
+        ("OUT", "out"),
+        ("MATCH_CASE", "match_case"),
+        ("Path", "path"),
+        ("Whole_Words", "whole_words"),
+    ],
+)
+def test_a_case_variant_of_a_real_name_still_gets_a_hint(shouted, expected):
+    """Case-sensitive distance is dominated by the case difference, so an all-caps but otherwise
+    correct name fell outside the cutoff and was rejected with nothing to act on."""
+    assert suggestions(shouted, REDACT_TEXT_PARAMS) == [expected]
+
+
+def test_case_folding_does_not_make_the_matcher_guess_more():
+    """The rows that should stay quiet must stay quiet. Folding can only add matches — every
+    accepted name is already lowercase — but that is worth pinning rather than reasoning about."""
+    for semantic_alias in ("case_sensitive", "out_path", "dry_run"):
+        assert suggestions(semantic_alias, REDACT_TEXT_PARAMS) == []
+
+
+def test_a_case_variant_is_rejected_and_not_quietly_accepted(a_pdf, tmp_path):
+    """The hint is case-insensitive; the *check* is not, and must not become so. Accepting `PAGES`
+    as `pages` would be the same species of leniency that made TC-009 possible."""
+    out = str(tmp_path / "shouted.pdf")
+    message = error_text(
+        call("redact_text", {"path": a_pdf, "out": out, "query": "ALPHA-zero-A0", "PAGES": [1]})
+    )
+    assert "'PAGES'" in message and "'pages'" in message
+    assert not os.path.exists(out)
 
 
 def test_an_invented_name_gets_no_suggestion_rather_than_a_wrong_one():

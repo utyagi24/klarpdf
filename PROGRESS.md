@@ -2252,8 +2252,15 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   provisional `middleware` the plan scoped: `Extension.intercept_tool_call` sits above the per-tool
   argument model too, is documented and non-provisional, and short-circuits in the same shape as
   every other tool error. The guard reads each tool's published schema, so it holds no per-tool
-  knowledge and cannot drift. Design in `PLAN.md` §M106 —
-  [#266](https://github.com/utyagi24/klarpdf/pull/266) — *WSL*
+  knowledge and cannot drift. **Retested 2026-08-19 and confirmed fixed**: all five original cases
+  fail closed including the PII leak, coverage verified by hand across read-only, destructive and
+  page-set tools, ten typo shapes chosen to differ *in kind* from the reported ones all behaved
+  (including the three that should draw no suggestion), and of fifteen calls exactly one file
+  reached disk. The retest's one finding — a shouted `PAGES` was rejected with **no hint**, because
+  case-sensitive edit distance is dominated by the case difference — is fixed in the same PR: the
+  suggestion matcher case-folds both sides, while the *rejection* stays case-sensitive, since
+  accepting `PAGES` as `pages` would be the leniency this milestone exists to remove. Design in
+  `PLAN.md` §M106 — [#266](https://github.com/utyagi24/klarpdf/pull/266) — *WSL*
 
 - [ ] **M105** *(unplanned)* **The tool descriptions are truncated in transit** — found 2026-08-18
   when the testing agent said it could not see M103's Finding-C documentation "even though the MCP

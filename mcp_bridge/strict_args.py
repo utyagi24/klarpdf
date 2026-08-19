@@ -39,9 +39,35 @@ characters and removes the round trip that guessing wrong would have added.
 
 
 def unknown_parameters(accepted: list[str], given: list[str]) -> list[str]:
-    """The names in ``given`` that ``accepted`` does not contain, in the order they were sent."""
+    """The names in ``given`` that ``accepted`` does not contain, in the order they were sent.
+
+    Case-**sensitive**, deliberately, and unlike :func:`suggestions` below. Argument names are
+    matched exactly by every other party in this protocol, so quietly accepting ``PAGES`` as
+    ``pages`` would be the same species of leniency this module exists to remove — a call that did
+    something other than what it said. A case variant is a rejection that gets a good hint.
+    """
     known = set(accepted)
     return [name for name in given if name not in known]
+
+
+def suggestions(name: str, accepted: list[str]) -> list[str]:
+    """The accepted names close enough to ``name`` to be worth offering, best first.
+
+    Compared **case-insensitively**, which only ever adds a hint: every name here is lowercase, so
+    folding cannot pull a lowercase probe towards a different answer than it had before, and the
+    two that should stay quiet (`case_sensitive`, `out_path` — semantic aliases with no lexical
+    similarity) still do. Without it the distance is dominated by the case difference and a
+    shouted-but-correct `PAGES`, `OUT` or `MATCH_CASE` is rejected with no hint at all, which the
+    TC-009 retest found and is what this fixes.
+
+    Matches are mapped back to the tool's own spelling — the caller needs the name to type, not the
+    one they typed.
+    """
+    canonical = {candidate.casefold(): candidate for candidate in accepted}
+    close = difflib.get_close_matches(
+        name.casefold(), list(canonical), n=MAX_SUGGESTIONS, cutoff=SUGGESTION_CUTOFF
+    )
+    return [canonical[match] for match in close]
 
 
 def rejection_message(tool: str, accepted: list[str], unknown: list[str]) -> str:
@@ -59,7 +85,7 @@ def rejection_message(tool: str, accepted: list[str], unknown: list[str]) -> str
     lines = [f"unknown {plural} {named} for tool '{tool}'."]
 
     for name in unknown:
-        close = difflib.get_close_matches(name, accepted, n=MAX_SUGGESTIONS, cutoff=SUGGESTION_CUTOFF)
+        close = suggestions(name, accepted)
         if close:
             options = " or ".join(repr(match) for match in close)
             lines.append(f"Did you mean {options} instead of {name!r}?")
