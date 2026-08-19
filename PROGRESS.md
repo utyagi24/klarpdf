@@ -2147,6 +2147,23 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   decode work, so A/B/F reduce how often we pay it but only E stops the freeze. Now a scheduling
   question, not a justification one.
 
+- [x] **M103** *(unplanned)* **What the reply says about what it never looked at** — five findings
+  from the TC-007 multi-query retest and TC-008, 2026-08-18. None is a leak; all are the same
+  family, and it is M98's: **a clean-looking result reported about something never examined.**
+  **B** — `_covered_tokens` dropped tokens under two characters (from M41, no design note, no test),
+  and since that dict *is* what `_verify` checks, redacting `1` gave `verified_text: {}` beside
+  `boxes_redacted: 2` while the box-level cross-engine check ran **zero assertions**; both defences
+  of the filter were measured and neither held, so it is gone — with a test that the budget can
+  still *fail*, since this is the one change touching the destructive arithmetic. **A** — 60
+  queries with 59 misses produced 59 near-identical warnings; the cost is not the 20 KB but that a
+  real over-redaction warning would have been line 37 of 59, so misses now aggregate above three.
+  **D** — `residual_literal: 0` / `residual_normalized: []` described a document the scans had read
+  two pages of; the scoping is **correct and stays** (owner's rule: never mix page-scoped and
+  document-wide in one reply), so the fix is disclosure — a new `residual_scope` plus a warning when
+  `pages` narrowed it. **E** — the zero-match warning blamed spelling when the caller's own `pages`
+  was the cause. **C** — `matches` (468) and `boxes_redacted` (240) count different things, both
+  right, documented rather than changed. Design in `PLAN.md` §M103 — *WSL*
+
 - [x] **M102** *(unplanned)* **The redaction safety net crashed instead of firing** — found
   2026-08-17 while reading `_no_residual_match` for M100, not by a report. Its **pass 1** is the
   check that catches a *matching* bug — an occurrence the matcher never boxed, the TC-001 shape —

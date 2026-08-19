@@ -613,6 +613,19 @@ def create_server(config: Config | None = None) -> MCPServer:
           rare, `warnings` says so — that is the **over-redaction** signal, and it is the only one
           you get, because destroyed content leaves no trace in the output to check afterwards.
 
+        **`matches` and `boxes_redacted` are different numbers and both are right.** `matches` is
+        the sum of each query's own hit count, so text that two queries both matched counts twice;
+        `boxes_redacted` counts the distinct rectangles actually applied to the page. With a single
+        `query` they are usually equal, which is why the difference only shows up with `queries`.
+        Neither is "how many identifiers did I remove" — a short query whose match sits inside a
+        longer query's match produces two real boxes over one piece of text.
+
+        **`residual_scope` names the pages the residual scans read.** It is every page unless you
+        passed `pages`, in which case the scans — like the redaction — cover only those, and
+        `residual_literal`/`residual_normalized` describe that slice rather than the document. A
+        warning says so. It is not the same as `pages_redacted`, which lists only where boxes
+        landed and is a smaller set.
+
         With `queries`, each of those fields is reported **per query** inside `queries`, alongside
         that query's own `matches`, rather than at the top level — six queries' counts flattened
         into one set would report the last one's results as the whole call's. A query that matches

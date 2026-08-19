@@ -3189,6 +3189,59 @@ Found while reading this function for §M100, not by a report. It is the same cl
 `insert_pdf` catalog loss: an interface changed under a call site that still parsed, and the failure
 lives in a branch nothing exercises.
 
+### M103 *(unplanned)* — what the reply says about what it never looked at (TC-007/008, 2026-08-18)
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M103** Five reporting defects from the multi-query retest: a check that ran on nothing reporting clean, a warning repeated until it buried the one that mattered, and two counts nobody had to reconcile before | `_covered_tokens`, `_no_residual_match`, `_query_reports`, tool docs | WSL | A 1-char redaction is verified and *can fail*; ≥4 misses collapse to one warning while 2 stay named; `residual_scope` appears and an unscoped call is unchanged; a `pages` miss blames the page filter, an unscoped one blames spelling |
+
+Five findings, none a leak, all the same family — **the tool reporting a clean-looking result about
+something it never examined**. That is M98's principle (`[]` and `null` must not be spelled the same
+way) applied to four more places. Two were introduced by M100; three predate it.
+
+**B — a single-character redaction was verified by nothing.** `_covered_tokens` dropped tokens
+shorter than two characters, from M41 onward, with no design note and no test — the only trace of
+intent is the phrase "tokens worth checking for individually". Since that dict *is* what `_verify`
+checks, redacting `1` returned `verified_text: {}` beside `boxes_redacted: 2` in one reply, and the
+box-level cross-engine check ran **zero assertions**. Not a leak (`_no_residual_match` still runs),
+but the strongest check silently no-opped. On the TC-007 over-redaction path 216 of 240 boxes came
+from the term `1`, and the field that exists to say "here is what I deleted" never mentioned it.
+Both defences of the filter were tested and neither held: the *noise* theory fails because
+`PageText` answers by character centre, tight enough that a box over `Smith` yields exactly `Smith`;
+the *vacuous check* theory fails because on `Item 1 and item 1 again, ref 2031` the budget is
+`before 3 − covered 2 = 1`, which requires the `1` inside `2031` to survive. Removed. This is the one
+change here that touches the destructive path's arithmetic — the code that produced M97's bug and
+needed M98.1 within hours — so it lands with a test that the budget can still **fail**, driven
+through `_verify` directly. Monkeypatching `_count` was tried first and proves nothing: it inflates
+the before and the after equally and the assertion passes exactly as it did.
+
+**A — the warning that buried the warning.** 60 queries with 59 misses produced 59 near-identical
+~330-character warnings. The cost is not the ~20 KB, it is that a genuine over-redaction warning
+among them would have been line 37 of 59. M100 multiplied a once-per-call message by N. Misses now
+aggregate above three, using the `(+N more)` idiom `residual_literal` already established. Only this
+class aggregates: the literal and variant warnings carry per-query *content* (the actual surviving
+tokens), so they are informative rather than repetitive.
+
+**D — the advisory scans never said which pages they read.** With `pages=[1,3]`,
+`residual_literal: 0` and `residual_normalized: []` came back about a document the scans had read
+two pages of, while their documented contract is "the scan ran and found nothing".
+**The scoping itself is correct and stays** — the owner's rule, settled 2026-08-18, is that a reply
+never mixes page-scoped and document-wide results, so widening the two advisory scans was rejected
+even though it costs only ~0.6 ms/page. What was missing was the disclosure: `residual_scope` now
+names the pages read, with a warning when `pages` narrowed them. `pages_redacted` was not a
+substitute — it lists where boxes *landed*, a strictly smaller set (`[1]` for a call that scanned
+`[1, 2, 3]`). Worth recording that the severity shrank twice under examination: these fields cannot
+be misread as *success*, because success is signalled by returning at all rather than by any field,
+so the real defect is an under-informative advisory rather than a false all-clear.
+
+**E — the zero-match warning blamed the caller's spelling** ("it may be spelled in a way this mode
+cannot see") when the cause was the caller's own `pages`, which the response already knew about. It
+now leads with the page restriction when there is one.
+
+**C — `matches` and `boxes_redacted` diverge** (468 against 240): the first sums per-query hits and
+double-counts text two queries both matched, the second counts distinct rectangles. Both right, and
+always equal before M100, so the difference is documented rather than changed.
+
 ## Planned next — MCP capability milestones (M99–M101, scheduled 2026-08-16)
 
 Three milestones the hands-on sessions asked for, written up so a later session can pick any of them

@@ -413,6 +413,19 @@ def _no_residual_match(
 
     Scoped to the pages the call was asked to redact — an occurrence on page 7 of a ``pages=[2]``
     request is out of scope, not a leak, and failing on it would make the page filter unusable.
+
+    **All four scans stay inside that scope, and the reply must therefore say what the scope was**
+    (M103, TC-007 Finding D). Everything here describes the operation the caller asked for, which is
+    the right rule and the one the owner settled on: a reply that mixed page-scoped and
+    document-wide results would be worse than one that is consistently narrow. But the two advisory
+    fields were spelled as if they were absolute — ``residual_literal: 0`` and
+    ``residual_normalized: []`` are documented as "the scan ran and found nothing" — so a call with
+    ``pages=[1, 3]`` reported them about a document it had read two pages of. Nothing here can be
+    misread as *success*, since success is signalled by returning at all rather than by any field;
+    what it could be misread as is *"no homework"*. So :func:`redact_text` reports
+    ``residual_scope`` beside them and warns when ``pages`` narrowed it. ``pages_redacted`` is not a
+    substitute: it lists where boxes landed, which is a strictly smaller set — ``[1]`` for a call
+    that scanned ``[1, 2, 3]``.
     """
     leaks = [hit for hit in search(out, query, match_case=match_case,
                                    whole_words=whole_words, password=password)
@@ -531,11 +544,25 @@ def _covered_tokens(page: fitz.Page, boxes: list[tuple]) -> dict[str, int]:
     always counted *occurrences* (``str.count``), while this counted *distinct tokens per box* — so
     one box over ``203 1 203`` claimed a single removal of ``203`` against a before of two, and the
     surviving copy was permitted. Occurrences on both sides is the arithmetic ``_verify`` describes.
+
+    **Single-character tokens count too** (M103, TC-008 Finding B). They were dropped from M41
+    onward by a ``len(part) >= 2`` filter whose only stated rationale was the phrase "tokens worth
+    checking for individually" — no design note, no test. The cost was not cosmetic: this dict *is*
+    what :func:`_verify` checks, so redacting ``1`` produced ``verified_text: {}`` beside
+    ``boxes_redacted: 2`` in the same reply, and the box-level cross-engine check ran **zero**
+    assertions. On the over-redaction path 216 of 240 boxes came from the term ``1``, and the field
+    that exists to say "here is what I deleted" never mentioned it.
+
+    The filter's plausible motive — that a box's edge catches a stray character and litters the
+    report — does not survive measurement: :class:`PageText` answers by character *centre*, tight
+    enough that a box over ``Smith`` yields exactly ``Smith``, and the only things the filter ever
+    dropped were genuine one-character tokens. Nor is the check it suppressed vacuous, which was the
+    other worry: on ``Item 1 and item 1 again, ref 2031`` the budget is ``before 3 − covered 2 = 1``,
+    requiring the ``1`` inside ``2031`` to survive and the two standalone ones to go.
     """
     counts: dict[str, int] = {}
     for token in PageText(page).text_under_all(boxes).split():
-        if len(token) >= 2:
-            counts[token] = counts.get(token, 0) + 1
+        counts[token] = counts.get(token, 0) + 1
     return counts
 
 
@@ -824,13 +851,65 @@ def redact_text(
                 scope=page_scope,
                 password=password,
                 flat=queries is None,
+                page_filtered=pages is not None,
             ),
             matches=matches,
             boxes_redacted=sum(len(boxes) for boxes in per_page.values()),
             pages_redacted=sorted(expectations),
+            # What the residual scans actually read — *not* `pages_redacted`, which lists only where
+            # boxes landed and is a strictly smaller set (`[1]` for a call that scanned `[1, 2, 3]`).
+            # Without this the advisory zeros are bare, and "the scan found nothing" cannot be told
+            # apart from "the scan found nothing on the two pages it read" (M103, TC-007 Finding D).
+            residual_scope=sorted(page_scope),
             **({"query": query} if queries is None else {}),
             **_invisible_report(invisible),
         )
+
+
+# Above this many misses the warning is summarised rather than repeated per query. Three is the
+# point where a list stops reading as "these ones" and starts reading as wallpaper — and the cost of
+# wallpaper is not its size but what it buries: a 60-query call produced 59 near-identical ~330
+# character warnings, so a genuine over-redaction warning among them would have been line 37 of 59
+# (TC-007 Finding A). `residual_literal`'s own warning already truncates with `(+N more)`.
+_WARNING_DETAIL_LIMIT = 3
+
+
+def _zero_match_warning(
+    missed: list[str], total: int, *, whole_words: bool, scope: set[int], page_filtered: bool
+) -> str:
+    """One warning for every query that matched nothing, however many there are.
+
+    **The advice leads with the page filter when there is one** (M103, TC-007 Finding E). The old
+    text sent the caller to audit their spelling — "it may be spelled in a way this mode cannot
+    see" — when the cause may simply be that they restricted the call to pages the value does not
+    appear on. The response already knows ``pages`` was supplied, so blaming the query first is
+    advice the tool has the information to know might be wrong.
+    """
+    shown = ", ".join(repr(q) for q in missed[:_WARNING_DETAIL_LIMIT])
+    if len(missed) > _WARNING_DETAIL_LIMIT:
+        shown += f" (+{len(missed) - _WARNING_DETAIL_LIMIT} more — see `queries[]` for each)"
+    head = (
+        f"{len(missed)} of {total} queries matched nothing and removed nothing: {shown}."
+        if len(missed) > 1
+        else f"{missed[0]!r} matched nothing and removed nothing."
+    )
+    if page_filtered:
+        why = (
+            f" This call was restricted to pages {sorted(scope)}, so any occurrence elsewhere was "
+            "never looked at — check that before treating this as absence."
+        )
+    else:
+        why = (
+            " If you expected it in the document, `search` before trusting its absence: with "
+            f"`whole_words: {str(whole_words).lower()}` it may be spelled in a way this mode "
+            "cannot see."
+        )
+    return (
+        head
+        + " The other quer(ies) in this call were still redacted and verified, and this output is "
+        "theirs."
+        + why
+    )
 
 
 def _query_reports(
@@ -843,6 +922,7 @@ def _query_reports(
     scope: set[int],
     password: str | None,
     flat: bool,
+    page_filtered: bool,
 ) -> dict:
     """Verify every query against the written output and shape the per-query half of the reply.
 
@@ -865,10 +945,12 @@ def _query_reports(
 
     A query that matched **nothing** while others matched is reported here rather than raised.
     Failing the whole call would delete a verified output that correctly removed the other five,
-    leaving the caller worse off than the warning does.
+    leaving the caller worse off than the warning does. Those misses are gathered and reported
+    **once** rather than per query — see :func:`_zero_match_warning`.
     """
     entries: list[dict] = []
     warnings: list[str] = []
+    missed: list[str] = []
     for one in all_queries:
         stat = stats[one]
         report = _no_residual_match(
@@ -881,14 +963,12 @@ def _query_reports(
         )
         warnings += report.pop("warnings", [])
         if stat["matches"] == 0:
-            warnings.append(
-                f"{one!r} matched nothing and removed nothing — the other quer(ies) in this call "
-                "were still redacted and verified, and this output is theirs. If you expected this "
-                "one to be in the document, `search` for it before trusting its absence: with "
-                f"`whole_words: {str(whole_words).lower()}` it may be spelled in a way this mode "
-                "cannot see."
-            )
+            missed.append(one)
         entries.append({"query": one, "matches": stat["matches"], **report})
+
+    if missed:
+        warnings.append(_zero_match_warning(missed, len(all_queries), whole_words=whole_words,
+                                            scope=scope, page_filtered=page_filtered))
 
     if flat:
         merged = dict(entries[0])
@@ -896,6 +976,16 @@ def _query_reports(
         merged.pop("matches", None)   # already reported at the top level
     else:
         merged = {"queries": entries}
+
+    if page_filtered:
+        # Once per call, not once per query: the scope is a property of the call. Emitted even when
+        # every advisory field is clean — *especially* then, since a bare `0`/`[]` is exactly what
+        # reads as a document-wide all-clear (M103, TC-007 Finding D).
+        warnings.append(
+            f"the residual scans covered pages {sorted(scope)} only, because this call set "
+            "`pages`. `residual_literal` and `residual_normalized` describe those pages and say "
+            "nothing about the rest of the document — re-run without `pages` to check it whole."
+        )
     if warnings:
         merged["warnings"] = warnings
     return merged
