@@ -3491,7 +3491,7 @@ one the model must choose between.
 
 | Milestone | What | Where | Verify |
 | --- | --- | --- | --- |
-| **M105** Restructure the oversized tool descriptions so the safety-critical half arrives, and pin a ceiling so they cannot grow past it again | `mcp_bridge/server.py` docstrings; a test asserting every description fits the cap | WSL | Every description is under the cap; `redact_text` still names what it destroys, what `whole_words` *means*, and that the reply must be read; the test fails if any description grows past it |
+| **M105** Restructure the oversized tool descriptions so the safety-critical half arrives, publish the reference half where it cannot be cut, and pin a ceiling so they cannot grow past it again | `mcp_bridge/server.py` docstrings + `mcp_bridge/docs.py` behind `klarpdf://docs/{tool}`; `tests/test_mcp_docs.py` enumerating the live server | WSL | Every description is under the budget; `redact_text` still names what it destroys, what `whole_words` *means*, and that the reply must be read; the field catalogue is readable from the resource; the test fails if any *future* tool grows past the budget |
 
 **The finding.** The testing agent reported it could not see the Finding-C documentation "even
 though the MCP was reinstalled", and that `redact_text`'s description was **truncated in its tool
@@ -3521,27 +3521,50 @@ correct, and the guidance explaining it is dropped in transit — the same silen
 every defect M95–M103 closed, this time in the documentation channel rather than the data one. It
 surfaced only because a tester said "I cannot see this" instead of assuming they had misread.
 
-**The fix is editing, not relocating.** Order the description so the safety-critical content comes
-first — what it destroys, that `whole_words` chooses *what the query is* rather than how strictly it
-matches, and that the reply must be read rather than checked for success — and let the detailed
-field catalogue fall below the line, where it is a bonus if delivered rather than a loss if not.
-That cut is survivable **because the reply is already self-describing**: every warning names its own
-query and prescribes its own remedy, so an agent that never read the catalogue is still told what
-happened at the moment it matters.
+**The fix is editing *and* relocating — the plan's "editing, not relocating" did not survive
+measurement.** Front-loading alone cannot carry this contract: the content a caller needs *before*
+calling `redact_text` came to ~2,374 characters even before the residual catalogue, so ordering
+would only have chosen which safety-critical paragraph got cut. So the description keeps what must
+be read **before** the call (that it destroys content, the `query`/`queries` contract, run `search`
+first, what `whole_words` changes, the word-boundary trap) and the reference material a caller needs
+**while reading the reply** moves to `klarpdf://docs/{tool}`.
 
-**Rejected: moving the reference material into an MCP resource.** Resources are
-*application-controlled* — the host or user selects them — so they are not guaranteed to reach the
-model at all. That argument was made on 2026-08-18, before the truncation was known. **The discovery
-weakens it without overturning it**: an optional channel that sometimes arrives does beat one that
-provably truncates, so if the description cannot be cut far enough, this becomes the fallback rather
-than a non-starter. Recorded because the reasoning already changed direction once and would
-otherwise be re-derived from scratch.
+**Adopted, having been rejected: the MCP resource.** The earlier objection was that resources are
+*application-controlled* and so not guaranteed to reach the model. That still holds, and it is why
+the resource carries only the reference half — an agent that never reads it still gets every
+safety-critical sentence. What settled it was measuring the channel: a resource read is capped at
+**100,000** characters (`ReadMcpResourceTool`'s `maxResultSizeChars: 1e5`) against the description
+channel's 2,048, so the depth has somewhere to go that is not merely 49× larger but *uncapped in
+practice*. Assembly is what keeps it honest: the resource returns the **live registered
+description** plus a disjoint appendix, never a second copy, so drift is impossible rather than
+unlikely, and a test asserts the resource still contains the description verbatim.
 
-**Settle the cap before editing to it.** 2048 is the obvious power of two inside the 1844–2382
-window the symptom brackets, but the client's real limit is not visible from the server. Confirm it
-first — cheapest is a probe tool whose description is a known length with position markers every 256
-characters, then read back where it stops — rather than editing to a target that might be wrong. The
-ceiling test should then sit **under** the real number, with margin.
+**The cap is settled, and it is wider than the report knew.** No probe tool was needed: the constant
+is visible in the client binary as `yfe = 2048`, and the same constant truncates an MCP server's
+**`instructions` block** — a path ENV-001 believed uncapped because ours arrived whole at 1,765
+characters, which is simply under the cap. The `--read-only` build appends to it and reaches 1,853,
+leaving 195 characters of headroom, so the instructions are tested to the same budget as the
+descriptions. The enforced budget is **1,900**: under the real number with margin, because the cap
+was read out of a minified bundle belonging to a client we do not ship.
+
+**A tenth of the budget was leading whitespace.** The SDK sends `fn.__doc__` **verbatim**
+(`tools/base.py`: `func_doc = description or fn.__doc__`) — no `inspect.getdoc` — so every
+continuation line arrived carrying the eight spaces that indent it inside `create_server`. Across
+the seventeen tools that was **5,972 characters, 29% of all description bytes**, spent to say
+nothing and counted against a 2,048 cap. `guarded` now runs `inspect.cleandoc`, which fixes every
+tool at once; it is the same class of defect as the `__signature__` copy that wrapper already
+carries, and the same lesson — the SDK introspects the callable, so what it reads has to be
+normalised deliberately.
+
+**Found and deliberately not used: `anthropic/alwaysLoad`.** A tool carrying
+`_meta: {"anthropic/alwaysLoad": true}` is excluded from the deferred set (`isDeferredTool` returns
+false for it), and a non-deferred tool renders through `description()`, which returns the string
+raw — so the flag removes the truncation outright. It is not used because it is not needed once the
+budget is met, and it is not free: an always-loaded description is resident in every session that
+connects the server, whether or not the tool is used, and it is a vendor key that does nothing on
+any other MCP client. Recorded as the fallback if a future tool genuinely cannot be said in 1,900
+characters — with the note that reaching for it should be evidence the material belonged in the
+resource.
 
 ### M106 *(unplanned)* — unknown parameters are dropped in silence (TC-009, 2026-08-18)
 
