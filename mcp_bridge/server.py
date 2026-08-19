@@ -34,12 +34,17 @@ import functools
 import inspect
 import os
 import sys
+from typing import Any
 
 from mcp.server import MCPServer
+from mcp.server.context import CallNext, HandlerResult, ServerRequestContext
+from mcp.server.extension import Extension
 from mcp.server.mcpserver import Image
+from mcp_types import CallToolRequestParams, CallToolResult, TextContent
 
 from mcp_bridge import queries, redaction, transforms
 from mcp_bridge.config import Config, PathPolicy
+from mcp_bridge.strict_args import rejection_message, unknown_parameters
 from model.virtual_document import PasswordRequired
 from version import __version__
 
@@ -93,16 +98,100 @@ def _explain(exc: Exception) -> Exception:
     return exc
 
 
+class StrictArguments(Extension):
+    """Reject a `tools/call` carrying an argument name the tool does not declare (M106).
+
+    **Why this is an extension and not a `guarded`-style wrapper.** The drop happens inside the
+    SDK: `func_metadata.create_model(..., __base__=ArgModelBase)` builds each tool's argument model
+    with no `extra=`, so pydantic's default `extra="ignore"` applies and `model_validate` deletes
+    unknown keys *before the tool function is ever called*. Nothing wrapping the function can see
+    them. The check has to sit above that validation, and there is no knob to turn it off — the
+    base class is hardcoded.
+
+    **Why the extension seam and not `Server.middleware`.** PLAN.md §M106 scoped this to middleware
+    and flagged the cost: that API carries a `TODO(L54): provisional — signature and semantics
+    change with the Context/middleware rework before v2 final`. It turns out not to be needed.
+    `intercept_tool_call` wraps the *handler*, which is below the runner's `CallToolRequestParams`
+    validation but still above the per-tool argument model — and `CallToolRequestParams.arguments`
+    is a plain `dict[str, Any]`, so the unknown keys are all still there (measured). That buys the
+    same visibility from a documented, non-provisional API, and a short-circuit return is "sieved
+    and stamped exactly like the wrapped handler's", so the rejection reaches the agent in the same
+    shape as every other tool error rather than as a JSON-RPC protocol error.
+
+    The cost is one line in `capabilities.extensions`, which is an honest description of a server
+    that does check its arguments strictly.
+    """
+
+    identifier = "io.klarpdf/strict-arguments"
+
+    def __init__(self) -> None:
+        self._server: MCPServer | None = None
+        self._accepted: dict[str, list[str]] | None = None
+
+    def bind(self, server: MCPServer) -> None:
+        """Point the extension at the server whose tools it guards.
+
+        A setter rather than a constructor argument because `MCPServer` takes its extensions at
+        construction, so the extension has to exist first. It may be called immediately afterwards
+        and before any tool is registered: nothing is read here.
+        """
+        self._server = server
+
+    async def accepted(self, tool: str) -> list[str] | None:
+        """The parameter names `tool` declares, in signature order, or `None` if it has no schema.
+
+        Read from the tool's own published input schema rather than a list kept here, so a tool
+        that gains an argument cannot fall out of step with its guard. Cached on first use: the
+        tool set is fixed once `create_server` returns, and rebuilding seventeen pydantic models
+        per call to read their keys would be wasted work.
+        """
+        if self._accepted is None:
+            if self._server is None:  # pragma: no cover — a wiring bug, not a reachable state
+                raise RuntimeError("StrictArguments.bind() was never called; the guard is unarmed")
+            self._accepted = {
+                tool_info.name: list((tool_info.input_schema or {}).get("properties", {}))
+                for tool_info in await self._server.list_tools()
+                # A schema that admits extras means the tool wants them; do not second-guess it.
+                if not (tool_info.input_schema or {}).get("additionalProperties")
+            }
+        return self._accepted.get(tool)
+
+    async def intercept_tool_call(
+        self,
+        params: CallToolRequestParams,
+        ctx: ServerRequestContext[Any, Any],
+        call_next: CallNext,
+    ) -> HandlerResult:
+        """Fail closed on an unrecognised name; otherwise leave the call untouched.
+
+        Annotated to match the base signature exactly, so an SDK bump that changes the contract is
+        a diff here rather than a silently unbound override.
+        """
+        given = list(params.arguments or {})
+        accepted = await self.accepted(params.name)
+        # `accepted is None` means the tool is not registered (or opted out above): let the SDK
+        # answer for it, so an unknown *tool* keeps reporting as an unknown tool.
+        if accepted is None or not given:
+            return await call_next(ctx)
+        unknown = unknown_parameters(accepted, given)
+        if not unknown:
+            return await call_next(ctx)
+        message = rejection_message(params.name, accepted, unknown)
+        return CallToolResult(content=[TextContent(type="text", text=message)], is_error=True)
+
+
 def create_server(config: Config | None = None) -> MCPServer:
     """Build a server with ``config``'s policies applied. See the module docstring for why."""
     cfg = config or Config()
     check = cfg.policy.check
     limits = cfg.limits
 
+    strict = StrictArguments()
     server = MCPServer(
         name="klarpdf",
         title="KlarPDF",
         version=__version__,
+        extensions=[strict],
         instructions=INSTRUCTIONS
         + (
             "\nThis server is running READ-ONLY: the transform and redaction tools are not "
@@ -111,6 +200,11 @@ def create_server(config: Config | None = None) -> MCPServer:
             else ""
         ),
     )
+    # Safe before a single tool is registered: `bind` stores the reference and nothing else, and
+    # the schemas are not read until the first call arrives. Binding here rather than on the way
+    # out is what keeps it correct — `create_server` has two exits, and the `--read-only` one had
+    # already been missed once.
+    strict.bind(server)
 
     def guarded(function):
         """Translate internal exceptions at the tool boundary.

@@ -140,6 +140,13 @@ error, never a silent clamp.
 - **A mistake is an error, not a quiet partial success.** An unknown form-field name, a `reorder`
   that is not a full permutation, a `delete_pages` that would empty the document, a `redact_text`
   that matches nothing — all fail loudly rather than writing something plausible.
+- **A misspelled *parameter* is an error too.** Every tool rejects an argument name it does not
+  declare, naming it, suggesting the near miss (case-insensitively, so `PAGES` is answered with
+  `pages`), and listing what it does accept — before reading or writing anything. This is not decoration: the MCP SDK's default is to **drop** an unrecognised
+  key, so `redact_text` called with `querys` instead of `queries` used to redact only the other
+  query and report an unqualified success — `residual_matches: 0`, cross-engine verified — on a
+  file that still held the value you asked it to remove. Nothing downstream can catch that, because
+  the record of what you asked for is gone before the tool runs (PLAN.md §M106).
 
 ### Clipping to a region
 

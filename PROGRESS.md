@@ -2231,7 +2231,7 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   `TYAGI1703` trap *within* a line (`Smith` + `Jones` → the token `SmithJones`), caught by M98's
   existing tests. Design in `PLAN.md` §M100 — *WSL*
 
-- [ ] **M106** *(unplanned)* ⚠️ **Unknown parameters are dropped in silence** — TC-009, 2026-08-18,
+- [x] **M106** *(unplanned)* ⚠️ **Unknown parameters are dropped in silence** — TC-009, 2026-08-18,
   **high**, and the worst defect this series has found. Reproduced directly: a one-character typo
   (`querys` for `queries`) left PII in a file the tool certified `residual_matches: 0`,
   `residual_literal: 0`, `residual_normalized: []`, **cross-engine verified**. TC-009 found four more
@@ -2242,11 +2242,25 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   and none can describe what it was asked to do — the intent was discarded before any of them ran.
   Root cause is one missing pydantic setting in the SDK (`ArgModelBase` has no `extra="forbid"`, so
   unknown keys are dropped at `model_validate`), which means the fix must sit **upstream of
-  validation** — the SDK's `middleware` seam, whose API is explicitly marked provisional. **Reject,
+  validation** — which the plan read as the SDK's provisional `middleware` seam. **Reject,
   don't warn**: it fails closed, costing one corrected call instead of a file already shipped.
   Mitigating: `source_unchanged: true` held throughout, so every case is recoverable by discarding
-  the output — the harm is in *trusting* it. Framework-wide, so all 17 tools. Design in
-  `PLAN.md` §M106 — *WSL*
+  the output — the harm is in *trusting* it. Framework-wide, so all 17 tools. **Fixed**: every tool
+  now rejects an argument name it does not declare, naming it, suggesting the near miss and listing
+  what it accepts, before anything is read or written — all five TC-009 typos reproduce as
+  rejections that leave no file on disk, and a correct call is unchanged. The seam is **not** the
+  provisional `middleware` the plan scoped: `Extension.intercept_tool_call` sits above the per-tool
+  argument model too, is documented and non-provisional, and short-circuits in the same shape as
+  every other tool error. The guard reads each tool's published schema, so it holds no per-tool
+  knowledge and cannot drift. **Retested 2026-08-19 and confirmed fixed**: all five original cases
+  fail closed including the PII leak, coverage verified by hand across read-only, destructive and
+  page-set tools, ten typo shapes chosen to differ *in kind* from the reported ones all behaved
+  (including the three that should draw no suggestion), and of fifteen calls exactly one file
+  reached disk. The retest's one finding — a shouted `PAGES` was rejected with **no hint**, because
+  case-sensitive edit distance is dominated by the case difference — is fixed in the same PR: the
+  suggestion matcher case-folds both sides, while the *rejection* stays case-sensitive, since
+  accepting `PAGES` as `pages` would be the leniency this milestone exists to remove. Design in
+  `PLAN.md` §M106 — [#266](https://github.com/utyagi24/klarpdf/pull/266) — *WSL*
 
 - [ ] **M105** *(unplanned)* **The tool descriptions are truncated in transit** — found 2026-08-18
   when the testing agent said it could not see M103's Finding-C documentation "even though the MCP

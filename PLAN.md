@@ -3547,7 +3547,7 @@ ceiling test should then sit **under** the real number, with margin.
 
 | Milestone | What | Where | Verify |
 | --- | --- | --- | --- |
-| **M106** An unrecognised argument is an **error**, not a silent no-op — on every tool, with a did-you-mean when the name is close | a pre-validation check over the raw `tools/call` arguments (the SDK's `middleware` seam), in `mcp_bridge/server.py` | WSL | `querys=[…]` on `redact_text` raises naming the parameter and suggesting `queries`, and **writes nothing**; a correctly-spelled call is byte-identical to today; the check covers all 17 tools, not just the redactors |
+| **M106** An unrecognised argument is an **error**, not a silent no-op — on every tool, with a did-you-mean when the name is close | `mcp_bridge/strict_args.py` (the message, SDK-free) behind `StrictArguments`, an `Extension.intercept_tool_call` in `mcp_bridge/server.py` | WSL | `querys=[…]` on `redact_text` raises naming the parameter and suggesting `queries`, and **writes nothing**; a correctly-spelled call is byte-identical to today; the check covers all 17 tools, not just the redactors |
 
 **The worst defect this series has found, and it arrives through a door none of the others watch.**
 Reproduced directly: a one-character typo left PII in a file the tool certified clean.
@@ -3579,13 +3579,45 @@ Every safety signal M95–M103 added reads clean here, correctly, which is what 
 function is ever called. `guarded` cannot see them — it wraps the function, which runs after
 validation. So the fix has to sit **upstream of validation**.
 
-**The seam is the SDK's `middleware` list**, documented as wrapping every inbound request
-"including `initialize`, lookup, validation, handler". A middleware sees the raw `tools/call`
-params, so it can compare argument names against the tool's own input schema and reject unknowns.
-**Caveat, and it should be weighed before building:** the SDK marks that API
-`TODO(L54): provisional — signature and semantics change with the Context/middleware rework before
-v2 final`. Building on it means accepting a likely churn point; the alternative is a wrapper around
-the object `create_server` returns, which is uglier and ours.
+**The seam turned out to be `Extension.intercept_tool_call`, not `middleware`.** Both were probed
+end-to-end against a real in-memory client session before choosing. `middleware` works and sees the
+raw params, but the SDK marks it `TODO(L54): provisional — signature and semantics change with the
+Context/middleware rework before v2 final`, and a short-circuit there has to hand back its own wire
+envelope, so the rejection would arrive as a JSON-RPC protocol error rather than in the shape every
+other bridge error uses. The interceptor avoids both costs. It wraps the **handler**, which sits
+*below* the runner's `CallToolRequestParams` validation but still *above* the per-tool argument
+model — and `CallToolRequestParams.arguments` is a plain `dict[str, Any]`, so the unknown keys are
+all still present (measured: `['path', 'query', 'querys']`). That is the same visibility from a
+documented, non-provisional API, and a short-circuit return is "sieved and stamped exactly like the
+wrapped handler's", so the rejection reaches the agent as an ordinary tool error. The price is one
+entry in `capabilities.extensions` (`io.klarpdf/strict-arguments`), which is an honest description
+of a server that does check its arguments strictly.
+
+**Two things the build settled that the plan had guessed at.**
+
+*The suggestion is plural, and the cutoff is deliberately high.* `difflib` ranks `querys` closer to
+`query` than to `queries` — the shorter word is the smaller edit — so the single best match is not
+the one the caller wanted. Offering every match above the cutoff (`n=3`) answers with both and
+costs nothing. The cutoff is **0.7**, not `difflib`'s default 0.6, because at 0.6 an `out_path` is
+answered with `path`: nudging a caller who meant the **output** towards the **input** file is worse
+than staying quiet, and the accepted list is printed either way.
+
+*The suggestion is matched case-insensitively; the check is not.* The TC-009 **retest** found the
+one gap the build left: a shouted-but-otherwise-correct `PAGES` was rejected with no hint at all,
+because case-sensitive edit distance is dominated by the case difference (`PAGES` → nothing,
+`Query` → `query`, the cutoff falling between them at two differing characters). Case-folding both
+sides before the comparison fixes `PAGES`, `OUT` and `MATCH_CASE`, and can only *add* a hint —
+every accepted name is already lowercase, so folding cannot pull a lowercase probe towards a
+different answer, and the semantic aliases that should stay quiet (`case_sensitive`, `out_path`)
+still do. Matches map back to the tool's own spelling, since the caller needs the name to type
+rather than the one they typed. The **rejection** stays case-sensitive: accepting `PAGES` as
+`pages` would be the same species of leniency M106 exists to remove.
+
+*Nothing was added to the tool descriptions or to `INSTRUCTIONS`.* The error is self-teaching — it
+names the parameter, suggests the near miss, lists what the tool accepts, and states that nothing
+ran — and it arrives exactly when it is needed. `INSTRUCTIONS` is already at 1,765 characters
+against the ~2,048 the client truncates at (§M105), so spending that headroom on a message the
+agent will be handed anyway is the wrong trade. The bridge README carries the human-facing note.
 
 **Reject rather than warn.** For a tool that deletes content an unrecognised key is far more likely
 to be a mistake than something safe to ignore, and rejection *fails closed*: it costs the caller one
@@ -3605,6 +3637,32 @@ the output, which is exactly what the `querys` case invites.
 `render_page` (read-only), so the other fifteen tools will behave identically; the fix should be one
 check over all of them rather than an argument list per tool. Worth re-testing the remaining write
 tools afterwards to confirm.
+
+**Built and retested 2026-08-19.** The guard reads each tool's own published input schema rather
+than a list kept beside it, so a tool that gains an argument cannot fall out of step with it, and
+it holds no per-tool knowledge at all — one loop covers all 17. Because the check runs above
+argument validation, a tool needs no valid arguments to be probed, which is what makes a test over
+the whole surface possible; `tests/test_mcp_strict_args.py` walks every registered tool and asserts
+the roster against `test_mcp_server.py`'s rather than restating it. Those tests drive a **real
+client session**, not `MCPServer.call_tool` — the interceptor is on the `tools/call` handler and
+`call_tool` goes straight to the tool manager, so a test written the way the rest of the MCP suite
+is written would pass against a server with the guard deleted. That is also what pins the SDK seam:
+if a bump moves `intercept_tool_call` below argument validation, these fail loudly instead of
+quietly reverting to the TC-009 behaviour.
+
+One trap found in the building: `create_server` has **two** exits — the `--read-only` path returns
+early after the six query tools — and a bind on the way out missed it, leaving the guard unarmed in
+exactly the configuration chosen for caution. It binds immediately after construction instead,
+which is safe because binding stores a reference and the schemas are not read until the first call.
+A withheld tool must still report as an *unknown tool* rather than being answered with an argument
+list it does not have; that is tested.
+
+**The retest closed it.** All five original cases fail closed including the PII leak, the coverage
+was confirmed by hand across read-only (`search`, `get_info`), destructive (`redact_regions`) and
+page-set (`rotate`) tools, and ten typo shapes deliberately chosen to differ *in kind* from the
+reported ones all behaved — including the three that should draw no suggestion at all. Fifteen
+calls, fourteen rejections, exactly one file on disk. The single finding was the case-sensitive
+matcher above.
 
 ## Future enhancements (deferred beyond the roadmap)
 
