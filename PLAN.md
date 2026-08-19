@@ -3355,6 +3355,62 @@ project:
 bridge. The model supports it, but the review loop above does not need it, and every tool added is
 one the model must choose between.
 
+### M105 *(unplanned)* — the tool descriptions are truncated in transit (TC-007, 2026-08-18)
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M105** Restructure the oversized tool descriptions so the safety-critical half arrives, and pin a ceiling so they cannot grow past it again | `mcp_bridge/server.py` docstrings; a test asserting every description fits the cap | WSL | Every description is under the cap; `redact_text` still names what it destroys, what `whole_words` *means*, and that the reply must be read; the test fails if any description grows past it |
+
+**The finding.** The testing agent reported it could not see the Finding-C documentation "even
+though the MCP was reinstalled", and that `redact_text`'s description was **truncated in its tool
+listing, ending mid-sentence in the `whole_words` bullet list**. Three checks ruled out a stale
+install: the serving process runs from a checkout on the same commit and *does* contain the text;
+`config.py` caps text, search hits and image bytes but **not** descriptions, so the server sends all
+6,573 characters; and cutting the description at **2048** reproduces the reported symptom to the
+character, because the two `whole_words` bullets sit at offsets 1844 and 2040 and the cut lands
+between them. **The client truncates at ~2 KB.**
+
+**What that costs.** 69% of `redact_text`'s description never reaches the agent, and it is the wrong
+69% — everything after offset 2048, which is nearly all of the last three rounds' work:
+
+| Content | Offset | Delivered |
+| --- | --- | --- |
+| what it destroys; `whole_words` semantics | < 2048 | yes |
+| the `queries: [...]` contract (M100) | > 2048 | **no** |
+| the residual-field catalogue, `invisible_matches` | > 2048 | **no** |
+| `matches` vs `boxes_redacted` (M103/C) | 4965 | **no** |
+| `residual_scope` (M103/D) | 5436 | **no** |
+
+Only `redact_text` (6,573) and `search` (2,241, losing 9%) exceed the cap; the other fifteen tools
+are unaffected. This is a fat-tool problem, not a server-wide one.
+
+**Why it went unnoticed for three milestones.** Nothing errors. The tool works, the reply is
+correct, and the guidance explaining it is dropped in transit — the same silent-failure shape as
+every defect M95–M103 closed, this time in the documentation channel rather than the data one. It
+surfaced only because a tester said "I cannot see this" instead of assuming they had misread.
+
+**The fix is editing, not relocating.** Order the description so the safety-critical content comes
+first — what it destroys, that `whole_words` chooses *what the query is* rather than how strictly it
+matches, and that the reply must be read rather than checked for success — and let the detailed
+field catalogue fall below the line, where it is a bonus if delivered rather than a loss if not.
+That cut is survivable **because the reply is already self-describing**: every warning names its own
+query and prescribes its own remedy, so an agent that never read the catalogue is still told what
+happened at the moment it matters.
+
+**Rejected: moving the reference material into an MCP resource.** Resources are
+*application-controlled* — the host or user selects them — so they are not guaranteed to reach the
+model at all. That argument was made on 2026-08-18, before the truncation was known. **The discovery
+weakens it without overturning it**: an optional channel that sometimes arrives does beat one that
+provably truncates, so if the description cannot be cut far enough, this becomes the fallback rather
+than a non-starter. Recorded because the reasoning already changed direction once and would
+otherwise be re-derived from scratch.
+
+**Settle the cap before editing to it.** 2048 is the obvious power of two inside the 1844–2382
+window the symptom brackets, but the client's real limit is not visible from the server. Confirm it
+first — cheapest is a probe tool whose description is a known length with position markers every 256
+characters, then read back where it stops — rather than editing to a target that might be wrong. The
+ceiling test should then sit **under** the real number, with margin.
+
 ## Future enhancements (deferred beyond the roadmap)
 
 Captured but not yet scheduled:

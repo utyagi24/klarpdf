@@ -2185,6 +2185,22 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   `TYAGI1703` trap *within* a line (`Smith` + `Jones` → the token `SmithJones`), caught by M98's
   existing tests. Design in `PLAN.md` §M100 — *WSL*
 
+- [ ] **M105** *(unplanned)* **The tool descriptions are truncated in transit** — found 2026-08-18
+  when the testing agent said it could not see M103's Finding-C documentation "even though the MCP
+  was reinstalled", and that `redact_text`'s description **ended mid-sentence in the `whole_words`
+  bullet list**. Not a stale install: the serving checkout is on the same commit and *does* carry
+  the text, `config.py` caps results but **not** descriptions, and cutting at **2048** reproduces
+  the symptom to the character (the two `whole_words` bullets sit at offsets 1844 and 2040). **The
+  client truncates at ~2 KB**, so **69% of `redact_text`'s 6,573-character description never
+  reaches the agent** — and it is the wrong 69%: the `queries: [...]` contract (M100), the residual
+  -field catalogue, `matches` vs `boxes_redacted` (offset 4965) and `residual_scope` (5436) are all
+  past the cut. Only `redact_text` and `search` exceed it; the other fifteen tools are fine. Nothing
+  errors, which is why three milestones' worth of agent-facing documentation was written into a
+  channel that silently discards it. The fix is **editing, not relocating** — safety-critical
+  content first, the field catalogue below the line — and a test pinning the ceiling. **Confirm the
+  cap by probe before editing to it**; 2048 is inferred from the symptom window, not observed.
+  Design in `PLAN.md` §M105 — *WSL*
+
 - [ ] **M101** ⭐ **Annotation tools, and the highlight → review → redact round trip** — owner-asked
   2026-08-16: *"highlight all PII data in this document"* → a person reviews → *"redact everything
   highlighted in orange"*. Three tools (`annotate`, `get_annotations`, `redact_annotated`) over the
