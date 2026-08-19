@@ -2231,6 +2231,39 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   `TYAGI1703` trap *within* a line (`Smith` + `Jones` → the token `SmithJones`), caught by M98's
   existing tests. Design in `PLAN.md` §M100 — *WSL*
 
+- [ ] **M106** *(unplanned)* ⚠️ **Unknown parameters are dropped in silence** — TC-009, 2026-08-18,
+  **high**, and the worst defect this series has found. Reproduced directly: a one-character typo
+  (`querys` for `queries`) left PII in a file the tool certified `residual_matches: 0`,
+  `residual_literal: 0`, `residual_normalized: []`, **cross-engine verified**. TC-009 found four more
+  — `wholewords` silently turned a phrase redaction into word-list mode and destroyed 240 boxes where
+  9 were wanted; `page` expanded a one-page request to five; an invented **`dry_run: true`** did a
+  real destructive write and reported success. **No existing check can catch it**: every signal
+  M95–M103 added is *downstream of parameter binding*, so all of them describe what the server did
+  and none can describe what it was asked to do — the intent was discarded before any of them ran.
+  Root cause is one missing pydantic setting in the SDK (`ArgModelBase` has no `extra="forbid"`, so
+  unknown keys are dropped at `model_validate`), which means the fix must sit **upstream of
+  validation** — the SDK's `middleware` seam, whose API is explicitly marked provisional. **Reject,
+  don't warn**: it fails closed, costing one corrected call instead of a file already shipped.
+  Mitigating: `source_unchanged: true` held throughout, so every case is recoverable by discarding
+  the output — the harm is in *trusting* it. Framework-wide, so all 17 tools. Design in
+  `PLAN.md` §M106 — *WSL*
+
+- [ ] **M105** *(unplanned)* **The tool descriptions are truncated in transit** — found 2026-08-18
+  when the testing agent said it could not see M103's Finding-C documentation "even though the MCP
+  was reinstalled", and that `redact_text`'s description **ended mid-sentence in the `whole_words`
+  bullet list**. Not a stale install: the serving checkout is on the same commit and *does* carry
+  the text, `config.py` caps results but **not** descriptions, and cutting at **2048** reproduces
+  the symptom to the character (the two `whole_words` bullets sit at offsets 1844 and 2040). **The
+  client truncates at ~2 KB**, so **69% of `redact_text`'s 6,573-character description never
+  reaches the agent** — and it is the wrong 69%: the `queries: [...]` contract (M100), the residual
+  -field catalogue, `matches` vs `boxes_redacted` (offset 4965) and `residual_scope` (5436) are all
+  past the cut. Only `redact_text` and `search` exceed it; the other fifteen tools are fine. Nothing
+  errors, which is why three milestones' worth of agent-facing documentation was written into a
+  channel that silently discards it. The fix is **editing, not relocating** — safety-critical
+  content first, the field catalogue below the line — and a test pinning the ceiling. **Confirm the
+  cap by probe before editing to it**; 2048 is inferred from the symptom window, not observed.
+  Design in `PLAN.md` §M105 — *WSL*
+
 - [ ] **M101** ⭐ **Annotation tools, and the highlight → review → redact round trip** — owner-asked
   2026-08-16: *"highlight all PII data in this document"* → a person reviews → *"redact everything
   highlighted in orange"*. Three tools (`annotate`, `get_annotations`, `redact_annotated`) over the
@@ -2701,6 +2734,46 @@ tree or history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI 
 ## Open follow-ups (carried)
 
 Carried items — none block work:
+
+- **`get_info` reports *displayed* page sizes while `clip` and `redact_regions` consume *unrotated*
+  ones** — TC-008, 2026-08-18, severity low. `search`, `redact_regions` and (since M99.1) `clip` all
+  work in the unrotated space; `page_sizes` alone reports post-rotation dimensions, and there is no
+  `rotation` key anywhere in the response. **M99.1 made this more visible, not less**: before it,
+  `get_info` and `clip` at least agreed with each other, so the fix turned a 2-v-2 split into 3-v-1.
+  The consequence is that a natively-portrait page and a rotated-landscape one are *indistinguishable*
+  — reproduced on a two-page fixture where both land in one `612x792` group and
+  `clip=[0,0,700,400]` is refused on page 1 and renders on page 2. Dimensions swap for 90°/270° and
+  not for 0°/180°, so the distinction is unrecoverable from the call. A sharper way to put it: **the
+  rect `clip` validates against is currently obtainable only by deliberately triggering an error**,
+  since the M99.1 message is the one place it is printed.
+  **Why it stays low.** A caller who sources boxes from `search` — the documented path — never needs
+  any of this, and M99.1's error names the rotation and the convention at the moment they trip. It
+  bites only when *constructing* a clip from scratch ("crop the top-right quadrant"), which is how
+  TC-008's own card clips were built, so it is not hypothetical.
+  **Not yet designed**, deliberately: `rotation` per `page_sizes` group, unrotated dimensions, or
+  both would each serve, and the choice is about what `get_info` promises. Not scheduled. — *WSL*
+
+- **The over-redaction guard covers the query-split case only, not a single term matching inside a
+  longer word** — TC-007 addendum, 2026-08-16, severity medium. M98's `query_terms` warns when
+  word-list mode silently splits a multi-word query; nothing warns when one term matches *inside*
+  another word, which is the older half of the same hazard. Measured on the policy document:
+  `redact_text "Male"` with `whole_words` omitted took three boxes on page 6, one of them inside
+  `Female`, leaving the driver table reading `Fe` — with `residual_matches: 0` and no warning at
+  all. There **is** a tell: `verified_text` lists `"male"` in lowercase beside `"Male"`, and a
+  lowercase fragment under a capitalised query means the match landed inside a longer word. It is
+  easy to miss and nothing says it out loud. The information needed is already computed — `search`
+  returns `Female` as that hit's snippet, so the write path can see the enclosing word too. Closing
+  it symmetrically ("your query was split" / "your term matched inside something else") is the
+  natural shape. Not scheduled. — *WSL*
+
+- **Does the residual check cover pages that were never redacted?** — TC-003's open question,
+  **answered in part by M103**. The scans are scoped to the pages the call was asked to redact, and
+  M103 added `residual_scope` plus a warning so the scope is stated rather than implied. What that
+  does *not* settle is whether the two **advisory** scans should widen to the whole document, which
+  was examined and **rejected** on 2026-08-18: a reply must not mix page-scoped and document-wide
+  results, so consistency won over reach. Recorded here because the rejection is a decision, not an
+  oversight — a later session finding the scoped `[]` surprising should read `PLAN.md` §M103 before
+  re-opening it. No action pending. — *WSL*
 
 - ~~**TC-007's two input-shape items and the annotation round trip**~~ — **scheduled 2026-08-16 as
   M99–M101** (see the milestones above; design in `PLAN.md` §Planned next). They stopped being

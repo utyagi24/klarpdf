@@ -3487,6 +3487,125 @@ project:
 bridge. The model supports it, but the review loop above does not need it, and every tool added is
 one the model must choose between.
 
+### M105 *(unplanned)* — the tool descriptions are truncated in transit (TC-007, 2026-08-18)
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M105** Restructure the oversized tool descriptions so the safety-critical half arrives, and pin a ceiling so they cannot grow past it again | `mcp_bridge/server.py` docstrings; a test asserting every description fits the cap | WSL | Every description is under the cap; `redact_text` still names what it destroys, what `whole_words` *means*, and that the reply must be read; the test fails if any description grows past it |
+
+**The finding.** The testing agent reported it could not see the Finding-C documentation "even
+though the MCP was reinstalled", and that `redact_text`'s description was **truncated in its tool
+listing, ending mid-sentence in the `whole_words` bullet list**. Three checks ruled out a stale
+install: the serving process runs from a checkout on the same commit and *does* contain the text;
+`config.py` caps text, search hits and image bytes but **not** descriptions, so the server sends all
+6,573 characters; and cutting the description at **2048** reproduces the reported symptom to the
+character, because the two `whole_words` bullets sit at offsets 1844 and 2040 and the cut lands
+between them. **The client truncates at ~2 KB.**
+
+**What that costs.** 69% of `redact_text`'s description never reaches the agent, and it is the wrong
+69% — everything after offset 2048, which is nearly all of the last three rounds' work:
+
+| Content | Offset | Delivered |
+| --- | --- | --- |
+| what it destroys; `whole_words` semantics | < 2048 | yes |
+| the `queries: [...]` contract (M100) | > 2048 | **no** |
+| the residual-field catalogue, `invisible_matches` | > 2048 | **no** |
+| `matches` vs `boxes_redacted` (M103/C) | 4965 | **no** |
+| `residual_scope` (M103/D) | 5436 | **no** |
+
+Only `redact_text` (6,573) and `search` (2,241, losing 9%) exceed the cap; the other fifteen tools
+are unaffected. This is a fat-tool problem, not a server-wide one.
+
+**Why it went unnoticed for three milestones.** Nothing errors. The tool works, the reply is
+correct, and the guidance explaining it is dropped in transit — the same silent-failure shape as
+every defect M95–M103 closed, this time in the documentation channel rather than the data one. It
+surfaced only because a tester said "I cannot see this" instead of assuming they had misread.
+
+**The fix is editing, not relocating.** Order the description so the safety-critical content comes
+first — what it destroys, that `whole_words` chooses *what the query is* rather than how strictly it
+matches, and that the reply must be read rather than checked for success — and let the detailed
+field catalogue fall below the line, where it is a bonus if delivered rather than a loss if not.
+That cut is survivable **because the reply is already self-describing**: every warning names its own
+query and prescribes its own remedy, so an agent that never read the catalogue is still told what
+happened at the moment it matters.
+
+**Rejected: moving the reference material into an MCP resource.** Resources are
+*application-controlled* — the host or user selects them — so they are not guaranteed to reach the
+model at all. That argument was made on 2026-08-18, before the truncation was known. **The discovery
+weakens it without overturning it**: an optional channel that sometimes arrives does beat one that
+provably truncates, so if the description cannot be cut far enough, this becomes the fallback rather
+than a non-starter. Recorded because the reasoning already changed direction once and would
+otherwise be re-derived from scratch.
+
+**Settle the cap before editing to it.** 2048 is the obvious power of two inside the 1844–2382
+window the symptom brackets, but the client's real limit is not visible from the server. Confirm it
+first — cheapest is a probe tool whose description is a known length with position markers every 256
+characters, then read back where it stops — rather than editing to a target that might be wrong. The
+ceiling test should then sit **under** the real number, with margin.
+
+### M106 *(unplanned)* — unknown parameters are dropped in silence (TC-009, 2026-08-18)
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M106** An unrecognised argument is an **error**, not a silent no-op — on every tool, with a did-you-mean when the name is close | a pre-validation check over the raw `tools/call` arguments (the SDK's `middleware` seam), in `mcp_bridge/server.py` | WSL | `querys=[…]` on `redact_text` raises naming the parameter and suggesting `queries`, and **writes nothing**; a correctly-spelled call is byte-identical to today; the check covers all 17 tools, not just the redactors |
+
+**The worst defect this series has found, and it arrives through a door none of the others watch.**
+Reproduced directly: a one-character typo left PII in a file the tool certified clean.
+
+```jsonc
+redact_text { "query": "08-24-1970", "querys": ["12-25-1972"], "whole_words": true }
+→ { "matches": 1, "residual_matches": 0, "residual_literal": 0, "residual_normalized": [],
+    "cross_engine_verified": true, "source_unchanged": true }        // unqualified success
+```
+
+`08-24-1970` was removed; `12-25-1972` is **still in the output**, and nothing in the reply mentions
+`querys`. TC-009 tested four more plausible typos with the same result: `wholewords` silently
+switched a phrase redaction into word-list mode and destroyed 240 boxes where 9 were wanted; `page`
+silently expanded a one-page request to five pages; and an invented **`dry_run: true`** performed a
+real destructive write and reported success — the most alarming shape, because the parameter's whole
+purpose is to prevent the thing it fails to prevent.
+
+**Why nothing already built can catch it.** Every check this bridge performs is *downstream of
+parameter binding*: `residual_matches`, `residual_literal`, `residual_normalized`,
+`cross_engine_verified` and `verified_text` all describe what the server **did**, and none can
+describe what it was **asked** to do, because that information was discarded before any of them ran.
+The verification is sound and the report is honest; the input simply was not what the caller sent.
+Every safety signal M95–M103 added reads clean here, correctly, which is what makes it dangerous.
+
+**Root cause is one missing pydantic setting in the SDK**, not in our code: `ArgModelBase` in
+`mcp/server/mcpserver/utilities/func_metadata.py` declares
+`model_config = ConfigDict(arbitrary_types_allowed=True)` with no `extra=`, so pydantic's default
+`extra="ignore"` applies and `arg_model.model_validate()` drops unknown keys before the tool
+function is ever called. `guarded` cannot see them — it wraps the function, which runs after
+validation. So the fix has to sit **upstream of validation**.
+
+**The seam is the SDK's `middleware` list**, documented as wrapping every inbound request
+"including `initialize`, lookup, validation, handler". A middleware sees the raw `tools/call`
+params, so it can compare argument names against the tool's own input schema and reject unknowns.
+**Caveat, and it should be weighed before building:** the SDK marks that API
+`TODO(L54): provisional — signature and semantics change with the Context/middleware rework before
+v2 final`. Building on it means accepting a likely churn point; the alternative is a wrapper around
+the object `create_server` returns, which is uglier and ours.
+
+**Reject rather than warn.** For a tool that deletes content an unrecognised key is far more likely
+to be a mistake than something safe to ignore, and rejection *fails closed*: it costs the caller one
+corrected call instead of a file they may already have shipped. The accepted names are known and the
+observed typos are all edit-distance 1, so a suggestion is nearly free:
+
+```
+Error: unknown parameter 'querys'. Did you mean 'queries'? Accepted: path, out, query, queries,
+       match_case, whole_words, pages, password, overwrite. Nothing was written.
+```
+
+**Mitigating factor, real but narrow:** `source_unchanged: true` held in every case — the input is
+never touched, so each of these is recoverable by discarding the output. The harm is in *trusting*
+the output, which is exactly what the `querys` case invites.
+
+**Scope is framework-wide, not per-tool.** Confirmed on `redact_text` (destructive) and
+`render_page` (read-only), so the other fifteen tools will behave identically; the fix should be one
+check over all of them rather than an argument list per tool. Worth re-testing the remaining write
+tools afterwards to confirm.
+
 ## Future enhancements (deferred beyond the roadmap)
 
 Captured but not yet scheduled:
