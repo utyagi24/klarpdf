@@ -2185,6 +2185,23 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   `TYAGI1703` trap *within* a line (`Smith` + `Jones` → the token `SmithJones`), caught by M98's
   existing tests. Design in `PLAN.md` §M100 — *WSL*
 
+- [ ] **M106** *(unplanned)* ⚠️ **Unknown parameters are dropped in silence** — TC-009, 2026-08-18,
+  **high**, and the worst defect this series has found. Reproduced directly: a one-character typo
+  (`querys` for `queries`) left PII in a file the tool certified `residual_matches: 0`,
+  `residual_literal: 0`, `residual_normalized: []`, **cross-engine verified**. TC-009 found four more
+  — `wholewords` silently turned a phrase redaction into word-list mode and destroyed 240 boxes where
+  9 were wanted; `page` expanded a one-page request to five; an invented **`dry_run: true`** did a
+  real destructive write and reported success. **No existing check can catch it**: every signal
+  M95–M103 added is *downstream of parameter binding*, so all of them describe what the server did
+  and none can describe what it was asked to do — the intent was discarded before any of them ran.
+  Root cause is one missing pydantic setting in the SDK (`ArgModelBase` has no `extra="forbid"`, so
+  unknown keys are dropped at `model_validate`), which means the fix must sit **upstream of
+  validation** — the SDK's `middleware` seam, whose API is explicitly marked provisional. **Reject,
+  don't warn**: it fails closed, costing one corrected call instead of a file already shipped.
+  Mitigating: `source_unchanged: true` held throughout, so every case is recoverable by discarding
+  the output — the harm is in *trusting* it. Framework-wide, so all 17 tools. Design in
+  `PLAN.md` §M106 — *WSL*
+
 - [ ] **M105** *(unplanned)* **The tool descriptions are truncated in transit** — found 2026-08-18
   when the testing agent said it could not see M103's Finding-C documentation "even though the MCP
   was reinstalled", and that `redact_text`'s description **ended mid-sentence in the `whole_words`

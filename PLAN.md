@@ -3411,6 +3411,69 @@ first — cheapest is a probe tool whose description is a known length with posi
 characters, then read back where it stops — rather than editing to a target that might be wrong. The
 ceiling test should then sit **under** the real number, with margin.
 
+### M106 *(unplanned)* — unknown parameters are dropped in silence (TC-009, 2026-08-18)
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M106** An unrecognised argument is an **error**, not a silent no-op — on every tool, with a did-you-mean when the name is close | a pre-validation check over the raw `tools/call` arguments (the SDK's `middleware` seam), in `mcp_bridge/server.py` | WSL | `querys=[…]` on `redact_text` raises naming the parameter and suggesting `queries`, and **writes nothing**; a correctly-spelled call is byte-identical to today; the check covers all 17 tools, not just the redactors |
+
+**The worst defect this series has found, and it arrives through a door none of the others watch.**
+Reproduced directly: a one-character typo left PII in a file the tool certified clean.
+
+```jsonc
+redact_text { "query": "08-24-1970", "querys": ["12-25-1972"], "whole_words": true }
+→ { "matches": 1, "residual_matches": 0, "residual_literal": 0, "residual_normalized": [],
+    "cross_engine_verified": true, "source_unchanged": true }        // unqualified success
+```
+
+`08-24-1970` was removed; `12-25-1972` is **still in the output**, and nothing in the reply mentions
+`querys`. TC-009 tested four more plausible typos with the same result: `wholewords` silently
+switched a phrase redaction into word-list mode and destroyed 240 boxes where 9 were wanted; `page`
+silently expanded a one-page request to five pages; and an invented **`dry_run: true`** performed a
+real destructive write and reported success — the most alarming shape, because the parameter's whole
+purpose is to prevent the thing it fails to prevent.
+
+**Why nothing already built can catch it.** Every check this bridge performs is *downstream of
+parameter binding*: `residual_matches`, `residual_literal`, `residual_normalized`,
+`cross_engine_verified` and `verified_text` all describe what the server **did**, and none can
+describe what it was **asked** to do, because that information was discarded before any of them ran.
+The verification is sound and the report is honest; the input simply was not what the caller sent.
+Every safety signal M95–M103 added reads clean here, correctly, which is what makes it dangerous.
+
+**Root cause is one missing pydantic setting in the SDK**, not in our code: `ArgModelBase` in
+`mcp/server/mcpserver/utilities/func_metadata.py` declares
+`model_config = ConfigDict(arbitrary_types_allowed=True)` with no `extra=`, so pydantic's default
+`extra="ignore"` applies and `arg_model.model_validate()` drops unknown keys before the tool
+function is ever called. `guarded` cannot see them — it wraps the function, which runs after
+validation. So the fix has to sit **upstream of validation**.
+
+**The seam is the SDK's `middleware` list**, documented as wrapping every inbound request
+"including `initialize`, lookup, validation, handler". A middleware sees the raw `tools/call`
+params, so it can compare argument names against the tool's own input schema and reject unknowns.
+**Caveat, and it should be weighed before building:** the SDK marks that API
+`TODO(L54): provisional — signature and semantics change with the Context/middleware rework before
+v2 final`. Building on it means accepting a likely churn point; the alternative is a wrapper around
+the object `create_server` returns, which is uglier and ours.
+
+**Reject rather than warn.** For a tool that deletes content an unrecognised key is far more likely
+to be a mistake than something safe to ignore, and rejection *fails closed*: it costs the caller one
+corrected call instead of a file they may already have shipped. The accepted names are known and the
+observed typos are all edit-distance 1, so a suggestion is nearly free:
+
+```
+Error: unknown parameter 'querys'. Did you mean 'queries'? Accepted: path, out, query, queries,
+       match_case, whole_words, pages, password, overwrite. Nothing was written.
+```
+
+**Mitigating factor, real but narrow:** `source_unchanged: true` held in every case — the input is
+never touched, so each of these is recoverable by discarding the output. The harm is in *trusting*
+the output, which is exactly what the `querys` case invites.
+
+**Scope is framework-wide, not per-tool.** Confirmed on `redact_text` (destructive) and
+`render_page` (read-only), so the other fifteen tools will behave identically; the fix should be one
+check over all of them rather than an argument list per tool. Worth re-testing the remaining write
+tools afterwards to confirm.
+
 ## Future enhancements (deferred beyond the roadmap)
 
 Captured but not yet scheduled:
