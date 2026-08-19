@@ -3703,6 +3703,68 @@ reported ones all behaved — including the three that should draw no suggestion
 calls, fourteen rejections, exactly one file on disk. The single finding was the case-sensitive
 matcher above.
 
+### M107 *(unplanned)* — a redaction that lands inside a longer word (OPEN-ITEMS, 2026-08-19)
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M107** Disclose a redaction that fell **inside** a longer word, instead of reporting plain success | `_partial_word_report` in `mcp_bridge/redaction.py`, fed from the write loop | WSL | `redact_text {"query": "Male"}` over a page holding `Female` returns `partial_word_matches` and a warning naming `'Male' inside 'Female'` and what it now reads; an ordinary whole-word redaction stays silent |
+| **M107.1** `get_info` reports each page's `rotation` | `_page_sizes` in `mcp_bridge/queries.py` | WSL | A portrait page turned 90° and a native landscape page no longer share a `page_sizes` row |
+| **M107.2** The docs resource says where the reader is | `_documentation` in `mcp_bridge/server.py` | WSL | `klarpdf://docs/redact_text` opens by naming itself; the description is still contained verbatim |
+
+**The last of the family.** Every other "reported clean but was not" path this series found is
+closed. This is the remaining one, and it had been filed three times under three names — TC-003b #7
+("substring hazard is un-previewable"), TC-003 #2, and TC-007's addendum — without being recognised
+as one defect. Reproduced on the current build:
+
+```jsonc
+redact_text { "query": "Male" }        // whole_words omitted, the default
+→ { "matches": 3, "boxes_redacted": 3, "residual_matches": 0, "residual_literal": 0,
+    "cross_engine_verified": true }                       // and the driver table now reads "Fe"
+```
+
+**Why nothing already built could see it.** Two guards cover the two ways this tool destroys more
+than intended, and neither could see the other's case. Every residual field is scoped to *the
+query*, and the query was removed exactly as asked — the damage is to a word the caller never
+mentioned, so nothing that measures the query can find it. And `_term_report`, the over-redaction
+guard TC-007 drove, returns on its **first line** when `len(terms) < 2`: a one-word query never
+reached it at all. The tell that did exist was `verified_text` listing a lowercase `"male"` beside a
+capitalised query, which is real and far too subtle to rely on.
+
+**The data was already being computed.** The write loop calls `text.is_whole_word(box)` — but only
+when `whole_words` is on, to *filter*. Calling it when the flag is off, to *record*, is the whole
+fix; `PageText.struck(box)` then names the enclosing word. So this is a reporting gap, not a
+matching one, which is why it is a small change rather than a matcher rewrite.
+
+**Reject the temptation to filter instead.** A partial match is being redacted *because* the caller
+left `whole_words` off, which is a legitimate and often correct request — `search`'s own
+documentation tells them it is the right mode for an embedded identifier. Suppressing those matches
+would break every caller redacting an account number inside a machine tag (M96/TC-004). The defect
+is the silence, not the behaviour.
+
+**`leaves` is computed rather than described**, and deliberately: a caller reading "1 match fell
+inside a longer word" may shrug, and the same caller reading that a name now says `Fe` will not.
+
+**The false-positive surface is the risk**, since this module's warnings are read and a warning on
+every ordinary redaction would train callers to skip them. Four shapes must stay silent and are
+tested: an exact whole-word match; `whole_words: true` (where a partial match is filtered before it
+is redacted, so there is nothing to report); a phrase spanning two page words (a hit *between* words
+is not a fragment eaten out of one); and a whole word abutting punctuation — `expression.` is a
+single page word including the period, the exact shape that made whole-word search drop matches in
+M64/TC-001.
+
+**M107.1** is the same class of defect one tool over: `page_sizes` reports *displayed* dimensions
+while `clip` and `redact_regions` take *unrotated* ones, so a natively-landscape page and a portrait
+page turned 90° were the same row and a caller computing a box by hand could not tell which
+convention they were in (TC-008). `rotation` joins the grouping key, not just the payload — as a
+bare field the two geometries would still have merged into one row. Boxes from `search` are already
+in the right space, which is why the normal workflow never tripped on this and it stayed low.
+
+**M107.2** is an M105 by-product: the description ends by pointing at the docs resource, so the
+resource contained a pointer to itself and a reader who followed it once could follow it again.
+Stripping the sentence was the obvious fix and the wrong one — it would break the verbatim
+containment that makes the two halves unable to drift. A preamble naming the page costs nothing and
+keeps the guarantee.
+
 ## Future enhancements (deferred beyond the roadmap)
 
 Captured but not yet scheduled:

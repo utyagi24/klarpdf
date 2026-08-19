@@ -234,6 +234,14 @@ Preview with `search` before `redact_text`. Matching is the app's find-bar behav
 `whole_words` off a search for "Smith" also matches inside "Smithsonian" — and this tool deletes
 what it finds.
 
+**When a redaction lands inside a longer word, the reply says so.** That is the one way this tool
+damages text you never asked about: redacting `Male` with `whole_words` off also takes the `male`
+out of `Female`, leaving `Fe`. It is not filtered out, because matching inside longer words is
+exactly what you want for an identifier buried in a machine tag — but it is reported.
+`partial_word_matches` names the term, the word it came out of, and what that word now reads, and a
+warning repeats it. None of the residual checks can find this on their own: they are all scoped to
+the query, and the query *was* removed exactly as asked.
+
 **Removing several things? Use `queries`, not several calls.** The argument is data hygiene rather
 than convenience: every write needs a fresh `out`, so a chain of six redactions strews five
 intermediate files, each a partially-redacted copy still holding the values you have not reached

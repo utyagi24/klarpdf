@@ -256,7 +256,19 @@ def create_server(config: Config | None = None) -> MCPServer:
             if registered.name == tool:
                 appendix = docs.REFERENCE.get(tool)
                 body = registered.description or ""
-                return f"# {tool}\n\n{body}\n\n{appendix}" if appendix else f"# {tool}\n\n{body}"
+                if not appendix:
+                    return f"# {tool}\n\n{body}"
+                # The preamble exists because the description below ends by pointing *here*, and
+                # a reader arriving through that pointer would otherwise find it and follow it
+                # again. Saying where they are is cheaper than stripping the sentence, which would
+                # break the verbatim-containment that makes drift impossible.
+                return (
+                    f"# {tool} — full contract\n\n"
+                    f"*You are reading `klarpdf://docs/{tool}`. This page carries the tool's own "
+                    f"description in full — including its pointer back to this page, which you can "
+                    f"ignore — followed by the reference material that does not fit inside it.*\n\n"
+                    f"{body}\n\n{appendix}"
+                )
         known = ", ".join(sorted(t.name for t in await server.list_tools()))
         # `ResourceError`, not `ValueError`: the SDK re-raises its own type untouched and rewrites
         # anything else into a bare "Error creating resource from template <uri>", which tells the
@@ -309,6 +321,12 @@ def create_server(config: Config | None = None) -> MCPServer:
         and `extract_text` will come back empty and `render_page` is the only way in.
 
         `has_text_layer` is sampled over the first 20 pages, so `false` means "no text that far in".
+
+        `page_sizes` gives the **displayed** dimensions, and each entry carries the page
+        `rotation`. Read it before computing a box by hand: `clip` and `redact_regions` take
+        **unrotated** coordinates, so on a page with a non-zero rotation the width and height here
+        are not the axes those boxes are measured in. Boxes that come from `search` are already in
+        the right space and need no adjustment.
 
         `encrypted` describes the **file**, not this call: it is `true` both for a file that needs a
         password to open (`needs_password: true` — call again with `password`) and for one that
