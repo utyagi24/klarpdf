@@ -18,6 +18,7 @@ The depth that no longer fits lives in `klarpdf://docs/{tool}`, read through a c
 from __future__ import annotations
 
 import asyncio
+import inspect
 
 import pytest
 
@@ -64,6 +65,45 @@ def test_no_tool_description_exceeds_the_budget(tool):
         f"(the client cuts at {CLIENT_CAP} and says nothing). Move reference material into the "
         f"docs resource rather than raising the budget."
     )
+
+
+@pytest.mark.parametrize("tool", tools(), ids=lambda t: t.name)
+def test_no_description_carries_its_docstring_indentation(tool):
+    """The wasted-whitespace regression, pinned directly rather than left to the budget to notice.
+
+    Nobody typed these spaces. Python stores a docstring **exactly as written**, so every line after
+    the first carries the indentation that keeps the source readable, and the MCP SDK sends
+    ``fn.__doc__`` verbatim — no ``inspect.getdoc``, which is the call that normally strips it. That
+    was ~1,800 characters across the tools, billed against a 2,048-character transport cap to say
+    nothing. `guarded` runs `cleandoc` for this reason.
+
+    **Why `cleandoc`-equality is the right invariant** rather than "no leading whitespace": relative
+    indentation is meaningful here — a wrapped bullet continuation is indented two spaces on
+    purpose, and markdown needs it. `cleandoc` removes the *uniform* prefix and leaves the relative
+    structure, so a description that already equals its own `cleandoc` has no dead margin left.
+
+    This also catches the likeliest way it comes back: a tool registered without `@guarded`. That
+    decorator is what dedents, translates exceptions, and records the roster `publish_docs` reads,
+    so skipping it fails quietly in three directions at once — and its docstring is the visible one.
+    """
+    description = tool.description or ""
+    assert description == inspect.cleandoc(description), (
+        f"{tool.name}'s description still carries docstring indentation "
+        f"({len(description) - len(inspect.cleandoc(description))} wasted chars). "
+        f"Is it registered without `@guarded`?"
+    )
+
+
+def test_the_instructions_carry_no_dead_margin_either():
+    """Same invariant on the block that shares the same 2,048 cap.
+
+    Compared after `strip()`, because a trailing newline is one byte and not the failure mode this
+    guards: what matters is that no *line* carries an indent, which is what would happen the day
+    `INSTRUCTIONS` moves from a module constant into a function.
+    """
+    for read_only in (False, True):
+        text = create_server(Config(read_only=read_only)).instructions or ""
+        assert text.strip() == inspect.cleandoc(text)
 
 
 def test_every_tool_still_has_a_description_after_the_trimming():
