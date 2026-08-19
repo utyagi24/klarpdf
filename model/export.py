@@ -182,6 +182,7 @@ def export_page_images(
     dpi: int = 150,
     jpg_quality: int = 90,
     clip=None,
+    number_all: bool = False,
 ) -> list[str]:
     """Export pages of the **edits-applied** output to image files — one file per page (M36).
 
@@ -199,13 +200,20 @@ def export_page_images(
     points. It is validated **per page**, not once: page sizes vary within a document, so a region
     that sits comfortably on page 1 can overhang page 2, and validating only the first would export
     that page silently short.
+
+    ``number_all`` forces the page suffix on even for a single page (M104). It defaults off because
+    the **app's** Export writes the filename the user typed into a save dialog, and turning
+    ``report.png`` into ``report-1.png`` behind them would be its own small betrayal. The **bridge**
+    passes it, because there the filename is derived rather than chosen and the "verbatim when
+    single" rule made the scheme non-uniform — and, worse, made two clips of one page collide on one
+    name, which is precisely the job ``clip`` was added for (TC-008 Finding 1).
     """
     indices = list(page_indices)
     if not indices:
         return []
     root, ext = os.path.splitext(base_path)
     is_jpeg = ext.lower() in _JPEG_EXTS
-    single = len(indices) == 1
+    single = len(indices) == 1 and not number_all
     pad = len(str(max(i + 1 for i in indices)))  # widest page number → consistent zero-padding
     matrix = fitz.Matrix(dpi / 72.0, dpi / 72.0)
 

@@ -165,6 +165,18 @@ back whatever the rotation. The image is the region as *displayed*, so a quarter
 width and height. One consequence worth knowing: `get_info.page_sizes` reports displayed
 dimensions, so on a turned page a perfectly valid box can extend past the width shown there.
 
+**The pixel size rounds outward to whole device pixels**, so it is
+`ceil(x1 x dpi/72) - floor(x0 x dpi/72)`, not `(x1-x0) x dpi/72`. A 100 pt square at 150 dpi comes
+back 209 px, not 208.33 — and exactly 100 px at 72 dpi, where the scale is 1:1. Expanding outward is
+deliberate: no partial pixel of the region you asked for is dropped, which is what you want from a
+crop. Just don't assert on the naive formula.
+
+**Every exported file carries its page number** — `<stem>-3.png`, whether you export one page or
+twenty — and `name` chooses the stem. That matters for the use `clip` exists for: cutting two
+regions out of *one* page needs `name: "card_front"` then `name: "card_back"`, or both calls want
+the same filename and the second is refused. `name` is a plain filename stem, never a path: no
+separators, no `..`, no extension.
+
 **A clip that runs off the edge of the page is an error, not a smaller image.** PyMuPDF would
 happily intersect it and hand back a cropped pixmap; `render_page` returns an image block, so its
 reply has nowhere to say that it did. The error names the page's rect instead, so the fix is one

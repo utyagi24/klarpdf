@@ -630,3 +630,25 @@ def test_the_refusal_says_the_page_is_rotated(landscape_pdf, tmp_path):
     transforms.rotate(landscape_pdf, 90, rotated)
     with pytest.raises(ValueError, match="rotated 90"):
         queries.render_page(rotated, 1, dpi=72, clip=[0, 0, 100, 700])
+
+
+# ---- M104 / TC-008 Finding 2: the pixel size rounds outward ------------------------------
+
+
+@pytest.mark.parametrize(
+    "clip, dpi, expected",
+    [
+        ([100, 100, 200, 200], 150, (209, 209)),   # 100pt at 150dpi is 209px, not 208.33
+        ([100, 100, 200, 200], 72, (100, 100)),    # 1:1 scale, exact
+        ([0, 0, 200, 100], 72, (200, 100)),
+    ],
+)
+def test_the_clipped_pixel_size_rounds_outward(a_pdf, clip, dpi, expected):
+    """`ceil(x1 * s) - floor(x0 * s)`, not `(x1-x0) * s`.
+
+    The right policy — expanding outward drops no partial pixel of the requested region — but it was
+    unstated, and a caller sizing a layout from the naive formula is off by up to 1 px per axis
+    (TC-008 Finding 2). Pinned so the docs and the behaviour cannot drift apart.
+    """
+    rendered = queries.render_page(a_pdf, 1, dpi=dpi, clip=clip)
+    assert (rendered["width_px"], rendered["height_px"]) == expected

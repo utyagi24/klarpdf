@@ -2184,6 +2184,17 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     wrong one, disabling the human check `clip` exists to enable. Fixed by bounds-checking against
     the unrotated rect and mapping through `page.rotation_matrix`; both matrices are the identity
     when unrotated, so nothing else moved. Design in `PLAN.md` §M99.
+  - **M104 — the naming scheme argued with the feature** (TC-008 Findings 1 and 2, 2026-08-18).
+    `export_images` wrote `<stem>.png` for one page and `<stem>-3.png` for several, so two *clips*
+    of one page wanted the same filename and the second hit the no-clobber refusal — the refusal
+    was right, the names were wrong, and cutting several regions out of one page is precisely what
+    `clip` was added for. Files now always carry the page number and a new **`name`** chooses the
+    stem (`card_front-3.png`); `name` is a filename component, so separators, `..` and extensions
+    are refused rather than sanitised, since joined onto `out_dir` unchecked it would walk around
+    `--allow-root`. `number_all` defaults off in `model/export.py` so the app's Export keeps the
+    filename the user typed. Finding 2 needed no code: the clipped size rounds **outward** to whole
+    device pixels (a 100 pt square at 150 dpi is 209 px, not 208.33) — right policy, now documented
+    and pinned. Design in `PLAN.md` §M99.
   Design in `PLAN.md` §M99 — *WSL*
 
 - [x] **M100** **`queries: [...]` — one redaction call, several terms** — scheduled 2026-08-16 from

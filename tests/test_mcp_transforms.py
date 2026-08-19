@@ -688,3 +688,68 @@ def test_the_states_order_is_stable_across_a_round_trip(awkward_form_pdf, out):
     after = {f["name"]: f for f in queries.form_fields(out)}["married"]
     assert before["states"] == after["states"] == ["2", "Off"]   # on-state first, then the rest
     assert before["states"][0] == before["on_state"]
+
+
+# ---- M104 / TC-008 Finding 1: filenames that do not collide with themselves -------------------
+
+
+def test_a_single_page_export_still_carries_its_page_number(a_pdf, tmp_path):
+    """The scheme used to be `<stem>.png` for one page and `<stem>-3.png` for several. Non-uniform,
+    and a caller could not predict a filename without knowing how many pages came back."""
+    result = T.export_images(a_pdf, str(tmp_path), pages=[2], dpi=36)
+    assert [os.path.basename(f) for f in result["files"]] == ["A-2.png"]
+
+
+def test_two_clips_of_one_page_land_in_one_directory(a_pdf, tmp_path):
+    """**The TC-008 deliverable.** Two ID cards off one page is the use `clip` was added for, and
+    the naming scheme was at odds with it: both wanted `<stem>.png`, so the second call hit the
+    no-clobber refusal and the workarounds were a directory per region or `overwrite: true`, which
+    destroys the first card. The refusal was right; the names were wrong."""
+    front = T.export_images(a_pdf, str(tmp_path), pages=[1], dpi=36,
+                            clip=[0, 0, 200, 100], name="card_front")
+    back = T.export_images(a_pdf, str(tmp_path), pages=[1], dpi=36,
+                           clip=[0, 100, 200, 200], name="card_back")
+    written = sorted(os.path.basename(f) for f in front["files"] + back["files"])
+    assert written == ["card_back-1.png", "card_front-1.png"]
+    assert all(os.path.getsize(f) > 0 for f in front["files"] + back["files"])
+
+
+def test_the_no_clobber_check_still_sees_the_names_that_will_be_written(a_pdf, tmp_path):
+    """A predictor that disagreed with the writer would pass the check on a name the writer then
+    overwrote — this function's own failure mode, wearing the writer's clothes."""
+    T.export_images(a_pdf, str(tmp_path), pages=[1], dpi=36, name="card")
+    with pytest.raises(ValueError, match="already exists"):
+        T.export_images(a_pdf, str(tmp_path), pages=[1], dpi=36, name="card")
+    T.export_images(a_pdf, str(tmp_path), pages=[1], dpi=36, name="card", overwrite=True)
+
+
+@pytest.mark.parametrize(
+    "name, match",
+    [
+        ("../escape", "plain filename stem"),
+        ("a/b", "plain filename stem"),
+        ("..", "plain filename stem"),
+        ("", "is empty"),
+        ("   ", "is empty"),
+        ("card.png", "carries an extension"),
+    ],
+)
+def test_a_name_cannot_be_a_path(a_pdf, tmp_path, name, match):
+    """`name` is joined onto `out_dir`, so left alone `../../etc/passwd` would walk out of it and
+    around `--allow-root`. Refused rather than sanitised: quietly rewriting a name hands back a
+    file under a different one than was asked for."""
+    with pytest.raises(ValueError, match=match):
+        T.export_images(a_pdf, str(tmp_path), pages=[1], dpi=36, name=name)
+    assert [f for f in os.listdir(tmp_path) if f.endswith(".png")] == []
+
+
+def test_the_app_export_keeps_the_filename_the_user_typed(a_pdf, tmp_path):
+    """The model function is shared with Export ▸ Images, where the name comes from a save dialog.
+    Turning `report.png` into `report-1.png` behind the user would be its own small betrayal, so
+    `number_all` defaults off and only the bridge passes it."""
+    from model.export import export_page_images
+    from mcp_bridge.queries import open_document
+
+    target = str(tmp_path / "report.png")
+    with open_document(a_pdf) as vdoc:
+        assert export_page_images(vdoc, [0], target, dpi=36) == [target]

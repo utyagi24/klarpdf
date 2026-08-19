@@ -500,6 +500,7 @@ def create_server(config: Config | None = None) -> MCPServer:
         password: str | None = None,
         overwrite: bool = False,
         clip: list[float] | None = None,
+        name: str | None = None,
     ) -> dict:
         """Rasterise `pages` (1-based; omit for all) to image files in `out_dir`, as png or jpg.
 
@@ -509,7 +510,19 @@ def create_server(config: Config | None = None) -> MCPServer:
         `clip` crops every exported page to the same `[x0, y0, x1, y1]` region in page points — for
         cutting one card, figure or signature out as a file. It is checked against each page
         separately, so a region that overhangs any page in the set is an error rather than one file
-        that came out short.
+        that came out short. On a rotated page `clip` is in the unrotated coordinates `search`
+        reports, same as `render_page`.
+
+        **Filenames always carry the page number** — `<stem>-3.png`, whether you export one page or
+        twenty. Pass `name` to choose the stem: cutting two regions out of page 3 needs
+        `name: "card_front"` then `name: "card_back"`, or the two calls want the same filename and
+        the second is refused. `name` is a plain filename stem, not a path — no separators, no
+        `..`, no extension (the format comes from `fmt`).
+
+        The rendered pixel size rounds **outward** to whole device pixels:
+        `ceil(x1 x dpi/72) - floor(x0 x dpi/72)`, so a 100 pt square at 150 dpi is 209 px, not the
+        208.33 the naive formula gives. That is deliberate — no partial pixel of the region you
+        asked for is dropped — but do not assert on `(x1-x0) x dpi/72`.
         """
         return transforms.export_images(
             check(path),
@@ -520,6 +533,7 @@ def create_server(config: Config | None = None) -> MCPServer:
             password=password,
             overwrite=overwrite,
             clip=clip,
+            name=name,
         )
 
     # ---- redaction: destructive, and verified before success is reported ----
