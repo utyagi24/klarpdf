@@ -2231,6 +2231,44 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   `TYAGI1703` trap *within* a line (`Smith` + `Jones` → the token `SmithJones`), caught by M98's
   existing tests. Design in `PLAN.md` §M100 — *WSL*
 
+- [x] **M107** *(unplanned)* ⚠️ **A redaction that lands inside a longer word said nothing** —
+  OPEN-ITEMS review, 2026-08-19, **medium**, and the last member of the "reported clean but was not"
+  family this series has been closing. `redact_text {"query": "Male"}` also removes the `male`
+  inside `Female`, leaving a driver table reading `Fe`, and the reply said `matches: 3`,
+  `residual_matches: 0`, `residual_literal: 0`, **cross-engine verified**. Filed three times under
+  three names (TC-003b #7, TC-003 #2, TC-007 addendum) without being recognised as one defect; one
+  fix closes all three. **No existing check could see it**: every residual field is scoped to *the
+  query*, which was removed exactly as asked — the damage is to a word the caller never mentioned —
+  and `_term_report`, the over-redaction guard, returns on its first line when `len(terms) < 2`, so
+  a one-word query never reached it. The two guards cover the two ways this tool over-deletes and
+  neither could see the other's case. **Fixed**: the reply carries `partial_word_matches` and a
+  warning naming the term, the word it was taken out of, the pages, and **what that word now reads**
+  — computed, because "1 partial match" invites a shrug and `Fe` does not. The data was already
+  being computed: the write loop calls `is_whole_word` when `whole_words` is *on* to filter, and now
+  calls it when off to record. **Not** filtered instead — a partial match is redacted *because* the
+  caller left `whole_words` off, which is the right mode for an identifier embedded in a machine tag
+  (M96/TC-004); the defect is the silence, not the behaviour. Four false-positive shapes are tested
+  silent, including a whole word abutting punctuation (`expression.`), the shape that broke
+  whole-word search in M64/TC-001. **M107.1**: `get_info` now reports each page's `rotation`, and it
+  joins the grouping key — `page_sizes` gives *displayed* dimensions while `clip`/`redact_regions`
+  take *unrotated* ones, so a native landscape page and a portrait page turned 90° were one
+  indistinguishable row (TC-008). **M107.2**: the docs resource opens by naming itself, since M105's
+  description ends by pointing at it; stripping that sentence would have broken the verbatim
+  containment that stops the two halves drifting. Design in `PLAN.md` §M107 —
+  [#268](https://github.com/utyagi24/klarpdf/pull/268) — *WSL*
+
+  Also reviewed and **not** taken up, so the next session does not re-derive it: **duplicated image
+  XObjects on redacted pages** (TC-003 #5) does **not reproduce** — worst case tested (redaction
+  sitting on top of images, three pages) gave unchanged image references, **one shared xref not
+  three**, and 48,031 → 3,652 bytes; the item was never re-verified against a current build and is
+  retired. **Atomicity of a multi-query failure** was filed as untested and is not:
+  `test_every_query_is_verified_not_just_the_first` plants a failure on the *second* query and
+  asserts the output is deleted — unconfirmable black-box is not the same as untested. **XFA
+  `datasets`** (TC-002 #3) stays open and needs a genuinely dynamic form to progress; it is
+  disclosed by a warning, so it is a correctness gap rather than a silent one. **Per-query
+  `whole_words`** stays a disclosed limitation. **An annotation/highlight tool** is a feature
+  request, not a defect — it belongs in §Future enhancements.
+
 - [x] **M106** *(unplanned)* ⚠️ **Unknown parameters are dropped in silence** — TC-009, 2026-08-18,
   **high**, and the worst defect this series has found. Reproduced directly: a one-character typo
   (`querys` for `queries`) left PII in a file the tool certified `residual_matches: 0`,

@@ -168,14 +168,25 @@ def _first_page_with_text(vdoc: VirtualDocument) -> int | None:
 
 def _page_sizes(vdoc: VirtualDocument) -> list[dict]:
     """Distinct page geometries with the pages holding each — a mixed-size document is worth
-    knowing about before a split, and listing all 800 pages of a uniform one is noise."""
+    knowing about before a split, and listing all 800 pages of a uniform one is noise.
+
+    ``rotation`` is reported, and is part of what makes two geometries distinct, because
+    ``width_pt``/``height_pt`` are the **displayed** dimensions while ``clip`` and
+    ``redact_regions`` take **unrotated** ones. Without it a natively-landscape page and a
+    portrait page turned 90° are the same row, so a caller computing a box from these numbers has
+    no way to know which convention it is in (TC-008). Reporting the angle is what lets them tell:
+    a non-zero rotation means box coordinates are not in the space these dimensions describe.
+    """
     seen: dict[tuple, list[int]] = {}
     for index0 in range(vdoc.page_count):
         width, height = vdoc.page_visible_size(index0)
-        seen.setdefault((round(width, 1), round(height, 1)), []).append(index0 + 1)
+        ref = vdoc.ordered[index0]
+        native = vdoc.sources[ref.source_id][ref.source_page_index].rotation
+        rotation = native if ref.rotation_override is None else ref.rotation_override
+        seen.setdefault((round(width, 1), round(height, 1), rotation % 360), []).append(index0 + 1)
     return [
-        {"width_pt": w, "height_pt": h, "pages": pages}
-        for (w, h), pages in sorted(seen.items(), key=lambda kv: -len(kv[1]))
+        {"width_pt": w, "height_pt": h, "rotation": rot, "pages": pages}
+        for (w, h, rot), pages in sorted(seen.items(), key=lambda kv: -len(kv[1]))
     ]
 
 

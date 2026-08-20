@@ -207,3 +207,18 @@ def test_the_assembled_contract_fits_the_resource_channel():
 def test_an_unknown_tool_name_says_what_is_served():
     with pytest.raises(Exception, match="no such tool"):
         read("klarpdf://docs/not_a_tool")
+
+
+def test_the_docs_page_says_where_the_reader_is(): 
+    """M107.2 — the description ends by pointing at this resource, so a reader who followed that
+    pointer would find it again and could follow it in a loop. The preamble pre-empts that.
+
+    Stripping the sentence instead would have been the obvious fix and the wrong one: it breaks the
+    verbatim containment above, which is what makes drift between the two halves impossible.
+    """
+    from mcp_bridge.docs import REFERENCE
+
+    for name in REFERENCE:
+        body = read(f"klarpdf://docs/{name}")
+        assert body.startswith(f"# {name} — full contract")
+        assert f"You are reading `klarpdf://docs/{name}`" in body

@@ -652,3 +652,29 @@ def test_the_clipped_pixel_size_rounds_outward(a_pdf, clip, dpi, expected):
     """
     rendered = queries.render_page(a_pdf, 1, dpi=dpi, clip=clip)
     assert (rendered["width_px"], rendered["height_px"]) == expected
+
+
+def test_get_info_distinguishes_a_rotated_page_from_a_native_landscape_one(tmp_path):
+    """M107.1 — `page_sizes` reports *displayed* dimensions while `clip` and `redact_regions` take
+    unrotated ones, so without the angle a portrait page turned 90° and a native landscape page are
+    the same row and a caller computing a box by hand cannot tell which convention it is in
+    (TC-008). Rotation is part of the grouping key, not just a field, or the two would still merge.
+    """
+    import pymupdf
+
+    path = str(tmp_path / "rotated.pdf")
+    doc = pymupdf.open()
+    doc.new_page(width=612, height=792)                      # native portrait
+    doc.new_page(width=612, height=792)
+    doc[1].set_rotation(90)                                  # portrait turned 90
+    doc.new_page(width=792, height=612)                      # native landscape
+    doc.save(path)
+    doc.close()
+
+    sizes = queries.document_info(path)["page_sizes"]
+    by_page = {entry["pages"][0]: entry for entry in sizes}
+    assert by_page[1]["rotation"] == 0
+    assert by_page[2] == {"width_pt": 792.0, "height_pt": 612.0, "rotation": 90, "pages": [2]}
+    assert by_page[3] == {"width_pt": 792.0, "height_pt": 612.0, "rotation": 0, "pages": [3]}
+    # Same displayed geometry, different convention — they must not share a row.
+    assert by_page[2] is not by_page[3]

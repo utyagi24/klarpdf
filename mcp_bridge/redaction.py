@@ -778,7 +778,7 @@ def redact_text(
         per_page: dict[int, list[tuple]] = {}
         invisible: dict[int, list[str]] = {}
         stats: dict[str, dict] = {
-            q: {"matches": 0, "terms": {}, "phrase": 0} for q in all_queries
+            q: {"matches": 0, "terms": {}, "phrase": 0, "partial": {}} for q in all_queries
         }
         for index0 in scope:
             ref = vdoc.ordered[index0]
@@ -815,12 +815,19 @@ def redact_text(
                         if key in seen:
                             continue
                         seen.add(key)
-                        if whole_words and not all(text.is_whole_word(box) for box in boxes):
+                        whole = all(text.is_whole_word(box) for box in boxes)
+                        if whole_words and not whole:
                             continue
                         if match_case and not all(text.matches_case(box, term) for box in boxes):
                             continue
                         stat["matches"] += 1
                         stat["terms"][term] = stat["terms"].get(term, 0) + 1
+                        if not whole:
+                            # `whole_words` is off, so this match is being redacted *because* the
+                            # caller allowed matching inside longer words. That is legitimate and
+                            # cannot be filtered here — but it is also the one way this tool
+                            # damages a word nobody queried, so it is recorded and reported.
+                            _record_partial(stat["partial"], text, boxes, term, index0 + 1)
                         if key in added:
                             continue
                         added.add(key)
@@ -961,6 +968,7 @@ def _query_reports(
         report = _merged(
             report, _term_report(terms, stat["terms"], stat["phrase"], whole_words=whole_words)
         )
+        report = _merged(report, _partial_word_report(stat["partial"], whole_words=whole_words))
         warnings += report.pop("warnings", [])
         if stat["matches"] == 0:
             missed.append(one)
@@ -1037,6 +1045,87 @@ def _term_report(
             "— the input is untouched, so this output can simply be discarded."
         ]
     return report
+
+
+def _record_partial(bucket: dict, text: PageText, boxes: tuple, term: str, page: int) -> None:
+    """Note that ``term`` was redacted from inside a longer word on ``page``.
+
+    Keyed by (term, enclosing word) so five occurrences of ``Male`` inside ``Female`` report once
+    with a count rather than five times. Only the single-word case is recorded: a hit spanning two
+    page words is a phrase match sitting between them, not a fragment eaten out of one, and
+    reporting it as "inside" a word would be false.
+    """
+    for box in boxes:
+        struck = text.struck(box)
+        if len(struck) != 1:
+            continue
+        word = struck[0][1][4]
+        if word.lower() == term.lower():
+            continue
+        entry = bucket.setdefault((term, word), {"pages": set(), "count": 0})
+        entry["pages"].add(page)
+        entry["count"] += 1
+        return
+
+
+def _residue(word: str, term: str) -> str:
+    """What is left of ``word`` once ``term`` is cut out — the ``Fe`` of a redacted ``Female``.
+
+    Computed rather than described because the wreckage is the argument: a caller reading "1 match
+    fell inside a longer word" may shrug, and the same caller reading that a name now says ``Fe``
+    will not. Case-insensitive because ``search_for`` is.
+    """
+    at = word.lower().find(term.lower())
+    return word if at < 0 else word[:at] + word[at + len(term):]
+
+
+def _partial_word_report(partial: dict, *, whole_words: bool) -> dict:
+    """Report the redactions that landed **inside** a longer word (M107).
+
+    The other half of the over-redaction story, and the last of it. :func:`_term_report` catches the
+    caller who meant a phrase and got a word list — TC-007's `1` matching every standalone digit.
+    This catches the caller who meant a word and got a fragment: `redact_text {"query": "Male"}`
+    also eats the `male` inside `Female`, leaving `Fe`, and until now reported `matches: 3`,
+    `residual_matches: 0`, cross-engine verified, with nothing to suggest a word had been damaged.
+
+    Neither guard could see the other's case. `_term_report` returns early on `len(terms) < 2`, so a
+    one-word query never reached it at all; and every residual field is scoped to the query, which
+    *was* removed exactly as asked — the harm is to a word the caller never mentioned, so nothing
+    that measures the query can find it. `search` does disclose this (the hit's snippet reads
+    `SEEMA Female Married`), and the description tells callers to run it first, but the reply from
+    the write is what gets trusted, and it was silent.
+
+    Silent when `whole_words` is on, because then a partial match cannot be redacted at all.
+    """
+    if whole_words or not partial:
+        return {}
+    listed = [
+        {
+            "term": term,
+            "inside": word,
+            "leaves": _residue(word, term),
+            "pages": sorted(entry["pages"]),
+            "count": entry["count"],
+        }
+        for (term, word), entry in sorted(partial.items())
+    ]
+    total = sum(item["count"] for item in listed)
+    shown = "; ".join(
+        f"{item['term']!r} inside {item['inside']!r} (page{'s' if len(item['pages']) > 1 else ''} "
+        f"{', '.join(str(p) for p in item['pages'])}), which now reads {item['leaves']!r}"
+        for item in listed[:3]
+    )
+    more = f", and {len(listed) - 3} more" if len(listed) > 3 else ""
+    return {
+        "partial_word_matches": listed,
+        "warnings": [
+            f"{total} redaction(s) fell **inside a longer word**, damaging text that was never "
+            f"queried: {shown}{more}. `whole_words` was not set, so the query matched inside "
+            "longer words as well as on its own. Re-run with `whole_words: true` if that was not "
+            "intended "
+            "— the input is untouched, so this output can simply be discarded."
+        ],
+    }
 
 
 def _invisible_report(invisible: dict[int, list[str]]) -> dict:
