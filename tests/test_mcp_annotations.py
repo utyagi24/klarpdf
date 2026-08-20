@@ -1,0 +1,459 @@
+"""M101 — writing text markup from the bridge, and reading back everyone's.
+
+Three things here are worth more than the rest, because each pins a decision that would fail
+silently if it drifted:
+
+* **Boxes are rotation-invariant.** `get_annotations` output is meant to go straight into
+  `redact_regions`, and both were measured to work in unrotated page points at every `/Rotate`.
+  Nothing in the code converts anything, so the invariant is held by PyMuPDF's behaviour rather
+  than by ours — which is exactly the kind of thing that changes under you (M99.1 was a clip on the
+  wrong side of this same rotation).
+* **A repeat call merges instead of stacking**, so retrying is safe and a colour filter cannot act
+  on the same passage twice.
+* **The read side sees a sticky note.** It is unmodeled (§M83), so a listing built on
+  `parse_annotation` would drop it — and it is precisely how a reviewer's comment often arrives.
+"""
+
+from __future__ import annotations
+
+import os
+
+import pymupdf as fitz
+import pytest
+
+from mcp_bridge import annotations, redaction
+from model.markup_palette import HIGHLIGHT_COLORS, TEXT_LINE_COLORS
+
+NAME = "Alice Smith"
+ACCOUNT = "220885-1063303"
+ORANGE = dict(HIGHLIGHT_COLORS)["Orange"]
+YELLOW = dict(HIGHLIGHT_COLORS)["Yellow"]
+LINE_RED = dict(TEXT_LINE_COLORS)["Red"]
+
+
+@pytest.fixture
+def doc_path(tmp_path) -> str:
+    path = str(tmp_path / "in.pdf")
+    doc = fitz.open()
+    page = doc.new_page(width=612, height=792)
+    page.insert_text((72, 115), f"{NAME} lives at 12 Elm Street", fontsize=11)
+    page.insert_text((72, 145), f"Account {ACCOUNT} opened in 2020", fontsize=11)
+    doc.new_page(width=612, height=792).insert_text((72, 115), "Second page text", fontsize=11)
+    doc.save(path)
+    doc.close()
+    return path
+
+
+@pytest.fixture
+def out(tmp_path) -> str:
+    return str(tmp_path / "out.pdf")
+
+
+def _find(path: str, needle: str, page: int = 0) -> list[list[float]]:
+    """The boxes `search` would hand back for `needle` — the documented way to get coordinates."""
+    with fitz.open(path) as doc:
+        return [[round(v, 2) for v in r] for r in doc[page].search_for(needle)]
+
+
+def _mark(path, needle, out, **extra):
+    mark = {"page": 1, "boxes": _find(path, needle), **extra}
+    return annotations.annotate(path, [mark], out)
+
+
+# ---- writing -----------------------------------------------------------------
+
+
+def test_highlight_lands_where_search_said(doc_path, out):
+    boxes = _find(doc_path, NAME)
+    result = annotations.annotate(
+        doc_path, [{"type": "highlight", "page": 1, "boxes": boxes}], out
+    )
+
+    assert result["marks_requested"] == 1
+    assert result["marks_added"] == 1
+    assert result["pages_annotated"] == [1]
+    (written,) = result["annotations"]
+    assert written["type"] == "highlight"
+    assert written["boxes"][0] == pytest.approx(boxes[0], abs=0.05)
+    assert written["mine"] is True and written["editable"] is True
+
+
+def test_the_source_is_never_touched(doc_path, out):
+    before = open(doc_path, "rb").read()
+    _mark(doc_path, NAME, out, type="highlight")
+    assert open(doc_path, "rb").read() == before
+    assert os.path.exists(out)
+
+
+def test_out_may_not_be_the_input(doc_path):
+    with pytest.raises(ValueError, match="refusing to write over the input"):
+        _mark(doc_path, NAME, doc_path, type="highlight")
+
+
+def test_every_type_writes_and_reads_back(doc_path, tmp_path):
+    for kind in ("highlight", "underline", "strikeout"):
+        target = str(tmp_path / f"{kind}.pdf")
+        result = _mark(doc_path, NAME, target, type=kind)
+        assert [a["type"] for a in result["annotations"]] == [kind]
+
+
+def test_a_note_rides_its_mark(doc_path, out):
+    result = _mark(doc_path, NAME, out, type="highlight", note="PII: customer name")
+    (written,) = result["annotations"]
+    assert written["note"] == "PII: customer name"
+
+    # …and reads back off the file itself, not just out of the write's own reply.
+    reread = annotations.get_annotations(out)
+    assert reread["annotations"][0]["note"] == "PII: customer name"
+
+
+def test_a_note_without_a_type_creates_a_highlight(doc_path, out):
+    """The app's own rule for a note dropped on unmarked text (`resolve_note_host`)."""
+    result = _mark(doc_path, NAME, out, note="needs checking")
+    (written,) = result["annotations"]
+    assert written["type"] == "highlight"
+    assert written["note"] == "needs checking"
+
+
+def test_note_text_is_not_body_text(doc_path, out):
+    """A note must never become findable text — it is a remark *about* the page (M81)."""
+    _mark(doc_path, NAME, out, type="highlight", note="ZZQQXX-unique-note-token")
+    with fitz.open(out) as doc:
+        assert "ZZQQXX" not in doc[0].get_text("text")
+        assert doc[0].search_for("ZZQQXX-unique-note-token") == []
+
+
+# ---- colour ------------------------------------------------------------------
+
+
+def test_a_palette_name_is_the_apps_exact_swatch(doc_path, out):
+    """The guarantee the shared palette module exists for: the agent's orange *is* the picker's."""
+    result = _mark(doc_path, NAME, out, type="highlight", color="orange")
+    (written,) = result["annotations"]
+    assert written["color"] == pytest.approx(list(ORANGE), abs=0.005)
+    assert written["color_name"] == "Orange"
+    assert written["color_exact"] is True
+
+
+def test_a_name_outside_the_type_palette_is_an_error(doc_path, out):
+    """There is no orange line: a name is resolved against the type's own palette (M106's rule)."""
+    with pytest.raises(ValueError, match="not a underline colour"):
+        _mark(doc_path, NAME, out, type="underline", color="orange")
+
+
+def test_the_error_names_what_was_available(doc_path, out):
+    with pytest.raises(ValueError, match="Red, Blue, Green, Black"):
+        _mark(doc_path, NAME, out, type="strikeout", color="chartreuse")
+
+
+def test_raw_rgb_is_accepted(doc_path, out):
+    result = _mark(doc_path, NAME, out, type="highlight", color=[0.2, 0.4, 0.6])
+    assert result["annotations"][0]["color"] == pytest.approx([0.2, 0.4, 0.6], abs=0.005)
+
+
+def test_rgb_out_of_range_says_which_scale(doc_path, out):
+    with pytest.raises(ValueError, match="0..1, not 0..255"):
+        _mark(doc_path, NAME, out, type="highlight", color=[255, 128, 0])
+
+
+def test_the_default_colour_is_the_descriptor_default(doc_path, out):
+    result = _mark(doc_path, NAME, out, type="highlight")
+    assert result["annotations"][0]["color"] == pytest.approx(list(YELLOW), abs=0.005)
+
+
+# ---- merging -----------------------------------------------------------------
+
+
+def test_running_the_same_call_twice_does_not_stack(doc_path, tmp_path):
+    """The invariant that makes a retry safe — and stops a colour filter acting twice on one span."""
+    first = str(tmp_path / "first.pdf")
+    second = str(tmp_path / "second.pdf")
+    boxes = _find(doc_path, NAME)
+    mark = [{"type": "highlight", "page": 1, "boxes": boxes, "color": "orange"}]
+
+    annotations.annotate(doc_path, mark, first)
+    again = annotations.annotate(first, mark, second)
+
+    assert again["marks_added"] == 0
+    assert again["annotations"] and len(again["annotations"]) == 1
+
+
+def test_a_different_colour_takes_the_span_over(doc_path, tmp_path):
+    first = str(tmp_path / "first.pdf")
+    second = str(tmp_path / "second.pdf")
+    boxes = _find(doc_path, NAME)
+
+    annotations.annotate(
+        doc_path, [{"type": "highlight", "page": 1, "boxes": boxes, "color": "yellow"}], first
+    )
+    result = annotations.annotate(
+        first, [{"type": "highlight", "page": 1, "boxes": boxes, "color": "orange"}], second
+    )
+
+    assert len(result["annotations"]) == 1
+    assert result["annotations"][0]["color_name"] == "Orange"
+
+
+def test_different_types_do_not_merge(doc_path, tmp_path):
+    first = str(tmp_path / "first.pdf")
+    second = str(tmp_path / "second.pdf")
+    boxes = _find(doc_path, NAME)
+
+    annotations.annotate(doc_path, [{"type": "highlight", "page": 1, "boxes": boxes}], first)
+    result = annotations.annotate(
+        first, [{"type": "underline", "page": 1, "boxes": boxes}], second
+    )
+
+    assert sorted(a["type"] for a in result["annotations"]) == ["highlight", "underline"]
+
+
+def test_a_merge_carries_the_absorbed_note(doc_path, tmp_path):
+    """M81.2's rule at the bridge: a call that deleted nothing must not destroy typed text."""
+    first = str(tmp_path / "first.pdf")
+    second = str(tmp_path / "second.pdf")
+    boxes = _find(doc_path, NAME)
+
+    annotations.annotate(
+        doc_path,
+        [{"type": "highlight", "page": 1, "boxes": boxes, "note": "first note"}],
+        first,
+    )
+    result = annotations.annotate(
+        first,
+        [{"type": "highlight", "page": 1, "boxes": boxes, "note": "second note"}],
+        second,
+    )
+
+    (written,) = result["annotations"]
+    assert "first note" in written["note"]
+    assert "second note" in written["note"]
+
+
+def test_several_marks_in_one_call_write_one_file(doc_path, out):
+    result = annotations.annotate(
+        doc_path,
+        [
+            {"type": "highlight", "page": 1, "boxes": _find(doc_path, NAME), "color": "orange"},
+            {"type": "underline", "page": 1, "boxes": _find(doc_path, ACCOUNT)},
+            {"type": "strikeout", "page": 2, "boxes": _find(doc_path, "Second", page=1)},
+        ],
+        out,
+    )
+    assert result["marks_added"] == 3
+    assert result["pages_annotated"] == [1, 2]
+
+
+# ---- reading -----------------------------------------------------------------
+
+
+def test_a_foreign_mark_is_reported_and_flagged_not_ours(doc_path, out):
+    with fitz.open(doc_path) as doc:
+        page = doc[0]                        # held: an annot on a freed page raises (or crashes)
+        annot = page.add_highlight_annot(fitz.Rect(*_find(doc_path, NAME)[0]))
+        annot.set_info(title="A. Reviewer", content="from Acrobat")
+        annot.update()
+        doc.save(out)
+
+    listed = annotations.get_annotations(out)
+    (found,) = listed["annotations"]
+    assert found["mine"] is False
+    assert found["author"] == "A. Reviewer"
+    assert found["note"] == "from Acrobat"
+    assert found["editable"] is True          # a highlight is a type the model can adopt (M68)
+
+
+def test_a_sticky_note_is_not_invisible(doc_path, out):
+    """The §M83 gap: unmodeled, so a listing built on `parse_annotation` would drop it — and it is
+    how a reviewer's comment often arrives from Edge or Acrobat."""
+    with fitz.open(doc_path) as doc:
+        page = doc[0]
+        sticky = page.add_text_annot(fitz.Point(300, 300), "please check this figure")
+        sticky.set_info(title="A. Reviewer", content="please check this figure")
+        sticky.update()
+        doc.save(out)
+
+    listed = annotations.get_annotations(out)
+    (found,) = listed["annotations"]
+    assert found["type"] == "text"
+    assert found["note"] == "please check this figure"
+    assert found["editable"] is False         # displayed, but not editable in place
+    assert found["mine"] is False
+
+
+def test_form_widgets_are_not_listed(tmp_path):
+    """`get_form_fields` reports those properly; a rect and a colour would be a worse answer."""
+    path = str(tmp_path / "form.pdf")
+    doc = fitz.open()
+    page = doc.new_page()
+    widget = fitz.Widget()
+    widget.field_name = "name"
+    widget.field_type = fitz.PDF_WIDGET_TYPE_TEXT
+    widget.rect = fitz.Rect(72, 100, 300, 120)
+    page.add_widget(widget)
+    doc.save(path)
+    doc.close()
+
+    assert annotations.get_annotations(path)["count"] == 0
+
+
+def test_pages_narrows_the_listing(doc_path, tmp_path):
+    out = str(tmp_path / "both.pdf")
+    annotations.annotate(
+        doc_path,
+        [
+            {"type": "highlight", "page": 1, "boxes": _find(doc_path, NAME)},
+            {"type": "highlight", "page": 2, "boxes": _find(doc_path, "Second", page=1)},
+        ],
+        out,
+    )
+    assert annotations.get_annotations(out)["count"] == 2
+    only_two = annotations.get_annotations(out, [2])
+    assert only_two["count"] == 1
+    assert only_two["annotations"][0]["page"] == 2
+    assert only_two["pages_scanned"] == [2]
+
+
+def test_the_listing_is_capped(doc_path, out):
+    with fitz.open(doc_path) as doc:
+        page = doc[0]
+        for i in range(12):
+            page.add_highlight_annot(fitz.Rect(72, 100 + i * 10, 200, 108 + i * 10)).update()
+        doc.save(out)
+
+    capped = annotations.get_annotations(out, max_annotations=5)
+    assert capped["count"] == 5
+    assert capped["truncated"] is True
+    assert capped["warnings"]
+
+
+def test_a_wrapped_mark_keeps_one_box_per_line(tmp_path):
+    """Text markup stores a quad per line; all of them belong to the one mark."""
+    path = str(tmp_path / "wrapped.pdf")
+    doc = fitz.open()
+    page = doc.new_page()
+    annot = page.add_highlight_annot(
+        [fitz.Rect(72, 100, 300, 115), fitz.Rect(72, 118, 200, 133)]
+    )
+    annot.update()
+    doc.save(path)
+    doc.close()
+
+    (found,) = annotations.get_annotations(path)["annotations"]
+    assert len(found["boxes"]) == 2
+
+
+def test_boxes_come_from_quads_not_the_padded_rect(tmp_path):
+    """`/Rect` is inflated a few points on every side; a redaction built from it would over-cover."""
+    path = str(tmp_path / "padded.pdf")
+    box = fitz.Rect(72, 100, 200, 120)
+    doc = fitz.open()
+    page = doc.new_page()
+    page.add_highlight_annot(box).update()
+    doc.save(path)
+    doc.close()
+
+    with fitz.open(path) as check:
+        # Both the page and the annots generator must stay referenced while the annot is read —
+        # `next(doc[0].annots()).rect` frees the page under the annotation and segfaults.
+        page = check[0]
+        raw = list(page.annots())
+        raw_rect = tuple(raw[0].rect)
+    assert raw_rect[0] < box.x0 - 1          # the padding this test exists to avoid reporting
+
+    (found,) = annotations.get_annotations(path)["annotations"]
+    assert found["boxes"][0] == pytest.approx(list(box), abs=0.05)
+
+
+# ---- the invariant the redaction hand-off rests on ---------------------------
+
+
+@pytest.mark.parametrize("rotation", [0, 90, 180, 270])
+def test_boxes_are_reported_unrotated_at_every_rotation(tmp_path, rotation):
+    """`search`, `redact_regions` and `clip` all work unrotated; annotations must agree.
+
+    Nothing in `annotations.py` converts anything — PyMuPDF stores and reports annotation geometry
+    unrotated whatever `/Rotate` says. That is the whole reason the hand-off needs no arithmetic,
+    so it is asserted rather than assumed.
+    """
+    path = str(tmp_path / f"rot{rotation}.pdf")
+    box = fitz.Rect(72, 100, 200, 120)
+    doc = fitz.open()
+    page = doc.new_page(width=612, height=792)
+    page.add_highlight_annot(box).update()
+    page.set_rotation(rotation)
+    doc.save(path)
+    doc.close()
+
+    (found,) = annotations.get_annotations(path)["annotations"]
+    assert found["boxes"][0] == pytest.approx(list(box), abs=0.05)
+
+
+def test_get_annotations_output_redacts_without_reshaping(doc_path, tmp_path):
+    """The composition that replaced `redact_annotated`: read → filter on colour → redact.
+
+    If this ever needs the boxes adjusted on the way through, the two tools have drifted apart and
+    the milestone's central claim is false.
+    """
+    marked = str(tmp_path / "marked.pdf")
+    final = str(tmp_path / "final.pdf")
+    annotations.annotate(
+        doc_path,
+        [
+            {"type": "highlight", "page": 1, "boxes": _find(doc_path, NAME), "color": "orange"},
+            {"type": "highlight", "page": 1, "boxes": _find(doc_path, ACCOUNT), "color": "yellow"},
+        ],
+        marked,
+    )
+
+    listed = annotations.get_annotations(marked)
+    regions = [
+        {"page": a["page"], "boxes": a["boxes"]}
+        for a in listed["annotations"]
+        if a["color_name"] == "Orange"
+    ]
+    assert len(regions) == 1
+
+    result = redaction.redact_regions(marked, regions, final)
+
+    with fitz.open(final) as doc:
+        text = doc[0].get_text("text")
+    assert NAME not in text          # the orange mark's text is gone…
+    assert ACCOUNT in text           # …and the yellow one's is untouched
+    assert result["verified_text"]
+
+
+# ---- input validation --------------------------------------------------------
+
+
+def test_an_unknown_type_names_the_three(doc_path, out):
+    with pytest.raises(ValueError, match="highlight, strikeout, underline"):
+        _mark(doc_path, NAME, out, type="rect")
+
+
+def test_no_marks_is_an_error(doc_path, out):
+    with pytest.raises(ValueError, match="must write something"):
+        annotations.annotate(doc_path, [], out)
+
+
+def test_a_mark_needs_geometry(doc_path, out):
+    with pytest.raises(ValueError, match="needs 'box' or 'boxes'"):
+        annotations.annotate(doc_path, [{"type": "highlight", "page": 1}], out)
+
+
+def test_box_and_boxes_together_is_an_error(doc_path, out):
+    with pytest.raises(ValueError, match="not both"):
+        annotations.annotate(
+            doc_path,
+            [{"page": 1, "box": [1, 1, 2, 2], "boxes": [[1, 1, 2, 2]]}],
+            out,
+        )
+
+
+def test_an_inverted_box_is_refused(doc_path, out):
+    with pytest.raises(ValueError, match="empty or inverted"):
+        annotations.annotate(doc_path, [{"page": 1, "box": [200, 120, 72, 100]}], out)
+
+
+def test_a_page_out_of_range_is_refused(doc_path, out):
+    with pytest.raises(ValueError):
+        annotations.annotate(doc_path, [{"page": 99, "box": [72, 100, 200, 120]}], out)

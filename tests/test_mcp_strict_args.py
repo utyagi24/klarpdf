@@ -190,7 +190,7 @@ def test_the_guard_covers_every_tool_not_just_the_redactors():
     here — which is the property that makes one loop over the whole surface possible.
     """
     names = sorted(tool.name for tool in asyncio.run(server.list_tools()))
-    assert set(names) == EXPECTED_TOOLS and len(names) == 17
+    assert set(names) == EXPECTED_TOOLS and len(names) == 19
     for name in names:
         message = error_text(call(name, {"definitely_not_a_parameter": 1}))
         assert "'definitely_not_a_parameter'" in message, name

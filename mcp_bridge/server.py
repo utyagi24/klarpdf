@@ -43,7 +43,7 @@ from mcp.server.mcpserver import Image
 from mcp.server.mcpserver.exceptions import ResourceError
 from mcp_types import CallToolRequestParams, CallToolResult, TextContent
 
-from mcp_bridge import docs, queries, redaction, transforms
+from mcp_bridge import annotations, docs, queries, redaction, transforms
 from mcp_bridge.config import Config, PathPolicy
 from mcp_bridge.strict_args import rejection_message, unknown_parameters
 from model.virtual_document import PasswordRequired
@@ -511,6 +511,38 @@ def create_server(config: Config | None = None) -> MCPServer:
         fields = queries.form_fields(check(path), password)
         return {"count": len(fields), "fields": fields}
 
+    @server.tool()
+    @guarded
+    def get_annotations(
+        path: str,
+        pages: list[int] | None = None,
+        password: str | None = None,
+    ) -> dict:
+        """List the annotations a document carries — highlights, underlines, strike-throughs, sticky
+        notes, shapes, text boxes — with their `note` text, colour and position.
+
+        Reads **everyone's** marks, not just this app's. `mine` says whether KlarPDF wrote a mark;
+        `editable` whether it opens as an editable mark in the app rather than being displayed
+        as-is. Use it to read a colleague's review, or to check your own `annotate` call landed.
+
+        `boxes` is in the same **unrotated page-point** space `search` reports and `redact_regions`
+        consumes, so a filtered list of these goes straight into a redaction with the numbers
+        untouched — that is how "redact everything highlighted in orange" is done: read, filter on
+        `color_name`, pass the survivors to `redact_regions`. A mark spanning two lines has one box
+        per line, and all of them belong to it.
+
+        `color_name` is the nearest palette name and is advisory; `color_exact` is `true` only when
+        the colour *is* a palette swatch, which a mark made in KlarPDF carries and one made in
+        Acrobat usually does not. Filter on colour, then show the user what you matched.
+
+        Form fields are not listed here — `get_form_fields` reports them with their values and
+        states. The reply is capped; if `truncated` is set, pass `pages` and read the document a
+        part at a time.
+        """
+        return annotations.get_annotations(
+            check(path), pages, password=password, max_annotations=limits.max_annotations
+        )
+
     if cfg.read_only:
         publish_docs()
         return server
@@ -749,6 +781,47 @@ def create_server(config: Config | None = None) -> MCPServer:
                 "directory for the rest."
             )
         return result
+
+    @server.tool()
+    @guarded
+    def annotate(
+        path: str,
+        marks: list[dict],
+        out: str,
+        password: str | None = None,
+        overwrite: bool = False,
+    ) -> dict:
+        """Write highlights, underlines and strike-throughs onto a copy — each able to carry a note.
+        Nothing is deleted and the text stays intact and selectable.
+
+        Each mark is `{"type": "highlight", "page": 1, "boxes": [[x0, y0, x1, y1]], "color":
+        "orange", "note": "why this matters"}`. `type` is `highlight`, `underline` or `strikeout`
+        and defaults to `highlight`; `color` and `note` are optional. A mark may carry `box`
+        instead of `boxes`.
+
+        **This tool does not search — you say where.** Locate what you mean with `search` or
+        `extract_text` and pass the boxes; a `search` hit's `boxes` goes in as one mark, which
+        keeps a phrase that wraps a line intact. Deciding which text is a name, a risk or a
+        termination clause is yours, not this engine's.
+
+        **Pass every mark for the document in one call.** Each call writes a file, so laying
+        highlights and then underlines as two calls leaves an intermediate copy behind.
+
+        A mark **merges** with markup already on the page instead of stacking: same type and colour
+        over the same span is absorbed, a different colour takes the span over, and notes are
+        carried onto the survivor. Re-running a call is therefore safe.
+
+        `color` takes a palette name — highlights are Yellow, Green, Blue, Pink, Orange; lines are
+        Red, Blue, Green, Black — or `[r, g, b]` floats in 0..1 for anything else. A name outside
+        the palette is an error, not a silent default.
+
+        The reply's `annotations` is what the written file now holds on the pages touched, read back
+        from it — so `marks_added` smaller than `marks_requested` means marks merged, not that
+        something failed. `klarpdf://docs/annotate` has the field contract and the review workflow.
+        """
+        return annotations.annotate(
+            check(path), marks, check(out), password=password, overwrite=overwrite
+        )
 
     # ---- redaction: destructive, and verified before success is reported ----
 

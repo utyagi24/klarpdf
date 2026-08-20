@@ -26,6 +26,7 @@ READ_TOOLS = {
     "extract_text",
     "render_page",
     "get_form_fields",
+    "get_annotations",
 }
 
 

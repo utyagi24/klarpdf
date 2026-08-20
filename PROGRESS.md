@@ -2388,7 +2388,7 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   a tool added later is covered the day it is registered. Design in `PLAN.md` §M105 —
   [#267](https://github.com/utyagi24/klarpdf/pull/267) — *WSL*
 
-- [ ] **M101** ⭐ **Annotation as a capability: marking up a document from the bridge** — **re-scoped
+- [x] **M101** ⭐ **Annotation as a capability: marking up a document from the bridge** — **re-scoped
   2026-08-20** (the entry below described annotation only as the front half of a redaction workflow,
   which undersold it and over-tooled it). **Two tools**, `annotate` and `get_annotations`, over the
   model that already exists: `Highlight`/`Underline`/`Strikeout` carry an RGB colour and a note
@@ -2404,7 +2404,16 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   so the two compose without reshaping. **`redact_annotated` was proposed and rejected** — the
   caller composes `get_annotations` → filter on colour → `redact_regions`, which inherits the
   verification identically because it *is* `redact_regions`. Editing or deleting an existing
-  annotation is out of scope. Design + the full rejection in `PLAN.md` §M101 — *WSL*
+  annotation is out of scope. **Built 2026-08-20** — `mcp_bridge/annotations.py`, 36 new tests,
+  2 232 passed / 2 skipped. Four things the build settled: the palette **had to move** out of
+  `viewer/markup_style.py` (it imports Qt, and the bridge may not) into `model/markup_palette.py`,
+  which turns "the agent's orange is the picker's orange" from a promise into a shared constant;
+  annotation boxes are **rotation-invariant** in PyMuPDF, measured at 0/90/180/270, so the hand-off
+  to `redact_regions` needs no arithmetic and now has a parametrised test saying so; a markup
+  annotation's `/Rect` is padded ~5 pt per side, so boxes are read from its **quads** or every
+  derived redaction would over-cover; and a note passed in the same call as a merge has to be
+  attached to the survivor afterwards and **joined**, not replaced. Design in `PLAN.md` §M101 —
+  *WSL*
 
 - [x] **M98** *(unplanned)* **Redaction reports the two things it used to be silent about.** From
   TC-007 (2026-08-16), which found **no defects** — the delivery was correct with zero residuals —
@@ -2882,11 +2891,14 @@ Carried items — none block work:
   any of this, and M99.1's error names the rotation and the convention at the moment they trip. It
   bites only when *constructing* a clip from scratch ("crop the top-right quadrant"), which is how
   TC-008's own card clips were built, so it is not hypothetical.
-  **Not yet designed**, deliberately: `rotation` per `page_sizes` group, unrotated dimensions, or
-  both would each serve, and the choice is about what `get_info` promises. Not scheduled. — *WSL*
-  **M101 raises the stakes** (2026-08-20): `get_annotations` reports boxes meant to go straight into
-  `redact_regions`, so it must join the unrotated majority — a fourth convention would make the split
-  unfixable. Recorded in `PLAN.md` §M101 point 5 as a constraint on that build, not a fix for this.
+  ~~**Not yet designed**, deliberately~~ — **closed by M107.1** (2026-08-20). It took the first of
+  the three options this entry listed: `get_info` now reports each page's `rotation` and *groups* on
+  it, so a native-portrait page and a rotated-landscape one are no longer one indistinguishable row,
+  and `get_info`'s docstring names the convention the box-taking tools use. The entry above was left
+  standing after the fix and was read as open by the M101 session two days later, which is the
+  ordinary cost of a follow-up that outlives its defect. M101 confirmed the rest of the convention
+  from the other end: annotation geometry is unrotated at every `/Rotate`, measured and pinned, so
+  `get_annotations` → `redact_regions` needs no adjustment. Nothing pending. — *WSL*
 
 - **The over-redaction guard covers the query-split case only, not a single term matching inside a
   longer word** — TC-007 addendum, 2026-08-16, severity medium. M98's `query_terms` warns when

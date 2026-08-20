@@ -85,6 +85,7 @@ Everything here works **fully offline**: the app makes no network connection, ev
 
 **Foreign annotations** — marks left by another PDF tool
 - **Delete**, **move** (appearance preserved exactly), or **adopt** one into an ordinary editable KlarPDF mark.
+- **Marks an agent made are ordinary marks** — highlights written through the MCP bridge open here editable, notes and all, so an agent can propose and you dispose. See [Use it from an agent](#use-it-from-an-agent-mcp).
 
 **Export, print & images**
 - **Print** with your annotations, form values and redactions baked in.
@@ -136,13 +137,22 @@ claude mcp add klarpdf -- klarpdf-mcp
 Full install options, the Claude Desktop config, and the one-click `.mcpb` bundle are in
 **[mcp_bridge/README.md](mcp_bridge/README.md)**.
 
-Seventeen tools in three groups. **Read** — `get_info`, `get_outline`, `search`, `extract_text`,
-`render_page`, `get_form_fields` — let an agent pull only the pages it needs instead of loading an
-800-page file whole. **Transform** — `extract_pages`, `split`, `merge`, `reorder`, `delete_pages`,
-`rotate`, `fill_form`, `flatten`, `export_images` — keep the content and always write a *new* file. **Redact** —
+Nineteen tools in three groups. **Read** — `get_info`, `get_outline`, `search`, `extract_text`,
+`render_page`, `get_form_fields`, `get_annotations` — let an agent pull only the pages it needs
+instead of loading an 800-page file whole. **Transform** — `extract_pages`, `split`, `merge`,
+`reorder`, `delete_pages`, `rotate`, `fill_form`, `flatten`, `export_images`, `annotate` — keep the
+content and always write a *new* file. **Redact** —
 `redact_text`, `redact_regions` — physically delete the content and then re-read the written file to
 prove it, with a second engine when Poppler is installed; if anything is still recoverable the
 output is deleted and the call fails.
+
+**Mark up a document, then hand it to a person.** `annotate` writes highlights, underlines and
+strike-throughs — each able to carry a **note** — and `get_annotations` reads back every mark a file
+holds, including ones made in Acrobat, Preview or Edge. So an agent can propose in a form that
+deletes nothing, you review it in KlarPDF where every one of those marks is ordinary and editable,
+and it then acts on what you left. `annotate` takes **boxes, not queries**: deciding which text is a
+name or a termination clause is yours, not the engine's, and colour means whatever your review says
+it means — nothing here decides that orange means delete.
 
 Every tool rejects an argument name it does not declare, rather than ignoring it, and each one's
 full field-by-field contract is readable as an MCP resource at `klarpdf://docs/<tool>` — because
