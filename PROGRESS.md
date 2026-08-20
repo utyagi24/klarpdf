@@ -2262,7 +2262,7 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   accepting `PAGES` as `pages` would be the leniency this milestone exists to remove. Design in
   `PLAN.md` §M106 — [#266](https://github.com/utyagi24/klarpdf/pull/266) — *WSL*
 
-- [ ] **M105** *(unplanned)* **The tool descriptions are truncated in transit** — found 2026-08-18
+- [x] **M105** *(unplanned)* **The tool descriptions are truncated in transit** — found 2026-08-18
   when the testing agent said it could not see M103's Finding-C documentation "even though the MCP
   was reinstalled", and that `redact_text`'s description **ended mid-sentence in the `whole_words`
   bullet list**. Not a stale install: the serving checkout is on the same commit and *does* carry
@@ -2273,10 +2273,20 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   -field catalogue, `matches` vs `boxes_redacted` (offset 4965) and `residual_scope` (5436) are all
   past the cut. Only `redact_text` and `search` exceed it; the other fifteen tools are fine. Nothing
   errors, which is why three milestones' worth of agent-facing documentation was written into a
-  channel that silently discards it. The fix is **editing, not relocating** — safety-critical
-  content first, the field catalogue below the line — and a test pinning the ceiling. **Confirm the
-  cap by probe before editing to it**; 2048 is inferred from the symptom window, not observed.
-  Design in `PLAN.md` §M105 — *WSL*
+  channel that silently discards it. **Fixed**: every description now fits a **1,900** budget and
+  arrives whole, with the reference half published at `klarpdf://docs/{tool}` — a channel capped at
+  100,000 characters rather than 2,048. The plan's "editing, not relocating" did not survive
+  measurement: the pre-call essentials alone came to ~2,374 characters, so front-loading would only
+  have chosen which safety-critical paragraph got cut. Three things the build turned up — the cap is
+  `yfe = 2048` read straight from the client binary rather than inferred, and **the same constant
+  truncates the server `instructions` block** (ENV-001 thought that channel uncapped; ours arrives
+  whole only because it is under the cap, with 195 characters to spare on the `--read-only` build,
+  so it is now tested to the same budget); **29% of all description bytes were leading whitespace**,
+  because the SDK sends `fn.__doc__` verbatim with no `getdoc`, now cleaned in `guarded` for every
+  tool at once; and `anthropic/alwaysLoad` would remove the truncation outright but is deliberately
+  unused, recorded in `PLAN.md` as the fallback. The budget test **enumerates the live server**, so
+  a tool added later is covered the day it is registered. Design in `PLAN.md` §M105 —
+  [#267](https://github.com/utyagi24/klarpdf/pull/267) — *WSL*
 
 - [ ] **M101** ⭐ **Annotation tools, and the highlight → review → redact round trip** — owner-asked
   2026-08-16: *"highlight all PII data in this document"* → a person reviews → *"redact everything

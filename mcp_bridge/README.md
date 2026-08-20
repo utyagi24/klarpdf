@@ -94,6 +94,24 @@ its dependencies for your machine. Two consequences worth knowing before you cho
 Use the absolute path to the script if it is not on the PATH Desktop sees (`which klarpdf-mcp` /
 `where klarpdf-mcp`).
 
+## Reading a tool's full contract
+
+Each tool's description carries what you need **before** calling it. The reference half — the
+field-by-field catalogue for `redact_text`, the counting and scope rules, how to feed `search` hits
+to `redact_regions` — is published as an MCP resource instead:
+
+```
+klarpdf://docs/redact_text
+klarpdf://docs/search
+```
+
+This is not organisation for its own sake. Claude Code truncates a tool description at 2,048
+characters and appends `… [truncated]` with no error, so 69% of `redact_text`'s documentation used
+to be discarded in transit — and it was the half describing what the reply *means*. Resource reads
+are capped at 100,000 characters, so that material now has somewhere to live. The resource serves
+the tool's live registered description plus the appendix, so it can never drift from what the tool
+actually advertises.
+
 ## The tools
 
 Page numbers are **1-based** everywhere, matching what a reader sees. An out-of-range page is an

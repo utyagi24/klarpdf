@@ -144,6 +144,10 @@ Seventeen tools in three groups. **Read** — `get_info`, `get_outline`, `search
 prove it, with a second engine when Poppler is installed; if anything is still recoverable the
 output is deleted and the call fails.
 
+Every tool rejects an argument name it does not declare, rather than ignoring it, and each one's
+full field-by-field contract is readable as an MCP resource at `klarpdf://docs/<tool>` — because
+clients truncate long tool descriptions without saying so.
+
 <details>
 <summary><b>What that looks like in practice</b></summary>
 

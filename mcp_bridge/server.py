@@ -40,9 +40,10 @@ from mcp.server import MCPServer
 from mcp.server.context import CallNext, HandlerResult, ServerRequestContext
 from mcp.server.extension import Extension
 from mcp.server.mcpserver import Image
+from mcp.server.mcpserver.exceptions import ResourceError
 from mcp_types import CallToolRequestParams, CallToolResult, TextContent
 
-from mcp_bridge import queries, redaction, transforms
+from mcp_bridge import docs, queries, redaction, transforms
 from mcp_bridge.config import Config, PathPolicy
 from mcp_bridge.strict_args import rejection_message, unknown_parameters
 from model.virtual_document import PasswordRequired
@@ -206,14 +207,25 @@ def create_server(config: Config | None = None) -> MCPServer:
     # already been missed once.
     strict.bind(server)
 
+    registered: set[str] = set()
+
     def guarded(function):
-        """Translate internal exceptions at the tool boundary.
+        """Translate internal exceptions at the tool boundary, and normalise what the SDK reads.
 
         ``__signature__`` is copied explicitly, not just via ``functools.wraps``: the SDK builds
         each tool's JSON schema by introspecting the callable, so a bare ``*args, **kwargs``
         wrapper silently produces a schema with two required parameters called `args` and `kwargs`
         and every real argument gone. It fails at *call* time with a pydantic validation error,
         which is a long way from the cause.
+
+        ``__doc__`` is **dedented** for a related reason. The SDK sends ``fn.__doc__`` verbatim
+        (`tools/base.py`: ``func_doc = description or fn.__doc__``) — no ``inspect.getdoc``, so
+        every continuation line arrives carrying the eight spaces that indent it inside this
+        function. On a long description that is ~200 characters of pure whitespace, and it is not
+        free: the client truncates a description at 2,048 characters (M105), so the indentation
+        was spending a tenth of the budget to say nothing. Cleaning it here fixes every tool at
+        once and keeps the docstrings readable in the file, which is the only reason they are
+        indented in the first place.
         """
 
         @functools.wraps(function)
@@ -224,7 +236,64 @@ def create_server(config: Config | None = None) -> MCPServer:
                 raise _explain(exc) from exc
 
         wrapper.__signature__ = inspect.signature(function)
+        if function.__doc__:
+            wrapper.__doc__ = inspect.cleandoc(function.__doc__)
+        # Every tool is decorated with this, so it is the one place that sees the whole roster
+        # synchronously. `publish_docs` needs that: `list_tools()` is async, and `asyncio.run`
+        # inside a sync factory would fail the day anything builds a server from a running loop.
+        registered.add(function.__name__)
         return wrapper
+
+    async def _documentation(tool: str) -> str:
+        """The complete contract for one tool: its live description, plus any reference appendix.
+
+        Assembled rather than stored. The description half is read back off the registered tool, so
+        it is the same string the server advertises and cannot drift from it; the appendix half
+        lives in :mod:`mcp_bridge.docs` and never restates it. That is the whole anti-drift design —
+        the two are concatenated, so there is no second copy of anything to fall out of step.
+        """
+        for registered in await server.list_tools():
+            if registered.name == tool:
+                appendix = docs.REFERENCE.get(tool)
+                body = registered.description or ""
+                return f"# {tool}\n\n{body}\n\n{appendix}" if appendix else f"# {tool}\n\n{body}"
+        known = ", ".join(sorted(t.name for t in await server.list_tools()))
+        # `ResourceError`, not `ValueError`: the SDK re-raises its own type untouched and rewrites
+        # anything else into a bare "Error creating resource from template <uri>", which tells the
+        # caller nothing about what they could have asked for instead.
+        raise ResourceError(f"no such tool: {tool}. This server serves: {known}")
+
+    # A template so any tool resolves, plus a static entry per documented tool — only the static
+    # ones appear in `resources/list`, and that listing is how a caller discovers the documentation
+    # exists at all (ENV-001 probed for it and found nothing published).
+    server.resource(
+        "klarpdf://docs/{tool}",
+        title="Tool contract",
+        description="The complete contract for one tool, past the client's description cap.",
+        mime_type="text/markdown",
+    )(_documentation)
+
+    def publish_docs() -> None:
+        """Advertise a static docs resource for each documented tool **this build serves**.
+
+        Called at each exit of `create_server` rather than here, because it has to run after tool
+        registration: under `--read-only` the redactors are never registered, and advertising
+        `klarpdf://docs/redact_text` there would list a resource whose read fails. Listing a
+        resource that cannot be read is worse than not listing it.
+        """
+        for name in docs.REFERENCE:
+            if name not in registered:
+                continue
+            server.resource(
+                f"klarpdf://docs/{name}",
+                name=f"docs/{name}",
+                title=f"{name} — full contract",
+                description=(
+                    f"Field-by-field reference for `{name}`, including what does not fit in its "
+                    "description."
+                ),
+                mime_type="text/markdown",
+            )(functools.partial(_documentation, name))
 
     # ---- query / route -------------------------------------------------------
 
@@ -276,32 +345,31 @@ def create_server(config: Config | None = None) -> MCPServer:
         occurrence with `page`, a `snippet` of the surrounding text, and `boxes`, the rectangles it
         occupies in page points.
 
-        Use this to locate content before extracting it, and to check what a phrase actually matches
-        before acting on it — the snippet is what tells you a search for "Smith" also caught
-        "Smithsonian". Always run it before `redact_text`.
+        Use this to locate content before extracting it, and to check what a phrase actually
+        matches before acting on it — the snippet is what tells you a search for "Smith" also
+        caught "Smithsonian". Always run it before `redact_text`.
 
         With `whole_words` off (the default) the query is a list of words and any one of them
-        matches, including inside longer words. With it on, the query is a single phrase and neither
-        end may sit inside a longer word. `match_case` filters against the text under each hit.
+        matches, including inside longer words. With it on, the query is a single phrase and
+        neither end may sit inside a longer word. `match_case` filters the text under each hit.
 
         **"Word" means a run of characters between spaces**, so `whole_words: true` will not find a
-        query buried inside a longer unbroken run: searching `220885-1063303` with it on misses
-        `<AccountNumber:220885-1063303>` entirely, because that whole tag is one word. Machine tags,
-        filenames, URLs and `key:value` pairs are all this shape. When a query is a single token
-        with no spaces — an account number, a reference, an ID — `whole_words: false` is usually the
-        right choice and cannot over-match, since a one-word query makes the two modes differ only
-        in the boundary rule.
+        query buried inside a longer unbroken run: `220885-1063303` misses
+        `<AccountNumber:220885-1063303>` entirely, because that whole tag is one word — as are
+        machine tags, filenames, URLs and `key:value` pairs. For a single token with no spaces — an
+        account number, a reference, an ID — `whole_words: false` is usually right and cannot
+        over-match.
 
-        Each hit also carries `invisible`. When true, the text is in the file but is not drawn on
-        the page — white-on-white, transparent, or painted over — so it will not appear in
+        Each hit carries `invisible`. When true, the text is in the file but is not drawn on the
+        page — white-on-white, transparent, or painted over — so it will not appear in
         `render_page` and the reader cannot see it. Tell the user: it is where sensitive values
         hide, and it is invisible to every check they could run themselves.
 
-        `boxes` is normally a single rectangle. A phrase that wraps a line break occupies one on
-        **each** line, the way a find bar highlights a wrapped match, and all of them come back
-        under the one hit — so `count` counts occurrences, not fragments. Redact every box of a
-        hit: clearing only the first leaves the tail of the phrase legible. Passing the whole hit
-        to `redact_regions` as `{"page": hit["page"], "boxes": hit["boxes"]}` does that for you.
+        `boxes` is normally one rectangle. A phrase that wraps a line break occupies one on
+        **each** line, and all of them come back under the one hit, so `count` counts occurrences
+        rather than fragments. Redact every box of a hit: clearing only the first leaves the tail
+        of the phrase legible. Handing hits to `redact_regions` is covered in
+        `klarpdf://docs/search`.
         """
         hits = queries.search(
             check(path),
@@ -416,6 +484,7 @@ def create_server(config: Config | None = None) -> MCPServer:
         return {"count": len(fields), "fields": fields}
 
     if cfg.read_only:
+        publish_docs()
         return server
 
     # ---- transforms: every one writes a NEW file and leaves the input untouched ----
@@ -645,90 +714,38 @@ def create_server(config: Config | None = None) -> MCPServer:
         password: str | None = None,
         overwrite: bool = False,
     ) -> dict:
-        """**Destructively** remove every occurrence of `query` and write a verified copy.
+        """**Destructively** remove every occurrence of `query` and write a verified copy: the text
+        is removed, not covered by a black box.
 
-        Pass **either** `query` (one string) **or** `queries` (a list) — not both. Use `queries`
-        whenever you have more than one thing to remove from the same document: it removes them all
-        in one verified pass and writes **one** file. Chaining separate calls instead leaves an
-        intermediate file per step, each a partially-redacted copy still holding the live values you
-        have not got to yet, and every one of them is yours to remember and delete. One pass also
-        removes an ordering trap — chained calls had to run the longest query first, or a shorter
-        one ate part of a longer match and left fragments behind. Each query is verified separately
-        and to the same standard; the reply carries a `queries` list with each one's own counts.
-
-        This deletes content. The text is physically removed from the output — not covered by a
-        black box — and the written file is then checked twice: that the redacted regions really
-        lost their text (PyMuPDF, plus Poppler when installed — a different engine from the one
-        that did the removing), and that re-running this same search against the output finds
-        **zero** remaining matches in the pages redacted. If either check fails the output is
-        **deleted** and this call fails, so a path coming back always points at a file where the
-        query no longer matches. `residual_matches` reports the count that was verified.
+        Pass **either** `query` (one string) **or** `queries` (a list) — not both. Use `queries` for
+        several values in one document: one verified pass, **one** file, no partially-redacted
+        intermediates.
 
         **Run `search` with the same `query`, `match_case` and `whole_words` first and show the
-        caller the snippets** — this tool deletes what it finds. Matching is the app's find-bar
-        behaviour, and `whole_words` chooses **what the query is**, not just how strictly it
-        matches:
+        caller the snippets** — this tool deletes what it finds.
 
-        * `whole_words: true` — the query is **one phrase**, matched whole, and neither end may sit
-          inside a longer word. This is the mode to use for a phrase like "regular expression".
-        * `whole_words: false` (the default) — the query is a **list of words**, any of which
-          matches on its own and each of which still matches inside longer words. "Smith" also
-          matches inside "Smithsonian"; "regular expression" removes every "regular" and every
-          "expression" separately, wherever they appear.
+        `whole_words` chooses **what the query is**, not just how strictly it matches:
 
-        **A "word" ends at a space, so `whole_words: true` cannot see a value embedded in a longer
-        unbroken run** — `220885-1063303` inside `<AccountNumber:220885-1063303>` is not a match,
-        because the whole tag is one word. For a single token with no spaces (an account number, a
-        reference, an ID) prefer `whole_words: false`: it cannot over-match a one-word query, and it
-        is the mode that finds the value wherever it is embedded.
+        * `true` — **one phrase**, matched whole, neither end inside a longer word.
+        * `false` (default) — a **list of words**, any matching on its own and each still matching
+          inside longer words: "Smith" also matches "Smithsonian", and "regular expression" removes
+          every "regular" and every "expression" separately.
 
-        Fails rather than writing an untouched copy when nothing matches.
+        **A "word" ends at a space**, so `whole_words: true` cannot see a value inside a longer
+        unbroken run: `220885-1063303` within `<AccountNumber:220885-1063303>` is not a match, the
+        tag being one word. For a single token with no spaces — an account number, a reference, an
+        ID — prefer `whole_words: false`; it cannot over-match a one-word query.
 
-        Read the reply, do not just check that it succeeded:
+        The output is verified by a second engine and by re-running the search; if either fails, or
+        nothing matched, the output is **deleted** and the call fails.
 
-        * `residual_literal` counts places the query still appears **literally** that the
-          `whole_words` setting does not match, with each one named in `warnings`. It is not
-          automatically a leak — redacting whole-word "Smith" leaves "Smithsonian" and says so — but
-          if a named survivor is the value you meant to remove, re-run with `whole_words: false`.
-          This is the check that catches the matcher being wrong, so it is the one worth reading.
-        * `residual_normalized` names spellings of the query still in the file that differ from it
-          **only in separators** — `6073474692031` against a query of `607347469 203 1`, or
-          `08/24/1970` against `08-24-1970`, or a number broken by a line wrap. Nothing was deleted
-          for these: whether two spellings are one value is a fact about the document that only you
-          have. If they are, redact those forms too. **An empty list and `null` are different
-          answers**: `[]` means the scan ran and found none, `null` means it did not run — a short
-          unpunctuated query like `000000` cannot be checked this way, because matching it across
-          separators finds coincidence rather than spellings. A `null` says so in `warnings`, and
-          means "unchecked", never "clean".
-        * `invisible_matches` counts removals that were never visible on the page. They are gone,
-          but their presence means this document hides data where a reader cannot see it.
-        * `query_terms` breaks the match count down per term when `whole_words` is off and the
-          query has several words. If one term did most of the deleting and the phrase itself is
-          rare, `warnings` says so — that is the **over-redaction** signal, and it is the only one
-          you get, because destroyed content leaves no trace in the output to check afterwards.
+        **Read the reply; do not just check that it succeeded.** `residual_literal`,
+        `residual_normalized`, `invisible_matches` and `query_terms` each name a way this call can
+        be correct and still not what you meant, and `warnings` names any that fired.
+        `residual_normalized: null` means that scan did **not** run — "unchecked", never "clean".
 
-        **`matches` and `boxes_redacted` are different numbers and both are right.** `matches` is
-        the sum of each query's own hit count, so text that two queries both matched counts twice;
-        `boxes_redacted` counts the distinct rectangles actually applied to the page. With a single
-        `query` they are usually equal, which is why the difference only shows up with `queries`.
-        Neither is "how many identifiers did I remove" — a short query whose match sits inside a
-        longer query's match produces two real boxes over one piece of text.
-
-        **`residual_scope` names the pages the residual scans read.** It is every page unless you
-        passed `pages`, in which case the scans — like the redaction — cover only those, and
-        `residual_literal`/`residual_normalized` describe that slice rather than the document. A
-        warning says so. It is not the same as `pages_redacted`, which lists only where boxes
-        landed and is a smaller set.
-
-        With `queries`, each of those fields is reported **per query** inside `queries`, alongside
-        that query's own `matches`, rather than at the top level — six queries' counts flattened
-        into one set would report the last one's results as the whole call's. A query that matches
-        nothing does **not** fail the call when another matched: it comes back as `matches: 0` with
-        a warning, because failing would delete an output that correctly removed the others.
-
-        The guarantee covers the **text layer**. Text that is part of a scanned image has no text to
-        verify; `verified_text` will be empty and `cross_engine_verified` tells you whether the
-        second engine ran at all.
+        **The full field contract** — `matches` vs `boxes_redacted`, `residual_scope`, the
+        per-query shape, the text-layer limit — is `klarpdf://docs/redact_text`.
         """
         return redaction.redact_text(
             check(path),
@@ -779,6 +796,7 @@ def create_server(config: Config | None = None) -> MCPServer:
             check(path), regions, check(out), password=password, overwrite=overwrite
         )
 
+    publish_docs()
     return server
 
 
