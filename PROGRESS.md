@@ -2250,8 +2250,12 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   ~35 KB, no `truncated`), the one bulk tool not following the server's own convention; every file
   is still written, and the reply now carries `out_dir` and the naming pattern, which is what a
   caller cannot reconstruct. **M108.2**: the `search` cap note no longer tells a caller to set
-  `whole_words` when it is already set — the same defect as TC-007 item E, one tool over. Design in
-  `PLAN.md` §M108 — [#269](https://github.com/utyagi24/klarpdf/pull/269) — *WSL*
+  `whole_words` when it is already set — the same defect as TC-007 item E, one tool over.
+  **M108.3** *(from the 2026-08-20 retest)*: exported filenames pad to the document's page count on
+  the bridge path, not to the highest page number in the request — two exports from one document
+  into one directory gave `-01` and `-005`, and `-005` sorts before `-01`. Confined to the bridge:
+  `export_page_images` also serves the app's Export, where the user typed the name and picked the
+  pages. Design in `PLAN.md` §M108 — [#269](https://github.com/utyagi24/klarpdf/pull/269) — *WSL*
 
   Deferred from the same review, deliberately: **page-list fields enumerate every page**
   (`page_sizes[].pages`, `residual_scope`, `pages_omitted`) is real bulk but the proposed cure —

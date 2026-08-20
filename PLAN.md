@@ -3772,6 +3772,7 @@ keeps the guarantee.
 | **M108** `residual_literal` counts **occurrences**, and names each spelling with its own count and pages | `_no_residual_match` + `_literal_residuals` / `_variant_residuals` in `mcp_bridge/redaction.py` | WSL | Two spellings, three occurrences each, reports `6` and a `residual_literal_forms` list; the same number Poppler and PyMuPDF between them actually leave |
 | **M108.1** `export_images` caps its file listing like every other bulk tool | `mcp_bridge/server.py` + `Limits.max_listed_files` | WSL | A 40-page export lists 25 paths with `truncated: true`, `out_dir` and the naming pattern — and still writes 40 files |
 | **M108.2** The `search` cap note stops advising a flag that is already set | `mcp_bridge/server.py` | WSL | A truncated `whole_words: true` search no longer says "or set `whole_words`" |
+| **M108.3** Exported filenames pad to the document's page count on the bridge path | `model/export.py` | WSL | `pages: [1,2,3]` and `pages: [5,72,150]` from one 200-page document produce the same width; the app's Export is unchanged |
 
 **Found only at scale.** On a 320-page document `redact_text` reported `residual_literal: 2` where
 **12** residual occurrences remained. The field counted distinct *spellings* and the warning called
@@ -3804,6 +3805,14 @@ That is the change that makes the count mean what its label says.
 `export_images` returned N paths for any N — 320 near-identical absolute paths, ~35 KB, no
 `truncated`. The files are all written either way; this caps the *listing*, and the reply now
 carries `out_dir` and the naming pattern, which is what a caller cannot reconstruct for themselves.
+
+**M108.3** came out of the retest: padding was derived from the highest page number *in the
+request*, so two exports from one document into one directory disagreed — `pages: [1..60]` gave
+`-01` and `pages: [5, 72, 500]` gave `-005`, and `-005` sorts before `-01`. The document's page
+count is the stable basis. It is confined to the **bridge** path because `export_page_images` also
+serves the app's Export, where the user typed the filename and picked the pages, and a width derived
+from a page count they never mentioned would be the surprising choice; `number_all` is already the
+derived-vs-chosen discriminator for exactly this kind of question.
 
 **M108.2** is the same defect as TC-007 item E, one tool over: advice that does not apply to the
 call that was made. A caller told to set a flag they already set reads the note as boilerplate, and

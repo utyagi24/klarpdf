@@ -205,3 +205,50 @@ def test_a_small_export_is_listed_in_full_with_no_truncation(tmp_path):
     assert len(result["files"]) == 5
     assert "truncated" not in result
     assert "note" not in result
+
+
+def test_export_filenames_pad_to_the_document_not_the_request(tmp_path):
+    """M108.3 — two exports from one document into one directory must agree on width.
+
+    Padding came from the highest page number *in the request*, so `pages: [1..60]` gave `-01` and
+    `pages: [5, 72, 500]` gave `-005` from the same file — and `-005` then sorts before `-01`
+    (TC-011 retest). On the bridge the filename is derived rather than chosen, so the document's
+    page count is the stable basis.
+    """
+    import asyncio
+    import json
+
+    source = _blank(tmp_path, 200)
+    out_dir = tmp_path / "img"
+    out_dir.mkdir()
+    server = create_server(Config())
+
+    def names(pages):
+        reply = server.call_tool(
+            "export_images",
+            {"path": source, "out_dir": str(out_dir), "dpi": 15, "pages": pages,
+             "overwrite": True},
+        )
+        result = json.loads(asyncio.run(reply).content[0].text)
+        return [os.path.basename(f) for f in result["files"]]
+
+    few, scattered = names([1, 2, 3]), names([5, 72, 150])
+    assert few == ["many-001.png", "many-002.png", "many-003.png"]
+    assert scattered == ["many-005.png", "many-072.png", "many-150.png"]
+    # The property that matters: one width, so a directory listing sorts by page.
+    assert len({len(name) for name in few + scattered}) == 1
+
+
+def test_the_app_export_still_pads_to_the_request(tmp_path):
+    """The same helper serves the app's Export, where the user typed the filename and picked the
+    pages. A width derived from a page count they never mentioned would be the surprising choice,
+    so only the bridge path (`number_all`) changed."""
+    from model.export import export_page_images
+    from mcp_bridge.queries import open_document
+
+    source = _blank(tmp_path, 200)
+    with open_document(source, None) as vdoc:
+        written = export_page_images(
+            vdoc, [4, 5, 6], str(tmp_path / "app.png"), dpi=15, number_all=False
+        )
+    assert [os.path.basename(f) for f in written] == ["app-5.png", "app-6.png", "app-7.png"]
