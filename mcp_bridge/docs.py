@@ -92,7 +92,11 @@ stored losslessly instead — and a photograph held losslessly is far larger tha
 as JPEG. A redaction touching a handful of images can therefore multiply the file size.
 
 `images_recoded` lists each one (`page`, `from`, `to`, `bytes_before`, `bytes_after`) and a warning
-states the total change. Nothing is duplicated and no untouched page is altered; only placements a
+states the total change. `from` and `to` are the **PDF filter names** the output actually carries —
+typically `DCTDecode` (JPEG) to `FlateDecode` — and the byte counts are the embedded stream
+lengths, so they reconcile against the file itself rather than a re-encoded copy of it.
+
+Nothing is duplicated and no untouched page is altered; only placements a
 redaction box actually overlaps are re-encoded, so a page that draws the same image twice keeps the
 untouched copy in its original encoding.
 

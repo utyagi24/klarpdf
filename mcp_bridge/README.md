@@ -237,8 +237,9 @@ what it finds.
 **A redacted file can be larger than its source, and the reply explains why.** Erasing pixels
 inside an image means decoding it; re-compressing lossily would degrade exactly the area being
 redacted, so the image is stored losslessly, and a photograph held losslessly is much bigger than
-the same photograph as JPEG. `images_recoded` names each one with its before/after size. Nothing is
-duplicated — only the placements a box actually overlaps are re-encoded.
+the same photograph as JPEG. `images_recoded` names each one by its PDF filter (`DCTDecode` →
+`FlateDecode`) with the embedded stream size before and after, so the numbers reconcile against the
+output file. Nothing is duplicated — only the placements a box actually overlaps are re-encoded.
 
 **When a redaction lands inside a longer word, the reply says so.** That is the one way this tool
 damages text you never asked about: redacting `Male` with `whole_words` off also takes the `male`

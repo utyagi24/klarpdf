@@ -75,7 +75,9 @@ def test_an_image_under_a_redaction_box_is_reported(doc_with, out):
     assert len(result["images_recoded"]) == 1
     entry = result["images_recoded"][0]
     assert entry["page"] == 1
-    assert entry["from"] == "jpeg" and entry["to"] != "jpeg"
+    # PDF filter names, so a caller who opens the output sees the name they were told
+    # to expect. `extract_image` would have said "png", which the file never contains.
+    assert entry["from"] == "DCTDecode" and entry["to"] == "FlateDecode"
     assert entry["bytes_before"] > 0 and entry["bytes_after"] > 0
 
 
@@ -87,6 +89,51 @@ def test_only_the_placement_under_the_box_is_recoded(doc_with, out):
     result = redaction.redact_text(path, "SECRET-VALUE", out)
 
     assert len(result["images_recoded"]) == 1
+
+
+def test_the_reported_sizes_are_the_bytes_actually_in_the_file(doc_with, out):
+    """The field exists to account for the file growing, so its arithmetic has to reconcile against
+    the file — which the first implementation's did not (TC-011 retest b).
+
+    `Document.extract_image` returns a *portable* copy: for anything not already JPEG it synthesises
+    a PNG, so it reported an encoding the PDF does not contain and a length that was not the
+    embedded stream. It was exact on the JPEG "before" side, which is exactly what hid the error —
+    the numbers looked plausible until they were reconciled, and then the total overstated real
+    growth by 129 KB with small images running 67–80% high.
+    """
+    path = doc_with(pymupdf.Rect(50, 50, 350, 250))
+    result = redaction.redact_text(path, "SECRET-VALUE", out)
+    entry = result["images_recoded"][0]
+
+    doc = pymupdf.open(out)
+    try:
+        page = doc[entry["page"] - 1]
+        streams = {len(doc.xref_stream_raw(img[0])) for img in page.get_images(full=True)}
+    finally:
+        doc.close()
+
+    assert entry["bytes_after"] in streams, (
+        f"reported {entry['bytes_after']} bytes; the file holds {sorted(streams)}"
+    )
+
+
+def test_the_encodings_are_named_as_the_file_names_them(doc_with, out):
+    """`to: "png"` described nothing that exists — PDF has no PNG image filter, and every re-encoded
+    stream in the output is `/FlateDecode`. A caller who opens the output must see the filter they
+    were told to expect."""
+    path = doc_with(pymupdf.Rect(50, 50, 350, 250))
+    entry = redaction.redact_text(path, "SECRET-VALUE", out)["images_recoded"][0]
+
+    assert entry["from"] == "DCTDecode"
+    assert entry["to"] == "FlateDecode"
+
+    doc = pymupdf.open(out)
+    try:
+        page = doc[entry["page"] - 1]
+        filters = {doc.xref_get_key(img[0], "Filter")[1] for img in page.get_images(full=True)}
+    finally:
+        doc.close()
+    assert f"/{entry['to']}" in filters
 
 
 def test_the_warning_explains_the_cause_and_states_the_size_honestly(doc_with, out):

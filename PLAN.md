@@ -3803,6 +3803,19 @@ warnings, which is the opposite of what this milestone is for.
 **Only a changed filter is reported.** An image the write left alone, or re-stored in the encoding
 it already had, cost the caller nothing, and a field on every redaction would be noise.
 
+**The encodings and sizes are read from the object, not through `extract_image`** — corrected after
+the TC-011 retest caught the first implementation reporting neither one. That helper returns a
+*portable*
+copy: for anything not already JPEG it synthesises a PNG, so the field named an encoding the file
+does not contain (PDF has no PNG image filter; every re-encoded stream is `/FlateDecode`) and a
+length that was not the embedded stream. It was exact on the JPEG "before" side, which is what hid
+it — the numbers looked plausible until reconciled against the file, and then the total overstated
+real growth by 129 KB with small images running 67–80% high. Reading `Filter` and `xref_stream_raw`
+gives both honestly, and a caller who opens the output now sees the filter they were told to expect.
+The lesson generalises: a field whose whole purpose is to account for something must reconcile
+against the thing it accounts for, and a test now asserts `bytes_after` against the stream in the
+file rather than against itself.
+
 ## Future enhancements (deferred beyond the roadmap)
 
 Captured but not yet scheduled:

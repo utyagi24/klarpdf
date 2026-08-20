@@ -571,6 +571,34 @@ def _boxes_touch(a: tuple, b: tuple) -> bool:
     return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
 
 
+def _stream_encoding(doc, xref: int) -> tuple[str, int] | None:
+    """How the image at ``xref`` is **stored in the file**: its filter name and its stream length.
+
+    Read from the object, not through ``Document.extract_image``. That helper returns a *portable*
+    copy — for anything not already JPEG it synthesises a PNG — so it reports an encoding the file
+    does not contain and a length that is not the embedded stream. It happened to be exact for the
+    JPEG "before" side, which is precisely what made the "after" side's error hard to see: the
+    numbers looked right until the arithmetic was reconciled against the file (TC-011 retest b,
+    where the total overstated real growth by 129 KB and small images were 67–80% high).
+
+    The label is the PDF filter, so a caller who opens the output sees the name they were told to
+    expect. `PDF has no PNG image filter` — reporting one described nothing that exists.
+    """
+    kind, value = doc.xref_get_key(xref, "Filter")
+    if kind == "name":
+        label = value.lstrip("/")
+    elif kind == "array":
+        # A filter chain, outermost last; the image encoding is the one that decodes the pixels.
+        names = [part.lstrip("/") for part in value.strip("[]").split() if part.startswith("/")]
+        label = names[-1] if names else "unencoded"
+    else:
+        label = "unencoded"
+    try:
+        return label, len(doc.xref_stream_raw(xref))
+    except Exception:  # noqa: BLE001 — an unreadable stream is simply not reported
+        return None
+
+
 def _images_under(page, boxes: list[tuple]) -> dict[tuple, tuple[str, int]]:
     """Every image *placement* a redaction box overlaps, keyed by its rectangle.
 
@@ -586,14 +614,13 @@ def _images_under(page, boxes: list[tuple]) -> dict[tuple, tuple[str, int]]:
     doc = page.parent
     for entry in page.get_images(full=True):
         xref = entry[0]
-        try:
-            info = doc.extract_image(xref)
-        except Exception:  # noqa: BLE001 — an unextractable image is simply not reported
+        encoding = _stream_encoding(doc, xref)
+        if encoding is None:
             continue
         for rect in page.get_image_rects(xref):
             placement = tuple(round(v, 1) for v in (rect.x0, rect.y0, rect.x1, rect.y1))
             if any(_boxes_touch(placement, box) for box in boxes):
-                found[placement] = (info["ext"], len(info["image"]))
+                found[placement] = encoding
     return found
 
 

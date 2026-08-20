@@ -2246,7 +2246,15 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   rectangle does not move, and it is what makes "only the covered placement was re-encoded"
   reportable, which is the fact that distinguishes this from duplication. Both redactors share the
   write path, so both disclose it. A negative test caught the first draft asserting growth on a case
-  that shrank; the warning now states the measured direction. Design in `PLAN.md` §M109 —
+  that shrank; the warning now states the measured direction. **Corrected after the TC-011 retest**
+  (2026-08-20), which verified the page set 9/9 exact and `bytes_before` exact on all nine, and then
+  found the new field's *other* two values wrong: `extract_image` returns a **portable** copy, so it
+  synthesised a PNG for anything not already JPEG — reporting `to: "png"` when PDF has no PNG image
+  filter and every re-encoded stream is `/FlateDecode`, and a length that was not the embedded
+  stream. Exact on the JPEG "before" side, which is what hid it; reconciled against the file the
+  total overstated real growth by 129 KB, small images running 67–80% high. Now read from `Filter`
+  and `xref_stream_raw`, so the labels name what the output carries and `bytes_after` matches the
+  stream in it — asserted against the file rather than against itself. Design in `PLAN.md` §M109 —
   [#270](https://github.com/utyagi24/klarpdf/pull/270) — *WSL*
 
 - [x] **M107** *(unplanned)* ⚠️ **A redaction that lands inside a longer word said nothing** —
