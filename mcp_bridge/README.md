@@ -234,6 +234,12 @@ Preview with `search` before `redact_text`. Matching is the app's find-bar behav
 `whole_words` off a search for "Smith" also matches inside "Smithsonian" — and this tool deletes
 what it finds.
 
+**A redacted file can be larger than its source, and the reply explains why.** Erasing pixels
+inside an image means decoding it; re-compressing lossily would degrade exactly the area being
+redacted, so the image is stored losslessly, and a photograph held losslessly is much bigger than
+the same photograph as JPEG. `images_recoded` names each one with its before/after size. Nothing is
+duplicated — only the placements a box actually overlaps are re-encoded.
+
 **When a redaction lands inside a longer word, the reply says so.** That is the one way this tool
 damages text you never asked about: redacting `Male` with `whole_words` off also takes the `male`
 out of `Female`, leaving `Fe`. It is not filtered out, because matching inside longer words is

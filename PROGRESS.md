@@ -2231,6 +2231,24 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   `TYAGI1703` trap *within* a line (`Smith` + `Jones` → the token `SmithJones`), caught by M98's
   existing tests. Design in `PLAN.md` §M100 — *WSL*
 
+- [x] **M109** *(unplanned)* **A redaction that re-encodes an image now says so** — TC-011,
+  2026-08-19. Redacting text sitting **on** an image means erasing pixels inside it, which means
+  decoding it; re-compressing lossily would degrade exactly the area being redacted, so it is stored
+  losslessly — correct, and expensive: 7.4 MB → 10.0 MB from nine images on a 320-page document,
+  61 KB → 1.3 MB for one synthetic page. **The behaviour was right and the silence was the defect.**
+  The size was visible as `bytes`; the reason was not, and an unexplained jump reads as a bug — it
+  was filed as one **twice**, as "duplicated image XObjects" (TC-003 #5, re-chased as TC-010), and
+  the 2026-08-19 review concluded "does not reproduce" because the document tested had no image
+  under a redaction box. That verdict was right about duplication and wrong about the symptom. The
+  reply now carries `images_recoded` (`page`, `from`, `to`, `bytes_before`, `bytes_after`) and a
+  warning. Keyed by **placement**, not xref: a page drawing one image twice holds one xref until a
+  box covers one placement, at which point the engine splits them and no xref mapping survives — the
+  rectangle does not move, and it is what makes "only the covered placement was re-encoded"
+  reportable, which is the fact that distinguishes this from duplication. Both redactors share the
+  write path, so both disclose it. A negative test caught the first draft asserting growth on a case
+  that shrank; the warning now states the measured direction. Design in `PLAN.md` §M109 —
+  [#270](https://github.com/utyagi24/klarpdf/pull/270) — *WSL*
+
 - [x] **M107** *(unplanned)* ⚠️ **A redaction that lands inside a longer word said nothing** —
   OPEN-ITEMS review, 2026-08-19, **medium**, and the last member of the "reported clean but was not"
   family this series has been closing. `redact_text {"query": "Male"}` also removes the `male`

@@ -84,6 +84,18 @@ the last one's results as the whole call's. A query that matches nothing does **
 when another matched: it comes back as `matches: 0` with a warning, because failing would delete an
 output that correctly removed the others.
 
+## When the output is larger than the input
+
+Redacting text that sits **on top of an image** means erasing pixels inside that image, which means
+decoding it. Re-compressing lossily would degrade exactly the area being redacted, so the image is
+stored losslessly instead — and a photograph held losslessly is far larger than the same photograph
+as JPEG. A redaction touching a handful of images can therefore multiply the file size.
+
+`images_recoded` lists each one (`page`, `from`, `to`, `bytes_before`, `bytes_after`) and a warning
+states the total change. Nothing is duplicated and no untouched page is altered; only placements a
+redaction box actually overlaps are re-encoded, so a page that draws the same image twice keeps the
+untouched copy in its original encoding.
+
 ## What the guarantee excludes
 
 It covers the **text layer**. Text that is part of a scanned image has no text to verify;

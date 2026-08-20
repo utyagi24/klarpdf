@@ -3765,6 +3765,44 @@ Stripping the sentence was the obvious fix and the wrong one — it would break 
 containment that makes the two halves unable to drift. A preamble naming the page costs nothing and
 keeps the guarantee.
 
+### M109 *(unplanned)* — a redaction that re-encodes an image says so (TC-011, 2026-08-19)
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M109** Disclose the images a redaction had to re-encode, and what it cost | `_images_under` / `_recode_report` in `mcp_bridge/redaction.py`, read in `_apply` and reported in `_finish` | WSL | A redaction over a photo returns `images_recoded` with before/after sizes and a warning; a text-only redaction, and one whose box misses the image, say nothing |
+
+**Correct behaviour, undisclosed.** Erasing pixels inside an image means decoding it, and
+re-compressing lossily would degrade exactly the area a redaction was asked to destroy — so the
+engine stores it losslessly. That is the right trade. But a photograph held losslessly is far larger
+than the same photograph as JPEG, so a redaction touching a few images multiplies the file size:
+7.4 MB → 10.0 MB from nine images on a real 320-page document, and 61 KB → 1.3 MB for a single
+synthetic page.
+
+**The cost of the silence was three investigations, one of them ours.** The size was already visible
+as `bytes`; the reason was not, and an unexplained jump reads as a bug. It was filed as one twice —
+"redacted pages gain duplicated image XObjects" (TC-003 #5, re-chased as TC-010) was this mechanism
+seen from outside, pursued to a duplication that never existed. The 2026-08-19 review concluded
+"does not reproduce", correctly for the document tested, because that document had no image under a
+redaction box. Disclosure is what stops a correct behaviour generating bug reports.
+
+**Keyed by placement, not by xref.** A page that draws one image twice holds a single xref; erasing
+pixels under one placement forces the engine to split them, so the output has two xrefs where the
+source had one and no xref-to-xref mapping survives. The placement rectangle does not move, so it is
+the stable identity — measured, and it is also what makes "only the placement under the box was
+re-encoded" reportable, which is the fact that distinguishes this from duplication.
+
+**Read in `_apply`, reported in `_finish`**, for the reason that function already gives for the text
+counts: after materialise the source encoding is gone, so the write is the last moment it can be
+seen.
+
+**The warning states the measured direction rather than asserting growth.** Lossless is much larger
+for a photograph and can be *smaller* for a flat graphic — a negative test caught the first draft
+claiming growth on a case that shrank. A caller who catches a warning being wrong stops reading
+warnings, which is the opposite of what this milestone is for.
+
+**Only a changed filter is reported.** An image the write left alone, or re-stored in the encoding
+it already had, cost the caller nothing, and a field on every redaction would be noise.
+
 ## Future enhancements (deferred beyond the roadmap)
 
 Captured but not yet scheduled:
