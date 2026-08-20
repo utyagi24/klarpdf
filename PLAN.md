@@ -3765,6 +3765,59 @@ Stripping the sentence was the obvious fix and the wrong one — it would break 
 containment that makes the two halves unable to drift. A preamble naming the page costs nothing and
 keeps the guarantee.
 
+### M108 *(unplanned)* — the residual counts said spellings and meant places (TC-011, 2026-08-19)
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M108** `residual_literal` counts **occurrences**, and names each spelling with its own count and pages | `_no_residual_match` + `_literal_residuals` / `_variant_residuals` in `mcp_bridge/redaction.py` | WSL | Two spellings, three occurrences each, reports `6` and a `residual_literal_forms` list; the same number Poppler and PyMuPDF between them actually leave |
+| **M108.1** `export_images` caps its file listing like every other bulk tool | `mcp_bridge/server.py` + `Limits.max_listed_files` | WSL | A 40-page export lists 25 paths with `truncated: true`, `out_dir` and the naming pattern — and still writes 40 files |
+| **M108.2** The `search` cap note stops advising a flag that is already set | `mcp_bridge/server.py` | WSL | A truncated `whole_words: true` search no longer says "or set `whole_words`" |
+| **M108.3** Exported filenames pad to the document's page count on the bridge path | `model/export.py` | WSL | `pages: [1,2,3]` and `pages: [5,72,150]` from one 200-page document produce the same width; the app's Export is unchanged |
+
+**Found only at scale.** On a 320-page document `redact_text` reported `residual_literal: 2` where
+**12** residual occurrences remained. The field counted distinct *spellings* and the warning called
+them "place(s)". Small documents hid it perfectly: with one occurrence per spelling, spellings and
+places are the same number, which is why nine testcases passed over it.
+
+It matters because of *which* field it is. `residual_literal` is what TC-003 added to break circular
+verification — the check that owes the matcher nothing — and the docs single it out as "the one
+worth reading". A caller sizing their follow-up work against 2 rather than 12 is exactly the
+understated-safety-number shape this series has spent its length closing.
+
+**The reported fix would have propagated a second bug.** It proposed adopting the shape
+`residual_normalized` already used — and that field's `count` was `len(pages)`, so three variants on
+one page reported as `1`. Copying it would have carried a subtler undercount into the field being
+repaired. Both now count occurrences; the *structure* was worth copying, the implementation was not.
+
+**And the obvious repair is wrong in the other direction.** The literal scan reads text extracted by
+**both** PyMuPDF and Poppler, so counting every occurrence across `extracted` double-reports — 12
+where 6 remain. Occurrences are therefore **maxed per page across engines, never summed**, which
+also keeps a spelling that only one extractor can see. `residual_normalized` sidesteps this by
+reading one engine (`if engine != "PyMuPDF": continue`); the literal scan cannot, because reading
+both is the point of it.
+
+The dedup was happening at three levels — inside each scanner, in the caller's accumulator, and
+across engines — so both scanners now return **one entry per occurrence** and the caller aggregates.
+That is the change that makes the count mean what its label says.
+
+**M108.1** is the server's own convention, applied to the one tool that never followed it:
+`extract_text` caps at a character budget and `search` at 500 hits with `total_matches`, while
+`export_images` returned N paths for any N — 320 near-identical absolute paths, ~35 KB, no
+`truncated`. The files are all written either way; this caps the *listing*, and the reply now
+carries `out_dir` and the naming pattern, which is what a caller cannot reconstruct for themselves.
+
+**M108.3** came out of the retest: padding was derived from the highest page number *in the
+request*, so two exports from one document into one directory disagreed — `pages: [1..60]` gave
+`-01` and `pages: [5, 72, 500]` gave `-005`, and `-005` sorts before `-01`. The document's page
+count is the stable basis. It is confined to the **bridge** path because `export_page_images` also
+serves the app's Export, where the user typed the filename and picked the pages, and a width derived
+from a page count they never mentioned would be the surprising choice; `number_all` is already the
+derived-vs-chosen discriminator for exactly this kind of question.
+
+**M108.2** is the same defect as TC-007 item E, one tool over: advice that does not apply to the
+call that was made. A caller told to set a flag they already set reads the note as boilerplate, and
+the next note they skip may be one that mattered.
+
 ## Future enhancements (deferred beyond the roadmap)
 
 Captured but not yet scheduled:

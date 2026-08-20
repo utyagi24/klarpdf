@@ -196,8 +196,11 @@ back 209 px, not 208.33 — and exactly 100 px at 72 dpi, where the scale is 1:1
 deliberate: no partial pixel of the region you asked for is dropped, which is what you want from a
 crop. Just don't assert on the naive formula.
 
-**Every exported file carries its page number** — `<stem>-3.png`, whether you export one page or
-twenty — and `name` chooses the stem. That matters for the use `clip` exists for: cutting two
+**Every exported file carries its page number**, zero-padded to the document's page count —
+`<stem>-03.png` from a 20-page file, `<stem>-003.png` from a 572-page one, whether you export one
+page or twenty. The width comes from the document rather than from the pages you asked for, so two
+exports from one file into one directory agree and sort correctly.
+`name` chooses the stem. That matters for the use `clip` exists for: cutting two
 regions out of *one* page needs `name: "card_front"` then `name: "card_back"`, or both calls want
 the same filename and the second is refused. `name` is a plain filename stem, never a path: no
 separators, no `..`, no extension.
@@ -233,6 +236,11 @@ area**, search those strings before sending the file on, or use `redact_text`.
 Preview with `search` before `redact_text`. Matching is the app's find-bar behaviour, so with
 `whole_words` off a search for "Smith" also matches inside "Smithsonian" — and this tool deletes
 what it finds.
+
+**`residual_literal` counts occurrences, not spellings.** It is the number of times the query is
+still in the file in a form `whole_words` did not match, with `residual_literal_forms` naming each
+spelling, its own count and its pages. A single spelling can account for a dozen occurrences on a
+long document, so read the integer as "how much is still there" and the list as "what it is".
 
 **When a redaction lands inside a longer word, the reply says so.** That is the one way this tool
 damages text you never asked about: redacting `Male` with `whole_words` off also takes the `male`

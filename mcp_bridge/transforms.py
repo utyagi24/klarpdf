@@ -493,6 +493,8 @@ def export_images(
     rejected on any page it overhangs — see :func:`model.export.resolve_clip`.
 
     **Every file carries its page number, and ``name`` replaces the stem** (M104, TC-008 Finding 1).
+    The number is zero-padded to the **document's** page count — ``<stem>-03.png`` from a 20-page
+    file — so the width does not depend on which pages the call happened to ask for (M108.3).
     The old scheme wrote ``<stem>.png`` for a single page and ``<stem>-3.png`` only when there were
     several, which was non-uniform and — the reason it mattered — meant two *clips* of one page
     wanted the same filename. Cutting several regions out of one page is the use ``clip`` exists
@@ -500,7 +502,7 @@ def export_images(
     the workarounds were a directory per region or ``overwrite: true``, which destroys the first.
     The refusal itself was right; the names were wrong.
 
-    ``name`` is the caller's own stem — ``name="pacifica_card"`` writes ``pacifica_card-3.png`` —
+    ``name`` is the caller's own stem — ``name="pacifica_card"`` writes ``pacifica_card-03.png`` —
     because only the caller knows what a region *is*, and the server never can. It is a filename
     component, not a path: :func:`_safe_stem` rejects separators and ``..`` rather than joining
     them, so ``name`` cannot walk out of ``out_dir`` and around the path policy.
@@ -529,6 +531,7 @@ def export_images(
         return {
             "files": written,
             "count": len(written),
+            "out_dir": os.path.abspath(out_dir),
             "dpi": dpi,
             "clip": None if clip is None else [float(v) for v in clip],
             "source": os.path.abspath(path),
