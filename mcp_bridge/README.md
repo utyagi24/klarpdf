@@ -196,8 +196,11 @@ back 209 px, not 208.33 — and exactly 100 px at 72 dpi, where the scale is 1:1
 deliberate: no partial pixel of the region you asked for is dropped, which is what you want from a
 crop. Just don't assert on the naive formula.
 
-**Every exported file carries its page number** — `<stem>-3.png`, whether you export one page or
-twenty — and `name` chooses the stem. That matters for the use `clip` exists for: cutting two
+**Every exported file carries its page number**, zero-padded to the document's page count —
+`<stem>-03.png` from a 20-page file, `<stem>-003.png` from a 572-page one, whether you export one
+page or twenty. The width comes from the document rather than from the pages you asked for, so two
+exports from one file into one directory agree and sort correctly.
+`name` chooses the stem. That matters for the use `clip` exists for: cutting two
 regions out of *one* page needs `name: "card_front"` then `name: "card_back"`, or both calls want
 the same filename and the second is refused. `name` is a plain filename stem, never a path: no
 separators, no `..`, no extension.

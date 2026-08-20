@@ -252,3 +252,27 @@ def test_the_app_export_still_pads_to_the_request(tmp_path):
             vdoc, [4, 5, 6], str(tmp_path / "app.png"), dpi=15, number_all=False
         )
     assert [os.path.basename(f) for f in written] == ["app-5.png", "app-6.png", "app-7.png"]
+
+
+def test_the_documented_naming_example_is_what_the_code_produces(tmp_path):
+    """The description promises `<stem>-03.png` from a 20-page file. That example is the whole
+    value of M108.3 — a caller can predict a filename only if the documented width is the real one,
+    and the previous example (`<stem>-3.png`) was accurate only for documents of nine pages or
+    fewer (TC-011 retest d). Tying the claim to the behaviour is what stops it drifting again.
+    """
+    import asyncio
+    import json
+
+    source = _blank(tmp_path, 20)
+    out_dir = tmp_path / "img"
+    out_dir.mkdir()
+    server = create_server(Config())
+    reply = server.call_tool(
+        "export_images", {"path": source, "out_dir": str(out_dir), "dpi": 15, "pages": [3]}
+    )
+    result = json.loads(asyncio.run(reply).content[0].text)
+
+    assert os.path.basename(result["files"][0]) == "many-03.png"
+    tools = asyncio.run(server.list_tools())
+    description = next(t.description for t in tools if t.name == "export_images")
+    assert "`<stem>-03.png` from a 20-page file" in description

@@ -704,8 +704,11 @@ def create_server(config: Config | None = None) -> MCPServer:
         that came out short. On a rotated page `clip` is in the unrotated coordinates `search`
         reports, same as `render_page`.
 
-        **Filenames always carry the page number** — `<stem>-3.png`, whether you export one page or
-        twenty. Pass `name` to choose the stem: cutting two regions out of page 3 needs
+        **Filenames always carry the page number**, zero-padded to the document's page count —
+        `<stem>-03.png` from a 20-page file, `<stem>-003.png` from a 572-page one, whether you
+        export one page or twenty. The width comes from the document, not from the pages you asked
+        for, so two exports from one file into one directory agree and sort correctly. Pass `name`
+        to choose the stem: cutting two regions out of page 3 needs
         `name: "card_front"` then `name: "card_back"`, or the two calls want the same filename and
         the second is refused. `name` is a plain filename stem, not a path — no separators, no
         `..`, no extension (the format comes from `fmt`).

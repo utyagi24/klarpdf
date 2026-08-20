@@ -2255,7 +2255,11 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   the bridge path, not to the highest page number in the request — two exports from one document
   into one directory gave `-01` and `-005`, and `-005` sorts before `-01`. Confined to the bridge:
   `export_page_images` also serves the app's Export, where the user typed the name and picked the
-  pages. Design in `PLAN.md` §M108 — [#269](https://github.com/utyagi24/klarpdf/pull/269) — *WSL*
+  pages. The retest then caught the **description** still showing `<stem>-3.png`, an example only
+  accurate for a document of nine pages or fewer — the point of the fix is that a caller can predict
+  a filename, and the description is where they look, so it now states the padding rule and a test
+  ties the documented example to what the code writes.
+  Design in `PLAN.md` §M108 — [#269](https://github.com/utyagi24/klarpdf/pull/269) — *WSL*
 
   Deferred from the same review, deliberately: **page-list fields enumerate every page**
   (`page_sizes[].pages`, `residual_scope`, `pages_omitted`) is real bulk but the proposed cure —
