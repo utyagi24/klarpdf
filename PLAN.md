@@ -3262,7 +3262,8 @@ always equal before M100, so the difference is documented rather than changed.
 
 Three milestones the hands-on sessions asked for, written up so a later session can pick any of them
 up cold. None is a defect: TC-001 to TC-007 found the bridge *correct* on these paths and wanting
-more of them. They are ordered by cost-to-value, not by the order they were requested.
+more of them. They are ordered by cost-to-value, not by the order they were requested. **M99 and
+M100 shipped; M101 was re-scoped on 2026-08-20** — see its own section for what changed and why.
 
 ### M99 — a region clip on `render_page` and `export_images`
 
@@ -3456,23 +3457,33 @@ the whole 1 980-box redaction from 1.96 s to 1.64 s. Worth recording because the
 the previous performance claim on this file was wrong in the other direction (§M98: a "regression"
 that turned out to be my own probes loading the machine).
 
-### M101 — annotation tools, and the highlight → review → redact round trip ⭐
+### M101 — annotation as a capability: marking up a document from the bridge ⭐
 
 | Milestone | What | Where | Verify |
 | --- | --- | --- | --- |
-| **M101** The bridge can *write* highlights / underlines / strike-throughs with notes, *read back* every annotation in a document, and *redact by annotation* | New `mcp_bridge/annotations.py` over `model/page_edits.py`; three tools — `annotate`, `get_annotations`, `redact_annotated` | WSL | A written highlight reopens as an editable mark in the app; a foreign (Acrobat) annotation is read back too; redact-by-colour removes exactly the marked regions and verifies them; nothing is deleted without the same cross-engine proof `redact_regions` gives |
+| **M101** The bridge can *write* highlights / underlines / strike-throughs, each carrying a note, and *read back* every annotation a document holds | New `mcp_bridge/annotations.py` over `model/page_edits.py`; two tools — `annotate`, `get_annotations` | WSL | A written highlight reopens in the app as an editable mark, with its note in the note editor and its badge on the page; a foreign (Acrobat / Edge) annotation is read back too, and says it is not ours; a second `annotate` over the same span merges instead of stacking; `get_annotations` boxes go into `redact_regions` unchanged |
 
-**The workflow this exists for** (owner, 2026-08-16): *"highlight all PII data in this document"* →
-a person reviews it in KlarPDF → *"redact everything highlighted in orange"*.
+**Re-scoped 2026-08-20, on the owner's reading of the milestone below.** The first draft of M101
+described annotation entirely as the front half of a redaction workflow, and that was wrong twice
+over. It was wrong about *what the feature is* — marking up a document is a thing people want done,
+full stop, and a milestone that only justifies it as a redaction pre-step gets built with no verify
+criterion for the ordinary case. And it was wrong about *how much of it belongs in the bridge*: it
+proposed three tools where two do the job. What follows is the corrected scope; the rejection at the
+end records the third tool and why it is not built, so a later session does not re-derive it.
 
-**Why that shape is right, and not merely convenient.** Everything the bridge has learned across
-TC-001–TC-007 says the destructive step is the dangerous one and that the caller, not the tool, owns
-the semantics. This splits the job exactly along that seam: the agent **proposes** in a form that
-deletes nothing, a human **disposes** using the app's own Annotations sidebar (M79) — the review
-surface already exists and is better than anything a tool response can be — and the agent then
-**executes** only what the review approved. The colour is the verdict channel, and it is the
-reviewer's convention rather than the tool's: `redact_annotated` must never decide that orange means
-delete, only that the caller said so.
+**What the tools are for.** `annotate` marks passages the caller has already located — "underline
+every clause that mentions termination", "highlight these figures so I can check them", "strike the
+paragraphs we agreed to drop, and note why on each one". `get_annotations` reads a document's marks
+back, whoever wrote them, so an agent can summarise a colleague's review comments or check its own
+work. Both stand on their own; neither mentions redaction.
+
+**The bridge does mechanics; the caller does semantics** (owner, 2026-08-20 — the decision that
+shaped everything else here). `annotate` takes **boxes, not queries**. It does not find PII, it does
+not decide what a termination clause is, and it does not search: the caller locates what it cares
+about with `search` / `extract_text`, and hands over coordinates. This is the same seam M98 drew
+when it made the variant scan *report* rather than *match* — "whether two spellings denote one
+value is the caller's fact" — and M100's multi-query is deliberately **not** mirrored here. It also
+keeps the tool small, which the M105 description budget rewards.
 
 **Almost all of the model work is already done**, which is what makes this a milestone rather than a
 project:
@@ -3481,27 +3492,86 @@ project:
   PDF `/Contents`, M81), and `apply_annotations` bakes them tagged with `KLARPDF_AUTHOR`.
 * `read_klarpdf_annotations` reads *our* marks back into editable descriptors (M31), and
   `parse_annotation` was deliberately split out so a **foreign** annotation parses identically
-  (M68's adopt-on-edit). `get_annotations` should report both, because a reviewer does not care who
-  wrote a mark — and it should say which, since only ours round-trip as editable.
-* `redact_annotated` is `redact_regions` with the boxes chosen by filter, so it inherits
-  `verified_text`, the cross-engine check, and the delete-the-output-on-failure rule for free.
+  (M68's adopt-on-edit).
+* `VirtualDocument.from_path` seeds every page from `read_klarpdf_annotations`, so although
+  materialise strips our marks from the output before re-applying them (`edit_engine`), a *later*
+  write tool re-applies them from descriptors. A bridge-written highlight therefore survives a
+  subsequent `fill_form`, `flatten` or `delete_pages` rather than being silently stripped. Worth a
+  regression test, since nothing states it today.
 
-**Three things to get right, none of them the obvious one:**
+**Six things to get right:**
 
-1. **Colour matching must be by tolerance, not equality.** A mark drawn in the app carries an exact
-   palette value; one drawn in Acrobat will not. Match within a distance and expose both the raw RGB
-   and a nearest name, so `"orange"` is a filter a person can type and an agent can verify.
-2. **`redact_annotated` inherits `redact_regions`' narrower promise**, and the docs must say so: there
-   is no query, so there is no `residual_literal` and no coverage claim beyond the marks themselves.
-   That asymmetry was examined and deliberately kept at M97 — see §M97, Part 2.
-3. **Annotating is a *write*, so it obeys every write rule**: explicit `out`, never the source, atomic
-   replace. A highlight pass is non-destructive but it is still a new file, and the intermediate-file
-   sprawl M100 is about applies here too — which is an argument for doing M100 first if both are
-   scheduled together.
+1. **One tool with a `type`, not three.** `annotate(path, marks, out)` where a mark is
+   `{type, page, boxes, color?, note?}` and `type` is `highlight` / `underline` / `strikeout`. Three
+   near-identical descriptions would spend the M105 budget three times over for no gain. The other
+   descriptor types the model supports — ink, line, shape, text box — are **out of scope and the
+   description must say so**, or the model will try them and get a validation error instead of an
+   answer.
+2. **A list of marks per call, because a call is a file.** Every write goes to a fresh `out`
+   (`_resolve_out` refuses `out == path` whatever `overwrite` says), so highlight-then-underline-
+   then-note as three calls is three files — exactly the intermediate sprawl M100 exists to stop.
+   One call takes every mark for the document.
+3. **A repeat call merges; it does not stack.** Route through `merge_markup` (the same function
+   `MainWindow` uses), so a bridge-written mark and an app-drawn one are indistinguishable: same
+   type and colour over the same span absorb into one, a different colour takes over the span, and
+   M81.2 carries the notes onto the survivor. Without this an agent that retries leaves two
+   highlights where the reader sees one, and `get_annotations` reports both.
+4. **`get_annotations` must not be built on `parse_annotation` alone.** That parser returns `None`
+   for every type the model cannot draw — **sticky notes included** (§M83: "an Edge sticky note is
+   an unmodeled type"). A colleague who left their comments as sticky notes rather than
+   notes-on-highlights would be *invisible* to the agent, which is the one failure this tool cannot
+   have. Read the raw annotations — type, page, rect, colour, `/Contents`, author — and flag
+   `editable: true/false` from whether `parse_annotation` models it, because only ours round-trip.
+5. **Boxes in, boxes out, in the same space** — unrotated page points, which is what `search`,
+   `redact_regions` and (since M99.1) `clip` all use. `get_annotations` must report each mark in
+   `redact_regions`' own region shape (`page` + `boxes`) so its output composes with the write tools
+   *without reshaping*, and its docs must name the space: §Open follow-ups records that `get_info`
+   alone reports post-rotation sizes, and a third convention here would make that split unfixable.
+6. **Colour: RGB always, names from the app's own palette.** Accept a raw `[r, g, b]`, and accept
+   a name — but only a name in that mark type's palette (`viewer/markup_style.py`: highlights are
+   Yellow / Green / Blue / Pink / **Orange**; lines are Red / Blue / Green / Black — there is no
+   orange line and no red highlight), erroring on anything else per M106's rule that an unrecognised
+   input is an error rather than a silent default. The point is not tidiness: colour is how a person
+   sorts marks, and if the bridge's orange is not *byte-identical* to the picker's orange, the same
+   colour splits into two values the moment a human re-marks a passage in the app. On the **read**
+   side report the raw RGB **and** a nearest palette name within a tolerance, since a mark made in
+   Acrobat will not carry a palette value at all.
 
-**Worth a fourth tool later, not now:** removing or recolouring an existing annotation from the
-bridge. The model supports it, but the review loop above does not need it, and every tool added is
-one the model must choose between.
+**Notes behave exactly as the app's do** (owner, 2026-08-20). A note is not an object: it is the
+`/Contents` of its host mark (M81), which is why it needs no tool of its own and why a bridge-written
+note opens in the M90 note editor, draws the M90.2 badge, and survives save → reopen → save. Two
+consequences the implementation must honour — a `note` with no `type` creates a **Highlight** to
+carry it, following `resolve_note_host`'s rule for a note dropped on unmarked text; and clearing a
+note leaves its mark standing.
+
+**Deliberately out of scope: editing an annotation that already exists** — attaching a note to a
+mark already in the file, recolouring one, or deleting one. For our own marks this is easy; for a
+*foreign* one it is M68's adopt-on-edit (strip the original, re-add as ours, with the degradation
+warning), which is a different milestone's worth of care. Writing marks and reading them back is the
+capability; mutating someone else's is not part of it.
+
+**Considered and rejected: a third tool, `redact_annotated`** (owner, 2026-08-20). The first draft
+proposed it for the workflow it was written around — *"highlight all PII in this document"* → a
+person reviews in KlarPDF → *"redact everything highlighted in orange"*. That workflow is still the
+one this milestone serves best, and the shape of it is still right: the agent **proposes** in a form
+that deletes nothing, a human **disposes** in the app's own Annotations sidebar (M79) — a better
+review surface than any tool response can be — and the agent then **executes** only what was
+approved, with the colour as the reviewer's verdict channel. What was wrong is the assumption that
+the last step needs a tool. **The caller composes it**: `get_annotations` → filter on colour →
+`redact_regions`.
+
+*Nothing is lost by that.* The draft's argument for the tool was that it would inherit
+`verified_text`, the cross-engine check and the delete-the-output-on-failure rule "for free" —
+but the composition inherits all three **identically**, because it *is* `redact_regions`. The tool
+would have added colour filtering, which is a few lines in the caller and better placed there:
+`redact_annotated` "must never decide that orange means delete, only that the caller said so", and
+the surest way to keep that promise is not to have a tool that could break it. Two further costs it
+would have carried on its own: a narrower promise than its name implies (no query, so no
+`residual_literal` and no coverage claim beyond the marks themselves — the M97 Part 2 asymmetry),
+and a fourth tool in a list the model must choose from, which is the same objection the draft
+already raised against editing annotations. Point 5 above is what pays for the rejection: as long as
+`get_annotations` hands back boxes in `redact_regions`' own shape and space, the composition is a
+filter and nothing more.
 
 ### M105 *(unplanned)* — the tool descriptions are truncated in transit (TC-007, 2026-08-18)
 

@@ -2388,15 +2388,23 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   a tool added later is covered the day it is registered. Design in `PLAN.md` §M105 —
   [#267](https://github.com/utyagi24/klarpdf/pull/267) — *WSL*
 
-- [ ] **M101** ⭐ **Annotation tools, and the highlight → review → redact round trip** — owner-asked
-  2026-08-16: *"highlight all PII data in this document"* → a person reviews → *"redact everything
-  highlighted in orange"*. Three tools (`annotate`, `get_annotations`, `redact_annotated`) over the
-  model that already exists: `Highlight`/`Underline`/`Strikeout` carry an RGB colour and a note,
-  `apply_annotations` bakes them, and `parse_annotation` reads foreign marks as well as ours (M68).
-  **The shape is the point** — the agent proposes in a form that deletes nothing, a human decides in
-  the app's own Annotations sidebar (M79), and the agent executes only what was approved, with the
-  colour as the reviewer's verdict channel and never the tool's judgement. Design in `PLAN.md` §M101
-  — *WSL*
+- [ ] **M101** ⭐ **Annotation as a capability: marking up a document from the bridge** — **re-scoped
+  2026-08-20** (the entry below described annotation only as the front half of a redaction workflow,
+  which undersold it and over-tooled it). **Two tools**, `annotate` and `get_annotations`, over the
+  model that already exists: `Highlight`/`Underline`/`Strikeout` carry an RGB colour and a note
+  (M81), `apply_annotations` bakes them, and `parse_annotation` reads foreign marks as well as ours
+  (M68). Marking up stands on its own — "underline every termination clause", "strike these
+  paragraphs and note why on each" — and notes behave exactly as the app's do, opening in the M90
+  editor with their M90.2 badge. **The bridge does mechanics; the caller does semantics**
+  (owner): `annotate` takes **boxes, not queries** — locating what matters is the caller's job via
+  `search`/`extract_text`, the same seam M98 drew for the variant scan. Three decisions worth
+  knowing before reading the design: a repeat call **merges** through `merge_markup` rather than
+  stacking; `get_annotations` reads **raw** annotations, not just the modeled ones, so a colleague's
+  sticky notes are not invisible; and its boxes come back in `redact_regions`' own shape and space
+  so the two compose without reshaping. **`redact_annotated` was proposed and rejected** — the
+  caller composes `get_annotations` → filter on colour → `redact_regions`, which inherits the
+  verification identically because it *is* `redact_regions`. Editing or deleting an existing
+  annotation is out of scope. Design + the full rejection in `PLAN.md` §M101 — *WSL*
 
 - [x] **M98** *(unplanned)* **Redaction reports the two things it used to be silent about.** From
   TC-007 (2026-08-16), which found **no defects** — the delivery was correct with zero residuals —
@@ -2876,6 +2884,9 @@ Carried items — none block work:
   TC-008's own card clips were built, so it is not hypothetical.
   **Not yet designed**, deliberately: `rotation` per `page_sizes` group, unrotated dimensions, or
   both would each serve, and the choice is about what `get_info` promises. Not scheduled. — *WSL*
+  **M101 raises the stakes** (2026-08-20): `get_annotations` reports boxes meant to go straight into
+  `redact_regions`, so it must join the unrotated majority — a fourth convention would make the split
+  unfixable. Recorded in `PLAN.md` §M101 point 5 as a constraint on that build, not a fix for this.
 
 - **The over-redaction guard covers the query-split case only, not a single term matching inside a
   longer word** — TC-007 addendum, 2026-08-16, severity medium. M98's `query_terms` warns when
