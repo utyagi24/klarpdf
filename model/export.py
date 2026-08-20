@@ -214,7 +214,14 @@ def export_page_images(
     root, ext = os.path.splitext(base_path)
     is_jpeg = ext.lower() in _JPEG_EXTS
     single = len(indices) == 1 and not number_all
-    pad = len(str(max(i + 1 for i in indices)))  # widest page number → consistent zero-padding
+    # Padded to the **document's** page count on the bridge path, so two exports from one document
+    # into one directory agree: `pages: [1..60]` and `pages: [5, 72, 500]` produced `-01` and `-005`
+    # from the same file, and `-005` then sorts before `-01` (TC-011 retest). The app's Export keeps
+    # padding to the request, because there the user picked the pages and a width derived from a
+    # page count they never mentioned would be the surprising choice — `number_all` is already the
+    # bridge-vs-app discriminator for exactly this kind of derived-vs-chosen filename question.
+    widest = vdoc.page_count if number_all else max(i + 1 for i in indices)
+    pad = len(str(widest))
     matrix = fitz.Matrix(dpi / 72.0, dpi / 72.0)
 
     out = PyMuPDFEngine().render_output(vdoc)

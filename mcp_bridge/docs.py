@@ -41,16 +41,20 @@ at a file where the query no longer matches. `residual_matches` reports the coun
 
 ## The residual fields
 
-* **`residual_literal`** counts places the query still appears *literally* that the `whole_words`
-  setting does not match, with each one named in `warnings`. It is not automatically a leak —
-  redacting whole-word "Smith" leaves "Smithsonian" and says so — but if a named survivor is the
-  value you meant to remove, re-run with `whole_words: false`. This is the check that catches the
-  matcher being wrong, so it is the one worth reading.
+* **`residual_literal`** counts **occurrences** — how many times the query still appears
+  *literally* in a spelling the `whole_words` setting does not match. `residual_literal_forms`
+  breaks that down, one entry per spelling with its own `count` and `pages`, and `warnings` names
+  them. It is not automatically a leak — redacting whole-word "Smith" leaves "Smithsonian" and says
+  so — but if a named survivor is the value you meant to remove, re-run with `whole_words: false`.
+  This is the check that catches the matcher being wrong, so it is the one worth reading. Read the
+  integer as "how much is still there" and the forms list as "what it is": on a long document a
+  single spelling can account for a dozen occurrences.
 * **`residual_normalized`** names spellings of the query still in the file that differ from it only
   in separators — `6073474692031` against a query of `607347469 203 1`, or `08/24/1970` against
   `08-24-1970`, or a number broken by a line wrap. Nothing was deleted for these: whether two
   spellings are one value is a fact about the document that only you have. If they are, redact those
-  forms too. **An empty list and `null` are different answers.** `[]` means the scan ran and found
+  forms too. Its `count` is occurrences as well, not pages — several variants on one page count
+  severally. **An empty list and `null` are different answers.** `[]` means the scan ran and found
   none; `null` means it did not run — a short unpunctuated query like `000000` cannot be checked
   this way, because matching it across separators finds coincidence rather than spellings. A `null`
   says so in `warnings`, and means "unchecked", never "clean".
