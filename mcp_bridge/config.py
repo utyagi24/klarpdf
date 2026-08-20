@@ -24,6 +24,16 @@ DEFAULT_MAX_TEXT_CHARS = 200_000     # ~50k tokens: large enough for a long chap
 DEFAULT_MAX_SEARCH_HITS = 500        # a one-letter query on a long file finds tens of thousands
 DEFAULT_MAX_IMAGE_BYTES = 8 * 1024 * 1024   # a 600-dpi A4 page is ~25 MB of PNG
 
+DEFAULT_MAX_LISTED_FILES = 25
+"""How many written paths `export_images` spells out before it stops listing them.
+
+The files are all written either way — this caps the *listing*, which is the one bulk result that
+grew without bound: 320 pages returned 320 near-identical absolute paths and no `truncated` flag,
+the only bulk tool not following the server's own capping convention (TC-011). A caller that wants
+them all can list the directory; what they need from the reply is where the files are, how many
+there are, and how they are named.
+"""
+
 ENV_ALLOW_ROOTS = "KLARPDF_MCP_ALLOW_ROOTS"
 ENV_READ_ONLY = "KLARPDF_MCP_READ_ONLY"
 
@@ -98,6 +108,7 @@ class Limits:
     max_text_chars: int = DEFAULT_MAX_TEXT_CHARS
     max_search_hits: int = DEFAULT_MAX_SEARCH_HITS
     max_image_bytes: int = DEFAULT_MAX_IMAGE_BYTES
+    max_listed_files: int = DEFAULT_MAX_LISTED_FILES
 
 
 @dataclass(frozen=True)

@@ -2231,6 +2231,35 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   `TYAGI1703` trap *within* a line (`Smith` + `Jones` → the token `SmithJones`), caught by M98's
   existing tests. Design in `PLAN.md` §M100 — *WSL*
 
+- [x] **M108** *(unplanned)* ⚠️ **The residual counts said spellings and meant places** — TC-011,
+  2026-08-19, **high**, and found only at scale. On a 320-page document `redact_text` reported
+  `residual_literal: 2` where **12** residual occurrences remained: the field counted distinct
+  *spellings* while the warning called them "place(s)". Small documents hid it exactly — one
+  occurrence per spelling makes the two numbers identical, which is how nine testcases passed over
+  it. It matters because of *which* field: `residual_literal` is what TC-003 added to break circular
+  verification, and the docs single it out as "the one worth reading". **The reported fix would have
+  propagated a second bug** — it proposed copying `residual_normalized`'s shape, and *that* field's
+  `count` was `len(pages)`, so three variants on one page reported as `1`; both now count
+  occurrences. **And the obvious repair is wrong the other way**: the literal scan reads text from
+  **both** PyMuPDF and Poppler, so summing across engines reports 12 where 6 remain — occurrences
+  are maxed per page across engines, never summed, which also keeps a spelling only one extractor
+  sees. The dedup had been happening at three levels (inside each scanner, in the accumulator, and
+  across engines), so both scanners now return one entry per occurrence and the caller aggregates.
+  The reply gains `residual_literal_forms`, one entry per spelling with its own `count` and `pages`.
+  **M108.1**: `export_images` caps its file listing — it returned N paths for any N (320 paths,
+  ~35 KB, no `truncated`), the one bulk tool not following the server's own convention; every file
+  is still written, and the reply now carries `out_dir` and the naming pattern, which is what a
+  caller cannot reconstruct. **M108.2**: the `search` cap note no longer tells a caller to set
+  `whole_words` when it is already set — the same defect as TC-007 item E, one tool over. Design in
+  `PLAN.md` §M108 — [#269](https://github.com/utyagi24/klarpdf/pull/269) — *WSL*
+
+  Deferred from the same review, deliberately: **page-list fields enumerate every page**
+  (`page_sizes[].pages`, `residual_scope`, `pages_omitted`) is real bulk but the proposed cure —
+  range notation or `"all"` — is a **type change on a safety field**. `residual_scope` was added by
+  M103 precisely so a caller could check machine-readably what was scanned, and compressing only
+  some of the sibling fields would leave inconsistent conventions across fields that read as a set.
+  Verbose beats ambiguous here; revisit only with a shape that stays a list.
+
 - [x] **M107** *(unplanned)* ⚠️ **A redaction that lands inside a longer word said nothing** —
   OPEN-ITEMS review, 2026-08-19, **medium**, and the last member of the "reported clean but was not"
   family this series has been closing. `redact_text {"query": "Male"}` also removes the `male`

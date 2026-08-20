@@ -529,6 +529,7 @@ def export_images(
         return {
             "files": written,
             "count": len(written),
+            "out_dir": os.path.abspath(out_dir),
             "dpi": dpi,
             "clip": None if clip is None else [float(v) for v in clip],
             "source": os.path.abspath(path),

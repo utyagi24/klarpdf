@@ -402,9 +402,19 @@ def create_server(config: Config | None = None) -> MCPServer:
         if total > len(capped):
             result["truncated"] = True
             result["total_matches"] = total
+            # The advice has to fit the call that was made. Telling a caller who already set
+            # `whole_words` to set it is noise that reads as a stock message and trains them to
+            # skip the note — the same defect TC-007 item E fixed in the redaction warnings, which
+            # substitute the applicable explanation rather than appending a generic one.
             result["note"] = (
-                f"{total} matches found, first {len(capped)} returned. Narrow the query, or set "
-                "`whole_words` to stop matching inside longer words."
+                f"{total} matches found, first {len(capped)} returned. "
+                + (
+                    "Narrow the query, or name the pages you care about with `search` on a "
+                    "smaller range — `whole_words` is already on, so this is the strict count."
+                    if whole_words
+                    else "Narrow the query, or set `whole_words` to stop matching inside longer "
+                    "words."
+                )
             )
         return result
 
@@ -700,12 +710,16 @@ def create_server(config: Config | None = None) -> MCPServer:
         the second is refused. `name` is a plain filename stem, not a path — no separators, no
         `..`, no extension (the format comes from `fmt`).
 
+        `files` lists at most the first 25 paths; every file is written regardless, and a capped
+        reply carries `truncated: true`, the total `count`, and `out_dir`. List the directory for
+        the rest.
+
         The rendered pixel size rounds **outward** to whole device pixels:
         `ceil(x1 x dpi/72) - floor(x0 x dpi/72)`, so a 100 pt square at 150 dpi is 209 px, not the
         208.33 the naive formula gives. That is deliberate — no partial pixel of the region you
         asked for is dropped — but do not assert on `(x1-x0) x dpi/72`.
         """
-        return transforms.export_images(
+        result = transforms.export_images(
             check(path),
             check(out_dir),
             pages=pages,
@@ -716,6 +730,22 @@ def create_server(config: Config | None = None) -> MCPServer:
             clip=clip,
             name=name,
         )
+        # Every file is written; this caps the *listing*. 320 pages returned 320 near-identical
+        # absolute paths with no `truncated` flag — the one bulk tool that did not follow the
+        # server's own convention (TC-011). `out_dir` plus the first and last name says where they
+        # are and how they are named, which is what the reply is actually for.
+        files = result["files"]
+        if len(files) > limits.max_listed_files:
+            kept = files[: limits.max_listed_files]
+            result["files"] = kept
+            result["truncated"] = True
+            result["note"] = (
+                f"{result['count']} files were written to {result['out_dir']}; the first "
+                f"{len(kept)} are listed. They are named "
+                f"{os.path.basename(files[0])} … {os.path.basename(files[-1])} — list the "
+                "directory for the rest."
+            )
+        return result
 
     # ---- redaction: destructive, and verified before success is reported ----
 

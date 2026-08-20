@@ -234,6 +234,11 @@ Preview with `search` before `redact_text`. Matching is the app's find-bar behav
 `whole_words` off a search for "Smith" also matches inside "Smithsonian" — and this tool deletes
 what it finds.
 
+**`residual_literal` counts occurrences, not spellings.** It is the number of times the query is
+still in the file in a form `whole_words` did not match, with `residual_literal_forms` naming each
+spelling, its own count and its pages. A single spelling can account for a dozen occurrences on a
+long document, so read the integer as "how much is still there" and the list as "what it is".
+
 **When a redaction lands inside a longer word, the reply says so.** That is the one way this tool
 damages text you never asked about: redacting `Male` with `whole_words` off also takes the `male`
 out of `Female`, leaving `Fe`. It is not filtered out, because matching inside longer words is

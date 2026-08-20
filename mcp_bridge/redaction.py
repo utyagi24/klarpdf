@@ -309,7 +309,9 @@ def _variant_residuals(text: str, query: str, *, match_case: bool) -> list[str]:
         after = text[last + 1] if last + 1 < len(text) else ""
         if not before.isalnum() and not after.isalnum():
             written = " ".join(text[first:last + 1].split())
-            if written != " ".join(query.split()) and written not in found:
+            if written != " ".join(query.split()):
+                # One entry per **occurrence**, repeats included. The caller aggregates; deduping
+                # here is what made `count` mean "pages" instead of "times" (M108).
                 found.append(written)   # only the spellings that are NOT the query itself
         start = flat.find(needle, start + 1)
     return found
@@ -346,7 +348,9 @@ def _literal_residuals(text: str, query: str, *, match_case: bool) -> list[str]:
     width = len(needle.split())
     for start in range(len(tokens)):
         window = " ".join(tokens[start:start + width])
-        if needle in (window if match_case else window.casefold()) and window not in found:
+        if needle in (window if match_case else window.casefold()):
+            # One entry per occurrence — see the note in :func:`_variant_residuals`. Deduping here
+            # is what made `residual_literal` count distinct spellings while calling them "places".
             found.append(window)
     return found
 
@@ -461,17 +465,41 @@ def _no_residual_match(
                 "use it. The output has been deleted."
             )
 
-    survivors: list[str] = []
-    for _engine, _page1, text in extracted:
+    # Occurrences per spelling per page, **maxed** across engines rather than summed. The same page
+    # is extracted twice when Poppler is installed, so summing would report 12 where 6 remain —
+    # wrong in the opposite direction from the bug this fixes (M108). Maxing also keeps a spelling
+    # only one extractor can see, which is the whole point of reading both.
+    per_form: dict[str, dict[int, int]] = {}
+    order: list[str] = []
+    for _engine, page1, text in extracted:
+        seen_here: dict[str, int] = {}
         for token in _literal_residuals(text, query, match_case=match_case):
-            if token not in survivors:
-                survivors.append(token)
-    report: dict = {"residual_matches": 0, "residual_literal": len(survivors)}
+            seen_here[token] = seen_here.get(token, 0) + 1
+        for token, times in seen_here.items():
+            if token not in per_form:
+                per_form[token] = {}
+                order.append(token)
+            per_form[token][page1] = max(per_form[token].get(page1, 0), times)
+
+    survivors = order
+    occurrences = sum(sum(pages.values()) for pages in per_form.values())
+    report: dict = {"residual_matches": 0, "residual_literal": occurrences}
     if survivors:
-        shown = ", ".join(repr(token) for token in survivors[:5])
+        report["residual_literal_forms"] = [
+            {
+                "as_written": token,
+                "count": sum(per_form[token].values()),
+                "pages": sorted(per_form[token]),
+            }
+            for token in order
+        ]
+        shown = ", ".join(
+            f"{token!r} ({sum(per_form[token].values())}x)" for token in survivors[:5]
+        )
         more = f" (+{len(survivors) - 5} more)" if len(survivors) > 5 else ""
         report["warnings"] = [
-            f"{query!r} still appears literally in {len(survivors)} place(s) that "
+            f"{query!r} still appears literally {occurrences} time(s), in "
+            f"{len(survivors)} spelling(s) that "
             f"`whole_words: {str(whole_words).lower()}` does not match: {shown}{more}. "
             + (
                 "Each is inside a longer unbroken run of characters — a machine-readable tag, an "
@@ -491,7 +519,7 @@ def _no_residual_match(
     # are spelled by omitting the field then the caller reads the second as the first — which is
     # precisely the invisible failure this feature exists to close (TC-007 retest). So: a list means
     # it looked, `null` means it did not, and the `null` says why.
-    variants: dict[str, list[int]] = {}
+    variants: dict[str, dict[int, int]] = {}
     if not _worth_scanning(query, match_case=match_case):
         report["residual_normalized"] = None
         report.setdefault("warnings", []).append(
@@ -505,15 +533,19 @@ def _no_residual_match(
         if engine != "PyMuPDF":
             continue
         for written in _variant_residuals(text, query, match_case=match_case):
-            pages = variants.setdefault(written, [])
-            if page1 not in pages:
-                pages.append(page1)
+            counts = variants.setdefault(written, {})
+            counts[page1] = counts.get(page1, 0) + 1
+    # `count` is occurrences, not `len(pages)` — three variants on one page were reported as one
+    # until M108. Only PyMuPDF is read here, so there is nothing to reconcile across engines.
     report["residual_normalized"] = [
-        {"as_written": written, "pages": sorted(pages), "count": len(pages)}
-        for written, pages in variants.items()
+        {"as_written": written, "pages": sorted(counts), "count": sum(counts.values())}
+        for written, counts in variants.items()
     ]
     if variants:
-        listed = "; ".join(f"{w!r} on page(s) {sorted(p)}" for w, p in list(variants.items())[:4])
+        listed = "; ".join(
+            f"{w!r} {sum(c.values())}x on page(s) {sorted(c)}"
+            for w, c in list(variants.items())[:4]
+        )
         report.setdefault("warnings", []).append(
             f"the characters of {query!r} also appear written differently and are still in the "
             f"file: {listed}. They differ only in spacing or punctuation, so if that is the same "

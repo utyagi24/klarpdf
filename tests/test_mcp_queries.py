@@ -678,3 +678,39 @@ def test_get_info_distinguishes_a_rotated_page_from_a_native_landscape_one(tmp_p
     assert by_page[3] == {"width_pt": 792.0, "height_pt": 612.0, "rotation": 0, "pages": [3]}
     # Same displayed geometry, different convention — they must not share a row.
     assert by_page[2] is not by_page[3]
+
+
+def test_the_search_cap_note_does_not_advise_a_flag_that_is_already_set(tmp_path):
+    """M108.2 — the truncation note ended "or set `whole_words`…" on calls that had already set it
+    (TC-011). Advice that does not apply reads as a stock message and trains a caller to skip the
+    note; TC-007 item E fixed the same shape in the redaction warnings by substituting the
+    applicable explanation rather than appending a generic one.
+    """
+    import asyncio
+    import json
+
+    import pymupdf
+
+    from mcp_bridge.config import Config
+    from mcp_bridge.server import create_server
+
+    path = str(tmp_path / "many.pdf")
+    doc = pymupdf.open()
+    for _ in range(60):
+        page = doc.new_page()
+        for row in range(12):
+            page.insert_text((72, 60 + row * 20), "alpha beta gamma")
+    doc.save(path)
+    doc.close()
+
+    server = create_server(Config())
+
+    def note(whole_words: bool) -> str:
+        reply = server.call_tool(
+            "search", {"path": path, "query": "alpha", "whole_words": whole_words}
+        )
+        return json.loads(asyncio.run(reply).content[0].text)["note"]
+
+    strict, loose = note(True), note(False)
+    assert "set `whole_words`" not in strict and "already on" in strict
+    assert "set `whole_words`" in loose
