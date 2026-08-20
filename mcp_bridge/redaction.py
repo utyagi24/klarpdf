@@ -598,6 +598,126 @@ def _covered_tokens(page: fitz.Page, boxes: list[tuple]) -> dict[str, int]:
     return counts
 
 
+def _boxes_touch(a: tuple, b: tuple) -> bool:
+    """Do two ``(x0, y0, x1, y1)`` rectangles overlap at all?"""
+    return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
+
+
+def _stream_encoding(doc, xref: int) -> tuple[str, int] | None:
+    """How the image at ``xref`` is **stored in the file**: its filter name and its stream length.
+
+    Read from the object, not through ``Document.extract_image``. That helper returns a *portable*
+    copy — for anything not already JPEG it synthesises a PNG — so it reports an encoding the file
+    does not contain and a length that is not the embedded stream. It happened to be exact for the
+    JPEG "before" side, which is precisely what made the "after" side's error hard to see: the
+    numbers looked right until the arithmetic was reconciled against the file (TC-011 retest b,
+    where the total overstated real growth by 129 KB and small images were 67–80% high).
+
+    The label is the PDF filter, so a caller who opens the output sees the name they were told to
+    expect. `PDF has no PNG image filter` — reporting one described nothing that exists.
+    """
+    kind, value = doc.xref_get_key(xref, "Filter")
+    if kind == "name":
+        label = value.lstrip("/")
+    elif kind == "array":
+        # A filter chain, outermost last; the image encoding is the one that decodes the pixels.
+        names = [part.lstrip("/") for part in value.strip("[]").split() if part.startswith("/")]
+        label = names[-1] if names else "unencoded"
+    else:
+        label = "unencoded"
+    try:
+        return label, len(doc.xref_stream_raw(xref))
+    except Exception:  # noqa: BLE001 — an unreadable stream is simply not reported
+        return None
+
+
+def _images_under(page, boxes: list[tuple]) -> dict[tuple, tuple[str, int]]:
+    """Every image *placement* a redaction box overlaps, keyed by its rectangle.
+
+    Keyed by **placement**, not by xref, because that is what survives the write. A page that draws
+    one image twice holds a single xref; erasing pixels under one of the two placements forces the
+    engine to split them, so the output has two xrefs where the source had one and no xref-to-xref
+    mapping exists. The rectangle does not move, so it is the stable identity — measured.
+
+    Rounded, because a rectangle that survives a save comes back with float noise in the last
+    places and an exact tuple would never match.
+    """
+    found: dict[tuple, tuple[str, int]] = {}
+    doc = page.parent
+    for entry in page.get_images(full=True):
+        xref = entry[0]
+        encoding = _stream_encoding(doc, xref)
+        if encoding is None:
+            continue
+        for rect in page.get_image_rects(xref):
+            placement = tuple(round(v, 1) for v in (rect.x0, rect.y0, rect.x1, rect.y1))
+            if any(_boxes_touch(placement, box) for box in boxes):
+                found[placement] = encoding
+    return found
+
+
+def _recode_report(before: dict[int, dict], target: str) -> dict:
+    """Say which images the write had to re-encode, and what it cost (M109).
+
+    **The behaviour is correct and the silence was the defect.** Erasing pixels inside an image
+    means decoding it; re-encoding the result as JPEG would be lossy a second time, over exactly
+    the pixels a redaction was asked to destroy, so the engine stores it losslessly instead. That is
+    the right trade and it is not negotiable — but a photo held losslessly is far larger than the
+    same photo as JPEG, so a redaction touching a few images can multiply the file size. Measured on
+    a real document: 7.4 MB → 10.0 MB from nine images; on a synthetic page, 61 KB → 1.3 MB for one.
+
+    The number is already visible to the caller as ``bytes``; what was missing was the reason. An
+    unexplained size jump reads as a bug, and twice it *was* filed as one — the "duplicated image
+    XObjects" reports (TC-003 #5, TC-010) were this mechanism seen from the outside, chased to a
+    duplication that was never there.
+
+    Only images whose **filter actually changed** are reported. An image the write left alone, or
+    re-stored in the encoding it already had, cost the caller nothing and saying so would be noise.
+    """
+    if not before:
+        return {}
+    recoded: list[dict] = []
+    with fitz.open(target) as doc:
+        for page1, placements in sorted(before.items()):
+            if page1 > doc.page_count:
+                continue
+            after = _images_under(doc[page1 - 1], [(-1e6, -1e6, 1e6, 1e6)])
+            for placement, (was_ext, was_bytes) in sorted(placements.items()):
+                now = after.get(placement)
+                if now is None or now[0] == was_ext:
+                    continue
+                recoded.append({
+                    "page": page1,
+                    "from": was_ext,
+                    "to": now[0],
+                    "bytes_before": was_bytes,
+                    "bytes_after": now[1],
+                })
+    if not recoded:
+        return {}
+    was = sum(item["bytes_before"] for item in recoded)
+    now = sum(item["bytes_after"] for item in recoded)
+    # Stated as measured, in whichever direction it went. Lossless is usually much larger for a
+    # photograph and can be *smaller* for a flat graphic, and a warning that asserts growth would
+    # be wrong on the second — which is the kind of detail that teaches a caller to stop reading
+    # warnings.
+    delta = (
+        f"grew from {was / 1024:,.0f} KB to {now / 1024:,.0f} KB"
+        if now > was
+        else f"went from {was / 1024:,.0f} KB to {now / 1024:,.0f} KB"
+    )
+    return {
+        "images_recoded": recoded,
+        "warnings": [
+            f"{len(recoded)} image(s) overlapping a redaction box were re-encoded **losslessly** "
+            f"({recoded[0]['from']} → {recoded[0]['to']}), because erasing pixels inside an image "
+            "means decoding it, and re-compressing lossily would degrade exactly the area being "
+            f"redacted. Those images {delta} as a result — that, not duplication, is why a "
+            "redacted file can be larger than its source. No untouched page was altered."
+        ],
+    }
+
+
 def _apply(vdoc, per_page: dict[int, list[tuple]], source: str, password: str | None) -> dict:
     """Attach a :class:`Redaction` per page and record what verification will expect afterwards.
 
@@ -619,6 +739,9 @@ def _apply(vdoc, per_page: dict[int, list[tuple]], source: str, password: str | 
             "boxes": covered,
             "fitz_before": {t: _count(fitz_before, t) for t in covered},
             "poppler_before": {t: _count(poppler_before, t) for t in covered},
+            # Read here for the same reason the text counts are: after materialise the source
+            # encoding is gone, and this is the last moment it can be seen.
+            "images": _images_under(page, boxes),
         }
         vdoc.add_annotation(index0, Redaction(tuple(boxes)))
     return expectations
@@ -650,6 +773,11 @@ def _finish(
         if os.path.exists(target):
             os.remove(target)  # never leave a false-secure file behind
         raise
+    recoded = _recode_report(
+        {page1: expected["images"] for page1, expected in expectations.items()
+         if expected.get("images")},
+        target,
+    )
     return _merged(
         {
             "out": target,
@@ -664,6 +792,7 @@ def _finish(
             },
         },
         report,
+        recoded,
         extra,
     )
 

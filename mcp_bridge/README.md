@@ -250,6 +250,13 @@ exactly what you want for an identifier buried in a machine tag — but it is re
 warning repeats it. None of the residual checks can find this on their own: they are all scoped to
 the query, and the query *was* removed exactly as asked.
 
+**A redacted file can be larger than its source, and the reply explains why.** Erasing pixels
+inside an image means decoding it; re-compressing lossily would degrade exactly the area being
+redacted, so the image is stored losslessly, and a photograph held losslessly is much bigger than
+the same photograph as JPEG. `images_recoded` names each one by its PDF filter (`DCTDecode` →
+`FlateDecode`) with the embedded stream size before and after, so the numbers reconcile against the
+output file. Nothing is duplicated — only the placements a box actually overlaps are re-encoded.
+
 **Removing several things? Use `queries`, not several calls.** The argument is data hygiene rather
 than convenience: every write needs a fresh `out`, so a chain of six redactions strews five
 intermediate files, each a partially-redacted copy still holding the values you have not reached

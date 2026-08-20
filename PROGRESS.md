@@ -2231,6 +2231,31 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   `TYAGI1703` trap *within* a line (`Smith` + `Jones` → the token `SmithJones`), caught by M98's
   existing tests. Design in `PLAN.md` §M100 — *WSL*
 
+- [x] **M109** *(unplanned)* **A redaction that re-encodes an image now says so** — TC-011,
+  2026-08-19. Redacting text sitting **on** an image means erasing pixels inside it, which means
+  decoding it; re-compressing lossily would degrade exactly the area being redacted, so it is stored
+  losslessly — correct, and expensive: 7.4 MB → 10.0 MB from nine images on a 320-page document,
+  61 KB → 1.3 MB for one synthetic page. **The behaviour was right and the silence was the defect.**
+  The size was visible as `bytes`; the reason was not, and an unexplained jump reads as a bug — it
+  was filed as one **twice**, as "duplicated image XObjects" (TC-003 #5, re-chased as TC-010), and
+  the 2026-08-19 review concluded "does not reproduce" because the document tested had no image
+  under a redaction box. That verdict was right about duplication and wrong about the symptom. The
+  reply now carries `images_recoded` (`page`, `from`, `to`, `bytes_before`, `bytes_after`) and a
+  warning. Keyed by **placement**, not xref: a page drawing one image twice holds one xref until a
+  box covers one placement, at which point the engine splits them and no xref mapping survives — the
+  rectangle does not move, and it is what makes "only the covered placement was re-encoded"
+  reportable, which is the fact that distinguishes this from duplication. Both redactors share the
+  write path, so both disclose it. A negative test caught the first draft asserting growth on a case
+  that shrank; the warning now states the measured direction. **Corrected after the TC-011 retest**
+  (2026-08-20), which verified the page set 9/9 exact and `bytes_before` exact on all nine, and then
+  found the new field's *other* two values wrong: `extract_image` returns a **portable** copy, so it
+  synthesised a PNG for anything not already JPEG — reporting `to: "png"` when PDF has no PNG image
+  filter and every re-encoded stream is `/FlateDecode`, and a length that was not the embedded
+  stream. Exact on the JPEG "before" side, which is what hid it; reconciled against the file the
+  total overstated real growth by 129 KB, small images running 67–80% high. Now read from `Filter`
+  and `xref_stream_raw`, so the labels name what the output carries and `bytes_after` matches the
+  stream in it — asserted against the file rather than against itself. Design in `PLAN.md` §M109 —
+  [#270](https://github.com/utyagi24/klarpdf/pull/270) — *WSL*
 - [x] **M108** *(unplanned)* ⚠️ **The residual counts said spellings and meant places** — TC-011,
   2026-08-19, **high**, and found only at scale. On a 320-page document `redact_text` reported
   `residual_literal: 2` where **12** residual occurrences remained: the field counted distinct
