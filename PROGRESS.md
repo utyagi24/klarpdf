@@ -2241,10 +2241,14 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   gap. **Why it matters:** M101's review loop assumes the person reviews *in KlarPDF*, and reviewers
   use whatever their employer installed — so a real round trip comes back carrying Acrobat or Edge
   marks, against which the bridge can only stack. Adoption is the principled answer and already
-  exists. **One dependency to land first, in the M101 fix PR:** `get_annotations` must report
-  `foreign_annots.fingerprint()`, since an editing tool has to name which mark and retrofitting an
-  identifier after callers depend on the reply shape is the expensive order. Design in `PLAN.md`
-  §M112 — *WSL*
+  exists. **Naming a mark is this milestone's hard part, and it is unsolved** — an earlier draft of
+  this entry said `fingerprint()` already provided one and scheduled it into the M101 fix PR;
+  measurement withdrew that. For our own marks the identifier **silently rebinds**: PyMuPDF names
+  annotations by *position* (`fitz-A0`, `fitz-A1`, …) and our marks are re-created from descriptors
+  on every save, so after one mark absorbs another, an id that meant one highlight resolves to a
+  different one — an edit sent to it hits the wrong mark with no error. Whether foreign marks carry
+  a better name is **unverified**: both corpus files checked turned out to have been annotated by
+  this app under its old codename. Design in `PLAN.md` §M112 — *WSL*
 
 - [x] **M109** *(unplanned)* **A redaction that re-encodes an image now says so** — TC-011,
   2026-08-19. Redacting text sitting **on** an image means erasing pixels inside it, which means

@@ -4010,10 +4010,46 @@ out, and it already exists: it is an explicit act that takes ownership rather th
 
 **Three things to get right:**
 
-1. **Identity has to come first, and it is cheap now.** An editing tool must name *which* mark.
-   `foreign_annots.fingerprint()` already provides a stable one that survives the renumbering a save
-   performs — so `get_annotations` should report it **in the M101 fix PR**, before any of this is
-   built. Retrofitting an identifier after callers depend on the reply shape is the expensive order.
+1. **Naming a mark is the hard part, and it is not solved.** An editing tool has to say *which*
+   mark to act on, and the obvious candidate does not work. `foreign_annots.fingerprint()` prefers
+   an annotation's `/NM` name — an optional field in the PDF that is meant to identify an annotation
+   uniquely on its page — and falls back to hashing type + rect + contents when there is none.
+   Measured 2026-08-21:
+
+   * **For one of our own marks it does not merely go stale — it silently rebinds to a different
+     mark.** PyMuPDF fills `/NM` in automatically as `fitz-A0`, `fitz-A1`, …, which are *positions
+     on the page*, not identities; and our marks are stripped and re-created from descriptors on
+     **every** save, so the numbering is reassigned in whatever order they now sit. Three marks
+     LEFT / MIDDLE / RIGHT; one call takes MIDDLE's span over; RIGHT is untouched but its id moves
+     `fitz-A2` → `fitz-A1` — and `fitz-A1`, which meant MIDDLE, now resolves to RIGHT. An edit
+     addressed to the old id hits the wrong mark **with no error**, because the name resolves
+     perfectly.
+   * **Whether a foreign mark carries a better one is unverified.** The intuition is that Acrobat
+     and Edge write a real `/NM` and that the mark passes through our save untouched, so the
+     identifier holds. Both corpus files checked came back with `fitz-` names because both had been
+     annotated by *this app* (`pdfproj` is our old codename), so they prove nothing either way.
+     **Check real third-party output before any design rests on this.**
+
+   So `get_annotations` must **not** simply report `fingerprint()`. A field that is trustworthy for
+   some rows and quietly wrong for others is worse than no field, because nothing in the reply
+   separates them. *(An earlier draft of this section scheduled exactly that for the M101 fix PR.
+   Withdrawn.)*
+
+   Three options, in ascending cost:
+
+   * **Report it for foreign marks only**, `null` for ours. Cheap, and it unblocks the case with no
+     alternative today. Rests entirely on the unverified assumption above.
+   * **Derive ours from content** — the hash path `fingerprint()` already falls back to, over type,
+     area and note, all of which the descriptor reproduces exactly across a save. It still changes
+     when a mark merges, but that is *correct*: an absorbed mark is a different mark. The property
+     that matters is that it goes **stale rather than wrong** — a changed id matches nothing, so the
+     edit fails loudly instead of hitting the wrong target.
+   * **Give our marks a real identity**, carried on the descriptor and written into the file. The
+     proper answer and much the largest: model, save path, undo and the app.
+
+   **Recommendation: the second**, with the first as a fallback wherever a foreign mark turns out to
+   carry a usable `/NM`. It is the only one that makes a wrong edit impossible rather than merely
+   unlikely, it does not touch the app, and it does not depend on the unverified assumption.
 2. **`degradations()` reports; it cannot prompt.** The app's adoption path shows a warning with a
    cancel button when a mark carries features the model cannot hold (`/RC` rich text, a non-base-14
    DA font, `/CA` opacity, `/CL` callouts). A tool has no cancel button, so the contract must invert:
