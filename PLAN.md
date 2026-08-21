@@ -3975,6 +3975,59 @@ The lesson generalises: a field whose whole purpose is to account for something 
 against the thing it accounts for, and a test now asserts `bytes_after` against the stream in the
 file rather than against itself.
 
+### M112 — the bridge can *edit* an annotation, not only add one (owner-asked 2026-08-21)
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M112** The bridge-side counterpart to M66–M68: delete a mark, recolour it, change its note, and **adopt** a foreign one so it becomes editable | A new tool over `model/foreign_annots.py` (`adopt_annotation`, `degradations`, `ForeignDeletion`) and `page_edits.restyle_mark`, addressed by the `fingerprint` `get_annotations` reports | WSL | An Edge highlight is adopted, recoloured and re-noted from the bridge and reopens editable in the app; adopting a mark carrying features the model cannot hold **reports** the loss rather than performing it silently; a delete removes exactly one mark and leaves its neighbours untouched |
+
+**The gap, stated correctly** (the owner corrected an earlier framing of this on 2026-08-21). It is
+*not* that KlarPDF handles other tools' marks poorly — it handles them well, across three
+milestones: M66 deletes a foreign annotation, M67 moves one with its appearance preserved exactly,
+M68 **adopts** one on double-click into an ordinary editable KlarPDF mark, and M90.4 shows its note.
+Once adopted, recolouring, re-noting, extending and merging all work normally.
+
+The gap is that **the bridge has none of it**:
+
+| | App | Bridge (after M101) |
+| --- | --- | --- |
+| Read foreign marks | ✅ M66/M90.4 | ✅ `get_annotations` |
+| Delete one | ✅ M66 | ❌ |
+| Move one | ✅ M67 | ❌ |
+| Adopt → recolour / note / merge | ✅ M68 | ❌ |
+
+An agent can see a colleague's marks and add beside them; a person doing the same job in the app has
+four more options. M101 recorded this as deliberately out of scope — correctly, for that milestone —
+but "out of scope" is not "on the roadmap", and an undated exclusion is how a decision becomes a
+permanent gap. Hence a number.
+
+**Why it is worth building rather than merely consistent.** M101's review loop assumes step 2 happens
+in KlarPDF. Reviewers use what their employer installed, so a real round trip often comes back
+carrying Acrobat or Edge marks — and against those the bridge can only stack (§M101's merge is scoped
+to marks this app wrote, deliberately: merging deletes a mark, and silently deleting a reviewer's
+annotation to reattribute its span would be worse than a duplicate). Adoption is the principled way
+out, and it already exists: it is an explicit act that takes ownership rather than a silent one.
+
+**Three things to get right:**
+
+1. **Identity has to come first, and it is cheap now.** An editing tool must name *which* mark.
+   `foreign_annots.fingerprint()` already provides a stable one that survives the renumbering a save
+   performs — so `get_annotations` should report it **in the M101 fix PR**, before any of this is
+   built. Retrofitting an identifier after callers depend on the reply shape is the expensive order.
+2. **`degradations()` reports; it cannot prompt.** The app's adoption path shows a warning with a
+   cancel button when a mark carries features the model cannot hold (`/RC` rich text, a non-base-14
+   DA font, `/CA` opacity, `/CL` callouts). A tool has no cancel button, so the contract must invert:
+   either refuse an adoption that would lose something and name what, or perform it and report the
+   loss — the first is safer and matches the redaction path's "refuse rather than silently degrade".
+   This is the milestone's real design decision.
+3. **Move is probably not in it.** M67's value is dragging a mark with a mouse; an agent nudging one
+   by coordinates has no equivalent need, and the geometry editing is a different kind of tool from
+   the metadata editing above. Excluded unless a session asks for it.
+
+**Description budget (M105) argues for one tool with an operation, not four tools.** The roster is
+already nineteen; `edit_annotation(path, fingerprint, out, delete=… | color=… | note=… )` keeps it at
+twenty rather than twenty-three.
+
 ## Future enhancements (deferred beyond the roadmap)
 
 Captured but not yet scheduled:

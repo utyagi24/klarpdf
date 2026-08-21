@@ -2231,6 +2231,21 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   `TYAGI1703` trap *within* a line (`Smith` + `Jones` → the token `SmithJones`), caught by M98's
   existing tests. Design in `PLAN.md` §M100 — *WSL*
 
+- [ ] **M112** *(unplanned)* **The bridge can *edit* an annotation, not only add one** — owner-asked
+  2026-08-21, correcting an earlier framing in the same session. The app handles other tools' marks
+  **well**: M66 deletes a foreign annotation, M67 moves one with its appearance intact, M68 **adopts**
+  one on double-click into an ordinary editable KlarPDF mark, M90.4 shows its note — after which
+  recolouring, re-noting and merging all work. The gap is that the **bridge has none of it**: after
+  M101 an agent can read a colleague's marks and add beside them, and that is all. M101 scoped this
+  out correctly for that milestone, but an undated exclusion is how a decision becomes a permanent
+  gap. **Why it matters:** M101's review loop assumes the person reviews *in KlarPDF*, and reviewers
+  use whatever their employer installed — so a real round trip comes back carrying Acrobat or Edge
+  marks, against which the bridge can only stack. Adoption is the principled answer and already
+  exists. **One dependency to land first, in the M101 fix PR:** `get_annotations` must report
+  `foreign_annots.fingerprint()`, since an editing tool has to name which mark and retrofitting an
+  identifier after callers depend on the reply shape is the expensive order. Design in `PLAN.md`
+  §M112 — *WSL*
+
 - [x] **M109** *(unplanned)* **A redaction that re-encodes an image now says so** — TC-011,
   2026-08-19. Redacting text sitting **on** an image means erasing pixels inside it, which means
   decoding it; re-compressing lossily would degrade exactly the area being redacted, so it is stored
