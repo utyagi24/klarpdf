@@ -4011,8 +4011,33 @@ the count**, well under the ~136 KB that failed. Two riders: `annotate`'s reply 
 the pages it touched, so adding one mark to a page holding eighty returns eighty-one — **narrow it to
 the marks the call actually touched**, which is bounded by the request instead of by the page's
 history. And `extract_text`'s 200,000-character cap has the same exposure — **not ours, log it
-separately.** *Open question for the owner:* when a reply will not fit, shorten long notes and keep
-every mark's geometry (positions are what the redaction hand-off needs), or drop whole marks?
+separately.**
+
+**On overflow: drop whole marks, and let the caller ask for the rest** (owner, 2026-08-21 — the
+alternative considered was trimming long notes to keep every mark's geometry). This makes
+`get_annotations` **the bridge's first paginated tool**, which needs justifying, because every other
+capped tool answers truncation with *narrow the request*: `search` says tighten the query,
+`export_images` says list the directory. **That advice has no analogue here.** There is no query to
+tighten — the marks are simply on the page — so the only lever is `pages`, and it fails precisely in
+the case that overflows: one dense page carrying 400 marks cannot be narrowed at all. A caller
+following the documentation would be told to page and find that paging does not help.
+
+So add an `offset`: skip the first N marks, return the next batch, and report the true total
+alongside — the same courtesy `search` already extends with `total_matches`, so a caller knows how
+many rounds to expect before starting rather than discovering it one call at a time.
+
+**A plain integer offset is enough here, and that is worth stating because it usually is not.**
+Position-based paging is normally fragile — the data shifts between calls and rows are skipped or
+repeated. Neither can happen: the order is deterministic (page order, then each page's own
+annotation order), and **the document cannot change underneath the sequence**, because every write
+tool refuses to write over its input, so a concurrent `annotate` produces a *different* file. No
+cursor token, no snapshot, no staleness handling.
+
+**The risk this trades for, and the docs must carry it:** dropping marks means a caller who filters
+by colour and reads only the first batch gets an **incomplete answer that looks complete**. So
+`more_available` has to be prominent, with the instruction stated plainly — when filtering across a
+whole document, keep calling until it is false. A truncation that silently reads as "here is
+everything orange" would be worse than the size error it replaced.
 
 **M113.3 — a document asking not to be annotated is annotated silently** *(disclosure gap)*. The
 policy fixture carries `annotate: false`; `annotate` wrote sixteen marks and returned no `warnings`

@@ -2248,7 +2248,13 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     counts *marks*, which run 213–613 chars each. Composition is 53% JSON scaffolding, 37% notes, 8%
     boxes. Fix: a character budget beside the count, and narrow `annotate`'s echo to the marks the
     call touched rather than every mark on the page. `extract_text` has the same exposure — logged
-    separately, not ours. **Open question:** on overflow, shorten notes or drop marks?
+    separately, not ours. **Owner decision: drop whole marks and let the caller fetch the rest**,
+    which makes this the bridge's **first paginated tool** — justified because every other tool
+    answers truncation with "narrow the request", and here there is no query to narrow: `pages` is
+    the only lever and it cannot help when one page holds 400 marks. A plain `offset` suffices (the
+    order is deterministic and no write tool can change the file being read), plus the true total so
+    a caller knows how many rounds to expect. The docs must make `more_available` loud: a filtered
+    first batch is an incomplete answer that looks complete.
   - **M113.3** A document asking not to be annotated is annotated **silently**. Writing is correct —
     the flag is advisory — so the defect is the silence, as at M107. The app does not warn either;
     that is a separate GUI question, deliberately not folded in.
