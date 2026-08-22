@@ -2231,6 +2231,35 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   `TYAGI1703` trap *within* a line (`Smith` + `Jones` → the token `SmithJones`), caught by M98's
   existing tests. Design in `PLAN.md` §M100 — *WSL*
 
+- [ ] **M110** *(unplanned)* ⭐ **The save's cleanup level must follow the route, not the file** —
+  found 2026-08-21 while reviewing TC-012, whose FINDING 1 read "cost scales with document size".
+  It does not — a 320-page 7 MB file saves in 2.4 s. The trigger is **object count**, and the cause
+  is **M93**: before it, every save rebuilt the document and the rebuild collapsed 48,877 objects to
+  2,176 as a side effect, leaving `garbage=4` almost nothing to search. M93 stopped rebuilding (for
+  good reasons — the rebuild dropped the structure tree, `/Perms`, `/Names` and encryption), so the
+  whole object graph now reaches the save and `garbage=4` hunts duplicates across all of it and
+  finds **none**: **202 s against 3 s**. Measured across five levels, 1 and 2 do all the work and
+  3–4 change nothing here; on the pathological file `garbage=2` is **121× faster and 18 KB
+  smaller**. But 3–4 are *not* useless — they clean up after our own page-copying, and duplicating
+  an image-heavy page proves it: **level 4 writes 1.9 MB where levels 1–3 write 39.5 MB**, and is 4×
+  faster doing it. So the level follows the **route**, which is the split M93 already created: the
+  graft keeps 4, the unchanged-page-set copy drops to 2. **Not shipped** — v0.17.1 predates M93, so
+  no released build is affected. Two things it must also do: keep level 1, which is what actually
+  deletes the image a redaction orphans (at level 0 it stays in the file, recoverable), and **pin
+  that with a test**, since the redaction check reads *text* with two engines and an orphaned
+  picture of a secret is not text to either. Design in `PLAN.md` §M110 — *WSL + Windows*
+
+- [ ] **M111** *(unplanned)* **The export paths never followed M93, and Reduced-Size reports a number
+  it does not write** — found 2026-08-21, same commit and same cause as M110. Four call sites write a
+  PDF; M93 added `use_objstms=1` to one. The cost lands on the feature whose purpose is smaller
+  files: **Reduced-Size PDF returns a file 146 KB *larger* than a plain Save** on one document, and
+  leaves 40 KB / 143 KB on the table on two others. Its reported `before` is computed without the
+  option too, so it overstates the starting size — and therefore the saving — while its docstring
+  promises it is "what a plain Save would write". `garbage=4` is *correct* in the exports and stays:
+  `rewrite_images` genuinely creates identical streams. The real fix is structural — the save options
+  are four copies of a literal and should be one named set with the route choosing the level, so the
+  next change cannot update one site and miss three. Design in `PLAN.md` §M111 — *WSL*
+
 - [x] **M109** *(unplanned)* **A redaction that re-encodes an image now says so** — TC-011,
   2026-08-19. Redacting text sitting **on** an image means erasing pixels inside it, which means
   decoding it; re-compressing lossily would degrade exactly the area being redacted, so it is stored
