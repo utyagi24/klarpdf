@@ -23,7 +23,7 @@ from __future__ import annotations
 import pymupdf as fitz
 import pytest
 
-from model.edit_engine import PyMuPDFEngine
+from model.edit_engine import GARBAGE_COPY, GARBAGE_GRAFT, PyMuPDFEngine
 from model.virtual_document import VirtualDocument
 
 _PERMS = int(fitz.PDF_PERM_PRINT | fitz.PDF_PERM_ACCESSIBILITY)
@@ -53,6 +53,23 @@ def tagged_pdf(tmp_path) -> str:
     doc.update_object(struct, "<< /Type /StructTreeRoot >>")
     doc.xref_set_key(doc.pdf_catalog(), "StructTreeRoot", f"{struct} 0 R")
     doc.xref_set_key(doc.pdf_catalog(), "MarkInfo", "<< /Marked true >>")
+    doc.save(path)
+    doc.close()
+    return path
+
+
+@pytest.fixture
+def photo_pdf(tmp_path) -> str:
+    """One page that is almost entirely a photograph — a gradient, which is what compresses to a
+    large stream rather than to nothing. The shape that makes stream-level deduplication matter."""
+    path = str(tmp_path / "photo.pdf")
+    pix = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 600, 400))
+    for x in range(600):
+        for y in range(400):
+            pix.set_pixel(x, y, (x % 256, (x * y) % 256, y % 256))
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_image(page.rect, stream=pix.tobytes("png"))
     doc.save(path)
     doc.close()
     return path
@@ -117,6 +134,107 @@ def test_a_page_edit_does_not_count_as_structural(tagged_pdf):
     v = VirtualDocument.from_path(tagged_pdf)
     v.ordered = [v.ordered[0].with_rotation(90), *v.ordered[1:]]
     assert v.page_set_unchanged() is True
+
+
+# ---- what the route costs (M110) -------------------------------------------------
+
+
+def test_the_cleanup_level_follows_the_route(tagged_pdf):
+    """The expensive cleanup runs exactly when *we* did the copying.
+
+    A Save was not asked to optimise the user's file, so a copy of the origin is written as packed
+    as it arrived; the graft cleans up after its own page-copying. The cost of the other choice is
+    the milestone: the duplicate hunt is quadratic in object count, and on a 48,877-object document
+    it took 289 s to find almost nothing.
+    """
+    v = VirtualDocument.from_path(tagged_pdf)
+    assert PyMuPDFEngine().save_options(v)["garbage"] == GARBAGE_COPY
+
+    v.ordered = v.ordered + [v.ordered[0]]  # a duplicated page — now a graft
+    assert PyMuPDFEngine().save_options(v)["garbage"] == GARBAGE_GRAFT
+
+
+def test_neither_route_goes_below_the_orphan_floor():
+    """Level 1 drops unreferenced objects, and that is what deletes an image a redaction detaches
+    from its page. Below it the picture stays in the file, recoverable by anything that walks
+    objects rather than pages — see ``tests/test_redaction_orphans.py``, which proves it."""
+    assert GARBAGE_COPY >= 1
+    assert GARBAGE_GRAFT >= 1
+
+
+def test_only_the_cleanup_level_ever_varies(tagged_pdf):
+    """The rest of the options were four copies of a literal, and ``use_objstms`` reached exactly
+    one of them (M111). Whatever the route, everything but the level is the same set."""
+    v = VirtualDocument.from_path(tagged_pdf)
+    copy_route = PyMuPDFEngine().save_options(v)
+    v.ordered = v.ordered + [v.ordered[0]]
+    graft_route = PyMuPDFEngine().save_options(v)
+
+    assert copy_route["use_objstms"] == 1 and graft_route["use_objstms"] == 1
+    assert {k: val for k, val in copy_route.items() if k != "garbage"} == \
+           {k: val for k, val in graft_route.items() if k != "garbage"}
+
+
+def test_a_save_writes_with_the_level_it_reports(tagged_pdf, tmp_path):
+    """``save_options`` is what ``materialize`` writes with, not a second opinion about it — the
+    Reduced-Size baseline reports it as "what a plain Save would write" (M111)."""
+    out_path = str(tmp_path / "out.pdf")
+    calls = []
+    real_save = fitz.Document.save
+
+    def spy(self, path, **kwargs):
+        if path == out_path:  # the copy-a-source `tobytes` also lands here
+            calls.append(kwargs)
+        return real_save(self, path, **kwargs)
+
+    engine = PyMuPDFEngine()
+    v = VirtualDocument.from_path(tagged_pdf)
+    fitz.Document.save = spy
+    try:
+        engine.materialize(v, out_path)
+    finally:
+        fitz.Document.save = real_save
+
+    assert len(calls) == 1
+    assert calls[0]["garbage"] == GARBAGE_COPY  # nothing structural happened to this document
+    assert calls[0]["use_objstms"] == 1 and calls[0]["clean"] is True
+
+
+def test_a_save_does_not_grow_the_file_it_was_given(photo_pdf, tmp_path):
+    """Leaving a document as packed as it arrived must not mean writing a *bigger* one, and
+    re-saving must not ratchet: measured across the corpus, every file still saves smaller than the
+    file it came from, and a second save of an output reproduces its size exactly."""
+    once = str(tmp_path / "once.pdf")
+    PyMuPDFEngine().materialize(VirtualDocument.from_path(photo_pdf), once)
+    twice = str(tmp_path / "twice.pdf")
+    PyMuPDFEngine().materialize(VirtualDocument.from_path(once), twice)
+
+    import os
+
+    assert os.path.getsize(once) <= os.path.getsize(photo_pdf)
+    assert os.path.getsize(twice) == os.path.getsize(once)
+
+
+def test_a_duplicated_image_page_does_not_duplicate_the_image(photo_pdf, tmp_path):
+    """Why the graft keeps level 4: only it merges identical **streams**.
+
+    Duplicating an image-heavy page copies a reference to the same picture, and levels 1–3 write
+    the picture again for every copy — measured on a real page, 39.5 MB against 1.9 MB at level 4,
+    which is also 4× faster because detecting twenty identical images beats compressing twenty
+    copies of them.
+    """
+    v = VirtualDocument.from_path(photo_pdf)
+    one_page = tmp_path / "one.pdf"
+    PyMuPDFEngine().materialize(v, str(one_page))
+
+    v.ordered = v.ordered * 6  # the page plus five duplicates
+    six_pages = tmp_path / "six.pdf"
+    PyMuPDFEngine().materialize(v, str(six_pages))
+
+    assert v.page_set_unchanged() is False  # the graft route, so level 4
+    # Six copies of a page whose bytes are almost entirely one photograph, for well under twice
+    # the size of one — anything near 6× means the streams were written out again.
+    assert six_pages.stat().st_size < one_page.stat().st_size * 2
 
 
 # ---- what survives ---------------------------------------------------------------

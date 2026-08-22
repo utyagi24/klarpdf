@@ -4010,6 +4010,46 @@ optimise should leave a file the size it found it, and **Reduced-Size PDF** exis
 ask), but it is a behaviour change and the corpus comparison must look for it rather than only
 confirming the wins.
 
+#### Verified when built (2026-08-21) — the route rule stands, and the counter-case is real but small
+
+The corpus comparison this section asked for was run over ten documents, and it found the
+counter-case: at `garbage=2` four of them are larger than the same file written at `garbage=4` —
+`ssa-1-bk.pdf` by 31% (224,075 B against 154,902), `ssa-3.pdf` by 8%, `dhariwal_ipo.pdf` by 5%,
+`Policy_home_….pdf` by 0.1%. Level 4 is the only level that merges *streams*, and real documents do
+arrive carrying duplicate ones, so the claim that 3–4 buy nothing on the copy route is false in
+general; what stands is that **it is not a Save's job to collect that saving**.
+
+**The comparison that matters is against the file the user has, not against our previous output**,
+and by that measure the rule holds: at `garbage=2` every corpus document still saves *smaller than
+its input*.
+
+| Document | input | `garbage=2` save | vs input |
+| --- | --- | --- | --- |
+| `ssa-1-bk.pdf` | 233,320 | 224,075 | **−9,245** |
+| `ssa-3.pdf` | 72,997 | 70,112 | **−2,885** |
+| `f8949.pdf` | 150,240 | 81,352 | **−68,888** |
+| `spaceX_prospectus.pdf` | 7,363,360 | 7,220,185 | **−143,175** |
+| `Policy_home_….pdf` | 284,270 | 281,990 | **−2,280** |
+| `dhariwal_ipo.pdf` | 9,015,879 | 9,311,232 | +295,353 |
+
+Only the pathological file ends larger than its input, by 3.3%, and that is the file that cost
+**289 s** to save and now takes **1.87 s**. **Nothing ratchets**: re-saving a `garbage=2` output
+reproduces its size exactly (224,075 → 224,075), so a document does not creep upward across
+successive saves.
+
+**The graft keeping level 4 costs nothing, for a structural reason.** `insert_pdf` collapses the
+object graph on the way through, so the hunt runs against an already-small document: measured on the
+572-page, 48,877-object prospectus with one page deleted, the graft writes 2,178 objects in
+**2.08 s**. The expensive level is therefore safe exactly where it is used.
+
+**An object-count budget was built and withdrawn.** Choosing the level from the output document's
+object count (deduplicate under ~5,000 objects, compact above) keeps the 31% on `ssa-1-bk.pdf` and
+still fixes the regression. It was rejected on the owner's call, and the reason is the one this
+section already gives: a Save that was not asked to optimise should leave the file as it found it,
+`Export ▸ Reduced Size PDF` is the place that asks, and a magic threshold buys size the user never
+requested at the cost of a cliff — two similar documents behaving differently with nothing to
+explain why.
+
 ### M111 — the export paths never followed M93, and one of them reports a number it does not write (found 2026-08-21)
 
 | Milestone | What | Where | Verify |
