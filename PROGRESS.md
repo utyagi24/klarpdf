@@ -2231,7 +2231,8 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   `TYAGI1703` trap *within* a line (`Smith` + `Jones` → the token `SmithJones`), caught by M98's
   existing tests. Design in `PLAN.md` §M100 — *WSL*
 
-- [ ] **M110** *(unplanned)* ⭐ **The save's cleanup level must follow the route, not the file** —
+- [x] **M110** *(unplanned)* ⭐ **A save no longer spends five minutes looking for duplicates that
+  are not there** —
   found 2026-08-21 while reviewing TC-012, whose FINDING 1 read "cost scales with document size".
   It does not — a 320-page 7 MB file saves in 2.4 s. The trigger is **object count**, and the cause
   is **M93**: before it, every save rebuilt the document and the rebuild collapsed 48,877 objects to
@@ -2242,12 +2243,31 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   3–4 change nothing here; on the pathological file `garbage=2` is **121× faster and 18 KB
   smaller**. But 3–4 are *not* useless — they clean up after our own page-copying, and duplicating
   an image-heavy page proves it: **level 4 writes 1.9 MB where levels 1–3 write 39.5 MB**, and is 4×
-  faster doing it. So the level follows the **route**, which is the split M93 already created: the
-  graft keeps 4, the unchanged-page-set copy drops to 2. **Not shipped** — v0.17.1 predates M93, so
-  no released build is affected. Two things it must also do: keep level 1, which is what actually
-  deletes the image a redaction orphans (at level 0 it stays in the file, recoverable), and **pin
-  that with a test**, since the redaction check reads *text* with two engines and an orphaned
-  picture of a secret is not text to either. Design in `PLAN.md` §M110 — *WSL + Windows*
+  faster doing it. So the level was scheduled to follow the **route** — graft keeps 4, the
+  unchanged-page-set copy drops to 2. **Not shipped** — v0.17.1 predates M93, so no released build
+  is affected.
+
+  **Built as planned, after the corpus check the design called for.** That check did find the
+  counter-case: at level 2 four of ten documents are bigger than the same file at level 4, one by
+  31% — level 4 is the only level that merges *streams*, and real files do arrive carrying
+  duplicate ones. It stands anyway, on the owner's call, because **the comparison that matters is
+  against the file the user has**: at level 2 every corpus document still saves *smaller than its
+  input* (`ssa-1-bk.pdf` 233,320 → 224,075; `f8949.pdf` 150,240 → 81,352), and re-saving an output
+  reproduces its size exactly, so nothing creeps upward. Only the pathological file ends above its
+  input, by 3.3%, and it is the one that cost **289.36 s to save and now takes 1.87 s** (155×).
+  Collecting the other saving is `Export ▸ Reduced Size PDF`'s job, not a Save's. **An
+  object-count budget was built and withdrawn** — choosing the level from the output's object count
+  keeps the 31% and fixes the regression too, but it buys size nobody asked for and adds a
+  threshold cliff where two similar documents behave differently with nothing to explain why.
+  The graft keeping level 4 is free for a structural reason: `insert_pdf` collapses 48,877 objects
+  to 2,178 before the hunt starts, so a graft of that same document writes in **2.08 s**. The four
+  `Document.save` literals became one `write_options()` set, which is what M111 then reaches for.
+  **The security floor is pinned**:
+  `tests/test_redaction_orphans.py` asserts a redacted image leaves no unreferenced object behind,
+  with a control at `garbage=0` that *finds* the orphan so the check cannot go vacuous — a gap the
+  redaction verification structurally cannot cover, since it checks *text* with two engines and an
+  orphaned picture of a secret is not text to either. Design + the corpus check in `PLAN.md` §M110 —
+  [#275](https://github.com/utyagi24/klarpdf/pull/275) — *WSL; Windows spot-check outstanding*
 
 - [ ] **M111** *(unplanned)* **The export paths never followed M93, and Reduced-Size reports a number
   it does not write** — found 2026-08-21, same commit and same cause as M110. Four call sites write a
