@@ -20,6 +20,73 @@ import pymupdf as fitz
 from model.virtual_document import VirtualDocument
 
 
+#: Object cleanup for the route that **copies the origin** — an unchanged page set (M110).
+#: Drop objects nothing references and compact the xref, and stop there. Linear in the size of the
+#: document, so it costs nothing on any file.
+#:
+#: **A Save is not an optimiser.** The levels above this one hunt for duplicate objects and streams
+#: across the whole graph, which on this route is the *origin's* graph — a document somebody else
+#: wrote, arriving packed as they packed it. Shrinking it is not this operation's job:
+#: **Reduced-Size PDF** is where a user asks for a smaller file, and a Save should hand back
+#: roughly what it was given. Measured, that is what this does — every corpus document still saves
+#: *smaller than the file it came from* at this level (`ssa-1-bk.pdf` 233,320 → 224,075,
+#: `f8949.pdf` 150,240 → 81,352), and re-saving an output at this level reproduces its size
+#: exactly, so nothing ratchets upward across saves.
+#:
+#: The cost of not stopping here is the milestone: the duplicate hunt is **quadratic** in object
+#: count where this is linear — 0.11 s against 0.02 s at 2,000 objects, but 360 s against 1.08 s at
+#: 80,000 — and a 572-page, 48,877-object prospectus took **289 s** to save.
+GARBAGE_COPY = 2
+
+#: Object cleanup for the route that **grafts pages** into a fresh document (M110).
+#: Here the duplicates are ours: a duplicated page carries a second reference to every image on it,
+#: and only level 4 merges identical *streams*. Measured on an image-heavy page duplicated 20
+#: times, level 4 writes **1.9 MB** where levels 1–3 write **39.5 MB**, and it is 4× faster doing
+#: it, because detecting that twenty images are identical costs less than compressing twenty
+#: copies. So the expensive level is used exactly when we were the ones who did the copying —
+#: cleaning up after ourselves rather than tidying somebody else's file.
+#:
+#: It stays affordable here for a structural reason rather than a lucky one: ``insert_pdf``
+#: collapses the object graph on the way through, so the graft has already reduced 48,877 objects
+#: to 2,178 before the hunt begins. Measured on that same prospectus with one page deleted:
+#: **2.08 s**.
+GARBAGE_GRAFT = 4
+
+#: The same level named for **what it does** rather than for who asks. `Export ▸ Reduced Size PDF`
+#: writes with it whichever route the document took (M111): it is the one operation the caller
+#: reaches for *because* they want a smaller file, and the one that creates duplicate streams of its
+#: own — re-encoding every image to one JPEG quality can turn two different images into identical
+#: ones. One definition, two reasons; not a second copy of the number.
+GARBAGE_DEDUP = GARBAGE_GRAFT
+
+
+def write_options(garbage: int) -> dict:
+    """The ``Document.save`` keywords every PDF this project writes shares, at ``garbage`` level.
+
+    **One named set on purpose.** These options were four copies of a literal across ``materialize``
+    and the three export writes, and when M93 added ``use_objstms=1`` it landed on one of them —
+    leaving Reduced-Size PDF (the feature whose entire job is a smaller file) writing 146 KB *more*
+    than a plain Save on one document (M111). A change to how this project writes a PDF now has one
+    place to land.
+
+    ``use_objstms=1`` packs objects into object streams and writes a compressed cross-reference
+    (PDF 1.5, 2003 — universally supported). Without it every object is written as a plain
+    uncompressed dictionary, which is what the save used to do and what made keeping the document's
+    own structure look expensive: a 9-page tagged form came back at 316 KB against a 233 KB input.
+    With it the same save is **151 KB — smaller than the input** while keeping everything. Most real
+    PDFs arrive using object streams (that form had 26 of them), so this is closer to preserving how
+    the file was written than to compressing it further.
+
+    ``clean=True`` sanitises content streams; it is **not** what made the save slow (measured at
+    ~1.9 s on the pathological file, and dropping it makes ``garbage=4`` *slower*, not faster).
+
+    ``garbage`` is the caller's, because it is the one option that depends on **who did the
+    copying** rather than on what a PDF ought to look like — see :data:`GARBAGE_COPY` /
+    :data:`GARBAGE_GRAFT` and :meth:`PyMuPDFEngine.save_options`.
+    """
+    return {"garbage": garbage, "deflate": True, "clean": True, "use_objstms": 1}
+
+
 def _apply_crop(page: "fitz.Page", rect: tuple) -> None:
     """Apply a ``PageRef.crop_override`` to an output page via ``set_cropbox`` (M48).
 
@@ -114,6 +181,39 @@ class EditEngine(ABC):
 class PyMuPDFEngine(EditEngine):
     """Default engine. Lossless object-level page copy + outline rebuild via PyMuPDF."""
 
+    def save_options(self, vdoc: VirtualDocument) -> dict:
+        """The exact ``Document.save`` keywords :meth:`materialize` writes ``vdoc`` with (M110).
+
+        Public because ``export_reduced_pdf`` reports a "before" size it promises is *what a plain
+        Save would write*, and a promise like that has to be measured with the real thing rather
+        than a second copy of the literal that drifts away from it (M111).
+
+        The cleanup level follows the **route**, which is the split :meth:`_build_output` already
+        makes: the graft cleans up after its own page-copying (:data:`GARBAGE_GRAFT`), while a copy
+        of the origin is left as packed as it arrived (:data:`GARBAGE_COPY`) — a Save was not asked
+        to optimise anybody's file, and Reduced-Size PDF is where that is asked for.
+
+        **The floor matters more than the ceiling.** Level 1 is what deletes an image a redaction
+        detached from its page — below it the orphaned object stays in the file, recoverable by
+        anything that walks objects rather than pages. :data:`GARBAGE_COPY` sits above that floor,
+        and ``tests/test_redaction_orphans.py`` pins it, because the redaction verification itself
+        structurally cannot see this: it re-reads the output and checks the *text* with two engines,
+        and an orphaned picture of a secret is not text to either.
+        """
+        return write_options(GARBAGE_COPY if vdoc.page_set_unchanged() else GARBAGE_GRAFT)
+
+    def save_keywords(self, vdoc: VirtualDocument) -> dict:
+        """**Everything** :meth:`materialize` hands to ``Document.save`` — the option set above plus
+        the encryption choice (M111).
+
+        Two halves, one question. ``export_reduced_pdf`` reports a baseline it calls *what a plain
+        Save would write*, and a Save also carries the document's encryption: an AES-128 SSA form
+        writes 2,231 B more than the same content unencrypted, so a baseline measured without it
+        understates the starting size exactly the way the missing ``use_objstms`` did.
+        """
+        keep = _keep_encryption(vdoc) if vdoc.page_set_unchanged() else {}
+        return {**self.save_options(vdoc), **(_encryption_args(vdoc) or keep)}
+
     def materialize(self, vdoc: VirtualDocument, out_path: str) -> None:
         """Write ``vdoc``'s current state to ``out_path``.
 
@@ -121,19 +221,13 @@ class PyMuPDFEngine(EditEngine):
         keeps whatever encryption its copy of the origin already carries. A rebuild has nothing to
         keep, so it saves as it always did.
 
-        ``use_objstms=1`` packs objects into object streams and writes a compressed cross-reference
-        (PDF 1.5, 2003 — universally supported). Without it every object is written as a plain
-        uncompressed dictionary, which is what the save has always done and what made keeping the
-        document's own structure look expensive: a 9-page tagged form came back at 316 KB against a
-        233 KB input. With it the same save is **151 KB — smaller than the input** while keeping
-        everything. Most real PDFs arrive using object streams (that form had 26 of them), so this
-        is closer to preserving how the file was written than to compressing it further.
+        The write keywords come from :meth:`save_keywords` — see :func:`write_options` for what
+        they are and :data:`GARBAGE_COPY` / :data:`GARBAGE_GRAFT` for why the cleanup level is
+        a property of the route rather than of the file.
         """
-        keep = _keep_encryption(vdoc) if vdoc.page_set_unchanged() else {}
         out = self._build_output(vdoc)
         try:
-            out.save(out_path, garbage=4, deflate=True, clean=True, use_objstms=1,
-                     **(_encryption_args(vdoc) or keep))
+            out.save(out_path, **self.save_keywords(vdoc))
         finally:
             out.close()
 
