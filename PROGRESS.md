@@ -2269,8 +2269,8 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   orphaned picture of a secret is not text to either. Design + the corpus check in `PLAN.md` §M110 —
   [#275](https://github.com/utyagi24/klarpdf/pull/275) — *WSL; Windows spot-check outstanding*
 
-- [ ] **M111** *(unplanned)* **The export paths never followed M93, and Reduced-Size reports a number
-  it does not write** — found 2026-08-21, same commit and same cause as M110. Four call sites write a
+- [x] **M111** *(unplanned)* **Reduced-Size PDF stopped returning a file bigger than a plain Save,
+  and now reports a baseline it actually writes** — found 2026-08-21, same commit and cause as M110. Four call sites write a
   PDF; M93 added `use_objstms=1` to one. The cost lands on the feature whose purpose is smaller
   files: **Reduced-Size PDF returns a file 146 KB *larger* than a plain Save** on one document, and
   leaves 40 KB / 143 KB on the table on two others. Its reported `before` is computed without the
@@ -2278,7 +2278,24 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   promises it is "what a plain Save would write". `garbage=4` is *correct* in the exports and stays:
   `rewrite_images` genuinely creates identical streams. The real fix is structural — the save options
   are four copies of a literal and should be one named set with the route choosing the level, so the
-  next change cannot update one site and miss three. Design in `PLAN.md` §M111 — *WSL*
+  next change cannot update one site and miss three.
+
+  **Built on M110's option set, and the baseline needed a second half.** The three export writes now
+  take `write_options()`. Two calls the design left open, settled by measurement: **both exports keep the
+  deduplicating level**, and the reason generalises M110's — `bake()` turns every widget of a form
+  into page content and a form's widgets share appearance streams, so flatten *creates* duplicates
+  exactly as the graft does (built on the Save's rule first, and measured worse for it: `f8949.pdf`
+  flattened to 81,578 B against 46,680). Level 4 cleans up after our own rewriting, never after
+  somebody else's file. And with
+  the options matched, `before` was **still** 2,231 B short on an AES-128 form, because a Save
+  carries the document's encryption (M93) and encryption costs bytes — so the baseline is measured
+  with `save_keywords()`, the complete set a Save passes. Across five corpus documents `before` now
+  equals a real Save **exactly** (it was 18 KB–162 KB over), and Reduced-Size stopped returning a
+  bigger file than Save on `ssa-1-bk.pdf` (+159,708 → **−2,231**) and `f8949.pdf` (+68,849 → −36).
+  `spaceX_prospectus.pdf` still ends 2,706 B larger — down from 144,998 — and that residue is the
+  lossy pass, not the options: its images are already efficient, so re-encoding buys nothing and
+  costs a little; the dialog already says so honestly. Design + the corrections in `PLAN.md` §M111 —
+  [#276](https://github.com/utyagi24/klarpdf/pull/276) — *WSL*
 
 - [x] **M109** *(unplanned)* **A redaction that re-encodes an image now says so** — TC-011,
   2026-08-19. Redacting text sitting **on** an image means erasing pixels inside it, which means
@@ -2916,6 +2933,15 @@ tree or history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI 
 
 Carried items — none block work:
 
+- **The Flattened-PDF export drops the document's encryption in silence** — noticed 2026-08-21 while
+  building M111, not a regression from it: `export_flattened_pdf` has never passed encryption
+  keywords, so flattening an owner-password-restricted form yields an unrestricted copy. It is the
+  export half of what TC-002 found in the *save* path (M93), and the same argument applies — an
+  advisory restriction that disappears without a word is worse than one that was never there. Not
+  folded into M111, whose scope is the cleanup options and the reported baseline, and not obviously
+  a bug either: an export is a derived artifact and a locked-content copy may legitimately want its
+  own protection settings. Needs a decision (carry through / drop with a warning / offer the
+  choice), then a milestone. `model/export.py:export_flattened_pdf`.
 - **`get_info` reports *displayed* page sizes while `clip` and `redact_regions` consume *unrotated*
   ones** — TC-008, 2026-08-18, severity low. `search`, `redact_regions` and (since M99.1) `clip` all
   work in the unrotated space; `page_sizes` alone reports post-rotation dimensions, and there is no

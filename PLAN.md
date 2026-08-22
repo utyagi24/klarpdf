@@ -4088,6 +4088,39 @@ re-encoding every image to JPEG can turn two different streams into identical on
 copies of a literal. They should be one named set with the route choosing the garbage level, so the
 next change to how this project writes a PDF cannot land in one place and miss three.
 
+#### Built (2026-08-21) — and the baseline needed a second half
+
+The three export writes now take `write_options()` from `model/edit_engine.py`. Two decisions the
+row above did not settle, both made against the measurements:
+
+* **Both exports keep the deduplicating level, and the reason generalises the one M110 uses.** The
+  design justified it by `rewrite_images` creating identical streams, which is an argument about
+  Reduced-Size alone; flatten was built on the Save's route rule first and measured worse for it —
+  `f8949.pdf` flattened to 81,578 B against 46,680. `bake()` turns every widget of a form into page
+  content and a form's widgets share appearance streams, so flatten *creates* duplicates exactly as
+  the graft does. Same rule either way: **level 4 cleans up after our own rewriting, never after
+  somebody else's file.**
+* **The honest baseline also has to carry the encryption.** With the options matched, the reported
+  `before` was still 2,231 B short on `ssa-1-bk.pdf` — an AES-128 form, whose Save carries its
+  encryption through (M93) at a cost in bytes. So the baseline is measured with
+  `PyMuPDFEngine.save_keywords()`, the *complete* set a Save passes, rather than only the cleanup
+  options.
+
+Measured across five corpus documents, `before` now equals a real Save **exactly** on all five
+(it was 18 KB–162 KB over), and Reduced-Size no longer returns a larger file than a Save on four of
+them. `spaceX_prospectus.pdf` still ends up **2,706 B** larger — down from 144,998 — and that
+residue is the lossy pass itself, not the options: its images are already efficiently encoded, so
+re-encoding them buys nothing and costs a little. The dialog already reports that case honestly
+("no smaller than a plain save"), which is the right answer to it.
+
+| Document | reduced − save, before | after |
+| --- | --- | --- |
+| `ssa-1-bk.pdf` | +159,708 | **−2,231** |
+| `spaceX_prospectus.pdf` | +144,998 | +2,706 |
+| `f8949.pdf` | +68,849 | **−36** |
+| `Patina-…-Brochure.pdf` | −7,523,443 | **−7,564,299** |
+| `Account_Statement_Mar_2026.pdf` | −387,812 | **−406,266** |
+
 ## Future enhancements (deferred beyond the roadmap)
 
 Captured but not yet scheduled:

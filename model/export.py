@@ -16,9 +16,16 @@ our marks round-trip on reopen — M31). Export writes a locked / derived artifa
   are remapped to the new page numbers (the rest are dropped).
 * **Reduced-size PDF** (M52): the whole document with its images **recompressed lossily**
   (downsampled to a target dpi, re-encoded JPEG at a quality) + fonts subset. This is the lossy
-  tier only — a normal Save already runs the lossless cleanups (``garbage=4, deflate, clean``),
-  which is why the reported "before" is what a plain Save would write, not the stale on-disk
-  size: the delta shown is the true cost/benefit of the lossy step alone.
+  tier only — a normal Save already runs the lossless cleanups
+  (:func:`~model.edit_engine.write_options`), which is why the reported "before" is what a plain
+  Save would write, not the stale on-disk size: the delta shown is the true cost/benefit of the
+  lossy step alone.
+
+Every write here goes through the one option set the Save owns
+(:func:`~model.edit_engine.write_options`). They were four copies of a literal, and when M93 added
+``use_objstms=1`` it reached exactly one of them — leaving the feature whose whole purpose is a
+smaller file returning 146 KB *more* than a plain Save on one document, and reporting a "before"
+baseline it never actually wrote (M111).
 
 Every format shares the edits-applied render (:meth:`PyMuPDFEngine.render_output`), so an export
 reflects the same page order / rotation / redactions / annotations / fills a Save would write — and
@@ -34,7 +41,7 @@ import os
 
 import pymupdf as fitz
 
-from model.edit_engine import PyMuPDFEngine
+from model.edit_engine import GARBAGE_DEDUP, PyMuPDFEngine, write_options
 from model.virtual_document import VirtualDocument
 
 _JPEG_EXTS = (".jpg", ".jpeg")
@@ -47,11 +54,20 @@ def export_flattened_pdf(vdoc: VirtualDocument, out_path: str) -> None:
     turns every annotation and form widget into permanent page content — text-preserving, not
     rasterised — and saves. The result is a locked copy: the marks are page content, no longer
     editable annotations.
+
+    Written with the shared option set at the **deduplicating** level (M111). A Save leaves a copy
+    of the origin as packed as it arrived (M110) — but ``bake()`` is not a copy, it is a rewrite
+    *this* export performs, and it duplicates streams the way the graft does: every widget of a form
+    becomes page content, and a form's widgets share appearance streams. Measured, level 4 is
+    removing our own mess rather than tidying the user's file — ``f8949.pdf`` flattens to 46,680 B
+    against 81,578, ``ssa-1-bk.pdf`` to 107,676 against 144,709 — which is the same argument that
+    keeps it on the graft route. Before M111 this carried its own copy of the option literal and so
+    never got M93's ``use_objstms``.
     """
     out = PyMuPDFEngine().render_output(vdoc)
     try:
         out.bake()  # annotations + form widgets → permanent page content (text layer preserved)
-        out.save(out_path, garbage=4, deflate=True, clean=True)
+        out.save(out_path, **write_options(GARBAGE_DEDUP))
     finally:
         out.close()
 
@@ -86,10 +102,26 @@ def export_reduced_pdf(
     Returns ``(before, after)`` byte sizes — *actual* values, no estimates: ``before`` is what a
     plain Save of the current document would write (so the delta is the lossy tier's true effect,
     not the lossless cleanup a Save gives anyway), ``after`` is the written file's size.
+
+    **``before`` is measured with the Save's own keywords** (M111), not with a second copy of them.
+    It was computed without ``use_objstms`` while a real Save had used it since M93, so it
+    overstated the starting size — by 143,143 B on a 7 MB prospectus — and therefore overstated how
+    much this feature had saved. A number whose entire job is to be the honest baseline has to be
+    measured with the thing it is a baseline for, which is why
+    :meth:`PyMuPDFEngine.save_keywords` is public: it carries the encryption a Save writes as well
+    as the cleanup options, and both move the size.
+
+    **The write itself uses the deduplicating level whichever route the document took.** A Save
+    leaves a copy of the origin as packed as it arrived (M110), but this is the one operation where
+    the caller has explicitly asked for a smaller file — and the one that *creates* duplicate
+    streams, since re-encoding every image to JPEG at one quality can turn two different images
+    into identical ones, which only level 4 merges. So it names
+    :data:`~model.edit_engine.GARBAGE_DEDUP` deliberately rather than inheriting the Save's choice.
     """
-    out = PyMuPDFEngine().render_output(vdoc)
+    engine = PyMuPDFEngine()
+    out = engine.render_output(vdoc)
     try:
-        before = len(out.tobytes(garbage=4, deflate=True, clean=True))
+        before = len(out.tobytes(**engine.save_keywords(vdoc)))
         # threshold must sit strictly above target (a rewrite_images rule); +1 keeps the promise
         # "images *above* the target resolution are downsampled" exact — a page image already at
         # the target is left alone, everything above it comes down to the target.
@@ -97,7 +129,7 @@ def export_reduced_pdf(
             dpi_threshold=dpi + 1, dpi_target=dpi, quality=jpg_quality, lossy=True, lossless=True
         )
         out.subset_fonts()
-        out.save(out_path, garbage=4, deflate=True, clean=True)
+        out.save(out_path, **write_options(GARBAGE_DEDUP))
     finally:
         out.close()
     return before, os.path.getsize(out_path)

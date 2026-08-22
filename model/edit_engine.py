@@ -52,6 +52,13 @@ GARBAGE_COPY = 2
 #: **2.08 s**.
 GARBAGE_GRAFT = 4
 
+#: The same level named for **what it does** rather than for who asks. `Export ▸ Reduced Size PDF`
+#: writes with it whichever route the document took (M111): it is the one operation the caller
+#: reaches for *because* they want a smaller file, and the one that creates duplicate streams of its
+#: own — re-encoding every image to one JPEG quality can turn two different images into identical
+#: ones. One definition, two reasons; not a second copy of the number.
+GARBAGE_DEDUP = GARBAGE_GRAFT
+
 
 def write_options(garbage: int) -> dict:
     """The ``Document.save`` keywords every PDF this project writes shares, at ``garbage`` level.
@@ -195,6 +202,18 @@ class PyMuPDFEngine(EditEngine):
         """
         return write_options(GARBAGE_COPY if vdoc.page_set_unchanged() else GARBAGE_GRAFT)
 
+    def save_keywords(self, vdoc: VirtualDocument) -> dict:
+        """**Everything** :meth:`materialize` hands to ``Document.save`` — the option set above plus
+        the encryption choice (M111).
+
+        Two halves, one question. ``export_reduced_pdf`` reports a baseline it calls *what a plain
+        Save would write*, and a Save also carries the document's encryption: an AES-128 SSA form
+        writes 2,231 B more than the same content unencrypted, so a baseline measured without it
+        understates the starting size exactly the way the missing ``use_objstms`` did.
+        """
+        keep = _keep_encryption(vdoc) if vdoc.page_set_unchanged() else {}
+        return {**self.save_options(vdoc), **(_encryption_args(vdoc) or keep)}
+
     def materialize(self, vdoc: VirtualDocument, out_path: str) -> None:
         """Write ``vdoc``'s current state to ``out_path``.
 
@@ -202,14 +221,13 @@ class PyMuPDFEngine(EditEngine):
         keeps whatever encryption its copy of the origin already carries. A rebuild has nothing to
         keep, so it saves as it always did.
 
-        The write keywords come from :meth:`save_options` — see :func:`write_options` for what they
-        are and :data:`GARBAGE_COPY` / :data:`GARBAGE_GRAFT` for why the cleanup level is a
-        property of the route rather than of the file.
+        The write keywords come from :meth:`save_keywords` — see :func:`write_options` for what
+        they are and :data:`GARBAGE_COPY` / :data:`GARBAGE_GRAFT` for why the cleanup level is
+        a property of the route rather than of the file.
         """
-        keep = _keep_encryption(vdoc) if vdoc.page_set_unchanged() else {}
         out = self._build_output(vdoc)
         try:
-            out.save(out_path, **self.save_options(vdoc), **(_encryption_args(vdoc) or keep))
+            out.save(out_path, **self.save_keywords(vdoc))
         finally:
             out.close()
 
