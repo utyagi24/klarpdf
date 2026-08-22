@@ -3975,6 +3975,189 @@ The lesson generalises: a field whose whole purpose is to account for something 
 against the thing it accounts for, and a test now asserts `bytes_after` against the stream in the
 file rather than against itself.
 
+### M110 — the save's cleanup level must follow the route, not the file (found 2026-08-21) ⭐
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M110** Pick the object-cleanup level from the save *route*: the graft keeps `garbage=4`, the unchanged-page-set copy drops to `garbage=2` | `PyMuPDFEngine.materialize` in `model/edit_engine.py` — the level becomes a function of `page_set_unchanged()`, beside the encryption choice that already is | WSL + Windows | A 572-page 48,877-object document saves in ~2 s instead of ~200 s; a duplicated image-heavy page still writes 1.9 MB, not 39 MB; output size across the corpus is unchanged or smaller on every file; a redaction still leaves no orphaned image object |
+
+**A performance regression M93 introduced and nobody measured.** `annotate` on a 572-page document
+took over 120 s (TC-012 FINDING 1), which the report attributed to "cost scales with document size".
+It does not: a 320-page 7 MB prospectus saves in 2.4 s. The trigger is the document's **object
+count**, and the mechanism is a route change.
+
+| | Time | Objects surviving |
+| --- | --- | --- |
+| **M93 route** — copy the origin, edit it (page set unchanged) | **202.17 s** | 44,860 |
+| **Pre-M93 route** — graft every page into a fresh document | **3.13 s** | 2,176 |
+
+Before M93 every save rebuilt the document, and `insert_pdf` collapsed the object graph as a side
+effect — 48,877 objects in, 2,176 out. `garbage=4` then had almost nothing left to search. M93
+stopped rebuilding, for good reasons (the graft silently dropped the structure tree, `/Perms`,
+`/Names` and encryption), and the full object graph now survives into the save, where `garbage=4`
+hunts duplicates across all 48,877 of them and finds none. **M93 did not add a slow step; it removed
+a fast one nobody knew was load-bearing.** The regression is **unreleased** — v0.17.1 was tagged
+2026-08-11, M93 merged 2026-08-15 — which is why an owner running the shipped build could not
+reproduce it and a WSL checkout of `main` could.
+
+**What each level actually buys, measured** (same document, five levels):
+
+| Level | Adds | Size | Objects |
+| --- | --- | --- | --- |
+| 0 | nothing | 8,795,392 | 1,502 |
+| **1** | **drops unreferenced objects** | **7,220,823** | 1,502 |
+| **2** | **compacts the xref** | 7,220,117 | **1,182** |
+| 3 | merges identical objects | 7,220,117 | 1,182 |
+| 4 | merges identical streams | 7,220,117 | 1,182 |
+
+Levels 1 and 2 do all the work and cost nothing. Levels 3 and 4 changed **nothing** on this file,
+and on the pathological one they cost 195 s to change nothing — `garbage=2` there is 121× faster and
+18 KB *smaller* (merging objects perturbs how they pack into object streams, and it does not always
+win). `clean=True` is a different parameter and is **not** implicated: measured at ~1.9 s, and
+dropping it makes `garbage=4` *slower* (533 s). It stays.
+
+**Levels 3 and 4 are not useless — they clean up after our own copying, and the split is exactly
+where the routes already divide.** Duplicating an image-heavy page is the case that proves it:
+
+| Level | page + 5 duplicates | page + 20 duplicates |
+| --- | --- | --- |
+| 1–3 | 11,291,676 | 39,517,349 |
+| **4** | **1,883,185** | **1,883,359** |
+
+Level 4 saves 95% of that file **and is 4× faster** while doing it, because detecting that twenty
+images are identical costs less than compressing twenty copies of them. Note level **3** does not
+help and level **4** does: images are *streams*, and only level 4 merges streams. Duplicating,
+deleting, reordering and merging all change the page set, so all take the graft — which is where
+the duplicates come from and where level 4 must stay. The rule is therefore not about the document
+at all: **use the expensive level exactly when we were the ones who did the copying.**
+
+**Level 1 is security-critical and is never in question.** A redaction that removes an image detaches
+it from the page but leaves it in the file; level 1 is what deletes it. Measured on a page whose text
+sat on an image: at `garbage=0` the orphaned image object is still in the file and recoverable by
+anything that walks objects rather than pages; at level 1 it is gone. The proposed floor of 2 keeps
+this comfortably, but the **verification cannot see it** — `redact_regions` re-reads the output and
+checks the *text* with two engines, and an orphaned picture of a secret is not text to either. So
+M110 must also pin the floor with a test: redact an image-backed page, assert no orphaned image
+object survives. One test, closing a gap the current checks structurally cannot cover.
+
+**Do not generalise from five documents.** The counter-case exists — a file that arrives *already*
+full of duplicate streams (built by another tool, or by someone else's duplicate-pages save) would
+no longer be shrunk by an ordinary Save. That is arguably correct (a save that was not asked to
+optimise should leave a file the size it found it, and **Reduced-Size PDF** exists for when you do
+ask), but it is a behaviour change and the corpus comparison must look for it rather than only
+confirming the wins.
+
+#### Verified when built (2026-08-21) — the route rule stands, and the counter-case is real but small
+
+The corpus comparison this section asked for was run over ten documents, and it found the
+counter-case: at `garbage=2` four of them are larger than the same file written at `garbage=4` —
+`ssa-1-bk.pdf` by 31% (224,075 B against 154,902), `ssa-3.pdf` by 8%, `dhariwal_ipo.pdf` by 5%,
+`Policy_home_….pdf` by 0.1%. Level 4 is the only level that merges *streams*, and real documents do
+arrive carrying duplicate ones, so the claim that 3–4 buy nothing on the copy route is false in
+general; what stands is that **it is not a Save's job to collect that saving**.
+
+**The comparison that matters is against the file the user has, not against our previous output**,
+and by that measure the rule holds: at `garbage=2` every corpus document still saves *smaller than
+its input*.
+
+| Document | input | `garbage=2` save | vs input |
+| --- | --- | --- | --- |
+| `ssa-1-bk.pdf` | 233,320 | 224,075 | **−9,245** |
+| `ssa-3.pdf` | 72,997 | 70,112 | **−2,885** |
+| `f8949.pdf` | 150,240 | 81,352 | **−68,888** |
+| `spaceX_prospectus.pdf` | 7,363,360 | 7,220,185 | **−143,175** |
+| `Policy_home_….pdf` | 284,270 | 281,990 | **−2,280** |
+| `dhariwal_ipo.pdf` | 9,015,879 | 9,311,232 | +295,353 |
+
+Only the pathological file ends larger than its input, by 3.3%, and that is the file that cost
+**289 s** to save and now takes **1.87 s**. **Nothing ratchets**: re-saving a `garbage=2` output
+reproduces its size exactly (224,075 → 224,075), so a document does not creep upward across
+successive saves.
+
+**The graft keeping level 4 costs nothing, for a structural reason.** `insert_pdf` collapses the
+object graph on the way through, so the hunt runs against an already-small document: measured on the
+572-page, 48,877-object prospectus with one page deleted, the graft writes 2,178 objects in
+**2.08 s**. The expensive level is therefore safe exactly where it is used.
+
+**An object-count budget was built and withdrawn.** Choosing the level from the output document's
+object count (deduplicate under ~5,000 objects, compact above) keeps the 31% on `ssa-1-bk.pdf` and
+still fixes the regression. It was rejected on the owner's call, and the reason is the one this
+section already gives: a Save that was not asked to optimise should leave the file as it found it,
+`Export ▸ Reduced Size PDF` is the place that asks, and a magic threshold buys size the user never
+requested at the cost of a cliff — two similar documents behaving differently with nothing to
+explain why.
+
+### M111 — the export paths never followed M93, and one of them reports a number it does not write (found 2026-08-21)
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M111** Give the save options one owner, so a change cannot update one call site and leave three behind: add `use_objstms=1` to the three export writes, and fix the `before` baseline `export_reduced_pdf` reports | `model/export.py` (`export_flattened_pdf`, `export_reduced_pdf` ×2) against the option set `model/edit_engine.py` owns | WSL | Reduced-Size never returns a file larger than a plain Save; the reported `before` equals what a Save actually writes; flatten output is unchanged or smaller |
+
+**The same drift as M110, from the same commit.** M93 added `use_objstms=1` to `materialize` and to
+nothing else. Four call sites write a PDF; one was updated. The consequences land on the feature
+whose entire purpose is making files smaller:
+
+| Document | Reduced-Size today | with `use_objstms` | left on the table |
+| --- | --- | --- | --- |
+| Property brochure (23 MB) | 14,075,755 | 14,034,903 | 40,852 |
+| SpaceX prospectus (7 MB) | 7,366,024 | 7,222,872 | 143,152 |
+| Tax form (3 MB) | 593,829 | 593,429 | 400 |
+
+**And on one document Reduced-Size produces a larger file than pressing Save** — 7,366,024 against
+7,220,185, 146 KB worse. Its images are already efficient, so the lossy pass buys nothing while the
+missing `use_objstms` costs more than the recompression saves. A user reaching for "make this
+smaller" gets something bigger than doing nothing.
+
+**The reported `before` is also not what it claims.** `export_reduced_pdf`'s docstring promises it is
+"what a plain Save of the current document would write (so the delta is the lossy tier's true effect,
+not the lossless cleanup a Save gives anyway)". It is computed without `use_objstms`, so it
+overstates the starting size — by 40,866 B, 143,143 B and 394 B on the three files above — and
+therefore overstates how much the feature saved. A number whose whole job is to be the honest
+baseline has to be measured against what the app really does, which is the same lesson §M109 drew
+about `bytes_after`.
+
+**`garbage=4` is correct in the exports and stays.** Reduced-Size is the one operation where the
+caller has explicitly chosen smaller over faster, and `rewrite_images` genuinely creates duplicates —
+re-encoding every image to JPEG can turn two different streams into identical ones, which only level
+4 merges. The fix here is the missing option and the wrong baseline, not the level.
+
+**The structural half is the point.** Both M110 and M111 exist because the save options are four
+copies of a literal. They should be one named set with the route choosing the garbage level, so the
+next change to how this project writes a PDF cannot land in one place and miss three.
+
+#### Built (2026-08-21) — and the baseline needed a second half
+
+The three export writes now take `write_options()` from `model/edit_engine.py`. Two decisions the
+row above did not settle, both made against the measurements:
+
+* **Both exports keep the deduplicating level, and the reason generalises the one M110 uses.** The
+  design justified it by `rewrite_images` creating identical streams, which is an argument about
+  Reduced-Size alone; flatten was built on the Save's route rule first and measured worse for it —
+  `f8949.pdf` flattened to 81,578 B against 46,680. `bake()` turns every widget of a form into page
+  content and a form's widgets share appearance streams, so flatten *creates* duplicates exactly as
+  the graft does. Same rule either way: **level 4 cleans up after our own rewriting, never after
+  somebody else's file.**
+* **The honest baseline also has to carry the encryption.** With the options matched, the reported
+  `before` was still 2,231 B short on `ssa-1-bk.pdf` — an AES-128 form, whose Save carries its
+  encryption through (M93) at a cost in bytes. So the baseline is measured with
+  `PyMuPDFEngine.save_keywords()`, the *complete* set a Save passes, rather than only the cleanup
+  options.
+
+Measured across five corpus documents, `before` now equals a real Save **exactly** on all five
+(it was 18 KB–162 KB over), and Reduced-Size no longer returns a larger file than a Save on four of
+them. `spaceX_prospectus.pdf` still ends up **2,706 B** larger — down from 144,998 — and that
+residue is the lossy pass itself, not the options: its images are already efficiently encoded, so
+re-encoding them buys nothing and costs a little. The dialog already reports that case honestly
+("no smaller than a plain save"), which is the right answer to it.
+
+| Document | reduced − save, before | after |
+| --- | --- | --- |
+| `ssa-1-bk.pdf` | +159,708 | **−2,231** |
+| `spaceX_prospectus.pdf` | +144,998 | +2,706 |
+| `f8949.pdf` | +68,849 | **−36** |
+| `Patina-…-Brochure.pdf` | −7,523,443 | **−7,564,299** |
+| `Account_Statement_Mar_2026.pdf` | −387,812 | **−406,266** |
+
 ### M113 — what TC-012 and TC-013 found in M101 (reviewed with the owner, 2026-08-21)
 
 | Milestone | What | Where | Verify |
