@@ -2975,6 +2975,24 @@ Carried items — none block work:
   idea rather than rounded up to "lossless". Worth doing if tagged PDFs become a real workflow; the
   same pass would need to carry `/Perms` and the `/Names` tree. Not scheduled. — *WSL*
 
+- **A GUI launched from WSL always opens on the primary monitor, whatever screen you typed the
+  command on** — owner report 2026-08-22, diagnosed the same day; **WSLg only, and not a KlarPDF
+  bug**. `MainWindow._place_window` deliberately opens on the screen under the cursor
+  (`QGuiApplication.screenAt(QCursor.pos())`), which is why this works on Windows. Under WSLg the
+  app runs on the **Wayland** platform, where two separate things defeat it: `QCursor.pos()` returns
+  `(0, 0)` — Wayland gives a client no way to ask where the global pointer is — which lands outside
+  every screen rect, so `screenAt` returns `None` and the code falls back to the primary screen; and
+  Wayland's `xdg-shell` gives a client no way to position its own top-level window at all. Measured:
+  a probe window asking for (3080, 200) on the external monitor landed at (0, 348) on the laptop
+  under `wayland`, and at (3086, 227) on the **external monitor** under `xcb`. Qt sees both screens
+  either way (`rdp-0` 2880×1800, `rdp-11` 2560×1440), so nothing is hidden — the placement is simply
+  not the client's to make. **Workaround:** `QT_QPA_PLATFORM=xcb python launcher.py file.pdf` routes
+  through XWayland, where both calls work; the caveat is that XWayland only learns the pointer
+  position while the cursor is over an X client, and the launching terminal is a *Windows* window,
+  so the position can be stale. Deliberately not fixed in the app: WSLg is the dev environment and
+  the product ships native Windows. It becomes real work only if Linux desktop is ever a target, and
+  then the answer is an explicit screen choice (a `--screen` flag / `KLARPDF_SCREEN`) rather than a
+  cursor heuristic. `main_window.py:3082`.
 - ~~**`_render_visible` is O(document length), not O(visible band)**~~ — **fixed 2026-07-28 as
   M87.3** (see the M87 entry above). It was worse than filed: a *third* walk, the annotation
   overlay re-deriving the band once per page, made the pass **quadratic** rather than linear —
