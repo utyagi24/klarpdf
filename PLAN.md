@@ -4197,6 +4197,25 @@ not the clock.
 
 Captured but not yet scheduled:
 
+- **Showing the document's current image dpi in the Reduce File Size dialog** — **proposed and
+  declined 2026-08-22 (owner).** The dialog offers a target dpi without stating what the document
+  already is, which makes the choice blind; the owner's call is that the popup's existing wording
+  and its actual before → after report are enough. Recorded so the argument is not re-run.
+
+  The finding behind the question stands and is worth keeping, because it sharpens §M111's residue:
+  `rewrite_images` is called with `dpi_threshold = dpi + 1` (so that "images *above* the target" is
+  exact), which means an image sitting **at** the target is untouched — and measured across the
+  corpus, **every image in `spaceX_prospectus.pdf` is already exactly 150 dpi**. The "Screen — 150 dpi"
+  preset therefore cannot touch one of them, which is the real reason that file comes back marginally
+  larger rather than the vaguer "its images are already efficiently encoded". `f8949.pdf` has no images
+  at all, so the lossy tier is wholly inert on it. Others do have headroom: the property brochure runs
+  to 442 dpi (median 300), `dhariwal_ipo.pdf` to 246 (median 200).
+
+  Had it been built, the design problem would have been cost rather than wording: effective dpi is a
+  property of how large an image is *drawn*, so it needs the placement — `page.get_image_info()` costs
+  **0.9–4.5 s** on real documents, too slow to block a dialog, while `page.get_images()` costs
+  37–238 ms and knows the count but not the resolution.
+
 - **Touchpad inertia (a fling that decays instead of stopping dead)** — deferred out of M92 by owner
   call (2026-07-30: *"touchpad experience though not perfect I am satisfied with it for now"*). A
   Windows precision touchpad sends `pixelDelta` while the fingers are down and simply **stops** when
