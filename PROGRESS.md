@@ -2231,6 +2231,41 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   `TYAGI1703` trap *within* a line (`Smith` + `Jones` → the token `SmithJones`), caught by M98's
   existing tests. Design in `PLAN.md` §M100 — *WSL*
 
+- [ ] **M113** *(unplanned)* **What TC-012 and TC-013 found in M101** — reviewed with the owner
+  2026-08-21, every finding re-run against the code rather than accepted as filed. **Three did not
+  survive that**: `get_annotations` *does* cap and *does* set `truncated` (600 → 500; their document
+  held 406, under the limit); a re-run against a foreign mark stacks **once**, not unboundedly
+  (their own control run shows it); and the merge threshold is just above **0.01 pt**, not
+  "somewhere in (0.01, 3]". Six items remain — two defects, one disclosure gap, three documentation
+  gaps:
+  - **M113.1** A re-run **duplicates the note**, though the docs promise "a file identical in
+    content to the first run's". `merge_markup` rightly carries an absorbed note forward and
+    `_attach_note` then adds this call's note on top. Fix: skip a note already present, matched as a
+    whole segment (a substring test would swallow "check" into "check the totals"). **The missing
+    test is the lesson** — the existing re-run test never attaches a note, so it asserts the weaker
+    half of the claim.
+  - **M113.2** The reply **outgrows what a client accepts**: 406 marks = 139,288 chars, and the cap
+    counts *marks*, which run 213–613 chars each. Composition is 53% JSON scaffolding, 37% notes, 8%
+    boxes. Fix: a character budget beside the count, and narrow `annotate`'s echo to the marks the
+    call touched rather than every mark on the page. `extract_text` has the same exposure — logged
+    separately, not ours. **Open question:** on overflow, shorten notes or drop marks?
+  - **M113.3** A document asking not to be annotated is annotated **silently**. Writing is correct —
+    the flag is advisory — so the defect is the silence, as at M107. The app does not warn either;
+    that is a separate GUI question, deliberately not folded in.
+  - **M113.4** Nothing says boxes are measured from the **top-left** while the PDF format and every
+    other library use the bottom-left. A box from elsewhere lands mirrored — valid, no error, wrong
+    line. **Owner decision: fix both halves** — state the convention *and* report the text each mark
+    landed on, which makes any wrong box self-revealing. Heuristic detection rejected.
+  - **M113.5** A mark **never merges with one somebody else wrote**, though two sentences say it
+    does. The behaviour is right (merging deletes a mark, and deleting a reviewer's is worse than a
+    duplicate); the sentences are the defect. Disclose it in the reply too. The real answer is
+    adoption — [[M112]].
+  - **M113.6** Three smaller ones: marks must genuinely overlap to merge (two adjacent `search` hits
+    leave a 3 pt gap); on a scan two overlapping marks merge into the box enclosing both;
+    `marks_added` can be negative. Plus `'Yellow' is not a underline colour`.
+
+  Design in `PLAN.md` §M113 — *WSL*
+
 - [ ] **M112** *(unplanned)* **The bridge can *edit* an annotation, not only add one** — owner-asked
   2026-08-21, correcting an earlier framing in the same session. The app handles other tools' marks
   **well**: M66 deletes a foreign annotation, M67 moves one with its appearance intact, M68 **adopts**

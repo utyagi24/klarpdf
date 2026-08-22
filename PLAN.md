@@ -3975,6 +3975,99 @@ The lesson generalises: a field whose whole purpose is to account for something 
 against the thing it accounts for, and a test now asserts `bytes_after` against the stream in the
 file rather than against itself.
 
+### M113 — what TC-012 and TC-013 found in M101 (reviewed with the owner, 2026-08-21)
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M113** Six follow-ups from the two hands-on sessions against M101: two defects, one disclosure gap, and three documentation gaps | `mcp_bridge/annotations.py`, its two docstrings in `server.py`, and `mcp_bridge/docs.py` | WSL | A re-run leaves the file's content identical; a reply stays inside the client's budget; a restricted document warns; a mark reports the text it landed on |
+
+**How the two reports were treated.** Every finding was re-run against the code rather than accepted
+as filed, and three did not survive contact: TC-013's "there is no cap and no `truncated` field"
+(there is one, it works, their document was simply under it), its "each run stacks another full set,
+unbounded" (it stacks exactly once, then merges into our own mark — their own control run shows it),
+and its merge threshold of "somewhere in (0.01, 3] points" (it is just above 0.01; 0.5 merges).
+TC-012's "cost scales with document size" was wrong in a way worth its own milestone — §M110.
+
+**M113.1 — a re-run duplicates the note** *(defect, and the docs promise the opposite)*. The
+description says a re-run is safe and gives "a file identical in content to the first run's". Run the
+same call three times and the note reads its own text three times, blank-line separated; the mark,
+its colour and `marks_added: 0` are all stable. Cause: `merge_markup` correctly carries an absorbed
+mark's note onto the survivor (M81's rule — only deleting a mark deletes its note), and `_attach_note`
+then adds the note from *this* call on top. Both are right alone; nothing distinguishes "a new
+comment, keep the old" from "the same comment again". **Fix: skip a note already present, matched as
+a whole joined segment — not as a substring**, or a note of "check" would be swallowed by an existing
+"check the totals". Known limit, to be documented rather than engineered around: notes are joined
+with a blank line, so a note that *contains* one is ambiguous under that encoding and will still
+duplicate. **The test that was missing is the point** — `test_running_the_same_call_twice_does_not_stack`
+passes today because it never attaches a note; it asserts the count, which is the weaker half of the
+claim the docs make.
+
+**M113.2 — the reply outgrows what a client will accept** *(defect; the cap is on the wrong unit)*.
+The count cap works (600 marks → 500, `truncated` set). It cannot do the job: reply size per mark
+runs 213–613 characters depending on note length, so "500 marks" is anywhere from 107 KB to 300 KB.
+A real session died at **139,288 characters over 406 marks**, and the composition is not where
+intuition puts it — **53% JSON scaffolding, 37% notes, 8% boxes**. **Fix: a character budget beside
+the count**, well under the ~136 KB that failed. Two riders: `annotate`'s reply carries every mark on
+the pages it touched, so adding one mark to a page holding eighty returns eighty-one — **narrow it to
+the marks the call actually touched**, which is bounded by the request instead of by the page's
+history. And `extract_text`'s 200,000-character cap has the same exposure — **not ours, log it
+separately.** *Open question for the owner:* when a reply will not fit, shorten long notes and keep
+every mark's geometry (positions are what the redaction hand-off needs), or drop whole marks?
+
+**M113.3 — a document asking not to be annotated is annotated silently** *(disclosure gap)*. The
+policy fixture carries `annotate: false`; `annotate` wrote sixteen marks and returned no `warnings`
+key at all. Writing them is correct — the flag is advisory and enforced by nothing — so **the defect
+is the silence**, exactly as at §M107. Three reasons it must speak: `get_info`'s own description
+tells the caller to "tell the user when they are about to act against one", and the agent can only
+relay what it is told; `fill_form` already warns for a read-only field and `redact_text` for four
+distinct hazards, so silence here is the exception; and of the eight permission bits this is the one
+naming this exact operation. **Deliberately not folded in:** the app does not warn either. That is a
+GUI decision with its own design and should not ride on an MCP fix — logged, not scheduled.
+
+**M113.4 — nothing says which corner the coordinates start from** *(documentation + a disclosure
+that makes it self-revealing)*. Boxes are measured from the **top-left**, y downward. The PDF format
+measures from the **bottom-left**, y upward, and so does every mainstream library except PyMuPDF —
+the flip is PyMuPDF's own, exposed as `page.transformation_matrix` (`Matrix(1, 0, 0, -1, 0,
+page_height)`), applied on the way in *and* out; we add no conversion and the file we write is always
+standard PDF. Inside our own tools this never bites, because `search` → `annotate` →
+`get_annotations` → `redact_regions` are one frame end to end. It bites at the seam with anything
+that read the file directly: a box from another library lands **mirrored about the page's horizontal
+axis** — valid, on the page, no error, wrong line. It caught the TC-013 tester building their own
+fixture. **Owner decision 2026-08-21: do both halves.** (a) State the convention and the conversion
+(`y' = page_height − y`; `get_info` reports the height). (b) **Report the text each mark landed on** —
+reuse `PageText.snippet_for`, which already joins across a wrapped match, plus the full character
+count so an over-wide box shows up too. That turns a silent failure into an obvious one for *every*
+way a wrong box can arrive, not only this one, and it is worth having anyway. Limit to document: on a
+page with no text layer the snippet is empty, which is indistinguishable from a wrong box.
+**Rejected: any heuristic that guesses a box is mirrored** — marking the bottom of a page is
+legitimate, so it would misfire in both directions.
+
+**M113.5 — a mark never merges with one somebody else wrote** *(documentation, plus a disclosure)*.
+Two sentences claim merging is universal, and one specifically says "a mark written here and one
+drawn by hand resolve the same way". Against a foreign mark both merge branches are inert. **The
+behaviour is right and must not change**: merging deletes a mark, so merging across authorship would
+delete a reviewer's annotation and reattribute their span to us. The sentence is the defect — and it
+is slippery rather than plainly false, since a mark drawn by hand *in KlarPDF* does resolve
+identically. **Fix: scope both sentences to marks this app wrote, and say it in the reply too** — a
+count, or a warning naming the author overlapped — since the docs only help someone who reads them.
+Consequence worth stating in the docs: the review loop assumes step 2 happens in KlarPDF, and a
+reviewer using Acrobat or Edge produces marks the next pass stacks against. The real answer to that
+is adoption, which the app has had since M68 and the bridge does not — §M112.
+
+**M113.6 — three smaller documentation gaps.** (a) **Marks must genuinely overlap to merge**;
+touching exactly does not, nor does 0.01 pt, while 0.5 pt does. The case a caller meets is two
+adjacent `search` hits: `New` ends at x=184.49 and `York` begins at 187.54, a 3 pt gap, so marking a
+phrase word-by-word leaves two marks where the reader sees one. Say so, and say to pass a phrase as
+one mark using the boxes a single hit gives. (b) **On a page with no text layer, two overlapping
+marks merge into the box enclosing both** — `[100,500,300,560]` + `[200,520,400,580]` →
+`[100,500,400,580]`, painting corners that were in neither. Invisible on a text page, where bars
+follow the lines; on a scan there is no such structure. Documentation only: nothing is hidden, the
+box is visible in the reply, and teaching the merge to keep separate areas on a scan is real work in
+code the app shares. (c) **`marks_added` can be negative** — a bridging mark that collapses two into
+one returns `-1`. Correct by the field's definition and honest; the description only ever discusses
+it being smaller than requested, so one worked example is owed. Plus the grammar slip `'Yellow' is
+not a underline colour`, where one string serves all three types.
+
 ### M112 — the bridge can *edit* an annotation, not only add one (owner-asked 2026-08-21)
 
 | Milestone | What | Where | Verify |
