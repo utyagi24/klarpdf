@@ -2933,6 +2933,23 @@ tree or history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI 
 
 Carried items — none block work:
 
+- **The two exports still pay M110's quadratic cleanup, so an object-heavy document takes minutes**
+  — measured 2026-08-22 on `dhariwal_ipo.pdf` (572 pp, **48,877 objects**) after M110/M111, when the
+  owner asked what the fix does *not* cover. Every Save path on that file is now ~1.9 s and every
+  structural edit ~2.0 s, but **Export ▸ Flattened PDF takes 287 s and Export ▸ Reduced Size PDF
+  248 s**, because M111 keeps `GARBAGE_DEDUP` in both — correctly, since `bake()` and
+  `rewrite_images` create the duplicates themselves, but the design assumed the scan was affordable
+  and on this graph it is not. The bridge's `flatten` tool has the same cost; every other bridge
+  write goes through `materialize` and is fast. **What it buys, measured:** flatten at level 4 is
+  8,851,615 B against 9,311,219 at level 2 — **250 s for 4.9%**. That is a poor trade for flatten,
+  where nobody asked for a smaller file, and a harsh one even for Reduced-Size, where they did but
+  get no progress bar and no way to cancel. The fix is the object-count guard that was **rejected
+  for Save** (§M110) — and the asymmetry is the point: on a Save it would buy size nobody asked for,
+  while here it withholds an optimisation whose cost the caller cannot see. So it needs disclosure
+  rather than silence ("the duplicate scan was skipped on a very large document"), which makes it a
+  milestone rather than a constant. **Workaround meanwhile:** any structural edit collapses the
+  graph through `insert_pdf` — one page deleted takes that file from 48,877 objects to **2,178**,
+  after which flatten costs 1.19 s. `model/export.py`.
 - **The Flattened-PDF export drops the document's encryption in silence** — noticed 2026-08-21 while
   building M111, not a regression from it: `export_flattened_pdf` has never passed encryption
   keywords, so flattening an owner-password-restricted form yields an unrestricted copy. It is the
