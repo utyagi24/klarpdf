@@ -4121,6 +4121,63 @@ re-encoding them buys nothing and costs a little. The dialog already reports tha
 | `Patina-…-Brochure.pdf` | −7,523,443 | **−7,564,299** |
 | `Account_Statement_Mar_2026.pdf` | −387,812 | **−406,266** |
 
+### M114 — a mark on one page rewrites all 572 (TC-012 retest, found 2026-08-22)
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M114** Stop re-serialising every content stream on a save that did not change page content | `write_options` in `model/edit_engine.py` — `clean=True`, present since M1 and never justified in writing | WSL + Windows | A one-mark `annotate` on a 572-page document leaves 572/572 content streams byte-identical; Poppler extracts every untouched page identically; the corpus shows no file growing and nothing failing that `clean` was silently protecting |
+
+**From the TC-012 retest (2026-08-22), which was right about the half we did not look at.** M110 fixed
+the cost — the retest measured "roughly a 10× speed-up" and the call returning inline — but reported
+that the second half of the finding was untouched: *"every one of the 572 content streams is still
+re-serialised, including on a one-mark call that touches a single page."* Re-run against the merged
+code, that is exactly right: **572 of 572**, for a single highlight on page 337.
+
+**The cause is `clean=True`, and nothing else.** Isolated by saving the same one-mark edit five ways:
+
+| save | time | size | streams changed |
+| --- | --- | --- | --- |
+| `garbage=2 deflate clean use_objstms` (ours) | 2.89 s | 9,311,842 | **572 / 572** |
+| the same without `clean` | 1.36 s | **8,834,048** | **0 / 572** |
+| no `clean`, no `deflate` | 1.33 s | 12,219,287 | 0 / 572 |
+| `garbage=0`, nothing else | 1.32 s | 13,339,118 | 0 / 572 |
+| copy the file, then `incremental=True` | 0.05 s | 9,017,093 | 0 / 572 |
+
+Through the real `annotate` pipeline rather than a raw probe, dropping `clean` gives **0/572 streams
+changed, 1.85 s → 0.70 s, and 9,311,702 → 8,833,918 B** — smaller than the 9,015,879 B source, where
+with `clean` the output was larger than it.
+
+**It also explains three things the retest filed separately.** `clean` re-emits every operator, so
+`0.0784 0.4 0.525 rg` becomes `.0784 .4 .525 rg`, `11.4` becomes `11.400024`, and marked-content
+`/Artifact<</Type/Pagination…>>BDC` appears at the head of streams that began `q BT` — which is why
+decompressed page content grew (page 1: 93,544 → 110,026 B) and why Poppler reconstructed a different
+reading order on 39 untouched pages. All of it is downstream of one option.
+
+**M110 measured `clean` and cleared it — of the wrong charge.** §M110 records "`clean=True` … is
+**not** implicated: measured at ~1.9 s". That was about the 202-second hunt, and it was true. Nobody
+asked what else it did.
+
+**Not a one-line change, and the corpus decides.** `clean` has been in the save since M1 with no
+recorded reason, which is not the same as having none: it sanitises content streams, and this project
+*does* rewrite content — `apply_redactions` rewrites a page, the R4 content marks append streams to
+one. The plausible shape is to keep it where we rewrite content and drop it where a save only adds
+annotation objects, but that is a hypothesis, not the design. It gets the treatment M110 got: every
+corpus document saved both ways, sizes and text compared, before anything ships.
+
+**Incremental save is rejected for the general path, and the reason must be written down** so it is
+not proposed again. It is the fastest row in the table and does exactly what the retest asked for —
+but it *appends*: the original bytes stay in the file. On the redaction path that is a catastrophic
+leak, since the entire promise is that the content is gone. It could only ever be scoped to
+provably-additive edits, and the save path cannot tell them apart today.
+
+**The retest's timings do not reproduce, and the difference matters for how this is scoped.** It
+reports 12.6 s for 11 marks and 7.6 s for one. Measured directly on the merged code, `annotate` is
+**1.83 s** for the same eleven and **1.85 s** for one — and writing to `/mnt/c` rather than `/tmp`
+accounts for 0.2 s of that, not six seconds. What *is* document-proportional in that workflow is the
+`search` that locates the marks: **6.34 s** on this document, which is the already-carried
+"a search is still one uninterruptible pass over every page". So the remaining defect is the rewrite,
+not the clock.
+
 ## Future enhancements (deferred beyond the roadmap)
 
 Captured but not yet scheduled:

@@ -2231,6 +2231,27 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   `TYAGI1703` trap *within* a line (`Smith` + `Jones` → the token `SmithJones`), caught by M98's
   existing tests. Design in `PLAN.md` §M100 — *WSL*
 
+- [ ] **M114** *(unplanned)* **A mark on one page rewrites all 572** — from the **TC-012 retest**
+  (2026-08-22), which confirmed M110 fixed the cost ("roughly a 10× speed-up… returns inline") and
+  reported the other half untouched: every content stream is still re-serialised, *including on a
+  one-mark call*. Re-run against the merged code, that is exactly right — **572 of 572** for a single
+  highlight. **The cause is `clean=True` and nothing else**, isolated by saving the same edit five
+  ways: without it, **0 of 572** streams change. Through the real `annotate` pipeline dropping it
+  gives **1.85 s → 0.70 s and 9,311,702 → 8,833,918 B**, smaller than the 9,015,879 B source where
+  today's output is larger. It also explains three things the retest filed separately — the operator
+  verbosity (`11.4` → `11.400024`), the decompressed-content growth, and Poppler reordering 39
+  *untouched* pages. **M110 measured `clean` and cleared it of the wrong charge** (~1.9 s, true, and
+  about the 202-second hunt). **Not a one-line change:** `clean` has sat in the save since M1 with no
+  recorded reason, which is not the same as having none — this project rewrites content in
+  `apply_redactions` and appends streams for R4 content marks, so the corpus decides, exactly as it
+  did for M110. **Incremental save is rejected** and the reason recorded: it appends, leaving the
+  original bytes in the file, which on the redaction path is a catastrophic leak. **The retest's
+  timings do not reproduce** — `annotate` is 1.83 s for its eleven marks, not 12.6 s; the
+  document-proportional cost in that workflow is `search` (6.34 s here), already carried below.
+  (The number M114 briefly labelled the withdrawn Reduce-dpi proposal in
+  [#277](https://github.com/utyagi24/klarpdf/pull/277); that item is now unnumbered in `PLAN.md`
+  §Future enhancements.) Design in `PLAN.md` §M114 — *WSL + Windows*
+
 - [x] **M110** *(unplanned)* ⭐ **A save no longer spends five minutes looking for duplicates that
   are not there** —
   found 2026-08-21 while reviewing TC-012, whose FINDING 1 read "cost scales with document size".
