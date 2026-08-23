@@ -4125,7 +4125,7 @@ re-encoding them buys nothing and costs a little. The dialog already reports tha
 
 | Milestone | What | Where | Verify |
 | --- | --- | --- | --- |
-| **M114** Stop re-serialising every content stream on a save that did not change page content | `write_options` in `model/edit_engine.py` — `clean=True`, present since M1 and never justified in writing | WSL + Windows | A one-mark `annotate` on a 572-page document leaves 572/572 content streams byte-identical; Poppler extracts every untouched page identically; the corpus shows no file growing and nothing failing that `clean` was silently protecting |
+| **M114** Stop re-serialising every content stream on a save that did not change page content | `write_options` / `save_options` in `model/edit_engine.py` — `clean=True`, present since M1 and never justified in writing; the write mode becomes the second fork on the axis §M110 opened | WSL + Windows | A one-mark `annotate` on a 572-page document leaves 572/572 content streams byte-identical; Poppler extracts every untouched page identically; the corpus shows no file growing and nothing failing that `clean` was silently protecting. For the additive branch: the predicate refuses every non-additive edit kind (whitelist, unknown kinds denied) and `tests/test_redaction_orphans.py` still passes |
 
 **From the TC-012 retest (2026-08-22), which was right about the half we did not look at.** M110 fixed
 the cost — the retest measured "roughly a 10× speed-up" and the call returning inline — but reported
@@ -4205,14 +4205,87 @@ byte-identical *by construction*. This is what the PDF format provides for exact
 it outright because it *appends*, leaving the previous revision recoverable inside the file, which on
 the redaction path leaks precisely what a redaction promises to destroy. That reason is real and
 stands **for the redaction path**; it is not a reason to rewrite 9 MB when the edit only adds an
-annotation, and the tester is right to say so. The work is the predicate: a save may write
-incrementally only when the edit is **provably additive** — no redaction, no page-set change, no
-rotation, crop, form fill or metadata edit — and today's save path cannot tell those apart. Two
-further obstacles are ours rather than the format's: the output goes to a *new* path (so an
-incremental write means copy-then-append, which is fine — the copy is 32 ms), and
-`_apply_page_edits` strips and re-adds KlarPDF annotations on **every** page, which would dirty 572
-page objects even when one is marked. That pass would have to become scoped to pages that carry
-marks.
+annotation, and the tester is right to say so.
+
+**The write mode is one decision, not two knobs.** Measured against PyMuPDF 1.27.2.3 / MuPDF 1.27.2,
+an incremental write refuses garbage collection outright — so the cleanup level and the write mode
+are the *same* choice at different granularity, and cannot be picked independently:
+
+| `Document.save` keywords | result |
+| --- | --- |
+| `incremental=True, garbage=0, encryption=PDF_ENCRYPT_KEEP` | **OK** |
+| `incremental=True, garbage=2` | `FzErrorArgument: Can't do incremental writes with garbage collection` |
+| `incremental=True, garbage=0`, PyMuPDF's default `encryption=PDF_ENCRYPT_NONE` | `FzErrorArgument: Can't do incremental writes when changing encryption` |
+| `incremental=True, garbage=0, clean=True` | OK, but writes 33% more than without `clean` — it defeats the point |
+| `incremental=True, garbage=0` + `use_objstms=1` / `deflate=True` | OK |
+
+That makes this the **second fork on the axis §M110 opened**, rather than a new mechanism beside it:
+
+| what the edit set contains | route | write |
+| --- | --- | --- |
+| the page set changed | graft | `GARBAGE_GRAFT`, `clean`, full write |
+| page set unchanged, any non-additive edit | copy of the origin | `GARBAGE_COPY`, full write |
+| page set unchanged, **provably additive only** | copy of the origin | `garbage=0`, no `clean`, **incremental** |
+
+Note where the third row sits: `garbage=0` is **below the redaction floor** that §M110 and
+`save_options` both document — level 1 is what deletes an image a redaction detached from its page,
+and `tests/test_redaction_orphans.py` pins it. So excluding redaction from the additive predicate is
+required *twice over*, by the leak and by the floor.
+
+**The predicate is smaller than an earlier draft of this entry claimed.** That draft said "today's
+save path cannot tell those apart". It can, or very nearly: `save_options` is already one line asking
+the model a question about the edit set (`GARBAGE_COPY if vdoc.page_set_unchanged() else
+GARBAGE_GRAFT`), and two of the sub-questions already exist as methods written for exactly this kind
+of reasoning — `VirtualDocument.has_redactions()` and `has_content_marks()`, which today gate the
+commit-and-reload decision in `main_window`. The rest are one-line reads of immutable model state:
+`ref.rotation_override`, `ref.crop_override`, `form_values`, `_metadata_override`,
+`_encryption_staged`, and `ForeignDeletion` / `ForeignMove` among a page's annotations. The accurate
+statement is that the save asks **one coarse question where it needs a finer one**, and the state to
+answer the finer one is already in the model.
+
+**It has to be a whitelist.** Additive *iff* every edit is one of a named set of known-additive
+kinds, with an unrecognised annotation kind defaulting to non-additive — so the next descriptor added
+to `model/page_edits.py` is safe on the day it lands rather than on the day someone remembers this
+paragraph. The failure modes are not symmetric: too conservative costs a full rewrite, which is what
+we do today; too permissive appends over a redaction and leaves the original bytes in the file.
+
+**Two real obstacles — and the one the earlier draft named turns out not to exist.**
+
+*Not an obstacle.* That draft said `_apply_page_edits` "strips and re-adds KlarPDF annotations on
+**every** page, which would dirty 572 page objects even when one is marked", and that the pass would
+have to be scoped. Measured by running the real pass and then taking an incremental save — whose
+appended bytes are exactly the objects MuPDF considered dirty — on a 60-page document:
+
+| what ran | appended |
+| --- | --- |
+| `_apply_page_edits` with no edits at all | **+0 B** |
+| one highlight on page 30 | +890 B |
+| highlights on pages 0, 30, 59 | +2,184 B |
+| re-save of a file already carrying one baked KlarPDF mark | +918 B |
+
+The pass is **already scoped in effect**: `strip_klarpdf_annotations` returns without touching a page
+that carries no KlarPDF annotation, and reading `rotation_override` / `crop_override` off an
+untouched page does not dirty it. Its docstring in `model/page_edits.py` says so and was right;
+the entry was wrong. Nothing needs scoping here.
+
+*Real obstacle 1 — the copy route builds its output in memory, so it cannot save incrementally at
+all.* `VirtualDocument.fresh_source` opens via `fitz.open(stream=…tobytes(…))`, and PyMuPDF refuses a
+stream-opened document: `ValueError: incremental needs original file` — MuPDF needs the document
+opened *from the file being appended to*. The additive route would have to copy the origin to the
+destination path and open **that** (the copy is ~32 ms), which has to be reconciled with why
+`fresh_source` round-trips through `tobytes(encryption=PDF_ENCRYPT_KEEP)` in the first place (M54),
+and with `save_keywords`' encryption arguments — incremental additionally requires
+`encryption=PDF_ENCRYPT_KEEP` passed explicitly, as the table above shows.
+
+*Real obstacle 2 — `apply_metadata` runs unconditionally on the copy route and re-writes metadata
+nobody touched.* `_edit_origin_copy` calls it on every save; with no user override its `else` branch
+writes the origin's Info dict and XMP packet back onto a document that already has both. That pass
+exists because `insert_pdf` copies neither store — the *graft's* problem — and on the copy route it
+has nothing to repair. Measured on a 60-page document with a 3,093-byte XMP packet and metadata the
+user never touched, it turns a **901 B** incremental append into **4,249 B**: 3.3×, and on its own
+larger than the 2,680 bytes Edge writes for the entire edit. It should be skipped when
+`metadata_override is None` on the copy route — worth doing whatever is decided about incremental
+writing.
 
 **If this is declined, one sentence is still owed.** TC-012's own fallback: *"If a full rewrite is
 structurally required, say so in `klarpdf://docs/annotate` so callers size their expectations."* That
@@ -4222,10 +4295,13 @@ close the finding; it converts it into a documentation item. The same sentence a
 report's "Informational — text re-grouping on untouched pages" note, which is this cause seen from
 the extraction side.
 
-**Two levers, and they are independent.** Dropping `clean` takes content streams from 572/572 to
-0/572 and the call from 1.85 s to 0.70 s, but still writes a complete 8.8 MB file. Incremental
-writing is what closes the remaining distance to Edge's 2,680 bytes. The first is small and helps
-every save in the app and the bridge; the second is a bigger change confined to additive edits.
+**Two levers — and the second subsumes the first on its own branch.** Dropping `clean` takes content
+streams from 572/572 to 0/572 and the call from 1.85 s to 0.70 s, but still writes a complete 8.8 MB
+file; it is small, and it helps **every** save in the app and the bridge, including every save the
+additive predicate will refuse. Incremental writing is what closes the remaining distance to Edge's
+2,680 bytes, and on that branch `clean` is off by construction (it is permitted there, but writes
+33% more for nothing). So these are not two options to choose between: the first is the floor for
+every save, the second a further step for the additive case only.
 
 **The retest's timings do not reproduce, and the difference matters for how this is scoped.** It
 reports 12.6 s for 11 marks and 7.6 s for one. Measured directly on the merged code, `annotate` is

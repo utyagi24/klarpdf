@@ -2252,10 +2252,28 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   572 of 572**. Edge writes a standard incremental update, which is what the format provides for
   this case. **So incremental writing is re-scoped rather than rejected:** appending leaves the
   previous revision recoverable, which is disqualifying *for redaction* and not a reason to rewrite
-  9 MB to add a highlight. The work is the predicate (provably-additive edits only) plus scoping the
-  strip-and-re-add-annotations pass, which today dirties all 572 page objects. **Two independent
-  levers:** dropping `clean` takes streams to 0/572 and the call to 0.70 s but still writes a whole
-  8.8 MB file; incremental writing is what closes the rest of the gap to Edge. **The retest's
+  9 MB to add a highlight. **The write mode is one decision, not two knobs** — measured, MuPDF
+  refuses garbage collection on an incremental write (`garbage=2` → *"Can't do incremental writes
+  with garbage collection"*), so this is the **second fork on the axis M110 opened**, not a mechanism
+  beside it: page set changed → graft; unchanged with any non-additive edit → copy at
+  `GARBAGE_COPY`; unchanged and provably additive → `garbage=0`, no `clean`, incremental. That third
+  row sits *below* the redaction orphan floor `tests/test_redaction_orphans.py` pins, so excluding
+  redaction is required twice over. **The predicate is smaller than first written:** `save_options`
+  already asks the model one question about the edit set, and `has_redactions()` /
+  `has_content_marks()` already exist and already gate the commit-and-reload decision — the rest is
+  one-line reads of `rotation_override` / `crop_override` / `form_values` / `_metadata_override` /
+  `_encryption_staged`. It must be a **whitelist** (unknown annotation kinds denied), because too
+  permissive appends over a redaction. **Two claimed obstacles resolved, one of them wrong:** the
+  strip-and-re-add pass does **not** dirty every page — measured via the bytes an incremental save
+  appends, `_apply_page_edits` with no edits adds **+0 B** on 60 pages, one highlight +890 B, three
+  +2,184 B — it is already scoped in effect and needs no work. The two real ones are that
+  `fresh_source` opens from a **stream**, which PyMuPDF refuses to save incrementally at all
+  (*"incremental needs original file"*), and that `apply_metadata` runs unconditionally on the copy
+  route, re-writing untouched Info + XMP: on a document with a 3 KB XMP packet it turns a 901 B
+  append into **4,249 B**, larger on its own than Edge's whole edit. **Two levers, the second
+  subsuming the first on its branch:** dropping `clean` takes streams to 0/572 and the call to
+  0.70 s but still writes a whole 8.8 MB file, and helps every save including the ones the predicate
+  refuses; incremental writing closes the rest of the gap to Edge. **The retest's
   timings do not reproduce** — `annotate` is 1.83 s for its eleven marks, not 12.6 s; the
   document-proportional cost in that workflow is `search` (6.34 s here), already carried below.
   (The number M114 briefly labelled the withdrawn Reduce-dpi proposal in
