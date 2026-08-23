@@ -4214,6 +4214,14 @@ incremental write means copy-then-append, which is fine — the copy is 32 ms), 
 page objects even when one is marked. That pass would have to become scoped to pages that carry
 marks.
 
+**If this is declined, one sentence is still owed.** TC-012's own fallback: *"If a full rewrite is
+structurally required, say so in `klarpdf://docs/annotate` so callers size their expectations."* That
+holds whatever is decided here — a caller diffing two versions of a document, or feeding one to a
+search index, needs to know that adding a highlight rewrites every page. Declining the work does not
+close the finding; it converts it into a documentation item. The same sentence also disposes of the
+report's "Informational — text re-grouping on untouched pages" note, which is this cause seen from
+the extraction side.
+
 **Two levers, and they are independent.** Dropping `clean` takes content streams from 572/572 to
 0/572 and the call from 1.85 s to 0.70 s, but still writes a complete 8.8 MB file. Incremental
 writing is what closes the remaining distance to Edge's 2,680 bytes. The first is small and helps
