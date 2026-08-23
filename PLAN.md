@@ -4304,15 +4304,44 @@ the origin *file* has to re-supply the recorded password — and incremental req
 `encryption=PDF_ENCRYPT_KEEP` passed explicitly, so a save that *changes* encryption can never take
 this branch. The predicate already excludes that via `_encryption_staged`.
 
-*Real obstacle 2 — `apply_metadata` runs unconditionally on the copy route and re-writes metadata
-nobody touched.* `_edit_origin_copy` calls it on every save; with no user override its `else` branch
-writes the origin's Info dict and XMP packet back onto a document that already has both. That pass
-exists because `insert_pdf` copies neither store — the *graft's* problem — and on the copy route it
-has nothing to repair. Measured on a 60-page document with a 3,093-byte XMP packet and metadata the
-user never touched, it turns a **901 B** incremental append into **4,249 B**: 3.3×, and on its own
-larger than the 2,680 bytes Edge writes for the entire edit. It should be skipped when
-`metadata_override is None` on the copy route — worth doing whatever is decided about incremental
-writing.
+*Real obstacle 2 — every save re-writes the document's title and author, even when nobody edited
+them.*
+
+A PDF keeps document metadata — title, author, subject, dates — in **two** places: the old **Info
+dictionary**, a plain key/value store, and the newer **XMP packet**, an XML blob saying the same
+things. Different viewers read different ones, which is why an *edit* has to write both (M53).
+
+`apply_metadata` has three branches: metadata removed, metadata edited, and metadata untouched. The
+untouched branch copies the origin's two stores onto the output:
+
+```python
+else:
+    out.set_metadata({k: v for k, v in vdoc.origin_metadata.items() if k in INFO_KEYS})
+    if vdoc.origin_xmp:
+        out.set_xml_metadata(vdoc.origin_xmp)
+```
+
+**That branch was written for the graft, and only the graft needs it.** The graft builds a new
+document with `insert_pdf`, which copies pages and neither metadata store — without the pass the
+title and author simply vanish (that is M53). The copy route instead starts from a *copy of the
+origin*, which already carries both. Measured on the same file:
+
+| the route's starting point | Info title | XMP packet |
+| --- | --- | --- |
+| `fresh_source()` — the copy route | `'Original Title'` | present, **byte-identical to the origin** |
+| `insert_pdf` into a new document — the graft | `''` | **gone** |
+
+So on the copy route the pass writes back precisely what is already there. It is a no-op in
+*meaning* and not a no-op in *bytes*: PyMuPDF marks both objects changed and re-serialises them.
+
+**Today that costs nothing visible, because the save rewrites the whole file anyway.** It stops
+being free the moment a save appends only what changed. Measured on a 60-page document with a
+3,093-byte XMP packet and metadata the user never touched, the pass turns a **901 B** incremental
+append into **4,249 B** — 3.3×, and on its own larger than the 2,680 bytes Edge writes for the
+entire edit.
+
+The fix is a guard: on the copy route, skip the pass when `metadata_override is None`. Worth doing
+whatever is decided about incremental writing.
 
 **If this is declined, one sentence is still owed.** TC-012's own fallback: *"If a full rewrite is
 structurally required, say so in `klarpdf://docs/annotate` so callers size their expectations."* That
