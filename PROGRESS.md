@@ -2285,6 +2285,26 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     foreign-mark callers at the raw `color`; or give `get_annotations` a `color_near` filter that
     takes an RGB and a tolerance. **Not** a wider tolerance.
 
+  - **M113.8** *(added 2026-08-23, from a re-read of TC-012)* **Two documentation gaps the report
+    raised and nobody logged.** (a) *"The line and highlight palettes differ for the same name"* —
+    `klarpdf://docs/get_annotations` lists all seven names in one breath ("Yellow, Green, Blue, Pink,
+    Orange, Red, Black") as if they were one palette. They are not: **highlight Blue is 0.634 from
+    line Blue, and highlight Green 0.584 from line Green** — against a naming tolerance of 0.22 and a
+    Yellow-to-Orange gap of 0.244. A caller filtering `color_name == "Blue"` across mixed types is
+    collecting two visibly different colours, which is exactly the mistake the same section warns
+    about for foreign marks. (b) **The refusal to write over the input is not discoverable from
+    `annotate`'s own description** — TC-012 called it "not a defect… recorded because it is a
+    question a caller will ask", and the answer currently lives only in the server-level
+    instructions.
+  - **M113.9** *(added 2026-08-23, from a re-read of TC-012)* **A caller polling the output path
+    sees nothing until the call finishes** (TC-012 FINDING 2). Every write goes to a temp file in
+    the output directory and is renamed into place at the end — right, because a crash cannot then
+    leave a half-written PDF where the caller expects a good one — but it is documented nowhere, and
+    a caller watching `out` reasonably concludes the call has failed. M110 defused the acute case
+    (the write that prompted this ran for minutes; the same call is now ~2 s), so what remains is
+    one sentence in the docs naming the behaviour. Filed rather than dropped because the report's
+    own severity note — *"compounds FINDING 1"* — is no longer true, and that is worth stating.
+
   Design in `PLAN.md` §M113 — *WSL*
 
 - [ ] **M112** *(unplanned)* **The bridge can *edit* an annotation, not only add one** — owner-asked

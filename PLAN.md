@@ -4308,6 +4308,31 @@ the reply — cheapest, and narrows an advertised capability; **(c)** give `get_
 `color_near` *filter* taking an RGB and a tolerance, so the caller says what it means by "the same
 yellow" — most useful, most work. **Not** a wider `NAME_TOLERANCE`.
 
+**M113.8 — two documentation gaps TC-012 raised and nobody logged.** *(a)* The report's "Colours"
+section notes that **the line and highlight palettes differ for the same name**, and
+`klarpdf://docs/get_annotations` still lists all seven in one breath — "Yellow, Green, Blue, Pink,
+Orange, Red, Black" — as though they were one palette. Measured, the overlap is not a nuance:
+
+| name | highlight | line | distance |
+| --- | --- | --- | --- |
+| Blue | `0.55, 0.80, 1.00` | `0.13, 0.35, 0.85` | **0.634** |
+| Green | `0.55, 0.92, 0.45` | `0.13, 0.60, 0.20` | **0.584** |
+
+against a `NAME_TOLERANCE` of 0.22 and a Yellow-to-Orange gap of 0.244. A caller filtering
+`color_name == "Blue"` across mixed mark types collects two colours further apart than any two
+swatches within either palette — the same class of mistake M113.7 is about, arriving from the
+opposite direction. *(b)* The **refusal to write over the input** is documented only in the
+server-level instructions; TC-012 recorded it as "not a defect… because it is a question a caller
+will ask", and `annotate`'s own description does not answer it.
+
+**M113.9 — a caller polling the output path sees nothing until the call finishes** (TC-012
+FINDING 2). Writes go to a temp file in the output directory and are renamed into place at the end.
+That is correct — a crash cannot leave a half-written PDF where the caller expects a good one — and
+it is documented nowhere, so a caller watching `out` reasonably concludes the call failed. The
+report filed it as "compounds FINDING 1", which **is no longer true**: the write that prompted it ran
+for minutes and the same call now takes ~2 s (M110). What is left is one sentence naming the
+behaviour, and the note that its severity was borrowed from a problem that has since been fixed.
+
 **For reference, the app's own defaults** (`model/markup_palette.py`, `main_window.py:162`):
 highlight opens on **Yellow** `(1, 0.86, 0.10)`, underline and strikeout each open on **Red**
 `(0.86, 0.10, 0.10)`, the redline convention — sticky per session since M78.5, independent per type.
