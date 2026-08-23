@@ -4147,11 +4147,26 @@ Through the real `annotate` pipeline rather than a raw probe, dropping `clean` g
 changed, 1.85 s → 0.70 s, and 9,311,702 → 8,833,918 B** — smaller than the 9,015,879 B source, where
 with `clean` the output was larger than it.
 
-**It also explains three things the retest filed separately.** `clean` re-emits every operator, so
-`0.0784 0.4 0.525 rg` becomes `.0784 .4 .525 rg`, `11.4` becomes `11.400024`, and marked-content
-`/Artifact<</Type/Pagination…>>BDC` appears at the head of streams that began `q BT` — which is why
-decompressed page content grew (page 1: 93,544 → 110,026 B) and why Poppler reconstructed a different
-reading order on 39 untouched pages. All of it is downstream of one option.
+**What `clean` actually does**, shown on page 1 of that document — a page carrying no mark at all:
+
+```
+source                 93,544 B   /Artifact BMC /GS5 gs\r\n0.0784 0.4 0.525 rg\r\n3.36 737.02 …
+saved with clean=True 112,322 B   /Artifact BMC q/GS5 gs .0784 .4 .525 rg 3.36 737.02 192.77 11.40…
+saved with clean=False 93,544 B   byte-identical to the source
+```
+
+It sets **both** of MuPDF's `do_clean` and `do_sanitize` flags (one PyMuPDF keyword, two MuPDF
+options), which re-parse every content stream and re-emit every operator: numbers are rewritten
+(`0.0784` → `.0784`, and elsewhere `11.4` → `11.400024`), whitespace is normalised, and a `q` is
+inserted. The retest saw exactly this and called it "more invasive"; it is right, and the stream
+grows 20% on that page as a result.
+
+**One consequence the retest reports does not reproduce.** It states the output's Poppler text is
+"different on 41 of 573 pages… 39 are pure reordering". Measured here with `pdftotext` 24.02.0 over
+the whole document, against the source: **0 pages differ**, both for a one-mark file and for an
+eleven-mark one. So the re-serialisation is real and the extraction consequence is not established —
+it may be specific to another Poppler build, or to a comparison against a different baseline than the
+source. The milestone rests on the rewrite itself, not on that.
 
 **M110 measured `clean` and cleared it — of the wrong charge.** §M110 records "`clean=True` … is
 **not** implicated: measured at ~1.9 s". That was about the 202-second hunt, and it was true. Nobody
