@@ -4276,6 +4276,45 @@ one returns `-1`. Correct by the field's definition and honest; the description 
 it being smaller than requested, so one worked example is owed. Plus the grammar slip `'Yellow' is
 not a underline colour`, where one string serves all three types.
 
+**M113.7 — the documented colour filter cannot filter an Edge mark** (added 2026-08-23, from the
+TC-012 Edge cross-check). `get_annotations` reports Edge's default highlight as `color_name: null`,
+`color_exact: false`. That is *correct* by the rule §M101 set — "`null` when nothing is close, rather
+than a misleading guess" — and it defeats the workflow the tools advertise in their own description:
+*read, filter on `color_name`, pass the survivors to `redact_regions`*. Edge is the likeliest source
+of a foreign mark a caller will ever meet, so the headline composition fails on the commonest real
+input.
+
+**The obvious fix is the dangerous one, and the numbers say so.** Edge's yellow is
+`[1, 0.9412, 0.4]`. Against our highlight palette:
+
+| our swatch | RGB | distance |
+| --- | --- | --- |
+| Yellow | `1, 0.86, 0.10` | 0.311 |
+| **Orange** | `1, 0.72, 0.30` | **0.243** |
+| Pink | `1, 0.65, 0.85` | 0.536 |
+
+It is **nearest to Orange, not Yellow** — and `NAME_TOLERANCE` is 0.22, so nothing is returned.
+Raising the tolerance to ~0.25 to make it nameable would name a *yellow* highlight **"Orange"**, and
+the example in our own documentation is "redact everything highlighted in orange". A reviewer marking
+up in Edge's default would have their highlights destroyed by an agent acting on somebody else's
+instruction. The current `null` is the safe answer; the defect is that the docs promise a workflow it
+cannot serve.
+
+Three options, none free, and the milestone has to pick one: **(a)** report the nearest name *with
+its distance* (`color_near: {name: "Orange", distance: 0.243}`) and let the caller set its own
+threshold — honest, but pushes a judgement onto every caller; **(b)** document that colour filtering
+covers marks this app wrote, and point foreign-mark callers at the raw `color`, which is already in
+the reply — cheapest, and narrows an advertised capability; **(c)** give `get_annotations` a
+`color_near` *filter* taking an RGB and a tolerance, so the caller says what it means by "the same
+yellow" — most useful, most work. **Not** a wider `NAME_TOLERANCE`.
+
+**For reference, the app's own defaults** (`model/markup_palette.py`, `main_window.py:162`):
+highlight opens on **Yellow** `(1, 0.86, 0.10)`, underline and strikeout each open on **Red**
+`(0.86, 0.10, 0.10)`, the redline convention — sticky per session since M78.5, independent per type.
+Edge's yellow is 0.311 from ours, which is further than our Yellow sits from our own Orange (0.244):
+two tools' "default yellow" are not the same colour, and no tolerance can make them one without
+colliding with a neighbouring name.
+
 ### M112 — the bridge can *edit* an annotation, not only add one (owner-asked 2026-08-21)
 
 | Milestone | What | Where | Verify |

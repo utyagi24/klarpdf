@@ -2269,6 +2269,21 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   - **M113.6** Three smaller ones: marks must genuinely overlap to merge (two adjacent `search` hits
     leave a 3 pt gap); on a scan two overlapping marks merge into the box enclosing both;
     `marks_added` can be negative. Plus `'Yellow' is not a underline colour`.
+  - **M113.7** *(added 2026-08-23, from the TC-012 Edge cross-check)* **The documented
+    colour-filter workflow cannot filter a mark made in Edge.** `get_annotations` reports Edge's
+    default highlight as `color_name: null, color_exact: false` — correct by the documented rule
+    ("`null` when nothing is close, rather than a misleading guess"), but the headline workflow the
+    docs advertise is *"read, filter on `color_name`, pass the survivors to `redact_regions`"*, and
+    Edge is the likeliest source of a foreign mark a caller will meet. **The naive fix is worse than
+    the defect**, which is why this needs a decision rather than a constant: Edge's yellow is
+    `[1, 0.9412, 0.4]`, and measured against our palette it is **0.311 from our Yellow and 0.243
+    from our Orange** — *nearest to Orange*. Loosening `NAME_TOLERANCE` (0.22) far enough to name it
+    would name it **"Orange"**, and the documented example is literally "redact everything
+    highlighted in orange" — so a reviewer's Edge highlights would be destroyed by an agent asked to
+    act on somebody else's orange. Options, none free: report the nearest name *with its distance*
+    and let the caller judge; document that colour filtering is for marks this app wrote and point
+    foreign-mark callers at the raw `color`; or give `get_annotations` a `color_near` filter that
+    takes an RGB and a tolerance. **Not** a wider tolerance.
 
   Design in `PLAN.md` §M113 — *WSL*
 
