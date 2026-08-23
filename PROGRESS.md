@@ -2270,7 +2270,15 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   `fresh_source` opens from a **stream**, which PyMuPDF refuses to save incrementally at all
   (*"incremental needs original file"*), and that `apply_metadata` runs unconditionally on the copy
   route, re-writing untouched Info + XMP: on a document with a 3 KB XMP packet it turns a 901 B
-  append into **4,249 B**, larger on its own than Edge's whole edit. **Two levers, the second
+  append into **4,249 B**, larger on its own than Edge's whole edit. **The path obstacle dissolved
+  once it was stated for all three surfaces** rather than from the GUI: *no* surface writes to the
+  original file — app `Save`, `Save As` and the bridge all materialise into a temp beside the target
+  and `atomic_replace` it in (M38.5), and the bridge refuses to touch its input at all. So seed the
+  temp by **copying** the origin instead of creating it empty, append to that, and rename as before.
+  Proven end to end on a synthetic 572-page 3.46 MB document: **0.37 s → 0.03 s, +1,189 B, all
+  3,456,976 source bytes byte-identical**, copy 2 ms — and since both surfaces funnel through
+  `materialize`, it lands in one place. What is left open there is encryption (M54's `tobytes`
+  round-trip), not paths. **Two levers, the second
   subsuming the first on its branch:** dropping `clean` takes streams to 0/572 and the call to
   0.70 s but still writes a whole 8.8 MB file, and helps every save including the ones the predicate
   refuses; incremental writing closes the rest of the gap to Edge. **The retest's

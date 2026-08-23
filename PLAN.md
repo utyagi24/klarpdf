@@ -4271,11 +4271,38 @@ the entry was wrong. Nothing needs scoping here.
 *Real obstacle 1 — the copy route builds its output in memory, so it cannot save incrementally at
 all.* `VirtualDocument.fresh_source` opens via `fitz.open(stream=…tobytes(…))`, and PyMuPDF refuses a
 stream-opened document: `ValueError: incremental needs original file` — MuPDF needs the document
-opened *from the file being appended to*. The additive route would have to copy the origin to the
-destination path and open **that** (the copy is ~32 ms), which has to be reconciled with why
-`fresh_source` round-trips through `tobytes(encryption=PDF_ENCRYPT_KEEP)` in the first place (M54),
-and with `save_keywords`' encryption arguments — incremental additionally requires
-`encryption=PDF_ENCRYPT_KEEP` passed explicitly, as the table above shows.
+opened *from the file being appended to*.
+
+**Neither surface writes to the original file, and that is the point.** An earlier framing of this
+obstacle said "the output goes to a *new* path", which reads as a `Save As` detail and is why the
+obstacle looked bigger than it is. It is not surface-specific: **every** save, on **both** surfaces,
+materialises into a fresh temp file beside the target and then renames it into place —
+`MainWindow._write_to` (`mkstemp` → `materialize` → `atomic_replace`) and `mcp_bridge/transforms.py`
+`_write`, which is the same shape by design (*"the two write paths deliberately do not diverge on
+this"*, M38.5). The bridge additionally **refuses** to write over its input as policy
+(*"transforms always write to a new file"*). So an app `Save`, an app `Save As` and an `annotate`
+call are all the same case, and there is no in-place write anywhere to reason about separately.
+
+That dissolves the obstacle rather than deepening it. **Seed the temp by copying the origin instead
+of creating it empty**, open *that file*, append to it, and `atomic_replace` as before — atomicity is
+preserved, the bridge's no-overwrite rule is untouched, and `Save`'s in-place semantics are untouched.
+Measured end to end on a synthetic 572-page, 3.46 MB document, one highlight on page 337:
+
+| | today (empty temp + full materialize) | copy-seeded temp + incremental |
+| --- | --- | --- |
+| time | 0.37 s | **0.03 s** |
+| bytes added | full rewrite | **+1,189** |
+| source prefix preserved | — | **all 3,456,976 B byte-identical** |
+| the copy itself | — | 2 ms |
+
+The mark reads back on page 337 and no other sampled page carries one. Because both surfaces funnel
+through `PyMuPDFEngine().materialize(vdoc, path)`, the change lands in **one place and serves both**.
+
+What remains genuinely open here is encryption, not paths: `fresh_source` round-trips through
+`tobytes(encryption=PDF_ENCRYPT_KEEP)` for M54's sake (a document decrypted at open), so seeding from
+the origin *file* has to re-supply the recorded password — and incremental requires
+`encryption=PDF_ENCRYPT_KEEP` passed explicitly, so a save that *changes* encryption can never take
+this branch. The predicate already excludes that via `_encryption_staged`.
 
 *Real obstacle 2 — `apply_metadata` runs unconditionally on the copy route and re-writes metadata
 nobody touched.* `_edit_origin_copy` calls it on every save; with no user override its `else` branch
