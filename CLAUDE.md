@@ -82,18 +82,27 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   The milestone gets the next free number and `*(unplanned)*` when it was not on the roadmap (see
   M43.1, M93). This is the rule that keeps the design docs from becoming a description of the app as
   it was first imagined rather than as it is.
-- **Say which surface a claim about the core is about — there are three, and a session drifts toward
-  whichever one it is holding.** The app's `Save`, the app's `Save As`/`Export`, and the MCP bridge
-  all reach the same `model/`, so a sentence written while thinking about one of them reads as a
-  general fact about the core and is filed as one. M114's design entry described an obstacle as *"the
-  output goes to a new path"* — phrased from the GUI, where that sounds like a `Save As` detail worth
-  routing around. It is not a detail and it is not GUI-specific: **no surface writes to the original
-  file.** Both `MainWindow._write_to` and `mcp_bridge/transforms.py::_write` materialise into a temp
-  file beside the target and `atomic_replace` it in (deliberately the same shape, M38.5), and the
-  bridge additionally refuses to write over its input at all. Stating it per-surface turned one fact
-  into a bigger obstacle than it was — and the general version pointed straight at the fix. When a
-  design entry says "we write / we open / we refuse", name the surface or check all three; the
-  chokepoints to check are `PyMuPDFEngine.materialize`, `_write_to`, and `transforms._write`.
+- **Two consumers share one core — every change answers for both.** `model/`, `viewer/` and
+  `organize/` are reached by the **GUI app** (`app.py`, `main_window.py`) and by the **MCP bridge**
+  (`mcp_bridge/`), so a change to the core is a change to *both* whether or not the session was
+  thinking about both. The failure is silent and runs in either direction: a fix aimed at the app
+  changes what a bridge tool writes, or a bridge feature changes what Save does. So every behaviour
+  change, design entry and new feature names the surfaces it touches, and a core behaviour change
+  wants a test on **both** sides (`tests/test_mcp_*.py` for the bridge) rather than only the one the
+  session was holding.
+
+  It distorts *documents* as much as code: a fact stated from whichever surface is in hand gets filed
+  as a fact about the core. M114's entry called *"the output goes to a new path"* an obstacle — true
+  of the bridge always and of the GUI only on `Save As`, and misleading either way, because **no**
+  surface writes to the original file (both `MainWindow._write_to` and `mcp_bridge/transforms.py`
+  `_write` materialise into a temp beside the target and `atomic_replace` it in — deliberately the
+  same shape, M38.5). Stated per-surface it looked like an obstacle; stated generally it pointed at
+  the fix. When a claim says "we write / we open / we refuse", check it at every surface — the
+  chokepoints are `PyMuPDFEngine.materialize`, `MainWindow._write_to`, and `transforms._write`.
+
+  This is the **consumer** axis. The **OS** axis — Windows ships, Linux is a seam — is a separate
+  question with its own rule (**Keep OS-specific code quarantined**, under Gotchas); WSL is a
+  development environment, not a third product surface.
 
 ## Gotchas (cost real time if missed)
 - **`insert_pdf` copies pages, not documents.** Everything a PDF keeps at the *catalog* level — the
