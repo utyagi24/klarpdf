@@ -4161,12 +4161,18 @@ options), which re-parse every content stream and re-emit every operator: number
 inserted. The retest saw exactly this and called it "more invasive"; it is right, and the stream
 grows 20% on that page as a result.
 
-**One consequence the retest reports does not reproduce.** It states the output's Poppler text is
-"different on 41 of 573 pages… 39 are pure reordering". Measured here with `pdftotext` 24.02.0 over
-the whole document, against the source: **0 pages differ**, both for a one-mark file and for an
-eleven-mark one. So the re-serialisation is real and the extraction consequence is not established —
-it may be specific to another Poppler build, or to a comparison against a different baseline than the
-source. The milestone rests on the rewrite itself, not on that.
+**One consequence the retest reports does not reproduce, and the builds differ.** It states the
+output's Poppler text is "different on 41 of 573 pages… 39 are pure reordering". Measured here with
+`pdftotext` 24.02.0 against the source: **0 pages differ** — for a one-mark file, an eleven-mark one,
+and the controlled identical-edit file that carries the claim. The byte counts differ too: the same
+controlled edit adds **+296,142 B** here against the **+52,615 B** the report measures, a 5.6× gap on
+one highlight. Two measurements of the same operation disagreeing by that much means we are not
+running the same build — most likely a different PyMuPDF/MuPDF, whose sanitiser emits different
+operators and so shifts Poppler's reading-order reconstruction on their machine and not on this one.
+**Worth settling before anything ships**, because "does a save change extracted text" is exactly the
+sort of claim a milestone should not leave environment-dependent: ask the tester for
+`pymupdf.__doc__` from the harness. The milestone rests on the rewrite itself, which reproduces
+identically on both (572/572).
 
 **M110 measured `clean` and cleared it — of the wrong charge.** §M110 records "`clean=True` … is
 **not** implicated: measured at ~1.9 s". That was about the 202-second hunt, and it was true. Nobody
@@ -4179,11 +4185,39 @@ one. The plausible shape is to keep it where we rewrite content and drop it wher
 annotation objects, but that is a hypothesis, not the design. It gets the treatment M110 got: every
 corpus document saved both ways, sizes and text compared, before anything ships.
 
-**Incremental save is rejected for the general path, and the reason must be written down** so it is
-not proposed again. It is the fastest row in the table and does exactly what the retest asked for —
-but it *appends*: the original bytes stay in the file. On the redaction path that is a catastrophic
-leak, since the entire promise is that the content is gone. It could only ever be scoped to
-provably-additive edits, and the save path cannot tell them apart today.
+**Microsoft Edge sets the target, and it is not a hypothetical** (TC-012 cross-check, verified
+here against the files). The same 9 MB / 572-page source, given **one highlight**, then Edge's own
+mark read back through `get_annotations` and replayed through `annotate` as the *identical* edit —
+same page, same six boxes, same `[1, 0.9412, 0.4]`, same type:
+
+| | Edge | klarpdf, identical edit |
+| --- | --- | --- |
+| Bytes added | **+2,680** | **+296,142** |
+| Source bytes preserved | **100%** — the first 9,015,879 B are byte-identical | diverges after 8 B |
+| Content streams changed | **0 / 572** | **572 / 572** |
+
+Edge writes a standard **incremental update**: the original bytes are left alone and 2,680 bytes are
+appended — a new version of the page-1 object with its `/Annots`, the `/Highlight` and its
+`/QuadPoints`, an appearance stream, a `/Popup`, and a new xref section. Every other page is
+byte-identical *by construction*. This is what the PDF format provides for exactly this case.
+
+**So incremental writing is not rejected — it is re-scoped.** An earlier draft of this entry rejected
+it outright because it *appends*, leaving the previous revision recoverable inside the file, which on
+the redaction path leaks precisely what a redaction promises to destroy. That reason is real and
+stands **for the redaction path**; it is not a reason to rewrite 9 MB when the edit only adds an
+annotation, and the tester is right to say so. The work is the predicate: a save may write
+incrementally only when the edit is **provably additive** — no redaction, no page-set change, no
+rotation, crop, form fill or metadata edit — and today's save path cannot tell those apart. Two
+further obstacles are ours rather than the format's: the output goes to a *new* path (so an
+incremental write means copy-then-append, which is fine — the copy is 32 ms), and
+`_apply_page_edits` strips and re-adds KlarPDF annotations on **every** page, which would dirty 572
+page objects even when one is marked. That pass would have to become scoped to pages that carry
+marks.
+
+**Two levers, and they are independent.** Dropping `clean` takes content streams from 572/572 to
+0/572 and the call from 1.85 s to 0.70 s, but still writes a complete 8.8 MB file. Incremental
+writing is what closes the remaining distance to Edge's 2,680 bytes. The first is small and helps
+every save in the app and the bridge; the second is a bigger change confined to additive edits.
 
 **The retest's timings do not reproduce, and the difference matters for how this is scoped.** It
 reports 12.6 s for 11 marks and 7.6 s for one. Measured directly on the merged code, `annotate` is

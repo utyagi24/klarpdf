@@ -2246,8 +2246,16 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   about the 202-second hunt). **Not a one-line change:** `clean` has sat in the save since M1 with no
   recorded reason, which is not the same as having none — this project rewrites content in
   `apply_redactions` and appends streams for R4 content marks, so the corpus decides, exactly as it
-  did for M110. **Incremental save is rejected** and the reason recorded: it appends, leaving the
-  original bytes in the file, which on the redaction path is a catastrophic leak. **The retest's
+  did for M110. **Microsoft Edge sets the target:** given the *identical* edit — Edge's own mark
+  read back and replayed through `annotate` — Edge adds **2,680 B and changes 0 of 572 content
+  streams**, leaving the first 9,015,879 bytes byte-identical, where we add **296,142 B and change
+  572 of 572**. Edge writes a standard incremental update, which is what the format provides for
+  this case. **So incremental writing is re-scoped rather than rejected:** appending leaves the
+  previous revision recoverable, which is disqualifying *for redaction* and not a reason to rewrite
+  9 MB to add a highlight. The work is the predicate (provably-additive edits only) plus scoping the
+  strip-and-re-add-annotations pass, which today dirties all 572 page objects. **Two independent
+  levers:** dropping `clean` takes streams to 0/572 and the call to 0.70 s but still writes a whole
+  8.8 MB file; incremental writing is what closes the rest of the gap to Edge. **The retest's
   timings do not reproduce** — `annotate` is 1.83 s for its eleven marks, not 12.6 s; the
   document-proportional cost in that workflow is `search` (6.34 s here), already carried below.
   (The number M114 briefly labelled the withdrawn Reduce-dpi proposal in
