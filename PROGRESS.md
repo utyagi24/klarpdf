@@ -2231,6 +2231,37 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   `TYAGI1703` trap *within* a line (`Smith` + `Jones` → the token `SmithJones`), caught by M98's
   existing tests. Design in `PLAN.md` §M100 — *WSL*
 
+- [ ] **M114** *(unplanned)* **A mark on one page rewrites all 572** — from the **TC-012 retest**
+  (2026-08-22), which confirmed M110 fixed the cost ("roughly a 10× speed-up… returns inline") and
+  reported the other half untouched: every content stream is still re-serialised, *including on a
+  one-mark call*. Re-run against the merged code, that is exactly right — **572 of 572** for a single
+  highlight. **The cause is `clean=True` and nothing else**, isolated by saving the same edit five
+  ways: without it, **0 of 572** streams change. Through the real `annotate` pipeline dropping it
+  gives **1.85 s → 0.70 s and 9,311,702 → 8,833,918 B**, smaller than the 9,015,879 B source where
+  today's output is larger. It explains two things the retest filed separately — the operator
+  verbosity (`0.0784` → `.0784`, `11.4` → `11.400024`) and the decompressed-content growth (page 1:
+  93,544 → 112,322 B on a page carrying no mark). A third does **not** reproduce: the retest reports
+  Poppler text differing on 41 of 573 pages, and measured here with `pdftotext` 24.02.0 over the
+  whole document, **0 pages differ** — for a one-mark file and an eleven-mark one alike. **M110 measured `clean` and cleared it of the wrong charge** (~1.9 s, true, and
+  about the 202-second hunt). **Not a one-line change:** `clean` has sat in the save since M1 with no
+  recorded reason, which is not the same as having none — this project rewrites content in
+  `apply_redactions` and appends streams for R4 content marks, so the corpus decides, exactly as it
+  did for M110. **Microsoft Edge sets the target:** given the *identical* edit — Edge's own mark
+  read back and replayed through `annotate` — Edge adds **2,680 B and changes 0 of 572 content
+  streams**, leaving the first 9,015,879 bytes byte-identical, where we add **296,142 B and change
+  572 of 572**. Edge writes a standard incremental update, which is what the format provides for
+  this case. **So incremental writing is re-scoped rather than rejected:** appending leaves the
+  previous revision recoverable, which is disqualifying *for redaction* and not a reason to rewrite
+  9 MB to add a highlight. The work is the predicate (provably-additive edits only) plus scoping the
+  strip-and-re-add-annotations pass, which today dirties all 572 page objects. **Two independent
+  levers:** dropping `clean` takes streams to 0/572 and the call to 0.70 s but still writes a whole
+  8.8 MB file; incremental writing is what closes the rest of the gap to Edge. **The retest's
+  timings do not reproduce** — `annotate` is 1.83 s for its eleven marks, not 12.6 s; the
+  document-proportional cost in that workflow is `search` (6.34 s here), already carried below.
+  (The number M114 briefly labelled the withdrawn Reduce-dpi proposal in
+  [#277](https://github.com/utyagi24/klarpdf/pull/277); that item is now unnumbered in `PLAN.md`
+  §Future enhancements.) Design in `PLAN.md` §M114 — *WSL + Windows*
+
 - [x] **M110** *(unplanned)* ⭐ **A save no longer spends five minutes looking for duplicates that
   are not there** —
   found 2026-08-21 while reviewing TC-012, whose FINDING 1 read "cost scales with document size".
@@ -3038,6 +3069,24 @@ Carried items — none block work:
   idea rather than rounded up to "lossless". Worth doing if tagged PDFs become a real workflow; the
   same pass would need to carry `/Perms` and the `/Names` tree. Not scheduled. — *WSL*
 
+- **A GUI launched from WSL always opens on the primary monitor, whatever screen you typed the
+  command on** — owner report 2026-08-22, diagnosed the same day; **WSLg only, and not a KlarPDF
+  bug**. `MainWindow._place_window` deliberately opens on the screen under the cursor
+  (`QGuiApplication.screenAt(QCursor.pos())`), which is why this works on Windows. Under WSLg the
+  app runs on the **Wayland** platform, where two separate things defeat it: `QCursor.pos()` returns
+  `(0, 0)` — Wayland gives a client no way to ask where the global pointer is — which lands outside
+  every screen rect, so `screenAt` returns `None` and the code falls back to the primary screen; and
+  Wayland's `xdg-shell` gives a client no way to position its own top-level window at all. Measured:
+  a probe window asking for (3080, 200) on the external monitor landed at (0, 348) on the laptop
+  under `wayland`, and at (3086, 227) on the **external monitor** under `xcb`. Qt sees both screens
+  either way (`rdp-0` 2880×1800, `rdp-11` 2560×1440), so nothing is hidden — the placement is simply
+  not the client's to make. **Workaround:** `QT_QPA_PLATFORM=xcb python launcher.py file.pdf` routes
+  through XWayland, where both calls work; the caveat is that XWayland only learns the pointer
+  position while the cursor is over an X client, and the launching terminal is a *Windows* window,
+  so the position can be stale. Deliberately not fixed in the app: WSLg is the dev environment and
+  the product ships native Windows. It becomes real work only if Linux desktop is ever a target, and
+  then the answer is an explicit screen choice (a `--screen` flag / `KLARPDF_SCREEN`) rather than a
+  cursor heuristic. `main_window.py:3082`.
 - ~~**`_render_visible` is O(document length), not O(visible band)**~~ — **fixed 2026-07-28 as
   M87.3** (see the M87 entry above). It was worse than filed: a *third* walk, the annotation
   overlay re-deriving the band once per page, made the pass **quadratic** rather than linear —

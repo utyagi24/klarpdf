@@ -4121,9 +4121,142 @@ re-encoding them buys nothing and costs a little. The dialog already reports tha
 | `Patina-…-Brochure.pdf` | −7,523,443 | **−7,564,299** |
 | `Account_Statement_Mar_2026.pdf` | −387,812 | **−406,266** |
 
+### M114 — a mark on one page rewrites all 572 (TC-012 retest, found 2026-08-22)
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M114** Stop re-serialising every content stream on a save that did not change page content | `write_options` in `model/edit_engine.py` — `clean=True`, present since M1 and never justified in writing | WSL + Windows | A one-mark `annotate` on a 572-page document leaves 572/572 content streams byte-identical; Poppler extracts every untouched page identically; the corpus shows no file growing and nothing failing that `clean` was silently protecting |
+
+**From the TC-012 retest (2026-08-22), which was right about the half we did not look at.** M110 fixed
+the cost — the retest measured "roughly a 10× speed-up" and the call returning inline — but reported
+that the second half of the finding was untouched: *"every one of the 572 content streams is still
+re-serialised, including on a one-mark call that touches a single page."* Re-run against the merged
+code, that is exactly right: **572 of 572**, for a single highlight on page 337.
+
+**The cause is `clean=True`, and nothing else.** Isolated by saving the same one-mark edit five ways:
+
+| save | time | size | streams changed |
+| --- | --- | --- | --- |
+| `garbage=2 deflate clean use_objstms` (ours) | 2.89 s | 9,311,842 | **572 / 572** |
+| the same without `clean` | 1.36 s | **8,834,048** | **0 / 572** |
+| no `clean`, no `deflate` | 1.33 s | 12,219,287 | 0 / 572 |
+| `garbage=0`, nothing else | 1.32 s | 13,339,118 | 0 / 572 |
+| copy the file, then `incremental=True` | 0.05 s | 9,017,093 | 0 / 572 |
+
+Through the real `annotate` pipeline rather than a raw probe, dropping `clean` gives **0/572 streams
+changed, 1.85 s → 0.70 s, and 9,311,702 → 8,833,918 B** — smaller than the 9,015,879 B source, where
+with `clean` the output was larger than it.
+
+**What `clean` actually does**, shown on page 1 of that document — a page carrying no mark at all:
+
+```
+source                 93,544 B   /Artifact BMC /GS5 gs\r\n0.0784 0.4 0.525 rg\r\n3.36 737.02 …
+saved with clean=True 112,322 B   /Artifact BMC q/GS5 gs .0784 .4 .525 rg 3.36 737.02 192.77 11.40…
+saved with clean=False 93,544 B   byte-identical to the source
+```
+
+It sets **both** of MuPDF's `do_clean` and `do_sanitize` flags (one PyMuPDF keyword, two MuPDF
+options), which re-parse every content stream and re-emit every operator: numbers are rewritten
+(`0.0784` → `.0784`, and elsewhere `11.4` → `11.400024`), whitespace is normalised, and a `q` is
+inserted. The retest saw exactly this and called it "more invasive"; it is right, and the stream
+grows 20% on that page as a result.
+
+**One consequence the retest reports does not reproduce, and the builds differ.** It states the
+output's Poppler text is "different on 41 of 573 pages… 39 are pure reordering". Measured here with
+`pdftotext` 24.02.0 against the source: **0 pages differ** — for a one-mark file, an eleven-mark one,
+and the controlled identical-edit file that carries the claim. The byte counts differ too: the same
+controlled edit adds **+296,142 B** here against the **+52,615 B** the report measures, a 5.6× gap on
+one highlight. Two measurements of the same operation disagreeing by that much means we are not
+running the same build — most likely a different PyMuPDF/MuPDF, whose sanitiser emits different
+operators and so shifts Poppler's reading-order reconstruction on their machine and not on this one.
+**Worth settling before anything ships**, because "does a save change extracted text" is exactly the
+sort of claim a milestone should not leave environment-dependent: ask the tester for
+`pymupdf.__doc__` from the harness. The milestone rests on the rewrite itself, which reproduces
+identically on both (572/572).
+
+**M110 measured `clean` and cleared it — of the wrong charge.** §M110 records "`clean=True` … is
+**not** implicated: measured at ~1.9 s". That was about the 202-second hunt, and it was true. Nobody
+asked what else it did.
+
+**Not a one-line change, and the corpus decides.** `clean` has been in the save since M1 with no
+recorded reason, which is not the same as having none: it sanitises content streams, and this project
+*does* rewrite content — `apply_redactions` rewrites a page, the R4 content marks append streams to
+one. The plausible shape is to keep it where we rewrite content and drop it where a save only adds
+annotation objects, but that is a hypothesis, not the design. It gets the treatment M110 got: every
+corpus document saved both ways, sizes and text compared, before anything ships.
+
+**Microsoft Edge sets the target, and it is not a hypothetical** (TC-012 cross-check, verified
+here against the files). The same 9 MB / 572-page source, given **one highlight**, then Edge's own
+mark read back through `get_annotations` and replayed through `annotate` as the *identical* edit —
+same page, same six boxes, same `[1, 0.9412, 0.4]`, same type:
+
+| | Edge | klarpdf, identical edit |
+| --- | --- | --- |
+| Bytes added | **+2,680** | **+296,142** |
+| Source bytes preserved | **100%** — the first 9,015,879 B are byte-identical | diverges after 8 B |
+| Content streams changed | **0 / 572** | **572 / 572** |
+
+Edge writes a standard **incremental update**: the original bytes are left alone and 2,680 bytes are
+appended — a new version of the page-1 object with its `/Annots`, the `/Highlight` and its
+`/QuadPoints`, an appearance stream, a `/Popup`, and a new xref section. Every other page is
+byte-identical *by construction*. This is what the PDF format provides for exactly this case.
+
+**So incremental writing is not rejected — it is re-scoped.** An earlier draft of this entry rejected
+it outright because it *appends*, leaving the previous revision recoverable inside the file, which on
+the redaction path leaks precisely what a redaction promises to destroy. That reason is real and
+stands **for the redaction path**; it is not a reason to rewrite 9 MB when the edit only adds an
+annotation, and the tester is right to say so. The work is the predicate: a save may write
+incrementally only when the edit is **provably additive** — no redaction, no page-set change, no
+rotation, crop, form fill or metadata edit — and today's save path cannot tell those apart. Two
+further obstacles are ours rather than the format's: the output goes to a *new* path (so an
+incremental write means copy-then-append, which is fine — the copy is 32 ms), and
+`_apply_page_edits` strips and re-adds KlarPDF annotations on **every** page, which would dirty 572
+page objects even when one is marked. That pass would have to become scoped to pages that carry
+marks.
+
+**If this is declined, one sentence is still owed.** TC-012's own fallback: *"If a full rewrite is
+structurally required, say so in `klarpdf://docs/annotate` so callers size their expectations."* That
+holds whatever is decided here — a caller diffing two versions of a document, or feeding one to a
+search index, needs to know that adding a highlight rewrites every page. Declining the work does not
+close the finding; it converts it into a documentation item. The same sentence also disposes of the
+report's "Informational — text re-grouping on untouched pages" note, which is this cause seen from
+the extraction side.
+
+**Two levers, and they are independent.** Dropping `clean` takes content streams from 572/572 to
+0/572 and the call from 1.85 s to 0.70 s, but still writes a complete 8.8 MB file. Incremental
+writing is what closes the remaining distance to Edge's 2,680 bytes. The first is small and helps
+every save in the app and the bridge; the second is a bigger change confined to additive edits.
+
+**The retest's timings do not reproduce, and the difference matters for how this is scoped.** It
+reports 12.6 s for 11 marks and 7.6 s for one. Measured directly on the merged code, `annotate` is
+**1.83 s** for the same eleven and **1.85 s** for one — and writing to `/mnt/c` rather than `/tmp`
+accounts for 0.2 s of that, not six seconds. What *is* document-proportional in that workflow is the
+`search` that locates the marks: **6.34 s** on this document, which is the already-carried
+"a search is still one uninterruptible pass over every page". So the remaining defect is the rewrite,
+not the clock.
+
 ## Future enhancements (deferred beyond the roadmap)
 
 Captured but not yet scheduled:
+
+- **Showing the document's current image dpi in the Reduce File Size dialog** — **proposed and
+  declined 2026-08-22 (owner).** The dialog offers a target dpi without stating what the document
+  already is, which makes the choice blind; the owner's call is that the popup's existing wording
+  and its actual before → after report are enough. Recorded so the argument is not re-run.
+
+  The finding behind the question stands and is worth keeping, because it sharpens §M111's residue:
+  `rewrite_images` is called with `dpi_threshold = dpi + 1` (so that "images *above* the target" is
+  exact), which means an image sitting **at** the target is untouched — and measured across the
+  corpus, **every image in `spaceX_prospectus.pdf` is already exactly 150 dpi**. The "Screen — 150 dpi"
+  preset therefore cannot touch one of them, which is the real reason that file comes back marginally
+  larger rather than the vaguer "its images are already efficiently encoded". `f8949.pdf` has no images
+  at all, so the lossy tier is wholly inert on it. Others do have headroom: the property brochure runs
+  to 442 dpi (median 300), `dhariwal_ipo.pdf` to 246 (median 200).
+
+  Had it been built, the design problem would have been cost rather than wording: effective dpi is a
+  property of how large an image is *drawn*, so it needs the placement — `page.get_image_info()` costs
+  **0.9–4.5 s** on real documents, too slow to block a dialog, while `page.get_images()` costs
+  37–238 ms and knows the count but not the resolution.
 
 - **Touchpad inertia (a fling that decays instead of stopping dead)** — deferred out of M92 by owner
   call (2026-07-30: *"touchpad experience though not perfect I am satisfied with it for now"*). A
