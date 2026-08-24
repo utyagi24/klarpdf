@@ -68,6 +68,7 @@ Everything here works **fully offline**: the app makes no network connection, ev
 - **Extract** pages to a new file; **cut / copy / paste** pages, even **between two open documents**.
 - **Lossless saves** — text layer, form fields, bookmarks and internal links all survive a reorder or delete.
 - **Your document comes back whole** — an edit that doesn't move pages (filling a form, annotating, redacting, rotating) also keeps the accessibility tags, the permissions, the encryption and the links exactly as they were. Reordering or deleting pages rebuilds the file and loses the tags.
+- **Pages you didn't touch are left untouched** — highlighting one page of a 572-page report rewrites that page and nothing else; the other 571 come back byte-for-byte identical, and the file lands *smaller* than the one you opened. Text extracted by other tools reads in the same order it did before.
 - **Undo / redo** every page edit (Ctrl+Z / Ctrl+Y).
 
 **Annotate & mark up**

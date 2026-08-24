@@ -23,7 +23,13 @@ from __future__ import annotations
 import pymupdf as fitz
 import pytest
 
-from model.edit_engine import GARBAGE_COPY, GARBAGE_GRAFT, PyMuPDFEngine
+from model.edit_engine import (
+    CLEAN_COPIED,
+    CLEAN_REWRITTEN,
+    GARBAGE_COPY,
+    GARBAGE_GRAFT,
+    PyMuPDFEngine,
+)
 from model.virtual_document import VirtualDocument
 
 _PERMS = int(fitz.PDF_PERM_PRINT | fitz.PDF_PERM_ACCESSIBILITY)
@@ -162,17 +168,49 @@ def test_neither_route_goes_below_the_orphan_floor():
     assert GARBAGE_GRAFT >= 1
 
 
-def test_only_the_cleanup_level_ever_varies(tagged_pdf):
-    """The rest of the options were four copies of a literal, and ``use_objstms`` reached exactly
-    one of them (M111). Whatever the route, everything but the level is the same set."""
+def test_only_the_two_decided_options_ever_vary(tagged_pdf):
+    """``garbage`` and ``clean`` are decided per write; **everything else** is one fixed set.
+
+    This used to say only the cleanup level ever varies (M111, when the rest were four copies of a
+    literal and ``use_objstms`` reached exactly one of them). M114 adds a second decision — but the
+    point of the original test survives it: the *number* of varying options is small, named and
+    deliberate, and nothing else may quietly join them.
+    """
     v = VirtualDocument.from_path(tagged_pdf)
     copy_route = PyMuPDFEngine().save_options(v)
     v.ordered = v.ordered + [v.ordered[0]]
     graft_route = PyMuPDFEngine().save_options(v)
 
+    decided = {"garbage", "clean"}
     assert copy_route["use_objstms"] == 1 and graft_route["use_objstms"] == 1
-    assert {k: val for k, val in copy_route.items() if k != "garbage"} == \
-           {k: val for k, val in graft_route.items() if k != "garbage"}
+    assert {k: val for k, val in copy_route.items() if k not in decided} == \
+           {k: val for k, val in graft_route.items() if k not in decided}
+
+
+def test_a_plain_save_does_not_sanitise_the_content_streams(tagged_pdf):
+    """A save that only copies pages through leaves their content exactly as it arrived (M114).
+
+    Measured over the 56-document corpus, cleaning there is a straight loss: streams left
+    byte-identical to the source go from 324/1,315 pages to 1,315/1,315 without it, the corpus
+    saves 70% faster, and three documents stop having their text re-ordered by a second extraction
+    engine.
+    """
+    v = VirtualDocument.from_path(tagged_pdf)
+    assert PyMuPDFEngine().save_options(v)["clean"] is CLEAN_COPIED
+
+
+def test_a_save_that_rewrites_page_content_still_cleans_up_after_itself(tagged_pdf):
+    """A redaction rewrites a page and an R4 content mark appends a stream to one — there the
+    output is our own construction, so it is sanitised (M114). This is the half of the decision the
+    corpus does *not* speak to, and it is kept deliberately rather than dropped for symmetry."""
+    from model.page_edits import Redaction
+
+    v = VirtualDocument.from_path(tagged_pdf)
+    assert PyMuPDFEngine().save_options(v)["clean"] is CLEAN_COPIED
+
+    v.add_annotation(0, Redaction(rects=((72, 72, 200, 90),)))
+    assert v.has_redactions()
+    assert PyMuPDFEngine().save_options(v)["clean"] is CLEAN_REWRITTEN
 
 
 def test_a_save_writes_with_the_level_it_reports(tagged_pdf, tmp_path):
@@ -189,6 +227,7 @@ def test_a_save_writes_with_the_level_it_reports(tagged_pdf, tmp_path):
 
     engine = PyMuPDFEngine()
     v = VirtualDocument.from_path(tagged_pdf)
+    reported = engine.save_options(v)
     fitz.Document.save = spy
     try:
         engine.materialize(v, out_path)
@@ -197,7 +236,8 @@ def test_a_save_writes_with_the_level_it_reports(tagged_pdf, tmp_path):
 
     assert len(calls) == 1
     assert calls[0]["garbage"] == GARBAGE_COPY  # nothing structural happened to this document
-    assert calls[0]["use_objstms"] == 1 and calls[0]["clean"] is True
+    assert calls[0]["use_objstms"] == 1
+    assert calls[0]["clean"] is reported["clean"]  # writes what it reports, whichever way it decided
 
 
 def test_a_save_does_not_grow_the_file_it_was_given(photo_pdf, tmp_path):

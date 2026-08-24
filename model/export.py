@@ -41,7 +41,12 @@ import os
 
 import pymupdf as fitz
 
-from model.edit_engine import GARBAGE_DEDUP, PyMuPDFEngine, write_options
+from model.edit_engine import (
+    CLEAN_REWRITTEN,
+    GARBAGE_DEDUP,
+    PyMuPDFEngine,
+    write_options,
+)
 from model.virtual_document import VirtualDocument
 
 _JPEG_EXTS = (".jpg", ".jpeg")
@@ -67,7 +72,7 @@ def export_flattened_pdf(vdoc: VirtualDocument, out_path: str) -> None:
     out = PyMuPDFEngine().render_output(vdoc)
     try:
         out.bake()  # annotations + form widgets → permanent page content (text layer preserved)
-        out.save(out_path, **write_options(GARBAGE_DEDUP))
+        out.save(out_path, **write_options(GARBAGE_DEDUP, clean=CLEAN_REWRITTEN))
     finally:
         out.close()
 
@@ -129,7 +134,7 @@ def export_reduced_pdf(
             dpi_threshold=dpi + 1, dpi_target=dpi, quality=jpg_quality, lossy=True, lossless=True
         )
         out.subset_fonts()
-        out.save(out_path, **write_options(GARBAGE_DEDUP))
+        out.save(out_path, **write_options(GARBAGE_DEDUP, clean=CLEAN_REWRITTEN))
     finally:
         out.close()
     return before, os.path.getsize(out_path)
