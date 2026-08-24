@@ -2231,6 +2231,32 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   `TYAGI1703` trap *within* a line (`Smith` + `Jones` → the token `SmithJones`), caught by M98's
   existing tests. Design in `PLAN.md` §M100 — *WSL*
 
+- [x] **M115.1** *(unplanned)* **The bridge's own lock now actually runs** — closes the structural
+  gap behind M115, and the reason a three-month version drift went unseen: CI installs
+  `requirements-dev.txt`, which tracks the **app**, so `tests/test_mcp_*.py` had only ever executed
+  against the app's PyMuPDF. `requirements-mcp.txt` was scanned by the weekly `audit` job the whole
+  time — and auditing a lock for advisories is not running a line of code against it. M115's two
+  tests compare the locks **as text**: that catches a version drift and cannot see a *behaviour*
+  difference between two engines, which is the thing that actually corrupts a document. A second CI
+  job now installs the bridge's lock and runs the bridge suite against it — **459 passed, 4
+  skipped**, with the full suite still green under the dev lock. **Required, but gated inside the
+  job** (owner's call): a PR that cannot reach the bridge reports the check without doing the work,
+  and the gate is a *step* rather than a workflow `paths:` filter for the reason G7 documents on the
+  `pytest` job — a filtered-out workflow never creates a check run, and a ruleset cannot tell "not
+  needed" from "not finished", so the PR would wait forever. `requirements-win.txt` is deliberately
+  outside the trigger: it is the app's lock, so it cannot change what the bridge installs, and the
+  "both locks agree" invariant is already asserted unconditionally in the `pytest` job. **The job
+  was the easy part** (70 lines). `tests/conftest.py` has three `autouse` fixtures and *all three*
+  reach into Qt, so under a Qt-free lock they error the **setup** of every bridge test before a
+  single body runs — the first attempt produced a wall of errors that said nothing about the bridge.
+  Each now returns early on a shared `GUI_INSTALLED`, computed with `importlib.util.find_spec` so
+  that asking the question does not itself pull ~60 MB of Qt into the interpreter. **Four tests use
+  dev-only tooling to *verify* bridge behaviour** and now skip rather than fail, the same
+  arrangement the Poppler cross-engine redaction check has always had: a Qt negative control, an
+  app-vs-bridge find-bar comparison, a pypdf second-engine cross-check, and the setuptools metadata
+  build. The lock installing neither pypdf nor PySide6 is itself a second proof of the quarantine
+  `tests/test_mcp_no_qt.py` asserts from the inside. Design in `PLAN.md` §M115.1 — *WSL + CI*
+
 - [ ] **M116** *(unplanned)* **Adding a highlight should append 2,680 bytes, not rewrite 8.8 MB** —
   M114's **second lever**, split out here because it was only ever written inside M114's own entry,
   and a ticked milestone's prose is not a backlog (caught by the owner, 2026-08-24). M114 fixed the
@@ -3111,38 +3137,6 @@ tree or history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI 
 ## Open follow-ups (carried)
 
 Carried items — none block work:
-
-- **Nothing has ever run a line of code against the bridge's own lock** — *(approach decided
-  2026-08-24, half built)* — the structural gap behind
-  M115, and the reason a three-month version drift went unseen. CI installs `requirements-dev.txt`
-  and runs the whole suite including `tests/test_mcp_*.py`, but that lock tracks the **app**, so the
-  bridge's tests have only ever executed against the app's PyMuPDF. `requirements-mcp.txt` *is*
-  covered by the weekly `audit` job (M42's fourth `pip-audit` step) — and auditing a lock for
-  advisories is not the same as running code against it. M115's two tests now compare the locks as
-  text, which catches a version drift; they cannot catch a behaviour difference between two engines.
-  Closing it means a CI job that installs `requirements-mcp.txt` and runs `tests/test_mcp_*.py`
-  against it. See `PLAN.md` §M115.
-
-  **The owner's call has since been made (2026-08-24): required, but gated to run only when the PR
-  could affect the bridge** — `mcp_bridge/`, `model/`, `util/`, `packaging/mcpb/`, the two bridge
-  requirements files, `pyproject.toml`, or the workflow itself; anything else reports success without
-  doing the work. The gate lives **inside** the job rather than as a workflow `paths:` filter, for
-  the reason G7 already documents on the `pytest` job: a filtered-out workflow never creates a check
-  run, and a ruleset cannot tell "not needed" from "not finished", so the PR waits forever. This is
-  the same shape as that job's existing docs-only gate.
-
-  **Half built, on `ci/m115.1-bridge-lock-job` (pushed, no PR — deliberately, it does not work
-  yet).** The job is written and its YAML validates. What stopped it: the shared `tests/conftest.py`
-  has `autouse` fixtures that import Qt (`_no_real_modals`, `_instant_search`, `_instant_zoom` →
-  `viewer/search.py`, `viewer/pdf_view.py`), so under a Qt-free lock **every** bridge test errors at
-  setup. Two are guarded on that branch; the other two are not. Verified by building a clean venv
-  from `requirements-mcp.txt`: it installs the right engine (PyMuPDF 1.27.2.3) and correctly carries
-  neither pypdf nor PySide6, and the suite then errors everywhere on conftest. Remaining work is
-  those two guards plus `importorskip` in three places where bridge tests use **dev-only tools as
-  verification** — `test_mcp_transforms.py` uses pypdf as a cross-check engine,
-  `test_mcp_no_qt.py` imports PySide6 as a negative control, `test_mcp_packaging.py` needs
-  setuptools. The precedent for skipping there is the Poppler cross-check, which already skips when
-  `pdftotext` is absent.
 
 - **`pipx install .` still resolves PyMuPDF to the newest release rather than ours** — the gap M115
   left open on purpose. That milestone pinned the *lock* (`requirements-mcp.txt`) to the app's
