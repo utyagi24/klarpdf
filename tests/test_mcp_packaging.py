@@ -162,17 +162,105 @@ def test_the_built_metadata_declares_dependencies():
     assert "klarpdf-mcp" in entry_points
 
 
-def test_the_declared_floors_match_the_locks_input():
-    """`pyproject.toml`'s floors and `requirements-mcp.in`'s must not drift: one is what an install
-    resolves against, the other is what the audited lock is compiled from."""
-    declared = re.search(r"dependencies = \[(.*?)\n\]", PROJECT_PYPROJECT.read_text("utf-8"), re.S)
-    pins = {p.strip().lower() for p in re.findall(r'"([^"]+)"', declared.group(1))}
-    wanted = {
-        line.strip().lower()
-        for line in (ROOT / "requirements-mcp.in").read_text("utf-8").splitlines()
-        if line.strip() and not line.startswith("#")
+def _requirements(text: str) -> dict[str, tuple[str, str]]:
+    """`{name: (operator, version)}` from a requirements-style block, ignoring comments."""
+    out = {}
+    for line in text.splitlines():
+        line = line.split("#")[0].strip().strip('",')
+        if not line:
+            continue
+        m = re.match(r"^([A-Za-z0-9_.\-]+)\s*(==|>=)\s*([0-9][^,\s]*)", line)
+        if m:
+            out[m.group(1).lower()] = (m.group(2), m.group(3))
+    return out
+
+
+def _version(v: str) -> tuple:
+    return tuple(int(p) if p.isdigit() else 0 for p in v.split("."))
+
+
+def test_the_declared_dependencies_match_the_locks_input():
+    """`pyproject.toml` and `requirements-mcp.in` must name the **same packages**, and where the
+    input pins one exactly that pin must satisfy the declared floor.
+
+    This used to assert the two blocks were string-equal, which only worked while both were floors.
+    They are legitimately different *kinds* — `pyproject.toml` says what the code needs to work,
+    `requirements-mcp.in` says the exact set we audit and compile the lock from (M115) — so equality
+    was the wrong comparison, and it would have failed the moment either side was tightened.
+    """
+    declared_block = re.search(
+        r"dependencies = \[(.*?)\n\]", PROJECT_PYPROJECT.read_text("utf-8"), re.S
+    )
+    declared = _requirements(declared_block.group(1))
+    wanted = _requirements((ROOT / "requirements-mcp.in").read_text("utf-8"))
+
+    assert set(declared) == set(wanted), (
+        f"pyproject names {sorted(declared)}, requirements-mcp.in names {sorted(wanted)}"
+    )
+    for name, (op, version) in wanted.items():
+        if op == "==":
+            floor_op, floor = declared[name]
+            assert _version(version) >= _version(floor), (
+                f"{name}: the compiled pin {version} is below pyproject's floor {floor_op}{floor}"
+            )
+
+
+def _app_lock() -> dict[str, tuple[str, str]]:
+    """The shipped app's pins, with the hashed lock's `\\` continuations stripped."""
+    return _requirements(
+        "\n".join(
+            line.split("\\")[0]
+            for line in (ROOT / "requirements-win.txt").read_text("utf-8").splitlines()
+        )
+    )
+
+
+def test_the_bridge_and_the_app_never_ship_different_versions_of_a_shared_library():
+    """**Every** package both locks carry must be at the same version — not just PyMuPDF (M115).
+
+    PyMuPDF is the one that bit us, because it *is* the PDF engine: `model/` hands it every read and
+    write both surfaces make, so two versions can write different bytes for the same edit. The app
+    shipped 1.27.2.3 while the bridge's lock said 1.28.2 for three months. But the defect is the
+    *shape*, not the package, so this asserts the general invariant — a library shared by both
+    surfaces cannot be at two versions, whichever one somebody adds next.
+
+    Deliberately compares the **locks**, not the inputs: an input can say anything, the lock is what
+    is installed. `requirements-dev.txt` is not a third party to this — CI installs it and it tracks
+    the app, which is precisely why the bridge's real lock went three months without being run.
+    """
+    app, bridge = _app_lock(), _requirements(LOCK.read_text("utf-8"))
+    shared = sorted(set(app) & set(bridge))
+    assert shared, "expected at least PyMuPDF in common; did a lock stop parsing?"
+    mismatched = {
+        name: (app[name][1], bridge[name][1]) for name in shared if app[name][1] != bridge[name][1]
     }
-    assert pins == wanted, f"pyproject floors {pins} != requirements-mcp.in {wanted}"
+    assert not mismatched, (
+        "the app and the bridge would install different versions of a shared library "
+        f"(app, bridge): {mismatched} — bump both together, never one"
+    )
+
+
+def test_a_library_the_app_also_ships_is_pinned_in_the_bridge_input_not_floored():
+    """The root cause, asserted directly: a **floor** cannot hold two locks together.
+
+    Both inputs asked for `PyMuPDF>=1.25.5` and `pip-compile` resolves `>=` to whatever was newest
+    on the day it ran — so the same line produced 1.27.2.3 for the app and 1.28.2 for the bridge
+    (M115). The version test above catches the drift once it has happened; this one catches the
+    construction that allows it, which is the part that silently re-arms after any recompile.
+
+    Only packages the *app also ships* are constrained. Everything else in the bridge's input is
+    free to float — `mcp>=2,<3` is not shared with anything and stays a range.
+    """
+    app = _app_lock()
+    declared = _requirements((ROOT / "requirements-mcp.in").read_text("utf-8"))
+    floored = {
+        name: f"{op}{version}" for name, (op, version) in declared.items()
+        if name in app and op != "=="
+    }
+    assert not floored, (
+        f"shared with the shipped app but not pinned in requirements-mcp.in: {floored} — "
+        "a floor lets pip-compile resolve the two locks to different versions"
+    )
 
 
 def test_nothing_tells_a_user_to_run_the_module_form():

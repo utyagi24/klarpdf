@@ -2231,6 +2231,36 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   `TYAGI1703` trap *within* a line (`Smith` + `Jones` → the token `SmithJones`), caught by M98's
   existing tests. Design in `PLAN.md` §M100 — *WSL*
 
+- [x] **M115** *(unplanned)* **The app and the bridge were writing PDFs with different engines** —
+  found while preparing M114, which is entirely about what the engine writes. The shipped app pins
+  `pymupdf==1.27.2.3`; the bridge's lock had **1.28.2**. PyMuPDF is not one dependency among many —
+  it *is* the PDF engine, and `model/` hands it every read and write **both** surfaces make, so two
+  versions can write different bytes for the same edit. **A drift, with the mechanism named wrong:**
+  both inputs asked for `PyMuPDF>=1.25.5`, a *floor*, and `pip-compile` resolves a floor to whatever
+  was newest the day it ran — the app's lock was compiled at 1.27.2.3 and is bumped by hand
+  (`RELEASE.md` §2), the bridge's was recompiled during M42 and floated. The commit that moved it
+  (`4043417`) is the same one that added the comment promising the two *"cannot drift onto different
+  MuPDF builds"*; *"pinned to the same floor"* is the error in one phrase. Plausibly also the open
+  **TC-012 discrepancy** — the report measures 52,615 B added for one highlight where we measure
+  296,142 B for the identical edit (5.6×), and a Poppler difference on 41 pages that does not
+  reproduce here. **Fixed bridge-down**, since 1.27.2.3 is what the installer bundles and the
+  clean-machine test has run against; moving the app instead is a release-process decision of its
+  own. **A comment did not hold it, so two tests do — and neither is about PyMuPDF**, because the
+  defect is the shape, not the package: *every* library both locks carry must be at one version
+  (`…never_ship_different_versions_of_a_shared_library`, comparing the **locks**, since an input can
+  say anything), and anything the app also ships must be **pinned** rather than floored in the
+  bridge's input (`…is_pinned_in_the_bridge_input_not_floored`) — the first catches the drift, the
+  second catches the construction that re-arms it on the next recompile.
+  `test_the_declared_floors_match_the_locks_input` (which asserted string equality between
+  `pyproject.toml` and `requirements-mcp.in`, workable only while both were floors) now asserts the
+  same package set plus "the pin satisfies the floor". `packaging/mcpb/pyproject.toml` regenerated —
+  the suite caught it. **The gap underneath it:** CI installs `requirements-dev.txt`, which tracks
+  the *app*, so `tests/test_mcp_*.py` has only ever run against the app's PyMuPDF — the bridge's own
+  lock is audited for advisories but no line of code has ever executed against it, which is how three
+  months passed. Carried below. This is the M114 "one core, two consumers" rule with the version
+  underneath it. Design in `PLAN.md` §M115 — *WSL + Windows*
+  ([#281](https://github.com/utyagi24/klarpdf/pull/281))
+
 - [ ] **M114** *(unplanned)* **A mark on one page rewrites all 572** — from the **TC-012 retest**
   (2026-08-22), which confirmed M110 fixed the cost ("roughly a 10× speed-up… returns inline") and
   reported the other half untouched: every content stream is still re-serialised, *including on a
@@ -2989,6 +3019,27 @@ tree or history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI 
 ## Open follow-ups (carried)
 
 Carried items — none block work:
+
+- **Nothing has ever run a line of code against the bridge's own lock** — the structural gap behind
+  M115, and the reason a three-month version drift went unseen. CI installs `requirements-dev.txt`
+  and runs the whole suite including `tests/test_mcp_*.py`, but that lock tracks the **app**, so the
+  bridge's tests have only ever executed against the app's PyMuPDF. `requirements-mcp.txt` *is*
+  covered by the weekly `audit` job (M42's fourth `pip-audit` step) — and auditing a lock for
+  advisories is not the same as running code against it. M115's two tests now compare the locks as
+  text, which catches a version drift; they cannot catch a behaviour difference between two engines.
+  Closing it means a CI job that installs `requirements-mcp.txt` and runs `tests/test_mcp_*.py`
+  against it. Not done here because it adds a required status check on `main`, which is the owner's
+  call. See `PLAN.md` §M115.
+
+- **`pipx install .` still resolves PyMuPDF to the newest release rather than ours** — the gap M115
+  left open on purpose. That milestone pinned the *lock* (`requirements-mcp.txt`) to the app's
+  `1.27.2.3` and added a test holding the two locks together, but `pyproject.toml` keeps a **floor**
+  (raised to `>=1.27.2.3`), because an exact pin in package metadata conflicts with whatever a user
+  co-installs. So a bridge user following the README's `pipx install .` gets *at least* our engine
+  and possibly a newer one — which is the ordinary library convention, and still a way for the two
+  surfaces to diverge in a user's hands. The options if it is ever worth closing: a compatible-release
+  ceiling (`>=1.27.2.3,<1.28`), or telling README readers to install from the lock. Not decided —
+  recorded so the argument starts from here. See `PLAN.md` §M115.
 
 - **The two exports still pay M110's quadratic cleanup, so an object-heavy document takes minutes**
   — measured 2026-08-22 on `dhariwal_ipo.pdf` (572 pp, **48,877 objects**) after M110/M111, when the

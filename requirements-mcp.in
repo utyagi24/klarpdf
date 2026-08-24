@@ -15,7 +15,13 @@
 # then fails on every other OS by design (CLAUDE.md §Gotchas), which would defeat the entire
 # audience — developers running agentic clients, most of them not on Windows.
 #
-# PyMuPDF is pinned to the same floor as the app so the bridge and the GUI cannot drift onto
-# different MuPDF builds; pypdf is absent on purpose — the bridge never uses PyPdfEngine.
-PyMuPDF>=1.25.5
+# PyMuPDF IS THE PDF ENGINE BOTH SURFACES SHARE, so it is pinned to the app's exact version — not
+# to a floor (M115). A floor cannot hold two locks together: `pip-compile` resolves `>=` to whatever
+# was newest on the day it ran, so the same `>=1.25.5` that gave the app 1.27.2.3 gave this file
+# 1.28.2 the next time it was compiled, and the bridge and the GUI spent three months writing PDFs
+# with different MuPDF builds. This line must equal the PyMuPDF pin in `requirements-win.txt`;
+# `tests/test_dependency_parity.py` fails if it does not. Bump both together, never one.
+#
+# pypdf is absent on purpose — the bridge never uses PyPdfEngine.
+PyMuPDF==1.27.2.3
 mcp>=2,<3
