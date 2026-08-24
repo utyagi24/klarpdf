@@ -15,13 +15,13 @@
 # then fails on every other OS by design (CLAUDE.md §Gotchas), which would defeat the entire
 # audience — developers running agentic clients, most of them not on Windows.
 #
-# PyMuPDF IS THE PDF ENGINE BOTH SURFACES SHARE, so it is pinned to the app's exact version — not
-# to a floor (M115). A floor cannot hold two locks together: `pip-compile` resolves `>=` to whatever
-# was newest on the day it ran, so the same `>=1.25.5` that gave the app 1.27.2.3 gave this file
-# 1.28.2 the next time it was compiled, and the bridge and the GUI spent three months writing PDFs
-# with different MuPDF builds. This line must equal the PyMuPDF pin in `requirements-win.txt`;
-# `tests/test_dependency_parity.py` fails if it does not. Bump both together, never one.
+# PyMuPDF IS NOT DECLARED HERE, on purpose (M115). It is the core's engine, not the bridge's, and
+# naming it in this file *and* in requirements.in is exactly what let the two locks drift onto
+# different MuPDF builds for three months. Both inputs now `-r requirements-core.in`, which is the
+# single place the version is written — see that file for why it is an exact pin rather than a floor.
 #
-# pypdf is absent on purpose — the bridge never uses PyPdfEngine.
-PyMuPDF==1.27.2.3
+# pypdf is absent on purpose — the bridge never uses PyPdfEngine, whose `import pypdf` sits inside
+# `PyMuPDFEngine`'s sibling method rather than at module level. `tests/test_mcp_no_qt.py` proves the
+# avoidance by running every tool in a fresh interpreter, the same way it proves Qt stays out.
+-r requirements-core.in
 mcp>=2,<3

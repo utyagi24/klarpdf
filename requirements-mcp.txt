@@ -55,7 +55,7 @@ pydantic-core==2.46.4
 pyjwt[crypto]==2.13.0
     # via mcp
 pymupdf==1.27.2.3
-    # via -r requirements-mcp.in
+    # via -r requirements-core.in
 python-multipart==0.0.32
     # via mcp
 referencing==0.37.0

@@ -2245,8 +2245,26 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   296,142 B for the identical edit (5.6×), and a Poppler difference on 41 pages that does not
   reproduce here. **Fixed bridge-down**, since 1.27.2.3 is what the installer bundles and the
   clean-machine test has run against; moving the app instead is a release-process decision of its
-  own. **A comment did not hold it, so two tests do — and neither is about PyMuPDF**, because the
-  defect is the shape, not the package: *every* library both locks carry must be at one version
+  own. **The fix is structural, not a test:** PyMuPDF belongs to neither surface — it is the
+  **core's**, since `model/` is what both share — so it is now declared in **one** place, a new
+  `requirements-core.in` that `requirements.in` and `requirements-mcp.in` both `-r`, and neither
+  names PyMuPDF itself. (The `-r` include is already how `requirements-dev.in` pulls in
+  `requirements.in`.) **The shared file is only half of it:** a shared *floor* drifts exactly as two
+  separate floors do — measured, with a floor there a `-P PyMuPDF` recompile moves to 1.28.2, with
+  the pin it stays at 1.27.2.3 even under an explicit upgrade. **The old floor was a live hazard,
+  not history:** compiling the *previous* `requirements.in` today resolves to **1.28.2**, so the next
+  routine recompile of `requirements-win.txt` would have moved the shipped engine silently.
+  `requirements-win.txt` is untouched (hashed, `win_amd64`, Windows-only); its pins are already
+  correct and the sole change on the next Windows recompile is a `# via` annotation.
+  **A second core library was in the same position and unguarded:** across `model/ viewer/ organize/
+  util/ mcp_bridge/` there are exactly three third-party imports — PyMuPDF (this), PySide6 (app-only,
+  proven by `test_mcp_no_qt.py` running every tool in a clean interpreter), and **pypdf** (app-only,
+  and nothing checked it). `model/edit_engine.py` imports pypdf *inside* `PyPdfEngine.materialize`,
+  so a load-time check proves nothing and only reaching that method fails — with
+  `ModuleNotFoundError` on a user's machine and never in CI, which installs the app's lock. Same
+  shape as the version drift; closed by adding `pypdf` to that exerciser's leak set, confirmed to
+  fail on a simulated regression. **Two tests remain as the backstop, neither about PyMuPDF**,
+  because the defect is the shape: *every* library both locks carry must be at one version
   (`…never_ship_different_versions_of_a_shared_library`, comparing the **locks**, since an input can
   say anything), and anything the app also ships must be **pinned** rather than floored in the
   bridge's input (`…is_pinned_in_the_bridge_input_not_floored`) — the first catches the drift, the

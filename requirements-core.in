@@ -1,0 +1,21 @@
+# The PDF engine the CORE is built on — the ONE place its version is written (M115).
+#
+# `model/` is shared by both surfaces: the GUI app reaches it through `main_window.py`, the MCP
+# bridge through `mcp_bridge/server.py`, and every read and write either of them makes is handed to
+# PyMuPDF. So this is not the app's dependency and it is not the bridge's — it is the core's, and
+# declaring it in each of their inputs is what let the two drift apart. `requirements.in` and
+# `requirements-mcp.in` both `-r` this file; neither names PyMuPDF itself.
+#
+# AN EXACT PIN, NOT A FLOOR, AND THAT IS THE WHOLE POINT. Every other input here uses `>=` so a
+# recompile picks up fixes — correct for a dependency, wrong for this one. `pip-compile` resolves a
+# floor to whatever was newest **on the day it ran**, so two locks compiled on different days
+# disagree even when they read the same line: that is exactly how the app shipped 1.27.2.3 while the
+# bridge's lock said 1.28.2 for three months (M115). Measured — with a floor here, recompiling one
+# lock moves it; with this pin, an explicit `pip-compile -P PyMuPDF` cannot.
+#
+# TO BUMP IT: change the version here, then recompile **every** lock — requirements-win.txt (on
+# Windows, hashed), requirements-dev.txt and requirements-mcp.txt. They move together by
+# construction, which is the property a floor could not give. See RELEASE.md §2.
+# `tests/test_mcp_packaging.py` fails if any two locks disagree, or if a library the app ships is
+# floored rather than pinned in the bridge's input.
+PyMuPDF==1.27.2.3

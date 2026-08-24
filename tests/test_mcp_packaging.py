@@ -162,17 +162,35 @@ def test_the_built_metadata_declares_dependencies():
     assert "klarpdf-mcp" in entry_points
 
 
-def _requirements(text: str) -> dict[str, tuple[str, str]]:
-    """`{name: (operator, version)}` from a requirements-style block, ignoring comments."""
+def _requirements(text: str, base: Path | None = None) -> dict[str, tuple[str, str]]:
+    """`{name: (operator, version)}` from a requirements-style block, ignoring comments.
+
+    Follows `-r other.in` includes when `base` is given, because that is how the inputs are now
+    written: PyMuPDF lives in `requirements-core.in` and both `requirements.in` and
+    `requirements-mcp.in` pull it in from there (M115), so a parser that stopped at the top level
+    would report the shared engine as declared by nobody.
+    """
     out = {}
     for line in text.splitlines():
         line = line.split("#")[0].strip().strip('",')
         if not line:
             continue
+        include = re.match(r"^-r\s+(\S+)$", line)
+        if include and base is not None:
+            nested = base.parent / include.group(1)
+            if nested.exists():
+                out.update(_requirements(nested.read_text("utf-8"), nested))
+            continue
         m = re.match(r"^([A-Za-z0-9_.\-]+)\s*(==|>=)\s*([0-9][^,\s]*)", line)
         if m:
             out[m.group(1).lower()] = (m.group(2), m.group(3))
     return out
+
+
+def _input(name: str) -> dict[str, tuple[str, str]]:
+    """Parse one `.in` file, following its `-r` includes."""
+    path = ROOT / name
+    return _requirements(path.read_text("utf-8"), path)
 
 
 def _version(v: str) -> tuple:
@@ -192,7 +210,7 @@ def test_the_declared_dependencies_match_the_locks_input():
         r"dependencies = \[(.*?)\n\]", PROJECT_PYPROJECT.read_text("utf-8"), re.S
     )
     declared = _requirements(declared_block.group(1))
-    wanted = _requirements((ROOT / "requirements-mcp.in").read_text("utf-8"))
+    wanted = _input("requirements-mcp.in")
 
     assert set(declared) == set(wanted), (
         f"pyproject names {sorted(declared)}, requirements-mcp.in names {sorted(wanted)}"
@@ -252,7 +270,7 @@ def test_a_library_the_app_also_ships_is_pinned_in_the_bridge_input_not_floored(
     free to float — `mcp>=2,<3` is not shared with anything and stays a range.
     """
     app = _app_lock()
-    declared = _requirements((ROOT / "requirements-mcp.in").read_text("utf-8"))
+    declared = _input("requirements-mcp.in")
     floored = {
         name: f"{op}{version}" for name, (op, version) in declared.items()
         if name in app and op != "=="

@@ -4,6 +4,6 @@
 # PySide6-Essentials, not the full PySide6 meta: the app imports only QtCore/QtGui/QtWidgets/
 # QtNetwork (all in Essentials). The ~161 MB Addons set (QtWebEngine/Charts/Multimedia/QtPdf…) is
 # unused — we render via PyMuPDF, not QtPdf — so excluding it shrinks the bundle + audit surface.
+-r requirements-core.in   # PyMuPDF — the core's engine, shared with the bridge; pinned there (M115)
 PySide6-Essentials>=6.7
-PyMuPDF>=1.25.5
 pypdf>=6.15.0
