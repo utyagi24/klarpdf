@@ -4426,6 +4426,12 @@ happens with `clean` and without, so it is not this milestone's doing, and it is
 Adobe's withdrawn AES-256 revision and R6 is the ISO 32000-2 one. Same 256-bit AES, standard
 revision.
 
+**The second lever is now §M116**, an unchecked milestone of its own. It was written up here and
+nowhere else, which made it invisible the moment M114 was ticked — a completed milestone's prose is
+not a backlog. The analysis stays here (it is M114's, and belongs with the measurements that
+produced it); `PROGRESS.md` §M116 carries the tracked item and points back to this section rather
+than restating it.
+
 **Two levers — and the second subsumes the first on its own branch.** Dropping `clean` takes content
 streams from 572/572 to 0/572 and the call from 1.85 s to 0.70 s, but still writes a complete 8.8 MB
 file; it is small, and it helps **every** save in the app and the bridge, including every save the
