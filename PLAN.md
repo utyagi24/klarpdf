@@ -4161,29 +4161,71 @@ options), which re-parse every content stream and re-emit every operator: number
 inserted. The retest saw exactly this and called it "more invasive"; it is right, and the stream
 grows 20% on that page as a result.
 
-**One consequence the retest reports does not reproduce, and the builds differ.** It states the
-output's Poppler text is "different on 41 of 573 pages… 39 are pure reordering". Measured here with
-`pdftotext` 24.02.0 against the source: **0 pages differ** — for a one-mark file, an eleven-mark one,
-and the controlled identical-edit file that carries the claim. The byte counts differ too: the same
-controlled edit adds **+296,142 B** here against the **+52,615 B** the report measures, a 5.6× gap on
-one highlight. Two measurements of the same operation disagreeing by that much means we are not
-running the same build — most likely a different PyMuPDF/MuPDF, whose sanitiser emits different
-operators and so shifts Poppler's reading-order reconstruction on their machine and not on this one.
-**Worth settling before anything ships**, because "does a save change extracted text" is exactly the
-sort of claim a milestone should not leave environment-dependent: ask the tester for
-`pymupdf.__doc__` from the harness. The milestone rests on the rewrite itself, which reproduces
-identically on both (572/572).
+**The retest's Poppler finding is real — this entry was wrong to doubt it, and wrong about why.**
+An earlier version of this paragraph said the consequence "does not reproduce", on the strength of
+`pdftotext` 24.02.0 finding **0 differing pages** on `dhariwal_ipo.pdf`. That measurement was
+correct and the conclusion drawn from it was not: the document was simply not one of the ones it
+happens to. Run across the 56-document corpus, `clean` changes the text Poppler extracts on **three**
+of them — `Invoice-6KNSJA3E-0001.pdf`, `xfinity_march_2026.pdf` and one bank statement — and in
+exactly the shape the retest described, pure re-ordering:
+
+```
+Invoice-6KNSJA3E-0001.pdf, source vs saved-with-clean
+  @@ -36,0 +37,4 @@   +Jul 17–Aug 14, 2026  +Subtotal  +Total  +Amount due
+  @@ -50,5 +53,0 @@   -Jul 17–Aug 14, 2026  -Subtotal  …
+```
+
+Same content, thirteen lines earlier. **Saved without `clean`, all three are byte-identical to the
+source again.** So this is not a build difference and not an environment quirk: it is what
+sanitising does, on documents whose operator order it happens to disturb. It also raises the stakes
+of the milestone from cost to **fidelity** — anything consuming extracted text (a search index, a
+screen reader, a diff, an agent reading the PDF) sees a reading order the source did not have.
+
+The lesson for the entry, not just the code: one document returning "no difference" is evidence
+about *that document*. It was generalised into a claim about the finding, and it took a corpus to
+notice. The tester was right.
+
+**The build difference is separate and still open.** The same controlled edit adds **+296,142 B**
+here against the **+52,615 B** the report measures — a 5.6× gap on one highlight, which two
+measurements of the same operation should not show. §M115 found and fixed one version drift (the
+bridge's lock was on a different PyMuPDF from the app's) and that may be the whole of it; worth
+asking the tester for `pymupdf.__doc__` from their harness to close it.
 
 **M110 measured `clean` and cleared it — of the wrong charge.** §M110 records "`clean=True` … is
 **not** implicated: measured at ~1.9 s". That was about the 202-second hunt, and it was true. Nobody
 asked what else it did.
 
-**Not a one-line change, and the corpus decides.** `clean` has been in the save since M1 with no
+**Not a one-line change, and the corpus decided it.** `clean` has been in the save since M1 with no
 recorded reason, which is not the same as having none: it sanitises content streams, and this project
 *does* rewrite content — `apply_redactions` rewrites a page, the R4 content marks append streams to
-one. The plausible shape is to keep it where we rewrite content and drop it where a save only adds
-annotation objects, but that is a hypothesis, not the design. It gets the treatment M110 got: every
-corpus document saved both ways, sizes and text compared, before anything ships.
+one. The hypothesis was to keep it where we rewrite content and drop it where a save only copies
+pages through. It got the treatment M110 got: all **56 corpus source documents** saved both ways
+through the real pipeline (`write_options` patched, not reimplemented — a second copy of the literal
+is the drift M111 was about), comparing size, time, per-page content streams, PyMuPDF text, Poppler
+text and the catalog M93 taught us to check.
+
+| | with `clean` (today) | without |
+| --- | --- | --- |
+| content streams left byte-identical to the source | **324 / 1,315 pages** | **1,315 / 1,315** |
+| corpus save time | 10.9 s | **3.3 s** (−70%) |
+| documents ending up **larger than their own source** | **3** | **1** |
+| documents whose Poppler text differs from the source | **3** | **0** |
+| total corpus bytes | 173,292,138 | 173,394,925 (+102,787) |
+
+**The one cost, stated plainly:** 42 of 56 documents come back slightly *larger than today's save*
+(`kasaragodhr.pdf` +515,744 B on a 29 MB source — 1.8% — is the worst; `IAS_CaseStudy.pdf` +30,307 B
+on 75 MB is 0.04%), while 13 come back smaller (`dhariwal_ipo.pdf` −477,800 B). That sounds like a
+regression and is not the promise this project makes. **The promise is that a save hands back
+roughly what it was given** (§M110, `GARBAGE_COPY`) — and by that measure dropping `clean` is
+strictly better: documents that end up bigger than the file the user opened go from three to one.
+Cleaning was buying a slightly smaller output by rewriting content the user did not ask us to touch.
+
+**What was *not* measured, and is kept anyway.** The corpus says nothing about the redaction path or
+R4 content marks, because no corpus document exercises them at save time. Those writes rewrite page
+content themselves, which is the original hypothesis for why `clean` was ever there — so they keep
+it (:data:`CLEAN_REWRITTEN`), and the two exports keep it for the same reason: `bake()` draws
+annotations into the page and `rewrite_images` re-encodes what it draws. Dropping it there too would
+be tidier and is not supported by evidence, which is the wrong reason to change a save.
 
 **Microsoft Edge sets the target, and it is not a hypothetical** (TC-012 cross-check, verified
 here against the files). The same 9 MB / 572-page source, given **one highlight**, then Edge's own
@@ -4350,6 +4392,39 @@ search index, needs to know that adding a highlight rewrites every page. Declini
 close the finding; it converts it into a documentation item. The same sentence also disposes of the
 report's "Informational — text re-grouping on untouched pages" note, which is this cause seen from
 the extraction side.
+
+**What shipped (lever 1).** `write_options` takes `clean` as a **required** keyword beside `garbage`
+— required rather than defaulted, because a defaulted option reaching only some call sites is
+exactly how M111 happened. `save_options` decides it from the model, next to the route decision but
+on a *different* question: the route asks who copied the objects, `clean` asks whether this write
+rewrote page content, and the two do not split the same way. Both sub-questions were already
+answered by `VirtualDocument.has_redactions()` / `has_content_marks()`, the same pair
+`MainWindow._write_to` uses to decide whether a save is a point of no return. The `apply_metadata`
+skip landed with it: the copy route now calls that pass only when `metadata_override is not None`.
+
+Measured on the milestone's own acceptance case — one highlight on page 337 of the 572-page,
+9,015,879 B prospectus, through the real `annotate` path:
+
+| | before | after |
+| --- | --- | --- |
+| content streams byte-identical | 0 / 572 | **572 / 572** |
+| time | 1.85 s | **0.66 s** |
+| output size | 9,311,702 B (**larger** than the source) | **8,834,064 B** (−181,815 vs source) |
+| Poppler text vs source | — | **identical** |
+
+**One behaviour changed that nothing asked for, and it is a gain.** A plain save no longer renumbers
+objects, so a *foreign* annotation keeps the xref the tool that wrote it recorded — an external
+reference to it (a review database keyed on object number, a comment exported from Acrobat) still
+resolves after a round-trip. `tests/test_foreign_annots.py` caught this by failing: it asserted
+"xrefs really do change", which had been true of every save and is now true only of the graft. The
+fingerprint machinery is still required — the graft renumbers — so the test was narrowed to the
+route where the premise holds, and the new guarantee pinned beside it.
+
+**One measured non-finding, recorded so it is not chased again.** Saving either of the two
+user-password AES-256 statements upgrades the encryption revision `Standard V5 R5` → `R6`. It
+happens with `clean` and without, so it is not this milestone's doing, and it is not a defect: R5 is
+Adobe's withdrawn AES-256 revision and R6 is the ISO 32000-2 one. Same 256-bit AES, standard
+revision.
 
 **Two levers — and the second subsumes the first on its own branch.** Dropping `clean` takes content
 streams from 572/572 to 0/572 and the call from 1.85 s to 0.70 s, but still writes a complete 8.8 MB

@@ -2279,7 +2279,41 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   underneath it. Design in `PLAN.md` §M115 — *WSL + Windows*
   ([#281](https://github.com/utyagi24/klarpdf/pull/281))
 
-- [ ] **M114** *(unplanned)* **A mark on one page rewrites all 572** — from the **TC-012 retest**
+- [x] **M114** *(unplanned)* ⭐ **A mark on one page no longer rewrites all 572** — `clean` now
+  follows what the write *did*, not every write. **Shipped result**, on the milestone's own
+  acceptance case (one highlight on page 337 of the 572-page, 9,015,879 B prospectus, through the
+  real `annotate` path): content streams left byte-identical go from **0/572 to 572/572**, the call
+  from **1.85 s to 0.66 s**, and the output from **9,311,702 B — larger than the source — to
+  8,834,064 B**, which is 181,815 B *smaller* than what it was given. Poppler extracts every page
+  identically. **The corpus decided it**, all 56 sources saved both ways through the real pipeline:
+  streams byte-identical **324/1,315 → 1,315/1,315 pages**, corpus save time **10.9 s → 3.3 s**,
+  and documents ending up larger than their own source **3 → 1**. **The one cost, stated plainly:**
+  42 of 56 come back slightly larger than *today's save* (`kasaragodhr.pdf` +515,744 B on a 29 MB
+  source is the worst at 1.8%), 13 smaller — but the promise is that a save hands back roughly what
+  it was given (M110), and by that measure this is strictly better; cleaning was buying a smaller
+  output by rewriting content nobody asked us to touch. **It also turned out to be a fidelity fix,
+  not just a cost one:** `clean` changes the text *Poppler* extracts on three corpus documents —
+  `Invoice-6KNSJA3E-0001.pdf` moves "Subtotal / Total / Amount due" thirteen lines up — and without
+  it all three are byte-identical to the source again. That is the TC-012 finding this plan had
+  wrongly recorded as "does not reproduce": the measurement (0 differing pages on `dhariwal_ipo.pdf`)
+  was right and the generalisation from it was not — that document simply is not one of the three.
+  **Kept where it earns its place:** redactions and R4 content marks rewrite page content themselves,
+  as do `bake()` and `rewrite_images` in the two exports, so those still clean up after themselves;
+  the corpus says nothing about those paths, and "tidier" is the wrong reason to change a save.
+  Riding along: **`apply_metadata` is skipped when the user never touched the metadata** (it was
+  re-writing the origin's Info dict and XMP onto a copy that already had both — a graft-route repair
+  running where there is nothing to repair). One unasked-for gain, caught by a failing test: a plain
+  save no longer renumbers objects, so a **foreign annotation keeps the xref its own tool recorded**
+  — `test_xrefs_really_do_change` was narrowed to the graft, where the premise still holds, and the
+  new guarantee pinned beside it. One measured non-finding: saving a user-password AES-256 document
+  upgrades `Standard V5 R5 → R6` with `clean` and without — not this milestone's doing, and not a
+  defect (R5 is Adobe's withdrawn revision, R6 the ISO one). Incremental writing — the second lever,
+  which closes the rest of the gap to Edge's +2,680 B — remains its own milestone. Design in
+  `PLAN.md` §M114 — *WSL + Windows*
+
+  <details><summary>The original finding</summary>
+
+  From the **TC-012 retest**
   (2026-08-22), which confirmed M110 fixed the cost ("roughly a 10× speed-up… returns inline") and
   reported the other half untouched: every content stream is still re-serialised, *including on a
   one-mark call*. Re-run against the merged code, that is exactly right — **572 of 572** for a single
@@ -2334,7 +2368,9 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   document-proportional cost in that workflow is `search` (6.34 s here), already carried below.
   (The number M114 briefly labelled the withdrawn Reduce-dpi proposal in
   [#277](https://github.com/utyagi24/klarpdf/pull/277); that item is now unnumbered in `PLAN.md`
-  §Future enhancements.) Design in `PLAN.md` §M114 — *WSL + Windows*
+  §Future enhancements.)
+
+  </details>
 
 - [x] **M110** *(unplanned)* ⭐ **A save no longer spends five minutes looking for duplicates that
   are not there** —

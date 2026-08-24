@@ -60,7 +60,33 @@ GARBAGE_GRAFT = 4
 GARBAGE_DEDUP = GARBAGE_GRAFT
 
 
-def write_options(garbage: int) -> dict:
+#: Sanitise content streams on the way out — re-parse every stream and re-emit every operator.
+#: **Only for a write that rewrote page content itself** (M114): `apply_redactions` rewrites a page,
+#: `bake()` draws annotations into one, `rewrite_images` re-encodes what a page draws. There the
+#: cost buys something — the output is our own construction, and cleaning it is tidying up after
+#: ourselves.
+#:
+#: **Never for a write that only copied a page through.** It has been in the save since M1 with no
+#: recorded reason, and measured across the 56-document corpus it is a straight loss there:
+#: content streams left byte-identical to the source go from **324 / 1,315 pages to 1,315 / 1,315**
+#: without it, the corpus saves 70% faster (10.9 s → 3.3 s), and the "a save does not grow the file
+#: it was given" promise gets *stronger* — files ending up larger than their source drop from 3 to 1.
+#:
+#: It is not merely wasteful, it is **lossy in a way that matters**: it re-emits operators in a
+#: different order, and on three corpus documents Poppler then extracts the text in a different
+#: reading order than from the source — `Invoice-6KNSJA3E-0001.pdf` moves "Subtotal / Total /
+#: Amount due" thirteen lines up. Anything consuming extracted text (a search index, a screen
+#: reader, a diff, an agent reading the PDF) sees content the source did not have in that order.
+#: Dropping it makes all three byte-identical again. TC-012 reported exactly this and it is the half
+#: §M114 first failed to reproduce — the retest's document was not one of the three.
+CLEAN_REWRITTEN = True
+
+#: Leave content streams exactly as they arrived — the copy route's default (M114). See
+#: :data:`CLEAN_REWRITTEN` for the measurements.
+CLEAN_COPIED = False
+
+
+def write_options(garbage: int, clean: bool) -> dict:
     """The ``Document.save`` keywords every PDF this project writes shares, at ``garbage`` level.
 
     **One named set on purpose.** These options were four copies of a literal across ``materialize``
@@ -77,14 +103,14 @@ def write_options(garbage: int) -> dict:
     PDFs arrive using object streams (that form had 26 of them), so this is closer to preserving how
     the file was written than to compressing it further.
 
-    ``clean=True`` sanitises content streams; it is **not** what made the save slow (measured at
-    ~1.9 s on the pathological file, and dropping it makes ``garbage=4`` *slower*, not faster).
-
-    ``garbage`` is the caller's, because it is the one option that depends on **who did the
-    copying** rather than on what a PDF ought to look like — see :data:`GARBAGE_COPY` /
-    :data:`GARBAGE_GRAFT` and :meth:`PyMuPDFEngine.save_options`.
+    ``garbage`` and ``clean`` are both the caller's, and **both are required**, because they are the
+    two options that depend on *what this particular write is doing* rather than on what a PDF ought
+    to look like. Defaulting either one is how M111 happened — four copies of a literal, and
+    ``use_objstms`` reached exactly one of them. Making them explicit forces every call site to say
+    what it means. See :data:`GARBAGE_COPY` / :data:`GARBAGE_GRAFT` and
+    :meth:`PyMuPDFEngine.save_options`.
     """
-    return {"garbage": garbage, "deflate": True, "clean": True, "use_objstms": 1}
+    return {"garbage": garbage, "deflate": True, "clean": clean, "use_objstms": 1}
 
 
 def _apply_crop(page: "fitz.Page", rect: tuple) -> None:
@@ -199,8 +225,23 @@ class PyMuPDFEngine(EditEngine):
         and ``tests/test_redaction_orphans.py`` pins it, because the redaction verification itself
         structurally cannot see this: it re-reads the output and checks the *text* with two engines,
         and an orphaned picture of a secret is not text to either.
+
+        **``clean`` follows a different question, asked of the same model** (M114). The route says
+        *who copied the objects*; sanitising content streams turns on *whether this write rewrote
+        page content at all* — and those are not the same split, which is why this is a second
+        decision rather than a second use of the first. A redaction rewrites a page
+        (``apply_redactions``) and an R4 content mark appends a stream to one, so those writes clean
+        up after themselves; a save that merely copies pages through does not, and cleaning there
+        costs time, costs bytes and reorders the text a second engine extracts
+        (:data:`CLEAN_REWRITTEN`). Both sub-questions are already answered by the model — the same
+        ``has_redactions`` / ``has_content_marks`` pair that decides whether a save is a
+        point of no return in ``MainWindow._write_to``.
         """
-        return write_options(GARBAGE_COPY if vdoc.page_set_unchanged() else GARBAGE_GRAFT)
+        rewrites_content = vdoc.has_redactions() or vdoc.has_content_marks()
+        return write_options(
+            GARBAGE_COPY if vdoc.page_set_unchanged() else GARBAGE_GRAFT,
+            clean=CLEAN_REWRITTEN if rewrites_content else CLEAN_COPIED,
+        )
 
     def save_keywords(self, vdoc: VirtualDocument) -> dict:
         """**Everything** :meth:`materialize` hands to ``Document.save`` — the option set above plus
@@ -291,9 +332,21 @@ class PyMuPDFEngine(EditEngine):
         out = vdoc.fresh_source(vdoc.origin_source_id)
         try:
             self._apply_page_edits(out, vdoc)
-            from model.metadata import apply_metadata
+            # ...and only when the user actually edited the metadata (M114). `apply_metadata`'s
+            # untouched branch copies the origin's Info dict and XMP packet onto the output — a pass
+            # written for the *graft*, where `insert_pdf` copies neither store and they would
+            # otherwise vanish. This route starts from a copy of the origin, which already carries
+            # both: measured, `fresh_source()`'s output has the Info title and a byte-identical XMP
+            # packet before this runs, where `insert_pdf` into a fresh document has an empty title
+            # and no packet at all. So here it rewrites what is already there — a no-op in meaning
+            # and not in bytes, since PyMuPDF then marks both objects changed and re-serialises them.
+            # Free while the save rewrites everything anyway; on a document with a 3,093-byte XMP
+            # packet it turns a 901 B incremental append into 4,249 B, which is what makes it worth
+            # skipping now rather than when incremental writing arrives.
+            if vdoc.metadata_override is not None:
+                from model.metadata import apply_metadata
 
-            apply_metadata(out, vdoc)
+                apply_metadata(out, vdoc)
         except Exception:
             out.close()
             raise
