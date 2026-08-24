@@ -2231,6 +2231,147 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   `TYAGI1703` trap *within* a line (`Smith` + `Jones` → the token `SmithJones`), caught by M98's
   existing tests. Design in `PLAN.md` §M100 — *WSL*
 
+- [x] **M115** *(unplanned)* **The app and the bridge were writing PDFs with different engines** —
+  found while preparing M114, which is entirely about what the engine writes. The shipped app pins
+  `pymupdf==1.27.2.3`; the bridge's lock had **1.28.2**. PyMuPDF is not one dependency among many —
+  it *is* the PDF engine, and `model/` hands it every read and write **both** surfaces make, so two
+  versions can write different bytes for the same edit. **A drift, with the mechanism named wrong:**
+  both inputs asked for `PyMuPDF>=1.25.5`, a *floor*, and `pip-compile` resolves a floor to whatever
+  was newest the day it ran — the app's lock was compiled at 1.27.2.3 and is bumped by hand
+  (`RELEASE.md` §2), the bridge's was recompiled during M42 and floated. The commit that moved it
+  (`4043417`) is the same one that added the comment promising the two *"cannot drift onto different
+  MuPDF builds"*; *"pinned to the same floor"* is the error in one phrase. Plausibly also the open
+  **TC-012 discrepancy** — the report measures 52,615 B added for one highlight where we measure
+  296,142 B for the identical edit (5.6×), and a Poppler difference on 41 pages that does not
+  reproduce here. **Fixed bridge-down**, since 1.27.2.3 is what the installer bundles and the
+  clean-machine test has run against; moving the app instead is a release-process decision of its
+  own. **The fix is structural, not a test:** PyMuPDF belongs to neither surface — it is the
+  **core's**, since `model/` is what both share — so it is now declared in **one** place, a new
+  `requirements-core.in` that `requirements.in` and `requirements-mcp.in` both `-r`, and neither
+  names PyMuPDF itself. (The `-r` include is already how `requirements-dev.in` pulls in
+  `requirements.in`.) **The shared file is only half of it:** a shared *floor* drifts exactly as two
+  separate floors do — measured, with a floor there a `-P PyMuPDF` recompile moves to 1.28.2, with
+  the pin it stays at 1.27.2.3 even under an explicit upgrade. **The old floor was a live hazard,
+  not history:** compiling the *previous* `requirements.in` today resolves to **1.28.2**, so the next
+  routine recompile of `requirements-win.txt` would have moved the shipped engine silently.
+  `requirements-win.txt` is untouched (hashed, `win_amd64`, Windows-only); its pins are already
+  correct and the sole change on the next Windows recompile is a `# via` annotation.
+  **A second core library was in the same position and unguarded:** across `model/ viewer/ organize/
+  util/ mcp_bridge/` there are exactly three third-party imports — PyMuPDF (this), PySide6 (app-only,
+  proven by `test_mcp_no_qt.py` running every tool in a clean interpreter), and **pypdf** (app-only,
+  and nothing checked it). `model/edit_engine.py` imports pypdf *inside* `PyPdfEngine.materialize`,
+  so a load-time check proves nothing and only reaching that method fails — with
+  `ModuleNotFoundError` on a user's machine and never in CI, which installs the app's lock. Same
+  shape as the version drift; closed by adding `pypdf` to that exerciser's leak set, confirmed to
+  fail on a simulated regression. **Two tests remain as the backstop, neither about PyMuPDF**,
+  because the defect is the shape: *every* library both locks carry must be at one version
+  (`…never_ship_different_versions_of_a_shared_library`, comparing the **locks**, since an input can
+  say anything), and anything the app also ships must be **pinned** rather than floored in the
+  bridge's input (`…is_pinned_in_the_bridge_input_not_floored`) — the first catches the drift, the
+  second catches the construction that re-arms it on the next recompile.
+  `test_the_declared_floors_match_the_locks_input` (which asserted string equality between
+  `pyproject.toml` and `requirements-mcp.in`, workable only while both were floors) now asserts the
+  same package set plus "the pin satisfies the floor". `packaging/mcpb/pyproject.toml` regenerated —
+  the suite caught it. **The gap underneath it:** CI installs `requirements-dev.txt`, which tracks
+  the *app*, so `tests/test_mcp_*.py` has only ever run against the app's PyMuPDF — the bridge's own
+  lock is audited for advisories but no line of code has ever executed against it, which is how three
+  months passed. Carried below. This is the M114 "one core, two consumers" rule with the version
+  underneath it. Design in `PLAN.md` §M115 — *WSL + Windows*
+  ([#281](https://github.com/utyagi24/klarpdf/pull/281))
+
+- [x] **M114** *(unplanned)* ⭐ **A mark on one page no longer rewrites all 572** — `clean` now
+  follows what the write *did*, not every write. **Shipped result**, on the milestone's own
+  acceptance case (one highlight on page 337 of the 572-page, 9,015,879 B prospectus, through the
+  real `annotate` path): content streams left byte-identical go from **0/572 to 572/572**, the call
+  from **1.85 s to 0.66 s**, and the output from **9,311,702 B — larger than the source — to
+  8,834,064 B**, which is 181,815 B *smaller* than what it was given. Poppler extracts every page
+  identically. **The corpus decided it**, all 56 sources saved both ways through the real pipeline:
+  streams byte-identical **324/1,315 → 1,315/1,315 pages**, corpus save time **10.9 s → 3.3 s**,
+  and documents ending up larger than their own source **3 → 1**. **The one cost, stated plainly:**
+  42 of 56 come back slightly larger than *today's save* (`kasaragodhr.pdf` +515,744 B on a 29 MB
+  source is the worst at 1.8%), 13 smaller — but the promise is that a save hands back roughly what
+  it was given (M110), and by that measure this is strictly better; cleaning was buying a smaller
+  output by rewriting content nobody asked us to touch. **It also turned out to be a fidelity fix,
+  not just a cost one:** `clean` changes the text *Poppler* extracts on three corpus documents —
+  `Invoice-6KNSJA3E-0001.pdf` moves "Subtotal / Total / Amount due" thirteen lines up — and without
+  it all three are byte-identical to the source again. That is the TC-012 finding this plan had
+  wrongly recorded as "does not reproduce": the measurement (0 differing pages on `dhariwal_ipo.pdf`)
+  was right and the generalisation from it was not — that document simply is not one of the three.
+  **Kept where it earns its place:** redactions and R4 content marks rewrite page content themselves,
+  as do `bake()` and `rewrite_images` in the two exports, so those still clean up after themselves;
+  the corpus says nothing about those paths, and "tidier" is the wrong reason to change a save.
+  Riding along: **`apply_metadata` is skipped when the user never touched the metadata** (it was
+  re-writing the origin's Info dict and XMP onto a copy that already had both — a graft-route repair
+  running where there is nothing to repair). One unasked-for gain, caught by a failing test: a plain
+  save no longer renumbers objects, so a **foreign annotation keeps the xref its own tool recorded**
+  — `test_xrefs_really_do_change` was narrowed to the graft, where the premise still holds, and the
+  new guarantee pinned beside it. One measured non-finding: saving a user-password AES-256 document
+  upgrades `Standard V5 R5 → R6` with `clean` and without — not this milestone's doing, and not a
+  defect (R5 is Adobe's withdrawn revision, R6 the ISO one). Incremental writing — the second lever,
+  which closes the rest of the gap to Edge's +2,680 B — remains its own milestone. Design in
+  `PLAN.md` §M114 — *WSL + Windows*
+
+  <details><summary>The original finding</summary>
+
+  From the **TC-012 retest**
+  (2026-08-22), which confirmed M110 fixed the cost ("roughly a 10× speed-up… returns inline") and
+  reported the other half untouched: every content stream is still re-serialised, *including on a
+  one-mark call*. Re-run against the merged code, that is exactly right — **572 of 572** for a single
+  highlight. **The cause is `clean=True` and nothing else**, isolated by saving the same edit five
+  ways: without it, **0 of 572** streams change. Through the real `annotate` pipeline dropping it
+  gives **1.85 s → 0.70 s and 9,311,702 → 8,833,918 B**, smaller than the 9,015,879 B source where
+  today's output is larger. It explains two things the retest filed separately — the operator
+  verbosity (`0.0784` → `.0784`, `11.4` → `11.400024`) and the decompressed-content growth (page 1:
+  93,544 → 112,322 B on a page carrying no mark). A third does **not** reproduce: the retest reports
+  Poppler text differing on 41 of 573 pages, and measured here with `pdftotext` 24.02.0 over the
+  whole document, **0 pages differ** — for a one-mark file and an eleven-mark one alike. **M110 measured `clean` and cleared it of the wrong charge** (~1.9 s, true, and
+  about the 202-second hunt). **Not a one-line change:** `clean` has sat in the save since M1 with no
+  recorded reason, which is not the same as having none — this project rewrites content in
+  `apply_redactions` and appends streams for R4 content marks, so the corpus decides, exactly as it
+  did for M110. **Microsoft Edge sets the target:** given the *identical* edit — Edge's own mark
+  read back and replayed through `annotate` — Edge adds **2,680 B and changes 0 of 572 content
+  streams**, leaving the first 9,015,879 bytes byte-identical, where we add **296,142 B and change
+  572 of 572**. Edge writes a standard incremental update, which is what the format provides for
+  this case. **So incremental writing is re-scoped rather than rejected:** appending leaves the
+  previous revision recoverable, which is disqualifying *for redaction* and not a reason to rewrite
+  9 MB to add a highlight. **The write mode is one decision, not two knobs** — measured, MuPDF
+  refuses garbage collection on an incremental write (`garbage=2` → *"Can't do incremental writes
+  with garbage collection"*), so this is the **second fork on the axis M110 opened**, not a mechanism
+  beside it: page set changed → graft; unchanged with any non-additive edit → copy at
+  `GARBAGE_COPY`; unchanged and provably additive → `garbage=0`, no `clean`, incremental. That third
+  row sits *below* the redaction orphan floor `tests/test_redaction_orphans.py` pins, so excluding
+  redaction is required twice over. **The predicate is smaller than first written:** `save_options`
+  already asks the model one question about the edit set, and `has_redactions()` /
+  `has_content_marks()` already exist and already gate the commit-and-reload decision — the rest is
+  one-line reads of `rotation_override` / `crop_override` / `form_values` / `_metadata_override` /
+  `_encryption_staged`. It must be a **whitelist** (unknown annotation kinds denied), because too
+  permissive appends over a redaction. **Two claimed obstacles resolved, one of them wrong:** the
+  strip-and-re-add pass does **not** dirty every page — measured via the bytes an incremental save
+  appends, `_apply_page_edits` with no edits adds **+0 B** on 60 pages, one highlight +890 B, three
+  +2,184 B — it is already scoped in effect and needs no work. The two real ones are that
+  `fresh_source` opens from a **stream**, which PyMuPDF refuses to save incrementally at all
+  (*"incremental needs original file"*), and that `apply_metadata` runs unconditionally on the copy
+  route, re-writing untouched Info + XMP: on a document with a 3 KB XMP packet it turns a 901 B
+  append into **4,249 B**, larger on its own than Edge's whole edit. **The path obstacle dissolved
+  once it was stated for all three surfaces** rather than from the GUI: *no* surface writes to the
+  original file — app `Save`, `Save As` and the bridge all materialise into a temp beside the target
+  and `atomic_replace` it in (M38.5), and the bridge refuses to touch its input at all. So seed the
+  temp by **copying** the origin instead of creating it empty, append to that, and rename as before.
+  Proven end to end on a synthetic 572-page 3.46 MB document: **0.37 s → 0.03 s, +1,189 B, all
+  3,456,976 source bytes byte-identical**, copy 2 ms — and since both surfaces funnel through
+  `materialize`, it lands in one place. What is left open there is encryption (M54's `tobytes`
+  round-trip), not paths. **Two levers, the second
+  subsuming the first on its branch:** dropping `clean` takes streams to 0/572 and the call to
+  0.70 s but still writes a whole 8.8 MB file, and helps every save including the ones the predicate
+  refuses; incremental writing closes the rest of the gap to Edge. **The retest's
+  timings do not reproduce** — `annotate` is 1.83 s for its eleven marks, not 12.6 s; the
+  document-proportional cost in that workflow is `search` (6.34 s here), already carried below.
+  (The number M114 briefly labelled the withdrawn Reduce-dpi proposal in
+  [#277](https://github.com/utyagi24/klarpdf/pull/277); that item is now unnumbered in `PLAN.md`
+  §Future enhancements.)
+
+  </details>
+
 - [x] **M110** *(unplanned)* ⭐ **A save no longer spends five minutes looking for duplicates that
   are not there** —
   found 2026-08-21 while reviewing TC-012, whose FINDING 1 read "cost scales with document size".
@@ -2942,6 +3083,27 @@ tree or history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI 
 
 Carried items — none block work:
 
+- **Nothing has ever run a line of code against the bridge's own lock** — the structural gap behind
+  M115, and the reason a three-month version drift went unseen. CI installs `requirements-dev.txt`
+  and runs the whole suite including `tests/test_mcp_*.py`, but that lock tracks the **app**, so the
+  bridge's tests have only ever executed against the app's PyMuPDF. `requirements-mcp.txt` *is*
+  covered by the weekly `audit` job (M42's fourth `pip-audit` step) — and auditing a lock for
+  advisories is not the same as running code against it. M115's two tests now compare the locks as
+  text, which catches a version drift; they cannot catch a behaviour difference between two engines.
+  Closing it means a CI job that installs `requirements-mcp.txt` and runs `tests/test_mcp_*.py`
+  against it. Not done here because it adds a required status check on `main`, which is the owner's
+  call. See `PLAN.md` §M115.
+
+- **`pipx install .` still resolves PyMuPDF to the newest release rather than ours** — the gap M115
+  left open on purpose. That milestone pinned the *lock* (`requirements-mcp.txt`) to the app's
+  `1.27.2.3` and added a test holding the two locks together, but `pyproject.toml` keeps a **floor**
+  (raised to `>=1.27.2.3`), because an exact pin in package metadata conflicts with whatever a user
+  co-installs. So a bridge user following the README's `pipx install .` gets *at least* our engine
+  and possibly a newer one — which is the ordinary library convention, and still a way for the two
+  surfaces to diverge in a user's hands. The options if it is ever worth closing: a compatible-release
+  ceiling (`>=1.27.2.3,<1.28`), or telling README readers to install from the lock. Not decided —
+  recorded so the argument starts from here. See `PLAN.md` §M115.
+
 - **The two exports still pay M110's quadratic cleanup, so an object-heavy document takes minutes**
   — measured 2026-08-22 on `dhariwal_ipo.pdf` (572 pp, **48,877 objects**) after M110/M111, when the
   owner asked what the fix does *not* cover. Every Save path on that file is now ~1.9 s and every
@@ -3050,6 +3212,24 @@ Carried items — none block work:
   idea rather than rounded up to "lossless". Worth doing if tagged PDFs become a real workflow; the
   same pass would need to carry `/Perms` and the `/Names` tree. Not scheduled. — *WSL*
 
+- **A GUI launched from WSL always opens on the primary monitor, whatever screen you typed the
+  command on** — owner report 2026-08-22, diagnosed the same day; **WSLg only, and not a KlarPDF
+  bug**. `MainWindow._place_window` deliberately opens on the screen under the cursor
+  (`QGuiApplication.screenAt(QCursor.pos())`), which is why this works on Windows. Under WSLg the
+  app runs on the **Wayland** platform, where two separate things defeat it: `QCursor.pos()` returns
+  `(0, 0)` — Wayland gives a client no way to ask where the global pointer is — which lands outside
+  every screen rect, so `screenAt` returns `None` and the code falls back to the primary screen; and
+  Wayland's `xdg-shell` gives a client no way to position its own top-level window at all. Measured:
+  a probe window asking for (3080, 200) on the external monitor landed at (0, 348) on the laptop
+  under `wayland`, and at (3086, 227) on the **external monitor** under `xcb`. Qt sees both screens
+  either way (`rdp-0` 2880×1800, `rdp-11` 2560×1440), so nothing is hidden — the placement is simply
+  not the client's to make. **Workaround:** `QT_QPA_PLATFORM=xcb python launcher.py file.pdf` routes
+  through XWayland, where both calls work; the caveat is that XWayland only learns the pointer
+  position while the cursor is over an X client, and the launching terminal is a *Windows* window,
+  so the position can be stale. Deliberately not fixed in the app: WSLg is the dev environment and
+  the product ships native Windows. It becomes real work only if Linux desktop is ever a target, and
+  then the answer is an explicit screen choice (a `--screen` flag / `KLARPDF_SCREEN`) rather than a
+  cursor heuristic. `main_window.py:3082`.
 - ~~**`_render_visible` is O(document length), not O(visible band)**~~ — **fixed 2026-07-28 as
   M87.3** (see the M87 entry above). It was worse than filed: a *third* walk, the annotation
   overlay re-deriving the band once per page, made the pass **quadratic** rather than linear —

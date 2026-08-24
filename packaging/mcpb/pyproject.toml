@@ -33,7 +33,7 @@ dependencies = [
     "pydantic==2.13.4",
     "pydantic-core==2.46.4",
     "pyjwt[crypto]==2.13.0",
-    "pymupdf==1.28.2",
+    "pymupdf==1.27.2.3",
     "python-multipart==0.0.32",
     "referencing==0.37.0",
     "rpds-py==2026.6.3",

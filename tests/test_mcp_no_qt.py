@@ -33,6 +33,16 @@ FORBIDDEN = ("PySide6", "shiboken6")
 # model/ be shared (PLAN.md §Architecture).
 FORBIDDEN_MODEL = "model.edit_commands"
 
+# The *other* library the bridge's lock leaves out (M115). `requirements-mcp.in` says "the bridge
+# never uses PyPdfEngine" — true, and until now nothing checked it. The import sits inside
+# `PyPdfEngine.materialize` rather than at module level, so `model.edit_engine` loads fine without
+# it and a load-time check proves nothing; only reaching that method fails, with
+# `ModuleNotFoundError: pypdf`, on a user's machine and never in CI — because CI installs
+# `requirements-dev.txt`, which *has* pypdf. Same shape as the version drift M115 fixes: what CI
+# runs is not what the bridge ships. Cheap to close here, since this exerciser already runs every
+# tool in a clean interpreter.
+FORBIDDEN_LIB = "pypdf"
+
 _CHILD = textwrap.dedent(
     '''
     import asyncio, json, sys
@@ -119,6 +129,7 @@ _CHILD = textwrap.dedent(
         if name == "PySide6" or name.startswith("PySide6.")
         or name == "shiboken6" or name.startswith("shiboken6.")
         or name == "model.edit_commands"
+        or name == "pypdf" or name.startswith("pypdf.")
     )
     print(json.dumps({"leaked": leaked, "modules": len(sys.modules)}))
     '''
@@ -150,6 +161,19 @@ def test_the_qt_bound_corner_of_model_stays_excluded(child_result):
     """``model/edit_commands.py`` imports ``QUndoCommand``. The server calls ``VirtualDocument``
     operations directly to avoid it — this is what proves the avoidance is real."""
     assert FORBIDDEN_MODEL not in child_result["leaked"]
+
+
+def test_the_bridge_never_reaches_the_pypdf_engine(child_result):
+    """``requirements-mcp.in`` leaves pypdf out because "the bridge never uses PyPdfEngine" — and
+    until M115 nothing checked that the claim stayed true.
+
+    It cannot be checked at load time: ``model/edit_engine.py`` imports pypdf *inside*
+    ``PyPdfEngine.materialize``, so the module loads without it and only reaching that method fails.
+    On a bridge user's machine that is ``ModuleNotFoundError: pypdf``; in CI it never fails at all,
+    because CI installs ``requirements-dev.txt``, which carries pypdf for the app. Running every
+    tool in a clean interpreter — which this exerciser already does — is the only honest check.
+    """
+    assert FORBIDDEN_LIB not in child_result["leaked"]
 
 
 def test_the_server_path_opens_no_socket(child_result):
