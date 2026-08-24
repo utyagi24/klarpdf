@@ -22,8 +22,28 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")  # headless: no display ne
 # and need no real printer. setdefault keeps a real CUPS setup (or CI's) if one is configured.
 os.environ.setdefault("CUPS_SERVER", "/dev/null")
 
+import importlib.util
+
 import pymupdf as fitz
 import pytest
+
+#: Is the GUI toolkit installed at all? (M115.1)
+#:
+#: Normally yes — every lock this project tests with carries PySide6. The exception is the `bridge`
+#: CI job, which installs **`requirements-mcp.txt`**, the lock a bridge *user* installs: it has no
+#: PySide6 and no pypdf on purpose, because the server never touches either. That job exists because
+#: nothing had ever run a line of code against that lock, which is how the app and the bridge came
+#: to be on different PyMuPDF builds for three months (M115).
+#:
+#: The three `autouse` fixtures below all reach into Qt, so without this they would error the
+#: *setup* of every bridge test — before any test body ran — and the job would report a wall of
+#: errors that say nothing about the bridge. Each returns early instead: there are no widgets to
+#: destroy, no modal to intercept and no debounce to zero out when the toolkit is not installed.
+#:
+#: ``find_spec`` rather than a ``try: import``: it answers "is it installed" **without importing
+#: it**, so this line does not pull ~60 MB of Qt into the interpreter a moment earlier than the
+#: suite would have anyway.
+GUI_INSTALLED = importlib.util.find_spec("PySide6") is not None
 
 # Unique, searchable strings per page so we can assert a specific page's text survived a move.
 A_TEXT = ["ALPHA-zero-A0", "ALPHA-one-A1", "ALPHA-two-A2"]
@@ -72,6 +92,8 @@ def pytest_runtest_teardown(item, nextitem):
     file handles) is released by destruction anyway.
     """
     yield
+    if not GUI_INSTALLED:
+        return              # no toolkit, no widgets to destroy — see GUI_INSTALLED
     from PySide6.QtCore import QEvent
     from PySide6.QtWidgets import QApplication
 
@@ -96,7 +118,11 @@ def _no_real_modals(monkeypatch):
     underlying exception the hang swallowed. Tests that exercise a prompt patch the
     ``_confirm_*`` / provider seam *above* these Qt calls (their per-test monkeypatch overrides
     this one), so anything reaching a real Qt modal is a bug — and the message raised here
-    carries the dialog's text, so the root cause lands in the failure output."""
+    carries the dialog's text, so the root cause lands in the failure output.
+
+    Skipped when the toolkit is absent — nothing there can raise a modal (see ``GUI_INSTALLED``)."""
+    if not GUI_INSTALLED:
+        return
     from PySide6.QtWidgets import QFileDialog, QInputDialog, QMessageBox
 
     def deny(cls_name: str, method: str):
@@ -120,7 +146,12 @@ def _instant_search(monkeypatch):
     (``SEARCH_DEBOUNCE_MS``), because one full-document scan per keystroke made a 320-page file
     unusable; tests type with ``setText`` and assert on the result in the next line, with no event
     loop to let a timer fire. ``test_search_perf.py`` restores the real interval to test the
-    debounce itself."""
+    debounce itself.
+
+    Skipped when the toolkit is absent — ``viewer/search.py`` imports Qt at module level, and there
+    is no live search to make instant without it (see ``GUI_INSTALLED``)."""
+    if not GUI_INSTALLED:
+        return
     import viewer.search
 
     monkeypatch.setattr(viewer.search, "SEARCH_DEBOUNCE_MS", 0)
@@ -132,7 +163,11 @@ def _instant_zoom(monkeypatch):
     wheel event only *accumulates* (``_ZOOM_COALESCE_MS``), because a burst rebuilt the scene once
     per event; tests send a detent and assert on the next line, with no event loop to let a 16 ms
     timer expire. ``test_zoom_coalescing.py`` restores the real interval to test the coalescing
-    itself — the same arrangement ``_instant_search`` has with ``test_search_perf.py``."""
+    itself — the same arrangement ``_instant_search`` has with ``test_search_perf.py``.
+
+    Skipped when the toolkit is absent, for the same reason as ``_instant_search``."""
+    if not GUI_INSTALLED:
+        return
     import viewer.pdf_view
 
     monkeypatch.setattr(viewer.pdf_view, "_ZOOM_COALESCE_MS", 0)

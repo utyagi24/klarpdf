@@ -128,3 +128,83 @@ jobs:
             } else {
               await github.rest.issues.createComment({ owner, repo, issue_number, body });
             }
+
+  # ---------------------------------------------------------------------------------------------
+  # M115.1 — run the bridge's OWN lock, which nothing had ever executed.
+  #
+  # The `pytest` job above installs requirements-dev.txt, which tracks the **app**. So every
+  # tests/test_mcp_*.py has only ever run against the app's PyMuPDF, and the version the bridge
+  # actually ships was never the version anything tested — which is how the app came to be on
+  # pymupdf 1.27.2.3 while the bridge's lock said 1.28.2 for three months (M115). requirements-mcp.txt
+  # was covered by the `audit` job the whole time, and auditing a lock for advisories is not the same
+  # as running a line of code against it.
+  #
+  # M115 made a *version* drift impossible to commit: one declaration site (requirements-core.in) plus
+  # two tests comparing the locks. Neither can see a *behaviour* difference between two engines, which
+  # is the thing that actually hurts. Only running the bridge on its own dependencies can.
+  #
+  # NO PATH FILTER ON THE WORKFLOW, for the same reason the job above has none (G7): this is intended
+  # as a required status check, and a filtered-out workflow never creates a check run at all — a
+  # ruleset cannot tell "not needed" from "not finished", so the PR would wait on it forever. The
+  # relevance decision therefore lives INSIDE the job, exactly like the docs-only gate above, and a
+  # PR that cannot affect the bridge reports success without doing the work.
+  bridge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0   # the gate below diffs against the merge base
+
+      # Which changes could alter what the bridge does? Its own code and lock, the shared core it
+      # imports, and the packaging that generates its bundle. `model/` and `util/` are in the list
+      # precisely because they are shared — that is the whole failure mode this job exists for.
+      #
+      # `requirements-win.txt` is deliberately NOT in the list, and the reason is worth stating: it
+      # is the *app's* lock, so it cannot change what the bridge installs, and the invariant that
+      # the two must agree on a shared library is already asserted unconditionally by
+      # tests/test_mcp_packaging.py in the `pytest` job above. Adding it here would buy a second
+      # check of something already checked on every PR.
+      #
+      # The gate is deliberately generous where it is cheap: a PR touching `model/` runs this even
+      # though most such changes are GUI-only, because the cost of a needless 40-second job is
+      # nothing next to the cost of the case it exists to catch.
+      - name: Could this change affect the bridge?
+        id: gate
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          files=$(git diff --name-only "${BASE_SHA}...${HEAD_SHA}")   # 3 dots = diff vs the merge base
+          echo "Changed files:"; printf '%s\n' "$files"
+          # An EMPTY list must NOT count as irrelevant: no diff is an unexpected state, and the safe
+          # response is to run. Same guard as the docs-only gate above, for the same reason.
+          if [ -n "$files" ] && ! printf '%s\n' "$files" | grep -qE \
+             '^(mcp_bridge/|model/|util/|packaging/mcpb/|tests/test_mcp_|requirements-(core|mcp)\.(in|txt)$|pyproject\.toml$|\.github/workflows/test\.yml$)'; then
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+            echo "-> nothing here reaches the bridge: reporting the check as evaluated."
+          else
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-python@v6
+        if: steps.gate.outputs.relevant != 'false'
+        with:
+          python-version: "3.12"
+
+      # The bridge is headless by design and must not need Qt — tests/test_mcp_no_qt.py asserts it.
+      # Installing no Qt runtime here is therefore not an oversight but a second, independent proof:
+      # if anything on the server path ever imports PySide6, this job fails to even collect.
+      - name: Install the BRIDGE lock (not the dev lock — that is the point)
+        if: steps.gate.outputs.relevant != 'false'
+        run: |
+          pip install -r requirements-mcp.txt
+          pip install pytest        # the runner itself; deliberately not in the bridge's own lock
+          python -c "import pymupdf; print('bridge engine ->', pymupdf.__doc__.splitlines()[0])"
+
+      # pypdf is absent from this lock on purpose (M115). Under the dev lock it is installed anyway,
+      # so a bridge path reaching PyPdfEngine passes there and fails on a user's machine; here that
+      # mistake is a red check, because the import genuinely is not available.
+      - name: Run the bridge suite against its own dependencies
+        if: steps.gate.outputs.relevant != 'false'
+        run: pytest -q tests/test_mcp_*.py
