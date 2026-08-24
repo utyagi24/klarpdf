@@ -23,10 +23,16 @@ requires-python = ">=3.12,<3.13"
 # tests/test_mcp_packaging.py now builds the metadata and asserts these are in it.
 #
 # FLOORS here, PINS in requirements-mcp.txt. That is the ordinary split: this file says what the
-# code needs to work, the lock says the exact set we audited and recommend. Keep the floors equal to
-# requirements-mcp.in's — a test enforces it.
+# code needs to work, the lock says the exact set we audited and recommend. A test asserts both name
+# the same packages, and that the lock's pin satisfies the floor here.
+#
+# The PyMuPDF floor is the version the app ships and the bridge is compiled against (M115), not the
+# older floor it carried while the two locks silently drifted apart. It is still a floor rather than
+# a pin because this is package metadata: an exact pin here would conflict with anything a user
+# co-installs. That leaves one gap on purpose — `pipx install .` resolves to the *newest* PyMuPDF,
+# not ours — carried in PROGRESS.md §Open follow-ups.
 dependencies = [
-    "PyMuPDF>=1.25.5",
+    "PyMuPDF>=1.27.2.3",
     "mcp>=2,<3",
 ]
 

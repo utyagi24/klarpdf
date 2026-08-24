@@ -4367,6 +4367,143 @@ accounts for 0.2 s of that, not six seconds. What *is* document-proportional in 
 "a search is still one uninterruptible pass over every page". So the remaining defect is the rewrite,
 not the clock.
 
+### M115 — the app and the bridge were writing PDFs with different engines (found 2026-08-23)
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M115** Declare the core's PDF engine in **one** place, so the two surfaces cannot resolve it differently | new `requirements-core.in` (the exact pin), `-r`-included by `requirements.in` and `requirements-mcp.in`, which no longer name PyMuPDF at all; `requirements-mcp.txt` / `requirements-dev.txt` / `packaging/mcpb/pyproject.toml` recompiled; `tests/test_mcp_packaging.py` + `tests/test_mcp_no_qt.py` | WSL + Windows | Every lock names one PyMuPDF; reintroducing the drift, or floating a shared library back to a floor, fails the suite; the bridge still reaches neither Qt nor pypdf with every tool exercised |
+
+**Found while preparing §M114, which is entirely about what the engine writes.** The shipped app
+pins `pymupdf==1.27.2.3`; the bridge's lock had `pymupdf==1.28.2`. PyMuPDF is not one dependency
+among many here — it *is* the PDF engine, and `model/` hands it every read and write both surfaces
+make. Two versions can write different bytes for the same edit, which makes a corpus measured on one
+a poor description of the other.
+
+**It was a drift, and the mechanism was named wrong.** Both inputs asked for the same thing:
+
+```
+requirements.in       PyMuPDF>=1.25.5
+requirements-mcp.in   PyMuPDF>=1.25.5
+```
+
+`>=` is a **floor**, not a pin, and `pip-compile` resolves a floor to whatever was newest on the day
+it ran. The app's lock was compiled at 1.27.2.3 and is bumped by hand afterwards (`RELEASE.md` §2 —
+that is how the `pypdf` security bump was done); the bridge's was recompiled during M42, later, and
+floated. The commit that moved it is the same one that added the comment promising it could not
+happen:
+
+```
+commit 4043417  "M42: MCP dependency lock + packaging"
+  requirements-mcp.txt   -pymupdf==1.27.2.3
+                         +pymupdf==1.28.2
+  requirements-mcp.in    +# PyMuPDF is pinned to the same floor as the app so the bridge
+                         +# and the GUI cannot drift onto different MuPDF builds
+```
+
+*"Pinned to the same floor"* is the error in one phrase: a floor is the opposite of a pin, and
+sharing one guarantees nothing about what either side resolves to.
+
+**This is the §M114 "one core, two consumers" rule with the version underneath it.** `CLAUDE.md`
+now asks that every change answer for both surfaces; that is worth little while the two do not agree
+on the library the core is built on. It also plausibly explains the open TC-012 discrepancy — the
+report measures 52,615 B added for one highlight where we measure 296,142 B for the identical edit,
+a 5.6× gap, and a Poppler text difference on 41 pages that does not reproduce here at all.
+
+**The direction is the bridge down, not the app up.** 1.27.2.3 is what the installer bundles, what
+the hashed `win_amd64` lock covers and what the clean-machine install test has run against; moving
+the app instead is a release-process change (`RELEASE.md` §2, a new hashed lock, that test re-run)
+and should be its own decision rather than a side effect of this one.
+
+**The fix is structural: PyMuPDF is declared once, because it belongs to neither surface.** The
+owner's question settled the design — *"why does MCP specify its PyMuPDF version separately from the
+app? Does it not belong to the core?"* It does. `model/` is what both surfaces share, and every read
+and write either makes goes through PyMuPDF, so declaring it in `requirements.in` (as the app's) and
+again in `requirements-mcp.in` (as the bridge's) was the bug. Two declarations that must agree is a
+hazard; a test that checks they agree is a smoke alarm, not a fix. So:
+
+```
+requirements-core.in     PyMuPDF==1.27.2.3          <- the one place
+requirements.in          -r requirements-core.in    + PySide6-Essentials, pypdf
+requirements-mcp.in      -r requirements-core.in    + mcp
+```
+
+The `-r` include is already how `requirements-dev.in` pulls in `requirements.in`, so nothing new is
+being invented. Both locks now record `# via -r requirements-core.in`, which makes the shared origin
+visible in the generated files.
+
+**The shared file is only half of it — the pin is the other half.** A shared *floor* fails exactly
+as two separate floors do, because `pip-compile` resolves `>=` to whatever was newest on the day it
+ran. Measured:
+
+| `requirements-core.in` says | one lock recompiled with `-P PyMuPDF` | result |
+| --- | --- | --- |
+| `PyMuPDF>=1.25.5` | moves to **1.28.2** | still drifts |
+| `PyMuPDF==1.27.2.3` | stays **1.27.2.3** | immune even to an explicit upgrade |
+
+**And the old floor was a live hazard, not a historical one.** Compiling the *previous*
+`requirements.in` today resolves PyMuPDF to **1.28.2** — so the next routine recompile of
+`requirements-win.txt` would have silently moved the shipped app's engine, with no line of the diff
+saying so. Under the new structure that recompile returns 1.27.2.3.
+
+**One Windows step is outstanding and is cosmetic.** `requirements-win.txt` is `--generate-hashes`
+and `win_amd64`, so it is regenerated on Windows (CLAUDE.md §Gotchas) and is not touched here. Its
+pins are already correct — 1.27.2.3, the version this milestone standardises on — and the only line
+that changes on the next Windows recompile is the annotation `# via -r requirements.in` →
+`# via -r requirements-core.in`. Verified by compiling the old and new inputs side by side: the
+resolved set is identical apart from that comment and the PyMuPDF version the old floor now picks up.
+
+**The tests stay, as the backstop rather than the fix — and neither is about PyMuPDF.** The defect
+is the *shape*, not the package, so both assert the general invariant:
+
+* `test_the_bridge_and_the_app_never_ship_different_versions_of_a_shared_library` — **every**
+  package both locks carry must be at one version, whichever one somebody adds next. It compares
+  the **locks**, not the inputs: an input can say anything, a lock is what installs.
+* `test_a_library_the_app_also_ships_is_pinned_in_the_bridge_input_not_floored` — the **root cause**
+  asserted directly. The first test catches the drift once it has happened; this one catches the
+  construction that allows it, which is the part that silently re-arms on the next recompile. Only
+  packages the app also ships are constrained; `mcp>=2,<3` is shared with nothing and stays a range.
+
+One existing test had to change with them. `test_the_declared_floors_match_the_locks_input` asserted
+`pyproject.toml`'s dependency block and `requirements-mcp.in` were *string-equal* — workable only
+while both were floors. They are legitimately different kinds, so it now asserts the same package
+**set** plus "the compiled pin satisfies the declared floor", and its parser follows `-r` includes,
+without which the shared engine would read as declared by nobody. One generated artefact follows the
+lock and was regenerated: `packaging/mcpb/pyproject.toml`, which the suite caught by itself.
+
+**The audit found a second library in the same position, and it was unguarded.** Asked whether
+anything *else* belonging to the core is declared per-surface, the answer across `model/`, `viewer/`,
+`organize/`, `util/` and `mcp_bridge/` is three third-party imports and no more:
+
+| library | declared by | needed by | state |
+| --- | --- | --- | --- |
+| **PyMuPDF** | both, separately | `model/`, `viewer/`, `organize/`, `mcp_bridge/` | this milestone |
+| **PySide6** | app only | `model/edit_commands.py` (`QUndoCommand`, module level) + all of `viewer/`, `organize/` | correct, and **proven by execution** |
+| **pypdf** | app only | `model/edit_engine.py` only, *inside* `PyPdfEngine.materialize` | correct, and **was unproven** |
+
+PySide6 is the model to copy: `tests/test_mcp_no_qt.py` runs every tool in a fresh interpreter and
+asserts Qt is nowhere in `sys.modules`, precisely because "an import that only happens inside a tool
+body is exactly the one a load-time check would miss". pypdf sits in that same shape —
+`model/edit_engine.py` imports it *inside* a method, so the module loads without it and only reaching
+`PyPdfEngine.materialize` fails — and its exclusion had nothing asserting it. A bridge user would get
+`ModuleNotFoundError: pypdf`; CI would stay green, because CI installs `requirements-dev.txt`, which
+carries pypdf for the app. **The same shape as the version drift: what CI runs is not what the bridge
+ships.** Closed by adding `pypdf` to that exerciser's leak set — one line, on machinery that already
+exercises every tool — and confirmed to fail when a regression is simulated.
+
+**The gap underneath all of it: the bridge's own lock is audited but never run.** CI installs
+`requirements-dev.txt` and runs the whole suite, `tests/test_mcp_*.py` included — but that lock
+tracks the *app*, so the bridge's tests have only ever executed against the app's PyMuPDF. The
+version the bridge actually ships was never the version anything tested. `requirements-mcp.txt` is
+covered by the `audit` job (M42's fourth `pip-audit` step), and auditing a lock for advisories is
+not the same as running a line of code against it. That is why three months passed. Closing it means
+a CI job that installs `requirements-mcp.txt` and runs `tests/test_mcp_*.py` against it — carried in
+`PROGRESS.md` §Open follow-ups rather than decided here, since it adds a required check.
+
+**One gap is left open deliberately.** `pyproject.toml` keeps a *floor*, raised to 1.27.2.3, because
+an exact pin in package metadata conflicts with whatever a user co-installs. So the `pipx install .`
+path the README documents still resolves to the newest PyMuPDF rather than ours. Carried in
+`PROGRESS.md` §Open follow-ups rather than decided here.
+
 ## Future enhancements (deferred beyond the roadmap)
 
 Captured but not yet scheduled:
