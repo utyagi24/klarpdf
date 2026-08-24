@@ -15,7 +15,13 @@
 # then fails on every other OS by design (CLAUDE.md §Gotchas), which would defeat the entire
 # audience — developers running agentic clients, most of them not on Windows.
 #
-# PyMuPDF is pinned to the same floor as the app so the bridge and the GUI cannot drift onto
-# different MuPDF builds; pypdf is absent on purpose — the bridge never uses PyPdfEngine.
-PyMuPDF>=1.25.5
+# PyMuPDF IS NOT DECLARED HERE, on purpose (M115). It is the core's engine, not the bridge's, and
+# naming it in this file *and* in requirements.in is exactly what let the two locks drift onto
+# different MuPDF builds for three months. Both inputs now `-r requirements-core.in`, which is the
+# single place the version is written — see that file for why it is an exact pin rather than a floor.
+#
+# pypdf is absent on purpose — the bridge never uses PyPdfEngine, whose `import pypdf` sits inside
+# `PyMuPDFEngine`'s sibling method rather than at module level. `tests/test_mcp_no_qt.py` proves the
+# avoidance by running every tool in a fresh interpreter, the same way it proves Qt stays out.
+-r requirements-core.in
 mcp>=2,<3

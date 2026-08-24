@@ -150,14 +150,40 @@ def test_fingerprint_survives_a_materialise(vdoc, tmp_path):
         saved.close()
 
 
-def test_xrefs_really_do_change(vdoc, tmp_path):
-    """Pins the premise. If xrefs ever did survive, the fingerprint machinery would be unnecessary
-    — and this test is what would tell us."""
+def test_xrefs_really_do_change_when_the_document_is_rebuilt(vdoc, tmp_path):
+    """Pins the premise. If xrefs ever did survive *every* route, the fingerprint machinery would be
+    unnecessary — and this test is what would tell us.
+
+    It used to assert this of any save, which was true while every save sanitised its content
+    streams and renumbered on the way through. M114 stopped doing that on the copy route, so the
+    premise is now **route-dependent**: the graft assembles a new document and renumbers, which is
+    what fingerprints exist for; a plain save no longer does (pinned below). Narrowing the claim to
+    where it holds is the point — the machinery is still required, and this still proves it.
+    """
+    vdoc.ordered = vdoc.ordered + [vdoc.ordered[0]]     # a duplicated page — now a graft
+    assert vdoc.page_set_unchanged() is False
     before = {a.xref for a in _source_page(vdoc).annots()}
     saved = fitz.open(_materialize(vdoc, tmp_path))
     try:
         after = {a.xref for a in saved[0].annots()}
         assert before != after
+    finally:
+        saved.close()
+
+
+def test_a_plain_save_now_leaves_foreign_annotation_xrefs_alone(vdoc, tmp_path):
+    """The other half, and a fidelity gain worth pinning (M114).
+
+    Dropping ``clean`` on the copy route stopped the save re-serialising content and renumbering
+    behind it, so an annotation a *different* tool wrote keeps the object number that tool recorded.
+    Anything holding an external reference to it — a review database keyed on xref, a comment
+    exported from Acrobat — still resolves after a round-trip through this app.
+    """
+    assert vdoc.page_set_unchanged() is True
+    before = {a.xref for a in _source_page(vdoc).annots()}
+    saved = fitz.open(_materialize(vdoc, tmp_path))
+    try:
+        assert {a.xref for a in saved[0].annots()} == before
     finally:
         saved.close()
 
