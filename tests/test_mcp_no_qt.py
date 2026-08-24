@@ -203,6 +203,9 @@ def test_the_socket_guard_would_notice_a_connection(a_pdf):
 def test_the_guard_would_notice_qt(a_pdf):
     """A negative control. A check that cannot fail is not a check — this proves the child's
     detection works by importing Qt on purpose and watching it get caught."""
+    # Needs the toolkit it is proving we can detect. Absent under the `bridge` job's lock, where
+    # the *positive* checks above still run and are the ones that matter there (M115.1).
+    pytest.importorskip("PySide6", reason="the bridge lock has no Qt; this control needs it")
     proc = subprocess.run(
         [sys.executable, "-c", "import PySide6.QtCore\n" + _CHILD, a_pdf],
         capture_output=True,

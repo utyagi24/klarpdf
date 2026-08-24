@@ -138,6 +138,8 @@ def test_the_built_metadata_declares_dependencies():
     """
     import tempfile
 
+    pytest.importorskip("setuptools", reason="build backend; not in the bridge's runtime lock")
+
     from setuptools.build_meta import prepare_metadata_for_build_wheel
 
     cwd = os.getcwd()

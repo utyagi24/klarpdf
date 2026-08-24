@@ -2231,6 +2231,54 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   `TYAGI1703` trap *within* a line (`Smith` + `Jones` → the token `SmithJones`), caught by M98's
   existing tests. Design in `PLAN.md` §M100 — *WSL*
 
+- [x] **M115.1** *(unplanned)* **The bridge's own lock now actually runs** — closes the structural
+  gap behind M115, and the reason a three-month version drift went unseen: CI installs
+  `requirements-dev.txt`, which tracks the **app**, so `tests/test_mcp_*.py` had only ever executed
+  against the app's PyMuPDF. `requirements-mcp.txt` was scanned by the weekly `audit` job the whole
+  time — and auditing a lock for advisories is not running a line of code against it. M115's two
+  tests compare the locks **as text**: that catches a version drift and cannot see a *behaviour*
+  difference between two engines, which is the thing that actually corrupts a document. A second CI
+  job now installs the bridge's lock and runs the bridge suite against it — **459 passed, 4
+  skipped**, with the full suite still green under the dev lock. **Required, but gated inside the
+  job** (owner's call): a PR that cannot reach the bridge reports the check without doing the work,
+  and the gate is a *step* rather than a workflow `paths:` filter for the reason G7 documents on the
+  `pytest` job — a filtered-out workflow never creates a check run, and a ruleset cannot tell "not
+  needed" from "not finished", so the PR would wait forever. `requirements-win.txt` is deliberately
+  outside the trigger: it is the app's lock, so it cannot change what the bridge installs, and the
+  "both locks agree" invariant is already asserted unconditionally in the `pytest` job. **The job
+  was the easy part** (70 lines). `tests/conftest.py` has three `autouse` fixtures and *all three*
+  reach into Qt, so under a Qt-free lock they error the **setup** of every bridge test before a
+  single body runs — the first attempt produced a wall of errors that said nothing about the bridge.
+  Each now returns early on a shared `GUI_INSTALLED`, computed with `importlib.util.find_spec` so
+  that asking the question does not itself pull ~60 MB of Qt into the interpreter. **Four tests use
+  dev-only tooling to *verify* bridge behaviour** and now skip rather than fail, the same
+  arrangement the Poppler cross-engine redaction check has always had: a Qt negative control, an
+  app-vs-bridge find-bar comparison, a pypdf second-engine cross-check, and the setuptools metadata
+  build. The lock installing neither pypdf nor PySide6 is itself a second proof of the quarantine
+  `tests/test_mcp_no_qt.py` asserts from the inside. Design in `PLAN.md` §M115.1 — *WSL + CI*
+
+- [ ] **M116** *(unplanned)* **Adding a highlight should append 2,680 bytes, not rewrite 8.8 MB** —
+  M114's **second lever**, split out here because it was only ever written inside M114's own entry,
+  and a ticked milestone's prose is not a backlog (caught by the owner, 2026-08-24). M114 fixed the
+  *content streams* — a one-mark save now leaves all 572 byte-identical and runs in 0.66 s — but it
+  still writes a complete **8.8 MB** file. Microsoft Edge, given the byte-identical edit, appends
+  **2,680 B** and leaves the first 9,015,879 bytes untouched, because it writes a standard PDF
+  **incremental update**. That remaining distance is this milestone. **Already proven end to end**
+  (M114 session): seeding the temp file by *copying* the origin instead of creating it empty, then
+  appending and renaming as today, gives **+1,189 B with the source prefix byte-identical, 0.37 s →
+  0.03 s**, copy cost 2 ms — and because both surfaces funnel through `materialize`, it lands in one
+  place. **The work is the predicate**, which must be a **whitelist**: incremental only for provably
+  additive edits, unknown annotation kinds denied, because too permissive appends over a redaction
+  and leaves the original bytes in the file. Redaction is excluded twice over — by that leak *and*
+  by `garbage=0` sitting below the orphan floor `tests/test_redaction_orphans.py` pins. Most of the
+  predicate already exists (`has_redactions()`, `has_content_marks()`, plus one-line reads of
+  `rotation_override` / `crop_override` / `form_values` / `_metadata_override` / `_encryption_staged`).
+  **What is genuinely open is encryption, not paths**: `fresh_source` round-trips through
+  `tobytes(PDF_ENCRYPT_KEEP)` for M54, so seeding from the origin *file* must re-supply the recorded
+  password, and incremental requires `encryption=PDF_ENCRYPT_KEEP` passed explicitly — so a save that
+  *changes* encryption can never take this branch. Design in `PLAN.md` §M114 (the "two levers"
+  analysis and the obstacles), not duplicated here — *WSL + Windows*
+
 - [x] **M115** *(unplanned)* **The app and the bridge were writing PDFs with different engines** —
   found while preparing M114, which is entirely about what the engine writes. The shipped app pins
   `pymupdf==1.27.2.3`; the bridge's lock had **1.28.2**. PyMuPDF is not one dependency among many —
@@ -2717,6 +2765,22 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   attached to the survivor afterwards and **joined**, not replaced. Design in `PLAN.md` §M101 —
   *WSL*
 
+  **Held open deliberately, not stalled** (owner, 2026-08-24). The implementation is on
+  [#272](https://github.com/utyagi24/klarpdf/pull/272) and **is not merging yet**: two hands-on
+  sessions (TC-012, TC-013) found enough in it that the owner is not satisfied shipping it as it
+  stands, and the fixes are planned rather than written. Those plans are
+  [#274](https://github.com/utyagi24/klarpdf/pull/274) — six follow-ups reviewed 2026-08-21, plus
+  the ability to *edit* an annotation rather than only add one — which is **stacked on #272 by
+  design**, so the two stay together and merge together once the work is built. Nothing on `main`
+  depends on either branch (verified: neither tip is an ancestor of `main`), so holding them costs
+  only the periodic `merge main` that any long-lived branch needs.
+
+  One thing did come off that branch early and is already shipped: **M114**, the save-path fix, was
+  kept as its own PR against `main` rather than living inside #272 — which is why it is on `main`
+  now and would survive even if the annotation work were abandoned entirely. Worth repeating as a
+  pattern: a fix found *while* building a feature belongs in its own PR, or it inherits that
+  feature's fate.
+
 - [x] **M98** *(unplanned)* **Redaction reports the two things it used to be silent about.** From
   TC-007 (2026-08-16), which found **no defects** — the delivery was correct with zero residuals —
   but two failure modes the tool says nothing about, both silent in the direction that matters.
@@ -3177,17 +3241,6 @@ tree or history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI 
 ## Open follow-ups (carried)
 
 Carried items — none block work:
-
-- **Nothing has ever run a line of code against the bridge's own lock** — the structural gap behind
-  M115, and the reason a three-month version drift went unseen. CI installs `requirements-dev.txt`
-  and runs the whole suite including `tests/test_mcp_*.py`, but that lock tracks the **app**, so the
-  bridge's tests have only ever executed against the app's PyMuPDF. `requirements-mcp.txt` *is*
-  covered by the weekly `audit` job (M42's fourth `pip-audit` step) — and auditing a lock for
-  advisories is not the same as running code against it. M115's two tests now compare the locks as
-  text, which catches a version drift; they cannot catch a behaviour difference between two engines.
-  Closing it means a CI job that installs `requirements-mcp.txt` and runs `tests/test_mcp_*.py`
-  against it. Not done here because it adds a required status check on `main`, which is the owner's
-  call. See `PLAN.md` §M115.
 
 - **`pipx install .` still resolves PyMuPDF to the newest release rather than ours** — the gap M115
   left open on purpose. That milestone pinned the *lock* (`requirements-mcp.txt`) to the app's

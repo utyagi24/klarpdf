@@ -427,6 +427,9 @@ def test_sub_word_matches_are_still_rejected(tmp_path):
 def test_the_app_find_bar_agrees_with_the_bridge(tight_leading_pdf):
     """Both go through `PageText.is_whole_word`, so the shipped find bar had the same under-count —
     on this fixture it is the words-only path, which reaches the same rule by a different route."""
+    # Compares the bridge against the *app's* find bar, so it needs the app's toolkit. Skipped
+    # under the `bridge` job's Qt-free lock; the bridge half of the rule is covered above (M115.1).
+    pytest.importorskip("viewer.search", reason="the bridge lock has no Qt; this compares the GUI")
     from viewer.search import is_whole_word
 
     doc = fitz.open(tight_leading_pdf)
