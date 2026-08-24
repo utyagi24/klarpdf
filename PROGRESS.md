@@ -2613,6 +2613,22 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   verification identically because it *is* `redact_regions`. Editing or deleting an existing
   annotation is out of scope. Design + the full rejection in `PLAN.md` §M101 — *WSL*
 
+  **Held open deliberately, not stalled** (owner, 2026-08-24). The implementation is on
+  [#272](https://github.com/utyagi24/klarpdf/pull/272) and **is not merging yet**: two hands-on
+  sessions (TC-012, TC-013) found enough in it that the owner is not satisfied shipping it as it
+  stands, and the fixes are planned rather than written. Those plans are
+  [#274](https://github.com/utyagi24/klarpdf/pull/274) — six follow-ups reviewed 2026-08-21, plus
+  the ability to *edit* an annotation rather than only add one — which is **stacked on #272 by
+  design**, so the two stay together and merge together once the work is built. Nothing on `main`
+  depends on either branch (verified: neither tip is an ancestor of `main`), so holding them costs
+  only the periodic `merge main` that any long-lived branch needs.
+
+  One thing did come off that branch early and is already shipped: **M114**, the save-path fix, was
+  kept as its own PR against `main` rather than living inside #272 — which is why it is on `main`
+  now and would survive even if the annotation work were abandoned entirely. Worth repeating as a
+  pattern: a fix found *while* building a feature belongs in its own PR, or it inherits that
+  feature's fate.
+
 - [x] **M98** *(unplanned)* **Redaction reports the two things it used to be silent about.** From
   TC-007 (2026-08-16), which found **no defects** — the delivery was correct with zero residuals —
   but two failure modes the tool says nothing about, both silent in the direction that matters.
