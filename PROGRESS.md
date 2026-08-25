@@ -3194,6 +3194,25 @@ the PR that fixes it. See `CLAUDE.md` §How we work for the split and why. Items
 were not migrated wholesale: each is listed because a decision is outstanding, which is what keeps
 it on this side of the line.
 
+- **The MCP no-socket/no-Qt invariant tests can't run on native Windows** — found 2026-08-25 running
+  the full suite on Windows for the first time in a while (the venv was also missing `mcp`, now
+  reinstalled from `requirements-dev.txt`). `tests/test_mcp_no_qt.py`'s child-process guard poisons
+  `socket.bind`/`connect`/`connect_ex`, deliberately leaving the constructor alone so asyncio's
+  internal self-pipe (`socket.socketpair()`) doesn't trip it — the test's own comment says so. That
+  holds on POSIX, where `socketpair()` is a real syscall. On Windows, CPython's
+  `_fallback_socketpair()` emulates it with an actual loopback `bind()` + `connect()`, so the guard
+  fires on asyncio's own plumbing before `exercise()` runs a single tool — 6 of `test_mcp_no_qt.py`'s
+  tests fail or error this way, all the same root cause (confirmed: identical
+  `_fallback_socketpair` frame in every traceback). The product invariant itself is not violated —
+  nothing in the bridge opened that socket — this is the test's detection method being POSIX-only.
+  Not decided: pre-create the loop before installing the guard (so the self-pipe exists before
+  patching), allow-list callers from `asyncio.windows_events`/`proactor_events`, or accept the
+  invariant as Linux/WSL-CI-only and skip these specific tests on `win32`. Filed separately as
+  [#294](https://github.com/utyagi24/klarpdf/issues/294): the one *unambiguous* Windows bug this run
+  also found, `get_info` returning a raw `PermissionError` instead of "is a directory" for a
+  directory path, because `mcp_bridge/server.py`'s `_explain()` only catches POSIX's
+  `IsADirectoryError`.
+
 - **`pipx install .` still resolves PyMuPDF to the newest release rather than ours** — the gap M115
   left open on purpose. That milestone pinned the *lock* (`requirements-mcp.txt`) to the app's
   `1.27.2.3` and added a test holding the two locks together, but `pyproject.toml` keeps a **floor**
