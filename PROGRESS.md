@@ -2255,7 +2255,13 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   arrangement the Poppler cross-engine redaction check has always had: a Qt negative control, an
   app-vs-bridge find-bar comparison, a pypdf second-engine cross-check, and the setuptools metadata
   build. The lock installing neither pypdf nor PySide6 is itself a second proof of the quarantine
-  `tests/test_mcp_no_qt.py` asserts from the inside. Design in `PLAN.md` §M115.1 — *WSL + CI*
+  `tests/test_mcp_no_qt.py` asserts from the inside. **Enforced 2026-08-24** — `bridge` is in the
+  **Protect Main** ruleset beside `pytest` and `emails`, which is a GitHub setting rather than a file
+  and so cannot be seen from a diff; `PLAN.md` §M115.1 carries the one-line command that checks it is
+  still there, the same way `RELEASE.md` §2 does for the two Dependabot toggles after those drifted
+  from their own policy for a month. The first PRs to hit the gate proved both halves the same day:
+  **38 s** on a branch touching `mcp_bridge/` and `model/`, **4 s** reporting without doing the work
+  on the docs-only branch stacked above it. Design in `PLAN.md` §M115.1 — *WSL + CI*
 
 - [ ] **M116** *(unplanned)* **Adding a highlight should append 2,680 bytes, not rewrite 8.8 MB** —
   M114's **second lever**, split out here because it was only ever written inside M114's own entry,
@@ -3240,7 +3246,15 @@ tree or history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI 
 
 ## Open follow-ups (carried)
 
-Carried items — none block work:
+Carried items — none block work.
+
+**Scope, since 2026-08-25:** this section holds what still needs a **decision** — deferred design
+questions, rejections and their reasons, trade-offs measured but not settled. A known defect in the
+released build or in the code on `main` that is unambiguous and readily reproducible goes to
+[**GitHub Issues**](https://github.com/utyagi24/klarpdf/issues) instead, where it can be closed by
+the PR that fixes it. See `CLAUDE.md` §How we work for the split and why. Items already carried here
+were not migrated wholesale: each is listed because a decision is outstanding, which is what keeps
+it on this side of the line.
 
 - **`pipx install .` still resolves PyMuPDF to the newest release rather than ours** — the gap M115
   left open on purpose. That milestone pinned the *lock* (`requirements-mcp.txt`) to the app's
