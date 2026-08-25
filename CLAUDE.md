@@ -119,6 +119,17 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   False for a file that opened without a password — so an owner-password-restricted document reads
   as "not encrypted" and silently saves that way. Ask `doc.metadata["encryption"]` (or
   `doc.permissions != -4`), never `is_encrypted`, when the question is "was this file protected".
+- **An incremental save is refused for exactly four reasons, and PyMuPDF's own default is one of
+  them.** M116 appends to the file a document was opened from instead of rewriting it. Measured on
+  1.27.2.3, `save(incremental=True)` raises for: any `garbage` level; a **stream-opened** document or
+  a save to a second path (`ValueError: incremental needs original file`); a **repaired** file
+  (`doc.is_repaired` — MuPDF will not chain onto offsets it had to guess); and *changing encryption*
+  — which includes **`encryption=PDF_ENCRYPT_NONE`, the default**, on a plain unprotected PDF, so
+  `PDF_ENCRYPT_KEEP` has to be passed explicitly for a file with no encryption at all. Two more
+  facts that shape the code: `Document.stream` hands back the **exact bytes** a stream-opened
+  document was opened from (the same object — keeping it costs nothing) where `tobytes()`
+  re-serialises, which is why `VirtualDocument.origin_bytes()` exists; and an incremental save with
+  nothing dirty writes **0 bytes**, so a save of an unedited document is now a byte-identical copy.
 - **A green Windows + WSL suite does not mean CI is green — and Qt failures are *segfaults*, not
   assertion failures.** M88.3 crashed the Ubuntu runner inside `QGraphicsView`'s constructor ~74%
   into the suite while both local platforms ran it green, because the fault was in Qt's C++ and

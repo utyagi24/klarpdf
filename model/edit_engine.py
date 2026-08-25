@@ -13,7 +13,10 @@ Two engines behind one interface:
 
 from __future__ import annotations
 
+import os
+import tempfile
 from abc import ABC, abstractmethod
+from pathlib import Path
 
 import pymupdf as fitz
 
@@ -86,6 +89,22 @@ CLEAN_REWRITTEN = True
 CLEAN_COPIED = False
 
 
+#: Object cleanup for the route that **appends** to the file it was given (M116). Not a choice:
+#: MuPDF refuses an incremental write with any collection at all (*"Can't do incremental writes
+#: with garbage collection"*, measured at levels 1 and 2), and it is the right answer anyway —
+#: collecting means renumbering, and an append that renumbered the objects it did not write would
+#: invalidate every offset in the revision below it.
+#:
+#: **This sits below the orphan floor** that :data:`GARBAGE_COPY` and
+#: ``tests/test_redaction_orphans.py`` exist to hold: level 1 is what deletes an image a redaction
+#: detached from its page, and at level 0 that picture is still in the file. The floor is not
+#: lowered — the append route is simply never taken by a save that redacts anything, which
+#: :meth:`~model.virtual_document.VirtualDocument.edits_are_additive` refuses on the separate and
+#: stronger ground that an append leaves the *whole* previous revision recoverable. Redaction is
+#: therefore excluded twice over, and the two exclusions are independent on purpose.
+GARBAGE_APPEND = 0
+
+
 def write_options(garbage: int, clean: bool) -> dict:
     """The ``Document.save`` keywords every PDF this project writes shares, at ``garbage`` level.
 
@@ -111,6 +130,30 @@ def write_options(garbage: int, clean: bool) -> dict:
     :meth:`PyMuPDFEngine.save_options`.
     """
     return {"garbage": garbage, "deflate": True, "clean": clean, "use_objstms": 1}
+
+
+def append_options() -> dict:
+    """The ``Document.save`` keywords for a write that **appends to the file it was given** (M116).
+
+    :func:`write_options` with the only cleanup level an incremental write allows
+    (:data:`GARBAGE_APPEND`), plus the two keywords that make it one.
+
+    ``encryption=PDF_ENCRYPT_KEEP`` is passed even for a document that carries no encryption, and
+    that is not belt-and-braces: PyMuPDF's default is ``PDF_ENCRYPT_NONE``, which MuPDF reads as a
+    *request to change* the encryption and refuses outright — *"Can't do incremental writes when
+    changing encryption"*, on a plain unprotected PDF. ``KEEP`` is how you say "leave it as it is",
+    which is also exactly the promise this route makes about everything else in the file.
+
+    ``clean`` stays :data:`CLEAN_COPIED` for the reason it is off on the copy route — this write
+    did not rewrite any page's content — and here there is a second one: measured, ``clean=True``
+    is *accepted* on an incremental write and makes it write 33% more, which is the entire point of
+    the route spent on sanitising streams nobody touched.
+    """
+    return {
+        **write_options(GARBAGE_APPEND, clean=CLEAN_COPIED),
+        "incremental": True,
+        "encryption": fitz.PDF_ENCRYPT_KEEP,
+    }
 
 
 def _apply_crop(page: "fitz.Page", rect: tuple) -> None:
@@ -255,6 +298,69 @@ class PyMuPDFEngine(EditEngine):
         keep = _keep_encryption(vdoc) if vdoc.page_set_unchanged() else {}
         return {**self.save_options(vdoc), **(_encryption_args(vdoc) or keep)}
 
+    def appends(self, vdoc: VirtualDocument) -> bool:
+        """Can this save be written by **appending** to the file the document was opened from?
+
+        The third route (M116), and the second fork on the axis §M110 opened: the first asks who
+        copied the objects, this one asks whether anything in the file needs to change at all.
+
+        Three conditions, each refusing for its own reason:
+
+        * :meth:`~model.virtual_document.VirtualDocument.edits_are_additive` — the model's half.
+          Every edit adds a mark and nothing was removed, moved, rotated, cropped, filled or
+          rewritten. This is the whitelist, and it is where a redaction is refused.
+        * :meth:`~model.virtual_document.VirtualDocument.origin_bytes` — there has to be a file to
+          append *to*, and the in-memory source has to be a view of it. ``None`` for a document
+          that needed a password (stored decrypted) and for a subset view.
+        * :meth:`~model.virtual_document.VirtualDocument.origin_needed_repair` — MuPDF will not
+          append to a file whose cross-reference table it had to rebuild.
+
+        Plus the encryption question, asked as *"would this save write different encryption?"*
+        rather than as a fact about the document: ``_encryption_args`` is non-empty exactly when
+        the save must (re-)encrypt from a password the model holds, and MuPDF refuses an
+        incremental write that changes encryption. An owner-password document is unaffected — it
+        keeps the encryption its own bytes carry, which is what :func:`_keep_encryption` already
+        asks a plain save to do and what ``PDF_ENCRYPT_KEEP`` does here.
+
+        **Nothing falls back.** Every one of these is decidable before the write, and the four ways
+        MuPDF can refuse an incremental save — collection, an encryption change, a stream-opened
+        document, a repaired file — are each closed above or by construction in
+        :meth:`_append_to_origin`. A fallback would turn a defect in this predicate into a silent
+        return to the full rewrite: correct output, no error, and nothing but a byte count to
+        notice it by. The measurement that stands in for it is the corpus, run through this same
+        method rather than a copy of it.
+        """
+        return (
+            vdoc.edits_are_additive()
+            and vdoc.origin_bytes() is not None
+            and not vdoc.origin_needed_repair()
+            and not _encryption_args(vdoc)
+        )
+
+    def save_size(self, vdoc: VirtualDocument, built: "fitz.Document") -> int:
+        """How many bytes a plain Save of ``vdoc`` would write — measured by writing one (M116).
+
+        ``built`` is the caller's already-materialised output (:meth:`render_output`), used on the
+        full-rewrite routes so the document is not assembled twice; the append route ignores it and
+        writes a throwaway probe, because what a Save writes there is the origin's own file with a
+        revision on the end and no output document exists to measure.
+
+        Public and asked *this* way for M111's reason. ``export_reduced_pdf`` reports a "before"
+        size it calls **what a plain Save would write**, and a promise like that has to be measured
+        with the real thing: it was once computed from a second copy of the save keywords, which
+        drifted, and it overstated the saving by 143,143 B on a 7 MB prospectus. M116 moved the
+        thing being described again — a Save that only adds a mark now writes the file it was given
+        plus a couple of kilobytes — and the number followed rather than quietly meaning something
+        else. ``tests/test_reduce.py`` compares it against a real ``materialize``, which is what
+        caught it.
+        """
+        if self.appends(vdoc):
+            with tempfile.TemporaryDirectory() as probe_dir:
+                probe = os.path.join(probe_dir, "save.pdf")
+                self._append_to_origin(vdoc, probe)
+                return os.path.getsize(probe)
+        return len(built.tobytes(**self.save_keywords(vdoc)))
+
     def materialize(self, vdoc: VirtualDocument, out_path: str) -> None:
         """Write ``vdoc``'s current state to ``out_path``.
 
@@ -265,10 +371,48 @@ class PyMuPDFEngine(EditEngine):
         The write keywords come from :meth:`save_keywords` — see :func:`write_options` for what
         they are and :data:`GARBAGE_COPY` / :data:`GARBAGE_GRAFT` for why the cleanup level is
         a property of the route rather than of the file.
+
+        A save that only *adds* marks skips all of that and appends instead — see :meth:`appends`.
         """
+        if self.appends(vdoc):
+            self._append_to_origin(vdoc, out_path)
+            return
         out = self._build_output(vdoc)
         try:
             out.save(out_path, **self.save_keywords(vdoc))
+        finally:
+            out.close()
+
+    def _append_to_origin(self, vdoc: VirtualDocument, out_path: str) -> None:
+        """Seed ``out_path`` with the origin's own bytes, apply the edits, append what changed.
+
+        **Why the seed rather than an in-place write.** MuPDF appends only to the file a document
+        was opened *from* (``ValueError: incremental needs original file`` for anything opened from
+        a stream, or saved to a second path), and this project never writes to the file it opened:
+        both surfaces materialise into a fresh temp beside the target and rename it in —
+        ``MainWindow._write_to`` and ``mcp_bridge/transforms._write``, deliberately the same shape
+        (M38.5), with the bridge additionally refusing to write over its input at all. Writing the
+        origin's bytes into that temp first satisfies MuPDF without disturbing any of it: the
+        rename is still atomic, the bridge still never touches its input, and ``Save``'s in-place
+        semantics are unchanged. Measured on a 9 MB document, the seed costs 18 ms of the save's
+        100.
+
+        The output is therefore the source file with a new revision on the end: every byte of the
+        original is still where it was, every page that was not marked is byte-identical **by
+        construction** rather than by inspection, and only the pages that gained a mark appear in
+        the appended section. This is the ordinary PDF incremental update — what Edge writes for
+        the same edit, and what :meth:`appends` exists to be sure is honest.
+
+        ``_apply_page_edits`` is the same pass both other routes run, unchanged: the predicate has
+        already refused everything in it that would do more than add an annotation, and it is
+        measurably scoped — a page with no mark of ours is never touched, so a document opened and
+        saved with no edits at all appends **0 bytes** and comes back byte-identical.
+        """
+        Path(out_path).write_bytes(vdoc.origin_bytes())
+        out = fitz.open(out_path)
+        try:
+            self._apply_page_edits(out, vdoc)
+            out.save(out_path, **append_options())
         finally:
             out.close()
 
