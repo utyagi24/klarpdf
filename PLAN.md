@@ -4657,6 +4657,27 @@ Measured: **459 passed, 4 skipped** under `requirements-mcp.txt`, and the full s
 under the dev lock. The lock installs PyMuPDF 1.27.2.3 and carries neither pypdf nor PySide6, which
 is itself a second proof of the quarantine `tests/test_mcp_no_qt.py` asserts from the inside.
 
+**The job is only a gate while the ruleset says so, and that half lives outside the repository.**
+Adding `bridge` to **Protect Main** is a GitHub setting, not a file — so nothing in a diff, a review
+or a test run can tell you it is still there. Un-tick it and every PR goes green exactly as before,
+which is the failure this milestone exists to prevent, wearing a different hat: a check that reports
+without blocking is one people learn to scroll past. This project has already been bitten by a
+setting drifting away from the paragraph describing it — `RELEASE.md` §2 carries a verification
+command for the two Dependabot toggles for that reason, after they disagreed with their own policy
+for a month. Same treatment here:
+
+```sh
+gh api repos/utyagi24/klarpdf/rulesets --jq '.[] | select(.name=="Protect Main") | .id' |
+  xargs -I{} gh api repos/utyagi24/klarpdf/rulesets/{} \
+    --jq '[.rules[] | select(.type=="required_status_checks")
+           | .parameters.required_status_checks[].context] | join(", ")'
+# -> pytest, emails, bridge
+```
+
+Confirmed enforced **2026-08-24**. The first PR to exercise the gate proved both halves on the same
+day: `bridge` ran in **38 s** on the code branch that touches `mcp_bridge/` and `model/`, and
+reported in **4 s** without doing the work on the docs-only branch stacked above it.
+
 **One gap is left open deliberately.** `pyproject.toml` keeps a *floor*, raised to 1.27.2.3, because
 an exact pin in package metadata conflicts with whatever a user co-installs. So the `pipx install .`
 path the README documents still resolves to the newest PyMuPDF rather than ours. Carried in
