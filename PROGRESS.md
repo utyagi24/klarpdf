@@ -2300,7 +2300,8 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   plain Save would write", so `save_size` now answers by doing the save it describes. **No bridge
   tool takes this route yet** — every one of them rotates, fills, redacts, flattens or moves pages;
   `annotate` inherits it through the same `_write` when M101 merges, and `tests/test_mcp_transforms.py`
-  pins that M116 changed what none of the others writes. Design in `PLAN.md` §M116 — *WSL + Windows*
+  pins that M116 changed what none of the others writes. Design in `PLAN.md` §M116 —
+  [#287](https://github.com/utyagi24/klarpdf/pull/287) — *WSL; Windows spot-check outstanding*
 
 - [x] **M115** *(unplanned)* **The app and the bridge were writing PDFs with different engines** —
   found while preparing M114, which is entirely about what the engine writes. The shipped app pins
