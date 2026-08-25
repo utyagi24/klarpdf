@@ -150,6 +150,18 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   document was opened from (the same object — keeping it costs nothing) where `tobytes()`
   re-serialises, which is why `VirtualDocument.origin_bytes()` exists; and an incremental save with
   nothing dirty writes **0 bytes**, so a save of an unedited document is now a byte-identical copy.
+- **PyMuPDF grows a `Square`/`Circle` annotation's `/Rect` by exactly 1.0 pt per side, whatever the
+  border width** — not by `width / 2`, which is what a round trip that has to undo the growth would
+  reasonably assume, and what `parse_annotation` does assume. Measured on 1.27.2.3 across widths
+  0.5–6.0, `add_rect_annot` and `add_circle_annot` alike. The two agree at exactly **2.0**, which is
+  `Shape.width`'s default and the reason this went unseen: at any other width a shape changes size
+  on every save→reopen→save — 2 pt a side per save at 6 pt wide — and it is silent
+  ([#292](https://github.com/utyagi24/klarpdf/issues/292), found by M117's per-kind comparison of a
+  left-in-place mark against a redrawn one). The lesson generalises past shapes: **when a read-back
+  has to undo something the writer did, measure what the writer actually did** rather than deriving
+  it — and test the round trip at more than the default, since the default is the value most likely
+  to be the one that happens to work. `FreeText` does track `border_width / 2`, so the two paths in
+  the same module disagree.
 - **A green Windows + WSL suite does not mean CI is green — and Qt failures are *segfaults*, not
   assertion failures.** M88.3 crashed the Ubuntu runner inside `QGraphicsView`'s constructor ~74%
   into the suite while both local platforms ran it green, because the fault was in Qt's C++ and
