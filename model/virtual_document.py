@@ -201,6 +201,15 @@ class VirtualDocument:
         # straight-from-source render for clean documents and switch to the edits-applied copy
         # (our marks stripped, redrawn editable) only for documents that actually have our marks.
         self._source_has_ours: dict[str, bool] = {}
+        # The exact bytes each PDF source's file held on disk when it was opened (M116), and the
+        # KlarPDF marks each of its pages arrived carrying. Both are what an **appending** save
+        # needs and neither can be recovered later: `tobytes()` re-serialises rather than handing
+        # back the original, and the marks in `ordered` are the *edited* set by the time a save
+        # asks. The bytes cost nothing to keep — `fitz.open(stream=…)` holds a reference to the
+        # same object, so this dict adds a pointer, not a copy. See :meth:`origin_bytes` and
+        # :meth:`edits_are_additive`.
+        self._source_bytes: dict[str, bytes] = {}
+        self._source_marks: dict[str, tuple[tuple, ...]] = {}
         # How to obtain a password for an encrypted source (set by from_path). Stored so a later
         # reload_from_file (Revert of an encrypted original) can re-prompt the same way. GUI-free:
         # callers inject a callable (the GUI's password dialog; a lambda in tests). None = no prompt.
@@ -262,6 +271,10 @@ class VirtualDocument:
             refs.append(PageRef(source_id, i, annotations=annotations))
         # Captured from the same read-back scan, so no second pass over the source pages.
         self._source_has_ours[source_id] = had_ours
+        # …and so is the per-page baseline an appending save compares against (M116): what these
+        # pages *arrived* carrying, which is the only way to tell "a mark was added" from "a mark
+        # was edited or removed" once `ordered` has been through an editing session.
+        self._source_marks[source_id] = tuple(ref.annotations for ref in refs)
         return refs
 
     def source_has_klarpdf_annotations(self, source_id: str) -> bool:
@@ -299,7 +312,15 @@ class VirtualDocument:
         """
         source_id = normalize_path(path)
         if source_id not in self.sources:
-            doc = fitz.open(stream=Path(path).read_bytes(), filetype="pdf")
+            data = Path(path).read_bytes()
+            # Kept, not re-read at save time (M116): an appending save writes these bytes out as
+            # its starting point, and they have to be the ones this source was *opened* from. The
+            # file on disk can have moved on since — an external editor, a sync client — and
+            # appending our edits to a document nobody has looked at is how a save quietly ships
+            # somebody else's pages. `fitz.open(stream=…)` holds this same object, so keeping it
+            # costs nothing.
+            self._source_bytes[source_id] = data
+            doc = fitz.open(stream=data, filetype="pdf")
             if doc.needs_pass:
                 doc, password, encryption, restrictions = _authenticate_and_decrypt(
                     doc, path, password_provider
@@ -394,6 +415,95 @@ class VirtualDocument:
             return False
         return all(ref.source_id == origin and ref.source_page_index == i
                    for i, ref in enumerate(self.ordered))
+
+    def edits_are_additive(self) -> bool:
+        """Is every edit here the **addition** of a mark to a page the document already had?
+
+        The finer question :meth:`page_set_unchanged` is too coarse to answer, and the one an
+        *appending* save turns on (M116). A PDF can be updated by leaving the file alone and
+        writing the changed objects onto the end of it, which is what Microsoft Edge does for one
+        highlight on a 572-page prospectus: **2,680 bytes appended, the first 9,015,879 untouched**.
+        The format offers that for exactly this case — something added, nothing disturbed — and the
+        job of this method is to be sure that is what happened.
+
+        **True demands all of the following**, and anything unrecognised answers False:
+
+        * the page set is unchanged (:meth:`page_set_unchanged`) — a reorder, a deletion or a page
+          from a second document has to rebuild the document, and there is nothing to append *to*;
+        * every mark on every page is an additive kind
+          (:data:`~model.page_edits.ADDITIVE_MARK_TYPES` — a whitelist, so tomorrow's descriptor is
+          refused until somebody classifies it);
+        * every mark the pages **arrived** carrying is still there. Appending cannot take something
+          away: the previous revision stays in the file, so a removed mark is still recoverable from
+          it and a save that removed one would have lied. Editing a mark is removing one, by the
+          same argument — the old wording of a text box would still be in there;
+        * no page is rotated or cropped, no form field is filled, the metadata stores are untouched,
+          and the user has not staged an encryption change. Each of those rewrites something the
+          file already had rather than adding to it.
+
+        Note what this is *not* asked about: whether the origin's pages already carry KlarPDF marks.
+        They may — a document annotated last week, opened again, and given one more highlight is
+        still purely additive, and refusing that case would send the commonest markup session
+        straight back to the full rewrite.
+
+        A :meth:`subset` view answers False by construction: it shares the sources but not the
+        per-page baseline, so there is nothing to prove the claim against. That is the right answer
+        anyway — an extract is a new document.
+        """
+        from collections import Counter
+
+        from model.page_edits import is_additive_mark
+
+        if not self.page_set_unchanged():
+            return False
+        if self._metadata_override is not None or self._form_values or self._encryption_staged:
+            return False
+        arrived_with = self._source_marks.get(self.origin_source_id)
+        if arrived_with is None or len(arrived_with) != len(self.ordered):
+            return False
+        for ref, arrived in zip(self.ordered, arrived_with):
+            if ref.rotation_override is not None or ref.crop_override is not None:
+                return False
+            if not all(is_additive_mark(mark) for mark in ref.annotations):
+                return False
+            if not Counter(arrived) <= Counter(ref.annotations):
+                return False
+        return True
+
+    def origin_bytes(self) -> "bytes | None":
+        """The origin's file exactly as it was read from disk — the seed an appending save writes
+        out before appending to it (M116). ``None`` when there is no such thing to hand back.
+
+        The bytes are the ones captured in :meth:`open_source`, not a re-read: the file may have
+        moved on since (an external editor, a sync client), and appending this session's edits to
+        pages nobody has seen is how a save quietly ships somebody else's document.
+
+        ``None`` for a document that needed a **password** to open, and that is the load-bearing
+        case rather than a formality. Such a source is stored *decrypted* (M32), so the file's
+        bytes and the model's source are two different documents; and a save re-encrypts from the
+        decrypted copy (M54), which an append cannot do — MuPDF refuses an incremental write that
+        changes encryption at all. Both facts point the same way, so the honest contract for this
+        method is "the file the origin source is a view of", which for that document does not
+        exist. An owner-password document is the opposite case and works: it opens without a
+        password, is never decrypted, and its encryption rides through untouched.
+        """
+        origin = self.origin_source_id
+        if origin is None or origin in self._source_passwords:
+            return None
+        return self._source_bytes.get(origin)
+
+    def origin_needed_repair(self) -> bool:
+        """Did MuPDF have to rebuild the origin's cross-reference table to open it?
+
+        A file that arrived damaged cannot be appended to — measured, MuPDF refuses outright
+        (*"Can't do incremental writes on a repaired file"*), and rightly: the offsets an
+        incremental update chains onto are the ones it just had to guess. Such a document takes the
+        full rewrite, which is also what fixes it.
+        """
+        origin = self.origin_source_id
+        if origin is None or origin not in self.sources:
+            return False
+        return bool(self.sources[origin].is_repaired)
 
     def origin_carries_encryption(self) -> bool:
         """Is the origin source still an encrypted document in memory?
@@ -825,6 +935,11 @@ class VirtualDocument:
         self._source_passwords = {}
         self._source_encryption = {}
         self._source_restrictions = {}
+        # …and the saved file is the new baseline for an appending save (M116): its bytes are what
+        # a further edit would append to, and the marks it carries are what those pages now
+        # "arrived" with. Re-seeded by open_source / _seed_ordered below.
+        self._source_bytes = {}
+        self._source_marks = {}
 
         def known_then_prompt(path_, retry):
             # A carry-through save (M54) wrote the file with the password we hold, so try it
@@ -885,3 +1000,12 @@ class VirtualDocument:
         for doc in self.sources.values():
             doc.close()
         self.sources.clear()
+        # The captured source bytes are a *reference* to what each ``fitz.open(stream=…)`` already
+        # held (M116), so they cost nothing while a document is open and everything after it is
+        # closed: without this, closing a 75 MB PDF would free the MuPDF side and leave 75 MB of
+        # Python bytes alive for as long as anything still points at this object — and a
+        # ``MainWindow`` reference cycle outliving its window is a thing this project has measured
+        # (M89). The per-page marks go with them; both are re-seeded by ``open_source`` /
+        # ``_seed_ordered`` if this document is ever reloaded.
+        self._source_bytes.clear()
+        self._source_marks.clear()

@@ -2263,27 +2263,45 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   **38 s** on a branch touching `mcp_bridge/` and `model/`, **4 s** reporting without doing the work
   on the docs-only branch stacked above it. Design in `PLAN.md` §M115.1 — *WSL + CI*
 
-- [ ] **M116** *(unplanned)* **Adding a highlight should append 2,680 bytes, not rewrite 8.8 MB** —
-  M114's **second lever**, split out here because it was only ever written inside M114's own entry,
-  and a ticked milestone's prose is not a backlog (caught by the owner, 2026-08-24). M114 fixed the
-  *content streams* — a one-mark save now leaves all 572 byte-identical and runs in 0.66 s — but it
-  still writes a complete **8.8 MB** file. Microsoft Edge, given the byte-identical edit, appends
-  **2,680 B** and leaves the first 9,015,879 bytes untouched, because it writes a standard PDF
-  **incremental update**. That remaining distance is this milestone. **Already proven end to end**
-  (M114 session): seeding the temp file by *copying* the origin instead of creating it empty, then
-  appending and renaming as today, gives **+1,189 B with the source prefix byte-identical, 0.37 s →
-  0.03 s**, copy cost 2 ms — and because both surfaces funnel through `materialize`, it lands in one
-  place. **The work is the predicate**, which must be a **whitelist**: incremental only for provably
-  additive edits, unknown annotation kinds denied, because too permissive appends over a redaction
-  and leaves the original bytes in the file. Redaction is excluded twice over — by that leak *and*
-  by `garbage=0` sitting below the orphan floor `tests/test_redaction_orphans.py` pins. Most of the
-  predicate already exists (`has_redactions()`, `has_content_marks()`, plus one-line reads of
-  `rotation_override` / `crop_override` / `form_values` / `_metadata_override` / `_encryption_staged`).
-  **What is genuinely open is encryption, not paths**: `fresh_source` round-trips through
-  `tobytes(PDF_ENCRYPT_KEEP)` for M54, so seeding from the origin *file* must re-supply the recorded
-  password, and incremental requires `encryption=PDF_ENCRYPT_KEEP` passed explicitly — so a save that
-  *changes* encryption can never take this branch. Design in `PLAN.md` §M114 (the "two levers"
-  analysis and the obstacles), not duplicated here — *WSL + Windows*
+- [x] **M116** *(unplanned)* **Adding a highlight appends 1,865 bytes instead of rewriting 8.8 MB** —
+  M114's **second lever**, split out as a milestone of its own because it was only ever written
+  inside M114's ticked entry, and a completed milestone's prose is not a backlog (caught by the
+  owner, 2026-08-24). M114 fixed the *content streams* — a one-mark save left all 572
+  byte-identical in 0.66 s — and still wrote a complete **8.8 MB** file. Now the same edit **appends
+  1,865 B in 0.10 s and leaves all 9,015,879 source bytes byte-identical**, beating the 2,680 B
+  Microsoft Edge writes for the identical mark. The 0/572 also stops being a measurement and becomes
+  a fact: pages 1–336 and 338–572 are not written at all. **The write mode is the second fork on the
+  axis M110 opened** — that one asks who copied the objects, this asks whether anything in the file
+  needs to change at all. **The obstacle M114 named dissolved as it predicted**: MuPDF appends only
+  to the file a document was opened *from*, and neither surface ever writes to the file it opened, so
+  the temp both of them already materialise into is **seeded with the origin's bytes** and appended
+  to — atomic rename untouched, the bridge's no-overwrite rule untouched, 18 ms for the seed on a
+  9 MB document. The seed is the bytes captured at **open**, not a re-read at save time: the file on
+  disk can have moved on, and appending this session's marks to pages nobody has looked at is how a
+  save quietly ships somebody else's document. **The whole risk is the predicate, and it is a
+  whitelist** — the seven mark kinds `apply_annotations` draws, everything else refused, unknown
+  kinds refused by default. Its non-obvious half is *nothing may be taken away*: an append leaves the
+  previous revision in the file, so a **removed** mark is still in there, and editing one is removing
+  one. That also refuses, without knowing anything about it, the merge the bridge's `annotate` (M101)
+  performs. Redaction is excluded twice over — by that leak, and by `garbage=0` sitting below the
+  orphan floor `tests/test_redaction_orphans.py` pins. **Nothing falls back**, because MuPDF's
+  refusals are a closed set of four (collection, an encryption change, a stream-opened document, a
+  repaired file) and each is closed by the predicate or by construction; a fallback would turn a
+  defect in it into silence. Standing in its place: **82 corpus documents through the real
+  `materialize`** — 82/82 appended without raising, 82/82 with the whole source file byte-identical
+  at the front, **0** content streams changed corpus-wide, 82/82 with catalog, encryption and
+  permissions unchanged, 82/82 identical under Poppler, 82/82 parsed by pypdf, in 0.66 s against
+  2.42 s rewritten. **The cost, plainly:** the append adds 296,011 B across those 82 where the
+  rewrite removes 3,874,410 B — today's save shrinks a file because it re-serialises more tightly
+  than the tool that wrote it, and the append leaves it exactly as it found it. That is M110's *"a
+  save hands back what it was given"* in its strongest form; Reduced-Size PDF is still where a
+  smaller file is asked for. **A save with no edits is now a copy** (+0 B, byte-identical). **One
+  number had to follow and a test caught it**: M111's Reduced-Size baseline calls itself "what a
+  plain Save would write", so `save_size` now answers by doing the save it describes. **No bridge
+  tool takes this route yet** — every one of them rotates, fills, redacts, flattens or moves pages;
+  `annotate` inherits it through the same `_write` when M101 merges, and `tests/test_mcp_transforms.py`
+  pins that M116 changed what none of the others writes. Design in `PLAN.md` §M116 —
+  [#287](https://github.com/utyagi24/klarpdf/pull/287) — *WSL; Windows spot-check outstanding*
 
 - [x] **M115** *(unplanned)* **The app and the bridge were writing PDFs with different engines** —
   found while preparing M114, which is entirely about what the engine writes. The shipped app pins
@@ -3170,6 +3188,23 @@ it on this side of the line.
   surfaces to diverge in a user's hands. The options if it is ever worth closing: a compatible-release
   ceiling (`>=1.27.2.3,<1.28`), or telling README readers to install from the lock. Not decided —
   recorded so the argument starts from here. See `PLAN.md` §M115.
+
+- **An append re-writes every mark the file already carried, not just the new one** — found while
+  building M116, 2026-08-24, and measured on the corpus rather than guessed. `_apply_page_edits`
+  strips *all* KlarPDF annotations from the output page and re-adds them from the model (M31's round
+  trip: the model is the single source of truth), which on the append route means every existing
+  mark is written into the new revision beside the one that was actually added. Measured on
+  `Policy_home_document_08_16_2026_wildfire_highlighted.pdf`: **+23,189 B** for one new highlight
+  with 20 of our marks already in the file, against **+1,496 B** for the same document with none —
+  and the corpus's four largest appends are exactly its four most-marked documents. Correct, and
+  still an order of magnitude cheaper than the rewrite it replaced (0.02 s against 0.3 s there), but
+  not minimal: Edge would write only the new mark. **The fix is to skip the strip-and-re-add for a
+  page whose marks are unchanged**, which the append route can already prove — `edits_are_additive`
+  compares against exactly that baseline (`_source_marks`). It is deferred because
+  `_apply_page_edits` is shared with the graft and with `render_output` (print, thumbnails), where
+  the same skip would leave the *baked* annotation rather than the model's re-drawn one, and those
+  are only equivalent if the M31 parse round-trips losslessly — which is its own verification, not a
+  line in this milestone. Not scheduled. `model/edit_engine.py`, `PLAN.md` §M116. — *WSL*
 
 - **The two exports still pay M110's quadratic cleanup, so an object-heavy document takes minutes**
   — measured 2026-08-22 on `dhariwal_ipo.pdf` (572 pp, **48,877 objects**) after M110/M111, when the

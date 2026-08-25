@@ -213,10 +213,8 @@ def test_a_save_that_rewrites_page_content_still_cleans_up_after_itself(tagged_p
     assert PyMuPDFEngine().save_options(v)["clean"] is CLEAN_REWRITTEN
 
 
-def test_a_save_writes_with_the_level_it_reports(tagged_pdf, tmp_path):
-    """``save_options`` is what ``materialize`` writes with, not a second opinion about it — the
-    Reduced-Size baseline reports it as "what a plain Save would write" (M111)."""
-    out_path = str(tmp_path / "out.pdf")
+def _spy_on_the_save(engine, vdoc, out_path):
+    """``materialize`` ``vdoc`` to ``out_path``, returning the keywords it handed ``Document.save``."""
     calls = []
     real_save = fitz.Document.save
 
@@ -225,19 +223,36 @@ def test_a_save_writes_with_the_level_it_reports(tagged_pdf, tmp_path):
             calls.append(kwargs)
         return real_save(self, path, **kwargs)
 
-    engine = PyMuPDFEngine()
-    v = VirtualDocument.from_path(tagged_pdf)
-    reported = engine.save_options(v)
     fitz.Document.save = spy
     try:
-        engine.materialize(v, out_path)
+        engine.materialize(vdoc, out_path)
     finally:
         fitz.Document.save = real_save
-
     assert len(calls) == 1
-    assert calls[0]["garbage"] == GARBAGE_COPY  # nothing structural happened to this document
-    assert calls[0]["use_objstms"] == 1
-    assert calls[0]["clean"] is reported["clean"]  # writes what it reports, whichever way it decided
+    return calls[0]
+
+
+def test_a_save_writes_with_the_level_it_reports(tagged_pdf, tmp_path):
+    """``save_options`` is what ``materialize`` writes with, not a second opinion about it — the
+    Reduced-Size baseline reports it as "what a plain Save would write" (M111).
+
+    Scoped to a save that **rewrites the document**, which is what ``save_options`` describes. A
+    save with nothing but added marks appends instead and has its own keywords (M116) — the test
+    below. The rotation is the cheapest edit that is not additive, so this one still takes the
+    copy route it was written for.
+    """
+    out_path = str(tmp_path / "out.pdf")
+    engine = PyMuPDFEngine()
+    v = VirtualDocument.from_path(tagged_pdf)
+    v.set_rotation(0, 90)
+    assert not engine.appends(v)
+    reported = engine.save_options(v)
+
+    written = _spy_on_the_save(engine, v, out_path)
+
+    assert written["garbage"] == GARBAGE_COPY  # nothing structural happened to this document
+    assert written["use_objstms"] == 1
+    assert written["clean"] is reported["clean"]  # writes what it reports, whichever way it decided
 
 
 def test_a_save_does_not_grow_the_file_it_was_given(photo_pdf, tmp_path):

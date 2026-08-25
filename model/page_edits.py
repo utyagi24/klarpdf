@@ -389,6 +389,44 @@ class Redaction:
     fill: tuple[float, float, float] = (0.0, 0.0, 0.0)
 
 
+#: The mark kinds a save can write by **appending** to the file it was given (M116) — the
+#: whitelist the incremental route is gated on, and exactly the set :func:`apply_annotations`
+#: draws. Each one adds a PDF annotation object to a page and touches nothing else: no page
+#: content is rewritten, nothing already in the file is removed, and the document's own furniture
+#: is not read, let alone changed.
+#:
+#: **A whitelist, not a blacklist, and the asymmetry is the reason.** A kind wrongly left out costs
+#: a full rewrite, which is what every save did before M116. A kind wrongly let in appends over
+#: something that was supposed to be *destroyed* — a redaction, whose original bytes then stay in
+#: the file's previous revision, recoverable by anything that reads a PDF properly. So the next
+#: descriptor added to this module is non-additive on the day it lands rather than on the day
+#: somebody remembers this paragraph, and `tests/test_incremental_save.py` fails until its
+#: classification is written down either way.
+#:
+#: What is deliberately **not** here, and why:
+#:
+#: * :class:`Redaction` — destructive; see above. Excluded twice over, since the append also runs
+#:   below the ``garbage=1`` orphan floor `tests/test_redaction_orphans.py` pins.
+#: * ``Stamp`` / ``ImageStamp`` (:mod:`model.content_marks`) — they bake into the page's *content
+#:   stream*, which is a rewrite of the page rather than an addition to it.
+#: * ``ForeignDeletion`` / ``ForeignMove`` (:mod:`model.foreign_annots`) — both act on an
+#:   annotation the file already carries: one removes it, the other moves it. Neither is additive,
+#:   and the deletion leaks the same way a redaction does.
+#: * ``NewField`` (:mod:`model.form_fields`) — adds a widget *and* enrols it in the document's
+#:   AcroForm field tree. Appendable in principle; left out because "only annotations" is a claim
+#:   this milestone can prove, and the form paths were not measured.
+ADDITIVE_MARK_TYPES = (Highlight, Underline, Strikeout, InkStroke, Line, Shape, TextBox)
+
+
+def is_additive_mark(mark) -> bool:
+    """Is ``mark`` one of the kinds a save can write by appending? See :data:`ADDITIVE_MARK_TYPES`.
+
+    Unknown kinds answer **False** — that is the whole point of asking here rather than testing
+    for the destructive ones at the call site.
+    """
+    return isinstance(mark, ADDITIVE_MARK_TYPES)
+
+
 # The descriptors the object clipboard / move tools operate on (M58 move, M59 copy/paste):
 # free-placed geometry that stays meaningful anywhere on any page. The text-anchored marks
 # (highlight / underline / strikeout) and redactions are deliberately excluded — they belong to
