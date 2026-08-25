@@ -108,13 +108,15 @@ def export_reduced_pdf(
     plain Save of the current document would write (so the delta is the lossy tier's true effect,
     not the lossless cleanup a Save gives anyway), ``after`` is the written file's size.
 
-    **``before`` is measured with the Save's own keywords** (M111), not with a second copy of them.
-    It was computed without ``use_objstms`` while a real Save had used it since M93, so it
+    **``before`` is measured by the Save itself** (M111, M116), not by a second copy of its
+    options. It was computed without ``use_objstms`` while a real Save had used it since M93, so it
     overstated the starting size — by 143,143 B on a 7 MB prospectus — and therefore overstated how
     much this feature had saved. A number whose entire job is to be the honest baseline has to be
     measured with the thing it is a baseline for, which is why
-    :meth:`PyMuPDFEngine.save_keywords` is public: it carries the encryption a Save writes as well
-    as the cleanup options, and both move the size.
+    :meth:`PyMuPDFEngine.save_size` is public. It has now moved twice: since M116 a Save that only
+    added marks *appends* to the file it was given, so "what a plain Save would write" is that file
+    plus a few kilobytes rather than a full re-serialisation of it — which is also the more useful
+    baseline, being the size the user can see in their file manager.
 
     **The write itself uses the deduplicating level whichever route the document took.** A Save
     leaves a copy of the origin as packed as it arrived (M110), but this is the one operation where
@@ -126,7 +128,7 @@ def export_reduced_pdf(
     engine = PyMuPDFEngine()
     out = engine.render_output(vdoc)
     try:
-        before = len(out.tobytes(**engine.save_keywords(vdoc)))
+        before = engine.save_size(vdoc, out)
         # threshold must sit strictly above target (a rewrite_images rule); +1 keeps the promise
         # "images *above* the target resolution are downsampled" exact — a page image already at
         # the target is left alone, everything above it comes down to the target.

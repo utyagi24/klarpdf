@@ -4733,11 +4733,11 @@ happens with `clean` and without, so it is not this milestone's doing, and it is
 Adobe's withdrawn AES-256 revision and R6 is the ISO 32000-2 one. Same 256-bit AES, standard
 revision.
 
-**The second lever is now §M116**, an unchecked milestone of its own. It was written up here and
-nowhere else, which made it invisible the moment M114 was ticked — a completed milestone's prose is
-not a backlog. The analysis stays here (it is M114's, and belongs with the measurements that
-produced it); `PROGRESS.md` §M116 carries the tracked item and points back to this section rather
-than restating it.
+**The second lever became §M116, and shipped.** It was written up here and nowhere else, which made
+it invisible the moment M114 was ticked — a completed milestone's prose is not a backlog. The
+analysis below stays here, because it is M114's and belongs with the measurements that produced it;
+what was built from it, and what it cost, is **§M116**. The predictions in this section held: the
+copy-seeded temp, the whitelist, and encryption as the only genuinely open question.
 
 **Two levers — and the second subsumes the first on its own branch.** Dropping `clean` takes content
 streams from 572/572 to 0/572 and the call from 1.85 s to 0.70 s, but still writes a complete 8.8 MB
@@ -4952,6 +4952,158 @@ reported in **4 s** without doing the work on the docs-only branch stacked above
 an exact pin in package metadata conflicts with whatever a user co-installs. So the `pipx install .`
 path the README documents still resolves to the newest PyMuPDF rather than ours. Carried in
 `PROGRESS.md` §Open follow-ups rather than decided here.
+
+### M116 — adding a highlight appends 1,865 bytes instead of rewriting 8.8 MB (2026-08-24)
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M116** A save that only *adds* marks appends to the file it was given instead of rewriting it — §M114's second lever | `PyMuPDFEngine.appends` / `_append_to_origin` / `append_options` in `model/edit_engine.py`; `VirtualDocument.edits_are_additive` / `origin_bytes` / `origin_needed_repair`; the `ADDITIVE_MARK_TYPES` whitelist in `model/page_edits.py`; `save_size` for the Reduced-Size baseline | WSL + Windows | One highlight on page 337 of the 572-page prospectus appends **1,865 B** and leaves all 9,015,879 source bytes byte-identical; the predicate refuses every non-additive edit kind and `tests/test_redaction_orphans.py` still passes; no bridge transform's output changes |
+
+**§M114 fixed what the save re-serialised; this is what it still rewrote.** After M114 a one-mark
+save left all 572 content streams byte-identical and took 0.66 s — and still wrote a complete 8.8 MB
+file. Edge, given the *identical* edit, appends 2,680 bytes and leaves the first 9,015,879 untouched,
+because it writes a standard PDF **incremental update**. That remaining distance is this milestone,
+and it closes with room to spare.
+
+| | source | today (M114) | **M116** | Edge |
+| --- | --- | --- | --- | --- |
+| bytes written | 9,015,879 | 8,834,416 (−181,463) | **9,017,744 (+1,865)** | 9,018,559 (+2,680) |
+| source bytes preserved | — | diverges after 8 B | **all 9,015,879** | all 9,015,879 |
+| content streams changed | — | 0 / 572 | **0 / 572, by construction** | 0 / 572 |
+| time | — | 0.71 s | **0.10 s** | — |
+
+"By construction" is the difference that matters. M114's 0/572 was a *measurement* — the streams were
+re-serialised identically. Here pages 1–336 and 338–572 are not written at all: they are the same
+bytes in the same file, and a second engine extracting text from them cannot see a difference
+because there is none to see.
+
+#### The route
+
+It is the **second fork on the axis §M110 opened**, not a new mechanism beside it. §M110's route
+question is *who copied the objects*; this one is *whether anything in the file needs to change at
+all*.
+
+| what the edit set contains | route | write |
+| --- | --- | --- |
+| the page set changed | graft | `GARBAGE_GRAFT`, `clean`, full write |
+| page set unchanged, any non-additive edit | copy of the origin | `GARBAGE_COPY`, full write |
+| page set unchanged, **provably additive only** | the origin's own bytes | `GARBAGE_APPEND`, no `clean`, **incremental** |
+
+**The obstacle §M114 identified dissolved exactly as it predicted.** MuPDF appends only to the file a
+document was opened *from* — `ValueError: incremental needs original file` for anything opened from a
+stream or saved to a second path — and this project never writes to the file it opened: both surfaces
+materialise into a temp beside the target and rename it in (`MainWindow._write_to`,
+`mcp_bridge/transforms._write`, deliberately the same shape, M38.5). So the temp is **seeded with the
+origin's bytes** and appended to. Atomicity is untouched, the bridge still never writes over its
+input, and `Save`'s in-place semantics are unchanged. The seed costs **18 ms** on a 9 MB document.
+
+**Where the seed comes from is a correctness question, not a plumbing one.** It is the bytes captured
+in `open_source` (`VirtualDocument.origin_bytes`), not a re-read of the path at save time. The file on
+disk can have moved on since — an external editor, a sync client — and appending this session's marks
+to pages nobody has looked at is how a save quietly ships somebody else's document. Keeping them
+costs nothing: `fitz.open(stream=…)` holds a reference to that same object, so the dict stores a
+pointer, and `tobytes()` cannot substitute because it re-serialises rather than handing the original
+back. `tests/test_incremental_save.py` replaces the file under a live model and asserts the output
+still carries the pages that were opened.
+
+#### The predicate, which is the whole risk
+
+An append leaves the previous revision inside the file, recoverable by anything that reads a PDF
+properly. Harmless for a highlight; a betrayal for a **redaction**, whose entire promise is that the
+content is gone. So `edits_are_additive` is a whitelist, and the failure modes are not symmetric —
+too conservative costs a full rewrite, which is what every save did yesterday.
+
+True requires: the page set is unchanged; every mark is one of `ADDITIVE_MARK_TYPES` (exactly the
+seven kinds `apply_annotations` draws, each of which adds one annotation object and touches nothing
+else); **every mark the pages arrived carrying is still there**; and no rotation, crop, form fill,
+metadata edit or staged encryption change. `appends()` adds what the *file* has to allow: bytes to
+seed from, no repair on open, and no encryption change.
+
+**"Nothing may be taken away" is the half an earlier sketch of this would have missed.** Removing a
+mark is not additive, because the removed one stays in the previous revision — and *editing* one is
+removing one, so a text box the user emptied and saved would still carry its old wording. The
+baseline for the comparison is captured in `_seed_ordered`, which already reads exactly this. It also
+disposes of a case nobody would have thought to check: the bridge's `annotate` (M101) **merges**
+overlapping markup, and the survivor replaces the marks it absorbed — refused, without the predicate
+knowing anything about merging.
+
+What it deliberately does *not* ask is whether the origin already carries KlarPDF marks. It usually
+will — a document annotated last week, opened again, given one more highlight is still purely
+additive, and refusing that case would send the commonest markup session back to the full rewrite
+every time after the first.
+
+**Redaction is excluded twice over, on independent grounds.** By the leak above, and by
+`GARBAGE_APPEND = 0` sitting **below** the orphan floor `tests/test_redaction_orphans.py` pins — level
+1 is what deletes an image a redaction detached from its page. The level is not a choice: MuPDF
+refuses an incremental write with any collection at all.
+
+**MuPDF's refusals are a closed set, which is why nothing falls back.** Measured on 1.27.2.3, an
+incremental save is refused for exactly four reasons: garbage collection, an encryption change (and
+PyMuPDF's *default* `PDF_ENCRYPT_NONE` counts as one, on a plain unprotected PDF — `PDF_ENCRYPT_KEEP`
+is passed explicitly for that reason), a stream-opened document, and a **repaired** file, whose
+rebuilt cross-reference offsets an update cannot chain onto. Each is closed by the predicate or by
+construction. A fallback to the full rewrite would turn a defect in the predicate into silence:
+correct output, no error, and nothing but a byte count to notice it by. The measurement that stands in
+its place is the corpus, run through `materialize` itself rather than a copy of it.
+
+#### Verified on the corpus (82 documents, one highlight each)
+
+| | result |
+| --- | --- |
+| took the append route without raising | **82 / 82** |
+| whole source file byte-identical at the front of the output | **82 / 82** |
+| exactly the one mark, on its page, none anywhere else | **82 / 82** |
+| page content streams changed, corpus-wide | **0** |
+| catalog unchanged — `StructTreeRoot`, `MarkInfo`, `Perms`, `Names`, `AcroForm`, encryption, permissions | **82 / 82** |
+| Poppler extracts identical text | **82 / 82** |
+| pypdf parses the output | **82 / 82** |
+| total time | **0.66 s** against 2.42 s for the same edits rewritten |
+
+Median append: **1,827 B**. The encrypted documents are the interesting half — an owner-password file
+opens without a password and is never decrypted, so its own bytes are the seed and `PDF_ENCRYPT_KEEP`
+carries the encryption dictionary and the permission flags through untouched, which is M93's promise
+obtained for free. A **user-password** document is refused twice over: its source is stored decrypted
+(M32) so the file's bytes are not the model's document, and the save re-encrypts from that copy (M54),
+which an append may not do.
+
+**The one cost, stated plainly.** Across those 82 documents the append adds **+296,011 B** in total
+where the full rewrite *removes* 3,874,410 B — today's save shrinks an average corpus file by ~47 KB
+because it re-serialises more tightly than the tool that wrote it, and the append leaves it exactly as
+it found it and adds the mark. That is the §M110 promise in its strongest form (*"a save hands back
+what it was given"*), and **Reduced-Size PDF** remains where a smaller file is asked for. The related
+consequence: an append cannot drop unreferenced objects, because it may not collect at all — but
+those objects are the ones the file arrived with, and the one route that *creates* an orphan is the
+redaction this predicate refuses.
+
+**A save with no edits at all is now a copy.** MuPDF appends only what it considers dirty, and a
+document nobody edited has nothing: **+0 bytes**, 0.04 s, output byte-identical to input. That also
+settles what §M114 measured about `_apply_page_edits` — the pass is already scoped in effect, and now
+the byte count proves it rather than a docstring.
+
+#### One number had to follow, and a test caught it
+
+`export_reduced_pdf` reports a "before" size it calls **what a plain Save would write** — §M111's
+milestone, whose test compares it against a real `materialize`. The moment a Save stopped rewriting,
+that test failed, which is exactly what it is for. `PyMuPDFEngine.save_size` now answers the question
+by *doing* the save it describes: the rewrite routes measure the built document, the append route
+writes a throwaway probe. The number also got more useful — for an additive document it is now the
+size the user can see in their file manager, rather than a hypothetical re-serialisation they will
+never encounter.
+
+#### What this does not do yet
+
+On a document that already carries our marks, `_apply_page_edits` strips and re-adds **all** of them,
+so the append re-writes every mark rather than only the new one — measured on the same policy
+document, **+23,189 B** with 20 marks already in the file against **+1,496 B** with none. Correct, and
+still an order of magnitude cheaper than the rewrite; not minimal. Skipping the strip-and-re-add for a
+page whose marks are unchanged would fix it, and it touches the pass the graft and `render_output`
+share, so it wants its own milestone. Carried in `PROGRESS.md` §Open follow-ups.
+
+And the milestone's headline caller is not on `main`: **no bridge tool takes this route today**, since
+every one of them rotates, fills, redacts, flattens or changes the page set. `annotate` (M101) is the
+one that will, and it reaches `materialize` through the same `_write`, so it inherits this on the day
+it merges. `tests/test_mcp_transforms.py` pins the other half in the meantime — that M116 changed
+what *no* existing bridge tool writes.
 
 ## Future enhancements (deferred beyond the roadmap)
 

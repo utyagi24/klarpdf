@@ -757,3 +757,40 @@ def test_the_app_export_keeps_the_filename_the_user_typed(a_pdf, tmp_path):
     target = str(tmp_path / "report.png")
     with open_document(a_pdf) as vdoc:
         assert export_page_images(vdoc, [0], target, dpi=36) == [target]
+
+
+# ---- the write mode, from this side (M116) -------------------------------------------
+
+
+def test_no_transform_here_appends_to_its_input(a_pdf, b_pdf, tmp_path):
+    """M116 gave the shared engine a third route — a save that only *adds* marks appends to the
+    file it was given instead of rewriting it — and the core is reached by two consumers, so the
+    question "did that change what a bridge tool writes?" has to be asked from this side rather
+    than inferred from the app's.
+
+    The answer is no, and structurally: not one tool in this module makes a purely additive edit.
+    Every one of them rotates, fills, redacts, flattens or changes the page set, and each of those
+    is refused by :meth:`VirtualDocument.edits_are_additive` for its own reason. So every output
+    here is still a full rewrite, which is what the black-box check below asserts — an appended
+    file *begins* with its source, byte for byte, and none of these may.
+
+    ``annotate`` (M101) is the tool that will append, and it is deliberately not in this list.
+    """
+    from mcp_bridge import redaction
+
+    source = open(a_pdf, "rb").read()
+    writes = {
+        "delete_pages": lambda o: T.delete_pages(a_pdf, [2], o),
+        "reorder": lambda o: T.reorder(a_pdf, [3, 1, 2], o),
+        "rotate": lambda o: T.rotate(a_pdf, 90, o),
+        "extract_pages": lambda o: T.extract_pages(a_pdf, [1, 2, 3], o),
+        "merge": lambda o: T.merge([a_pdf, b_pdf], o),
+        "fill_form": lambda o: T.fill_form(a_pdf, {"name": "typed"}, o),
+        "flatten": lambda o: T.flatten(a_pdf, o),
+        "redact_text": lambda o: redaction.redact_text(a_pdf, "ALPHA-one-A1", o),
+    }
+    for name, run in writes.items():
+        out_path = str(tmp_path / f"{name}.pdf")
+        run(out_path)
+        written = open(out_path, "rb").read()
+        assert written[: len(source)] != source, f"{name} appended to its input"
