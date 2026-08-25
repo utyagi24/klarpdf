@@ -302,20 +302,20 @@ def test_every_mark_the_model_can_hold_is_classified():
         # read results, never stored on a PageRef — no classification to make
         "FormField": None, "ForeignAnnot": None,
     }
+    # `__module__` rather than `hasattr`, so a name re-exported into a second module is counted
+    # once, where it is defined.
     found = {
-        name
+        name: obj
         for module in (page_edits, content_marks, foreign_annots, form_fields)
         for name, obj in vars(module).items()
         if dataclasses.is_dataclass(obj) and getattr(obj, "__module__", "") == module.__name__
     }
 
-    assert found == set(additive_by_name), "a mark module gained a dataclass; classify it above"
+    assert set(found) == set(additive_by_name), "a mark module gained a dataclass; classify it above"
     for name, additive in additive_by_name.items():
         if additive is None:
             continue
-        cls = next(c for c in (page_edits, content_marks, foreign_annots, form_fields)
-                   if hasattr(c, name))
-        assert (getattr(cls, name) in ADDITIVE_MARK_TYPES) is additive, name
+        assert (found[name] in ADDITIVE_MARK_TYPES) is additive, name
 
 
 @pytest.mark.parametrize(
