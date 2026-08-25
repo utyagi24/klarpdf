@@ -3160,7 +3160,15 @@ tree or history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI 
 
 ## Open follow-ups (carried)
 
-Carried items — none block work:
+Carried items — none block work.
+
+**Scope, since 2026-08-25:** this section holds what still needs a **decision** — deferred design
+questions, rejections and their reasons, trade-offs measured but not settled. A known defect in the
+released build or in the code on `main` that is unambiguous and readily reproducible goes to
+[**GitHub Issues**](https://github.com/utyagi24/klarpdf/issues) instead, where it can be closed by
+the PR that fixes it. See `CLAUDE.md` §How we work for the split and why. Items already carried here
+were not migrated wholesale: each is listed because a decision is outstanding, which is what keeps
+it on this side of the line.
 
 - **`pipx install .` still resolves PyMuPDF to the newest release rather than ours** — the gap M115
   left open on purpose. That milestone pinned the *lock* (`requirements-mcp.txt`) to the app's

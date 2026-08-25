@@ -51,7 +51,8 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   ticks, open follow-ups → **`PROGRESS.md`** only. *Design / spec* — architecture, packaging,
   verification, the roadmap & rationale of each milestone → **`PLAN.md`**. *How we work* — conventions,
   gotchas, environment → **`CLAUDE.md`**. The other two **link**, never restate. Rule of thumb:
-  **status → PROGRESS; design → PLAN; process → CLAUDE.**
+  **status → PROGRESS; design → PLAN; process → CLAUDE; a reproducible defect → a GitHub issue**
+  (the last slot is new — see *A reproducible defect in shipped code goes to GitHub Issues* below).
 - **`README.md` is the one sanctioned exception — and it must be updated on every release.** It is the
   shop window for the public repo, so it *does* restate the shipped version, a one-line what's-new
   for the **current release only** (history lives in GitHub Releases / `PROGRESS.md`), and a
@@ -75,6 +76,25 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   assistant's working memory is lost silently at either boundary — three real findings from the
   TC-007/TC-008 rounds were sitting there on 2026-08-18 (`PROGRESS.md` §Open follow-ups has them
   now).
+- **A reproducible defect in shipped code goes to GitHub Issues; anything still open to
+  interpretation stays in `PROGRESS.md`** (owner, 2026-08-25). These are not two backlogs competing
+  for the same items — they hold different *kinds* of item, and the test is what the next person
+  has to do before they can start. **File an issue** when it is a known defect in the released build
+  or in the code on `main`, unambiguous and readily reproducible: someone can follow the steps, see
+  it happen, and know when it is fixed. ([#288](https://github.com/utyagi24/klarpdf/issues/288) —
+  the Pages sidebar scrolling the newly inserted page out of view — is the first.) **Keep it in
+  `PROGRESS.md` §Open follow-ups** when it still needs a *decision* before anyone can work it: a
+  deferred design question, a rejection and its reason, a trade-off measured but not settled. The
+  Flattened-PDF export dropping encryption is exactly the second kind — reproducible, but "carry
+  through / warn / offer the choice" is unanswered, so filing it as a bug would assert a verdict
+  nobody has reached.
+  Three consequences. **The issue is the tracker, not a copy** — an item that becomes an issue does
+  not also get a follow-up bullet, or the drift the *where things live* rule exists to prevent moves
+  into a new pair of files. **A follow-up that gets decided graduates** into an issue or a milestone
+  and leaves a one-line pointer behind, the way TC-007's items graduated into M99–M101. And **the
+  fix still owes its `PLAN.md` entry and `PROGRESS.md` milestone** under the rules above: the issue
+  records the *report* and the PR closes it with `Fixes #N`, but where the defect came from and what
+  the fix changed are design and status, and they live where design and status live.
 - **Every non-trivial change gets both a `PLAN.md` design entry and a `PROGRESS.md` milestone** —
   in the *same* PR as the code, not afterwards. "Non-trivial" is anything that changes how the app
   behaves or how it is built: a new route through the save path, a contract change, a defect whose
