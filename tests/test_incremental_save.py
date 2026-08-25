@@ -496,3 +496,49 @@ def test_the_seed_is_the_file_that_was_opened_not_the_file_that_is_there_now(pla
     with fitz.open(out) as doc:
         assert doc.page_count == 3
         assert "somebody else" not in doc[0].get_text()
+
+
+# ---- the app's own Save, end to end ------------------------------------------
+#
+# The model tests above drive `materialize` directly. This one drives the window, because the
+# append route changed what `MainWindow._write_to` hands it: the temp `mkstemp` created is no
+# longer written from scratch but *filled with the origin's bytes and then appended to*, and it
+# still has to survive the atomic rename that follows. Qt is imported inside the fixtures so the
+# rest of this file stays importable without it.
+
+
+@pytest.fixture(scope="session")
+def qapp():
+    from app import PdfApp
+
+    return PdfApp.instance() or PdfApp([])
+
+
+@pytest.fixture
+def app(qapp, tmp_path):
+    from store.settings import Settings
+
+    qapp.settings = Settings(tmp_path / "view_state.json")
+    qapp.page_clipboard = []
+    return qapp
+
+
+def test_the_apps_own_save_appends_in_place(app, plain_pdf):
+    """Save over the open document, and the file on disk is the file that was opened plus the
+    mark — through `mkstemp` → seed → append → `atomic_replace`, in place, with the window's
+    dirty state and its file watcher both settling as they always did."""
+    from main_window import MainWindow
+
+    opened_as = pathlib.Path(plain_pdf).read_bytes()
+    win = MainWindow(app, plain_pdf, app.settings)
+    win.vdoc.add_annotation(0, _MARK)
+    win.vdoc.dirty = True
+
+    assert win.save() is True
+
+    written = pathlib.Path(plain_pdf).read_bytes()
+    assert written[: len(opened_as)] == opened_as
+    assert len(written) > len(opened_as)
+    assert not win.vdoc.dirty
+    with fitz.open(plain_pdf) as doc:
+        assert len(list(doc[0].annots())) == 1
