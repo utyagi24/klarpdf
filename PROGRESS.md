@@ -2263,29 +2263,40 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   **38 s** on a branch touching `mcp_bridge/` and `model/`, **4 s** reporting without doing the work
   on the docs-only branch stacked above it. Design in `PLAN.md` §M115.1 — *WSL + CI*
 
-- [ ] **M117** *(unplanned)* **An append should write the mark you added, not the two hundred already
+- [x] **M117** *(unplanned)* **An append should write the mark you added, not the two hundred already
   there** — M116's own follow-up, **scheduled 2026-08-25** rather than carried, because the owner
   named the workflow it actually hurts: **front-heavy editing** — mark a document heavily in one
   sitting, then reopen it repeatedly to add a few more. Measured on a 30-page document: 200
-  highlights in sitting 1 takes it 126,320 → **239,494 B**, all of it real; six later sittings adding
-  **one** highlight each take it to **932,836 B**. Six marks worth ~4,800 B cost **693,342**, and the
+  highlights in sitting 1 takes it 126,540 → **239,692 B**, all of it real; six later sittings adding
+  **one** highlight each took it to **933,069 B**. Six marks worth ~4,800 B cost **693,377**, and the
   file quadrupled. **The cause** is that `_apply_page_edits` strips *every* KlarPDF mark off the page
   and redraws them all from the model (M31's round trip, and why a reopened mark is editable). That
   was free while every save rewrote the file; an append cannot delete, so redrawing 200 marks writes
-  200 fresh copies and orphans the 200 already there. The cost is **`marks already in the file ×
-  ~800 B`, paid once per save** — set by the document, not the edit (+7,942 B for one new mark on a
-  9-mark file, +22,947 B for twenty; +114,225 B for one on a 200-mark file). **Three things bound it
-  and a user can see none of them:** repeated saves within one sitting are free (the append is
-  against the bytes that were *opened* — a test pins it), batching is far cheaper per mark, and any
-  **non-additive** save collects the lot — recolouring one mark on that 932,836 B file rewrites it to
-  **174,411 B**, deleting one to **174,083**. Nothing is lost, only uncollected. **The fix** is to
-  skip the strip and draw only `multiset(model) − multiset(arrived_with)`, which the append route
-  already proves and already has the baseline for (`_source_marks`). **Two constraints, one found by
-  measuring:** a **z-order** change leaves the multiset identical, so it takes the append route today
-  and works only because of the redraw — skip it naively and Bring-to-Front becomes a silent no-op,
-  so the match must be *in order*, with an out-of-order page falling back to the full redraw; and a
-  mark left in place must be indistinguishable from a redrawn one, where the known wrinkle is a
-  colour saved as `0.86` reading back as `0.8600000143`. Design in `PLAN.md` §M117 — *WSL + Windows*
+  200 fresh copies and orphans the 200 already there. The cost was **`marks already in the file ×
+  ~800 B`, paid once per save** — set by the document, not the edit. **Now the same six sittings land
+  at 246,527 B**: those 693,377 bytes are **6,835**, and one more highlight costs +1,078 B on a
+  9-mark file against +1,134 B on a 200-mark one — flat, set by the edit. `marks_to_append` answers
+  with the difference against the `_source_marks` baseline the predicate already compares, and
+  `_apply_page_edits` strips only a page that method will not vouch for. **Two constraints, one found
+  by measuring:** a **z-order** change leaves the multiset identical, so it takes the append route and
+  worked only because of the redraw — answering with a plain set difference would make Bring-to-Front
+  a silent no-op — so the comparison is a **prefix**, `/Annots` being an order, with an out-of-order
+  page falling back to the full redraw and *only that page*; and a mark left in place must be
+  indistinguishable from a redrawn one, which turned out stronger than that — it keeps its **xref
+  number, its object and its appearance stream byte for byte**, checked per mark kind alongside the
+  descriptor read back and the pixels rendered. **Two things it changed that were not on the list:**
+  the redraw was **reshuffling annotations it did not write** (measured, a save that only added a
+  highlight moved a foreign annotation from last to *first* in `/Annots`), and it was quietly
+  **resizing shapes** — [#292](https://github.com/utyagi24/klarpdf/issues/292), a `Square`/`Circle`
+  inset by `width / 2` against PyMuPDF's flat 1.0 pt growth, so any width but the default 2.0 creeps
+  on every save; a defect in the redraw, so filed rather than fixed here. **The corpus stands in for
+  the rest:** 94 documents, two sittings each, the second written both ways — 83 appendable, second
+  sitting **136,427 B in 0.56 s against M116's 1,606,992 B in 2.29 s (11.8×)**, 83/83 keeping the
+  sitting-1 file byte-identical at the front, reading its twenty marks back unchanged, adding exactly
+  one mark on one page, with catalog, encryption and permissions unchanged, identical under Poppler,
+  parsed by pypdf, and **0** content streams changed. **No bridge tool takes this route yet** — same
+  as M116, and `tests/test_mcp_transforms.py` still pins it from that side. Design in `PLAN.md` §M117
+  — [#293](https://github.com/utyagi24/klarpdf/pull/293) — *WSL; Windows spot-check outstanding*
 
 - [x] **M116** *(unplanned)* **Adding a highlight appends 1,865 bytes instead of rewriting 8.8 MB** —
   M114's **second lever**, split out as a milestone of its own because it was only ever written
@@ -3205,7 +3216,8 @@ it on this side of the line.
   recorded so the argument starts from here. See `PLAN.md` §M115.
 
 - ~~**An append re-writes every mark the file already carried, not just the new one**~~ —
-  **scheduled 2026-08-25 as M117** (see the milestone above; design in `PLAN.md` §M117). It was
+  **scheduled and shipped 2026-08-25 as M117** (see the milestone above; design in `PLAN.md` §M117).
+  It was
   carried for a day and stopped being a follow-up the moment it had a number. Two things moved it
   there, both from the owner's questions: the first framing could answer neither *what a sitting is*
   nor *whether the cost multiplies per mark added*, and re-measuring against **front-heavy editing**

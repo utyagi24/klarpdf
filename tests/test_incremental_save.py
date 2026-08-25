@@ -16,11 +16,20 @@ highlight and a betrayal for a **redaction**, whose entire promise is that the c
 :meth:`VirtualDocument.edits_are_additive` is a whitelist — every mark kind named, every other edit
 refused, unknown kinds refused by default — and most of this file is about what it says *no* to.
 Being wrong the safe way costs a full rewrite, which is what yesterday's save did to everything.
+
+**And then it has to append the right thing (M117).** The pass that draws the marks strips every
+KlarPDF annotation off the page and redraws the lot, which was free while the whole file was being
+rewritten and is the cost of an append: it cannot delete, so a page carrying 200 marks writes 200
+fresh copies and orphans the 200 already there — ``marks already in the file × ~800 B``, on every
+save, set by the document rather than by the edit. The last section is about drawing only the
+difference, and about the two things that constrain it: ``/Annots`` is an *order*, and a mark left
+in place is the file's own bytes rather than a fresh copy of the model's.
 """
 
 from __future__ import annotations
 
 import dataclasses
+import os
 import pathlib
 
 import pymupdf as fitz
@@ -43,6 +52,7 @@ from model.page_edits import (
     Underline,
     is_additive_mark,
     merge_markup,
+    reorder_marks,
 )
 from model.virtual_document import VirtualDocument
 
@@ -496,6 +506,231 @@ def test_the_seed_is_the_file_that_was_opened_not_the_file_that_is_there_now(pla
     with fitz.open(out) as doc:
         assert doc.page_count == 3
         assert "somebody else" not in doc[0].get_text()
+
+
+# ---- and it writes the mark you added, not the ones already there (M117) ------
+#
+# The route above appends, and then draws every mark on the page into that append. While a save
+# rewrote the whole file the strip-and-redraw cost nothing; an append cannot delete, so redrawing
+# 200 marks writes 200 fresh copies onto the end of the file and orphans the 200 already in it —
+# `marks already in the file × ~800 B`, paid on every save, set by the document rather than by the
+# edit. Six later sittings of one highlight each took a 30-page document from 239,494 to 932,836 B.
+#
+# `edits_are_additive` has already proved the model's marks are a superset of the file's, so the
+# file's own copies can stay where they are and only the difference needs drawing. What that costs
+# is the two constraints below: the marks left alone are in the file's `/Annots` order, so the model
+# has to still *start* with them (else Bring to Front is a silent no-op), and a mark not redrawn is
+# the file's own bytes rather than a fresh copy of the model's.
+
+
+def _bar(n: int) -> Highlight:
+    """A highlight on its own line, so a page can carry many without any of them merging."""
+    y = 60.0 + (n % 40) * 8
+    return Highlight(((72.0, y, 200.0, y + 6.0),), (1.0, 0.86, 0.10))
+
+
+def _annot_objects(path: str, page: int = 0) -> dict:
+    """``{xref: the annotation's raw object plus its appearance stream}`` for one page — what
+    "the file's own mark, untouched" means when spelled out in bytes."""
+    with fitz.open(path) as doc:
+        out = {}
+        for annot in doc[page].annots():
+            ap = doc.xref_get_key(annot.xref, "AP/N")
+            stream = doc.xref_stream(int(ap[1].split()[0])) if ap[0] == "xref" else None
+            out[annot.xref] = (doc.xref_object(annot.xref), stream)
+        return out
+
+
+def _marked_n(src: str, count: int, tmp_path, name: str) -> str:
+    """``src`` saved once carrying ``count`` of our marks on page 0 — a heavy first sitting."""
+    vdoc = VirtualDocument.from_path(src)
+    for i in range(count):
+        vdoc.add_annotation(0, _bar(i))
+    return _save(vdoc, tmp_path, name)
+
+
+def test_what_a_second_sitting_costs_is_set_by_the_edit_not_by_the_document(plain_pdf, tmp_path):
+    """The milestone. Adding one highlight costs the same whether the file already carries one mark
+    or fifty — measured **+911 B against +920 B**, where the strip-and-redraw charged ~800 B for
+    every mark already in the file (+7,942 B on a 9-mark document, +114,225 B on a 200-mark one).
+
+    Asserted as a ratio rather than a byte count so it pins the shape of the cost — flat in the size
+    of the document — instead of one build of one fixture."""
+    deltas = []
+    for count in (1, 50):
+        base = _marked_n(plain_pdf, count, tmp_path, f"base{count}.pdf")
+        vdoc = VirtualDocument.from_path(base)
+        vdoc.add_annotation(1, _ELSEWHERE)
+        assert PyMuPDFEngine().appends(vdoc)
+
+        out = _save(vdoc, tmp_path, f"plus{count}.pdf")
+        deltas.append(os.path.getsize(out) - os.path.getsize(base))
+
+    one, fifty = deltas
+    assert fifty < one * 1.5, f"the 50-mark document paid {fifty} B against the 1-mark {one} B"
+
+
+def test_the_marks_the_file_arrived_with_are_the_same_objects_afterwards(plain_pdf, tmp_path):
+    """Not "equivalent" — *the same objects*. Every mark the page arrived with keeps its xref
+    number, its raw object and its appearance stream byte for byte, because nothing rewrote them:
+    they are still the bytes at the front of the file, and the append only added the new one."""
+    base = _marked_n(plain_pdf, 5, tmp_path, "five.pdf")
+    before = _annot_objects(base)
+    vdoc = VirtualDocument.from_path(base)
+    vdoc.add_annotation(0, _ELSEWHERE)
+
+    out = _save(vdoc, tmp_path, "six.pdf")
+
+    after = _annot_objects(out)
+    assert set(before) <= set(after), "an arrived mark was renumbered"
+    assert {x: after[x] for x in before} == before
+    assert len(after) == len(before) + 1
+
+
+@pytest.mark.parametrize(
+    "mark",
+    [
+        Highlight(((72, 60, 200, 80),)),
+        Underline(((72, 100, 200, 118),)),
+        Strikeout(((72, 140, 200, 158),)),
+        InkStroke((((72.0, 200.0), (120.0, 240.0), (160.0, 200.0)),), opacity=0.5, dashed=True),
+        Line((72.0, 300.0), (300.0, 340.0), arrow_end=True, dashed=True),
+        Shape("rect", (72, 380, 300, 440), fill_color=(0.2, 0.4, 0.9), opacity=0.4),
+        Shape("ellipse", (72, 460, 300, 520)),
+        TextBox((320, 60, 500, 100), "hello there", fill_color=(1.0, 1.0, 0.6), border_width=1.5),
+    ],
+)
+def test_a_mark_left_in_place_is_indistinguishable_from_a_redrawn_one(plain_pdf, tmp_path, mark):
+    """Per kind, because "almost certainly invisible" is not a thing to say about a save path. The
+    mark goes into the file, a *second* mark is then appended to another page, and the first one is
+    checked from three sides: the bytes of its object and appearance stream, the descriptor the
+    model reads back off it, and the pixels the page renders to.
+
+    The render is compared against ``render_output`` — the full-rewrite build, which is what the
+    viewer and the print path draw — so this is literally "does it still look the same on screen".
+    The two shapes are at the **default** 2.0 stroke width, which is also the only width at which
+    the redraw is faithful: PyMuPDF grows a Square/Circle ``/Rect`` by exactly 1 point per side
+    whatever the border, while ``parse_annotation`` insets by ``width / 2``, so a redrawn shape of
+    any other width creeps by the difference on every save (issue #292, found by this comparison
+    over the corpus). That defect belongs to the redraw, not to this route — a mark left in place
+    cannot creep, because nothing rewrites it."""
+    base = VirtualDocument.from_path(plain_pdf)
+    base.add_annotation(0, mark)
+    marked = _save(base, tmp_path, "marked.pdf")
+    before = _annot_objects(marked)
+
+    vdoc = VirtualDocument.from_path(marked)
+    (as_read,) = vdoc.ordered[0].annotations
+    vdoc.add_annotation(2, _ELSEWHERE)
+    assert PyMuPDFEngine().appends(vdoc)
+
+    out = _save(vdoc, tmp_path, "out.pdf")
+
+    assert _annot_objects(out) == before
+    (read_back,) = VirtualDocument.from_path(out).ordered[0].annotations
+    assert read_back == as_read
+    redrawn = PyMuPDFEngine().render_output(vdoc)
+    try:
+        with fitz.open(out) as doc:
+            assert doc[0].get_pixmap(dpi=72).samples == redrawn[0].get_pixmap(dpi=72).samples
+    finally:
+        redrawn.close()
+
+
+def test_a_second_engine_sees_the_marks_that_were_left_alone(plain_pdf, tmp_path):
+    """The marks nobody rewrote are still *reachable*, not merely still present: pypdf walks the
+    page's ``/Annots`` in the appended revision and finds all six."""
+    pypdf = pytest.importorskip("pypdf", reason="the second engine is a dev-only cross-check")
+    base = _marked_n(plain_pdf, 5, tmp_path, "five.pdf")
+    vdoc = VirtualDocument.from_path(base)
+    vdoc.add_annotation(0, _ELSEWHERE)
+
+    out = _save(vdoc, tmp_path, "six.pdf")
+
+    assert len(pypdf.PdfReader(out).pages[0].get("/Annots", [])) == 6
+
+
+def test_bringing_a_mark_to_the_front_still_writes_the_new_order(plain_pdf, tmp_path):
+    """The constraint that stops this being a two-line diff. A z-order change leaves the multiset
+    identical, so the save still appends — and answering with the plain set difference would draw
+    *nothing*, reporting success over a file where nothing moved. The page falls back to the full
+    strip-and-redraw instead, and the reopened file reads back in the model's order."""
+    base = _marked_n(plain_pdf, 3, tmp_path, "three.pdf")
+    vdoc = VirtualDocument.from_path(base)
+    arrived = vdoc.page_annotations(0)
+    vdoc.set_annotations(0, reorder_marks(arrived, [arrived[0]], "front"))
+    assert vdoc.page_annotations(0) != arrived, "the fixture did not actually reorder anything"
+    assert PyMuPDFEngine().appends(vdoc), "a z-order change is still additive"
+    assert vdoc.marks_to_append(0) is None, "the page must not keep its own order"
+
+    out = _save(vdoc, tmp_path, "reordered.pdf")
+
+    assert VirtualDocument.from_path(out).ordered[0].annotations == vdoc.page_annotations(0)
+    source = pathlib.Path(base).read_bytes()
+    assert pathlib.Path(out).read_bytes()[: len(source)] == source, "and it is still an append"
+
+
+def test_the_fallback_is_per_page(plain_pdf, tmp_path):
+    """A page that reordered pays; the pages beside it do not. The two are independent because the
+    baseline is per page, which is what keeps one Bring to Front from re-writing a whole document's
+    marks."""
+    vdoc = VirtualDocument.from_path(plain_pdf)
+    for page in (0, 1):
+        for i in range(3):
+            vdoc.add_annotation(page, _bar(i))
+    base = _save(vdoc, tmp_path, "both.pdf")
+    before = {page: _annot_objects(base, page) for page in (0, 1)}
+
+    vdoc = VirtualDocument.from_path(base)
+    arrived = vdoc.page_annotations(0)
+    vdoc.set_annotations(0, reorder_marks(arrived, [arrived[0]], "front"))
+    vdoc.add_annotation(1, _ELSEWHERE)
+
+    out = _save(vdoc, tmp_path, "mixed.pdf")
+
+    assert _annot_objects(out, 0).keys().isdisjoint(before[0]), "page 0 kept its old objects"
+    kept = _annot_objects(out, 1)
+    assert {x: kept[x] for x in before[1]} == before[1], "page 1 was rewritten anyway"
+
+
+def test_a_foreign_annotation_keeps_its_place(plain_pdf, tmp_path):
+    """A consequence worth having on purpose. The strip-and-redraw re-lays *our* marks on the end
+    of ``/Annots``, which pushes anything the file already had underneath them: measured on a page
+    carrying one of ours and one of somebody else's, a save that only added a highlight moved the
+    foreign annotation from last to **first**. Nothing asked for that, and the model has no opinion
+    about where a foreign mark sits, so leaving it alone is the honest answer."""
+    marked = _save(_marked(plain_pdf), tmp_path, "marked.pdf")
+    with fitz.open(marked) as doc:
+        annot = doc[0].add_rect_annot(fitz.Rect(300, 300, 400, 400))
+        annot.set_info(title="somebody else")
+        annot.update()
+        doc.save(marked, incremental=True, encryption=fitz.PDF_ENCRYPT_KEEP)
+
+    vdoc = VirtualDocument.from_path(marked)
+    vdoc.add_annotation(0, _ELSEWHERE)
+    out = _save(vdoc, tmp_path, "out.pdf")
+
+    with fitz.open(out) as doc:
+        assert [a.info.get("title") for a in doc[0].annots()] == [
+            "klarpdf", "somebody else", "klarpdf",
+        ]
+
+
+def test_the_baseline_only_speaks_for_the_origins_own_page(plain_pdf, b_pdf, tmp_path):
+    """``marks_to_append`` answers ``None`` for a page it cannot vouch for rather than trusting its
+    caller to have checked. The append route can never hand it one — its predicate demands an
+    unchanged page set — but a method that is only correct because of what somebody else asked
+    first is a method that stops being correct when somebody else stops asking."""
+    vdoc = VirtualDocument.from_path(plain_pdf)
+    assert vdoc.marks_to_append(0) == ()
+
+    vdoc.add_annotation(0, _MARK)
+    assert vdoc.marks_to_append(0) == (_MARK,)
+
+    other = VirtualDocument.from_path(b_pdf)
+    vdoc.import_pages(0, other, [0])
+    assert vdoc.marks_to_append(0) is None, "a page from a second document"
+    assert vdoc.marks_to_append(2) is None, "the origin's own page, at the wrong index"
 
 
 # ---- the app's own Save, end to end ------------------------------------------
