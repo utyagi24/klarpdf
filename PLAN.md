@@ -4798,6 +4798,77 @@ one that will, and it reaches `materialize` through the same `_write`, so it inh
 it merges. `tests/test_mcp_transforms.py` pins the other half in the meantime — that M116 changed
 what *no* existing bridge tool writes.
 
+### M117 — an append should write the mark you added, not the two hundred already there (2026-08-25)
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M117** On the append route, draw only the marks the file does not already have, instead of stripping every KlarPDF mark off the page and redrawing them all | `_apply_page_edits` / `_append_to_origin` in `model/edit_engine.py`, against the `_source_marks` baseline `edits_are_additive` already compares with | WSL + Windows | Adding one highlight to a 200-mark document appends ~1 KB rather than 114 KB; a **z-order** change still writes the new order; a mark left in place is indistinguishable from a redrawn one to `get_annotations`, to a second engine, and on screen |
+
+**§M116's own follow-up, scheduled because the numbers do not survive the workflow the owner named
+(2026-08-25).** The entry it came from measured a document carrying 20 marks and called the result
+"not minimal". Measured against **front-heavy editing** — mark a document heavily in one sitting,
+then reopen it repeatedly to add a few more — it is not a matter of minimality:
+
+| | file |
+| --- | --- |
+| a clean 30-page document | 126,320 B |
+| sitting 1 — **200 highlights**, one save | 239,494 B (+113,174, all of it real) |
+| sittings 2–7 — **one** highlight each | 353,724 → 468,474 → 583,786 → 699,602 → 815,957 → **932,836 B** |
+
+Six highlights worth about 4,800 bytes cost **693,342**, and the file **quadrupled**. That is 144×
+overhead, and it lands on precisely the workflow this app exists for.
+
+**The cause, and why it was invisible before M116.** `_apply_page_edits` strips *every* KlarPDF
+annotation off the output page and redraws them all from the model — M31's round trip, and the
+reason a reopened mark is editable at all. While every save rewrote the whole document that cost
+nothing. An append cannot delete, so redrawing 200 marks now means writing 200 fresh copies at the
+end of the file and orphaning the 200 that were already there.
+
+The cost is therefore **`marks already in the file × ~800 B`, paid once per save** — set by the
+document rather than by the edit. Adding twenty marks to a 9-mark file appends 22,947 B, not the
+20 × 7,942 a per-mark penalty would give.
+
+| marks already in the file | what one more highlight appends |
+| --- | --- |
+| 9 | +7,942 B |
+| 50 | +35,274 B |
+| 100 | +61,485 B |
+| 200 | +114,225 B |
+
+**Three things already bound it, and a user can see none of them.** Repeated saves *within* one
+sitting are free — the append is always against the bytes that were **opened**, so five saves of five
+marks is +11,155 B, not five penalties (`tests/test_incremental_save.py` pins it). Batching is much
+cheaper per mark. And any **non-additive** save collects the lot: recolouring one mark on the
+932,836 B file above takes the rewrite route and lands at **174,411 B**, deleting one at **174,083** —
+both smaller than the file six sittings earlier. Nothing is lost, only uncollected; but "tweak
+something and it fixes itself" is not a property anybody can be expected to discover.
+
+**The fix.** On the append route the model's marks are a superset of the file's by construction —
+that is what `edits_are_additive` proves. So the page needs no strip at all, and only the
+**difference** needs drawing: `multiset(model) − multiset(arrived_with)`. The baseline is already
+captured (`_source_marks`) and already compared per page.
+
+**Two constraints, one of them found by measuring rather than by reading.**
+
+*Z-order is not a membership change, and it currently works.* `reorder_marks` (Bring to Front) leaves
+the multiset identical, so `appends()` already returns **True** for it — verified — and the output is
+correct today only because the strip-and-redraw re-lays every mark in the model's order. Skip the
+redraw naively and a z-order change becomes a silent no-op: the save reports success and the file is
+unchanged. So the page's marks must match the baseline **in order**, not merely as a set, and a page
+whose order moved falls back to the full strip-and-redraw. This is the whole reason the fix is not a
+two-line diff.
+
+*A mark left in place must be indistinguishable from a redrawn one.* The known wrinkle is that PDF
+stores numbers as 32-bit floats, so a colour saved as `0.86` reads back as `0.8600000143`; today
+every save re-drives the mark from the model and erases that drift, and after the fix the file's own
+bytes survive instead. Almost certainly invisible — and a save path is the wrong place for "almost
+certainly", so the verification is per mark kind: appearance stream, `/Rect`, `/C`, `/CA`,
+`/Contents`, what `get_annotations` reports, and what a second engine renders.
+
+**Both surfaces, one change.** It lands in the pass `materialize` runs, so the app's Save and the
+bridge's `annotate` (M101) get it together — and `annotate` is where an agent chains several passes
+over one document, which is the front-heavy pattern with no human in it.
+
 ## Future enhancements (deferred beyond the roadmap)
 
 Captured but not yet scheduled:

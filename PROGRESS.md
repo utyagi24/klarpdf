@@ -2263,6 +2263,30 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   **38 s** on a branch touching `mcp_bridge/` and `model/`, **4 s** reporting without doing the work
   on the docs-only branch stacked above it. Design in `PLAN.md` §M115.1 — *WSL + CI*
 
+- [ ] **M117** *(unplanned)* **An append should write the mark you added, not the two hundred already
+  there** — M116's own follow-up, **scheduled 2026-08-25** rather than carried, because the owner
+  named the workflow it actually hurts: **front-heavy editing** — mark a document heavily in one
+  sitting, then reopen it repeatedly to add a few more. Measured on a 30-page document: 200
+  highlights in sitting 1 takes it 126,320 → **239,494 B**, all of it real; six later sittings adding
+  **one** highlight each take it to **932,836 B**. Six marks worth ~4,800 B cost **693,342**, and the
+  file quadrupled. **The cause** is that `_apply_page_edits` strips *every* KlarPDF mark off the page
+  and redraws them all from the model (M31's round trip, and why a reopened mark is editable). That
+  was free while every save rewrote the file; an append cannot delete, so redrawing 200 marks writes
+  200 fresh copies and orphans the 200 already there. The cost is **`marks already in the file ×
+  ~800 B`, paid once per save** — set by the document, not the edit (+7,942 B for one new mark on a
+  9-mark file, +22,947 B for twenty; +114,225 B for one on a 200-mark file). **Three things bound it
+  and a user can see none of them:** repeated saves within one sitting are free (the append is
+  against the bytes that were *opened* — a test pins it), batching is far cheaper per mark, and any
+  **non-additive** save collects the lot — recolouring one mark on that 932,836 B file rewrites it to
+  **174,411 B**, deleting one to **174,083**. Nothing is lost, only uncollected. **The fix** is to
+  skip the strip and draw only `multiset(model) − multiset(arrived_with)`, which the append route
+  already proves and already has the baseline for (`_source_marks`). **Two constraints, one found by
+  measuring:** a **z-order** change leaves the multiset identical, so it takes the append route today
+  and works only because of the redraw — skip it naively and Bring-to-Front becomes a silent no-op,
+  so the match must be *in order*, with an out-of-order page falling back to the full redraw; and a
+  mark left in place must be indistinguishable from a redrawn one, where the known wrinkle is a
+  colour saved as `0.86` reading back as `0.8600000143`. Design in `PLAN.md` §M117 — *WSL + Windows*
+
 - [x] **M116** *(unplanned)* **Adding a highlight appends 1,865 bytes instead of rewriting 8.8 MB** —
   M114's **second lever**, split out as a milestone of its own because it was only ever written
   inside M114's ticked entry, and a completed milestone's prose is not a backlog (caught by the
@@ -3180,53 +3204,15 @@ it on this side of the line.
   ceiling (`>=1.27.2.3,<1.28`), or telling README readers to install from the lock. Not decided —
   recorded so the argument starts from here. See `PLAN.md` §M115.
 
-- **An append re-writes every mark the file already carried, not just the new one** — found while
-  building M116, 2026-08-24, and measured on the corpus rather than guessed. `_apply_page_edits`
-  strips *all* KlarPDF annotations from the output page and re-adds them from the model (M31's round
-  trip: the model is the single source of truth), which on the append route means every existing
-  mark is written into the new revision beside the one that was actually added. Measured on
-  `Policy_home_document_08_16_2026_wildfire_highlighted.pdf`: **+23,189 B** for one new highlight
-  with 20 of our marks already in the file, against **+1,496 B** for the same document with none —
-  and the corpus's four largest appends are exactly its four most-marked documents. Correct, and
-  still an order of magnitude cheaper than the rewrite it replaced (0.02 s against 0.3 s there), but
-  not minimal: Edge would write only the new mark.
-  **Scoped properly, 2026-08-25, and it is worse than the line above makes it sound** (the owner
-  asked what a "sitting" was and whether the cost multiplied per mark — the first framing answered
-  neither). The cost is **`marks already in the file × ~800 B`, paid once per save**, and it does
-  *not* multiply by how many marks the save adds: measured on a synthetic 30-page document, a file
-  carrying 9 marks appends **+7,942 B** for one new highlight and **+22,947 B** for twenty — not the
-  20 × 7,942 a per-mark penalty would give, because the ~7,000 B of re-written marks is paid once.
-  What that scaling *does* mean is that the number is set by the document, not by the edit:
-
-  | marks already in the file | what one more highlight appends |
-  | --- | --- |
-  | 9 | +7,942 B |
-  | 50 | +35,274 B |
-  | 100 | +61,485 B |
-  | 200 | **+114,225 B** |
-
-  On a 200-highlight document every save appends **114 KB** for one mark worth ~800 B — 140×
-  overhead, on the sustained-markup workflow this app exists for. Ten reopen-and-save cycles there
-  add over a megabyte of dead objects.
-  **Three things bound it, and none is visible to the user.** Repeated saves *within* one sitting
-  cost nothing extra — the append is always against the bytes that were **opened**, not against the
-  last save, so five saves of five marks is +11,155 B, not five penalties (`tests/test_incremental_
-  save.py::test_saving_twice_from_one_model_does_not_stack_revisions` pins this). Batching markup
-  into one sitting is therefore much cheaper per mark (1,147 B against 7,942 B above). And **any**
-  non-additive save sweeps the whole thing up: the bloated file above, given one page rotation,
-  rewrites from 172,687 B to **111,248 B** — smaller than the unmarked original, with all ten marks
-  intact. So nothing accumulates permanently; it is uncollected, not lost.
-  **The fix is to skip the strip-and-re-add for a page whose marks are unchanged**, which the append
-  route can already prove — `edits_are_additive` compares against exactly that baseline
-  (`_source_marks`). It is deferred because `_apply_page_edits` is shared with the graft and with
-  `render_output` (print, thumbnails), where the same skip would leave the *baked* annotation rather
-  than the model's re-drawn one, and those are only equivalent if the M31 parse round-trips
-  losslessly — a known wrinkle being that a colour saved as `0.86` reads back as `0.8600000143`.
-  Almost certainly invisible, but a save path is the wrong place for "almost certainly", so it is
-  its own verification rather than a line in this milestone. **Worth scheduling** rather than waiting
-  for someone to be nearby in the code — the earlier "low priority" call was made from a 9-mark
-  example and does not survive the 200-mark one.
-  `model/edit_engine.py`, `PLAN.md` §M116. — *WSL*
+- ~~**An append re-writes every mark the file already carried, not just the new one**~~ —
+  **scheduled 2026-08-25 as M117** (see the milestone above; design in `PLAN.md` §M117). It was
+  carried for a day and stopped being a follow-up the moment it had a number. Two things moved it
+  there, both from the owner's questions: the first framing could answer neither *what a sitting is*
+  nor *whether the cost multiplies per mark added*, and re-measuring against **front-heavy editing**
+  — heavy markup in one sitting, then repeated reopens adding a few more — showed a 30-page document
+  going **239,494 → 932,836 B for six highlights worth 4,800**. The earlier "low priority, do it
+  when someone is next in that code" was reasoned from a 9-mark example and did not survive the
+  200-mark one. Nothing carried.
 
 - **The two exports still pay M110's quadratic cleanup, so an object-heavy document takes minutes**
   — measured 2026-08-22 on `dhariwal_ipo.pdf` (572 pp, **48,877 objects**) after M110/M111, when the
