@@ -3189,13 +3189,44 @@ it on this side of the line.
   with 20 of our marks already in the file, against **+1,496 B** for the same document with none —
   and the corpus's four largest appends are exactly its four most-marked documents. Correct, and
   still an order of magnitude cheaper than the rewrite it replaced (0.02 s against 0.3 s there), but
-  not minimal: Edge would write only the new mark. **The fix is to skip the strip-and-re-add for a
-  page whose marks are unchanged**, which the append route can already prove — `edits_are_additive`
-  compares against exactly that baseline (`_source_marks`). It is deferred because
-  `_apply_page_edits` is shared with the graft and with `render_output` (print, thumbnails), where
-  the same skip would leave the *baked* annotation rather than the model's re-drawn one, and those
-  are only equivalent if the M31 parse round-trips losslessly — which is its own verification, not a
-  line in this milestone. Not scheduled. `model/edit_engine.py`, `PLAN.md` §M116. — *WSL*
+  not minimal: Edge would write only the new mark.
+  **Scoped properly, 2026-08-25, and it is worse than the line above makes it sound** (the owner
+  asked what a "sitting" was and whether the cost multiplied per mark — the first framing answered
+  neither). The cost is **`marks already in the file × ~800 B`, paid once per save**, and it does
+  *not* multiply by how many marks the save adds: measured on a synthetic 30-page document, a file
+  carrying 9 marks appends **+7,942 B** for one new highlight and **+22,947 B** for twenty — not the
+  20 × 7,942 a per-mark penalty would give, because the ~7,000 B of re-written marks is paid once.
+  What that scaling *does* mean is that the number is set by the document, not by the edit:
+
+  | marks already in the file | what one more highlight appends |
+  | --- | --- |
+  | 9 | +7,942 B |
+  | 50 | +35,274 B |
+  | 100 | +61,485 B |
+  | 200 | **+114,225 B** |
+
+  On a 200-highlight document every save appends **114 KB** for one mark worth ~800 B — 140×
+  overhead, on the sustained-markup workflow this app exists for. Ten reopen-and-save cycles there
+  add over a megabyte of dead objects.
+  **Three things bound it, and none is visible to the user.** Repeated saves *within* one sitting
+  cost nothing extra — the append is always against the bytes that were **opened**, not against the
+  last save, so five saves of five marks is +11,155 B, not five penalties (`tests/test_incremental_
+  save.py::test_saving_twice_from_one_model_does_not_stack_revisions` pins this). Batching markup
+  into one sitting is therefore much cheaper per mark (1,147 B against 7,942 B above). And **any**
+  non-additive save sweeps the whole thing up: the bloated file above, given one page rotation,
+  rewrites from 172,687 B to **111,248 B** — smaller than the unmarked original, with all ten marks
+  intact. So nothing accumulates permanently; it is uncollected, not lost.
+  **The fix is to skip the strip-and-re-add for a page whose marks are unchanged**, which the append
+  route can already prove — `edits_are_additive` compares against exactly that baseline
+  (`_source_marks`). It is deferred because `_apply_page_edits` is shared with the graft and with
+  `render_output` (print, thumbnails), where the same skip would leave the *baked* annotation rather
+  than the model's re-drawn one, and those are only equivalent if the M31 parse round-trips
+  losslessly — a known wrinkle being that a colour saved as `0.86` reads back as `0.8600000143`.
+  Almost certainly invisible, but a save path is the wrong place for "almost certainly", so it is
+  its own verification rather than a line in this milestone. **Worth scheduling** rather than waiting
+  for someone to be nearby in the code — the earlier "low priority" call was made from a 9-mark
+  example and does not survive the 200-mark one.
+  `model/edit_engine.py`, `PLAN.md` §M116. — *WSL*
 
 - **The two exports still pay M110's quadratic cleanup, so an object-heavy document takes minutes**
   — measured 2026-08-22 on `dhariwal_ipo.pdf` (572 pp, **48,877 objects**) after M110/M111, when the
