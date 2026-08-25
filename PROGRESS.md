@@ -2266,10 +2266,11 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
 - [x] **M117** *(unplanned)* **An append should write the mark you added, not the two hundred already
   there** — M116's own follow-up, **scheduled 2026-08-25** rather than carried, because the owner
   named the workflow it actually hurts: **front-heavy editing** — mark a document heavily in one
-  sitting, then reopen it repeatedly to add a few more. Measured on a 30-page document: 200
-  highlights in sitting 1 takes it 126,540 → **239,692 B**, all of it real; six later sittings adding
-  **one** highlight each took it to **933,069 B**. Six marks worth ~4,800 B cost **693,377**, and the
-  file quadrupled. **The cause** is that `_apply_page_edits` strips *every* KlarPDF mark off the page
+  sitting, then reopen it repeatedly to add a few more. Measured on a 30-page document (the
+  before/after pair below is one run of one script, so it sits a few hundred bytes off the numbers
+  quoted when this was scheduled): 200 highlights in sitting 1 takes it 126,540 → **239,692 B**, all
+  of it real; six later sittings adding **one** highlight each took it to **933,069 B**. Six marks
+  worth ~4,800 B cost **693,377**, and the file quadrupled. **The cause** is that `_apply_page_edits` strips *every* KlarPDF mark off the page
   and redraws them all from the model (M31's round trip, and why a reopened mark is editable). That
   was free while every save rewrote the file; an append cannot delete, so redrawing 200 marks writes
   200 fresh copies and orphans the 200 already there. The cost was **`marks already in the file ×

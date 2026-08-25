@@ -514,7 +514,8 @@ def test_the_seed_is_the_file_that_was_opened_not_the_file_that_is_there_now(pla
 # rewrote the whole file the strip-and-redraw cost nothing; an append cannot delete, so redrawing
 # 200 marks writes 200 fresh copies onto the end of the file and orphans the 200 already in it —
 # `marks already in the file × ~800 B`, paid on every save, set by the document rather than by the
-# edit. Six later sittings of one highlight each took a 30-page document from 239,494 to 932,836 B.
+# edit. Six later sittings of one highlight each took a 30-page document from 239,692 to 933,069 B;
+# they now take it to 246,527.
 #
 # `edits_are_additive` has already proved the model's marks are a superset of the file's, so the
 # file's own copies can stay where they are and only the difference needs drawing. What that costs
@@ -552,7 +553,7 @@ def _marked_n(src: str, count: int, tmp_path, name: str) -> str:
 def test_what_a_second_sitting_costs_is_set_by_the_edit_not_by_the_document(plain_pdf, tmp_path):
     """The milestone. Adding one highlight costs the same whether the file already carries one mark
     or fifty — measured **+911 B against +920 B**, where the strip-and-redraw charged ~800 B for
-    every mark already in the file (+7,942 B on a 9-mark document, +114,225 B on a 200-mark one).
+    every mark already in the file (+8,221 B on a 9-mark document, +114,269 B on a 200-mark one).
 
     Asserted as a ratio rather than a byte count so it pins the shape of the cost — flat in the size
     of the document — instead of one build of one fixture."""

@@ -4851,7 +4851,9 @@ takes an `appending` flag and strips only a page that method will not vouch for.
 are untouched — they have no proof to lean on, and nothing to save by skipping a strip inside a
 write that rewrites everything anyway.
 
-The same seven sittings, either side of the change:
+The same seven sittings, run either side of the change. Both columns come from one run of one
+script, which is why the "before" sits a few hundred bytes off the diagnosis table above — that one
+was measured on a separately-built fixture, and the pair below is what may be subtracted:
 
 | | before | after |
 | --- | --- | --- |
