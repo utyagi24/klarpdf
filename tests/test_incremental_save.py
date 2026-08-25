@@ -688,7 +688,10 @@ def test_the_fallback_is_per_page(plain_pdf, tmp_path):
 
     out = _save(vdoc, tmp_path, "mixed.pdf")
 
-    assert _annot_objects(out, 0).keys().isdisjoint(before[0]), "page 0 kept its old objects"
+    # Asserted on the objects rather than on their xref numbers: MuPDF is free to hand a deleted
+    # object's number back out, so "these are different xrefs" would be a claim about its free list.
+    assert _annot_objects(out, 0) != before[0], "page 0 was not redrawn"
+    assert VirtualDocument.from_path(out).ordered[0].annotations == vdoc.page_annotations(0)
     kept = _annot_objects(out, 1)
     assert {x: kept[x] for x in before[1]} == before[1], "page 1 was rewritten anyway"
 
