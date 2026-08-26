@@ -470,6 +470,48 @@ class VirtualDocument:
                 return False
         return True
 
+    def marks_to_append(self, page_index: int) -> "tuple | None":
+        """The marks on page ``page_index`` an appending save still has to **draw** — the ones the
+        origin's file does not already carry (M117). ``None`` when it has to draw them all.
+
+        :meth:`edits_are_additive` proves the model's marks are a superset of the file's, so on the
+        append route the file's own copies can simply be left where they are and only the
+        difference needs writing. Without this the save strips every KlarPDF mark off the page and
+        redraws the lot (M31's round trip — see
+        :func:`~model.page_edits.strip_klarpdf_annotations`), which an append cannot do cheaply:
+        it cannot delete, so redrawing 200 marks writes 200 fresh copies at the end of the file and
+        orphans the 200 already in it. Measured, that is ``marks already in the file × ~800 B`` on
+        every save, so a 30-page document marked heavily in one sitting and reopened six times for
+        one more highlight each went 239,692 → **933,069 B** for about 4,800 bytes of new marks.
+        With this it lands at **246,527 B**.
+
+        **The comparison is a prefix, not a set, and that is the whole subtlety.** A PDF paints
+        annotations in ``/Annots`` order, and the marks the page arrived with are already in it, in
+        their own order; anything drawn now goes on the end. So leaving them alone is only correct
+        while the model still *starts* with them in that order. `Bring to Front` is the case that
+        makes this load-bearing: it leaves the multiset identical, so :meth:`edits_are_additive`
+        says yes and the save appends — and it works today only because the strip-and-redraw
+        re-lays every mark in the model's order. Answering with the plain set difference would make
+        it a silent no-op: a save that reports success and writes a file where nothing moved. A
+        page whose order moved answers ``None`` and pays for the full redraw, which is the right
+        price for the one edit that is *about* the order.
+
+        ``None`` too for a page this baseline cannot speak for — one that is not the origin's own
+        page at the same index. The append route never has such a page (its predicate demands
+        :meth:`page_set_unchanged`), and asking here rather than trusting that keeps the method
+        answerable on its own.
+        """
+        ref = self.ordered[page_index]
+        if ref.source_id != self.origin_source_id or ref.source_page_index != page_index:
+            return None
+        arrived_with = self._source_marks.get(self.origin_source_id)
+        if arrived_with is None or page_index >= len(arrived_with):
+            return None
+        arrived = arrived_with[page_index]
+        if ref.annotations[: len(arrived)] != arrived:
+            return None
+        return ref.annotations[len(arrived) :]
+
     def origin_bytes(self) -> "bytes | None":
         """The origin's file exactly as it was read from disk — the seed an appending save writes
         out before appending to it (M116). ``None`` when there is no such thing to hand back.

@@ -2263,6 +2263,42 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   **38 s** on a branch touching `mcp_bridge/` and `model/`, **4 s** reporting without doing the work
   on the docs-only branch stacked above it. Design in `PLAN.md` §M115.1 — *WSL + CI*
 
+- [x] **M117** *(unplanned)* **An append should write the mark you added, not the two hundred already
+  there** — M116's own follow-up, **scheduled 2026-08-25** rather than carried, because the owner
+  named the workflow it actually hurts: **front-heavy editing** — mark a document heavily in one
+  sitting, then reopen it repeatedly to add a few more. Measured on a 30-page document (the
+  before/after pair below is one run of one script, so it sits a few hundred bytes off the numbers
+  quoted when this was scheduled): 200 highlights in sitting 1 takes it 126,540 → **239,692 B**, all
+  of it real; six later sittings adding **one** highlight each took it to **933,069 B**. Six marks
+  worth ~4,800 B cost **693,377**, and the file quadrupled. **The cause** is that `_apply_page_edits` strips *every* KlarPDF mark off the page
+  and redraws them all from the model (M31's round trip, and why a reopened mark is editable). That
+  was free while every save rewrote the file; an append cannot delete, so redrawing 200 marks writes
+  200 fresh copies and orphans the 200 already there. The cost was **`marks already in the file ×
+  ~800 B`, paid once per save** — set by the document, not the edit. **Now the same six sittings land
+  at 246,527 B**: those 693,377 bytes are **6,835**, and one more highlight costs +1,078 B on a
+  9-mark file against +1,134 B on a 200-mark one — flat, set by the edit. `marks_to_append` answers
+  with the difference against the `_source_marks` baseline the predicate already compares, and
+  `_apply_page_edits` strips only a page that method will not vouch for. **Two constraints, one found
+  by measuring:** a **z-order** change leaves the multiset identical, so it takes the append route and
+  worked only because of the redraw — answering with a plain set difference would make Bring-to-Front
+  a silent no-op — so the comparison is a **prefix**, `/Annots` being an order, with an out-of-order
+  page falling back to the full redraw and *only that page*; and a mark left in place must be
+  indistinguishable from a redrawn one, which turned out stronger than that — it keeps its **xref
+  number, its object and its appearance stream byte for byte**, checked per mark kind alongside the
+  descriptor read back and the pixels rendered. **Two things it changed that were not on the list:**
+  the redraw was **reshuffling annotations it did not write** (measured, a save that only added a
+  highlight moved a foreign annotation from last to *first* in `/Annots`), and it was quietly
+  **resizing shapes** — [#292](https://github.com/utyagi24/klarpdf/issues/292), a `Square`/`Circle`
+  inset by `width / 2` against PyMuPDF's flat 1.0 pt growth, so any width but the default 2.0 creeps
+  on every save; a defect in the redraw, so filed rather than fixed here. **The corpus stands in for
+  the rest:** 94 documents, two sittings each, the second written both ways — 83 appendable, second
+  sitting **136,427 B in 0.56 s against M116's 1,606,992 B in 2.29 s (11.8×)**, 83/83 keeping the
+  sitting-1 file byte-identical at the front, reading its twenty marks back unchanged, adding exactly
+  one mark on one page, with catalog, encryption and permissions unchanged, identical under Poppler,
+  parsed by pypdf, and **0** content streams changed. **No bridge tool takes this route yet** — same
+  as M116, and `tests/test_mcp_transforms.py` still pins it from that side. Design in `PLAN.md` §M117
+  — [#293](https://github.com/utyagi24/klarpdf/pull/293) — *WSL; Windows spot-check outstanding*
+
 - [x] **M116** *(unplanned)* **Adding a highlight appends 1,865 bytes instead of rewriting 8.8 MB** —
   M114's **second lever**, split out as a milestone of its own because it was only ever written
   inside M114's ticked entry, and a completed milestone's prose is not a backlog (caught by the
@@ -3179,6 +3215,25 @@ the PR that fixes it. See `CLAUDE.md` §How we work for the split and why. Items
 were not migrated wholesale: each is listed because a decision is outstanding, which is what keeps
 it on this side of the line.
 
+- **The MCP no-socket/no-Qt invariant tests can't run on native Windows** — found 2026-08-25 running
+  the full suite on Windows for the first time in a while (the venv was also missing `mcp`, now
+  reinstalled from `requirements-dev.txt`). `tests/test_mcp_no_qt.py`'s child-process guard poisons
+  `socket.bind`/`connect`/`connect_ex`, deliberately leaving the constructor alone so asyncio's
+  internal self-pipe (`socket.socketpair()`) doesn't trip it — the test's own comment says so. That
+  holds on POSIX, where `socketpair()` is a real syscall. On Windows, CPython's
+  `_fallback_socketpair()` emulates it with an actual loopback `bind()` + `connect()`, so the guard
+  fires on asyncio's own plumbing before `exercise()` runs a single tool — 6 of `test_mcp_no_qt.py`'s
+  tests fail or error this way, all the same root cause (confirmed: identical
+  `_fallback_socketpair` frame in every traceback). The product invariant itself is not violated —
+  nothing in the bridge opened that socket — this is the test's detection method being POSIX-only.
+  Not decided: pre-create the loop before installing the guard (so the self-pipe exists before
+  patching), allow-list callers from `asyncio.windows_events`/`proactor_events`, or accept the
+  invariant as Linux/WSL-CI-only and skip these specific tests on `win32`. Filed separately as
+  [#294](https://github.com/utyagi24/klarpdf/issues/294): the one *unambiguous* Windows bug this run
+  also found, `get_info` returning a raw `PermissionError` instead of "is a directory" for a
+  directory path, because `mcp_bridge/server.py`'s `_explain()` only catches POSIX's
+  `IsADirectoryError`.
+
 - **`pipx install .` still resolves PyMuPDF to the newest release rather than ours** — the gap M115
   left open on purpose. That milestone pinned the *lock* (`requirements-mcp.txt`) to the app's
   `1.27.2.3` and added a test holding the two locks together, but `pyproject.toml` keeps a **floor**
@@ -3189,22 +3244,16 @@ it on this side of the line.
   ceiling (`>=1.27.2.3,<1.28`), or telling README readers to install from the lock. Not decided —
   recorded so the argument starts from here. See `PLAN.md` §M115.
 
-- **An append re-writes every mark the file already carried, not just the new one** — found while
-  building M116, 2026-08-24, and measured on the corpus rather than guessed. `_apply_page_edits`
-  strips *all* KlarPDF annotations from the output page and re-adds them from the model (M31's round
-  trip: the model is the single source of truth), which on the append route means every existing
-  mark is written into the new revision beside the one that was actually added. Measured on
-  `Policy_home_document_08_16_2026_wildfire_highlighted.pdf`: **+23,189 B** for one new highlight
-  with 20 of our marks already in the file, against **+1,496 B** for the same document with none —
-  and the corpus's four largest appends are exactly its four most-marked documents. Correct, and
-  still an order of magnitude cheaper than the rewrite it replaced (0.02 s against 0.3 s there), but
-  not minimal: Edge would write only the new mark. **The fix is to skip the strip-and-re-add for a
-  page whose marks are unchanged**, which the append route can already prove — `edits_are_additive`
-  compares against exactly that baseline (`_source_marks`). It is deferred because
-  `_apply_page_edits` is shared with the graft and with `render_output` (print, thumbnails), where
-  the same skip would leave the *baked* annotation rather than the model's re-drawn one, and those
-  are only equivalent if the M31 parse round-trips losslessly — which is its own verification, not a
-  line in this milestone. Not scheduled. `model/edit_engine.py`, `PLAN.md` §M116. — *WSL*
+- ~~**An append re-writes every mark the file already carried, not just the new one**~~ —
+  **scheduled and shipped 2026-08-25 as M117** (see the milestone above; design in `PLAN.md` §M117).
+  It was
+  carried for a day and stopped being a follow-up the moment it had a number. Two things moved it
+  there, both from the owner's questions: the first framing could answer neither *what a sitting is*
+  nor *whether the cost multiplies per mark added*, and re-measuring against **front-heavy editing**
+  — heavy markup in one sitting, then repeated reopens adding a few more — showed a 30-page document
+  going **239,494 → 932,836 B for six highlights worth 4,800**. The earlier "low priority, do it
+  when someone is next in that code" was reasoned from a 9-mark example and did not survive the
+  200-mark one. Nothing carried.
 
 - **The two exports still pay M110's quadratic cleanup, so an object-heavy document takes minutes**
   — measured 2026-08-22 on `dhariwal_ipo.pdf` (572 pp, **48,877 objects**) after M110/M111, when the
