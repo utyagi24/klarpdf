@@ -2480,6 +2480,101 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
 
   </details>
 
+- [ ] **M113** *(unplanned)* **What TC-012 and TC-013 found in M101** — reviewed with the owner
+  2026-08-21, every finding re-run against the code rather than accepted as filed. **Three did not
+  survive that**: `get_annotations` *does* cap and *does* set `truncated` (600 → 500; their document
+  held 406, under the limit); a re-run against a foreign mark stacks **once**, not unboundedly
+  (their own control run shows it); and the merge threshold is just above **0.01 pt**, not
+  "somewhere in (0.01, 3]". Six items remain — two defects, one disclosure gap, three documentation
+  gaps:
+  - **M113.1** A re-run **duplicates the note**, though the docs promise "a file identical in
+    content to the first run's". `merge_markup` rightly carries an absorbed note forward and
+    `_attach_note` then adds this call's note on top. Fix: skip a note already present, matched as a
+    whole segment (a substring test would swallow "check" into "check the totals"). **The missing
+    test is the lesson** — the existing re-run test never attaches a note, so it asserts the weaker
+    half of the claim.
+  - **M113.2** The reply **outgrows what a client accepts**: 406 marks = 139,288 chars, and the cap
+    counts *marks*, which run 213–613 chars each. Composition is 53% JSON scaffolding, 37% notes, 8%
+    boxes. Fix: a character budget beside the count, and narrow `annotate`'s echo to the marks the
+    call touched rather than every mark on the page. `extract_text` has the same exposure — logged
+    separately, not ours. **Owner decision: drop whole marks and let the caller fetch the rest**,
+    which makes this the bridge's **first paginated tool** — justified because every other tool
+    answers truncation with "narrow the request", and here there is no query to narrow: `pages` is
+    the only lever and it cannot help when one page holds 400 marks. A plain `offset` suffices (the
+    order is deterministic and no write tool can change the file being read), plus the true total so
+    a caller knows how many rounds to expect. The docs must make `more_available` loud: a filtered
+    first batch is an incomplete answer that looks complete.
+  - **M113.3** A document asking not to be annotated is annotated **silently**. Writing is correct —
+    the flag is advisory — so the defect is the silence, as at M107. The app does not warn either;
+    that is a separate GUI question, deliberately not folded in.
+  - **M113.4** Nothing says boxes are measured from the **top-left** while the PDF format and every
+    other library use the bottom-left. A box from elsewhere lands mirrored — valid, no error, wrong
+    line. **Owner decision: fix both halves** — state the convention *and* report the text each mark
+    landed on, which makes any wrong box self-revealing. Heuristic detection rejected.
+  - **M113.5** A mark **never merges with one somebody else wrote**, though two sentences say it
+    does. The behaviour is right (merging deletes a mark, and deleting a reviewer's is worse than a
+    duplicate); the sentences are the defect. Disclose it in the reply too. The real answer is
+    adoption — [[M112]].
+  - **M113.6** Three smaller ones: marks must genuinely overlap to merge (two adjacent `search` hits
+    leave a 3 pt gap); on a scan two overlapping marks merge into the box enclosing both;
+    `marks_added` can be negative. Plus `'Yellow' is not a underline colour`.
+  - **M113.7** *(added 2026-08-23, from the TC-012 Edge cross-check)* **The documented
+    colour-filter workflow cannot filter a mark made in Edge.** `get_annotations` reports Edge's
+    default highlight as `color_name: null, color_exact: false` — correct by the documented rule
+    ("`null` when nothing is close, rather than a misleading guess"), but the headline workflow the
+    docs advertise is *"read, filter on `color_name`, pass the survivors to `redact_regions`"*, and
+    Edge is the likeliest source of a foreign mark a caller will meet. **The naive fix is worse than
+    the defect**, which is why this needs a decision rather than a constant: Edge's yellow is
+    `[1, 0.9412, 0.4]`, and measured against our palette it is **0.311 from our Yellow and 0.243
+    from our Orange** — *nearest to Orange*. Loosening `NAME_TOLERANCE` (0.22) far enough to name it
+    would name it **"Orange"**, and the documented example is literally "redact everything
+    highlighted in orange" — so a reviewer's Edge highlights would be destroyed by an agent asked to
+    act on somebody else's orange. Options, none free: report the nearest name *with its distance*
+    and let the caller judge; document that colour filtering is for marks this app wrote and point
+    foreign-mark callers at the raw `color`; or give `get_annotations` a `color_near` filter that
+    takes an RGB and a tolerance. **Not** a wider tolerance.
+
+  - **M113.8** *(added 2026-08-23, from a re-read of TC-012)* **Two documentation gaps the report
+    raised and nobody logged.** (a) *"The line and highlight palettes differ for the same name"* —
+    `klarpdf://docs/get_annotations` lists all seven names in one breath ("Yellow, Green, Blue, Pink,
+    Orange, Red, Black") as if they were one palette. They are not: **highlight Blue is 0.634 from
+    line Blue, and highlight Green 0.584 from line Green** — against a naming tolerance of 0.22 and a
+    Yellow-to-Orange gap of 0.244. A caller filtering `color_name == "Blue"` across mixed types is
+    collecting two visibly different colours, which is exactly the mistake the same section warns
+    about for foreign marks. (b) **The refusal to write over the input is not discoverable from
+    `annotate`'s own description** — TC-012 called it "not a defect… recorded because it is a
+    question a caller will ask", and the answer currently lives only in the server-level
+    instructions.
+  - **M113.9** *(added 2026-08-23, from a re-read of TC-012)* **A caller polling the output path
+    sees nothing until the call finishes** (TC-012 FINDING 2). Every write goes to a temp file in
+    the output directory and is renamed into place at the end — right, because a crash cannot then
+    leave a half-written PDF where the caller expects a good one — but it is documented nowhere, and
+    a caller watching `out` reasonably concludes the call has failed. M110 defused the acute case
+    (the write that prompted this ran for minutes; the same call is now ~2 s), so what remains is
+    one sentence in the docs naming the behaviour. Filed rather than dropped because the report's
+    own severity note — *"compounds FINDING 1"* — is no longer true, and that is worth stating.
+
+  Design in `PLAN.md` §M113 — *WSL*
+
+- [ ] **M112** *(unplanned)* **The bridge can *edit* an annotation, not only add one** — owner-asked
+  2026-08-21, correcting an earlier framing in the same session. The app handles other tools' marks
+  **well**: M66 deletes a foreign annotation, M67 moves one with its appearance intact, M68 **adopts**
+  one on double-click into an ordinary editable KlarPDF mark, M90.4 shows its note — after which
+  recolouring, re-noting and merging all work. The gap is that the **bridge has none of it**: after
+  M101 an agent can read a colleague's marks and add beside them, and that is all. M101 scoped this
+  out correctly for that milestone, but an undated exclusion is how a decision becomes a permanent
+  gap. **Why it matters:** M101's review loop assumes the person reviews *in KlarPDF*, and reviewers
+  use whatever their employer installed — so a real round trip comes back carrying Acrobat or Edge
+  marks, against which the bridge can only stack. Adoption is the principled answer and already
+  exists. **Naming a mark is this milestone's hard part, and it is unsolved** — an earlier draft of
+  this entry said `fingerprint()` already provided one and scheduled it into the M101 fix PR;
+  measurement withdrew that. For our own marks the identifier **silently rebinds**: PyMuPDF names
+  annotations by *position* (`fitz-A0`, `fitz-A1`, …) and our marks are re-created from descriptors
+  on every save, so after one mark absorbs another, an id that meant one highlight resolves to a
+  different one — an edit sent to it hits the wrong mark with no error. Whether foreign marks carry
+  a better name is **unverified**: both corpus files checked turned out to have been annotated by
+  this app under its old codename. Design in `PLAN.md` §M112 — *WSL*
+
 - [x] **M110** *(unplanned)* ⭐ **A save no longer spends five minutes looking for duplicates that
   are not there** —
   found 2026-08-21 while reviewing TC-012, whose FINDING 1 read "cost scales with document size".

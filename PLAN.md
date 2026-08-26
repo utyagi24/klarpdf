@@ -4158,6 +4158,276 @@ re-encoding them buys nothing and costs a little. The dialog already reports tha
 | `Patina-…-Brochure.pdf` | −7,523,443 | **−7,564,299** |
 | `Account_Statement_Mar_2026.pdf` | −387,812 | **−406,266** |
 
+### M112 — the bridge can *edit* an annotation, not only add one (owner-asked 2026-08-21)
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M112** The bridge-side counterpart to M66–M68: delete a mark, recolour it, change its note, and **adopt** a foreign one so it becomes editable | A new tool over `model/foreign_annots.py` (`adopt_annotation`, `degradations`, `ForeignDeletion`) and `page_edits.restyle_mark`, addressed by the `fingerprint` `get_annotations` reports | WSL | An Edge highlight is adopted, recoloured and re-noted from the bridge and reopens editable in the app; adopting a mark carrying features the model cannot hold **reports** the loss rather than performing it silently; a delete removes exactly one mark and leaves its neighbours untouched |
+
+**The gap, stated correctly** (the owner corrected an earlier framing of this on 2026-08-21). It is
+*not* that KlarPDF handles other tools' marks poorly — it handles them well, across three
+milestones: M66 deletes a foreign annotation, M67 moves one with its appearance preserved exactly,
+M68 **adopts** one on double-click into an ordinary editable KlarPDF mark, and M90.4 shows its note.
+Once adopted, recolouring, re-noting, extending and merging all work normally.
+
+The gap is that **the bridge has none of it**:
+
+| | App | Bridge (after M101) |
+| --- | --- | --- |
+| Read foreign marks | ✅ M66/M90.4 | ✅ `get_annotations` |
+| Delete one | ✅ M66 | ❌ |
+| Move one | ✅ M67 | ❌ |
+| Adopt → recolour / note / merge | ✅ M68 | ❌ |
+
+An agent can see a colleague's marks and add beside them; a person doing the same job in the app has
+four more options. M101 recorded this as deliberately out of scope — correctly, for that milestone —
+but "out of scope" is not "on the roadmap", and an undated exclusion is how a decision becomes a
+permanent gap. Hence a number.
+
+**Why it is worth building rather than merely consistent.** M101's review loop assumes step 2 happens
+in KlarPDF. Reviewers use what their employer installed, so a real round trip often comes back
+carrying Acrobat or Edge marks — and against those the bridge can only stack (§M101's merge is scoped
+to marks this app wrote, deliberately: merging deletes a mark, and silently deleting a reviewer's
+annotation to reattribute its span would be worse than a duplicate). Adoption is the principled way
+out, and it already exists: it is an explicit act that takes ownership rather than a silent one.
+
+**Three things to get right:**
+
+1. **Naming a mark is the hard part, and it is not solved.** An editing tool has to say *which*
+   mark to act on, and the obvious candidate does not work. `foreign_annots.fingerprint()` prefers
+   an annotation's `/NM` name — an optional field in the PDF that is meant to identify an annotation
+   uniquely on its page — and falls back to hashing type + rect + contents when there is none.
+   Measured 2026-08-21:
+
+   * **For one of our own marks it does not merely go stale — it silently rebinds to a different
+     mark.** PyMuPDF fills `/NM` in automatically as `fitz-A0`, `fitz-A1`, …, which are *positions
+     on the page*, not identities; and our marks are stripped and re-created from descriptors on
+     **every** save, so the numbering is reassigned in whatever order they now sit. Three marks
+     LEFT / MIDDLE / RIGHT; one call takes MIDDLE's span over; RIGHT is untouched but its id moves
+     `fitz-A2` → `fitz-A1` — and `fitz-A1`, which meant MIDDLE, now resolves to RIGHT. An edit
+     addressed to the old id hits the wrong mark **with no error**, because the name resolves
+     perfectly.
+   * **Whether a foreign mark carries a better one is unverified.** The intuition is that Acrobat
+     and Edge write a real `/NM` and that the mark passes through our save untouched, so the
+     identifier holds. Both corpus files checked came back with `fitz-` names because both had been
+     annotated by *this app* (`pdfproj` is our old codename), so they prove nothing either way.
+     **Check real third-party output before any design rests on this.**
+
+   So `get_annotations` must **not** simply report `fingerprint()`. A field that is trustworthy for
+   some rows and quietly wrong for others is worse than no field, because nothing in the reply
+   separates them. *(An earlier draft of this section scheduled exactly that for the M101 fix PR.
+   Withdrawn.)*
+
+   Three options, in ascending cost:
+
+   * **Report it for foreign marks only**, `null` for ours. Cheap, and it unblocks the case with no
+     alternative today. Rests entirely on the unverified assumption above.
+   * **Derive ours from content** — the hash path `fingerprint()` already falls back to, over type,
+     area and note, all of which the descriptor reproduces exactly across a save. It still changes
+     when a mark merges, but that is *correct*: an absorbed mark is a different mark. The property
+     that matters is that it goes **stale rather than wrong** — a changed id matches nothing, so the
+     edit fails loudly instead of hitting the wrong target.
+   * **Give our marks a real identity**, carried on the descriptor and written into the file. The
+     proper answer and much the largest: model, save path, undo and the app.
+
+   **Recommendation: the second**, with the first as a fallback wherever a foreign mark turns out to
+   carry a usable `/NM`. It is the only one that makes a wrong edit impossible rather than merely
+   unlikely, it does not touch the app, and it does not depend on the unverified assumption.
+2. **`degradations()` reports; it cannot prompt.** The app's adoption path shows a warning with a
+   cancel button when a mark carries features the model cannot hold (`/RC` rich text, a non-base-14
+   DA font, `/CA` opacity, `/CL` callouts). A tool has no cancel button, so the contract must invert:
+   either refuse an adoption that would lose something and name what, or perform it and report the
+   loss — the first is safer and matches the redaction path's "refuse rather than silently degrade".
+   This is the milestone's real design decision.
+3. **Move is probably not in it.** M67's value is dragging a mark with a mouse; an agent nudging one
+   by coordinates has no equivalent need, and the geometry editing is a different kind of tool from
+   the metadata editing above. Excluded unless a session asks for it.
+
+**Description budget (M105) argues for one tool with an operation, not four tools.** The roster is
+already nineteen; `edit_annotation(path, fingerprint, out, delete=… | color=… | note=… )` keeps it at
+twenty rather than twenty-three.
+### M113 — what TC-012 and TC-013 found in M101 (reviewed with the owner, 2026-08-21)
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M113** Six follow-ups from the two hands-on sessions against M101: two defects, one disclosure gap, and three documentation gaps | `mcp_bridge/annotations.py`, its two docstrings in `server.py`, and `mcp_bridge/docs.py` | WSL | A re-run leaves the file's content identical; a reply stays inside the client's budget; a restricted document warns; a mark reports the text it landed on |
+
+**How the two reports were treated.** Every finding was re-run against the code rather than accepted
+as filed, and three did not survive contact: TC-013's "there is no cap and no `truncated` field"
+(there is one, it works, their document was simply under it), its "each run stacks another full set,
+unbounded" (it stacks exactly once, then merges into our own mark — their own control run shows it),
+and its merge threshold of "somewhere in (0.01, 3] points" (it is just above 0.01; 0.5 merges).
+TC-012's "cost scales with document size" was wrong in a way worth its own milestone — §M110.
+
+**M113.1 — a re-run duplicates the note** *(defect, and the docs promise the opposite)*. The
+description says a re-run is safe and gives "a file identical in content to the first run's". Run the
+same call three times and the note reads its own text three times, blank-line separated; the mark,
+its colour and `marks_added: 0` are all stable. Cause: `merge_markup` correctly carries an absorbed
+mark's note onto the survivor (M81's rule — only deleting a mark deletes its note), and `_attach_note`
+then adds the note from *this* call on top. Both are right alone; nothing distinguishes "a new
+comment, keep the old" from "the same comment again". **Fix: skip a note already present, matched as
+a whole joined segment — not as a substring**, or a note of "check" would be swallowed by an existing
+"check the totals". Known limit, to be documented rather than engineered around: notes are joined
+with a blank line, so a note that *contains* one is ambiguous under that encoding and will still
+duplicate. **The test that was missing is the point** — `test_running_the_same_call_twice_does_not_stack`
+passes today because it never attaches a note; it asserts the count, which is the weaker half of the
+claim the docs make.
+
+**M113.2 — the reply outgrows what a client will accept** *(defect; the cap is on the wrong unit)*.
+The count cap works (600 marks → 500, `truncated` set). It cannot do the job: reply size per mark
+runs 213–613 characters depending on note length, so "500 marks" is anywhere from 107 KB to 300 KB.
+A real session died at **139,288 characters over 406 marks**, and the composition is not where
+intuition puts it — **53% JSON scaffolding, 37% notes, 8% boxes**. **Fix: a character budget beside
+the count**, well under the ~136 KB that failed. Two riders: `annotate`'s reply carries every mark on
+the pages it touched, so adding one mark to a page holding eighty returns eighty-one — **narrow it to
+the marks the call actually touched**, which is bounded by the request instead of by the page's
+history. And `extract_text`'s 200,000-character cap has the same exposure — **not ours, log it
+separately.**
+
+**On overflow: drop whole marks, and let the caller ask for the rest** (owner, 2026-08-21 — the
+alternative considered was trimming long notes to keep every mark's geometry). This makes
+`get_annotations` **the bridge's first paginated tool**, which needs justifying, because every other
+capped tool answers truncation with *narrow the request*: `search` says tighten the query,
+`export_images` says list the directory. **That advice has no analogue here.** There is no query to
+tighten — the marks are simply on the page — so the only lever is `pages`, and it fails precisely in
+the case that overflows: one dense page carrying 400 marks cannot be narrowed at all. A caller
+following the documentation would be told to page and find that paging does not help.
+
+So add an `offset`: skip the first N marks, return the next batch, and report the true total
+alongside — the same courtesy `search` already extends with `total_matches`, so a caller knows how
+many rounds to expect before starting rather than discovering it one call at a time.
+
+**A plain integer offset is enough here, and that is worth stating because it usually is not.**
+Position-based paging is normally fragile — the data shifts between calls and rows are skipped or
+repeated. Neither can happen: the order is deterministic (page order, then each page's own
+annotation order), and **the document cannot change underneath the sequence**, because every write
+tool refuses to write over its input, so a concurrent `annotate` produces a *different* file. No
+cursor token, no snapshot, no staleness handling.
+
+**The risk this trades for, and the docs must carry it:** dropping marks means a caller who filters
+by colour and reads only the first batch gets an **incomplete answer that looks complete**. So
+`more_available` has to be prominent, with the instruction stated plainly — when filtering across a
+whole document, keep calling until it is false. A truncation that silently reads as "here is
+everything orange" would be worse than the size error it replaced.
+
+**M113.3 — a document asking not to be annotated is annotated silently** *(disclosure gap)*. The
+policy fixture carries `annotate: false`; `annotate` wrote sixteen marks and returned no `warnings`
+key at all. Writing them is correct — the flag is advisory and enforced by nothing — so **the defect
+is the silence**, exactly as at §M107. Three reasons it must speak: `get_info`'s own description
+tells the caller to "tell the user when they are about to act against one", and the agent can only
+relay what it is told; `fill_form` already warns for a read-only field and `redact_text` for four
+distinct hazards, so silence here is the exception; and of the eight permission bits this is the one
+naming this exact operation. **Deliberately not folded in:** the app does not warn either. That is a
+GUI decision with its own design and should not ride on an MCP fix — logged, not scheduled.
+
+**M113.4 — nothing says which corner the coordinates start from** *(documentation + a disclosure
+that makes it self-revealing)*. Boxes are measured from the **top-left**, y downward. The PDF format
+measures from the **bottom-left**, y upward, and so does every mainstream library except PyMuPDF —
+the flip is PyMuPDF's own, exposed as `page.transformation_matrix` (`Matrix(1, 0, 0, -1, 0,
+page_height)`), applied on the way in *and* out; we add no conversion and the file we write is always
+standard PDF. Inside our own tools this never bites, because `search` → `annotate` →
+`get_annotations` → `redact_regions` are one frame end to end. It bites at the seam with anything
+that read the file directly: a box from another library lands **mirrored about the page's horizontal
+axis** — valid, on the page, no error, wrong line. It caught the TC-013 tester building their own
+fixture. **Owner decision 2026-08-21: do both halves.** (a) State the convention and the conversion
+(`y' = page_height − y`; `get_info` reports the height). (b) **Report the text each mark landed on** —
+reuse `PageText.snippet_for`, which already joins across a wrapped match, plus the full character
+count so an over-wide box shows up too. That turns a silent failure into an obvious one for *every*
+way a wrong box can arrive, not only this one, and it is worth having anyway. Limit to document: on a
+page with no text layer the snippet is empty, which is indistinguishable from a wrong box.
+**Rejected: any heuristic that guesses a box is mirrored** — marking the bottom of a page is
+legitimate, so it would misfire in both directions.
+
+**M113.5 — a mark never merges with one somebody else wrote** *(documentation, plus a disclosure)*.
+Two sentences claim merging is universal, and one specifically says "a mark written here and one
+drawn by hand resolve the same way". Against a foreign mark both merge branches are inert. **The
+behaviour is right and must not change**: merging deletes a mark, so merging across authorship would
+delete a reviewer's annotation and reattribute their span to us. The sentence is the defect — and it
+is slippery rather than plainly false, since a mark drawn by hand *in KlarPDF* does resolve
+identically. **Fix: scope both sentences to marks this app wrote, and say it in the reply too** — a
+count, or a warning naming the author overlapped — since the docs only help someone who reads them.
+Consequence worth stating in the docs: the review loop assumes step 2 happens in KlarPDF, and a
+reviewer using Acrobat or Edge produces marks the next pass stacks against. The real answer to that
+is adoption, which the app has had since M68 and the bridge does not — §M112.
+
+**M113.6 — three smaller documentation gaps.** (a) **Marks must genuinely overlap to merge**;
+touching exactly does not, nor does 0.01 pt, while 0.5 pt does. The case a caller meets is two
+adjacent `search` hits: `New` ends at x=184.49 and `York` begins at 187.54, a 3 pt gap, so marking a
+phrase word-by-word leaves two marks where the reader sees one. Say so, and say to pass a phrase as
+one mark using the boxes a single hit gives. (b) **On a page with no text layer, two overlapping
+marks merge into the box enclosing both** — `[100,500,300,560]` + `[200,520,400,580]` →
+`[100,500,400,580]`, painting corners that were in neither. Invisible on a text page, where bars
+follow the lines; on a scan there is no such structure. Documentation only: nothing is hidden, the
+box is visible in the reply, and teaching the merge to keep separate areas on a scan is real work in
+code the app shares. (c) **`marks_added` can be negative** — a bridging mark that collapses two into
+one returns `-1`. Correct by the field's definition and honest; the description only ever discusses
+it being smaller than requested, so one worked example is owed. Plus the grammar slip `'Yellow' is
+not a underline colour`, where one string serves all three types.
+
+**M113.7 — the documented colour filter cannot filter an Edge mark** (added 2026-08-23, from the
+TC-012 Edge cross-check). `get_annotations` reports Edge's default highlight as `color_name: null`,
+`color_exact: false`. That is *correct* by the rule §M101 set — "`null` when nothing is close, rather
+than a misleading guess" — and it defeats the workflow the tools advertise in their own description:
+*read, filter on `color_name`, pass the survivors to `redact_regions`*. Edge is the likeliest source
+of a foreign mark a caller will ever meet, so the headline composition fails on the commonest real
+input.
+
+**The obvious fix is the dangerous one, and the numbers say so.** Edge's yellow is
+`[1, 0.9412, 0.4]`. Against our highlight palette:
+
+| our swatch | RGB | distance |
+| --- | --- | --- |
+| Yellow | `1, 0.86, 0.10` | 0.311 |
+| **Orange** | `1, 0.72, 0.30` | **0.243** |
+| Pink | `1, 0.65, 0.85` | 0.536 |
+
+It is **nearest to Orange, not Yellow** — and `NAME_TOLERANCE` is 0.22, so nothing is returned.
+Raising the tolerance to ~0.25 to make it nameable would name a *yellow* highlight **"Orange"**, and
+the example in our own documentation is "redact everything highlighted in orange". A reviewer marking
+up in Edge's default would have their highlights destroyed by an agent acting on somebody else's
+instruction. The current `null` is the safe answer; the defect is that the docs promise a workflow it
+cannot serve.
+
+Three options, none free, and the milestone has to pick one: **(a)** report the nearest name *with
+its distance* (`color_near: {name: "Orange", distance: 0.243}`) and let the caller set its own
+threshold — honest, but pushes a judgement onto every caller; **(b)** document that colour filtering
+covers marks this app wrote, and point foreign-mark callers at the raw `color`, which is already in
+the reply — cheapest, and narrows an advertised capability; **(c)** give `get_annotations` a
+`color_near` *filter* taking an RGB and a tolerance, so the caller says what it means by "the same
+yellow" — most useful, most work. **Not** a wider `NAME_TOLERANCE`.
+
+**M113.8 — two documentation gaps TC-012 raised and nobody logged.** *(a)* The report's "Colours"
+section notes that **the line and highlight palettes differ for the same name**, and
+`klarpdf://docs/get_annotations` still lists all seven in one breath — "Yellow, Green, Blue, Pink,
+Orange, Red, Black" — as though they were one palette. Measured, the overlap is not a nuance:
+
+| name | highlight | line | distance |
+| --- | --- | --- | --- |
+| Blue | `0.55, 0.80, 1.00` | `0.13, 0.35, 0.85` | **0.634** |
+| Green | `0.55, 0.92, 0.45` | `0.13, 0.60, 0.20` | **0.584** |
+
+against a `NAME_TOLERANCE` of 0.22 and a Yellow-to-Orange gap of 0.244. A caller filtering
+`color_name == "Blue"` across mixed mark types collects two colours further apart than any two
+swatches within either palette — the same class of mistake M113.7 is about, arriving from the
+opposite direction. *(b)* The **refusal to write over the input** is documented only in the
+server-level instructions; TC-012 recorded it as "not a defect… because it is a question a caller
+will ask", and `annotate`'s own description does not answer it.
+
+**M113.9 — a caller polling the output path sees nothing until the call finishes** (TC-012
+FINDING 2). Writes go to a temp file in the output directory and are renamed into place at the end.
+That is correct — a crash cannot leave a half-written PDF where the caller expects a good one — and
+it is documented nowhere, so a caller watching `out` reasonably concludes the call failed. The
+report filed it as "compounds FINDING 1", which **is no longer true**: the write that prompted it ran
+for minutes and the same call now takes ~2 s (M110). What is left is one sentence naming the
+behaviour, and the note that its severity was borrowed from a problem that has since been fixed.
+
+**For reference, the app's own defaults** (`model/markup_palette.py`, `main_window.py:162`):
+highlight opens on **Yellow** `(1, 0.86, 0.10)`, underline and strikeout each open on **Red**
+`(0.86, 0.10, 0.10)`, the redline convention — sticky per session since M78.5, independent per type.
+Edge's yellow is 0.311 from ours, which is further than our Yellow sits from our own Orange (0.244):
+two tools' "default yellow" are not the same colour, and no tolerance can make them one without
+colliding with a neighbouring name.
+
 ### M114 — a mark on one page rewrites all 572 (TC-012 retest, found 2026-08-22)
 
 | Milestone | What | Where | Verify |
