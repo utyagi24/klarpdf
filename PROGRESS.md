@@ -2296,6 +2296,28 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   shared with the bridge, but this is sidebar scroll/selection and the bridge has no insert tool.
   Design in `PLAN.md` §M121 — *WSL (offscreen GUI)*
 
+- [x] **M120** *(unplanned)* ⭐ **A shape stops resizing itself on every save** —
+  [#292](https://github.com/utyagi24/klarpdf/issues/292), fixed 2026-08-26. A rectangle or ellipse
+  whose outline was **not exactly 2 pt** changed size on every save that redrew it: a 6 pt shape
+  shrank **2 pt a side per save**, a 0.5 pt one grew 0.75, silently, with nothing reported.
+  `parse_annotation` insets a shape's stored `/Rect` to recover the drawn box, and insetted by
+  **`width / 2`** — the overhang a centred stroke *would* have. PyMuPDF does not do that: measured
+  across widths **0.25–20.0**, both kinds, the growth is **exactly 1.0 pt per side at every width**.
+  **`Shape.width` defaults to 2.0, the single value where the two agree** — and the round trip was
+  only ever tested at the default, so the suite could not have caught it. Since M117 an appending
+  save leaves marks alone, so it took a **rewriting** save (rotation, redaction, page move, form
+  fill, flatten) to move them; found by M117's own per-kind corpus comparison, where 82 of 83 pages
+  rendered identically and the 83rd carried 4 pt shapes drawn in an earlier session.
+  **The fix is one constant; the tests are the substance** — a shape reopens at its drawn size
+  across both kinds × six widths, four rewriting saves leave it put, and **the constant is pinned
+  against PyMuPDF's own measured growth**, which is the test whose absence allowed this: the old
+  inset was *derived* rather than *measured*. A fourth pins that `FreeText` still uses
+  `border_width / 2`, since its growth genuinely does track the border — two insets in one module
+  that look like they should match and must not. **The lesson:** when a read-back has to undo
+  something a writer did, measure what the writer actually did rather than deriving it, and test the
+  round trip at more than the default — the default is the value most likely to be the one that
+  happens to work. Design in `PLAN.md` §M120 — *WSL*
+
 - [x] **M118** *(unplanned)* **The boundaries M113 stopped one step short of** — five follow-ups from
   the **TC-015** retest (2026-08-26), which verified all nine M113 fixes black-box against nine
   purpose-built fixtures plus three real documents, with PyMuPDF/pypdf as an independent oracle, and
@@ -3417,6 +3439,20 @@ released build or in the code on `main` that is unambiguous and readily reproduc
 the PR that fixes it. See `CLAUDE.md` §How we work for the split and why. Items already carried here
 were not migrated wholesale: each is listed because a decision is outstanding, which is what keeps
 it on this side of the line.
+
+- **The app and the bridge name a 1 pt different box for the same shape** — noticed 2026-08-26 while
+  fixing [#292](https://github.com/utyagi24/klarpdf/issues/292) (M120), and *not* part of it. M120
+  makes `parse_annotation` recover a shape's **authored** rect, which is what the app draws and
+  edits; `get_annotations` reads the raw annotation `/Rect` for any non-quad type, so for a shape it
+  reports the stored box — **1 pt larger on every side**, that being PyMuPDF's baked-in growth.
+  Measured: a 6 pt rectangle authored at `[100, 100, 300, 200]` reports `[99, 99, 301, 201]`.
+  **Neither is obviously wrong**, which is exactly why this is here rather than in an issue. The
+  bridge's boxes are documented to feed `redact_regions`, and a box that covers the *drawn stroke*
+  is arguably the right thing to clear; the app's is the geometry the user actually placed. So the
+  question is what a reported box is *for* — the mark's footprint on the page, or the shape as
+  authored — and it should be answered once, for every non-quad type, rather than patched for
+  shapes. Text markup is unaffected: it is read from quads, which carry no such padding (§M101).
+  `mcp_bridge/annotations.py:_describe`, `model/page_edits.py:parse_annotation`.
 
 - **The MCP no-socket/no-Qt invariant tests can't run on native Windows** — found 2026-08-25 running
   the full suite on Windows for the first time in a while (the venv was also missing `mcp`, now
