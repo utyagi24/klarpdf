@@ -2505,14 +2505,22 @@ class MainWindow(QMainWindow):
         else:
             width, height = 612.0, 792.0  # empty document — US Letter
         source_id = self.vdoc.open_blank_source(width, height)
-        # Land the reader on the page they just made (#288). Without this the current row is a bare
-        # integer that survives the rebuild, so after inserting it points at a *different* page than
-        # it did before — and the new one is off-screen. `_note_edit_on` is the M59.9 hook and does
-        # the revealing too, via `currentPageChanged` → `ThumbnailPanel.set_current`.
+        # Land the reader on the page they just made (#288). Without this the current row was a bare
+        # integer that survived the rebuild, so after inserting it pointed at a *different* page than
+        # it did before — and the new one was off-screen.
+        #
+        # **Both halves, or the two disagree** (owner, 2026-08-26). `_note_edit_on` is the M59.9 hook
+        # and moves the sidebar marker, but it travels through `PdfView.set_current_page`, which is
+        # deliberately *non-scrolling* — its whole purpose is to let the highlight follow a mark made
+        # on a page that is not under the viewport. Right for an annotation; wrong here, and it left
+        # the sidebar pointing at the new page while the main view still showed the one it was
+        # inserted from. An insert is a "take me there" gesture, so the view goes too — after the
+        # push, which is when the new page exists in the layout.
         self._note_edit_on(at)
         self.undo_stack.push(
             InsertCommand(self.vdoc, at, [PageRef(source_id, 0)], text="Insert blank page")
         )
+        self.view.goto_page(at)
 
     def _duplicate_pages(self, rows=None) -> None:
         """Edit ▸ Duplicate Pages (M51): copies of the selected pages — or the current page —

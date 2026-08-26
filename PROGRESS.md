@@ -2276,7 +2276,16 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   `util.reveal` policy: a row still comfortably in view does not move at all, one that is not gets
   centred. *(b)* The inserted page now becomes current, via the `_note_edit_on` hook M59.9 already
   provided — before, the current row was a bare integer that survived the rebuild and so pointed at
-  a *different* page than it had before the insert.
+  a *different* page than it had before the insert — **and the main view now goes there too**. That
+  second half was missed in the first cut and caught by the owner on
+  [#300](https://github.com/utyagi24/klarpdf/pull/300) before it merged: `_note_edit_on` reaches the
+  view through `set_current_page`, which is **deliberately non-scrolling** (right for an annotation
+  on an off-screen page, wrong here), so the sidebar highlighted the new page while the main view
+  still showed the one it was inserted from — a *worse* state than the bug being fixed. An insert is
+  a "take me there" gesture, so `goto_page` runs after the push. **The test for it has to assert on
+  geometry, not on `view.current_page`** — that property had already been moved, so comparing it
+  against the sidebar row passes against the bug; the check computes which page actually fills the
+  viewport, and reads `assert 20 == 21`.
   **The ordering bug that uncovered is the part worth keeping:** (b) alone fixed an insert *into* the
   document and did nothing for one at the **end**. `_on_doc_changed` consumed `_edited_page` *before*
   `populate()`, and the marker reaches the sidebar as `currentPageChanged` → `set_current`, which

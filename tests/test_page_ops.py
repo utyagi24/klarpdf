@@ -272,6 +272,54 @@ def test_the_new_page_is_actually_on_screen_in_the_sidebar(app, tmp_path):
     )
 
 
+def _page_filling_the_viewport(win) -> int:
+    """Which page actually occupies most of the main view — what the reader is *looking at*.
+
+    Deliberately not `win.view.current_page`: that is a stored property, and the whole defect this
+    guards is the two disagreeing. `set_current_page` moves the property without scrolling, so
+    asserting on it would have passed against the very bug it is here to catch.
+    """
+    from PySide6.QtCore import QRectF
+
+    view_rect = win.view.mapToScene(win.view.viewport().rect()).boundingRect()
+    best, most = -1, -1.0
+    for i, page in enumerate(win.view._pages):
+        shown = view_rect.intersected(QRectF(page["x"], page["y"], page["w"], page["h"]))
+        area = shown.width() * shown.height()
+        if area > most:
+            best, most = i, area
+    return best
+
+
+def test_the_view_and_the_sidebar_agree_after_an_insert(app, tmp_path):
+    """#288 follow-up (owner, 2026-08-26). The first fix moved the sidebar marker onto the new page
+    but left the main view on the page it was inserted from, so the two disagreed.
+
+    An insert is a "take me there" gesture: both go.
+    """
+    path = str(tmp_path / "many.pdf")
+    doc = fitz.open()
+    for i in range(40):
+        doc.new_page(width=612, height=792).insert_text((72, 100), f"page {i}", fontsize=24)
+    doc.save(path)
+    doc.close()
+
+    win = MainWindow(app, path, app.settings)
+    win.thumbs.resize(210, 700)
+    win.view.set_current_page(20)
+    app.processEvents()
+
+    win._insert_blank_page()
+    app.processEvents()
+
+    new_page = 21
+    assert win.vdoc.ordered[new_page].source_id.startswith("blank:")
+    assert win.thumbs.currentRow() == new_page, "the sidebar marker is not on the new page"
+    assert _page_filling_the_viewport(win) == new_page, (
+        "the main view is still showing the page the blank was inserted from"
+    )
+
+
 def test_insert_blank_page_matches_the_preceding_pages_size(app, a_pdf):
     win = MainWindow(app, a_pdf, app.settings)
     win.undo_stack.push(RotatePagesCommand(win.vdoc, [0], 90))  # make page 0 landscape first

@@ -5444,6 +5444,24 @@ the current row was a bare integer that survived the rebuild and therefore point
 page** than before the insert. `_note_edit_on` — the M59.9 hook that already exists for exactly this
 — makes the new page current, and `ThumbnailPanel.set_current` reveals it properly on the way.
 
+**And the view has to move with it, which the first cut of this milestone missed** (owner, reported
+against [#300](https://github.com/utyagi24/klarpdf/pull/300) before it merged). `_note_edit_on`
+travels to the view through `PdfView.set_current_page`, which is **deliberately non-scrolling** —
+its docstring says so, and it is right about its own case: an annotation applied to a page that is
+not under the viewport should move the sidebar highlight without dragging the reader off what they
+are reading. Applied to an insert it produced a *worse* state than the bug it fixed: the sidebar
+highlighted the new page while the main view still showed the page it was inserted from, and the two
+disagreed on screen. **An insert is a "take me there" gesture**, so `goto_page` runs after the push —
+after it, because that is when the new page exists in the layout. The marker is still set explicitly
+rather than left to fall out of the scroll, so it is deterministic and does not depend on the
+viewport-centre calculation firing.
+
+**The test this needed had to assert on geometry, not on the property.** `view.current_page` is a
+stored value that `set_current_page` had already moved to the new page — so a test comparing it
+against the sidebar row **passes against the bug**. The check computes which page actually occupies
+most of the viewport and compares *that*: `assert 20 == 21` is the disagreement, in the terms the
+reader sees it.
+
 **The ordering bug this uncovered, which is the part worth recording.** Setting `_edited_page` alone
 fixed an insert *into* the document and did nothing for one at the **end**. `_on_doc_changed`
 consumed `_edited_page` **before** `thumbs.populate()`, and the marker travels to the sidebar as
