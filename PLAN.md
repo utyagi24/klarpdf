@@ -5311,6 +5311,112 @@ byte-identical at the front, 83/83 reading the twenty marks back unchanged, 83/8
 mark on exactly one page, 83/83 with catalog, encryption and permissions unchanged, 83/83 identical
 under Poppler and parsed by pypdf, and **0** content streams changed corpus-wide.
 
+### M118 — the boundaries M113 stopped one step short of (TC-015, 2026-08-26)
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M118** Five follow-ups from the TC-015 retest of M113: two mediums where a correct fix stopped at its own edge, plus three smaller ones | `model/markup_palette.py` (`nearest_name` and its radii), `mcp_bridge/annotations.py` (`_fit`, `_lines_of`, `_already_present`), `mcp_bridge/docs.py` | WSL | Pure yellow names `Yellow` while teal still names nothing; a 120,000-character note cannot push a reply past the budget and paging still terminates; a multi-paragraph note survives three re-runs unchanged; a mark with one quad per word says its sentence once |
+
+**What TC-015 was:** a black-box retest of #296 against nine purpose-built fixtures plus three of the
+owner's real documents, using PyMuPDF and pypdf as an oracle independent of the tool under test.
+**It verified all nine M113 fixes** — 460 marks walked to exhaustion with zero gaps or duplicates,
+the permissions warning, the coordinate convention, foreign-mark disclosure, the merge thresholds,
+scan geometry, negative `marks_added`, the refusals — and then found where two of them stopped.
+Every finding below reproduced exactly as filed; none was a tester error.
+
+**The species is worth naming, because it is not the one M113 fixed.** M113's defects were contracts
+that *lied* — documentation describing behaviour the code did not have. These are the opposite: the
+behaviour is right and the *boundary* is wrong. A correct metric with a ceiling 1% too low; a
+correct pagination rule with no floor under one mark. Neither misleads a caller about what the tool
+did, and both are cheap. That is what a good fix failing looks like, and it is a healthier failure
+than the one before it.
+
+**M118.1 — pure yellow `#FFFF00` came back unnamed** *(medium; the M113.7 recalibration overshot)*.
+`(1, 1, 0)` is Adobe Acrobat's default highlighter and the commonest highlight colour in
+circulation. It sits **0.1214** from our Yellow under the M113.7 metric, against a `NAME_TOLERANCE`
+of **0.12** — outside by 1.2% — so `color_name` was `null`, defeating the same advertised
+composition (*read → filter on `color_name` → `redact_regions`*) that M113.7 existed to restore. The
+boundary ran between colours no eye can separate:
+
+| colour | `color_name` before |
+| --- | --- |
+| `1, 1, 0` — Acrobat's default | **`null`** |
+| `1, 1, 0.02` | **`null`** |
+| `0.99, 0.99, 0` | `Yellow` |
+
+**The cause is that one number was answering two questions.** `NAME_TOLERANCE` has to decide both
+*is this colour anywhere near our palette* and *is it unambiguously one swatch rather than stranded
+between two* — and calibrating it against the closest swatch pair (M113.7's stated invariant) only
+really addresses the second. Nothing about pure yellow is ambiguous: its runner-up, Orange, is
+**0.2501** away, so Yellow is **2.06×** clearer. It was excluded by an absolute proxy for a
+relative property.
+
+So the questions are now asked separately. Inside `NAME_TOLERANCE` (0.12) nothing changes at all.
+Between it and a new `NAME_MAX_DISTANCE` (0.16) a colour is named only if the nearest swatch beats
+the runner-up by `NAME_MARGIN` (1.5×). Measured over the RGB cube in all three palette modes, this
+changes **no** colour that already had a name — it is **purely additive**, which is what makes it
+safe to ship on top of a fix that had just moved the same boundary. It admits pure yellow and its
+neighbourhood; teal, mid-grey, brown, purple and white stay unnamed, and teal is the one that
+matters — it is *inside* 0.16 of our Green and is rejected on the **margin**, not the distance,
+which is exactly the discrimination the single ceiling could not make.
+
+*Rejected: widening `NAME_TOLERANCE` to ~0.13.* That number is the Yellow-to-Orange gap itself, so
+it would admit ties between two names, and it answers the wrong question — the issue was never that
+0.12 was too small in general.
+
+**M118.2 — one mark with a long note produced a reply the caller cannot receive** *(medium; the
+M113.2 budget has no floor)*. A single annotation carrying a 120,000-character note returned a
+**120,624-character** reply, which the client refused and spilled to disk — word for word the harm
+the character budget was added to prevent, now reachable through **one** annotation instead of 406.
+
+The pagination itself was correct throughout (`count: 1`, `more_available: true`, and `offset: 1`
+recovered cleanly). What failed is a consequence of M113.2's own **"a batch always yields at least
+one mark"** rule, which exists because an empty batch with `more_available: true` pages forever.
+M113 read that as licence for one mark to set an unbounded *floor* on reply size, since whole marks
+are never trimmed. **The budget bounded batches; nothing bounded a mark.**
+
+**Fix: cut the note, not the mark** — the only field that grows without bound. Everything a caller
+filters or redacts on (`boxes`, `color`, `color_name`, `page`, `type`, `snippet`, the flags) is
+small, bounded, and comes through intact; the mark carries `note_truncated: true` and `note_length`,
+the original count, so the reply says plainly that there is more and how much. That keeps
+termination *and* the budget, which the previous design could not do at once. Measured on the
+reported fixture: **120,624 → 31,458 characters**, and all six marks now arrive in one batch where
+one did before.
+
+**M118.3 — a note containing a blank line still duplicated on every re-run** *(low, and the
+remnant of M113.1)*. M113.1 matched "is this note already here" as *membership of a segment list* —
+exact while a note **is** one segment. A multi-paragraph note splits into several, matched nothing,
+and was re-appended on every run: unbounded growth while `marks_added: 0` reported nothing had
+changed — the original defect's exact shape. M113 disclosed this in the docs as an encoding limit,
+but the disclosure sat in a parenthesis under a headline still promising *"re-running a call is
+therefore safe"*, and a multi-paragraph review comment is an ordinary thing to write. **Fixed rather
+than merely bounded** (owner, 2026-08-26): both sides are read as segment lists and the test is
+whether the new note appears as a **contiguous run** of the existing one. That is exact for any
+number of paragraphs and keeps the property M113.1 was right about — `"check"` against an existing
+`"check the totals"` is one segment against another, does not match, and is appended rather than
+swallowed as a substring.
+
+**M118.4 — the `annotations` echo returns marks the call never touched** *(low, documentation)*. Two
+marks laid over two foreign ones echoed **four** entries. The filter matches on page, type and
+geometric overlap, which a foreign mark at the same span satisfies. **The behaviour is better than
+the contract and stays**: having just laid a highlight over a reviewer's, theirs is exactly what you
+need to see, and it pairs with the warning naming its author. The docs now say the echo has **three**
+kinds of entry — written, merged into, and *landed beside* — and that `mine` separates them.
+
+**M118.5 — a multi-box mark repeated its own sentence** *(cosmetic)*. A mark carrying one quad per
+word — what a highlight over individual `search` word-boxes produces — snippetted each box
+separately, returning **618 characters to describe 73**, spending the very budget M118.2 defends.
+Boxes are now folded to one union per **line** before snippetting, which is what the field always
+meant; measured 7.9× → 1.0× on the reported shape.
+
+**Also recorded from TC-015, not fixed here.** `color_exact` was documented as distinguishing "the
+reviewer picked Orange from the menu" from "something orange-ish arrived from elsewhere". Real files
+carry KlarPDF-authored marks written under an **older swatch set**, which read `mine: true,
+color_exact: false`, so that reading over-reaches. The field computes correctly; the docs now state
+it as a fact about the stored value rather than about who wrote the mark. And a highlight authored
+`pdfproj` — this app's own former codename — reports `mine: false` on a real document, which
+confirms §M112's premise on a third file rather than opening anything new.
+
 ## Future enhancements (deferred beyond the roadmap)
 
 Captured but not yet scheduled:

@@ -21,6 +21,7 @@ whole time.
 
 from __future__ import annotations
 
+import json
 import os
 
 import pymupdf as fitz
@@ -744,3 +745,161 @@ def test_edge_default_yellow_reads_back_as_yellow(doc_path, out):
     (found,) = annotations.get_annotations(out)["annotations"]
     assert found["color_name"] == "Yellow"
     assert found["color_exact"] is False                   # near our swatch, not equal to it
+
+
+# ---- M118: the boundaries M113 stopped one step short of --------------------
+
+
+def _noted(path, note, extra=3):
+    """A file whose first mark carries `note`, followed by `extra` ordinary ones."""
+    doc = fitz.open()
+    page = doc.new_page(width=612, height=792)
+    page.insert_text((72, 115), f"{NAME} lives at 12 Elm Street", fontsize=11)
+    first = page.add_highlight_annot(fitz.Rect(72, 103, 200, 118))
+    first.set_info(title="klarpdf", content=note)
+    first.update()
+    for i in range(extra):
+        other = page.add_highlight_annot(fitz.Rect(72, 300 + i * 20, 200, 315 + i * 20))
+        other.set_info(title="klarpdf", content=f"short {i}")
+        other.update()
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def test_one_enormous_note_cannot_blow_the_whole_reply(tmp_path):
+    """TC-015. The batch must always yield a mark, which M113 read as letting one mark set an
+    unbounded floor — putting the reply back over what a client accepts (120,624 chars from a
+    single annotation), the exact harm the character budget was added to prevent."""
+    path = _noted(str(tmp_path / "huge.pdf"), "Z" * 120_000)
+
+    result = annotations.get_annotations(path)
+
+    assert len(json.dumps(result)) <= annotations.MAX_ANNOTATION_CHARS
+    assert result["count"] >= 1
+
+
+def test_an_over_budget_note_is_cut_and_says_so(tmp_path):
+    path = _noted(str(tmp_path / "huge.pdf"), "Z" * 120_000)
+
+    (fat, *_) = annotations.get_annotations(path)["annotations"]
+
+    assert fat["note_truncated"] is True
+    assert fat["note_length"] == 120_000        # the original length, so the caller knows what is missing
+    assert len(fat["note"]) < 120_000
+    assert fat["note"].endswith("[…]")          # visibly cut, not a sentence stopping dead
+
+
+def test_cutting_the_note_keeps_everything_a_caller_filters_on(tmp_path):
+    """The reason the *note* is what gets cut: everything else is small, bounded, and is what a
+    caller actually filters and redacts on."""
+    path = _noted(str(tmp_path / "huge.pdf"), "Z" * 120_000)
+
+    (fat, *_) = annotations.get_annotations(path)["annotations"]
+
+    assert fat["boxes"] and fat["color"] and fat["color_name"] == "Yellow"
+    assert fat["page"] == 1 and fat["type"] == "highlight"
+    assert fat["mine"] is True and fat["editable"] is True
+    assert "snippet" in fat
+
+
+def test_an_ordinary_note_is_untouched(tmp_path):
+    """The cut must fire only at the boundary — a long-but-reasonable note passes through whole."""
+    path = _noted(str(tmp_path / "ok.pdf"), "n" * 5_000)
+
+    (mark, *_) = annotations.get_annotations(path)["annotations"]
+
+    assert mark["note"] == "n" * 5_000
+    assert "note_truncated" not in mark
+
+
+def test_paging_still_terminates_over_a_cut_mark(tmp_path):
+    """The guarantee the cut exists to preserve: walk to exhaustion, no gaps, no infinite loop."""
+    path = _noted(str(tmp_path / "huge.pdf"), "Z" * 120_000, extra=5)
+
+    seen, offset, rounds = 0, 0, 0
+    while True:
+        rounds += 1
+        assert rounds < 20, "paging did not terminate"
+        batch = annotations.get_annotations(path, max_chars=3_000, offset=offset)
+        assert batch["count"] >= 1, "an empty batch would page forever"
+        seen += batch["count"]
+        if not batch["more_available"]:
+            break
+        offset += batch["count"]
+    assert seen == 6
+
+
+def test_a_multi_paragraph_note_does_not_duplicate_on_a_rerun(doc_path, tmp_path):
+    """TC-015. The remnant of M113.1: a note containing a blank line splits into several segments,
+    matched none of them, and was re-appended on every run — unbounded, while `marks_added: 0`
+    reported that nothing had changed."""
+    boxes = _find(doc_path, NAME)
+    note = "para one\n\npara two"
+    mark = [{"type": "highlight", "page": 1, "boxes": boxes, "note": note}]
+
+    first, second, third = (str(tmp_path / f"{n}.pdf") for n in ("1", "2", "3"))
+    annotations.annotate(doc_path, mark, first)
+    annotations.annotate(first, mark, second)
+    result = annotations.annotate(second, mark, third)
+
+    (written,) = result["annotations"]
+    assert written["note"] == note
+    assert result["marks_added"] == 0
+
+
+def test_a_multi_paragraph_note_still_appends_when_it_is_genuinely_new(doc_path, tmp_path):
+    """Skipping a duplicate must not start skipping real second remarks."""
+    boxes = _find(doc_path, NAME)
+    first, second = str(tmp_path / "1.pdf"), str(tmp_path / "2.pdf")
+
+    annotations.annotate(
+        doc_path, [{"type": "highlight", "page": 1, "boxes": boxes, "note": "a\n\nb"}], first
+    )
+    result = annotations.annotate(
+        first, [{"type": "highlight", "page": 1, "boxes": boxes, "note": "c\n\nd"}], second
+    )
+
+    (written,) = result["annotations"]
+    assert written["note"] == "a\n\nb\n\nc\n\nd"
+
+
+def test_a_note_that_is_a_run_of_existing_segments_is_not_re_added(doc_path, tmp_path):
+    """Segment *runs*, not membership: "a\\n\\nb" is already present in "a\\n\\nb\\n\\nc"."""
+    boxes = _find(doc_path, NAME)
+    first, second = str(tmp_path / "1.pdf"), str(tmp_path / "2.pdf")
+
+    annotations.annotate(
+        doc_path, [{"type": "highlight", "page": 1, "boxes": boxes, "note": "a\n\nb\n\nc"}], first
+    )
+    result = annotations.annotate(
+        first, [{"type": "highlight", "page": 1, "boxes": boxes, "note": "a\n\nb"}], second
+    )
+
+    (written,) = result["annotations"]
+    assert written["note"] == "a\n\nb\n\nc"
+
+
+def test_a_mark_with_one_quad_per_word_does_not_repeat_its_own_sentence(tmp_path):
+    """TC-015: 13 boxes produced a 618-character snippet for a `text_length` of 73 — the same
+    phrase re-windowed once per box, spending the budget the truncation above defends."""
+    path = str(tmp_path / "words.pdf")
+    doc = fitz.open()
+    page = doc.new_page(width=612, height=792)
+    page.insert_text((72, 115), "the quick brown fox jumps over the lazy dog again", fontsize=11)
+    doc.save(path)
+    doc.close()
+
+    doc = fitz.open(path)
+    page = doc[0]
+    words = page.get_text("words")[:10]
+    annot = page.add_highlight_annot([fitz.Rect(w[:4]) for w in words])
+    annot.set_info(title="klarpdf")
+    annot.update()
+    doc.save(path, incremental=True, encryption=fitz.PDF_ENCRYPT_KEEP)
+    doc.close()
+
+    (found,) = annotations.get_annotations(path)["annotations"]
+
+    assert len(found["boxes"]) >= 8                      # the mark really is many-boxed…
+    assert len(found["snippet"]) <= found["text_length"] * 2   # …and says its text about once
