@@ -5453,6 +5453,62 @@ rather than the host OS's choice of errno, and therefore runs identically everyw
 behaviour differs by platform, test the translation rather than the platform: the end-to-end test
 still earns its place, but it can only ever confirm the branch the runner happens to take.
 
+### M120 — a shape stops resizing itself on every save ([#292](https://github.com/utyagi24/klarpdf/issues/292), 2026-08-26)
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M120** A rectangle or ellipse whose outline is not exactly 2 pt no longer shrinks or grows on each save→reopen→save | `_SHAPE_RECT_GROWTH` + the `Square`/`Circle` branch of `parse_annotation`, `model/page_edits.py` | WSL | A shape reopens at the size it was drawn at **0.5 / 1 / 2 / 3 / 6 / 12 pt**, both kinds; four rewriting saves leave it where it started; the constant is pinned against PyMuPDF's own measured growth; `FreeText` still insets by half its border |
+
+**The defect.** `parse_annotation` insets a shape's stored `/Rect` to recover the box the user drew,
+and it insets by **`width / 2`** — the overhang a stroke centred on the path *would* have. PyMuPDF
+does not do that. Measured on the pinned 1.27.2.3 across widths **0.25 to 20.0**, for
+`add_rect_annot` and `add_circle_annot` alike, the growth is **exactly 1.0 pt per side at every
+width**. Reproduced before the fix, per save:
+
+| border width | PyMuPDF grows | old inset (`width / 2`) | net per save |
+| --- | --- | --- | --- |
+| 0.5 | 1.0 | 0.25 | **+0.75** grows |
+| 1.0 | 1.0 | 0.5 | **+0.5** grows |
+| **2.0** | 1.0 | 1.0 | **0** |
+| 3.0 | 1.0 | 1.5 | **−0.5** shrinks |
+| 6.0 | 1.0 | 3.0 | **−2.0** shrinks |
+
+**`Shape.width` defaults to 2.0, which is the single value where the two agree** — and the round
+trip was only ever tested at the default. The suite could not have caught this, and did not: the one
+width that is exercised is the one width that works.
+
+**Where it bit.** Only on a save that **redraws** the mark. Since M117 an appending save leaves a
+mark it is not changing exactly as it found it, so an ordinary "add one more highlight" save stopped
+moving anybody's shapes; but a rewriting save — a rotation, a redaction, a page move, a form fill,
+`Export ▸ Flattened`, a z-order change — still did. Found by M117's own per-kind comparison of a
+left-in-place mark against a redrawn one over the 94-document corpus: 82 of 83 pages rendered
+identically and the 83rd carried 4 pt shapes drawn in an earlier session.
+
+**The fix is one constant, and the tests are the substance.** Three of them, each pinning something
+the original got wrong:
+
+1. **A shape reopens at the size it was drawn**, parametrised over both kinds × six widths. One
+   cycle is enough — the drift compounds, but it is already there after the first save.
+2. **Four rewriting saves leave it where it started** — the symptom as reported. Each cycle applies
+   a no-op rotation, because since M117 a plain re-save no longer redraws and so cannot reproduce it.
+3. **The growth we undo is the growth PyMuPDF applies** — measured live, per kind, across seven
+   widths. This is the test whose absence allowed the bug: the old inset was *derived* rather than
+   *measured*, and if a future PyMuPDF changes the growth this now fails here with the reason
+   instead of appearing as documents quietly changing shape. A fourth test pins that `FreeText`
+   still insets by `border_width / 2`, since its growth genuinely does track the border — two insets
+   in one module that look like they should match and must not.
+
+**The lesson, which is why this earns an entry rather than a one-line commit:** when a read-back has
+to undo something a writer did, **measure what the writer actually did** rather than deriving it
+from what it ought to be — and test a round trip at more than the default value, because the default
+is the one most likely to be the value that happens to work.
+
+**Left open, deliberately** (`PROGRESS.md` §Open follow-ups): the *bridge* reports a shape's raw
+grown rect where the app now recovers the authored one, so the two surfaces name a 1 pt different
+box for the same shape. That is not obviously wrong — a box fed to `redact_regions` arguably should
+cover the drawn stroke — so it needs a decision rather than a patch.
+
+
 ## Future enhancements (deferred beyond the roadmap)
 
 Captured but not yet scheduled:
