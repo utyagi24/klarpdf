@@ -69,6 +69,7 @@ Everything here works **fully offline**: the app makes no network connection, ev
 - **Lossless saves** — text layer, form fields, bookmarks and internal links all survive a reorder or delete.
 - **Your document comes back whole** — an edit that doesn't move pages (filling a form, annotating, redacting, rotating) also keeps the accessibility tags, the permissions, the encryption and the links exactly as they were. Reordering or deleting pages rebuilds the file and loses the tags.
 - **Pages you didn't touch are never rewritten** — highlighting one page of a 572-page report *appends* the mark, the way Edge and Acrobat do: the file's other 9 MB stay byte-for-byte where they were, and the save takes a tenth of a second. Text extracted by other tools reads in the same order it did before. (Anything that removes or changes what was already there — a redaction above all — rewrites the document properly instead.)
+- **…and neither are the marks you didn't touch** — adding one highlight to a page that already carries two hundred writes about a kilobyte, not a fresh copy of all 201. So a document you keep coming back to stops getting bigger every time you open it: six sittings of one highlight each on a heavily marked file used to add 693 KB, and now add 7.
 - **Undo / redo** every page edit (Ctrl+Z / Ctrl+Y).
 
 **Annotate & mark up**
