@@ -79,6 +79,22 @@ than truncated silently: if a reply carries `truncated: true`, narrow the reques
 """
 
 
+def _is_directory_error(exc: OSError) -> bool:
+    """Was ``exc`` raised because the path is a directory? (M119 — issue #294.)
+
+    **The exception type is not the answer, because the two platforms disagree.** A document is read
+    with ``Path(path).read_bytes()`` (`model/virtual_document.py`), so the failure comes out of
+    CPython's own file layer, and there it is POSIX that has a distinct errno: ``EISDIR`` →
+    :class:`IsADirectoryError`. Windows has none, and reports ``EACCES`` → :class:`PermissionError`
+    instead — a type that also means what it says on any platform, so it cannot simply be added to
+    the branch. Asking the filesystem separates the two cases with no reference to errno at all.
+
+    ``filename`` is checked before use because :class:`OSError` does not guarantee it: ``isdir(None)``
+    raises :class:`TypeError`, which would turn a tidy error into a crash inside the error handler.
+    """
+    return bool(exc.filename) and os.path.isdir(exc.filename)
+
+
 def _explain(exc: Exception) -> Exception:
     """Turn an internal failure into something an agent can act on.
 
@@ -94,8 +110,16 @@ def _explain(exc: Exception) -> Exception:
         )
     if isinstance(exc, FileNotFoundError):
         return ValueError(f"no such file: {exc.filename or exc}")
+    # POSIX: the type alone is conclusive, and stays that way with no filesystem call.
     if isinstance(exc, IsADirectoryError):
         return ValueError(f"{exc.filename or exc} is a directory, not a PDF")
+    if isinstance(exc, PermissionError):
+        # Windows: the same mistake arrives as EACCES, so the filesystem has to be asked.
+        if _is_directory_error(exc):
+            return ValueError(f"{exc.filename or exc} is a directory, not a PDF")
+        # A genuine one — the path exists and is not readable. Kept distinct, because "is a
+        # directory" about a file the caller simply cannot open sends them after the wrong mistake.
+        return ValueError(f"permission denied: {exc.filename or exc}")
     return exc
 
 
