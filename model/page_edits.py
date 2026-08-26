@@ -595,6 +595,26 @@ _TOL = 0.01
 # inherited notes read as the two separate remarks they were rather than one run-on sentence.
 _NOTE_JOIN = "\n\n"
 
+# How much `add_rect_annot` / `add_circle_annot` grow a shape's `/Rect` per side when they bake its
+# appearance — which :func:`parse_annotation` has to undo to recover the box the user drew.
+#
+# **A measured constant, not `width / 2`, and the difference was a silent corruption** (#292). The
+# reasonable assumption is that a stroke centred on the path overhangs by half its width, so the
+# grown rect should track the border. PyMuPDF does not do that: measured on the pinned 1.27.2.3
+# across widths **0.25 to 20.0**, for `add_rect_annot` and `add_circle_annot` alike, the growth is
+# **exactly 1.0 pt per side at every width**.
+#
+# The two agree at exactly **2.0** — which is `Shape.width`'s own default, and the only reason this
+# went unseen for so long. At any other width the mismatch is a per-save drift in the authored box:
+# a 6 pt shape shrank 2 pt a side per save, a 0.5 pt one grew 0.75, silently, on every save that
+# redraws the mark. Since M117 an appending save leaves marks it is not changing alone, so it takes
+# a rewriting save (a rotation, a redaction, a page move, a form fill, a flatten) to move them.
+#
+# **`FreeText` is genuinely different and keeps `border_width / 2`** — its growth really does track
+# the border, measured separately. Two insets in one module that look like they should match and
+# must not, which is why both now carry their measurement.
+_SHAPE_RECT_GROWTH = 1.0
+
 
 def _same_line(a: tuple, b: tuple) -> bool:
     """Do two bars sit on the same text line? Midpoint-containment either way, rather than equal
@@ -1132,12 +1152,12 @@ def parse_annotation(annot: fitz.Annot):
             )
         )
     elif kind in (fitz.PDF_ANNOT_SQUARE, fitz.PDF_ANNOT_CIRCLE):
-        # The /Rect grows by the border width on each side when the appearance is baked
-        # (mirroring the FreeText inset above) — inset to recover the authored shape box, or
-        # the shape creeps outward on every save→reopen→save cycle.
+        # Undo the growth `add_rect_annot` / `add_circle_annot` applied when the appearance was
+        # baked, to recover the authored shape box — see :data:`_SHAPE_RECT_GROWTH` for why that
+        # is a constant rather than a function of the border width (#292).
         width = _border_width(annot)
         r = annot.rect
-        inset = width / 2.0
+        inset = _SHAPE_RECT_GROWTH
         rect = (r.x0 + inset, r.y0 + inset, r.x1 - inset, r.y1 - inset)
         fill = annot.colors.get("fill")
         result.append(

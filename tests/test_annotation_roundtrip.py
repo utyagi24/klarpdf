@@ -19,7 +19,9 @@ from model.page_edits import (
     KLARPDF_AUTHOR,
     Highlight,
     Redaction,
+    Shape,
     TextBox,
+    _SHAPE_RECT_GROWTH,
     read_klarpdf_annotations,
     strip_klarpdf_annotations,
 )
@@ -272,3 +274,91 @@ def test_reload_from_file_seeds_annotations(text_pdf, tmp_path):
     # Re-save after the reload still has exactly one annotation (no duplication).
     resaved = _materialize(v1, tmp_path, "after_reload.pdf")
     assert _annot_count(resaved) == 1
+
+
+# ---- #292: a shape must not resize itself on a save that redraws it ----------
+#
+# The round trip was only ever tested at `Shape.width`'s default of 2.0 — which is precisely the one
+# width at which the old `width / 2` inset happened to equal PyMuPDF's actual growth, so the bug was
+# invisible to the suite. These run at several widths on purpose.
+
+
+@pytest.mark.parametrize("kind", ["rect", "ellipse"])
+@pytest.mark.parametrize("width", [0.5, 1.0, 2.0, 3.0, 6.0, 12.0])
+def test_a_shape_reopens_at_the_size_it_was_drawn(text_pdf, tmp_path, kind, width):
+    """The defect at its root: what `parse_annotation` recovers must be what was authored.
+
+    One cycle is enough to catch it — the drift compounds per save, but it is already present after
+    the first.
+    """
+    authored = (100.0, 100.0, 300.0, 200.0)
+    v = VirtualDocument.from_path(text_pdf)
+    v.add_annotation(0, Shape(kind, authored, width=width))
+    out = _materialize(v, tmp_path, f"{kind}{width}.pdf")
+
+    reopened = VirtualDocument.from_path(out)
+    shape = next(a for a in reopened.page_annotations(0) if isinstance(a, Shape))
+    assert shape.rect == pytest.approx(authored, abs=1e-3)
+    assert shape.width == pytest.approx(width, abs=1e-3)
+
+
+@pytest.mark.parametrize("kind", ["rect", "ellipse"])
+@pytest.mark.parametrize("width", [0.5, 6.0])
+def test_a_shape_does_not_creep_across_repeated_rewriting_saves(text_pdf, tmp_path, kind, width):
+    """The symptom as reported: save, reopen, save again, and the shape has moved.
+
+    Each cycle applies a **no-op rotation**, because since M117 an appending save leaves a mark it
+    is not changing exactly as it found it — so a plain re-save no longer redraws anything and
+    cannot reproduce this. A rotation is one of the rewriting routes the report names.
+    """
+    authored = (100.0, 100.0, 300.0, 200.0)
+    v = VirtualDocument.from_path(text_pdf)
+    v.add_annotation(0, Shape(kind, authored, width=width))
+    path = _materialize(v, tmp_path, f"creep-{kind}{width}-0.pdf")
+
+    for cycle in range(1, 5):
+        reopened = VirtualDocument.from_path(path)
+        reopened.rotate_pages([0], 0)              # forces the redraw route
+        path = _materialize(reopened, tmp_path, f"creep-{kind}{width}-{cycle}.pdf")
+
+    final = VirtualDocument.from_path(path)
+    shape = next(a for a in final.page_annotations(0) if isinstance(a, Shape))
+    assert shape.rect == pytest.approx(authored, abs=1e-3)
+
+
+@pytest.mark.parametrize("adder", ["add_rect_annot", "add_circle_annot"])
+@pytest.mark.parametrize("width", [0.25, 0.5, 1.0, 2.0, 3.0, 6.0, 20.0])
+def test_the_growth_we_undo_is_the_growth_pymupdf_applies(tmp_path, adder, width):
+    """Pins `_SHAPE_RECT_GROWTH` against the library rather than against our belief about it.
+
+    This is the test whose absence let #292 happen. The old inset was *derived* — half the border,
+    which is what a centred stroke would overhang — instead of measured, and PyMuPDF does something
+    else entirely: a flat 1.0 pt per side whatever the width. If a future PyMuPDF changes that, this
+    fails here with the reason, rather than showing up as documents quietly changing shape.
+    """
+    authored = fitz.Rect(100.0, 100.0, 300.0, 200.0)
+    doc = fitz.open()
+    page = doc.new_page()
+    annot = getattr(page, adder)(authored)
+    annot.set_border(width=width)
+    annot.update()
+    grown = annot.rect
+    doc.close()
+
+    for observed in (authored.x0 - grown.x0, authored.y0 - grown.y0,
+                     grown.x1 - authored.x1, grown.y1 - authored.y1):
+        assert observed == pytest.approx(_SHAPE_RECT_GROWTH, abs=1e-3)
+
+
+def test_a_textbox_still_insets_by_half_its_border(text_pdf, tmp_path):
+    """The other half of the lesson: `FreeText` growth genuinely *does* track the border width, so
+    the two insets in `page_edits` must stay different. Fixing one to match the other would break
+    this."""
+    authored = (72.0, 200.0, 320.0, 240.0)
+    v = VirtualDocument.from_path(text_pdf)
+    v.add_annotation(0, TextBox(authored, "x", border_width=6.0))
+    out = _materialize(v, tmp_path, "freetext6.pdf")
+
+    reopened = VirtualDocument.from_path(out)
+    box = next(a for a in reopened.page_annotations(0) if isinstance(a, TextBox))
+    assert box.rect == pytest.approx(authored, abs=1e-3)
