@@ -114,6 +114,45 @@ MAX_ANNOTATION_CHARS = 60_000
 # hundred marks could crowd out the one or two this call just added.
 _NO_CAP = 1_000_000
 
+# The share of a batch's character budget one mark's note may take before it is cut (M118). A batch
+# must always yield at least one mark or a correctly-paging caller never terminates — and M113 took
+# that to mean a single mark could set an unbounded *floor* on reply size, which put the whole reply
+# back over what a client accepts: **120,624 characters from one annotation**, the very harm the
+# character budget was added to prevent, now reachable without needing 406 marks (TC-015). Whole
+# marks are still never trimmed. What gets cut is the **note**, which is the only field that grows
+# without bound, and the cut is disclosed per mark so a caller can go and read the rest.
+#
+# Half, so a cut mark still leaves room for others rather than monopolising the batch it sits in.
+_NOTE_BUDGET_SHARE = 0.5
+
+# What a truncated note ends with, so a reader sees the cut rather than a sentence stopping dead.
+_NOTE_ELLIPSIS = " […]"
+
+
+def _fit(entry: dict, budget: int) -> dict:
+    """``entry`` with its ``note`` cut down if the entry alone would blow ``budget`` (M118).
+
+    Returns the entry unchanged when it fits, which is the overwhelmingly common case. When it does
+    not, the note — and only the note — is cut, because everything else a caller filters on is
+    small and bounded: ``boxes``, ``color``, ``color_name``, ``page``, ``type``, the flags. A mark
+    whose note was cut carries ``note_truncated: true`` and ``note_length``, the original character
+    count, so the reply says plainly that there is more and how much.
+    """
+    if len(json.dumps(entry)) <= budget or not entry.get("note"):
+        return entry
+    original = entry["note"]
+    # Budget the note against what the rest of the entry costs, so the arithmetic holds however the
+    # other fields grow later.
+    without_note = len(json.dumps({**entry, "note": ""}))
+    room = int(budget * _NOTE_BUDGET_SHARE) - without_note - len(_NOTE_ELLIPSIS)
+    kept = original[:max(room, 0)]
+    return {
+        **entry,
+        "note": (kept + _NOTE_ELLIPSIS) if kept else _NOTE_ELLIPSIS.strip(),
+        "note_truncated": True,
+        "note_length": len(original),
+    }
+
 
 def _quads_to_boxes(vertices) -> list[list[float]]:
     """Quad points → one box per quad, in the order the annotation stores them.
@@ -129,6 +168,33 @@ def _quads_to_boxes(vertices) -> list[list[float]]:
         ys = [p[1] for p in quad]
         boxes.append([min(xs), min(ys), max(xs), max(ys)])
     return boxes
+
+
+def _lines_of(boxes: list[tuple]) -> list[tuple]:
+    """``boxes`` folded to one union box per text line (M118).
+
+    Only for building a mark's ``snippet``. A mark's boxes are usually one per line, but they need
+    not be: a highlight laid over a `search` hit's individual word boxes carries one quad *per word*,
+    and snippetting each of thirteen word-boxes separately returned thirteen overlapping windows of
+    the same sentence — **465 characters to describe 59** (TC-015), spending the very budget
+    :func:`_fit` exists to defend. Merging to lines first gives one window per line, which is what
+    the field was always meant to be.
+
+    Same midpoint-containment rule as ``page_edits._same_line``, restated rather than imported
+    because that one takes a pair and this needs to group a list.
+    """
+    lines: list[list[float]] = []
+    for box in sorted(boxes, key=lambda b: (b[1], b[0])):
+        mid = (box[1] + box[3]) / 2
+        for line in lines:
+            line_mid = (line[1] + line[3]) / 2
+            if line[1] <= mid <= line[3] or box[1] <= line_mid <= box[3]:
+                line[0], line[1] = min(line[0], box[0]), min(line[1], box[1])
+                line[2], line[3] = max(line[2], box[2]), max(line[3], box[3])
+                break
+        else:
+            lines.append(list(box))
+    return [tuple(line) for line in lines]
 
 
 def _describe(annot, page1: int, text: PageText) -> dict:
@@ -168,8 +234,10 @@ def _describe(annot, page1: int, text: PageText) -> dict:
         # readability the way `search`'s hits are, `text_length` the *un*windowed count, so a box
         # that is plausible-looking but covers three paragraphs instead of one line still shows up.
         # Both are empty/zero on a page with no text layer, which then reads the same as a wrong
-        # box — a limit to know about, not a bug.
-        "snippet": text.snippet_for(box_tuples),
+        # box — a limit to know about, not a bug. Snippetting is per *line* rather than per box
+        # (M118): a mark carrying one quad per word would otherwise repeat its own sentence once
+        # per word.
+        "snippet": text.snippet_for(_lines_of(box_tuples)),
         "text_length": len(text.text_under_all(box_tuples)),
         "color": color,
         # Advisory: the nearest swatch name, so a caller can filter on "orange" without doing colour
@@ -236,9 +304,13 @@ def get_annotations(
         for entry in all_found[offset:]:
             if len(found) >= max_annotations:
                 break
+            # A mark whose own note would blow the whole budget has the note cut rather than the
+            # mark dropped (M118) — the batch must always yield at least one mark, and before this
+            # that guarantee let one annotation set an unbounded floor on the reply's size.
+            entry = _fit(entry, max_chars)
             size = len(json.dumps(entry))
-            # Always take at least one entry, even if its own size already exceeds the budget — an
-            # empty page of results would be a worse answer than one oversized entry.
+            # Always take at least one entry: an empty batch with `more_available: true` is a
+            # caller that pages forever.
             if found and used + size > max_chars:
                 break
             found.append(entry)
@@ -489,6 +561,30 @@ def annotate(
         return result
 
 
+def _already_present(existing: str, note: str) -> bool:
+    """Does ``existing`` already carry ``note``, as whole segments? (M113.1, corrected M118.)
+
+    Notes are joined with :data:`_NOTE_JOIN`, so both sides are read as **lists of segments** and
+    the question is whether ``note``'s segments appear as a **contiguous run** of ``existing``'s.
+
+    That framing is the fix for the case M113.1 could not express. Testing membership of a single
+    segment — ``note in existing.split(_NOTE_JOIN)`` — is exact only while a note *is* one segment;
+    a note that itself contains a blank line splits into several, matches nothing, and was appended
+    again on every re-run, growing the note without bound while ``marks_added: 0`` reported that
+    nothing had changed (TC-015). A multi-paragraph review comment is an ordinary thing to write.
+
+    Comparing runs of segments keeps the property that made the original right: ``"check"`` against
+    an existing ``"check the totals"`` is one segment against another and does **not** match, so it
+    is appended rather than swallowed as a substring.
+    """
+    if not note:
+        return True                       # nothing to add
+    have, want = existing.split(_NOTE_JOIN), note.split(_NOTE_JOIN)
+    return any(
+        have[i:i + len(want)] == want for i in range(len(have) - len(want) + 1)
+    )
+
+
 def _attach_note(annotations: tuple, mark_class, boxes, note: str) -> tuple:
     """``annotations`` with ``note`` set on the mark that ``merge_markup`` just produced.
 
@@ -499,9 +595,9 @@ def _attach_note(annotations: tuple, mark_class, boxes, note: str) -> tuple:
 
     **A note already present is not joined again (M113.1).** ``merge_markup`` carries an absorbed
     mark's note onto the survivor, so without this a re-run of the same call would see its own note
-    twice: once inherited from the merge, once attached fresh right here. The match is against a
-    whole joined segment, not a substring — a note of "check" must not be treated as already present
-    because the mark already reads "check the totals".
+    twice: once inherited from the merge, once attached fresh right here. See
+    :func:`_already_present` for how "already there" is decided, and why it is decided over segment
+    *runs* rather than over one segment.
     """
     from dataclasses import replace
 
@@ -511,7 +607,7 @@ def _attach_note(annotations: tuple, mark_class, boxes, note: str) -> tuple:
         if isinstance(mark, mark_class) and any(
             _x_overlap(tuple(box), other) for box in boxes for other in mark.rects
         ):
-            if note in mark.note.split(_NOTE_JOIN):
+            if _already_present(mark.note, note):
                 break
             joined = _NOTE_JOIN.join([n for n in (mark.note, note) if n])
             result[i] = replace(mark, note=joined)

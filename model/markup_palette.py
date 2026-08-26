@@ -53,12 +53,30 @@ PALETTES: dict[str, tuple[tuple[str, tuple[float, float, float]], ...]] = {
 # a value that survived a PDF float round-trip is not bit-identical to the one that was written.
 EXACT_TOLERANCE = 0.01
 
-# How far a colour may sit from the nearest swatch and still borrow its *name*, under
-# :func:`_perceptual_distance` (M113.7). The ceiling is set just under the closest pair of swatches
-# in either palette under that same weighting — Yellow to Orange, 0.127 apart — so a name is never
-# borrowed across a distance greater than the gap between two named colours. Anything further away
-# (mid-grey, say) gets no name at all rather than a misleading one.
+# How far a colour may sit from the nearest swatch and still borrow its *name* **unconditionally**,
+# under :func:`_perceptual_distance`. Set just under the closest pair of swatches in either palette
+# under that same weighting — Yellow to Orange, 0.130 apart — so inside this radius a name is never
+# borrowed across a distance greater than the gap between two named colours.
 NAME_TOLERANCE = 0.12
+
+# The outer radius, and the margin a colour between the two must clear (M118).
+#
+# **`NAME_TOLERANCE` alone was answering two questions with one number, and got the second wrong.**
+# It has to decide both *is this colour anywhere near our palette* and *is it unambiguously one
+# swatch rather than between two* — and calibrating it against the closest swatch pair only really
+# addresses the second. The cost was measured: **pure yellow `(1, 1, 0)`** — Acrobat's default
+# highlighter and the commonest highlight colour in circulation — sits **0.1214** from our Yellow
+# and so fell 1.2% outside a 0.12 ceiling and got no name at all, while `(0.99, 0.99, 0)`, which no
+# eye can tell from it, named fine (TC-015). Nothing about pure yellow is ambiguous: its runner-up
+# (Orange) is **0.2501** away, so Yellow is 2.06x clearer.
+#
+# So the two questions are asked separately. Inside `NAME_TOLERANCE` nothing changes. Between it and
+# `NAME_MAX_DISTANCE` a colour is named only when the nearest swatch beats the runner-up by
+# `NAME_MARGIN` — near enough to be in the neighbourhood, and clearly one of them rather than
+# stranded between two. Measured over 200,000 random colours across both palettes and the union,
+# this changes **no** colour that already had a name: it is purely additive.
+NAME_MAX_DISTANCE = 0.16
+NAME_MARGIN = 1.5
 
 # ITU-R BT.709 luma coefficients — the standard sRGB weighting, not a value tuned for this palette.
 _LUMA_WEIGHTS = (0.2126, 0.7152, 0.0722)
@@ -108,22 +126,37 @@ def names_for(mark_type: str) -> tuple[str, ...]:
 
 
 def nearest_name(rgb: tuple, mark_type: str | None = None) -> str | None:
-    """The palette name nearest ``rgb``, or ``None`` if nothing is within :data:`NAME_TOLERANCE`.
+    """The palette name nearest ``rgb``, or ``None`` when no swatch is clearly the one it means.
 
     ``mark_type`` narrows the search to that type's palette; without it both are searched, which is
     what the read side wants — a foreign highlight may be any colour at all, including one only the
     line palette has a name for.
+
+    **Two radii, not one** (M118 — see :data:`NAME_MAX_DISTANCE`). Within
+    :data:`NAME_TOLERANCE` the nearest swatch wins outright. Out to
+    :data:`NAME_MAX_DISTANCE` it must also be :data:`NAME_MARGIN` times nearer than the
+    runner-up, so a colour that is merely *in the region* — a teal between our two greens — stays
+    unnamed while one that is plainly a brighter version of a single swatch, like pure yellow
+    against our muted marker Yellow, is named. Beyond that, nothing is named at all.
     """
     if mark_type in PALETTES:
         candidates = PALETTES[mark_type]
     else:
         candidates = HIGHLIGHT_COLORS + TEXT_LINE_COLORS
-    best_name, best = None, NAME_TOLERANCE
-    for name, value in candidates:
-        gap = _perceptual_distance(tuple(rgb), value)
-        if gap <= best:
-            best_name, best = name, gap
-    return best_name
+    ranked = sorted(
+        (_perceptual_distance(tuple(rgb), value), name) for name, value in candidates
+    )
+    if not ranked:
+        return None
+    best, best_name = ranked[0]
+    if best <= NAME_TOLERANCE:
+        return best_name
+    if best > NAME_MAX_DISTANCE:
+        return None
+    # In the halo: name it only if nothing else is competing. `best == 0` cannot reach here (it
+    # would have passed the inner test), so the division is safe.
+    runner_up = ranked[1][0] if len(ranked) > 1 else float("inf")
+    return best_name if runner_up / best >= NAME_MARGIN else None
 
 
 def is_palette_color(rgb: tuple, mark_type: str | None = None) -> bool:

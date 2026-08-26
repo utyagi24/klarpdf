@@ -139,13 +139,19 @@ deliberately rather than one a colour triggered.
   two existing same-colour marks absorbs both and leaves one where there were two, so a call
   requesting one mark reports `marks_added: -1`. Read it as "the net change in how many annotations
   the page carries", never as "how many marks were laid".
-* **`annotations`** is `get_annotations`' own output narrowed to the marks **this call** wrote or
-  merged into, read back off the written file rather than echoed from the request. So it shows the
-  marks as they *are* — post-merge geometry, the colour actually stored, any note inherited from an
-  absorbed mark — which is what you want before showing a person what you did. Boxes here can be fed
-  to `render_page(clip=...)` to show them the pixels. It is deliberately **not** every mark on the
+* **`annotations`** is `get_annotations`' own output narrowed to **the spans this call touched**,
+  read back off the written file rather than echoed from the request. So it shows the marks as they
+  *are* — post-merge geometry, the colour actually stored, any note inherited from an absorbed mark
+  — which is what you want before showing a person what you did. Boxes here can be fed to
+  `render_page(clip=...)` to show them the pixels. It is deliberately **not** every mark on the
   pages touched: adding one mark to a page already holding eighty would otherwise return
   eighty-one, a reply bounded by the page's history rather than by your request.
+
+  **Three kinds of entry can appear, and `mine` tells them apart.** A mark this call *wrote*; a mark
+  it *merged into* (same type and colour, absorbed); and a mark it *landed beside* — one at the same
+  span that this call could not merge with because KlarPDF did not write it (`mine: false`). The
+  third is included on purpose: if you have just laid a highlight over a reviewer's, their mark is
+  exactly what you need to see, and it pairs with the `warnings` entry naming its author.
 * **`pages_annotated`** lists the pages touched, 1-based.
 * **`warnings`** appears when the document's permissions ask readers not to annotate it (advisory,
   enforced by nothing — the marks are written, and the user should be told before the file is
@@ -279,6 +285,14 @@ dropped rather than trimmed:
 * **`more_available`** — `true` when marks were left behind. Call again with
   `offset = offset + count` and keep going until it is `false`.
 
+**One exception to "whole marks, never trimmed": a note long enough to blow the whole budget on its
+own.** A mark is never dropped for being too big — a batch that returned nothing while saying more
+was available would page forever — so instead that mark's **note** is cut, and only its note.
+Everything you filter on (`boxes`, `color`, `color_name`, `page`, `type`, `snippet`, the flags) is
+small, bounded and comes through intact. Such a mark carries **`note_truncated: true`** and
+**`note_length`**, the original character count, so the reply says plainly that there is more text
+and how much. Nothing else in the listing is affected.
+
 The order is stable across calls (page order, then each page's own annotation order), and no write
 tool can change the file underneath you — every one of them writes to a *new* path — so a plain
 integer offset is safe here in a way it usually is not. No cursor, no snapshot, no staleness.
@@ -324,9 +338,11 @@ empty — which is indistinguishable from a wrong box, and the one case this can
   a misleading guess. Nearness is judged perceptually (luma-weighted), not by raw RGB distance, so
   another tool's default yellow is named `Yellow` rather than being pulled toward `Orange` by a
   difference the eye reads as paleness rather than hue.
-* **`color_exact`** is `true` only when the colour *is* one of the app's swatches. A mark made in
-  KlarPDF carries an exact value; one made in Acrobat generally does not. Use it to tell "the
-  reviewer picked Orange from the menu" from "something orange-ish arrived from elsewhere".
+* **`color_exact`** is `true` only when the colour *is* one of the app's **current** swatches. It is
+  a fact about the stored value, not about who wrote the mark: a mark picked from KlarPDF's palette
+  today is exact, one from Acrobat generally is not — but so is a KlarPDF mark written under an
+  **older swatch set**, which reads `mine: true, color_exact: false`. Read it as "this is a palette
+  colour I can match by name", never as "a human chose this from a menu".
 
 **The two palettes are not one palette.** Highlights are Yellow, Green, Blue, Pink, Orange; lines
 (underline and strikeout) are Red, Blue, Green, Black — and the shared names are **different
