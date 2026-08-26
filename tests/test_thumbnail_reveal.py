@@ -138,3 +138,38 @@ def test_the_first_and_last_pages_stay_reachable(panel):
         rect = panel.visualItemRect(panel.item(row))
         port = panel.viewport().rect()
         assert port.top() <= rect.center().y() <= port.bottom()
+
+
+# ---- #288: a rebuild must not scroll the strip out from under the reader ------
+#
+# `populate()` runs on every structural edit and did not go through `_reveal_row`: `clear()` drops
+# the strip to the top and the `setCurrentRow` that restores the marker scrolls the *minimum*
+# distance back, landing it hard against an edge. Same defect as above, different path in.
+
+
+def test_a_rebuild_keeps_the_reader_where_they_were(tall_panel):
+    """The general case, which is not specific to inserting: nothing structural should move the
+    strip when the marked row is still comfortably in view."""
+    tall_panel.set_current(20)
+    before = tall_panel.verticalScrollBar().value()
+
+    tall_panel.populate()
+
+    assert tall_panel.verticalScrollBar().value() == before
+
+
+def test_a_rebuild_does_not_jam_the_marked_row_against_an_edge(tall_panel):
+    """`clear()` resets the offset to 0, so without the restore the marker comes back at whichever
+    edge the minimum scroll reached — which is exactly what hid the newly inserted page."""
+    tall_panel.set_current(30)
+
+    tall_panel.populate()
+
+    assert abs(_offset(tall_panel, 30)) < 0.25
+
+
+def test_the_marker_survives_the_rebuild(tall_panel):
+    """The property `populate` already had, re-asserted so the scroll fix cannot cost it."""
+    tall_panel.set_current(20)
+    tall_panel.populate()
+    assert tall_panel.currentRow() == 20

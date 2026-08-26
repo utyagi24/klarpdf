@@ -2263,6 +2263,30 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   **38 s** on a branch touching `mcp_bridge/` and `model/`, **4 s** reporting without doing the work
   on the docs-only branch stacked above it. Design in `PLAN.md` §M115.1 — *WSL + CI*
 
+- [x] **M121** *(unplanned)* **Insert Blank Page leaves you looking at the page you made** —
+  [#288](https://github.com/utyagi24/klarpdf/issues/288), fixed 2026-08-26. Right-click a thumbnail →
+  Insert Blank Page and the strip scrolled so the **clicked** thumbnail jammed against the bottom of
+  the sidebar with the new page below the fold. **Two independent causes, and the first is not about
+  inserting at all.** *(a)* The scroll jump lives in `ThumbnailPanel.populate()`, which **every**
+  structural edit runs: `clear()` drops the strip to the top and the `setCurrentRow` restoring the
+  marker scrolls the *minimum* distance back, landing it hard against an edge — the very defect
+  `_reveal_row` was written to fix for view-driven scrolling (M85), arriving by a path that never
+  went through it, so duplicate / insert-from-file / rotate / delete all did it too. Now the scroll
+  offset is captured and restored alongside the row and the marker is revealed through the shared
+  `util.reveal` policy: a row still comfortably in view does not move at all, one that is not gets
+  centred. *(b)* The inserted page now becomes current, via the `_note_edit_on` hook M59.9 already
+  provided — before, the current row was a bare integer that survived the rebuild and so pointed at
+  a *different* page than it had before the insert.
+  **The ordering bug that uncovered is the part worth keeping:** (b) alone fixed an insert *into* the
+  document and did nothing for one at the **end**. `_on_doc_changed` consumed `_edited_page` *before*
+  `populate()`, and the marker reaches the sidebar as `currentPageChanged` → `set_current`, which
+  range-checks against the strip's **current** count — so a page appended past the old end had no row
+  yet and the request was silently swallowed by the `0 <= index < count()` guard. Nothing failed; the
+  marker just stayed put. The consumption now runs *after* `populate()`. Found by testing the
+  end-of-document case separately instead of assuming it shared the path. GUI-only — `organize/` is
+  shared with the bridge, but this is sidebar scroll/selection and the bridge has no insert tool.
+  Design in `PLAN.md` §M121 — *WSL (offscreen GUI)*
+
 - [x] **M118** *(unplanned)* **The boundaries M113 stopped one step short of** — five follow-ups from
   the **TC-015** retest (2026-08-26), which verified all nine M113 fixes black-box against nine
   purpose-built fixtures plus three real documents, with PyMuPDF/pypdf as an independent oracle, and

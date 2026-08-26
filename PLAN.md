@@ -5417,6 +5417,46 @@ it as a fact about the stored value rather than about who wrote the mark. And a 
 `pdfproj` — this app's own former codename — reports `mine: false` on a real document, which
 confirms §M112's premise on a third file rather than opening anything new.
 
+### M121 — Insert Blank Page leaves you looking at the page you made ([#288](https://github.com/utyagi24/klarpdf/issues/288), 2026-08-26)
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M121** A structural edit stops scrolling the Pages sidebar out from under the reader, and an insert lands the marker on the new page | `ThumbnailPanel.populate` (`organize/thumbnail_panel.py`), `_insert_blank_page` and the `_edited_page` consumption in `_on_doc_changed` (`main_window.py`) | WSL (offscreen GUI) | A rebuild with the marked row in view does not move the strip at all; a rebuild with it off-view centres rather than jams; inserting mid-document *and at the end* leaves the new page current and fully inside the sidebar viewport |
+
+**The report.** Right-click a thumbnail → **Insert Blank Page**, and the strip scrolls so the clicked
+thumbnail is jammed against the **bottom** of the sidebar while the page just created — which sits
+immediately after it — is below the fold. You have to scroll back to see what you asked for.
+
+**Two independent causes, and the first is not about inserting at all.**
+
+*(a) The scroll jump belongs to `populate()`, which every structural edit runs.* `clear()` drops the
+strip to the top, and the `setCurrentRow` that restores the marker scrolls the **minimum** distance
+to bring it back — landing it hard against whichever edge it came from. That is precisely the defect
+`_reveal_row` was written to fix for view-driven scrolling (M85, owner-reported 2026-08-13),
+reappearing by a path that never went through it. So duplicate, insert-from-file, rotate and delete
+all did it too; Insert Blank Page is simply where it is most visible, because it is the one that puts
+something new immediately below the fold. **Fix:** capture the scroll offset alongside the row,
+restore it before the marker, and reveal through the shared `util.reveal` policy — a row still
+comfortably in view does not move at all, one that is not gets centred.
+
+*(b) Which page is current after an insert.* `_insert_blank_page` pushed its command and stopped, so
+the current row was a bare integer that survived the rebuild and therefore pointed at a **different
+page** than before the insert. `_note_edit_on` — the M59.9 hook that already exists for exactly this
+— makes the new page current, and `ThumbnailPanel.set_current` reveals it properly on the way.
+
+**The ordering bug this uncovered, which is the part worth recording.** Setting `_edited_page` alone
+fixed an insert *into* the document and did nothing for one at the **end**. `_on_doc_changed`
+consumed `_edited_page` **before** `thumbs.populate()`, and the marker travels to the sidebar as
+`currentPageChanged` → `set_current`, which range-checks the row against the strip's *current* count
+— so for a page appended past the old end, the row did not exist yet and the request was silently
+dropped by the `0 <= index < self.count()` guard. Nothing failed; the marker just stayed put. The
+consumption now runs **after** `populate()`: rebuild the strip, then place the marker on it. Caught
+by testing the end-of-document case separately rather than assuming it was the same code path.
+
+**Scope.** GUI-only, as the report says: `organize/` is shared with the MCP bridge, but this is
+sidebar scroll and selection behaviour and the bridge has no insert tool. No core behaviour changes,
+so there is nothing owed on the bridge side (`CLAUDE.md` §Two consumers share one core).
+
 ## Future enhancements (deferred beyond the roadmap)
 
 Captured but not yet scheduled:

@@ -524,8 +524,22 @@ class ThumbnailPanel(QListWidget):
         Preserves the current-page marker across the rebuild: ``clear()`` would otherwise reset the
         current row to -1, so an edit (which repopulates) would drop the highlight even though the
         page didn't change. We capture the row first and restore it if it still exists.
+
+        **And preserves the scroll position, which is a second thing entirely** (#288). ``clear()``
+        drops the strip to the top, and the ``setCurrentRow`` that restores the marker scrolls the
+        *minimum* distance to bring it back — landing it hard against whichever edge it came from.
+        That is the same "jammed against the edge" defect :meth:`_reveal_row` was written to fix for
+        view-driven scrolling, arriving by a path that did not go through it: Insert Blank Page
+        pinned the clicked thumbnail to the bottom and left the new page below the fold. It is not
+        specific to inserting — **every** structural edit repopulates, so duplicate, insert-from-file,
+        rotate and delete all did it.
+
+        So the offset is restored first and the marker revealed through the shared policy: a row
+        still comfortably in view does not move at all (the reader keeps their place), and one that
+        is not gets centred rather than shoved against an edge.
         """
         current = self.currentRow()
+        offset = self.verticalScrollBar().value()
         carried = self._carryable_icons()
         self._syncing = True
         self.clear()
@@ -537,8 +551,12 @@ class ThumbnailPanel(QListWidget):
             item.setTextAlignment(Qt.AlignmentFlag.AlignHCenter)
             self.addItem(item)
         self._layout_key = self._page_layout_key()
+        # Before the marker, so `setCurrentRow`'s implicit EnsureVisible has the reader's own
+        # position to judge against rather than the top of the strip `clear()` left behind.
+        self.verticalScrollBar().setValue(offset)
         if 0 <= current < self.count():
             self.setCurrentRow(current)
+            self._reveal_row(current)
         self._syncing = False
         self._render_visible_thumbs()  # render whatever is already on screen (nothing if not yet shown)
 
