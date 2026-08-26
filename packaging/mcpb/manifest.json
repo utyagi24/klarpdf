@@ -61,6 +61,10 @@
       "description": "List fillable form fields."
     },
     {
+      "name": "get_annotations",
+      "description": "List every annotation, with notes, colours and boxes."
+    },
+    {
       "name": "extract_pages",
       "description": "Write named pages out as one new PDF."
     },
@@ -91,6 +95,10 @@
     {
       "name": "flatten",
       "description": "Bake annotations and fields into page content."
+    },
+    {
+      "name": "annotate",
+      "description": "Write highlights, underlines and strike-throughs, with notes."
     },
     {
       "name": "export_images",

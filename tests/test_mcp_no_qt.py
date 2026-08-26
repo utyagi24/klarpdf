@@ -81,6 +81,7 @@ _CHILD = textwrap.dedent(
         await server.call_tool("extract_text", {"path": PDF, "pages": [1]})
         await server.call_tool("render_page", {"path": PDF, "page": 1, "dpi": 36})
         await server.call_tool("get_form_fields", {"path": PDF})
+        await server.call_tool("get_annotations", {"path": PDF})
         # writes — each pulls its own import chain (model.export, model.page_edits,
         # util.page_range), which is exactly what a load-time-only check would miss
         await server.call_tool("delete_pages", {"path": PDF, "pages": [2], "out": out("d.pdf")})
@@ -95,6 +96,16 @@ _CHILD = textwrap.dedent(
             "fill_form", {"path": PDF, "values": {"name": "x"}, "out": out("f.pdf")}
         )
         await server.call_tool("flatten", {"path": PDF, "out": out("fl.pdf")})
+        # `annotate` reaches model.page_edits' merge/markup path and model.markup_palette — the
+        # latter lifted out of viewer/ precisely so this assertion can keep holding (M101)
+        await server.call_tool(
+            "annotate",
+            {
+                "path": PDF,
+                "marks": [{"type": "highlight", "page": 1, "box": [70, 60, 300, 90]}],
+                "out": out("a.pdf"),
+            },
+        )
         await server.call_tool(
             "export_images", {"path": PDF, "out_dir": WORK, "pages": [1], "dpi": 36}
         )

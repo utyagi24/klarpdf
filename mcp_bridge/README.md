@@ -1,7 +1,7 @@
 # KlarPDF MCP bridge
 
 KlarPDF's PDF engine as [MCP](https://modelcontextprotocol.io) tools, for Claude Code, Claude
-Desktop, and any other client that speaks stdio. Seventeen tools: read a document without pulling it
+Desktop, and any other client that speaks stdio. Nineteen tools: read a document without pulling it
 whole into context, transform it to a new file without losing its content, and redact it
 destructively with cross-engine verification.
 
@@ -53,7 +53,7 @@ claude mcp add klarpdf -- klarpdf-mcp
 A `.mcp.json` is also checked in at the repo root, so inside this project Claude Code offers the
 server and you approve it — but it too needs the install, since it invokes `klarpdf-mcp`.
 
-Confirm with `/mcp`: it should say **klarpdf — 17 tools**. If it says *failed*, run the command by
+Confirm with `/mcp`: it should say **klarpdf — 19 tools**. If it says *failed*, run the command by
 hand in the same shell you launch Claude from; the error is almost always `command not found`
 (nothing installed, or a different virtualenv active) or `No module named mcp` (installed the
 package but not its dependencies).
@@ -125,6 +125,7 @@ error, never a silent clamp.
 | `extract_text` | Text of named pages. |
 | `render_page` | One page — or one `clip` region of it — as a PNG image block. |
 | `get_form_fields` | Fillable fields, one entry per occurrence, with each one's checkbox on-state and read-only / required / multiline / max-length. |
+| `get_annotations` | Every mark on the page — anyone's — with its `note`, colour and boxes; `mine` / `editable` say who wrote it and whether the app can edit it. |
 
 | Transform — writes a **new** file | |
 |---|---|
@@ -133,6 +134,7 @@ error, never a silent clamp.
 | `split` · `merge` | Cut into several files by print-dialog ranges (`"1-3"`, `"5-"`) / concatenate; merge renames colliding fields. |
 | `fill_form` · `flatten` | Fill (still editable; checkboxes take `true` or their own export state, anything else is an error) / bake in (no longer editable). `fill_form` warns on an XFA form and on read-only fields. |
 | `export_images` | Rasterise pages — or one `clip` region of each — to png/jpg files. |
+| `annotate` | Write highlights / underlines / strike-throughs, each able to carry a note. Takes boxes, not queries; merges with markup already there rather than stacking. |
 
 | Redact — **destructive**, verified | |
 |---|---|
@@ -210,6 +212,35 @@ happily intersect it and hand back a cropped pixmap; `render_page` returns an im
 reply has nowhere to say that it did. The error names the page's rect instead, so the fix is one
 step rather than a guess. `export_images` checks **every** page in the set before writing anything —
 page sizes vary within a document, and a clip that dies on page 7 must not leave six files behind.
+
+### Marking up, and the review hand-off
+
+`annotate` writes highlights, underlines and strike-throughs; `get_annotations` reads back every
+mark a document carries, including ones made in Acrobat, Preview or Edge. Both are worth having on
+their own — "underline every termination clause", "summarise the review comments in this contract" —
+and together they make a hand-off an agent cannot do alone:
+
+1. **Propose.** Locate what matters with `search`, then `annotate` it, perhaps one colour for
+   *certain* and another for *needs a look*, with a `note` on each saying why. Nothing is deleted.
+2. **Dispose.** A person opens the output in KlarPDF. Every mark written here is an ordinary
+   editable mark: recolour it, extend it, delete it, reply in its note. That review surface already
+   exists and is better than any tool reply.
+3. **Act.** Read the reviewed file with `get_annotations`, filter on what they left, and go.
+
+**`annotate` takes boxes, not queries.** It does not search and it has no idea what a name or a
+termination clause looks like — that judgement is the caller's, and a PDF engine that pretended
+otherwise would be guessing. This is the same line redaction's variant scan draws when it reports
+rather than matches.
+
+**Colour is the reviewer's convention, never the tool's.** Nothing here decides that orange means
+delete. If deletion is the outcome, filter `get_annotations` and pass the boxes to `redact_regions`,
+which verifies the removal as it always does. There is deliberately no "redact what I highlighted"
+shortcut: that step should be one you took, not one a colour triggered. The boxes need no adjusting
+on the way — both tools work in unrotated page points, at any page rotation.
+
+**A repeat call merges rather than stacking.** Re-marking a span in the same colour is a no-op, a
+different colour takes the span over, and notes are carried onto the survivor — the app's own rules,
+because it is the app's own function. So retrying a call is safe.
 
 ### What redaction guarantees, and where it stops
 

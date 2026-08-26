@@ -52,6 +52,10 @@ from PySide6.QtWidgets import (
     QWidgetAction,
 )
 
+# Re-exported under their old names, so every existing importer is unaffected. The swatches
+# themselves moved to `model/markup_palette.py` at M101 — see the note at their former site below.
+from model.markup_palette import HIGHLIGHT_COLORS, TEXT_LINE_COLORS
+
 # Stroke presets — the redline red default first, then a small spread that reads on white paper.
 _STROKE_PRESETS = (
     ("Red", (0.86, 0.10, 0.10)),
@@ -80,23 +84,13 @@ _LINE_ENDS = (
 )
 # ---- text-markup palettes (M59.9) -------------------------------------------
 #
-# Curated and small on purpose: these are the colours people actually reach for when marking up
-# text, and a short list is faster than a colour wheel. Two sets, because the two jobs differ —
-# a highlighter lays a translucent wash *behind* the words, while an underline / strikeout draws
-# an opaque proofing line *through* them.
-HIGHLIGHT_COLORS = (
-    ("Yellow", (1.0, 0.86, 0.10)),      # the classic marker, and Highlight's own default
-    ("Green", (0.55, 0.92, 0.45)),
-    ("Blue", (0.55, 0.80, 1.00)),
-    ("Pink", (1.00, 0.65, 0.85)),
-    ("Orange", (1.00, 0.72, 0.30)),
-)
-TEXT_LINE_COLORS = (
-    ("Red", (0.86, 0.10, 0.10)),        # redline red — the editing convention
-    ("Blue", (0.13, 0.35, 0.85)),
-    ("Green", (0.13, 0.60, 0.20)),
-    ("Black", (0.0, 0.0, 0.0)),
-)
+# `HIGHLIGHT_COLORS` / `TEXT_LINE_COLORS` were defined here until M101; they now live in
+# `model/markup_palette.py` and are imported with the rest above. The move was forced by the MCP
+# bridge, which shares them and may never import Qt (this module does, on line 41 —
+# `tests/test_mcp_no_qt.py` asserts it in a fresh interpreter). Sharing rather than duplicating is
+# what guarantees a mark the agent writes as "Orange" and one a reader picks from the menu are the
+# *same* RGB: colour is how the M101 review loop carries a human's verdict, so two copies of the
+# palette would eventually split one colour into two buckets.
 
 # Fill presets for shapes — pale washes that sit under a stroke without swamping it.
 _FILL_PRESETS = (

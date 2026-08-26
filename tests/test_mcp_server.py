@@ -29,8 +29,10 @@ READ_TOOLS = {
     "extract_text",
     "render_page",
     "get_form_fields",
+    "get_annotations",
 }
 WRITE_TOOLS = {
+    "annotate",
     "extract_pages",
     "delete_pages",
     "reorder",

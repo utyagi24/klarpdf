@@ -24,6 +24,14 @@ DEFAULT_MAX_TEXT_CHARS = 200_000     # ~50k tokens: large enough for a long chap
 DEFAULT_MAX_SEARCH_HITS = 500        # a one-letter query on a long file finds tens of thousands
 DEFAULT_MAX_IMAGE_BYTES = 8 * 1024 * 1024   # a 600-dpi A4 page is ~25 MB of PNG
 
+DEFAULT_MAX_ANNOTATIONS = 500
+"""How many annotations `get_annotations` lists before it stops and says so (M101).
+
+Its own cap rather than a share of `max_search_hits`: a review copy of a contract can carry hundreds
+of marks legitimately, so the number that makes sense here is "more than any real review" rather
+than "more than any sane query", and a caller tuning one should not silently move the other.
+"""
+
 DEFAULT_MAX_LISTED_FILES = 25
 """How many written paths `export_images` spells out before it stops listing them.
 
@@ -109,6 +117,7 @@ class Limits:
     max_search_hits: int = DEFAULT_MAX_SEARCH_HITS
     max_image_bytes: int = DEFAULT_MAX_IMAGE_BYTES
     max_listed_files: int = DEFAULT_MAX_LISTED_FILES
+    max_annotations: int = DEFAULT_MAX_ANNOTATIONS
 
 
 @dataclass(frozen=True)

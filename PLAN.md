@@ -1006,11 +1006,13 @@ and already produces the page + snippet output `search` needs.
 | `extract_text(path, pages)` | new helper (`page.get_text`) | query |
 | `render_page(path, page, dpi)` → image block | `export_page_images` (single page) | query |
 | `get_form_fields(path)` | `page_edits.read_form_fields` | query |
+| `get_annotations(path, pages)` → every mark, ours and foreign (M101) | raw `page.annots()` + `page_edits.parse_annotation` for the `editable` flag | query |
 | `extract_pages(path, pages, out)` | `export.export_selected_pages` (M51) | transform |
 | `split` / `merge` / `reorder` / `delete_pages` / `rotate` → out path | `VirtualDocument` ops + `materialize` | transform |
 | `fill_form(path, values, out)` | `set_field_value` + `materialize` | transform |
 | `flatten(path, out)` | `export.export_flattened_pdf` | transform |
 | `export_images(path, pages, dpi, out_dir)` | `export.export_page_images` | transform |
+| `annotate(path, marks, out)` → highlights / underlines / strike-throughs + notes (M101) | `page_edits.merge_markup` + `apply_annotations`; palette from `model/markup_palette.py` | transform |
 | `redact_regions` / `redact_text(path, …, out)` | `Redaction` + `apply_redactions` + cross-engine leak verify | secure |
 | (encrypted input) | `password` param → `from_path(password_provider=…)` | all |
 
@@ -3525,8 +3527,8 @@ project:
 5. **Boxes in, boxes out, in the same space** — unrotated page points, which is what `search`,
    `redact_regions` and (since M99.1) `clip` all use. `get_annotations` must report each mark in
    `redact_regions`' own region shape (`page` + `boxes`) so its output composes with the write tools
-   *without reshaping*, and its docs must name the space: §Open follow-ups records that `get_info`
-   alone reports post-rotation sizes, and a third convention here would make that split unfixable.
+   *without reshaping*, and its docs must name the space. (`get_info` was the one dissenter here;
+   M107.1 settled it by reporting each page's `rotation` and grouping on it.)
 6. **Colour: RGB always, names from the app's own palette.** Accept a raw `[r, g, b]`, and accept
    a name — but only a name in that mark type's palette (`viewer/markup_style.py`: highlights are
    Yellow / Green / Blue / Pink / **Orange**; lines are Red / Blue / Green / Black — there is no
@@ -3572,6 +3574,41 @@ and a fourth tool in a list the model must choose from, which is the same object
 already raised against editing annotations. Point 5 above is what pays for the rejection: as long as
 `get_annotations` hands back boxes in `redact_regions`' own shape and space, the composition is a
 filter and nothing more.
+
+**Built as scoped** *(2026-08-20)*, `mcp_bridge/annotations.py` + `model/markup_palette.py`, 36 new
+tests. Four things the build settled that the design above could only assert:
+
+1. **The palette had to move, and that is the interesting part.** Point 6 wanted the bridge and the
+   picker to share one definition of "Orange". They could not: the swatches lived in
+   `viewer/markup_style.py`, which imports Qt on line 41, and `tests/test_mcp_no_qt.py` asserts in a
+   fresh interpreter that the bridge imports none. The choice was to duplicate the tuples or lift
+   them, and duplication would have been a correctness bug on a slow fuse — colour is the review
+   loop's verdict channel, so two copies agree until someone edits one, and then "orange" names two
+   RGB values and a filter returns half the document's orange marks. They now live in
+   `model/markup_palette.py`; `viewer/markup_style.py` re-exports both names, so no caller changed.
+   The invariant is structural rather than tested-for.
+2. **The rotation question answered itself, and is now pinned.** Point 5 required annotation boxes
+   to be in the same unrotated space `redact_regions` consumes. Measured across `/Rotate` 0 / 90 /
+   180 / 270: PyMuPDF stores *and reports* annotation geometry unrotated at every one of them, and
+   so does `search_for`. The hand-off therefore needs **no arithmetic at all** — which is a happy
+   accident of the library rather than anything this code does, so it is a parametrised test rather
+   than a comment (M99.1 was this exact class of bug on `clip`).
+3. **`/Rect` is not the mark.** Text markup stores quad points per line and a `/Rect` padded ~5 pt
+   wider on every side — measured. Reporting the rect would have handed callers boxes visibly too
+   big and, fed to `redact_regions`, would have deleted a strip of whatever sat alongside every
+   highlight. `get_annotations` reads quads for the markup types and falls back to the rect only for
+   types that have none.
+4. **`merge_markup` builds its survivor with an empty note**, since it only ever inherits from marks
+   it absorbed — so a note passed *in the same call* needed applying afterwards, to the mark the
+   merge had just produced, and identity cannot find it (the survivor is a new frozen object at a
+   slot the merge chose). `_attach_note` locates it by geometry and **joins** rather than replaces,
+   which is M81's rule that only deleting a mark may delete its note.
+
+**Two traps worth recording for the next session**, both PyMuPDF lifetime rules that surface as a
+*segfault* rather than an exception, and both hit while writing the tests rather than the code:
+`next(doc[0].annots()).rect` frees the page and the generator before the annotation is read, and
+`doc[0].add_highlight_annot(…).update()` frees the page before the annot is used ("annotation not
+bound to any page" when it is merciful, a crash when it is not). Hold the page in a local.
 
 ### M105 *(unplanned)* — the tool descriptions are truncated in transit (TC-007, 2026-08-18)
 
