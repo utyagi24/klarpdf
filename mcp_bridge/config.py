@@ -32,6 +32,17 @@ of marks legitimately, so the number that makes sense here is "more than any rea
 than "more than any sane query", and a caller tuning one should not silently move the other.
 """
 
+DEFAULT_MAX_ANNOTATION_CHARS = 60_000
+"""How many characters of annotation JSON `get_annotations` returns per call (M113.2).
+
+Beside `DEFAULT_MAX_ANNOTATIONS`, not instead of it, because a count does not bound a reply: one
+mark's JSON runs 213-613 characters depending on its note, so 500 marks is anywhere from 107 KB to
+300 KB. A real review copy reached **139,288 characters over 406 marks** — comfortably under the
+count cap, and over what the client receiving it would take. Whichever bound is hit first, whole
+marks are dropped and `more_available` is set, so the caller pages through with `offset` rather than
+losing the tail.
+"""
+
 DEFAULT_MAX_LISTED_FILES = 25
 """How many written paths `export_images` spells out before it stops listing them.
 
@@ -118,6 +129,7 @@ class Limits:
     max_image_bytes: int = DEFAULT_MAX_IMAGE_BYTES
     max_listed_files: int = DEFAULT_MAX_LISTED_FILES
     max_annotations: int = DEFAULT_MAX_ANNOTATIONS
+    max_annotation_chars: int = DEFAULT_MAX_ANNOTATION_CHARS
 
 
 @dataclass(frozen=True)

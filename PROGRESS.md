@@ -2480,13 +2480,13 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
 
   </details>
 
-- [ ] **M113** *(unplanned)* **What TC-012 and TC-013 found in M101** — reviewed with the owner
+- [x] **M113** *(unplanned)* **What TC-012 and TC-013 found in M101** — reviewed with the owner
   2026-08-21, every finding re-run against the code rather than accepted as filed. **Three did not
   survive that**: `get_annotations` *does* cap and *does* set `truncated` (600 → 500; their document
   held 406, under the limit); a re-run against a foreign mark stacks **once**, not unboundedly
   (their own control run shows it); and the merge threshold is just above **0.01 pt**, not
-  "somewhere in (0.01, 3]". Six items remain — two defects, one disclosure gap, three documentation
-  gaps:
+  "somewhere in (0.01, 3]". Nine items remained — three defects, one disclosure gap, five
+  documentation gaps:
   - **M113.1** A re-run **duplicates the note**, though the docs promise "a file identical in
     content to the first run's". `merge_markup` rightly carries an absorbed note forward and
     `_attach_note` then adds this call's note on top. Fix: skip a note already present, matched as a
@@ -2529,10 +2529,18 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     from our Orange** — *nearest to Orange*. Loosening `NAME_TOLERANCE` (0.22) far enough to name it
     would name it **"Orange"**, and the documented example is literally "redact everything
     highlighted in orange" — so a reviewer's Edge highlights would be destroyed by an agent asked to
-    act on somebody else's orange. Options, none free: report the nearest name *with its distance*
-    and let the caller judge; document that colour filtering is for marks this app wrote and point
-    foreign-mark callers at the raw `color`; or give `get_annotations` a `color_near` filter that
-    takes an RGB and a tolerance. **Not** a wider tolerance.
+    act on somebody else's orange. Three workarounds were tabled (report the nearest name with its
+    distance; document the limit and point at the raw `color`; add a `color_near` filter).
+    **Resolved 2026-08-25 by none of them**, on the owner's observation that *"the default color is
+    yellow in KlarPDF (and it is also in Edge)"* — two tools both shipping a default they call
+    yellow, and our naming function calling one of them orange. **The metric was the defect, not the
+    tolerance**: plain Euclidean RGB weights blue as heavily as green, but blue is what makes a
+    yellow *pale* while the yellow/orange split is carried by green. Reweighted by the **BT.709 luma
+    coefficients** (a published sRGB constant, not a tuned value), Edge's yellow sits **0.106 from
+    our Yellow against 0.189 from our Orange** — correctly ordered — and `NAME_TOLERANCE`
+    recalibrates 0.22 → 0.12 to keep its original invariant (just under the closest swatch pair,
+    now 0.127). Acrobat's red still names Red. `is_palette_color` keeps the plain metric: it asks
+    about float round-trip noise, a different question.
 
   - **M113.8** *(added 2026-08-23, from a re-read of TC-012)* **Two documentation gaps the report
     raised and nobody logged.** (a) *"The line and highlight palettes differ for the same name"* —
@@ -2554,7 +2562,17 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     one sentence in the docs naming the behaviour. Filed rather than dropped because the report's
     own severity note — *"compounds FINDING 1"* — is no longer true, and that is worth stating.
 
-  Design in `PLAN.md` §M113 — *WSL*
+  **Shipped 2026-08-25** in [#296](https://github.com/utyagi24/klarpdf/pull/296) — 2336 passed, 2
+  skipped (104 new). `get_annotations` gains `offset` / `total_annotations` / `more_available` and
+  loses `truncated`, plus `snippet` and `text_length` on every mark; `annotate` echoes only the
+  marks its own call touched and warns on both a no-annotate permission and an overlap with a
+  foreign mark. Two things the build settled that the plan could not: **M113.7 was resolved by a
+  route none of its three options named** (the distance metric was wrong, not the tolerance — see
+  the item above), and **M113.2 needed a second uncapped read path**, because narrowing `annotate`'s
+  echo means reading the file back *before* the caller-facing caps apply or a crowded page can
+  crowd out the mark just written. Stacked on [#272](https://github.com/utyagi24/klarpdf/pull/272)
+  (M101) via the M112/M113 plan branch, per the owner's "fixes stack, all tested together on the
+  topmost branch". Design in `PLAN.md` §M113 — *WSL*
 
 - [ ] **M112** *(unplanned)* **The bridge can *edit* an annotation, not only add one** — owner-asked
   2026-08-21, correcting an earlier framing in the same session. The app handles other tools' marks

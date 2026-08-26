@@ -53,19 +53,40 @@ PALETTES: dict[str, tuple[tuple[str, tuple[float, float, float]], ...]] = {
 # a value that survived a PDF float round-trip is not bit-identical to the one that was written.
 EXACT_TOLERANCE = 0.01
 
-# How far a colour may sit from the nearest swatch and still borrow its *name*. Deliberately loose,
-# because on the read side most marks were not made by this app: Acrobat's red is (1, 0, 0), which
-# is 0.199 away from our redline red and obviously "red" to anyone looking at it. The ceiling is set
-# just under the closest pair of swatches in either palette — Yellow to Orange, 0.244 apart — so a
-# name is never borrowed across a distance greater than the gap between two named colours. Anything
-# further away (mid-grey, say) gets no name at all rather than a misleading one.
-NAME_TOLERANCE = 0.22
+# How far a colour may sit from the nearest swatch and still borrow its *name*, under
+# :func:`_perceptual_distance` (M113.7). The ceiling is set just under the closest pair of swatches
+# in either palette under that same weighting — Yellow to Orange, 0.127 apart — so a name is never
+# borrowed across a distance greater than the gap between two named colours. Anything further away
+# (mid-grey, say) gets no name at all rather than a misleading one.
+NAME_TOLERANCE = 0.12
+
+# ITU-R BT.709 luma coefficients — the standard sRGB weighting, not a value tuned for this palette.
+_LUMA_WEIGHTS = (0.2126, 0.7152, 0.0722)
 
 
 def _distance(a: tuple, b: tuple) -> float:
     """Plain Euclidean distance in RGB. Not perceptually uniform, and deliberately not: the job is
-    to recognise a swatch that round-tripped through a PDF, not to model human vision."""
+    to recognise a swatch that round-tripped through a PDF — uniform float noise on every channel,
+    where any metric agrees the answer is "basically zero" — not to model human vision. See
+    :func:`_perceptual_distance` for the naming question, which is a different one."""
     return sum((x - y) ** 2 for x, y in zip(a, b)) ** 0.5
+
+
+def _perceptual_distance(a: tuple, b: tuple) -> float:
+    """Luma-weighted Euclidean distance in RGB — for deciding what a person would *call* ``a``.
+
+    Plain :func:`_distance` weights a blue-channel difference the same as a green one, and gets a
+    real case wrong because of it: Edge's default highlight, ``(1, 0.9412, 0.4)``, calls itself
+    "yellow" and reads as yellow to a human eye, but sits 0.311 from our Yellow and only 0.243 from
+    our Orange in plain RGB distance — nearer the wrong name — because the paleness that separates
+    it from our Yellow lives mostly in the blue channel, while the hue split between "yellow" and
+    "orange" is carried almost entirely by green. Weighting by the coefficients video luma uses
+    (owner-confirmed 2026-08-25: KlarPDF's own highlight default is also named "yellow", which is
+    what exposed the mismatch) puts the same colour at 0.106 from our Yellow against 0.189 from our
+    Orange — reversed, and now the answer a person gives. :data:`NAME_TOLERANCE` is calibrated
+    against this function, not :func:`_distance`.
+    """
+    return sum(w * (x - y) ** 2 for w, x, y in zip(_LUMA_WEIGHTS, a, b)) ** 0.5
 
 
 def color_for_name(name: str, mark_type: str) -> tuple[float, float, float] | None:
@@ -99,7 +120,7 @@ def nearest_name(rgb: tuple, mark_type: str | None = None) -> str | None:
         candidates = HIGHLIGHT_COLORS + TEXT_LINE_COLORS
     best_name, best = None, NAME_TOLERANCE
     for name, value in candidates:
-        gap = _distance(tuple(rgb), value)
+        gap = _perceptual_distance(tuple(rgb), value)
         if gap <= best:
             best_name, best = name, gap
     return best_name

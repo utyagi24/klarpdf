@@ -12,6 +12,11 @@ silently if it drifted:
   on the same passage twice.
 * **The read side sees a sticky note.** It is unmodeled (§M83), so a listing built on
   `parse_annotation` would drop it — and it is precisely how a reviewer's comment often arrives.
+
+The M113 section at the foot covers the TC-012/TC-013 follow-ups. The one worth calling out is
+`test_a_rerun_does_not_duplicate_the_note`: the M101 re-run test asserted only that no *mark* was
+added, which is the weaker half of the claim the docs make, and a note was duplicating under it the
+whole time.
 """
 
 from __future__ import annotations
@@ -137,8 +142,15 @@ def test_a_palette_name_is_the_apps_exact_swatch(doc_path, out):
 
 def test_a_name_outside_the_type_palette_is_an_error(doc_path, out):
     """There is no orange line: a name is resolved against the type's own palette (M106's rule)."""
-    with pytest.raises(ValueError, match="not a underline colour"):
+    with pytest.raises(ValueError, match="not an underline colour"):
         _mark(doc_path, NAME, out, type="underline", color="orange")
+
+
+def test_the_error_reads_as_english_for_every_type(doc_path, tmp_path):
+    """M113.6: one format string serves all three types, and two of them take 'a'."""
+    for kind, article in (("highlight", "a"), ("underline", "an"), ("strikeout", "a")):
+        with pytest.raises(ValueError, match=f"is not {article} {kind} colour"):
+            _mark(doc_path, NAME, str(tmp_path / f"{kind}.pdf"), type=kind, color="chartreuse")
 
 
 def test_the_error_names_what_was_available(doc_path, out):
@@ -204,7 +216,11 @@ def test_different_types_do_not_merge(doc_path, tmp_path):
         first, [{"type": "underline", "page": 1, "boxes": boxes}], second
     )
 
-    assert sorted(a["type"] for a in result["annotations"]) == ["highlight", "underline"]
+    # The written file holds both — asked of the file, because since M113.2 the reply echoes only
+    # the marks *this* call touched, and the highlight was laid by the previous one.
+    on_file = annotations.get_annotations(second)["annotations"]
+    assert sorted(a["type"] for a in on_file) == ["highlight", "underline"]
+    assert [a["type"] for a in result["annotations"]] == ["underline"]
 
 
 def test_a_merge_carries_the_absorbed_note(doc_path, tmp_path):
@@ -322,7 +338,8 @@ def test_the_listing_is_capped(doc_path, out):
 
     capped = annotations.get_annotations(out, max_annotations=5)
     assert capped["count"] == 5
-    assert capped["truncated"] is True
+    assert capped["more_available"] is True
+    assert capped["total_annotations"] == 12
     assert capped["warnings"]
 
 
@@ -457,3 +474,273 @@ def test_an_inverted_box_is_refused(doc_path, out):
 def test_a_page_out_of_range_is_refused(doc_path, out):
     with pytest.raises(ValueError):
         annotations.annotate(doc_path, [{"page": 99, "box": [72, 100, 200, 120]}], out)
+
+
+# ---- M113: what TC-012 and TC-013 found -------------------------------------
+
+
+def test_a_rerun_does_not_duplicate_the_note(doc_path, tmp_path):
+    """M113.1. The docs promise a re-run gives "a file identical in content to the first run's";
+    it gave one whose note read its own text twice, then three times.
+
+    `merge_markup` carries an absorbed mark's note onto the survivor (M81.2) and `_attach_note` then
+    added this call's note on top. Both are right alone, and nothing distinguished "a new comment,
+    keep the old" from "the same comment again".
+    """
+    first, second, third = (str(tmp_path / f"{n}.pdf") for n in ("first", "second", "third"))
+    mark = [{"type": "highlight", "page": 1, "boxes": _find(doc_path, NAME), "note": "check this"}]
+
+    annotations.annotate(doc_path, mark, first)
+    annotations.annotate(first, mark, second)
+    result = annotations.annotate(second, mark, third)
+
+    (written,) = result["annotations"]
+    assert written["note"] == "check this"
+    assert result["marks_added"] == 0
+
+
+def test_a_genuinely_new_note_still_joins(doc_path, tmp_path):
+    """The other half of M113.1: skipping a duplicate must not start skipping real second remarks."""
+    first, second = str(tmp_path / "first.pdf"), str(tmp_path / "second.pdf")
+    boxes = _find(doc_path, NAME)
+
+    annotations.annotate(
+        doc_path, [{"type": "highlight", "page": 1, "boxes": boxes, "note": "check this"}], first
+    )
+    result = annotations.annotate(
+        first, [{"type": "highlight", "page": 1, "boxes": boxes, "note": "and this"}], second
+    )
+
+    (written,) = result["annotations"]
+    assert "check this" in written["note"] and "and this" in written["note"]
+
+
+def test_a_note_is_matched_whole_not_as_a_substring(doc_path, tmp_path):
+    """M113.1's stated trap: "check" must not be swallowed by an existing "check the totals"."""
+    first, second = str(tmp_path / "first.pdf"), str(tmp_path / "second.pdf")
+    boxes = _find(doc_path, NAME)
+
+    annotations.annotate(
+        doc_path,
+        [{"type": "highlight", "page": 1, "boxes": boxes, "note": "check the totals"}],
+        first,
+    )
+    result = annotations.annotate(
+        first, [{"type": "highlight", "page": 1, "boxes": boxes, "note": "check"}], second
+    )
+
+    (written,) = result["annotations"]
+    assert written["note"].split("\n\n") == ["check the totals", "check"]
+
+
+def test_the_listing_paginates_with_offset(doc_path, out):
+    """M113.2. `pages` cannot narrow a page that holds four hundred marks, so this is the bridge's
+    one paginated tool."""
+    with fitz.open(doc_path) as doc:
+        page = doc[0]
+        for i in range(12):
+            page.add_highlight_annot(fitz.Rect(72, 100 + i * 10, 200, 108 + i * 10)).update()
+        doc.save(out)
+
+    first = annotations.get_annotations(out, max_annotations=5)
+    assert first["count"] == 5 and first["offset"] == 0
+    assert first["total_annotations"] == 12 and first["more_available"] is True
+
+    second = annotations.get_annotations(out, max_annotations=5, offset=5)
+    assert second["count"] == 5 and second["offset"] == 5 and second["more_available"] is True
+
+    last = annotations.get_annotations(out, max_annotations=5, offset=10)
+    assert last["count"] == 2 and last["more_available"] is False
+    assert "warnings" not in last
+
+    # The three batches are the whole document, each mark once and in the same order.
+    paged = first["annotations"] + second["annotations"] + last["annotations"]
+    assert paged == annotations.get_annotations(out, max_annotations=99)["annotations"]
+
+
+def test_a_character_budget_bounds_the_reply_even_under_the_count_cap(doc_path, out):
+    """M113.2's actual defect: 406 marks was *under* the count cap and still 139,288 characters,
+    because a mark's JSON runs 213-613 of them depending on its note."""
+    with fitz.open(doc_path) as doc:
+        page = doc[0]
+        for i in range(12):
+            annot = page.add_highlight_annot(fitz.Rect(72, 100 + i * 10, 200, 108 + i * 10))
+            annot.set_info(content="x" * 400)
+            annot.update()
+        doc.save(out)
+
+    capped = annotations.get_annotations(out, max_annotations=500, max_chars=2000)
+    assert capped["count"] < 12                     # the count cap alone would have returned all 12
+    assert capped["more_available"] is True
+    assert capped["total_annotations"] == 12
+
+
+def test_one_oversized_mark_is_returned_rather_than_an_empty_batch(doc_path, out):
+    """A budget smaller than a single entry must still make progress, or paging never terminates."""
+    with fitz.open(doc_path) as doc:
+        page = doc[0]
+        annot = page.add_highlight_annot(fitz.Rect(72, 100, 200, 120))
+        annot.set_info(content="y" * 5000)
+        annot.update()
+        doc.save(out)
+
+    result = annotations.get_annotations(out, max_chars=10)
+    assert result["count"] == 1
+
+
+def test_a_negative_offset_is_refused(doc_path, out):
+    _mark(doc_path, NAME, out, type="highlight")
+    with pytest.raises(ValueError, match="offset must be >= 0"):
+        annotations.get_annotations(out, offset=-1)
+
+
+def test_annotate_echoes_only_the_marks_it_touched(doc_path, tmp_path):
+    """M113.2's rider: adding one mark to a page holding many returned all of them."""
+    crowded, out = str(tmp_path / "crowded.pdf"), str(tmp_path / "out.pdf")
+    with fitz.open(doc_path) as doc:
+        page = doc[0]
+        for i in range(10):
+            page.add_highlight_annot(fitz.Rect(300, 300 + i * 12, 480, 310 + i * 12)).update()
+        doc.save(crowded)
+
+    result = annotations.annotate(
+        crowded, [{"type": "highlight", "page": 1, "boxes": _find(doc_path, NAME)}], out
+    )
+
+    assert len(result["annotations"]) == 1
+    assert annotations.get_annotations(out)["count"] == 11
+
+
+def test_a_restricted_document_is_annotated_but_says_so(tmp_path):
+    """M113.3. Writing is correct — the flag is advisory — so the defect was the silence (as M107)."""
+    path, out = str(tmp_path / "restricted.pdf"), str(tmp_path / "out.pdf")
+    doc = fitz.open()
+    doc.new_page(width=612, height=792).insert_text((72, 115), f"{NAME} is here", fontsize=11)
+    keep = fitz.PDF_PERM_PRINT | fitz.PDF_PERM_COPY          # ANNOTATE deliberately absent
+    doc.save(path, encryption=fitz.PDF_ENCRYPT_AES_128, owner_pw="owner", permissions=keep)
+    doc.close()
+
+    result = annotations.annotate(
+        path, [{"type": "highlight", "page": 1, "boxes": _find(path, NAME)}], out
+    )
+
+    assert result["marks_added"] == 1               # written: the restriction is advisory
+    assert any("not to annotate" in w for w in result["warnings"])
+
+
+def test_an_unrestricted_document_stays_quiet(doc_path, out):
+    """The `permissions == -1` case: an ordinary file must not collect a spurious warning."""
+    result = _mark(doc_path, NAME, out, type="highlight")
+    assert "warnings" not in result
+
+
+def test_a_mark_reports_the_text_it_landed_on(doc_path, out):
+    """M113.4. Boxes are top-left/y-down here while the PDF format is bottom-left/y-up, so a box
+    from elsewhere lands mirrored — valid, no error, wrong line. This is what makes that visible."""
+    result = _mark(doc_path, NAME, out, type="highlight")
+    (written,) = result["annotations"]
+    assert NAME in written["snippet"]
+    assert written["text_length"] == len(NAME)
+
+
+def test_a_mirrored_box_is_visibly_on_the_wrong_text(tmp_path):
+    """The failure M113.4 exists to expose, performed. A box computed against the PDF format's own
+    bottom-left origin lands mirrored about the page's horizontal axis — valid, on the page, no
+    error, wrong line. The fixture puts real text at both ends so the mark lands *on* something:
+    `snippet` then names the wrong line outright rather than merely coming back empty.
+    """
+    path, out = str(tmp_path / "twoends.pdf"), str(tmp_path / "out.pdf")
+    height = 792
+    doc = fitz.open()
+    page = doc.new_page(width=612, height=height)
+    page.insert_text((72, 115), f"{NAME} lives at 12 Elm Street", fontsize=11)
+    page.insert_text((72, height - 104), "WRONG LINE at the foot of the page", fontsize=11)
+    doc.save(path)
+    doc.close()
+
+    (x0, y0, x1, y1) = _find(path, NAME)[0]
+    mirrored = [x0, height - y1, x1, height - y0]
+
+    result = annotations.annotate(path, [{"type": "highlight", "page": 1, "boxes": [mirrored]}], out)
+    (written,) = result["annotations"]
+    assert NAME not in written["snippet"]
+    assert "WRONG LINE" in written["snippet"]
+
+
+def test_a_mark_on_a_page_with_no_text_reports_an_empty_snippet(tmp_path):
+    """The documented limit of M113.4: on a scan there is nothing to report, which reads the same
+    as a wrong box."""
+    path, out = str(tmp_path / "scan.pdf"), str(tmp_path / "out.pdf")
+    doc = fitz.open()
+    doc.new_page(width=612, height=792).draw_rect(fitz.Rect(72, 72, 300, 200), fill=(0.8, 0.8, 0.8))
+    doc.save(path)
+    doc.close()
+
+    result = annotations.annotate(
+        path, [{"type": "highlight", "page": 1, "boxes": [[72, 100, 200, 120]]}], out
+    )
+    (written,) = result["annotations"]
+    assert written["snippet"] == "" and written["text_length"] == 0
+
+
+def test_a_mark_over_a_foreign_one_warns_instead_of_claiming_a_merge(doc_path, tmp_path):
+    """M113.5. Both merge branches are inert against a mark this app did not write — correctly,
+    since merging deletes a mark — but two sentences in the docs said otherwise and the reply was
+    silent."""
+    foreign, out = str(tmp_path / "foreign.pdf"), str(tmp_path / "out.pdf")
+    boxes = _find(doc_path, NAME)
+    with fitz.open(doc_path) as doc:
+        page = doc[0]
+        annot = page.add_highlight_annot(fitz.Rect(*boxes[0]))
+        annot.set_info(title="A. Reviewer", content="mine, from Acrobat")
+        annot.update()
+        doc.save(foreign)
+
+    result = annotations.annotate(
+        foreign, [{"type": "highlight", "page": 1, "boxes": boxes, "color": "orange"}], out
+    )
+
+    assert any("A. Reviewer" in w for w in result["warnings"])
+    listed = annotations.get_annotations(out)["annotations"]
+    assert len(listed) == 2                              # both present; neither replaced the other
+    assert {a["mine"] for a in listed} == {True, False}
+    assert any(a["note"] == "mine, from Acrobat" for a in listed)
+
+
+def test_marks_added_can_be_negative(doc_path, tmp_path):
+    """M113.6(c). A mark bridging two existing ones collapses three into one: -1, and correct."""
+    two, out = str(tmp_path / "two.pdf"), str(tmp_path / "out.pdf")
+    left, right = (72, 105, 120, 120), (200, 105, 260, 120)
+    bridge = [[72, 105, 260, 120]]
+
+    annotations.annotate(
+        doc_path,
+        [
+            {"type": "highlight", "page": 1, "box": list(left), "color": "orange"},
+            {"type": "highlight", "page": 1, "box": list(right), "color": "orange"},
+        ],
+        two,
+    )
+    result = annotations.annotate(
+        two, [{"type": "highlight", "page": 1, "boxes": bridge, "color": "orange"}], out
+    )
+
+    assert result["marks_added"] == -1
+    assert annotations.get_annotations(out)["count"] == 1
+
+
+def test_edge_default_yellow_reads_back_as_yellow(doc_path, out):
+    """M113.7. The colour-filter workflow the docs advertise, against the likeliest foreign mark a
+    caller meets. Under plain RGB distance this named it "Orange" — and the documented example is
+    "redact everything highlighted in orange"."""
+    with fitz.open(doc_path) as doc:
+        page = doc[0]
+        annot = page.add_highlight_annot(fitz.Rect(*_find(doc_path, NAME)[0]))
+        annot.set_colors(stroke=(1, 0.9412, 0.4))          # Edge's default highlight
+        annot.set_info(title="A. Reviewer")
+        annot.update()
+        doc.save(out)
+
+    (found,) = annotations.get_annotations(out)["annotations"]
+    assert found["color_name"] == "Yellow"
+    assert found["color_exact"] is False                   # near our swatch, not equal to it

@@ -150,11 +150,13 @@ output is deleted and the call fails.
 
 **Mark up a document, then hand it to a person.** `annotate` writes highlights, underlines and
 strike-throughs — each able to carry a **note** — and `get_annotations` reads back every mark a file
-holds, including ones made in Acrobat, Preview or Edge. So an agent can propose in a form that
-deletes nothing, you review it in KlarPDF where every one of those marks is ordinary and editable,
-and it then acts on what you left. `annotate` takes **boxes, not queries**: deciding which text is a
-name or a termination clause is yours, not the engine's, and colour means whatever your review says
-it means — nothing here decides that orange means delete.
+holds, including ones made in Acrobat, Preview or Edge, each reporting the text it actually covers
+and a colour named the way a person would name it rather than by raw arithmetic (another tool's
+default yellow reads as "Yellow", not as the orange a naive RGB distance makes it). So an agent can
+propose in a form that deletes nothing, you review it in KlarPDF where every one of those marks is
+ordinary and editable, and it then acts on what you left. `annotate` takes **boxes, not queries**:
+deciding which text is a name or a termination clause is yours, not the engine's, and colour means
+whatever your review says it means — nothing here decides that orange means delete.
 
 Every tool rejects an argument name it does not declare, rather than ignoring it, and each one's
 full field-by-field contract is readable as an MCP resource at `klarpdf://docs/<tool>` — because

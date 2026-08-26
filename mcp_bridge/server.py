@@ -517,6 +517,7 @@ def create_server(config: Config | None = None) -> MCPServer:
         path: str,
         pages: list[int] | None = None,
         password: str | None = None,
+        offset: int = 0,
     ) -> dict:
         """List the annotations a document carries — highlights, underlines, strike-throughs, sticky
         notes, shapes, text boxes — with their `note` text, colour and position.
@@ -526,21 +527,33 @@ def create_server(config: Config | None = None) -> MCPServer:
         as-is. Use it to read a colleague's review, or to check your own `annotate` call landed.
 
         `boxes` is in the same **unrotated page-point** space `search` reports and `redact_regions`
-        consumes, so a filtered list of these goes straight into a redaction with the numbers
-        untouched — that is how "redact everything highlighted in orange" is done: read, filter on
+        consumes, so a filtered list goes straight into a redaction untouched — read, filter on
         `color_name`, pass the survivors to `redact_regions`. A mark spanning two lines has one box
-        per line, and all of them belong to it.
+        per line, all of them its own. Coordinates run from the **top-left**, y downward; the PDF
+        format measures from the bottom-left, so a box from a raw PDF read needs
+        `y' = page_height - y`. `snippet` and `text_length` give the text each mark covers.
 
         `color_name` is the nearest palette name and is advisory; `color_exact` is `true` only when
-        the colour *is* a palette swatch, which a mark made in KlarPDF carries and one made in
-        Acrobat usually does not. Filter on colour, then show the user what you matched.
+        the colour *is* a palette swatch, which a KlarPDF mark carries and an Acrobat one usually
+        does not. Filter on colour, then show the user what you matched.
 
-        Form fields are not listed here — `get_form_fields` reports them with their values and
-        states. The reply is capped; if `truncated` is set, pass `pages` and read the document a
-        part at a time.
+        **This reply paginates.** It is bounded by a mark count *and* a character budget, so it can
+        stop short even within one page. When `more_available` is `true`, call again with `offset`
+        set to this reply's `offset + count` until it is `false`; `total_annotations` is how many
+        are in scope. Narrowing `pages` does **not** help when one page holds them all. A filtered
+        first batch is an incomplete answer that looks complete — never report "everything in
+        orange" from a reply whose `more_available` is `true`.
+
+        Form fields are not listed here — `get_form_fields` reports those.
+        `klarpdf://docs/get_annotations` has the field contract.
         """
         return annotations.get_annotations(
-            check(path), pages, password=password, max_annotations=limits.max_annotations
+            check(path),
+            pages,
+            password=password,
+            max_annotations=limits.max_annotations,
+            max_chars=limits.max_annotation_chars,
+            offset=offset,
         )
 
     if cfg.read_only:
@@ -800,24 +813,27 @@ def create_server(config: Config | None = None) -> MCPServer:
         instead of `boxes`.
 
         **This tool does not search — you say where.** Locate what you mean with `search` or
-        `extract_text` and pass the boxes; a `search` hit's `boxes` goes in as one mark, which
-        keeps a phrase that wraps a line intact. Deciding which text is a name, a risk or a
-        termination clause is yours, not this engine's.
+        `extract_text` and pass the boxes; a `search` hit's `boxes` goes in as one mark, which keeps
+        a phrase that wraps a line intact. Pass a phrase as **one** mark, not word by word.
+
+        Boxes measure from the **top-left**, y downward. The PDF format measures from the
+        bottom-left, so a box from a raw PDF read needs `y' = page_height - y` or it lands mirrored
+        — valid, on the page, no error, wrong line.
 
         **Pass every mark for the document in one call.** Each call writes a file, so laying
         highlights and then underlines as two calls leaves an intermediate copy behind.
 
         A mark **merges** with markup already on the page instead of stacking: same type and colour
         over the same span is absorbed, a different colour takes the span over, and notes are
-        carried onto the survivor. Re-running a call is therefore safe.
+        carried onto the survivor. Re-running a call is therefore safe. Merging covers only marks
+        **KlarPDF wrote** — one made in Acrobat, Edge or Preview is never absorbed or deleted, so a
+        mark laid over one is added beside it and `warnings` says so.
 
         `color` takes a palette name — highlights are Yellow, Green, Blue, Pink, Orange; lines are
-        Red, Blue, Green, Black — or `[r, g, b]` floats in 0..1 for anything else. A name outside
-        the palette is an error, not a silent default.
+        Red, Blue, Green, Black — or `[r, g, b]` floats in 0..1. A name outside the palette is an
+        error, not a silent default.
 
-        The reply's `annotations` is what the written file now holds on the pages touched, read back
-        from it — so `marks_added` smaller than `marks_requested` means marks merged, not that
-        something failed. `klarpdf://docs/annotate` has the field contract and the review workflow.
+        `klarpdf://docs/annotate` has the field contract and the review workflow.
         """
         return annotations.annotate(
             check(path), marks, check(out), password=password, overwrite=overwrite
