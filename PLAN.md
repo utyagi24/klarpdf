@@ -4802,7 +4802,7 @@ what *no* existing bridge tool writes.
 
 | Milestone | What | Where | Verify |
 | --- | --- | --- | --- |
-| **M117** On the append route, draw only the marks the file does not already have, instead of stripping every KlarPDF mark off the page and redrawing them all | `_apply_page_edits` / `_append_to_origin` in `model/edit_engine.py`, against the `_source_marks` baseline `edits_are_additive` already compares with | WSL + Windows | Adding one highlight to a 200-mark document appends ~1 KB rather than 114 KB; a **z-order** change still writes the new order; a mark left in place is indistinguishable from a redrawn one to `get_annotations`, to a second engine, and on screen |
+| **M117** On the append route, draw only the marks the file does not already have, instead of stripping every KlarPDF mark off the page and redrawing them all | `VirtualDocument.marks_to_append` against the `_source_marks` baseline `edits_are_additive` already compares with; `_apply_page_edits(…, appending=True)` / `_append_to_origin` in `model/edit_engine.py` | WSL + Windows | Adding one highlight to a 200-mark document appends **1,134 B** rather than 114,269; a **z-order** change still writes the new order; a mark left in place is byte-identical to the one the file already had, per kind, and the page renders the same as a full redraw |
 
 **§M116's own follow-up, scheduled because the numbers do not survive the workflow the owner named
 (2026-08-25).** The entry it came from measured a document carrying 20 marks and called the result
@@ -4845,8 +4845,31 @@ something and it fixes itself" is not a property anybody can be expected to disc
 
 **The fix.** On the append route the model's marks are a superset of the file's by construction —
 that is what `edits_are_additive` proves. So the page needs no strip at all, and only the
-**difference** needs drawing: `multiset(model) − multiset(arrived_with)`. The baseline is already
-captured (`_source_marks`) and already compared per page.
+**difference** needs drawing. `VirtualDocument.marks_to_append(page)` answers with it, against the
+baseline already captured in `_source_marks` and already compared per page; `_apply_page_edits`
+takes an `appending` flag and strips only a page that method will not vouch for. Both other routes
+are untouched — they have no proof to lean on, and nothing to save by skipping a strip inside a
+write that rewrites everything anyway.
+
+The same seven sittings, run either side of the change. Both columns come from one run of one
+script, which is why the "before" sits a few hundred bytes off the diagnosis table above — that one
+was measured on a separately-built fixture, and the pair below is what may be subtracted:
+
+| | before | after |
+| --- | --- | --- |
+| a clean 30-page document | 126,540 B | 126,540 B |
+| sitting 1 — **200 highlights**, one save | 239,692 B | 239,692 B |
+| sittings 2–7 — **one** highlight each | **933,069 B** | **246,527 B** |
+
+Six highlights that cost **693,377 B** now cost **6,835**, and the per-save penalty stops being a
+property of the document:
+
+| marks already in the file | before | after |
+| --- | --- | --- |
+| 9 | +8,221 B | +1,078 B |
+| 50 | +35,262 B | +1,086 B |
+| 100 | +61,477 B | +1,103 B |
+| 200 | +114,269 B | +1,134 B |
 
 **Two constraints, one of them found by measuring rather than by reading.**
 
@@ -4854,20 +4877,50 @@ captured (`_source_marks`) and already compared per page.
 the multiset identical, so `appends()` already returns **True** for it — verified — and the output is
 correct today only because the strip-and-redraw re-lays every mark in the model's order. Skip the
 redraw naively and a z-order change becomes a silent no-op: the save reports success and the file is
-unchanged. So the page's marks must match the baseline **in order**, not merely as a set, and a page
-whose order moved falls back to the full strip-and-redraw. This is the whole reason the fix is not a
-two-line diff.
+unchanged. So the comparison is a **prefix**, not a set: the page's marks must still *start* with the
+ones it arrived with, in that order, because `/Annots` is an order and anything drawn now goes on the
+end. A page that fails it falls back to the full strip-and-redraw, and only that page — the baseline
+is per page, so one Bring to Front does not re-write a whole document's marks. This is the whole
+reason the fix is not a two-line diff.
 
-*A mark left in place must be indistinguishable from a redrawn one.* The known wrinkle is that PDF
-stores numbers as 32-bit floats, so a colour saved as `0.86` reads back as `0.8600000143`; today
-every save re-drives the mark from the model and erases that drift, and after the fix the file's own
-bytes survive instead. Almost certainly invisible — and a save path is the wrong place for "almost
-certainly", so the verification is per mark kind: appearance stream, `/Rect`, `/C`, `/CA`,
-`/Contents`, what `get_annotations` reports, and what a second engine renders.
+*A mark left in place must be indistinguishable from a redrawn one.* The wrinkle named in advance was
+float drift — PDF stores numbers as 32-bit floats, so a colour saved as `0.86` reads back as
+`0.8600000143` — and the answer turned out to be stronger than "indistinguishable": a mark nobody
+redraws keeps its **xref number, its raw object and its appearance stream, byte for byte**, because
+they are still the bytes at the front of the file. `tests/test_incremental_save.py` checks that per
+mark kind, together with the descriptor the model reads back and the pixels the page renders to
+against `render_output`'s full-rewrite build.
+
+**Two things it changed that were not on the list.**
+
+*The redraw was reshuffling annotations it did not write.* Stripping our marks and re-adding them
+puts them on the end of `/Annots`, which pushes anything else on the page underneath. Measured on a
+page carrying eight of ours and one somebody else's, a save that only added a highlight moved the
+foreign annotation from last to **first**. The model has no opinion about where a foreign mark sits,
+so it had no business having one; left in place, it stays where its author put it.
+
+*And it was quietly resizing shapes* — [#292](https://github.com/utyagi24/klarpdf/issues/292), found
+by the per-kind render comparison over the corpus (82 of 83 pages identical; the 83rd carried 4 pt
+shapes from an earlier session). `parse_annotation` insets a `Square`/`Circle` `/Rect` by
+`width / 2`, PyMuPDF grows it by exactly **1.0 pt** whatever the border, so a shape of any width but
+the default 2.0 changes size on every save→reopen→save — 2 pt a side per save at 6 pt wide. It is a
+defect in the *redraw*, not in this route, so it is filed rather than fixed here; M117 removes the
+commonest way of hitting it, since a plain "add one more mark" save no longer redraws anything.
 
 **Both surfaces, one change.** It lands in the pass `materialize` runs, so the app's Save and the
 bridge's `annotate` (M101) get it together — and `annotate` is where an agent chains several passes
-over one document, which is the front-heavy pattern with no human in it.
+over one document, which is the front-heavy pattern with no human in it. As with §M116, **no bridge
+tool takes this route today** — every one of them rotates, fills, redacts, flattens or changes the
+page set — and `tests/test_mcp_transforms.py` still pins that from the bridge's own side.
+
+**The corpus, as the standing measurement.** All 94 documents, two sittings each — twenty marks and
+one save, then reopen and add one more — with the second save written twice, once with
+`marks_to_append` live and once forced to `None`, which is exactly M116. 83 were appendable
+(11 skipped: a password, or too little text to mark). The second sitting cost **136,427 B in 0.56 s**
+against M116's **1,606,992 B in 2.29 s** — **11.8×** — with 83/83 keeping the whole sitting-1 file
+byte-identical at the front, 83/83 reading the twenty marks back unchanged, 83/83 adding exactly one
+mark on exactly one page, 83/83 with catalog, encryption and permissions unchanged, 83/83 identical
+under Poppler and parsed by pypdf, and **0** content streams changed corpus-wide.
 
 ## Future enhancements (deferred beyond the roadmap)
 

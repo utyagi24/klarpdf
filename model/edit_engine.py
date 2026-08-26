@@ -403,15 +403,18 @@ class PyMuPDFEngine(EditEngine):
         the appended section. This is the ordinary PDF incremental update — what Edge writes for
         the same edit, and what :meth:`appends` exists to be sure is honest.
 
-        ``_apply_page_edits`` is the same pass both other routes run, unchanged: the predicate has
-        already refused everything in it that would do more than add an annotation, and it is
-        measurably scoped — a page with no mark of ours is never touched, so a document opened and
-        saved with no edits at all appends **0 bytes** and comes back byte-identical.
+        ``_apply_page_edits`` is the same pass both other routes run — the predicate has already
+        refused everything in it that would do more than add an annotation — with the one change
+        this route needs (M117): ``appending=True``, which draws only the marks the seeded file does
+        not already carry rather than stripping every KlarPDF mark off the page and redrawing them
+        all. The pass stays measurably scoped either way: a page with no mark of ours is never
+        touched, so a document opened and saved with no edits at all appends **0 bytes** and comes
+        back byte-identical.
         """
         Path(out_path).write_bytes(vdoc.origin_bytes())
         out = fitz.open(out_path)
         try:
-            self._apply_page_edits(out, vdoc)
+            self._apply_page_edits(out, vdoc, appending=True)
             out.save(out_path, **append_options())
         finally:
             out.close()
@@ -496,11 +499,23 @@ class PyMuPDFEngine(EditEngine):
             raise
         return out
 
-    def _apply_page_edits(self, out: fitz.Document, vdoc: VirtualDocument) -> None:
+    def _apply_page_edits(
+        self, out: fitz.Document, vdoc: VirtualDocument, appending: bool = False
+    ) -> None:
         """Apply every per-page edit to ``out``, where output page ``i`` is ``ordered[i]``.
 
-        Shared by both routes: these act on a page and do not care which document it sits in, which
-        is exactly why the unchanged-page-set route can skip the graft and still be correct.
+        Shared by all three routes: these act on a page and do not care which document it sits in,
+        which is exactly why the unchanged-page-set route can skip the graft and still be correct.
+
+        ``appending`` is the one thing that route does care about (M117). The strip-and-redraw below
+        is free while the whole file is being rewritten and is the *cost* of an append, which cannot
+        delete: redrawing 200 marks writes 200 fresh copies onto the end of the file and orphans the
+        200 already in it. So an appending save asks
+        :meth:`~model.virtual_document.VirtualDocument.marks_to_append` per page for the marks the
+        file does not already have, leaves the rest exactly where they sit, and strips only a page
+        that method will not vouch for. Everything else in this pass is unchanged, and unreachable
+        from that route anyway — its predicate has already refused rotation, crop, redaction,
+        content marks, foreign edits and form fields.
         """
         # Round-trip (M31): a copied page carries every source annotation, including the KlarPDF
         # marks a prior save baked in. The model now owns those (read back on open, with any move /
@@ -510,6 +525,14 @@ class PyMuPDFEngine(EditEngine):
         # Then redactions run first as a destructive pass (apply_redactions rewrites the page and
         # would otherwise strip overlapping annotations); the non-destructive highlight/text-box
         # overlays go on top afterwards.
+        #
+        # An **appending** save is the exception, and only because it has a proof the other routes
+        # do not: nothing was removed, so the copies on the page are still the model's own marks,
+        # already drawn, already in order (M117). Leaving them is not merely cheaper — it is what
+        # stops a save reshuffling annotations it did not write. Measured on a page carrying eight
+        # of our marks and one somebody else's: the strip-and-redraw moves the foreign one from
+        # last to *first*, under everything of ours, on a save that was only supposed to add a
+        # highlight. Left in place, it stays where its author put it.
         from model.content_marks import apply_content_marks
         from model.foreign_annots import apply_foreign_edits
         from model.page_edits import (
@@ -523,7 +546,10 @@ class PyMuPDFEngine(EditEngine):
                 out[i].set_rotation(ref.rotation_override)
             if ref.crop_override is not None:
                 _apply_crop(out[i], ref.crop_override)  # set_cropbox takes unrotated coords
-            strip_klarpdf_annotations(out[i])
+            to_draw = vdoc.marks_to_append(i) if appending else None
+            if to_draw is None:
+                strip_klarpdf_annotations(out[i])
+                to_draw = ref.annotations
             # Foreign-annotation deletions (M66) run next, while the copied annotations are still
             # exactly as they arrived — fingerprints are computed against that state. Everything
             # not named here passes through untouched, which is what keeps this
@@ -537,7 +563,7 @@ class PyMuPDFEngine(EditEngine):
                 # the overlays (which stay annotations, so they float above page content — a
                 # stamp included, exactly as they do above the page's own ink).
                 apply_content_marks(out[i], ref.annotations)
-                apply_annotations(out[i], ref.annotations)
+                apply_annotations(out[i], to_draw)
 
         # Create any new AcroForm fields (M69) **before** the fill pass, so a value typed into a
         # field created in this same session lands on it like any other fill.
