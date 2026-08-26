@@ -4250,7 +4250,14 @@ twenty rather than twenty-three.
 
 | Milestone | What | Where | Verify |
 | --- | --- | --- | --- |
-| **M113** Six follow-ups from the two hands-on sessions against M101: two defects, one disclosure gap, and three documentation gaps | `mcp_bridge/annotations.py`, its two docstrings in `server.py`, and `mcp_bridge/docs.py` | WSL | A re-run leaves the file's content identical; a reply stays inside the client's budget; a restricted document warns; a mark reports the text it landed on |
+| **M113** Nine follow-ups from the two hands-on sessions against M101: three defects, one disclosure gap, and five documentation gaps | `mcp_bridge/annotations.py`, its two docstrings in `server.py`, `mcp_bridge/docs.py`, `mcp_bridge/config.py`, and `model/markup_palette.py` | WSL | A re-run leaves the file's content identical, note included; a reply stays inside the client's budget and pages with `offset`; a restricted document warns; a mark reports the text it landed on; a foreign mark's default yellow is named `Yellow` |
+
+**Built 2026-08-25** — 2336 passed, 2 skipped (104 new since M101's 2232). Two things the build
+settled that the plan above could not, both recorded in full at their own items below: **M113.7 was
+resolved by a route the plan did not list** (the metric was wrong, not the tolerance — see below),
+and **M113.2's cap turned out to need a second, uncapped read path** for `annotate`'s own echo,
+since narrowing that echo to the marks a call touched means reading the file back *before* the
+caller-facing caps apply, or a crowded page could crowd out the mark just written.
 
 **How the two reports were treated.** Every finding was re-run against the code rather than accepted
 as filed, and three did not survive contact: TC-013's "there is no cap and no `truncated` field"
@@ -4310,6 +4317,22 @@ by colour and reads only the first batch gets an **incomplete answer that looks 
 whole document, keep calling until it is false. A truncation that silently reads as "here is
 everything orange" would be worse than the size error it replaced.
 
+**As built.** `max_chars` defaults to **60,000** (`DEFAULT_MAX_ANNOTATION_CHARS`), well under the
+~136 KB that failed, and sits beside the count cap rather than replacing it — whichever binds first
+stops the batch. The reply gained `total_annotations`, `offset` and `more_available`; `truncated`
+is **gone**, because it answered a question the caller can no longer act on ("narrow the request")
+and `more_available` answers the one they can. Two things the build had to settle:
+
+* **A batch always yields at least one mark**, even when that single mark's JSON already exceeds the
+  budget. Otherwise a note longer than `max_chars` returns an empty batch with `more_available: true`
+  forever, and a caller paging correctly never terminates.
+* **`annotate`'s echo needs an *uncapped* read.** Narrowing the echo to the marks a call touched
+  (the rider above) means reading the written file back and then filtering it — so the read itself
+  must not be capped first, or a page already holding several hundred marks could exhaust the budget
+  before reaching the one just written, and a successful call would echo nothing it did. Hence
+  `_NO_CAP`, used only on that internal path: the caller-facing caps are applied to the
+  caller-facing call, not to a read whose result is about to be filtered down to a handful.
+
 **M113.3 — a document asking not to be annotated is annotated silently** *(disclosure gap)*. The
 policy fixture carries `annotate: false`; `annotate` wrote sixteen marks and returned no `warnings`
 key at all. Writing them is correct — the flag is advisory and enforced by nothing — so **the defect
@@ -4364,6 +4387,12 @@ one returns `-1`. Correct by the field's definition and honest; the description 
 it being smaller than requested, so one worked example is owed. Plus the grammar slip `'Yellow' is
 not a underline colour`, where one string serves all three types.
 
+**As built:** (a), (b) and the `marks_added` worked example are in `klarpdf://docs/annotate`, with
+"pass a phrase as one mark" promoted into the description itself — it changes what a caller *sends*,
+so it belongs above the fold (M105's split). The grammar slip is fixed by choosing the article from
+the type name rather than by three format strings, since only `underline` takes "an", and a test
+covers all three so a fourth mark type cannot reintroduce it.
+
 **M113.7 — the documented colour filter cannot filter an Edge mark** (added 2026-08-23, from the
 TC-012 Edge cross-check). `get_annotations` reports Edge's default highlight as `color_name: null`,
 `color_exact: false`. That is *correct* by the rule §M101 set — "`null` when nothing is close, rather
@@ -4388,13 +4417,47 @@ up in Edge's default would have their highlights destroyed by an agent acting on
 instruction. The current `null` is the safe answer; the defect is that the docs promise a workflow it
 cannot serve.
 
-Three options, none free, and the milestone has to pick one: **(a)** report the nearest name *with
-its distance* (`color_near: {name: "Orange", distance: 0.243}`) and let the caller set its own
-threshold — honest, but pushes a judgement onto every caller; **(b)** document that colour filtering
-covers marks this app wrote, and point foreign-mark callers at the raw `color`, which is already in
-the reply — cheapest, and narrows an advertised capability; **(c)** give `get_annotations` a
-`color_near` *filter* taking an RGB and a tolerance, so the caller says what it means by "the same
-yellow" — most useful, most work. **Not** a wider `NAME_TOLERANCE`.
+Three options were tabled, none free: **(a)** report the nearest name *with its distance*
+(`color_near: {name: "Orange", distance: 0.243}`) and let the caller set its own threshold — honest,
+but pushes a judgement onto every caller; **(b)** document that colour filtering covers marks this
+app wrote, and point foreign-mark callers at the raw `color` — cheapest, and narrows an advertised
+capability; **(c)** give `get_annotations` a `color_near` *filter* taking an RGB and a tolerance —
+most useful, most work. **Not** a wider `NAME_TOLERANCE`.
+
+**Resolved 2026-08-25 by none of them.** The owner's observation collapsed the problem: *"the
+default color is yellow in KlarPDF (and it is also in Edge)"* — two tools independently shipping a
+default they both call **yellow**, and our own naming function calling one of them orange. That
+reframes the finding. Every option above is a way to work around a wrong answer; the answer is
+simply wrong, and it is wrong for a reason that is fixable.
+
+**The defect is the metric, not the tolerance.** `_distance` was plain Euclidean RGB, which weights
+a blue-channel difference exactly as heavily as a green one. But blue is what makes a yellow look
+**pale**; the split between "yellow" and "orange" is carried almost entirely by **green**. Edge's
+yellow differs from ours mostly in blue (0.4 against 0.10) and only a little in green (0.94 against
+0.86) — so a metric that overweights blue reads a *paler yellow* as a *different hue*. Measured:
+
+| | → our Yellow | → our Orange | names it |
+| --- | --- | --- | --- |
+| plain Euclidean (was) | 0.311 | **0.243** | Orange ❌ |
+| BT.709 luma-weighted (is) | **0.106** | 0.189 | Yellow ✅ |
+
+So `nearest_name` now measures with `_perceptual_distance`, weighting the channels by the **ITU-R
+BT.709 luma coefficients** (0.2126 / 0.7152 / 0.0722) — the standard sRGB weighting, chosen because
+it is a published constant rather than a value tuned until this one case passed. `NAME_TOLERANCE`
+recalibrates 0.22 → **0.12**, keeping its original invariant exactly: the ceiling sits just under
+the closest pair of swatches *under the metric actually in use* (Yellow to Orange, 0.127). Acrobat's
+default red still names `Red` (0.110). A test pins the invariant rather than the number, so
+adding a swatch that crowds another cannot silently widen naming.
+
+**`_distance` stays, unchanged, for `is_palette_color`.** That function asks a different question —
+"did this value round-trip through PDF floats from one of our swatches" — where the error is uniform
+noise on every channel and every metric agrees. Perceptual weighting there would be wrong for the
+same reason plain distance was wrong here: the metric has to match the question.
+
+**What this does *not* fix**, and it is the part that keeps M113.8(a) alive: it is a better answer,
+not a claim about intent. A mark whose colour genuinely sits between two swatches still gets the
+nearer name and `color_exact: false`, and the caller is still told to show the user what matched
+before acting on it.
 
 **M113.8 — two documentation gaps TC-012 raised and nobody logged.** *(a)* The report's "Colours"
 section notes that **the line and highlight palettes differ for the same name**, and
@@ -4413,6 +4476,16 @@ opposite direction. *(b)* The **refusal to write over the input** is documented 
 server-level instructions; TC-012 recorded it as "not a defect… because it is a question a caller
 will ask", and `annotate`'s own description does not answer it.
 
+**As built.** *(a)* `klarpdf://docs/get_annotations` now separates the two palettes explicitly and
+says to filter on `type` as well when the distinction matters. **M113.7's reweighting does not close
+this and slightly sharpens it**: the two Blues are 0.417 apart under the new metric and the two
+Greens 0.346 (down from 0.634 / 0.584, since the metric is smaller-scaled throughout) against a
+tolerance of 0.12 — still more than three times the ceiling, so both remain nameable as "Blue" and
+"Green" while being plainly different colours. Two tests pin exactly that, because it is the one
+property a future palette edit could quietly break. *(b)* Both the no-overwrite refusal and M113.9's
+rename-into-place are in `klarpdf://docs/annotate` under "Where the output appears, and when" —
+one section, because they are the same fact about the write path seen from two sides.
+
 **M113.9 — a caller polling the output path sees nothing until the call finishes** (TC-012
 FINDING 2). Writes go to a temp file in the output directory and are renamed into place at the end.
 That is correct — a crash cannot leave a half-written PDF where the caller expects a good one — and
@@ -4424,9 +4497,18 @@ behaviour, and the note that its severity was borrowed from a problem that has s
 **For reference, the app's own defaults** (`model/markup_palette.py`, `main_window.py:162`):
 highlight opens on **Yellow** `(1, 0.86, 0.10)`, underline and strikeout each open on **Red**
 `(0.86, 0.10, 0.10)`, the redline convention — sticky per session since M78.5, independent per type.
-Edge's yellow is 0.311 from ours, which is further than our Yellow sits from our own Orange (0.244):
-two tools' "default yellow" are not the same colour, and no tolerance can make them one without
-colliding with a neighbouring name.
+
+*This paragraph used to end:* "Edge's yellow is 0.311 from ours, which is further than our Yellow
+sits from our own Orange (0.244): two tools' 'default yellow' are not the same colour, and no
+tolerance can make them one without colliding with a neighbouring name." **The last clause was
+false, and worth leaving on the record as the shape of the mistake.** It is true that no *tolerance*
+could fix it — and that was read as "nothing can", which closed the question and sent the design
+toward three workarounds. The premise never examined was the **metric** producing those two numbers.
+Under BT.709 luma weighting the same two colours are 0.106 and 0.189 apart, the ordering is correct,
+and the collision the sentence predicted does not occur. Both defaults really are called yellow by
+the people who chose them; it was our arithmetic that disagreed. The lesson generalises past
+colour: **when every option on the table is a workaround, check the measurement the problem was
+stated in.**
 
 ### M114 — a mark on one page rewrites all 572 (TC-012 retest, found 2026-08-22)
 

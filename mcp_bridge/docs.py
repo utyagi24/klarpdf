@@ -134,18 +134,60 @@ deliberately rather than one a colour triggered.
 * **`marks_requested`** is how many marks you passed; **`marks_added`** is the net change in
   annotation count. They differ whenever a mark merged into one already on the page, which is normal
   and not a failure — re-running the same call gives `marks_added: 0` and a file identical in
-  content to the first run's.
-* **`annotations`** is `get_annotations`' own output for the pages this call touched, read back off
-  the written file rather than echoed from the request. So it shows the marks as they *are* —
-  post-merge geometry, the colour actually stored, any note inherited from an absorbed mark — which
-  is what you want before showing a person what you did. Boxes here can be fed to
-  `render_page(clip=...)` to show them the pixels.
+  content to the first run's, note included.
+  **`marks_added` can also be negative**, and that is correct rather than a bug: a mark that bridges
+  two existing same-colour marks absorbs both and leaves one where there were two, so a call
+  requesting one mark reports `marks_added: -1`. Read it as "the net change in how many annotations
+  the page carries", never as "how many marks were laid".
+* **`annotations`** is `get_annotations`' own output narrowed to the marks **this call** wrote or
+  merged into, read back off the written file rather than echoed from the request. So it shows the
+  marks as they *are* — post-merge geometry, the colour actually stored, any note inherited from an
+  absorbed mark — which is what you want before showing a person what you did. Boxes here can be fed
+  to `render_page(clip=...)` to show them the pixels. It is deliberately **not** every mark on the
+  pages touched: adding one mark to a page already holding eighty would otherwise return
+  eighty-one, a reply bounded by the page's history rather than by your request.
 * **`pages_annotated`** lists the pages touched, 1-based.
+* **`warnings`** appears when the document's permissions ask readers not to annotate it (advisory,
+  enforced by nothing — the marks are written, and the user should be told before the file is
+  shared), or when a requested mark overlaps one this app did not write. Relay both.
+
+## Where the output appears, and when
+
+The file at `out` materialises only when the call **finishes**: the write goes to a temporary file
+in the output directory and is renamed into place at the end, so a crash cannot leave a
+half-written PDF where you expect a good one. A caller polling `out` mid-call sees nothing and
+should not read that as failure. Nothing is ever written over the input — `out` must be a new path
+(or pass `overwrite: true` to replace an existing file that is not the input).
+
+## Marking a phrase, not its words
+
+Pass the boxes of **one** `search` hit as **one** mark. Marking a phrase word by word gives one mark
+per word, and the words do not touch: `New` ends at x=184.49 while `York` begins at 187.54, a 3 pt
+gap, so the merge leaves two marks where the reader sees one continuous phrase. A hit's own `boxes`
+already covers the whole phrase, including across a line wrap.
+
+## Which corner the coordinates start from
+
+Boxes are measured from the **top-left** of the page, y increasing **downward**. The PDF format
+itself measures from the bottom-left with y increasing upward, and so does almost every other PDF
+library — the flip is PyMuPDF's, applied on the way in and out, and the file written is always
+standard PDF.
+
+Inside these tools it never matters: `search` → `annotate` → `get_annotations` → `redact_regions`
+are one frame end to end, and boxes pass between them untouched. It matters at the seam with
+anything that read the file directly. A box built against the PDF's own origin lands **mirrored
+about the page's horizontal axis**: still valid, still on the page, no error raised — just the wrong
+line. Convert with `y' = page_height - y` (`get_info` reports each page's height).
+
+`get_annotations` reports `snippet` and `text_length` for every mark precisely so this is visible
+rather than silent: if a mark's snippet is not the text you meant to mark, the box was wrong. On a
+page with no text layer both come back empty, which is indistinguishable from a wrong box — the one
+case this check cannot cover.
 
 ## Merging, in detail
 
-`merge_markup` is the app's own function, so a mark written here and one drawn by hand resolve the
-same way. Against markup of the **same type** that the new boxes overlap:
+`merge_markup` is the app's own function, so a mark written here and one drawn by hand **in
+KlarPDF** resolve the same way. Against markup of the **same type** that the new boxes overlap:
 
 * **Same colour** → absorbed. The old mark is dropped and its bars folded into the new one, so
   re-marking a marked span is a no-op and extending one grows it in place. A pass bridging two
@@ -155,11 +197,32 @@ same way. Against markup of the **same type** that the new boxes overlap:
   their original colour.
 
 Different types never interact: a highlight and an underline over the same words are two marks, as
-they are in any PDF reader.
+they are in any PDF reader. Boxes must genuinely **overlap** to merge — touching exactly does not,
+and neither does a 0.01 pt intersection, though 0.5 pt does.
+
+**Merging never crosses authorship.** A mark made in Acrobat, Edge, Preview or any other tool is
+never absorbed and never trimmed, whatever its type or colour: a new mark over one is simply added
+beside it, and the reply's `warnings` names the author whose mark you landed on. This is deliberate
+and will not change — merging *deletes* a mark, and silently deleting a reviewer's annotation to
+reattribute their span would be far worse than leaving a duplicate.
+
+The consequence for the review workflow below: step 2 assumes the person reviews **in KlarPDF**,
+where every mark this tool wrote is ordinary and editable. A reviewer working in Acrobat or Edge
+produces marks the next `annotate` pass stacks against rather than merges with. Read them with
+`get_annotations` — they are all reported, with `mine: false` — and decide what to do with them
+yourself.
+
+**On a page with no text layer, merging works on plain geometry.** Two overlapping marks become the
+single box *enclosing* both, which on a scan paints corners that were in neither. On a text page
+this is invisible because the bars follow the lines; on a scan there is no such structure to follow.
+The resulting box is in the reply, so nothing is hidden.
 
 **Notes are never lost to a merge.** An absorbed mark's note is carried onto the survivor, joined
 with a blank line when several arrive. A note you pass in this call joins them rather than replacing
-them. The rule is that only deleting a mark deletes its note.
+them, and a note **already present on the mark is not added again** — so re-running a call leaves
+the note reading once, not twice. (Matching is on the whole note as a blank-line-separated segment,
+so a note that itself contains a blank line is ambiguous under that encoding and can still
+duplicate.) The rule is that only deleting a mark deletes its note.
 
 ## Notes are a field of their mark, not an object
 
@@ -198,6 +261,33 @@ Two flags separate the cases, and they differ in both directions:
 Form-field widgets are excluded; `get_form_fields` reports those properly, with values and states.
 Link rectangles are not annotations here either.
 
+## Reading the whole document: `offset` and `more_available`
+
+This is the one tool here that **paginates**, and it needs to be, because the usual advice does not
+apply. Every other capped tool answers truncation with *narrow the request* — `search` says tighten
+the query, `export_images` says list the directory. There is no query to tighten here: the marks are
+simply on the page, so the only lever is `pages`, and it fails precisely in the case that overflows,
+where one dense page carries four hundred marks and cannot be narrowed at all.
+
+So the reply is bounded by a mark count **and** a character budget — a mark's JSON runs 213-613
+characters depending on its note, so a count alone does not bound the size — and whole marks are
+dropped rather than trimmed:
+
+* **`total_annotations`** — how many marks are in scope in total, whatever came back. Read it first:
+  it tells you how many rounds to expect before you start.
+* **`count`** / **`offset`** — how many this reply holds, and where it started.
+* **`more_available`** — `true` when marks were left behind. Call again with
+  `offset = offset + count` and keep going until it is `false`.
+
+The order is stable across calls (page order, then each page's own annotation order), and no write
+tool can change the file underneath you — every one of them writes to a *new* path — so a plain
+integer offset is safe here in a way it usually is not. No cursor, no snapshot, no staleness.
+
+**The risk this trades for, and it is on you:** a truncated reply looks exactly like a complete one
+once you have filtered it. If you are collecting "everything highlighted in orange" across a
+document and you stop at the first batch, you have an incomplete answer that reads as total. Never
+report a filtered result from a reply whose `more_available` is `true`.
+
 ## `boxes` and the redaction hand-off
 
 `boxes` is in **unrotated page points** — the same space `search` reports hits in and
@@ -213,15 +303,36 @@ annotation rectangle.
 The boxes come from the annotation's quad points, not its `/Rect`, which is padded a few points
 wider on every side; using the rect would silently over-cover a redaction built from it.
 
+Coordinates are measured from the **top-left**, y downward — see `klarpdf://docs/annotate` for the
+conversion and for why a box from another library lands mirrored.
+
+## `snippet` and `text_length`
+
+The text each mark's own boxes actually cover. `snippet` is windowed for reading, the way a `search`
+hit's is; `text_length` is the full character count, unwindowed, so a box that looks plausible but
+covers three paragraphs still stands out.
+
+They are here to make a wrong box **self-revealing**: if a mark's snippet is not the text you meant,
+the coordinates were wrong, whatever produced them. On a page with no text layer both come back
+empty — which is indistinguishable from a wrong box, and the one case this cannot catch.
+
 ## Colour
 
 * **`color`** is the raw RGB as stored, `null` for an annotation that carries none.
-* **`color_name`** is the nearest palette name (Yellow, Green, Blue, Pink, Orange, Red, Black) and
-  is **advisory** — near enough to be useful for filtering, never a claim about what was intended.
-  It is `null` when nothing is close, rather than a misleading guess.
+* **`color_name`** is the nearest palette name and is **advisory** — near enough to be useful for
+  filtering, never a claim about what was intended. It is `null` when nothing is close, rather than
+  a misleading guess. Nearness is judged perceptually (luma-weighted), not by raw RGB distance, so
+  another tool's default yellow is named `Yellow` rather than being pulled toward `Orange` by a
+  difference the eye reads as paleness rather than hue.
 * **`color_exact`** is `true` only when the colour *is* one of the app's swatches. A mark made in
   KlarPDF carries an exact value; one made in Acrobat generally does not. Use it to tell "the
   reviewer picked Orange from the menu" from "something orange-ish arrived from elsewhere".
+
+**The two palettes are not one palette.** Highlights are Yellow, Green, Blue, Pink, Orange; lines
+(underline and strikeout) are Red, Blue, Green, Black — and the shared names are **different
+colours**: a highlight Blue is a pale wash, a line Blue is a saturated ink, and they sit further
+apart than any two swatches within either set. So filtering `color_name == "Blue"` across mixed mark
+types collects two visibly different colours. Filter on `type` as well when the distinction matters.
 
 Filter on colour when the workflow assigned it a meaning, and show the user what matched before
 acting on it — the meaning is theirs, and this tool has no opinion about it.
