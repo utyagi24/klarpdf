@@ -336,6 +336,39 @@ Expect green, with **one skip**: the Poppler cross-engine redaction check, becau
 not on a stock Windows PATH. That skip is exactly why `test.yml` installs `poppler-utils` and
 asserts the test ran on Linux — between the two platforms it is never skipped everywhere.
 
+### Handoff — where a Windows session picks this up (2026-08-27)
+
+*Transient. Delete this block when M44 ticks; the numbered rows above and below are the durable
+part.*
+
+**State.** `main` is at the M126 merge. Eight of the ten rows are CI checks or a single command;
+**rows 9 and 10 are what is left, plus the tag.** Both need a Claude Desktop install, so they are
+one sitting, not two. Nothing here is blocked and nothing else in M44 is waiting on it.
+
+**Verified in WSL on 2026-08-27**, so a Windows session need not redo it: full suite 2,401 passed /
+2 expected skips; bridge suite 539 passed / 0 skips; `tools/mcp_stdio_check.py` 13/13; the bundle
+builds at 199 KiB with its manifest and version in step. `bridge-windows` is green on `main` and is
+now a **required check**, so row 7 needs nothing by hand.
+
+**One-time, on the Windows box:** python.org **3.12.x** (the Store stub cannot build), **Node** (for
+`npx @anthropic-ai/mcpb`, which the build shells out to), **[`uv`](https://docs.astral.sh/uv/)** on
+PATH (the bundle's launcher — Desktop cannot install without it), and **Claude Desktop** itself.
+
+**Then, in order:**
+
+```powershell
+git pull
+py -3.12 packaging\mcpb\build_mcpb.py     # -> dist\klarpdf-0.17.1.mcpb
+py -3.12 tools\mcp_stdio_check.py         # row 8 on the shipping platform: expect 13 passed
+```
+
+`dist\` is gitignored, so the bundle built in WSL did not travel — build it there. Then work row 9,
+then row 10 **in the same sitting** (it can only be answered while installing), then §3 for the tag.
+
+**Write back before closing:** tick **M44** in `PROGRESS.md` with what rows 9 and 10 actually
+returned; put row 10's answer in the row 10 section below (and in `mcp_bridge/README.md` only if it
+changed); delete this block.
+
 ### 9 — Claude Desktop
 
 ```bash
@@ -352,9 +385,24 @@ Needs Node (for `npx @anthropic-ai/mcpb`) and, on the *installing* machine,
    true).
 3. Call `get_info` on a real PDF, then `redact_text` on a throwaway copy, and check the reply
    carries `cross_engine_verified` (`true` only if Poppler is installed on that machine).
-4. Confirm the input file is **byte-identical** afterwards.
+4. Confirm the input file is **byte-identical** afterwards. Hash it before and after rather than
+   trusting the timestamp — the whole guarantee is that a write tool never touches its input:
+
+   ```powershell
+   $h = (Get-FileHash .\throwaway.pdf -Algorithm SHA256).Hash
+   # ... run redact_text against it from Desktop, writing to a NEW out path ...
+   if ((Get-FileHash .\throwaway.pdf -Algorithm SHA256).Hash -eq $h) { "unchanged" } else { "CHANGED" }
+   ```
+
 5. Also check the plain-config path (Option B in `mcp_bridge/README.md`), since it is the fallback
-   for anyone without `uv`.
+   for anyone without `uv`. It needs `klarpdf-mcp` on the PATH **Desktop** sees, which is not
+   necessarily the one your shell sees — use `where klarpdf-mcp` and put the absolute path in
+   `%APPDATA%\Claude\claude_desktop_config.json` if the bare name does not resolve.
+
+**If Desktop refuses the bundle**, the likely causes in order: `uv` not on PATH (the manifest's
+launcher is `uv run --directory ${__dirname}/server`), a Python outside `>=3.12,<3.13` (what the
+generated `pyproject.toml` requires), or no network — Option A resolves from PyPI at install time
+by design. Option B needs none of those and is the fallback worth reaching for.
 
 **A third-party client is a spot check, not a gate** — Codex CLI via `~/.codex/config.toml`, or Grok
 Build. stdio is the universal denominator, so a failure there is a bug worth knowing about before
@@ -374,6 +422,37 @@ the resolved versions against `requirements-mcp.txt`. If they match, commit the 
 and say so in `mcp_bridge/README.md`. **Until then the README's statement stands as written** — the
 `.mcpb` path installs online and is not covered by `pip-audit`. Do not soften that wording without
 evidence.
+
+**Concretely, in the same sitting as row 9.** Generate the lock from the bundle's own manifest, so
+it describes exactly what the bundle declares:
+
+```powershell
+cd packaging\mcpb
+uv lock                      # -> uv.lock beside the generated pyproject.toml
+py -3.12 build_mcpb.py       # rebuild so the lock travels inside the bundle
+```
+
+Install that bundle, then read back what Desktop's copy actually resolved — the environment `uv`
+built lives under the installed extension's `server` directory:
+
+```powershell
+uv run --directory "<installed extension>\server" python -m pip freeze
+```
+
+Compare that against `requirements-mcp.txt`. **Three outcomes, and each has a different consequence:**
+
+- **They match, and a deliberately stale lock still wins** — i.e. edit one pin in `uv.lock`, rebuild,
+  reinstall, and the *stale* version is what appears. That is the only proof the lock is being
+  honoured rather than coincidence: the generated `pyproject.toml` already pins the whole transitive
+  set with `==`, so a fresh resolve produces the same answer with or without a lock. **Do this
+  second step** — without it a match proves nothing.
+- **They match, but the doctored lock is ignored** — `uv` is resolving from the pins and the lock is
+  inert. The README wording stands unchanged.
+- **They differ** — the bundle is installing something the audit never saw, which is the case the
+  README already describes. Record the drift; it is the strongest argument for Option B.
+
+Whatever comes back, write the answer here and tick M44. A question carried since M42 should not
+survive being answered.
 
 ### Release notes — the two things to say plainly
 

@@ -503,6 +503,9 @@ items, which are independent of it.
   the manifest, `get_info` + `redact_text` on a throwaway copy, confirm the input is byte-identical,
   and check the plain-config fallback for anyone without `uv`; and row 10 — drop a `uv.lock` beside
   the bundle's `pyproject.toml` and compare what it resolves against `requirements-mcp.txt`.
+  **A Windows session starts at `RELEASE.md` §4 → *Handoff*** — prerequisites, the three commands to
+  run on arrival, and what to write back. Both rows are one sitting: row 10 can only be answered
+  while installing the bundle row 9 asks for.
 
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 
