@@ -255,3 +255,118 @@ jobs:
       - name: Run the bridge suite against its own dependencies
         if: steps.gate.outputs.relevant != 'false'
         run: pytest -q tests/test_mcp_*.py
+
+  # M123 — the Windows half of the suite, which nothing had ever run.
+  #
+  # `pytest` above is Linux, and two tests can only run here: `tests/test_app_mutex.py`'s
+  # single-instance cases, gated on `sys.platform == "win32"` because the mutex is a Windows kernel
+  # object. Single-instance/focus is a **shipped Windows feature**, so until now its only coverage was
+  # a maintainer remembering to run the suite locally before tagging — `release.yml` uses
+  # `windows-latest` but only builds, and runs no tests at all.
+  #
+  # Free, despite the folklore: GitHub bills standard runners at 2x on Windows only for PRIVATE repos
+  # drawing down included minutes. This repo is public, where standard runners are unmetered — the
+  # `windows-latest` job in release.yml has been proving that on every release.
+  #
+  # NO PATH FILTER, and the docs-only gate lives inside the job, for the same reason as the two jobs
+  # above (G7): this is intended as a required status check, and a filtered-out workflow never creates
+  # a check run, which a ruleset cannot tell apart from one still running.
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0   # the gate below diffs against the merge base
+
+      - name: Is this a docs-only change?
+        id: gate
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          files=$(git diff --name-only "${BASE_SHA}...${HEAD_SHA}")
+          echo "Changed files:"; printf '%s\n' "$files"
+          if [ -n "$files" ] && ! printf '%s\n' "$files" | grep -qvE '\.md$'; then
+            echo "docs_only=true" >> "$GITHUB_OUTPUT"
+            echo "-> docs-only: skipping the suite, reporting the check as evaluated."
+          else
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-python@v6
+        if: steps.gate.outputs.docs_only != 'true'
+        with:
+          python-version: "3.12"
+
+      - name: Install Python deps (cross-platform dev lock, no hashes)
+        if: steps.gate.outputs.docs_only != 'true'
+        run: pip install -r requirements-dev.txt
+
+      # Deliberately NO Poppler here. The four `pdftotext`-gated tests already run on Linux, and this
+      # job exists for what Linux CANNOT run. Installing it would buy a duplicate of covered ground and
+      # slow every PR; the allowlist below is what states that choice rather than leaving it implied.
+      - name: Run the headless suite
+        if: steps.gate.outputs.docs_only != 'true'
+        run: pytest -q --junit-xml=junit.xml
+
+      # The mirror image of the Linux allowlist. There the Windows mutex tests are the approved skip;
+      # here they are the whole point of the job, so they must RUN and the platform-inverted ones are
+      # what may skip. Stating both sides is what makes "covered somewhere" checkable instead of
+      # assumed: between the two jobs, every skip in the suite is expected on exactly one platform.
+      - name: Assert only the expected tests skipped (the Windows-only tests really ran)
+        if: steps.gate.outputs.docs_only != 'true'
+        shell: bash
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+
+          # Legitimate skips on a Windows runner: the POSIX-only tests, and Poppler, which this job
+          # deliberately does not install (see above). Everything else must run.
+          ALLOWED_REASONS = {
+              "POSIX symlink semantics",
+              "off-Windows it must be an inert no-op",
+              "Poppler pdftotext not installed",
+          }
+
+          root = ET.parse("junit.xml").getroot()
+          unexpected = []
+          for case in root.iter("testcase"):
+              for skip in case.findall("skipped"):
+                  reason = (skip.get("message") or "").strip()
+                  if not any(allowed in reason for allowed in ALLOWED_REASONS):
+                      unexpected.append((case.get("classname", ""), case.get("name", ""), reason))
+
+          if unexpected:
+              for classname, name, reason in unexpected:
+                  print(f"UNEXPECTED SKIP  {classname}::{name} -- {reason}")
+              raise SystemExit(
+                  f"{len(unexpected)} test(s) skipped on Windows for an unapproved reason. Either fix "
+                  "the environment or add the reason to ALLOWED_REASONS in this step, deliberately "
+                  "and with a comment saying why."
+              )
+
+          # The reason this job exists, named individually and on purpose. "Some test_app_mutex case
+          # ran" is not enough: that file also holds platform-neutral cases which run everywhere, so a
+          # count would stay green while these two -- the only ones gated on `sys.platform == "win32"`
+          # -- skipped and went back to running NOWHERE. Naming them is the same trade as the canary
+          # on the Linux job: coupled to a rename, which fails loudly, rather than to nothing at all.
+          MUST_RUN = {
+              "test_acquire_is_idempotent_and_holds_a_handle",
+              "test_the_mutex_is_visible_to_another_opener_which_is_what_inno_does",
+          }
+          ran = {
+              case.get("name")
+              for case in root.iter("testcase")
+              if case.get("name") in MUST_RUN and not case.findall("skipped")
+          }
+          if ran != MUST_RUN:
+              missing = ", ".join(sorted(MUST_RUN - ran)) or "(none)"
+              raise SystemExit(
+                  f"these Windows-only tests did not run here: {missing}. They skip on Linux by "
+                  "design, so this job is the only thing standing between them and no coverage at "
+                  "all. If one was renamed, update MUST_RUN in this step."
+              )
+          print(f"OK: only the expected skips; both Windows-only mutex tests ran ({len(ran)}/2).")
+          PY

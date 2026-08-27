@@ -5639,6 +5639,39 @@ bridge — which is the signature of a harness catching itself. Verified by keep
 controls: a check that cannot fail is not a check, and a fix that quietly disarms one is worse than
 the failure it removed.
 
+### M123 — the Windows half of the suite, which nothing had ever run (2026-08-27)
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M123** A `windows-latest` job runs the suite on every PR, so the two Windows-only tests stop depending on a maintainer remembering | `windows` job in `.github/workflows/test.yml` | CI (Windows runner) | The job runs the full suite; its guard fails if any `tests/test_app_mutex.py` case skips there, and if anything skips for a reason not on the Windows allowlist |
+
+**What was uncovered.** `tests/test_app_mutex.py` holds two cases gated on `sys.platform == "win32"`,
+because the mutex is a Windows kernel object. They skip in Linux CI — correctly, they cannot run
+there — and CI had no Windows job, so **they ran nowhere automatic**. Their only coverage was a
+maintainer running the suite locally before tagging, per `RELEASE.md`. `release.yml` does use
+`windows-latest`, but it only builds; it runs no tests at all. Single-instance/focus is a shipped
+Windows feature, and the check that it works was resting on someone's memory.
+
+**Why this was not done sooner, and why the reason was wrong.** It had been costed as "Windows
+runners bill 2×". That multiplier is real but applies to **private** repositories drawing down
+included minutes; on a **public** repo standard runners are unmetered, and this repo is public. The
+proof was already in the repo — `release.yml`'s `windows-latest` job has run on every release with no
+billing configured. A cost objection that nobody had checked was the only thing holding back the fix.
+
+**The allowlists are the design, and there are now two.** M122 replaced a name-matching CI assertion
+with an allowlist of skip *reasons*, so nothing can go quiet without saying why. This job carries the
+**mirror image**: on Linux the Windows mutex is the approved skip, while here it is the whole point of
+the job and must run, with the POSIX-only tests and Poppler approved instead. Between the two, every
+skip in the suite is expected on exactly one platform and asserted on the other — which turns
+"covered somewhere" from an assumption into something a machine checks. The Windows job installs no
+Poppler on purpose: those four tests already run on Linux, and this job exists for what Linux cannot
+run.
+
+**Made a required check**, alongside `pytest`, `bridge` and `emails`. The alternative considered was
+advisory-first, on the grounds that a flake in a required check blocks every merge in the repo and
+`PROGRESS.md` already lists two flaky tests. Rejected by the owner: a check that cannot block is a
+check people learn to ignore, and the gap it closes is a shipped feature's only coverage.
+
 ## Future enhancements (deferred beyond the roadmap)
 
 Captured but not yet scheduled:

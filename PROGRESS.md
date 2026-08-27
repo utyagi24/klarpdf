@@ -2263,6 +2263,23 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   **38 s** on a branch touching `mcp_bridge/` and `model/`, **4 s** reporting without doing the work
   on the docs-only branch stacked above it. Design in `PLAN.md` §M115.1 — *WSL + CI*
 
+- [x] **M123** *(unplanned)* **The Windows half of the suite, which nothing had ever run** — added
+  2026-08-27, following the owner's question *"are we releasing our public build without running the
+  full suite?"* **The honest answer was no, but with a real hole**: `pytest` is a required check so
+  everything on `main` passed the **Linux** suite, and `release.yml` runs **zero** tests — it builds
+  and publishes, trusting `main`. Meanwhile `tests/test_app_mutex.py`'s two `win32`-gated cases skip
+  on Linux, and with no Windows job they ran **nowhere automatic**: single-instance/focus, a shipped
+  Windows feature, was covered only by a maintainer remembering to run the suite before tagging.
+  A `windows-latest` job now runs the full suite on every PR, **as a required check** — advisory-first
+  was considered and rejected by the owner, since a check that cannot block is one people learn to
+  ignore. **The cost objection that had delayed it was simply wrong:** the 2× Windows multiplier
+  applies to *private* repos spending included minutes, and this repo is public, where standard
+  runners are unmetered — `release.yml`'s `windows-latest` job had been proving that on every release.
+  The job carries the **mirror image** of M122's skip allowlist (here the mutex tests must *run* and
+  the POSIX/Poppler ones may skip), so between the two platforms every skip is expected on one and
+  asserted on the other. `RELEASE.md`'s manual prereq stays, but is no longer the only thing standing
+  between those tests and no coverage. Design in `PLAN.md` §M123 — *CI (Windows)*
+
 - [x] **M122** *(unplanned)* **The no-socket guard stops catching asyncio instead of us** —
   [#301](https://github.com/utyagi24/klarpdf/issues/301), found 2026-08-25 and fixed 2026-08-27, both
   on Windows. `tests/test_mcp_no_qt.py` collapsed there — 2 failed, 4 errored — on
