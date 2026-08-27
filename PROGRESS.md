@@ -2285,6 +2285,28 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   round trip at more than the default — the default is the value most likely to be the one that
   happens to work. Design in `PLAN.md` §M120 — *WSL*
 
+- [x] **M119** *(unplanned)* **A directory handed to a bridge tool says so on Windows too** —
+  [#294](https://github.com/utyagi24/klarpdf/issues/294), found 2026-08-25 running the full suite
+  natively on Windows and fixed 2026-08-26. `get_info` on a directory returned the raw
+  `[Errno 13] Permission denied` instead of the friendly *"is a directory, not a PDF"* the code
+  plainly intends. **The cause is a POSIX assumption, and the fix is not simply "also catch
+  `PermissionError`"**: a document is read through `Path(path).read_bytes()`, so the error comes out
+  of CPython's file layer, where POSIX has a distinct errno (`EISDIR` → `IsADirectoryError`) and
+  **Windows has none** — a directory gives `EACCES` → `PermissionError`, the same type a genuinely
+  unreadable file raises. Mapping every `PermissionError` to "is a directory" would misreport a real
+  one, so the filesystem is asked instead; POSIX keeps its type-only branch and gains no syscall.
+  Two details that stop it being a one-liner: `OSError.filename` is not guaranteed and
+  `os.path.isdir(None)` raises `TypeError` — a crash *inside the error handler* — and a genuine
+  permission error now gets its own explanation rather than falling through raw.
+  **The testing lesson is the durable part:** the existing end-to-end test opens a real directory
+  and takes whatever the OS raises, so **Linux exercises one branch, Windows the other, and neither
+  exercises both** — a green Linux suite could not have caught this. The new tests call `_explain`
+  with a synthetic exception of each platform's shape, pinning the *mapping* rather than the
+  runner's errno. **Fixed from WSL** — cross-platform core, per `CLAUDE.md` §quarantine; the
+  end-to-end test confirms it on Windows next time the suite runs there.
+  Design in `PLAN.md` §M119 — *WSL*
+
+
 - [x] **M118** *(unplanned)* **The boundaries M113 stopped one step short of** — five follow-ups from
   the **TC-015** retest (2026-08-26), which verified all nine M113 fixes black-box against nine
   purpose-built fixtures plus three real documents, with PyMuPDF/pypdf as an independent oracle, and

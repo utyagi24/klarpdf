@@ -16,7 +16,7 @@ import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 
 from mcp_bridge.config import Config, Limits, PathNotAllowed, PathPolicy
-from mcp_bridge.server import create_server, parse_args
+from mcp_bridge.server import _explain, create_server, parse_args
 from tests.conftest import A_TEXT
 
 READ_TOOLS = {
@@ -273,6 +273,47 @@ def test_a_missing_file_is_reported_as_such(tmp_path):
 def test_a_directory_given_as_a_document_is_reported_as_such(tmp_path):
     with pytest.raises(ToolError, match="is a directory"):
         call(create_server(), "get_info", path=str(tmp_path))
+
+
+# ---- M119 / #294: the same mistake raises a different exception per platform ----
+#
+# The test above cannot catch this on its own, and that is the whole lesson. It opens a directory
+# and takes whatever the OS raises, so on Linux it exercises `IsADirectoryError` and on Windows
+# `PermissionError` — **each platform tests one branch and neither tests both**, which is how a
+# Windows-only regression sat behind a green Linux suite. These call `_explain` directly with a
+# synthetic exception of each shape, so both branches are exercised everywhere.
+
+
+def test_the_posix_directory_error_is_explained(tmp_path):
+    explained = _explain(IsADirectoryError(21, "Is a directory", str(tmp_path)))
+    assert "is a directory, not a PDF" in str(explained)
+
+
+def test_the_windows_directory_error_is_explained(tmp_path):
+    """Windows has no EISDIR: opening a directory gives EACCES, which is why the type alone cannot
+    decide it and the filesystem is asked instead (#294)."""
+    explained = _explain(PermissionError(13, "Permission denied", str(tmp_path)))
+    assert "is a directory, not a PDF" in str(explained)
+
+
+def test_a_genuine_permission_error_is_not_called_a_directory(tmp_path):
+    """The risk the `isdir` check exists to avoid: a file the caller truly cannot read must keep
+    its own explanation, or they go looking for the wrong mistake."""
+    locked = tmp_path / "locked.pdf"
+    locked.write_bytes(b"%PDF-1.4\n")
+
+    explained = _explain(PermissionError(13, "Permission denied", str(locked)))
+
+    assert "is a directory" not in str(explained)
+    assert "permission denied" in str(explained).lower()
+
+
+def test_an_oserror_with_no_filename_does_not_crash_the_handler():
+    """`OSError.filename` is not guaranteed, and `os.path.isdir(None)` raises TypeError — which
+    would replace a tidy error with a crash *inside the error handler*."""
+    explained = _explain(PermissionError(13, "Permission denied"))
+    assert isinstance(explained, Exception)
+    assert "permission denied" in str(explained).lower()
 
 
 def test_the_tool_schemas_survive_the_error_wrapper():
