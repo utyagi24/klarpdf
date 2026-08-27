@@ -381,6 +381,55 @@ def test_the_bundle_never_ships_a_vendored_environment(build_mcpb):
     assert "model/edit_commands.py" in build_mcpb.EXCLUDE_FILES
 
 
+def test_the_manifest_runtime_range_is_semver_not_pep_440(manifest):
+    """M128 — the manifest is read by a Node host, so this field is a **node-semver** range.
+
+    `>=3.12,<3.13` is the PEP 440 spelling and it is correct in `pyproject.toml`, where pip and uv
+    read it. In `compatibility.runtimes` it is parsed by node-semver, where a comma is not the AND
+    separator — a space is — so the range is unsatisfiable and Claude Desktop reported the runtime
+    as unmet on a machine running exactly 3.12.10. Measured with semver@7:
+    `>=3.12,<3.13` rejects 3.12.10; `>=3.12.0 <3.13.0` accepts it.
+
+    `mcpb validate` passes either way (it checks the field is a string), so nothing upstream catches
+    this. The comma is the whole bug and is what this asserts.
+    """
+    declared = manifest["compatibility"]["runtimes"]["python"]
+
+    assert "," not in declared, (
+        f"{declared!r} is PEP 440 syntax in a node-semver field — no Python can satisfy it. "
+        "Separate comparators with a space: '>=3.12.0 <3.13.0'."
+    )
+    # node-semver compares part by part, so a bare `3.12` bound is a trap of its own: spell the
+    # patch component out rather than relying on the parser's zero-fill.
+    for bound in declared.split():
+        assert re.match(r"^[<>=~^]*\d+\.\d+\.\d+$", bound), f"{bound!r} is not a full-version bound"
+
+
+def test_the_two_python_requirements_describe_the_same_window(manifest, build_mcpb):
+    """The bundle states its Python floor twice, in two ecosystems' syntaxes, and they must agree.
+
+    `pyproject.toml` is what actually installs (PEP 440, comma-separated); the manifest is what the
+    host pre-flights (node-semver, space-separated). They are written in different files by different
+    rules, so nothing but this keeps them from drifting into a bundle that installs fine and warns,
+    or pre-flights fine and fails to install.
+    """
+    rendered = build_mcpb.render_pyproject("0.0.0", ["mcp==1.0.0"])
+    pep440 = re.search(r'requires-python = "([^"]+)"', rendered).group(1)
+    semver = manifest["compatibility"]["runtimes"]["python"]
+
+    def bounds(text: str) -> set[tuple[str, str, str]]:
+        found = set()
+        for part in re.split(r"[,\s]+", text.strip()):
+            match = re.match(r"^([<>]=?)(\d+)\.(\d+)", part)
+            if match:
+                found.add((match.group(1), match.group(2), match.group(3)))
+        return found
+
+    assert bounds(pep440) == bounds(semver), (
+        f"pyproject says {pep440!r}, manifest says {semver!r} — same window, two syntaxes"
+    )
+
+
 def test_npx_is_started_by_resolved_path_never_by_the_bare_name(build_mcpb, monkeypatch):
     """M127 — a bare "npx" does not start a process on the one platform this project ships.
 

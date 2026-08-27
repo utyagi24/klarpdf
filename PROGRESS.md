@@ -2276,6 +2276,29 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   **38 s** on a branch touching `mcp_bridge/` and `model/`, **4 s** reporting without doing the work
   on the docs-only branch stacked above it. Design in `PLAN.md` §M115.1 — *WSL + CI*
 
+- [x] **M128** *(unplanned)* **The bundle declared a Python requirement no Python could satisfy** —
+  2026-08-27, found in M44 row 9 on the first real Claude Desktop install: the dialog showed
+  **Python >=3.12,<3.13** as unmet on a machine running python.org **3.12.10**, while Desktop's own
+  *Detected tools* panel reported `Python: 3.12.10` in the same session — it could see the
+  interpreter and still would not count it. **The cause is one character in the wrong ecosystem.**
+  `>=3.12,<3.13` is the **PEP 440** spelling and is correct where we also write it (`requires-python`
+  in the generated `pyproject.toml`, read by pip and uv), but `manifest.json` is consumed by a
+  **Node** host and `compatibility.runtimes` is a **node-semver** range, where AND is a **space** and
+  a comma is not a separator at all. Measured with `semver@7`: `>=3.12,<3.13` rejects `3.12.10`;
+  `>=3.12.0 <3.13.0`, `~3.12.0`, `3.12.x` and `>=3.12 <3.13` all accept it and reject `3.11.9` and
+  `3.13.0`. So the range was unsatisfiable by **every** Python on **every** platform, and the warning
+  had nothing to do with the machine showing it. **Nothing caught it because `mcpb validate` passes
+  the comma form** — it checks the field is a string, not that it parses — so the build printed
+  "Manifest schema validation passes!" while shipping an impossible requirement; and the string is
+  *identical* to the correct one two files away, which is what makes it invisible on review. Fixed to
+  `>=3.12.0 <3.13.0` (over `~3.12.0`/`3.12.x`, because it states both bounds where a reader of either
+  ecosystem can check them). Two pure-Python tests hold it — no comma, full `major.minor.patch`
+  bounds, and the manifest and pyproject describing the same window — so CI needs no Node. Verified
+  after rebuild: the staged manifest declares `>=3.12.0 <3.13.0` and `semver@7` confirms `3.12.10`
+  satisfies it. **Third in a row (M126, M127, M128) where a passing check named something that did
+  not work**, and the second where the fault was one ecosystem's syntax written in another's. Design
+  in `PLAN.md` §M128 — *Windows* ([#312](https://github.com/utyagi24/klarpdf/pull/312))
+
 - [x] **M127** *(unplanned)* **The bundle could not be built on the platform that ships it** —
   2026-08-27, found on the first line of M44 row 9: building the `.mcpb` on Windows died at its first
   `npx` call with a bare `FileNotFoundError: [WinError 2] The system cannot find the file specified`,

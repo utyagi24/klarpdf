@@ -436,9 +436,27 @@ Needs Node (for `npx @anthropic-ai/mcpb`) and, on the *installing* machine,
    `%APPDATA%\Claude\claude_desktop_config.json` if the bare name does not resolve.
 
 **If Desktop refuses the bundle**, the likely causes in order: `uv` not on PATH (the manifest's
-launcher is `uv run --directory ${__dirname}/server`), a Python outside `>=3.12,<3.13` (what the
+launcher is `uv run --directory ${__dirname}/server`), a Python outside the supported range (what the
 generated `pyproject.toml` requires), or no network — Option A resolves from PyPI at install time
 by design. Option B needs none of those and is the fallback worth reaching for.
+
+> **If the dialog calls the Python requirement unmet, read the range before you touch the machine.**
+> That symptom was **M128** — a manifest bug, not a misconfigured box. `compatibility.runtimes.python`
+> is a **node-semver** range, and it held the **PEP 440** spelling `>=3.12,<3.13`, where a comma is
+> not the AND separator. No Python on any platform could satisfy it. The tell that it is the manifest
+> and not the machine: Desktop's own **Detected tools** panel reports the interpreter correctly at the
+> same moment the requirement shows unmet. A test now rejects a comma in that field, so this exact
+> fault cannot return — but the *shape* can, for any requirement declared in two ecosystems' syntaxes.
+>
+> Two things worth knowing before blaming the environment, both true and neither the cause here:
+> the requirement is a **pre-flight check, not the launcher** (the bundle runs `uv run`, and `uv`
+> finds interpreters through the registry — measured against the staged bundle: CPython 3.12.10,
+> 32 packages, server imported), so a genuine mismatch can often be installed straight past; and on
+> Windows `%LOCALAPPDATA%\Microsoft\WindowsApps` sits first on `PATH` holding `python.exe` as a
+> **0-byte** App Execution Alias, which some probes cannot read a version from. Check that one with
+> `(Get-Item (Get-Command python).Source).Length` — ~105,000 is a real binary, `0` is the stub — and
+> fix it by putting the real interpreter ahead of the alias on the user `PATH`, then **fully quitting
+> Desktop from the tray**, since a Windows process reads `PATH` once at start.
 
 **A third-party client is a spot check, not a gate** — Codex CLI via `~/.codex/config.toml`, or Grok
 Build. stdio is the universal denominator, so a failure there is a bug worth knowing about before
