@@ -49,13 +49,22 @@ _CHILD = textwrap.dedent(
 
     PDF = sys.argv[1]
 
+    # Build the event loop BEFORE the guard is armed, because its self-pipe is asyncio's socket and
+    # not ours (M122). The loop wakes itself through an internal `socket.socketpair()`, and on
+    # Windows that is not a syscall: CPython emulates it in `socket._fallback_socketpair` with a
+    # real loopback `bind()` + `connect()`. Arm the guard first and it fires on *that*, inside
+    # `asyncio.run`, before a single tool has run — the invariant never gets tested at all.
+    # Constructing the loop up here moves the whole self-pipe out of the guarded window, so what the
+    # guard sees afterwards is only ever the server's own doing, on either platform.
+    _loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(_loop)
+
     # Refuse the network before anything is imported: the server is stdio-only, so it must make no
     # outbound connection and bind no port (PLAN.md §Verification).
     #
-    # Poison `connect`/`bind`, NOT the socket constructor. asyncio's event loop builds an internal
-    # `socket.socketpair()` self-pipe to wake itself, which is neither a connection nor a port; a
-    # blanket ban on constructing sockets breaks the event loop before any tool runs, and would be
-    # testing asyncio rather than us.
+    # Poison `connect`/`bind`, NOT the socket constructor. A blanket ban on *constructing* sockets
+    # would catch the self-pipe on every platform and be testing asyncio rather than us — the loop
+    # above sidesteps the same problem from the other end.
     import socket
     def _refuse(what):
         def guard(self, *a, **k):
@@ -122,7 +131,9 @@ _CHILD = textwrap.dedent(
             },
         )
 
-    asyncio.run(exercise())
+    # Not `asyncio.run`: that builds its own loop, which is exactly the self-pipe the guard is now
+    # armed against. Run on the one made above, while the guard stays live for every tool call.
+    _loop.run_until_complete(exercise())
 
     leaked = sorted(
         name for name in sys.modules

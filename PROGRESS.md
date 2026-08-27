@@ -2263,6 +2263,35 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   **38 s** on a branch touching `mcp_bridge/` and `model/`, **4 s** reporting without doing the work
   on the docs-only branch stacked above it. Design in `PLAN.md` §M115.1 — *WSL + CI*
 
+- [x] **M122** *(unplanned)* **The no-socket guard stops catching asyncio instead of us** —
+  [#301](https://github.com/utyagi24/klarpdf/issues/301), found 2026-08-25 and fixed 2026-08-27, both
+  on Windows. `tests/test_mcp_no_qt.py` collapsed there — 2 failed, 4 errored — on
+  `AssertionError: the MCP server path called socket.bind(('127.0.0.1', 0),)`, an address the bridge
+  never asks for. One root cause behind all six: the four errors were the shared `child_result`
+  fixture failing in *setup*. **The guard was catching the test's own event loop.** The child arms
+  `socket.bind`/`connect` before exercising the tools, deliberately sparing the constructor so
+  asyncio's `socket.socketpair()` self-pipe does not trip it — correct on POSIX, where `socketpair()`
+  is a real syscall that neither binds nor connects. **Windows has no such syscall**: CPython
+  emulates it in `socket._fallback_socketpair` with a genuine loopback `bind()` + `connect()`, so
+  `asyncio.run` did the forbidden thing *before a single tool ran*. The invariant was therefore not
+  just failing on Windows, it was **never tested there** — and only the noise made that visible.
+  **Fixed by moving the self-pipe out of the guarded window, not by widening the guard:** the child
+  builds its loop with `asyncio.new_event_loop()` before arming, then uses `run_until_complete`.
+  Skipping on `win32` was rejected (it surrenders coverage on the platform that ships) and so was
+  allow-listing `asyncio.windows_events` callers (stack-inspection inside the guard, fragile, and it
+  leaves a disarmed window). Both negative controls still pass, which is what proves the guard was
+  not quietly disarmed. Supersedes the follow-up recorded by [#295](https://github.com/utyagi24/klarpdf/pull/295).
+  **A second check that was not checking rode along in the same PR**, found while explaining a skip
+  count: CI's *"assert the Poppler cross-engine redaction test ran"* step named **one** of the four
+  tests gated on `pdftotext`, so the two in `tests/test_mcp_redaction.py` and the one in
+  `tests/test_search_redact.py` could have started skipping in CI without failing the build — a green
+  result for a cross-engine leak check that never ran. It now matches the skip *reason*, which all
+  four share, so it covers them and any added later; a named canary keeps the scan from passing when
+  there is nothing left to skip. Verified against three real `junit.xml` fixtures (4 skips → exit 1
+  naming each, 0 skips → exit 0, canary renamed → its own failure). Same lesson as the milestone
+  itself: **a check that cannot fail is not a check**, and both of these could not fail.
+  Design in `PLAN.md` §M122 — *Windows + CI*
+
 - [x] **M121** *(unplanned)* **Insert Blank Page leaves you looking at the page you made** —
   [#288](https://github.com/utyagi24/klarpdf/issues/288), fixed 2026-08-26. Right-click a thumbnail →
   Insert Blank Page and the strip scrolled so the **clicked** thumbnail jammed against the bottom of
@@ -3476,24 +3505,37 @@ it on this side of the line.
   shapes. Text markup is unaffected: it is read from quads, which carry no such padding (§M101).
   `mcp_bridge/annotations.py:_describe`, `model/page_edits.py:parse_annotation`.
 
-- **The MCP no-socket/no-Qt invariant tests can't run on native Windows** — found 2026-08-25 running
-  the full suite on Windows for the first time in a while (the venv was also missing `mcp`, now
-  reinstalled from `requirements-dev.txt`). `tests/test_mcp_no_qt.py`'s child-process guard poisons
-  `socket.bind`/`connect`/`connect_ex`, deliberately leaving the constructor alone so asyncio's
-  internal self-pipe (`socket.socketpair()`) doesn't trip it — the test's own comment says so. That
-  holds on POSIX, where `socketpair()` is a real syscall. On Windows, CPython's
-  `_fallback_socketpair()` emulates it with an actual loopback `bind()` + `connect()`, so the guard
-  fires on asyncio's own plumbing before `exercise()` runs a single tool — 6 of `test_mcp_no_qt.py`'s
-  tests fail or error this way, all the same root cause (confirmed: identical
-  `_fallback_socketpair` frame in every traceback). The product invariant itself is not violated —
-  nothing in the bridge opened that socket — this is the test's detection method being POSIX-only.
-  Not decided: pre-create the loop before installing the guard (so the self-pipe exists before
-  patching), allow-list callers from `asyncio.windows_events`/`proactor_events`, or accept the
-  invariant as Linux/WSL-CI-only and skip these specific tests on `win32`. Filed separately as
-  [#294](https://github.com/utyagi24/klarpdf/issues/294): the one *unambiguous* Windows bug this run
-  also found, `get_info` returning a raw `PermissionError` instead of "is a directory" for a
-  directory path, because `mcp_bridge/server.py`'s `_explain()` only catches POSIX's
-  `IsADirectoryError`.
+- ~~**The MCP no-socket/no-Qt invariant tests can't run on native Windows**~~ — **decided and fixed
+  2026-08-27 as M122** ([#301](https://github.com/utyagi24/klarpdf/issues/301); see the milestone
+  above, design in `PLAN.md` §M122). Carried for two days as three competing options; the choice was
+  settled by asking what each one *costs on the platform that ships*. Pre-building the loop keeps the
+  guard armed for every tool call on both platforms, where skipping on `win32` would have surrendered
+  the coverage exactly where the app runs. Nothing carried. The sibling finding from the same run,
+  `get_info` reporting a raw `PermissionError` for a directory, went to
+  [#294](https://github.com/utyagi24/klarpdf/issues/294) and is fixed as M119.
+
+- **Redaction's Poppler-gated tests skip locally on Windows — by design, and the design holds** —
+  noticed 2026-08-27 while reconciling a skip count (7 on the owner's PowerShell run, 3 on the
+  assistant's Git Bash run, same 2,391 collected). The difference is four tests gated on
+  `shutil.which("pdftotext")`: two in `tests/test_mcp_redaction.py` plus one each in
+  `tests/test_redaction.py` and `tests/test_search_redact.py`. They run under Git Bash only because
+  Git for Windows ships a `pdftotext` at `/mingw64/bin`, which is not on PowerShell's `PATH`.
+  **This is not a missing local configuration**, and the first draft of this entry wrongly implied it
+  might be: `.github/workflows/test.yml` says so in its header — the Linux job installs
+  `poppler-utils` *precisely* so the cross-engine check runs "instead of skipping the way it does on
+  a stock Windows/WSL shell" — and a post-run assertion (step *Assert the Poppler cross-engine
+  redaction test ran (did not skip)*, `test.yml:82`) **fails the build** if
+  `test_redaction_leak_check_poppler_cross_engine` comes back skipped.
+  So the enforcement point is CI, deliberately, and it is guarded against silently becoming a no-op.
+  Poppler is a *second* engine: redaction always verifies with PyMuPDF, and `pdftotext` is the
+  independent cross-check that the text is really gone (`mcp_bridge/redaction.py`), so a developer
+  without it loses corroboration, not the check.
+  ~~What is left, and it is much smaller than first written: the CI assertion names **one** of the
+  four tests, so the other three could start skipping in CI without failing anything.~~ **Fixed
+  2026-08-27 in the same PR as M122** — the step now matches the skip *reason* rather than a list of
+  names, so it covers all four and any Poppler-gated test added later, plus a named canary so the
+  scan cannot pass by there being nothing left to skip. Nothing carried; no decision outstanding
+  about local `PATH`, which was never the problem.
 
 - **`pipx install .` still resolves PyMuPDF to the newest release rather than ours** — the gap M115
   left open on purpose. That milestone pinned the *lock* (`requirements-mcp.txt`) to the app's
