@@ -5599,23 +5599,38 @@ disarmed for a window that a real bridge call could hide in. Pre-building the lo
 guard stays armed for **every** tool call on both platforms, and what it sees afterwards can only be
 the server's own doing.
 
-**A second check that was not checking, fixed in the same PR.** CI's *"assert the Poppler
-cross-engine redaction test ran"* step named a single test, while **four** are gated on
-`shutil.which("pdftotext")` — the two in `tests/test_mcp_redaction.py` and the one in
+**A second check that was not checking, fixed in the same PR — and then generalised.** CI's
+*"assert the Poppler cross-engine redaction test ran"* step named a single test, while **four** are
+gated on `shutil.which("pdftotext")`: the two in `tests/test_mcp_redaction.py` and the one in
 `tests/test_search_redact.py` were free to start skipping in CI without failing the build, reporting
-green for a redaction leak check that never ran. The step now matches the skip **reason**, which all
-four share (`"Poppler pdftotext not installed"`), so it covers every one of them and any added later;
-a name list would have rotted the same way the original did. A named canary sits alongside it,
-because a scan for skips also passes when there is nothing left to skip. Verified against three real
-`junit.xml` fixtures rather than by inspection: a PowerShell run with no `pdftotext` on `PATH`
-(4 skips) exits 1 naming each, a Git Bash run with it (0 skips) exits 0, and a fixture with the canary
-renamed away fails with its own message.
+green for a redaction leak check that never ran.
 
-This is worth stating next to the milestone because the two failures are the same failure. Local
-Windows skipping those four is **by design** — `test.yml`'s own header says `poppler-utils` is
-installed so the check runs "instead of skipping the way it does on a stock Windows/WSL shell" — so
-the enforcement point is CI, and the guard that made that safe was itself only three-quarters
-present.
+Fixing only Poppler would have left the same trap for the next dependency, so the step now pins the
+**whole skip set** instead: an allowlist of *reasons*, with anything skipping for an unlisted reason
+failing the build. Reasons rather than names, because a reason says why a test could not run, where a
+name list rots on the first rename and is silent about a test added later. The allowlist holds one
+entry — `"the mutex is a Windows kernel object"`, the two `tests/test_app_mutex.py` cases that
+genuinely cannot run on a Linux runner. Everything else in the suite must **run** in CI: the POSIX
+symlink tests, the off-Windows no-op and all four Poppler checks do. A missing system dependency, a
+new `importorskip`, or an environment probe that quietly stops matching now has to be justified in
+that allowlist or it breaks the build. A named canary sits alongside it, because a scan for skips
+also passes when there is nothing left to skip.
+
+Verified against fixtures rather than by inspection — two real `junit.xml` files (a PowerShell run
+with no `pdftotext`, a Git Bash run with it) and five Linux-shaped ones: the expected two mutex skips
+pass; a vanished Poppler, a new `importorskip`, an offscreen probe that stopped matching, and a
+deleted canary each fail with their own message.
+
+This belongs next to the milestone because the two failures are the same failure. Local Windows
+skipping those four is **by design** — `test.yml`'s header says `poppler-utils` is installed so the
+check runs "instead of skipping the way it does on a stock Windows/WSL shell" — so the enforcement
+point is CI, and the guard that made that safe was itself only three-quarters present.
+
+**What this does not cover, stated plainly:** the two Windows-kernel-mutex tests run on a developer's
+Windows machine and **nowhere in CI**, because there is no Windows test runner (`release.yml` uses
+`windows-latest` but only builds). The allowlist makes that gap explicit and reviewable instead of
+invisible, which is as far as a guard can take it; closing it needs a Windows job, which is a cost
+decision rather than a bug.
 
 **The lesson, and it is the same shape as M119's.** A guard that fires during setup proves nothing
 about the thing it guards, and the two platforms disagreed about what setup *does*. The tell is an
@@ -5623,6 +5638,39 @@ assertion naming something the code under test never mentions — `127.0.0.1:0` 
 bridge — which is the signature of a harness catching itself. Verified by keeping both negative
 controls: a check that cannot fail is not a check, and a fix that quietly disarms one is worse than
 the failure it removed.
+
+### M123 — the Windows half of the suite, which nothing had ever run (2026-08-27)
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M123** A `windows-latest` job runs the suite on every PR, so the two Windows-only tests stop depending on a maintainer remembering | `windows` job in `.github/workflows/test.yml` | CI (Windows runner) | The job runs the full suite; its guard fails if any `tests/test_app_mutex.py` case skips there, and if anything skips for a reason not on the Windows allowlist |
+
+**What was uncovered.** `tests/test_app_mutex.py` holds two cases gated on `sys.platform == "win32"`,
+because the mutex is a Windows kernel object. They skip in Linux CI — correctly, they cannot run
+there — and CI had no Windows job, so **they ran nowhere automatic**. Their only coverage was a
+maintainer running the suite locally before tagging, per `RELEASE.md`. `release.yml` does use
+`windows-latest`, but it only builds; it runs no tests at all. Single-instance/focus is a shipped
+Windows feature, and the check that it works was resting on someone's memory.
+
+**Why this was not done sooner, and why the reason was wrong.** It had been costed as "Windows
+runners bill 2×". That multiplier is real but applies to **private** repositories drawing down
+included minutes; on a **public** repo standard runners are unmetered, and this repo is public. The
+proof was already in the repo — `release.yml`'s `windows-latest` job has run on every release with no
+billing configured. A cost objection that nobody had checked was the only thing holding back the fix.
+
+**The allowlists are the design, and there are now two.** M122 replaced a name-matching CI assertion
+with an allowlist of skip *reasons*, so nothing can go quiet without saying why. This job carries the
+**mirror image**: on Linux the Windows mutex is the approved skip, while here it is the whole point of
+the job and must run, with the POSIX-only tests and Poppler approved instead. Between the two, every
+skip in the suite is expected on exactly one platform and asserted on the other — which turns
+"covered somewhere" from an assumption into something a machine checks. The Windows job installs no
+Poppler on purpose: those four tests already run on Linux, and this job exists for what Linux cannot
+run.
+
+**Made a required check**, alongside `pytest`, `bridge` and `emails`. The alternative considered was
+advisory-first, on the grounds that a flake in a required check blocks every merge in the repo and
+`PROGRESS.md` already lists two flaky tests. Rejected by the owner: a check that cannot block is a
+check people learn to ignore, and the gap it closes is a shipped feature's only coverage.
 
 ## Future enhancements (deferred beyond the roadmap)
 

@@ -159,8 +159,18 @@ tells you *what* and *how severe*, and you do the bump yourself.
 **Sequence:** version bump → docs → tag → CI draft → smoke → publish.
 
 **Prereqs:** on an up-to-date `main`, working tree clean, headless suite green
-(`.\.venv\Scripts\python.exe -m pytest` — offscreen; 1 expected skip = the Poppler `pdftotext`
-cross-check, absent on Windows), **and the `audit` workflow green on `main`**:
+(`.\.venv\Scripts\python.exe -m pytest` — offscreen), **and the `audit` workflow green on `main`**:
+
+> **Expect 7 skips on Windows, not 1.** This line used to say "1 expected skip = the Poppler
+> `pdftotext` cross-check" and had drifted: there are **four** Poppler-gated tests now, not one, plus
+> three platform-conditional ones. A releaser with the wrong baseline cannot tell a normal run from a
+> broken environment, which is the only reason the number is written down at all. The seven are —
+> **4** gated on `pdftotext` (`test_mcp_redaction.py` ×2, `test_redaction.py`, `test_search_redact.py`),
+> **2** POSIX symlink-semantics tests, and **1** off-Windows mutex no-op. All seven **run in Linux CI**
+> (which installs `poppler-utils`), and `test.yml` fails the build if anything skips there for a
+> reason not on its allowlist. Anything *other* than these seven skipping locally means a broken
+> environment — investigate before tagging. Conversely `tests/test_app_mutex.py`'s two Windows-kernel
+> cases skip in CI and run **only here**, so this manual run is their sole coverage.
 ```sh
 gh run list --workflow=audit.yml --limit 3      # main must be green before you tag
 ```

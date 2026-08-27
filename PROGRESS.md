@@ -2263,6 +2263,23 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   **38 s** on a branch touching `mcp_bridge/` and `model/`, **4 s** reporting without doing the work
   on the docs-only branch stacked above it. Design in `PLAN.md` §M115.1 — *WSL + CI*
 
+- [x] **M123** *(unplanned)* **The Windows half of the suite, which nothing had ever run** — added
+  2026-08-27, following the owner's question *"are we releasing our public build without running the
+  full suite?"* **The honest answer was no, but with a real hole**: `pytest` is a required check so
+  everything on `main` passed the **Linux** suite, and `release.yml` runs **zero** tests — it builds
+  and publishes, trusting `main`. Meanwhile `tests/test_app_mutex.py`'s two `win32`-gated cases skip
+  on Linux, and with no Windows job they ran **nowhere automatic**: single-instance/focus, a shipped
+  Windows feature, was covered only by a maintainer remembering to run the suite before tagging.
+  A `windows-latest` job now runs the full suite on every PR, **as a required check** — advisory-first
+  was considered and rejected by the owner, since a check that cannot block is one people learn to
+  ignore. **The cost objection that had delayed it was simply wrong:** the 2× Windows multiplier
+  applies to *private* repos spending included minutes, and this repo is public, where standard
+  runners are unmetered — `release.yml`'s `windows-latest` job had been proving that on every release.
+  The job carries the **mirror image** of M122's skip allowlist (here the mutex tests must *run* and
+  the POSIX/Poppler ones may skip), so between the two platforms every skip is expected on one and
+  asserted on the other. `RELEASE.md`'s manual prereq stays, but is no longer the only thing standing
+  between those tests and no coverage. Design in `PLAN.md` §M123 — *CI (Windows)*
+
 - [x] **M122** *(unplanned)* **The no-socket guard stops catching asyncio instead of us** —
   [#301](https://github.com/utyagi24/klarpdf/issues/301), found 2026-08-25 and fixed 2026-08-27, both
   on Windows. `tests/test_mcp_no_qt.py` collapsed there — 2 failed, 4 errored — on
@@ -2285,11 +2302,18 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   count: CI's *"assert the Poppler cross-engine redaction test ran"* step named **one** of the four
   tests gated on `pdftotext`, so the two in `tests/test_mcp_redaction.py` and the one in
   `tests/test_search_redact.py` could have started skipping in CI without failing the build — a green
-  result for a cross-engine leak check that never ran. It now matches the skip *reason*, which all
-  four share, so it covers them and any added later; a named canary keeps the scan from passing when
-  there is nothing left to skip. Verified against three real `junit.xml` fixtures (4 skips → exit 1
-  naming each, 0 skips → exit 0, canary renamed → its own failure). Same lesson as the milestone
-  itself: **a check that cannot fail is not a check**, and both of these could not fail.
+  result for a cross-engine leak check that never ran. Fixing only Poppler would leave the same trap
+  for the next dependency, so the step now pins the **whole skip set**: an allowlist of *reasons*
+  (one entry — the Windows kernel mutex, which cannot run on a Linux runner), with anything skipping
+  for an unlisted reason failing the build. A missing system dep, a new `importorskip`, or an
+  environment probe that stops matching now has to be justified there or it breaks CI. A named canary
+  keeps the scan from passing when there is nothing left to skip. Verified against two real
+  `junit.xml` files and five Linux-shaped fixtures — expected skips pass; vanished Poppler, a new
+  `importorskip`, a stale offscreen probe and a deleted canary each fail with their own message.
+  **Left explicit, not closed:** the two mutex tests run on a developer's Windows box and nowhere in
+  CI, since there is no Windows test job (`release.yml` builds on `windows-latest` but runs nothing);
+  the allowlist makes that visible rather than fixing it. Same lesson as the milestone itself:
+  **a check that cannot fail is not a check**, and both of these could not fail.
   Design in `PLAN.md` §M122 — *Windows + CI*
 
 - [x] **M121** *(unplanned)* **Insert Blank Page leaves you looking at the page you made** —
