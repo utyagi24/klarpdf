@@ -5541,6 +5541,24 @@ disarmed for a window that a real bridge call could hide in. Pre-building the lo
 guard stays armed for **every** tool call on both platforms, and what it sees afterwards can only be
 the server's own doing.
 
+**A second check that was not checking, fixed in the same PR.** CI's *"assert the Poppler
+cross-engine redaction test ran"* step named a single test, while **four** are gated on
+`shutil.which("pdftotext")` — the two in `tests/test_mcp_redaction.py` and the one in
+`tests/test_search_redact.py` were free to start skipping in CI without failing the build, reporting
+green for a redaction leak check that never ran. The step now matches the skip **reason**, which all
+four share (`"Poppler pdftotext not installed"`), so it covers every one of them and any added later;
+a name list would have rotted the same way the original did. A named canary sits alongside it,
+because a scan for skips also passes when there is nothing left to skip. Verified against three real
+`junit.xml` fixtures rather than by inspection: a PowerShell run with no `pdftotext` on `PATH`
+(4 skips) exits 1 naming each, a Git Bash run with it (0 skips) exits 0, and a fixture with the canary
+renamed away fails with its own message.
+
+This is worth stating next to the milestone because the two failures are the same failure. Local
+Windows skipping those four is **by design** — `test.yml`'s own header says `poppler-utils` is
+installed so the check runs "instead of skipping the way it does on a stock Windows/WSL shell" — so
+the enforcement point is CI, and the guard that made that safe was itself only three-quarters
+present.
+
 **The lesson, and it is the same shape as M119's.** A guard that fires during setup proves nothing
 about the thing it guards, and the two platforms disagreed about what setup *does*. The tell is an
 assertion naming something the code under test never mentions — `127.0.0.1:0` appears nowhere in the

@@ -2281,7 +2281,16 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   allow-listing `asyncio.windows_events` callers (stack-inspection inside the guard, fragile, and it
   leaves a disarmed window). Both negative controls still pass, which is what proves the guard was
   not quietly disarmed. Supersedes the follow-up recorded by [#295](https://github.com/utyagi24/klarpdf/pull/295).
-  Design in `PLAN.md` §M122 — *Windows*
+  **A second check that was not checking rode along in the same PR**, found while explaining a skip
+  count: CI's *"assert the Poppler cross-engine redaction test ran"* step named **one** of the four
+  tests gated on `pdftotext`, so the two in `tests/test_mcp_redaction.py` and the one in
+  `tests/test_search_redact.py` could have started skipping in CI without failing the build — a green
+  result for a cross-engine leak check that never ran. It now matches the skip *reason*, which all
+  four share, so it covers them and any added later; a named canary keeps the scan from passing when
+  there is nothing left to skip. Verified against three real `junit.xml` fixtures (4 skips → exit 1
+  naming each, 0 skips → exit 0, canary renamed → its own failure). Same lesson as the milestone
+  itself: **a check that cannot fail is not a check**, and both of these could not fail.
+  Design in `PLAN.md` §M122 — *Windows + CI*
 
 - [x] **M120** *(unplanned)* ⭐ **A shape stops resizing itself on every save** —
   [#292](https://github.com/utyagi24/klarpdf/issues/292), fixed 2026-08-26. A rectangle or ellipse
@@ -3488,9 +3497,12 @@ it on this side of the line.
   Poppler is a *second* engine: redaction always verifies with PyMuPDF, and `pdftotext` is the
   independent cross-check that the text is really gone (`mcp_bridge/redaction.py`), so a developer
   without it loses corroboration, not the check.
-  What is left, and it is much smaller than first written: the CI assertion names **one** of the four
-  tests, so the other three could start skipping in CI without failing anything. Worth extending the
-  same guard to all four rather than deciding anything about local `PATH`.
+  ~~What is left, and it is much smaller than first written: the CI assertion names **one** of the
+  four tests, so the other three could start skipping in CI without failing anything.~~ **Fixed
+  2026-08-27 in the same PR as M122** — the step now matches the skip *reason* rather than a list of
+  names, so it covers all four and any Poppler-gated test added later, plus a named canary so the
+  scan cannot pass by there being nothing left to skip. Nothing carried; no decision outstanding
+  about local `PATH`, which was never the problem.
 
 - **`pipx install .` still resolves PyMuPDF to the newest release rather than ours** — the gap M115
   left open on purpose. That milestone pinned the *lock* (`requirements-mcp.txt`) to the app's
