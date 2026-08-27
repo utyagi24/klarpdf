@@ -211,6 +211,115 @@ def test_insert_blank_page_action_inserts_after_current_and_undoes(app, a_pdf):
     )
 
 
+def test_insert_blank_page_lands_the_reader_on_the_new_page(app, a_pdf):
+    """#288. The inserted page is the thing the reader just asked for, so it gets the marker.
+
+    Before this, the current row was a bare integer that survived the rebuild — so after an insert
+    it pointed at a *different* page than it had before, and the new one was off-screen below.
+    """
+    win = MainWindow(app, a_pdf, app.settings)
+    win.view.set_current_page(0)
+
+    win._insert_blank_page()                       # no selection → inserts at index 1
+
+    assert win.view.current_page == 1
+    assert win.thumbs.currentRow() == 1
+    assert win.vdoc.ordered[1].source_id.startswith("blank:")
+
+
+def test_inserting_deeper_in_the_document_still_lands_on_the_new_page(app, a_pdf):
+    """The reported gesture was on a thumbnail partway down a scrolled strip, not on page 1."""
+    win = MainWindow(app, a_pdf, app.settings)
+    win.view.set_current_page(2)
+
+    win._insert_blank_page()
+
+    assert win.view.current_page == 3
+    assert win.thumbs.currentRow() == 3
+
+
+def test_the_new_page_is_actually_on_screen_in_the_sidebar(app, tmp_path):
+    """#288 as reported, end to end: the reader is partway down a scrolled strip, inserts, and the
+    page they just made must be *visible* — not below the fold with the clicked thumbnail pinned to
+    the bottom edge.
+
+    Needs a document long enough for the sidebar to scroll; `a_pdf` has three pages and cannot show
+    the defect at all.
+    """
+    path = str(tmp_path / "many.pdf")
+    doc = fitz.open()
+    for i in range(40):
+        doc.new_page(width=612, height=792).insert_text((72, 100), f"page {i}", fontsize=24)
+    doc.save(path)
+    doc.close()
+
+    win = MainWindow(app, path, app.settings)
+    win.thumbs.resize(210, 700)
+    win.view.set_current_page(20)          # partway down, strip scrolled
+    app.processEvents()
+
+    win._insert_blank_page()
+    app.processEvents()
+
+    new_row = win.view.current_page
+    assert win.vdoc.ordered[new_row].source_id.startswith("blank:")
+
+    rect = win.thumbs.visualItemRect(win.thumbs.item(new_row))
+    port = win.thumbs.viewport().rect()
+    assert rect.top() >= port.top() and rect.bottom() <= port.bottom(), (
+        f"the new page's row {(rect.top(), rect.bottom())} is outside the sidebar viewport "
+        f"{(port.top(), port.bottom())}"
+    )
+
+
+def _page_filling_the_viewport(win) -> int:
+    """Which page actually occupies most of the main view — what the reader is *looking at*.
+
+    Deliberately not `win.view.current_page`: that is a stored property, and the whole defect this
+    guards is the two disagreeing. `set_current_page` moves the property without scrolling, so
+    asserting on it would have passed against the very bug it is here to catch.
+    """
+    from PySide6.QtCore import QRectF
+
+    view_rect = win.view.mapToScene(win.view.viewport().rect()).boundingRect()
+    best, most = -1, -1.0
+    for i, page in enumerate(win.view._pages):
+        shown = view_rect.intersected(QRectF(page["x"], page["y"], page["w"], page["h"]))
+        area = shown.width() * shown.height()
+        if area > most:
+            best, most = i, area
+    return best
+
+
+def test_the_view_and_the_sidebar_agree_after_an_insert(app, tmp_path):
+    """#288 follow-up (owner, 2026-08-26). The first fix moved the sidebar marker onto the new page
+    but left the main view on the page it was inserted from, so the two disagreed.
+
+    An insert is a "take me there" gesture: both go.
+    """
+    path = str(tmp_path / "many.pdf")
+    doc = fitz.open()
+    for i in range(40):
+        doc.new_page(width=612, height=792).insert_text((72, 100), f"page {i}", fontsize=24)
+    doc.save(path)
+    doc.close()
+
+    win = MainWindow(app, path, app.settings)
+    win.thumbs.resize(210, 700)
+    win.view.set_current_page(20)
+    app.processEvents()
+
+    win._insert_blank_page()
+    app.processEvents()
+
+    new_page = 21
+    assert win.vdoc.ordered[new_page].source_id.startswith("blank:")
+    assert win.thumbs.currentRow() == new_page, "the sidebar marker is not on the new page"
+    assert _page_filling_the_viewport(win) == new_page, (
+        "the main view is still showing the page the blank was inserted from"
+    )
+
+
 def test_insert_blank_page_matches_the_preceding_pages_size(app, a_pdf):
     win = MainWindow(app, a_pdf, app.settings)
     win.undo_stack.push(RotatePagesCommand(win.vdoc, [0], 90))  # make page 0 landscape first
