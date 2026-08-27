@@ -2276,6 +2276,27 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   **38 s** on a branch touching `mcp_bridge/` and `model/`, **4 s** reporting without doing the work
   on the docs-only branch stacked above it. Design in `PLAN.md` §M115.1 — *WSL + CI*
 
+- [x] **M127** *(unplanned)* **The bundle could not be built on the platform that ships it** —
+  2026-08-27, found on the first line of M44 row 9: building the `.mcpb` on Windows died at its first
+  `npx` call with a bare `FileNotFoundError: [WinError 2] The system cannot find the file specified`,
+  naming neither Node nor which subprocess had failed. **The cause is a process-creation rule `PATH`
+  hides.** npm installs the launcher as `npx.CMD` — there is no `npx.exe` — and `subprocess.run` with
+  a **list** argv goes to `CreateProcess`, which searches `PATH` appending only `.exe` and **never
+  reads `PATHEXT`**, that being a shell behaviour with no shell in the picture. So `npx` is on `PATH`,
+  `Get-Command` finds it, `shutil.which` finds it, and the one call that matters cannot start it
+  (measured: bare `["npx","--version"]` raises, `[shutil.which("npx"),"--version"]` returns
+  `11.17.0`). **It survived M42–M126 because the bundle had only ever been built in WSL**, where
+  `npx` is a real executable and the bare name is right; nothing in CI builds a `.mcpb`, and
+  `test_mcp_packaging.py` says so in its header — a reasonable boundary that happened to leave the
+  script's one platform-specific line outside every check. So this is M126's finding one turn
+  sharper: not a runbook row that drifted from the code, but **a build step that had never once run
+  on the platform it exists to serve.** `resolve_npx()` now asks `shutil.which` and hands the answer
+  to `subprocess.run`, and its failure path names Node, the URL, and that it is build-time only. Two
+  tests pin it by asserting on **argv[0]** rather than on a successful build, so they need no Node on
+  the runner; both confirmed red against the old code. Verified after the fix: the bundle builds on
+  Windows at **199 KiB / 32 files**, matching what WSL produced. Design in `PLAN.md` §M127 —
+  *Windows* ([#310](https://github.com/utyagi24/klarpdf/pull/310))
+
 - [x] **M126** *(unplanned)* **The release check that was written down but never run** — 2026-08-27,
   from the owner's decision to start M44, the last unticked box of the MCP roadmap. `RELEASE.md` §4
   turns PLAN's Verification matrix into ten checkable rows; **running it for the first time found

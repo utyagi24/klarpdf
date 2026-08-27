@@ -16,6 +16,7 @@ import asyncio
 import json
 import os
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -378,6 +379,48 @@ def test_the_bundle_never_ships_a_vendored_environment(build_mcpb):
     assert "venv" not in build_mcpb.PAYLOAD_PACKAGES
     # the one Qt-importing file in model/
     assert "model/edit_commands.py" in build_mcpb.EXCLUDE_FILES
+
+
+def test_npx_is_started_by_resolved_path_never_by_the_bare_name(build_mcpb, monkeypatch):
+    """M127 — a bare "npx" does not start a process on the one platform this project ships.
+
+    npm installs the launcher as `npx.CMD` on Windows, and `subprocess` with a list argv goes to
+    `CreateProcess`, which searches PATH appending only `.exe` — it never reads `PATHEXT`. So the
+    spelling that works on Linux and macOS raised `FileNotFoundError: [WinError 2]` here, and the
+    `.mcpb` could not be built on Windows at all. It went unseen because the bundle had only ever
+    been built in WSL, where `npx` is a real executable.
+
+    Asserting on argv[0] rather than on a successful build keeps this a unit test: it pins the
+    regression without needing Node installed on the runner.
+    """
+    calls = []
+
+    def fake_run(argv, **kwargs):
+        calls.append(argv)
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    monkeypatch.setattr(build_mcpb.shutil, "which", lambda name: rf"C:\node\{name}.CMD")
+    monkeypatch.setattr(build_mcpb.subprocess, "run", fake_run)
+
+    build_mcpb.mcpb("validate", "manifest.json")
+
+    launcher = calls[0][0]
+    assert launcher != "npx", "a bare 'npx' is unstartable on Windows; resolve it through PATHEXT"
+    assert launcher.endswith("npx.CMD")
+
+
+def test_a_missing_node_is_reported_rather_than_raising_winerror_2(build_mcpb, monkeypatch):
+    """The failure mode without Node should name Node. Before M127 it was a raw traceback ending in
+    `FileNotFoundError: [WinError 2] The system cannot find the file specified`, which names neither
+    the missing tool nor the fact that it is a build-time dependency only."""
+    monkeypatch.setattr(build_mcpb.shutil, "which", lambda name: None)
+
+    with pytest.raises(SystemExit) as excinfo:
+        build_mcpb.resolve_npx()
+
+    message = str(excinfo.value)
+    assert "npx is not on PATH" in message
+    assert "nodejs.org" in message
 
 
 # ---- the Claude Code config -----------------------------------------------------------

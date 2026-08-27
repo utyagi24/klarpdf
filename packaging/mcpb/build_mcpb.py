@@ -148,10 +148,30 @@ def stage(target: Path, version: str, pins: list[str]) -> Path:
     return target
 
 
+def resolve_npx() -> str:
+    """Full path to the `npx` launcher, because the bare name does not start one on Windows.
+
+    npm ships `npx` as `npx.CMD` there, and `CreateProcess` — which is what `subprocess` calls with
+    a list argv — searches PATH appending only `.exe`. It never consults `PATHEXT`, so the bare
+    "npx" that works on Linux and macOS raises `FileNotFoundError: [WinError 2]` on the one platform
+    this project ships. `shutil.which` does consult `PATHEXT` and hands back a name CreateProcess
+    can actually start. (Measured 2026-08-27: bare "npx" fails, `shutil.which("npx")` ->
+    `...\\node\\npx.CMD` runs.)
+    """
+    found = shutil.which("npx")
+    if found is None:
+        raise SystemExit(
+            "npx is not on PATH — the mcpb CLI is a Node tool and this build shells out to it.\n"
+            "  Install Node (https://nodejs.org), open a new shell so PATH is refreshed, re-run.\n"
+            "  Nothing the bundle does at runtime needs Node; it is a build-time dependency only."
+        )
+    return found
+
+
 def mcpb(*args: str) -> subprocess.CompletedProcess:
     """Run the mcpb CLI via npx (it is a Node tool; nothing here depends on it at runtime)."""
     return subprocess.run(
-        ["npx", "--yes", "@anthropic-ai/mcpb@latest", *args],
+        [resolve_npx(), "--yes", "@anthropic-ai/mcpb@latest", *args],
         capture_output=True,
         text=True,
     )
