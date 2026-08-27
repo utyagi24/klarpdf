@@ -168,21 +168,38 @@ tells you *what* and *how severe*, and you do the bump yourself.
 > **4** gated on `pdftotext` (`test_mcp_redaction.py` ×2, `test_redaction.py`, `test_search_redact.py`),
 > **2** POSIX symlink-semantics tests, and **1** off-Windows mutex no-op. All seven **run in Linux CI**
 > (which installs `poppler-utils`), and `test.yml` fails the build if anything skips there for a
-> reason not on its allowlist. Anything *other* than these seven skipping locally means a broken
-> environment — investigate before tagging. Conversely `tests/test_app_mutex.py`'s two Windows-kernel
+> reason not on its allowlist. Conversely `tests/test_app_mutex.py`'s two Windows-kernel
 > cases skip in CI and run **only here**, so this manual run is their sole coverage.
+>
+> **Seven is the PowerShell number. Under Git Bash you get three, and that is also correct** —
+> measured 2026-08-27 on the same commit: `2394 passed, 7 skipped` from PowerShell, `3 skipped` from
+> Git Bash. Git for Windows ships a `pdftotext` at `/mingw64/bin` that PowerShell's `PATH` does not
+> carry, so the **four** Poppler-gated tests *run* there and only the three platform-conditional ones
+> remain — the same three, with the same reasons, that CI's `windows` job reports. So the rule is
+> **7 under PowerShell, 3 under Git Bash, and the difference is exactly the four Poppler tests**;
+> anything else means a broken environment, investigate before tagging. The reconciliation behind
+> this is in `PROGRESS.md` §Open follow-ups ("Redaction's Poppler-gated tests skip locally on
+> Windows"); it had not reached this runbook, so a releaser in Git Bash was being told to go hunting
+> for a fault that was not there.
 ```sh
 gh run list --workflow=audit.yml --limit 3      # main must be green before you tag
 ```
 
-**One-time gate — the first release carrying Help ▸ Donate… (G6).** The menu item ships whether or not
-the GitHub Sponsors listing exists, and a missing listing does **not** 404: `/sponsors/utyagi24`
-redirects to the plain profile, so a dead Donate link looks *exactly* like a working one — no test can
-tell them apart. Confirm the listing is live before the first release that includes it:
+**Not a gate any more — Help ▸ Donate… (G6) already shipped.** This block used to say "confirm the
+Sponsors listing is live before the first release that includes it", and that release was **v0.10.0**.
+The menu item ships whether or not the listing exists, and a missing listing does **not** 404:
+`/sponsors/utyagi24` redirects to the plain profile, so a dead Donate link looks *exactly* like a
+working one — no test can tell them apart. The listing is still absent (`hasSponsorsListing` →
+**`false`**, re-checked 2026-08-27), so the gate never passed and every release since has sailed
+straight through a block phrased as though it could stop one.
+
+So it is recorded here as a **known dead link in the shipped app**, not a pre-release check to
+satisfy. It is tracked as a 1.0 gate item in `PROGRESS.md` (G6 Part 2 — enrol the account in GitHub
+Sponsors), which is where the decision lives; releases before 1.0 do not wait on it:
 ```sh
-gh api graphql -f query='{user(login:"utyagi24"){hasSponsorsListing}}'   # must be true
+gh api graphql -f query='{user(login:"utyagi24"){hasSponsorsListing}}'   # false until G6 Part 2 lands
 ```
-Delete this gate once it has passed once.
+When it finally returns `true`, delete this block — its whole subject is gone at that point.
 
 1. **Version bump.** Edit `version.py` `__version__` (e.g. `0.9.3` → `0.9.4`). This single value
    feeds the PyInstaller exe metadata (`packaging/klarpdf.spec`), the Inno `AppVersion`
@@ -358,9 +375,17 @@ PATH (the bundle's launcher — Desktop cannot install without it), and **Claude
 
 ```powershell
 git pull
-py -3.12 packaging\mcpb\build_mcpb.py     # -> dist\klarpdf-0.17.1.mcpb
-py -3.12 tools\mcp_stdio_check.py         # row 8 on the shipping platform: expect 13 passed
+py -3.12 packaging\mcpb\build_mcpb.py                       # -> dist\klarpdf-<version>.mcpb
+.\.venv\Scripts\python.exe -m pip install -e . --no-deps    # puts klarpdf-mcp on PATH
+.\.venv\Scripts\python.exe tools\mcp_stdio_check.py         # row 8 here: expect 13 passed
 ```
+
+**Those two scripts want different interpreters, and the difference is not cosmetic.**
+`build_mcpb.py` is stdlib-only, so the base python.org `py -3.12` runs it. `mcp_stdio_check.py`
+imports `mcp` and `pymupdf`, which **only the repo `.venv` has** — under `py -3.12` it dies on
+`ModuleNotFoundError: No module named 'mcp'` before reaching a single check. It also needs
+`klarpdf-mcp` on PATH (it does `shutil.which`), which nothing in a fresh checkout provides: hence the
+editable install, `--no-deps` so the pinned test venv is left exactly as the suite found it.
 
 `dist\` is gitignored, so the bundle built in WSL did not travel — build it there. Then work row 9,
 then row 10 **in the same sitting** (it can only be answered while installing), then §3 for the tag.
