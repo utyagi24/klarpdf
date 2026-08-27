@@ -486,7 +486,7 @@ items, which are independent of it.
     does not spell it is emitted box by box, because an ungrouped box costs a miscount while a
     missing one costs a leak. `search` returns `boxes`, `redact_text` reports `matches` and
     `boxes_redacted`, and `redact_regions` accepts `boxes` so a hit goes back in whole.
-- [ ] **M44** Verify + release → tag (version at tag time) — tool round-trips + leak verify +
+- [x] **M44** Verify + release → tag (version at tag time) — tool round-trips + leak verify +
   no-network/no-port + no-Qt assertion + cross-platform + runs from Code/Desktop — *Windows*
   **Runbook written 2026-08-12: `RELEASE.md` §4.** Of the ten matrix items, **six are automated and
   green on every PR** (round-trips, cross-engine leak verify, no-socket, no-Qt, source
@@ -503,9 +503,19 @@ items, which are independent of it.
   the manifest, `get_info` + `redact_text` on a throwaway copy, confirm the input is byte-identical,
   and check the plain-config fallback for anyone without `uv`; and row 10 — drop a `uv.lock` beside
   the bundle's `pyproject.toml` and compare what it resolves against `requirements-mcp.txt`.
-  **A Windows session starts at `RELEASE.md` §4 → *Handoff*** — prerequisites, the three commands to
-  run on arrival, and what to write back. Both rows are one sitting: row 10 can only be answered
-  while installing the bundle row 9 asks for.
+  → **Complete 2026-08-27 on Windows. All ten matrix rows are settled.** Row 9: the `.mcpb` installs
+  in Claude Desktop and lists **19** tools; `get_info` and `redact_text` ran against a throwaway with
+  `cross_engine_verified: true`, and the input was confirmed byte-identical by SHA256 against a
+  baseline taken before the call — independently re-verified (0 residual matches, body text intact).
+  The **Option B** plain-config path works too, and was attributed decisively: `KlarPDF:get_info`
+  (the extension's namespace) returned *not found* while `klarpdf:get_info` (the config key's) served
+  — so the two register under **different namespaces** and can coexist, which also means disabling
+  the extension was never necessary. Row 10: **the host honours a committed `uv.lock`** — see
+  **M129**, which ships one. **Getting there cost four runbook fixes** (M126 aside): the handoff's
+  interpreter, the skip-count baseline and the dead G6 gate ([#309](https://github.com/utyagi24/klarpdf/pull/309));
+  the `.mcpb` being unbuildable on Windows (**M127**); a Python requirement no Python could satisfy
+  (**M128**); and row 10's own instructions not putting the lock in the bundle (**M129**). What
+  remains is the tag, which is an owner action.
 
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 
@@ -2275,6 +2285,30 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   from their own policy for a month. The first PRs to hit the gate proved both halves the same day:
   **38 s** on a branch touching `mcp_bridge/` and `model/`, **4 s** reporting without doing the work
   on the docs-only branch stacked above it. Design in `PLAN.md` §M115.1 — *WSL + CI*
+
+- [x] **M129** *(unplanned)* **The bundle ships the lock it installs from** — 2026-08-27, closing
+  M44 row 10 and the question PLAN carried since **M42**: does the host honour a committed `uv.lock`?
+  **It does.** The measurement is the milestone: the generated `pyproject.toml` pins the whole
+  transitive set with `==`, so a fresh resolve agrees with the lock whether or not the lock is
+  opened, and comparing installed versions against `requirements-mcp.txt` — the natural test — is
+  consistent with **both** answers. The lock has to *disagree*. `colorama` was chosen because `click`
+  requires it with **no version bound**, it is absent from the generated `pyproject.toml` (so a
+  doctored pin contradicts no `==` constraint and cannot provoke an ambiguous re-lock), and nothing
+  on the server path uses it. A bundle pinning `colorama==0.4.5` against a fresh resolve's `0.4.6`,
+  installed after a **full** uninstall so no `.venv` or prior lock survived, produced **0.4.5**.
+  So `stage()` now copies `uv.lock` into `server/` and `packaging/mcpb/uv.lock` is committed: a
+  Desktop install resolves from a file we wrote and review, with a `sha256` per wheel, and the lock
+  covers what `requirements-mcp.txt` structurally cannot — that file is deliberately
+  platform-marker-free, so `colorama` and `pywin32` can never appear in it. **It does not make the
+  bundle "audited"**: `pip-audit` runs on `requirements-mcp.txt`, the audited set carries through the
+  generated pins, and the platform-specific extras are pinned and hashed but not separately audited —
+  `mcp_bridge/README.md` says exactly that and should not be shortened. **A fourth runbook defect
+  surfaced on the way, and the worst of the four:** row 10 said to rebuild *"so the lock travels
+  inside the bundle"* and it did not — `stage()` stopped at `pyproject.toml`, so following the
+  runbook exactly would have installed a bundle with **no lock in it**, shown `uv` generating its
+  own, and recorded *"not honoured"* as the answer. M126–M128 were checks that named something that
+  did not work; this one would have produced a confident wrong belief. Design in `PLAN.md` §M129 —
+  *Windows* ([#313](https://github.com/utyagi24/klarpdf/pull/313))
 
 - [x] **M128** *(unplanned)* **The bundle declared a Python requirement no Python could satisfy** —
   2026-08-27, found in M44 row 9 on the first real Claude Desktop install: the dialog showed

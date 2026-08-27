@@ -73,10 +73,17 @@ its dependencies for your machine. Two consequences worth knowing before you cho
   break from everything else this project ships, and it is what buys a single bundle that works on
   macOS, Windows and Linux: MCPB cannot portably vendor compiled dependencies, and this bundle has
   two (PyMuPDF is C, pydantic is Rust).
-- **The audited lock is not what it installs.** The repo's weekly `pip-audit` covers
-  `requirements-mcp.txt`, i.e. the pip/pipx path above. The bundle's `pyproject.toml` is *generated
-  from* that lock, so the two agree when the bundle is built — but a Desktop install resolves
-  fresh. If that trade is not acceptable, use Option B.
+- **It installs from a lock we ship, and that lock is hashed.** The bundle carries a `uv.lock`
+  alongside its `pyproject.toml`, and `uv run --directory` honours it — measured, by shipping a lock
+  with one dependency deliberately pinned a version back and confirming that older version is what
+  installed. So a Desktop install resolves from a file we wrote and review, with a `sha256` for every
+  wheel, rather than from whatever a fresh resolve picks on the day.
+- **It is still not the same coverage as `pip-audit`.** The weekly audit runs against
+  `requirements-mcp.txt`, i.e. the pip/pipx path above. `uv.lock` is generated from the same pins, so
+  the audited set carries through — but the lock *also* pins the platform-specific transitive
+  packages that `requirements-mcp.txt` structurally cannot name (it is deliberately
+  platform-marker-free, so `colorama` and `pywin32` can never appear in it). Those are pinned and
+  hashed, and not separately audited. If that residue is not acceptable, use Option B.
 
 **Option B — edit the config.** Add to `claude_desktop_config.json`
 (macOS: `~/Library/Application Support/Claude/`, Windows: `%APPDATA%\Claude\`):

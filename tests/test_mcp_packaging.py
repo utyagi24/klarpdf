@@ -25,6 +25,7 @@ ROOT = Path(__file__).resolve().parent.parent
 LOCK = ROOT / "requirements-mcp.txt"
 MANIFEST = ROOT / "packaging" / "mcpb" / "manifest.json"
 BUNDLE_PYPROJECT = ROOT / "packaging" / "mcpb" / "pyproject.toml"
+BUNDLE_UV_LOCK = ROOT / "packaging" / "mcpb" / "uv.lock"
 PROJECT_PYPROJECT = ROOT / "pyproject.toml"
 AUDIT_WORKFLOW = ROOT / ".github" / "workflows" / "audit.yml"
 AUDIT_SCRIPT = ROOT / "tools" / "audit-deps.ps1"
@@ -379,6 +380,61 @@ def test_the_bundle_never_ships_a_vendored_environment(build_mcpb):
     assert "venv" not in build_mcpb.PAYLOAD_PACKAGES
     # the one Qt-importing file in model/
     assert "model/edit_commands.py" in build_mcpb.EXCLUDE_FILES
+
+
+def _lock_versions(text: str) -> dict[str, str]:
+    """`{name: version}` for every `[[package]]` block in a `uv.lock`."""
+    found = {}
+    for block in text.split("[[package]]")[1:]:
+        name = re.search(r'^\s*name = "([^"]+)"', block, re.M)
+        version = re.search(r'^version = "([^"]+)"', block, re.M)
+        if name and version:
+            found[name.group(1).lower().replace("_", "-")] = version.group(1)
+    return found
+
+
+def test_the_bundle_ships_its_lock(build_mcpb, tmp_path):
+    """M129 — the `.mcpb` must carry `uv.lock`, because that is what makes the install hash-verified.
+
+    `uv run --directory` **honours a committed lock** — measured by shipping one with `colorama`
+    pinned a version back and watching that older version install where a fresh resolve picks the
+    newer one. Without this file the bundle carries pins only, `uv` writes its own lock on the user's
+    machine, and the hashes attest to whatever PyPI served then rather than to anything we audited.
+
+    Before M129 `stage()` copied the packages, `version.py` and `pyproject.toml` and stopped, while
+    `RELEASE.md` told a reader to run `uv lock` and rebuild "so the lock travels inside the bundle".
+    It did not travel, and the person checking whether locks are honoured would have installed a
+    bundle with no lock in it and recorded the wrong answer.
+    """
+    staged = build_mcpb.stage(tmp_path / "stage", "0.0.0", ["mcp==1.0.0"])
+    shipped = staged / "server" / "uv.lock"
+
+    assert shipped.exists(), "the bundle must ship uv.lock — see M129"
+    assert shipped.read_bytes() == BUNDLE_UV_LOCK.read_bytes(), "shipped lock differs from committed"
+    assert "sha256" in shipped.read_text(encoding="utf-8"), "a lock without hashes buys nothing"
+
+
+def test_the_committed_lock_is_in_step_with_the_generated_pyproject():
+    """A stale lock ships silently, and it is the lock — not the pins — that now decides the install.
+
+    `pyproject.toml` is regenerated from `requirements-mcp.txt` on every build, but `uv.lock` is
+    refreshed only when someone runs `uv lock`. So a dependency bump that skips that step leaves a
+    lock pinning the previous version, and since M129 that lock is what a Desktop install obeys.
+    Regenerate with: `cd packaging/mcpb && uv lock`.
+    """
+    locked = _lock_versions(BUNDLE_UV_LOCK.read_text(encoding="utf-8"))
+    declared = re.findall(
+        r'"([A-Za-z0-9][A-Za-z0-9._-]*)(?:\[[^\]]+\])?==([^"]+)"',
+        BUNDLE_PYPROJECT.read_text(encoding="utf-8"),
+    )
+    assert declared, "no pins found in the generated pyproject"
+
+    drift = [
+        (name, want, locked.get(name.lower().replace("_", "-")))
+        for name, want in declared
+        if locked.get(name.lower().replace("_", "-")) != want
+    ]
+    assert not drift, f"uv.lock is stale — run `uv lock` in packaging/mcpb. Drift: {drift}"
 
 
 def test_the_manifest_runtime_range_is_semver_not_pep_440(manifest):
