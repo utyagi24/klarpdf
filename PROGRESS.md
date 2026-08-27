@@ -2263,6 +2263,24 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   **38 s** on a branch touching `mcp_bridge/` and `model/`, **4 s** reporting without doing the work
   on the docs-only branch stacked above it. Design in `PLAN.md` §M115.1 — *WSL + CI*
 
+- [x] **M124** *(unplanned)* **A sandbox refusal is not a failure to open a file** —
+  [#304](https://github.com/utyagi24/klarpdf/issues/304), fixed 2026-08-27. `PathNotAllowed` — the
+  refusal for a path outside `--allow-root` — subclasses `PermissionError`, so **M119's new branch
+  caught it by accident** and processed a *security* refusal with rules written for a *file-type*
+  mistake. Visible effect today was only a reworded message and a changed exception type, and no test
+  noticed because `pytest.raises` matches a substring. **What made it worth fixing is why it was
+  harmless:** the refusal is raised with a single string, so `filename` is `None` and the directory
+  check cannot fire — luck, not design. Attaching the path is the ordinary 3-argument `OSError` form
+  and an obvious future improvement, and on that day refusing a **directory** outside the roots would
+  answer *"is a directory, not a PDF"*: true, irrelevant, and the security refusal deleted from the
+  reply, sending a reader after a file-type mistake instead of an `--allow-root` setting. Fixed with
+  a guard ahead of the `PermissionError` branch that returns the refusal untouched, since its own
+  message already names the path and the remedy. The regression test **constructs that dangerous
+  future deliberately**, raising `PathNotAllowed` *with* a filename, so the edit that would
+  reintroduce this fails loudly; both new tests were confirmed red before the guard existed. Found in
+  review of [#298](https://github.com/utyagi24/klarpdf/pull/298) and carried as latent until the
+  owner chose fixing over logging. Design in `PLAN.md` §M124 — *WSL*
+
 - [x] **M123** *(unplanned)* **The Windows half of the suite, which nothing had ever run** — added
   2026-08-27, following the owner's question *"are we releasing our public build without running the
   full suite?"* **The honest answer was no, but with a real hole**: `pytest` is a required check so

@@ -5672,6 +5672,40 @@ advisory-first, on the grounds that a flake in a required check blocks every mer
 `PROGRESS.md` already lists two flaky tests. Rejected by the owner: a check that cannot block is a
 check people learn to ignore, and the gap it closes is a shipped feature's only coverage.
 
+### M124 — a sandbox refusal is not a failure to open a file ([#304](https://github.com/utyagi24/klarpdf/issues/304), 2026-08-27)
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M124** A path refused by `--allow-root` keeps its own message instead of being rewritten by rules meant for a file-type mistake | `_explain` in `mcp_bridge/server.py` | WSL (cross-platform core) | A refusal passes through `_explain` **identically**; and a refused *directory* is still reported as outside the allowed roots, not as "is a directory" — asserted with the path attached, which is the shape that breaks it |
+
+**The collision.** `PathNotAllowed` subclasses `PermissionError`. M119 added a `PermissionError`
+branch to answer #294 — on Windows a directory arrives as `EACCES`, so the type cannot decide it and
+the filesystem is asked instead. That branch then caught **sandbox refusals as well**, because they
+are, taxonomically, permission errors. Two features written independently, meeting through a base
+class neither of them chose for this purpose.
+
+**Why it looked harmless and was not.** The visible effect today is a reworded message and a changed
+exception type; the actionable half survives, and no existing test noticed because `pytest.raises`
+matches a substring. What makes it worth a milestone is *why* it is harmless: `PathNotAllowed` is
+raised with a single string, so `filename` is `None` and the directory check cannot fire. That is
+luck. Attaching the path is the ordinary 3-argument `OSError` form and an obvious improvement, and
+the day someone makes it, refusing a **directory** outside the roots answers *"is a directory, not a
+PDF"* — true, irrelevant, and the security refusal is gone from the reply. A reader debugging that
+goes looking for a file-type mistake instead of an `--allow-root` setting.
+
+**The fix is a guard, not a reword**, placed ahead of the `PermissionError` branch and returning the
+refusal untouched: its own message already names the path and the remedy, so nothing `_explain` could
+add is an improvement. The regression test constructs the dangerous future deliberately — raising
+`PathNotAllowed` *with* a filename — so the edit that would reintroduce this fails loudly. Both new
+tests were confirmed to fail without the guard before it was written.
+
+**The lesson, and it generalises past this bug.** An `isinstance` check does not select the cases the
+author had in mind; it selects everything that inherits, including code written later and elsewhere.
+The two rules of thumb this leaves: when a new branch keys on a broad exception type, look for
+subclasses that mean something *else*; and when a bug is unreachable, pin the reachable version of it
+in a test rather than trusting that nobody will complete the path. Compare §M119, where the same
+`_explain` function was the site of a different platform-shaped assumption.
+
 ## Future enhancements (deferred beyond the roadmap)
 
 Captured but not yet scheduled:
