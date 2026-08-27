@@ -5850,6 +5850,49 @@ bare command names are exactly where POSIX and Windows disagree. Worth a glance 
 shelled out to — `tests/test_search_redact.py`'s `pdftotext` is the only sibling in the repo, and it
 is safe because `pdftotext.exe` is a real `.exe` that `CreateProcess` resolves unaided.
 
+### M128 — the bundle declared a Python requirement no Python could satisfy (2026-08-27)
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M128.1** `compatibility.runtimes.python` is a node-semver range, not a PEP 440 specifier | `packaging/mcpb/manifest.json` | Windows (Claude Desktop) | The install dialog's **Python >=3.12.0 <3.13.0** requirement shows met on a 3.12.10 machine |
+| **M128.2** The comma cannot come back, and the two files cannot drift apart | `test_the_manifest_runtime_range_is_semver_not_pep_440`, `test_the_two_python_requirements_describe_the_same_window` | WSL + CI | Restoring `>=3.12,<3.13` fails the first with the range quoted |
+
+**What happened.** Installing the `.mcpb` in Claude Desktop showed **Python >=3.12,<3.13** as an
+unmet requirement on a machine running python.org **3.12.10** — with Desktop's own *Detected tools*
+panel simultaneously reporting `Python: 3.12.10`. The host could see the interpreter and still
+refused to count it.
+
+**The cause is one character in the wrong ecosystem.** `>=3.12,<3.13` is the **PEP 440** spelling of
+"3.12.x", and it is correct where we also write it — `requires-python` in the generated
+`pyproject.toml`, which pip and uv read. But `manifest.json` is consumed by a **Node** host, and
+`compatibility.runtimes` is a **node-semver** range, where the AND separator is a **space** and a
+comma is not a separator at all. Measured with `semver@7`: `>=3.12,<3.13` rejects `3.12.10`, while
+`>=3.12.0 <3.13.0`, `~3.12.0`, `3.12.x` and `>=3.12 <3.13` all accept it and all reject `3.11.9` and
+`3.13.0`. So the declared range was unsatisfiable by **every** Python on **every** platform: the
+warning had nothing to do with the machine it appeared on.
+
+**Why nothing caught it.** `npx @anthropic-ai/mcpb validate` passes the comma form — it checks the
+field is a string, not that it parses as a range — so the build reported "Manifest schema validation
+passes!" while shipping a requirement that could never be met. And the string is *identical* to the
+one two files away that is entirely correct, which is what makes it invisible on review: the same
+eleven characters are right in `pyproject.toml` and wrong in `manifest.json`.
+
+**The fix** is `>=3.12.0 <3.13.0` — chosen over the equally-correct `~3.12.0` and `3.12.x` because it
+states both bounds where a reader of either ecosystem can check them against `requires-python`. Two
+tests hold it: one rejects a comma outright and requires full `major.minor.patch` bounds (node-semver
+compares part by part, so a bare `3.12` bound leans on the parser's zero-fill), and one asserts the
+manifest and the generated `pyproject.toml` describe the same window in their own syntaxes. Both are
+pure-Python, so they run in CI without Node — consistent with `test_mcp_packaging.py`'s standing rule
+that it reads committed files and never shells out to `npx`.
+
+**The generalisable part.** This is the third finding in a row (M126, M127, M128) where a check
+existed and was passing while the thing it named did not work — and the second where the failure was
+**one platform's or one ecosystem's syntax written in another's**. The pattern worth naming: **when
+the same fact is declared twice for two different consumers, the second copy is written in the first
+one's dialect.** The defence is not more review but a test that reads both copies and asserts they
+agree, which is what M128.2 is. Grep for the fact, not the string: `requires-python`,
+`compatibility.runtimes`, and `python_requires` are three spellings of one constraint.
+
 ## Future enhancements (deferred beyond the roadmap)
 
 Captured but not yet scheduled:
