@@ -10,9 +10,17 @@ installer. What *is* committed is this script, `manifest.json`, and the generate
 `pyproject.toml` beside it, so the inputs are reviewable and the output is reproducible.
 
 **What goes in.** `server/` holds the bridge and the GUI-free core it stands on — `mcp_bridge/`,
-`model/`, `util/`, `version.py` — plus a `pyproject.toml` naming its dependencies. Nothing else:
-no PySide6, no `viewer/`, no tests. It is the same package boundary `pyproject.toml`'s
-`[tool.setuptools] packages` draws, for the same reason.
+`model/`, `util/`, `version.py` — plus a `pyproject.toml` naming its dependencies and the `uv.lock`
+that pins and hashes them. Nothing else: no PySide6, no `viewer/`, no tests. It is the same package
+boundary `pyproject.toml`'s `[tool.setuptools] packages` draws, for the same reason.
+
+**Why the lock ships (M129).** `uv run --directory` **honours a committed `uv.lock`** — measured by
+shipping one with `colorama` deliberately pinned a version back and watching that older version get
+installed where a fresh resolve picks the newer. Without it the bundle carries pins only, uv writes
+its own lock on the user's machine, and the hashes attest to whatever PyPI served at that moment.
+With it, a Desktop install resolves from a lock we wrote and audit. The lock also covers what
+`requirements-mcp.txt` structurally cannot: that file is deliberately platform-marker-free, so it can
+never name `colorama` or `pywin32`, while the `uv.lock` pins and hashes them.
 
 **What stays out, and why the format says so.** No `server/lib/`, no `server/venv/`. MCPB cannot
 portably vendor compiled dependencies and this bundle has two of them (PyMuPDF is C, pydantic is
@@ -43,6 +51,7 @@ ROOT = HERE.parent.parent
 LOCK = ROOT / "requirements-mcp.txt"
 MANIFEST = HERE / "manifest.json"
 GENERATED_PYPROJECT = HERE / "pyproject.toml"
+UV_LOCK = HERE / "uv.lock"
 
 # The bridge plus the Qt-free core it imports. Mirrors pyproject.toml's [tool.setuptools] packages.
 PAYLOAD_PACKAGES = ("mcp_bridge", "model", "util")
@@ -143,6 +152,20 @@ def stage(target: Path, version: str, pins: list[str]) -> Path:
             dropped.unlink()
 
     (server / "pyproject.toml").write_text(render_pyproject(version, pins), encoding="utf-8")
+
+    # The lock travels with the bundle, and it is the reason the Desktop install is hash-verified.
+    # Measured in M129: `uv run --directory` honours a committed `uv.lock` — a bundle shipped with
+    # colorama deliberately pinned one version back installed that older version, where a fresh
+    # resolve picks the newer one. Without this copy the bundle carries only `pyproject.toml`, uv
+    # writes its own lock on the user's machine, and the hashes attest to whatever PyPI served at
+    # that moment rather than to anything we audited.
+    if not UV_LOCK.exists():
+        raise SystemExit(
+            f"{UV_LOCK} is missing — the bundle must ship its lock.\n"
+            f"  Regenerate it:  cd {UV_LOCK.parent}  &&  uv lock"
+        )
+    shutil.copy2(UV_LOCK, server / "uv.lock")
+
     for forbidden in ("lib", "venv"):
         assert not (server / forbidden).exists(), f"the format forbids server/{forbidden}/"
     return target

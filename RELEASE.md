@@ -315,9 +315,10 @@ This is PLAN.md §MCP / Agent Bridge roadmap → Verification, turned into thing
 **Most of it is already automated** — the point of the table is to make the small remainder obvious
 rather than to re-check what CI checks on every PR.
 
-Since **M126** the remainder is two rows: **9** (install the `.mcpb` in Claude Desktop) and **10**
-(the `uv.lock` question, which can only be answered while doing 9). Everything else is a CI check or
-a single command.
+**All ten rows are settled as of 2026-08-27** (M44). Eight are CI checks or a single command; rows
+9 and 10 were done by hand on Windows that day, and row 10's carried question is answered. Redo 9
+and 10 only when `mcp_bridge/`, `requirements-mcp.*` or `packaging/mcpb/` changes materially, or on
+a new `uv` / Claude Desktop major version.
 
 | # | Matrix item | How it is checked | Where |
 |---|---|---|---|
@@ -329,8 +330,8 @@ a single command.
 | 6 | Cross-platform — **Linux** | CI runs the whole suite on `ubuntu-latest`; `tests/test_mcp_packaging.py` asserts the lock is unhashed and platform-marker-free | **automated**, every PR |
 | 7 | Cross-platform — **Windows** | the `bridge-windows` job resolves `requirements-mcp.txt` on `windows-latest` and runs the bridge suite against it (M126) | **automated**, every PR that reaches the bridge |
 | 8 | Lives with Claude Code | the `.mcp.json` at the repo root; `python tools/mcp_stdio_check.py` drives the console script over a real pipe with the SDK's own client (initialize → list → call → image → resource → the three refusals) | **one command**, either platform |
-| 9 | Lives with Claude Desktop — config **and** one-click `.mcpb` | the steps below | **manual, Windows or macOS** |
-| 10 | Does the host honour a `uv.lock`? | carried from M42 — see below | **open question** |
+| 9 | Lives with Claude Desktop — config **and** one-click `.mcpb` | the steps below; done 2026-08-27 (19 tools, input byte-identical, both install paths) | **manual, Windows or macOS** |
+| 10 | Does the host honour a `uv.lock`? | **yes** — measured with a doctored lock (M129); the bundle now ships one, and `build_mcpb.py` stages it | **answered 2026-08-27** |
 
 ### 7 — Windows *(automated since M126 — nothing to do by hand)*
 
@@ -353,32 +354,18 @@ Expect green, with **one skip**: the Poppler cross-engine redaction check, becau
 not on a stock Windows PATH. That skip is exactly why `test.yml` installs `poppler-utils` and
 asserts the test ran on Linux — between the two platforms it is never skipped everywhere.
 
-### Handoff — where a Windows session picks this up (2026-08-27)
+### 8 — Claude Code, and the one-time local setup
 
-*Transient. Delete this block when M44 ticks; the numbered rows above and below are the durable
-part.*
-
-**State.** `main` is at the M126 merge. Eight of the ten rows are CI checks or a single command;
-**rows 9 and 10 are what is left, plus the tag.** Both need a Claude Desktop install, so they are
-one sitting, not two. Nothing here is blocked and nothing else in M44 is waiting on it.
-
-**Verified in WSL on 2026-08-27**, so a Windows session need not redo it: full suite 2,401 passed /
-2 expected skips; bridge suite 539 passed / 0 skips; `tools/mcp_stdio_check.py` 13/13; the bundle
-builds at 199 KiB with its manifest and version in step. `bridge-windows` is green on `main` and is
-now a **required check**, so row 7 needs nothing by hand.
-
-**One-time, on the Windows box:** python.org **3.12.x** (the Store stub cannot build), **Node** (for
-`npx @anthropic-ai/mcpb`, which the build shells out to), **[`uv`](https://docs.astral.sh/uv/)** on
-PATH (the bundle's launcher — Desktop cannot install without it), and **Claude Desktop** itself.
-
-**Then, in order:**
+**On a fresh Windows box** you need: python.org **3.12.x** (the Store stub cannot build), **Node**
+(for `npx @anthropic-ai/mcpb`, which the build shells out to), **[`uv`](https://docs.astral.sh/uv/)**
+on PATH (the bundle's launcher — Desktop cannot install without it), and **Claude Desktop** itself.
+`dist\` is gitignored, so a bundle built elsewhere does not travel; build it here.
 
 ```powershell
-git pull
 py -3.12 packaging\mcpb\build_mcpb.py     # -> dist\klarpdf-<version>.mcpb  (stdlib only)
 .\.venv\Scripts\Activate.ps1              # NOT the same as calling the venv's python.exe — see below
 python -m pip install -e . --no-deps      # once per checkout; puts klarpdf-mcp on PATH
-python tools\mcp_stdio_check.py           # row 8 here: expect 13 passed
+python tools\mcp_stdio_check.py           # expect 13 passed
 ```
 
 **The two scripts want different interpreters, and the second one wants the venv *activated*, not
@@ -397,13 +384,6 @@ merely invoked.** `build_mcpb.py` is stdlib-only, so the base python.org `py -3.
 
 Verified 2026-08-27 on Windows: **13 passed, 0 failed**, against `klarpdf-mcp 0.17.1`, protocol
 `2025-11-25`, 19 tools.
-
-`dist\` is gitignored, so the bundle built in WSL did not travel — build it there. Then work row 9,
-then row 10 **in the same sitting** (it can only be answered while installing), then §3 for the tag.
-
-**Write back before closing:** tick **M44** in `PROGRESS.md` with what rows 9 and 10 actually
-returned; put row 10's answer in the row 10 section below (and in `mcp_bridge/README.md` only if it
-changed); delete this block.
 
 ### 9 — Claude Desktop
 
@@ -462,51 +442,60 @@ by design. Option B needs none of those and is the fallback worth reaching for.
 Build. stdio is the universal denominator, so a failure there is a bug worth knowing about before
 strangers find it, not a reason to hold the release.
 
-### 10 — the `uv.lock` question, still open
+### 10 — the `uv.lock` question, answered 2026-08-27
 
-PLAN.md asked M42 to test whether the host honours a `uv.lock` (and hash verification), because if
-it does, most of the "the audited lock is not what the `.mcpb` installs" gap closes. **It could not
-be answered**, and the reason changed the question: there is no `uv` server type (M42 measured
-`mcpb` 2.1.2 accepting only `python | node | binary`), so there is no host-managed `uv` invocation
-to honour a lock. What the bundle actually does is `uv run --directory server`, and whether *that*
-consults a committed `uv.lock` can only be seen by installing the bundle.
+**`uv run --directory` honours a committed `uv.lock`.** The bundle therefore ships one (M129), and a
+Desktop install resolves from a file we wrote and review rather than from whatever a fresh resolve
+picks that day.
 
-While answering it, try: drop a `uv.lock` beside the bundle's `pyproject.toml`, install, and compare
-the resolved versions against `requirements-mcp.txt`. If they match, commit the lock into the bundle
-and say so in `mcp_bridge/README.md`. **Until then the README's statement stands as written** — the
-`.mcpb` path installs online and is not covered by `pip-audit`. Do not soften that wording without
-evidence.
+PLAN.md asked M42 to test this, because if a lock is honoured then most of the "the audited lock is
+not what the `.mcpb` installs" gap closes. M42 could not answer it, and the reason changed the
+question: there is no `uv` server type (`mcpb` 2.1.2 accepts only `python | node | binary`), so there
+is no host-managed `uv` invocation to honour a lock. What the bundle does is `uv run --directory
+server`, and whether *that* consults a committed lock was visible only by installing the bundle.
 
-**Concretely, in the same sitting as row 9.** Generate the lock from the bundle's own manifest, so
-it describes exactly what the bundle declares:
+**How it was measured, and why the obvious version of the test proves nothing.** The generated
+`pyproject.toml` already pins the whole transitive set with `==`, so a fresh resolve agrees with the
+lock whether or not the lock is read. A *match* is therefore consistent with both answers. The
+discriminating experiment is a lock that **disagrees** with a fresh resolve:
+
+- `colorama` was chosen because `click` requires it with **no version bound**, it is absent from the
+  generated `pyproject.toml` (so a doctored pin contradicts no `==` constraint and cannot force a
+  re-lock), and nothing on the server path uses it.
+- A bundle was packed with `uv.lock` pinning `colorama==0.4.5`, where a fresh resolve gives `0.4.6`.
+- The extension was **fully uninstalled** first, so no `.venv` or previously generated lock survived.
+- Installed result: **`colorama 0.4.5`** — the stale pin won. The lock in the installed directory was
+  ours (139 `sha256` entries), and all 29 audited pins were installed at exactly their audited
+  versions.
+
+**What it changed.** `build_mcpb.py` now stages `uv.lock` into `server/`, `packaging/mcpb/uv.lock` is
+committed, and `mcp_bridge/README.md` says the bundle installs from a shipped hashed lock. Two tests
+hold it: the bundle must ship the lock, and the lock must stay in step with the generated
+`pyproject.toml` (a dependency bump that skips `uv lock` would otherwise ship a stale lock silently —
+and since M129 the lock is what the install obeys).
+
+**What it did not close.** `pip-audit` runs against `requirements-mcp.txt`. The `uv.lock` is generated
+from the same pins, so the audited set carries through, but the lock additionally pins the
+platform-specific transitive packages that `requirements-mcp.txt` **cannot** name — it is deliberately
+platform-marker-free, so `colorama` and `pywin32` never appear in it. Those are pinned and hashed and
+not separately audited. The README says exactly this; do not shorten it to "the bundle is audited".
+
+**Regenerating the lock** — after any change to `requirements-mcp.txt`:
 
 ```powershell
 cd packaging\mcpb
-uv lock                      # -> uv.lock beside the generated pyproject.toml
-py -3.12 build_mcpb.py       # rebuild so the lock travels inside the bundle
+uv lock                      # refreshes uv.lock beside the generated pyproject.toml
+py -3.12 build_mcpb.py       # stages it into server/ and packs the bundle
 ```
 
-Install that bundle, then read back what Desktop's copy actually resolved — the environment `uv`
-built lives under the installed extension's `server` directory:
+> **Before M129 the second line did not do what the first implies.** `stage()` copied the packages,
+> `version.py` and `pyproject.toml` and stopped, so a generated lock stayed in `packaging/mcpb/` and
+> never reached `server/`. Anyone following the old instructions would have installed a bundle with
+> **no lock in it**, watched `uv` write its own, and recorded "not honoured" — the wrong answer to
+> the question this row exists to settle.
 
-```powershell
-uv run --directory "<installed extension>\server" python -m pip freeze
-```
-
-Compare that against `requirements-mcp.txt`. **Three outcomes, and each has a different consequence:**
-
-- **They match, and a deliberately stale lock still wins** — i.e. edit one pin in `uv.lock`, rebuild,
-  reinstall, and the *stale* version is what appears. That is the only proof the lock is being
-  honoured rather than coincidence: the generated `pyproject.toml` already pins the whole transitive
-  set with `==`, so a fresh resolve produces the same answer with or without a lock. **Do this
-  second step** — without it a match proves nothing.
-- **They match, but the doctored lock is ignored** — `uv` is resolving from the pins and the lock is
-  inert. The README wording stands unchanged.
-- **They differ** — the bundle is installing something the audit never saw, which is the case the
-  README already describes. Record the drift; it is the strongest argument for Option B.
-
-Whatever comes back, write the answer here and tick M44. A question carried since M42 should not
-survive being answered.
+To re-verify on a later `uv` or host version, repeat the doctored-lock experiment above; a plain
+version comparison cannot distinguish the two outcomes.
 
 ### Release notes — the two things to say plainly
 

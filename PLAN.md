@@ -1202,6 +1202,11 @@ bugs cannot happen.
   *not* the Desktop path. Do not describe the audit as covering "the bridge" without that
   qualification. **M42 must test whether the host honours a `uv.lock`** (and hash verification): the
   spec is silent on both, and if it does, most of gap (c) closes.
+  **ANSWERED 2026-08-27 in M129 — the host honours a committed `uv.lock`,** measured with a lock
+  doctored to disagree with a fresh resolve. The bundle now ships one, so gap (c) narrows to the
+  platform-specific transitive packages a marker-free `requirements-mcp.txt` cannot name; see
+  §M129. The M42-era reasoning below is kept because it explains why the question took two
+  milestones to become answerable.
   **M42 outcome on the `uv.lock` question: still open, and it is now a different question.** With no
   `uv` server type (see the correction above), there is no host-managed `uv` invocation to honour a
   lock — the bundle runs `uv run --directory server`, and whether *that* consults a committed
@@ -5892,6 +5897,54 @@ the same fact is declared twice for two different consumers, the second copy is 
 one's dialect.** The defence is not more review but a test that reads both copies and asserts they
 agree, which is what M128.2 is. Grep for the fact, not the string: `requires-python`,
 `compatibility.runtimes`, and `python_requires` are three spellings of one constraint.
+
+### M129 — the bundle ships the lock it installs from (2026-08-27)
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M129.1** `uv run --directory` honours a committed `uv.lock` — measured, not assumed | the experiment below | Windows (Claude Desktop) | A bundle whose lock pins `colorama==0.4.5` installs 0.4.5, where a fresh resolve gives 0.4.6 |
+| **M129.2** The `.mcpb` carries `uv.lock`, so the install is hash-verified from a file we wrote | `stage()` in `packaging/mcpb/build_mcpb.py`; `packaging/mcpb/uv.lock` committed | WSL + CI | `test_the_bundle_ships_its_lock` |
+| **M129.3** A dependency bump cannot ship a stale lock silently | `test_the_committed_lock_is_in_step_with_the_generated_pyproject` | WSL + CI | Bump a pin in the pyproject without re-locking → fails, naming the drift |
+
+**The question, and why it survived two milestones.** PLAN asked M42 whether the host honours a
+`uv.lock`, because if so, most of gap (c) — *the audited lock is not what the `.mcpb` installs* —
+closes. M42 could not answer it and found the question was wrong: there is no `uv` server type, so
+there is no host-managed `uv` invocation to honour anything. What the bundle does is
+`uv run --directory server`, and whether *that* reads a committed lock is observable only from an
+installed bundle. It was carried to M44 row 10.
+
+**Why the obvious experiment proves nothing.** The generated `pyproject.toml` pins the entire
+transitive set with `==`, so a fresh resolve agrees with the lock whether or not the lock is opened.
+Comparing installed versions against `requirements-mcp.txt` — the natural test — is consistent with
+both answers. The experiment has to make the lock **disagree** with a fresh resolve, and the choice
+of what to doctor is the whole design: `colorama` is required by `click` with **no version bound**,
+is absent from the generated `pyproject.toml` (so a doctored pin contradicts no `==` constraint and
+cannot provoke a re-lock, which would have been ambiguous), and is unused on the server path.
+A bundle pinning `colorama==0.4.5` against a fresh resolve's `0.4.6`, installed after a **full**
+uninstall so no `.venv` or prior lock survived, produced **0.4.5**. The lock is honoured.
+
+**What shipped.** `stage()` copies `uv.lock` into `server/`, and `packaging/mcpb/uv.lock` is
+committed beside the generated `pyproject.toml`. The consequence is that a Desktop install now
+resolves from a file we wrote and review, with a `sha256` per wheel, instead of from whatever a fresh
+resolve picks on the day. It also covers **more** than `requirements-mcp.txt` structurally can: that
+file is deliberately platform-marker-free (a test forbids `sys_platform`, `platform_system`, `win32`)
+so it can never name `colorama` or `pywin32`, while the `uv.lock` pins and hashes them.
+
+**What it does not close, and the README must keep saying so.** `pip-audit` runs against
+`requirements-mcp.txt`. The `uv.lock` is generated from those pins, so the audited set carries
+through — but the platform-specific extras it adds are pinned and hashed and **not** separately
+audited. "Installs from a shipped hashed lock" is the honest claim; "the bundle is audited" is not.
+
+**A defect found on the way, and it is the sharpest of the four this session.** `RELEASE.md` row 10
+told the reader to run `uv lock` and rebuild *"so the lock travels inside the bundle"*. It did not:
+`stage()` copied the packages, `version.py` and `pyproject.toml` and stopped, leaving the lock in
+`packaging/mcpb/`. Following the runbook exactly would have installed a bundle **containing no lock**,
+shown `uv` generating its own, and recorded *"not honoured"* — a **false negative** on a question
+carried since M42, written down as the answer. M126, M127 and M128 were checks that named something
+that did not work; this one would have produced a confident wrong belief. The rule it argues for is
+narrower than "test your docs": **when a procedure's output is evidence, verify the procedure
+produces the artifact the evidence is read from** — here, that the lock was actually inside the
+`.mcpb` before drawing any conclusion from what installed.
 
 ## Future enhancements (deferred beyond the roadmap)
 
