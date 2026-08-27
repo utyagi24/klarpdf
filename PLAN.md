@@ -5807,6 +5807,49 @@ narrow and cheap: **when a runbook row is automatable, automate it and make the 
 automation; when it genuinely is not, give it a command and a file.** What is left is then a short
 list of things that really do need a human and a machine — here, two.
 
+### M127 — the bundle could not be built on the platform that ships it (2026-08-27)
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M127.1** `npx` is started by a resolved path, so `build_mcpb.py` runs on Windows | `resolve_npx()` in `packaging/mcpb/build_mcpb.py` | Windows | `py -3.12 packaging\mcpb\build_mcpb.py` → `built dist\klarpdf-<version>.mcpb (199 KiB)` |
+| **M127.2** A missing Node says so instead of raising `WinError 2` | same function | WSL + Windows | `test_a_missing_node_is_reported_rather_than_raising_winerror_2` |
+
+**What happened.** M44 row 9 asks for a `.mcpb` installed in Claude Desktop, and building one is the
+first step. On Windows the build died at its first `npx` call with a bare
+`FileNotFoundError: [WinError 2] The system cannot find the file specified` — no mention of Node,
+`npx`, or which of the script's several subprocesses had failed.
+
+**The cause is a Windows process-creation rule that `PATH` hides.** npm installs the launcher as
+`npx.CMD`; there is no `npx.exe`. `subprocess.run` with a **list** argv goes to `CreateProcess`,
+which searches `PATH` appending only `.exe` and **never consults `PATHEXT`** — that expansion is a
+shell behaviour, and there is no shell here. So `npx` is on `PATH`, `Get-Command npx` finds it,
+`shutil.which("npx")` finds it (`which` *does* read `PATHEXT`), and the one call that matters cannot
+start it. Measured 2026-08-27: `subprocess.run(["npx", "--version"])` raises, while
+`subprocess.run([shutil.which("npx"), "--version"])` returns `11.17.0`.
+
+**Why it survived M42 through M126.** The bundle had only ever been built in WSL, where `npx` is a
+real executable and the bare name is correct. Nothing in CI builds a `.mcpb` — `test_mcp_packaging.py`
+says so in its own header ("Deliberately no network and no `npx`: these read committed files"), which
+is a reasonable boundary that happened to put the one platform-specific line in the script outside
+every check. The result is the sharper version of what M126 found: not a runbook row that had drifted
+from the code, but **a build step that had never once run on the platform it exists to serve**.
+
+**The fix and its shape.** `resolve_npx()` asks `shutil.which` and passes the answer to
+`subprocess.run`, so the resolution happens where `PATHEXT` is understood. Its failure path raises
+`SystemExit` naming Node, the download URL, and the fact that it is a build-time dependency only —
+the previous behaviour named none of the three. Two tests pin it by asserting on **argv[0]** rather
+than on a successful build, so they run everywhere without Node installed: one that a bare `"npx"` is
+never what gets launched, one that an absent Node is reported rather than thrown.
+
+**The generalisable part, and it is not "call `shutil.which`".** It is that **a cross-platform
+seam is only as real as the platform it has been run on.** This project keeps OS-specific code
+quarantined and treats Windows as the shipping target, and still shipped a build script whose single
+external invocation was written in the dialect of the development platform. The tell was available
+much earlier than the traceback: the script's only `subprocess` call used a bare command name, and
+bare command names are exactly where POSIX and Windows disagree. Worth a glance wherever a tool is
+shelled out to — `tests/test_search_redact.py`'s `pdftotext` is the only sibling in the repo, and it
+is safe because `pdftotext.exe` is a real `.exe` that `CreateProcess` resolves unaided.
+
 ## Future enhancements (deferred beyond the roadmap)
 
 Captured but not yet scheduled:
