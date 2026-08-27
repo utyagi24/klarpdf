@@ -2285,11 +2285,18 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   count: CI's *"assert the Poppler cross-engine redaction test ran"* step named **one** of the four
   tests gated on `pdftotext`, so the two in `tests/test_mcp_redaction.py` and the one in
   `tests/test_search_redact.py` could have started skipping in CI without failing the build — a green
-  result for a cross-engine leak check that never ran. It now matches the skip *reason*, which all
-  four share, so it covers them and any added later; a named canary keeps the scan from passing when
-  there is nothing left to skip. Verified against three real `junit.xml` fixtures (4 skips → exit 1
-  naming each, 0 skips → exit 0, canary renamed → its own failure). Same lesson as the milestone
-  itself: **a check that cannot fail is not a check**, and both of these could not fail.
+  result for a cross-engine leak check that never ran. Fixing only Poppler would leave the same trap
+  for the next dependency, so the step now pins the **whole skip set**: an allowlist of *reasons*
+  (one entry — the Windows kernel mutex, which cannot run on a Linux runner), with anything skipping
+  for an unlisted reason failing the build. A missing system dep, a new `importorskip`, or an
+  environment probe that stops matching now has to be justified there or it breaks CI. A named canary
+  keeps the scan from passing when there is nothing left to skip. Verified against two real
+  `junit.xml` files and five Linux-shaped fixtures — expected skips pass; vanished Poppler, a new
+  `importorskip`, a stale offscreen probe and a deleted canary each fail with their own message.
+  **Left explicit, not closed:** the two mutex tests run on a developer's Windows box and nowhere in
+  CI, since there is no Windows test job (`release.yml` builds on `windows-latest` but runs nothing);
+  the allowlist makes that visible rather than fixing it. Same lesson as the milestone itself:
+  **a check that cannot fail is not a check**, and both of these could not fail.
   Design in `PLAN.md` §M122 — *Windows + CI*
 
 - [x] **M121** *(unplanned)* **Insert Blank Page leaves you looking at the page you made** —

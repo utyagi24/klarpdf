@@ -79,32 +79,45 @@ jobs:
         if: steps.gate.outputs.docs_only != 'true'
         run: pytest -q --junit-xml=junit.xml
 
-      # Assert on the skip REASON, not on a list of test names. Four tests are gated on
-      # `shutil.which("pdftotext")` and they all skip with the same message, so matching the reason
-      # covers every one of them — and covers a fifth added later, which a name list would silently
-      # miss. That was a real gap: this step used to name only the `test_redaction.py` one, leaving
-      # the two in `test_mcp_redaction.py` and the one in `test_search_redact.py` free to start
-      # skipping in CI without failing anything.
-      - name: Assert no Poppler-gated test skipped (the cross-engine check really ran)
+      # A skipped test reports the same green tick as a passing one, so CI has to say out loud which
+      # skips it is willing to accept. This pins the whole set rather than one dependency: an
+      # ALLOWLIST OF REASONS, because a reason says *why* a test could not run, where a list of names
+      # rots the moment a test is renamed and says nothing about a new one. Anything skipping for a
+      # reason not listed here fails the build.
+      #
+      # It started life naming a single Poppler test while four were gated on `pdftotext`, so three
+      # could have gone quiet in CI without failing anything. Generalising it removes that whole class
+      # of gap: a missing dependency, a new `importorskip`, an environment probe that stops matching
+      # — all of them now have to be justified here or they break the build.
+      - name: Assert only the expected tests skipped (nothing went quiet)
         if: steps.gate.outputs.docs_only != 'true'
         run: |
           python - <<'PY'
           import xml.etree.ElementTree as ET
 
+          # The only skips this Linux runner may legitimately produce. Both are the Windows kernel
+          # mutex, which genuinely cannot run here (tests/test_app_mutex.py) -- they are covered on a
+          # developer's Windows machine instead. Everything else in the suite must RUN in CI: the
+          # POSIX symlink tests, the off-Windows no-op, and the four Poppler cross-engine checks all
+          # do, and each is a check whose whole value is that it ran.
+          ALLOWED_REASONS = {"the mutex is a Windows kernel object"}
+
           root = ET.parse("junit.xml").getroot()
-          skipped = [
-              (t.get("classname", ""), t.get("name", ""), s.get("message", ""))
-              for t in root.iter("testcase")
-              for s in t.findall("skipped")
-              if "poppler" in (s.get("message", "") + s.get("type", "")).lower()
-          ]
-          if skipped:
-              for classname, name, message in skipped:
-                  print(f"SKIPPED  {classname}::{name} -- {message}")
+          unexpected = []
+          for case in root.iter("testcase"):
+              for skip in case.findall("skipped"):
+                  reason = (skip.get("message") or "").strip()
+                  if not any(allowed in reason for allowed in ALLOWED_REASONS):
+                      unexpected.append((case.get("classname", ""), case.get("name", ""), reason))
+
+          if unexpected:
+              for classname, name, reason in unexpected:
+                  print(f"UNEXPECTED SKIP  {classname}::{name} -- {reason}")
               raise SystemExit(
-                  f"{len(skipped)} Poppler-gated test(s) skipped in CI. poppler-utils must be "
-                  "installed so the cross-engine redaction check actually runs, rather than "
-                  "reporting green on a check that never happened."
+                  f"{len(unexpected)} test(s) skipped in CI for an unapproved reason. A skipped test "
+                  "reports the same green tick as a passing one, so either fix the environment (a "
+                  "missing system dependency is the usual cause) or add the reason to "
+                  "ALLOWED_REASONS in this step, deliberately and with a comment saying why."
               )
 
           # A scan for skips also passes when there is nothing left to skip, so pin one test by name:
@@ -115,7 +128,7 @@ jobs:
                   f"{CANARY} is not in the results -- renamed or removed? Update this guard with it, "
                   "or it is checking nothing."
               )
-          print("OK: no Poppler-gated test skipped, and the canary is present.")
+          print("OK: only the expected skips, and the canary is present.")
           PY
 
       # Post the result as a single, updated-in-place comment on the PR, so pass/fail is visible right
