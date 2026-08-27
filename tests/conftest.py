@@ -50,6 +50,41 @@ A_TEXT = ["ALPHA-zero-A0", "ALPHA-one-A1", "ALPHA-two-A2"]
 B_TEXT = ["BETA-zero-B0", "BETA-one-B1"]
 
 
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    """Name every skipped test at the end of a run, with the reason beside it (M125).
+
+    **Why this is not just `-rs`.** pytest's own short summary prints `path:line: reason`, which
+    tells a reader where to look rather than what did not run — they still have to open the file to
+    learn the test's name. That matters here more than it usually would, because the skip count is
+    genuinely confusing: it differs by platform (5 tests are platform-locked and can only ever run on
+    one OS) *and* by shell on the same machine, since `pdftotext` sits on Git Bash's PATH but not
+    PowerShell's. "7 skipped" on its own is a puzzle; "7 skipped, and here they are" is a report.
+
+    The names carry the answer now — a `_windows_only` or `_posix_only` suffix says why a skip was
+    inevitable rather than suspicious — so printing them is what makes the naming convention visible
+    at the moment someone is looking at the number.
+    """
+    skipped = terminalreporter.stats.get("skipped", [])
+    if not skipped:
+        return
+
+    # ASCII on purpose: this line lands in CI logs and in consoles whose encoding is not UTF-8,
+    # and a mojibaked header on the one report meant to remove confusion would be its own joke.
+    terminalreporter.write_sep("-", f"{len(skipped)} skipped - what did NOT run here")
+    for report in skipped:
+        # For a skip, `longrepr` is a (path, lineno, reason) triple; the reason is prefixed
+        # "Skipped: " by pytest. Fall back to the raw value if that ever stops holding.
+        reason = ""
+        longrepr = getattr(report, "longrepr", None)
+        if isinstance(longrepr, tuple) and len(longrepr) == 3:
+            reason = str(longrepr[2]).removeprefix("Skipped: ")
+        elif longrepr:
+            reason = str(longrepr)
+        terminalreporter.write_line(f"  {report.nodeid}")
+        if reason:
+            terminalreporter.write_line(f"      reason: {reason}")
+
+
 @pytest.hookimpl(hookwrapper=True, trylast=True)
 def pytest_runtest_teardown(item, nextitem):
     """Destroy every widget the finished test left behind — **the suite leaked all of them**.

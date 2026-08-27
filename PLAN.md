@@ -5706,6 +5706,42 @@ subclasses that mean something *else*; and when a bug is unreachable, pin the re
 in a test rather than trusting that nobody will complete the path. Compare §M119, where the same
 `_explain` function was the site of a different platform-shaped assumption.
 
+### M125 — a skip says its own name and its own reason (2026-08-27)
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M125** The five platform-locked tests carry `_windows_only` / `_posix_only` in their names, and every run names each skipped test with its reason | `tests/test_app_mutex.py`, `test_mcp_hardening.py`, `test_mcp_transforms.py`; `pytest_terminal_summary` in `tests/conftest.py`; `tasks.py`; `.github/workflows/test.yml` | Windows + WSL + CI | Any pytest run ends with a `N skipped - what did NOT run here` block listing node ids and reasons; the Windows job's `MUST_RUN` names track the rename |
+
+**The question this answers.** *"Is there never a scenario where all tests run and nothing gets
+skipped?"* Correct, and it is a property of the suite rather than a defect: **five tests are
+platform-locked**. Two need a Windows kernel mutex and cannot run on POSIX; three test POSIX symlink
+and no-op semantics and cannot run on Windows. Each runs on exactly one OS by construction, so a run
+that skipped nothing would mean the gates had stopped working.
+
+**A skip count was unreadable, for two compounding reasons.** It differs by platform *and*, on the
+same machine, by shell — `pdftotext` sits on Git Bash's `PATH` and not PowerShell's, so the same
+Windows checkout reports 3 or 7 depending on where it is launched. And `windows-latest` in CI happens
+to carry `pdftotext`, so CI shows 3 where a developer's PowerShell shows 7. A bare "7 skipped" is
+therefore a puzzle nobody can solve from the number.
+
+**Two changes, deliberately separate.** *Naming*: the five platform-locked tests now end in
+`_windows_only` or `_posix_only`, so the name says why the skip was inevitable rather than suspicious
+— a reader seeing `..._posix_only` skipped on Windows needs no further explanation. *Reporting*: a
+`pytest_terminal_summary` hook in `conftest.py` prints every skipped node id with its reason, on
+**any** pytest invocation. That is why the hook is in `conftest` and not a `-rs` flag on the invoke
+task: `-rs` prints `path:line`, which still sends the reader to the file, and a flag only helps
+people who remember it. `-rs` was tried first and removed once the hook made it duplicate output.
+
+**Poppler is deliberately not renamed**, and the distinction is the point. Those four are gated on a
+*dependency*, not a platform: they run on both CI runners and on any machine with `pdftotext`
+installed. A `_windows_only`-style suffix would assert something false about them. The printed reason
+already covers them, which is the right tool for a skip that is environmental rather than structural.
+
+**One deviation from the request, on purpose.** The suffix is `_posix_only`, not `_wsl_only`. These
+tests run on `ubuntu-latest` in CI, which is not WSL — WSL is a development environment, not a
+platform (`CLAUDE.md` §Two consumers share one core draws the same line). Naming them for a dev
+environment would have been wrong in exactly the way this milestone exists to fix.
+
 ## Future enhancements (deferred beyond the roadmap)
 
 Captured but not yet scheduled:

@@ -93,7 +93,7 @@ def test_only_a_launch_that_stays_alive_takes_the_mutex():
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="the mutex is a Windows kernel object")
-def test_acquire_is_idempotent_and_holds_a_handle():
+def test_acquire_is_idempotent_and_holds_a_handle_windows_only():
     assert pi.acquire_app_mutex() is True
     handle = pi._app_mutex_handle
     assert handle
@@ -102,7 +102,7 @@ def test_acquire_is_idempotent_and_holds_a_handle():
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="the mutex is a Windows kernel object")
-def test_the_mutex_is_visible_to_another_opener_which_is_what_inno_does():
+def test_the_mutex_is_visible_to_another_opener_which_is_what_inno_does_windows_only():
     """Inno tests for *existence*, so prove an unrelated OpenMutexW finds ours."""
     import ctypes
     from ctypes import wintypes
@@ -121,6 +121,6 @@ def test_the_mutex_is_visible_to_another_opener_which_is_what_inno_does():
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="off-Windows it must be an inert no-op")
-def test_acquire_is_a_no_op_off_windows():
+def test_acquire_is_an_inert_no_op_posix_only():
     assert pi.acquire_app_mutex() is False
     assert pi._app_mutex_handle is None
