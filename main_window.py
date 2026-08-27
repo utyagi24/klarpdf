@@ -1458,18 +1458,25 @@ class MainWindow(QMainWindow):
             self.view.search.clear()
             if self.search_results.isVisible():
                 self.search_results.refresh()  # stale page indices — no lingering rows
-        # Follow the edit: marking up a page that isn't the one under the viewport centre should
-        # move the sidebar highlight onto it, without scrolling. Consumed once, so an undo/redo
-        # (which records nothing) leaves the current page where the reader put it.
-        if self._edited_page is not None:
-            self.view.set_current_page(self._edited_page)
-            self._edited_page = None
         # The counter's *total* is pushed from here rather than signalled: there is no
         # `pageCountChanged`, and insert / delete / undo change the count without moving the current
         # page, so binding it to `currentPageChanged` would leave "of 320" on screen after deleting
         # ten pages. The current-page half needs nothing — the view emits it (M91.3).
         self.page_widget.show_count()
         self.thumbs.populate()
+        # Follow the edit: marking up a page that isn't the one under the viewport centre should
+        # move the sidebar highlight onto it, without scrolling. Consumed once, so an undo/redo
+        # (which records nothing) leaves the current page where the reader put it.
+        #
+        # **After `populate()`, not before** (#288). This travels to the sidebar as
+        # `currentPageChanged` → `ThumbnailPanel.set_current`, which range-checks the row against the
+        # strip's *current* count — so on an edit that adds a page at the end, the row did not exist
+        # yet and the marker silently stayed where it was. Rebuild the strip, then place the marker
+        # on it; `set_current` also reveals properly, which `populate`'s own restore does not
+        # second-guess because the row it restores is the one it captured.
+        if self._edited_page is not None:
+            self.view.set_current_page(self._edited_page)
+            self._edited_page = None
         if self.outline is not None:
             self.outline.populate()  # live remapped_toc: the tree shows what a Save would write
         # The Annotations tab (M77) tracks edits and undo live — in its rows always, and in its own
@@ -2498,9 +2505,22 @@ class MainWindow(QMainWindow):
         else:
             width, height = 612.0, 792.0  # empty document — US Letter
         source_id = self.vdoc.open_blank_source(width, height)
+        # Land the reader on the page they just made (#288). Without this the current row was a bare
+        # integer that survived the rebuild, so after inserting it pointed at a *different* page than
+        # it did before — and the new one was off-screen.
+        #
+        # **Both halves, or the two disagree** (owner, 2026-08-26). `_note_edit_on` is the M59.9 hook
+        # and moves the sidebar marker, but it travels through `PdfView.set_current_page`, which is
+        # deliberately *non-scrolling* — its whole purpose is to let the highlight follow a mark made
+        # on a page that is not under the viewport. Right for an annotation; wrong here, and it left
+        # the sidebar pointing at the new page while the main view still showed the one it was
+        # inserted from. An insert is a "take me there" gesture, so the view goes too — after the
+        # push, which is when the new page exists in the layout.
+        self._note_edit_on(at)
         self.undo_stack.push(
             InsertCommand(self.vdoc, at, [PageRef(source_id, 0)], text="Insert blank page")
         )
+        self.view.goto_page(at)
 
     def _duplicate_pages(self, rows=None) -> None:
         """Edit ▸ Duplicate Pages (M51): copies of the selected pages — or the current page —
