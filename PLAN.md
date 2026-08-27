@@ -5742,6 +5742,71 @@ tests run on `ubuntu-latest` in CI, which is not WSL — WSL is a development en
 platform (`CLAUDE.md` §Two consumers share one core draws the same line). Naming them for a dev
 environment would have been wrong in exactly the way this milestone exists to fix.
 
+### M126 — the release check that was written down but never run (2026-08-27)
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M126.1** The bridge's own lock resolves and runs on **Windows**, on every PR that reaches the bridge | new `bridge-windows` job in `.github/workflows/test.yml` | CI (Windows) | A PR touching `mcp_bridge/` shows a `bridge-windows` check that installed `requirements-mcp.txt` on `windows-latest` |
+| **M126.2** A tool cannot join the server without joining the no-Qt / no-socket guard | `test_the_exerciser_covers_every_registered_tool` in `tests/test_mcp_no_qt.py` | WSL | Deleting one `call_tool` line from `_CHILD` fails with the tool named |
+| **M126.3** Matrix item 8 is a command rather than a memory | `tools/mcp_stdio_check.py`; `RELEASE.md` §4 | WSL + Windows | `python tools/mcp_stdio_check.py` → 13 passed |
+
+**Why this exists.** M44 — *verify + release* for the bridge — has been the last unticked box of the
+MCP roadmap since M39 shipped. Its runbook (`RELEASE.md` §4, written 2026-08-12) turned PLAN's
+Verification matrix into ten checkable rows and reported six automated, three manual and one open.
+Running it for the first time on 2026-08-27 found the matrix had drifted from the repo in three
+directions at once, all of them the same *kind* of drift: **a check whose only enforcement was that
+somebody would remember it.**
+
+**M126.1 — the row that measured nothing.** Row 7 (*cross-platform, Windows*) says its point is
+"not the tests — it is that `pip install -r requirements-mcp.txt` **resolves at all** on Windows",
+naming the exact defect this section calls expensive to discover late. Two jobs looked like they
+covered it and neither did: `bridge` (M115.1) installs the bridge lock but runs on `ubuntu-latest`,
+and `windows` (M123) runs on Windows but installs `requirements-dev.txt`, the **app's** lock. So the
+bridge's dependency set had never been resolved on the platform the product ships — the one thing
+the manual step was for was the one thing nothing checked, while two green checks either side of it
+implied otherwise.
+
+**Not a matrix on the existing job, and the reason is worth recording**, because a matrix is the
+obvious refactor and it would have broken `main`: `bridge` is a **required status check by that
+exact name**, and `strategy.matrix` renames its checks to `bridge (ubuntu-latest)` /
+`bridge (windows-latest)`. The required context `bridge` would then never be reported again, and a
+ruleset cannot tell *not needed* from *not finished* — the identical trap `test.yml` already
+documents for workflow-level `paths:` filters, reached from the other side. A sibling job costs one
+duplicated gate block and keeps the ruleset intact. (Adding `bridge-windows` to the required list is
+a repository setting, not a file in this PR.)
+
+**M126.2 — the guard that was complete by luck.** `tests/test_mcp_no_qt.py` is the keystone: it
+exercises every tool in a clean interpreter because an import inside a tool body — `model.export` in
+`flatten`, `pypdf` inside `PyPdfEngine.materialize` — is invisible until that tool runs. The list of
+calls is hand-written, and it *was* complete (all 19, measured). Nothing made it stay so.
+`test_mcp_server.py` pins the **registry** against `EXPECTED_TOOLS`, so a twentieth tool cannot
+register unnoticed; it says nothing about this file, so the tool would simply not be exercised, and
+every no-Qt / no-pypdf / no-socket assertion would keep passing on the nineteen that were. The fix is
+one equality against the live registry — equality rather than containment, so a line left behind for
+a removed tool fails too.
+
+**M126.3 — "done in WSL" is not a check.** Row 8 claimed the bridge had been driven end-to-end
+against the SDK's own stdio client. True, once, in a session; the script did not survive it. That
+layer is exactly what the in-process tests cannot reach — every `tests/test_mcp_*.py` calls
+`server.call_tool(...)` on an imported object, so the console script being on PATH, the JSON-RPC
+handshake, an image arriving as base64, and an **error returned as a result rather than a traceback
+down stdout** (which would corrupt the stream) are all untested by construction. `tools/` was the
+right home rather than `tests/`: it needs the console script *installed*, which CI's dev lock does
+not do, and `tools/audit-deps.ps1` is the same shape — a runbook step with a file behind it.
+
+**What M44 still owes**, unchanged by this: rows 9 (install the `.mcpb` in Claude Desktop, confirm
+the tool list, redact a throwaway copy, confirm the input is byte-identical) and 10 (whether
+`uv run --directory` consults a committed `uv.lock`, answerable only while doing 9). Both need a
+Claude Desktop install, so they stay owner actions, and then the tag.
+
+**The generalisable part.** All three rows were *written down* — the runbook is unusually careful,
+and it still described a repo that had moved. A checklist item with no executable behind it decays at
+the speed of the code it describes: row 7 pointed at a gap two green checks made invisible, row 4
+counted 16 tools when there were 19, row 8 named a script nobody could run. The rule this suggests is
+narrow and cheap: **when a runbook row is automatable, automate it and make the row point at the
+automation; when it genuinely is not, give it a command and a file.** What is left is then a short
+list of things that really do need a human and a machine — here, two.
+
 ## Future enhancements (deferred beyond the roadmap)
 
 Captured but not yet scheduled:
