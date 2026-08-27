@@ -375,17 +375,28 @@ PATH (the bundle's launcher — Desktop cannot install without it), and **Claude
 
 ```powershell
 git pull
-py -3.12 packaging\mcpb\build_mcpb.py                       # -> dist\klarpdf-<version>.mcpb
-.\.venv\Scripts\python.exe -m pip install -e . --no-deps    # puts klarpdf-mcp on PATH
-.\.venv\Scripts\python.exe tools\mcp_stdio_check.py         # row 8 here: expect 13 passed
+py -3.12 packaging\mcpb\build_mcpb.py     # -> dist\klarpdf-<version>.mcpb  (stdlib only)
+.\.venv\Scripts\Activate.ps1              # NOT the same as calling the venv's python.exe — see below
+python -m pip install -e . --no-deps      # once per checkout; puts klarpdf-mcp on PATH
+python tools\mcp_stdio_check.py           # row 8 here: expect 13 passed
 ```
 
-**Those two scripts want different interpreters, and the difference is not cosmetic.**
-`build_mcpb.py` is stdlib-only, so the base python.org `py -3.12` runs it. `mcp_stdio_check.py`
-imports `mcp` and `pymupdf`, which **only the repo `.venv` has** — under `py -3.12` it dies on
-`ModuleNotFoundError: No module named 'mcp'` before reaching a single check. It also needs
-`klarpdf-mcp` on PATH (it does `shutil.which`), which nothing in a fresh checkout provides: hence the
-editable install, `--no-deps` so the pinned test venv is left exactly as the suite found it.
+**The two scripts want different interpreters, and the second one wants the venv *activated*, not
+merely invoked.** `build_mcpb.py` is stdlib-only, so the base python.org `py -3.12` runs it.
+`mcp_stdio_check.py` needs three separate things, and only activation supplies all three:
+
+1. `mcp` and `pymupdf` on the import path — **only the repo `.venv` has them**, so `py -3.12` dies on
+   `ModuleNotFoundError: No module named 'mcp'` before reaching a single check.
+2. `klarpdf-mcp` **existing** — nothing in a fresh checkout provides it, hence the editable install.
+   `--no-deps` leaves the pinned test venv exactly as the suite found it.
+3. `klarpdf-mcp` **on `PATH`** — the script locates the server with `shutil.which`, and this is the
+   step that catches people. Running `.\.venv\Scripts\python.exe tools\mcp_stdio_check.py` gets you
+   (1) and (2) and still fails with `klarpdf-mcp is not on PATH`, because invoking a venv's
+   interpreter directly does **not** put its `Scripts\` directory on `PATH` — only activation does.
+   The console script is sitting right there beside the interpreter and the check cannot see it.
+
+Verified 2026-08-27 on Windows: **13 passed, 0 failed**, against `klarpdf-mcp 0.17.1`, protocol
+`2025-11-25`, 19 tools.
 
 `dist\` is gitignored, so the bundle built in WSL did not travel — build it there. Then work row 9,
 then row 10 **in the same sitting** (it can only be answered while installing), then §3 for the tag.
