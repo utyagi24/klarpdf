@@ -5472,6 +5472,46 @@ grown rect where the app now recovers the authored one, so the two surfaces name
 box for the same shape. That is not obviously wrong — a box fed to `redact_regions` arguably should
 cover the drawn stroke — so it needs a decision rather than a patch.
 
+### M122 — the no-socket guard stops catching asyncio instead of us ([#301](https://github.com/utyagi24/klarpdf/issues/301), 2026-08-27)
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M122** `tests/test_mcp_no_qt.py` runs its no-Qt / no-socket invariant on **Windows** instead of dying before it starts | `_CHILD` in `tests/test_mcp_no_qt.py` | Windows (the failure is Windows-only; the change is platform-neutral) | All 6 tests pass on Windows *and* the two negative controls still fail the way they should — a deliberate `connect` is still caught, deliberate Qt is still detected |
+
+**The symptom.** On native Windows the whole file collapsed — 2 failed, 4 errored — with
+`AssertionError: the MCP server path called socket.bind(('127.0.0.1', 0),)`, naming an address the
+bridge never asked for. Every error was one root cause: the shared `child_result` fixture could not
+build its child, so the four tests depending on it errored in *setup* rather than failing.
+
+**The cause is that the guard was catching the test harness's own event loop.** The child arms
+`socket.bind`/`connect` before running the tools, deliberately leaving the *constructor* alone so
+asyncio's internal `socket.socketpair()` self-pipe does not trip it — the original comment says so,
+and on POSIX it is right, because `socketpair()` is a real syscall that neither binds nor connects.
+**Windows has no such syscall.** CPython emulates it in `socket._fallback_socketpair` with a genuine
+loopback `bind()` + `connect()`, so the very first thing `asyncio.run` does inside the guarded window
+is exactly what the guard exists to forbid. It fired on asyncio's plumbing, inside `asyncio.run`,
+**before a single tool had run**.
+
+So the invariant was not merely failing on Windows — it was **never being tested there**, and the
+noisy failure was the only reason anyone noticed. A silent skip would have been worse.
+
+**The fix is to move the self-pipe out of the guarded window rather than to widen the guard.** The
+child now builds the loop with `asyncio.new_event_loop()` *before* arming the guard and runs the
+tools with `run_until_complete`. Two alternatives were rejected: **skipping on `win32`** surrenders
+the coverage on the platform the app actually ships, which is precisely backwards; and
+**allow-listing callers from `asyncio.windows_events`** means inspecting the stack inside the guard
+to decide whose socket it is — fragile against CPython internals, and it would leave the guard
+disarmed for a window that a real bridge call could hide in. Pre-building the loop needs neither: the
+guard stays armed for **every** tool call on both platforms, and what it sees afterwards can only be
+the server's own doing.
+
+**The lesson, and it is the same shape as M119's.** A guard that fires during setup proves nothing
+about the thing it guards, and the two platforms disagreed about what setup *does*. The tell is an
+assertion naming something the code under test never mentions — `127.0.0.1:0` appears nowhere in the
+bridge — which is the signature of a harness catching itself. Verified by keeping both negative
+controls: a check that cannot fail is not a check, and a fix that quietly disarms one is worse than
+the failure it removed.
+
 ## Future enhancements (deferred beyond the roadmap)
 
 Captured but not yet scheduled:
