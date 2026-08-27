@@ -77,7 +77,7 @@ jobs:
 
       - name: Run the headless suite
         if: steps.gate.outputs.docs_only != 'true'
-        run: pytest -q --junit-xml=junit.xml
+        run: pytest -q -rs --junit-xml=junit.xml   # -rs: print WHY anything skipped, into the log
 
       # A skipped test reports the same green tick as a passing one, so CI has to say out loud which
       # skips it is willing to accept. This pins the whole set rather than one dependency: an
@@ -128,7 +128,17 @@ jobs:
                   f"{CANARY} is not in the results -- renamed or removed? Update this guard with it, "
                   "or it is checking nothing."
               )
-          print("OK: only the expected skips, and the canary is present.")
+          # Print what WAS skipped and why, not just a verdict. "3 skipped" in a summary is a puzzle
+          # someone has to reverse-engineer from the runner image; naming them here answers it in the
+          # log, forever, on the run that produced the number.
+          accepted = [
+              (case.get("classname", ""), case.get("name", ""), (skip.get("message") or "").strip())
+              for case in root.iter("testcase")
+              for skip in case.findall("skipped")
+          ]
+          for classname, name, reason in accepted:
+              print(f"  expected skip  {classname}::{name} -- {reason}")
+          print(f"OK: {len(accepted)} skip(s), all expected, and the canary is present.")
           PY
 
       # Post the result as a single, updated-in-place comment on the PR, so pass/fail is visible right
@@ -309,7 +319,7 @@ jobs:
       # slow every PR; the allowlist below is what states that choice rather than leaving it implied.
       - name: Run the headless suite
         if: steps.gate.outputs.docs_only != 'true'
-        run: pytest -q --junit-xml=junit.xml
+        run: pytest -q -rs --junit-xml=junit.xml   # -rs: print WHY anything skipped, into the log
 
       # The mirror image of the Linux allowlist. There the Windows mutex tests are the approved skip;
       # here they are the whole point of the job, so they must RUN and the platform-inverted ones are
@@ -368,5 +378,16 @@ jobs:
                   "design, so this job is the only thing standing between them and no coverage at "
                   "all. If one was renamed, update MUST_RUN in this step."
               )
-          print(f"OK: only the expected skips; both Windows-only mutex tests ran ({len(ran)}/2).")
+          # Name what was skipped and why. This runner's skip count is NOT the same as a developer's
+          # Windows box: the hosted image happens to carry `pdftotext`, so the four Poppler-gated
+          # tests RUN here and skip locally -- which is why CI shows 3 where a local run shows 7.
+          # Printing them turns that surprise into a fact the log states.
+          accepted = [
+              (case.get("classname", ""), case.get("name", ""), (skip.get("message") or "").strip())
+              for case in root.iter("testcase")
+              for skip in case.findall("skipped")
+          ]
+          for classname, name, reason in accepted:
+              print(f"  expected skip  {classname}::{name} -- {reason}")
+          print(f"OK: {len(accepted)} skip(s), all expected; both Windows-only mutex tests ran ({len(ran)}/2).")
           PY
