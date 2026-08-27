@@ -5417,6 +5417,42 @@ it as a fact about the stored value rather than about who wrote the mark. And a 
 `pdfproj` — this app's own former codename — reports `mine: false` on a real document, which
 confirms §M112's premise on a third file rather than opening anything new.
 
+### M119 — the same mistake, a different exception on each platform ([#294](https://github.com/utyagi24/klarpdf/issues/294), 2026-08-26)
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M119** Handing a **directory** to a tool reports "is a directory, not a PDF" on Windows as it already did on POSIX | `_explain` / `_is_directory_error` in `mcp_bridge/server.py` | WSL (the fix is in cross-platform core; Windows confirms via the existing end-to-end test) | `_explain` maps **both** a POSIX `IsADirectoryError` and a Windows-shaped `PermissionError`-on-a-directory to the same message; a genuine permission error on a *file* keeps its own; an `OSError` with no `filename` does not crash the handler |
+
+**The symptom.** On native Windows, `get_info` on a directory returned the raw
+`[Errno 13] Permission denied: 'C:\…'` instead of the friendly message the code plainly intends.
+
+**The cause is a POSIX assumption, and it is worth stating precisely because the fix is not "also
+catch `PermissionError`".** A document is read with `Path(path).read_bytes()`
+(`model/virtual_document.py`), so the failure comes out of **CPython's own file layer** rather than
+out of MuPDF — which is what makes the behaviour well-defined rather than something to discover
+empirically. There, POSIX has a distinct errno for this case (`EISDIR` → `IsADirectoryError`) and
+**Windows has none**: opening a directory gives `EACCES` → `PermissionError`, the same type a real
+unreadable file raises. So the exception type cannot decide it on Windows, and mapping every
+`PermissionError` to "is a directory" would misreport a genuine one. `_is_directory_error` asks the
+filesystem instead, which is errno-free and correct on both. POSIX keeps its type-only branch, so
+nothing there gains a syscall or changes.
+
+Two smaller things the fix has to get right, both of which are why this is not a one-liner:
+`OSError.filename` is **not guaranteed**, and `os.path.isdir(None)` raises `TypeError` — a crash
+*inside the error handler*, which is strictly worse than the message it replaced; and a genuine
+`PermissionError` on a real file now gets its own `permission denied:` explanation rather than
+falling through raw, since once the type is being inspected at all, leaving half of it unexplained
+is the inconsistency this milestone exists to remove.
+
+**The testing lesson is the durable part, and it generalises past this bug.** The existing
+`test_a_directory_given_as_a_document_is_reported_as_such` opens a real directory and takes whatever
+the OS raises — so **on Linux it exercises one branch, on Windows the other, and neither platform
+exercises both**. A green Linux suite could not have caught this and did not. The new tests call
+`_explain` directly with a *synthetic* exception of each platform's shape, which pins the **mapping**
+rather than the host OS's choice of errno, and therefore runs identically everywhere. Whenever a
+behaviour differs by platform, test the translation rather than the platform: the end-to-end test
+still earns its place, but it can only ever confirm the branch the runner happens to take.
+
 ### M120 — a shape stops resizing itself on every save ([#292](https://github.com/utyagi24/klarpdf/issues/292), 2026-08-26)
 
 | Milestone | What | Where | Verify |
