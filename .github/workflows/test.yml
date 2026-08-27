@@ -79,10 +79,44 @@ jobs:
         if: steps.gate.outputs.docs_only != 'true'
         run: pytest -q --junit-xml=junit.xml
 
-      - name: Assert the Poppler cross-engine redaction test ran (did not skip)
+      # Assert on the skip REASON, not on a list of test names. Four tests are gated on
+      # `shutil.which("pdftotext")` and they all skip with the same message, so matching the reason
+      # covers every one of them — and covers a fifth added later, which a name list would silently
+      # miss. That was a real gap: this step used to name only the `test_redaction.py` one, leaving
+      # the two in `test_mcp_redaction.py` and the one in `test_search_redact.py` free to start
+      # skipping in CI without failing anything.
+      - name: Assert no Poppler-gated test skipped (the cross-engine check really ran)
         if: steps.gate.outputs.docs_only != 'true'
         run: |
-          python -c "import xml.etree.ElementTree as ET; tcs=[t for t in ET.parse('junit.xml').getroot().iter('testcase') if t.get('name')=='test_redaction_leak_check_poppler_cross_engine']; assert tcs, 'redaction cross-engine test not found in results'; assert tcs[0].find('skipped') is None, 'cross-engine redaction test SKIPPED in CI (Poppler missing?)'; print('OK: cross-engine redaction test ran (not skipped)')"
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+
+          root = ET.parse("junit.xml").getroot()
+          skipped = [
+              (t.get("classname", ""), t.get("name", ""), s.get("message", ""))
+              for t in root.iter("testcase")
+              for s in t.findall("skipped")
+              if "poppler" in (s.get("message", "") + s.get("type", "")).lower()
+          ]
+          if skipped:
+              for classname, name, message in skipped:
+                  print(f"SKIPPED  {classname}::{name} -- {message}")
+              raise SystemExit(
+                  f"{len(skipped)} Poppler-gated test(s) skipped in CI. poppler-utils must be "
+                  "installed so the cross-engine redaction check actually runs, rather than "
+                  "reporting green on a check that never happened."
+              )
+
+          # A scan for skips also passes when there is nothing left to skip, so pin one test by name:
+          # if it is renamed or deleted the guard must fail loudly instead of quietly proving nothing.
+          CANARY = "test_redaction_leak_check_poppler_cross_engine"
+          if not any(t.get("name") == CANARY for t in root.iter("testcase")):
+              raise SystemExit(
+                  f"{CANARY} is not in the results -- renamed or removed? Update this guard with it, "
+                  "or it is checking nothing."
+              )
+          print("OK: no Poppler-gated test skipped, and the canary is present.")
+          PY
 
       # Post the result as a single, updated-in-place comment on the PR, so pass/fail is visible right
       # where you merge — a convenience on top of the check, not the check itself.
