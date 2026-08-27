@@ -266,6 +266,73 @@ jobs:
         if: steps.gate.outputs.relevant != 'false'
         run: pytest -q tests/test_mcp_*.py
 
+  # ---------------------------------------------------------------------------------------------
+  # M126 — the same lock, on the platform that ships.
+  #
+  # `bridge` above proves requirements-mcp.txt resolves and behaves on Linux. RELEASE.md §7 exists
+  # because that is not the interesting platform: the app ships Windows, `pipx install` is what the
+  # bridge README tells a user to run, and "a lock that only resolves on one platform" is the defect
+  # PLAN.md flags as expensive to discover late. Until now nothing checked it — the `windows` job
+  # below installs requirements-dev.txt (the **app's** lock), so the bridge's own dependency set had
+  # never been resolved on Windows by anything except a maintainer following the runbook by hand.
+  #
+  # NOT a matrix on the job above, and the reason is the ruleset rather than taste: `bridge` is a
+  # REQUIRED status check by that exact name, and a matrix renames its checks to
+  # `bridge (ubuntu-latest)` / `bridge (windows-latest)`. The required check `bridge` would then
+  # never appear again, and — as the comment above says for path filters — a ruleset cannot tell
+  # "not needed" from "not finished", so every PR would wait on it forever. A sibling job keeps the
+  # existing check name untouched and costs one duplicated gate.
+  #
+  # Runs the suite rather than stopping at the install, for M115.1's reason applied per-platform: a
+  # resolve proves the wheels exist, and only running the code can see a behaviour difference.
+  bridge-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash   # one script for both jobs; Git Bash ships on the runner
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0   # the gate below diffs against the merge base
+
+      # Deliberately the same gate as `bridge` — same files, same generosity, same empty-diff rule.
+      - name: Could this change affect the bridge?
+        id: gate
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          files=$(git diff --name-only "${BASE_SHA}...${HEAD_SHA}")   # 3 dots = diff vs the merge base
+          echo "Changed files:"; printf '%s\n' "$files"
+          if [ -n "$files" ] && ! printf '%s\n' "$files" | grep -qE \
+             '^(mcp_bridge/|model/|util/|packaging/mcpb/|tests/test_mcp_|requirements-(core|mcp)\.(in|txt)$|pyproject\.toml$|\.github/workflows/test\.yml$)'; then
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+            echo "-> nothing here reaches the bridge: reporting the check as evaluated."
+          else
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-python@v6
+        if: steps.gate.outputs.relevant != 'false'
+        with:
+          python-version: "3.12"
+
+      # The step RELEASE.md §7 was written for. If a wheel in this lock has no win_amd64 build, or a
+      # marker excludes one, the failure is here on a PR rather than on a user's machine.
+      - name: Install the BRIDGE lock on Windows (this is the check)
+        if: steps.gate.outputs.relevant != 'false'
+        run: |
+          pip install -r requirements-mcp.txt
+          pip install pytest        # the runner itself; deliberately not in the bridge's own lock
+          python -c "import pymupdf; print('bridge engine ->', pymupdf.__doc__.splitlines()[0])"
+
+      # No Poppler here, like the `windows` job below: the four pdftotext-gated tests run on Linux,
+      # and this job exists for what Linux cannot answer.
+      - name: Run the bridge suite against its own dependencies
+        if: steps.gate.outputs.relevant != 'false'
+        run: pytest -q tests/test_mcp_*.py
+
   # M123 — the Windows half of the suite, which nothing had ever run.
   #
   # `pytest` above is Linux, and two tests can only run here: `tests/test_app_mutex.py`'s

@@ -211,6 +211,33 @@ def test_the_socket_guard_would_notice_a_connection(a_pdf):
     assert "the MCP server path called socket.connect" in proc.stderr
 
 
+def test_the_exerciser_covers_every_registered_tool():
+    """The child's tool list is written by hand, and nothing made it stay complete.
+
+    Everything above is only as strong as the exerciser: an import that happens *inside* a tool body
+    is invisible until that tool runs, which is the whole reason the child calls them all. So a tool
+    added without a line in ``_CHILD`` is not covered by the no-Qt, no-pypdf or no-socket assertions
+    — silently, because every one of them still passes on the nineteen that are there.
+
+    ``tests/test_mcp_server.py`` pins the *registry* against ``EXPECTED_TOOLS``, so tool number
+    twenty cannot register unnoticed; it says nothing about this file. This is the other half: the
+    registry is the source of truth, and the exerciser must match it exactly. Equality rather than
+    containment, so a line left behind for a removed tool fails here too.
+    """
+    import asyncio
+    import re
+
+    from mcp_bridge.server import server as live_server
+
+    exercised = set(re.findall(r'call_tool\(\s*"(\w+)"', _CHILD))
+    registered = {tool.name for tool in asyncio.run(live_server.list_tools())}
+    assert exercised == registered, (
+        "the no-Qt/no-socket exerciser has drifted from the registry — "
+        f"never exercised: {sorted(registered - exercised)}; "
+        f"exercised but not registered: {sorted(exercised - registered)}"
+    )
+
+
 def test_the_guard_would_notice_qt(a_pdf):
     """A negative control. A check that cannot fail is not a check — this proves the child's
     detection works by importing Qt on purpose and watching it get caught."""

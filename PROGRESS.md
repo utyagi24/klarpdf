@@ -493,6 +493,16 @@ items, which are independent of it.
   byte-identical, Linux). Three need a machine WSL does not have — the Windows lock resolve, Claude
   Desktop config + one-click `.mcpb` — and the tenth (does the host honour a `uv.lock`) is the open
   question M42 could not answer. Then the tag, which is an owner action.
+  → **First run 2026-08-27, and it moved: eight of the ten are now checks rather than intentions.**
+  **M126** closed rows 7 (the bridge lock now resolves and runs on `windows-latest` every relevant
+  PR) and 8 (`python tools/mcp_stdio_check.py`, 13 checks over a real stdio pipe — 13/13 on WSL),
+  and fixed two stale rows the first run exposed. Verified the same day on `main`: **538 bridge
+  tests, 0 failures, 0 skips** under the dev lock in WSL, and `dist/klarpdf-0.17.1.mcpb` builds
+  clean (199 KiB, 32 files, manifest and version in step with the server). **What is left is two
+  rows and the tag**: row 9 — install the `.mcpb` in Claude Desktop, confirm the tool list matches
+  the manifest, `get_info` + `redact_text` on a throwaway copy, confirm the input is byte-identical,
+  and check the plain-config fallback for anyone without `uv`; and row 10 — drop a `uv.lock` beside
+  the bundle's `pyproject.toml` and compare what it resolves against `requirements-mcp.txt`.
 
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 
@@ -2262,6 +2272,31 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   from their own policy for a month. The first PRs to hit the gate proved both halves the same day:
   **38 s** on a branch touching `mcp_bridge/` and `model/`, **4 s** reporting without doing the work
   on the docs-only branch stacked above it. Design in `PLAN.md` §M115.1 — *WSL + CI*
+
+- [x] **M126** *(unplanned)* **The release check that was written down but never run** — 2026-08-27,
+  from the owner's decision to start M44, the last unticked box of the MCP roadmap. `RELEASE.md` §4
+  turns PLAN's Verification matrix into ten checkable rows; **running it for the first time found
+  three of them describing a repo that had moved**, all the same kind of drift — a check whose only
+  enforcement was that somebody would remember it. **Row 7** (*does `requirements-mcp.txt` resolve on
+  Windows*) named the defect PLAN calls expensive to discover late, and **two green checks made the
+  gap invisible**: `bridge` installs the bridge lock but runs on Linux, `windows` (M123) runs on
+  Windows but installs the **app's** dev lock, so the bridge's own dependency set had never been
+  resolved on the platform that ships. A new `bridge-windows` job does it on every PR that reaches
+  the bridge — **a sibling job, not a matrix on `bridge`**, because `bridge` is a *required check by
+  that exact name* and `strategy.matrix` would rename it to `bridge (ubuntu-latest)`, leaving the
+  ruleset waiting forever on a context that never reports: the same trap `test.yml` documents for
+  `paths:` filters, reached from the other side. **Row 4** counted **16** tools when the server
+  registers **19** — harmless in the doc, but the exerciser behind it is hand-written and nothing
+  made it complete: `test_mcp_server.py` pins the *registry*, so tool twenty cannot register
+  unnoticed, yet it would simply not be exercised and every no-Qt / no-pypdf / no-socket assertion
+  would keep passing on the nineteen that were. One equality against the live registry closes it
+  (confirmed red by dropping a `call_tool` line). **Row 8** said "done in WSL" — true once, in a
+  session, and the script did not survive it; it is now `tools/mcp_stdio_check.py`, 13 checks driving
+  the console script over a real pipe with the SDK's own client, covering what in-process tests
+  cannot reach by construction: PATH, the handshake, base64 images, and an error returned as a
+  *result* rather than a traceback down stdout that would corrupt the stream. **M44 still owes rows 9
+  and 10** — installing the `.mcpb` in Claude Desktop and the `uv.lock` question that can only be
+  answered while doing it — plus the tag. Design in `PLAN.md` §M126 — *WSL + CI (Windows)*
 
 - [x] **M125** *(unplanned)* **A skip says its own name and its own reason** — 2026-08-27, from the
   owner's observation that *"there is never a scenario where all tests run and nothing gets skipped"*.

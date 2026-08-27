@@ -298,22 +298,33 @@ This is PLAN.md §MCP / Agent Bridge roadmap → Verification, turned into thing
 **Most of it is already automated** — the point of the table is to make the small remainder obvious
 rather than to re-check what CI checks on every PR.
 
+Since **M126** the remainder is two rows: **9** (install the `.mcpb` in Claude Desktop) and **10**
+(the `uv.lock` question, which can only be answered while doing 9). Everything else is a CI check or
+a single command.
+
 | # | Matrix item | How it is checked | Where |
 |---|---|---|---|
 | 1 | Tool round-trips preserve OCR text / TOC / form fields | `tests/test_mcp_transforms.py` — the same invariants as `test_materialize.py`, same fixtures | **automated**, every PR |
 | 2 | Redaction is leak-free, cross-engine | `tests/test_mcp_redaction.py` + `test_redaction.py::…poppler_cross_engine`; `test.yml` asserts the Poppler test **did not skip** | **automated**, every PR |
 | 3 | No outbound connection, no listening port | `tests/test_mcp_no_qt.py` — the child runs every tool with `socket.connect`/`bind` poisoned | **automated**, every PR |
-| 4 | No Qt on the server path | same file — a fresh interpreter, all 16 tools exercised, then `PySide6`/`shiboken6`/`model.edit_commands` asserted absent. Has a negative control | **automated**, every PR |
+| 4 | No Qt on the server path | same file — a fresh interpreter, **every registered tool** exercised (pinned to the registry, so a new tool cannot escape the guard), then `PySide6`/`shiboken6`/`model.edit_commands` asserted absent. Has a negative control | **automated**, every PR |
 | 5 | Source left byte-identical by every write tool | `tests/test_mcp_transforms.py`, parametrised over every write tool | **automated**, every PR |
 | 6 | Cross-platform — **Linux** | CI runs the whole suite on `ubuntu-latest`; `tests/test_mcp_packaging.py` asserts the lock is unhashed and platform-marker-free | **automated**, every PR |
-| 7 | Cross-platform — **Windows** | the two commands below | **manual, Windows** |
-| 8 | Lives with Claude Code | the `.mcp.json` at the repo root; verified end-to-end against the SDK's own stdio client (initialize → list → call → image → error) | done in WSL; re-check on Windows with #7 |
+| 7 | Cross-platform — **Windows** | the `bridge-windows` job resolves `requirements-mcp.txt` on `windows-latest` and runs the bridge suite against it (M126) | **automated**, every PR that reaches the bridge |
+| 8 | Lives with Claude Code | the `.mcp.json` at the repo root; `python tools/mcp_stdio_check.py` drives the console script over a real pipe with the SDK's own client (initialize → list → call → image → resource → the three refusals) | **one command**, either platform |
 | 9 | Lives with Claude Desktop — config **and** one-click `.mcpb` | the steps below | **manual, Windows or macOS** |
 | 10 | Does the host honour a `uv.lock`? | carried from M42 — see below | **open question** |
 
-### 7 — Windows
+### 7 — Windows *(automated since M126 — nothing to do by hand)*
 
-From the Windows checkout, in a throwaway venv so the app's `.venv` is untouched:
+The point of this step was never the tests: CI had already run them. It was that
+`pip install -r requirements-mcp.txt` **resolves at all** on Windows — "a lock that only resolves
+on one platform" being the defect PLAN.md flags as expensive to discover late. The `bridge-windows`
+job in `test.yml` now does exactly that on every PR that can reach the bridge, and runs the bridge
+suite against the lock it just resolved.
+
+Run it by hand only when you want the answer *without* pushing — e.g. while editing the lock. From
+the Windows checkout, in a throwaway venv so the app's `.venv` is untouched:
 
 ```powershell
 py -3.12 -m venv $env:TEMP\klarpdf-mcp-check
@@ -325,10 +336,6 @@ Expect green, with **one skip**: the Poppler cross-engine redaction check, becau
 not on a stock Windows PATH. That skip is exactly why `test.yml` installs `poppler-utils` and
 asserts the test ran on Linux — between the two platforms it is never skipped everywhere.
 
-The point of this step is not the tests (CI already ran them) — it is that
-`pip install -r requirements-mcp.txt` **resolves at all** on Windows. A lock that only resolves on
-one platform is the specific defect PLAN.md flags as expensive to discover late.
-
 ### 9 — Claude Desktop
 
 ```bash
@@ -339,7 +346,10 @@ Needs Node (for `npx @anthropic-ai/mcpb`) and, on the *installing* machine,
 [`uv`](https://docs.astral.sh/uv/) on PATH. Then:
 
 1. Open the `.mcpb`. Claude Desktop should offer to install it.
-2. Confirm all **16** tools appear in the tool list.
+2. Confirm the tool list matches `packaging/mcpb/manifest.json` — **19** as of v0.17.1. Count it
+   from the manifest rather than from here: a test pins the manifest to what the server registers,
+   so the manifest cannot go stale and this line can (it said 16 for three tools longer than it was
+   true).
 3. Call `get_info` on a real PDF, then `redact_text` on a throwaway copy, and check the reply
    carries `cross_engine_verified` (`true` only if Poppler is installed on that machine).
 4. Confirm the input file is **byte-identical** afterwards.
