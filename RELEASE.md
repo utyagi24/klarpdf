@@ -440,6 +440,35 @@ launcher is `uv run --directory ${__dirname}/server`), a Python outside `>=3.12,
 generated `pyproject.toml` requires), or no network — Option A resolves from PyPI at install time
 by design. Option B needs none of those and is the fallback worth reaching for.
 
+> **"Python >=3.12,<3.13" can show unmet on a machine that has exactly that** — hit 2026-08-27 with
+> python.org **3.12.10** installed and working. Desktop's install dialog flags the runtime while
+> `python --version` in a shell answers `3.12.10`, which makes the warning look like a lie.
+>
+> The cause is Windows' **App Execution Aliases**. `%LOCALAPPDATA%\Microsoft\WindowsApps` sits
+> **first** on the user `PATH` and holds `python.exe`, `python3.exe` and `pythonw.exe` as **0-byte
+> reparse points**. A shell resolves the alias and gets the real interpreter; something that stats
+> the file, or launches it without the alias machinery, sees a zero-byte file and no version. So the
+> probe fails on a machine whose Python is fine — the same shape as M127's `npx`, where every way of
+> *looking* for the tool succeeded and the one call that mattered could not start it.
+>
+> **It is a pre-flight check, not the launcher.** The bundle runs `uv run --directory …`, and `uv`
+> finds interpreters through the registry (`HKCU\Software\Python\PythonCore\3.12\InstallPath`), not
+> through that alias — verified the same day against the staged bundle: `Using CPython 3.12.10 at
+> …\pythoncore-3.12-64\python.exe`, 32 packages installed, server imported. So the warning can be
+> **installed straight past**; it says "may not work correctly" and in this case it does work.
+>
+> To clear it rather than ignore it, put the real interpreter ahead of the alias on the user `PATH`:
+> ```powershell
+> $real = "$env:LOCALAPPDATA\Python\pythoncore-3.12-64"
+> $entries = [Environment]::GetEnvironmentVariable('Path','User') -split ';' |
+>            Where-Object { $_ -and $_ -ne $real -and $_ -ne "$real\Scripts" }
+> [Environment]::SetEnvironmentVariable('Path', (@($real,"$real\Scripts") + $entries) -join ';', 'User')
+> ```
+> Then **fully quit Claude Desktop** — from the tray, not just the window — since a Windows process
+> reads `PATH` once at start. Confirm with `(Get-Item (Get-Command python).Source).Length`: ~105,000
+> means the real binary, `0` means you are still on the alias. Disabling the aliases under
+> *Settings ▸ Apps ▸ Advanced app settings ▸ App execution aliases* works equally well.
+
 **A third-party client is a spot check, not a gate** — Codex CLI via `~/.codex/config.toml`, or Grok
 Build. stdio is the universal denominator, so a failure there is a bug worth knowing about before
 strangers find it, not a reason to hold the release.
