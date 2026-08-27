@@ -44,7 +44,7 @@ from mcp.server.mcpserver.exceptions import ResourceError
 from mcp_types import CallToolRequestParams, CallToolResult, TextContent
 
 from mcp_bridge import annotations, docs, queries, redaction, transforms
-from mcp_bridge.config import Config, PathPolicy
+from mcp_bridge.config import Config, PathNotAllowed, PathPolicy
 from mcp_bridge.strict_args import rejection_message, unknown_parameters
 from model.virtual_document import PasswordRequired
 from version import __version__
@@ -113,6 +113,21 @@ def _explain(exc: Exception) -> Exception:
     # POSIX: the type alone is conclusive, and stays that way with no filesystem call.
     if isinstance(exc, IsADirectoryError):
         return ValueError(f"{exc.filename or exc} is a directory, not a PDF")
+    # A sandbox refusal is NOT a failure to open something — it is this server declining to look
+    # (M124). It has to be caught before the branch below, because `PathNotAllowed` subclasses
+    # `PermissionError` and would otherwise be rewritten by rules written for a different problem.
+    # Its own message already names the path and the `--allow-root` remedy, which is the most
+    # actionable thing available, so the right treatment is to leave it entirely alone.
+    #
+    # Today this changes only the wording. The reason it is a guard and not a cosmetic fix is what
+    # happens next: `PathNotAllowed` is raised with a single string, so `filename` is None and the
+    # directory check below cannot fire. That is luck, not design. Raise it the ordinary way for an
+    # OSError -- with the path attached, an obvious future improvement -- and refusing a *directory*
+    # outside the roots would report "is a directory, not a PDF": true, irrelevant, and it deletes
+    # the security refusal from the message. The test beside this pins the behaviour so that edit
+    # fails loudly instead of silently.
+    if isinstance(exc, PathNotAllowed):
+        return exc
     if isinstance(exc, PermissionError):
         # Windows: the same mistake arrives as EACCES, so the filesystem has to be asked.
         if _is_directory_error(exc):

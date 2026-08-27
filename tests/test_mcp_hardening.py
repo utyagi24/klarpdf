@@ -316,6 +316,53 @@ def test_an_oserror_with_no_filename_does_not_crash_the_handler():
     assert "permission denied" in str(explained).lower()
 
 
+# ---- M124: a sandbox refusal is not a failure to open a file ----
+#
+# `PathNotAllowed` subclasses `PermissionError`, so M119's new branch caught it by accident and
+# rewrote a *security* refusal with rules written for a *file-type* mistake. These pin the boundary
+# from both sides: the message must survive intact, and — the one that matters — it must survive
+# even once the path travels with the exception, which is the edit that would otherwise turn a
+# refusal into "is a directory, not a PDF" and delete the reason from the reply.
+
+
+def test_a_sandbox_refusal_keeps_its_own_message():
+    """The refusal already names the path and the `--allow-root` remedy. Nothing in `_explain` has
+    anything better to say, so it must not touch it."""
+    refusal = PathNotAllowed(
+        "'/etc/shadow' is outside the allowed roots for this server (/srv/docs). "
+        "Start the server with --allow-root to widen them."
+    )
+
+    explained = _explain(refusal)
+
+    assert explained is refusal, "a sandbox refusal must pass through _explain untouched"
+    assert "outside the allowed roots" in str(explained)
+    assert "--allow-root" in str(explained)
+
+
+def test_a_refused_directory_is_not_reported_as_a_directory_mistake(tmp_path):
+    """The trap this guard exists for, and the reason it is a guard rather than a reword.
+
+    Today `PathNotAllowed` carries no `filename`, so the directory check cannot fire and the bug is
+    unreachable. Attaching the path is the ordinary way to raise an `OSError` and an obvious future
+    improvement — this constructs that future deliberately. Without the guard the reply becomes
+    "<dir> is a directory, not a PDF": true, beside the point, and with the security refusal gone.
+    """
+    refused_dir = tmp_path / "client-files"
+    refused_dir.mkdir()
+
+    # The 3-argument OSError form: errno, message, path — `filename` is now populated.
+    refusal = PathNotAllowed(13, "outside the allowed roots", str(refused_dir))
+
+    explained = _explain(refusal)
+
+    assert "is a directory, not a PDF" not in str(explained), (
+        "a sandbox refusal was reworded into a file-type complaint — the caller is now told the "
+        "wrong thing and the security refusal has vanished from the message"
+    )
+    assert "outside the allowed roots" in str(explained)
+
+
 def test_the_tool_schemas_survive_the_error_wrapper():
     """The wrapper is a decorator around every tool, and a decorator that loses `__signature__`
     turns every schema into `(args, kwargs)` — which only fails at call time, far from the cause."""
