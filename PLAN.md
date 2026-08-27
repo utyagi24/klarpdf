@@ -5946,6 +5946,52 @@ narrower than "test your docs": **when a procedure's output is evidence, verify 
 produces the artifact the evidence is read from** — here, that the lock was actually inside the
 `.mcpb` before drawing any conclusion from what installed.
 
+### M130 — a test that could not be run in the environment it was written for (2026-08-28)
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M130.1** Tests that assert on attempt counts or backoff touch **no** filesystem | `_scripted_replace` in `tests/test_atomic_replace.py` | Windows | 25 consecutive runs green, against **4 failures in 20** before |
+| **M130.2** The one test that uses the real filesystem asserts only that the bytes arrived | `test_a_real_replace_moves_the_file` | WSL + CI | It makes no claim about attempts or sleeps |
+| **M130.3** Doubles that must really move a file absorb the machine's own contention | `_moving_replace` | Windows | Save/Export tests pass with the production backoff stubbed out |
+
+**What happened.** Cutting v0.18.0 turned the release suite red on
+`test_transient_lock_is_retried_until_it_clears[3]` — `assert 5 == 4`. Re-running pointed at a
+*different* test, `test_replaces_on_the_first_try_when_nothing_is_locked`, failing `assert [0.05] ==
+[]`. Measured rate: **4 failures in 20 runs** of that file.
+
+**The production code was correct in every failing run**, and the second failure proves it: that test
+monkeypatches nothing and asserts *no backoff was paid*. It recorded `0.05`, meaning the real
+`os.replace` raised `PermissionError` on a file written milliseconds earlier and `atomic_replace`
+retried — exactly the behaviour M38.5 exists to provide, on exactly the trigger it was built for
+(a scanner briefly holding a freshly written temp).
+
+**The defect was in the doubles.** `_flaky_replace` delegated to the genuine `os.replace` once its
+scripted failures were spent, so the machine could inject an unscripted failure into a measurement of
+*our* retry count. The moving target was the tell — CLAUDE.md already records that a failure which
+relocates when nothing relevant changed is environmental rather than a bug in the named test.
+
+**The fix is a split, not a suppression.** Assertions about the *policy* — how many attempts, how much
+backoff, which exceptions retry — get a double that touches no disk; one new test exercises the real
+filesystem and asserts only that the destination has the new bytes and the temp is gone, never how
+many tries that took. A third double, `_moving_replace`, serves the Save/Export tests that need a
+genuine move: it retries real contention **itself**, with a real sleep, because `_no_real_sleeping`
+stubs the production backoff out and four retries would otherwise elapse in microseconds — shorter
+than the lock they are meant to outlast. Verified non-vacuous: deleting the retry from
+`util/atomic.py` still fails **7** tests, including both user-facing ones with the "Export failed"
+modal.
+
+**The generalisable part.** **A component whose whole purpose is tolerating a hostile environment
+cannot be measured in one.** Every assertion here about counts and timing was, unavoidably, an
+assertion that the machine would stay quiet — which is the one thing `atomic_replace` exists because
+machines do not do. The rule: when testing a tolerance mechanism, inject the adversity and remove the
+real source of it; keep the end-to-end check, but let it assert only the outcome the tolerance is
+meant to preserve.
+
+**And a note on counting.** `PROGRESS.md`'s 1.0 gate said "one known flaky test". That was true and
+misleading: this one had presumably been failing at ~20% for some time and was absorbed as noise
+because a re-run cleared it. A flake a re-run hides is not observed, so the inventory measured what
+had been written down, not what was happening.
+
 ## Future enhancements (deferred beyond the roadmap)
 
 Captured but not yet scheduled:

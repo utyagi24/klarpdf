@@ -62,6 +62,13 @@ open is almost entirely in that category. The gate, all small and all concrete:
   not the merge blocker described. Split accordingly: **the save path's `os.replace` was fixed in
   M38.5** ([#239](https://github.com/utyagi24/klarpdf/pull/239)); **`test_single_instance` is
   left alone** — one failure, never reproduced, no fix plan, nothing actionable to write.
+  **Correction, 2026-08-28: "one known flaky test" was wrong, and the word doing the damage was
+  *known*.** Preparing the v0.18.0 release surfaced a second, unrecorded one — `test_atomic_replace.py`
+  failing **4 runs in 20**, in two different tests, with the reported one moving between runs. It had
+  presumably been failing at that rate for a while and was absorbed as noise, because a re-run cleared
+  it. Fixed as **M130**; the inventory is honest again. The lesson is about the *counting*, not the
+  bug: a flake that a re-run hides is not observed, so "we have one" only ever meant "we have written
+  one down." `test_single_instance` remains the sole item here.
 - [ ] **Item E — background rendering** (`PLAN.md` §Deferred): 1–3 s of frozen UI per page per zoom
   on image-heavy documents. Its gate is already met; this is scheduling, not justification.
 - **Code signing** stays deferred (needs a certificate) — it is the one gate item that may never be
@@ -2285,6 +2292,29 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   from their own policy for a month. The first PRs to hit the gate proved both halves the same day:
   **38 s** on a branch touching `mcp_bridge/` and `model/`, **4 s** reporting without doing the work
   on the docs-only branch stacked above it. Design in `PLAN.md` §M115.1 — *WSL + CI*
+
+- [x] **M130** *(unplanned)* **A test that could not be run in the environment it was written for**
+  — 2026-08-28, found cutting v0.18.0: the release suite went red on
+  `test_transient_lock_is_retried_until_it_clears[3]` (`assert 5 == 4`), and re-running blamed a
+  **different** test, `test_replaces_on_the_first_try_when_nothing_is_locked` (`assert [0.05] == []`).
+  Measured **4 failures in 20 runs**. **The production code was right every time**, and the second
+  failure is the proof: that test patches nothing and asserts *no backoff was paid* — recording
+  `0.05` means the real `os.replace` raised `PermissionError` on a file written milliseconds before
+  and `atomic_replace` retried, which is precisely what M38.5 exists to do, on precisely its trigger
+  (a scanner holding a freshly written temp). **The defect was in the test doubles:** `_flaky_replace`
+  delegated to the genuine `os.replace` once its scripted failures were spent, letting the machine
+  inject an unscripted failure into a measurement of *our* retry count. The moving target was the
+  tell — CLAUDE.md already records that a failure which relocates when nothing relevant changed is
+  environmental. **Fixed by splitting, not suppressing:** assertions about the policy get a double
+  that touches no disk; one new test uses the real filesystem and asserts only that the bytes arrived,
+  never how many attempts it took; and `_moving_replace` serves Save/Export by absorbing real
+  contention itself, with a real sleep, since `_no_real_sleeping` stubs the production backoff out and
+  four retries would otherwise pass in microseconds — shorter than the lock they must outlast.
+  **0 failures in 25 runs** after (0.4% likely by chance at the old rate), and verified non-vacuous:
+  deleting the retry from `util/atomic.py` still fails **7** tests, both user-facing ones via the
+  "Export failed" modal. The 1.0 gate's "one known flaky test" is corrected above — a flake a re-run
+  hides is not observed. Design in `PLAN.md` §M130 — *Windows*
+  ([#314](https://github.com/utyagi24/klarpdf/pull/314))
 
 - [x] **M129** *(unplanned)* **The bundle ships the lock it installs from** — 2026-08-27, closing
   M44 row 10 and the question PLAN carried since **M42**: does the host honour a committed `uv.lock`?
