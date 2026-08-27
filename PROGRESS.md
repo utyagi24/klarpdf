@@ -3472,19 +3472,25 @@ it on this side of the line.
   `get_info` reporting a raw `PermissionError` for a directory, went to
   [#294](https://github.com/utyagi24/klarpdf/issues/294) and is fixed as M119.
 
-- **Redaction's Poppler-gated tests never run from a PowerShell `invoke test`** — noticed 2026-08-27
-  while reconciling a skip count (7 on the owner's run, 3 on the assistant's, same 2,391 collected).
-  The difference is four tests gated on `shutil.which("pdftotext")`: three in
-  `tests/test_mcp_redaction.py` plus one each in `tests/test_redaction.py` and
-  `tests/test_search_redact.py`. They *pass* under Git Bash only because Git for Windows ships a
-  `pdftotext` at `/mingw64/bin`, which is not on PowerShell's `PATH` — so the shell decides whether
-  redaction is verified at all, silently, with a green suite either way. That matters more than an
-  ordinary optional-dependency skip because a failed redaction **leaves the text it was meant to
-  remove**, so this is the feature least able to afford unrun tests. Not decided, and it is a real
-  trade: install Poppler on the dev `PATH` and document it (but the skip still hides a missing
-  install on someone else's machine), **fail** rather than skip when Poppler is absent outside CI
-  (honest, noisier for anyone not working on redaction), or leave it and rely on CI — where it needs
-  confirming that the Linux job has Poppler at all, since the same gate applies there.
+- **Redaction's Poppler-gated tests skip locally on Windows — by design, and the design holds** —
+  noticed 2026-08-27 while reconciling a skip count (7 on the owner's PowerShell run, 3 on the
+  assistant's Git Bash run, same 2,391 collected). The difference is four tests gated on
+  `shutil.which("pdftotext")`: two in `tests/test_mcp_redaction.py` plus one each in
+  `tests/test_redaction.py` and `tests/test_search_redact.py`. They run under Git Bash only because
+  Git for Windows ships a `pdftotext` at `/mingw64/bin`, which is not on PowerShell's `PATH`.
+  **This is not a missing local configuration**, and the first draft of this entry wrongly implied it
+  might be: `.github/workflows/test.yml` says so in its header — the Linux job installs
+  `poppler-utils` *precisely* so the cross-engine check runs "instead of skipping the way it does on
+  a stock Windows/WSL shell" — and a post-run assertion (step *Assert the Poppler cross-engine
+  redaction test ran (did not skip)*, `test.yml:82`) **fails the build** if
+  `test_redaction_leak_check_poppler_cross_engine` comes back skipped.
+  So the enforcement point is CI, deliberately, and it is guarded against silently becoming a no-op.
+  Poppler is a *second* engine: redaction always verifies with PyMuPDF, and `pdftotext` is the
+  independent cross-check that the text is really gone (`mcp_bridge/redaction.py`), so a developer
+  without it loses corroboration, not the check.
+  What is left, and it is much smaller than first written: the CI assertion names **one** of the four
+  tests, so the other three could start skipping in CI without failing anything. Worth extending the
+  same guard to all four rather than deciding anything about local `PATH`.
 
 - **`pipx install .` still resolves PyMuPDF to the newest release rather than ours** — the gap M115
   left open on purpose. That milestone pinned the *lock* (`requirements-mcp.txt`) to the app's
