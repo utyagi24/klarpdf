@@ -77,7 +77,7 @@ jobs:
 
       - name: Run the headless suite
         if: steps.gate.outputs.docs_only != 'true'
-        run: pytest -q -rs --junit-xml=junit.xml   # -rs: print WHY anything skipped, into the log
+        run: pytest -q --junit-xml=junit.xml   # conftest names every skip in the summary (M125)
 
       # A skipped test reports the same green tick as a passing one, so CI has to say out loud which
       # skips it is willing to accept. This pins the whole set rather than one dependency: an
@@ -319,7 +319,7 @@ jobs:
       # slow every PR; the allowlist below is what states that choice rather than leaving it implied.
       - name: Run the headless suite
         if: steps.gate.outputs.docs_only != 'true'
-        run: pytest -q -rs --junit-xml=junit.xml   # -rs: print WHY anything skipped, into the log
+        run: pytest -q --junit-xml=junit.xml   # conftest names every skip in the summary (M125)
 
       # The mirror image of the Linux allowlist. There the Windows mutex tests are the approved skip;
       # here they are the whole point of the job, so they must RUN and the platform-inverted ones are
@@ -363,8 +363,8 @@ jobs:
           # -- skipped and went back to running NOWHERE. Naming them is the same trade as the canary
           # on the Linux job: coupled to a rename, which fails loudly, rather than to nothing at all.
           MUST_RUN = {
-              "test_acquire_is_idempotent_and_holds_a_handle",
-              "test_the_mutex_is_visible_to_another_opener_which_is_what_inno_does",
+              "test_acquire_is_idempotent_and_holds_a_handle_windows_only",
+              "test_the_mutex_is_visible_to_another_opener_which_is_what_inno_does_windows_only",
           }
           ran = {
               case.get("name")

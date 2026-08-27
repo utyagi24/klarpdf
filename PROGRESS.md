@@ -2263,6 +2263,25 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   **38 s** on a branch touching `mcp_bridge/` and `model/`, **4 s** reporting without doing the work
   on the docs-only branch stacked above it. Design in `PLAN.md` §M115.1 — *WSL + CI*
 
+- [x] **M125** *(unplanned)* **A skip says its own name and its own reason** — 2026-08-27, from the
+  owner's observation that *"there is never a scenario where all tests run and nothing gets skipped"*.
+  **Correct, and structural rather than a defect:** five tests are **platform-locked** — two need a
+  Windows kernel mutex and cannot run on POSIX, three test POSIX symlink/no-op semantics and cannot
+  run on Windows. Each runs on exactly one OS by construction, so a run skipping *nothing* would mean
+  the gates had broken. The count was unreadable for two compounding reasons: it varies by platform,
+  and on one machine by **shell** — `pdftotext` is on Git Bash's `PATH` but not PowerShell's, so the
+  same checkout reports 3 or 7 depending on where it is launched, and `windows-latest` carries
+  `pdftotext` so CI shows 3 where a developer sees 7. Two changes: the five now end in
+  **`_windows_only` / `_posix_only`**, so the name says why the skip was inevitable; and a
+  `pytest_terminal_summary` hook in `conftest.py` prints **every skipped node id with its reason** on
+  any pytest run. The hook rather than `-rs` because `-rs` prints `path:line` — still sending the
+  reader to the file — and a flag only helps whoever remembers it; `-rs` was tried and removed once
+  the hook made it duplicate output. **Poppler's four are deliberately not renamed**: they are gated
+  on a *dependency*, not a platform, and run on both CI runners, so a platform suffix would assert
+  something false. **`_posix_only`, not `_wsl_only`** as first suggested — those tests run on
+  `ubuntu-latest`, and naming a platform after a dev environment would be wrong in the way this
+  milestone exists to fix. Design in `PLAN.md` §M125 — *Windows + WSL + CI*
+
 - [x] **M124** *(unplanned)* **A sandbox refusal is not a failure to open a file** —
   [#304](https://github.com/utyagi24/klarpdf/issues/304), fixed 2026-08-27. `PathNotAllowed` — the
   refusal for a path outside `--allow-root` — subclasses `PermissionError`, so **M119's new branch

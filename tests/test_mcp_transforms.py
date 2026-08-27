@@ -523,7 +523,7 @@ def test_the_source_cannot_be_smuggled_in_through_a_relative_path(a_pdf, out):
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX symlink semantics")
-def test_the_source_cannot_be_smuggled_in_through_a_symlink(a_pdf, tmp_path):
+def test_the_source_cannot_be_smuggled_in_through_a_symlink_posix_only(a_pdf, tmp_path):
     link = str(tmp_path / "link.pdf")
     os.symlink(a_pdf, link)
     with pytest.raises(ValueError, match="refusing to write over the input"):

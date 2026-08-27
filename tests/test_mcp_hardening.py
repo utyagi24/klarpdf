@@ -128,7 +128,7 @@ def test_dot_dot_cannot_escape_a_root(tmp_path):
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX symlink semantics")
-def test_a_symlink_cannot_escape_a_root(tmp_path):
+def test_a_symlink_cannot_escape_a_root_posix_only(tmp_path):
     """The check resolves before comparing, so a link planted inside an allowed root does not
     become a tunnel out of it."""
     allowed = tmp_path / "allowed"

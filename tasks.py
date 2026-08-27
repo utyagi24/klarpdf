@@ -55,7 +55,13 @@ def _ps(script: str, args: str = "") -> str:
 
 @task
 def test(c):
-    """Run the headless test suite (pytest, offscreen)."""
+    """Run the headless test suite (pytest, offscreen).
+
+    No ``-rs`` needed: ``tests/conftest.py`` names every skipped test and its reason in the summary
+    of *any* pytest run, so a bare ``pytest`` reports it too (M125). That is deliberate — ``-rs``
+    prints `path:line`, which still sends the reader to the file, and a flag only helps the people
+    who remember it.
+    """
     c.run(f'"{PY}" -m pytest', echo=True)
 
 
