@@ -2326,6 +2326,28 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   **38 s** on a branch touching `mcp_bridge/` and `model/`, **4 s** reporting without doing the work
   on the docs-only branch stacked above it. Design in `PLAN.md` §M115.1 — *WSL + CI*
 
+- [x] **M131** *(unplanned)* **The release ships the bundle it is named after** — 2026-08-28, found
+  by the owner immediately after the v0.18.0 tag: *"is this release going to create both the Windows
+  App and the MCP bridge files?"* It was not. **v0.18.0 shipped as "the MCP / Agent Bridge" with no
+  `.mcpb` attached** — `release.yml` runs `packaging/build.ps1` and attaches four files, and has never
+  invoked `build_mcpb.py`. The only route to the one-click Claude Desktop install was cloning the repo
+  and running the packer, which needs Node; `mcp_bridge/README.md` says exactly that, which is why it
+  never read as a gap. The artifact three milestones went into making correct — **M127** built it at
+  all, **M128** made it installable, **M129** gave it a lock — was the one nobody could download.
+  The bundle for v0.18.0 was **attached by hand** to the draft (owner call), and the workflow now does
+  it for every future tag, with the bundle added to `SHA256SUMS` alongside the two executables —
+  `vendor-wheels.zip` stays out on purpose, being a source pointer rather than something anyone runs.
+  **The substantive decision is that the packer is now pinned:** `build_mcpb.py` invoked
+  `@anthropic-ai/mcpb@latest`, an unpinned third-party tool in the path that *produces a shipped
+  artifact*, in the project that pins hashed `win_amd64` wheels and an exact pip-tools everywhere
+  else. **2.1.2** is also the version every §MCP measurement was taken against, so floating it would
+  have quietly made the design notes describe a tool we no longer run. Node is pinned for the same
+  reason. **Measured and recorded on the way:** the `.mcpb` is **not bit-reproducible** — two
+  consecutive builds of identical content hash differently, because the zip stores timestamps — so
+  the `SHA256SUMS` line is computed in the run that built it and is not locally reproducible, the
+  same caveat PyInstaller's output already carries. Design in `PLAN.md` §M131 — *CI (Windows)*
+  ([#316](https://github.com/utyagi24/klarpdf/pull/316))
+
 - [x] **M130** *(unplanned)* **A test that could not be run in the environment it was written for**
   — 2026-08-28, found cutting v0.18.0: the release suite went red on
   `test_transient_lock_is_retried_until_it_clears[3]` (`assert 5 == 4`), and re-running blamed a
