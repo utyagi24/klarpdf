@@ -2346,7 +2346,7 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   consecutive builds of identical content hash differently, because the zip stores timestamps — so
   the `SHA256SUMS` line is computed in the run that built it and is not locally reproducible, the
   same caveat PyInstaller's output already carries. Design in `PLAN.md` §M131 — *CI (Windows)*
-  ([#316](https://github.com/utyagi24/klarpdf/pull/316))
+  ([#317](https://github.com/utyagi24/klarpdf/pull/317))
 
 - [x] **M130** *(unplanned)* **A test that could not be run in the environment it was written for**
   — 2026-08-28, found cutting v0.18.0: the release suite went red on
