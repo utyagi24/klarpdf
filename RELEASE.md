@@ -504,8 +504,12 @@ Whatever else the notes cover, these two are the ones a reader can be misled abo
 - The bridge is a **separate, optional component**. `klarpdf-setup-x64.exe` is unchanged: same size,
   same hashed offline lock, same clean-machine install test. Nobody installing the app gets any of
   this.
-- The `.mcpb` path **installs online**, and its dependencies are therefore not the ones `pip-audit`
-  covers. Every other path this project ships is offline; this one is the deliberate exception.
+- The `.mcpb` path **installs online** — every other path this project ships is offline, and this one
+  is the deliberate exception. Since **M129** it installs from a **committed, hashed `uv.lock` the
+  bundle carries**, so it is no longer "whatever resolves that day"; but the lock is not the file
+  `pip-audit` runs against, and it pins platform-specific packages that `requirements-mcp.txt`
+  structurally cannot name. Say both halves. "Installs from a shipped hashed lock" is accurate;
+  "the bundle is audited" is not.
 
 ---
 
