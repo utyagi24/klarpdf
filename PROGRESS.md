@@ -7,8 +7,41 @@ it merges, check the box here in the same PR and append the PR link.
 > release links, milestone ticks, and open follow-ups. `PLAN.md` (design/spec) and `CLAUDE.md`
 > (conventions) **link here, they don't restate it** — see CLAUDE.md §How we work → "Where things live".
 
-**Status:** ✅ **v0.17.1 shipped** — a **security patch plus the last M92 fix**; both are fixes, so
-this stays a patch under `RELEASE.md` §3's SemVer rule.
+**Status:** ✅ **v0.18.0 shipped** — **the MCP / Agent Bridge (M39–M44)**, the roadmap's last
+unticked box, plus the annotation, save-cost and markup work that landed alongside it. A **minor**
+under `RELEASE.md` §3's SemVer rule: a new user-facing component, no breaking change.
+
+**(1) The bridge is complete and verified.** `mcp_bridge/` exposes the same PDF engine the app uses
+to **Claude Code, Claude Desktop** and other agentic clients as a local MCP server — **19 tools**
+across read (`get_info`, `get_outline`, `search`, `extract_text`, `render_page`, `get_form_fields`,
+`get_annotations`), lossless transform (`split`, `merge`, `reorder`, `delete_pages`, `extract_pages`,
+`rotate`, `fill_form`, `flatten`, `export_images`), destructive redaction with cross-engine leak
+verification (`redact_text`, `redact_regions`), and markup (`annotate`). Every write tool takes an
+explicit output path and leaves its input **byte-identical**; the server makes **no network
+connections** and imports **no Qt**, both asserted by tests that run every tool in a fresh
+interpreter. It is a **separate, optional component** — `klarpdf-setup-x64.exe` is unchanged: same
+size, same hashed offline lock, same clean-machine install. Nobody installing the app gets any of it.
+
+**(2) M44's verification pass found four defects that no automated check could see** — the argument
+for doing it before the tag rather than after. The `.mcpb` **could not be built on Windows at all**
+(**M127**: `subprocess` with a list argv cannot start `npx.CMD`, and the bundle had only ever been
+built in WSL); it declared **`Python >=3.12,<3.13`, which no Python can satisfy** (**M128**: PEP 440
+syntax in a node-semver field, so a comma where a space belongs); and the runbook's own row 10
+instructions **did not put the lock in the bundle** (**M129**), which would have produced a confident
+wrong answer to a question carried since M42. That question is now answered: **`uv run --directory`
+honours a committed `uv.lock`**, so the bundle ships one and a Desktop install resolves from a hashed
+file we wrote and review.
+
+**(3) Alongside it, in the app.** **M101** adds annotation as a capability rather than a redaction
+pre-step. **M116/M117** make adding a highlight **append 1,865 bytes instead of rewriting 8.8 MB**,
+then stop the append from rewriting every mark the file already carried. **M110/M111** cut a save on
+an object-heavy document from minutes to ~1.9 s and stop Reduced-Size PDF returning a file *bigger*
+than a plain Save. **M120** fixes a rectangle or ellipse silently **changing size on every save**
+unless its outline was exactly 2 pt. **M121** leaves Insert Blank Page looking at the page you made.
+
+2,401 headless tests green (7 expected skips on Windows / 3 under Git Bash — see `RELEASE.md` §3).
+
+**v0.17.1** — a **security patch plus the last M92 fix**, superseded by v0.18.0 above.
 
 **(1) `pypdf` 6.14.2 → 6.15.0**, clearing two Moderate advisories — **GHSA-fwg2-594c-jp42**
 (CVE-2026-71852, oversized CID font width ranges) and **GHSA-fp3f-mc75-235c** (CVE-2026-71870,
@@ -3697,6 +3730,22 @@ released build or in the code on `main` that is unambiguous and readily reproduc
 the PR that fixes it. See `CLAUDE.md` §How we work for the split and why. Items already carried here
 were not migrated wholesale: each is listed because a decision is outstanding, which is what keeps
 it on this side of the line.
+
+- **The bundle now ships a lock that no audit step examines** — created by **M129** and noticed
+  2026-08-28 while checking the release gate. The `.mcpb` carries `packaging/mcpb/uv.lock`, and since
+  M129 that file is what a Desktop install actually resolves from — 139 hashed packages. `pip-audit`
+  runs against `requirements*.txt` only, and `audit.yml`'s `pull_request` **paths filter names
+  `requirements*.txt` / `requirements*.in` and not `packaging/mcpb/uv.lock`**, so a change to the
+  shipped lock triggers no audit and its contents are never scanned. Most of it is the audited set
+  arriving by another route — the lock is generated from those pins, and a test holds the two in step
+  — so the genuinely uncovered part is small: the platform-specific transitive packages a
+  deliberately marker-free `requirements-mcp.txt` structurally cannot name (`colorama`, `pywin32`).
+  **The decision is what to do about that residue**, and there are three shapes: teach the audit to
+  read `uv.lock` (`uv export` to a requirements file, then the existing `pip-audit` step); add the
+  lock to the paths filter so at least a *change* to it is gated; or accept it and say so, which is
+  what `mcp_bridge/README.md` already does. Not obviously worth the machinery for two packages —
+  which is exactly why it needs a call rather than a silent default. `.github/workflows/audit.yml`,
+  `packaging/mcpb/uv.lock`.
 
 - **The app and the bridge name a 1 pt different box for the same shape** — noticed 2026-08-26 while
   fixing [#292](https://github.com/utyagi24/klarpdf/issues/292) (M120), and *not* part of it. M120

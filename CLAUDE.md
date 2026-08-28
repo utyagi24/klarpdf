@@ -251,7 +251,20 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   spare machine / a fresh local user with networking disabled.
 
 ## Status
-**Current: v0.17.1 shipped** — a **security patch plus the last M92 fix**. `pypdf` 6.14.2 → 6.15.0
+**Current: v0.18.0 shipped** — **the MCP / Agent Bridge (M39–M44)**, the roadmap's last unticked box.
+`mcp_bridge/` exposes the core engine to Claude Code, Claude Desktop and other agentic clients as a
+local MCP server: **19 tools**, every write tool leaving its input byte-identical, no network, no Qt.
+It is a **separate, optional component** — the installer is untouched. **M44's verification pass is
+the part worth remembering**: doing it by hand found four defects no automated check could see — the
+`.mcpb` could not be built on Windows at all (**M127**), it declared a Python range no Python could
+satisfy (**M128**, PEP 440 syntax in a node-semver field), and row 10's own instructions did not put
+the lock in the bundle (**M129**), which would have answered a question carried since M42 *wrongly*.
+That question is settled: `uv run --directory` honours a committed `uv.lock`, so the bundle ships
+one. Shipping alongside: **M101** annotation, **M116/M117** incremental save (a highlight appends
+1,865 bytes instead of rewriting 8.8 MB), **M110/M111** save/export cost, **M120** shape resize,
+**M121** Insert Blank Page. **1.0 is still deliberately not taken** — the gate (clean-machine
+install, the dead Donate link, one flaky test, background rendering) is listed in `PROGRESS.md`.
+It supersedes **v0.17.1** — a **security patch plus the last M92 fix**. `pypdf` 6.14.2 → 6.15.0
 clears two Moderate parse-DoS advisories (GHSA-fwg2-594c-jp42, GHSA-fp3f-mc75-235c) reachable through
 `PyPdfEngine`'s `PdfReader`, so a crafted PDF is the attack surface; it was found by the weekly
 `audit` job, not a person, and bumped by hand on Windows per `RELEASE.md` §2 — the episode also
@@ -278,9 +291,9 @@ toggle reveals; collapses Redact to one gesture-detecting tool; makes Highlight/
 to the find bar, an **Annotations sidebar tab**, and **Full Screen / Slideshow / Two-Page** view
 modes; and (M78.2–.6) adds arrow-key nudge, text-box reflow, HUS arming swatches and a split style
 button, with the sidebar (M79.1–.3) losing its title bar and showing optional tabs only on demand.
-**M0–M38 and R1–R6 are all complete**; the **MCP / Agent Bridge (M39–M44) is scheduled next**, after
-a one-PR `os.replace` flake fix — its reserved v0.11.0 is long spent, so its version is assigned at
-tag time.
+**M0–M44 and R1–R6 are all complete**, the bridge included — its reserved v0.11.0 was long spent by
+the time it shipped, so it took **v0.18.0** at tag time. Nothing is scheduled next; the remaining
+named work is the **1.0 gate** in `PROGRESS.md`.
 For live status — shipped versions, per-release notes, release links, milestone ticks, and **Open
 follow-ups** — see `PROGRESS.md` (the single source of status; read it first). Design/spec, including
 §Future enhancements for what's next, lives in `PLAN.md`.

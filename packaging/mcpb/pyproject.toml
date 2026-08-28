@@ -10,7 +10,7 @@
 # build time — but a Desktop install resolves fresh (PLAN.md §Dependencies & packaging).
 [project]
 name = "klarpdf-mcp"
-version = "0.17.1"
+version = "0.18.0"
 description = "KlarPDF's PDF engine as MCP tools — read, transform, verifiably redact. Offline."
 requires-python = ">=3.12,<3.13"
 dependencies = [

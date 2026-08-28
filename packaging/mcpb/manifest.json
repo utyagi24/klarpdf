@@ -2,7 +2,7 @@
   "manifest_version": "0.2",
   "name": "klarpdf",
   "display_name": "KlarPDF",
-  "version": "0.17.1",
+  "version": "0.18.0",
   "description": "Local, offline PDF engine for agents: read, transform, and verifiably redact.",
   "long_description": "Exposes KlarPDF's PDF engine to Claude Desktop as MCP tools. Read a document without pulling it whole into context (get_info, get_outline, search, extract_text, render_page); transform it losslessly to a new file (split, merge, reorder, delete_pages, rotate, fill_form, flatten, export_images); and redact destructively with cross-engine leak verification, so the text is physically removed rather than covered by a black box. Every write tool takes an explicit output path and leaves the input byte-identical. The tools make no network connections.",
   "author": {

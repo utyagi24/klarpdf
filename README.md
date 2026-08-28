@@ -29,19 +29,21 @@ the unit of audit; it ships as a pinned, fully offline Windows installer.
 <p align="center"><sub>The real app, captured from a real build — and it follows the Windows theme, so
 this screenshot follows your GitHub one.</sub></p>
 
-**Status: `v0.17.1` shipped** — [download the installer or portable exe](https://github.com/utyagi24/klarpdf/releases/latest).
-**New in v0.17.1 — a security patch, and the Pages sidebar rolls smoothly:** the bundled `pypdf`
-library moves **6.14.2 → 6.15.0**, closing two advisories where a **crafted PDF** could make parsing
-burn unbounded CPU and memory (oversized CID font width ranges, oversized `/ToUnicode` streams).
-Alongside it, **scrolling the Pages sidebar no longer jumps** — a wheel click used to throw the strip
-an entire viewport, about **2.76 thumbnails**, because two wrong factors were multiplied together.
-It now rolls **continuously**, a third of a thumbnail per click, so a thumbnail can sit half-visible
-at the top the way it does in Edge; the distance scales with the sidebar's width, and it deliberately
-ignores the Windows "lines to scroll" setting, which is a *text* preference the document view still
-honours. No other behaviour changes from v0.17.0.
+**Status: `v0.18.0` shipped** — [download the installer or portable exe](https://github.com/utyagi24/klarpdf/releases/latest).
+**New in v0.18.0 — the MCP / Agent Bridge:** the same PDF engine the app uses is now available to
+**Claude Code, Claude Desktop** and other agentic clients as a local MCP server — **19 tools** to
+read a document without pulling it whole into context, transform it losslessly to a new file, mark it
+up, and **verifiably redact** it with cross-engine leak checking. Every write tool takes an explicit
+output path and leaves its input **byte-identical**, and the server makes **no network connections**.
+It is a **separate, optional component**: the installer is unchanged — same size, same offline
+hash-verified build — and nobody installing the app gets any of it. See
+[Use it from an agent](#use-it-from-an-agent-mcp).
+Alongside it, in the app: adding a highlight now **appends ~1.8 KB instead of rewriting the whole
+file**, saves on object-heavy documents drop from minutes to about **two seconds**, and a rectangle
+or ellipse no longer **changes size every time you save**.
 Full release notes live on
 [GitHub Releases](https://github.com/utyagi24/klarpdf/releases); live status — milestones
-(**M0–M38 + R1–R6 complete**), per-release notes, open follow-ups — in [PROGRESS.md](PROGRESS.md).
+(**M0–M44 + R1–R6 complete**), per-release notes, open follow-ups — in [PROGRESS.md](PROGRESS.md).
 
 ## Features
 
