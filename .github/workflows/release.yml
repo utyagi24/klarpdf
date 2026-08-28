@@ -57,6 +57,30 @@ jobs:
         shell: pwsh
         run: Compress-Archive -Path vendor/wheels/* -DestinationPath dist/vendor-wheels.zip -Force
 
+      # M131 — the bridge's one-click bundle is a release asset, not something a user builds.
+      # v0.18.0 shipped as "the MCP / Agent Bridge" with no .mcpb attached: the only route to the
+      # bundle was cloning the repo and running the packer yourself, which needs Node. The artifact
+      # three milestones went into making correct (M127/M128/M129) was the one nobody could download.
+      #
+      # Node is pinned rather than taken from the runner image, for the same reason the packer is:
+      # this step produces a shipped artifact.
+      - name: Set up Node (the MCPB packer is a Node tool)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Build the Claude Desktop bundle (.mcpb)
+        shell: pwsh
+        run: |
+          python packaging/mcpb/build_mcpb.py
+          # SHA256SUMS covers what a user installs and RUNS — build.ps1 wrote the two exes before the
+          # bundle existed, so append rather than regenerate. (vendor-wheels.zip stays out on purpose:
+          # it is the AGPL corresponding-source pointer, not something anyone executes.)
+          $f = Get-Item dist/klarpdf-*.mcpb
+          $line = "$((Get-FileHash $f -Algorithm SHA256).Hash.ToLower())  $($f.Name)"
+          Add-Content -Path dist/SHA256SUMS -Encoding ascii -Value $line
+          Get-Content dist/SHA256SUMS
+
       # Run artifacts are the deliverable ONLY for the workflow_dispatch dry run; a tag push publishes a
       # Release (below) with the same files, so re-uploading them here is redundant on a release — and
       # that redundant ~200 MB-per-release upload, with no retention limit, eventually exhausted the
@@ -73,6 +97,7 @@ jobs:
           path: |
             dist/klarpdf-setup-x64.exe
             dist/klarpdf-portable-x64.exe
+            dist/klarpdf-*.mcpb
             dist/SHA256SUMS
             dist/vendor-wheels.zip
 
@@ -85,5 +110,6 @@ jobs:
           files: |
             dist/klarpdf-setup-x64.exe
             dist/klarpdf-portable-x64.exe
+            dist/klarpdf-*.mcpb
             dist/SHA256SUMS
             dist/vendor-wheels.zip

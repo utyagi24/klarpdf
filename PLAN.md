@@ -5992,6 +5992,50 @@ misleading: this one had presumably been failing at ~20% for some time and was a
 because a re-run cleared it. A flake a re-run hides is not observed, so the inventory measured what
 had been written down, not what was happening.
 
+### M131 — the release ships the bundle it is named after (2026-08-28)
+
+| Milestone | What | Where | Verify |
+| --- | --- | --- | --- |
+| **M131.1** A tag builds and attaches `klarpdf-<version>.mcpb` | `.github/workflows/release.yml` | CI (Windows) | A `workflow_dispatch` dry run lists the `.mcpb` among its artifacts |
+| **M131.2** The bundle is covered by `SHA256SUMS` | same, appended after `build.ps1` | CI | The file has three lines: two exes + the bundle |
+| **M131.3** The packer is pinned, not floated | `MCPB_CLI_VERSION` in `packaging/mcpb/build_mcpb.py` | WSL + Windows | The build invokes `@anthropic-ai/mcpb@2.1.2` |
+
+**What happened.** **v0.18.0 shipped as "the MCP / Agent Bridge" with no bridge bundle attached.**
+`release.yml` runs `packaging/build.ps1` and attaches four files, none of them the `.mcpb`; it has
+never invoked `build_mcpb.py`. So the only route to the one-click Claude Desktop install was cloning
+the repo and running the packer, which needs Node — and `mcp_bridge/README.md` says exactly that,
+which is why it never read as a gap. The artifact three milestones went into making correct
+(M127 built it at all, M128 made it installable, M129 gave it a lock) was the one nobody could
+download.
+
+**Why this is the release pipeline's problem and not the README's.** Every other thing a user runs
+comes off the runner and is hashed there. A bundle the *user* builds is a different artifact each
+time, built with whatever packer and Node they happen to have, and it cannot appear in `SHA256SUMS`
+at all. "Documented" and "distributed" are not the same property, and only the second one is
+checkable.
+
+**The packer is now pinned, and that is the substantive decision here.** `build_mcpb.py` invoked
+`@anthropic-ai/mcpb@latest` — an unpinned third-party tool in the path that *produces a shipped
+artifact*, in the one project that pins hashed `win_amd64` wheels, installs them
+`--require-hashes --no-index`, and fixes an exact pip-tools. A packer change could alter the bundle
+between two builds of the same tag with nothing to say so. **2.1.2** is also the version every
+measurement in §MCP was taken against — the `server.type` finding (`python | node | binary`, no `uv`
+type) is stated there as fact — so floating it would have quietly made the design notes describe a
+tool we no longer run. Node is pinned for the same reason rather than taken from the runner image.
+
+**A property worth writing down: the `.mcpb` is not bit-reproducible.** Measured — two consecutive
+builds of byte-identical content hash differently, because the zip records timestamps. The
+`SHA256SUMS` line is therefore computed in the same run that built the bundle, and is valid for the
+asset that shipped; it is *not* something a reader can reproduce locally. This is the same shape as
+the PyInstaller caveat already in `RELEASE.md`, and it is the reason the hash is appended by the
+workflow rather than committed anywhere.
+
+**The generalisable part.** The gap was invisible because each half was individually true: the
+release workflow correctly built everything it knew about, and the README correctly described how to
+build the bundle. Nothing connected "this release is *named* after a component" to "that component
+has a downloadable artifact." **When a release is named after a thing, the checklist should ask
+whether that thing is in the release** — which is now literally what §3 step 4 enumerates.
+
 ## Future enhancements (deferred beyond the roadmap)
 
 Captured but not yet scheduled:

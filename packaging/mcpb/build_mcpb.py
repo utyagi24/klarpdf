@@ -65,6 +65,17 @@ EXCLUDE_FILES = {"model/edit_commands.py"}
 
 _PIN = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*(?:\[[^\]]+\])?)==([^\s;#]+)")
 
+# The packer is pinned, not floated (M131). It was `@latest`, which put an unpinned third-party tool
+# in the path that *produces the release artifact* — the one place this project pins everything else
+# (hashed win_amd64 wheels, `--require-hashes --no-index`, an exact pip-tools). A packer change could
+# alter the bundle between two builds of the same tag, and nothing would say so.
+#
+# 2.1.2 is also the version every measurement in PLAN.md §MCP was taken against — the `server.type`
+# finding (`python | node | binary`, no `uv` type) is stated as fact there, so floating the CLI would
+# quietly make the design notes describe a tool we no longer run. Raise it deliberately, and re-check
+# that section when you do.
+MCPB_CLI_VERSION = "2.1.2"
+
 
 def read_version() -> str:
     text = (ROOT / "version.py").read_text(encoding="utf-8")
@@ -194,7 +205,7 @@ def resolve_npx() -> str:
 def mcpb(*args: str) -> subprocess.CompletedProcess:
     """Run the mcpb CLI via npx (it is a Node tool; nothing here depends on it at runtime)."""
     return subprocess.run(
-        [resolve_npx(), "--yes", "@anthropic-ai/mcpb@latest", *args],
+        [resolve_npx(), "--yes", f"@anthropic-ai/mcpb@{MCPB_CLI_VERSION}", *args],
         capture_output=True,
         text=True,
     )

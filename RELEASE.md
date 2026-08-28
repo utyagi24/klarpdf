@@ -237,8 +237,15 @@ When it finally returns `true`, delete this block — its whole subject is gone 
    `requirements-win.txt` → clean build venv (`--require-hashes --no-index`) → PyInstaller onedir +
    onefile → Inno Setup installer → `SHA256SUMS` — uploads the artifacts, and creates a **draft**
    GitHub Release (`draft: true`, auto-generated notes) attaching `klarpdf-setup-x64.exe`,
-   `klarpdf-portable-x64.exe`, `SHA256SUMS`, and `vendor-wheels.zip` (the exact build inputs / AGPL
+   `klarpdf-portable-x64.exe`, **`klarpdf-<version>.mcpb`** (the bridge's one-click Claude Desktop
+   bundle, **M131**), `SHA256SUMS`, and `vendor-wheels.zip` (the exact build inputs / AGPL
    corresponding-source pointer at that tag). **It does NOT auto-publish.**
+   - `SHA256SUMS` covers the two executables **and** the `.mcpb` — what a user installs and runs.
+     `vendor-wheels.zip` is deliberately out: it is a source pointer, not something anyone executes.
+   - The `.mcpb` is **not bit-reproducible** — measured 2026-08-28, two consecutive builds of
+     identical content hash differently, because the zip records timestamps. Same caveat as
+     PyInstaller's output below: the hash in `SHA256SUMS` is computed in the same run that built the
+     bundle, so it is valid for the shipped asset, but a reader cannot rebuild and compare.
    - The runner is *online*, so it re-fetches wheels — the CI build is not the offline build; the
      authoritative offline build + clean-machine install are validated locally (see Verification in
      `PLAN.md`). To build/upload artifacts **without** drafting a Release (e.g. a dry run), use the
