@@ -143,6 +143,16 @@ jobs:
 
       # Post the result as a single, updated-in-place comment on the PR, so pass/fail is visible right
       # where you merge — a convenience on top of the check, not the check itself.
+      #
+      # It reports THIS JOB ONLY, and says so. The comment runs inside `pytest` and reads that job's
+      # own junit.xml, but there are four test jobs now — `windows` (M123), `bridge` (M115.1) and
+      # `bridge-windows` (M126) grew up around it. Until 2026-08-28 it was headed "Tests passed",
+      # which read as *the suite* passed while measuring a quarter of it: three jobs could be red and
+      # this comment would still show a tick, contradicting the merge state a reader was looking at it
+      # to understand. Aggregating all four was considered and rejected — it needs artifact plumbing
+      # and a fifth job, to improve a signal that is explicitly not allowed to gate anything (see the
+      # `continue-on-error` note below), and it would have to distinguish "did not run" from "failed"
+      # for two path-gated jobs. Naming the scope costs a string and is honest.
       - name: Comment the result on the PR
         # Nothing to report on a docs-only PR — the check itself says "evaluated"; a comment claiming
         # "0 passed" would be worse than silence.
@@ -169,11 +179,14 @@ jobs:
               const errors = n(/errors="(\d+)"/), skipped = n(/skipped="(\d+)"/);
               const passed = tests - failures - errors - skipped;
               const ok = failures === 0 && errors === 0;
-              body = `${marker}\n### ${ok ? '✅ Tests passed' : '❌ Tests failed'}\n\n` +
-                     `**${passed} passed**, ${failures} failed, ${errors} errors, ${skipped} skipped ` +
-                     `— [run details](${runUrl})`;
+              body = `${marker}\n### ${ok ? '✅ Linux suite passed' : '❌ Linux suite failed'}\n\n` +
+                     `**${passed} passed**, ${failures} failed, ${errors} errors, ` +
+                     `${skipped} skipped — [run details](${runUrl})\n\n` +
+                     `<sub>This is the \`pytest\` job (ubuntu-latest) only. \`windows\`, \`bridge\` ` +
+                     `and \`bridge-windows\` report separately — see the checks list. Counts differ ` +
+                     `by platform on purpose: Windows skips the four Poppler-gated tests.</sub>`;
             } catch (e) {
-              body = `${marker}\n### ⚠️ Tests did not run\n\n` +
+              body = `${marker}\n### ⚠️ Linux suite did not run\n\n` +
                      `Setup failed before results were produced — [run details](${runUrl})`;
             }
             const { owner, repo } = context.repo;
