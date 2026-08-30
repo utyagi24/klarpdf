@@ -127,15 +127,17 @@ association. Then delete `%LOCALAPPDATA%\pdfproj` by hand.
 
 ## Use it from an agent (MCP)
 
-The same PDF engine, exposed to **Claude Code, Claude Desktop** and other agentic clients as a local
-[MCP](https://modelcontextprotocol.io) server. It is a **separate, optional component** — the
-Windows installer above does not contain it and is not made bigger by it — and like the app it makes
-no network connections.
+The same PDF engine, exposed as a local [MCP](https://modelcontextprotocol.io) server to **any
+MCP-compatible client** — Claude Code, Claude Desktop, Codex CLI and the rest; stdio is the only
+transport, so a client needs nothing beyond the `klarpdf-mcp` command. It is a **separate, optional
+component** — the Windows installer above does not contain it and is not made bigger by it — and
+**unlike the app it is cross-platform**, running on macOS and Linux as readily as on Windows. Like
+the app, it makes no network connections.
 
 ```bash
 pip install -r requirements-mcp.txt   # cross-platform, ==-pinned, audited weekly
 pip install -e .                      # puts `klarpdf-mcp` on PATH
-claude mcp add klarpdf -- klarpdf-mcp
+claude mcp add klarpdf -- klarpdf-mcp  # Claude Code; any other client just needs `klarpdf-mcp`
 ```
 
 Full install options, the Claude Desktop config, and the one-click `.mcpb` bundle are in
