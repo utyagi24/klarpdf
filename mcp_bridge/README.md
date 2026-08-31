@@ -6,8 +6,8 @@ read a document without pulling it whole into context; transform it by splitting
 reordering, rotating, deleting pages, filling forms and annotating; and redact it destructively
 with cross-engine verification.
 
-**It is a separate, optional component.** It needs neither the KlarPDF app nor a GUI toolkit, and it
-runs wherever your client does — macOS, Linux or Windows.
+**It is independent of the KlarPDF app** and needs no GUI components. It runs on macOS, Linux and
+Windows.
 
 **It makes no network connections.** stdio is the only transport; there is no listening port. (One
 exception, and it is an *install*-time thing rather than a runtime one: the one-click `.mcpb` bundle
