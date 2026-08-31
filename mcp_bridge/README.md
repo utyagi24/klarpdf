@@ -2,8 +2,9 @@
 
 KlarPDF's PDF engine as [MCP](https://modelcontextprotocol.io) tools — for Claude Code, Claude
 Desktop, Codex CLI, Gemini CLI, and any other client that speaks MCP over stdio. Nineteen tools:
-read a document without pulling it whole into context, transform it to a new file without losing its
-content, and redact it destructively with cross-engine verification.
+read a document without pulling it whole into context; transform it by splitting, merging,
+reordering, rotating, deleting pages, filling forms and annotating; and redact it destructively
+with cross-engine verification.
 
 **It is a separate, optional component.** It needs neither the KlarPDF app nor a GUI toolkit, and it
 runs wherever your client does — macOS, Linux or Windows.
