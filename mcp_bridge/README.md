@@ -9,9 +9,20 @@ with cross-engine verification.
 **It is independent of the KlarPDF app** and needs no GUI components. It runs on macOS, Linux and
 Windows.
 
-**It makes no network connections.** stdio is the only transport; there is no listening port. (One
-exception, and it is an *install*-time thing rather than a runtime one: the one-click `.mcpb` bundle
-below fetches its dependencies from PyPI when Claude Desktop installs it.)
+**Your PDFs stay where they are.** An agent works on the file on your disk — nothing is uploaded and
+no third-party service sees it, which is the point of running the engine locally rather than sending
+documents somewhere to be processed. The server itself makes no network connections: stdio is the
+only transport and there is no listening port. What a tool *returns* — a page's text, a rendered
+image — goes back to your model like any other tool result, so the usual care about what you hand a
+hosted model still applies. (One exception, and it is an *install*-time thing rather than a runtime
+one: the one-click `.mcpb` bundle below fetches its dependencies from PyPI when Claude Desktop
+installs it.)
+
+**It does not understand your documents.** Every tool here is mechanical: `search` matches literal
+text rather than meaning, `extract_text` returns what is on the page rather than a summary, and
+`annotate` and the redactions take boxes and strings rather than questions. Working out what a
+clause means, which name matters, or what ought to be removed is the model's job — this server's job
+is to hand it accurate material and then do exactly what it is told.
 
 ## What you need
 
@@ -19,7 +30,7 @@ below fetches its dependencies from PyPI when Claude Desktop installs it.)
 |---|---|
 | **Python 3.12** | Exactly 3.12 — `pip` refuses to install on 3.13. The Windows app requires python.org 3.12 and the bridge inherits that ceiling rather than widening it on its own; the dependencies themselves support 3.13, so this is a decision and not a limit. |
 | **A clone of this repo** | The bridge is not published to PyPI. |
-| **An MCP client** | Anything that can launch a local command and speak MCP to it. |
+| **An MCP client** | The app your AI assistant runs in — Claude Code, Claude Desktop, Codex CLI, Gemini CLI and others. It starts `klarpdf-mcp` as a local subprocess and relays the model's tool calls to it. |
 | **`poppler-utils`** *(optional)* | Adds a second, independent engine to redaction's verification step. Without it, redaction still verifies — with PyMuPDF alone. See [What redaction guarantees](#what-redaction-guarantees-and-where-it-stops). |
 
 No GUI toolkit is installed. The bridge's only dependencies are PyMuPDF and the MCP SDK.
