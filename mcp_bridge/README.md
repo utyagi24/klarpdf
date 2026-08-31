@@ -34,9 +34,7 @@ pip install -e .                      # puts the `klarpdf-mcp` command on your P
 ```
 
 Run both lines. `requirements-mcp.txt` carries the audited pins; `pip install -e .` on its own would
-resolve fresh ones. That lock is `==`-pinned, unhashed and **cross-platform** on purpose — the app is
-Windows-first, the bridge is not, and a hashed `win_amd64` lock would silently make it Windows-only,
-because `pip install --require-hashes` fails on other platforms by design.
+resolve fresh ones.
 
 Check that it worked:
 
