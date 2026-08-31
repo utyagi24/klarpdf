@@ -70,21 +70,15 @@ One difference worth knowing: pipx resolves from the package metadata, which car
 necessarily the exact set `requirements-mcp.txt` audits. Use the `pip` path above if you want ours
 precisely. (Whether to close that gap is an open question in [PROGRESS.md](../PROGRESS.md).)
 
-### Why it has to be installed
-
-`klarpdf-mcp` is the command to give any client. **`python -m mcp_bridge` is not.** That only works
-when the current directory happens to be this repo, because `-m` puts the *working directory* on
-`sys.path`, never the interpreter's location. A client launches its servers from its own working
-directory, which is essentially never your checkout, so `python -m` fails there with
-`No module named mcp_bridge` even when you point it at the right virtualenv's Python. (If you must,
-`PYTHONPATH=/path/to/klarpdf` fixes it — but installing is the answer.)
-
 ## Connect it to your client
 
 Whatever the client and whatever its configuration format, the answer it needs is the same: **run
 the command `klarpdf-mcp`**. No arguments are required — there are two optional switches, under
 [Limiting what the server can do](#limiting-what-the-server-can-do) — and no environment variables,
 no URL, no port and no token. The client runs the command and speaks MCP down the pipe.
+
+Give it `klarpdf-mcp`, not `python -m mcp_bridge` — that only works when the current directory is
+this repo, and a client launches from its own.
 
 If a client reports the command as not found, give it the absolute path (`which klarpdf-mcp` on
 macOS and Linux, `where klarpdf-mcp` on Windows). A desktop client launched from an icon does not
