@@ -993,10 +993,11 @@ def parse_args(argv: list[str] | None = None) -> Config:
         "--read-only",
         action="store_true",
         help=(
-            "expose only the six query tools; the transform and redaction tools are not registered "
-            "at all, so the model never sees them. Writes are ON by default: no write tool can "
-            "destroy data by construction (each needs an explicit new output path, in-place save "
-            "is never exposed), so this is the cautious opt-out rather than the default."
+            "expose only the seven query tools; the transform and redaction tools are not "
+            "registered at all, so the model never sees them. Writes are ON by default: no "
+            "write tool can destroy data by construction (each needs an explicit new output "
+            "path, in-place save is never exposed), so this is the cautious opt-out rather "
+            "than the default."
         ),
     )
     parser.add_argument(

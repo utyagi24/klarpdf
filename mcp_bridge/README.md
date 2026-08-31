@@ -1,48 +1,86 @@
 # KlarPDF MCP bridge
 
-KlarPDF's PDF engine as [MCP](https://modelcontextprotocol.io) tools, for Claude Code, Claude
-Desktop, and any other client that speaks stdio. Nineteen tools: read a document without pulling it
-whole into context, transform it to a new file without losing its content, and redact it
-destructively with cross-engine verification.
+KlarPDF's PDF engine as [MCP](https://modelcontextprotocol.io) tools — for Claude Code, Claude
+Desktop, Codex CLI, Gemini CLI, and any other client that speaks MCP over stdio. Nineteen tools:
+read a document without pulling it whole into context, transform it to a new file without losing its
+content, and redact it destructively with cross-engine verification.
 
-**It is a separate, optional component.** The Windows app (`klarpdf-setup-x64.exe`) does not contain
-it, is not made bigger by it, and does not depend on it. Nothing here imports PySide6 — a test
-asserts that in a fresh interpreter after every tool has run.
+**It is a separate, optional component.** It needs neither the KlarPDF app nor a GUI toolkit, and it
+runs wherever your client does — macOS, Linux or Windows.
 
-**It makes no network connections.** stdio is the only transport; there is no listening port. (Note
-the one exception, which is an *install*-time thing, not a runtime one: the one-click `.mcpb` below
-fetches its dependencies from PyPI when Claude Desktop installs it.)
+**It makes no network connections.** stdio is the only transport; there is no listening port. (One
+exception, and it is an *install*-time thing rather than a runtime one: the one-click `.mcpb` bundle
+below fetches its dependencies from PyPI when Claude Desktop installs it.)
+
+## What you need
+
+| | |
+|---|---|
+| **Python 3.12** | Exactly 3.12 — `pip` refuses to install on 3.13. The Windows app requires python.org 3.12 and the bridge inherits that ceiling rather than widening it on its own; the dependencies themselves support 3.13, so this is a decision and not a limit. |
+| **A clone of this repo** | The bridge is not published to PyPI. |
+| **An MCP client** | Anything that can launch a local command and speak MCP to it. |
+| **`poppler-utils`** *(optional)* | Adds a second, independent engine to redaction's verification step. Without it, redaction still verifies — with PyMuPDF alone. See [What redaction guarantees](#what-redaction-guarantees-and-where-it-stops). |
+
+No GUI toolkit is installed. The bridge's only dependencies are PyMuPDF and the MCP SDK.
 
 ## Install
 
-**Install it — do not try to run it in place.** From a clone:
-
 ```bash
-pip install -r requirements-mcp.txt   # the audited, cross-platform pins
-pip install -e .                      # puts `klarpdf-mcp` on PATH
-klarpdf-mcp                           # serves on stdio; Ctrl-C to stop
+git clone https://github.com/utyagi24/klarpdf.git
+cd klarpdf
+pip install -r requirements-mcp.txt   # the exact versions we audit weekly
+pip install -e .                      # puts the `klarpdf-mcp` command on your PATH
 ```
 
-Or isolated, if you never want to touch it again:
+Run both lines. `requirements-mcp.txt` carries the audited pins; `pip install -e .` on its own would
+resolve fresh ones. That lock is `==`-pinned, unhashed and **cross-platform** on purpose — the app is
+Windows-first, the bridge is not, and a hashed `win_amd64` lock would silently make it Windows-only,
+because `pip install --require-hashes` fails on other platforms by design.
+
+Check that it worked:
 
 ```bash
-pipx install .
+klarpdf-mcp --help
 ```
 
-`klarpdf-mcp` is the command to give any client. **`python -m mcp_bridge` is not** — it only works
-when the current directory happens to be the repo, because `-m` puts the *working directory* on
+**You will not normally run `klarpdf-mcp` yourself** — your client starts it and talks to it through
+the subprocess's stdin and stdout. Run it by hand with no arguments and it prints nothing and waits;
+that is a server waiting for a client, not a hang. Ctrl-C ends it.
+
+### Keeping it out of your Python environment
+
+`pipx` puts the command on your PATH in a virtualenv of its own:
+
+```bash
+pipx install .      # still from the clone
+```
+
+One difference worth knowing: pipx resolves from the package metadata, which carries dependency
+**floors** rather than pins, so you get at least the PyMuPDF we ship and possibly a newer one — not
+necessarily the exact set `requirements-mcp.txt` audits. Use the `pip` path above if you want ours
+precisely. (Whether to close that gap is an open question in [PROGRESS.md](../PROGRESS.md).)
+
+### Why it has to be installed
+
+`klarpdf-mcp` is the command to give any client. **`python -m mcp_bridge` is not.** That only works
+when the current directory happens to be this repo, because `-m` puts the *working directory* on
 `sys.path`, never the interpreter's location. A client launches its servers from its own working
 directory, which is essentially never your checkout, so `python -m` fails there with
 `No module named mcp_bridge` even when you point it at the right virtualenv's Python. (If you must,
 `PYTHONPATH=/path/to/klarpdf` fixes it — but installing is the answer.)
 
-Install the two lines together: `requirements-mcp.txt` carries the exact versions we audit weekly,
-and `pip install -e .` on its own would resolve fresh ones. That lock is `==`-pinned, unhashed and
-**cross-platform** on purpose — the app is Windows-first, the bridge is not, and a hashed
-`win_amd64` lock would silently make it Windows-only, because `pip install --require-hashes` fails
-on other platforms by design.
+## Connect it to your client
 
-## Claude Code
+Whatever the client and whatever its configuration format, the answer it needs is the same: **run
+the command `klarpdf-mcp`**. No arguments are required — there are two optional switches, under
+[Limiting what the server can do](#limiting-what-the-server-can-do) — and no environment variables,
+no URL, no port and no token. The client runs the command and speaks MCP down the pipe.
+
+If a client reports the command as not found, give it the absolute path (`which klarpdf-mcp` on
+macOS and Linux, `where klarpdf-mcp` on Windows). A desktop client launched from an icon does not
+necessarily inherit the PATH your shell has.
+
+### Claude Code
 
 Install first (above), then:
 
@@ -58,7 +96,7 @@ hand in the same shell you launch Claude from; the error is almost always `comma
 (nothing installed, or a different virtualenv active) or `No module named mcp` (installed the
 package but not its dependencies).
 
-## Claude Desktop
+### Claude Desktop
 
 **Option A — one-click.** Build the bundle and open it; Desktop installs it as an extension.
 
@@ -67,7 +105,7 @@ python packaging/mcpb/build_mcpb.py     # -> dist/klarpdf-<version>.mcpb
 ```
 
 Requires [`uv`](https://docs.astral.sh/uv/) on your PATH — the bundle uses it to resolve Python and
-its dependencies for your machine. Two consequences worth knowing before you choose this path:
+its dependencies for your machine. Three consequences worth knowing before you choose this path:
 
 - **It installs online.** `uv` fetches wheels from PyPI at install time. This is the one deliberate
   break from everything else this project ships, and it is what buys a single bundle that works on
@@ -98,8 +136,98 @@ its dependencies for your machine. Two consequences worth knowing before you cho
 }
 ```
 
-Use the absolute path to the script if it is not on the PATH Desktop sees (`which klarpdf-mcp` /
-`where klarpdf-mcp`).
+Desktop is the client most likely to need the absolute path rather than the bare command, since it
+is launched from an icon and not from your shell.
+
+### Codex CLI
+
+```bash
+codex mcp add klarpdf -- klarpdf-mcp
+```
+
+Or write it into `~/.codex/config.toml` yourself:
+
+```toml
+[mcp_servers.klarpdf]
+command = "klarpdf-mcp"
+```
+
+### Gemini CLI
+
+```bash
+gemini mcp add klarpdf klarpdf-mcp
+```
+
+Or edit `~/.gemini/settings.json` (or `.gemini/settings.json` for a single project), which uses the
+same `mcpServers` block Claude Desktop does:
+
+```json
+{
+  "mcpServers": {
+    "klarpdf": {
+      "command": "klarpdf-mcp"
+    }
+  }
+}
+```
+
+### Any other client
+
+Clients differ in *where* the configuration lives, not in what it has to say. Claude Desktop and
+Gemini CLI share the `mcpServers` JSON block above; Codex CLI uses the `[mcp_servers.<name>]` TOML
+table; others vary again. All of them want one thing from you — a command to run. Point yours at
+`klarpdf-mcp`, add `args` if you want the switches below, and ignore every field about URLs, ports
+and tokens, because this server has none.
+
+## Limiting what the server can do
+
+By default the server can read and write any file you can. That is the honest default rather than a
+lax one: it is a subprocess *you* launched, running as you, and a client that can start it can
+already read your disk. Two switches narrow that when you want a smaller blast radius — a shared
+machine, an agent you are still learning to trust, a directory of client documents.
+
+| Switch | Environment variable | What it does |
+|---|---|---|
+| `--read-only` | `KLARPDF_MCP_READ_ONLY=1` | Registers only the seven read tools. The twelve transform and redaction tools are never advertised, so the model does not see them and cannot ask for them. |
+| `--allow-root DIR` | `KLARPDF_MCP_ALLOW_ROOTS` | Confines every path — inputs and outputs alike — to that directory tree. Repeatable on the command line; the variable takes a list separated by your platform's path separator (`:` on macOS and Linux, `;` on Windows). |
+
+Pass them wherever your client names the command:
+
+```json
+{
+  "mcpServers": {
+    "klarpdf": {
+      "command": "klarpdf-mcp",
+      "args": ["--read-only", "--allow-root", "/Users/me/Documents/contracts"]
+    }
+  }
+}
+```
+
+Three details that matter in practice:
+
+- **Containment is checked on the resolved path**, through the same file-identity code the app uses,
+  so a symlink pointing out of an allowed root, a `..` escape, and a case-different spelling on
+  Windows are all refused. A path that does not exist yet — an output you are about to write — is
+  judged by its parent directory.
+- **`--allow-root` wins over the variable** when both are set. `--read-only` is on if *either* asks
+  for it, and neither turns it back off.
+- **A restriction is announced on stderr** when the server starts, naming what is in force. Never on
+  stdout, which carries the JSON-RPC stream — one stray line there ends the session.
+
+Writes are on by default because no write tool can destroy data by construction: each needs an
+explicit new output path, and in-place save is never exposed. `--read-only` is the cautious opt-out,
+not the recommended setting.
+
+## Password-protected PDFs
+
+Every tool takes an optional `password`. Call `get_info` first — it reports `needs_password: true`
+for a document that will not open without one, and reports the encryption and permissions of a
+document that opens but is restricted.
+
+A missing or wrong password fails the call with a message naming the file and telling you to call
+again with `password`. The server never prompts: there is nobody behind an MCP call to answer a
+prompt, so prompting would hang the client instead of asking anyone anything.
 
 ## Reading a tool's full contract
 
@@ -122,7 +250,8 @@ actually advertises.
 ## The tools
 
 Page numbers are **1-based** everywhere, matching what a reader sees. An out-of-range page is an
-error, never a silent clamp.
+error, never a silent clamp. Every tool takes an optional `password` — see
+[Password-protected PDFs](#password-protected-pdfs).
 
 | Read | |
 |---|---|

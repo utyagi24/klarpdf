@@ -3753,6 +3753,31 @@ the PR that fixes it. See `CLAUDE.md` §How we work for the split and why. Items
 were not migrated wholesale: each is listed because a decision is outstanding, which is what keeps
 it on this side of the line.
 
+- **The tool count is hand-maintained in four places and nothing checks it** — noticed 2026-08-31
+  while rewriting `mcp_bridge/README.md`. "Nineteen tools" appears twice in that file, once in the
+  root `README.md`, and once in the repo's GitHub **About** text; `tests/test_mcp_docs.py` pins the
+  1,900-character description budget over the live server but asserts nothing about how many tools
+  it registers. All four are correct today — verified against `create_server`, which yields 19 with
+  writes on and 7 under `--read-only`. **The decision is whether pinning it is worth it**, and it
+  cuts both ways: a test that fails the day tool 20 lands is exactly the reminder the four prose
+  copies need, but it is also one more file to edit in the PR that adds a tool, and a test whose
+  only job is to be updated teaches people to update it without reading it. A cheaper shape, if the
+  count is the thing that matters: assert the *read-only* set is a strict subset of the full set and
+  print both counts on failure, so the numbers stay discoverable without being pinned. Not decided.
+  (The same drift already bit once in the other direction: `--read-only`'s own `--help` text said
+  "six query tools" from before `get_annotations` was added until the same session fixed it.)
+
+- **`mcp_bridge/README.md` is still shaped for someone who already knows the tools** — noticed
+  2026-08-31 in the review that produced the visitor-first rewrite, and deliberately left out of that
+  PR because the owner scoped it to the four missing subjects. Three things stayed: **no table of
+  contents** on a 489-line file with eighteen headings; **no worked example** — the root `README.md`
+  has its "What that looks like in practice" block, this file has not one call with its reply; and
+  **lopsided proportions**, where redaction gets ~110 lines and `split`'s print-dialog range syntax
+  (`"1-3"`, `"5-"`) gets half a table cell, which is a thing a caller has to get right on the first
+  try. **The decision is how much more the file should carry before it wants splitting** — a
+  reference this long is arguably two documents (a setup guide and a tool reference), and adding a
+  TOC is the cheap move that also makes the length feel deliberate rather than accidental.
+
 - **The bundle now ships a lock that no audit step examines** — created by **M129** and noticed
   2026-08-28 while checking the release gate. The `.mcpb` carries `packaging/mcpb/uv.lock`, and since
   M129 that file is what a Desktop install actually resolves from — 139 hashed packages. `pip-audit`
