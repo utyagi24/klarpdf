@@ -109,16 +109,21 @@ it takes over from there. Two ways to get one:
 
 - **Download it** — `klarpdf-<version>.mcpb` from the
   [latest release](https://github.com/utyagi24/klarpdf/releases/latest), with a `SHA256SUMS`
-  published beside it. No clone and no Node; this is the one-click path.
+  published beside it. No clone and no Node needed — but `uv` still is, see below.
 - **Build it** from a checkout — `python packaging/mcpb/build_mcpb.py`. Needs
   [Node](https://nodejs.org), because the packer is a Node tool. That script's header documents what
   goes into the bundle and what deliberately stays out.
 
-Either way the bundle needs [`uv`](https://docs.astral.sh/uv/) on your PATH, and that is what makes
-this path unlike every other one here: **it installs online**, with `uv` fetching wheels from PyPI
-for your machine. It fetches them against a hashed `uv.lock` the bundle carries, so you get the set
-we reviewed rather than whatever resolves that day — but that lock also pins a few platform-specific
-packages the weekly `pip-audit` never sees. If that residue is not acceptable, use Option B.
+**[`uv`](https://docs.astral.sh/uv/) is required either way**, including if you download. It is not a
+build tool here: `uv run` is the command Claude Desktop launches to start the server, and the bundle
+carries no interpreter and no dependencies of its own — only the source. So downloading spares you
+Node, not `uv`, and `uv` must be on the PATH Desktop sees before you open the file.
+
+That is also what makes this path unlike every other one here: **it installs online**, with `uv`
+fetching wheels from PyPI for your machine. It fetches them against a hashed `uv.lock` the bundle
+carries, so you get the set we reviewed rather than whatever resolves that day — but that lock also
+pins a few platform-specific packages the weekly `pip-audit` never sees. If that residue is not
+acceptable, use Option B.
 
 **Option B — edit the config.** Add to `claude_desktop_config.json`
 (macOS: `~/Library/Application Support/Claude/`, Windows: `%APPDATA%\Claude\`):
