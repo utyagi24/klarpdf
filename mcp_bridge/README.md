@@ -104,37 +104,21 @@ package but not its dependencies).
 
 ### Claude Desktop
 
-**Option A — one-click.** Download `klarpdf-<version>.mcpb` from the
-[latest release](https://github.com/utyagi24/klarpdf/releases/latest) and open it; Desktop installs
-it as an extension. Nothing else is needed — no clone and no Node — and the `SHA256SUMS` published
-beside it covers the bundle.
+**Option A — the `.mcpb` bundle.** Claude Desktop installs it as an extension; you open the file and
+it takes over from there. Two ways to get one:
 
-To build it from a checkout instead, which needs [Node](https://nodejs.org) because the packer is a
-Node tool:
+- **Download it** — `klarpdf-<version>.mcpb` from the
+  [latest release](https://github.com/utyagi24/klarpdf/releases/latest), with a `SHA256SUMS`
+  published beside it. No clone and no Node; this is the one-click path.
+- **Build it** from a checkout — `python packaging/mcpb/build_mcpb.py`. Needs
+  [Node](https://nodejs.org), because the packer is a Node tool. That script's header documents what
+  goes into the bundle and what deliberately stays out.
 
-```bash
-python packaging/mcpb/build_mcpb.py     # -> dist/klarpdf-<version>.mcpb
-```
-
-Either way the bundle needs [`uv`](https://docs.astral.sh/uv/) on your PATH — it uses it to resolve
-Python and the dependencies for your machine. Three consequences worth knowing before you choose
-this path:
-
-- **It installs online.** `uv` fetches wheels from PyPI at install time. This is the one deliberate
-  break from everything else this project ships, and it is what buys a single bundle that works on
-  macOS, Windows and Linux: MCPB cannot portably vendor compiled dependencies, and this bundle has
-  two (PyMuPDF is C, pydantic is Rust).
-- **It installs from a lock we ship, and that lock is hashed.** The bundle carries a `uv.lock`
-  alongside its `pyproject.toml`, and `uv run --directory` honours it — measured, by shipping a lock
-  with one dependency deliberately pinned a version back and confirming that older version is what
-  installed. So a Desktop install resolves from a file we wrote and review, with a `sha256` for every
-  wheel, rather than from whatever a fresh resolve picks on the day.
-- **It is still not the same coverage as `pip-audit`.** The weekly audit runs against
-  `requirements-mcp.txt`, i.e. the pip/pipx path above. `uv.lock` is generated from the same pins, so
-  the audited set carries through — but the lock *also* pins the platform-specific transitive
-  packages that `requirements-mcp.txt` structurally cannot name (it is deliberately
-  platform-marker-free, so `colorama` and `pywin32` can never appear in it). Those are pinned and
-  hashed, and not separately audited. If that residue is not acceptable, use Option B.
+Either way the bundle needs [`uv`](https://docs.astral.sh/uv/) on your PATH, and that is what makes
+this path unlike every other one here: **it installs online**, with `uv` fetching wheels from PyPI
+for your machine. It fetches them against a hashed `uv.lock` the bundle carries, so you get the set
+we reviewed rather than whatever resolves that day — but that lock also pins a few platform-specific
+packages the weekly `pip-audit` never sees. If that residue is not acceptable, use Option B.
 
 **Option B — edit the config.** Add to `claude_desktop_config.json`
 (macOS: `~/Library/Application Support/Claude/`, Windows: `%APPDATA%\Claude\`):
