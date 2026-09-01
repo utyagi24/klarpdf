@@ -72,14 +72,14 @@ precisely. (Whether to close that gap is an open question in [PROGRESS.md](../PR
 
 ## Connect it to your client
 
-Every client keeps its configuration somewhere different, but they all ask for the same one thing:
-**a command to run**. Give them `klarpdf-mcp` — not `python -m mcp_bridge`, which only works when
-the current directory is this repo, and a client launches from its own.
+Every client keeps its list of MCP servers somewhere different, but they all ask for the same one
+thing: **a command to run**. Give them `klarpdf-mcp` — not `python -m mcp_bridge`, which only works
+when the current directory is this repo, and a client launches from its own.
 
-That command is the whole configuration. There is nothing to pass it: no arguments, no environment
-variables, and no URL, port or token — those belong to servers that run over a network, and this one
-does not. Your client starts `klarpdf-mcp` as a subprocess and the two talk over its stdin and
-stdout. (Two optional switches can restrict what it is allowed to do — see
+That command is the whole of KlarPDF's entry in that list. There is nothing else to fill in: no
+arguments, no environment variables, and no URL, port or token — those belong to servers that run
+over a network, and this one does not. Your client starts `klarpdf-mcp` as a subprocess and the two
+talk over its stdin and stdout. (Two optional switches can restrict what it is allowed to do — see
 [Limiting what the server can do](#limiting-what-the-server-can-do).)
 
 If a client reports the command as not found, give it the absolute path (`which klarpdf-mcp` on
