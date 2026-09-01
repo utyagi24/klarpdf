@@ -29,7 +29,7 @@ is to hand it accurate material and then do exactly what it is told.
 | | |
 |---|---|
 | **Python 3.12** | Exactly 3.12 — `pip` refuses to install on 3.13. The Windows app requires python.org 3.12 and the bridge inherits that ceiling rather than widening it on its own; the dependencies themselves support 3.13, so this is a decision and not a limit. |
-| **A clone of this repo** | The bridge is not published to PyPI. |
+| **A clone of this repo** | The bridge is not published to PyPI. Not needed for the one-click `.mcpb`, which is downloadable from a release. |
 | **An MCP client** | The app your AI assistant runs in — Claude Code, Claude Desktop, Codex CLI, Gemini CLI and others. It starts `klarpdf-mcp` as a local subprocess and relays the model's tool calls to it. |
 | **`poppler-utils`** *(optional)* | Adds a second, independent engine to redaction's verification step. Without it, redaction still verifies — with PyMuPDF alone. See [What redaction guarantees](#what-redaction-guarantees-and-where-it-stops). |
 
@@ -104,14 +104,21 @@ package but not its dependencies).
 
 ### Claude Desktop
 
-**Option A — one-click.** Build the bundle and open it; Desktop installs it as an extension.
+**Option A — one-click.** Download `klarpdf-<version>.mcpb` from the
+[latest release](https://github.com/utyagi24/klarpdf/releases/latest) and open it; Desktop installs
+it as an extension. Nothing else is needed — no clone and no Node — and the `SHA256SUMS` published
+beside it covers the bundle.
+
+To build it from a checkout instead, which needs [Node](https://nodejs.org) because the packer is a
+Node tool:
 
 ```bash
 python packaging/mcpb/build_mcpb.py     # -> dist/klarpdf-<version>.mcpb
 ```
 
-Requires [`uv`](https://docs.astral.sh/uv/) on your PATH — the bundle uses it to resolve Python and
-its dependencies for your machine. Three consequences worth knowing before you choose this path:
+Either way the bundle needs [`uv`](https://docs.astral.sh/uv/) on your PATH — it uses it to resolve
+Python and the dependencies for your machine. Three consequences worth knowing before you choose
+this path:
 
 - **It installs online.** `uv` fetches wheels from PyPI at install time. This is the one deliberate
   break from everything else this project ships, and it is what buys a single bundle that works on
