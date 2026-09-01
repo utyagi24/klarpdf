@@ -6036,6 +6036,56 @@ build the bundle. Nothing connected "this release is *named* after a component" 
 has a downloadable artifact." **When a release is named after a thing, the checklist should ask
 whether that thing is in the release** — which is now literally what §3 step 4 enumerates.
 
+### M132 — the bridge installs on the Python people have *(unplanned)* (2026-08-31)
+
+| | Where | Platform | Verified by |
+|---|---|---|---|
+| **M132.1** The window is `>=3.11,<3.15` rather than a single version | `pyproject.toml`, `packaging/mcpb/build_mcpb.py`, `packaging/mcpb/manifest.json`, `packaging/mcpb/uv.lock` | WSL | `uv lock` re-resolves the whole window and **moves no pin**; `mcpb validate` passes. The interpreters themselves are M132.3's job — this WSL box has only 3.12 |
+| **M132.2** The lock carries wheels for every version, not just the one it was resolved for | `packaging/mcpb/uv.lock` (re-run `uv lock`) | WSL | `rpds-py` went from 16 cp312 wheels to cp311/cp312/cp313/cp314 |
+| **M132.3** Every claimed version is actually run | `bridge-pyver` in `.github/workflows/test.yml` | CI | The bridge suite installs and passes on 3.11 / 3.13 / 3.14 |
+| **M132.4** The three declarations cannot drift, and none is claimed without a runner | `test_the_three_python_declarations_are_one_window`, `test_every_compiled_pin_has_a_wheel_for_every_python_in_the_window`, `test_every_python_in_the_window_is_run_by_some_ci_job` | WSL + CI | Restoring `==3.12.*` to the lock, or dropping 3.11 from the matrix, fails with the reason quoted |
+
+**What was wrong.** `requires-python` was `>=3.12,<3.13` — a window exactly one minor version wide.
+For the app that is harmless, because `requires-python` does not gate it at all: the Windows GUI is
+PyInstaller-frozen from `requirements-win.txt` and is never `pip`-installed. For the **bridge** it
+was the whole install story, because a `pip`/`pipx` install is what the bridge *is*. So every bridge
+user, on every OS, had to have exactly 3.12 — and a user on Debian 12 (3.11) or a current macOS
+Homebrew (3.13) had to install a second Python before they could install the bridge at all.
+
+**Nothing had ever asked for that number.** The comment above the line said so: the bridge
+*"inherits that ceiling"* from the app's build requirement, and *"the dependencies themselves support
+3.13, so this is a decision and not a limit"* — a decision deferred as an owner call and then left
+in place. Measured against the pinned transitive set, the real bounds are elsewhere:
+
+- **Floor 3.11**, set by exactly one package. `rpds-py` declares `>=3.11` and arrives transitively
+  via `jsonschema`/`referencing` ← `mcp`. Every other pin allows 3.10 or lower, both direct
+  dependencies declare `>=3.10`, and all 31 payload files parse at `feature_version=(3,10)` — no
+  PEP 695, nothing 3.11-only. So 3.11 is the *lock's* floor, not the code's.
+- **No ceiling at all**, from anything. PyMuPDF ships `cp310-abi3` — the stable ABI, one wheel that
+  serves CPython 3.10 and every later version — and cryptography `cp311-abi3`. `cffi`,
+  `pydantic-core` and `rpds-py` publish discrete wheels through cp314/cp315.
+
+`<3.15` is therefore a **choice**: one above the newest Python the pins are built for, so the
+one-click bundle can never land on an interpreter with no wheel and fall back to compiling C and
+Rust on a user's machine. `RELEASE.md` §4 carries the runbook that raises it.
+
+**The part worth remembering is `uv.lock`, because it is the half that fails silently.** The window
+is written in *three* places, not two — M128 established the pyproject/manifest pair (PEP 440 vs
+node-semver), and the lock is the third. **`uv` resolves wheels for the window the lock declares**,
+so widening the pyproject without re-running `uv lock` leaves a lock that still records only the old
+version's wheels: measured here, `rpds-py` held 16 wheels and every one was cp312. That bundle
+pre-flights green, advertises four Pythons, installs on one, and nothing anywhere says so. The
+re-resolve moved **no pin** — proof the widening was free — but rewrote the wheel set entirely.
+
+**The generalisable part, and it is the same shape as M128.** A version constraint written in more
+than one file is not one fact, it is N facts that happen to agree today; and the dangerous copy is
+never the one a human reads. M128's comma was at least *visible* — Claude Desktop displayed the
+unsatisfiable range. The lock's window is machine-generated, sits 3 lines into a 900-line file
+nobody reviews, and expresses itself only as an absent wheel months later. **When a constraint is
+restated for a second tool, find every tool that reads it** — here `pip`, node-semver and `uv`, and
+`grep requires-python` finds only two of the three, because uv writes `==3.12.*` for a single
+version and never spells the bound the other two use.
+
 ## Future enhancements (deferred beyond the roadmap)
 
 Captured but not yet scheduled:

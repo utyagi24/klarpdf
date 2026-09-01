@@ -2,12 +2,31 @@
 name = "klarpdf"
 dynamic = ["version"]
 description = "Local, offline, native-Windows PDF viewer + page editor"
-# The GUI still requires exactly python.org 3.12 for the Windows build (CLAUDE.md §Gotchas), and the
-# MCP bridge inherits that ceiling rather than widening it unilaterally: `uv` resolving the .mcpb
-# will fetch a 3.12 interpreter, which makes the Desktop install *more* deterministic, not less.
-# Relaxing to `>=3.12` for the bridge's sake is a real option — its dependencies all support 3.13 —
-# but it is untested here and is an owner call, so it is not taken silently.
-requires-python = ">=3.12,<3.13"
+# THIS GOVERNS THE BRIDGE, NOT THE APP (M132). What `requires-python` gates is a `pip`/`pipx` install
+# of this project, and that install is the MCP bridge — the Windows GUI is PyInstaller-frozen from
+# requirements-win.txt and is never pip-installed. So widening this does not touch the app's build,
+# and CLAUDE.md §Gotchas "Windows Python must be python.org 3.12.x" stays true of the ship path.
+#
+# It said `>=3.12,<3.13` until M132: a single-version window, inherited from the app rather than
+# measured, which made "have exactly 3.12 installed" a prerequisite for every bridge user on every
+# OS. Nothing in the dependency set ever asked for that. Measured against the pinned transitive set:
+#
+#   FLOOR 3.11 — set by exactly one package, `rpds-py` (>=3.11), which arrives transitively via
+#   jsonschema <- mcp. Both direct dependencies declare >=3.10, and the payload (mcp_bridge/, model/,
+#   util/, version.py) parses clean at feature_version=(3,10) — no PEP 695, nothing 3.11-only. So
+#   3.11 is the lock's floor, not the code's, and dropping to 3.10 would mean unpinning rpds-py.
+#
+#   CEILING 3.15 — chosen, not forced. Nothing in the set imposes one: PyMuPDF ships cp310-abi3
+#   (one wheel covering CPython 3.10 and every later version), cryptography cp311-abi3, and cffi,
+#   pydantic-core and rpds-py ship discrete wheels through cp314/cp315. The bound is one above the
+#   newest Python the pins are actually built for, so a bundle cannot be installed onto an
+#   interpreter no wheel exists for and fall back to a source build of C and Rust on a user's
+#   machine. RELEASE.md §4 carries the runbook that raises it.
+#
+# The claim is enforced, not asserted: the `bridge-pyver` job in .github/workflows/test.yml runs
+# tests/test_mcp_*.py on every Python in the window, so the floor and the ceiling are both tested
+# rather than declared. Widening it again means adding a runner there first.
+requires-python = ">=3.11,<3.15"
 # The GUI's dependency VERSIONS have a single source of truth in requirements.in (compiled to
 # requirements-win.txt for the Windows ship and requirements-dev.txt for WSL dev). They are
 # intentionally NOT duplicated here. See PLAN.md "Packaging, dependencies & installer".

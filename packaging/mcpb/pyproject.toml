@@ -8,11 +8,16 @@
 # NOTE: what this file installs is NOT covered by the repo's pip-audit steps, which audit
 # requirements-mcp.txt on the pip/pipx path. It is generated *from* that lock, so the two agree at
 # build time — but a Desktop install resolves fresh (PLAN.md §Dependencies & packaging).
+#
+# `requires-python` is the window the ROOT pyproject.toml states and manifest.json restates in
+# node-semver; all three are kept in step by tests/test_mcp_packaging.py. See the root file for what
+# sets each bound (M132) — floor 3.11 from rpds-py, ceiling 3.15 chosen so the pinned C and Rust
+# packages always have a wheel.
 [project]
 name = "klarpdf-mcp"
 version = "0.18.0"
 description = "KlarPDF's PDF engine as MCP tools — read, transform, verifiably redact. Offline."
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.11,<3.15"
 dependencies = [
     "annotated-types==0.8.0",
     "anyio==4.14.2",

@@ -40,7 +40,7 @@ the wheels, so target machines need no Python and no network.
 ## Test / build toolchain
 | Tool | Purpose | Version | Pinned where |
 |---|---|---|---|
-| **Python** | interpreter — 3.12.x exact | Windows **3.12.10** (python.org); WSL 3.12.3 | — |
+| **Python** | interpreter — 3.12.x exact, for **building the app**. The MCP bridge is a separate, optional component and installs on 3.11–3.14 (M132); this row is the frozen installer's build requirement, not a floor on the bridge. | Windows **3.12.10** (python.org); WSL 3.12.3 | — |
 | **pip-tools** (`pip-compile`) | generate the locked requirements | **7.5.3** | dev/build env |
 | **pytest** | headless model/save tests | see `requirements-dev.txt` | `requirements-dev.txt` |
 | **invoke** | task runner — `invoke <task>` orchestrates build steps (`tasks.py`; see `RELEASE.md`) | **3.0.3** | `requirements-dev.txt` |

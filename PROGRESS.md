@@ -2326,6 +2326,30 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   **38 s** on a branch touching `mcp_bridge/` and `model/`, **4 s** reporting without doing the work
   on the docs-only branch stacked above it. Design in `PLAN.md` §M115.1 — *WSL + CI*
 
+- [x] **M132** *(unplanned)* **The bridge installs on the Python people have** — 2026-08-31, raised
+  by the owner: *"for the MCP bridge the python requirement is suffocatingly narrow… we cannot expect
+  users to have one specific version of python."* `requires-python` was **`>=3.12,<3.13`** — a window
+  one minor version wide. It never touched the app (the GUI is PyInstaller-frozen and is never
+  `pip`-installed) but it *was* the bridge's entire install story, so every bridge user on every OS
+  needed exactly 3.12; a user on Debian 12 (3.11) or current Homebrew (3.13) had to install a second
+  Python first. **Nothing had ever asked for the number** — the comment above it said the bridge
+  *"inherits that ceiling"* from the app's build requirement and that *"the dependencies themselves
+  support 3.13"*, an owner call deferred and then left in place. Measured against the pinned set, the
+  real bounds are elsewhere: the **floor is 3.11**, set by exactly one package (`rpds-py>=3.11`,
+  transitive via `jsonschema` ← `mcp`), while both direct dependencies allow 3.10 and all 31 payload
+  files parse at `feature_version=(3,10)`; and **nothing imposes a ceiling at all**, because PyMuPDF
+  ships `cp310-abi3` — one stable-ABI wheel serving 3.10 and every later version. Now
+  **`>=3.11,<3.15`**, the ceiling a deliberate choice one above the newest Python the pinned C and
+  Rust packages are built for, so the one-click bundle cannot land on an interpreter with no wheel and
+  start compiling on a user's machine; `RELEASE.md` §4 has the runbook to raise it. **The half worth
+  remembering is `uv.lock`.** The window is written in *three* files, not the two M128 paired up, and
+  **`uv` resolves wheels for the window the lock declares** — so widening the pyproject without
+  re-running `uv lock` leaves a bundle that pre-flights green, advertises four Pythons and installs on
+  one. Measured: `rpds-py` held **16 wheels, every one cp312**. The re-resolve **moved no pin**,
+  proving the widening was free, and rewrote the wheel set entirely. Backed by a new `bridge-pyver`
+  CI matrix (3.11 / 3.13 / 3.14 — `bridge` already covers 3.12) and three tests, so a version cannot
+  be claimed without a runner behind it. Design in `PLAN.md` §M132 — *WSL + CI*
+
 - [x] **M131** *(unplanned)* **The release ships the bundle it is named after** — 2026-08-28, found
   by the owner immediately after the v0.18.0 tag: *"is this release going to create both the Windows
   App and the MCP bridge files?"* It was not. **v0.18.0 shipped as "the MCP / Agent Bridge" with no
