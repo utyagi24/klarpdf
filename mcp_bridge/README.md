@@ -14,9 +14,7 @@ no third-party service sees it, which is the point of running the engine locally
 documents somewhere to be processed. The server itself makes no network connections: stdio is the
 only transport and there is no listening port. What a tool *returns* — a page's text, a rendered
 image — goes back to your model like any other tool result, so the usual care about what you hand a
-hosted model still applies. (One exception, and it is an *install*-time thing rather than a runtime
-one: the one-click `.mcpb` bundle below fetches its dependencies from PyPI when Claude Desktop
-installs it.)
+hosted model still applies.
 
 **It does not understand your documents.** Every tool here is mechanical: `search` matches literal
 text rather than meaning, `extract_text` returns what is on the page rather than a summary, and
@@ -28,11 +26,11 @@ is to hand it accurate material and then do exactly what it is told.
 
 | | |
 |---|---|
-| **Python 3.12** | Exactly 3.12 — `pip` refuses to install on 3.13. The Windows app requires python.org 3.12 and the bridge inherits that ceiling rather than widening it on its own; the dependencies themselves support 3.13, so this is a decision and not a limit. |
-| **A clone of this repo** | The bridge is not published to PyPI. Not needed for the one-click `.mcpb`, which is downloadable from a release. |
-| **[`uv`](https://docs.astral.sh/uv/)** *(for the `.mcpb` only)* | Claude Desktop launches the bundle with `uv run`, so `uv` has to be on the PATH Desktop sees. Nothing warns you if it is missing — the manifest format has no way to declare it, so the symptom is the server failing to start rather than an unmet requirement in the install dialog. |
+| **Python 3.12** | Exactly 3.12; `pip` refuses to install on any other version. |
+| **The source** | **Only if you install with `pip`.** The bridge is not published to PyPI, so the source comes from GitHub: clone the repo and check out a release tag, or download the source archive from the [releases page](https://github.com/utyagi24/klarpdf/releases). |
+| **[`uv`](https://docs.astral.sh/uv/)** | **Only if you install the `.mcpb` bundle in Claude Desktop.** Desktop launches it with `uv run`, so `uv` must be on the PATH Desktop sees. Nothing warns you if it is missing; the symptom is the server failing to start. |
 | **An MCP client** | The app your AI assistant runs in — Claude Code, Claude Desktop, Codex CLI, Gemini CLI and others. It starts `klarpdf-mcp` as a local subprocess and relays the model's tool calls to it. |
-| **`poppler-utils`** *(optional)* | Adds a second, independent engine to redaction's verification step. Without it, redaction still verifies — with PyMuPDF alone. See [What redaction guarantees](#what-redaction-guarantees-and-where-it-stops). |
+| **`poppler-utils`** | **Optional.** Adds a second, independent engine to redaction's verification step. Without it, redaction still verifies — with PyMuPDF alone. See [What redaction guarantees](#what-redaction-guarantees-and-where-it-stops). |
 
 No GUI toolkit is installed. The bridge's only dependencies are PyMuPDF and the MCP SDK.
 
@@ -41,41 +39,38 @@ No GUI toolkit is installed. The bridge's only dependencies are PyMuPDF and the 
 ```bash
 git clone https://github.com/utyagi24/klarpdf.git
 cd klarpdf
-pip install -r requirements-mcp.txt   # the exact versions we audit weekly
-pip install -e .                      # puts the `klarpdf-mcp` command on your PATH
+git checkout v<version>               # a release tag; `git tag` lists them
+python3 -m venv .venv                 # Windows: py -3.12 -m venv .venv
+source .venv/bin/activate             # Windows: .venv\Scripts\activate
+pip install -r requirements-mcp.txt   # the exact versions we test against
+pip install -e .                      # puts `klarpdf-mcp` inside the virtualenv
 ```
 
-Run both lines. `requirements-mcp.txt` carries the audited pins; `pip install -e .` on its own would
-resolve fresh ones.
+A dedicated virtualenv keeps the bridge's 29 packages out of your regular Python environment, and
+lets you choose the interpreter yourself. Prefer a release tag over `main`: tags are what the
+released `.mcpb` and the published locks correspond to. If you would rather not use git at all, the
+[releases page](https://github.com/utyagi24/klarpdf/releases) carries a source archive for each one.
 
-Check that it worked:
+Run both `pip` lines, in that order. `requirements-mcp.txt` names all 29 packages at exact versions
+— the same ones our CI tests against, and the ones we scan regularly for newly published
+vulnerabilities. The second line then installs `klarpdf-mcp` itself, with its requirements already
+satisfied at those pinned versions.
+
+Check that it worked, and note the path it reports — you will need it in a moment:
 
 ```bash
 klarpdf-mcp --help
+which klarpdf-mcp        # Windows: where klarpdf-mcp
+# -> /path/to/klarpdf/.venv/bin/klarpdf-mcp
 ```
 
 **You will not normally run `klarpdf-mcp` yourself** — your client starts it and talks to it through
-the subprocess's stdin and stdout. Run it by hand with no arguments and it prints nothing and waits;
-that is a server waiting for a client, not a hang. Ctrl-C ends it.
-
-### Keeping it out of your Python environment
-
-`pipx` puts the command on your PATH in a virtualenv of its own:
-
-```bash
-pipx install .      # still from the clone
-```
-
-One difference worth knowing: pipx resolves from the package metadata, which carries dependency
-**floors** rather than pins, so you get at least the PyMuPDF we ship and possibly a newer one — not
-necessarily the exact set `requirements-mcp.txt` audits. Use the `pip` path above if you want ours
-precisely. (Whether to close that gap is an open question in [PROGRESS.md](../PROGRESS.md).)
+the subprocess's stdin and stdout.
 
 ## Connect it to your client
 
-Every client keeps its list of MCP servers somewhere different, but they all ask for the same one
-thing: **a command to run**. Give them `klarpdf-mcp` — not `python -m mcp_bridge`, which only works
-when the current directory is this repo, and a client launches from its own.
+Every client has its own way of configuring MCP servers, but they all ask for **a command to run**.
+For our MCP server that command is `klarpdf-mcp`.
 
 That command is the whole of KlarPDF's entry in that list. There is nothing else to fill in: no
 arguments, no environment variables, and no URL, port or token — those belong to servers that run
@@ -83,20 +78,24 @@ over a network, and this one does not. Your client starts `klarpdf-mcp` as a sub
 talk over its stdin and stdout. (Two optional switches can restrict what it is allowed to do — see
 [Limiting what the server can do](#limiting-what-the-server-can-do).)
 
-If a client reports the command as not found, give it the absolute path (`which klarpdf-mcp` on
-macOS and Linux, `where klarpdf-mcp` on Windows). A desktop client launched from an icon does not
-necessarily inherit the PATH your shell has.
+**Give the full path, not the bare name.** `klarpdf-mcp` is on your PATH only while the virtualenv
+is active, and a client started from an icon or a launcher does not activate it. Every example below
+uses `/path/to/klarpdf/.venv/bin/klarpdf-mcp` — substitute the path `which klarpdf-mcp` printed
+during install. On Windows it is `...\.venv\Scripts\klarpdf-mcp.exe`.
 
 ### Claude Code
 
 Install first (above), then:
 
 ```bash
-claude mcp add klarpdf -- klarpdf-mcp
+claude mcp add klarpdf -- /path/to/klarpdf/.venv/bin/klarpdf-mcp
 ```
 
-A `.mcp.json` is also checked in at the repo root, so inside this project Claude Code offers the
-server and you approve it — but it too needs the install, since it invokes `klarpdf-mcp`.
+**If you run Claude Code from inside this repo, skip that command.** A `.mcp.json` at the repo root
+already describes the server, and Claude Code offers it when you start here — approve the prompt and
+you are configured. (It is offered rather than switched on silently, which is why checking it in is
+safe.) That file calls the bare `klarpdf-mcp`, so activate the virtualenv before you start Claude
+Code: `source .venv/bin/activate`.
 
 Confirm with `/mcp`: it should say **klarpdf — 19 tools**. If it says *failed*, run the command by
 hand in the same shell you launch Claude from; the error is almost always `command not found`
@@ -105,26 +104,26 @@ package but not its dependencies).
 
 ### Claude Desktop
 
-**Option A — the `.mcpb` bundle.** Claude Desktop installs it as an extension; you open the file and
-it takes over from there. Two ways to get one:
+**Option A — the `.mcpb` bundle.** Install it in Claude Desktop as an extension. You can get the
+bundle in two ways:
 
 - **Download it** — `klarpdf-<version>.mcpb` from the
-  [latest release](https://github.com/utyagi24/klarpdf/releases/latest), with a `SHA256SUMS`
-  published beside it. No clone and no Node needed — but `uv` still is, see below.
-- **Build it** from a checkout — `python packaging/mcpb/build_mcpb.py`. Needs
-  [Node](https://nodejs.org), because the packer is a Node tool. That script's header documents what
-  goes into the bundle and what deliberately stays out.
+  [latest release](https://github.com/utyagi24/klarpdf/releases/latest), with `SHA256SUMS` alongside
+  it. No clone and no Node required.
+- **Build from a checkout** — run `python packaging/mcpb/build_mcpb.py`. This needs
+  [Node](https://nodejs.org), since the packer itself is a Node tool. The script's header documents
+  exactly what goes into the bundle and what's deliberately left out.
 
-**[`uv`](https://docs.astral.sh/uv/) is required either way**, including if you download. It is not a
-build tool here: `uv run` is the command Claude Desktop launches to start the server, and the bundle
-carries no interpreter and no dependencies of its own — only the source. So downloading spares you
-Node, not `uv`, and `uv` must be on the PATH Desktop sees before you open the file.
+Either way, you also need [`uv`](https://docs.astral.sh/uv/). The bundle contains only source — no
+interpreter, no dependencies of its own — so Claude Desktop relies on `uv run` to actually launch
+the server. Downloading spares you Node, but not `uv`; make sure it's on the PATH that Desktop sees
+before you open the file.
 
-That is also what makes this path unlike every other one here: **it installs online**, with `uv`
-fetching wheels from PyPI for your machine. It fetches them against a hashed `uv.lock` the bundle
-carries, so you get the set we reviewed rather than whatever resolves that day — but that lock also
-pins a few platform-specific packages the weekly `pip-audit` never sees. If that residue is not
-acceptable, use Option B.
+This also sets Option A apart from every other path here: **it installs online**. At install time,
+`uv` fetches wheels from PyPI for your machine, resolved against a hashed `uv.lock` shipped inside
+the bundle — so you get the exact package set we reviewed, not whatever PyPI happens to resolve that
+day. That lock does pin a handful of platform-specific packages that our weekly `pip-audit` never
+sees. If that residual risk isn't acceptable, use Option B.
 
 **Option B — edit the config.** Add to `claude_desktop_config.json`
 (macOS: `~/Library/Application Support/Claude/`, Windows: `%APPDATA%\Claude\`):
@@ -133,32 +132,29 @@ acceptable, use Option B.
 {
   "mcpServers": {
     "klarpdf": {
-      "command": "klarpdf-mcp"
+      "command": "/path/to/klarpdf/.venv/bin/klarpdf-mcp"
     }
   }
 }
 ```
 
-Desktop is the client most likely to need the absolute path rather than the bare command, since it
-is launched from an icon and not from your shell.
-
 ### Codex CLI
 
 ```bash
-codex mcp add klarpdf -- klarpdf-mcp
+codex mcp add klarpdf -- /path/to/klarpdf/.venv/bin/klarpdf-mcp
 ```
 
 Or write it into `~/.codex/config.toml` yourself:
 
 ```toml
 [mcp_servers.klarpdf]
-command = "klarpdf-mcp"
+command = "/path/to/klarpdf/.venv/bin/klarpdf-mcp"
 ```
 
 ### Gemini CLI
 
 ```bash
-gemini mcp add klarpdf klarpdf-mcp
+gemini mcp add klarpdf /path/to/klarpdf/.venv/bin/klarpdf-mcp
 ```
 
 Or edit `~/.gemini/settings.json` (or `.gemini/settings.json` for a single project), which uses the
@@ -168,7 +164,7 @@ same `mcpServers` block Claude Desktop does:
 {
   "mcpServers": {
     "klarpdf": {
-      "command": "klarpdf-mcp"
+      "command": "/path/to/klarpdf/.venv/bin/klarpdf-mcp"
     }
   }
 }
@@ -200,7 +196,7 @@ Pass them wherever your client names the command:
 {
   "mcpServers": {
     "klarpdf": {
-      "command": "klarpdf-mcp",
+      "command": "/path/to/klarpdf/.venv/bin/klarpdf-mcp",
       "args": ["--read-only", "--allow-root", "/Users/me/Documents/contracts"]
     }
   }
