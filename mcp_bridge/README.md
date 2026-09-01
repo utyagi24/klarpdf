@@ -22,6 +22,9 @@ text rather than meaning, `extract_text` returns what is on the page rather than
 clause means, which name matters, or what ought to be removed is the model's job — this server's job
 is to hand it accurate material and then do exactly what it is told.
 
+**Just want it running?** [Quick setup](QUICKSTART.md) gets Claude Code, Codex CLI or Gemini CLI
+talking to it in six commands. This page is the full reference.
+
 ## What you need
 
 | | |
@@ -175,8 +178,8 @@ same `mcpServers` block Claude Desktop does:
 Clients differ in *where* the configuration lives, not in what it has to say. Claude Desktop and
 Gemini CLI share the `mcpServers` JSON block above; Codex CLI uses the `[mcp_servers.<name>]` TOML
 table; others vary again. All of them want one thing from you — a command to run. Point yours at
-`klarpdf-mcp`, add `args` if you want the switches below, and ignore every field about URLs, ports
-and tokens, because this server has none.
+your `/path/to/klarpdf/.venv/bin/klarpdf-mcp`, add `args` if you want the switches below, and ignore
+every field about URLs, ports and tokens, because this server has none.
 
 ## Limiting what the server can do
 
