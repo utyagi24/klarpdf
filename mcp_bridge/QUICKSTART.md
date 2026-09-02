@@ -1,9 +1,10 @@
 # Quick setup — Claude Code, Codex CLI, Gemini CLI
 
-Six commands, then one line for your client. Everything else — Claude Desktop, what each tool does,
-what redaction guarantees, how to restrict the server — is in the [full guide](README.md).
+Use this quick setup guide for configuring KlarPDF MCP in your Claude Code, Codex CLI and Gemini CLI
+environments. For setting up Claude Desktop, and for a more detailed explanation of the interface
+the MCP server offers, refer to the [full guide](README.md).
 
-Needs Python 3.12 and a working `git`.
+Needs Python 3.11–3.14.
 
 ## 1. Install
 
@@ -11,7 +12,7 @@ Needs Python 3.12 and a working `git`.
 git clone https://github.com/utyagi24/klarpdf.git
 cd klarpdf
 git checkout v<version>               # a release tag; `git tag` lists them
-python3 -m venv .venv                 # Windows: py -3.12 -m venv .venv
+python3 -m venv .venv                 # Windows: py -3 -m venv .venv
 source .venv/bin/activate             # Windows: .venv\Scripts\activate
 pip install -r requirements-mcp.txt
 pip install -e .

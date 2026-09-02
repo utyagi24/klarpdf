@@ -29,7 +29,7 @@ talking to it in six commands. This page is the full reference.
 
 | | |
 |---|---|
-| **Python 3.12** | Exactly 3.12; `pip` refuses to install on any other version. |
+| **Python 3.11 – 3.14** | Any version in that range; each is tested in CI on Linux and Windows. |
 | **The source** | **Only if you install with `pip`.** The bridge is not published to PyPI, so the source comes from GitHub: clone the repo and check out a release tag, or download the source archive from the [releases page](https://github.com/utyagi24/klarpdf/releases). |
 | **[`uv`](https://docs.astral.sh/uv/)** | **Only if you install the `.mcpb` bundle in Claude Desktop.** Desktop launches it with `uv run`, so `uv` must be on the PATH Desktop sees. Nothing warns you if it is missing; the symptom is the server failing to start. |
 | **An MCP client** | The app your AI assistant runs in — Claude Code, Claude Desktop, Codex CLI, Gemini CLI and others. It starts `klarpdf-mcp` as a local subprocess and relays the model's tool calls to it. |
@@ -43,7 +43,7 @@ No GUI toolkit is installed. The bridge's only dependencies are PyMuPDF and the 
 git clone https://github.com/utyagi24/klarpdf.git
 cd klarpdf
 git checkout v<version>               # a release tag; `git tag` lists them
-python3 -m venv .venv                 # Windows: py -3.12 -m venv .venv
+python3 -m venv .venv                 # Windows: py -3 -m venv .venv
 source .venv/bin/activate             # Windows: .venv\Scripts\activate
 pip install -r requirements-mcp.txt   # the exact versions we test against
 pip install -e .                      # puts `klarpdf-mcp` inside the virtualenv
