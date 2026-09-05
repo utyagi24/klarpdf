@@ -7,7 +7,7 @@ Two dialogs an AGPL release owes its users:
 * **Open-Source Licenses** — the bundled licence texts themselves, offline. AGPL §5 says the binary
   must ship the licence; showing it in-app is how a GUI honours that without a terminal.
 
-Everything renders from files bundled by ``packaging/klarpdf.spec`` and resolved through
+Everything renders from files bundled by ``packaging/app/klarpdf.spec`` and resolved through
 ``util.resources`` — no network. The only outbound action is the user *clicking* a link, which hands
 off to the system browser via ``QDesktopServices``; the app itself opens no socket, so the
 offline / no-telemetry guarantee in PLAN.md still holds.

@@ -21,7 +21,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-# Data files bundled at the *root* of the frozen tree (see packaging/klarpdf.spec `datas`).
+# Data files bundled at the *root* of the frozen tree (see packaging/app/klarpdf.spec `datas`).
 # Kept as a tuple so a caller can enumerate what the Open-Source Licenses dialog should offer.
 LICENSE_FILES: tuple[str, ...] = ("LICENSE", "THIRD_PARTY_LICENSES")
 

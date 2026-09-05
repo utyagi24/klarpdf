@@ -1,13 +1,13 @@
-"""Render ``ui/icons/klarpdf.svg`` to ``packaging/klarpdf.ico`` (PLAN.md, M10).
+"""Render ``ui/icons/klarpdf.svg`` to ``packaging/app/klarpdf.ico`` (PLAN.md, M10).
 
 The app icon is authored as readable SVG (the unit of audit); this script bakes it into the
 multi-resolution ``.ico`` that PyInstaller embeds in ``klarpdf.exe`` and Inno Setup uses as the
 installer/shortcut icon. Pure offline: renders with Qt (already a dependency) and writes a standard
 PNG-compressed ICO container by hand — no Pillow, no network. Re-run after editing the SVG:
 
-    py -3.12 packaging/make_icon.py
+    py -3.12 packaging/app/make_icon.py
 
-The generated ``packaging/klarpdf.ico`` is committed so the build needs no extra step.
+The generated ``packaging/app/klarpdf.ico`` is committed so the build needs no extra step.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from PySide6.QtCore import QBuffer, QByteArray, QRectF, Qt  # noqa: E402
 from PySide6.QtGui import QGuiApplication, QImage, QPainter  # noqa: E402
 from PySide6.QtSvg import QSvgRenderer  # noqa: E402
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parent.parent.parent  # packaging/app/ -> repo root
 
 # Two icons, two jobs (ui/icons.py):
 #   klarpdf.ico      the APPLICATION (exe, taskbar, Start Menu, Add/Remove Programs)
@@ -31,8 +31,8 @@ ROOT = Path(__file__).resolve().parent.parent
 # Until v0.10.0 the installer pointed DefaultIcon at `klarpdf.exe,0`, so every PDF wore the app's
 # icon. A document is not the program that opens it.
 ICON_PAIRS = (
-    (ROOT / "ui" / "icons" / "klarpdf.svg", ROOT / "packaging" / "klarpdf.ico"),
-    (ROOT / "ui" / "icons" / "klarpdf-doc.svg", ROOT / "packaging" / "klarpdf-doc.ico"),
+    (ROOT / "ui" / "icons" / "klarpdf.svg", ROOT / "packaging" / "app" / "klarpdf.ico"),
+    (ROOT / "ui" / "icons" / "klarpdf-doc.svg", ROOT / "packaging" / "app" / "klarpdf-doc.ico"),
 )
 
 SVG, ICO = ICON_PAIRS[0]  # back-compat for anything importing these names

@@ -1,5 +1,5 @@
 <!-- The `.pdf` DOCUMENT icon: what Explorer shows for a PDF file, via the ProgID DefaultIcon in
-     packaging/installer.iss. Baked into packaging/klarpdf-doc.ico by make_icon.py.
+     packaging/app/installer.iss. Baked into packaging/app/klarpdf-doc.ico by make_icon.py.
 
      Deliberately NOT the app icon. Until v0.10.0 the installer pointed DefaultIcon at
      `klarpdf.exe,0`, so every PDF on disk wore the application's icon — a document is not the

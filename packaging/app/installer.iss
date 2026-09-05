@@ -3,7 +3,7 @@
 ; Per-user install (no admin): bundles the PyInstaller --onedir tree, writes the HKCU .pdf ProgID +
 ; Open-With association, a Start-Menu shortcut, and an uninstaller that removes the app, the
 ; registry keys, AND %LOCALAPPDATA%\klarpdf. Compile from the repo root after dist\klarpdf\ exists:
-;   ISCC /DMyAppVersion=0.1.0 packaging\installer.iss
+;   ISCC /DMyAppVersion=0.1.0 packaging\app\installer.iss
 ; build.ps1 passes the version from version.py.
 ;
 ; Two spellings, deliberately (assets\brand\BRAND.md §Type, PROGRESS.md §G2): MyAppName is the
@@ -42,7 +42,7 @@ DefaultDirName={localappdata}\Programs\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
-OutputDir=..\dist
+OutputDir=..\..\dist
 OutputBaseFilename={#MyAppSlug}-setup-{#MyAppArch}
 Compression=lzma2
 SolidCompression=yes
@@ -68,7 +68,7 @@ RestartApplications=no
 SetupMutex={#MyAppMutex}-Setup
 
 [Files]
-Source: "..\dist\{#MyAppSlug}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
+Source: "..\..\dist\{#MyAppSlug}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 ; The `.pdf` DOCUMENT icon, referenced by the ProgID DefaultIcon below. Not embedded in the exe —
 ; the exe carries the APPLICATION icon, and a document is not the program that opens it.
 Source: "{#MyAppDocIco}"; DestDir: "{app}"; Flags: ignoreversion

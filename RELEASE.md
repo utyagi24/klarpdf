@@ -202,8 +202,8 @@ gh api graphql -f query='{user(login:"utyagi24"){hasSponsorsListing}}'   # false
 When it finally returns `true`, delete this block — its whole subject is gone at that point.
 
 1. **Version bump.** Edit `version.py` `__version__` (e.g. `0.9.3` → `0.9.4`). This single value
-   feeds the PyInstaller exe metadata (`packaging/klarpdf.spec`), the Inno `AppVersion`
-   (`packaging/installer.iss`), and the `v<version>` git tag. SemVer: **patch** = fixes / dependency
+   feeds the PyInstaller exe metadata (`packaging/app/klarpdf.spec`), the Inno `AppVersion`
+   (`packaging/app/installer.iss`), and the `v<version>` git tag. SemVer: **patch** = fixes / dependency
    bumps only; **minor** = features; **major** = breaking.
 
 2. **Docs** (same PR as the bump):
@@ -233,7 +233,7 @@ When it finally returns `true`, delete this block — its whole subject is gone 
    ```
 
 4. **CI draft.** The `v*` tag push runs `.github/workflows/release.yml` on a `windows-latest` runner.
-   It executes `packaging/build.ps1` end-to-end — re-fetch + hash-verify the `win_amd64` wheels from
+   It executes `packaging/app/build.ps1` end-to-end — re-fetch + hash-verify the `win_amd64` wheels from
    `requirements-win.txt` → clean build venv (`--require-hashes --no-index`) → PyInstaller onedir +
    onefile → Inno Setup installer → `SHA256SUMS` — uploads the artifacts, and creates a **draft**
    GitHub Release (`draft: true`, auto-generated notes) attaching `klarpdf-setup-x64.exe`,
@@ -305,7 +305,7 @@ When it finally returns `true`, delete this block — its whole subject is gone 
    ```
 
 ### Local build (optional)
-`pwsh packaging/build.ps1` re-fetches wheels then builds; add `-Offline` to build strictly from the
+`pwsh packaging/app/build.ps1` re-fetches wheels then builds; add `-Offline` to build strictly from the
 existing `vendor/wheels` (proves the fully-offline path — populate it once online first). Requires
 Inno Setup 6 installed (see `DEPENDENCIES.md`). Artifacts land in `dist/`.
 
@@ -316,7 +316,7 @@ Inno Setup 6 installed (see `DEPENDENCIES.md`). Artifacts land in `dist/`.
 The bridge has **no version of its own**: it ships under the app's tag and reads `version.py`, so
 "releasing the bridge" is §3 plus the checks below. Run them once, on the release that first carries
 `mcp_bridge/`, and after that only when something in `mcp_bridge/`, `requirements-mcp.*` or
-`packaging/mcpb/` has changed.
+`packaging/mcp/mcpb/` has changed.
 
 This is PLAN.md §MCP / Agent Bridge roadmap → Verification, turned into things you can actually do.
 **Most of it is already automated** — the point of the table is to make the small remainder obvious
@@ -324,7 +324,7 @@ rather than to re-check what CI checks on every PR.
 
 **All ten rows are settled as of 2026-08-27** (M44). Eight are CI checks or a single command; rows
 9 and 10 were done by hand on Windows that day, and row 10's carried question is answered. Redo 9
-and 10 only when `mcp_bridge/`, `requirements-mcp.*` or `packaging/mcpb/` changes materially, or on
+and 10 only when `mcp_bridge/`, `requirements-mcp.*` or `packaging/mcp/mcpb/` changes materially, or on
 a new `uv` / Claude Desktop major version.
 
 | # | Matrix item | How it is checked | Where |
@@ -354,15 +354,15 @@ When 3.15 lands, raise it in this order — the tests fail loudly if you stop ha
 ```bash
 # 1. the window, in the two files that declare it
 #    pyproject.toml            requires-python = ">=3.11,<3.16"
-#    packaging/mcpb/build_mcpb.py   the same string in render_pyproject()
-#    packaging/mcpb/manifest.json   ">=3.11.0 <3.16.0"   (node-semver: SPACE, not comma — M128)
+#    packaging/mcp/mcpb/build_mcpb.py   the same string in render_pyproject()
+#    packaging/mcp/mcpb/manifest.json   ">=3.11.0 <3.16.0"   (node-semver: SPACE, not comma — M128)
 
 # 2. the CI runner, BEFORE the rest — a window with no runner behind it fails its own test
 #    .github/workflows/test.yml   bridge-pyver matrix: add "3.15"
 
 # 3. regenerate the bundle's pyproject, then re-resolve the lock for the new window
-python packaging/mcpb/build_mcpb.py --validate
-cd packaging/mcpb && uv lock          # WITHOUT this the lock still holds only the old versions' wheels
+python packaging/mcp/mcpb/build_mcpb.py --validate
+cd packaging/mcp/mcpb && uv lock          # WITHOUT this the lock still holds only the old versions' wheels
 
 # 4. the claim a user reads
 #    mcp_bridge/README.md         the "What you need" row
@@ -406,7 +406,7 @@ on PATH (the bundle's launcher — Desktop cannot install without it), and **Cla
 `dist\` is gitignored, so a bundle built elsewhere does not travel; build it here.
 
 ```powershell
-py -3.12 packaging\mcpb\build_mcpb.py     # -> dist\klarpdf-<version>.mcpb  (stdlib only)
+py -3.12 packaging\mcp\mcpb\build_mcpb.py     # -> dist\klarpdf-<version>.mcpb  (stdlib only)
 .\.venv\Scripts\Activate.ps1              # NOT the same as calling the venv's python.exe — see below
 python -m pip install -e . --no-deps      # once per checkout; puts klarpdf-mcp on PATH
 python tools\mcp_stdio_check.py           # expect 13 passed
@@ -432,14 +432,14 @@ Verified 2026-08-27 on Windows: **13 passed, 0 failed**, against `klarpdf-mcp 0.
 ### 9 — Claude Desktop
 
 ```bash
-python packaging/mcpb/build_mcpb.py     # -> dist/klarpdf-<version>.mcpb
+python packaging/mcp/mcpb/build_mcpb.py     # -> dist/klarpdf-<version>.mcpb
 ```
 
 Needs Node (for `npx @anthropic-ai/mcpb`) and, on the *installing* machine,
 [`uv`](https://docs.astral.sh/uv/) on PATH. Then:
 
 1. Open the `.mcpb`. Claude Desktop should offer to install it.
-2. Confirm the tool list matches `packaging/mcpb/manifest.json` — **19** as of v0.17.1. Count it
+2. Confirm the tool list matches `packaging/mcp/mcpb/manifest.json` — **19** as of v0.17.1. Count it
    from the manifest rather than from here: a test pins the manifest to what the server registers,
    so the manifest cannot go stale and this line can (it said 16 for three tools longer than it was
    true).
@@ -512,7 +512,7 @@ discriminating experiment is a lock that **disagrees** with a fresh resolve:
   ours (139 `sha256` entries), and all 29 audited pins were installed at exactly their audited
   versions.
 
-**What it changed.** `build_mcpb.py` now stages `uv.lock` into `server/`, `packaging/mcpb/uv.lock` is
+**What it changed.** `build_mcpb.py` now stages `uv.lock` into `server/`, `packaging/mcp/mcpb/uv.lock` is
 committed, and `mcp_bridge/README.md` says the bundle installs from a shipped hashed lock. Two tests
 hold it: the bundle must ship the lock, and the lock must stay in step with the generated
 `pyproject.toml` (a dependency bump that skips `uv lock` would otherwise ship a stale lock silently —
@@ -527,13 +527,13 @@ not separately audited. The README says exactly this; do not shorten it to "the 
 **Regenerating the lock** — after any change to `requirements-mcp.txt`:
 
 ```powershell
-cd packaging\mcpb
+cd packaging\mcp\mcpb
 uv lock                      # refreshes uv.lock beside the generated pyproject.toml
 py -3.12 build_mcpb.py       # stages it into server/ and packs the bundle
 ```
 
 > **Before M129 the second line did not do what the first implies.** `stage()` copied the packages,
-> `version.py` and `pyproject.toml` and stopped, so a generated lock stayed in `packaging/mcpb/` and
+> `version.py` and `pyproject.toml` and stopped, so a generated lock stayed in `packaging/mcp/mcpb/` and
 > never reached `server/`. Anyone following the old instructions would have installed a bundle with
 > **no lock in it**, watched `uv` write its own, and recorded "not honoured" — the wrong answer to
 > the question this row exists to settle.

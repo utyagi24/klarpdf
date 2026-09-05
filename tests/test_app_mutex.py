@@ -24,7 +24,7 @@ import pytest
 
 import platform_integration as pi
 
-ISS = Path(__file__).resolve().parents[1] / "packaging" / "installer.iss"
+ISS = Path(__file__).resolve().parents[1] / "packaging" / "app" / "installer.iss"
 
 
 def _iss_define(name: str) -> str:

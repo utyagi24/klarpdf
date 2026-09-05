@@ -283,7 +283,7 @@ fetched, the **build itself is fully offline** (`--no-index --require-hashes`) a
 from the lock alone.
 
 **3. Freeze (bundle Python + Qt + libs).** **PyInstaller** (pinned) with a checked-in
-`packaging/klarpdf.spec`, built `--onedir --noconsole` on Windows (cannot be cross-built from
+`packaging/app/klarpdf.spec`, built `--onedir --noconsole` on Windows (cannot be cross-built from
 WSL). `--onedir` (vs `--onefile`) gives faster startup and a clean tree for the installer to lay
 down; a secondary `--onefile` build also ships as a portable, run-anywhere `.exe` (see §5 — it
 trades slower per-launch startup and no auto-association for zero-install portability). Output
@@ -293,7 +293,7 @@ PyInstaller output is **not byte-identical** across builds due to timestamps —
 bit-repro.)
 
 **4. Installer + registry (one self-contained `setup.exe`).** **Inno Setup** (free, mature,
-widely used; script-driven) with a checked-in `packaging/installer.iss` that:
+widely used; script-driven) with a checked-in `packaging/app/installer.iss` that:
 - bundles the entire `dist/klarpdf/` tree (so the `.exe` carries every dependency — no downloads
   at install time, satisfying offline-install),
 - `[Registry]` writes a **per-user ProgID** under `HKCU\Software\Classes` (no admin):
@@ -310,10 +310,10 @@ widely used; script-driven) with a checked-in `packaging/installer.iss` that:
 **5. Build & release pipeline (GitHub Actions; manual + tag-triggered).** A checked-in
 `.github/workflows/release.yml` runs on a **`windows-latest`** runner, triggered both by
 **`workflow_dispatch`** (a "Run workflow" button in the Actions tab, also `gh workflow run`) and by
-a **`push` of a `v*` tag**. It drives the same one-command `packaging/build.ps1` (also runnable
+a **`push` of a `v*` tag**. It drives the same one-command `packaging/app/build.ps1` (also runnable
 locally) end-to-end: re-fetch + hash-verify the `win_amd64` wheels from `requirements-win.txt` (not
 committed — see §2) → clean build venv (`--require-hashes --no-index`) + pinned PyInstaller → **two
-artifacts** from `packaging/klarpdf.spec`: the **`--onedir --noconsole`** tree for the installer and
+artifacts** from `packaging/app/klarpdf.spec`: the **`--onedir --noconsole`** tree for the installer and
 a portable **`--onefile` `klarpdf-portable-x64.exe`** → Inno Setup (`ISCC installer.iss`) →
 `klarpdf-setup-x64.exe` → smoke-test (launch + open a PDF). Both artifact names carry an explicit
 **`-x64`** suffix — the only architecture built today (§2's `win_amd64`-pinned wheels, built on a
@@ -345,7 +345,7 @@ cleanup. The sections below record the **design and rationale**; for what is don
 - **Branding (name + logo) — decided: KlarPDF.** `pdfproj` was a development codename, not a product
   brand; the name had to be settled **before** the name-dependent artifacts below (license copyright,
   About dialog, community files, README) so they bake in the final identity. The gate is closed — the
-  visual system landed first, then the rebrand sweep across `version.py`, `packaging/installer.iss`
+  visual system landed first, then the rebrand sweep across `version.py`, `packaging/app/installer.iss`
   (AppName / Publisher / `AppId` / ProgID), the window title, the single-instance + `%LOCALAPPDATA%`
   identifiers, the annotation author tag, the `.ico` + toolbar SVG assets, and the **GitHub repo name**
   (rename while private — old links redirect). Name, casing mapping and the two-part split are tracked
@@ -392,7 +392,7 @@ cleanup. The sections below record the **design and rationale**; for what is don
 - **In-app About + Open-Source Licenses dialog.** The app has no Help menu today; a proper OSS release
   adds **About** (version + AGPL + no-warranty notice + source-repo link at the matching tag) and an
   **Open-Source Licenses** view (the bundled license texts), shipped offline via
-  `packaging/klarpdf.spec` `datas` + a freeze-aware `resource_path()` (mirroring `ui/icons.py`).
+  `packaging/app/klarpdf.spec` `datas` + a freeze-aware `resource_path()` (mirroring `ui/icons.py`).
 - **Community-health files:** `SECURITY.md`, `CONTRIBUTING.md` (DCO, deemed-accepted), `CODE_OF_CONDUCT.md`
   (Contributor Covenant), and `.github/` issue/PR templates.
 - **Donations (repo + product).** Add a `.github/FUNDING.yml` (repo "Sponsor" button) + a README
@@ -496,7 +496,7 @@ as OS-specific code stays quarantined.
 - **Small platform branches:** `util/paths.py` (case semantics), `store/settings.py` (config path,
   solved by hedge #1), `app.py`/`launcher.py` focus/raise shims (Wayland forbids programmatic
   activation) + the IPC socket path (same Qt API, different underlying transport).
-- **Full rewrite per OS:** `packaging/installer.iss` → AppImage/Flatpak/.deb; `build.ps1` →
+- **Full rewrite per OS:** `packaging/app/installer.iss` → AppImage/Flatpak/.deb; `build.ps1` →
   `build.sh`; HKCU registry association → MIME + `.desktop` (`xdg-mime`); `vendor/wheels/` →
   `manylinux` wheels; `klarpdf.spec` → Linux conditionals.
 - **Rule of thumb:** the *application* ports almost for free; the *installer + file-association +
@@ -532,9 +532,9 @@ klarpdf/
   DEPENDENCIES.md              # each lib: purpose, why reputable, license, exact version; + pinned Python/PyInstaller/Inno versions
   .gitattributes               # *.py eol=lf; *.ps1/*.iss eol=crlf — clean across the WSL + Windows checkouts
   version.py                   # single source of version → PyInstaller exe metadata, Inno AppVersion, git tag
-  packaging/klarpdf.spec       # PyInstaller spec → --onedir (installer) + --onefile (portable .exe), icon, data files
-  packaging/installer.iss      # Inno Setup: bundles dist/, [Registry] ProgID + .pdf assoc (HKCU), Start Menu, uninstaller (+ [UninstallDelete] %LOCALAPPDATA%\klarpdf)
-  packaging/build.ps1          # offline build: --require-hashes --no-index, PyInstaller (onedir+onefile), ISCC — reproducible
+  packaging/app/klarpdf.spec       # PyInstaller spec → --onedir (installer) + --onefile (portable .exe), icon, data files
+  packaging/app/installer.iss      # Inno Setup: bundles dist/, [Registry] ProgID + .pdf assoc (HKCU), Start Menu, uninstaller (+ [UninstallDelete] %LOCALAPPDATA%\klarpdf)
+  packaging/app/build.ps1          # offline build: --require-hashes --no-index, PyInstaller (onedir+onefile), ISCC — reproducible
   .github/workflows/release.yml # CI: windows-latest; workflow_dispatch + v* tag → build.ps1 → GitHub Release (setup.exe + portable + SHA256SUMS + wheels)
 ```
 
@@ -573,11 +573,11 @@ Each step is tagged **(WSL)** / **(WSLg)** / **(Windows)** per the Development e
    `PermissionError` on a bounded backoff: on Windows the rename needs exclusive access to both
    paths, and an on-access antivirus scanner holding the just-written temp open is enough to fail a
    save that would succeed 200 ms later.
-9. **Freeze + installer + release pipeline — (Windows ONLY).** `packaging/klarpdf.spec` (PyInstaller
+9. **Freeze + installer + release pipeline — (Windows ONLY).** `packaging/app/klarpdf.spec` (PyInstaller
    `--onedir --noconsole` for the installer **plus a `--onefile` portable `.exe`**) →
-   `packaging/installer.iss` (Inno Setup) bundling `dist/klarpdf/`, writing the `HKCU` ProgID + `.pdf`
+   `packaging/app/installer.iss` (Inno Setup) bundling `dist/klarpdf/`, writing the `HKCU` ProgID + `.pdf`
    Open-With association, with an uninstaller that **also wipes `%LOCALAPPDATA%\klarpdf`**.
-   `packaging/build.ps1` ties pin→freeze→install into one offline, reproducible command;
+   `packaging/app/build.ps1` ties pin→freeze→install into one offline, reproducible command;
    `.github/workflows/release.yml` runs it on `windows-latest` (`workflow_dispatch` + `v*` tag) and
    publishes the GitHub Release (installer + portable + `SHA256SUMS` + wheels). **Cannot be cross-built
    from WSL.** Setting it as *the* default is the user's one-time confirm. Code signing is deferred.
@@ -617,7 +617,7 @@ committed back, keeping the repo canonical).
   build); install **git + an SSH key** (or HTTPS + `gh`) and `git clone` to `C:\Users\<you>\klarpdf`;
   install **Inno Setup** (pin its version in `DEPENDENCIES.md`).
 - *Per handoff:* `git pull` → `py -3.12 -m pytest -q` (the core passes on Windows Python too) →
-  `packaging\build.ps1` → validate Windows-only behaviors → commit Windows artifacts back.
+  `packaging\app\build.ps1` → validate Windows-only behaviors → commit Windows artifacts back.
 - *De-risk early:* do a throwaway handoff right after **M1** (pull, run tests, trial a PyInstaller
   freeze of a stub) to catch "works-in-WSL / breaks-on-Windows" issues long before M8. This needs
   only python.org Python + PyInstaller on Windows (a subset of the one-time setup above) — Inno
@@ -672,7 +672,7 @@ Run with `py -3.12 -m pytest -q` (or `pytest` in the project venv).
   fresh venv succeeds; then flip one hash/version in `requirements-win.txt` and confirm pip **aborts**
   (proves nothing can silently drift). Rebuilding twice yields the same dependency versions.
 - **Offline build:** disconnect the network (or build inside a no-egress shell) and run
-  `packaging/build.ps1` end-to-end from `vendor/wheels/` — produces `klarpdf-setup-x64.exe` with no
+  `packaging/app/build.ps1` end-to-end from `vendor/wheels/` — produces `klarpdf-setup-x64.exe` with no
   downloads.
 - **Offline install on a clean machine:** on a Windows VM with **no Python and networking
   disabled**, run `setup.exe` → installs and launches; the dependency set bundled matches
@@ -756,7 +756,7 @@ layer at all — it's drag-and-drop + viewer-mode UX.)
 
 | Milestone | Feature | Where | Done when |
 |---|---|---|---|
-| **M10** Icons | App `.ico` (closes the open follow-up) + toolbar icons for undo/redo, zoom-in/out, cut/copy/paste. `QApplication.setWindowIcon`; wire `icon=` into `packaging/klarpdf.spec` and `SetupIconFile` into `packaging/installer.iss`. | WSLg + **Win** | App has a real icon (taskbar + installed); toolbar buttons are iconographic |
+| **M10** Icons | App `.ico` (closes the open follow-up) + toolbar icons for undo/redo, zoom-in/out, cut/copy/paste. `QApplication.setWindowIcon`; wire `icon=` into `packaging/app/klarpdf.spec` and `SetupIconFile` into `packaging/app/installer.iss`. | WSLg + **Win** | App has a real icon (taskbar + installed); toolbar buttons are iconographic |
 | **M11** Zoom UX | `zoomChanged` signal from `PdfView`; live "150%" indicator (toolbar combo); **Actual Size / 100%** action (Ctrl+0); preset levels. Extends `PdfView.set_zoom`. | WSLg | Magnification % always visible; one click resets to 100% |
 | **M12** Printing | `QPrintDialog` + `QPrinter`; render each page via PyMuPDF at printer DPI, paint with `QPainter`; page-range + current-page. Confirm `QtPrintSupport` + plugins survive the freeze. | WSL logic; **Win** print validation | System print dialog prints the open doc correctly |
 | **M13** Recent documents | MRU list in `store/settings.py`; dynamic **File ▸ Open Recent** submenu (app-global, refreshed across windows); dedupe via `normalize_path`, drop missing files, "Clear Recent". Reopen routes through `app.open_document` (free single-instance dedupe). | WSL | Recent files listed; reopen in one click |
@@ -806,7 +806,7 @@ played for v0.1.0).
 
 **Shipped in v0.2.0:** `model/page_edits.py` (form-value descriptors, snapshotted with `ordered[]`),
 `viewer/printing.py` (QPrinter render), `viewer/zoom_widget.py`, `viewer/form_fill.py` (inline
-fill), `ui/icons.py` + `ui/icons/*.svg`, `packaging/klarpdf.ico` + `packaging/make_icon.py`; tests
+fill), `ui/icons.py` + `ui/icons/*.svg`, `packaging/app/klarpdf.ico` + `packaging/app/make_icon.py`; tests
 `test_form_fill.py`, `test_form_fill_ui.py`, `test_zoom.py`, `test_recent.py`, `test_icons.py`,
 `test_printing.py`. (Sources are opened from an in-memory stream + `VirtualDocument.fresh_source` so
 in-place Save isn't blocked by a file lock and repeated saves keep widgets.)
@@ -1185,7 +1185,7 @@ bugs cannot happen.
   `mcp_bridge/README.md` rather than left to be discovered. `tests/test_mcp_packaging.py` pins the
   command, so a later edit back to a bare interpreter cannot quietly reintroduce the need for
   vendored dependencies the format forbids.
-  **How it is built:** `packaging/mcpb/build_mcpb.py` assembles `server/` from the checkout
+  **How it is built:** `packaging/mcp/mcpb/build_mcpb.py` assembles `server/` from the checkout
   (`mcp_bridge/`, `model/`, `util/`, `version.py`, minus `model/edit_commands.py` — the one
   Qt-importing file), generates the bundle's `pyproject.toml` **from `requirements-mcp.txt** so the
   two cannot drift, and runs `mcpb pack`. The `.mcpb` is a **release artifact in `dist/`, not a
@@ -1218,7 +1218,7 @@ bugs cannot happen.
   that fetches them is not itself audited.
 - **`binary` was considered and rejected** (2026-08-12) — a PyInstaller-frozen `klarpdf-mcp` shipped
   as a compiled executable would have been offline, hash-verifiable, Python-free on the user's
-  machine, and reused `packaging/klarpdf.spec`. It loses on reach: it is platform-specific, and the
+  machine, and reused `packaging/app/klarpdf.spec`. It loses on reach: it is platform-specific, and the
   bridge — unlike the app — is cross-platform and worth offering to Desktop users who do not run
   KlarPDF at all. Revisit if the online-install requirement ever proves unacceptable. **`python` is
   the worst option for us** and is not on the table: vendored and offline, but it requires a Python
@@ -4846,7 +4846,7 @@ not the clock.
 
 | Milestone | What | Where | Verify |
 | --- | --- | --- | --- |
-| **M115** Declare the core's PDF engine in **one** place, so the two surfaces cannot resolve it differently | new `requirements-core.in` (the exact pin), `-r`-included by `requirements.in` and `requirements-mcp.in`, which no longer name PyMuPDF at all; `requirements-mcp.txt` / `requirements-dev.txt` / `packaging/mcpb/pyproject.toml` recompiled; `tests/test_mcp_packaging.py` + `tests/test_mcp_no_qt.py` | WSL + Windows | Every lock names one PyMuPDF; reintroducing the drift, or floating a shared library back to a floor, fails the suite; the bridge still reaches neither Qt nor pypdf with every tool exercised |
+| **M115** Declare the core's PDF engine in **one** place, so the two surfaces cannot resolve it differently | new `requirements-core.in` (the exact pin), `-r`-included by `requirements.in` and `requirements-mcp.in`, which no longer name PyMuPDF at all; `requirements-mcp.txt` / `requirements-dev.txt` / `packaging/mcp/mcpb/pyproject.toml` recompiled; `tests/test_mcp_packaging.py` + `tests/test_mcp_no_qt.py` | WSL + Windows | Every lock names one PyMuPDF; reintroducing the drift, or floating a shared library back to a floor, fails the suite; the bridge still reaches neither Qt nor pypdf with every tool exercised |
 
 **Found while preparing §M114, which is entirely about what the engine writes.** The shipped app
 pins `pymupdf==1.27.2.3`; the bridge's lock had `pymupdf==1.28.2`. PyMuPDF is not one dependency
@@ -4943,7 +4943,7 @@ One existing test had to change with them. `test_the_declared_floors_match_the_l
 while both were floors. They are legitimately different kinds, so it now asserts the same package
 **set** plus "the compiled pin satisfies the declared floor", and its parser follows `-r` includes,
 without which the shared engine would read as declared by nobody. One generated artefact follows the
-lock and was regenerated: `packaging/mcpb/pyproject.toml`, which the suite caught by itself.
+lock and was regenerated: `packaging/mcp/mcpb/pyproject.toml`, which the suite caught by itself.
 
 **The audit found a second library in the same position, and it was unguarded.** Asked whether
 anything *else* belonging to the core is declared per-surface, the answer across `model/`, `viewer/`,
@@ -5816,7 +5816,7 @@ list of things that really do need a human and a machine — here, two.
 
 | Milestone | What | Where | Verify |
 | --- | --- | --- | --- |
-| **M127.1** `npx` is started by a resolved path, so `build_mcpb.py` runs on Windows | `resolve_npx()` in `packaging/mcpb/build_mcpb.py` | Windows | `py -3.12 packaging\mcpb\build_mcpb.py` → `built dist\klarpdf-<version>.mcpb (199 KiB)` |
+| **M127.1** `npx` is started by a resolved path, so `build_mcpb.py` runs on Windows | `resolve_npx()` in `packaging/mcp/mcpb/build_mcpb.py` | Windows | `py -3.12 packaging\mcp\mcpb\build_mcpb.py` → `built dist\klarpdf-<version>.mcpb (199 KiB)` |
 | **M127.2** A missing Node says so instead of raising `WinError 2` | same function | WSL + Windows | `test_a_missing_node_is_reported_rather_than_raising_winerror_2` |
 
 **What happened.** M44 row 9 asks for a `.mcpb` installed in Claude Desktop, and building one is the
@@ -5859,7 +5859,7 @@ is safe because `pdftotext.exe` is a real `.exe` that `CreateProcess` resolves u
 
 | Milestone | What | Where | Verify |
 | --- | --- | --- | --- |
-| **M128.1** `compatibility.runtimes.python` is a node-semver range, not a PEP 440 specifier | `packaging/mcpb/manifest.json` | Windows (Claude Desktop) | The install dialog's **Python >=3.12.0 <3.13.0** requirement shows met on a 3.12.10 machine |
+| **M128.1** `compatibility.runtimes.python` is a node-semver range, not a PEP 440 specifier | `packaging/mcp/mcpb/manifest.json` | Windows (Claude Desktop) | The install dialog's **Python >=3.12.0 <3.13.0** requirement shows met on a 3.12.10 machine |
 | **M128.2** The comma cannot come back, and the two files cannot drift apart | `test_the_manifest_runtime_range_is_semver_not_pep_440`, `test_the_two_python_requirements_describe_the_same_window` | WSL + CI | Restoring `>=3.12,<3.13` fails the first with the range quoted |
 
 **What happened.** Installing the `.mcpb` in Claude Desktop showed **Python >=3.12,<3.13** as an
@@ -5903,7 +5903,7 @@ agree, which is what M128.2 is. Grep for the fact, not the string: `requires-pyt
 | Milestone | What | Where | Verify |
 | --- | --- | --- | --- |
 | **M129.1** `uv run --directory` honours a committed `uv.lock` — measured, not assumed | the experiment below | Windows (Claude Desktop) | A bundle whose lock pins `colorama==0.4.5` installs 0.4.5, where a fresh resolve gives 0.4.6 |
-| **M129.2** The `.mcpb` carries `uv.lock`, so the install is hash-verified from a file we wrote | `stage()` in `packaging/mcpb/build_mcpb.py`; `packaging/mcpb/uv.lock` committed | WSL + CI | `test_the_bundle_ships_its_lock` |
+| **M129.2** The `.mcpb` carries `uv.lock`, so the install is hash-verified from a file we wrote | `stage()` in `packaging/mcp/mcpb/build_mcpb.py`; `packaging/mcp/mcpb/uv.lock` committed | WSL + CI | `test_the_bundle_ships_its_lock` |
 | **M129.3** A dependency bump cannot ship a stale lock silently | `test_the_committed_lock_is_in_step_with_the_generated_pyproject` | WSL + CI | Bump a pin in the pyproject without re-locking → fails, naming the drift |
 
 **The question, and why it survived two milestones.** PLAN asked M42 whether the host honours a
@@ -5923,7 +5923,7 @@ cannot provoke a re-lock, which would have been ambiguous), and is unused on the
 A bundle pinning `colorama==0.4.5` against a fresh resolve's `0.4.6`, installed after a **full**
 uninstall so no `.venv` or prior lock survived, produced **0.4.5**. The lock is honoured.
 
-**What shipped.** `stage()` copies `uv.lock` into `server/`, and `packaging/mcpb/uv.lock` is
+**What shipped.** `stage()` copies `uv.lock` into `server/`, and `packaging/mcp/mcpb/uv.lock` is
 committed beside the generated `pyproject.toml`. The consequence is that a Desktop install now
 resolves from a file we wrote and review, with a `sha256` per wheel, instead of from whatever a fresh
 resolve picks on the day. It also covers **more** than `requirements-mcp.txt` structurally can: that
@@ -5938,7 +5938,7 @@ audited. "Installs from a shipped hashed lock" is the honest claim; "the bundle 
 **A defect found on the way, and it is the sharpest of the four this session.** `RELEASE.md` row 10
 told the reader to run `uv lock` and rebuild *"so the lock travels inside the bundle"*. It did not:
 `stage()` copied the packages, `version.py` and `pyproject.toml` and stopped, leaving the lock in
-`packaging/mcpb/`. Following the runbook exactly would have installed a bundle **containing no lock**,
+`packaging/mcp/mcpb/`. Following the runbook exactly would have installed a bundle **containing no lock**,
 shown `uv` generating its own, and recorded *"not honoured"* — a **false negative** on a question
 carried since M42, written down as the answer. M126, M127 and M128 were checks that named something
 that did not work; this one would have produced a confident wrong belief. The rule it argues for is
@@ -5998,10 +5998,10 @@ had been written down, not what was happening.
 | --- | --- | --- | --- |
 | **M131.1** A tag builds and attaches `klarpdf-<version>.mcpb` | `.github/workflows/release.yml` | CI (Windows) | A `workflow_dispatch` dry run lists the `.mcpb` among its artifacts |
 | **M131.2** The bundle is covered by `SHA256SUMS` | same, appended after `build.ps1` | CI | The file has three lines: two exes + the bundle |
-| **M131.3** The packer is pinned, not floated | `MCPB_CLI_VERSION` in `packaging/mcpb/build_mcpb.py` | WSL + Windows | The build invokes `@anthropic-ai/mcpb@2.1.2` |
+| **M131.3** The packer is pinned, not floated | `MCPB_CLI_VERSION` in `packaging/mcp/mcpb/build_mcpb.py` | WSL + Windows | The build invokes `@anthropic-ai/mcpb@2.1.2` |
 
 **What happened.** **v0.18.0 shipped as "the MCP / Agent Bridge" with no bridge bundle attached.**
-`release.yml` runs `packaging/build.ps1` and attaches four files, none of them the `.mcpb`; it has
+`release.yml` runs `packaging/app/build.ps1` and attaches four files, none of them the `.mcpb`; it has
 never invoked `build_mcpb.py`. So the only route to the one-click Claude Desktop install was cloning
 the repo and running the packer, which needs Node — and `mcp_bridge/README.md` says exactly that,
 which is why it never read as a gap. The artifact three milestones went into making correct
@@ -6040,8 +6040,8 @@ whether that thing is in the release** — which is now literally what §3 step 
 
 | | Where | Platform | Verified by |
 |---|---|---|---|
-| **M132.1** The window is `>=3.11,<3.15` rather than a single version | `pyproject.toml`, `packaging/mcpb/build_mcpb.py`, `packaging/mcpb/manifest.json`, `packaging/mcpb/uv.lock` | WSL | `uv lock` re-resolves the whole window and **moves no pin**; `mcpb validate` passes. The interpreters themselves are M132.3's job — this WSL box has only 3.12 |
-| **M132.2** The lock carries wheels for every version, not just the one it was resolved for | `packaging/mcpb/uv.lock` (re-run `uv lock`) | WSL | `rpds-py` went from 16 cp312 wheels to cp311/cp312/cp313/cp314 |
+| **M132.1** The window is `>=3.11,<3.15` rather than a single version | `pyproject.toml`, `packaging/mcp/mcpb/build_mcpb.py`, `packaging/mcp/mcpb/manifest.json`, `packaging/mcp/mcpb/uv.lock` | WSL | `uv lock` re-resolves the whole window and **moves no pin**; `mcpb validate` passes. The interpreters themselves are M132.3's job — this WSL box has only 3.12 |
+| **M132.2** The lock carries wheels for every version, not just the one it was resolved for | `packaging/mcp/mcpb/uv.lock` (re-run `uv lock`) | WSL | `rpds-py` went from 16 cp312 wheels to cp311/cp312/cp313/cp314 |
 | **M132.3** Every claimed version is actually run | `bridge-pyver` in `.github/workflows/test.yml` | CI | The bridge suite installs and passes on 3.11 / 3.13 / 3.14 |
 | **M132.4** The three declarations cannot drift, and none is claimed without a runner | `test_the_three_python_declarations_are_one_window`, `test_every_compiled_pin_has_a_wheel_for_every_python_in_the_window`, `test_every_python_in_the_window_is_run_by_some_ci_job` | WSL + CI | Restoring `==3.12.*` to the lock, or dropping 3.11 from the matrix, fails with the reason quoted |
 
@@ -6090,7 +6090,7 @@ version and never spells the bound the other two use.
 
 | Milestone | Where | Platform | Done when |
 |---|---|---|---|
-| **M133** `packaging/` bifurcates into `app/` and `mcp/` | `packaging/{app,mcp}/`, ~90 references | WSL | Pure moves, no behaviour change; `invoke build`, `build_mcpb.py` and both workflows still find their inputs |
+| **M133** `packaging/` bifurcates into `app/` and `mcp/` | `packaging/{app,mcp}/`, 108 textual references + 17 computed paths | WSL (+ Windows build) | `build_mcpb.py --validate` and the suite pass. **Not** "pure moves" — see below. `invoke build` on Windows is the only check of the PowerShell/Inno/spec root computations |
 | **M134** One top-level name: everything moves under `klarpdf/` | `klarpdf/{mcp_bridge,model,util,version.py}`, 393 import sites | WSL | Suite green; a built wheel installs exactly one top-level name |
 | **M135** Publish one distribution to PyPI | `pyproject.toml`, `packaging/mcp/pypi/`, `.github/workflows/publish-pypi.yml` | WSL + CI | `uvx --from klarpdf klarpdf-mcp` starts the server from a machine with no clone; built metadata carries all 29 pins |
 | **M136** `install.py` — a bootstrap needing nothing but a supported Python | `packaging/mcp/installer/`, `tests/`, `.github/workflows/test.yml` | WSL + CI | Download, run, and a client is talking to the bridge; no clone, no `uv`, no `pipx`, no global `pip` |
@@ -6142,8 +6142,8 @@ this directly contradicts a single downloadable file, and single-file wins. `--v
 Floors in published metadata (decision 2), which would give a `uvx` install and an `install.py`
 install different dependency sets from one package. `~/Library/Application Support/KlarPDF/mcp` and
 `%LOCALAPPDATA%\KlarPDF\mcp` — nested under a differently-cased app folder, when the app already
-sets `setApplicationName("klarpdf")` (`app.py:74`). `packaging/installer/`, which would have sat
-beside `packaging/installer.iss` and meant the other thing. A 3-OS × 4-Python integration matrix
+sets `setApplicationName("klarpdf")` (`app.py:74`). `packaging/installer/`, which at the time
+would have sat beside the app's top-level `installer.iss` and meant the other thing. A 3-OS × 4-Python integration matrix
 (12 legs, each downloading PyMuPDF), against unit tests plus one integration leg per OS. A
 `~/.local/bin` symlink (decision 9). Independent bridge versioning (decision 3). `klarpdf-mcp` as
 the real distribution name (decision 1) — it stays the **console script** name, and may later become
@@ -6182,6 +6182,29 @@ meet that bar either.
   `PROGRESS.md`. Every runtime-code mention of `packaging/` is a comment or docstring, not a
   filesystem path, so no app code breaks.
 - **Both PyPI names were unregistered** (`klarpdf`, `klarpdf-mcp` → 404).
+
+**What M133 taught, and it applies to M134 twice over.** The plan called the bifurcation "pure
+moves, no behaviour change". The textual half was — 108 references across 27 files, mechanical. But
+**17 sites in 8 files contained no `packaging/` string at all**, so no grep could reach them, and
+they fall in two classes that will both recur when `model/`, `util/` and `mcp_bridge/` move under
+`klarpdf/`:
+
+- **A repo root computed by counting directories up** — `HERE.parent.parent`,
+  `Path(SPECPATH).resolve().parent`, `Split-Path -Parent $PSScriptRoot`, Inno's `..\dist`. Each
+  silently addresses a different directory one level deeper, and none names the folder it counts
+  from. A move does not break these loudly; it repoints them.
+- **Paths assembled from components** — `ROOT / "packaging" / "mcpb" / "manifest.json"`. The
+  substring being searched for never occurs. `tests/test_app_mutex.py` was absent from the
+  reference inventory entirely for this reason.
+
+The first was found by **running** `build_mcpb.py`, which died on `FileNotFoundError:
+…/packaging/version.py`; reading the diff would not have shown it, because the diff was correct.
+`tests/test_packaging_layout.py` now pins the two that no other test and no Linux run can reach —
+Inno's relative paths and `build.ps1`'s walk-up count — each verified by reverting the fix and
+watching it fail. So the M134 procedure is: rewrite imports, then **execute every entry point** — the console script,
+the `.spec`, the bundle builder — rather than trusting a green grep. And note what the suite cannot
+cover: `build.ps1`, `installer.iss` and the `.spec`'s `SPECPATH` only execute during a Windows
+build, so three of these five fixes are unverifiable in WSL by construction.
 
 **What M134 is *not* a one-way door about.** The package has **no importable API** — its entire
 public surface is the `klarpdf-mcp` console script, which is what `.mcp.json`, every client config

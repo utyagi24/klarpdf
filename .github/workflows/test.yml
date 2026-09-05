@@ -250,7 +250,7 @@ jobs:
           # An EMPTY list must NOT count as irrelevant: no diff is an unexpected state, and the safe
           # response is to run. Same guard as the docs-only gate above, for the same reason.
           if [ -n "$files" ] && ! printf '%s\n' "$files" | grep -qE \
-             '^(mcp_bridge/|model/|util/|packaging/mcpb/|tests/test_mcp_|requirements-(core|mcp)\.(in|txt)$|pyproject\.toml$|\.github/workflows/test\.yml$)'; then
+             '^(mcp_bridge/|model/|util/|packaging/mcp/mcpb/|tests/test_mcp_|requirements-(core|mcp)\.(in|txt)$|pyproject\.toml$|\.github/workflows/test\.yml$)'; then
             echo "relevant=false" >> "$GITHUB_OUTPUT"
             echo "-> nothing here reaches the bridge: reporting the check as evaluated."
           else
@@ -319,7 +319,7 @@ jobs:
           files=$(git diff --name-only "${BASE_SHA}...${HEAD_SHA}")   # 3 dots = diff vs the merge base
           echo "Changed files:"; printf '%s\n' "$files"
           if [ -n "$files" ] && ! printf '%s\n' "$files" | grep -qE \
-             '^(mcp_bridge/|model/|util/|packaging/mcpb/|tests/test_mcp_|requirements-(core|mcp)\.(in|txt)$|pyproject\.toml$|\.github/workflows/test\.yml$)'; then
+             '^(mcp_bridge/|model/|util/|packaging/mcp/mcpb/|tests/test_mcp_|requirements-(core|mcp)\.(in|txt)$|pyproject\.toml$|\.github/workflows/test\.yml$)'; then
             echo "relevant=false" >> "$GITHUB_OUTPUT"
             echo "-> nothing here reaches the bridge: reporting the check as evaluated."
           else
@@ -389,7 +389,7 @@ jobs:
           files=$(git diff --name-only "${BASE_SHA}...${HEAD_SHA}")   # 3 dots = diff vs the merge base
           echo "Changed files:"; printf '%s\n' "$files"
           if [ -n "$files" ] && ! printf '%s\n' "$files" | grep -qE \
-             '^(mcp_bridge/|model/|util/|packaging/mcpb/|tests/test_mcp_|requirements-(core|mcp)\.(in|txt)$|pyproject\.toml$|\.github/workflows/test\.yml$)'; then
+             '^(mcp_bridge/|model/|util/|packaging/mcp/mcpb/|tests/test_mcp_|requirements-(core|mcp)\.(in|txt)$|pyproject\.toml$|\.github/workflows/test\.yml$)'; then
             echo "relevant=false" >> "$GITHUB_OUTPUT"
             echo "-> nothing here reaches the bridge: reporting the check as evaluated."
           else

@@ -4,7 +4,7 @@ PLAN.md, Viewer: "Remember last page/zoom/scroll per document in a small local J
 QStandardPaths app-config dir (%LOCALAPPDATA%\\klarpdf on Windows, ~/.config/klarpdf on Linux),
 keyed by identity path." Using ``AppConfigLocation`` (not a literal path) is Portability hedge #1 —
 Qt resolves it per-OS, so the same code is correct on Windows and Linux. Note it resolves to
-**Local** AppData on Windows, not Roaming (%APPDATA%); ``packaging/installer.iss`` must match.
+**Local** AppData on Windows, not Roaming (%APPDATA%); ``packaging/app/installer.iss`` must match.
 
 Offline, auditable, human-readable JSON. The identity key is :func:`util.paths.normalize_path`,
 the single chokepoint, so this store never disagrees with the single-instance "already open?"

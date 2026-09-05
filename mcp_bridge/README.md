@@ -113,7 +113,7 @@ bundle in two ways:
 - **Download it** — `klarpdf-<version>.mcpb` from the
   [latest release](https://github.com/utyagi24/klarpdf/releases/latest), with `SHA256SUMS` alongside
   it. No clone and no Node required.
-- **Build from a checkout** — run `python packaging/mcpb/build_mcpb.py`. This needs
+- **Build from a checkout** — run `python packaging/mcp/mcpb/build_mcpb.py`. This needs
   [Node](https://nodejs.org), since the packer itself is a Node tool. The script's header documents
   exactly what goes into the bundle and what's deliberately left out.
 
