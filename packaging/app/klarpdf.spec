@@ -9,14 +9,14 @@ wheels on a windows-latest x64 runner) so a future arm64 build can't collide wit
 for this one.
 
 Both are windowed (no console). Build on Windows; cannot be cross-built from WSL. Run from the
-repo root:  py -3.12 -m PyInstaller packaging/klarpdf.spec --noconfirm
+repo root:  py -3.12 -m PyInstaller packaging/app/klarpdf.spec --noconfirm
 """
 
 import sys
 from pathlib import Path
 
-ROOT = Path(SPECPATH).resolve().parent  # spec lives in packaging/; ROOT is the repo root
-ICON = str(ROOT / "packaging" / "klarpdf.ico")  # embedded in both exes (M10)
+ROOT = Path(SPECPATH).resolve().parent.parent  # spec lives in packaging/app/; ROOT is the repo root
+ICON = str(ROOT / "packaging" / "app" / "klarpdf.ico")  # embedded in both exes (M10)
 
 # --- Windows version resource ---------------------------------------------------------------
 # Read the single source of the version rather than restating it (version.py). Until now the exes

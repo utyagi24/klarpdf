@@ -1,7 +1,7 @@
 """Task runner for KlarPDF - ``invoke <task>`` ties the build steps into one interface.
 
 Thin orchestration only: each task shells out to the existing authoritative scripts
-(``packaging/build.ps1``, ``pip-compile``, ``vendor/gen-sources.py``, ``tools/audit-deps.ps1``,
+(``packaging/app/build.ps1``, ``pip-compile``, ``vendor/gen-sources.py``, ``tools/audit-deps.ps1``,
 ``gh``), so OS-specific logic stays quarantined there (the same discipline as
 ``platform_integration.py`` / ``packaging/``). The step *semantics* and the *why* live in
 ``RELEASE.md``; this file just makes those documented steps single, discoverable commands.
@@ -122,7 +122,7 @@ def vendor(c):
 def build(c, version=None):
     """Freeze (onedir + onefile) + Inno Setup installer (Windows)."""
     _windows_only("build")
-    c.run(_ps("packaging/build.ps1", f"-Version {version}" if version else ""), echo=True)
+    c.run(_ps("packaging/app/build.ps1", f"-Version {version}" if version else ""), echo=True)
 
 
 @task(pre=[test, audit], help={"version": "must equal version.py, e.g. 0.9.5"})

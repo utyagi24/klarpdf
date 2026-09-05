@@ -13,8 +13,8 @@ application branding" — *sheaf* was the working name the marks were drawn unde
 
 | Asset | File | Used by |
 |---|---|---|
-| **App icon (tile)** | `ui/icons/klarpdf.svg` | the **OS icon**: taskbar, title bar, Alt-Tab, Task Manager, Add/Remove Programs; `make_icon.py` → `packaging/klarpdf.ico` |
-| **`.pdf` document icon** | `ui/icons/klarpdf-doc.svg` (master: `assets/brand/pdf-file-icon.svg`) | Explorer's icon for a PDF file; `make_icon.py` → `packaging/klarpdf-doc.ico`, wired via the ProgID `DefaultIcon` |
+| **App icon (tile)** | `ui/icons/klarpdf.svg` | the **OS icon**: taskbar, title bar, Alt-Tab, Task Manager, Add/Remove Programs; `make_icon.py` → `packaging/app/klarpdf.ico` |
+| **`.pdf` document icon** | `ui/icons/klarpdf-doc.svg` (master: `assets/brand/pdf-file-icon.svg`) | Explorer's icon for a PDF file; `make_icon.py` → `packaging/app/klarpdf-doc.ico`, wired via the ProgID `DefaultIcon` |
 | App mark (free-standing) | `ui/icons/klarpdf-mark.svg` (master: `assets/brand/app-mark.svg`) | in-app on our own background: About dialog, empty states |
 | Monochrome mark | `assets/brand/app-mark-mono.svg` | theme-tinted in-app use |
 | Windows tile (light) | `assets/brand/app-tile.svg` | *unused* — a near-white tile; the shipped app icon is the gradient tile above |
@@ -25,7 +25,7 @@ application branding" — *sheaf* was the working name the marks were drawn unde
 | **App screenshots** | `assets/screenshots/klarpdf-{light,dark}.png` | `README.md`, theme-swapped |
 | Icon system spec | `assets/brand/README-icons.md` | how to draw a new icon |
 
-**None of these ship.** `packaging/klarpdf.spec` bundles only `ui/icons/`, `LICENSE` and
+**None of these ship.** `packaging/app/klarpdf.spec` bundles only `ui/icons/`, `LICENSE` and
 `THIRD_PARTY_LICENSES`; everything in `assets/` is design source and repo presentation.
 
 ## Colour  (machine-readable in `tokens.json`)

@@ -23,9 +23,9 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 LOCK = ROOT / "requirements-mcp.txt"
-MANIFEST = ROOT / "packaging" / "mcpb" / "manifest.json"
-BUNDLE_PYPROJECT = ROOT / "packaging" / "mcpb" / "pyproject.toml"
-BUNDLE_UV_LOCK = ROOT / "packaging" / "mcpb" / "uv.lock"
+MANIFEST = ROOT / "packaging" / "mcp" / "mcpb" / "manifest.json"
+BUNDLE_PYPROJECT = ROOT / "packaging" / "mcp" / "mcpb" / "pyproject.toml"
+BUNDLE_UV_LOCK = ROOT / "packaging" / "mcp" / "mcpb" / "uv.lock"
 PROJECT_PYPROJECT = ROOT / "pyproject.toml"
 AUDIT_WORKFLOW = ROOT / ".github" / "workflows" / "audit.yml"
 AUDIT_SCRIPT = ROOT / "tools" / "audit-deps.ps1"
@@ -33,7 +33,7 @@ MCP_JSON = ROOT / ".mcp.json"
 
 
 def _build_module():
-    """Load `packaging/mcpb/build_mcpb.py` **by path**, not by import.
+    """Load `packaging/mcp/mcpb/build_mcpb.py` **by path**, not by import.
 
     `import packaging.mcpb.build_mcpb` does not work, and the reason is worth knowing because it is
     the same trap that renamed `mcp/` to `mcp_bridge/`: `packaging` is also a real PyPI package
@@ -43,7 +43,7 @@ def _build_module():
     """
     import importlib.util
 
-    path = ROOT / "packaging" / "mcpb" / "build_mcpb.py"
+    path = ROOT / "packaging" / "mcp" / "mcpb" / "build_mcpb.py"
     spec = importlib.util.spec_from_file_location("_klarpdf_build_mcpb", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -330,7 +330,7 @@ def test_the_manifest_validates_against_the_schema_we_can_check_offline(manifest
 
 def test_the_bundle_launches_through_uv(manifest):
     """PLAN.md specified `server.type = "uv"`; that type does not exist in the MCPB schema (see
-    packaging/mcpb/build_mcpb.py). The behaviour survives because the *command* is uv — if that
+    packaging/mcp/mcpb/build_mcpb.py). The behaviour survives because the *command* is uv — if that
     ever changes back to a bare interpreter, the bundle silently starts needing vendored deps it is
     forbidden from shipping."""
     config = manifest["server"]["mcp_config"]
@@ -356,7 +356,7 @@ def test_the_bundle_pyproject_is_in_step_with_the_lock(build_mcpb):
     script would ship a bundle that installs different versions from the ones we audited."""
     expected = build_mcpb.render_pyproject(build_mcpb.read_version(), build_mcpb.read_pins())
     assert BUNDLE_PYPROJECT.read_text(encoding="utf-8") == expected, (
-        "packaging/mcpb/pyproject.toml is stale — run: python packaging/mcpb/build_mcpb.py --validate"
+        "packaging/mcp/mcpb/pyproject.toml is stale — run: python packaging/mcp/mcpb/build_mcpb.py --validate"
     )
 
 
@@ -420,7 +420,7 @@ def test_the_committed_lock_is_in_step_with_the_generated_pyproject():
     `pyproject.toml` is regenerated from `requirements-mcp.txt` on every build, but `uv.lock` is
     refreshed only when someone runs `uv lock`. So a dependency bump that skips that step leaves a
     lock pinning the previous version, and since M129 that lock is what a Desktop install obeys.
-    Regenerate with: `cd packaging/mcpb && uv lock`.
+    Regenerate with: `cd packaging/mcp/mcpb && uv lock`.
     """
     locked = _lock_versions(BUNDLE_UV_LOCK.read_text(encoding="utf-8"))
     declared = re.findall(
@@ -434,7 +434,7 @@ def test_the_committed_lock_is_in_step_with_the_generated_pyproject():
         for name, want in declared
         if locked.get(name.lower().replace("_", "-")) != want
     ]
-    assert not drift, f"uv.lock is stale — run `uv lock` in packaging/mcpb. Drift: {drift}"
+    assert not drift, f"uv.lock is stale — run `uv lock` in packaging/mcp/mcpb. Drift: {drift}"
 
 
 def test_the_manifest_runtime_range_is_semver_not_pep_440(manifest):
@@ -559,7 +559,7 @@ def _declared_window(text: str) -> tuple[int, int]:
     if not floor or not ceiling:
         raise AssertionError(
             f"{text!r} is not a two-bounded range. If this came from uv.lock, uv writes `==3.12.*` "
-            "when it resolves for a single version — re-run `uv lock` in packaging/mcpb so the lock "
+            "when it resolves for a single version — re-run `uv lock` in packaging/mcp/mcpb so the lock "
             "covers the whole window the pyproject declares."
         )
     return int(floor.group(1)), int(ceiling.group(1))
@@ -587,7 +587,7 @@ def test_the_three_python_declarations_are_one_window(manifest):
 
     assert pyproject == semver == lock, (
         f"pyproject {pyproject}, manifest {semver}, uv.lock {lock} — one window, three spellings. "
-        "If the pyproject moved, re-run `uv lock` in packaging/mcpb."
+        "If the pyproject moved, re-run `uv lock` in packaging/mcp/mcpb."
     )
 
 

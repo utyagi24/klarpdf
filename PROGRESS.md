@@ -2333,16 +2333,50 @@ on the one above it. Every decision, every rejection and every measurement behin
 `PLAN.md` §M133–M136 — **not restated here**. The headline: the install goes from nine commands to
 `python install.py`, or to `uvx --from klarpdf klarpdf-mcp` for anyone who already has `uv`.
 
-- [ ] **M133** *(unplanned)* **`packaging/` says which product each file builds** — `packaging/`
-  currently holds six app files loose at the top level (`build.ps1`, `klarpdf.spec`,
-  `installer.iss`, `make_icon.py`, two `.ico`s) and one MCP subfolder (`mcpb/`). The split is
+- [x] **M133** *(unplanned)* **`packaging/` says which product each file builds** — 2026-09-05.
+  `packaging/` held six app files loose at the top level (`build.ps1`, `klarpdf.spec`,
+  `installer.iss`, `make_icon.py`, two `.ico`s) and one MCP subfolder (`mcpb/`). The split was
   already real, just unlabelled — and it was about to get worse, because the natural home for the
-  new installer generator was `packaging/installer/`, sitting beside `packaging/installer.iss` and
-  meaning the other thing. Becomes `packaging/app/` + `packaging/mcp/{mcpb,pypi,installer}/`.
-  **Pure moves, no behaviour change**: ~90 references across 25 files, ~65 of them prose in
-  `PLAN.md`/`RELEASE.md`/`PROGRESS.md`, and every runtime-code mention of `packaging/` is a comment
-  or docstring rather than a filesystem path, so no app code breaks. Its own PR precisely because it
-  is mechanical — easy to review, easy to revert. Design in `PLAN.md` §M133–M136 — *WSL*
+  new installer generator was `packaging/installer/`, which would have sat beside the app's
+  `installer.iss` at the top level and meant the other thing. Now **`packaging/app/` +
+  `packaging/mcp/mcpb/`**, with `mcp/pypi/` and `mcp/installer/` arriving alongside M135 and M136 —
+  git cannot track an empty directory, so they are created when they have contents rather than
+  stubbed now. All ten files moved with `git mv` and are tracked as renames.
+
+  **The plan called this "pure moves, no behaviour change" and that was wrong.** The textual half
+  went as scoped — **108 references rewritten across 27 files**, against the ~90 estimated, the gap
+  being the two icon SVGs whose header comments name the `.ico` they are baked into and which the
+  scoping grep had filtered out by extension. But **17 further sites in 8 files contained no
+  `packaging/` string at all**, so no grep could have found them, in two classes:
+
+  - **A repo root computed by counting directories up.** `build_mcpb.py`'s `ROOT = HERE.parent.parent`,
+    `make_icon.py`'s `Path(__file__).resolve().parent.parent`, `klarpdf.spec`'s
+    `Path(SPECPATH).resolve().parent`, `build.ps1`'s `Split-Path -Parent $PSScriptRoot`, and
+    `installer.iss`'s `..\dist`. Every one silently means a different directory one level deeper,
+    and none mentions the folder it is counting from.
+  - **Paths assembled from components** — `ROOT / "packaging" / "mcpb" / "manifest.json"` and eleven
+    siblings. The substring `packaging/` never occurs. `tests/test_app_mutex.py` was never in the
+    26-file inventory for exactly this reason.
+
+  **Found by running the thing, not by reading it**: `build_mcpb.py --validate` died on
+  `FileNotFoundError: …/packaging/version.py`, which is what prompted the sweep for the other four.
+  The suite then caught the whole component class on its own (`test_mcp_packaging.py`,
+  `FileNotFoundError`) — but it **cannot** catch three of the five root computations, because
+  `build.ps1`, `installer.iss` and the `.spec`'s `SPECPATH` only execute during a real Windows
+  build. Those are verified by `invoke build` on Windows and by nothing else; `tests/test_icons.py`,
+  `test_about_dialog.py` and `test_app_mutex.py` check only that those files are *found* at their
+  new paths. **`tests/test_packaging_layout.py` now pins the two that nothing else could** — it
+  resolves every `..`-relative path in `installer.iss` the way Inno does (against the script's own
+  directory) and asserts `build.ps1` walks up exactly as many levels as it sits deep. Both were
+  verified by reverting the fix and watching them fail with the resolved path and the consequence
+  named; `klarpdf.spec` is deliberately left out, because `SPECPATH` exists only while PyInstaller
+  is running the spec, so asserting on it would mean reimplementing its resolution.
+
+  **Three strings were deliberately left alone**, each of which a blanket substitution would have
+  silently corrupted: `packaging/QA` in a sentence about pipelines rather than paths;
+  `packaging/installer/` where the design entry names the layout it *rejected*; and the bare
+  `packaging` in `tests/test_mcp_packaging.py`'s header, which is about the **PyPI package** of that
+  name shadowing the directory. Design in `PLAN.md` §M133–M136 — *WSL (Windows build outstanding)*
 
 - [ ] **M134** *(unplanned)* **The wheel installs one top-level name, not four** — a
   `pip install` of the bridge as configured today would put `mcp_bridge/`, `model/`, `util/` and a
@@ -2411,7 +2445,7 @@ on the one above it. Every decision, every rejection and every measurement behin
 - [x] **M131** *(unplanned)* **The release ships the bundle it is named after** — 2026-08-28, found
   by the owner immediately after the v0.18.0 tag: *"is this release going to create both the Windows
   App and the MCP bridge files?"* It was not. **v0.18.0 shipped as "the MCP / Agent Bridge" with no
-  `.mcpb` attached** — `release.yml` runs `packaging/build.ps1` and attaches four files, and has never
+  `.mcpb` attached** — `release.yml` runs `packaging/app/build.ps1` and attaches four files, and has never
   invoked `build_mcpb.py`. The only route to the one-click Claude Desktop install was cloning the repo
   and running the packer, which needs Node; `mcp_bridge/README.md` says exactly that, which is why it
   never read as a gap. The artifact three milestones went into making correct — **M127** built it at
@@ -2463,7 +2497,7 @@ on the one above it. Every decision, every rejection and every measurement behin
   doctored pin contradicts no `==` constraint and cannot provoke an ambiguous re-lock), and nothing
   on the server path uses it. A bundle pinning `colorama==0.4.5` against a fresh resolve's `0.4.6`,
   installed after a **full** uninstall so no `.venv` or prior lock survived, produced **0.4.5**.
-  So `stage()` now copies `uv.lock` into `server/` and `packaging/mcpb/uv.lock` is committed: a
+  So `stage()` now copies `uv.lock` into `server/` and `packaging/mcp/mcpb/uv.lock` is committed: a
   Desktop install resolves from a file we wrote and review, with a `sha256` per wheel, and the lock
   covers what `requirements-mcp.txt` structurally cannot — that file is deliberately
   platform-marker-free, so `colorama` and `pywin32` can never appear in it. **It does not make the
@@ -2886,7 +2920,7 @@ on the one above it. Every decision, every rejection and every measurement behin
   second catches the construction that re-arms it on the next recompile.
   `test_the_declared_floors_match_the_locks_input` (which asserted string equality between
   `pyproject.toml` and `requirements-mcp.in`, workable only while both were floors) now asserts the
-  same package set plus "the pin satisfies the floor". `packaging/mcpb/pyproject.toml` regenerated —
+  same package set plus "the pin satisfies the floor". `packaging/mcp/mcpb/pyproject.toml` regenerated —
   the suite caught it. **The gap underneath it:** CI installs `requirements-dev.txt`, which tracks
   the *app*, so `tests/test_mcp_*.py` has only ever run against the app's PyMuPDF — the bridge's own
   lock is audited for advisories but no line of code has ever executed against it, which is how three
@@ -3658,7 +3692,7 @@ tree or history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI 
   (BRAND.md §Type) · repo + exe + `%LOCALAPPDATA%` leaf + single-instance id `klarpdf` · ProgID
   `KlarPDF.Document`.
   - [x] **Part 1 — visual assets** — toolbar glyph set (24 replaced + 3 new: `about`, `donate`,
-    `export`), app mark, regenerated `packaging/klarpdf.ico`, and `assets/brand/` (tokens + `BRAND.md`
+    `export`), app mark, regenerated `packaging/app/klarpdf.ico`, and `assets/brand/` (tokens + `BRAND.md`
     + icon spec). No code changes; icon filenames unchanged. — *WSL* —
     [#91](https://github.com/utyagi24/pdfproj/pull/91)
   - [x] **Part 2 — the name sweep** — app strings (`app.py`, window title, `platform_integration.py`
@@ -3692,7 +3726,7 @@ tree or history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI 
   (mark + version + AGPL + the AGPL §15-16 no-warranty notice + a *tagged* corresponding-source link,
   never `main`), **Open-Source Licenses** (the bundled texts, one tab each, offline), **View Source**.
   New `ui/about.py` (dialogs) + `util/resources.py` (freeze-aware `resource_path()`, mirroring
-  `ui/icons.py`'s `_MEIPASS` dance); `packaging/klarpdf.spec` `datas` ships `LICENSE` +
+  `ui/icons.py`'s `_MEIPASS` dance); `packaging/app/klarpdf.spec` `datas` ships `LICENSE` +
   `THIRD_PARTY_LICENSES` to the bundle root. Links open via `QDesktopServices` on **user click only**,
   so the offline / no-telemetry guarantee holds. `tests/test_about_dialog.py` drives the real Help
   menu and simulates `sys._MEIPASS` — the frozen path the headless suite otherwise never executes —
@@ -3876,10 +3910,10 @@ it on this side of the line.
   TOC is the cheap move that also makes the length feel deliberate rather than accidental.
 
 - **The bundle now ships a lock that no audit step examines** — created by **M129** and noticed
-  2026-08-28 while checking the release gate. The `.mcpb` carries `packaging/mcpb/uv.lock`, and since
+  2026-08-28 while checking the release gate. The `.mcpb` carries `packaging/mcp/mcpb/uv.lock`, and since
   M129 that file is what a Desktop install actually resolves from — 139 hashed packages. `pip-audit`
   runs against `requirements*.txt` only, and `audit.yml`'s `pull_request` **paths filter names
-  `requirements*.txt` / `requirements*.in` and not `packaging/mcpb/uv.lock`**, so a change to the
+  `requirements*.txt` / `requirements*.in` and not `packaging/mcp/mcpb/uv.lock`**, so a change to the
   shipped lock triggers no audit and its contents are never scanned. Most of it is the audited set
   arriving by another route — the lock is generated from those pins, and a test holds the two in step
   — so the genuinely uncovered part is small: the platform-specific transitive packages a
@@ -3889,7 +3923,7 @@ it on this side of the line.
   lock to the paths filter so at least a *change* to it is gated; or accept it and say so, which is
   what `mcp_bridge/README.md` already does. Not obviously worth the machinery for two packages —
   which is exactly why it needs a call rather than a silent default. `.github/workflows/audit.yml`,
-  `packaging/mcpb/uv.lock`.
+  `packaging/mcp/mcpb/uv.lock`.
 
 - **The app and the bridge name a 1 pt different box for the same shape** — noticed 2026-08-26 while
   fixing [#292](https://github.com/utyagi24/klarpdf/issues/292) (M120), and *not* part of it. M120

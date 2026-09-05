@@ -23,7 +23,7 @@ import sys
 
 #: Name of the Windows mutex held for the lifetime of a *running* KlarPDF.
 #:
-#: ``packaging/installer.iss`` names this same string in its ``AppMutex`` directive. Inno's Setup
+#: ``packaging/app/installer.iss`` names this same string in its ``AppMutex`` directive. Inno's Setup
 #: **and** uninstaller check for it and refuse to proceed while it exists, telling the user to close
 #: the app — which is the only thing that prevents the two artifacts seen at v0.10.0 (see RELEASE.md):
 #: Windows will not let the uninstaller delete a running ``.exe``, and a still-live process rewrites

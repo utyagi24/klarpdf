@@ -9,7 +9,7 @@
       dist/klarpdf-setup-x64.exe      (installer)
       dist/klarpdf-portable-x64.exe   (portable --onefile)
       dist/SHA256SUMS
-  Self-locates the repo root; run from anywhere:  pwsh packaging/build.ps1
+  Self-locates the repo root; run from anywhere:  pwsh packaging/app/build.ps1
 
 .PARAMETER Version
   Installer version; defaults to version.py's __version__.
@@ -51,7 +51,7 @@ function Get-IsccPath {
     return $found
 }
 
-$Root = Split-Path -Parent $PSScriptRoot   # packaging/ -> repo root
+$Root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)   # packaging/app/ -> repo root
 Push-Location $Root
 try {
     # Bootstrap interpreter (only used to fetch wheels + create the venv).
@@ -90,12 +90,12 @@ try {
         '-r','requirements-win.txt','-r','requirements-build-win.txt')
 
     Write-Host '==> PyInstaller freeze (onedir + onefile)'
-    Invoke-Checked $vpy @('-m','PyInstaller','packaging\klarpdf.spec','--noconfirm','--clean',
+    Invoke-Checked $vpy @('-m','PyInstaller','packaging\app\klarpdf.spec','--noconfirm','--clean',
         '--workpath','build\pyi','--distpath','dist')
 
     $iscc = Get-IsccPath
     Write-Host "==> Inno Setup installer ($iscc)"
-    Invoke-Checked $iscc @("/DMyAppVersion=$Version", 'packaging\installer.iss')
+    Invoke-Checked $iscc @("/DMyAppVersion=$Version", 'packaging\app\installer.iss')
 
     Write-Host '==> SHA256SUMS'
     $lines = foreach ($a in @('dist\klarpdf-setup-x64.exe', 'dist\klarpdf-portable-x64.exe')) {

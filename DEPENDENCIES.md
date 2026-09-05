@@ -49,6 +49,6 @@ the wheels, so target machines need no Python and no network.
 
 M6 produced the hashed `win_amd64` ship lock (`requirements-win.txt`) on python.org **3.12.10** with
 **pip-tools 7.5.3**. M8 added the **build** toolchain — **PyInstaller 6.21.0** (hashed in
-`requirements-build-win.txt`) and **Inno Setup 6.7.3** — driven by `packaging/build.ps1`
+`requirements-build-win.txt`) and **Inno Setup 6.7.3** — driven by `packaging/app/build.ps1`
 (`.github/workflows/release.yml` runs the same on CI). Exact resolved versions are the **Locked**
 columns and the lock files.

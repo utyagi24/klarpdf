@@ -51,7 +51,7 @@ jobs:
 
       - name: Build (freeze + installer + portable)
         shell: pwsh
-        run: ./packaging/build.ps1 -Python python -Version '${{ steps.ver.outputs.version }}'
+        run: ./packaging/app/build.ps1 -Python python -Version '${{ steps.ver.outputs.version }}'
 
       - name: Package vendored wheels
         shell: pwsh
@@ -72,7 +72,7 @@ jobs:
       - name: Build the Claude Desktop bundle (.mcpb)
         shell: pwsh
         run: |
-          python packaging/mcpb/build_mcpb.py
+          python packaging/mcp/mcpb/build_mcpb.py
           # SHA256SUMS covers what a user installs and RUNS — build.ps1 wrote the two exes before the
           # bundle existed, so append rather than regenerate. (vendor-wheels.zip stays out on purpose:
           # it is the AGPL corresponding-source pointer, not something anyone executes.)

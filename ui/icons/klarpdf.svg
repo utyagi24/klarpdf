@@ -1,6 +1,6 @@
 <!-- KlarPDF application icon. Used by the taskbar, title bar, Alt-Tab, Task Manager, Add/Remove
      Programs, the Start Menu shortcut, and Explorer's view of klarpdf.exe. Baked into
-     packaging/klarpdf.ico by packaging/make_icon.py.
+     packaging/app/klarpdf.ico by packaging/app/make_icon.py.
 
      It is a *tile*, not the free-standing mark, and that is deliberate. Windows hands an icon a
      square canvas (24x24 at 100% scaling for the taskbar). The brand mark is a portrait page,

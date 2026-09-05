@@ -264,7 +264,7 @@ weekly dependency audit (`.github/workflows/test.yml`, `audit.yml`).
 On Windows (python.org 3.12 + Inno Setup 6), from the repo root:
 
 ```powershell
-invoke build            # wraps packaging\build.ps1: wheels -> clean venv -> freeze -> installer + portable + SHA256SUMS (dist\)
+invoke build            # wraps packaging\app\build.ps1: wheels -> clean venv -> freeze -> installer + portable + SHA256SUMS (dist\)
 ```
 
 CI does the same on a tag: push a `v*` tag and `.github/workflows/release.yml` builds on

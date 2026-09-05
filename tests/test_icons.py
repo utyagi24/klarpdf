@@ -1,7 +1,7 @@
 """Icon resolver + generated app ICO (PLAN.md, M10).
 
 Headless (offscreen, set in conftest): the SVGs must render to non-empty QIcons, a missing name
-must degrade to an empty icon rather than crash, and the committed ``packaging/klarpdf.ico`` must be
+must degrade to an empty icon rather than crash, and the committed ``packaging/app/klarpdf.ico`` must be
 a well-formed multi-resolution PNG-in-ICO container.
 """
 
@@ -33,7 +33,7 @@ ACTION_ICONS = [
 # box), Pen (a pencil on a baseline). M91.2 (2026-07-30): both rotates — a page with an arc sweeping
 # over one corner, replacing Feather's bare `rotate-ccw` circle, which read as Undo on its own merits.
 POLISHED_ICONS = ["grab", "textbox", "pen", "rotate-left", "rotate-right"]
-ICO_PATH = Path(__file__).resolve().parents[1] / "packaging" / "klarpdf.ico"
+ICO_PATH = Path(__file__).resolve().parents[1] / "packaging" / "app" / "klarpdf.ico"
 
 
 @pytest.fixture(scope="session")
@@ -200,7 +200,7 @@ def test_app_ico_is_valid_multi_resolution():
 #   klarpdf-doc.svg   document  -> what Explorer shows for a `.pdf`. Portrait, by design.
 #   klarpdf-mark.svg  mark      -> free-standing, in-app only (About dialog).
 
-DOC_ICO_PATH = Path(__file__).resolve().parents[1] / "packaging" / "klarpdf-doc.ico"
+DOC_ICO_PATH = Path(__file__).resolve().parents[1] / "packaging" / "app" / "klarpdf-doc.ico"
 
 
 def _bbox_span(name, n=24):
@@ -270,7 +270,7 @@ def test_about_dialog_uses_the_free_standing_mark_not_the_tile():
 
 def test_installer_points_the_pdf_association_at_the_document_icon():
     r"""Regression: v0.10.0's DefaultIcon was `{app}\klarpdf.exe,0` — the app icon, on every PDF."""
-    iss = (Path(__file__).resolve().parents[1] / "packaging" / "installer.iss").read_text(encoding="utf-8")
+    iss = (Path(__file__).resolve().parents[1] / "packaging" / "app" / "installer.iss").read_text(encoding="utf-8")
     line = next(ln for ln in iss.splitlines() if "DefaultIcon" in ln and ln.startswith("Root:"))
     assert "MyAppDocIco" in line, f"DefaultIcon does not use the document icon: {line}"
     assert "MyAppExe" not in line, f"DefaultIcon still points at the exe: {line}"

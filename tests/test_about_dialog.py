@@ -3,7 +3,7 @@
 Headless (offscreen, set in conftest). These tests carry an unusual burden: the dialogs read licence
 texts that only *move* in the frozen build, which this suite never produces. So rather than only
 exercising the source path, we also assert the contract the frozen build depends on — that
-``packaging/klarpdf.spec`` lists both licence files in ``datas``, landing them where
+``packaging/app/klarpdf.spec`` lists both licence files in ``datas``, landing them where
 ``util.resources.resource_root()`` will look. If someone drops a ``datas`` entry, this fails here
 instead of silently shipping an installer whose licence dialog is empty.
 """
@@ -21,7 +21,7 @@ from util.resources import LICENSE_FILES, read_text_resource, resource_path, res
 from version import __version__
 
 ROOT = Path(__file__).resolve().parents[1]
-SPEC = ROOT / "packaging" / "klarpdf.spec"
+SPEC = ROOT / "packaging" / "app" / "klarpdf.spec"
 
 
 @pytest.fixture(scope="session")
