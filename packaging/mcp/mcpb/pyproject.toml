@@ -15,7 +15,7 @@
 # packages always have a wheel.
 [project]
 name = "klarpdf-mcp"
-version = "0.18.0"
+version = "0.18.2"
 description = "KlarPDF's PDF engine as MCP tools — read, transform, verifiably redact. Offline."
 requires-python = ">=3.11,<3.15"
 dependencies = [
