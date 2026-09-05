@@ -11,7 +11,7 @@ it merges, check the box here in the same PR and append the PR link.
 unticked box, plus the annotation, save-cost and markup work that landed alongside it. A **minor**
 under `RELEASE.md` §3's SemVer rule: a new user-facing component, no breaking change.
 
-**(1) The bridge is complete and verified.** `mcp_bridge/` exposes the same PDF engine the app uses
+**(1) The bridge is complete and verified.** `klarpdf/mcp_bridge/` exposes the same PDF engine the app uses
 to **Claude Code, Claude Desktop** and other agentic clients as a local MCP server — **19 tools**
 across read (`get_info`, `get_outline`, `search`, `extract_text`, `render_page`, `get_form_fields`,
 `get_annotations`), lossless transform (`split`, `merge`, `reorder`, `delete_pages`, `extract_pages`,
@@ -156,7 +156,7 @@ first public build. Release:
 **v0.15.0 "Stamp, Sign & Watermark"** — delivers **R4 (M61–M64)** and **R5
 (M66–M69.16)** together: M65's release cut was skipped by owner call (2026-07-20) so R4 would ship
 alongside R5 rather than under an unpublished tag. A **unified content-draw engine**
-(`model/content_marks.py`) underlies stamps, signatures and watermarks — two descriptors, `Stamp`
+(`klarpdf/model/content_marks.py`) underlies stamps, signatures and watermarks — two descriptors, `Stamp`
 (text + optional frame) and `ImageStamp` (a placed raster), that bake into the page's **content
 stream** at save; built **vector** so stamp text stays searchable and crisp at any zoom and
 arbitrary rotation comes free. A watermark isn't a third type, just either descriptor with
@@ -326,7 +326,7 @@ bridge stays the owner's call). Other deferred items live in `PLAN.md` §Future 
 **Open follow-ups** (carried items) are at the bottom.
 
 - [x] **M0** Scaffold + WSL dev venv — *step 1 (WSL); WSL* — [#4](https://github.com/utyagi24/pdfproj/pull/4)
-- [x] **M1** Correctness core: `model/` + headless tests green ⭐ — *steps 5, 7; WSL* — [#5](https://github.com/utyagi24/pdfproj/pull/5)
+- [x] **M1** Correctness core: `klarpdf/model/` + headless tests green ⭐ — *steps 5, 7; WSL* — [#5](https://github.com/utyagi24/pdfproj/pull/5)
 - [x] **M2** Viewer: render / scroll / zoom / rotate / thumbnails — *step 3; WSLg* — [#6](https://github.com/utyagi24/pdfproj/pull/6)
 - [x] **M3** Selection + search — *step 4; WSLg* — [#7](https://github.com/utyagi24/pdfproj/pull/7)
 - [x] **M4** Editing loop: cross-window cut/copy/paste + undo/redo + Save/Save As + close-prompt — *steps 6, 8; WSLg* — [#8](https://github.com/utyagi24/pdfproj/pull/8)
@@ -383,7 +383,7 @@ GUI-free core, fully headless-testable).
 **v0.7.0 ✅ — "Round-trip & Export"** (shipped)
 
 - [x] **M31** ⭐ Annotation round-trip editing — reopen → move/edit/remove our author-tagged annotations (strip-then-re-add at materialize); page render + text selection read the stripped page so the editable overlay is authoritative (no double-draw / stale-position select) — *WSL (model+tests) + WSLg* — [#46](https://github.com/utyagi24/pdfproj/pull/46)
-- [x] **M31.5** Export → PDF (flatten) — new **Export** action (`File ▸ Export`); bake annotations + form widgets into page content (PyMuPDF `Document.bake()`, text-preserving — locks the marks, the opposite of M31's round-trip). Extensible Export path (`model/export.py`); M36 adds an image format. — *WSL (model+tests) + WSLg* — [#48](https://github.com/utyagi24/pdfproj/pull/48)
+- [x] **M31.5** Export → PDF (flatten) — new **Export** action (`File ▸ Export`); bake annotations + form widgets into page content (PyMuPDF `Document.bake()`, text-preserving — locks the marks, the opposite of M31's round-trip). Extensible Export path (`klarpdf/model/export.py`); M36 adds an image format. — *WSL (model+tests) + WSLg* — [#48](https://github.com/utyagi24/pdfproj/pull/48)
 - [x] **M34** Verify + release → tag **v0.7.0** (version bump + docs + re-scope; 317 headless tests green) — *Windows* — [#49](https://github.com/utyagi24/pdfproj/pull/49)
 
 > Re-scope (owner, 2026-06-20): encrypted-PDF (M32) + internal-link remap (M33) moved **out of
@@ -409,7 +409,7 @@ GUI-free core, fully headless-testable).
 
 Spec + architecture in `PLAN.md` §MCP / Agent Bridge roadmap. Same conventions: **one PR per
 milestone**, tick the box here on merge. ⭐ marks the keystone (GUI-free, fully headless-testable).
-A new MCP server surface (`mcp_bridge/` package) that reuses the GUI-free `model/` core **without PySide6**
+A new MCP server surface (`klarpdf/mcp_bridge/` package) that reuses the GUI-free `klarpdf/model/` core **without PySide6**
 and ships as a separate optional component — the `klarpdf-setup-x64.exe` audit surface is untouched.
 
 **Scheduled 2026-08-12** after a premise review (the roadmap was written 2026-06-22 and sat while
@@ -424,15 +424,15 @@ items, which are independent of it.
   on the freshly written temp, antivirus the usual suspect, surfacing as a spurious "Save failed").
   `test_single_instance` is **deliberately not** in scope: no reproduction and no fix plan, and
   neither flake has ever failed the required `ubuntu-latest` check in 200 recorded runs — *WSL*
-  ([#239](https://github.com/utyagi24/klarpdf/pull/239)) — `util/atomic.py:atomic_replace` retries
+  ([#239](https://github.com/utyagi24/klarpdf/pull/239)) — `klarpdf/util/atomic.py:atomic_replace` retries
   `PermissionError` four times over ~0.75 s; both write sites (Save and every Export) now use it
-- [x] **M39** ⭐ MCP scaffold + read-only core — `mcp_bridge/` stdio server on the official **`mcp` 2.x** SDK
+- [x] **M39** ⭐ MCP scaffold + read-only core — `klarpdf/mcp_bridge/` stdio server on the official **`mcp` 2.x** SDK
   (`MCPServer`); headless query/metadata tools (`get_info`, `get_outline`, `search`, `extract_text`,
-  `render_page`, `get_form_fields`), `search` reusing `model/page_text.py`; a **test asserting** no
+  `render_page`, `get_form_fields`), `search` reusing `klarpdf/model/page_text.py`; a **test asserting** no
   PySide6 on the server path; headless tests — *WSL*
   ([#240](https://github.com/utyagi24/klarpdf/pull/240)). Three deviations from the roadmap, each
   recorded next to the design it changes in `PLAN.md` §MCP / Agent Bridge roadmap: the package is
-  **`mcp_bridge/`, not `mcp/`** (a local `mcp/` shadows the SDK it is built on — measured);
+  **`klarpdf/mcp_bridge/`, not `mcp/`** (a local `mcp/` shadows the SDK it is built on — measured);
   **encrypted input landed here rather than at M41**, because opening an encrypted source had to be
   handled anyway; and the SDK joined **`requirements-dev.in`** so CI can run the new tests at all,
   with M42 still owning the separate `requirements-mcp.{in,txt}` a bridge user installs.
@@ -464,7 +464,7 @@ items, which are independent of it.
   - **Carried to M44 (Windows/macOS):** whether the host honours a `uv.lock`, and the
     Desktop/one-click install itself. Both need Claude Desktop, which WSL does not have. The
     audit-scope gap (the `.mcpb` resolves online, so `pip-audit` covers the pip/pipx path only)
-    stays open and is stated in `mcp_bridge/README.md` rather than glossed.
+    stays open and is stated in `klarpdf/mcp_bridge/README.md` rather than glossed.
 - [x] **M43** Hardening + docs — path allowlist, return-size caps, `--read-only` opt-out flag
   (writes are on by default), error handling; README usage + example agent workflows — *WSL*
   ([#244](https://github.com/utyagi24/klarpdf/pull/244)). `--read-only` **withholds** the write
@@ -637,7 +637,7 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
 **R4 — "Stamp, Sign & Watermark"**
 
 - [x] **M61** ⭐ Unified content-draw engine (Way 2: presets = prefilled custom stamps; baked at save).
-  `model/content_marks.py`: two descriptors — **`Stamp`** (text + optional rounded frame) and
+  `klarpdf/model/content_marks.py`: two descriptors — **`Stamp`** (text + optional rounded frame) and
   **`ImageStamp`** (a placed raster) — that ride the PageRef exactly like an annotation, but bake
   into the page's **content stream** at materialise instead of staying annotations. A **watermark is
   not a third type**: it is either of those with `under=True` (`overlay=False`, so the page's text
@@ -659,7 +659,7 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   Two flows over the one engine: a **stamp / signature** is composed then *placed*, a **watermark**
   covers whole pages so it applies at once, sized to **each page's own** box. `ui/stamp_dialog.py`
   (text · colour · angle · opacity · frame · page range; presets prefill and stay editable) +
-  `util/page_range.py` (`"1-3, 7, 12-"`, shared with M64's scope). Both dialogs state the bake
+  `klarpdf/util/page_range.py` (`"1-3, 7, 12-"`, shared with M64's scope). Both dialogs state the bake
   boundary in the dialog. Toolbar: one new slot, the **Stamp ▾** split-button (three new icons).
   Live preview renders through the *same generator that bakes at save*; an `under=True` watermark is
   drawn with **multiply** compositing, since Qt cannot paint beneath the page pixmap — the page's
@@ -695,7 +695,7 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
 
 **R5 — "Foreign Annotations & Form Fields"**
 
-- [x] **M66** ⭐ Foreign-annot infra + delete — `model/foreign_annots.py`, the shared machinery M67
+- [x] **M66** ⭐ Foreign-annot infra + delete — `klarpdf/model/foreign_annots.py`, the shared machinery M67
   and M68 consume. **Identity is the hard part**: an annotation's `xref` is renumbered by
   `insert_pdf`, so a descriptor holding one would target the wrong annotation at materialise;
   identity is instead the `/NM` name when the writing tool set one, else a hash of type + rect
@@ -739,7 +739,7 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   (headless + offscreen GUI)* — 36 new tests, 946 green
 - [x] **M69** Form-field creation — **Tools ▸ Add Form Field ▸ Text · Checkbox · Dropdown**: compose
   in a small properties dialog (type · name · default · choices), then drag the box with M62's
-  placement gesture. `model/form_fields.py`'s `NewField` rides the PageRef and materialises via
+  placement gesture. `klarpdf/model/form_fields.py`'s `NewField` rides the PageRef and materialises via
   `page.add_widget`. **The output is not a KlarPDF construct** — it is an ordinary AcroForm field, so
   inline filling, lossless value save, edits-aware print and flatten all work on it *by construction*
   (each asserted by running the existing path over a created field, not new code). Creation runs
@@ -1271,7 +1271,7 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   marked up: **0.79 s at 10 highlights, 3.46 s at 50, 15.73 s at 200** → now **0.032 s / 0.064 s /
   0.150 s** (25×–105×). Marks sharing a page now share one index, held for the rebuild only — an
   index describes a page as it was, and the next rebuild is called precisely because something
-  changed. **`_PageText` moved to `model/page_text.py` as `PageText`** to be shared: it is pure
+  changed. **`_PageText` moved to `klarpdf/model/page_text.py` as `PageText`** to be shared: it is pure
   PyMuPDF text geometry with no Qt and no viewer or panel state, and the panel's own contract is to
   depend only on the model plus the provider seam, so it could not import from `viewer/`. Duplicating
   it was rejected — two copies of a routine that has already been subtly wrong once. — *Windows
@@ -1345,7 +1345,7 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   1318 green
   - [x] **M82.1** Gate the foreign hit-test/move on free-placed types; sticky notes, stamps and
     drawings stay draggable, delete stays available for every type. One rule, in the model:
-    `TEXT_MARKUP_KINDS` + `is_free_placed()` (`model/foreign_annots.py`) — Highlight, Underline,
+    `TEXT_MARKUP_KINDS` + `is_free_placed()` (`klarpdf/model/foreign_annots.py`) — Highlight, Underline,
     StrikeOut and **Squiggly**, which rides along as text markup even though it is not adoptable.
     The viewer's `foreign_annotation_at` grew a `free_placed_only` flag that the *drag* caller
     alone passes, so delete (M66) and double-click adopt (M68) keep seeing every type. The filter
@@ -1369,7 +1369,7 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     returns before reaching it. The dead menu is therefore worst on **bare page** — which is most of
     the page, and is what "every right-click is dead" actually described
   - [x] **M83.2** Convention replaced with a chokepoint — `rects_of()` / `is_geometric()` in
-    `model/page_edits.py`. `rects_of` is **total**: it never raises, and a descriptor declaring no
+    `klarpdf/model/page_edits.py`. `rects_of` is **total**: it never raises, and a descriptor declaring no
     geometry yields `()`, so the hit-tests skip it by iterating zero times rather than by each site
     remembering to guard. That is the direction that fails safe, and it is duck-typed rather than a
     type list, so the *next* non-geometric descriptor is handled without anyone registering it —
@@ -2252,7 +2252,7 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   rect and the caller unions a wrapped hit, the list staying `redact_regions`-only because a union
   across lines is helpful to *look* at and is data loss to *delete*; and `export_images` validates
   **every** page before writing any file, since page sizes vary and a clip failing on page 7 must
-  not leave six behind. `resolve_clip` lives in `model/export.py`, shared with the app's Export.
+  not leave six behind. `resolve_clip` lives in `klarpdf/model/export.py`, shared with the app's Export.
   - **M99.1 — the clip was on the wrong side of the rotation** (TC-008 Finding 3, 2026-08-18).
     Validating against the *rendered* page put `clip` in **displayed** space while `search` reports
     boxes **unrotated** and `redact_regions` consumes them there — so the headline promise, "pass a
@@ -2271,7 +2271,7 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     `clip` was added for. Files now always carry the page number and a new **`name`** chooses the
     stem (`card_front-3.png`); `name` is a filename component, so separators, `..` and extensions
     are refused rather than sanitised, since joined onto `out_dir` unchecked it would walk around
-    `--allow-root`. `number_all` defaults off in `model/export.py` so the app's Export keeps the
+    `--allow-root`. `number_all` defaults off in `klarpdf/model/export.py` so the app's Export keeps the
     filename the user typed. Finding 2 needed no code: the clipped size rounds **outward** to whole
     device pixels (a 100 pt square at 150 dpi is 209 px, not 208.33) — right policy, now documented
     and pinned. Design in `PLAN.md` §M99.
@@ -2323,7 +2323,7 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   and so cannot be seen from a diff; `PLAN.md` §M115.1 carries the one-line command that checks it is
   still there, the same way `RELEASE.md` §2 does for the two Dependabot toggles after those drifted
   from their own policy for a month. The first PRs to hit the gate proved both halves the same day:
-  **38 s** on a branch touching `mcp_bridge/` and `model/`, **4 s** reporting without doing the work
+  **38 s** on a branch touching `klarpdf/mcp_bridge/` and `klarpdf/model/`, **4 s** reporting without doing the work
   on the docs-only branch stacked above it. Design in `PLAN.md` §M115.1 — *WSL + CI*
 
 **Scoped 2026-09-04** — a four-milestone sequence changing how the bridge is shipped, from the
@@ -2397,17 +2397,58 @@ on the one above it. Every decision, every rejection and every measurement behin
   `packaging` in `tests/test_mcp_packaging.py`'s header, which is about the **PyPI package** of that
   name shadowing the directory. Design in `PLAN.md` §M133–M136 — *WSL (Windows build outstanding)*
 
-- [ ] **M134** *(unplanned)* **The wheel installs one top-level name, not four** — a
-  `pip install` of the bridge as configured today would put `mcp_bridge/`, `model/`, `util/` and a
-  module called plain `version` at the top of site-packages. `mcp_bridge` is distinctive; the other
-  three are not, and two distributions owning a top-level `util/` means whichever installs last wins
-  and uninstalling one damages the other. Everything moves under `klarpdf/`. **393 import sites, of
-  which 274 are in `tests/`** (`model` 314, `mcp_bridge` 50, `util` 24, `version` 5) — mechanical,
-  import lines only, verified by the suite. The GUI-only packages stay out of scope until an app
-  package exists (`viewer` 125, `store` 92, `ui` 69, `organize` 18). **Not a one-way door**, and the
-  entry says why: the package has no importable API, so the layout stays changeable later — the
-  reason to do it *now* is the harm window that opens the moment it is on PyPI. Design in `PLAN.md`
-  §M133–M136 — *WSL*
+- [x] **M134** *(unplanned)* **The wheel installs one top-level name, not four** — 2026-09-05.
+  A `pip install` of the bridge as configured would have put `mcp_bridge`, `model`, `util` and a
+  module called plain `version` at the top of `site-packages`. The first is distinctive; the others
+  are not, and two distributions owning a top-level `util/` means whichever installs last wins and
+  uninstalling either damages the other. Everything now lives under **`klarpdf/`**, and a built
+  wheel carries exactly one top-level name (verified: 38 files, `klarpdf` and its `dist-info`).
+  The GUI packages stay put — `viewer/`, `ui/`, `store/`, `organize/` and the root modules are never
+  installed, so they cannot collide; that is the ~304 sites a future app package would move.
+
+  **Done before the first publish because of the harm window, not because it is irreversible.** The
+  package has no importable API — its whole public surface is the `klarpdf-mcp` console script — so
+  the layout stays changeable later. What could not be undone is a shared-environment install
+  clobbering someone else's `util/` in the meantime.
+
+  **The move:** 390 import lines across 129 files, plus 14 sites with no import statement to rewrite
+  (`pyproject.toml`'s script/packages/version-attr, the bundle's `PAYLOAD_PACKAGES`, `EXCLUDE_FILES`
+  and generated pyproject, `manifest.json`'s entry point, `klarpdf.spec` — which is not a `.py` and
+  so the import pass skipped it — `tasks.py` reading `version.py` as a *file*, and five module names
+  living in test strings), **3 CI path filters**, and 232 doc references.
+
+  **The path filters are the part that would have failed silently.** Three copies of
+  `'^(mcp_bridge/|model/|util/|…)'` in `.github/workflows/test.yml` decide whether the bridge jobs
+  run at all. Missing them breaks nothing and fails nothing — it just stops testing the bridge.
+
+  **Two verification traps, both caught by doing rather than reading.** A stale `build/lib/` made
+  the **first wheel contain both layouts at once** — `klarpdf` *and* `mcp_bridge`/`model`/`util`/
+  `version.py` — because `python -m build` reuses that directory; the verification was contaminated
+  before the code was. And `klarpdf/util/resources.py` still computed the repo root as
+  `parent.parent`, which after the move resolved to `klarpdf/` — the **M133 depth class recurring
+  inside the code that moved**, and the reason five `test_about_dialog.py` tests failed. It is the
+  only `Path(__file__)` in the moved payload.
+
+  **Two of the sweeps were too strict, and that is the lesson worth keeping**: a grep that is wrong
+  looks exactly like a grep that is clean. `"mcp_bridge.server:main"` escaped because the character
+  class stopped at `:`; `import model  # noqa: F401` escaped because the bare-import pattern
+  required end-of-line. Both returned nothing; both were believed; the suite found them. The doc
+  sweep needed the opposite guard and got it — built from the real filenames, it left
+  `model/edit-engine layer`, `no model/file change` and `importlib.util.find_spec` alone.
+
+  **Verified by executing every entry point**, per the procedure M133 wrote: `import klarpdf`,
+  the console script's target, `python -m` form, the old names confirmed *gone*, a clean wheel with
+  one top-level name, `klarpdf-mcp --help` from a real install of that wheel, and the bundle staging
+  to `server/klarpdf/` with its manifest entry point pointing at a file that exists.
+
+  **One externally-visible consequence, accepted.** `manifest.json`'s `documentation` field is a
+  GitHub URL — `blob/main/mcp_bridge/README.md` — and it is **baked into every `.mcpb` already
+  shipped**. It is updated here, so future bundles are right; the v0.18.0 bundle in the wild now
+  links to a path that 404s. Nothing can be done about an artifact already released, and a stub at
+  the old path was rejected: a bare `mcp_bridge/` directory left behind would be an implicit
+  namespace package, so `import mcp_bridge` would *succeed* and mask a missed rewrite instead of
+  failing loudly — the one property that made this move verifiable. Design in `PLAN.md` §M133–M136
+  — *WSL*
 
 - [ ] **M135** *(unplanned)* **One distribution on PyPI, pinned like the application it is** —
   publish `klarpdf`, with the GUI behind a `[gui]` extra if an app package ever happens. One
@@ -2466,7 +2507,7 @@ on the one above it. Every decision, every rejection and every measurement behin
   App and the MCP bridge files?"* It was not. **v0.18.0 shipped as "the MCP / Agent Bridge" with no
   `.mcpb` attached** — `release.yml` runs `packaging/app/build.ps1` and attaches four files, and has never
   invoked `build_mcpb.py`. The only route to the one-click Claude Desktop install was cloning the repo
-  and running the packer, which needs Node; `mcp_bridge/README.md` says exactly that, which is why it
+  and running the packer, which needs Node; `klarpdf/mcp_bridge/README.md` says exactly that, which is why it
   never read as a gap. The artifact three milestones went into making correct — **M127** built it at
   all, **M128** made it installable, **M129** gave it a lock — was the one nobody could download.
   The bundle for v0.18.0 was **attached by hand** to the draft (owner call), and the workflow now does
@@ -2501,7 +2542,7 @@ on the one above it. Every decision, every rejection and every measurement behin
   contention itself, with a real sleep, since `_no_real_sleeping` stubs the production backoff out and
   four retries would otherwise pass in microseconds — shorter than the lock they must outlast.
   **0 failures in 25 runs** after (0.4% likely by chance at the old rate), and verified non-vacuous:
-  deleting the retry from `util/atomic.py` still fails **7** tests, both user-facing ones via the
+  deleting the retry from `klarpdf/util/atomic.py` still fails **7** tests, both user-facing ones via the
   "Export failed" modal. The 1.0 gate's "one known flaky test" is corrected above — a flake a re-run
   hides is not observed. Design in `PLAN.md` §M130 — *Windows*
   ([#314](https://github.com/utyagi24/klarpdf/pull/314))
@@ -2522,7 +2563,7 @@ on the one above it. Every decision, every rejection and every measurement behin
   platform-marker-free, so `colorama` and `pywin32` can never appear in it. **It does not make the
   bundle "audited"**: `pip-audit` runs on `requirements-mcp.txt`, the audited set carries through the
   generated pins, and the platform-specific extras are pinned and hashed but not separately audited —
-  `mcp_bridge/README.md` says exactly that and should not be shortened. **A fourth runbook defect
+  `klarpdf/mcp_bridge/README.md` says exactly that and should not be shortened. **A fourth runbook defect
   surfaced on the way, and the worst of the four:** row 10 said to rebuild *"so the lock travels
   inside the bundle"* and it did not — `stage()` stopped at `pyproject.toml`, so following the
   runbook exactly would have installed a bundle with **no lock in it**, shown `uv` generating its
@@ -2699,7 +2740,7 @@ on the one above it. Every decision, every rejection and every measurement behin
   `_reveal_row` was written to fix for view-driven scrolling (M85), arriving by a path that never
   went through it, so duplicate / insert-from-file / rotate / delete all did it too. Now the scroll
   offset is captured and restored alongside the row and the marker is revealed through the shared
-  `util.reveal` policy: a row still comfortably in view does not move at all, one that is not gets
+  `klarpdf.util.reveal` policy: a row still comfortably in view does not move at all, one that is not gets
   centred. *(b)* The inserted page now becomes current, via the `_note_edit_on` hook M59.9 already
   provided — before, the current row was a bare integer that survived the rebuild and so pointed at
   a *different* page than it had before the insert — **and the main view now goes there too**. That
@@ -2902,7 +2943,7 @@ on the one above it. Every decision, every rejection and every measurement behin
 - [x] **M115** *(unplanned)* **The app and the bridge were writing PDFs with different engines** —
   found while preparing M114, which is entirely about what the engine writes. The shipped app pins
   `pymupdf==1.27.2.3`; the bridge's lock had **1.28.2**. PyMuPDF is not one dependency among many —
-  it *is* the PDF engine, and `model/` hands it every read and write **both** surfaces make, so two
+  it *is* the PDF engine, and `klarpdf/model/` hands it every read and write **both** surfaces make, so two
   versions can write different bytes for the same edit. **A drift, with the mechanism named wrong:**
   both inputs asked for `PyMuPDF>=1.25.5`, a *floor*, and `pip-compile` resolves a floor to whatever
   was newest the day it ran — the app's lock was compiled at 1.27.2.3 and is bumped by hand
@@ -2914,7 +2955,7 @@ on the one above it. Every decision, every rejection and every measurement behin
   reproduce here. **Fixed bridge-down**, since 1.27.2.3 is what the installer bundles and the
   clean-machine test has run against; moving the app instead is a release-process decision of its
   own. **The fix is structural, not a test:** PyMuPDF belongs to neither surface — it is the
-  **core's**, since `model/` is what both share — so it is now declared in **one** place, a new
+  **core's**, since `klarpdf/model/` is what both share — so it is now declared in **one** place, a new
   `requirements-core.in` that `requirements.in` and `requirements-mcp.in` both `-r`, and neither
   names PyMuPDF itself. (The `-r` include is already how `requirements-dev.in` pulls in
   `requirements.in`.) **The shared file is only half of it:** a shared *floor* drifts exactly as two
@@ -2924,10 +2965,10 @@ on the one above it. Every decision, every rejection and every measurement behin
   routine recompile of `requirements-win.txt` would have moved the shipped engine silently.
   `requirements-win.txt` is untouched (hashed, `win_amd64`, Windows-only); its pins are already
   correct and the sole change on the next Windows recompile is a `# via` annotation.
-  **A second core library was in the same position and unguarded:** across `model/ viewer/ organize/
-  util/ mcp_bridge/` there are exactly three third-party imports — PyMuPDF (this), PySide6 (app-only,
+  **A second core library was in the same position and unguarded:** across `klarpdf/model/ viewer/ organize/
+  klarpdf/util/ klarpdf/mcp_bridge/` there are exactly three third-party imports — PyMuPDF (this), PySide6 (app-only,
   proven by `test_mcp_no_qt.py` running every tool in a clean interpreter), and **pypdf** (app-only,
-  and nothing checked it). `model/edit_engine.py` imports pypdf *inside* `PyPdfEngine.materialize`,
+  and nothing checked it). `klarpdf/model/edit_engine.py` imports pypdf *inside* `PyPdfEngine.materialize`,
   so a load-time check proves nothing and only reaching that method fails — with
   `ModuleNotFoundError` on a user's machine and never in CI, which installs the app's lock. Same
   shape as the version drift; closed by adding `pypdf` to that exerciser's leak set, confirmed to
@@ -3392,9 +3433,9 @@ on the one above it. Every decision, every rejection and every measurement behin
   so the two compose without reshaping. **`redact_annotated` was proposed and rejected** — the
   caller composes `get_annotations` → filter on colour → `redact_regions`, which inherits the
   verification identically because it *is* `redact_regions`. Editing or deleting an existing
-  annotation is out of scope. **Built 2026-08-20** — `mcp_bridge/annotations.py`, 36 new tests,
+  annotation is out of scope. **Built 2026-08-20** — `klarpdf/mcp_bridge/annotations.py`, 36 new tests,
   2 232 passed / 2 skipped. Four things the build settled: the palette **had to move** out of
-  `viewer/markup_style.py` (it imports Qt, and the bridge may not) into `model/markup_palette.py`,
+  `viewer/markup_style.py` (it imports Qt, and the bridge may not) into `klarpdf/model/markup_palette.py`,
   which turns "the agent's orange is the picker's orange" from a promise into a shared constant;
   annotation boxes are **rotation-invariant** in PyMuPDF, measured at 0/90/180/270, so the hand-off
   to `redact_regions` needs no arithmetic and now has a parametrised test saying so; a markup
@@ -3613,7 +3654,7 @@ on the one above it. Every decision, every rejection and every measurement behin
     machine reading the XFA data, while a dynamic one can look empty too. Writing into `datasets`
     and dropping `/XFA` both stay open below. The static/dynamic test is `<dynamicRender>` read **by
     value**: the SSA-3 carries it set to `forbidden`, so a presence check gets that form backwards.
-  - **The "lossless" claim now matches M93's.** Server instructions, `mcp_bridge/README.md` and the
+  - **The "lossless" claim now matches M93's.** Server instructions, `klarpdf/mcp_bridge/README.md` and the
     per-tool docstrings all say the same narrower thing: an unchanged page set keeps everything, a
     reorder keeps the content and not the document structure.
   - **Tests** follow the report's own suggested fixtures: a checkbox whose export value is `"2"`
@@ -3680,7 +3721,7 @@ on the one above it. Every decision, every rejection and every measurement behin
   - **`whole_words: true` means whole *token*, now stated.** The behaviour is deliberate (M64:
     `ALPHA-zero-A0` is one word) and was documented in the code while the tool docs said only
     "matched whole" and steered single tokens toward that mode. Corrected in `server.py` and
-    `mcp_bridge/README.md`, with the shapes it bites on named.
+    `klarpdf/mcp_bridge/README.md`, with the shapes it bites on named.
   - **Cost**, measured on the 320-page `spaceX_prospectus.pdf`: `search` **+7–12%** — one extra
     `get_text("dict")` per hit page, and a pixmap only for pale candidates. The pathological
     one-letter query 4.60 s → 5.04 s.
@@ -3744,7 +3785,7 @@ tree or history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI 
 - [x] **G4** In-app About + Open-Source Licenses dialog — Help menu (`main_window.py`) → **About**
   (mark + version + AGPL + the AGPL §15-16 no-warranty notice + a *tagged* corresponding-source link,
   never `main`), **Open-Source Licenses** (the bundled texts, one tab each, offline), **View Source**.
-  New `ui/about.py` (dialogs) + `util/resources.py` (freeze-aware `resource_path()`, mirroring
+  New `ui/about.py` (dialogs) + `klarpdf/util/resources.py` (freeze-aware `resource_path()`, mirroring
   `ui/icons.py`'s `_MEIPASS` dance); `packaging/app/klarpdf.spec` `datas` ships `LICENSE` +
   `THIRD_PARTY_LICENSES` to the bundle root. Links open via `QDesktopServices` on **user click only**,
   so the offline / no-telemetry guarantee holds. `tests/test_about_dialog.py` drives the real Help
@@ -3888,10 +3929,21 @@ the PR that fixes it. See `CLAUDE.md` §How we work for the split and why. Items
 were not migrated wholesale: each is listed because a decision is outstanding, which is what keeps
 it on this side of the line.
 
+- **The `.mcpb` carries `QUICKSTART.md` but deliberately drops `README.md`** — noticed 2026-09-05
+  while verifying M134's staged bundle. `build_mcpb.py`'s payload copy passes
+  `ignore_patterns("__pycache__", "*.pyc", "README.md")`, so the bridge README is excluded on
+  purpose while `QUICKSTART.md` — added to `klarpdf/mcp_bridge/` by #320, after that ignore list was
+  written — rides into every bundle at ~2.4 KB. **The fix is one string in a tuple**, which is
+  exactly why it is here rather than done silently: it changes what a shipped artifact contains, and
+  the question underneath it is whether the ignore list should name documents individually at all or
+  filter `*.md`, which would also cover the next doc someone adds. Not decided. Harmless either way
+  — nothing reads it at runtime and the bundle is 239 KiB.
+  `packaging/mcp/mcpb/build_mcpb.py`.
+
 - **Nothing we ship has ever been tested on macOS** — noticed 2026-09-04 while scoping M133–M136.
   There is **no macOS runner anywhere in `.github/workflows/`**: the bridge's coverage is `bridge`
   (Ubuntu 3.12), `bridge-windows`, and `bridge-pyver` (3.11/3.13/3.14 on Ubuntu). Yet
-  `mcp_bridge/README.md` says the bridge "runs on macOS, Linux and Windows", the `.mcpb` manifest
+  `klarpdf/mcp_bridge/README.md` says the bridge "runs on macOS, Linux and Windows", the `.mcpb` manifest
   declares `darwin` in `compatibility.platforms`, and **M136's `install.py` will print a macOS
   install path** (`~/Library/Application Support/klarpdf-mcp`) with macOS-specific behaviour behind
   it — the `/bin/sh` exec-trick shebang that a space in that path forces, measured on Linux and
@@ -3904,7 +3956,7 @@ it on this side of the line.
   actually made. Not decided. `.github/workflows/test.yml`.
 
 - **The tool count is hand-maintained in four places and nothing checks it** — noticed 2026-08-31
-  while rewriting `mcp_bridge/README.md`. "Nineteen tools" appears twice in that file, once in the
+  while rewriting `klarpdf/mcp_bridge/README.md`. "Nineteen tools" appears twice in that file, once in the
   root `README.md`, and once in the repo's GitHub **About** text; `tests/test_mcp_docs.py` pins the
   1,900-character description budget over the live server but asserts nothing about how many tools
   it registers. All four are correct today — verified against `create_server`, which yields 19 with
@@ -3917,7 +3969,7 @@ it on this side of the line.
   (The same drift already bit once in the other direction: `--read-only`'s own `--help` text said
   "six query tools" from before `get_annotations` was added until the same session fixed it.)
 
-- **`mcp_bridge/README.md` is still shaped for someone who already knows the tools** — noticed
+- **`klarpdf/mcp_bridge/README.md` is still shaped for someone who already knows the tools** — noticed
   2026-08-31 in the review that produced the visitor-first rewrite, and deliberately left out of that
   PR because the owner scoped it to the four missing subjects. Three things stayed: **no table of
   contents** on a 489-line file with eighteen headings; **no worked example** — the root `README.md`
@@ -3940,7 +3992,7 @@ it on this side of the line.
   **The decision is what to do about that residue**, and there are three shapes: teach the audit to
   read `uv.lock` (`uv export` to a requirements file, then the existing `pip-audit` step); add the
   lock to the paths filter so at least a *change* to it is gated; or accept it and say so, which is
-  what `mcp_bridge/README.md` already does. Not obviously worth the machinery for two packages —
+  what `klarpdf/mcp_bridge/README.md` already does. Not obviously worth the machinery for two packages —
   which is exactly why it needs a call rather than a silent default. `.github/workflows/audit.yml`,
   `packaging/mcp/mcpb/uv.lock`.
 
@@ -3956,7 +4008,7 @@ it on this side of the line.
   question is what a reported box is *for* — the mark's footprint on the page, or the shape as
   authored — and it should be answered once, for every non-quad type, rather than patched for
   shapes. Text markup is unaffected: it is read from quads, which carry no such padding (§M101).
-  `mcp_bridge/annotations.py:_describe`, `model/page_edits.py:parse_annotation`.
+  `klarpdf/mcp_bridge/annotations.py:_describe`, `klarpdf/model/page_edits.py:parse_annotation`.
 
 - ~~**The MCP no-socket/no-Qt invariant tests can't run on native Windows**~~ — **decided and fixed
   2026-08-27 as M122** ([#301](https://github.com/utyagi24/klarpdf/issues/301); see the milestone
@@ -3981,7 +4033,7 @@ it on this side of the line.
   `test_redaction_leak_check_poppler_cross_engine` comes back skipped.
   So the enforcement point is CI, deliberately, and it is guarded against silently becoming a no-op.
   Poppler is a *second* engine: redaction always verifies with PyMuPDF, and `pdftotext` is the
-  independent cross-check that the text is really gone (`mcp_bridge/redaction.py`), so a developer
+  independent cross-check that the text is really gone (`klarpdf/mcp_bridge/redaction.py`), so a developer
   without it loses corroboration, not the check.
   ~~What is left, and it is much smaller than first written: the CI assertion names **one** of the
   four tests, so the other three could start skipping in CI without failing anything.~~ **Fixed
@@ -4027,7 +4079,7 @@ it on this side of the line.
   rather than silence ("the duplicate scan was skipped on a very large document"), which makes it a
   milestone rather than a constant. **Workaround meanwhile:** any structural edit collapses the
   graph through `insert_pdf` — one page deleted takes that file from 48,877 objects to **2,178**,
-  after which flatten costs 1.19 s. `model/export.py`.
+  after which flatten costs 1.19 s. `klarpdf/model/export.py`.
 - **The Flattened-PDF export drops the document's encryption in silence** — noticed 2026-08-21 while
   building M111, not a regression from it: `export_flattened_pdf` has never passed encryption
   keywords, so flattening an owner-password-restricted form yields an unrestricted copy. It is the
@@ -4036,7 +4088,7 @@ it on this side of the line.
   folded into M111, whose scope is the cleanup options and the reported baseline, and not obviously
   a bug either: an export is a derived artifact and a locked-content copy may legitimately want its
   own protection settings. Needs a decision (carry through / drop with a warning / offer the
-  choice), then a milestone. `model/export.py:export_flattened_pdf`.
+  choice), then a milestone. `klarpdf/model/export.py:export_flattened_pdf`.
 - **`get_info` reports *displayed* page sizes while `clip` and `redact_regions` consume *unrotated*
   ones** — TC-008, 2026-08-18, severity low. `search`, `redact_regions` and (since M99.1) `clip` all
   work in the unrotated space; `page_sizes` alone reports post-rotation dimensions, and there is no
@@ -4172,7 +4224,7 @@ it on this side of the line.
 
 - ~~**The Annotations panel reads each row's snippet with `page.get_textbox`**~~ — **fixed in M78.8**
   (wrong snippets *and* 15.7 s of per-edit lag at 200 highlights; `PageText` moved to
-  `model/page_text.py` and shared). Nothing carried.
+  `klarpdf/model/page_text.py` and shared). Nothing carried.
 
 - **The thumbnail sidebar bakes the *whole document* on every edit.** `ThumbnailPanel._edited_render`
   calls `PyMuPDFEngine.render_output(vdoc)` — a full materialise of every page — so the panel can
@@ -4189,7 +4241,7 @@ it on this side of the line.
 - **Upstream PyMuPDF bug: URI links with an unbalanced paren are dropped by `insert_pdf` /
   `insert_link`** (unescaped re-serialisation of the URI text; console shows "skipping bad link /
   annot item N"; seen in the wild in a novaPDF-produced file whose URI is `http://www.adobe.com)`).
-  Worked around in `model/links_remap.py`: the materialise link pass re-adds any URI link
+  Worked around in `klarpdf/model/links_remap.py`: the materialise link pass re-adds any URI link
   `insert_pdf` dropped, with the text pre-escaped (round-trips correctly). Consider reporting
   upstream to PyMuPDF; if fixed there, the restore pass simply finds nothing missing.
 
@@ -4220,7 +4272,7 @@ it on this side of the line.
   6.14.2 → 6.15.0, clearing **two** Moderate advisories — **GHSA-fwg2-594c-jp42** (CVE-2026-71852,
   unusually large CID font width ranges) and **GHSA-fp3f-mc75-235c** (CVE-2026-71870, unusually large
   `/ToUnicode` streams). Both are CPU/memory-DoS on **parse**, reached through `PyPdfEngine`'s
-  `PdfReader` in `model/edit_engine.py`, so a crafted PDF is the attack surface. The weekly `audit`
+  `PdfReader` in `klarpdf/model/edit_engine.py`, so a crafted PDF is the attack surface. The weekly `audit`
   job caught it first — the 2026-08-10 scheduled run went **red** (`pip-audit`: "Found 2 known
   vulnerabilities in 1 package"). Bumped via `RELEASE.md` §2 → §1: floor pin in `requirements.in`,
   `invoke lock --package pypdf==6.15.0`, `invoke vendor`; all three locks audit clean and the
@@ -4285,7 +4337,7 @@ it on this side of the line.
   1.0 gate entry). The retry is worth doing on its own merits — any user with real-time antivirus can
   hit the same transient lock and get a spurious "Save failed" modal.
   → **CLOSED 2026-08-12 by M38.5** ([#239](https://github.com/utyagi24/klarpdf/pull/239)):
-  `util/atomic.py:atomic_replace` retries `PermissionError` (WinError 5 / 32) four times over ~0.75 s
+  `klarpdf/util/atomic.py:atomic_replace` retries `PermissionError` (WinError 5 / 32) four times over ~0.75 s
   before giving up, and both write sites — `_write_to` (Save / Save As) and `_export_pdf` (every
   Export) — go through it. Only lock contention is retried; `FileNotFoundError` and a cross-device
   `OSError` still fail on the first attempt. Kept here rather than deleted because the *diagnosis* is

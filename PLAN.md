@@ -165,7 +165,7 @@ prior snapshot.
 **Save / Discard / Cancel**. Save runs the normal save path (Save As if untitled); Cancel calls
 `event.ignore()` to abort the close. The app only exits once every window has resolved its
 prompt (closing the last window does not bypass an unsaved one). Reuses the dirty tracking
-already held in `model/virtual_document.py`.
+already held in `klarpdf/model/virtual_document.py`.
 
 ### Single-instance + one-window-per-document (the duplicate-tab fix)
 
@@ -218,7 +218,7 @@ The owner develops in **WSL2** (Ubuntu, Python 3.12.3, with WSLg so GUIs display
 truly require Windows. So development is **hybrid**, with **git as the bridge** between two
 checkouts — neither reaches across the filesystem boundary at runtime.
 
-- **WSL checkout** `/home/<you>/klarpdf` (native Linux fs, fast): canonical dev for all `model/`,
+- **WSL checkout** `/home/<you>/klarpdf` (native Linux fs, fast): canonical dev for all `klarpdf/model/`,
   `viewer/`, `organize/` code, the headless tests, and GUI iteration via **WSLg**.
 - **Windows checkout** `C:\Users\<you>\klarpdf` (native NTFS, fast PyInstaller + correct shell
   behavior): `git pull` here for **packaging + Windows-behavior validation only**.
@@ -227,7 +227,7 @@ checkouts — neither reaches across the filesystem boundary at runtime.
   (`*.py` LF; `*.ps1`/`*.iss` CRLF) keeps both checkouts clean.
 
 **What runs where** (see Build order for the per-step tags): ~80% is WSL-doable. The GUI-free
-`model/` + edit-engine and the **headless pytest suite** run in WSL today; the viewer/selection/
+`klarpdf/model/` + edit-engine and the **headless pytest suite** run in WSL today; the viewer/selection/
 thumbnail GUI iterates via WSLg. Only the **freeze + installer + registry** (step 9) is
 Windows-only, and the **single-instance / focus / file-association** behavior (step 2) must be
 **validated on Windows** — WSLg runs the *Linux* Qt build, so it smoke-tests logic but is not
@@ -318,7 +318,7 @@ a portable **`--onefile` `klarpdf-portable-x64.exe`** → Inno Setup (`ISCC inst
 `klarpdf-setup-x64.exe` → smoke-test (launch + open a PDF). Both artifact names carry an explicit
 **`-x64`** suffix — the only architecture built today (§2's `win_amd64`-pinned wheels, built on a
 `windows-latest` x64 runner) — so a future `arm64` build has a distinct, non-colliding name.
-- **Versioning:** one source of truth (`version.py`) feeds the PyInstaller exe metadata, the Inno
+- **Versioning:** one source of truth (`klarpdf/version.py`) feeds the PyInstaller exe metadata, the Inno
   `AppVersion`, and the git tag; a bump is an explicit edit + a new tag.
 - **Release:** on a `v*` tag the workflow publishes a **GitHub Release** attaching
   `klarpdf-setup-x64.exe`, the portable `klarpdf-portable-x64.exe`, a **`SHA256SUMS`** file, and the
@@ -345,7 +345,7 @@ cleanup. The sections below record the **design and rationale**; for what is don
 - **Branding (name + logo) — decided: KlarPDF.** `pdfproj` was a development codename, not a product
   brand; the name had to be settled **before** the name-dependent artifacts below (license copyright,
   About dialog, community files, README) so they bake in the final identity. The gate is closed — the
-  visual system landed first, then the rebrand sweep across `version.py`, `packaging/app/installer.iss`
+  visual system landed first, then the rebrand sweep across `klarpdf/version.py`, `packaging/app/installer.iss`
   (AppName / Publisher / `AppId` / ProgID), the window title, the single-instance + `%LOCALAPPDATA%`
   identifiers, the annotation author tag, the `.ico` + toolbar SVG assets, and the **GitHub repo name**
   (rename while private — old links redirect). Name, casing mapping and the two-part split are tracked
@@ -353,7 +353,7 @@ cleanup. The sections below record the **design and rationale**; for what is don
 
   The sweep carries **no backward-compatibility shims**, because the app has never been distributed —
   it has a single user and no installed base. Two values are therefore free to change outright that
-  would otherwise be frozen: `KLARPDF_AUTHOR` in `model/page_edits.py`, which is stamped as the PDF
+  would otherwise be frozen: `KLARPDF_AUTHOR` in `klarpdf/model/page_edits.py`, which is stamped as the PDF
   `/T` field on every annotation the app bakes in and matched on read-back (M31 round-trip, and the
   foreign-annotation boundary noted under §Future enhancements), so changing it would strand
   annotations in already-saved files; and the `%LOCALAPPDATA%` config leaf, whose rename orphans the local
@@ -470,7 +470,7 @@ commercial PyMuPDF license, or a pypdf-only fallback build.
 
 Decision: **ship Windows only** for the first release, but bake in **near-zero-cost seams** so a
 future Linux (or macOS) port is small. The architecture is *incidentally* portable — Qt + MuPDF are
-the cross-platform engine and the `model/` layer is GUI-free — so the reuse story is strong as long
+the cross-platform engine and the `klarpdf/model/` layer is GUI-free — so the reuse story is strong as long
 as OS-specific code stays quarantined.
 
 **Cheap hedges (do now, ≈zero cost):**
@@ -486,14 +486,14 @@ as OS-specific code stays quarantined.
    optional dev/source-run convenience, so the two sections don't contradict.
 3. **All OS coupling stays inside `packaging/` + `platform_integration.py`** — registry/`.iss`/
    `.ps1` never leak into `launcher.py`/`app.py`.
-4. `util/paths.py` `normalize_path()` stays the **single identity chokepoint** so the
+4. `klarpdf/util/paths.py` `normalize_path()` stays the **single identity chokepoint** so the
    case-sensitivity switch (Windows case-fold vs Linux case-sensitive) is one function.
 
 **Reuse / rewrite map (if Linux is targeted later):**
-- **Reusable unchanged:** all `model/` (`virtual_document`, `edit_commands`, `edit_engine`,
+- **Reusable unchanged:** all `klarpdf/model/` (`virtual_document`, `edit_commands`, `edit_engine`,
   `toc_remap`, materialize), all `viewer/`, `organize/thumbnail_panel`, `main_window.py`, the
   `QUndoStack` undo/redo, all `tests/`, `requirements.in`.
-- **Small platform branches:** `util/paths.py` (case semantics), `store/settings.py` (config path,
+- **Small platform branches:** `klarpdf/util/paths.py` (case semantics), `store/settings.py` (config path,
   solved by hedge #1), `app.py`/`launcher.py` focus/raise shims (Wayland forbids programmatic
   activation) + the IPC socket path (same Qt API, different underlying transport).
 - **Full rewrite per OS:** `packaging/app/installer.iss` → AppImage/Flatpak/.deb; `build.ps1` →
@@ -515,12 +515,12 @@ klarpdf/
   viewer/text_selection.py     # word-box selection overlay + clipboard copy (feature QPdfView lacks)
   viewer/search.py             # page.search_for highlighting + hit navigation
   organize/thumbnail_panel.py  # grid bound to ordered[]: drag-reorder, cross-window drag (QDrag MIME), cut/copy/paste, delete
-  model/virtual_document.py    # VirtualDocument + PageRef; all list-edit ops, dirty tracking
-  model/edit_commands.py       # QUndoCommand subclasses (reorder/delete/insert/rotate/paste): snapshot+restore ordered[]
-  model/edit_engine.py         # EditEngine interface; PyMuPDFEngine (default) + PyPdfEngine (fallback); materialize-on-save
-  model/toc_remap.py           # outline snapshot + old->new page remap + drop-dangling
+  klarpdf/model/virtual_document.py    # VirtualDocument + PageRef; all list-edit ops, dirty tracking
+  klarpdf/model/edit_commands.py       # QUndoCommand subclasses (reorder/delete/insert/rotate/paste): snapshot+restore ordered[]
+  klarpdf/model/edit_engine.py         # EditEngine interface; PyMuPDFEngine (default) + PyPdfEngine (fallback); materialize-on-save
+  klarpdf/model/toc_remap.py           # outline snapshot + old->new page remap + drop-dangling
   store/settings.py            # per-document last page/zoom/geometry — JSON via QStandardPaths AppConfigLocation (%LOCALAPPDATA% on Windows, ~/.config on Linux)
-  util/paths.py                # normalize_path() — SINGLE identity chokepoint (case-fold on Windows; one-line switch for Linux)
+  klarpdf/util/paths.py                # normalize_path() — SINGLE identity chokepoint (case-fold on Windows; one-line switch for Linux)
   tests/conftest.py            # builds fixtures with fitz: A.pdf (text layer, bookmark, form field), B.pdf (same-name field)
   tests/test_virtual_document.py  # reorder/delete/insert/move/copy + undo/redo restore ordered[]
   tests/test_materialize.py       # materialize preserves OCR text, remaps TOC to new indices, drops dangling, keeps form fields
@@ -531,14 +531,14 @@ klarpdf/
   vendor/wheels-sources.md     # auditable record: version + sha256 + source URL per wheel (regenerated by vendor/gen-sources.py)
   DEPENDENCIES.md              # each lib: purpose, why reputable, license, exact version; + pinned Python/PyInstaller/Inno versions
   .gitattributes               # *.py eol=lf; *.ps1/*.iss eol=crlf — clean across the WSL + Windows checkouts
-  version.py                   # single source of version → PyInstaller exe metadata, Inno AppVersion, git tag
+  klarpdf/version.py                   # single source of version → PyInstaller exe metadata, Inno AppVersion, git tag
   packaging/app/klarpdf.spec       # PyInstaller spec → --onedir (installer) + --onefile (portable .exe), icon, data files
   packaging/app/installer.iss      # Inno Setup: bundles dist/, [Registry] ProgID + .pdf assoc (HKCU), Start Menu, uninstaller (+ [UninstallDelete] %LOCALAPPDATA%\klarpdf)
   packaging/app/build.ps1          # offline build: --require-hashes --no-index, PyInstaller (onedir+onefile), ISCC — reproducible
   .github/workflows/release.yml # CI: windows-latest; workflow_dispatch + v* tag → build.ps1 → GitHub Release (setup.exe + portable + SHA256SUMS + wheels)
 ```
 
-Deferred (see Future enhancements): `model/links_remap.py` — generalize `toc_remap` to internal
+Deferred (see Future enhancements): `klarpdf/model/links_remap.py` — generalize `toc_remap` to internal
 GoTo link annotations.
 
 ## Build order (phased)
@@ -569,7 +569,7 @@ Each step is tagged **(WSL)** / **(WSLg)** / **(Windows)** per the Development e
 7. **Headless model tests — (WSL).** pytest over the GUI-free model/edit-engine layer (can land as
    early as step 5; no Qt display required). Runs in WSL and CI. See Verification.
 8. **Save / Save As — (WSL).** Atomic `os.replace` for Save (also atomic on Windows, same volume);
-   Save As dialog. The rename goes through `util/atomic.py:atomic_replace` (M38.5), which retries a
+   Save As dialog. The rename goes through `klarpdf/util/atomic.py:atomic_replace` (M38.5), which retries a
    `PermissionError` on a bounded backoff: on Windows the rename needs exclusive access to both
    paths, and an on-access antivirus scanner holding the just-written temp open is enough to fail a
    save that would succeed 200 ms later.
@@ -591,7 +591,7 @@ in WSL before anything touches Windows.
 | Milestone | Step(s) | Where | Done when |
 |---|---|---|---|
 | **M0** Scaffold + dev venv | 1 (WSL) | WSL | repo skeleton, `requirements.in` + `requirements-dev.txt`, WSL venv, `.gitattributes`, `pytest` collects |
-| **M1** Correctness core ⭐ | 5 + 7 | WSL | `model/` + headless tests **green** — OCR/TOC/forms/undo preserved |
+| **M1** Correctness core ⭐ | 5 + 7 | WSL | `klarpdf/model/` + headless tests **green** — OCR/TOC/forms/undo preserved |
 | **M2** Viewer | 3 | WSLg | open a PDF; scroll, zoom/fit, rotate, thumbnails, last-page memory |
 | **M3** Selection + search | 4 | WSLg | drag-select → clipboard copy; find + next/prev |
 | **M4** Editing loop | 6 + 8 | WSLg | reorder/delete/merge + cross-window cut/copy/paste (organize panel) + undo/redo; Save/Save As; dirty-close prompt |
@@ -694,7 +694,7 @@ Run with `py -3.12 -m pytest -q` (or `pytest` in the project venv).
   `B.pdf`'s `name` field after `A.pdf`'s yields `name` + `name [NN]`, both preserved, neither
   dropped/overwritten. So no `xfail` was needed. Asserted in `tests/test_materialize.py`
   (`test_merge_preserves_both_form_fields_dedup`), cross-checked via pypdf `get_fields()`.
-- ✅ **Confirmed (M1):** `insert_pdf` does **not** copy the source TOC — `model/toc_remap.py`
+- ✅ **Confirmed (M1):** `insert_pdf` does **not** copy the source TOC — `klarpdf/model/toc_remap.py`
   rebuilds the outline explicitly, handling **multi-level** outlines (level-continuity repair /
   orphan promotion on drop) and explicit destinations (dest-page remap). Covered by
   `tests/test_toc_remap.py` + `tests/test_materialize.py`. Named-destination outlines remain
@@ -724,18 +724,18 @@ Release sequence:
 Icons, zoom %, recent docs, and printing bolt onto the existing UI/viewer cleanly. But form-fill,
 highlight, text-box, and redaction **edit content *inside* a page** — which the model has never
 done. The hard constraint: source `fitz.Document`s are **shared across windows** (cross-window
-paste registers another window's source in `model/virtual_document.py`), so we **must never mutate
+paste registers another window's source in `klarpdf/model/virtual_document.py`), so we **must never mutate
 a source page in place** — it would corrupt the other window and any `VirtualDocument` referencing
 that page.
 
 The fix is to treat content edits exactly like the existing list edits — **immutable descriptors
 stored in the model, applied only at materialize, on the output copy:**
 
-- **Model (`model/page_edits.py`, new):** frozen descriptors (form-field values, annotations,
+- **Model (`klarpdf/model/page_edits.py`, new):** frozen descriptors (form-field values, annotations,
   redaction rects) attached per page and snapshotted alongside `ordered[]`, so the existing
-  `QUndoStack` snapshot/restore in `model/edit_commands.py` keeps undo/redo working unchanged.
+  `QUndoStack` snapshot/restore in `klarpdf/model/edit_commands.py` keeps undo/redo working unchanged.
   Sources stay read-only.
-- **Save (`model/edit_engine.py`):** after `insert_pdf` copies each page, a post-copy pass applies
+- **Save (`klarpdf/model/edit_engine.py`):** after `insert_pdf` copies each page, a post-copy pass applies
   that page's edits to the **output** page — `add_highlight_annot` / `add_freetext_annot`, set
   `widget.field_value`, and `add_redact_annot` → `apply_redactions`. Materialize remains the only
   write; sources are never touched.
@@ -760,7 +760,7 @@ layer at all — it's drag-and-drop + viewer-mode UX.)
 | **M11** Zoom UX | `zoomChanged` signal from `PdfView`; live "150%" indicator (toolbar combo); **Actual Size / 100%** action (Ctrl+0); preset levels. Extends `PdfView.set_zoom`. | WSLg | Magnification % always visible; one click resets to 100% |
 | **M12** Printing | `QPrintDialog` + `QPrinter`; render each page via PyMuPDF at printer DPI, paint with `QPainter`; page-range + current-page. Confirm `QtPrintSupport` + plugins survive the freeze. | WSL logic; **Win** print validation | System print dialog prints the open doc correctly |
 | **M13** Recent documents | MRU list in `store/settings.py`; dynamic **File ▸ Open Recent** submenu (app-global, refreshed across windows); dedupe via `normalize_path`, drop missing files, "Clear Recent". Reopen routes through `app.open_document` (free single-instance dedupe). | WSL | Recent files listed; reopen in one click |
-| **M14** ⭐ Page-edit layer + form fill | The layer above; first consumer fills existing AcroForm fields (text/checkbox/radio/choice). New `model/page_edits.py`, `viewer/tools.py`; click-to-edit field UI; headless materialize tests. | WSL (model+tests) + WSLg | Fill a form's fields, save, reopen with values intact |
+| **M14** ⭐ Page-edit layer + form fill | The layer above; first consumer fills existing AcroForm fields (text/checkbox/radio/choice). New `klarpdf/model/page_edits.py`, `viewer/tools.py`; click-to-edit field UI; headless materialize tests. | WSL (model+tests) + WSLg | Fill a form's fields, save, reopen with values intact |
 | **M15** Verify + release | Headless suite green; Windows validation (print, icon, forms in the frozen build); tag **v0.2.0**. Opportunistically fold in the carried **CI Node-24 action bumps** + **code signing**. | **Win** | Matrix green → v0.2.0 released |
 
 ### v0.3.0 — "Interaction & Drag-and-Drop"
@@ -804,7 +804,7 @@ played for v0.1.0).
 
 ### Files (shipped + planned)
 
-**Shipped in v0.2.0:** `model/page_edits.py` (form-value descriptors, snapshotted with `ordered[]`),
+**Shipped in v0.2.0:** `klarpdf/model/page_edits.py` (form-value descriptors, snapshotted with `ordered[]`),
 `viewer/printing.py` (QPrinter render), `viewer/zoom_widget.py`, `viewer/form_fill.py` (inline
 fill), `ui/icons.py` + `ui/icons/*.svg`, `packaging/app/klarpdf.ico` + `packaging/app/make_icon.py`; tests
 `test_form_fill.py`, `test_form_fill_ui.py`, `test_zoom.py`, `test_recent.py`, `test_icons.py`,
@@ -817,8 +817,8 @@ mode controller); new `ui/icons/` hand + select glyphs; tests `test_drag_drop.py
 file URLs, `filesDropped` signal, drag-pixmap non-null) + `test_interaction_mode.py` (mode switches
 drag mode + suppresses selection/form routing).
 
-**Planned — v0.4.0 (Annotate & Redact):** extend `model/page_edits.py` with annotation/redaction
-descriptors + `model/edit_engine.py`'s post-copy pass; reuse `viewer/tools.py`; tests
+**Planned — v0.4.0 (Annotate & Redact):** extend `klarpdf/model/page_edits.py` with annotation/redaction
+descriptors + `klarpdf/model/edit_engine.py`'s post-copy pass; reuse `viewer/tools.py`; tests
 `test_annotations_materialize.py` (highlight + free-text bake in) + `test_redaction.py`
 (`apply_redactions` truly removes content — leak check).
 
@@ -866,8 +866,8 @@ originally sat here were re-scoped by the owner to **v0.9.0**, so the image work
 
 | Milestone | Feature | Where | Done when |
 |---|---|---|---|
-| **M31** ⭐ Annotation round-trip editing | On open, re-parse **our** annotations (the `KLARPDF_AUTHOR`-tagged highlights / text-boxes) from the source into `model/page_edits.py`; at materialize, **strip-then-re-add** the managed annotations on the copied page so they aren't duplicated. Saved highlights/text-boxes become movable / re-editable / removable after reopening. (Redaction stays a point-of-no-return — not re-editable.) Follow-ups from manual testing: the page render strips our baked marks so the editable overlay is the single source of truth (no double-draw / pinned original), and text selection reads the stripped render page (a box's text isn't drag-selectable, no stale-position copy). | WSL (model+tests) + WSLg | Reopen a saved doc → move / edit / remove its KlarPDF annotations |
-| **M31.5** Export → PDF (flatten) | An **Export** action (`File ▸ Export`) whose first format is a **flattened PDF**: bake the managed annotations **and form widgets** into page content via PyMuPDF `Document.bake()` (text layer **preserved**, *not* rasterised) — a locked but still-searchable copy whose marks can't be moved/removed in any tool. The opt-out counterpart to M31's round-trip (Save As stays editable; Export → PDF locks). Built as an **extensible Export path** (`model/export.py`) that **M36** grows to an image format. | WSL (model+tests) + WSLg | Export → PDF writes a flattened, text-preserving copy whose annotations are no longer editable |
+| **M31** ⭐ Annotation round-trip editing | On open, re-parse **our** annotations (the `KLARPDF_AUTHOR`-tagged highlights / text-boxes) from the source into `klarpdf/model/page_edits.py`; at materialize, **strip-then-re-add** the managed annotations on the copied page so they aren't duplicated. Saved highlights/text-boxes become movable / re-editable / removable after reopening. (Redaction stays a point-of-no-return — not re-editable.) Follow-ups from manual testing: the page render strips our baked marks so the editable overlay is the single source of truth (no double-draw / pinned original), and text selection reads the stripped render page (a box's text isn't drag-selectable, no stale-position copy). | WSL (model+tests) + WSLg | Reopen a saved doc → move / edit / remove its KlarPDF annotations |
+| **M31.5** Export → PDF (flatten) | An **Export** action (`File ▸ Export`) whose first format is a **flattened PDF**: bake the managed annotations **and form widgets** into page content via PyMuPDF `Document.bake()` (text layer **preserved**, *not* rasterised) — a locked but still-searchable copy whose marks can't be moved/removed in any tool. The opt-out counterpart to M31's round-trip (Save As stays editable; Export → PDF locks). Built as an **extensible Export path** (`klarpdf/model/export.py`) that **M36** grows to an image format. | WSL (model+tests) + WSLg | Export → PDF writes a flattened, text-preserving copy whose annotations are no longer editable |
 | **M34** Verify + release | Headless suite green (317 tests); Windows validation; tag **v0.7.0**. | **Win** | Matrix green → v0.7.0 released |
 
 ### v0.8.0 ✅ — "Images" (shipped)
@@ -890,7 +890,7 @@ first. **No new dependency** — both are native PyMuPDF.
 | Milestone | Feature | Where | Done when |
 |---|---|---|---|
 | **M32** Encrypted / password PDFs | On open, detect `doc.needs_pass`, prompt, `doc.authenticate(pw)` before registering the source; the source is then held **decrypted in memory** (re-serialised with `PDF_ENCRYPT_NONE`) so render / materialise / export never need the password and the output stays unencrypted (re-encryption deferred). Cancelling raises `PasswordRequired`; the provider is stored so Revert of an encrypted original re-prompts. | WSL + WSLg | Open a password-protected PDF after entering its password |
-| **M33** Internal link remap **+ navigation** | `model/links_remap.py`: at materialize, rebuild internal **GoTo *and* named-destination** links against the new page order (both resolve to a target page, re-emitted as remapped GoTo — `insert_pdf` drops named dests entirely, and cross-run GoTo links). Plus **in-viewer navigation** (`viewer/links.py`): clicking an internal link jumps to its target page (pointing-hand on hover), resolved via the same map so it follows reorder/delete live. | WSL (model+tests) + WSLg | Reordered/deleted pages keep internal links working; clicking a link in the viewer jumps to its target |
+| **M33** Internal link remap **+ navigation** | `klarpdf/model/links_remap.py`: at materialize, rebuild internal **GoTo *and* named-destination** links against the new page order (both resolve to a target page, re-emitted as remapped GoTo — `insert_pdf` drops named dests entirely, and cross-run GoTo links). Plus **in-viewer navigation** (`viewer/links.py`): clicking an internal link jumps to its target page (pointing-hand on hover), resolved via the same map so it follows reorder/delete live. | WSL (model+tests) + WSLg | Reordered/deleted pages keep internal links working; clicking a link in the viewer jumps to its target |
 | **M38** Verify + release | Headless suite green (369 tests); Windows validation; tag **v0.9.0**. | **Win** | Matrix green → v0.9.0 released |
 
 ## MCP / Agent Bridge roadmap (planned; version assigned at tag time)
@@ -925,14 +925,14 @@ no longer equally weighted:
    argument no longer carries a milestone by itself. This is a supporting benefit, not a
    justification — **do not revive the bridge on this premise alone.**
 
-The leverage: the headless `model/` core already implements every transform. The only new logic is a
+The leverage: the headless `klarpdf/model/` core already implements every transform. The only new logic is a
 thin set of read-only query helpers + the MCP tool layer — and **less of that than first scoped**:
-`model/page_text.py` (M78.7) landed after this roadmap was written, is Qt-free, lives in `model/`,
+`klarpdf/model/page_text.py` (M78.7) landed after this roadmap was written, is Qt-free, lives in `klarpdf/model/`,
 and already produces the page + snippet output `search` needs.
 
 ### Architecture (a quarantined seam, like `packaging/`)
 
-- **New `mcp_bridge/` package**, isolated the same way OS code is quarantined behind
+- **New `klarpdf/mcp_bridge/` package**, isolated the same way OS code is quarantined behind
   `platform_integration.py` — never inlined into `app.py`/`launcher.py`. The GUI build does not
   import it.
 - **It cannot be called `mcp/`** (found at M39, correcting this section's original name). The
@@ -940,15 +940,15 @@ and already produces the page + snippet output `search` needs.
   `pythonpath = ["."]`, plus a script's own directory), so a local `mcp/` package shadows the
   installed one and `from mcp.server import MCPServer` dies with `ModuleNotFoundError: No module
   named 'mcp.server'` — measured before a line of the server was written, not theorised. The name
-  in the milestone table below is `mcp_bridge/` for the same reason.
+  in the milestone table below is `klarpdf/mcp_bridge/` for the same reason.
 - **Reuses the GUI-free core only.** Imports `model/virtual_document`, `edit_engine`, `export`,
-  `page_edits`, `links_remap`, `toc_remap` — **not** `model/edit_commands.py` (it imports
+  `page_edits`, `links_remap`, `toc_remap` — **not** `klarpdf/model/edit_commands.py` (it imports
   `QUndoCommand`); the server calls `VirtualDocument` ops directly, so it runs **without PySide6/Qt**.
   M39 confirms no Qt import reaches the server path.
-- **Same repo** (decided 2026-08-12). `mcp_bridge/` sits beside `model/` and imports it directly — the same
+- **Same repo** (decided 2026-08-12). `klarpdf/mcp_bridge/` sits beside `klarpdf/model/` and imports it directly — the same
   quarantined-seam pattern as `packaging/`, not a repo boundary. A sibling repo was rejected because
-  the bridge's whole leverage is that `model/` already implements every transform: splitting would
-  put a versioning seam through that leverage, and `model/` is not a publishable library today
+  the bridge's whole leverage is that `klarpdf/model/` already implements every transform: splitting would
+  put a versioning seam through that leverage, and `klarpdf/model/` is not a publishable library today
   (`pyproject.toml` is `0.0.0`, no distribution build). Same-repo also keeps the round-trip tests on
   the existing `A.pdf`/`B.pdf` fixtures and `test_materialize.py` invariants for free.
 - **Official `mcp` SDK, 2.x line, stdio transport** (decided 2026-08-12). Not standalone FastMCP:
@@ -978,19 +978,19 @@ and already produces the page + snippet output `search` needs.
   by importance: what a caller must know **before** calling (that it destroys content, what a flag
   changes, the traps) stays in the description; what they need to interpret the **reply** moves to
   the resource. The resource serves the live registered description plus a disjoint appendix in
-  `mcp_bridge/docs.py`, never a second copy, so the two cannot drift. Only `redact_text` and
+  `klarpdf/mcp_bridge/docs.py`, never a second copy, so the two cannot drift. Only `redact_text` and
   `search` need one today; the other fifteen sit comfortably inside the budget, and a resource for
   them would be ceremony.
-- **New headless helpers** (the only genuinely new code) — landed in `mcp_bridge/queries.py`:
+- **New headless helpers** (the only genuinely new code) — landed in `klarpdf/mcp_bridge/queries.py`:
   `extract_text(path, pages)`, `search(path, query)`, `render_page(path, page, dpi)`,
   `document_info(path)`, `outline(path)`, `form_fields(path)`. `viewer/search.py` is Qt-bound, but
-  **`model/page_text.py` is not** and already supplies the per-hit snippet machinery, so `search`
+  **`klarpdf/model/page_text.py` is not** and already supplies the per-hit snippet machinery, so `search`
   wraps `page.search_for` + `PageText` rather than being reimplemented from scratch. They hold no
   SDK import, so the PDF behaviour is tested by calling functions rather than by driving a protocol,
   and `server.py` stays a schema adapter.
 - **Page numbers are 1-based at the tool boundary** (M39), matching the viewer's page counter and a
-  PDF outline's own targets; `model/` stays 0-based and the conversion happens only in
-  `mcp_bridge/queries.py`. Out-of-range page numbers are an error, never a silent clamp.
+  PDF outline's own targets; `klarpdf/model/` stays 0-based and the conversion happens only in
+  `klarpdf/mcp_bridge/queries.py`. Out-of-range page numbers are an error, never a silent clamp.
 - **List-returning tools return a `{count, items}` dict**, not a bare list (M39). The SDK serialises
   a bare `list` into one content block *per element*, so a 500-hit search would arrive as 500
   blocks; the wrapper makes it one and hands the caller the total before the items — which is the
@@ -1012,7 +1012,7 @@ and already produces the page + snippet output `search` needs.
 | `fill_form(path, values, out)` | `set_field_value` + `materialize` | transform |
 | `flatten(path, out)` | `export.export_flattened_pdf` | transform |
 | `export_images(path, pages, dpi, out_dir)` | `export.export_page_images` | transform |
-| `annotate(path, marks, out)` → highlights / underlines / strike-throughs + notes (M101) | `page_edits.merge_markup` + `apply_annotations`; palette from `model/markup_palette.py` | transform |
+| `annotate(path, marks, out)` → highlights / underlines / strike-throughs + notes (M101) | `page_edits.merge_markup` + `apply_annotations`; palette from `klarpdf/model/markup_palette.py` | transform |
 | `redact_regions` / `redact_text(path, …, out)` | `Redaction` + `apply_redactions` + cross-engine leak verify | secure |
 | (encrypted input) | `password` param → `from_path(password_provider=…)` | all |
 
@@ -1026,7 +1026,7 @@ bugs cannot happen.
   it and **shelled out to `pdfunite`** instead. `split(ranges=["10-20"])` produces exactly the right
   file, but it is named for cutting a document up and chooses the output filename itself, so it does
   not read as the answer. The primitive already existed unexposed —
-  `model/export.py:export_selected_pages`, the app's own Export ▸ Selected Pages as PDF (M51) — so
+  `klarpdf/model/export.py:export_selected_pages`, the app's own Export ▸ Selected Pages as PDF (M51) — so
   `extract_pages` is a thin wrapper over tested code. **A tool the model cannot find is a tool that
   does not exist**, which is the same lesson `--read-only` encodes from the other direction.
 - **`python -m mcp_bridge` cannot be the documented command, and `pyproject.toml` must declare
@@ -1044,8 +1044,8 @@ bugs cannot happen.
 ### Safety model (agent-driven = untrusted caller)
 
 - **Never overwrite the source.** Write tools require an explicit *new* output path; in-place save is
-  not exposed. Implemented at M40 in `mcp_bridge/transforms.py:_resolve_out`, and the identity test
-  goes through `util/paths.py:normalize_path` — the project's single "are these the same file"
+  not exposed. Implemented at M40 in `klarpdf/mcp_bridge/transforms.py:_resolve_out`, and the identity test
+  goes through `klarpdf/util/paths.py:normalize_path` — the project's single "are these the same file"
   chokepoint — so a symlink, a `..` segment or a case-different spelling on Windows cannot smuggle
   the input back in as the destination. A string compare would miss all three; there are tests for
   each. Every write tool's schema *requires* `out`/`out_dir`, so no argument shape means "in place".
@@ -1055,7 +1055,7 @@ bugs cannot happen.
   one word.
 - **Writes go to a sibling temp and are renamed into place**, so a failed transform leaves nothing
   half-written for the caller to read back as a corrupt PDF. The rename is M38.5's
-  `util.atomic.atomic_replace`, the same helper the GUI's Save and Export use — the
+  `klarpdf.util.atomic.atomic_replace`, the same helper the GUI's Save and Export use — the
   antivirus-holds-the-temp race applies identically here, and the two write paths deliberately do
   not diverge on it.
 - **A mistake is an error, never a quiet partial success.** `fill_form` rejects an unknown field
@@ -1064,7 +1064,7 @@ bugs cannot happen.
   number is refused rather than clamped.
 - **Redaction stays a point of no return** — destructive `apply_redactions` + the existing
   `fitz`+Poppler leak verification before the tool reports success. Landed at M41 in
-  `mcp_bridge/redaction.py`, with two consequences worth stating because they are what separate this
+  `klarpdf/mcp_bridge/redaction.py`, with two consequences worth stating because they are what separate this
   from `redact_mcp`'s visual overlay:
   - **A failed verification deletes the output and raises.** A caller must never be handed a path to
     a file that looks redacted and is not, so the tool's success is a claim about a file that was
@@ -1083,7 +1083,7 @@ bugs cannot happen.
     must not be mistaken for a check that found nothing.
 - **Path scoping.** A configurable allowlist of roots the server may read/write (an MCP tool runs with
   the host's file access); refuse paths outside it. Landed at M43 as `--allow-root DIR` (repeatable)
-  / `KLARPDF_MCP_ALLOW_ROOTS`, in `mcp_bridge/config.py:PathPolicy`. **Unrestricted by default, and
+  / `KLARPDF_MCP_ALLOW_ROOTS`, in `klarpdf/mcp_bridge/config.py:PathPolicy`. **Unrestricted by default, and
   that is the honest default rather than a lax one:** a stdio server is a subprocess the user
   launched, running as them, with exactly the file access they already have — a client that can
   start it can already read their disk, so defaulting to some arbitrary root would buy no security
@@ -1147,8 +1147,8 @@ bugs cannot happen.
   for an audience that has not asked, its testing value is already covered by the headless suite, and
   it is *not* a prerequisite for a Skill — a Skill can wrap the MCP tools directly, which also keeps
   Claude Desktop in reach where a bash-invoked CLI cannot. Deferred, not forbidden: because the tools
-  are thin adapters over `model/`, a CLI stays cheap to add if a real request arrives.
-- **The server is platform-independent — unlike the app — and the lock must not undo that.** `model/`
+  are thin adapters over `klarpdf/model/`, a CLI stays cheap to add if a real request arrives.
+- **The server is platform-independent — unlike the app — and the lock must not undo that.** `klarpdf/model/`
   contains no platform-specific code (no `sys.platform` / `os.name` / `win32` / `winreg`), the
   headless suite already proves it on Linux every CI run, PyMuPDF ships manylinux/macOS/Windows
   wheels, and `mcp`'s only Windows dependency (`pywin32`) is platform-marked. Nothing the server
@@ -1182,11 +1182,11 @@ bugs cannot happen.
   preserves every property the original decision was made for — resolve-at-install, no vendoring,
   one file for macOS + Windows + Linux — and changes exactly one thing: **`uv` must be on the user's
   PATH**, because the host is no longer the component supplying it. That prerequisite is stated in
-  `mcp_bridge/README.md` rather than left to be discovered. `tests/test_mcp_packaging.py` pins the
+  `klarpdf/mcp_bridge/README.md` rather than left to be discovered. `tests/test_mcp_packaging.py` pins the
   command, so a later edit back to a bare interpreter cannot quietly reintroduce the need for
   vendored dependencies the format forbids.
   **How it is built:** `packaging/mcp/mcpb/build_mcpb.py` assembles `server/` from the checkout
-  (`mcp_bridge/`, `model/`, `util/`, `version.py`, minus `model/edit_commands.py` — the one
+  (`klarpdf/mcp_bridge/`, `klarpdf/model/`, `klarpdf/util/`, `klarpdf/version.py`, minus `klarpdf/model/edit_commands.py` — the one
   Qt-importing file), generates the bundle's `pyproject.toml` **from `requirements-mcp.txt** so the
   two cannot drift, and runs `mcpb pack`. The `.mcpb` is a **release artifact in `dist/`, not a
   committed file** — same treatment as the installer; what is committed is the script, the manifest
@@ -1228,8 +1228,8 @@ bugs cannot happen.
 
 | Milestone | Where | Done when |
 |---|---|---|
-| **M39 ⭐** MCP scaffold + read-only core | WSL | `mcp_bridge/` stdio server on the official `mcp` 2.x SDK (`MCPServer`); `get_info`/`get_outline`/`search`/`extract_text`/`render_page`/`get_form_fields` wired to headless helpers (`search` reuses `model/page_text.py`, not a fresh implementation); no PySide6 import on the server path — assert it in a test, don't just observe it; headless tests green |
-| **M40** Transform tools | WSL | `split`/`merge`/`reorder`/`delete_pages`/`rotate`/`fill_form`/`flatten`/`export_images` → explicit out path; never overwrites source; lossless (OCR/TOC/forms survive); headless tests. Landed in `mcp_bridge/transforms.py`; `split` reuses `util/page_range.py` so an agent types the same range syntax a person does |
+| **M39 ⭐** MCP scaffold + read-only core | WSL | `klarpdf/mcp_bridge/` stdio server on the official `mcp` 2.x SDK (`MCPServer`); `get_info`/`get_outline`/`search`/`extract_text`/`render_page`/`get_form_fields` wired to headless helpers (`search` reuses `klarpdf/model/page_text.py`, not a fresh implementation); no PySide6 import on the server path — assert it in a test, don't just observe it; headless tests green |
+| **M40** Transform tools | WSL | `split`/`merge`/`reorder`/`delete_pages`/`rotate`/`fill_form`/`flatten`/`export_images` → explicit out path; never overwrites source; lossless (OCR/TOC/forms survive); headless tests. Landed in `klarpdf/mcp_bridge/transforms.py`; `split` reuses `klarpdf/util/page_range.py` so an agent types the same range syntax a person does |
 | **M41** Redaction + encrypted | WSL | `redact_regions`/`redact_text` (destructive + leak-verified); headless cross-engine leak assertion. **Encrypted input landed early, at M39**: every read tool already takes `password`, because `open_document` had to handle an encrypted source anyway — the model's provider re-prompts on a wrong password and there is no user behind an agent call, so the adapter must decline the retry or the server hangs. Tested there; M41 extends it to the write tools |
 | **M42** Dependency lock + packaging | WSL + Windows | `requirements-mcp.{in,txt}` — **cross-platform, `==`-pinned, unhashed**, GUI lock untouched; fourth `pip-audit` step in `audit.yml` + `tools/audit-deps.ps1`; `klarpdf-mcp` entry point; `.mcp.json` + Desktop config docs; **`.mcpb` bundle (committed, `server.type = "uv"`)** |
 | **M43** Hardening + docs | WSL | path allowlist, return-size caps, `--read-only` flag (opt-out; writes are on by default), error handling; README usage + example agent workflows |
@@ -1265,10 +1265,10 @@ scheduling it found the **build case intact and sharper**, and the **plan around
 **Premises that changed.** *Dead:* the v0.11.0 reservation (v0.12.0 → v0.17.1 shipped past it) and
 the "assuming the bridge ships first" sequencing note below. *Weakened:* the context-economics
 argument (§Why, point 2). *Strengthened:* the transform/redaction argument, by the discovery of a
-visual-overlay-only redaction MCP server. *Shrunk:* M39, because `model/page_text.py` landed in the
+visual-overlay-only redaction MCP server. *Shrunk:* M39, because `klarpdf/model/page_text.py` landed in the
 interim. *Ambiguous, now resolved:* "FastMCP" names two different things since the official SDK
 renamed its class and standalone FastMCP 3.x went its own way. *Held up well:* stdio-first, the
-`.mcpb` bet, and the Qt-free-core architecture — `model/` is still Qt-free apart from the already
+`.mcpb` bet, and the Qt-free-core architecture — `klarpdf/model/` is still Qt-free apart from the already
 excluded `edit_commands.py`.
 
 **One question the original plan could not have asked:** Agent Skills. A Skill supplies *procedure*,
@@ -1381,7 +1381,7 @@ caller's regression test for no reason.
 **"Lossless" was narrowed to what M93 established.** The tool docs promised that "the text layer,
 form fields and bookmarks survive", which is true and was being read as more than it says — TC-002
 quoted it back against a write that dropped the structure tree, `/Perms`, `/Names` and encryption.
-The server instructions, `mcp_bridge/README.md` and the per-tool docstrings now draw the line where
+The server instructions, `klarpdf/mcp_bridge/README.md` and the per-tool docstrings now draw the line where
 §Key design idea draws it: **a tool that leaves the page set alone keeps everything; a tool that
 moves pages keeps the content and not the document structure.** The claim is smaller and, for the
 first time, the same in all four places it is made.
@@ -1447,7 +1447,7 @@ query goes 4.60 s → 5.04 s.
 
 **`whole_words: true` means whole *token*, and the docs now say so.** The behaviour is deliberate —
 M64 treats `ALPHA-zero-A0` as one word and the find bar is tested on it — and was documented in
-`model/page_text.py` while the tool docs said only "matched whole", then steered the caller toward
+`klarpdf/model/page_text.py` while the tool docs said only "matched whole", then steered the caller toward
 that mode for "one phrase". Facing an account number, a careful reader picks `true` and silently
 loses half the occurrences. The tool docs now state the limitation and name the shape it bites on
 (`<tag:VALUE>`, filenames, URLs, `key:value`), and point single-token queries at `whole_words: false`,
@@ -1861,7 +1861,7 @@ should **not** be able to drag the highlights."*
 
 **It is an asymmetry, not a general drag problem.** Our **own** `Highlight` / `Underline` /
 `Strikeout` appear in neither `OBJECT_TYPES` (`viewer/annotations.py`) nor `PLACEABLE_TYPES`
-(`model/page_edits.py`) — deliberately not draggable, because a text markup's quads *describe text*:
+(`klarpdf/model/page_edits.py`) — deliberately not draggable, because a text markup's quads *describe text*:
 move it and it marks nothing. The **foreign** path has no equivalent gate —
 `foreign_annotation_at()` hit-tests every foreign annotation by its rect with no type filter, so
 M67's move applies to text markup too. Edge's highlights get a capability our own identical marks are
@@ -2618,7 +2618,7 @@ correct for an image-only PDF.
   this hardware; what it would still cost is Ctrl+wheel and a real hi-res wheel. Recorded so it
   isn't re-proposed as a free win *and* isn't rejected for a reason that no longer holds.
 - **E — render pages off the UI thread.** All rendering today is synchronous (verified: zero
-  threading in `viewer/`, `organize/`, `model/`, `app.py`, `main_window.py`). The white/black page
+  threading in `viewer/`, `organize/`, `klarpdf/model/`, `app.py`, `main_window.py`). The white/black page
   rect placeholder already exists in `_build_scene`, but a reader never sees it — the UI *freezes*
   until the batch finishes instead of degrading to placeholders. E is the only item that answers "the
   app must not appear blocked on a heavy document". **Owner call: F now, E only if still needed after
@@ -3276,7 +3276,7 @@ M100 shipped; M101 was re-scoped on 2026-08-20** — see its own section for wha
 
 | Milestone | What | Where | Verify |
 | --- | --- | --- | --- |
-| **M99** Both imaging tools take an optional `clip` box, in the page-point space everything else uses | `queries.render_page` passes `clip` to `get_pixmap`; `model/export.py:export_page_images` threads one through to the same call | WSL | A clip returns only that region at the right pixel size; an out-of-page or inverted clip is refused; omitting it is byte-identical to today |
+| **M99** Both imaging tools take an optional `clip` box, in the page-point space everything else uses | `queries.render_page` passes `clip` to `get_pixmap`; `klarpdf/model/export.py:export_page_images` threads one through to the same call | WSL | A clip returns only that region at the right pixel size; an out-of-page or inverted clip is refused; omitting it is byte-identical to today |
 
 **The gap.** Neither tool takes a region, so "extract this ID card as a PNG" cannot be finished inside
 the server — TC-007 exported a whole page at 200 dpi and cropped it outside. Asked for twice
@@ -3360,7 +3360,7 @@ server never can. Two consequences worth stating. `name` is a filename **compone
 `_safe_stem` refuses separators, `..` and an extension rather than sanitising them: joined onto
 `out_dir` unchecked it would walk out of the directory and around `--allow-root`, and quietly
 rewriting it would hand back a file under a different name than was asked for. And `number_all`
-defaults **off** in `model/export.py`, because that function is shared with the app's Export ▸
+defaults **off** in `klarpdf/model/export.py`, because that function is shared with the app's Export ▸
 Images, where the filename comes from a save dialog — turning the user's `report.png` into
 `report-1.png` behind them would be its own small betrayal. Only the bridge passes it.
 
@@ -3370,7 +3370,7 @@ the naive formula gives. That is the right policy — no partial pixel of the re
 dropped — but it was unstated, so it is now documented and pinned by a test, since an undocumented
 rounding rule is one a later change can break silently.
 
-`resolve_clip` therefore lives in `model/export.py` beside the rasterisation it constrains, not in
+`resolve_clip` therefore lives in `klarpdf/model/export.py` beside the rasterisation it constrains, not in
 the bridge — the app's own Export shares the path, and two validators with two answers is the trap
 `_word_bounded` already documents. Tolerance is 0.01 pt, sub-pixel at any dpi either tool renders,
 so a computed box landing a ten-thousandth past the page edge is not an error while a real overhang
@@ -3468,7 +3468,7 @@ that turned out to be my own probes loading the machine).
 
 | Milestone | What | Where | Verify |
 | --- | --- | --- | --- |
-| **M101** The bridge can *write* highlights / underlines / strike-throughs, each carrying a note, and *read back* every annotation a document holds | New `mcp_bridge/annotations.py` over `model/page_edits.py`; two tools — `annotate`, `get_annotations` | WSL | A written highlight reopens in the app as an editable mark, with its note in the note editor and its badge on the page; a foreign (Acrobat / Edge) annotation is read back too, and says it is not ours; a second `annotate` over the same span merges instead of stacking; `get_annotations` boxes go into `redact_regions` unchanged |
+| **M101** The bridge can *write* highlights / underlines / strike-throughs, each carrying a note, and *read back* every annotation a document holds | New `klarpdf/mcp_bridge/annotations.py` over `klarpdf/model/page_edits.py`; two tools — `annotate`, `get_annotations` | WSL | A written highlight reopens in the app as an editable mark, with its note in the note editor and its badge on the page; a foreign (Acrobat / Edge) annotation is read back too, and says it is not ours; a second `annotate` over the same span merges instead of stacking; `get_annotations` boxes go into `redact_regions` unchanged |
 
 **Re-scoped 2026-08-20, on the owner's reading of the milestone below.** The first draft of M101
 described annotation entirely as the front half of a redaction workflow, and that was wrong twice
@@ -3580,7 +3580,7 @@ already raised against editing annotations. Point 5 above is what pays for the r
 `get_annotations` hands back boxes in `redact_regions`' own shape and space, the composition is a
 filter and nothing more.
 
-**Built as scoped** *(2026-08-20)*, `mcp_bridge/annotations.py` + `model/markup_palette.py`, 36 new
+**Built as scoped** *(2026-08-20)*, `klarpdf/mcp_bridge/annotations.py` + `klarpdf/model/markup_palette.py`, 36 new
 tests. Four things the build settled that the design above could only assert:
 
 1. **The palette had to move, and that is the interesting part.** Point 6 wanted the bridge and the
@@ -3590,7 +3590,7 @@ tests. Four things the build settled that the design above could only assert:
    them, and duplication would have been a correctness bug on a slow fuse — colour is the review
    loop's verdict channel, so two copies agree until someone edits one, and then "orange" names two
    RGB values and a filter returns half the document's orange marks. They now live in
-   `model/markup_palette.py`; `viewer/markup_style.py` re-exports both names, so no caller changed.
+   `klarpdf/model/markup_palette.py`; `viewer/markup_style.py` re-exports both names, so no caller changed.
    The invariant is structural rather than tested-for.
 2. **The rotation question answered itself, and is now pinned.** Point 5 required annotation boxes
    to be in the same unrotated space `redact_regions` consumes. Measured across `/Rotate` 0 / 90 /
@@ -3619,7 +3619,7 @@ bound to any page" when it is merciful, a crash when it is not). Hold the page i
 
 | Milestone | What | Where | Verify |
 | --- | --- | --- | --- |
-| **M105** Restructure the oversized tool descriptions so the safety-critical half arrives, publish the reference half where it cannot be cut, and pin a ceiling so they cannot grow past it again | `mcp_bridge/server.py` docstrings + `mcp_bridge/docs.py` behind `klarpdf://docs/{tool}`; `tests/test_mcp_docs.py` enumerating the live server | WSL | Every description is under the budget; `redact_text` still names what it destroys, what `whole_words` *means*, and that the reply must be read; the field catalogue is readable from the resource; the test fails if any *future* tool grows past the budget |
+| **M105** Restructure the oversized tool descriptions so the safety-critical half arrives, publish the reference half where it cannot be cut, and pin a ceiling so they cannot grow past it again | `klarpdf/mcp_bridge/server.py` docstrings + `klarpdf/mcp_bridge/docs.py` behind `klarpdf://docs/{tool}`; `tests/test_mcp_docs.py` enumerating the live server | WSL | Every description is under the budget; `redact_text` still names what it destroys, what `whole_words` *means*, and that the reply must be read; the field catalogue is readable from the resource; the test fails if any *future* tool grows past the budget |
 
 **The finding.** The testing agent reported it could not see the Finding-C documentation "even
 though the MCP was reinstalled", and that `redact_text`'s description was **truncated in its tool
@@ -3698,7 +3698,7 @@ resource.
 
 | Milestone | What | Where | Verify |
 | --- | --- | --- | --- |
-| **M106** An unrecognised argument is an **error**, not a silent no-op — on every tool, with a did-you-mean when the name is close | `mcp_bridge/strict_args.py` (the message, SDK-free) behind `StrictArguments`, an `Extension.intercept_tool_call` in `mcp_bridge/server.py` | WSL | `querys=[…]` on `redact_text` raises naming the parameter and suggesting `queries`, and **writes nothing**; a correctly-spelled call is byte-identical to today; the check covers all 17 tools, not just the redactors |
+| **M106** An unrecognised argument is an **error**, not a silent no-op — on every tool, with a did-you-mean when the name is close | `klarpdf/mcp_bridge/strict_args.py` (the message, SDK-free) behind `StrictArguments`, an `Extension.intercept_tool_call` in `klarpdf/mcp_bridge/server.py` | WSL | `querys=[…]` on `redact_text` raises naming the parameter and suggesting `queries`, and **writes nothing**; a correctly-spelled call is byte-identical to today; the check covers all 17 tools, not just the redactors |
 
 **The worst defect this series has found, and it arrives through a door none of the others watch.**
 Reproduced directly: a one-character typo left PII in a file the tool certified clean.
@@ -3819,9 +3819,9 @@ matcher above.
 
 | Milestone | What | Where | Verify |
 | --- | --- | --- | --- |
-| **M107** Disclose a redaction that fell **inside** a longer word, instead of reporting plain success | `_partial_word_report` in `mcp_bridge/redaction.py`, fed from the write loop | WSL | `redact_text {"query": "Male"}` over a page holding `Female` returns `partial_word_matches` and a warning naming `'Male' inside 'Female'` and what it now reads; an ordinary whole-word redaction stays silent |
-| **M107.1** `get_info` reports each page's `rotation` | `_page_sizes` in `mcp_bridge/queries.py` | WSL | A portrait page turned 90° and a native landscape page no longer share a `page_sizes` row |
-| **M107.2** The docs resource says where the reader is | `_documentation` in `mcp_bridge/server.py` | WSL | `klarpdf://docs/redact_text` opens by naming itself; the description is still contained verbatim |
+| **M107** Disclose a redaction that fell **inside** a longer word, instead of reporting plain success | `_partial_word_report` in `klarpdf/mcp_bridge/redaction.py`, fed from the write loop | WSL | `redact_text {"query": "Male"}` over a page holding `Female` returns `partial_word_matches` and a warning naming `'Male' inside 'Female'` and what it now reads; an ordinary whole-word redaction stays silent |
+| **M107.1** `get_info` reports each page's `rotation` | `_page_sizes` in `klarpdf/mcp_bridge/queries.py` | WSL | A portrait page turned 90° and a native landscape page no longer share a `page_sizes` row |
+| **M107.2** The docs resource says where the reader is | `_documentation` in `klarpdf/mcp_bridge/server.py` | WSL | `klarpdf://docs/redact_text` opens by naming itself; the description is still contained verbatim |
 
 **The last of the family.** Every other "reported clean but was not" path this series found is
 closed. This is the remaining one, and it had been filed three times under three names — TC-003b #7
@@ -3881,10 +3881,10 @@ keeps the guarantee.
 
 | Milestone | What | Where | Verify |
 | --- | --- | --- | --- |
-| **M108** `residual_literal` counts **occurrences**, and names each spelling with its own count and pages | `_no_residual_match` + `_literal_residuals` / `_variant_residuals` in `mcp_bridge/redaction.py` | WSL | Two spellings, three occurrences each, reports `6` and a `residual_literal_forms` list; the same number Poppler and PyMuPDF between them actually leave |
-| **M108.1** `export_images` caps its file listing like every other bulk tool | `mcp_bridge/server.py` + `Limits.max_listed_files` | WSL | A 40-page export lists 25 paths with `truncated: true`, `out_dir` and the naming pattern — and still writes 40 files |
-| **M108.2** The `search` cap note stops advising a flag that is already set | `mcp_bridge/server.py` | WSL | A truncated `whole_words: true` search no longer says "or set `whole_words`" |
-| **M108.3** Exported filenames pad to the document's page count on the bridge path | `model/export.py` | WSL | `pages: [1,2,3]` and `pages: [5,72,150]` from one 200-page document produce the same width; the app's Export is unchanged |
+| **M108** `residual_literal` counts **occurrences**, and names each spelling with its own count and pages | `_no_residual_match` + `_literal_residuals` / `_variant_residuals` in `klarpdf/mcp_bridge/redaction.py` | WSL | Two spellings, three occurrences each, reports `6` and a `residual_literal_forms` list; the same number Poppler and PyMuPDF between them actually leave |
+| **M108.1** `export_images` caps its file listing like every other bulk tool | `klarpdf/mcp_bridge/server.py` + `Limits.max_listed_files` | WSL | A 40-page export lists 25 paths with `truncated: true`, `out_dir` and the naming pattern — and still writes 40 files |
+| **M108.2** The `search` cap note stops advising a flag that is already set | `klarpdf/mcp_bridge/server.py` | WSL | A truncated `whole_words: true` search no longer says "or set `whole_words`" |
+| **M108.3** Exported filenames pad to the document's page count on the bridge path | `klarpdf/model/export.py` | WSL | `pages: [1,2,3]` and `pages: [5,72,150]` from one 200-page document produce the same width; the app's Export is unchanged |
 
 **Found only at scale.** On a 320-page document `redact_text` reported `residual_literal: 2` where
 **12** residual occurrences remained. The field counted distinct *spellings* and the warning called
@@ -3933,7 +3933,7 @@ the next note they skip may be one that mattered.
 
 | Milestone | What | Where | Verify |
 | --- | --- | --- | --- |
-| **M109** Disclose the images a redaction had to re-encode, and what it cost | `_images_under` / `_recode_report` in `mcp_bridge/redaction.py`, read in `_apply` and reported in `_finish` | WSL | A redaction over a photo returns `images_recoded` with before/after sizes and a warning; a text-only redaction, and one whose box misses the image, say nothing |
+| **M109** Disclose the images a redaction had to re-encode, and what it cost | `_images_under` / `_recode_report` in `klarpdf/mcp_bridge/redaction.py`, read in `_apply` and reported in `_finish` | WSL | A redaction over a photo returns `images_recoded` with before/after sizes and a warning; a text-only redaction, and one whose box misses the image, say nothing |
 
 **Correct behaviour, undisclosed.** Erasing pixels inside an image means decoding it, and
 re-compressing lossily would degrade exactly the area a redaction was asked to destroy — so the
@@ -3984,7 +3984,7 @@ file rather than against itself.
 
 | Milestone | What | Where | Verify |
 | --- | --- | --- | --- |
-| **M110** Pick the object-cleanup level from the save *route*: the graft keeps `garbage=4`, the unchanged-page-set copy drops to `garbage=2` | `PyMuPDFEngine.materialize` in `model/edit_engine.py` — the level becomes a function of `page_set_unchanged()`, beside the encryption choice that already is | WSL + Windows | A 572-page 48,877-object document saves in ~2 s instead of ~200 s; a duplicated image-heavy page still writes 1.9 MB, not 39 MB; output size across the corpus is unchanged or smaller on every file; a redaction still leaves no orphaned image object |
+| **M110** Pick the object-cleanup level from the save *route*: the graft keeps `garbage=4`, the unchanged-page-set copy drops to `garbage=2` | `PyMuPDFEngine.materialize` in `klarpdf/model/edit_engine.py` — the level becomes a function of `page_set_unchanged()`, beside the encryption choice that already is | WSL + Windows | A 572-page 48,877-object document saves in ~2 s instead of ~200 s; a duplicated image-heavy page still writes 1.9 MB, not 39 MB; output size across the corpus is unchanged or smaller on every file; a redaction still leaves no orphaned image object |
 
 **A performance regression M93 introduced and nobody measured.** `annotate` on a 572-page document
 took over 120 s (TC-012 FINDING 1), which the report attributed to "cost scales with document size".
@@ -4096,7 +4096,7 @@ explain why.
 
 | Milestone | What | Where | Verify |
 | --- | --- | --- | --- |
-| **M111** Give the save options one owner, so a change cannot update one call site and leave three behind: add `use_objstms=1` to the three export writes, and fix the `before` baseline `export_reduced_pdf` reports | `model/export.py` (`export_flattened_pdf`, `export_reduced_pdf` ×2) against the option set `model/edit_engine.py` owns | WSL | Reduced-Size never returns a file larger than a plain Save; the reported `before` equals what a Save actually writes; flatten output is unchanged or smaller |
+| **M111** Give the save options one owner, so a change cannot update one call site and leave three behind: add `use_objstms=1` to the three export writes, and fix the `before` baseline `export_reduced_pdf` reports | `klarpdf/model/export.py` (`export_flattened_pdf`, `export_reduced_pdf` ×2) against the option set `klarpdf/model/edit_engine.py` owns | WSL | Reduced-Size never returns a file larger than a plain Save; the reported `before` equals what a Save actually writes; flatten output is unchanged or smaller |
 
 **The same drift as M110, from the same commit.** M93 added `use_objstms=1` to `materialize` and to
 nothing else. Four call sites write a PDF; one was updated. The consequences land on the feature
@@ -4132,7 +4132,7 @@ next change to how this project writes a PDF cannot land in one place and miss t
 
 #### Built (2026-08-21) — and the baseline needed a second half
 
-The three export writes now take `write_options()` from `model/edit_engine.py`. Two decisions the
+The three export writes now take `write_options()` from `klarpdf/model/edit_engine.py`. Two decisions the
 row above did not settle, both made against the measurements:
 
 * **Both exports keep the deduplicating level, and the reason generalises the one M110 uses.** The
@@ -4167,7 +4167,7 @@ re-encoding them buys nothing and costs a little. The dialog already reports tha
 
 | Milestone | What | Where | Verify |
 | --- | --- | --- | --- |
-| **M112** The bridge-side counterpart to M66–M68: delete a mark, recolour it, change its note, and **adopt** a foreign one so it becomes editable | A new tool over `model/foreign_annots.py` (`adopt_annotation`, `degradations`, `ForeignDeletion`) and `page_edits.restyle_mark`, addressed by the `fingerprint` `get_annotations` reports | WSL | An Edge highlight is adopted, recoloured and re-noted from the bridge and reopens editable in the app; adopting a mark carrying features the model cannot hold **reports** the loss rather than performing it silently; a delete removes exactly one mark and leaves its neighbours untouched |
+| **M112** The bridge-side counterpart to M66–M68: delete a mark, recolour it, change its note, and **adopt** a foreign one so it becomes editable | A new tool over `klarpdf/model/foreign_annots.py` (`adopt_annotation`, `degradations`, `ForeignDeletion`) and `page_edits.restyle_mark`, addressed by the `fingerprint` `get_annotations` reports | WSL | An Edge highlight is adopted, recoloured and re-noted from the bridge and reopens editable in the app; adopting a mark carrying features the model cannot hold **reports** the loss rather than performing it silently; a delete removes exactly one mark and leaves its neighbours untouched |
 
 **The gap, stated correctly** (the owner corrected an earlier framing of this on 2026-08-21). It is
 *not* that KlarPDF handles other tools' marks poorly — it handles them well, across three
@@ -4255,7 +4255,7 @@ twenty rather than twenty-three.
 
 | Milestone | What | Where | Verify |
 | --- | --- | --- | --- |
-| **M113** Nine follow-ups from the two hands-on sessions against M101: three defects, one disclosure gap, and five documentation gaps | `mcp_bridge/annotations.py`, its two docstrings in `server.py`, `mcp_bridge/docs.py`, `mcp_bridge/config.py`, and `model/markup_palette.py` | WSL | A re-run leaves the file's content identical, note included; a reply stays inside the client's budget and pages with `offset`; a restricted document warns; a mark reports the text it landed on; a foreign mark's default yellow is named `Yellow` |
+| **M113** Nine follow-ups from the two hands-on sessions against M101: three defects, one disclosure gap, and five documentation gaps | `klarpdf/mcp_bridge/annotations.py`, its two docstrings in `server.py`, `klarpdf/mcp_bridge/docs.py`, `klarpdf/mcp_bridge/config.py`, and `klarpdf/model/markup_palette.py` | WSL | A re-run leaves the file's content identical, note included; a reply stays inside the client's budget and pages with `offset`; a restricted document warns; a mark reports the text it landed on; a foreign mark's default yellow is named `Yellow` |
 
 **Built 2026-08-25** — 2336 passed, 2 skipped (104 new since M101's 2232). Two things the build
 settled that the plan above could not, both recorded in full at their own items below: **M113.7 was
@@ -4499,7 +4499,7 @@ report filed it as "compounds FINDING 1", which **is no longer true**: the write
 for minutes and the same call now takes ~2 s (M110). What is left is one sentence naming the
 behaviour, and the note that its severity was borrowed from a problem that has since been fixed.
 
-**For reference, the app's own defaults** (`model/markup_palette.py`, `main_window.py:162`):
+**For reference, the app's own defaults** (`klarpdf/model/markup_palette.py`, `main_window.py:162`):
 highlight opens on **Yellow** `(1, 0.86, 0.10)`, underline and strikeout each open on **Red**
 `(0.86, 0.10, 0.10)`, the redline convention — sticky per session since M78.5, independent per type.
 
@@ -4519,7 +4519,7 @@ stated in.**
 
 | Milestone | What | Where | Verify |
 | --- | --- | --- | --- |
-| **M114** Stop re-serialising every content stream on a save that did not change page content | `write_options` / `save_options` in `model/edit_engine.py` — `clean=True`, present since M1 and never justified in writing; the write mode becomes the second fork on the axis §M110 opened | WSL + Windows | A one-mark `annotate` on a 572-page document leaves 572/572 content streams byte-identical; Poppler extracts every untouched page identically; the corpus shows no file growing and nothing failing that `clean` was silently protecting. For the additive branch: the predicate refuses every non-additive edit kind (whitelist, unknown kinds denied) and `tests/test_redaction_orphans.py` still passes |
+| **M114** Stop re-serialising every content stream on a save that did not change page content | `write_options` / `save_options` in `klarpdf/model/edit_engine.py` — `clean=True`, present since M1 and never justified in writing; the write mode becomes the second fork on the axis §M110 opened | WSL + Windows | A one-mark `annotate` on a 572-page document leaves 572/572 content streams byte-identical; Poppler extracts every untouched page identically; the corpus shows no file growing and nothing failing that `clean` was silently protecting. For the additive branch: the predicate refuses every non-additive edit kind (whitelist, unknown kinds denied) and `tests/test_redaction_orphans.py` still passes |
 
 **From the TC-012 retest (2026-08-22), which was right about the half we did not look at.** M110 fixed
 the cost — the retest measured "roughly a 10× speed-up" and the call returning inline — but reported
@@ -4681,7 +4681,7 @@ answer the finer one is already in the model.
 
 **It has to be a whitelist.** Additive *iff* every edit is one of a named set of known-additive
 kinds, with an unrecognised annotation kind defaulting to non-additive — so the next descriptor added
-to `model/page_edits.py` is safe on the day it lands rather than on the day someone remembers this
+to `klarpdf/model/page_edits.py` is safe on the day it lands rather than on the day someone remembers this
 paragraph. The failure modes are not symmetric: too conservative costs a full rewrite, which is what
 we do today; too permissive appends over a redaction and leaves the original bytes in the file.
 
@@ -4701,7 +4701,7 @@ appended bytes are exactly the objects MuPDF considered dirty — on a 60-page d
 
 The pass is **already scoped in effect**: `strip_klarpdf_annotations` returns without touching a page
 that carries no KlarPDF annotation, and reading `rotation_override` / `crop_override` off an
-untouched page does not dirty it. Its docstring in `model/page_edits.py` says so and was right;
+untouched page does not dirty it. Its docstring in `klarpdf/model/page_edits.py` says so and was right;
 the entry was wrong. Nothing needs scoping here.
 
 *Real obstacle 1 — the copy route builds its output in memory, so it cannot save incrementally at
@@ -4713,7 +4713,7 @@ opened *from the file being appended to*.
 obstacle said "the output goes to a *new* path", which reads as a `Save As` detail and is why the
 obstacle looked bigger than it is. It is not surface-specific: **every** save, on **both** surfaces,
 materialises into a fresh temp file beside the target and then renames it into place —
-`MainWindow._write_to` (`mkstemp` → `materialize` → `atomic_replace`) and `mcp_bridge/transforms.py`
+`MainWindow._write_to` (`mkstemp` → `materialize` → `atomic_replace`) and `klarpdf/mcp_bridge/transforms.py`
 `_write`, which is the same shape by design (*"the two write paths deliberately do not diverge on
 this"*, M38.5). The bridge additionally **refuses** to write over its input as policy
 (*"transforms always write to a new file"*). So an app `Save`, an app `Save As` and an `annotate`
@@ -4850,7 +4850,7 @@ not the clock.
 
 **Found while preparing §M114, which is entirely about what the engine writes.** The shipped app
 pins `pymupdf==1.27.2.3`; the bridge's lock had `pymupdf==1.28.2`. PyMuPDF is not one dependency
-among many here — it *is* the PDF engine, and `model/` hands it every read and write both surfaces
+among many here — it *is* the PDF engine, and `klarpdf/model/` hands it every read and write both surfaces
 make. Two versions can write different bytes for the same edit, which makes a corpus measured on one
 a poor description of the other.
 
@@ -4891,7 +4891,7 @@ and should be its own decision rather than a side effect of this one.
 
 **The fix is structural: PyMuPDF is declared once, because it belongs to neither surface.** The
 owner's question settled the design — *"why does MCP specify its PyMuPDF version separately from the
-app? Does it not belong to the core?"* It does. `model/` is what both surfaces share, and every read
+app? Does it not belong to the core?"* It does. `klarpdf/model/` is what both surfaces share, and every read
 and write either makes goes through PyMuPDF, so declaring it in `requirements.in` (as the app's) and
 again in `requirements-mcp.in` (as the bridge's) was the bug. Two declarations that must agree is a
 hazard; a test that checks they agree is a smoke alarm, not a fix. So:
@@ -4946,19 +4946,19 @@ without which the shared engine would read as declared by nobody. One generated 
 lock and was regenerated: `packaging/mcp/mcpb/pyproject.toml`, which the suite caught by itself.
 
 **The audit found a second library in the same position, and it was unguarded.** Asked whether
-anything *else* belonging to the core is declared per-surface, the answer across `model/`, `viewer/`,
-`organize/`, `util/` and `mcp_bridge/` is three third-party imports and no more:
+anything *else* belonging to the core is declared per-surface, the answer across `klarpdf/model/`, `viewer/`,
+`organize/`, `klarpdf/util/` and `klarpdf/mcp_bridge/` is three third-party imports and no more:
 
 | library | declared by | needed by | state |
 | --- | --- | --- | --- |
-| **PyMuPDF** | both, separately | `model/`, `viewer/`, `organize/`, `mcp_bridge/` | this milestone |
-| **PySide6** | app only | `model/edit_commands.py` (`QUndoCommand`, module level) + all of `viewer/`, `organize/` | correct, and **proven by execution** |
-| **pypdf** | app only | `model/edit_engine.py` only, *inside* `PyPdfEngine.materialize` | correct, and **was unproven** |
+| **PyMuPDF** | both, separately | `klarpdf/model/`, `viewer/`, `organize/`, `klarpdf/mcp_bridge/` | this milestone |
+| **PySide6** | app only | `klarpdf/model/edit_commands.py` (`QUndoCommand`, module level) + all of `viewer/`, `organize/` | correct, and **proven by execution** |
+| **pypdf** | app only | `klarpdf/model/edit_engine.py` only, *inside* `PyPdfEngine.materialize` | correct, and **was unproven** |
 
 PySide6 is the model to copy: `tests/test_mcp_no_qt.py` runs every tool in a fresh interpreter and
 asserts Qt is nowhere in `sys.modules`, precisely because "an import that only happens inside a tool
 body is exactly the one a load-time check would miss". pypdf sits in that same shape —
-`model/edit_engine.py` imports it *inside* a method, so the module loads without it and only reaching
+`klarpdf/model/edit_engine.py` imports it *inside* a method, so the module loads without it and only reaching
 `PyPdfEngine.materialize` fails — and its exclusion had nothing asserting it. A bridge user would get
 `ModuleNotFoundError: pypdf`; CI would stay green, because CI installs `requirements-dev.txt`, which
 carries pypdf for the app. **The same shape as the version drift: what CI runs is not what the bridge
@@ -5032,7 +5032,7 @@ gh api repos/utyagi24/klarpdf/rulesets --jq '.[] | select(.name=="Protect Main")
 ```
 
 Confirmed enforced **2026-08-24**. The first PR to exercise the gate proved both halves on the same
-day: `bridge` ran in **38 s** on the code branch that touches `mcp_bridge/` and `model/`, and
+day: `bridge` ran in **38 s** on the code branch that touches `klarpdf/mcp_bridge/` and `klarpdf/model/`, and
 reported in **4 s** without doing the work on the docs-only branch stacked above it.
 
 **One gap is left open deliberately.** `pyproject.toml` keeps a *floor*, raised to 1.27.2.3, because
@@ -5044,7 +5044,7 @@ path the README documents still resolves to the newest PyMuPDF rather than ours.
 
 | Milestone | What | Where | Verify |
 | --- | --- | --- | --- |
-| **M116** A save that only *adds* marks appends to the file it was given instead of rewriting it — §M114's second lever | `PyMuPDFEngine.appends` / `_append_to_origin` / `append_options` in `model/edit_engine.py`; `VirtualDocument.edits_are_additive` / `origin_bytes` / `origin_needed_repair`; the `ADDITIVE_MARK_TYPES` whitelist in `model/page_edits.py`; `save_size` for the Reduced-Size baseline | WSL + Windows | One highlight on page 337 of the 572-page prospectus appends **1,865 B** and leaves all 9,015,879 source bytes byte-identical; the predicate refuses every non-additive edit kind and `tests/test_redaction_orphans.py` still passes; no bridge transform's output changes |
+| **M116** A save that only *adds* marks appends to the file it was given instead of rewriting it — §M114's second lever | `PyMuPDFEngine.appends` / `_append_to_origin` / `append_options` in `klarpdf/model/edit_engine.py`; `VirtualDocument.edits_are_additive` / `origin_bytes` / `origin_needed_repair`; the `ADDITIVE_MARK_TYPES` whitelist in `klarpdf/model/page_edits.py`; `save_size` for the Reduced-Size baseline | WSL + Windows | One highlight on page 337 of the 572-page prospectus appends **1,865 B** and leaves all 9,015,879 source bytes byte-identical; the predicate refuses every non-additive edit kind and `tests/test_redaction_orphans.py` still passes; no bridge transform's output changes |
 
 **§M114 fixed what the save re-serialised; this is what it still rewrote.** After M114 a one-mark
 save left all 572 content streams byte-identical and took 0.66 s — and still wrote a complete 8.8 MB
@@ -5196,7 +5196,7 @@ what *no* existing bridge tool writes.
 
 | Milestone | What | Where | Verify |
 | --- | --- | --- | --- |
-| **M117** On the append route, draw only the marks the file does not already have, instead of stripping every KlarPDF mark off the page and redrawing them all | `VirtualDocument.marks_to_append` against the `_source_marks` baseline `edits_are_additive` already compares with; `_apply_page_edits(…, appending=True)` / `_append_to_origin` in `model/edit_engine.py` | WSL + Windows | Adding one highlight to a 200-mark document appends **1,134 B** rather than 114,269; a **z-order** change still writes the new order; a mark left in place is byte-identical to the one the file already had, per kind, and the page renders the same as a full redraw |
+| **M117** On the append route, draw only the marks the file does not already have, instead of stripping every KlarPDF mark off the page and redrawing them all | `VirtualDocument.marks_to_append` against the `_source_marks` baseline `edits_are_additive` already compares with; `_apply_page_edits(…, appending=True)` / `_append_to_origin` in `klarpdf/model/edit_engine.py` | WSL + Windows | Adding one highlight to a 200-mark document appends **1,134 B** rather than 114,269; a **z-order** change still writes the new order; a mark left in place is byte-identical to the one the file already had, per kind, and the page renders the same as a full redraw |
 
 **§M116's own follow-up, scheduled because the numbers do not survive the workflow the owner named
 (2026-08-25).** The entry it came from measured a document carrying 20 marks and called the result
@@ -5320,7 +5320,7 @@ under Poppler and parsed by pypdf, and **0** content streams changed corpus-wide
 
 | Milestone | What | Where | Verify |
 | --- | --- | --- | --- |
-| **M118** Five follow-ups from the TC-015 retest of M113: two mediums where a correct fix stopped at its own edge, plus three smaller ones | `model/markup_palette.py` (`nearest_name` and its radii), `mcp_bridge/annotations.py` (`_fit`, `_lines_of`, `_already_present`), `mcp_bridge/docs.py` | WSL | Pure yellow names `Yellow` while teal still names nothing; a 120,000-character note cannot push a reply past the budget and paging still terminates; a multi-paragraph note survives three re-runs unchanged; a mark with one quad per word says its sentence once |
+| **M118** Five follow-ups from the TC-015 retest of M113: two mediums where a correct fix stopped at its own edge, plus three smaller ones | `klarpdf/model/markup_palette.py` (`nearest_name` and its radii), `klarpdf/mcp_bridge/annotations.py` (`_fit`, `_lines_of`, `_already_present`), `klarpdf/mcp_bridge/docs.py` | WSL | Pure yellow names `Yellow` while teal still names nothing; a 120,000-character note cannot push a reply past the budget and paging still terminates; a multi-paragraph note survives three re-runs unchanged; a mark with one quad per word says its sentence once |
 
 **What TC-015 was:** a black-box retest of #296 against nine purpose-built fixtures plus three of the
 owner's real documents, using PyMuPDF and pypdf as an oracle independent of the tool under test.
@@ -5426,14 +5426,14 @@ confirms §M112's premise on a third file rather than opening anything new.
 
 | Milestone | What | Where | Verify |
 | --- | --- | --- | --- |
-| **M119** Handing a **directory** to a tool reports "is a directory, not a PDF" on Windows as it already did on POSIX | `_explain` / `_is_directory_error` in `mcp_bridge/server.py` | WSL (the fix is in cross-platform core; Windows confirms via the existing end-to-end test) | `_explain` maps **both** a POSIX `IsADirectoryError` and a Windows-shaped `PermissionError`-on-a-directory to the same message; a genuine permission error on a *file* keeps its own; an `OSError` with no `filename` does not crash the handler |
+| **M119** Handing a **directory** to a tool reports "is a directory, not a PDF" on Windows as it already did on POSIX | `_explain` / `_is_directory_error` in `klarpdf/mcp_bridge/server.py` | WSL (the fix is in cross-platform core; Windows confirms via the existing end-to-end test) | `_explain` maps **both** a POSIX `IsADirectoryError` and a Windows-shaped `PermissionError`-on-a-directory to the same message; a genuine permission error on a *file* keeps its own; an `OSError` with no `filename` does not crash the handler |
 
 **The symptom.** On native Windows, `get_info` on a directory returned the raw
 `[Errno 13] Permission denied: 'C:\…'` instead of the friendly message the code plainly intends.
 
 **The cause is a POSIX assumption, and it is worth stating precisely because the fix is not "also
 catch `PermissionError`".** A document is read with `Path(path).read_bytes()`
-(`model/virtual_document.py`), so the failure comes out of **CPython's own file layer** rather than
+(`klarpdf/model/virtual_document.py`), so the failure comes out of **CPython's own file layer** rather than
 out of MuPDF — which is what makes the behaviour well-defined rather than something to discover
 empirically. There, POSIX has a distinct errno for this case (`EISDIR` → `IsADirectoryError`) and
 **Windows has none**: opening a directory gives `EACCES` → `PermissionError`, the same type a real
@@ -5462,7 +5462,7 @@ still earns its place, but it can only ever confirm the branch the runner happen
 
 | Milestone | What | Where | Verify |
 | --- | --- | --- | --- |
-| **M120** A rectangle or ellipse whose outline is not exactly 2 pt no longer shrinks or grows on each save→reopen→save | `_SHAPE_RECT_GROWTH` + the `Square`/`Circle` branch of `parse_annotation`, `model/page_edits.py` | WSL | A shape reopens at the size it was drawn at **0.5 / 1 / 2 / 3 / 6 / 12 pt**, both kinds; four rewriting saves leave it where it started; the constant is pinned against PyMuPDF's own measured growth; `FreeText` still insets by half its border |
+| **M120** A rectangle or ellipse whose outline is not exactly 2 pt no longer shrinks or grows on each save→reopen→save | `_SHAPE_RECT_GROWTH` + the `Square`/`Circle` branch of `parse_annotation`, `klarpdf/model/page_edits.py` | WSL | A shape reopens at the size it was drawn at **0.5 / 1 / 2 / 3 / 6 / 12 pt**, both kinds; four rewriting saves leave it where it started; the constant is pinned against PyMuPDF's own measured growth; `FreeText` still insets by half its border |
 
 **The defect.** `parse_annotation` insets a shape's stored `/Rect` to recover the box the user drew,
 and it insets by **`width / 2`** — the overhang a stroke centred on the path *would* have. PyMuPDF
@@ -5532,7 +5532,7 @@ to bring it back — landing it hard against whichever edge it came from. That i
 reappearing by a path that never went through it. So duplicate, insert-from-file, rotate and delete
 all did it too; Insert Blank Page is simply where it is most visible, because it is the one that puts
 something new immediately below the fold. **Fix:** capture the scroll offset alongside the row,
-restore it before the marker, and reveal through the shared `util.reveal` policy — a row still
+restore it before the marker, and reveal through the shared `klarpdf.util.reveal` policy — a row still
 comfortably in view does not move at all, one that is not gets centred.
 
 *(b) Which page is current after an insert.* `_insert_blank_page` pushed its command and stopped, so
@@ -5681,7 +5681,7 @@ check people learn to ignore, and the gap it closes is a shipped feature's only 
 
 | Milestone | What | Where | Verify |
 | --- | --- | --- | --- |
-| **M124** A path refused by `--allow-root` keeps its own message instead of being rewritten by rules meant for a file-type mistake | `_explain` in `mcp_bridge/server.py` | WSL (cross-platform core) | A refusal passes through `_explain` **identically**; and a refused *directory* is still reported as outside the allowed roots, not as "is a directory" — asserted with the path attached, which is the shape that breaks it |
+| **M124** A path refused by `--allow-root` keeps its own message instead of being rewritten by rules meant for a file-type mistake | `_explain` in `klarpdf/mcp_bridge/server.py` | WSL (cross-platform core) | A refusal passes through `_explain` **identically**; and a refused *directory* is still reported as outside the allowed roots, not as "is a directory" — asserted with the path attached, which is the shape that breaks it |
 
 **The collision.** `PathNotAllowed` subclasses `PermissionError`. M119 added a `PermissionError`
 branch to answer #294 — on Windows a directory arrives as `EACCES`, so the type cannot decide it and
@@ -5751,7 +5751,7 @@ environment would have been wrong in exactly the way this milestone exists to fi
 
 | Milestone | What | Where | Verify |
 | --- | --- | --- | --- |
-| **M126.1** The bridge's own lock resolves and runs on **Windows**, on every PR that reaches the bridge | new `bridge-windows` job in `.github/workflows/test.yml` | CI (Windows) | A PR touching `mcp_bridge/` shows a `bridge-windows` check that installed `requirements-mcp.txt` on `windows-latest` |
+| **M126.1** The bridge's own lock resolves and runs on **Windows**, on every PR that reaches the bridge | new `bridge-windows` job in `.github/workflows/test.yml` | CI (Windows) | A PR touching `klarpdf/mcp_bridge/` shows a `bridge-windows` check that installed `requirements-mcp.txt` on `windows-latest` |
 | **M126.2** A tool cannot join the server without joining the no-Qt / no-socket guard | `test_the_exerciser_covers_every_registered_tool` in `tests/test_mcp_no_qt.py` | WSL | Deleting one `call_tool` line from `_CHILD` fails with the tool named |
 | **M126.3** Matrix item 8 is a command rather than a memory | `tools/mcp_stdio_check.py`; `RELEASE.md` §4 | WSL + Windows | `python tools/mcp_stdio_check.py` → 13 passed |
 
@@ -5781,7 +5781,7 @@ duplicated gate block and keeps the ruleset intact. (Adding `bridge-windows` to 
 a repository setting, not a file in this PR.)
 
 **M126.2 — the guard that was complete by luck.** `tests/test_mcp_no_qt.py` is the keystone: it
-exercises every tool in a clean interpreter because an import inside a tool body — `model.export` in
+exercises every tool in a clean interpreter because an import inside a tool body — `klarpdf.model.export` in
 `flatten`, `pypdf` inside `PyPdfEngine.materialize` — is invisible until that tool runs. The list of
 calls is hand-written, and it *was* complete (all 19, measured). Nothing made it stay so.
 `test_mcp_server.py` pins the **registry** against `EXPECTED_TOOLS`, so a twentieth tool cannot
@@ -5937,7 +5937,7 @@ audited. "Installs from a shipped hashed lock" is the honest claim; "the bundle 
 
 **A defect found on the way, and it is the sharpest of the four this session.** `RELEASE.md` row 10
 told the reader to run `uv lock` and rebuild *"so the lock travels inside the bundle"*. It did not:
-`stage()` copied the packages, `version.py` and `pyproject.toml` and stopped, leaving the lock in
+`stage()` copied the packages, `klarpdf/version.py` and `pyproject.toml` and stopped, leaving the lock in
 `packaging/mcp/mcpb/`. Following the runbook exactly would have installed a bundle **containing no lock**,
 shown `uv` generating its own, and recorded *"not honoured"* — a **false negative** on a question
 carried since M42, written down as the answer. M126, M127 and M128 were checks that named something
@@ -5977,7 +5977,7 @@ many tries that took. A third double, `_moving_replace`, serves the Save/Export 
 genuine move: it retries real contention **itself**, with a real sleep, because `_no_real_sleeping`
 stubs the production backoff out and four retries would otherwise elapse in microseconds — shorter
 than the lock they are meant to outlast. Verified non-vacuous: deleting the retry from
-`util/atomic.py` still fails **7** tests, including both user-facing ones with the "Export failed"
+`klarpdf/util/atomic.py` still fails **7** tests, including both user-facing ones with the "Export failed"
 modal.
 
 **The generalisable part.** **A component whose whole purpose is tolerating a hostile environment
@@ -6003,7 +6003,7 @@ had been written down, not what was happening.
 **What happened.** **v0.18.0 shipped as "the MCP / Agent Bridge" with no bridge bundle attached.**
 `release.yml` runs `packaging/app/build.ps1` and attaches four files, none of them the `.mcpb`; it has
 never invoked `build_mcpb.py`. So the only route to the one-click Claude Desktop install was cloning
-the repo and running the packer, which needs Node — and `mcp_bridge/README.md` says exactly that,
+the repo and running the packer, which needs Node — and `klarpdf/mcp_bridge/README.md` says exactly that,
 which is why it never read as a gap. The artifact three milestones went into making correct
 (M127 built it at all, M128 made it installable, M129 gave it a lock) was the one nobody could
 download.
@@ -6091,13 +6091,13 @@ version and never spells the bound the other two use.
 | Milestone | Where | Platform | Done when |
 |---|---|---|---|
 | **M133** `packaging/` bifurcates into `app/` and `mcp/` | `packaging/{app,mcp}/`, 108 textual references + 17 computed paths | WSL (+ Windows build) | `build_mcpb.py --validate` and the suite pass. **Not** "pure moves" — see below. `invoke build` on Windows is the only check of the PowerShell/Inno/spec root computations |
-| **M134** One top-level name: everything moves under `klarpdf/` | `klarpdf/{mcp_bridge,model,util,version.py}`, 393 import sites | WSL | Suite green; a built wheel installs exactly one top-level name |
+| **M134** One top-level name: everything moves under `klarpdf/` | `klarpdf/` holding `mcp_bridge`, `model`, `util`, `version.py`; 390 imports, 14 config/string sites, 3 CI path filters, 232 doc references | WSL | Suite green; a built wheel installs exactly one top-level name, and the console script runs from a real install of it |
 | **M135** Publish one distribution to PyPI | `pyproject.toml`, `packaging/mcp/pypi/`, `.github/workflows/publish-pypi.yml` | WSL + CI | `uvx --from klarpdf klarpdf-mcp` starts the server from a machine with no clone; built metadata carries all 29 pins |
 | **M136** `install.py` — a bootstrap needing nothing but a supported Python | `packaging/mcp/installer/`, `tests/`, `.github/workflows/test.yml` | WSL + CI | Download, run, and a client is talking to the bridge; no clone, no `uv`, no `pipx`, no global `pip` |
 
 **What is wrong today.** The bridge's install story is nine commands — clone, check out a tag, make
 a virtualenv, activate it, two `pip` lines, `which`, then the client's own `mcp add`. Every one of
-them is a place to stop. `mcp_bridge/README.md` spends a paragraph on *"Give the full path, not the
+them is a place to stop. `klarpdf/mcp_bridge/README.md` spends a paragraph on *"Give the full path, not the
 bare name"* and `QUICKSTART.md`'s troubleshooting lists `command not found` first, which is the
 tell: **the step that actually fails is the path, and the path only exists because the user built
 the environment by hand.** The `.mcpb` bundle solves this for Claude Desktop alone, and only for
@@ -6119,8 +6119,8 @@ proxies, retries and corporate MITM certificates, which is where installers of t
 |---|---|---|
 | 1 | **One distribution, `klarpdf`**, GUI behind a `[gui]` extra | Two distributions cannot both own `klarpdf/` — the app needs `klarpdf/model/` and so does the bridge, so `pip uninstall` of one would delete files the other is using. One distribution makes the app/bridge lockstep structural rather than a habit |
 | 2 | Published metadata pins **all 29 exactly**, generated from `requirements-mcp.txt` | It is an application, not a library, so the "floors, never pins" convention does not apply: installed into an isolated environment there is nothing to co-install with. One dependency set for every path, and `pip-audit` then covers what users actually install. `packaging/mcp/mcpb/pyproject.toml` already does exactly this, so it is a second target for a generator that exists |
-| 3 | Version **lockstep** with `version.py` | One number identifies the installer, the `.mcpb`, PyPI and `install.py`. Every tag publishes a bridge release even when no bridge code changed — harmless, and it makes skew legible |
-| 4 | **Namespace move before first publish** | Today a `pip install` would put `model/`, `util/` and a module called plain `version` at the top of site-packages. Two distributions owning `util/` means whichever installs last wins and uninstalling one damages the other |
+| 3 | Version **lockstep** with `klarpdf/version.py` | One number identifies the installer, the `.mcpb`, PyPI and `install.py`. Every tag publishes a bridge release even when no bridge code changed — harmless, and it makes skew legible |
+| 4 | **Namespace move before first publish** | Today a `pip install` would put `klarpdf/model/`, `klarpdf/util/` and a module called plain `version` at the top of site-packages. Two distributions owning `klarpdf/util/` means whichever installs last wins and uninstalling one damages the other |
 | 5 | `install.py` is **generated per release**; no `--version` flag | It is a release artifact: the file you checksummed determines exactly what lands. The Python window and the pinned version are baked in at build time from `pyproject.toml`, so this is not a sixth place the window is written by hand |
 | 6 | **Download and verify, or a browser** — `SHA256SUMS` is already published | A piped script cannot be read before it runs and has no file to verify |
 | 7 | It **works when piped anyway**, and says what was skipped | We cannot enforce it — `install.py` is a file at a URL. Measured: `__file__` is `'<stdin>'` when piped, so it is cleanly detectable. Refusing would be theatre (they would `curl -o` and run it) and would break CI, Dockerfiles and provisioning. **Consequence: `install.py` must need no stdin — anything that would prompt becomes a flag** (an existing venv errors naming `--reinstall`, it does not ask). That is better design regardless |
@@ -6186,7 +6186,7 @@ meet that bar either.
 **What M133 taught, and it applies to M134 twice over.** The plan called the bifurcation "pure
 moves, no behaviour change". The textual half was — 108 references across 27 files, mechanical. But
 **17 sites in 8 files contained no `packaging/` string at all**, so no grep could reach them, and
-they fall in two classes that will both recur when `model/`, `util/` and `mcp_bridge/` move under
+they fall in two classes that will both recur when `klarpdf/model/`, `klarpdf/util/` and `klarpdf/mcp_bridge/` move under
 `klarpdf/`:
 
 - **A repo root computed by counting directories up** — `HERE.parent.parent`,
@@ -6206,11 +6206,33 @@ the `.spec`, the bundle builder — rather than trusting a green grep. And note 
 cover: `build.ps1`, `installer.iss` and the `.spec`'s `SPECPATH` only execute during a Windows
 build, so three of these five fixes are unverifiable in WSL by construction.
 
+**What M134 added to that procedure, having run it.** The greps found most of it; the suite found
+the rest — ten failures after a sweep that looked clean. Two were real: `klarpdf/util/resources.py`
+computed the repo root as `parent.parent`, the M133 depth class recurring inside the code that
+moved; and a stale `build/lib/` made the *first* wheel contain **both** layouts at once, so the
+verification was contaminated before the code was. The other eight were tests asserting the old
+names, which is what tests are for.
+
+The generalisable half is about the sweeps rather than the move. **Two were too strict, and a grep
+that is wrong looks exactly like a grep that is clean** — both returned nothing, and both were
+believed:
+
+- `"mcp_bridge.server:main"` was missed because the character class stopped at `:`.
+- `import model  # noqa: F401` was missed because the bare-import pattern required end-of-line.
+
+So a sweep's *negative* result deserves one positive control: search for something known to be
+there, confirm the pattern finds it, and only then conclude nothing else is. The CI path filters are
+the same hazard one level up — three copies of `'^(mcp_bridge/|model/|util/|…)'` decide whether the
+bridge jobs run at all, so missing them would have failed nothing and quietly stopped testing the
+bridge. And the doc sweep needed the inverse guard: built from the real filenames, so that
+`model/edit-engine layer`, `no model/file change` and `importlib.util.find_spec` — all prose or
+stdlib — were left alone.
+
 **What M134 is *not* a one-way door about.** The package has **no importable API** — its entire
 public surface is the `klarpdf-mcp` console script, which is what `.mcp.json`, every client config
 and the README name. So the internal layout stays changeable in any later release with no user
 impact. The reason to do it before first publish is the harm window, not irreversibility: once it is
-on PyPI, a shared-environment install can clobber another distribution's `util/` and we cannot fix
+on PyPI, a shared-environment install can clobber another distribution's `klarpdf/util/` and we cannot fix
 that retroactively for anyone.
 
 **Two consequences accepted knowingly.** *Pinning all 29 in metadata* means `pip install klarpdf`
@@ -6415,7 +6437,7 @@ Captured but not yet scheduled:
   editing **only KlarPDF's own** marks — those stamped with the `/T = "klarpdf"` author tag
   (`KLARPDF_AUTHOR`). A highlight / text-box written by another tool (Preview, Edge, Acrobat, …) is
   **shown** (it stays baked in the page and renders normally) but **not editable**: the read-back in
-  `model/page_edits.py:read_klarpdf_annotations` skips any annotation whose title isn't ours, so it
+  `klarpdf/model/page_edits.py:read_klarpdf_annotations` skips any annotation whose title isn't ours, so it
   never enters the editable model, and the viewer overlay / hit-testing only act on the model. This
   is **deliberate**, not a bug: the strip-then-re-add at materialise rewrites a managed annotation
   from our descriptor, and the `TextBox` / `Highlight` model is intentionally narrow (simple
@@ -6437,7 +6459,7 @@ Captured but not yet scheduled:
   adopt-on-edit behind a degrade warning; (3) remains rejected.
 - **Resolved (no longer open):** duplicate form-field rename + multi-level outline remap are handled
   today — `insert_pdf` auto-renames colliding root fields on merge (confirmed in M1) and
-  `model/toc_remap.py` does multi-level remap with orphan repair.
+  `klarpdf/model/toc_remap.py` does multi-level remap with orphan repair.
 
 > Note: the view/print/annotate/redact **product features** that earlier sat here all shipped
 > (M0–M22); the next tranche is scheduled in §Next roadmap (v0.5.0 → v0.7.0). Only the items above

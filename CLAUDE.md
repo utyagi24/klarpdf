@@ -11,7 +11,7 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
    convention, Windows handoff), and the **Verification** matrix.
 
 ## How we work (conventions — follow these)
-- **Hybrid dev (WSL + Windows).** The cross-platform core (`model/`, `viewer/`, `organize/`) and the
+- **Hybrid dev (WSL + Windows).** The cross-platform core (`klarpdf/model/`, `viewer/`, `organize/`) and the
   headless tests run in **WSL**; the GUI iterates via **WSLg**. Only **packaging + Windows
   shell-integration** (PyInstaller, Inno Setup, file-association, single-instance/focus *validation*)
   run on **Windows**. See PLAN.md §Development environment.
@@ -102,9 +102,9 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   The milestone gets the next free number and `*(unplanned)*` when it was not on the roadmap (see
   M43.1, M93). This is the rule that keeps the design docs from becoming a description of the app as
   it was first imagined rather than as it is.
-- **Two consumers share one core — every change answers for both.** `model/`, `viewer/` and
+- **Two consumers share one core — every change answers for both.** `klarpdf/model/`, `viewer/` and
   `organize/` are reached by the **GUI app** (`app.py`, `main_window.py`) and by the **MCP bridge**
-  (`mcp_bridge/`), so a change to the core is a change to *both* whether or not the session was
+  (`klarpdf/mcp_bridge/`), so a change to the core is a change to *both* whether or not the session was
   thinking about both. The failure is silent and runs in either direction: a fix aimed at the app
   changes what a bridge tool writes, or a bridge feature changes what Save does. So every behaviour
   change, design entry and new feature names the surfaces it touches, and a core behaviour change
@@ -114,7 +114,7 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   It distorts *documents* as much as code: a fact stated from whichever surface is in hand gets filed
   as a fact about the core. M114's entry called *"the output goes to a new path"* an obstacle — true
   of the bridge always and of the GUI only on `Save As`, and misleading either way, because **no**
-  surface writes to the original file (both `MainWindow._write_to` and `mcp_bridge/transforms.py`
+  surface writes to the original file (both `MainWindow._write_to` and `klarpdf/mcp_bridge/transforms.py`
   `_write` materialise into a temp beside the target and `atomic_replace` it in — deliberately the
   same shape, M38.5). Stated per-surface it looked like an obstacle; stated generally it pointed at
   the fix. When a claim says "we write / we open / we refuse", check it at every surface — the
@@ -249,13 +249,13 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   `pip install --require-hashes` fails on Linux by design (manylinux wheel hashes ≠ the `win_amd64`
   hashes pinned in `requirements-win.txt`). The hashed/offline lock is the **Windows ship** artifact only.
 - **Keep OS-specific code quarantined** behind `platform_integration.py` and `packaging/` — never
-  inline in `app.py`/`launcher.py`. `util/paths.py:normalize_path()` is the single identity chokepoint.
+  inline in `app.py`/`launcher.py`. `klarpdf/util/paths.py:normalize_path()` is the single identity chokepoint.
 - **Win10 Home has no Windows Sandbox** — the clean-machine install test (M9) uses VirtualBox / a
   spare machine / a fresh local user with networking disabled.
 
 ## Status
 **Current: v0.18.0 shipped** — **the MCP / Agent Bridge (M39–M44)**, the roadmap's last unticked box.
-`mcp_bridge/` exposes the core engine to Claude Code, Claude Desktop and other agentic clients as a
+`klarpdf/mcp_bridge/` exposes the core engine to Claude Code, Claude Desktop and other agentic clients as a
 local MCP server: **19 tools**, every write tool leaving its input byte-identical, no network, no Qt.
 It is a **separate, optional component** — the installer is untouched. **M44's verification pass is
 the part worth remembering**: doing it by hand found four defects no automated check could see — the

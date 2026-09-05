@@ -141,7 +141,7 @@ claude mcp add klarpdf -- klarpdf-mcp  # Claude Code; any other client just need
 ```
 
 Full install options, the Claude Desktop config, and the one-click `.mcpb` bundle are in
-**[mcp_bridge/README.md](mcp_bridge/README.md)**.
+**[klarpdf/mcp_bridge/README.md](klarpdf/mcp_bridge/README.md)**.
 
 Nineteen tools in three groups. **Read** — `get_info`, `get_outline`, `search`, `extract_text`,
 `render_page`, `get_form_fields`, `get_annotations` — let an agent pull only the pages it needs
@@ -229,11 +229,11 @@ Source layout, briefly:
 ```text
 launcher.py                # entry point — single-instance logic, then hands off to app.py
 app.py · main_window.py    # Qt application + the document window
-model/                     # edit engine: virtual document, page edits, save, outline/link remap
-mcp_bridge/                # the MCP server — reuses model/ with no Qt; the GUI never imports it
+klarpdf/model/                     # edit engine: virtual document, page edits, save, outline/link remap
+klarpdf/mcp_bridge/                # the MCP server — reuses klarpdf/model/ with no Qt; the GUI never imports it
 viewer/                    # rendering, selection, search, annotations, forms, printing
 organize/                  # Pages sidebar (thumbnails, drag-and-drop)
-ui/ · store/ · util/       # icons + About · view-state/recents · path identity + resources
+ui/ · store/ · klarpdf/util/       # icons + About · view-state/recents · path identity + resources
 platform_integration.py    # ALL OS-specific code, quarantined behind one seam
 packaging/                 # PyInstaller spec, Inno Setup script, build.ps1
 vendor/ · requirements-*   # the pinned + vendored offline dependency ship-set
@@ -253,7 +253,7 @@ invoke --list                   # all build/release tasks: test · audit · lock
 python launcher.py file.pdf     # run the GUI via WSLg
 ```
 
-The cross-platform core (`model/`, `viewer/`, `organize/`) + headless tests run in WSL; the GUI
+The cross-platform core (`klarpdf/model/`, `viewer/`, `organize/`) + headless tests run in WSL; the GUI
 iterates via WSLg. Packaging and Windows shell-integration happen on Windows only
 (PLAN.md §Development environment). **git is the only bridge** between the WSL and Windows checkouts.
 Build steps are wrapped as [`invoke`](tasks.py) tasks; CI runs the full suite on every PR and a
