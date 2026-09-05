@@ -339,6 +339,43 @@ a new `uv` / Claude Desktop major version.
 | 8 | Lives with Claude Code | the `.mcp.json` at the repo root; `python tools/mcp_stdio_check.py` drives the console script over a real pipe with the SDK's own client (initialize → list → call → image → resource → the three refusals) | **one command**, either platform |
 | 9 | Lives with Claude Desktop — config **and** one-click `.mcpb` | the steps below; done 2026-08-27 (19 tools, input byte-identical, both install paths) | **manual, Windows or macOS** |
 | 10 | Does the host honour a `uv.lock`? | **yes** — measured with a doctored lock (M129); the bundle now ships one, and `build_mcpb.py` stages it | **answered 2026-08-27** |
+| 11 | The declared Python window is real at both ends | the `bridge-pyver` job installs the bridge lock and runs its suite on 3.11 / 3.13 / 3.14 (`bridge` covers 3.12); `tests/test_mcp_packaging.py` asserts the three declarations agree, that every compiled pin has a wheel for every version on all three platforms, and that no version is claimed without a runner (M132) | **automated**, every PR that reaches the bridge |
+
+### Raising the Python ceiling when a new version ships
+
+`requires-python` is `>=3.11,<3.15` (M132). The ceiling is a **choice, not a limit** — nothing in the
+dependency set imposes one, since PyMuPDF ships `cp310-abi3` (one wheel for 3.10 and every later
+version) and cryptography `cp311-abi3`. It is set one above the newest Python the pinned C and Rust
+packages are actually built for, so a one-click bundle can never be installed onto an interpreter
+with no wheel and fall back to compiling PyMuPDF and pydantic-core on a user's machine.
+
+When 3.15 lands, raise it in this order — the tests fail loudly if you stop halfway:
+
+```bash
+# 1. the window, in the two files that declare it
+#    pyproject.toml            requires-python = ">=3.11,<3.16"
+#    packaging/mcpb/build_mcpb.py   the same string in render_pyproject()
+#    packaging/mcpb/manifest.json   ">=3.11.0 <3.16.0"   (node-semver: SPACE, not comma — M128)
+
+# 2. the CI runner, BEFORE the rest — a window with no runner behind it fails its own test
+#    .github/workflows/test.yml   bridge-pyver matrix: add "3.15"
+
+# 3. regenerate the bundle's pyproject, then re-resolve the lock for the new window
+python packaging/mcpb/build_mcpb.py --validate
+cd packaging/mcpb && uv lock          # WITHOUT this the lock still holds only the old versions' wheels
+
+# 4. the claim a user reads
+#    mcp_bridge/README.md         the "What you need" row
+```
+
+**Step 3 is the one that is easy to skip and impossible to see.** `uv` resolves wheels *for the
+window the lock declares*, so a lock left at the old range records wheels for the old versions only
+— an install that pre-flights fine, advertises support for the new Python and cannot actually
+install on it. `test_the_three_python_declarations_are_one_window` exists for exactly that.
+
+Lowering the **floor** is a different question and needs more than a relock: 3.11 is where `rpds-py`
+stops publishing builds, so going below it means unpinning a transitive dependency, not editing a
+range.
 
 ### 7 — Windows *(automated since M126 — nothing to do by hand)*
 

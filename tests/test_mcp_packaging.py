@@ -541,3 +541,154 @@ def test_the_checked_in_mcp_json_names_a_real_entry_point():
     from mcp_bridge.server import main
 
     assert callable(main)
+
+
+# ---- the Python version window (M132) -------------------------------------------------
+
+
+def _declared_window(text: str) -> tuple[int, int]:
+    """`(floor_minor, ceiling_minor)` from a `>=3.x,<3.y` / `>=3.x.0 <3.y.0` range, either syntax.
+
+    It raises rather than returning a default when either bound is missing, and the message names
+    the string, because the most likely way to get here is the one real failure this guards: a
+    `uv.lock` still holding uv's own `==3.12.*` spelling after the pyproject was widened. A silent
+    default would turn that into a passing test.
+    """
+    floor = re.search(r">=\s*3\.(\d+)", text)
+    ceiling = re.search(r"<\s*3\.(\d+)", text)
+    if not floor or not ceiling:
+        raise AssertionError(
+            f"{text!r} is not a two-bounded range. If this came from uv.lock, uv writes `==3.12.*` "
+            "when it resolves for a single version — re-run `uv lock` in packaging/mcpb so the lock "
+            "covers the whole window the pyproject declares."
+        )
+    return int(floor.group(1)), int(ceiling.group(1))
+
+
+def test_the_three_python_declarations_are_one_window(manifest):
+    """M132 — the window is now written in THREE files, not two, and `uv.lock` is the new one.
+
+    `test_the_two_python_requirements_describe_the_same_window` above pairs the root pyproject with
+    the manifest. The lock is the third, and it is the one that silently matters most: uv resolves
+    wheels **for the window the lock declares**, so a lock still saying `==3.12.*` while the
+    pyproject says `>=3.11,<3.15` records cp312 wheels only — an install that pre-flights fine,
+    declares support for four Pythons and can only actually install on one.
+
+    That is not hypothetical. It is exactly the state this repo was in before `uv lock` was re-run:
+    the committed lock held 16 `rpds-py` wheels, all of them cp312.
+    """
+    pyproject = _declared_window(
+        re.search(r'requires-python = "([^"]+)"', PROJECT_PYPROJECT.read_text(encoding="utf-8")).group(1)
+    )
+    semver = _declared_window(manifest["compatibility"]["runtimes"]["python"])
+    lock = _declared_window(
+        re.search(r'requires-python = "([^"]+)"', BUNDLE_UV_LOCK.read_text(encoding="utf-8")).group(1)
+    )
+
+    assert pyproject == semver == lock, (
+        f"pyproject {pyproject}, manifest {semver}, uv.lock {lock} — one window, three spellings. "
+        "If the pyproject moved, re-run `uv lock` in packaging/mcpb."
+    )
+
+
+def _wheel_covers(filename: str, minor: int) -> bool:
+    """Does this wheel install on CPython 3.`minor`?
+
+    `abi3` is the stable ABI: `cp310-abi3` is ONE wheel that serves 3.10 and every later version,
+    which is why PyMuPDF needs no per-version build and why nothing here imposes a ceiling. A `t`
+    suffix (`cp314t`) is the free-threaded build — a separate ABI that a normal interpreter cannot
+    load, so it must not be counted as coverage.
+    """
+    match = re.search(r"-cp3(\d+)-(abi3|cp3\d+t?)-", filename)
+    if not match:
+        return False
+    built_for, abi = int(match.group(1)), match.group(2)
+    if abi == "abi3":
+        return minor >= built_for
+    if abi.endswith("t"):
+        return False
+    return built_for == minor
+
+
+def test_every_compiled_pin_has_a_wheel_for_every_python_in_the_window():
+    """The window is only real if a wheel exists at each end of it, on each platform we claim.
+
+    A missing wheel does not fail the install — pip and uv fall back to building from source, and
+    two of these are C (PyMuPDF, cffi) and two are Rust (pydantic-core, rpds-py). On a user's
+    machine that means a compiler toolchain they do not have, at install time, from a one-click
+    bundle. So this walks the committed lock rather than trusting the range.
+
+    Pure-Python packages are skipped: a `py3-none-any` wheel is every version and every platform.
+    `pywin32` is skipped for non-Windows because the lock marks it `sys_platform == 'win32'` and it
+    is therefore never resolved there — the one package whose absence off-Windows is correct.
+    """
+    text = BUNDLE_UV_LOCK.read_text(encoding="utf-8")
+    floor, ceiling = _declared_window(re.search(r'requires-python = "([^"]+)"', text).group(1))
+
+    platforms = {
+        "win_amd64": lambda name: "win_amd64" in name,
+        "macos-arm64": lambda name: "macosx" in name and "arm64" in name,
+        "linux-x86_64": lambda name: ("manylinux" in name or "musllinux" in name)
+        and "x86_64" in name
+        and "i686" not in name,
+    }
+    windows_only = {"pywin32"}
+
+    gaps = []
+    for block in text.split("[[package]]")[1:]:
+        name_match = re.search(r'name = "([^"]+)"', block)
+        wheels = re.findall(r'/([^/"]+\.whl)', block)
+        if not name_match or not wheels:
+            continue
+        name = name_match.group(1)
+        if any(w.endswith(("-py3-none-any.whl", "-py2.py3-none-any.whl")) for w in wheels):
+            continue
+        for minor in range(floor, ceiling):
+            for platform, matches in platforms.items():
+                if name in windows_only and platform != "win_amd64":
+                    continue
+                if not any(matches(w) and _wheel_covers(w, minor) for w in wheels):
+                    gaps.append(f"{name} has no wheel for 3.{minor} on {platform}")
+
+    assert not gaps, (
+        "the declared Python window promises more than the lock can deliver; these would fall back "
+        "to a source build on a user's machine:\n  " + "\n  ".join(gaps)
+    )
+
+
+def test_every_python_in_the_window_is_run_by_some_ci_job():
+    """A range nobody runs is a guess. This ties the declaration to the runners that test it.
+
+    The pyproject's comment says widening the window means adding a runner first; this is what makes
+    that true rather than advisory.
+
+    It reads every job that runs the bridge suite, not just one, because coverage is deliberately
+    split: `bridge` and `bridge-windows` pin 3.12, and `bridge-pyver` carries the rest — 3.12 is
+    left out of that matrix rather than run a third time. Asserting against the union is what lets
+    that stay a free choice instead of something this test forces.
+
+    Regex rather than `yaml.safe_load`, and not by preference: this file runs in the `bridge` job
+    under `requirements-mcp.txt` + pytest, and PyYAML is in neither.
+    """
+    workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
+    floor, ceiling = _declared_window(
+        re.search(r'requires-python = "([^"]+)"', PROJECT_PYPROJECT.read_text(encoding="utf-8")).group(1)
+    )
+
+    # Split into top-level jobs, then keep the ones that actually run the bridge suite. A job that
+    # sets up a Python but never runs these tests proves nothing about the window.
+    jobs = re.split(r"\n  (?=[a-z][a-z0-9-]*:\n)", workflow)
+    tested = set()
+    for job in jobs:
+        if "tests/test_mcp_*.py" not in job:
+            continue
+        tested |= set(re.findall(r'python-version: "(3\.\d+)"', job))
+        matrix = re.search(r"python-version: \[([^\]]+)\]", job)
+        if matrix:
+            tested |= set(re.findall(r'"(3\.\d+)"', matrix.group(1)))
+
+    missing = {f"3.{minor}" for minor in range(floor, ceiling)} - tested
+    assert not missing, (
+        f"requires-python claims {sorted(missing)} but no CI job runs the bridge suite on it. "
+        "Add it to the bridge-pyver matrix in .github/workflows/test.yml, or narrow the window."
+    )

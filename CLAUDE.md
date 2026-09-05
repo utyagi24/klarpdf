@@ -242,6 +242,9 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   docstring's indentation is billed against the cap — ~1,800 chars across the tools — which is why
   `guarded` runs `cleandoc`. See `PLAN.md` §Architecture and §M105.
 - **Windows Python must be python.org 3.12.x**, not the Microsoft Store stub (which can't build).
+  That is the **app's build** requirement and nothing else. The MCP bridge is `pip`-installed rather
+  than frozen, so `requires-python` genuinely gates it, and since M132 it is `>=3.11,<3.15` — do not
+  "fix" a bridge file back to 3.12 for consistency with this line.
 - **WSL dev venv installs from `requirements-dev.txt`** (same `==` versions, **no hashes**):
   `pip install --require-hashes` fails on Linux by design (manylinux wheel hashes ≠ the `win_amd64`
   hashes pinned in `requirements-win.txt`). The hashed/offline lock is the **Windows ship** artifact only.

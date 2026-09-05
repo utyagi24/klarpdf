@@ -346,6 +346,80 @@ jobs:
         if: steps.gate.outputs.relevant != 'false'
         run: pytest -q tests/test_mcp_*.py
 
+  # ---------------------------------------------------------------------------------------------
+  # M132 — the Python version window, tested at both ends instead of declared.
+  #
+  # `pyproject.toml` says `requires-python = ">=3.11,<3.15"`. Before M132 it said `>=3.12,<3.13` —
+  # a one-version window that made "have exactly 3.12" a prerequisite for every bridge user, and
+  # which nothing in the dependency set had ever asked for. Widening it is only honest if something
+  # runs the code on the versions now being promised: the old window was at least *true*, because
+  # 3.12 is what every job here uses.
+  #
+  # So this job is the widening's other half. `bridge` above proves the lock resolves and behaves on
+  # 3.12; this proves the same for 3.11 and for the two versions above it, and
+  # `test_the_ci_matrix_covers_every_python_the_window_claims` fails if the two ever disagree —
+  # widening the window without adding a runner breaks the build rather than shipping a guess.
+  #
+  # A SIBLING JOB, NOT A MATRIX ON `bridge`, for the reason `bridge-windows` records above: `bridge`
+  # is a REQUIRED status check by that exact name, and adding a matrix to it renames its checks to
+  # `bridge (3.12)`, so the required check never reports again and every PR waits forever. The
+  # matrix lives here, where no ruleset is watching the name.
+  #
+  # 3.12 is deliberately absent from the matrix: `bridge` and `bridge-windows` already run that
+  # version, and duplicating it would buy a third copy of covered ground on every PR.
+  bridge-pyver:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false   # "3.11 broke and 3.14 is fine" is the useful answer; stopping at the first hides it
+      matrix:
+        python-version: ["3.11", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0   # the gate below diffs against the merge base
+
+      # The same gate as `bridge`, and the same file list, for the same reason — see that job.
+      - name: Could this change affect the bridge?
+        id: gate
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          files=$(git diff --name-only "${BASE_SHA}...${HEAD_SHA}")   # 3 dots = diff vs the merge base
+          echo "Changed files:"; printf '%s\n' "$files"
+          if [ -n "$files" ] && ! printf '%s\n' "$files" | grep -qE \
+             '^(mcp_bridge/|model/|util/|packaging/mcpb/|tests/test_mcp_|requirements-(core|mcp)\.(in|txt)$|pyproject\.toml$|\.github/workflows/test\.yml$)'; then
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+            echo "-> nothing here reaches the bridge: reporting the check as evaluated."
+          else
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-python@v6
+        if: steps.gate.outputs.relevant != 'false'
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # requirements-mcp.txt carries `==` pins compiled on 3.12. They are not version-conditional, so
+      # this step is a real check and not a formality: a pin whose wheel does not exist for this
+      # interpreter fails HERE, on a PR, rather than on the machine of a user whose Python we
+      # promised to support.
+      - name: Install the BRIDGE lock on this Python (this is the check)
+        if: steps.gate.outputs.relevant != 'false'
+        run: |
+          python -VV
+          pip install -r requirements-mcp.txt
+          pip install pytest        # the runner itself; deliberately not in the bridge's own lock
+          python -c "import pymupdf; print('bridge engine ->', pymupdf.__doc__.splitlines()[0])"
+
+      # Installing is not the interesting half. `model/` and `util/` are shared with the GUI and have
+      # only ever been executed on 3.12; a behaviour difference across versions — a dict ordering
+      # assumption, a changed stdlib default — is invisible to a resolve and shows up here.
+      - name: Run the bridge suite against its own dependencies
+        if: steps.gate.outputs.relevant != 'false'
+        run: pytest -q tests/test_mcp_*.py
+
   # M123 — the Windows half of the suite, which nothing had ever run.
   #
   # `pytest` above is Linux, and two tests can only run here: `tests/test_app_mutex.py`'s

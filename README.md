@@ -131,8 +131,8 @@ The same PDF engine, exposed as a local [MCP](https://modelcontextprotocol.io) s
 MCP-compatible client** — Claude Code, Claude Desktop, Codex CLI and the rest; stdio is the only
 transport, so a client needs nothing beyond the `klarpdf-mcp` command. It is a **separate, optional
 component** — the Windows installer above does not contain it and is not made bigger by it — and
-**unlike the app it is cross-platform**, running on macOS and Linux as readily as on Windows. Like
-the app, it makes no network connections.
+**unlike the app it is cross-platform**, running on macOS and Linux as readily as on Windows, on
+**any Python from 3.11 to 3.14**. Like the app, it makes no network connections.
 
 ```bash
 pip install -r requirements-mcp.txt   # cross-platform, ==-pinned, audited weekly

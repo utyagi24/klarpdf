@@ -1,89 +1,132 @@
 # KlarPDF MCP bridge
 
-KlarPDF's PDF engine as [MCP](https://modelcontextprotocol.io) tools, for Claude Code, Claude
-Desktop, and any other client that speaks stdio. Nineteen tools: read a document without pulling it
-whole into context, transform it to a new file without losing its content, and redact it
-destructively with cross-engine verification.
+KlarPDF's PDF engine as [MCP](https://modelcontextprotocol.io) tools — for Claude Code, Claude
+Desktop, Codex CLI, Gemini CLI, and any other client that speaks MCP over stdio. Nineteen tools:
+read a document without pulling it whole into context; transform it by splitting, merging,
+reordering, rotating, deleting pages, filling forms and annotating; and redact it destructively
+with cross-engine verification.
 
-**It is a separate, optional component.** The Windows app (`klarpdf-setup-x64.exe`) does not contain
-it, is not made bigger by it, and does not depend on it. Nothing here imports PySide6 — a test
-asserts that in a fresh interpreter after every tool has run.
+**It is independent of the KlarPDF app** and needs no GUI components. It runs on macOS, Linux and
+Windows.
 
-**It makes no network connections.** stdio is the only transport; there is no listening port. (Note
-the one exception, which is an *install*-time thing, not a runtime one: the one-click `.mcpb` below
-fetches its dependencies from PyPI when Claude Desktop installs it.)
+**Your PDFs stay where they are.** An agent works on the file on your disk — nothing is uploaded and
+no third-party service sees it, which is the point of running the engine locally rather than sending
+documents somewhere to be processed. The server itself makes no network connections: stdio is the
+only transport and there is no listening port. What a tool *returns* — a page's text, a rendered
+image — goes back to your model like any other tool result, so the usual care about what you hand a
+hosted model still applies.
+
+**It does not understand your documents.** Every tool here is mechanical: `search` matches literal
+text rather than meaning, `extract_text` returns what is on the page rather than a summary, and
+`annotate` and the redactions take boxes and strings rather than questions. Working out what a
+clause means, which name matters, or what ought to be removed is the model's job — this server's job
+is to hand it accurate material and then do exactly what it is told.
+
+**Just want it running?** [Quick setup](QUICKSTART.md) gets Claude Code, Codex CLI or Gemini CLI
+talking to it in six commands. This page is the full reference.
+
+## What you need
+
+| | |
+|---|---|
+| **Python 3.11 – 3.14** | Any version in that range; each is tested in CI on Linux and Windows. |
+| **The source** | **Only if you install with `pip`.** The bridge is not published to PyPI, so the source comes from GitHub: clone the repo and check out a release tag, or download the source archive from the [releases page](https://github.com/utyagi24/klarpdf/releases). |
+| **[`uv`](https://docs.astral.sh/uv/)** | **Only if you install the `.mcpb` bundle in Claude Desktop.** Desktop launches it with `uv run`, so `uv` must be on the PATH Desktop sees. Nothing warns you if it is missing; the symptom is the server failing to start. |
+| **An MCP client** | The app your AI assistant runs in — Claude Code, Claude Desktop, Codex CLI, Gemini CLI and others. It starts `klarpdf-mcp` as a local subprocess and relays the model's tool calls to it. |
+| **`poppler-utils`** | **Optional.** Adds a second, independent engine to redaction's verification step. Without it, redaction still verifies — with PyMuPDF alone. See [What redaction guarantees](#what-redaction-guarantees-and-where-it-stops). |
+
+No GUI toolkit is installed. The bridge's only dependencies are PyMuPDF and the MCP SDK.
 
 ## Install
 
-**Install it — do not try to run it in place.** From a clone:
-
 ```bash
-pip install -r requirements-mcp.txt   # the audited, cross-platform pins
-pip install -e .                      # puts `klarpdf-mcp` on PATH
-klarpdf-mcp                           # serves on stdio; Ctrl-C to stop
+git clone https://github.com/utyagi24/klarpdf.git
+cd klarpdf
+git checkout v<version>               # a release tag; `git tag` lists them
+python3 -m venv .venv                 # Windows: py -3 -m venv .venv
+source .venv/bin/activate             # Windows: .venv\Scripts\activate
+pip install -r requirements-mcp.txt   # the exact versions we test against
+pip install -e .                      # puts `klarpdf-mcp` inside the virtualenv
 ```
 
-Or isolated, if you never want to touch it again:
+A dedicated virtualenv keeps the bridge's 29 packages out of your regular Python environment, and
+lets you choose the interpreter yourself. Prefer a release tag over `main`: tags are what the
+released `.mcpb` and the published locks correspond to. If you would rather not use git at all, the
+[releases page](https://github.com/utyagi24/klarpdf/releases) carries a source archive for each one.
+
+Run both `pip` lines, in that order. `requirements-mcp.txt` names all 29 packages at exact versions
+— the same ones our CI tests against, and the ones we scan regularly for newly published
+vulnerabilities. The second line then installs `klarpdf-mcp` itself, with its requirements already
+satisfied at those pinned versions.
+
+Check that it worked, and note the path it reports — you will need it in a moment:
 
 ```bash
-pipx install .
+klarpdf-mcp --help
+which klarpdf-mcp        # Windows: where klarpdf-mcp
+# -> /path/to/klarpdf/.venv/bin/klarpdf-mcp
 ```
 
-`klarpdf-mcp` is the command to give any client. **`python -m mcp_bridge` is not** — it only works
-when the current directory happens to be the repo, because `-m` puts the *working directory* on
-`sys.path`, never the interpreter's location. A client launches its servers from its own working
-directory, which is essentially never your checkout, so `python -m` fails there with
-`No module named mcp_bridge` even when you point it at the right virtualenv's Python. (If you must,
-`PYTHONPATH=/path/to/klarpdf` fixes it — but installing is the answer.)
+**You will not normally run `klarpdf-mcp` yourself** — your client starts it and talks to it through
+the subprocess's stdin and stdout.
 
-Install the two lines together: `requirements-mcp.txt` carries the exact versions we audit weekly,
-and `pip install -e .` on its own would resolve fresh ones. That lock is `==`-pinned, unhashed and
-**cross-platform** on purpose — the app is Windows-first, the bridge is not, and a hashed
-`win_amd64` lock would silently make it Windows-only, because `pip install --require-hashes` fails
-on other platforms by design.
+## Connect it to your client
 
-## Claude Code
+Every client has its own way of configuring MCP servers, but they all ask for **a command to run**.
+For our MCP server that command is `klarpdf-mcp`.
+
+That command is the whole of KlarPDF's entry in that list. There is nothing else to fill in: no
+arguments, no environment variables, and no URL, port or token — those belong to servers that run
+over a network, and this one does not. Your client starts `klarpdf-mcp` as a subprocess and the two
+talk over its stdin and stdout. (Two optional switches can restrict what it is allowed to do — see
+[Limiting what the server can do](#limiting-what-the-server-can-do).)
+
+**Give the full path, not the bare name.** `klarpdf-mcp` is on your PATH only while the virtualenv
+is active, and a client started from an icon or a launcher does not activate it. Every example below
+uses `/path/to/klarpdf/.venv/bin/klarpdf-mcp` — substitute the path `which klarpdf-mcp` printed
+during install. On Windows it is `...\.venv\Scripts\klarpdf-mcp.exe`.
+
+### Claude Code
 
 Install first (above), then:
 
 ```bash
-claude mcp add klarpdf -- klarpdf-mcp
+claude mcp add klarpdf -- /path/to/klarpdf/.venv/bin/klarpdf-mcp
 ```
 
-A `.mcp.json` is also checked in at the repo root, so inside this project Claude Code offers the
-server and you approve it — but it too needs the install, since it invokes `klarpdf-mcp`.
+**If you run Claude Code from inside this repo, skip that command.** A `.mcp.json` at the repo root
+already describes the server, and Claude Code offers it when you start here — approve the prompt and
+you are configured. (It is offered rather than switched on silently, which is why checking it in is
+safe.) That file calls the bare `klarpdf-mcp`, so activate the virtualenv before you start Claude
+Code: `source .venv/bin/activate`.
 
 Confirm with `/mcp`: it should say **klarpdf — 19 tools**. If it says *failed*, run the command by
 hand in the same shell you launch Claude from; the error is almost always `command not found`
 (nothing installed, or a different virtualenv active) or `No module named mcp` (installed the
 package but not its dependencies).
 
-## Claude Desktop
+### Claude Desktop
 
-**Option A — one-click.** Build the bundle and open it; Desktop installs it as an extension.
+**Option A — the `.mcpb` bundle.** Install it in Claude Desktop as an extension. You can get the
+bundle in two ways:
 
-```bash
-python packaging/mcpb/build_mcpb.py     # -> dist/klarpdf-<version>.mcpb
-```
+- **Download it** — `klarpdf-<version>.mcpb` from the
+  [latest release](https://github.com/utyagi24/klarpdf/releases/latest), with `SHA256SUMS` alongside
+  it. No clone and no Node required.
+- **Build from a checkout** — run `python packaging/mcpb/build_mcpb.py`. This needs
+  [Node](https://nodejs.org), since the packer itself is a Node tool. The script's header documents
+  exactly what goes into the bundle and what's deliberately left out.
 
-Requires [`uv`](https://docs.astral.sh/uv/) on your PATH — the bundle uses it to resolve Python and
-its dependencies for your machine. Two consequences worth knowing before you choose this path:
+Either way, you also need [`uv`](https://docs.astral.sh/uv/). The bundle contains only source — no
+interpreter, no dependencies of its own — so Claude Desktop relies on `uv run` to actually launch
+the server. Downloading spares you Node, but not `uv`; make sure it's on the PATH that Desktop sees
+before you open the file.
 
-- **It installs online.** `uv` fetches wheels from PyPI at install time. This is the one deliberate
-  break from everything else this project ships, and it is what buys a single bundle that works on
-  macOS, Windows and Linux: MCPB cannot portably vendor compiled dependencies, and this bundle has
-  two (PyMuPDF is C, pydantic is Rust).
-- **It installs from a lock we ship, and that lock is hashed.** The bundle carries a `uv.lock`
-  alongside its `pyproject.toml`, and `uv run --directory` honours it — measured, by shipping a lock
-  with one dependency deliberately pinned a version back and confirming that older version is what
-  installed. So a Desktop install resolves from a file we wrote and review, with a `sha256` for every
-  wheel, rather than from whatever a fresh resolve picks on the day.
-- **It is still not the same coverage as `pip-audit`.** The weekly audit runs against
-  `requirements-mcp.txt`, i.e. the pip/pipx path above. `uv.lock` is generated from the same pins, so
-  the audited set carries through — but the lock *also* pins the platform-specific transitive
-  packages that `requirements-mcp.txt` structurally cannot name (it is deliberately
-  platform-marker-free, so `colorama` and `pywin32` can never appear in it). Those are pinned and
-  hashed, and not separately audited. If that residue is not acceptable, use Option B.
+This also sets Option A apart from every other path here: **it installs online**. At install time,
+`uv` fetches wheels from PyPI for your machine, resolved against a hashed `uv.lock` shipped inside
+the bundle — so you get the exact package set we reviewed, not whatever PyPI happens to resolve that
+day. That lock does pin a handful of platform-specific packages that our weekly `pip-audit` never
+sees. If that residual risk isn't acceptable, use Option B.
 
 **Option B — edit the config.** Add to `claude_desktop_config.json`
 (macOS: `~/Library/Application Support/Claude/`, Windows: `%APPDATA%\Claude\`):
@@ -92,14 +135,101 @@ its dependencies for your machine. Two consequences worth knowing before you cho
 {
   "mcpServers": {
     "klarpdf": {
-      "command": "klarpdf-mcp"
+      "command": "/path/to/klarpdf/.venv/bin/klarpdf-mcp"
     }
   }
 }
 ```
 
-Use the absolute path to the script if it is not on the PATH Desktop sees (`which klarpdf-mcp` /
-`where klarpdf-mcp`).
+### Codex CLI
+
+```bash
+codex mcp add klarpdf -- /path/to/klarpdf/.venv/bin/klarpdf-mcp
+```
+
+Or write it into `~/.codex/config.toml` yourself:
+
+```toml
+[mcp_servers.klarpdf]
+command = "/path/to/klarpdf/.venv/bin/klarpdf-mcp"
+```
+
+### Gemini CLI
+
+```bash
+gemini mcp add klarpdf /path/to/klarpdf/.venv/bin/klarpdf-mcp
+```
+
+Or edit `~/.gemini/settings.json` (or `.gemini/settings.json` for a single project), which uses the
+same `mcpServers` block Claude Desktop does:
+
+```json
+{
+  "mcpServers": {
+    "klarpdf": {
+      "command": "/path/to/klarpdf/.venv/bin/klarpdf-mcp"
+    }
+  }
+}
+```
+
+### Any other client
+
+Clients differ in *where* the configuration lives, not in what it has to say. Claude Desktop and
+Gemini CLI share the `mcpServers` JSON block above; Codex CLI uses the `[mcp_servers.<name>]` TOML
+table; others vary again. All of them want one thing from you — a command to run. Point yours at
+your `/path/to/klarpdf/.venv/bin/klarpdf-mcp`, add `args` if you want the switches below, and ignore
+every field about URLs, ports and tokens, because this server has none.
+
+## Limiting what the server can do
+
+By default the server can read and write any file you can. That is the honest default rather than a
+lax one: it is a subprocess *you* launched, running as you, and a client that can start it can
+already read your disk. Two switches narrow that when you want a smaller blast radius — a shared
+machine, an agent you are still learning to trust, a directory of client documents.
+
+| Switch | Environment variable | What it does |
+|---|---|---|
+| `--read-only` | `KLARPDF_MCP_READ_ONLY=1` | Registers only the seven read tools. The twelve transform and redaction tools are never advertised, so the model does not see them and cannot ask for them. |
+| `--allow-root DIR` | `KLARPDF_MCP_ALLOW_ROOTS` | Confines every path — inputs and outputs alike — to that directory tree. Repeatable on the command line; the variable takes a list separated by your platform's path separator (`:` on macOS and Linux, `;` on Windows). |
+
+Pass them wherever your client names the command:
+
+```json
+{
+  "mcpServers": {
+    "klarpdf": {
+      "command": "/path/to/klarpdf/.venv/bin/klarpdf-mcp",
+      "args": ["--read-only", "--allow-root", "/Users/me/Documents/contracts"]
+    }
+  }
+}
+```
+
+Three details that matter in practice:
+
+- **Containment is checked on the resolved path**, through the same file-identity code the app uses,
+  so a symlink pointing out of an allowed root, a `..` escape, and a case-different spelling on
+  Windows are all refused. A path that does not exist yet — an output you are about to write — is
+  judged by its parent directory.
+- **`--allow-root` wins over the variable** when both are set. `--read-only` is on if *either* asks
+  for it, and neither turns it back off.
+- **A restriction is announced on stderr** when the server starts, naming what is in force. Never on
+  stdout, which carries the JSON-RPC stream — one stray line there ends the session.
+
+Writes are on by default because no write tool can destroy data by construction: each needs an
+explicit new output path, and in-place save is never exposed. `--read-only` is the cautious opt-out,
+not the recommended setting.
+
+## Password-protected PDFs
+
+Every tool takes an optional `password`. Call `get_info` first — it reports `needs_password: true`
+for a document that will not open without one, and reports the encryption and permissions of a
+document that opens but is restricted.
+
+A missing or wrong password fails the call with a message naming the file and telling you to call
+again with `password`. The server never prompts: there is nobody behind an MCP call to answer a
+prompt, so prompting would hang the client instead of asking anyone anything.
 
 ## Reading a tool's full contract
 
@@ -122,7 +252,8 @@ actually advertises.
 ## The tools
 
 Page numbers are **1-based** everywhere, matching what a reader sees. An out-of-range page is an
-error, never a silent clamp.
+error, never a silent clamp. Every tool takes an optional `password` — see
+[Password-protected PDFs](#password-protected-pdfs).
 
 | Read | |
 |---|---|
