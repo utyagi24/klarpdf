@@ -96,7 +96,17 @@ def test_the_gui_ship_lock_does_not_carry_the_mcp_sdk():
 
 
 def test_requirements_in_does_not_carry_the_mcp_sdk():
-    assert "mcp" not in (ROOT / "requirements.in").read_text(encoding="utf-8").lower().split()
+    """Read the *requirements*, not the prose. This asserted over the whole file — comments
+    included — so writing the word "MCP" in a comment failed it, which is what happened the moment
+    a security bump explained in-file that the bridge was unaffected because it ships no pypdf.
+    A file that documents why the SDK is absent is evidence for this invariant, not against it."""
+    requirements = [
+        line.split("#")[0].strip()
+        for line in (ROOT / "requirements.in").read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+    for requirement in requirements:
+        assert not re.match(r"mcp\b", requirement, re.IGNORECASE), f"the MCP SDK leaked in: {requirement!r}"
 
 
 # ---- the audit steps ------------------------------------------------------------
