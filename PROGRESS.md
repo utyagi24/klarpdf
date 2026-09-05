@@ -2512,7 +2512,19 @@ on the one above it. Every decision, every rejection and every measurement behin
 
   **This is exactly what the rehearsal was for.** Nothing local could have caught it: `twine check`
   validates that a readme will render, not that it is true, and the file reads correctly in the
-  repo — where the clone path *is* how you install. Design in `PLAN.md` §M133–M136 — *WSL + CI*
+  repo — where the clone path *is* how you install.
+
+  **The rehearsal then found a second one, a level down.** The corrected page's *Quick setup* link
+  is a `blob/main/…` URL, and three shipped artifacts carry one: the bridge README (the wheel's
+  `Description`), `manifest.json` (inside the `.mcpb`) and `pyproject.toml`'s Documentation URL (a
+  PyPI sidebar link). Each names a **repo path**, and M134 moved all three targets — the manifest's
+  was caught by reading, not by any check. Nothing fails when a target moves; the link simply 404s
+  for everyone who installed that version, and published metadata cannot be corrected. `main` rather
+  than a tag stays deliberate, so a reader of an older version still reaches current setup
+  instructions — which is what makes the guard necessary rather than optional.
+  `tests/test_packaging_layout.py` now resolves every such link against the working tree, verified
+  by rewriting one back to its pre-M134 path and watching it fail. Design in `PLAN.md` §M133–M136 —
+  *WSL + CI*
 
 - [ ] **M136** *(unplanned)* **`install.py` — needs nothing but a Python** — a single generated file:
   download it, run it, and a client is talking to the bridge. No clone, no `uv`, no `pipx`, no

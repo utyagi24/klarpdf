@@ -107,3 +107,45 @@ def test_the_powershell_build_walks_up_to_the_repo_root() -> None:
         f"{'too shallow' if walks_up < depth else 'above the repo'}, and every path built from it "
         f"would be wrong — silently, because Push-Location succeeds either way."
     )
+
+
+# --- Links that travel inside a shipped artifact (M135) ------------------------------------------
+#
+# Three files embed a `https://github.com/.../blob/main/<path>` URL, and each one leaves the repo
+# inside something we publish: the bridge README is the wheel's `Description`, `manifest.json` is
+# read by Claude Desktop, and `pyproject.toml`'s Documentation URL becomes a `Project-URL` on the
+# PyPI sidebar. A repo path named in those is the same hazard this file already guards for build
+# inputs — nothing fails when the file moves; the link just quietly 404s for everyone who installed
+# that version, and the metadata of a published version cannot be corrected.
+#
+# It is not hypothetical. M134 moved all three targets under `klarpdf/`, and the manifest's URL was
+# found by reading rather than by any check.
+#
+# `main` rather than a tag is deliberate: someone installing an older version should still reach
+# current setup instructions. That choice is what makes this test necessary, not optional.
+
+BLOB_LINK = re.compile(r"https://github\.com/utyagi24/klarpdf/blob/main/([^)\"'\s]+)")
+
+SHIPPED_SOURCES = (
+    "klarpdf/mcp_bridge/README.md",          # the wheel's long description
+    "packaging/mcp/mcpb/manifest.json",      # travels inside the .mcpb
+    "pyproject.toml",                        # becomes Project-URL on PyPI
+)
+
+
+def test_every_repo_link_in_a_shipped_artifact_points_at_a_file_that_exists():
+    checked = 0
+    for source in SHIPPED_SOURCES:
+        text = (ROOT / source).read_text(encoding="utf-8")
+        for path in BLOB_LINK.findall(text):
+            checked += 1
+            assert (ROOT / path).exists(), (
+                f"{source} links to `{path}`, which does not exist in the repo. That URL ships "
+                f"inside a published artifact, so it 404s for everyone who installed that version "
+                f"and the metadata cannot be corrected afterwards. Update the link, or restore the "
+                f"file at that path."
+            )
+    assert checked >= len(SHIPPED_SOURCES), (
+        f"only found {checked} blob links across {SHIPPED_SOURCES} — if the links were removed on "
+        f"purpose, drop them from SHIPPED_SOURCES; otherwise this test has stopped checking."
+    )
