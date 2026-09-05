@@ -68,7 +68,7 @@ pyjwt[crypto]==2.13.0
     # via mcp
 pymupdf==1.27.2.3
     # via -r requirements-core.in
-pypdf==6.15.0
+pypdf==6.17.0
     # via -r requirements.in
 pyside6-essentials==6.11.1
     # via -r requirements.in
