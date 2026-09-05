@@ -1,5 +1,13 @@
 # Dev dependencies = runtime + test tooling. Compiled (NO hashes) to requirements-dev.txt:
-#   pip-compile --allow-unsafe requirements-dev.in -o requirements-dev.txt
+#   pip-compile --allow-unsafe requirements-dev.in -o requirements-dev.txt   ** in WSL, not Windows **
+# COMPILE THIS ONE OFF WINDOWS (`invoke lock-dev`, which refuses to run there). The colorama note
+# below is half the story; M137 is the other half, pointing the opposite way. pip-tools writes the
+# markers that are TRUE on the compiling interpreter in *unmarkered* — so a Windows compile bakes
+# `mcp`'s `pywin32>=311; sys_platform == "win32"` in as a bare `pywin32==312`. pywin32 ships Windows
+# wheels and no sdist, so the lock then cannot be installed at all by the Ubuntu pytest job or the
+# WSL dev venv, both of which `pip install -r requirements-dev.txt`. Declaring it unmarkered the way
+# colorama is declared is NOT an option: unlike colorama, it does not exist off Windows.
+# tests/test_dev_lock_is_cross_platform.py fails if such a pin is ever committed.
 # `--allow-unsafe` is required, not optional: pip-tools classes `setuptools` as "unsafe" and leaves
 # it out of the lock without it, which is the whole reason the flag is here (see setuptools below).
 # Note: pytest pulls `colorama` on win32 only, and pip-tools has no cross-platform marker mode — so

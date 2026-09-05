@@ -6234,6 +6234,50 @@ exotic variable and it silently voids the whole install; a space in a path looks
 has handled it for years. **An install story is a claim about someone else's machine, so it has to
 be tested on one.**
 
+### M137 — the dev lock is compiled off Windows, and the runbook said otherwise *(unplanned)* (2026-09-05)
+
+**Found while doing the Windows half of the pypdf security bump** (three crafted-PDF parse-DoS
+advisories, CVE-2026-84309/84310/84311 — `PyPdfEngine`'s `PdfReader` is the attack surface). The
+floor edit was done in WSL; `RELEASE.md` §1 step 2 hands the two lock recompiles to Windows. Running
+step 2 exactly as written produced a `requirements-dev.txt` that was **wrong in two independent
+ways**, neither of them about pypdf, and neither visible in the file's purpose:
+
+- **`pywin32==312` appeared, bare.** `mcp` declares `pywin32>=311; sys_platform == "win32"`.
+  pip-tools evaluates markers against the **compiling interpreter** and writes the survivors
+  *unmarkered*, so on Windows that resolves true and lands as an unconditional pin. pywin32
+  publishes `win32`/`win_amd64`/`win_arm64` wheels and **no sdist** — measured against the PyPI
+  API — so the lock stops being installable on Linux at all. The Ubuntu `pytest` job and the WSL dev
+  venv both `pip install -r requirements-dev.txt`; CI would have died in the install step, before
+  any test could report why.
+- **The `setuptools==84.0.0` pin degraded to a `# setuptools` comment.** `requirements-dev.in`'s own
+  header says `--allow-unsafe` "is required, not optional" — but the runbook's command, and
+  `tasks.py`'s `invoke lock`, both omitted it. `tests/test_mcp_packaging.py` imports
+  `setuptools.build_meta` on purpose so the metadata check needs no network.
+
+**The marker trap is the same one already documented for `colorama`, running the other way.** There,
+a marker that was *false* on the compiling platform silently **dropped** a needed line; the fix was
+to declare colorama unmarkered in the `.in`, which works because colorama installs everywhere. That
+fix is unavailable here: a *true* marker silently **adds** a line, and pywin32 genuinely does not
+exist off Windows, so there is no unmarkered form to declare. The only lever left is the compile
+platform itself.
+
+**So the platform split is now by lock, not by convenience.** The two hashed `win_amd64` locks
+(`requirements-win.txt`, `requirements-build-win.txt`) must be compiled **on Windows** — the
+long-standing rule, unchanged. The dev lock must be compiled **off** it. `invoke lock` now does the
+first pair only and says so; a new `invoke lock-dev` does the second and **exits** on Windows rather
+than producing a plausible, broken file. `tests/test_dev_lock_is_cross_platform.py` pins all three
+properties (no Windows-only distribution, no hashes or markers, setuptools still pinned) and was
+verified by recompiling the lock the wrong way and watching two of them fail.
+
+**The generalisable part**, and the reason this is a design entry rather than a typo fix: *a lock
+file records a resolution, and a resolution is a function of the machine that performed it.* We
+already knew that for **hashes** — it is why the ship lock is Windows-only and why Dependabot is
+detection-only. Markers are the same fact wearing different clothes, and they are harder to see,
+because the wrong answer is a *valid file that looks right*: the diff a reviewer reads is one added
+line naming a real package at a real version. The check cannot be "does the lock look correct" but
+"which machine is allowed to write it" — which is why the guard lives in the task runner and the
+suite, not in the review.
+
 ## Future enhancements (deferred beyond the roadmap)
 
 Captured but not yet scheduled:

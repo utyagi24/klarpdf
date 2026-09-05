@@ -2333,6 +2333,25 @@ on the one above it. Every decision, every rejection and every measurement behin
 `PLAN.md` §M133–M136 — **not restated here**. The headline: the install goes from nine commands to
 `python install.py`, or to `uvx --from klarpdf klarpdf-mcp` for anyone who already has `uv`.
 
+- [x] **M137** *(unplanned)* **The dev lock is compiled off Windows** — 2026-09-05, found while doing
+  the Windows half of the pypdf security bump ([#324](https://github.com/utyagi24/klarpdf/pull/324)).
+  `RELEASE.md` §1 step 2 sent both lock recompiles to Windows; run as written, the dev-lock command
+  produced a file that was wrong in two ways that had nothing to do with pypdf. It baked in
+  **`pywin32==312`** — `mcp`'s `sys_platform == "win32"` dep, written *unmarkered* because pip-tools
+  resolves markers against the compiling interpreter — and pywin32 ships Windows wheels with **no
+  sdist**, so `pip install -r requirements-dev.txt` then fails outright in the Ubuntu `pytest` job
+  and the WSL dev venv. It also dropped the **`setuptools==84.0.0`** pin to a bare `# setuptools`
+  comment, because the runbook and `invoke lock` both omitted the `--allow-unsafe` that
+  `requirements-dev.in`'s own header calls "required, not optional".
+
+  Neither is caught by review — the bad lock is a valid file whose diff is one plausible added line.
+  So the guard is the compile platform: `invoke lock` now recompiles the two hashed `win_amd64`
+  locks only, and a new **`invoke lock-dev`** does the dev lock and **exits on Windows**.
+  `tests/test_dev_lock_is_cross_platform.py` pins the three properties and was verified by
+  recompiling the wrong way and watching it fail. The same marker trap as the long-standing
+  `colorama` note, running the other way — and the `.in` fix that solved colorama cannot work here,
+  since pywin32 has no off-Windows form. Design in `PLAN.md` §M137 — *Windows (found) + WSL*
+
 - [x] **M133** *(unplanned)* **`packaging/` says which product each file builds** — 2026-09-05.
   `packaging/` held six app files loose at the top level (`build.ps1`, `klarpdf.spec`,
   `installer.iss`, `make_icon.py`, two `.ico`s) and one MCP subfolder (`mcpb/`). The split was

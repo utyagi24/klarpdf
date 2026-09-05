@@ -67,13 +67,26 @@ because the ship/build locks carry `win_amd64` hashes.
 2. **Re-compile the affected lock(s).** A runtime change propagates to **both** the ship and dev
    locks (the dev lock includes `-r requirements.in`):
    ```sh
-   # ship lock (hashed, win_amd64) — Windows
+   # ship lock (hashed, win_amd64) — Windows            (`invoke lock`)
    pip-compile --generate-hashes -o requirements-win.txt requirements.in
-   # dev lock (versions, no hashes; a Windows compile keeps the win32-only colorama)
-   pip-compile -o requirements-dev.txt requirements-dev.in
-   # build lock (hashed) — only when a build-only dep changed
+   # build lock (hashed) — Windows, only when a build-only dep changed   (`invoke lock`)
    pip-compile --generate-hashes --allow-unsafe -o requirements-build-win.txt requirements-build.in
+   # dev lock (versions, no hashes) — in WSL, NOT Windows                (`invoke lock-dev`)
+   pip-compile --allow-unsafe -o requirements-dev.txt requirements-dev.in
    ```
+
+   > **The dev lock is the one that is compiled *off* Windows, and both details bite (M137).**
+   > `--allow-unsafe` is not optional: without it pip-tools drops the `setuptools` pin that
+   > `tests/test_mcp_packaging.py` imports, and the line silently degrades to a `# setuptools`
+   > comment. And the compile must happen on **Linux/WSL**, because pip-tools evaluates environment
+   > markers against the *compiling* interpreter and writes the true ones in **unmarkered** — so a
+   > Windows compile bakes `pywin32` (`mcp`'s `sys_platform == "win32"` dep) into the lock as a bare
+   > pin. pywin32 publishes Windows wheels only and no sdist, so that lock cannot be installed at
+   > all by the Ubuntu `pytest` job or the WSL dev venv, both of which `pip install -r
+   > requirements-dev.txt`. `invoke lock-dev` refuses to run on Windows for this reason, and
+   > `tests/test_dev_lock_is_cross_platform.py` fails if such a pin is ever committed.
+   > (This is the same marker trap as the `colorama` note in `requirements-dev.in`, pointing the
+   > other way: there a *false* marker dropped a line, here a *true* one adds an uninstallable one.)
    `--require-hashes` isn't shareable across platforms, which is why the dev lock is version-only
    (see `DEPENDENCIES.md`).
 
