@@ -1,0 +1,89 @@
+# Publish the `klarpdf` distribution to PyPI (M135).
+#
+# WHEN THIS FIRES, AND WHY THAT TRIGGER. `release: published` — not a tag push. `release.yml`
+# builds on a tag and lands the GitHub Release as a **draft**; `invoke publish` flips it public
+# after the manual smoke test in RELEASE.md §3. Hanging off `published` means the human gate that
+# already exists is the gate for PyPI too, and `release.yml` needs no change.
+#
+# NO API TOKEN. Authentication is Trusted Publishing (OIDC): PyPI is configured to trust this repo,
+# this workflow filename, and the `pypi` environment. All three must match what is registered at
+# pypi.org, so renaming this file breaks publishing until the publisher is updated there. The
+# `id-token: write` permission is what mints the token; the `environment:` line is what puts the
+# environment claim in it. Both are required — with either missing, PyPI rejects the upload.
+#
+# ONE FILE FOR EVERY PLATFORM. The wheel is `py3-none-any`: we compile nothing, and the C and Rust
+# dependencies (PyMuPDF, pydantic-core, rpds-py, cryptography) publish their own per-platform
+# wheels. So there is no build matrix here and there does not need to be.
+#
+# A PUBLISH IS IRREVERSIBLE in a way a GitHub Release is not: a version number can never be reused
+# on PyPI, even after deleting the file. That is why the two guards below run before the upload
+# rather than after — a stale pin set or a version/tag mismatch is cheap to catch here and
+# impossible to take back afterwards.
+name: publish-pypi
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      repository:
+        description: "Index to publish to"
+        type: choice
+        options: ["testpypi", "pypi"]
+        default: "testpypi"
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: pypi          # must match the environment registered with the trusted publisher
+    permissions:
+      id-token: write          # mints the OIDC token; without it there is nothing to authenticate with
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install the build front-end
+        run: pip install build twine
+
+      # The published metadata pins the whole transitive set, generated from requirements-mcp.txt.
+      # If someone bumped the lock without regenerating, the wheel would advertise a set we never
+      # audited -- and unlike a bad release note, that cannot be corrected in place.
+      - name: The pinned dependencies must match the audited lock
+        run: python packaging/mcp/pypi/sync_pins.py --check
+
+      - name: Build the sdist and the wheel
+        run: python -m build
+
+      # `twine check` reads the built metadata the way PyPI's own renderer does. It is the only
+      # thing here that catches a readme PyPI will reject, and it costs a second.
+      - name: The metadata must render
+        run: twine check dist/*
+
+      # The version comes from klarpdf/version.py, the tag from the release. A mismatch means the
+      # bump was forgotten, and publishing it burns a version number that can never be reused.
+      - name: The built version must equal the release tag
+        if: github.event_name == 'release'
+        run: |
+          built=$(ls dist/*.tar.gz | sed -E 's/.*klarpdf-(.*)\.tar\.gz/\1/')
+          tag='${{ github.event.release.tag_name }}'
+          echo "built=$built  tag=$tag"
+          if [ "v$built" != "$tag" ]; then
+            echo "::error::built $built but the release is tagged $tag -- klarpdf/version.py and the tag disagree."
+            exit 1
+          fi
+
+      - name: Publish to TestPyPI (dry run)
+        if: github.event_name == 'workflow_dispatch' && inputs.repository == 'testpypi'
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+      - name: Publish to PyPI
+        if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.repository == 'pypi')
+        uses: pypa/gh-action-pypi-publish@release/v1

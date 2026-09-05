@@ -1,7 +1,29 @@
 [project]
 name = "klarpdf"
 dynamic = ["version"]
-description = "Local, offline, native-Windows PDF viewer + page editor"
+# What a PyPI visitor reads. The old line — "Local, offline, native-Windows PDF viewer + page
+# editor" — described the app, which this distribution does not contain: an install is the MCP
+# bridge and the GUI-free core it stands on (see `[tool.setuptools] packages`). The Windows viewer
+# ships as a PyInstaller-frozen installer and is never pip-installed.
+description = "KlarPDF's PDF engine as MCP tools — read, transform, and verifiably redact PDFs. Local and offline."
+readme = "klarpdf/mcp_bridge/README.md"
+license = "AGPL-3.0-or-later"
+license-files = ["LICENSE", "THIRD_PARTY_LICENSES"]
+authors = [{ name = "utyagi24", email = "12071588+utyagi24@users.noreply.github.com" }]
+keywords = ["pdf", "mcp", "redaction", "split", "merge", "forms", "offline", "agent"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Text Processing",
+    "Topic :: Utilities",
+]
+
 # THIS GOVERNS THE BRIDGE, NOT THE APP (M132). What `requires-python` gates is a `pip`/`pipx` install
 # of this project, and that install is the MCP bridge — the Windows GUI is PyInstaller-frozen from
 # requirements-win.txt and is never pip-installed. So widening this does not touch the app's build,
@@ -50,14 +72,65 @@ requires-python = ">=3.11,<3.15"
 # a pin because this is package metadata: an exact pin here would conflict with anything a user
 # co-installs. That leaves one gap on purpose — `pipx install .` resolves to the *newest* PyMuPDF,
 # not ours — carried in PROGRESS.md §Open follow-ups.
+#
+# PINNED, NOT FLOORED, AND GENERATED (M135). These become `Requires-Dist` in the published wheel,
+# which is what `pip`, `pipx`, `uvx` and `install.py` all resolve against — so floors here would
+# hand a `uvx` install and a lock install two different dependency sets from one package. That is a
+# library's convention, and this is an application: installed into an environment of its own by
+# `uvx`/`pipx`, there is nothing to co-install with. Pinning makes the audited set what every route
+# installs, and `pip-audit` already scans requirements-mcp.txt.
+#
+# The trade accepted knowingly: `pip install klarpdf` into a shared environment will conflict
+# loudly. That is correct for an application, and it is why the docs name uvx/pipx/install.py.
+#
+# Regenerate with `python packaging/mcp/pypi/sync_pins.py`; `--check` is what CI runs. Do not edit
+# between the sentinels — the block is replaced wholesale, so a hand edit is silently reverted.
 dependencies = [
-    "PyMuPDF>=1.27.2.3",
-    "mcp>=2,<3",
+    # BEGIN GENERATED PINS — packaging/mcp/pypi/sync_pins.py, from requirements-mcp.txt
+    "annotated-types==0.8.0",
+    "anyio==4.14.2",
+    "attrs==26.1.0",
+    "cffi==2.1.1",
+    "click==8.4.2",
+    "cryptography==50.0.0",
+    "h11==0.16.0",
+    "httpcore2==2.10.0",
+    "httpx2==2.10.0",
+    "idna==3.18",
+    "jsonschema==4.26.0",
+    "jsonschema-specifications==2025.9.1",
+    "mcp==2.0.0",
+    "mcp-types==2.0.0",
+    "opentelemetry-api==1.44.0",
+    "pycparser==3.0",
+    "pydantic==2.13.4",
+    "pydantic-core==2.46.4",
+    "pyjwt[crypto]==2.13.0",
+    "pymupdf==1.27.2.3",
+    "python-multipart==0.0.32",
+    "referencing==0.37.0",
+    "rpds-py==2026.6.3",
+    "sse-starlette==3.4.8",
+    "starlette==1.6.0",
+    "truststore==0.10.4",
+    "typing-extensions==4.16.0",
+    "typing-inspection==0.4.4",
+    "uvicorn==0.52.1",
+    # END GENERATED PINS
 ]
 
 # The project's FIRST console script (M42). It is the MCP bridge's entry point and nothing else;
 # there is deliberately no general-purpose CLI (PLAN.md §Dependencies & packaging — a second
 # permanent entry point for an audience that has not asked for one).
+# What PyPI renders as the sidebar links. Documentation points at the bridge README rather than the
+# root one: an install is the bridge, and the root README is the Windows app's shop window.
+[project.urls]
+Homepage = "https://github.com/utyagi24/klarpdf"
+Documentation = "https://github.com/utyagi24/klarpdf/blob/main/klarpdf/mcp_bridge/README.md"
+Source = "https://github.com/utyagi24/klarpdf"
+Issues = "https://github.com/utyagi24/klarpdf/issues"
+Changelog = "https://github.com/utyagi24/klarpdf/releases"
+
 [project.scripts]
 klarpdf-mcp = "klarpdf.mcp_bridge.server:main"
 

@@ -211,14 +211,23 @@ def _version(v: str) -> tuple:
     return tuple(int(p) if p.isdigit() else 0 for p in v.split("."))
 
 
-def test_the_declared_dependencies_match_the_locks_input():
-    """`pyproject.toml` and `requirements-mcp.in` must name the **same packages**, and where the
-    input pins one exactly that pin must satisfy the declared floor.
+def test_the_declared_dependencies_cover_the_locks_direct_inputs():
+    """Every package `requirements-mcp.in` names directly must appear in `pyproject.toml`, pinned
+    at the version the lock compiled.
 
-    This used to assert the two blocks were string-equal, which only worked while both were floors.
-    They are legitimately different *kinds* — `pyproject.toml` says what the code needs to work,
-    `requirements-mcp.in` says the exact set we audit and compile the lock from (M115) — so equality
-    was the wrong comparison, and it would have failed the moment either side was tightened.
+    **This comparison has now changed twice, each time because the two files stopped being the same
+    kind of thing, and the history is the point.** It began as string equality, valid only while
+    both sides were floors. M115 made it a superset-plus-floor check, because `pyproject.toml` said
+    what the code needs to work while `requirements-mcp.in` said the exact set we audit. M135
+    changed the kind again: the published metadata now carries the **whole transitive set as `==`
+    pins**, because it is an application's metadata rather than a library's (`PLAN.md` §M133–M136,
+    decision 2). So `pyproject` is legitimately much larger than the `.in` — 29 against 2 — and
+    equality would fail for the right reasons.
+
+    What still has to hold is *direction*: nothing the bridge declares as a direct dependency may go
+    missing from what a `pip install` resolves. The stronger statement — that the pinned set equals
+    the compiled lock exactly — is `tests/test_pypi_metadata.py`, over built metadata rather than a
+    TOML read.
     """
     declared_block = re.search(
         r"dependencies = \[(.*?)\n\]", PROJECT_PYPROJECT.read_text("utf-8"), re.S
@@ -226,14 +235,18 @@ def test_the_declared_dependencies_match_the_locks_input():
     declared = _requirements(declared_block.group(1))
     wanted = _input("requirements-mcp.in")
 
-    assert set(declared) == set(wanted), (
-        f"pyproject names {sorted(declared)}, requirements-mcp.in names {sorted(wanted)}"
+    missing = sorted(set(wanted) - set(declared))
+    assert not missing, (
+        f"requirements-mcp.in names {missing}, which pyproject.toml does not declare — a "
+        f"`pip install klarpdf` would not install them. Regenerate: "
+        f"python packaging/mcp/pypi/sync_pins.py"
     )
     for name, (op, version) in wanted.items():
         if op == "==":
-            floor_op, floor = declared[name]
-            assert _version(version) >= _version(floor), (
-                f"{name}: the compiled pin {version} is below pyproject's floor {floor_op}{floor}"
+            declared_op, declared_version = declared[name]
+            assert (declared_op, declared_version) == ("==", version), (
+                f"{name}: requirements-mcp.in pins {version} but pyproject declares "
+                f"{declared_op}{declared_version}"
             )
 
 

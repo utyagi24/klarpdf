@@ -1,0 +1,8 @@
+# The sdist carried the whole test suite — 129 files, and the reason the archive was 659 KB against
+# the wheel's 245 KB (M135). The wheel never had them (`[tool.setuptools] packages` names only
+# `klarpdf`), so this only trims the source archive. Tests belong in the repo, which the sdist's
+# metadata points at; nobody installing from PyPI runs them from there.
+prune tests
+prune packaging
+prune vendor
+exclude report.json
