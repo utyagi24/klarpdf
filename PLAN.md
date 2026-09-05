@@ -6086,6 +6086,131 @@ restated for a second tool, find every tool that reads it** — here `pip`, node
 `grep requires-python` finds only two of the three, because uv writes `==3.12.*` for a single
 version and never spells the bound the other two use.
 
+### M133–M136 — how the bridge is installed, and by whom (owner-scoped 2026-09-04)
+
+| Milestone | Where | Platform | Done when |
+|---|---|---|---|
+| **M133** `packaging/` bifurcates into `app/` and `mcp/` | `packaging/{app,mcp}/`, ~90 references | WSL | Pure moves, no behaviour change; `invoke build`, `build_mcpb.py` and both workflows still find their inputs |
+| **M134** One top-level name: everything moves under `klarpdf/` | `klarpdf/{mcp_bridge,model,util,version.py}`, 393 import sites | WSL | Suite green; a built wheel installs exactly one top-level name |
+| **M135** Publish one distribution to PyPI | `pyproject.toml`, `packaging/mcp/pypi/`, `.github/workflows/publish-pypi.yml` | WSL + CI | `uvx --from klarpdf klarpdf-mcp` starts the server from a machine with no clone; built metadata carries all 29 pins |
+| **M136** `install.py` — a bootstrap needing nothing but a supported Python | `packaging/mcp/installer/`, `tests/`, `.github/workflows/test.yml` | WSL + CI | Download, run, and a client is talking to the bridge; no clone, no `uv`, no `pipx`, no global `pip` |
+
+**What is wrong today.** The bridge's install story is nine commands — clone, check out a tag, make
+a virtualenv, activate it, two `pip` lines, `which`, then the client's own `mcp add`. Every one of
+them is a place to stop. `mcp_bridge/README.md` spends a paragraph on *"Give the full path, not the
+bare name"* and `QUICKSTART.md`'s troubleshooting lists `command not found` first, which is the
+tell: **the step that actually fails is the path, and the path only exists because the user built
+the environment by hand.** The `.mcpb` bundle solves this for Claude Desktop alone, and only for
+people who already have `uv`.
+
+**Two front doors, because neither reaches everyone.** PyPI is what the ecosystem expects and is
+almost free for us — measured, the wheel builds `py3-none-any` (214 KB), so there is **one file for
+every OS, architecture and Python**; we compile nothing, and the compiled dependencies (PyMuPDF is
+C, `pydantic-core` and `rpds-py` are Rust, `cryptography`) ship their own per-platform wheels. But
+PyPI cannot reach zero prerequisites: `uvx` needs `uv`, `pipx` needs `pipx`. `install.py` can — it
+is one file, fetched and run by any supported Python, using stdlib `venv` with `ensurepip` (which
+bootstraps `pip` offline). Neither replaces the other, and they compose: with the package on PyPI,
+`install.py` never touches HTTP itself — it hands `pip` a package name and lets `pip` own TLS,
+proxies, retries and corporate MITM certificates, which is where installers of this kind break.
+
+**Decisions, and what settled each.**
+
+| | Decision | Why |
+|---|---|---|
+| 1 | **One distribution, `klarpdf`**, GUI behind a `[gui]` extra | Two distributions cannot both own `klarpdf/` — the app needs `klarpdf/model/` and so does the bridge, so `pip uninstall` of one would delete files the other is using. One distribution makes the app/bridge lockstep structural rather than a habit |
+| 2 | Published metadata pins **all 29 exactly**, generated from `requirements-mcp.txt` | It is an application, not a library, so the "floors, never pins" convention does not apply: installed into an isolated environment there is nothing to co-install with. One dependency set for every path, and `pip-audit` then covers what users actually install. `packaging/mcp/mcpb/pyproject.toml` already does exactly this, so it is a second target for a generator that exists |
+| 3 | Version **lockstep** with `version.py` | One number identifies the installer, the `.mcpb`, PyPI and `install.py`. Every tag publishes a bridge release even when no bridge code changed — harmless, and it makes skew legible |
+| 4 | **Namespace move before first publish** | Today a `pip install` would put `model/`, `util/` and a module called plain `version` at the top of site-packages. Two distributions owning `util/` means whichever installs last wins and uninstalling one damages the other |
+| 5 | `install.py` is **generated per release**; no `--version` flag | It is a release artifact: the file you checksummed determines exactly what lands. The Python window and the pinned version are baked in at build time from `pyproject.toml`, so this is not a sixth place the window is written by hand |
+| 6 | **Download and verify, or a browser** — `SHA256SUMS` is already published | A piped script cannot be read before it runs and has no file to verify |
+| 7 | It **works when piped anyway**, and says what was skipped | We cannot enforce it — `install.py` is a file at a URL. Measured: `__file__` is `'<stdin>'` when piped, so it is cleanly detectable. Refusing would be theatre (they would `curl -o` and run it) and would break CI, Dockerfiles and provisioning. **Consequence: `install.py` must need no stdin — anything that would prompt becomes a flag** (an existing venv errors naming `--reinstall`, it does not ask). That is better design regardless |
+| 8 | `~/.local/share/klarpdf-mcp` · `~/Library/Application Support/klarpdf-mcp` · `%LOCALAPPDATA%\klarpdf-mcp`; `--install-dir` overrides | Flat and identically named on all three, honouring `XDG_DATA_HOME`. Independent of the app on disk, because the bridge is a separate optional component and many users will never install the app |
+| 9 | **Touches no PATH** — no symlink, no profile edit | Clients take an absolute path, so nothing needs it; the blast radius stays one directory we own |
+| 10 | Prints the client config; **opt-in `--client`** runs the client's own CLI | `claude`/`codex`/`gemini mcp add` are those clients' supported APIs, so calling one on request is not silent editing. Claude Desktop has no CLI and stays a printed JSON block |
+| 11 | `install.py` **writes `uninstall.py`** into the install directory | Not a release artifact, per the owner. ~18 lines: a `pyvenv.cfg` guard so a wrong `--install-dir` is refused rather than obeyed, `os.chdir` before `rmtree` (Windows cannot remove a directory that is the process's CWD), and it **prints** the client-removal commands rather than running them |
+| 12 | pip environment: **pass network variables through, strip location ones** | Corporate mirrors and proxies must keep working, so `--isolated` and a scrubbed `env` are both wrong — they would also ignore `pip.conf`/`pip.ini`. Keep `PIP_INDEX_URL`, `PIP_EXTRA_INDEX_URL`, `PIP_TRUSTED_HOST`, `PIP_CERT`, `HTTP(S)_PROXY`, `NO_PROXY`, `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`; strip `PIP_USER`, `PIP_TARGET`, `PIP_PREFIX`, `PYTHONHOME`, `PYTHONPATH`. A `--index-url` flag covers anyone whose mirror is not in the environment |
+| 13 | Startup validation is **mandatory**, reusing `tools/mcp_stdio_check.py` | It is the only thing that catches the silent failure in the measurement below, and it already exists: 197 lines driving the console script over real stdio with the MCP client SDK |
+| 14 | Windows: document `py -3 install.py`, and **detect the Store stub** | `sys.executable` under `...\AppData\Local\Microsoft\WindowsApps\`. Typing `python` with no Python installed opens the Store and nothing runs, so the remedy has to be named rather than discovered inside venv creation |
+| 15 | No `klarpdf` placeholder | Decision 1 uses the name for real from day one, so there is nothing to squat. Both names were free when checked |
+
+**Rejected, so the argument does not restart.** `curl … | python` as a documented path (decision 6).
+`install-state.json`, a `logs/` directory and a local `README.txt` — the venv is the state and
+`importlib.metadata` answers the version, so they are a privacy surface and two more files to
+document for a script that runs for a minute. A *"small installer module structure separating
+platform/path handling, venv lifecycle, package installation, validation, state and presentation"* —
+this directly contradicts a single downloadable file, and single-file wins. `--version` (decision 5).
+Floors in published metadata (decision 2), which would give a `uvx` install and an `install.py`
+install different dependency sets from one package. `~/Library/Application Support/KlarPDF/mcp` and
+`%LOCALAPPDATA%\KlarPDF\mcp` — nested under a differently-cased app folder, when the app already
+sets `setApplicationName("klarpdf")` (`app.py:74`). `packaging/installer/`, which would have sat
+beside `packaging/installer.iss` and meant the other thing. A 3-OS × 4-Python integration matrix
+(12 legs, each downloading PyMuPDF), against unit tests plus one integration leg per OS. A
+`~/.local/bin` symlink (decision 9). Independent bridge versioning (decision 3). `klarpdf-mcp` as
+the real distribution name (decision 1) — it stays the **console script** name, and may later become
+a thin alias distribution pinning `klarpdf==<version>` if `uvx klarpdf-mcp` as a one-liner is judged
+worth a second publish per release. And a **PyInstaller-frozen bridge**, which was considered and
+rejected on 2026-08-12 with the revisit condition *"if the online-install requirement ever proves
+unacceptable"* — nothing has changed, and `install.py` is itself an online install, so it does not
+meet that bar either.
+
+**Measured, 2026-09-04.**
+
+- **One wheel, every platform.** `klarpdf-0.18.0-py3-none-any.whl`, 214 KB, `Root-Is-Purelib: true`.
+  The sdist is 614 KB because it carries `tests/` (174 files) — cosmetic, since the wheel excludes
+  them, but worth trimming.
+- **The metadata is eight lines** and none of what PyPI shows is in it: no readme (the project page
+  would be blank), no license expression, no classifiers, no project URLs, no authors. `Summary` is
+  currently *the app's* — "Local, offline, native-Windows PDF viewer + page editor" — describing
+  something the package does not contain.
+- **The zero-prerequisite flow works.** stdlib `venv` 3.7 s (pip bootstrapped offline by `ensurepip`,
+  pip 24.0 on 3.12), install 14.3 s warm, 121 MB, working `klarpdf-mcp` entry point.
+- **`pip --constraint` refuses our lock**: `ERROR: Constraints cannot have extras`, because
+  `requirements-mcp.txt:55` is `pyjwt[crypto]==2.13.0`. `-r` is the form that works — which is what
+  the README already documents.
+- **`PIP_TARGET` installs outside the venv silently, exit 0.** No output, and the packages land in
+  the target directory. `PIP_USER=1` at least fails loudly (*"Can not perform a '--user' install"*).
+  The silent one is why decision 13 is not optional: an installer without a startup check would
+  report success and leave no entry point.
+- **A space in the install path is safe.** `venv` detects it and writes the `/bin/sh` exec-trick
+  shebang (`'''exec' "/…/Application Support/…/python3.12" "$0" "$@"`) rather than a plain one the
+  kernel could not split; the console script execs correctly. This is what makes the macOS path
+  viable.
+- **Import sites for M134**: `model` 314 (219 in `tests/`), `mcp_bridge` 50 (41), `util` 24 (11),
+  `version` 5 (3) — **393, of which 274 are tests**. The GUI-only packages are out of scope until an
+  app package exists: `viewer` 125, `store` 92, `ui` 69, `organize` 18.
+- **References for M133**: ~90 across 25 files, ~65 of them prose in `PLAN.md`/`RELEASE.md`/
+  `PROGRESS.md`. Every runtime-code mention of `packaging/` is a comment or docstring, not a
+  filesystem path, so no app code breaks.
+- **Both PyPI names were unregistered** (`klarpdf`, `klarpdf-mcp` → 404).
+
+**What M134 is *not* a one-way door about.** The package has **no importable API** — its entire
+public surface is the `klarpdf-mcp` console script, which is what `.mcp.json`, every client config
+and the README name. So the internal layout stays changeable in any later release with no user
+impact. The reason to do it before first publish is the harm window, not irreversibility: once it is
+on PyPI, a shared-environment install can clobber another distribution's `util/` and we cannot fix
+that retroactively for anyone.
+
+**Two consequences accepted knowingly.** *Pinning all 29 in metadata* means `pip install klarpdf`
+into a shared environment will hit resolver conflicts — correct for an application, but it makes
+`uvx`/`pipx`/`install.py` the documented routes and bare `pip install` into an existing environment
+one we stop suggesting. A small residue stays unpinned either way: `requirements-mcp.txt` is
+deliberately platform-marker-free, so it structurally cannot name `colorama` or `pywin32`, which
+arrive through their parents' own metadata. *An installer-app beside a pip-bridge* can run different
+versions — they share no files (the frozen app carries its own embedded Python, the bridge lives in
+its own venv, and the bridge has no QSettings so not even the settings directory is shared), but a
+core fix present on one surface and absent on the other is exactly the divergence `CLAUDE.md`'s
+*two consumers share one core* rule exists to catch. Lockstep numbering makes the skew visible; it
+cannot prevent it.
+
+**The generalisable part.** The install path is the one part of a product that is never exercised by
+the people who build it — a maintainer always has the clone, the venv and the tooling already. Every
+defect here was found the same way: by *doing it from nothing* and measuring, not by reading the
+code. Four of the five measurements above contradict something that seemed obviously true —
+`--constraint` is the natural way to apply a lock and it does not work; `PIP_TARGET` looks like an
+exotic variable and it silently voids the whole install; a space in a path looks fatal and `venv`
+has handled it for years. **An install story is a claim about someone else's machine, so it has to
+be tested on one.**
+
 ## Future enhancements (deferred beyond the roadmap)
 
 Captured but not yet scheduled:
