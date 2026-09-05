@@ -328,11 +328,13 @@ When it finally returns `true`, delete this block — its whole subject is gone 
    > uploaded, even after the file is deleted — unlike a GitHub Release, which can be edited or
    > removed. If the job fails, fix and re-tag as `X.Y.Z+1`; do not attempt to re-upload.
 
-   > **First publish only:** the install docs still describe the clone-and-`pip` path, because
-   > until this step runs there is nothing on PyPI to install. Once the package is live, add the
-   > PyPI route to `klarpdf/mcp_bridge/README.md` §Install and `QUICKSTART.md` step 1 —
-   > `uvx --from klarpdf klarpdf-mcp` for anyone who has `uv`, `pipx install klarpdf` otherwise.
-   > Documenting it earlier would have promised a package that did not exist.
+   > **The readme ships *inside* the wheel**, as that version's `Description` metadata — so it has
+   > to be right *before* the upload, not after. Correcting the repo afterwards does nothing for the
+   > version already published, and the version number cannot be reused to try again. M135 first
+   > deferred the install docs to "after the first publish" on the reasoning that they would
+   > otherwise promise a package that did not exist; the TestPyPI rehearsal showed that backwards,
+   > with the project page advertising *"the bridge is not published to PyPI"*. Check the rendered
+   > page on TestPyPI before the real upload, not the markdown in the repo.
 
 ### Local build (optional)
 `pwsh packaging/app/build.ps1` re-fetches wheels then builds; add `-Offline` to build strictly from the

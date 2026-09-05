@@ -135,10 +135,12 @@ component** — the Windows installer above does not contain it and is not made 
 **any Python from 3.11 to 3.14**. Like the app, it makes no network connections.
 
 ```bash
-pip install -r requirements-mcp.txt   # cross-platform, ==-pinned, audited weekly
-pip install -e .                      # puts `klarpdf-mcp` on PATH
-claude mcp add klarpdf -- klarpdf-mcp  # Claude Code; any other client just needs `klarpdf-mcp`
+pipx install klarpdf                          # or: uv tool install klarpdf
+claude mcp add klarpdf -- ~/.local/bin/klarpdf-mcp   # any other client just needs that path
 ```
+
+All 29 dependencies are pinned exactly in the published package, so an install gets the set our CI
+tests and our weekly audit scans — not whatever is newest that day.
 
 Full install options, the Claude Desktop config, and the one-click `.mcpb` bundle are in
 **[klarpdf/mcp_bridge/README.md](klarpdf/mcp_bridge/README.md)**.

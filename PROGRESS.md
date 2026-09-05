@@ -2495,10 +2495,36 @@ on the one above it. Every decision, every rejection and every measurement behin
   zero `Requires-Dist` and a `klarpdf-mcp` that died on `import mcp`. The staleness guard was
   verified by deleting a pin and watching `--check` name it.
 
-  **Not done here, deliberately:** the install docs still describe the clone path, because until the
-  first release actually publishes there is nothing on PyPI to install. `RELEASE.md` §3 step 7
-  carries that as a first-publish item rather than leaving it to memory. Design in `PLAN.md`
-  §M133–M136 — *WSL + CI*
+  **The install docs were deferred and then un-deferred, and the reversal is the useful part.** The
+  original reasoning was that documenting PyPI before publishing would promise a package that did
+  not exist, so `RELEASE.md` §3 step 7 carried it as a first-publish item. **The TestPyPI rehearsal
+  showed that backwards.** The readme ships *inside the wheel*, as that version's `Description`
+  metadata — so the project page for `0.18.0` advertised *"the bridge is not published to PyPI"*
+  and a `git clone`, and no later commit could fix the version already uploaded, nor could the
+  version number be reused to try again. Docs that ride in an artifact must be correct **before**
+  the upload, not after it. `klarpdf/mcp_bridge/README.md`, `QUICKSTART.md` and the root
+  `README.md` now lead with `pipx install klarpdf` / `uv tool install klarpdf`, keep the clone path
+  for contributors, and say plainly that the exact pins make a shared-environment `pip install`
+  conflict on purpose. The eleven client-config examples move from the virtualenv path to
+  `~/.local/bin/klarpdf-mcp`, the one the documented install actually produces; the two that
+  describe the clone route keep theirs. `RELEASE.md` §3 step 7 now says to read the rendered
+  TestPyPI page rather than the markdown in the repo.
+
+  **This is exactly what the rehearsal was for.** Nothing local could have caught it: `twine check`
+  validates that a readme will render, not that it is true, and the file reads correctly in the
+  repo — where the clone path *is* how you install.
+
+  **The rehearsal then found a second one, a level down.** The corrected page's *Quick setup* link
+  is a `blob/main/…` URL, and three shipped artifacts carry one: the bridge README (the wheel's
+  `Description`), `manifest.json` (inside the `.mcpb`) and `pyproject.toml`'s Documentation URL (a
+  PyPI sidebar link). Each names a **repo path**, and M134 moved all three targets — the manifest's
+  was caught by reading, not by any check. Nothing fails when a target moves; the link simply 404s
+  for everyone who installed that version, and published metadata cannot be corrected. `main` rather
+  than a tag stays deliberate, so a reader of an older version still reaches current setup
+  instructions — which is what makes the guard necessary rather than optional.
+  `tests/test_packaging_layout.py` now resolves every such link against the working tree, verified
+  by rewriting one back to its pre-M134 path and watching it fail. Design in `PLAN.md` §M133–M136 —
+  *WSL + CI*
 
 - [ ] **M136** *(unplanned)* **`install.py` — needs nothing but a Python** — a single generated file:
   download it, run it, and a client is talking to the bridge. No clone, no `uv`, no `pipx`, no
