@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 
 from app import PdfApp
-from model.virtual_document import VirtualDocument
+from klarpdf.model.virtual_document import VirtualDocument
 from organize.thumbnail_panel import ThumbnailPanel
 from store.settings import Settings
 from viewer.pdf_view import PdfView

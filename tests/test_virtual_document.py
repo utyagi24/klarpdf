@@ -4,15 +4,15 @@ from __future__ import annotations
 
 from PySide6.QtGui import QUndoStack
 
-from model.edit_commands import (
+from klarpdf.model.edit_commands import (
     DeleteCommand,
     InsertCommand,
     MoveCommand,
     RotateCommand,
     RotatePagesCommand,
 )
-from model.virtual_document import PageRef, VirtualDocument
-from util.paths import normalize_path
+from klarpdf.model.virtual_document import PageRef, VirtualDocument
+from klarpdf.util.paths import normalize_path
 
 
 def _indices(vd: VirtualDocument) -> list[int]:
@@ -152,7 +152,7 @@ def test_rotate_command_label_and_roundtrip(a_pdf):
 
 
 def test_replace_annotation_accepts_an_equal_but_distinct_descriptor(a_pdf):
-    from model.page_edits import Line
+    from klarpdf.model.page_edits import Line
 
     vd = VirtualDocument.from_path(a_pdf)
     vd.add_annotation(0, Line((10.0, 10.0), (50.0, 50.0)))
@@ -163,7 +163,7 @@ def test_replace_annotation_accepts_an_equal_but_distinct_descriptor(a_pdf):
 
 
 def test_remove_annotation_accepts_an_equal_but_distinct_descriptor(a_pdf):
-    from model.page_edits import Line
+    from klarpdf.model.page_edits import Line
 
     vd = VirtualDocument.from_path(a_pdf)
     vd.add_annotation(0, Line((10.0, 10.0), (50.0, 50.0)))
@@ -172,7 +172,7 @@ def test_remove_annotation_accepts_an_equal_but_distinct_descriptor(a_pdf):
 
 
 def test_replace_annotation_ignores_a_mark_the_page_does_not_have(a_pdf):
-    from model.page_edits import Line
+    from klarpdf.model.page_edits import Line
 
     vd = VirtualDocument.from_path(a_pdf)
     vd.add_annotation(0, Line((10.0, 10.0), (50.0, 50.0)))

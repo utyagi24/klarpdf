@@ -16,9 +16,9 @@ from PySide6.QtCore import Qt
 
 from app import PdfApp
 from main_window import MainWindow
-from model.content_marks import ImageStamp, Stamp
+from klarpdf.model.content_marks import ImageStamp, Stamp
 from store.settings import Settings
-from util.page_range import PageRangeError, format_page_range, parse_page_range
+from klarpdf.util.page_range import PageRangeError, format_page_range, parse_page_range
 from ui.mark_dialog import PLACE_CLICK, PLACE_PAGE
 from viewer.tools import ArmedTool
 
@@ -220,7 +220,7 @@ def test_rotation_fit_previews_a_pinned_stamp_at_its_own_size():
     to reproduce. The preview must agree, or it would draw the stamp smaller than the file has it."""
     from dataclasses import replace
 
-    from model.content_marks import art_size, placement_size
+    from klarpdf.model.content_marks import art_size, placement_size
     from viewer.annotations import _rotation_fit
 
     mark = Stamp(rect=(0, 0, 1, 1), text="APPROVED", fontsize=40.0, angle=-45.0)
@@ -467,7 +467,7 @@ def test_a_clicked_stamp_is_centred_on_the_click(win):
 
 def test_a_pinned_stamp_box_hugs_its_text(win):
     """The point of the feature: no leftover padding to fight, because the box came *from* the text."""
-    from model.content_marks import natural_size
+    from klarpdf.model.content_marks import natural_size
 
     _click_place(win, PINNED)
     x0, y0, x1, y1 = _stamps(win)[0].rect
@@ -704,7 +704,7 @@ def _content_items(win):
 
 
 def _stamp_every_page(win):
-    from model.content_marks import preset_mark
+    from klarpdf.model.content_marks import preset_mark
 
     for index in range(win.vdoc.page_count):
         width, height = win.view._unrotated_size(index)
@@ -755,7 +755,7 @@ def test_marks_are_all_painted_before_the_view_is_shown(win, monkeypatch):
 def test_the_fit_search_cache_does_not_change_the_answer():
     """The auto-fit search is memoised because it is pure and startlingly expensive. Pure is the
     load-bearing half: a cached fit must equal a freshly computed one."""
-    from model.content_marks import _fit_fontsize, _measure_free_height, _text_width
+    from klarpdf.model.content_marks import _fit_fontsize, _measure_free_height, _text_width
     import pymupdf as fitz
 
     box = fitz.Rect(0, 0, 260, 100)
@@ -1057,7 +1057,7 @@ def test_a_repainted_mark_is_not_rasterised_twice(win, tmp_path):
     overlay = win.view.annotations
     overlay.repaint()
     calls = []
-    import model.content_marks as cm
+    import klarpdf.model.content_marks as cm
 
     real = cm.render_mark_document
     cm.render_mark_document = lambda m: (calls.append(m), real(m))[1]

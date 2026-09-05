@@ -21,9 +21,9 @@ from PySide6.QtCore import Qt
 
 from app import PdfApp
 from main_window import MainWindow
-from model.content_marks import ImageStamp, apply_content_marks, render_mark_document
-from model.edit_engine import PyMuPDFEngine
-from model.virtual_document import VirtualDocument
+from klarpdf.model.content_marks import ImageStamp, apply_content_marks, render_mark_document
+from klarpdf.model.edit_engine import PyMuPDFEngine
+from klarpdf.model.virtual_document import VirtualDocument
 from store.settings import Settings
 from viewer.tools import ArmedTool
 

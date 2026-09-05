@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from model.form_fields import FIELD_KINDS, NewField, kind_label
+from klarpdf.model.form_fields import FIELD_KINDS, NewField, kind_label
 
 
 class FieldDialog(QDialog):

@@ -31,7 +31,7 @@ def resource_root() -> Path:
     meipass = getattr(sys, "_MEIPASS", None)  # set by PyInstaller at runtime; absent from source
     if meipass:
         return Path(meipass)
-    return Path(__file__).resolve().parent.parent  # util/ -> repo root
+    return Path(__file__).resolve().parent.parent.parent  # klarpdf/util/ -> repo root
 
 
 def resource_path(*parts: str) -> Path:

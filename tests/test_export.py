@@ -17,10 +17,10 @@ import pytest
 import main_window as mw
 from app import PdfApp
 from main_window import MainWindow
-from model.edit_engine import PyMuPDFEngine
-from model.export import export_flattened_pdf, export_page_images
-from model.page_edits import Highlight, Redaction, TextBox
-from model.virtual_document import VirtualDocument
+from klarpdf.model.edit_engine import PyMuPDFEngine
+from klarpdf.model.export import export_flattened_pdf, export_page_images
+from klarpdf.model.page_edits import Highlight, Redaction, TextBox
+from klarpdf.model.virtual_document import VirtualDocument
 from store.settings import Settings
 
 

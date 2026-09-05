@@ -18,7 +18,7 @@ from typing import Iterable
 
 from PySide6.QtGui import QUndoCommand
 
-from model.virtual_document import PageRef, VirtualDocument
+from klarpdf.model.virtual_document import PageRef, VirtualDocument
 
 
 class _SnapshotCommand(QUndoCommand):

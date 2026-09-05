@@ -20,16 +20,16 @@ import pytest
 
 from app import PdfApp
 from main_window import MainWindow
-from model.edit_engine import PyMuPDFEngine
-from model.foreign_annots import (
+from klarpdf.model.edit_engine import PyMuPDFEngine
+from klarpdf.model.foreign_annots import (
     adopt_annotation,
     degradations,
     find_annotation,
     is_adoptable,
     read_foreign_annotations,
 )
-from model.page_edits import KLARPDF_AUTHOR, Shape, TextBox
-from model.virtual_document import VirtualDocument
+from klarpdf.model.page_edits import KLARPDF_AUTHOR, Shape, TextBox
+from klarpdf.model.virtual_document import VirtualDocument
 from store.settings import Settings
 
 
@@ -318,7 +318,7 @@ def test_an_adopted_mark_is_then_editable(win):
 
 def test_adopting_a_moved_mark_keeps_it_where_it_was_put(win):
     """Adopting after dragging must not snap the mark back to its original spot."""
-    from model.foreign_annots import ForeignMove
+    from klarpdf.model.foreign_annots import ForeignMove
 
     mark = _square(win)
     win._move_foreign_annotation(0, mark, 40.0, 25.0)

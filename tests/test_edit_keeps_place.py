@@ -16,7 +16,7 @@ import pytest
 
 from app import PdfApp
 from main_window import MainWindow
-from model.page_edits import Highlight, Shape
+from klarpdf.model.page_edits import Highlight, Shape
 from store.settings import Settings
 
 

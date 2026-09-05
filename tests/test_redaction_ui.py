@@ -11,7 +11,7 @@ from PySide6.QtCore import QEvent, QPointF, Qt
 from PySide6.QtGui import QMouseEvent
 
 from app import PdfApp
-from model.page_edits import Redaction
+from klarpdf.model.page_edits import Redaction
 from store.settings import Settings
 from viewer.tools import ArmedTool
 

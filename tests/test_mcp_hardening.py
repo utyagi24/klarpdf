@@ -15,8 +15,8 @@ import os
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 
-from mcp_bridge.config import Config, Limits, PathNotAllowed, PathPolicy
-from mcp_bridge.server import _explain, create_server, parse_args
+from klarpdf.mcp_bridge.config import Config, Limits, PathNotAllowed, PathPolicy
+from klarpdf.mcp_bridge.server import _explain, create_server, parse_args
 from tests.conftest import A_TEXT
 
 READ_TOOLS = {

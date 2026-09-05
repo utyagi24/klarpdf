@@ -18,7 +18,7 @@ from __future__ import annotations
 import pymupdf as fitz
 import pytest
 
-from model.content_marks import (
+from klarpdf.model.content_marks import (
     CONTENT_MARK_TYPES,
     ImageStamp,
     Stamp,
@@ -30,9 +30,9 @@ from model.content_marks import (
     render_mark_document,
     size_for_page,
 )
-from model.edit_engine import PyMuPDFEngine
-from model.page_edits import Highlight, Redaction, mark_bounds, scale_mark, translate_mark
-from model.virtual_document import VirtualDocument
+from klarpdf.model.edit_engine import PyMuPDFEngine
+from klarpdf.model.page_edits import Highlight, Redaction, mark_bounds, scale_mark, translate_mark
+from klarpdf.model.virtual_document import VirtualDocument
 
 BODY = "BODYTEXT"
 SECRET = "SECRETDATA"
@@ -607,7 +607,7 @@ def test_a_stamp_over_a_redaction_survives_the_destructive_pass(vdoc, tmp_path):
 def test_annotations_still_layer_above_a_stamp(vdoc, tmp_path):
     """Content marks bake below the annotation overlays, which stay editable — so a text box over a
     watermark reads exactly as it does on the page's own ink."""
-    from model.page_edits import TextBox
+    from klarpdf.model.page_edits import TextBox
 
     vdoc.add_annotation(0, preset_mark("Draft", (0, 0, 595, 842), whole_page=True))
     vdoc.add_annotation(0, TextBox((100, 500, 300, 540), "note"))

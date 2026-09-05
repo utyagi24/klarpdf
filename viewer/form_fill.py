@@ -20,7 +20,7 @@ from PySide6.QtCore import QRect, Qt
 from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import QComboBox, QGraphicsRectItem, QLineEdit
 
-from model.page_edits import read_form_fields
+from klarpdf.model.page_edits import read_form_fields
 
 _FIELD_TINT = QColor(70, 130, 180, 40)  # faint steel-blue wash marking a fillable field
 _CHOICE_TYPES = {fitz.PDF_WIDGET_TYPE_COMBOBOX, fitz.PDF_WIDGET_TYPE_LISTBOX}

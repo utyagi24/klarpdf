@@ -11,14 +11,14 @@ import pymupdf as fitz
 import pytest
 from PySide6.QtGui import QUndoStack
 
-from model.edit_commands import (
+from klarpdf.model.edit_commands import (
     AddAnnotationCommand,
     RemoveAnnotationCommand,
     ReplaceAnnotationCommand,
 )
-from model.edit_engine import PyMuPDFEngine
-from model.page_edits import KLARPDF_AUTHOR, Highlight, TextBox
-from model.virtual_document import VirtualDocument
+from klarpdf.model.edit_engine import PyMuPDFEngine
+from klarpdf.model.page_edits import KLARPDF_AUTHOR, Highlight, TextBox
+from klarpdf.model.virtual_document import VirtualDocument
 
 
 @pytest.fixture

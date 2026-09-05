@@ -87,7 +87,7 @@ def read_form_fields(vdoc) -> list[FormField]:
     NewField`): they only become real widgets at materialise, but the whole point of the milestone is
     that a placed field behaves like any other, so the inline filler has to see it straight away.
     """
-    from model.form_fields import NewField, widget_type
+    from klarpdf.model.form_fields import NewField, widget_type
 
     fields: list[FormField] = []
     for page_index in range(vdoc.page_count):
@@ -441,8 +441,8 @@ def translate_mark(mark, dx: float, dy: float):
     geometry (M58 drag-move, M59 paste-with-offset). Frozen value objects in, new ones out."""
     from dataclasses import replace
 
-    from model.content_marks import CONTENT_MARK_TYPES
-    from model.form_fields import NewField
+    from klarpdf.model.content_marks import CONTENT_MARK_TYPES
+    from klarpdf.model.form_fields import NewField
 
     if isinstance(mark, (TextBox, Shape, NewField) + CONTENT_MARK_TYPES):
         x0, y0, x1, y1 = mark.rect
@@ -819,8 +819,8 @@ def scale_mark(mark, sx: float, sy: float, ox: float, oy: float):
     """
     from dataclasses import replace
 
-    from model.content_marks import CONTENT_MARK_TYPES
-    from model.form_fields import NewField
+    from klarpdf.model.content_marks import CONTENT_MARK_TYPES
+    from klarpdf.model.form_fields import NewField
 
     def point(x: float, y: float) -> tuple:
         return (ox + (x - ox) * sx, oy + (y - oy) * sy)
@@ -836,7 +836,7 @@ def scale_mark(mark, sx: float, sy: float, ox: float, oy: float):
         # drag sets the **size** — the smaller axis governs, so it never grows past what was asked
         # — and the box is re-derived from it, keeping the hug exact at every step.
         if getattr(mark, "fontsize", 0.0):
-            from model.content_marks import placement_size
+            from klarpdf.model.content_marks import placement_size
 
             resized = replace(mark, fontsize=mark.fontsize * min(abs(sx), abs(sy)))
             width, height = placement_size(resized)

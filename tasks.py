@@ -157,7 +157,7 @@ def tag(c, version):
         sys.exit(f"on '{branch}', not main - tag releases from an up-to-date main (RELEASE.md sec 3).")
     import runpy
 
-    actual = runpy.run_path(str(ROOT / "version.py"))["__version__"]
+    actual = runpy.run_path(str(ROOT / "klarpdf" / "version.py"))["__version__"]
     if actual != version:
         sys.exit(f"version.py is {actual}, not {version} - bump it (or fix --version) first.")
     c.run(f"git tag -a v{version} -m v{version}", echo=True)

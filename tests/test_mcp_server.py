@@ -19,7 +19,7 @@ import os
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 
-from mcp_bridge.server import server
+from klarpdf.mcp_bridge.server import server
 from tests.conftest import A_TEXT
 
 READ_TOOLS = {
@@ -72,7 +72,7 @@ def test_every_planned_tool_is_registered():
 
 
 def test_the_server_identifies_itself_with_the_app_version():
-    from version import __version__
+    from klarpdf.version import __version__
 
     assert server.name == "klarpdf"
     assert server.version == __version__

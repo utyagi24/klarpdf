@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from model.toc_remap import remap_toc, repair_levels
+from klarpdf.model.toc_remap import remap_toc, repair_levels
 
 
 def test_repair_levels_starts_at_one_and_no_jumps():

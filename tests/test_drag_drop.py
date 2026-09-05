@@ -16,7 +16,7 @@ from PySide6.QtCore import QByteArray, QMimeData, QPoint, QPointF, Qt, QUrl
 from PySide6.QtGui import QDragLeaveEvent, QDragMoveEvent, QDropEvent
 
 from app import PdfApp
-from model.virtual_document import VirtualDocument
+from klarpdf.model.virtual_document import VirtualDocument
 from organize.thumbnail_panel import _PAGES_MIME, ThumbnailPanel
 from store.settings import Settings
 

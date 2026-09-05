@@ -25,7 +25,7 @@ import os
 import pymupdf
 import pytest
 
-from mcp_bridge import redaction
+from klarpdf.mcp_bridge import redaction
 
 
 def _photo(width: int = 600, height: int = 400, quality: int = 85) -> bytes:

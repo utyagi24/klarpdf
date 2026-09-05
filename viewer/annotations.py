@@ -47,9 +47,9 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
 )
 
-from model.content_marks import CONTENT_MARK_TYPES, render_mark_document
-from model.form_fields import NewField
-from model.page_edits import (
+from klarpdf.model.content_marks import CONTENT_MARK_TYPES, render_mark_document
+from klarpdf.model.form_fields import NewField
+from klarpdf.model.page_edits import (
     Highlight,
     InkStroke,
     Line,
@@ -222,7 +222,7 @@ def _rotation_fit(mark) -> float:
     applies — so the preview cannot drift from the file: the artwork covers ``art_width × scale`` of
     the rect it is centred in.
     """
-    from model.content_marks import art_scale, art_size
+    from klarpdf.model.content_marks import art_scale, art_size
 
     rect_w = abs(mark.rect[2] - mark.rect[0])
     if rect_w <= 0 or abs(mark.rect[3] - mark.rect[1]) <= 0:
@@ -909,7 +909,7 @@ class AnnotationOverlay:
         """
         from dataclasses import replace
 
-        from model.foreign_annots import ForeignDeletion, ForeignMove, read_foreign_annotations
+        from klarpdf.model.foreign_annots import ForeignDeletion, ForeignMove, read_foreign_annotations
 
         vdoc = self._view._vdoc
         ref = vdoc.ordered[page_index]
@@ -938,7 +938,7 @@ class AnnotationOverlay:
         transparent to a press. Filtering inside the loop rather than at the result matters: a
         sticky note lying under an Edge highlight is still the mark the press meant.
         """
-        from model.foreign_annots import is_free_placed
+        from klarpdf.model.foreign_annots import is_free_placed
 
         page_index, local = self._view.page_and_local_at(scene_pt)
         if page_index is None:
@@ -2110,7 +2110,7 @@ class AnnotationOverlay:
         """Whether ``tool``'s armed mark is placed by a click rather than sized by a drag — true for
         a text stamp carrying its own point size (M69.7), false for a signature or a form field,
         which still get their size from the box you drag."""
-        from model.content_marks import Stamp
+        from klarpdf.model.content_marks import Stamp
 
         pending = self.pending_content_mark
         return (tool.places_content and isinstance(pending, Stamp) and bool(pending.fontsize))
@@ -2135,7 +2135,7 @@ class AnnotationOverlay:
         """
         from dataclasses import replace
 
-        from model.content_marks import Stamp, placement_size, size_for_page
+        from klarpdf.model.content_marks import Stamp, placement_size, size_for_page
 
         if isinstance(pending, Stamp) and pending.fontsize:
             page_w, page_h = self._view._unrotated_size(page_index)

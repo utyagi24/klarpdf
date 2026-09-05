@@ -1,7 +1,7 @@
 # The PDF engine the CORE is built on — the ONE place its version is written (M115).
 #
-# `model/` is shared by both surfaces: the GUI app reaches it through `main_window.py`, the MCP
-# bridge through `mcp_bridge/server.py`, and every read and write either of them makes is handed to
+# `klarpdf/model/` is shared by both surfaces: the GUI app reaches it through `main_window.py`, the MCP
+# bridge through `klarpdf/mcp_bridge/server.py`, and every read and write either of them makes is handed to
 # PyMuPDF. So this is not the app's dependency and it is not the bridge's — it is the core's, and
 # declaring it in each of their inputs is what let the two drift apart. `requirements.in` and
 # `requirements-mcp.in` both `-r` this file; neither names PyMuPDF itself.

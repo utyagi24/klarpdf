@@ -22,8 +22,8 @@ import pytest
 
 from app import PdfApp
 from main_window import MainWindow
-from model.edit_engine import PyMuPDFEngine
-from model.foreign_annots import (
+from klarpdf.model.edit_engine import PyMuPDFEngine
+from klarpdf.model.foreign_annots import (
     ForeignDeletion,
     annot_name,
     apply_foreign_deletions,
@@ -32,8 +32,8 @@ from model.foreign_annots import (
     page_has_foreign_annotations,
     read_foreign_annotations,
 )
-from model.page_edits import KLARPDF_AUTHOR, Highlight
-from model.virtual_document import VirtualDocument
+from klarpdf.model.page_edits import KLARPDF_AUTHOR, Highlight
+from klarpdf.model.virtual_document import VirtualDocument
 from store.settings import Settings
 
 

@@ -38,7 +38,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from model.edit_commands import (
+from klarpdf.model.edit_commands import (
     AddAnnotationCommand,
     CropPagesCommand,
     DeleteCommand,
@@ -54,7 +54,7 @@ from model.edit_commands import (
     SetFieldValueCommand,
     SetMetadataCommand,
 )
-from model.page_edits import (
+from klarpdf.model.page_edits import (
     Highlight,
     Redaction,
     Strikeout,
@@ -68,16 +68,16 @@ from model.page_edits import (
     resolve_note_host,
     translate_mark,
 )
-from model.edit_engine import PyMuPDFEngine
-from model.virtual_document import IMAGE_EXTENSIONS, PageRef, VirtualDocument
+from klarpdf.model.edit_engine import PyMuPDFEngine
+from klarpdf.model.virtual_document import IMAGE_EXTENSIONS, PageRef, VirtualDocument
 from organize.thumbnail_panel import ThumbnailPanel
 from store.file_watch import FileWatcher
 from store.settings import Settings
 from ui import icons
-from util.atomic import atomic_replace
-from util.paths import normalize_path
-from model.content_marks import ImageStamp, is_content_mark
-from model.form_fields import FIELD_KINDS, kind_label
+from klarpdf.util.atomic import atomic_replace
+from klarpdf.util.paths import normalize_path
+from klarpdf.model.content_marks import ImageStamp, is_content_mark
+from klarpdf.model.form_fields import FIELD_KINDS, kind_label
 from viewer.annotations import (
     FOREIGN_NOTE_GREY,
     OBJECT_TYPES,
@@ -433,7 +433,7 @@ class MainWindow(QMainWindow):
         carrying one; the per-source-page foreign presence scan runs once ever (sources are
         immutable in-session), and the live check (which honours pending deletions) runs only for
         pages that have foreign marks."""
-        from model.foreign_annots import read_foreign_annotations
+        from klarpdf.model.foreign_annots import read_foreign_annotations
         from organize.annotations_panel import is_listed, is_listed_foreign
 
         for page_index, ref in enumerate(self.vdoc.ordered):
@@ -453,7 +453,7 @@ class MainWindow(QMainWindow):
         click-to-jump pattern. Free-placed marks get the real object selection (handles and all);
         a foreign mark gets its outline; a text-anchored mark or a page-wide watermark just
         scrolls into view (neither has an object selection to give)."""
-        from model.foreign_annots import ForeignAnnot
+        from klarpdf.model.foreign_annots import ForeignAnnot
 
         self.view.ensure_box_visible(page_index, bounds)
         self.view.set_current_page(page_index)
@@ -1749,7 +1749,7 @@ class MainWindow(QMainWindow):
         """
         from ui.field_dialog import FieldDialog
 
-        from model.page_edits import read_form_fields
+        from klarpdf.model.page_edits import read_form_fields
 
         existing = {field.name for field in read_form_fields(self.vdoc)}
         dialog = FieldDialog(self, kind, existing)
@@ -2169,7 +2169,7 @@ class MainWindow(QMainWindow):
         catches that. Either way the text is **committed**, never discarded: a toggle-shut is the
         same "I'm done" as clicking away, and Esc remains the way to abandon an edit.
         """
-        from model.foreign_annots import ForeignAnnot
+        from klarpdf.model.foreign_annots import ForeignAnnot
 
         notes = self.view.annotations.notes
         if notes.target is mark or notes.consume_just_closed(notes.key_for(page_index, mark)):
@@ -2292,7 +2292,7 @@ class MainWindow(QMainWindow):
         is applied to the materialised copy, so undo restores the annotation exactly and every other
         annotation on the page still passes through untouched.
         """
-        from model.foreign_annots import ForeignDeletion
+        from klarpdf.model.foreign_annots import ForeignDeletion
 
         self._note_edit_on(page_index)
         self.undo_stack.push(
@@ -2313,7 +2313,7 @@ class MainWindow(QMainWindow):
         descriptor, in one macro. At materialise the original is stripped and ours is re-added
         author-tagged, so from then on it round-trips exactly like a mark we drew.
         """
-        from model.foreign_annots import (
+        from klarpdf.model.foreign_annots import (
             ForeignDeletion,
             adopt_annotation,
             degradations,
@@ -2338,8 +2338,8 @@ class MainWindow(QMainWindow):
             return False
         # Carry the pending move (M67) onto the adopted descriptor, so adopting a mark you have
         # already dragged keeps it where you put it rather than snapping back.
-        from model.foreign_annots import ForeignMove
-        from model.page_edits import translate_mark
+        from klarpdf.model.foreign_annots import ForeignMove
+        from klarpdf.model.page_edits import translate_mark
 
         shift = next((a for a in ref.annotations
                       if isinstance(a, ForeignMove) and a.fingerprint == mark.fingerprint), None)
@@ -2383,7 +2383,7 @@ class MainWindow(QMainWindow):
         would no longer match the annotation as it arrives at materialise. One descriptor per mark,
         always holding the fingerprint the page arrived with.
         """
-        from model.foreign_annots import ForeignMove
+        from klarpdf.model.foreign_annots import ForeignMove
 
         self._note_edit_on(page_index)
         existing = next(
@@ -2836,7 +2836,7 @@ class MainWindow(QMainWindow):
         """Export → Flattened PDF (M31.5): write a locked copy whose annotations + form fields are
         baked into page content (text preserved); a pending redaction is applied in the exported
         file without committing it in the open document."""
-        from model.export import export_flattened_pdf
+        from klarpdf.model.export import export_flattened_pdf
 
         self._export_pdf("Export Flattened PDF", "flattened", export_flattened_pdf)
 
@@ -2844,7 +2844,7 @@ class MainWindow(QMainWindow):
         """Export → Selected Pages as PDF… (M51): the selected pages — or the current page when
         nothing is selected — extracted object-level into a new, still-editable PDF (text layer /
         forms / our annotations carried; origin bookmarks + internal links remapped)."""
-        from model.export import export_selected_pages
+        from klarpdf.model.export import export_selected_pages
 
         indices = self.thumbs.selected_rows() or [self.view.current_page]
         self._export_pdf(
@@ -2858,7 +2858,7 @@ class MainWindow(QMainWindow):
         JPEG at the chosen preset/custom dpi & quality, fonts subset — reporting the **actual**
         before → after sizes. Overwriting the original goes through the guard below with
         permanent-quality-loss wording; by default the original is untouched."""
-        from model.export import export_reduced_pdf
+        from klarpdf.model.export import export_reduced_pdf
         from ui.reduce_dialog import ReduceSizeDialog, human_size
 
         dialog = ReduceSizeDialog(self)
@@ -2930,7 +2930,7 @@ class MainWindow(QMainWindow):
         elif not jpeg and not path.lower().endswith(".png"):
             path += ".png"
         try:
-            from model.export import export_page_images
+            from klarpdf.model.export import export_page_images
 
             written = export_page_images(self.vdoc, indices, path, dpi=dpi)
         except Exception as exc:  # surface, don't crash

@@ -25,9 +25,9 @@ from __future__ import annotations
 import pymupdf as fitz
 import pytest
 
-from model.edit_engine import PyMuPDFEngine
-from model.foreign_annots import adopt_annotation, degradations
-from model.page_edits import (
+from klarpdf.model.edit_engine import PyMuPDFEngine
+from klarpdf.model.foreign_annots import adopt_annotation, degradations
+from klarpdf.model.page_edits import (
     KLARPDF_AUTHOR,
     Highlight,
     Strikeout,
@@ -35,7 +35,7 @@ from model.page_edits import (
     merge_markup,
     read_klarpdf_annotations,
 )
-from model.virtual_document import VirtualDocument
+from klarpdf.model.virtual_document import VirtualDocument
 
 YELLOW = (1.0, 0.86, 0.10)
 GREEN = (0.10, 0.70, 0.30)
@@ -296,7 +296,7 @@ def test_a_recolour_does_not_copy_a_note_off_a_mark_that_survives():
 def test_removing_a_layer_still_takes_its_note_with_it():
     """The cry-wolf guard for the fix: *removing* a mark is not recolouring it. The slashed dot on
     the same menu row is an explicit delete, and owner rule 2 says the note dies with its host."""
-    from model.page_edits import remove_markup
+    from klarpdf.model.page_edits import remove_markup
 
     before = (Highlight((LINE1,), color=YELLOW, note="goes with it"),)
     assert remove_markup(before, (LINE1,), Highlight) == ()
@@ -386,7 +386,7 @@ def test_an_adopted_comment_round_trips_as_our_own_note(text_pdf, tmp_path):
     source = v.sources[ref.source_id][ref.source_page_index]
     (foreign,) = list(source.annots())
     adopted = adopt_annotation(foreign)
-    from model.foreign_annots import ForeignDeletion, fingerprint
+    from klarpdf.model.foreign_annots import ForeignDeletion, fingerprint
 
     v.add_annotation(0, ForeignDeletion(fingerprint(foreign), "Highlight"))
     v.add_annotation(0, adopted)

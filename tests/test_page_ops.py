@@ -17,11 +17,11 @@ import pytest
 import main_window as mw
 from app import PdfApp
 from main_window import MainWindow
-from model.edit_commands import RotatePagesCommand
-from model.edit_engine import PyMuPDFEngine
-from model.export import export_selected_pages
-from model.page_edits import Redaction, TextBox
-from model.virtual_document import VirtualDocument
+from klarpdf.model.edit_commands import RotatePagesCommand
+from klarpdf.model.edit_engine import PyMuPDFEngine
+from klarpdf.model.export import export_selected_pages
+from klarpdf.model.page_edits import Redaction, TextBox
+from klarpdf.model.virtual_document import VirtualDocument
 from store.settings import Settings
 from tests.conftest import A_TEXT
 
@@ -162,7 +162,7 @@ def test_page_visible_size_follows_rotation_and_crop(a_pdf):
 
 
 def test_blank_page_materialises_empty_between_its_neighbours(a_pdf, tmp_path):
-    from model.virtual_document import PageRef
+    from klarpdf.model.virtual_document import PageRef
 
     v = VirtualDocument.from_path(a_pdf)
     sid = v.open_blank_source(612.0, 792.0)

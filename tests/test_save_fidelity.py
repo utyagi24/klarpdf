@@ -23,14 +23,14 @@ from __future__ import annotations
 import pymupdf as fitz
 import pytest
 
-from model.edit_engine import (
+from klarpdf.model.edit_engine import (
     CLEAN_COPIED,
     CLEAN_REWRITTEN,
     GARBAGE_COPY,
     GARBAGE_GRAFT,
     PyMuPDFEngine,
 )
-from model.virtual_document import VirtualDocument
+from klarpdf.model.virtual_document import VirtualDocument
 
 _PERMS = int(fitz.PDF_PERM_PRINT | fitz.PDF_PERM_ACCESSIBILITY)
 
@@ -203,7 +203,7 @@ def test_a_save_that_rewrites_page_content_still_cleans_up_after_itself(tagged_p
     """A redaction rewrites a page and an R4 content mark appends a stream to one — there the
     output is our own construction, so it is sanitised (M114). This is the half of the decision the
     corpus does *not* speak to, and it is kept deliberately rather than dropped for symmetry."""
-    from model.page_edits import Redaction
+    from klarpdf.model.page_edits import Redaction
 
     v = VirtualDocument.from_path(tagged_pdf)
     assert PyMuPDFEngine().save_options(v)["clean"] is CLEAN_COPIED

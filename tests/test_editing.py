@@ -13,7 +13,7 @@ from app import PdfApp
 from main_window import MainWindow
 from store.settings import Settings
 from tests.conftest import A_TEXT, B_TEXT
-from util.paths import normalize_path
+from klarpdf.util.paths import normalize_path
 
 
 @pytest.fixture(scope="session")

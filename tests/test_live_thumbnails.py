@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 
 from app import PdfApp
-from model.page_edits import Highlight, Redaction, TextBox
+from klarpdf.model.page_edits import Highlight, Redaction, TextBox
 from store.settings import Settings
 
 
@@ -122,7 +122,7 @@ def test_thumbnail_width_stays_full_when_saved_rotated_page_is_rotated_back(qapp
     (else it renders narrower than its neighbours)."""
     import pymupdf as fitz
 
-    from model.virtual_document import VirtualDocument
+    from klarpdf.model.virtual_document import VirtualDocument
     from organize.thumbnail_panel import ThumbnailPanel
 
     path = str(tmp_path / "rot.pdf")

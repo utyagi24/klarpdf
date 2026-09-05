@@ -9,7 +9,7 @@ import pytest
 from PySide6.QtCore import Qt
 
 from app import PdfApp
-from model.virtual_document import VirtualDocument
+from klarpdf.model.virtual_document import VirtualDocument
 from organize.thumbnail_panel import ThumbnailPanel
 from viewer.pdf_view import PdfView
 

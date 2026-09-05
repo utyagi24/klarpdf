@@ -1,4 +1,4 @@
-# Runtime dependencies of the MCP / Agent Bridge (`mcp_bridge/`) — a SEPARATE, OPTIONAL component.
+# Runtime dependencies of the MCP / Agent Bridge (`klarpdf/mcp_bridge/`) — a SEPARATE, OPTIONAL component.
 # Compiled (NO hashes, cross-platform) to requirements-mcp.txt:
 #   pip-compile requirements-mcp.in -o requirements-mcp.txt
 #
@@ -9,7 +9,7 @@
 # only so CI can run tests/test_mcp_*.py. This file is what a *bridge user* installs.
 #
 # NO HASHES, AND THAT IS DELIBERATE — getting it wrong makes the bridge accidentally Windows-only.
-# The server is platform-independent even though the app is not: model/ has no platform-specific
+# The server is platform-independent even though the app is not: klarpdf/model/ has no platform-specific
 # code, PyMuPDF ships manylinux/macOS/Windows wheels, and mcp's only Windows dependency (pywin32) is
 # platform-marked. A `--generate-hashes` lock is per-platform by construction and `--require-hashes`
 # then fails on every other OS by design (CLAUDE.md §Gotchas), which would defeat the entire

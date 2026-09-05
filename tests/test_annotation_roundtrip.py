@@ -14,8 +14,8 @@ from __future__ import annotations
 import pymupdf as fitz
 import pytest
 
-from model.edit_engine import PyMuPDFEngine
-from model.page_edits import (
+from klarpdf.model.edit_engine import PyMuPDFEngine
+from klarpdf.model.page_edits import (
     KLARPDF_AUTHOR,
     Highlight,
     Redaction,
@@ -25,7 +25,7 @@ from model.page_edits import (
     read_klarpdf_annotations,
     strip_klarpdf_annotations,
 )
-from model.virtual_document import VirtualDocument
+from klarpdf.model.virtual_document import VirtualDocument
 
 
 @pytest.fixture

@@ -18,9 +18,9 @@ import pymupdf as fitz
 import pytest
 
 from app import PdfApp
-from model.virtual_document import VirtualDocument
+from klarpdf.model.virtual_document import VirtualDocument
 from organize.thumbnail_panel import ThumbnailPanel
-from util.reveal import is_settled
+from klarpdf.util.reveal import is_settled
 
 _BAR_W = 210
 _BAR_H = 700

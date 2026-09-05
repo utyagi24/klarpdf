@@ -17,7 +17,7 @@ from PySide6.QtWidgets import QApplication
 
 import platform_integration
 from store.settings import Settings
-from util.paths import normalize_path
+from klarpdf.util.paths import normalize_path
 
 _HANDOFF_TIMEOUT_MS = 400
 
@@ -154,7 +154,7 @@ class PdfApp(QApplication):
             return existing
 
         from main_window import MainWindow  # local import avoids a cycle at module load
-        from model.virtual_document import PasswordRequired
+        from klarpdf.model.virtual_document import PasswordRequired
 
         try:
             window = MainWindow(self, path, self.settings)

@@ -18,7 +18,7 @@ from typing import Iterable
 
 import pymupdf as fitz
 
-from util.paths import normalize_path
+from klarpdf.util.paths import normalize_path
 
 # A snapshot is the full mutable state captured for undo: the ordered list + dirty flag.
 # PageRefs are frozen, so a shallow tuple copy is a safe, cheap point-in-time snapshot.
@@ -249,7 +249,7 @@ class VirtualDocument:
     def _capture_origin_metadata(self, source_id: str) -> None:
         """Read the origin's two metadata stores (M53) so materialise can carry them through —
         ``insert_pdf`` copies neither the Info dict nor the XMP packet."""
-        from model.metadata import read_info
+        from klarpdf.model.metadata import read_info
 
         src = self.sources[source_id]
         self._origin_info = read_info(src)
@@ -260,7 +260,7 @@ class VirtualDocument:
         the KlarPDF annotations baked into it (M31 round-trip read-back) so saved highlights /
         text-boxes reopen as editable model descriptors. Used by ``from_path`` + ``reload_from_file``.
         """
-        from model.page_edits import read_klarpdf_annotations
+        from klarpdf.model.page_edits import read_klarpdf_annotations
 
         src = self.sources[source_id]
         refs: list[PageRef] = []
@@ -286,7 +286,7 @@ class VirtualDocument:
         """
         cached = self._source_has_ours.get(source_id)
         if cached is None:
-            from model.page_edits import page_has_klarpdf_annotations
+            from klarpdf.model.page_edits import page_has_klarpdf_annotations
 
             src = self.sources[source_id]
             cached = any(page_has_klarpdf_annotations(src[i]) for i in range(src.page_count))
@@ -452,7 +452,7 @@ class VirtualDocument:
         """
         from collections import Counter
 
-        from model.page_edits import is_additive_mark
+        from klarpdf.model.page_edits import is_additive_mark
 
         if not self.page_set_unchanged():
             return False
@@ -603,7 +603,7 @@ class VirtualDocument:
         return index_map
 
     def remapped_toc(self) -> list:
-        from model.toc_remap import remap_toc
+        from klarpdf.model.toc_remap import remap_toc
 
         return remap_toc(self._origin_toc, self.build_index_map())
 
@@ -1016,7 +1016,7 @@ class VirtualDocument:
 
     def has_redactions(self) -> bool:
         """True if any page carries a redaction (so a save must commit it irreversibly)."""
-        from model.page_edits import Redaction
+        from klarpdf.model.page_edits import Redaction
 
         return any(isinstance(a, Redaction) for ref in self.ordered for a in ref.annotations)
 
@@ -1029,7 +1029,7 @@ class VirtualDocument:
         confirm, write, then reload from the clean file so the model no longer holds a mark that is
         already in the page.
         """
-        from model.content_marks import is_content_mark
+        from klarpdf.model.content_marks import is_content_mark
 
         return any(is_content_mark(a) for ref in self.ordered for a in ref.annotations)
 

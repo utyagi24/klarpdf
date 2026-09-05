@@ -64,8 +64,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from model.content_marks import MARK_PRESETS, WHOLE_PAGE_DEFAULTS, Stamp
-from util.page_range import PageRangeError, parse_page_range
+from klarpdf.model.content_marks import MARK_PRESETS, WHOLE_PAGE_DEFAULTS, Stamp
+from klarpdf.util.page_range import PageRangeError, parse_page_range
 from viewer.markup_style import swatch_icon
 
 CUSTOM = "Custom…"

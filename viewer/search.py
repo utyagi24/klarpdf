@@ -34,7 +34,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from model.page_text import PageText
+from klarpdf.model.page_text import PageText
 
 _HIT = QColor(255, 235, 59, 90)        # all matches: translucent yellow
 _CURRENT = QColor(255, 138, 0, 150)    # current match: stronger orange

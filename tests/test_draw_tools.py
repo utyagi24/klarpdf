@@ -14,7 +14,7 @@ from PySide6.QtCore import Qt
 
 from app import PdfApp
 from main_window import MainWindow
-from model.page_edits import InkStroke, Line, Shape
+from klarpdf.model.page_edits import InkStroke, Line, Shape
 from store.settings import Settings
 from viewer.tools import ArmedTool
 

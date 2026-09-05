@@ -20,7 +20,7 @@ from PySide6.QtGui import QFontMetricsF
 from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsSimpleTextItem
 
 from app import PdfApp
-from model.page_edits import Highlight, TextBox
+from klarpdf.model.page_edits import Highlight, TextBox
 from store.settings import Settings
 from viewer.text_format_bar import qt_font
 

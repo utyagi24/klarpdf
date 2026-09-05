@@ -17,7 +17,7 @@ from PySide6.QtGui import QGuiApplication, QKeyEvent
 import main_window as mw
 from app import PdfApp
 from main_window import MainWindow
-from model.page_edits import InkStroke, Line, Shape, TextBox
+from klarpdf.model.page_edits import InkStroke, Line, Shape, TextBox
 from store.settings import Settings
 
 
@@ -230,7 +230,7 @@ def test_annotation_menu_offers_copy_cut_for_free_placed_marks(app, win):
 def test_highlight_menu_carries_no_object_verbs(app, win):
     """A text-anchored mark is not a free-placed object: no Copy/Cut/z-order here — its menu is
     the M76.1 swatch rows (text-markup vocabulary, not the object's)."""
-    from model.page_edits import Highlight
+    from klarpdf.model.page_edits import Highlight
     from viewer.markup_style import SwatchRowAction
 
     win.vdoc.add_annotation(0, Highlight(((100.0, 100.0, 200.0, 114.0),)))

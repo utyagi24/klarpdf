@@ -24,7 +24,7 @@ import pymupdf as fitz
 import pytest
 
 from app import PdfApp
-from model.page_text import PageText, boxes_touch, shares_line
+from klarpdf.model.page_text import PageText, boxes_touch, shares_line
 from store.settings import Settings
 from viewer import search as search_mod
 

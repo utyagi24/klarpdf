@@ -15,7 +15,7 @@ from PySide6.QtGui import QKeyEvent
 
 from app import PdfApp
 from main_window import MainWindow
-from model.page_edits import Line, Shape, TextBox
+from klarpdf.model.page_edits import Line, Shape, TextBox
 from store.settings import Settings
 
 

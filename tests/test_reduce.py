@@ -19,10 +19,10 @@ from PySide6.QtWidgets import QMessageBox
 import main_window as mw
 from app import PdfApp
 from main_window import MainWindow
-from model.edit_engine import GARBAGE_DEDUP, PyMuPDFEngine
-from model.export import export_flattened_pdf, export_reduced_pdf
-from model.page_edits import Redaction
-from model.virtual_document import VirtualDocument
+from klarpdf.model.edit_engine import GARBAGE_DEDUP, PyMuPDFEngine
+from klarpdf.model.export import export_flattened_pdf, export_reduced_pdf
+from klarpdf.model.page_edits import Redaction
+from klarpdf.model.virtual_document import VirtualDocument
 from store.settings import Settings
 from ui.reduce_dialog import PRESETS, ReduceSizeDialog, human_size, preset_label
 

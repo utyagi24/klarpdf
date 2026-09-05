@@ -34,12 +34,12 @@ from PySide6.QtWidgets import (
     QGraphicsView,
 )
 
-from model.virtual_document import VirtualDocument
-from model.form_fields import NewField
+from klarpdf.model.virtual_document import VirtualDocument
+from klarpdf.model.form_fields import NewField
 from viewer.pixmap_cache import pixmap_cache
 from viewer.resize_handles import cursor_for
 from viewer.tools import ArmedTool, InteractionMode
-from util.reveal import is_settled
+from klarpdf.util.reveal import is_settled
 
 _PAGE_GAP = 14          # px between pages in the strip
 _PREFETCH = 2           # pages to render above/below the viewport, at ordinary page sizes
@@ -1711,7 +1711,7 @@ class PdfView(QGraphicsView):
         delete a comment on one copy, and the two must render differently despite sharing a source
         page. Dropped with the rest on :meth:`reload`.
         """
-        from model.foreign_annots import ForeignDeletion, ForeignMove, apply_foreign_edits
+        from klarpdf.model.foreign_annots import ForeignDeletion, ForeignMove, apply_foreign_edits
 
         if not any(isinstance(a, (ForeignDeletion, ForeignMove)) for a in ref.annotations):
             return None
@@ -1743,7 +1743,7 @@ class PdfView(QGraphicsView):
         has_ours = self._vdoc.source_has_klarpdf_annotations(source_id)
         if not has_fills and not has_ours:
             return None
-        from model.page_edits import apply_form_values, strip_klarpdf_annotations
+        from klarpdf.model.page_edits import apply_form_values, strip_klarpdf_annotations
 
         doc = self._vdoc.fresh_source(source_id)  # fresh copy keeps widgets (graft quirk)
         if has_fills:

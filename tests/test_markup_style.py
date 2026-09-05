@@ -15,8 +15,8 @@ from PySide6.QtCore import Qt
 
 from app import PdfApp
 from main_window import MainWindow
-from model.edit_engine import PyMuPDFEngine
-from model.page_edits import (
+from klarpdf.model.edit_engine import PyMuPDFEngine
+from klarpdf.model.page_edits import (
     Highlight,
     InkStroke,
     Line,
@@ -24,7 +24,7 @@ from model.page_edits import (
     Strikeout,
     Underline,
 )
-from model.virtual_document import VirtualDocument
+from klarpdf.model.virtual_document import VirtualDocument
 from store.settings import Settings
 from viewer.markup_style import (
     ColorsButton,
@@ -291,7 +291,7 @@ def test_restyle_keeps_the_object_selected_for_the_next_tweak(win):
 def test_textbox_selection_is_left_to_its_format_bar(win):
     """A text box keeps its richer format bar — the markup picker doesn't restyle it, and doesn't
     even load into the button (so drawing style isn't hijacked by selecting a box)."""
-    from model.page_edits import TextBox
+    from klarpdf.model.page_edits import TextBox
 
     _add_and_select(win, TextBox((100.0, 100.0, 200.0, 140.0), "hi", color=(0.0, 0.0, 0.0)))
     at = win.undo_stack.index()

@@ -59,7 +59,7 @@ dependencies = [
 # there is deliberately no general-purpose CLI (PLAN.md §Dependencies & packaging — a second
 # permanent entry point for an audience that has not asked for one).
 [project.scripts]
-klarpdf-mcp = "mcp_bridge.server:main"
+klarpdf-mcp = "klarpdf.mcp_bridge.server:main"
 
 [build-system]
 requires = ["setuptools>=68"]
@@ -74,11 +74,10 @@ build-backend = "setuptools.build_meta"
 # keystone test pins), so it is inert — listed here so its presence is a known quantity rather than
 # a surprise.
 [tool.setuptools]
-packages = ["mcp_bridge", "model", "util"]
-py-modules = ["version"]
+packages = ["klarpdf", "klarpdf.mcp_bridge", "klarpdf.model", "klarpdf.util"]
 
 [tool.setuptools.dynamic]
-version = { attr = "version.__version__" }
+version = { attr = "klarpdf.version.__version__" }
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

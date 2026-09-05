@@ -13,8 +13,8 @@ import pytest
 from PySide6.QtPrintSupport import QPrinter
 from PySide6.QtWidgets import QApplication
 
-from model.edit_engine import PyMuPDFEngine
-from model.virtual_document import VirtualDocument
+from klarpdf.model.edit_engine import PyMuPDFEngine
+from klarpdf.model.virtual_document import VirtualDocument
 from viewer.printing import _page_image, render_to_printer, selected_pages
 
 
@@ -92,7 +92,7 @@ def test_print_honours_rotation_override(qapp, vdoc):
 def test_render_output_applies_edits(qapp, vdoc):
     """render_output bakes the page-edit layer in (delete + redaction + highlight), so print /
     preview / Save-as-PDF are WYSIWYG and a pending redaction prints as removed."""
-    from model.page_edits import Highlight, Redaction
+    from klarpdf.model.page_edits import Highlight, Redaction
 
     word = vdoc.sources[vdoc.ordered[0].source_id][0].get_text("words")[0]  # (x0,y0,x1,y1,text,..)
     vdoc.add_annotation(0, Redaction((tuple(word[:4]),)))  # destroy page 0's first word

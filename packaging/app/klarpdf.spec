@@ -24,7 +24,7 @@ ICON = str(ROOT / "packaging" / "app" / "klarpdf.ico")  # embedded in both exes 
 # binary with no version info is a mild antivirus heuristic. RELEASE.md always claimed version.py
 # "feeds the PyInstaller exe metadata"; this is what finally makes that true.
 sys.path.insert(0, str(ROOT))
-from version import __version__  # noqa: E402
+from klarpdf.version import __version__  # noqa: E402
 
 # The Win32 FIXEDFILEINFO struct wants exactly four integers; SemVer gives three.
 _parts = tuple(int(p) for p in __version__.split(".")) + (0,)

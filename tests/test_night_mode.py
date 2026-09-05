@@ -11,7 +11,7 @@ import pymupdf as fitz
 import pytest
 
 from app import PdfApp
-from model.edit_engine import PyMuPDFEngine
+from klarpdf.model.edit_engine import PyMuPDFEngine
 from store.settings import Settings
 
 

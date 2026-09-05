@@ -24,7 +24,7 @@ from __future__ import annotations
 import pymupdf as fitz
 import pytest
 
-from model.page_text import PageText
+from klarpdf.model.page_text import PageText
 
 # One line per boundary a whole-word match has to survive. The last is the control: an ordinary
 # space, which the geometric test always handled, so a failure there means something else broke.

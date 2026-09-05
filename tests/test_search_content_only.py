@@ -19,8 +19,8 @@ import pymupdf as fitz
 import pytest
 
 from app import PdfApp
-from model.edit_commands import AddAnnotationCommand, DeleteCommand
-from model.page_edits import Highlight
+from klarpdf.model.edit_commands import AddAnnotationCommand, DeleteCommand
+from klarpdf.model.page_edits import Highlight
 from store.settings import Settings
 
 

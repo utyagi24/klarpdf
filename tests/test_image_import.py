@@ -15,8 +15,8 @@ import pytest
 from PySide6.QtCore import QMimeData, QUrl
 
 from app import PdfApp
-from model.edit_engine import PyMuPDFEngine
-from model.virtual_document import IMAGE_EXTENSIONS, VirtualDocument
+from klarpdf.model.edit_engine import PyMuPDFEngine
+from klarpdf.model.virtual_document import IMAGE_EXTENSIONS, VirtualDocument
 from organize.thumbnail_panel import ThumbnailPanel
 from store.settings import Settings
 
@@ -63,14 +63,14 @@ def test_open_image_source_is_idempotent(a_pdf, tmp_path):
 
 
 def test_imported_image_page_survives_materialize(a_pdf, tmp_path):
-    from model.edit_commands import InsertCommand
+    from klarpdf.model.edit_commands import InsertCommand
     from PySide6.QtGui import QUndoStack
 
     img = _make_image(str(tmp_path / "pic.png"))
     v = VirtualDocument.from_path(a_pdf)
     base = v.page_count
     source_id = v.open_image_source(img)
-    from model.virtual_document import PageRef
+    from klarpdf.model.virtual_document import PageRef
 
     QUndoStack().push(InsertCommand(v, base, [PageRef(source_id, 0)], text="img"))
     assert v.page_count == base + 1

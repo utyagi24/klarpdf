@@ -22,8 +22,8 @@ import inspect
 
 import pytest
 
-from mcp_bridge.config import Config
-from mcp_bridge.server import create_server, server
+from klarpdf.mcp_bridge.config import Config
+from klarpdf.mcp_bridge.server import create_server, server
 
 CLIENT_CAP = 2048
 """Where the client actually cuts, verified in the Claude Code binary (`yfe = 2048`).
@@ -137,7 +137,7 @@ def read(uri: str, target=None) -> str:
 def test_every_documented_tool_publishes_a_static_resource():
     """Static, not only templated: `resources/list` shows static entries only, and that listing is
     how a caller finds out the documentation exists (ENV-001 probed for it and found nothing)."""
-    from mcp_bridge.docs import REFERENCE
+    from klarpdf.mcp_bridge.docs import REFERENCE
 
     listed = {str(r.uri) for r in asyncio.run(server.list_resources())}
     assert listed == {f"klarpdf://docs/{name}" for name in REFERENCE}
@@ -173,7 +173,7 @@ def test_the_resource_contains_the_live_description_verbatim():
     and there is no way to tell which is authoritative — so the shape is pinned here.
     """
     for tool in tools():
-        if tool.name not in __import__("mcp_bridge.docs", fromlist=["REFERENCE"]).REFERENCE:
+        if tool.name not in __import__("klarpdf.mcp_bridge.docs", fromlist=["REFERENCE"]).REFERENCE:
             continue
         assert tool.description in read(f"klarpdf://docs/{tool.name}")
 
@@ -183,7 +183,7 @@ def test_the_appendix_does_not_restate_the_description():
 
     Long shared sentences are the tell that someone duplicated rather than moved.
     """
-    from mcp_bridge.docs import REFERENCE
+    from klarpdf.mcp_bridge.docs import REFERENCE
 
     for tool in tools():
         appendix = REFERENCE.get(tool.name)
@@ -197,7 +197,7 @@ def test_the_appendix_does_not_restate_the_description():
 
 
 def test_the_assembled_contract_fits_the_resource_channel():
-    from mcp_bridge.docs import REFERENCE
+    from klarpdf.mcp_bridge.docs import REFERENCE
 
     for name in REFERENCE:
         size = len(read(f"klarpdf://docs/{name}"))
@@ -216,7 +216,7 @@ def test_the_docs_page_says_where_the_reader_is():
     Stripping the sentence instead would have been the obvious fix and the wrong one: it breaks the
     verbatim containment above, which is what makes drift between the two halves impossible.
     """
-    from mcp_bridge.docs import REFERENCE
+    from klarpdf.mcp_bridge.docs import REFERENCE
 
     for name in REFERENCE:
         body = read(f"klarpdf://docs/{name}")

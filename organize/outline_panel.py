@@ -14,7 +14,7 @@ from __future__ import annotations
 from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtWidgets import QTreeWidget, QTreeWidgetItem
 
-from model.virtual_document import VirtualDocument
+from klarpdf.model.virtual_document import VirtualDocument
 from organize.thumbnail_panel import _SIDEBAR_W  # one default width for both sidebar tabs
 
 _PAGE_ROLE = Qt.ItemDataRole.UserRole  # item data slot holding the 0-based target page index

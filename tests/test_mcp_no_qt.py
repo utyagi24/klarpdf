@@ -31,7 +31,7 @@ FORBIDDEN = ("PySide6", "shiboken6")
 
 # The GUI-only corner of model/: it imports QUndoCommand, and excluding it is what lets the rest of
 # model/ be shared (PLAN.md §Architecture).
-FORBIDDEN_MODEL = "model.edit_commands"
+FORBIDDEN_MODEL = "klarpdf.model.edit_commands"
 
 # The *other* library the bridge's lock leaves out (M115). `requirements-mcp.in` says "the bridge
 # never uses PyPdfEngine" — true, and until now nothing checked it. The import sits inside
@@ -74,7 +74,7 @@ _CHILD = textwrap.dedent(
     socket.socket.connect_ex = _refuse("connect_ex")
     socket.socket.bind = _refuse("bind")
 
-    from mcp_bridge.server import server
+    from klarpdf.mcp_bridge.server import server
 
     import os, tempfile
     WORK = tempfile.mkdtemp()
@@ -139,7 +139,7 @@ _CHILD = textwrap.dedent(
         name for name in sys.modules
         if name == "PySide6" or name.startswith("PySide6.")
         or name == "shiboken6" or name.startswith("shiboken6.")
-        or name == "model.edit_commands"
+        or name == "klarpdf.model.edit_commands"
         or name == "pypdf" or name.startswith("pypdf.")
     )
     print(json.dumps({"leaked": leaked, "modules": len(sys.modules)}))
@@ -169,7 +169,7 @@ def test_no_qt_reaches_the_server_path(child_result):
 
 
 def test_the_qt_bound_corner_of_model_stays_excluded(child_result):
-    """``model/edit_commands.py`` imports ``QUndoCommand``. The server calls ``VirtualDocument``
+    """``klarpdf/model/edit_commands.py`` imports ``QUndoCommand``. The server calls ``VirtualDocument``
     operations directly to avoid it — this is what proves the avoidance is real."""
     assert FORBIDDEN_MODEL not in child_result["leaked"]
 
@@ -227,7 +227,7 @@ def test_the_exerciser_covers_every_registered_tool():
     import asyncio
     import re
 
-    from mcp_bridge.server import server as live_server
+    from klarpdf.mcp_bridge.server import server as live_server
 
     exercised = set(re.findall(r'call_tool\(\s*"(\w+)"', _CHILD))
     registered = {tool.name for tool in asyncio.run(live_server.list_tools())}

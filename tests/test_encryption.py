@@ -15,9 +15,9 @@ from PySide6.QtGui import QUndoStack
 
 from app import PdfApp
 from main_window import MainWindow
-from model.edit_commands import SetEncryptionCommand
-from model.edit_engine import PyMuPDFEngine, PyPdfEngine
-from model.virtual_document import VirtualDocument
+from klarpdf.model.edit_commands import SetEncryptionCommand
+from klarpdf.model.edit_engine import PyMuPDFEngine, PyPdfEngine
+from klarpdf.model.virtual_document import VirtualDocument
 from store.settings import Settings
 from tests.conftest import A_TEXT
 from ui.encrypt_dialog import PasswordDialog

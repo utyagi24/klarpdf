@@ -14,7 +14,7 @@ from __future__ import annotations
 import pytest
 
 from app import PdfApp
-from model.page_edits import Highlight, Strikeout, Underline, marks_over, remove_markup
+from klarpdf.model.page_edits import Highlight, Strikeout, Underline, marks_over, remove_markup
 from store.settings import Settings
 from viewer.markup_style import HIGHLIGHT_COLORS, TEXT_LINE_COLORS, SwatchRowAction
 

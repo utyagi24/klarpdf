@@ -29,7 +29,7 @@ from PySide6.QtGui import QGuiApplication, QKeyEvent
 from PySide6.QtTest import QTest
 
 from app import PdfApp
-from model.virtual_document import VirtualDocument
+from klarpdf.model.virtual_document import VirtualDocument
 from store.settings import Settings
 from viewer.pdf_view import PdfView, _PREFETCH
 from viewer.text_selection import TextSelection
@@ -278,7 +278,7 @@ def test_the_preview_and_the_committed_mark_are_the_same_bars(qapp, tmp_path):
     preview = win.view.selection.line_bars()[0]
     win._highlight_selection()
     qapp.processEvents()
-    from model.page_edits import Highlight
+    from klarpdf.model.page_edits import Highlight
 
     mark = next(a for a in win.vdoc.page_annotations(0) if isinstance(a, Highlight))
     assert sorted(mark.rects) == sorted(preview)

@@ -35,12 +35,12 @@ import pathlib
 import pymupdf as fitz
 import pytest
 
-from model import content_marks, foreign_annots, form_fields, page_edits
-from model.content_marks import ImageStamp, Stamp
-from model.edit_engine import GARBAGE_APPEND, PyMuPDFEngine, append_options
-from model.foreign_annots import ForeignDeletion, ForeignMove
-from model.form_fields import NewField
-from model.page_edits import (
+from klarpdf.model import content_marks, foreign_annots, form_fields, page_edits
+from klarpdf.model.content_marks import ImageStamp, Stamp
+from klarpdf.model.edit_engine import GARBAGE_APPEND, PyMuPDFEngine, append_options
+from klarpdf.model.foreign_annots import ForeignDeletion, ForeignMove
+from klarpdf.model.form_fields import NewField
+from klarpdf.model.page_edits import (
     ADDITIVE_MARK_TYPES,
     Highlight,
     InkStroke,
@@ -54,7 +54,7 @@ from model.page_edits import (
     merge_markup,
     reorder_marks,
 )
-from model.virtual_document import VirtualDocument
+from klarpdf.model.virtual_document import VirtualDocument
 
 _MARK = Highlight(((72, 60, 200, 80),), (1.0, 0.86, 0.10))
 _ELSEWHERE = Highlight(((72, 100, 200, 120),), (0.4, 0.8, 1.0))

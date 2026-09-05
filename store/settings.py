@@ -20,7 +20,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QStandardPaths
 
-from util.paths import normalize_path
+from klarpdf.util.paths import normalize_path
 
 _STATE_FILENAME = "view_state.json"
 _APP_DIR_NAME = "klarpdf"

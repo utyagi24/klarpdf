@@ -16,7 +16,7 @@ import pytest
 
 from app import PdfApp
 from main_window import MainWindow
-from model.page_edits import InkStroke, Line, Shape, TextBox, scale_mark
+from klarpdf.model.page_edits import InkStroke, Line, Shape, TextBox, scale_mark
 from store.settings import Settings
 from viewer.resize_handles import MIN_SIZE, resized_rect
 
@@ -84,7 +84,7 @@ def test_scale_mark_repositions_a_text_box_without_stretching_it():
 
 
 def test_scale_mark_returns_none_for_an_unresizable_mark():
-    from model.page_edits import Highlight
+    from klarpdf.model.page_edits import Highlight
 
     assert scale_mark(Highlight(((0.0, 0.0, 10.0, 10.0),)), 2.0, 2.0, 0.0, 0.0) is None
 

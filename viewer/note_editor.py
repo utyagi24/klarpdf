@@ -132,7 +132,7 @@ class NoteEditor:
     def key_for(page_index: int, mark) -> tuple:
         """The toggle key for a mark — see :attr:`_just_closed` for why it is this and not the
         object. Built here so the close side and the click side cannot derive it differently."""
-        from model.page_edits import mark_bounds
+        from klarpdf.model.page_edits import mark_bounds
 
         return (page_index, tuple(mark_bounds(mark)), type(mark).__name__)
 
