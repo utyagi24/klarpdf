@@ -2326,6 +2326,64 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
   **38 s** on a branch touching `mcp_bridge/` and `model/`, **4 s** reporting without doing the work
   on the docs-only branch stacked above it. Design in `PLAN.md` §M115.1 — *WSL + CI*
 
+**Scoped 2026-09-04** — a four-milestone sequence changing how the bridge is shipped, from the
+owner's question *"I am thinking of changing how we ship our MCP and how the end user can install/
+configure it easily."* Listed in **execution order** rather than newest-first, because each depends
+on the one above it. Every decision, every rejection and every measurement behind them is in
+`PLAN.md` §M133–M136 — **not restated here**. The headline: the install goes from nine commands to
+`python install.py`, or to `uvx --from klarpdf klarpdf-mcp` for anyone who already has `uv`.
+
+- [ ] **M133** *(unplanned)* **`packaging/` says which product each file builds** — `packaging/`
+  currently holds six app files loose at the top level (`build.ps1`, `klarpdf.spec`,
+  `installer.iss`, `make_icon.py`, two `.ico`s) and one MCP subfolder (`mcpb/`). The split is
+  already real, just unlabelled — and it was about to get worse, because the natural home for the
+  new installer generator was `packaging/installer/`, sitting beside `packaging/installer.iss` and
+  meaning the other thing. Becomes `packaging/app/` + `packaging/mcp/{mcpb,pypi,installer}/`.
+  **Pure moves, no behaviour change**: ~90 references across 25 files, ~65 of them prose in
+  `PLAN.md`/`RELEASE.md`/`PROGRESS.md`, and every runtime-code mention of `packaging/` is a comment
+  or docstring rather than a filesystem path, so no app code breaks. Its own PR precisely because it
+  is mechanical — easy to review, easy to revert. Design in `PLAN.md` §M133–M136 — *WSL*
+
+- [ ] **M134** *(unplanned)* **The wheel installs one top-level name, not four** — a
+  `pip install` of the bridge as configured today would put `mcp_bridge/`, `model/`, `util/` and a
+  module called plain `version` at the top of site-packages. `mcp_bridge` is distinctive; the other
+  three are not, and two distributions owning a top-level `util/` means whichever installs last wins
+  and uninstalling one damages the other. Everything moves under `klarpdf/`. **393 import sites, of
+  which 274 are in `tests/`** (`model` 314, `mcp_bridge` 50, `util` 24, `version` 5) — mechanical,
+  import lines only, verified by the suite. The GUI-only packages stay out of scope until an app
+  package exists (`viewer` 125, `store` 92, `ui` 69, `organize` 18). **Not a one-way door**, and the
+  entry says why: the package has no importable API, so the layout stays changeable later — the
+  reason to do it *now* is the harm window that opens the moment it is on PyPI. Design in `PLAN.md`
+  §M133–M136 — *WSL*
+
+- [ ] **M135** *(unplanned)* **One distribution on PyPI, pinned like the application it is** —
+  publish `klarpdf`, with the GUI behind a `[gui]` extra if an app package ever happens. One
+  distribution rather than two because **two cannot both own `klarpdf/`**: the app needs
+  `klarpdf/model/` and so does the bridge, so `pip uninstall` of either would delete files the other
+  is using — and one distribution makes app/bridge lockstep structural instead of a habit. Metadata
+  pins **all 29 dependencies exactly**, generated from `requirements-mcp.txt`, because this is an
+  application and not a library: installed into an isolated environment there is nothing to
+  co-install with, and it puts every install path on the set `pip-audit` already scans. **One wheel
+  serves every platform** — measured `py3-none-any`, 214 KB; we compile nothing, and the C and Rust
+  dependencies ship their own per-platform wheels. Publishing hangs off `release: published`, so it
+  fires when `invoke publish` flips the draft public — *after* the manual smoke test, and
+  `release.yml` does not change. Trusted Publishing (OIDC), so no API token is ever stored. Design
+  in `PLAN.md` §M133–M136 — *WSL + CI*
+
+- [ ] **M136** *(unplanned)* **`install.py` — needs nothing but a Python** — a single generated file:
+  download it, run it, and a client is talking to the bridge. No clone, no `uv`, no `pipx`, no
+  global `pip`. It creates its own venv with stdlib `venv` (`ensurepip` bootstraps pip offline),
+  installs `klarpdf==<baked version>` from PyPI so **pip owns TLS, proxies and retries** rather than
+  the installer, validates over real stdio by reusing `tools/mcp_stdio_check.py`, then prints the
+  absolute path and the client configuration — the step that actually fails today, per the README's
+  own troubleshooting. Also writes an `uninstall.py` beside the venv, offers an opt-in `--client`
+  that calls the client's own `mcp add`, and touches no PATH. **Measured before designing it**: the
+  flow works (venv 3.7 s, install 14.3 s warm, 121 MB); `pip --constraint` refuses our lock over
+  `pyjwt[crypto]`, so `-r` it is; **`PIP_TARGET` installs outside the venv silently at exit 0**,
+  which is why the startup check is mandatory rather than nice-to-have; and a space in the install
+  path is safe because `venv` writes a `/bin/sh` exec-trick shebang. Design in `PLAN.md` §M133–M136
+  — *WSL + CI*
+
 - [x] **M132** *(unplanned)* **The bridge installs on the Python people have** — 2026-08-31, raised
   by the owner: *"for the MCP bridge the python requirement is suffocatingly narrow… we cannot expect
   users to have one specific version of python."* `requires-python` was **`>=3.12,<3.13`** — a window
@@ -3776,6 +3834,21 @@ released build or in the code on `main` that is unambiguous and readily reproduc
 the PR that fixes it. See `CLAUDE.md` §How we work for the split and why. Items already carried here
 were not migrated wholesale: each is listed because a decision is outstanding, which is what keeps
 it on this side of the line.
+
+- **Nothing we ship has ever been tested on macOS** — noticed 2026-09-04 while scoping M133–M136.
+  There is **no macOS runner anywhere in `.github/workflows/`**: the bridge's coverage is `bridge`
+  (Ubuntu 3.12), `bridge-windows`, and `bridge-pyver` (3.11/3.13/3.14 on Ubuntu). Yet
+  `mcp_bridge/README.md` says the bridge "runs on macOS, Linux and Windows", the `.mcpb` manifest
+  declares `darwin` in `compatibility.platforms`, and **M136's `install.py` will print a macOS
+  install path** (`~/Library/Application Support/klarpdf-mcp`) with macOS-specific behaviour behind
+  it — the `/bin/sh` exec-trick shebang that a space in that path forces, measured on Linux and
+  merely *assumed* to behave the same on Darwin. **The decision is whether to buy the runner or
+  narrow the claim**, and it is genuinely two-sided: a `macos-latest` leg is one more job on every
+  PR for a platform nobody has reported a bug on, while an installer that names a path we have never
+  executed is a claim about someone else's machine made without evidence — which is the exact thing
+  `PLAN.md` §M133–M136's closing paragraph says not to do. A cheap middle exists: one macOS leg on
+  the *installer's* integration test only, not the whole suite, so the claim is backed where it is
+  actually made. Not decided. `.github/workflows/test.yml`.
 
 - **The tool count is hand-maintained in four places and nothing checks it** — noticed 2026-08-31
   while rewriting `mcp_bridge/README.md`. "Nineteen tools" appears twice in that file, once in the
