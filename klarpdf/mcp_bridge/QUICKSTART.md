@@ -4,48 +4,46 @@ Use this quick setup guide for configuring KlarPDF MCP in your Claude Code, Code
 environments. For setting up Claude Desktop, and for a more detailed explanation of the interface
 the MCP server offers, refer to the [full guide](README.md).
 
-Needs Python 3.11–3.14, and git — unless you prefer to download the source archive from the
-[releases page](https://github.com/utyagi24/klarpdf/releases) instead of cloning.
+Needs Python 3.11–3.14 and [`pipx`](https://pipx.pypa.io) (or [`uv`](https://docs.astral.sh/uv/)).
 
 ## 1. Install
 
 ```bash
-git clone https://github.com/utyagi24/klarpdf.git
-cd klarpdf
-git checkout v<version>               # a release tag; `git tag` lists them
-python3 -m venv .venv                 # Windows: py -3 -m venv .venv
-source .venv/bin/activate             # Windows: .venv\Scripts\activate
-pip install -r requirements-mcp.txt
-pip install -e .
+pipx install klarpdf
 ```
+
+With `uv` instead: `uv tool install klarpdf`. Either way the bridge lands in an environment of its
+own, at the exact 29 dependency versions we test and scan.
 
 ## 2. Note the path
 
 ```bash
 which klarpdf-mcp        # Windows: where klarpdf-mcp
-# -> /path/to/klarpdf/.venv/bin/klarpdf-mcp
+# -> ~/.local/bin/klarpdf-mcp
 ```
 
-Use that full path in step 3. The bare `klarpdf-mcp` works only while the virtualenv is active, and your MCP client will not activate it.
+Use that full path in step 3. `pipx` does put `klarpdf-mcp` on your PATH, so the bare name often
+works — but a client launched from an icon inherits a different PATH than your terminal, and when
+that bites, the only symptom is a server that fails to start. The absolute path always works.
 
 ## 3. Add it to your client
 
 **Claude Code**
 
 ```bash
-claude mcp add klarpdf -- /path/to/klarpdf/.venv/bin/klarpdf-mcp
+claude mcp add klarpdf -- ~/.local/bin/klarpdf-mcp
 ```
 
 **Codex CLI**
 
 ```bash
-codex mcp add klarpdf -- /path/to/klarpdf/.venv/bin/klarpdf-mcp
+codex mcp add klarpdf -- ~/.local/bin/klarpdf-mcp
 ```
 
 **Gemini CLI**
 
 ```bash
-gemini mcp add klarpdf /path/to/klarpdf/.venv/bin/klarpdf-mcp
+gemini mcp add klarpdf ~/.local/bin/klarpdf-mcp
 ```
 
 Using Claude Desktop instead? It installs from a downloadable bundle rather than a command — see
@@ -58,7 +56,7 @@ In Claude Code, `/mcp` should list **klarpdf — 19 tools**.
 If the server shows as failed, run the path from step 2 by hand in a terminal:
 
 - `command not found` — the path is wrong, or you moved the clone.
-- `No module named mcp` — the first `pip` line in step 1 did not run.
+- `No module named mcp` — the install did not complete; re-run step 1 and read its output.
 
 ## What you can ask for
 
