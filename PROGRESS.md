@@ -2450,19 +2450,55 @@ on the one above it. Every decision, every rejection and every measurement behin
   failing loudly — the one property that made this move verifiable. Design in `PLAN.md` §M133–M136
   — *WSL*
 
-- [ ] **M135** *(unplanned)* **One distribution on PyPI, pinned like the application it is** —
-  publish `klarpdf`, with the GUI behind a `[gui]` extra if an app package ever happens. One
-  distribution rather than two because **two cannot both own `klarpdf/`**: the app needs
-  `klarpdf/model/` and so does the bridge, so `pip uninstall` of either would delete files the other
-  is using — and one distribution makes app/bridge lockstep structural instead of a habit. Metadata
-  pins **all 29 dependencies exactly**, generated from `requirements-mcp.txt`, because this is an
-  application and not a library: installed into an isolated environment there is nothing to
-  co-install with, and it puts every install path on the set `pip-audit` already scans. **One wheel
-  serves every platform** — measured `py3-none-any`, 214 KB; we compile nothing, and the C and Rust
-  dependencies ship their own per-platform wheels. Publishing hangs off `release: published`, so it
-  fires when `invoke publish` flips the draft public — *after* the manual smoke test, and
-  `release.yml` does not change. Trusted Publishing (OIDC), so no API token is ever stored. Design
-  in `PLAN.md` §M133–M136 — *WSL + CI*
+- [x] **M135** *(unplanned)* **One distribution on PyPI, pinned like the application it is** —
+  2026-09-05. The bridge's whole install story was a clone: nine commands, and the one that fails is
+  the path. `klarpdf` now builds a publishable distribution — **one `py3-none-any` wheel for every
+  OS, architecture and Python**, because we compile nothing and the C and Rust dependencies ship
+  their own per-platform wheels.
+
+  **The metadata was eight lines** and none of what PyPI shows was in it: no readme (the project
+  page would have rendered blank), no licence expression, no classifiers, no project URLs, no
+  author. Worse, `Summary` was *the app's* — "Local, offline, native-Windows PDF viewer + page
+  editor" — describing software this distribution does not contain, and it is the first line a
+  visitor reads. Now: the bridge README as the long description, `AGPL-3.0-or-later` with both
+  licence files travelling alongside, ten classifiers, five project URLs, and a summary about the
+  bridge. One relative link in that README (`](QUICKSTART.md)`) became absolute, because a readme
+  rendered on PyPI has no repository around it; the three in-page anchors are fine.
+
+  **`dependencies` moved from floors to all 29 exact pins, generated.** They become `Requires-Dist`,
+  which is what `pip`, `pipx`, `uvx` and M136's `install.py` all resolve against — floors would hand
+  a `uvx` install and a lock install two different dependency sets from one package, the drift
+  already recorded against `pipx install .`. "Floors, never pins" is a **library's** convention; this
+  is an application, installed by `uvx`/`pipx` into an environment of its own where nothing can
+  conflict. The audited set is now what every route installs, so `pip-audit`'s existing scan of
+  `requirements-mcp.txt` covers users too. `packaging/mcp/pypi/sync_pins.py` writes the block
+  between sentinels and **reads the lock through `build_mcpb.py`'s own `read_pins()`** rather than a
+  second parser, so the bundle and the wheel cannot disagree about what the lock says.
+
+  **The trade, accepted knowingly:** `pip install klarpdf` into a shared environment now conflicts
+  loudly. That is correct for an application and is why the docs will name `uvx`/`pipx`. A two-package
+  residue stays unpinned — `requirements-mcp.txt` is deliberately marker-free, so it structurally
+  cannot name `colorama` or `pywin32`; the same gap the `.mcpb` carries.
+
+  **Publishing hangs off `release: published`, not the tag push** — so the manual smoke test that
+  already gates the GitHub Release gates PyPI too, and `release.yml` needed no change. Trusted
+  Publishing (OIDC), so **no API token exists anywhere**; the workflow filename and the `pypi`
+  environment are both matched by PyPI, which is why renaming either breaks the upload with nothing
+  failing beforehand. Two guards run *before* the upload because a publish cannot be undone — a
+  version number is unusable on PyPI forever, even after deletion: the pins must still match the
+  lock, and the built version must equal the release tag. `twine check` covers the readme rendering.
+  A `workflow_dispatch` leg publishes to **TestPyPI** for a rehearsal.
+
+  **Also:** `MANIFEST.in` stops the sdist carrying the test suite — 129 files, 659 KB against the
+  wheel's 245 KB; now 250 KB. `tests/test_pypi_metadata.py` asserts over **built** metadata rather
+  than a TOML read, for the reason M42 established when a right-looking `pyproject.toml` produced
+  zero `Requires-Dist` and a `klarpdf-mcp` that died on `import mcp`. The staleness guard was
+  verified by deleting a pin and watching `--check` name it.
+
+  **Not done here, deliberately:** the install docs still describe the clone path, because until the
+  first release actually publishes there is nothing on PyPI to install. `RELEASE.md` §3 step 7
+  carries that as a first-publish item rather than leaving it to memory. Design in `PLAN.md`
+  §M133–M136 — *WSL + CI*
 
 - [ ] **M136** *(unplanned)* **`install.py` — needs nothing but a Python** — a single generated file:
   download it, run it, and a client is talking to the bridge. No clone, no `uv`, no `pipx`, no

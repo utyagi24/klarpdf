@@ -317,6 +317,23 @@ When it finally returns `true`, delete this block — its whole subject is gone 
    gh release edit v0.9.4 --draft=false
    ```
 
+7. **Watch the PyPI upload** (M135). Flipping the draft fires `publish-pypi.yml` on the
+   `release: published` event — that is the point of hanging it there rather than on the tag push,
+   so the smoke test in step 5 gates PyPI too. It builds the sdist and wheel, checks the pinned
+   dependencies still match `requirements-mcp.txt`, checks the built version equals the tag, and
+   uploads with Trusted Publishing (no token anywhere). Confirm the release appears at
+   <https://pypi.org/project/klarpdf/>.
+
+   > **A publish cannot be taken back.** A version number is unusable on PyPI forever once
+   > uploaded, even after the file is deleted — unlike a GitHub Release, which can be edited or
+   > removed. If the job fails, fix and re-tag as `X.Y.Z+1`; do not attempt to re-upload.
+
+   > **First publish only:** the install docs still describe the clone-and-`pip` path, because
+   > until this step runs there is nothing on PyPI to install. Once the package is live, add the
+   > PyPI route to `klarpdf/mcp_bridge/README.md` §Install and `QUICKSTART.md` step 1 —
+   > `uvx --from klarpdf klarpdf-mcp` for anyone who has `uv`, `pipx install klarpdf` otherwise.
+   > Documenting it earlier would have promised a package that did not exist.
+
 ### Local build (optional)
 `pwsh packaging/app/build.ps1` re-fetches wheels then builds; add `-Offline` to build strictly from the
 existing `vendor/wheels` (proves the fully-offline path — populate it once online first). Requires

@@ -22,7 +22,7 @@ text rather than meaning, `extract_text` returns what is on the page rather than
 clause means, which name matters, or what ought to be removed is the model's job — this server's job
 is to hand it accurate material and then do exactly what it is told.
 
-**Just want it running?** [Quick setup](QUICKSTART.md) gets Claude Code, Codex CLI or Gemini CLI
+**Just want it running?** [Quick setup](https://github.com/utyagi24/klarpdf/blob/main/klarpdf/mcp_bridge/QUICKSTART.md) gets Claude Code, Codex CLI or Gemini CLI
 talking to it in six commands. This page is the full reference.
 
 ## What you need

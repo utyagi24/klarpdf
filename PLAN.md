@@ -6092,7 +6092,7 @@ version and never spells the bound the other two use.
 |---|---|---|---|
 | **M133** `packaging/` bifurcates into `app/` and `mcp/` | `packaging/{app,mcp}/`, 108 textual references + 17 computed paths | WSL (+ Windows build) | `build_mcpb.py --validate` and the suite pass. **Not** "pure moves" — see below. `invoke build` on Windows is the only check of the PowerShell/Inno/spec root computations |
 | **M134** One top-level name: everything moves under `klarpdf/` | `klarpdf/` holding `mcp_bridge`, `model`, `util`, `version.py`; 390 imports, 14 config/string sites, 3 CI path filters, 232 doc references | WSL | Suite green; a built wheel installs exactly one top-level name, and the console script runs from a real install of it |
-| **M135** Publish one distribution to PyPI | `pyproject.toml`, `packaging/mcp/pypi/`, `.github/workflows/publish-pypi.yml` | WSL + CI | `uvx --from klarpdf klarpdf-mcp` starts the server from a machine with no clone; built metadata carries all 29 pins |
+| **M135** Publish one distribution to PyPI | `pyproject.toml` metadata + generated pins, `packaging/mcp/pypi/sync_pins.py`, `.github/workflows/publish-pypi.yml`, `MANIFEST.in`, `tests/test_pypi_metadata.py` | WSL + CI | Built metadata carries all 29 pins, five project URLs, the AGPL expression and a renderable readme; the publish fires on `release: published`, after the existing smoke test |
 | **M136** `install.py` — a bootstrap needing nothing but a supported Python | `packaging/mcp/installer/`, `tests/`, `.github/workflows/test.yml` | WSL + CI | Download, run, and a client is talking to the bridge; no clone, no `uv`, no `pipx`, no global `pip` |
 
 **What is wrong today.** The bridge's install story is nine commands — clone, check out a tag, make
