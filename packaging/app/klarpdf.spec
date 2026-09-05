@@ -19,7 +19,7 @@ ROOT = Path(SPECPATH).resolve().parent.parent  # spec lives in packaging/app/; R
 ICON = str(ROOT / "packaging" / "app" / "klarpdf.ico")  # embedded in both exes (M10)
 
 # --- Windows version resource ---------------------------------------------------------------
-# Read the single source of the version rather than restating it (version.py). Until now the exes
+# Read the single source of the version rather than restating it (klarpdf/version.py). Until now the exes
 # carried *no* version resource at all — Explorer's Properties -> Details was blank, and an unsigned
 # binary with no version info is a mild antivirus heuristic. RELEASE.md always claimed version.py
 # "feeds the PyInstaller exe metadata"; this is what finally makes that true.
