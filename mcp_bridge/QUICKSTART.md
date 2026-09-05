@@ -4,7 +4,8 @@ Use this quick setup guide for configuring KlarPDF MCP in your Claude Code, Code
 environments. For setting up Claude Desktop, and for a more detailed explanation of the interface
 the MCP server offers, refer to the [full guide](README.md).
 
-Needs Python 3.11–3.14.
+Needs Python 3.11–3.14, and git — unless you prefer to download the source archive from the
+[releases page](https://github.com/utyagi24/klarpdf/releases) instead of cloning.
 
 ## 1. Install
 
@@ -25,8 +26,7 @@ which klarpdf-mcp        # Windows: where klarpdf-mcp
 # -> /path/to/klarpdf/.venv/bin/klarpdf-mcp
 ```
 
-Use that full path in step 3. The bare `klarpdf-mcp` works only while the virtualenv is active, and
-your client will not activate it.
+Use that full path in step 3. The bare `klarpdf-mcp` works only while the virtualenv is active, and your MCP client will not activate it.
 
 ## 3. Add it to your client
 
