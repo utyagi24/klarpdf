@@ -92,17 +92,41 @@ def audit(c):
 
 @task(help={"package": "re-pin only this package, e.g. pypdf==6.13.3 (optional)"})
 def lock(c, package=None):
-    """Recompile the requirement locks from the *.in files (Windows - win_amd64 hashes)."""
+    """Recompile the two hashed win_amd64 locks from the *.in files (Windows).
+
+    The dev lock is deliberately NOT here - it is cross-platform and must be compiled off Windows.
+    See `lock_dev`, and M137 for what a Windows compile of it does to Linux CI.
+    """
     _windows_only("lock")
     up = f" --upgrade-package {package}" if package else ""
     c.run(f'"{PIP_COMPILE}" --generate-hashes{up} -o requirements-win.txt requirements.in', echo=True)
-    c.run(f'"{PIP_COMPILE}"{up} -o requirements-dev.txt requirements-dev.in', echo=True)
     c.run(
         f'"{PIP_COMPILE}" --generate-hashes --allow-unsafe{up} '
         "-o requirements-build-win.txt requirements-build.in",
         echo=True,
     )
-    print("Locks recompiled - next: `invoke vendor` to refresh wheels + the sources record.")
+    print("Ship/build locks recompiled - next: `invoke vendor` to refresh wheels + the sources record.")
+    print("A runtime bump also moves requirements-dev.txt: run `invoke lock-dev` in WSL, not here.")
+
+
+@task(help={"package": "re-pin only this package, e.g. pypdf==6.13.3 (optional)"})
+def lock_dev(c, package=None):
+    """Recompile the cross-platform dev lock (Linux/WSL - NOT Windows).
+
+    Two flags' worth of hard-won detail, both of which a Windows run gets wrong (M137):
+    `--allow-unsafe` keeps the `setuptools` pin that tests/test_mcp_packaging.py needs, and
+    compiling off Windows keeps `pywin32` out - pip-tools bakes in whichever markers are true on
+    the compiling interpreter, and pywin32 has no Linux wheel at all, so a Windows-compiled dev
+    lock cannot be installed by Linux CI or the WSL dev venv.
+    """
+    if IS_WIN:
+        sys.exit(
+            "`invoke lock-dev` must NOT run on Windows: it would bake in `pywin32` (mcp's\n"
+            "win32-marked dep, no Linux wheel), breaking `pip install -r requirements-dev.txt`\n"
+            "in Linux CI and the WSL dev venv. Run it in WSL. See RELEASE.md section 1."
+        )
+    up = f" --upgrade-package {package}" if package else ""
+    c.run(f'"{PIP_COMPILE}" --allow-unsafe{up} -o requirements-dev.txt requirements-dev.in', echo=True)
 
 
 @task
