@@ -14,7 +14,7 @@ from PySide6.QtCore import Qt
 
 from app import PdfApp
 from main_window import MainWindow
-from model.page_edits import InkStroke, Line, Shape
+from klarpdf.model.page_edits import InkStroke, Line, Shape
 from store.settings import Settings
 from viewer.tools import InteractionMode
 
@@ -168,7 +168,7 @@ def test_group_move_keeps_the_group_selected(win):
 def test_restyle_skips_a_text_box_in_a_mixed_group(win):
     """A marquee can grab a text box too, but the stroke picker only restyles the drawn marks —
     the text box (its own format bar) rides along for move/delete, untouched by colour."""
-    from model.page_edits import TextBox
+    from klarpdf.model.page_edits import TextBox
 
     win.vdoc.add_annotation(0, Shape("rect", (100.0, 100.0, 160.0, 140.0)))
     win.vdoc.add_annotation(0, TextBox((200.0, 100.0, 300.0, 140.0), "note", color=(0.0, 0.0, 0.0)))

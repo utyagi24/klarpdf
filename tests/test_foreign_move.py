@@ -18,14 +18,14 @@ import pytest
 
 from app import PdfApp
 from main_window import MainWindow
-from model.edit_engine import PyMuPDFEngine
-from model.foreign_annots import (
+from klarpdf.model.edit_engine import PyMuPDFEngine
+from klarpdf.model.foreign_annots import (
     ForeignDeletion,
     ForeignMove,
     apply_foreign_edits,
     read_foreign_annotations,
 )
-from model.virtual_document import VirtualDocument
+from klarpdf.model.virtual_document import VirtualDocument
 from store.settings import Settings
 
 DX, DY = 40.0, 25.0
@@ -384,7 +384,7 @@ def test_the_render_shows_the_moved_position(win):
 def test_an_editable_mark_wins_a_shared_spot(win):
     """Our own marks are tried first, so placing a text box over a foreign square still lets you
     drag the text box."""
-    from model.page_edits import TextBox
+    from klarpdf.model.page_edits import TextBox
 
     win.vdoc.add_annotation(0, TextBox((110, 110, 190, 150), "mine"))
     win.view.reload()

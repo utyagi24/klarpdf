@@ -16,11 +16,11 @@ import pytest
 
 from app import PdfApp
 from main_window import MainWindow
-from model.edit_engine import PyMuPDFEngine
-from model.export import export_flattened_pdf
-from model.form_fields import FIELD_KINDS, NewField, apply_new_fields, kind_label
-from model.page_edits import read_form_fields
-from model.virtual_document import VirtualDocument
+from klarpdf.model.edit_engine import PyMuPDFEngine
+from klarpdf.model.export import export_flattened_pdf
+from klarpdf.model.form_fields import FIELD_KINDS, NewField, apply_new_fields, kind_label
+from klarpdf.model.page_edits import read_form_fields
+from klarpdf.model.virtual_document import VirtualDocument
 from store.settings import Settings
 from viewer.tools import ArmedTool
 
@@ -157,7 +157,7 @@ def test_new_fields_are_hashable_for_undo_snapshots():
 
 def test_a_new_field_moves_and_scales_with_the_object_primitives():
     """It is a free-placed rect, so M59's move/resize work on it — the same reuse M62 relies on."""
-    from model.page_edits import mark_bounds, scale_mark, translate_mark
+    from klarpdf.model.page_edits import mark_bounds, scale_mark, translate_mark
 
     field = NewField(RECT, "x", "text")
     assert mark_bounds(translate_mark(field, 10, 5)) == (110.0, 305.0, 310.0, 335.0)
@@ -404,7 +404,7 @@ def test_radio_groups_are_not_offered():
 
 
 def _field_win(win, rect=(100, 300, 300, 330)):
-    from model.form_fields import NewField
+    from klarpdf.model.form_fields import NewField
 
     field = NewField(kind="text", name="who", rect=rect)
     win.vdoc.add_annotation(0, field)
@@ -417,7 +417,7 @@ def _at(win, x, y):
 
 
 def _fields(win):
-    from model.form_fields import NewField
+    from klarpdf.model.form_fields import NewField
 
     return [a for a in win.vdoc.page_annotations(0) if isinstance(a, NewField)]
 
@@ -471,8 +471,8 @@ def test_clicking_a_created_field_in_select_mode_grabs_it(win, qapp):
     from PySide6.QtCore import QEvent, QPointF, Qt as _Qt
     from PySide6.QtGui import QMouseEvent
 
-    from model.edit_commands import AddAnnotationCommand
-    from model.form_fields import NewField
+    from klarpdf.model.edit_commands import AddAnnotationCommand
+    from klarpdf.model.form_fields import NewField
     from viewer.tools import InteractionMode
 
     win.undo_stack.push(AddAnnotationCommand(
@@ -516,7 +516,7 @@ def _draw_field(win, start=(100, 300), end=(300, 330)):
     artifact that made this look unreproducible the first time."""
     from PySide6.QtCore import QEvent
 
-    from model.form_fields import NewField
+    from klarpdf.model.form_fields import NewField
     from viewer.tools import ArmedTool
 
     win.view.annotations.pending_field = NewField(kind="text", name="who", rect=(0, 0, 1, 1))
@@ -527,7 +527,7 @@ def _draw_field(win, start=(100, 300), end=(300, 330)):
 
 
 def test_a_freshly_placed_field_is_selected(win, qapp):
-    from model.form_fields import NewField
+    from klarpdf.model.form_fields import NewField
 
     _draw_field(win)
     qapp.processEvents()
@@ -540,7 +540,7 @@ def test_a_freshly_placed_field_can_be_dragged_straight_away(win, qapp):
     """The point of selecting it: no mode switch, no marquee — just drag it."""
     from PySide6.QtCore import QEvent
 
-    from model.form_fields import NewField
+    from klarpdf.model.form_fields import NewField
 
     _draw_field(win)
     qapp.processEvents()

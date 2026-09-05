@@ -32,8 +32,8 @@ import pytest
 from app import PdfApp
 from main_window import MainWindow
 from store.settings import Settings
-from util import atomic
-from util.atomic import atomic_replace
+from klarpdf.util import atomic
+from klarpdf.util.atomic import atomic_replace
 
 # Captured before `_no_real_sleeping` runs. That fixture patches `sleep` on the `time` **module**,
 # which every importer shares — so a double that wants a genuine pause has to hold its own reference.

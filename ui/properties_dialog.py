@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
     QPushButton,
 )
 
-from model.metadata import EDITABLE_KEYS
+from klarpdf.model.metadata import EDITABLE_KEYS
 
 _FIELD_LABELS = {
     "title": "Title",

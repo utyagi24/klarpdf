@@ -23,8 +23,8 @@ import os
 
 import pytest
 
-from mcp_bridge.server import create_server, server
-from mcp_bridge.strict_args import rejection_message, suggestions, unknown_parameters
+from klarpdf.mcp_bridge.server import create_server, server
+from klarpdf.mcp_bridge.strict_args import rejection_message, suggestions, unknown_parameters
 
 # Borrowed rather than restated: the tool roster has exactly one owner, and a second copy of it
 # here would drift the moment a tool is added.
@@ -217,7 +217,7 @@ def test_the_guard_runs_above_argument_validation():
 def test_a_tool_the_config_withheld_still_reports_as_an_unknown_tool():
     """Under `--read-only` the write tools are never registered. A call to one must keep saying so
     rather than being answered with an argument list it does not have."""
-    from mcp_bridge.config import Config
+    from klarpdf.mcp_bridge.config import Config
 
     read_only = create_server(Config(read_only=True))
     result = call("redact_text", {"nope": 1}, target=read_only)

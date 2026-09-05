@@ -23,7 +23,7 @@ from PySide6.QtTest import QTest
 
 import viewer.pdf_view
 from app import PdfApp
-from model.virtual_document import VirtualDocument
+from klarpdf.model.virtual_document import VirtualDocument
 from viewer.pdf_view import _WHEEL_NOTCH, _ZOOM_COALESCE_MS, _ZOOM_STEP, PdfView
 
 

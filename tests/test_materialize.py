@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import pymupdf as fitz
 
-from model.edit_engine import PyMuPDFEngine, PyPdfEngine
-from model.virtual_document import PageRef, VirtualDocument
+from klarpdf.model.edit_engine import PyMuPDFEngine, PyPdfEngine
+from klarpdf.model.virtual_document import PageRef, VirtualDocument
 from tests.conftest import A_TEXT, B_TEXT
 
 

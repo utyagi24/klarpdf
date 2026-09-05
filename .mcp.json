@@ -13,7 +13,7 @@
     "launches its servers from ITS working directory, which is essentially never the repo. The",
     "console script has no such dependency on where it is started.",
     "",
-    "See mcp_bridge/README.md for installing without a clone, and for the Claude Desktop equivalents."
+    "See klarpdf/mcp_bridge/README.md for installing without a clone, and for the Claude Desktop equivalents."
   ],
   "mcpServers": {
     "klarpdf": {

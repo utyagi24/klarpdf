@@ -54,7 +54,7 @@ from PySide6.QtWidgets import (
 
 # Re-exported under their old names, so every existing importer is unaffected. The swatches
 # themselves moved to `model/markup_palette.py` at M101 — see the note at their former site below.
-from model.markup_palette import HIGHLIGHT_COLORS, TEXT_LINE_COLORS
+from klarpdf.model.markup_palette import HIGHLIGHT_COLORS, TEXT_LINE_COLORS
 
 # Stroke presets — the redline red default first, then a small spread that reads on white paper.
 _STROKE_PRESETS = (
@@ -122,7 +122,7 @@ class MarkupStyle:
         """The style of a selected drawn mark — loaded into the picker so a follow-up tweak edits
         *that* mark's colour/width/fill/ends/dash (M59.5, the twin of ``TextBoxStyle.from_textbox``).
         Returns ``None`` for a text box (its own format bar owns its style) or a non-drawn mark."""
-        from model.page_edits import InkStroke, Line, Shape
+        from klarpdf.model.page_edits import InkStroke, Line, Shape
 
         if isinstance(mark, Shape):
             return cls(mark.color, mark.width, mark.fill_color, mark.opacity, dashed=mark.dashed)

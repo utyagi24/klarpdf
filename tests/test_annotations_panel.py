@@ -16,8 +16,8 @@ import pytest
 from PySide6.QtWidgets import QTabWidget
 
 from app import PdfApp
-from model.content_marks import ImageStamp
-from model.page_edits import Highlight, Line, Shape, Strikeout, TextBox, Underline
+from klarpdf.model.content_marks import ImageStamp
+from klarpdf.model.page_edits import Highlight, Line, Shape, Strikeout, TextBox, Underline
 from store.settings import Settings
 
 

@@ -13,9 +13,9 @@ import pytest
 
 from app import PdfApp
 from main_window import MainWindow
-from model.edit_engine import PyMuPDFEngine
-from model.export import export_flattened_pdf
-from model.page_edits import (
+from klarpdf.model.edit_engine import PyMuPDFEngine
+from klarpdf.model.export import export_flattened_pdf
+from klarpdf.model.page_edits import (
     KLARPDF_AUTHOR,
     Highlight,
     Strikeout,
@@ -24,7 +24,7 @@ from model.page_edits import (
     read_klarpdf_annotations,
     strip_klarpdf_annotations,
 )
-from model.virtual_document import VirtualDocument
+from klarpdf.model.virtual_document import VirtualDocument
 from store.settings import Settings
 from viewer.markup_style import HIGHLIGHT_COLORS, TEXT_LINE_COLORS
 from viewer.tools import ArmedTool

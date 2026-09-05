@@ -14,7 +14,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 
-from util.paths import normalize_path
+from klarpdf.util.paths import normalize_path
 
 # Return-size caps. A mis-call should degrade legibly, not blow out the caller's context: an agent
 # that runs `extract_text` on an 800-page report has made a routing mistake, and the useful response

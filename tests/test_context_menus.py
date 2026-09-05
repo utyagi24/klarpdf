@@ -15,7 +15,7 @@ import pytest
 from PySide6.QtGui import QGuiApplication
 
 from app import PdfApp
-from model.page_edits import Highlight
+from klarpdf.model.page_edits import Highlight
 from store.settings import Settings
 from viewer.tools import ArmedTool
 
@@ -185,7 +185,7 @@ def test_toolbar_highlight_applies_to_a_live_selection(app, menu_pdf):
 
 
 def test_toolbar_redact_text_applies_to_a_live_selection(app, menu_pdf):
-    from model.page_edits import Redaction
+    from klarpdf.model.page_edits import Redaction
 
     win = _win(app, menu_pdf)
     win.view.selection.select_word_at(_word_center(win))

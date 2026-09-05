@@ -19,10 +19,10 @@ import pymupdf as fitz
 import pytest
 from PySide6.QtGui import QUndoStack
 
-from model.edit_commands import AddAnnotationCommand, RemoveAnnotationCommand
-from model.edit_engine import PyMuPDFEngine
-from model.page_edits import Highlight, Redaction
-from model.virtual_document import VirtualDocument
+from klarpdf.model.edit_commands import AddAnnotationCommand, RemoveAnnotationCommand
+from klarpdf.model.edit_engine import PyMuPDFEngine
+from klarpdf.model.page_edits import Highlight, Redaction
+from klarpdf.model.virtual_document import VirtualDocument
 
 # Distinct, single-token strings so a word box is exact and a leak is unambiguous.
 SECRET = "SECRETDATA"

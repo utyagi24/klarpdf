@@ -13,9 +13,9 @@ import pymupdf as fitz
 import pytest
 
 from app import PdfApp
-from model.edit_engine import PyMuPDFEngine
-from model.page_edits import Line, restyle_mark
-from model.virtual_document import VirtualDocument
+from klarpdf.model.edit_engine import PyMuPDFEngine
+from klarpdf.model.page_edits import Line, restyle_mark
+from klarpdf.model.virtual_document import VirtualDocument
 from store.settings import Settings
 from viewer.markup_style import LineStylingButton, MarkupStyle
 

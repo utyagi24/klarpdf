@@ -23,9 +23,9 @@ from __future__ import annotations
 import pymupdf as fitz
 import pytest
 
-from model.edit_engine import PyMuPDFEngine
-from model.page_edits import Redaction
-from model.virtual_document import VirtualDocument
+from klarpdf.model.edit_engine import PyMuPDFEngine
+from klarpdf.model.page_edits import Redaction
+from klarpdf.model.virtual_document import VirtualDocument
 
 _IMAGE_RECT = fitz.Rect(72, 72, 372, 272)
 

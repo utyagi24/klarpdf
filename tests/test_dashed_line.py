@@ -13,9 +13,9 @@ import pymupdf as fitz
 import pytest
 
 from app import PdfApp
-from model.edit_engine import PyMuPDFEngine
-from model.page_edits import InkStroke, Line, Shape, restyle_mark
-from model.virtual_document import VirtualDocument
+from klarpdf.model.edit_engine import PyMuPDFEngine
+from klarpdf.model.page_edits import InkStroke, Line, Shape, restyle_mark
+from klarpdf.model.virtual_document import VirtualDocument
 from store.settings import Settings
 from viewer.markup_style import LineStylingButton, MarkupStyle
 from viewer.tools import ArmedTool
@@ -101,7 +101,7 @@ def test_dash_border_lands_in_the_saved_file(tmp_path, a_pdf):
 
 
 def test_dash_pattern_scales_with_width():
-    from model.page_edits import _dash_array
+    from klarpdf.model.page_edits import _dash_array
 
     thin, thick = _dash_array(1.0), _dash_array(4.0)
     assert thick[0] > thin[0] and thick[1] > thin[1]   # a thick line dashes more boldly

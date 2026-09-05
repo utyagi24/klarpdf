@@ -9,8 +9,8 @@ The bundle is a **release artifact, not a committed file** — the same treatmen
 installer. What *is* committed is this script, `manifest.json`, and the generated
 `pyproject.toml` beside it, so the inputs are reviewable and the output is reproducible.
 
-**What goes in.** `server/` holds the bridge and the GUI-free core it stands on — `mcp_bridge/`,
-`model/`, `util/`, `version.py` — plus a `pyproject.toml` naming its dependencies and the `uv.lock`
+**What goes in.** `server/` holds the bridge and the GUI-free core it stands on — one `klarpdf/`
+package carrying `mcp_bridge/`, `model/`, `util/` and `version.py` (M134) — plus a `pyproject.toml` naming its dependencies and the `uv.lock`
 that pins and hashes them. Nothing else: no PySide6, no `viewer/`, no tests. It is the same package
 boundary `pyproject.toml`'s `[tool.setuptools] packages` draws, for the same reason.
 
@@ -54,14 +54,14 @@ GENERATED_PYPROJECT = HERE / "pyproject.toml"
 UV_LOCK = HERE / "uv.lock"
 
 # The bridge plus the Qt-free core it imports. Mirrors pyproject.toml's [tool.setuptools] packages.
-PAYLOAD_PACKAGES = ("mcp_bridge", "model", "util")
-PAYLOAD_MODULES = ("version.py",)
+PAYLOAD_PACKAGES = ("klarpdf",)
+PAYLOAD_MODULES = ()  # version.py lives inside klarpdf/ since M134
 
 # model/edit_commands.py imports QUndoCommand. Nothing on the server path touches it (that is what
 # tests/test_mcp_no_qt.py pins), but shipping it inside a bundle that deliberately has no PySide6
 # would put an unimportable file in a user's install for no reason. Dropped here rather than left
 # to be discovered.
-EXCLUDE_FILES = {"model/edit_commands.py"}
+EXCLUDE_FILES = {"klarpdf/model/edit_commands.py"}
 
 _PIN = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*(?:\[[^\]]+\])?)==([^\s;#]+)")
 
@@ -78,10 +78,10 @@ MCPB_CLI_VERSION = "2.1.2"
 
 
 def read_version() -> str:
-    text = (ROOT / "version.py").read_text(encoding="utf-8")
+    text = (ROOT / "klarpdf" / "version.py").read_text(encoding="utf-8")
     match = re.search(r'__version__\s*=\s*"([^"]+)"', text)
     if not match:
-        raise SystemExit("could not read __version__ from version.py")
+        raise SystemExit("could not read __version__ from klarpdf/version.py")
     return match.group(1)
 
 
@@ -131,15 +131,14 @@ dependencies = [
 ]
 
 [project.scripts]
-klarpdf-mcp = "mcp_bridge.server:main"
+klarpdf-mcp = "klarpdf.mcp_bridge.server:main"
 
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["mcp_bridge", "model", "util"]
-py-modules = ["version"]
+packages = ["klarpdf", "klarpdf.mcp_bridge", "klarpdf.model", "klarpdf.util"]
 '''
 
 
@@ -151,7 +150,7 @@ def stage(target: Path, version: str, pins: list[str]) -> Path:
     server.mkdir(parents=True)
 
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
-    manifest["version"] = version  # single source of truth stays version.py
+    manifest["version"] = version  # single source of truth stays klarpdf/version.py
     (target / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
     for package in PAYLOAD_PACKAGES:

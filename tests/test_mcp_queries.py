@@ -15,8 +15,8 @@ from __future__ import annotations
 import pymupdf as fitz
 import pytest
 
-from mcp_bridge import queries
-from model.virtual_document import PasswordRequired
+from klarpdf.mcp_bridge import queries
+from klarpdf.model.virtual_document import PasswordRequired
 from tests.conftest import A_TEXT
 
 
@@ -568,7 +568,7 @@ def test_a_search_hit_clips_to_the_same_text_at_every_rotation(landscape_pdf, tm
     render came back **blank** with no error at all (TC-008 Finding 3). Ink is the assertion because
     a wrong region still returns a perfectly valid PNG.
     """
-    from mcp_bridge import transforms
+    from klarpdf.mcp_bridge import transforms
 
     path = landscape_pdf
     if degrees:
@@ -588,7 +588,7 @@ def test_the_clip_echo_stays_in_the_callers_coordinates(landscape_pdf, tmp_path)
     """`resolve_clip` hands the rasteriser a *displayed*-space rect, which on a rotated page is a
     different quadruple from the one passed in. Echoing that would tell the caller their clip had
     been altered."""
-    from mcp_bridge import transforms
+    from klarpdf.mcp_bridge import transforms
 
     rotated = str(tmp_path / "rot90.pdf")
     transforms.rotate(landscape_pdf, 90, rotated)
@@ -602,7 +602,7 @@ def test_a_box_past_the_displayed_width_is_not_refused_on_a_rotated_page(landsca
     """The second half of Finding 3, and the more embarrassing one: one server, one page, one call
     apart — `search` returned a box out to x≈776 and `clip` rejected it as off-page, because the
     turned page reports a width of 612."""
-    from mcp_bridge import transforms
+    from klarpdf.mcp_bridge import transforms
 
     rotated = str(tmp_path / "rot90.pdf")
     transforms.rotate(landscape_pdf, 90, rotated)
@@ -616,7 +616,7 @@ def test_a_box_past_the_displayed_width_is_not_refused_on_a_rotated_page(landsca
 def test_a_genuinely_off_page_clip_is_still_refused_when_rotated(landscape_pdf, tmp_path):
     """Widening the accepted space must not disable the check — the unrotated page is 792x612, so
     y=700 is off it however the page is turned."""
-    from mcp_bridge import transforms
+    from klarpdf.mcp_bridge import transforms
 
     rotated = str(tmp_path / "rot90.pdf")
     transforms.rotate(landscape_pdf, 90, rotated)
@@ -627,7 +627,7 @@ def test_a_genuinely_off_page_clip_is_still_refused_when_rotated(landscape_pdf, 
 def test_the_refusal_says_the_page_is_rotated(landscape_pdf, tmp_path):
     """A caller told their box is outside `[0, 0, 792, 612]` while looking at a page the viewer
     shows as 612x792 needs to know which of the two they are being measured against."""
-    from mcp_bridge import transforms
+    from klarpdf.mcp_bridge import transforms
 
     rotated = str(tmp_path / "rot90.pdf")
     transforms.rotate(landscape_pdf, 90, rotated)
@@ -694,8 +694,8 @@ def test_the_search_cap_note_does_not_advise_a_flag_that_is_already_set(tmp_path
 
     import pymupdf
 
-    from mcp_bridge.config import Config
-    from mcp_bridge.server import create_server
+    from klarpdf.mcp_bridge.config import Config
+    from klarpdf.mcp_bridge.server import create_server
 
     path = str(tmp_path / "many.pdf")
     doc = pymupdf.open()

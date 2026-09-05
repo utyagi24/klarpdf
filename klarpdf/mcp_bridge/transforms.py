@@ -33,11 +33,11 @@ from __future__ import annotations
 import os
 import tempfile
 
-from model.edit_engine import PyMuPDFEngine
-from model.virtual_document import PageRef, VirtualDocument
-from mcp_bridge.queries import open_document, resolve_pages
-from util.atomic import atomic_replace
-from util.paths import normalize_path
+from klarpdf.model.edit_engine import PyMuPDFEngine
+from klarpdf.model.virtual_document import PageRef, VirtualDocument
+from klarpdf.mcp_bridge.queries import open_document, resolve_pages
+from klarpdf.util.atomic import atomic_replace
+from klarpdf.util.paths import normalize_path
 
 # Rotation is stored as a multiple of 90 (PDF /Rotate); anything else is a caller mistake.
 _QUARTER_TURN = 90
@@ -204,7 +204,7 @@ def split(
     bookmarks whose targets landed in that part. A split is a page-set change, so the parts do not
     inherit the document-level structure of the original — see this module's docstring.
     """
-    from util.page_range import parse_page_range
+    from klarpdf.util.page_range import parse_page_range
 
     if not os.path.isdir(out_dir):
         raise ValueError(f"the output directory {out_dir!r} does not exist")
@@ -270,7 +270,7 @@ def extract_pages(
     carried, rotation/crop applied, and the origin bookmarks **and internal links remapped to the
     extracted page numbers** rather than left dangling.
     """
-    from model.export import export_selected_pages
+    from klarpdf.model.export import export_selected_pages
 
     target = _resolve_out(out, sources=[path], overwrite=overwrite)
     with open_document(path, password) as vdoc:
@@ -346,7 +346,7 @@ def fill_form(
     An **XFA** input is filled on its AcroForm side only and says so — see :func:`_describe_xfa`.
     """
     target = _resolve_out(out, sources=[path], overwrite=overwrite)
-    from model.page_edits import read_form_fields
+    from klarpdf.model.page_edits import read_form_fields
 
     with open_document(path, password) as vdoc:
         fields = read_form_fields(vdoc)
@@ -431,7 +431,7 @@ def _describe_xfa(vdoc: VirtualDocument) -> dict:
     plain AcroForm is the conventional fix but removes the only thing that renders a *dynamic*
     form. Both remain open (`PROGRESS.md` §Open follow-ups); neither is silently guessed at here.
     """
-    from model.page_edits import describe_xfa
+    from klarpdf.model.page_edits import describe_xfa
 
     origin = vdoc.origin_source_id
     xfa = describe_xfa(vdoc.sources[origin]) if origin in vdoc.sources else None
@@ -464,7 +464,7 @@ def flatten(
     "final copy" operation — a filled form nobody can change back, a marked-up review nobody can
     peel the markup off.
     """
-    from model.export import export_flattened_pdf
+    from klarpdf.model.export import export_flattened_pdf
 
     target = _resolve_out(out, sources=[path], overwrite=overwrite)
     with open_document(path, password) as vdoc:
@@ -513,7 +513,7 @@ def export_images(
         raise ValueError(f"dpi must be positive, got {dpi}")
     if not os.path.isdir(out_dir):
         raise ValueError(f"the output directory {out_dir!r} does not exist")
-    from model.export import export_page_images
+    from klarpdf.model.export import export_page_images
 
     stem = _safe_stem(name) if name is not None else os.path.splitext(os.path.basename(path))[0]
     base = os.path.join(os.path.abspath(out_dir), f"{stem}.{fmt.lower()}")

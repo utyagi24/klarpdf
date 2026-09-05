@@ -23,8 +23,8 @@ from contextlib import contextmanager
 
 import pymupdf as fitz
 
-from model.page_text import PageText
-from model.virtual_document import PasswordRequired, VirtualDocument
+from klarpdf.model.page_text import PageText
+from klarpdf.model.virtual_document import PasswordRequired, VirtualDocument
 
 # How many pages `document_info` samples before reporting `has_text_layer: false`. A text document
 # answers on page 1; the scan of an 800-page scanned file is what this bound exists to stop.
@@ -319,8 +319,8 @@ def render_page(
     page: a caller sizing anything from them would otherwise be told the dimensions of an image it
     did not receive.
     """
-    from model.edit_engine import PyMuPDFEngine
-    from model.export import resolve_clip
+    from klarpdf.model.edit_engine import PyMuPDFEngine
+    from klarpdf.model.export import resolve_clip
 
     if dpi <= 0:
         raise ValueError(f"dpi must be positive, got {dpi}")
@@ -366,7 +366,7 @@ def form_fields(path: str, password: str | None = None) -> list[dict]:
       plumbing fields (``P2_PAReadOnly_FLD`` and friends) that were indistinguishable from the
       fields a person is meant to fill.
     """
-    from model.page_edits import read_form_fields
+    from klarpdf.model.page_edits import read_form_fields
 
     with open_document(path, password) as vdoc:
         return [

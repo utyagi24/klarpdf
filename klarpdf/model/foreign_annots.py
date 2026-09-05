@@ -36,7 +36,7 @@ from dataclasses import dataclass
 
 import pymupdf as fitz
 
-from model.page_edits import KLARPDF_AUTHOR
+from klarpdf.model.page_edits import KLARPDF_AUTHOR
 
 # Rect rounding for the fallback fingerprint. Coordinates survive a copy but not bit-exactly (they
 # go out and back through PDF's decimal floats), so the hash must agree to within a hair. A tenth of
@@ -329,7 +329,7 @@ def degradations(annot: "fitz.Annot") -> list[str]:
         if 0.0 <= opacity < 1.0:
             lost.append("its transparency")
     if kind == fitz.PDF_ANNOT_FREE_TEXT:
-        from model.page_edits import _parse_freetext_da
+        from klarpdf.model.page_edits import _parse_freetext_da
 
         da = doc.xref_get_key(annot.xref, "DA")
         raw = da[1] if da[0] == "string" else ""
@@ -353,7 +353,7 @@ def adopt_annotation(annot: "fitz.Annot"):
     """
     if not is_adoptable(annot):
         return None
-    from model.page_edits import parse_annotation
+    from klarpdf.model.page_edits import parse_annotation
 
     return parse_annotation(annot)
 

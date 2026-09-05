@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pymupdf as fitz
 
-from model.virtual_document import VirtualDocument
+from klarpdf.model.virtual_document import VirtualDocument
 
 
 #: Object cleanup for the route that **copies the origin** — an unchanged page set (M110).
@@ -491,7 +491,7 @@ class PyMuPDFEngine(EditEngine):
             # packet it turns a 901 B incremental append into 4,249 B, which is what makes it worth
             # skipping now rather than when incremental writing arrives.
             if vdoc.metadata_override is not None:
-                from model.metadata import apply_metadata
+                from klarpdf.model.metadata import apply_metadata
 
                 apply_metadata(out, vdoc)
         except Exception:
@@ -533,9 +533,9 @@ class PyMuPDFEngine(EditEngine):
         # of our marks and one somebody else's: the strip-and-redraw moves the foreign one from
         # last to *first*, under everything of ours, on a save that was only supposed to add a
         # highlight. Left in place, it stays where its author put it.
-        from model.content_marks import apply_content_marks
-        from model.foreign_annots import apply_foreign_edits
-        from model.page_edits import (
+        from klarpdf.model.content_marks import apply_content_marks
+        from klarpdf.model.foreign_annots import apply_foreign_edits
+        from klarpdf.model.page_edits import (
             apply_annotations,
             apply_redactions,
             strip_klarpdf_annotations,
@@ -567,7 +567,7 @@ class PyMuPDFEngine(EditEngine):
 
         # Create any new AcroForm fields (M69) **before** the fill pass, so a value typed into a
         # field created in this same session lands on it like any other fill.
-        from model.form_fields import apply_new_fields
+        from klarpdf.model.form_fields import apply_new_fields
 
         for i, ref in enumerate(vdoc.ordered):
             if ref.annotations:
@@ -575,7 +575,7 @@ class PyMuPDFEngine(EditEngine):
 
         # Apply AcroForm fills onto the widgets (M14). Done on the output, so the shared read-only
         # sources are never touched.
-        from model.page_edits import apply_form_values
+        from klarpdf.model.page_edits import apply_form_values
 
         apply_form_values(out, vdoc.form_values)
 
@@ -612,7 +612,7 @@ class PyMuPDFEngine(EditEngine):
             # Rebuild internal GoTo links + the outline against the new page order (M33 / M1):
             # insert_pdf drops cross-run internal links and never copies the outline, so both are
             # remapped here — surviving targets repointed to their new index, deleted ones dropped.
-            from model.links_remap import remap_internal_links
+            from klarpdf.model.links_remap import remap_internal_links
 
             remap_internal_links(out, vdoc)
             out.set_toc(vdoc.remapped_toc())
@@ -620,7 +620,7 @@ class PyMuPDFEngine(EditEngine):
             # Document metadata (M53): carry the origin's Info dict + XMP packet through (or the
             # user's edit / removal) — insert_pdf copies neither store, so without this every
             # save silently stripped them.
-            from model.metadata import apply_metadata
+            from klarpdf.model.metadata import apply_metadata
 
             apply_metadata(out, vdoc)
         except Exception:

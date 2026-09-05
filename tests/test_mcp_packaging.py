@@ -62,7 +62,7 @@ def manifest() -> dict:
 
 @pytest.fixture(scope="module")
 def tool_names() -> set[str]:
-    from mcp_bridge.server import server
+    from klarpdf.mcp_bridge.server import server
 
     return {tool.name for tool in asyncio.run(server.list_tools())}
 
@@ -131,9 +131,9 @@ def test_the_local_audit_twin_covers_the_same_locks():
 
 def test_the_console_script_points_at_something_that_exists():
     text = PROJECT_PYPROJECT.read_text(encoding="utf-8")
-    assert 'klarpdf-mcp = "mcp_bridge.server:main"' in text
+    assert 'klarpdf-mcp = "klarpdf.mcp_bridge.server:main"' in text
 
-    from mcp_bridge.server import main
+    from klarpdf.mcp_bridge.server import main
 
     assert callable(main)
 
@@ -308,7 +308,7 @@ def test_nothing_tells_a_user_to_run_the_module_form():
     assert config["mcpServers"]["klarpdf"]["command"] == "klarpdf-mcp"
     assert "args" not in config["mcpServers"]["klarpdf"]
 
-    for doc in (ROOT / "mcp_bridge" / "README.md", ROOT / "README.md"):
+    for doc in (ROOT / "klarpdf" / "mcp_bridge" / "README.md", ROOT / "README.md"):
         for line in doc.read_text(encoding="utf-8").splitlines():
             stripped = line.strip()
             if "python -m mcp_bridge" not in stripped:
@@ -356,7 +356,7 @@ def test_the_manifest_lists_every_tool_the_server_registers(manifest, tool_names
 
 
 def test_the_manifest_version_tracks_the_app_version(manifest):
-    from version import __version__
+    from klarpdf.version import __version__
 
     assert manifest["version"] == __version__
 
@@ -389,7 +389,7 @@ def test_the_bundle_never_ships_a_vendored_environment(build_mcpb):
     assert "lib" not in build_mcpb.PAYLOAD_PACKAGES
     assert "venv" not in build_mcpb.PAYLOAD_PACKAGES
     # the one Qt-importing file in model/
-    assert "model/edit_commands.py" in build_mcpb.EXCLUDE_FILES
+    assert "klarpdf/model/edit_commands.py" in build_mcpb.EXCLUDE_FILES
 
 
 def _lock_versions(text: str) -> dict[str, str]:
@@ -548,7 +548,7 @@ def test_the_checked_in_mcp_json_names_a_real_entry_point():
     command = config["mcpServers"]["klarpdf"]["command"]
     assert f"{command} =" in PROJECT_PYPROJECT.read_text(encoding="utf-8")
 
-    from mcp_bridge.server import main
+    from klarpdf.mcp_bridge.server import main
 
     assert callable(main)
 

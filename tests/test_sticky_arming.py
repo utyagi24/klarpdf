@@ -13,7 +13,7 @@ from PySide6.QtCore import QEvent, QPointF, Qt
 from PySide6.QtGui import QKeyEvent, QMouseEvent
 
 from app import PdfApp
-from model.page_edits import Highlight, InkStroke, Line, Redaction, Strikeout, Underline
+from klarpdf.model.page_edits import Highlight, InkStroke, Line, Redaction, Strikeout, Underline
 from store.settings import Settings
 from viewer.tools import ArmedTool
 

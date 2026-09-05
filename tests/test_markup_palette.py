@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import pytest
 
-from model.markup_palette import (
+from klarpdf.model.markup_palette import (
     HIGHLIGHT_COLORS,
     NAME_MARGIN,
     NAME_MAX_DISTANCE,

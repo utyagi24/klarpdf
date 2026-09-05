@@ -12,7 +12,7 @@ from PySide6.QtCore import QPoint, QPointF, Qt
 from PySide6.QtGui import QWheelEvent
 
 from app import PdfApp
-from model.virtual_document import VirtualDocument
+from klarpdf.model.virtual_document import VirtualDocument
 from viewer.pdf_view import _MAX_ZOOM, _MIN_ZOOM, _WHEEL_NOTCH, _ZOOM_STEP, PdfView
 from viewer.zoom_widget import ZoomWidget
 

@@ -16,7 +16,7 @@ from PySide6.QtWidgets import QGraphicsPathItem
 
 from app import PdfApp
 from main_window import MainWindow
-from model.page_edits import Line
+from klarpdf.model.page_edits import Line
 from store.settings import Settings
 from viewer.annotations import _arrowheads_path, _line_shaft_path
 from viewer.tools import ArmedTool

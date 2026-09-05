@@ -17,8 +17,8 @@ import pytest
 
 from app import PdfApp
 from store.settings import Settings
-from util.resources import LICENSE_FILES, read_text_resource, resource_path, resource_root
-from version import __version__
+from klarpdf.util.resources import LICENSE_FILES, read_text_resource, resource_path, resource_root
+from klarpdf.version import __version__
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = ROOT / "packaging" / "app" / "klarpdf.spec"
@@ -42,7 +42,7 @@ def app(qapp, tmp_path):
 
 
 def test_resource_root_is_repo_root_from_source():
-    """Running from a checkout, resources resolve next to LICENSE — not inside util/."""
+    """Running from a checkout, resources resolve next to LICENSE — not inside klarpdf/util/."""
     assert resource_root() == ROOT
     assert resource_path("LICENSE") == ROOT / "LICENSE"
 

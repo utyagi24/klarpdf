@@ -27,8 +27,8 @@ from PySide6.QtWidgets import (
 )
 
 from ui import icons
-from util.resources import LICENSE_FILES, read_text_resource
-from version import __version__
+from klarpdf.util.resources import LICENSE_FILES, read_text_resource
+from klarpdf.version import __version__
 
 APP_NAME = "KlarPDF"  # display spelling (assets/brand/BRAND.md §Type); `klarpdf` is the identifier
 REPO_URL = "https://github.com/utyagi24/klarpdf"

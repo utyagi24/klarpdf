@@ -4,6 +4,6 @@ Useful before the package is installed (running straight out of a checkout) and 
 in a client config that would rather point at an interpreter than at a script shim.
 """
 
-from mcp_bridge.server import main
+from klarpdf.mcp_bridge.server import main
 
 main()

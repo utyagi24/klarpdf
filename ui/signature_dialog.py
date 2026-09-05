@@ -42,7 +42,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from model.content_marks import ImageStamp, render_mark_document
+from klarpdf.model.content_marks import ImageStamp, render_mark_document
 
 IMAGE_FILTER = "Images (*.png *.jpg *.jpeg *.bmp *.gif *.tif *.tiff)"
 

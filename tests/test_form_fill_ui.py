@@ -13,7 +13,7 @@ from PySide6.QtCore import QPointF
 from PySide6.QtWidgets import QComboBox, QLineEdit
 
 from app import PdfApp
-from model.page_edits import read_form_fields
+from klarpdf.model.page_edits import read_form_fields
 from store.settings import Settings
 
 

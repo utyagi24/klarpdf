@@ -18,8 +18,8 @@ import subprocess
 import pymupdf as fitz
 import pytest
 
-from mcp_bridge import queries, redaction
-from mcp_bridge.redaction import RedactionLeak
+from klarpdf.mcp_bridge import queries, redaction
+from klarpdf.mcp_bridge.redaction import RedactionLeak
 
 SECRET = "SECRETDATA"
 PUBLIC = "PUBLICINFO"
@@ -225,7 +225,7 @@ def test_a_cross_engine_disagreement_deletes_the_output_and_raises(secret_pdf, o
 def test_a_pymupdf_detected_leak_also_deletes_the_output(secret_pdf, out, monkeypatch):
     """The first-engine half of the same guard — patched at the removal step so the written file
     genuinely still contains the secret, rather than faking the reader."""
-    monkeypatch.setattr("model.page_edits.apply_redactions", lambda page, annotations: None)
+    monkeypatch.setattr("klarpdf.model.page_edits.apply_redactions", lambda page, annotations: None)
 
     with pytest.raises(RedactionLeak, match="PyMuPDF"):
         redaction.redact_text(secret_pdf, SECRET, out)
@@ -247,7 +247,7 @@ def test_partial_removal_is_caught_where_a_presence_check_would_pass(tmp_path, o
     doc.save(path)
     doc.close()
 
-    from model import page_edits
+    from klarpdf.model import page_edits
 
     real_apply = page_edits.apply_redactions
 
@@ -261,7 +261,7 @@ def test_partial_removal_is_caught_where_a_presence_check_would_pass(tmp_path, o
         )
         real_apply(page, trimmed)
 
-    monkeypatch.setattr("model.page_edits.apply_redactions", half)
+    monkeypatch.setattr("klarpdf.model.page_edits.apply_redactions", half)
     with pytest.raises(RedactionLeak, match="still appears"):
         redaction.redact_text(path, SECRET, out)
     assert not os.path.exists(out)
@@ -338,7 +338,7 @@ def test_the_redacted_copy_of_an_encrypted_file_is_still_encrypted(locked_pdf, o
 
 
 def test_redacting_an_encrypted_document_without_the_password_fails(locked_pdf, out):
-    from model.virtual_document import PasswordRequired
+    from klarpdf.model.virtual_document import PasswordRequired
 
     with pytest.raises(PasswordRequired):
         redaction.redact_text(locked_pdf, SECRET, out)
@@ -348,7 +348,7 @@ def test_redacting_an_encrypted_document_without_the_password_fails(locked_pdf, 
 def test_transforms_carry_encryption_through_too(locked_pdf, tmp_path):
     """The write half of encrypted support, which M41 owns: a transform on an encrypted input
     produces an encrypted output, not a quietly decrypted one."""
-    from mcp_bridge import transforms
+    from klarpdf.mcp_bridge import transforms
 
     target = str(tmp_path / "rotated.pdf")
     transforms.rotate(locked_pdf, 90, target, password="secret")
@@ -413,7 +413,7 @@ def test_a_matching_gap_is_caught_and_the_output_deleted(phrase_pdf, out, monkey
     The textual scan is what catches it: it owes the matcher nothing, so a match the matcher
     cannot see is still visible to it.
     """
-    from model.page_text import PageText
+    from klarpdf.model.page_text import PageText
 
     def geometric_only(self, box, tol=0.5):
         struck = self.struck(box)
@@ -578,7 +578,7 @@ def test_a_matcher_that_cannot_see_an_occurrence_no_longer_passes_verification(
     the tag did on the real document — and require the report to disagree with it. Before M95 both
     checks consulted the same rule and this came back clean.
     """
-    from model.page_text import PageText
+    from klarpdf.model.page_text import PageText
 
     monkeypatch.setattr(PageText, "is_whole_word", lambda self, box, tol=0.5: False)
     with pytest.raises(ValueError, match="was not found"):
@@ -744,7 +744,7 @@ def test_an_impossible_budget_is_reported_as_such_not_as_a_contradiction(monkeyp
     the budget goes negative — and the message printed `max(allowed, 0)`, so an impossible -1 was
     rendered as `at most 0 expected` beside `still appears 0 time(s)`. That reads as a
     contradiction and sent the reporter hunting for a comparison bug that did not exist."""
-    from mcp_bridge.redaction import _shortfall
+    from klarpdf.mcp_bridge.redaction import _shortfall
 
     impossible = _shortfall(1, "TYAGI1703", "/tmp/x.pdf", found=0, allowed=-1,
                             before=0, covered=1, engine="PyMuPDF")
@@ -826,7 +826,7 @@ def test_a_short_or_degenerate_query_never_triggers_a_variant_scan(tmp_path, out
     """The floor is set by measurement, not taste: over 49 documents every false positive came from
     a query like these — `000000` matched across `708.000 0.00`, digits welded from two unrelated
     numbers. Nothing below the floor is scanned."""
-    from mcp_bridge.redaction import _variant_residuals
+    from klarpdf.mcp_bridge.redaction import _variant_residuals
 
     assert _variant_residuals("708.000 0.00 and 1-2 and CA-1", query, match_case=False) == []
 
@@ -836,7 +836,7 @@ def test_the_boundary_test_reads_the_source_not_the_normalised_stream():
     is vacuous applied to the normalised form — stripping separators makes the whole stream
     alphanumeric, so every interior match is inside a longer run. Judged against the source, a
     query embedded in a longer identifier is correctly not a variant."""
-    from mcp_bridge.redaction import _variant_residuals
+    from klarpdf.mcp_bridge.redaction import _variant_residuals
 
     assert _variant_residuals("ref 1234567 here", "123-4567", match_case=False) == ["1234567"]
     assert _variant_residuals("ref 99123456789 here", "123-4567", match_case=False) == []

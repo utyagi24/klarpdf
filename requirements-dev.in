@@ -27,7 +27,7 @@ invoke>=3.0   # task runner — `invoke <task>` orchestrates build steps (tasks.
 # The MCP SDK is a *dev* dependency because tests/test_mcp_*.py are part of the headless suite and
 # CI installs only this lock — without it those files fail at collection and the required `pytest`
 # check goes red. It is NOT a dependency of the shipped GUI: requirements.in (→ the hashed
-# requirements-win.txt the installer bundles) is untouched, and mcp_bridge/ is never imported by
+# requirements-win.txt the installer bundles) is untouched, and klarpdf/mcp_bridge/ is never imported by
 # app.py/launcher.py. M42 adds requirements-mcp.{in,txt} — the separate, cross-platform lock that a
 # *bridge user* installs — plus its own pip-audit step. Different artifacts, different audiences.
 mcp>=2,<3

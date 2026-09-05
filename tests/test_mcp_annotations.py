@@ -27,8 +27,8 @@ import os
 import pymupdf as fitz
 import pytest
 
-from mcp_bridge import annotations, redaction
-from model.markup_palette import HIGHLIGHT_COLORS, TEXT_LINE_COLORS
+from klarpdf.mcp_bridge import annotations, redaction
+from klarpdf.model.markup_palette import HIGHLIGHT_COLORS, TEXT_LINE_COLORS
 
 NAME = "Alice Smith"
 ACCOUNT = "220885-1063303"

@@ -142,14 +142,14 @@ def vendor(c):
     c.run(f'"{PY}" vendor/gen-sources.py', echo=True)
 
 
-@task(help={"version": "installer version (defaults to version.py)"})
+@task(help={"version": "installer version (defaults to klarpdf/version.py)"})
 def build(c, version=None):
     """Freeze (onedir + onefile) + Inno Setup installer (Windows)."""
     _windows_only("build")
     c.run(_ps("packaging/app/build.ps1", f"-Version {version}" if version else ""), echo=True)
 
 
-@task(pre=[test, audit], help={"version": "must equal version.py, e.g. 0.9.5"})
+@task(pre=[test, audit], help={"version": "must equal klarpdf/version.py, e.g. 0.9.5"})
 def tag(c, version):
     """Pre-flight (test + audit), then annotated tag + push - triggers the CI draft Release."""
     branch = c.run("git rev-parse --abbrev-ref HEAD", hide=True).stdout.strip()
@@ -157,9 +157,9 @@ def tag(c, version):
         sys.exit(f"on '{branch}', not main - tag releases from an up-to-date main (RELEASE.md sec 3).")
     import runpy
 
-    actual = runpy.run_path(str(ROOT / "version.py"))["__version__"]
+    actual = runpy.run_path(str(ROOT / "klarpdf" / "version.py"))["__version__"]
     if actual != version:
-        sys.exit(f"version.py is {actual}, not {version} - bump it (or fix --version) first.")
+        sys.exit(f"klarpdf/version.py is {actual}, not {version} - bump it (or fix --version) first.")
     c.run(f"git tag -a v{version} -m v{version}", echo=True)
     c.run(f"git push origin v{version}", echo=True)
     print(f"Pushed v{version} - CI builds the draft; then `invoke publish --version {version}`.")

@@ -15,9 +15,9 @@ import pytest
 from PySide6.QtWidgets import QApplication
 
 from app import PdfApp
-from model.edit_engine import PyMuPDFEngine
-from model.page_edits import Highlight, TextBox, page_has_klarpdf_annotations
-from model.virtual_document import VirtualDocument
+from klarpdf.model.edit_engine import PyMuPDFEngine
+from klarpdf.model.page_edits import Highlight, TextBox, page_has_klarpdf_annotations
+from klarpdf.model.virtual_document import VirtualDocument
 from store.settings import Settings
 from viewer.pdf_view import PdfView
 from viewer.text_selection import TextSelection

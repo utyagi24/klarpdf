@@ -17,9 +17,9 @@ import pytest
 
 from app import PdfApp
 from main_window import MainWindow
-from model.edit_engine import PyMuPDFEngine
-from model.page_edits import TextBox, _textbox_fits_one_line
-from model.virtual_document import VirtualDocument
+from klarpdf.model.edit_engine import PyMuPDFEngine
+from klarpdf.model.page_edits import TextBox, _textbox_fits_one_line
+from klarpdf.model.virtual_document import VirtualDocument
 from store.settings import Settings
 
 
@@ -145,7 +145,7 @@ def test_dragging_the_right_edge_reflows_and_grows_height(win):
 
 
 def test_group_resize_leaves_a_text_box_unstretched(win):
-    from model.page_edits import Shape
+    from klarpdf.model.page_edits import Shape
 
     _add(win, Shape("rect", (100.0, 100.0, 160.0, 140.0)),
          TextBox((200.0, 200.0, 300.0, 220.0), "note"))

@@ -38,10 +38,10 @@ import pytest
 
 from app import PdfApp
 from main_window import MainWindow
-from model.content_marks import Stamp
-from model.foreign_annots import ForeignDeletion, ForeignMove, read_foreign_annotations
-from model.form_fields import NewField
-from model.page_edits import (
+from klarpdf.model.content_marks import Stamp
+from klarpdf.model.foreign_annots import ForeignDeletion, ForeignMove, read_foreign_annotations
+from klarpdf.model.form_fields import NewField
+from klarpdf.model.page_edits import (
     Highlight,
     InkStroke,
     Line,

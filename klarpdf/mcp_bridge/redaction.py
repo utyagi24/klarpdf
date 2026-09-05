@@ -43,10 +43,10 @@ import subprocess
 
 import pymupdf as fitz
 
-from model.page_edits import Redaction
-from model.page_text import PageText
-from mcp_bridge.queries import open_document, resolve_pages, search
-from mcp_bridge.transforms import _resolve_out, _write
+from klarpdf.model.page_edits import Redaction
+from klarpdf.model.page_text import PageText
+from klarpdf.mcp_bridge.queries import open_document, resolve_pages, search
+from klarpdf.mcp_bridge.transforms import _resolve_out, _write
 
 # Poppler's extractor. A *different* implementation from the PyMuPDF writer, which is the whole
 # point of running it — a bug that hid text from fitz would have to be present in both to slip past.

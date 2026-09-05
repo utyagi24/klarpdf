@@ -26,7 +26,7 @@ from PySide6.QtGui import QWheelEvent
 from PySide6.QtWidgets import QApplication
 
 from app import PdfApp
-from model.virtual_document import VirtualDocument
+from klarpdf.model.virtual_document import VirtualDocument
 from organize.thumbnail_panel import _NOTCH_PER_THUMB, _WHEEL_NOTCH, ThumbnailPanel
 
 _BAR_W = 210      # the default sidebar width (_SIDEBAR_W)

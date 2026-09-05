@@ -35,7 +35,7 @@ from PySide6.QtGui import QMouseEvent
 
 from app import PdfApp
 from main_window import MainWindow
-from model.foreign_annots import (
+from klarpdf.model.foreign_annots import (
     ForeignMove,
     is_free_placed,
     read_foreign_annotations,
@@ -215,7 +215,7 @@ def test_the_plain_hit_test_still_finds_text_markup(win):
 def test_deleting_a_foreign_highlight_still_works(win):
     """The gate is about dragging only. Removing a reviewer's mark is M66 and stays available for
     every type."""
-    from model.foreign_annots import ForeignDeletion
+    from klarpdf.model.foreign_annots import ForeignDeletion
 
     _page_index, mark = win.view.annotations.foreign_annotation_at(_on_the_highlight(win))
     win._delete_foreign_annotation(0, mark)

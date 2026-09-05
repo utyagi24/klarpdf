@@ -27,9 +27,9 @@ from __future__ import annotations
 from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtWidgets import QListWidget, QListWidgetItem
 
-from model.page_edits import Highlight, Strikeout, Underline
-from model.page_text import PageText
-from model.virtual_document import VirtualDocument
+from klarpdf.model.page_edits import Highlight, Strikeout, Underline
+from klarpdf.model.page_text import PageText
+from klarpdf.model.virtual_document import VirtualDocument
 from organize.thumbnail_panel import _SIDEBAR_W  # one default width for all sidebar tabs
 
 _ROLE = Qt.ItemDataRole.UserRole  # row payload: (page_index, mark, bounds)

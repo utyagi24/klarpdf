@@ -8,7 +8,7 @@ from PySide6.QtCore import QPointF
 from PySide6.QtGui import QGuiApplication
 
 from app import PdfApp
-from model.virtual_document import VirtualDocument
+from klarpdf.model.virtual_document import VirtualDocument
 from viewer.pdf_view import PdfView
 from viewer.search import FindBar, SearchController
 from viewer.text_selection import TextSelection

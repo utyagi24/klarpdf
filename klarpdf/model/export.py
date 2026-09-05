@@ -41,13 +41,13 @@ import os
 
 import pymupdf as fitz
 
-from model.edit_engine import (
+from klarpdf.model.edit_engine import (
     CLEAN_REWRITTEN,
     GARBAGE_DEDUP,
     PyMuPDFEngine,
     write_options,
 )
-from model.virtual_document import VirtualDocument
+from klarpdf.model.virtual_document import VirtualDocument
 
 _JPEG_EXTS = (".jpg", ".jpeg")
 

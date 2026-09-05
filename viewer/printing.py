@@ -22,7 +22,7 @@ from PySide6.QtGui import QImage, QPainter
 from PySide6.QtPrintSupport import QAbstractPrintDialog, QPrintDialog, QPrinter
 from PySide6.QtWidgets import QDialog, QMessageBox
 
-from model.edit_engine import PyMuPDFEngine
+from klarpdf.model.edit_engine import PyMuPDFEngine
 
 # Raster render cap: printers report 600–1200 dpi, but rasterising a full page at that is huge
 # (an A4 at 1200 dpi is ~70 MB) for no visible gain on a basic print. Render at most this, then let

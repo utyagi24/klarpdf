@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import pymupdf as fitz
 
-from model.links_remap import internal_link_target, link_target_map
+from klarpdf.model.links_remap import internal_link_target, link_target_map
 
 
 class LinkNavigator:

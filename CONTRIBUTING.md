@@ -91,7 +91,7 @@ By making a contribution to this project, I certify that:
 
 ## Development environment (collaborators, and anyone working in a fork)
 
-KlarPDF is developed **hybrid**: the cross-platform core (`model/`, `viewer/`, `organize/`) and the
+KlarPDF is developed **hybrid**: the cross-platform core (`klarpdf/model/`, `viewer/`, `organize/`) and the
 headless test suite run in **WSL** (Ubuntu, Python 3.12), the GUI iterates via **WSLg**, and only
 packaging + Windows shell-integration require **Windows**. See `PLAN.md` §Development environment for
 the full picture.

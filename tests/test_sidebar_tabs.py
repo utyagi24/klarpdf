@@ -17,7 +17,7 @@ import pytest
 from PySide6.QtWidgets import QStyleOptionToolButton, QTabWidget
 
 from app import PdfApp
-from model.page_edits import Highlight
+from klarpdf.model.page_edits import Highlight
 from store.settings import Settings
 
 

@@ -13,9 +13,9 @@ from __future__ import annotations
 import pymupdf as fitz
 import pytest
 
-from model.edit_engine import PyMuPDFEngine
-from model.export import export_flattened_pdf
-from model.page_edits import (
+from klarpdf.model.edit_engine import PyMuPDFEngine
+from klarpdf.model.export import export_flattened_pdf
+from klarpdf.model.page_edits import (
     KLARPDF_AUTHOR,
     InkStroke,
     Line,
@@ -24,7 +24,7 @@ from model.page_edits import (
     read_klarpdf_annotations,
     strip_klarpdf_annotations,
 )
-from model.virtual_document import VirtualDocument
+from klarpdf.model.virtual_document import VirtualDocument
 
 _INK = InkStroke(
     (((72.0, 100.0), (90.0, 112.0), (120.0, 104.0), (150.0, 130.0)),),

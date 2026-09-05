@@ -3,7 +3,7 @@
 The step-by-step **operational** guide for maintainers. The *spec / rationale* lives in
 `PLAN.md` §Packaging, dependencies & installer and `DEPENDENCIES.md`; this file is the *how*.
 
-Version is single-sourced in `version.py`; dependency versions are single-sourced in
+Version is single-sourced in `klarpdf/version.py`; dependency versions are single-sourced in
 `requirements.in` (compiled to the locks). Nothing changes automatically — every bump is an
 explicit edit + a reviewable PR (see `CLAUDE.md` §How we work).
 
@@ -26,7 +26,7 @@ release PR — either way the release mechanics are §3.
 ### A — bug fix or feature, **no** new dependency
 1. Branch from `origin/main`; make the change.
 2. **Test** — `invoke test` (headless suite green).
-3. **Version + docs** (§3 steps 1–2) — bump `version.py` (patch = fix, minor = feature); update the
+3. **Version + docs** (§3 steps 1–2) — bump `klarpdf/version.py` (patch = fix, minor = feature); update the
    `PROGRESS.md` / `CLAUDE.md` / **`README.md`** status paragraphs.
 4. **PR** (change + bump together), review, **merge** to `main`.
 5. **Release** (§3 steps 3–6) — `invoke tag --version X.Y.Z` → CI builds the draft → smoke-test →
@@ -214,7 +214,7 @@ gh api graphql -f query='{user(login:"utyagi24"){hasSponsorsListing}}'   # false
 ```
 When it finally returns `true`, delete this block — its whole subject is gone at that point.
 
-1. **Version bump.** Edit `version.py` `__version__` (e.g. `0.9.3` → `0.9.4`). This single value
+1. **Version bump.** Edit `klarpdf/version.py` `__version__` (e.g. `0.9.3` → `0.9.4`). This single value
    feeds the PyInstaller exe metadata (`packaging/app/klarpdf.spec`), the Inno `AppVersion`
    (`packaging/app/installer.iss`), and the `v<version>` git tag. SemVer: **patch** = fixes / dependency
    bumps only; **minor** = features; **major** = breaking.
@@ -233,7 +233,7 @@ When it finally returns `true`, delete this block — its whole subject is gone 
 
    Quick check before opening the PR — these three must agree:
    ```sh
-   grep -n '__version__' version.py
+   grep -n '__version__' klarpdf/version.py
    grep -n 'Status' README.md CLAUDE.md | head -2
    ```
 
@@ -326,9 +326,9 @@ Inno Setup 6 installed (see `DEPENDENCIES.md`). Artifacts land in `dist/`.
 
 ## 4. The MCP bridge — the extra verification before a release that ships it
 
-The bridge has **no version of its own**: it ships under the app's tag and reads `version.py`, so
+The bridge has **no version of its own**: it ships under the app's tag and reads `klarpdf/version.py`, so
 "releasing the bridge" is §3 plus the checks below. Run them once, on the release that first carries
-`mcp_bridge/`, and after that only when something in `mcp_bridge/`, `requirements-mcp.*` or
+`klarpdf/mcp_bridge/`, and after that only when something in `klarpdf/mcp_bridge/`, `requirements-mcp.*` or
 `packaging/mcp/mcpb/` has changed.
 
 This is PLAN.md §MCP / Agent Bridge roadmap → Verification, turned into things you can actually do.
@@ -337,7 +337,7 @@ rather than to re-check what CI checks on every PR.
 
 **All ten rows are settled as of 2026-08-27** (M44). Eight are CI checks or a single command; rows
 9 and 10 were done by hand on Windows that day, and row 10's carried question is answered. Redo 9
-and 10 only when `mcp_bridge/`, `requirements-mcp.*` or `packaging/mcp/mcpb/` changes materially, or on
+and 10 only when `klarpdf/mcp_bridge/`, `requirements-mcp.*` or `packaging/mcp/mcpb/` changes materially, or on
 a new `uv` / Claude Desktop major version.
 
 | # | Matrix item | How it is checked | Where |
@@ -345,7 +345,7 @@ a new `uv` / Claude Desktop major version.
 | 1 | Tool round-trips preserve OCR text / TOC / form fields | `tests/test_mcp_transforms.py` — the same invariants as `test_materialize.py`, same fixtures | **automated**, every PR |
 | 2 | Redaction is leak-free, cross-engine | `tests/test_mcp_redaction.py` + `test_redaction.py::…poppler_cross_engine`; `test.yml` asserts the Poppler test **did not skip** | **automated**, every PR |
 | 3 | No outbound connection, no listening port | `tests/test_mcp_no_qt.py` — the child runs every tool with `socket.connect`/`bind` poisoned | **automated**, every PR |
-| 4 | No Qt on the server path | same file — a fresh interpreter, **every registered tool** exercised (pinned to the registry, so a new tool cannot escape the guard), then `PySide6`/`shiboken6`/`model.edit_commands` asserted absent. Has a negative control | **automated**, every PR |
+| 4 | No Qt on the server path | same file — a fresh interpreter, **every registered tool** exercised (pinned to the registry, so a new tool cannot escape the guard), then `PySide6`/`shiboken6`/`klarpdf.model.edit_commands` asserted absent. Has a negative control | **automated**, every PR |
 | 5 | Source left byte-identical by every write tool | `tests/test_mcp_transforms.py`, parametrised over every write tool | **automated**, every PR |
 | 6 | Cross-platform — **Linux** | CI runs the whole suite on `ubuntu-latest`; `tests/test_mcp_packaging.py` asserts the lock is unhashed and platform-marker-free | **automated**, every PR |
 | 7 | Cross-platform — **Windows** | the `bridge-windows` job resolves `requirements-mcp.txt` on `windows-latest` and runs the bridge suite against it (M126) | **automated**, every PR that reaches the bridge |
@@ -378,7 +378,7 @@ python packaging/mcp/mcpb/build_mcpb.py --validate
 cd packaging/mcp/mcpb && uv lock          # WITHOUT this the lock still holds only the old versions' wheels
 
 # 4. the claim a user reads
-#    mcp_bridge/README.md         the "What you need" row
+#    klarpdf/mcp_bridge/README.md         the "What you need" row
 ```
 
 **Step 3 is the one that is easy to skip and impossible to see.** `uv` resolves wheels *for the
@@ -467,7 +467,7 @@ Needs Node (for `npx @anthropic-ai/mcpb`) and, on the *installing* machine,
    if ((Get-FileHash .\throwaway.pdf -Algorithm SHA256).Hash -eq $h) { "unchanged" } else { "CHANGED" }
    ```
 
-5. Also check the plain-config path (Option B in `mcp_bridge/README.md`), since it is the fallback
+5. Also check the plain-config path (Option B in `klarpdf/mcp_bridge/README.md`), since it is the fallback
    for anyone without `uv`. It needs `klarpdf-mcp` on the PATH **Desktop** sees, which is not
    necessarily the one your shell sees — use `where klarpdf-mcp` and put the absolute path in
    `%APPDATA%\Claude\claude_desktop_config.json` if the bare name does not resolve.
@@ -526,7 +526,7 @@ discriminating experiment is a lock that **disagrees** with a fresh resolve:
   versions.
 
 **What it changed.** `build_mcpb.py` now stages `uv.lock` into `server/`, `packaging/mcp/mcpb/uv.lock` is
-committed, and `mcp_bridge/README.md` says the bundle installs from a shipped hashed lock. Two tests
+committed, and `klarpdf/mcp_bridge/README.md` says the bundle installs from a shipped hashed lock. Two tests
 hold it: the bundle must ship the lock, and the lock must stay in step with the generated
 `pyproject.toml` (a dependency bump that skips `uv lock` would otherwise ship a stale lock silently —
 and since M129 the lock is what the install obeys).
@@ -546,7 +546,7 @@ py -3.12 build_mcpb.py       # stages it into server/ and packs the bundle
 ```
 
 > **Before M129 the second line did not do what the first implies.** `stage()` copied the packages,
-> `version.py` and `pyproject.toml` and stopped, so a generated lock stayed in `packaging/mcp/mcpb/` and
+> `klarpdf/version.py` and `pyproject.toml` and stopped, so a generated lock stayed in `packaging/mcp/mcpb/` and
 > never reached `server/`. Anyone following the old instructions would have installed a bundle with
 > **no lock in it**, watched `uv` write its own, and recorded "not honoured" — the wrong answer to
 > the question this row exists to settle.

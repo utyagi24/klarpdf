@@ -27,9 +27,9 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QAbstractItemView, QListWidget, QListWidgetItem
 
-from model.edit_engine import PyMuPDFEngine
-from model.virtual_document import IMAGE_EXTENSIONS, VirtualDocument
-from util.reveal import is_settled
+from klarpdf.model.edit_engine import PyMuPDFEngine
+from klarpdf.model.virtual_document import IMAGE_EXTENSIONS, VirtualDocument
+from klarpdf.util.reveal import is_settled
 
 _DRAG_W = 96    # width of the page image carried under the cursor while dragging
 _ACCENT = QColor(0, 120, 215)  # drop-marker + count-badge colour

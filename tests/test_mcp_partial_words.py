@@ -24,7 +24,7 @@ import os
 import pymupdf
 import pytest
 
-from mcp_bridge import redaction
+from klarpdf.mcp_bridge import redaction
 
 
 @pytest.fixture

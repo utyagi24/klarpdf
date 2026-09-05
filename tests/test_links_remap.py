@@ -14,9 +14,9 @@ from __future__ import annotations
 import pymupdf as fitz
 import pytest
 
-from model.edit_engine import PyMuPDFEngine
-from model.links_remap import link_target_map
-from model.virtual_document import PageRef, VirtualDocument
+from klarpdf.model.edit_engine import PyMuPDFEngine
+from klarpdf.model.links_remap import link_target_map
+from klarpdf.model.virtual_document import PageRef, VirtualDocument
 
 
 @pytest.fixture
@@ -274,7 +274,7 @@ def test_well_formed_uri_links_are_not_duplicated(linked_pdf, tmp_path):
 
 
 def test_pdf_string_escape_round_trips_through_a_written_file(tmp_path):
-    from model.links_remap import _pdf_string_escape
+    from klarpdf.model.links_remap import _pdf_string_escape
 
     nasty = r"http://e.x/a)b(c\d"  # unbalanced paren + a literal backslash
     doc = fitz.open()

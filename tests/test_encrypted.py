@@ -15,8 +15,8 @@ import pytest
 
 import main_window as mw
 from app import PdfApp
-from model.edit_engine import PyMuPDFEngine
-from model.virtual_document import PasswordRequired, VirtualDocument
+from klarpdf.model.edit_engine import PyMuPDFEngine
+from klarpdf.model.virtual_document import PasswordRequired, VirtualDocument
 from store.settings import Settings
 
 _SECRET = "TOP SECRET payslip"

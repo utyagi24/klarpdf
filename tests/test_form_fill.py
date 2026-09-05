@@ -13,10 +13,10 @@ import pymupdf as fitz
 import pytest
 from PySide6.QtGui import QUndoStack
 
-from model.edit_commands import SetFieldValueCommand
-from model.edit_engine import PyMuPDFEngine
-from model.page_edits import apply_form_values, read_form_fields
-from model.virtual_document import VirtualDocument
+from klarpdf.model.edit_commands import SetFieldValueCommand
+from klarpdf.model.edit_engine import PyMuPDFEngine
+from klarpdf.model.page_edits import apply_form_values, read_form_fields
+from klarpdf.model.virtual_document import VirtualDocument
 
 
 def _add_widget(page, name, wtype, rect, value=None, choices=None):

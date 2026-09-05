@@ -23,8 +23,8 @@ import pytest
 
 from app import PdfApp
 from main_window import MainWindow
-from model.edit_engine import PyMuPDFEngine
-from model.page_edits import Redaction
+from klarpdf.model.edit_engine import PyMuPDFEngine
+from klarpdf.model.page_edits import Redaction
 from store.settings import Settings
 from ui.redact_matches_dialog import RedactMatchesDialog, image_only_pages
 
@@ -293,7 +293,7 @@ def test_no_leak_cross_engine(win, monkeypatch, tmp_path):
 def test_image_only_pages_are_detected(tmp_path):
     """A scanned page has nothing to search, and "0 matches" would otherwise read as "the word is
     not there" rather than "I cannot see the words at all"."""
-    from model.virtual_document import VirtualDocument
+    from klarpdf.model.virtual_document import VirtualDocument
 
     path = str(tmp_path / "mixed.pdf")
     doc = fitz.open()

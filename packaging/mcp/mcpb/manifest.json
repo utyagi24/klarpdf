@@ -10,7 +10,7 @@
     "url": "https://github.com/utyagi24"
   },
   "homepage": "https://github.com/utyagi24/klarpdf",
-  "documentation": "https://github.com/utyagi24/klarpdf/blob/main/mcp_bridge/README.md",
+  "documentation": "https://github.com/utyagi24/klarpdf/blob/main/klarpdf/mcp_bridge/README.md",
   "support": "https://github.com/utyagi24/klarpdf/issues",
   "license": "AGPL-3.0-or-later",
   "keywords": [
@@ -23,7 +23,7 @@
   ],
   "server": {
     "type": "python",
-    "entry_point": "server/mcp_bridge/server.py",
+    "entry_point": "server/klarpdf/mcp_bridge/server.py",
     "mcp_config": {
       "command": "uv",
       "args": [

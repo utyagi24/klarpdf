@@ -43,11 +43,11 @@ from mcp.server.mcpserver import Image
 from mcp.server.mcpserver.exceptions import ResourceError
 from mcp_types import CallToolRequestParams, CallToolResult, TextContent
 
-from mcp_bridge import annotations, docs, queries, redaction, transforms
-from mcp_bridge.config import Config, PathNotAllowed, PathPolicy
-from mcp_bridge.strict_args import rejection_message, unknown_parameters
-from model.virtual_document import PasswordRequired
-from version import __version__
+from klarpdf.mcp_bridge import annotations, docs, queries, redaction, transforms
+from klarpdf.mcp_bridge.config import Config, PathNotAllowed, PathPolicy
+from klarpdf.mcp_bridge.strict_args import rejection_message, unknown_parameters
+from klarpdf.model.virtual_document import PasswordRequired
+from klarpdf.version import __version__
 
 INSTRUCTIONS = """\
 KlarPDF exposes a local, offline PDF engine: reading, page transforms, and verified redaction.

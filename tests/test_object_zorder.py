@@ -13,8 +13,8 @@ import pytest
 
 from app import PdfApp
 from main_window import MainWindow
-from model.page_edits import Line, Shape, reorder_marks
-from model.virtual_document import VirtualDocument
+from klarpdf.model.page_edits import Line, Shape, reorder_marks
+from klarpdf.model.virtual_document import VirtualDocument
 from store.settings import Settings
 
 

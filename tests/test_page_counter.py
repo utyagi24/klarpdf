@@ -14,7 +14,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QToolBar
 
 from app import PdfApp
-from model.edit_commands import DeleteCommand
+from klarpdf.model.edit_commands import DeleteCommand
 from store.settings import Settings
 
 

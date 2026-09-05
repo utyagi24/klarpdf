@@ -21,7 +21,7 @@ import os
 import pymupdf as fitz
 import pytest
 
-from mcp_bridge import queries, transforms as T
+from klarpdf.mcp_bridge import queries, transforms as T
 from tests.conftest import A_TEXT, B_TEXT
 
 
@@ -184,7 +184,7 @@ def test_split_rejects_an_empty_range(a_pdf, tmp_path):
 
 
 def test_split_rejects_a_nonsense_range(a_pdf, tmp_path):
-    from util.page_range import PageRangeError
+    from klarpdf.util.page_range import PageRangeError
 
     with pytest.raises(PageRangeError):
         T.split(a_pdf, str(tmp_path), ranges=["not-a-page"])
@@ -563,7 +563,7 @@ def test_a_transform_survives_a_transient_lock_on_its_temp(a_pdf, tmp_path, monk
     antivirus scanner holding the just-written temp fails a write that would succeed 200 ms later.
     Two write paths in one codebase should not disagree about that.
     """
-    from util import atomic
+    from klarpdf.util import atomic
 
     calls: list[int] = []
     real = os.replace
@@ -586,7 +586,7 @@ def test_a_transform_survives_a_transient_lock_on_its_temp(a_pdf, tmp_path, monk
 
 def test_a_failed_write_leaves_no_debris(a_pdf, tmp_path, monkeypatch):
     """The temp-then-rename exists so a caller can never read back a half-written PDF."""
-    from model.edit_engine import PyMuPDFEngine
+    from klarpdf.model.edit_engine import PyMuPDFEngine
 
     def boom(self, vdoc, out_path):
         with open(out_path, "wb") as handle:
@@ -751,8 +751,8 @@ def test_the_app_export_keeps_the_filename_the_user_typed(a_pdf, tmp_path):
     """The model function is shared with Export ▸ Images, where the name comes from a save dialog.
     Turning `report.png` into `report-1.png` behind the user would be its own small betrayal, so
     `number_all` defaults off and only the bridge passes it."""
-    from model.export import export_page_images
-    from mcp_bridge.queries import open_document
+    from klarpdf.model.export import export_page_images
+    from klarpdf.mcp_bridge.queries import open_document
 
     target = str(tmp_path / "report.png")
     with open_document(a_pdf) as vdoc:
@@ -776,7 +776,7 @@ def test_no_transform_here_appends_to_its_input(a_pdf, b_pdf, tmp_path):
 
     ``annotate`` (M101) is the tool that will append, and it is deliberately not in this list.
     """
-    from mcp_bridge import redaction
+    from klarpdf.mcp_bridge import redaction
 
     source = open(a_pdf, "rb").read()
     writes = {

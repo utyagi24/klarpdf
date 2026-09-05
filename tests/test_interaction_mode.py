@@ -12,7 +12,7 @@ from PySide6.QtGui import QMouseEvent
 from PySide6.QtWidgets import QGraphicsView
 
 from app import PdfApp
-from model.virtual_document import VirtualDocument
+from klarpdf.model.virtual_document import VirtualDocument
 from store.settings import Settings
 from viewer.pdf_view import PdfView
 from viewer.text_selection import TextSelection
