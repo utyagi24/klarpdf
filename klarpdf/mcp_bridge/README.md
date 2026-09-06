@@ -43,7 +43,7 @@ is to hand it accurate material and then do exactly what it is told.
 | | |
 |---|---|
 | **Python 3.11 – 3.14** | Any version in that range; each is tested in CI on Linux and Windows. |
-| **A way to install it** | [`pipx`](https://pipx.pypa.io) or [`uv`](https://docs.astral.sh/uv/) — either puts the bridge in an environment of its own, which is what you want: it pins all 29 of its dependencies exactly, so it will conflict with anything you co-install. Plain `pip` works too, into a virtualenv you made for it. |
+| **A way to install it** | [`pipx`](https://pipx.pypa.io) or [`uv`](https://docs.astral.sh/uv/) — either puts the bridge in an environment of its own, which is what you want: it pins all 29 of its dependencies exactly, so it will conflict with anything you co-install. **Neither is required**: `install.py` below needs only the Python you already have. Plain `pip` works too, into a virtualenv you made for it. |
 | **`uv`, again** | **Additionally required for the `.mcpb` bundle in Claude Desktop.** Desktop launches it with `uv run`, so `uv` must be on the PATH *Desktop* sees, which is not always the PATH your terminal has. Nothing warns you if it is missing; the symptom is the server failing to start. |
 | **An MCP client** | The app your AI assistant runs in — Claude Code, Claude Desktop, Codex CLI, Gemini CLI and others. It starts `klarpdf-mcp` as a local subprocess and relays the model's tool calls to it. |
 | **`poppler-utils`** | **Optional.** Adds a second, independent engine to redaction's verification step. Without it, redaction still verifies — with PyMuPDF alone. See [What redaction guarantees](#what-redaction-guarantees-and-where-it-stops). |
@@ -78,6 +78,26 @@ klarpdf-mcp --help
 which klarpdf-mcp        # Windows: where klarpdf-mcp
 # -> ~/.local/bin/klarpdf-mcp
 ```
+
+### With neither `pipx` nor `uv`
+
+Download **`install.py`** from the [latest release](https://github.com/utyagi24/klarpdf/releases/latest)
+and run it with any supported Python:
+
+```bash
+curl -LO https://github.com/utyagi24/klarpdf/releases/latest/download/install.py
+curl -LO https://github.com/utyagi24/klarpdf/releases/latest/download/SHA256SUMS
+sha256sum --check --ignore-missing SHA256SUMS     # macOS: shasum -a 256 -c
+python3 install.py                                # Windows: py -3 install.py
+```
+
+It makes a virtual environment of its own, installs into it, proves the server starts, and prints
+the exact line your client needs — then writes an `uninstall.py` beside it. It touches nothing else:
+not your PATH, not your shell profile, not your system Python. `--client claude-code` also registers
+the server for you, using that client's own CLI; `--help` lists the rest.
+
+The checksum step is worth the two extra lines. `curl … | python3 -` works and the file says so when
+you do it, but there is then no file to verify.
 
 ### From a clone instead
 

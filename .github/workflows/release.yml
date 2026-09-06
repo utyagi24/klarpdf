@@ -79,6 +79,19 @@ jobs:
           $f = Get-Item dist/klarpdf-*.mcpb
           $line = "$((Get-FileHash $f -Algorithm SHA256).Hash.ToLower())  $($f.Name)"
           Add-Content -Path dist/SHA256SUMS -Encoding ascii -Value $line
+
+      # install.py is a release artifact even though it is a committed file: it is what a user
+      # downloads and RUNS, so it belongs beside the exes in SHA256SUMS. It carries the version it
+      # installs as a literal (it runs where there is no repo to read one from), which is why the
+      # guard below matters -- shipping an installer that pins the previous release would be silent.
+      - name: Stage the standalone installer
+        shell: pwsh
+        run: |
+          python packaging/mcp/installer/sync_installer.py --check
+          Copy-Item packaging/mcp/installer/install.py dist/install.py
+          $f = Get-Item dist/install.py
+          $line = "$((Get-FileHash $f -Algorithm SHA256).Hash.ToLower())  $($f.Name)"
+          Add-Content -Path dist/SHA256SUMS -Encoding ascii -Value $line
           Get-Content dist/SHA256SUMS
 
       # Run artifacts are the deliverable ONLY for the workflow_dispatch dry run; a tag push publishes a
@@ -98,6 +111,7 @@ jobs:
             dist/klarpdf-setup-x64.exe
             dist/klarpdf-portable-x64.exe
             dist/klarpdf-*.mcpb
+            dist/install.py
             dist/SHA256SUMS
             dist/vendor-wheels.zip
 
@@ -111,5 +125,6 @@ jobs:
             dist/klarpdf-setup-x64.exe
             dist/klarpdf-portable-x64.exe
             dist/klarpdf-*.mcpb
+            dist/install.py
             dist/SHA256SUMS
             dist/vendor-wheels.zip

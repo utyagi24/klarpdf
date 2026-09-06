@@ -546,3 +546,85 @@ jobs:
               print(f"  expected skip  {classname}::{name} -- {reason}")
           print(f"OK: {len(accepted)} skip(s), all expected; both Windows-only mutex tests ran ({len(ran)}/2).")
           PY
+
+  # install.py is the one thing in this repo whose only honest test is to run it. Its unit tests
+  # (tests/test_installer.py) cover the version window, the platform paths and the environment
+  # split; none of that proves a real install produces something that starts. This leg does the
+  # whole thing on a runner with no clone of the package and no `uv` or `pipx` — which is the
+  # machine the file exists for.
+  #
+  # It installs from TestPyPI because that is where `klarpdf` currently lives; PyPI supplies the
+  # dependencies (PIP_EXTRA_INDEX_URL, which reaches pip only because install.py's environment
+  # pass-through works — so this leg tests that too). After the first real publish, drop both index
+  # settings and it becomes a plain `python install.py`.
+  #
+  # macOS is here deliberately. Nothing else in this repo runs on it, yet install.py prints a macOS
+  # path and relies on `venv` writing a /bin/sh exec shebang for the space in "Application Support"
+  # — a claim about someone else's machine that was measured on Linux and assumed for Darwin
+  # (PROGRESS.md, Open follow-ups). One leg on the installer is the cheap way to stop assuming.
+  installer:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false   # "it works on Linux and not macOS" is the useful answer
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: The baked-in constants must match the repo
+        run: python packaging/mcp/installer/sync_installer.py --check
+
+      - name: Install, for real, into a directory of its own
+        shell: bash
+        env:
+          PIP_EXTRA_INDEX_URL: https://pypi.org/simple/
+        run: |
+          python packaging/mcp/installer/install.py \
+            --index-url https://test.pypi.org/simple/ \
+            --install-dir "$RUNNER_TEMP/klarpdf-mcp" --verbose
+
+      - name: The installed server answers over stdio
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            script="$RUNNER_TEMP/klarpdf-mcp/.venv/Scripts/klarpdf-mcp.exe"
+          else
+            script="$RUNNER_TEMP/klarpdf-mcp/.venv/bin/klarpdf-mcp"
+          fi
+          "$script" --help > /dev/null
+          echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' \
+            | "$script" | head -1 | python -c 'import json,sys; m=json.loads(sys.stdin.read()); assert m["jsonrpc"]=="2.0", m; print("stdio handshake OK")'
+
+      - name: Nothing was written outside the install directory
+        shell: bash
+        run: |
+          # The whole promise of the file: your system Python is untouched. A `pip install` that
+          # leaked into site-packages would show up here.
+          python - <<'PY'
+          import site, sys, pathlib
+          for d in site.getsitepackages() + [site.getusersitepackages()]:
+              p = pathlib.Path(d)
+              if p.exists() and any(p.glob("klarpdf*")):
+                  sys.exit(f"klarpdf leaked into {p}")
+          print("OK: nothing in the interpreter's own site-packages")
+          PY
+
+      - name: Re-running is safe, and the uninstaller refuses a directory that is not ours
+        shell: bash
+        env:
+          PIP_EXTRA_INDEX_URL: https://pypi.org/simple/
+        run: |
+          python packaging/mcp/installer/install.py \
+            --index-url https://test.pypi.org/simple/ \
+            --install-dir "$RUNNER_TEMP/klarpdf-mcp" | grep -q "reusing the existing environment"
+          mkdir -p "$RUNNER_TEMP/not-ours"
+          cp "$RUNNER_TEMP/klarpdf-mcp/uninstall.py" "$RUNNER_TEMP/not-ours/"
+          if echo y | python "$RUNNER_TEMP/not-ours/uninstall.py"; then
+            echo "::error::the uninstaller deleted a directory that is not a KlarPDF install"
+            exit 1
+          fi
+          echo "OK: reuse works, and the uninstaller refused an unrelated directory"

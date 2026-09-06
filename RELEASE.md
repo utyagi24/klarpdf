@@ -219,6 +219,17 @@ When it finally returns `true`, delete this block — its whole subject is gone 
    (`packaging/app/installer.iss`), and the `v<version>` git tag. SemVer: **patch** = fixes / dependency
    bumps only; **minor** = features; **major** = breaking.
 
+   Then regenerate the two files that restate it, in the same commit:
+   ```sh
+   python packaging/mcp/mcpb/build_mcpb.py --validate      # manifest.json + the bundle pyproject
+   python packaging/mcp/installer/sync_installer.py        # install.py's baked-in version
+   ```
+   > `install.py` is downloaded and run on a machine with no clone, so it cannot read
+   > `klarpdf/version.py` — it carries the version as a literal. Forgetting this ships an installer
+   > that pins the **previous** release, silently. `tests/test_installer.py` and the `installer` CI
+   > job both run `sync_installer.py --check`, and `release.yml` runs it again before staging the
+   > file, so the mistake fails loudly in three places rather than reaching a user.
+
 2. **Docs** (same PR as the bump):
    - `PROGRESS.md` — tick any item this release resolves; add the release line + link.
    - `CLAUDE.md` — update the **## Status** paragraph.
