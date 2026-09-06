@@ -2514,6 +2514,23 @@ on the one above it. Every decision, every rejection and every measurement behin
   validates that a readme will render, not that it is true, and the file reads correctly in the
   repo — where the clone path *is* how you install.
 
+  **A third pass, from reading the rendered page rather than the file.** The owner asked whether the
+  Quick setup pointer should come first, and the count says yes: a PyPI visitor met **~20 lines of
+  prose before anything actionable**, with the install command 35 lines down. It now sits directly
+  under the opening paragraph — but carrying **the two commands themselves** rather than a link to
+  them, since a pointer to another page is still indirection when the install is one line. `##
+  Install` was reframed as the detail behind those two lines rather than a restatement of them, so
+  the command appears once as an instruction. **The block names its combination** — Claude Code on
+  Linux or macOS — rather than reading as universal, because only the `pipx` line is: the path and
+  the client command both change elsewhere, and `QUICKSTART.md` carries each combination. Checking
+  that claim was true found it was not quite: QUICKSTART said how to *find* the path on Windows but
+  showed only the Linux one in its client examples, so step 3 now says to substitute it. The same
+  check retired a Windows `pipx` path this file had stated confidently — it named the *venv*
+  directory rather than the shim on PATH, and an unverifiable path does not belong in a document
+  that ships inside published artifacts, so the table now says which command to read it off with. The framing paragraphs (independent of the app, your
+  PDFs stay put, it does not understand your documents) keep their place, now following the
+  actionable block instead of gating it.
+
   **The rehearsal then found a second one, a level down.** The corrected page's *Quick setup* link
   is a `blob/main/…` URL, and three shipped artifacts carry one: the bridge README (the wheel's
   `Description`), `manifest.json` (inside the `.mcpb`) and `pyproject.toml`'s Documentation URL (a

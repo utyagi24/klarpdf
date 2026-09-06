@@ -6,6 +6,22 @@ read a document without pulling it whole into context; transform it by splitting
 reordering, rotating, deleting pages, filling forms and annotating; and redact it destructively
 with cross-engine verification.
 
+**Claude Code, on Linux or macOS:**
+
+```bash
+pipx install klarpdf                                  # or: uv tool install klarpdf
+claude mcp add klarpdf -- ~/.local/bin/klarpdf-mcp
+```
+
+That is the whole install. **The first line is the same everywhere** — only the path and the client
+command change: on Windows `where klarpdf-mcp` prints the path to use, Codex CLI and Gemini CLI take
+their own `mcp add`, and [Claude Desktop](#claude-desktop) installs a bundle rather than a command.
+[Quick setup](https://github.com/utyagi24/klarpdf/blob/main/klarpdf/mcp_bridge/QUICKSTART.md) has
+each of those combinations written out.
+
+Everything below is the reference — what each tool guarantees, how to restrict what the server may
+touch, and what redaction does and does not promise.
+
 **It is independent of the KlarPDF app** and needs no GUI components. It runs on macOS, Linux and
 Windows.
 
@@ -22,9 +38,6 @@ text rather than meaning, `extract_text` returns what is on the page rather than
 clause means, which name matters, or what ought to be removed is the model's job — this server's job
 is to hand it accurate material and then do exactly what it is told.
 
-**Just want it running?** [Quick setup](https://github.com/utyagi24/klarpdf/blob/main/klarpdf/mcp_bridge/QUICKSTART.md) gets Claude Code, Codex CLI or Gemini CLI
-talking to it in six commands. This page is the full reference.
-
 ## What you need
 
 | | |
@@ -39,15 +52,13 @@ No GUI toolkit is installed. The bridge's only dependencies are PyMuPDF and the 
 
 ## Install
 
-```bash
-pipx install klarpdf
-```
+The two lines at the top of this page are the whole install. `pipx` puts the bridge in an isolated
+environment and its `klarpdf-mcp` command on your PATH, so nothing else on your machine is touched;
+`uv tool install klarpdf` does the same job. To try it once without installing anything,
+`uvx --from klarpdf klarpdf-mcp --help` runs it straight from the package.
 
-That is the whole thing. `pipx` puts the bridge in an isolated environment and its `klarpdf-mcp`
-command on your PATH, so nothing else on your machine is touched.
-
-Prefer `uv`? `uv tool install klarpdf` does the same job. To try it once without installing
-anything, `uvx --from klarpdf klarpdf-mcp --help` runs it straight from the package.
+The rest of this section is the detail behind that — what you get, what to avoid, and how to work
+from a clone instead.
 
 **Every install gets the exact versions we test and scan.** The published package pins all 29 of
 its dependencies at `==`, rather than declaring floors the way a library would — because this is an
@@ -107,10 +118,10 @@ launched from an icon or a login item inherits a different PATH from your termin
 is a server that simply fails to start with nothing explaining why. The absolute path always works,
 so the examples below use one. Substitute yours:
 
-| Installed with | Typically |
-|---|---|
-| `pipx` / `uv tool` | `~/.local/bin/klarpdf-mcp` — Windows: `%LOCALAPPDATA%\pipx\venvs\klarpdf\Scripts\klarpdf-mcp.exe` |
-| a clone + virtualenv | `/path/to/klarpdf/.venv/bin/klarpdf-mcp` — Windows: `...\.venv\Scripts\klarpdf-mcp.exe` |
+| Installed with | Find it with | Typically |
+|---|---|---|
+| `pipx` / `uv tool` | `which klarpdf-mcp` · Windows: `where klarpdf-mcp` | `~/.local/bin/klarpdf-mcp` on Linux and macOS. On Windows it depends on where your `pipx`/`uv` puts its shims, so read it off rather than assuming |
+| a clone + virtualenv | the same, with the virtualenv active | `/path/to/klarpdf/.venv/bin/klarpdf-mcp` — Windows: `...\.venv\Scripts\klarpdf-mcp.exe` |
 
 ### Claude Code
 
