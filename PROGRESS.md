@@ -4158,6 +4158,25 @@ it on this side of the line.
   — nothing reads it at runtime and the bundle is 239 KiB.
   `packaging/mcp/mcpb/build_mcpb.py`.
 
+- **`test_saving_twice_from_one_model_does_not_stack_revisions` failed once in CI and has not been
+  reproduced** — 2026-09-06, on [#328](https://github.com/utyagi24/klarpdf/pull/328), whose changes
+  are confined to `packaging/mcp/installer/`, the workflows and docs and cannot reach the save path.
+  The assertion is that two saves of the same edits produce files of equal length; it saw
+  `2517 == 2518`. **What is measured so far:** locally the length is **always 2518** — 40 runs of the
+  test, then 100+ direct save-pairs, under both `Asia/Kolkata` and `UTC`, with and without a second
+  boundary between the two saves. So the anomaly is CI's **first** save at 2517, not the second.
+  Test ordering was ruled out: `test_incremental_save.py` sorts before the new `test_installer.py`,
+  so the latter's `monkeypatch` of `sys.platform`/`sys.version_info` (which patches the real module,
+  restored per test) runs afterwards and cannot reach it.
+  **The decision this needs** is whether the assertion is right. The test's own docstring accepts
+  that the two files legitimately differ — an annotation carries a modification date and MuPDF
+  writes a fresh trailer `/ID` — and asserts only that neither grows. If some field in that set can
+  vary in *length* rather than only in content, equal-length is too strong a claim and the check
+  should be "no third `%%EOF`, and the second is not larger". If nothing can, this is a real
+  nondeterminism in the append path and belongs in an issue with a reproduction. Not decided, and
+  deliberately not filed as a bug yet: the repo's rule is that an issue asserts a defect someone can
+  reproduce, and nobody has. `tests/test_incremental_save.py:189`, `PLAN.md` §M116–M117.
+
 - ~~**Nothing we ship has ever been tested on macOS**~~ — **closed 2026-09-05 by M136**, which adds an `installer` CI job running `install.py` for real on `macos-latest` alongside Ubuntu and Windows. The cheap middle the entry itself proposed — one macOS leg on the installer rather than the whole suite — is what shipped, because that is where the claim is actually made. Original entry:
 
 - **Nothing we ship has ever been tested on macOS** — noticed 2026-09-04 while scoping M133–M136.
