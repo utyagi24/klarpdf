@@ -16,6 +16,20 @@
   <a href="https://github.com/sponsors/utyagi24"><img alt="Sponsor" src="https://img.shields.io/badge/sponsor-%E2%99%A5-13B8A6?style=flat-square"></a>
 </p>
 
+<!-- A nav strip standing in for tabs, carrying ONLY what GitHub's real tab row cannot. That row is
+     generated from recognised filenames — README, CODE_OF_CONDUCT.md, CONTRIBUTING.md, LICENSE,
+     SECURITY.md — and cannot be extended or renamed, so the two MCP documents can never appear
+     there. Those five are deliberately absent here: they already have tabs, and repeating them
+     would be noise competing with the links that are the point. The current page is bold and
+     unlinked, the way an active tab reads. tests/test_readme_links.py fails if a target moves. -->
+<table align="center">
+  <tr>
+    <td><b>🏠 The app</b><br><sub>you are here</sub></td>
+    <td><a href="klarpdf/mcp_bridge/QUICKSTART.md">🚀 <b>MCP — quick setup</b></a><br><sub>running in three commands</sub></td>
+    <td><a href="klarpdf/mcp_bridge/README.md">📖 <b>MCP — full reference</b></a><br><sub>19 tools · client config · restricting what it may touch</sub></td>
+  </tr>
+</table>
+
 Local, offline, **native-Windows** PDF viewer + page editor (Python · PySide6 · PyMuPDF) — a
 trustworthy replacement for macOS Preview's view + splice/split workflow on Windows. The source is
 the unit of audit; it ships as a pinned, fully offline Windows installer.
