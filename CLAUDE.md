@@ -124,6 +124,39 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   question with its own rule (**Keep OS-specific code quarantined**, under Gotchas); WSL is a
   development environment, not a third product surface.
 
+- **The thing that verifies the code needs verifying too — break it and watch it fail.** This is
+  already the standard for product code: `test_packaging_layout.py`, `sync_pins.py --check` and
+  `install.py`'s startup check were each confirmed by reverting the fix and reading the failure. The
+  gap is that **test fixtures, CI jobs and runbook steps were held to "it passed"**, which for those
+  three proves nothing — a job can pass because it tests the wrong thing, and a runbook line can be
+  wrong until the day someone follows it. M133–M136 produced four failures of exactly this kind, all
+  caught by CI rather than locally, none of which reached a user but each of which cost a cycle:
+
+  - **A CI job is not done until it has gone red on purpose.** The `installer` job's macOS leg
+    existed to prove `install.py` works at `~/Library/Application Support/…`, whose **space** makes
+    `venv` write a `/bin/sh` exec shebang — and it passed `--install-dir` to a space-free path, so it
+    tested everything except its reason for existing. Break the subject, confirm the job fails, then
+    keep the job.
+  - **No CI job may depend on a published artifact of the version under development.** That leg
+    installed `klarpdf==<baked version>` from an index, which works only while that version is
+    already published — so it could only ever test the *previous* release, and broke on the v0.19.0
+    release PR with `No matching distribution found`. Build the artifact in the job; do not fetch it.
+  - **A test that executes a fixture is POSIX-only until proven otherwise.** Two `tests/test_installer.py`
+    cases wrote `#!/bin/sh` stand-ins and `chmod`'d them; Windows `CreateProcess` cannot run one
+    (`WinError 193`). The local suite is Linux, so it passed. This repo ships on Windows and runs a
+    `windows` job for that reason — a shebang or a `chmod` in a test is a signal to check it.
+  - **A runbook step is not written until it has been executed once.** `RELEASE.md` §3 step 1 said
+    `build_mcpb.py --validate` regenerates `manifest.json`. It does not — that version is set inside
+    `stage()`, which writes the staged copy. The line was wrong from the day it was written and was
+    found by the first person to follow it, mid-release.
+
+  **The common shape, and why it is worth a rule rather than four fixes:** local runs cover one OS at
+  one point in time, and every one of these lived in a context that excludes — a different platform, a
+  different point in the release cycle, a document nobody had run. So a green local suite is grounds
+  to **push**, never grounds to believe a change is correct. That is the same statement as
+  §Gotchas' *"a green Windows + WSL suite does not mean CI is green"*, one level up: it applies to
+  the tests as much as to the code.
+
 ## Gotchas (cost real time if missed)
 - **`insert_pdf` copies pages, not documents.** Everything a PDF keeps at the *catalog* level — the
   accessibility structure tree, `/MarkInfo`, Reader Extensions `/Perms`, the `/Names` tree,

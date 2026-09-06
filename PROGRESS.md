@@ -4186,6 +4186,20 @@ it on this side of the line.
   — nothing reads it at runtime and the bundle is 239 KiB.
   `packaging/mcp/mcpb/build_mcpb.py`.
 
+- ~~**Four CI/verification defects across M133–M136, none of them found locally**~~ — **closed
+  2026-09-06** by a rule in `CLAUDE.md` §How we work: *the thing that verifies the code needs
+  verifying too — break it and watch it fail*. Raised by the owner after a third round of red checks,
+  this time on the release PR: *"I thought we had tested all paths leading to a release. did we not
+  run the failed tests locally first?"* The suite **was** run locally and **was** green before every
+  push — that is the finding rather than the excuse. All four lived in a context a local run
+  structurally excludes: Windows `CreateProcess` (`WinError 193` on `#!/bin/sh` fixtures), a macOS
+  path with a space, a point in the release cycle where the version is not yet published, and a
+  runbook line nobody had executed. The discipline of reverting a fix to watch the guard fail was
+  applied to *product* code every time and not once to test fixtures, CI jobs or runbook prose,
+  whose only evidence was "it passed" — which for a CI job proves that it passed, not that it tests
+  what it claims. Nothing reached a user; each was caught by machinery already in the repo. Nothing
+  carried.
+
 - **The release version is restated in four files and only two of them are generated** —
   found 2026-09-06 while cutting v0.19.0, by `test_the_manifest_version_tracks_the_app_version`
   going red. `klarpdf/version.py` is the source; `packaging/mcp/mcpb/pyproject.toml` and
