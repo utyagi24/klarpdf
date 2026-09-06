@@ -6,13 +6,19 @@ read a document without pulling it whole into context; transform it by splitting
 reordering, rotating, deleting pages, filling forms and annotating; and redact it destructively
 with cross-engine verification.
 
+**Claude Code, on Linux or macOS:**
+
 ```bash
 pipx install klarpdf                                  # or: uv tool install klarpdf
-claude mcp add klarpdf -- ~/.local/bin/klarpdf-mcp    # Claude Code
+claude mcp add klarpdf -- ~/.local/bin/klarpdf-mcp
 ```
 
-That is the whole install. [Quick setup](https://github.com/utyagi24/klarpdf/blob/main/klarpdf/mcp_bridge/QUICKSTART.md)
-does the same for Codex CLI and Gemini CLI; [Claude Desktop](#claude-desktop) takes a bundle instead.
+That is the whole install. **The first line is the same everywhere** — only the path and the client
+command change: on Windows `where klarpdf-mcp` prints the path to use, Codex CLI and Gemini CLI take
+their own `mcp add`, and [Claude Desktop](#claude-desktop) installs a bundle rather than a command.
+[Quick setup](https://github.com/utyagi24/klarpdf/blob/main/klarpdf/mcp_bridge/QUICKSTART.md) has
+each of those combinations written out.
+
 Everything below is the reference — what each tool guarantees, how to restrict what the server may
 touch, and what redaction does and does not promise.
 
@@ -112,10 +118,10 @@ launched from an icon or a login item inherits a different PATH from your termin
 is a server that simply fails to start with nothing explaining why. The absolute path always works,
 so the examples below use one. Substitute yours:
 
-| Installed with | Typically |
-|---|---|
-| `pipx` / `uv tool` | `~/.local/bin/klarpdf-mcp` — Windows: `%LOCALAPPDATA%\pipx\venvs\klarpdf\Scripts\klarpdf-mcp.exe` |
-| a clone + virtualenv | `/path/to/klarpdf/.venv/bin/klarpdf-mcp` — Windows: `...\.venv\Scripts\klarpdf-mcp.exe` |
+| Installed with | Find it with | Typically |
+|---|---|---|
+| `pipx` / `uv tool` | `which klarpdf-mcp` · Windows: `where klarpdf-mcp` | `~/.local/bin/klarpdf-mcp` on Linux and macOS. On Windows it depends on where your `pipx`/`uv` puts its shims, so read it off rather than assuming |
+| a clone + virtualenv | the same, with the virtualenv active | `/path/to/klarpdf/.venv/bin/klarpdf-mcp` — Windows: `...\.venv\Scripts\klarpdf-mcp.exe` |
 
 ### Claude Code
 

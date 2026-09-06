@@ -28,6 +28,10 @@ that bites, the only symptom is a server that fails to start. The absolute path 
 
 ## 3. Add it to your client
 
+Each example below uses the Linux and macOS path. **On Windows, substitute whatever `where
+klarpdf-mcp` printed in step 2** — the client commands themselves are identical, and a path with
+spaces in it needs quoting.
+
 **Claude Code**
 
 ```bash

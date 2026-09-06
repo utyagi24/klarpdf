@@ -2520,7 +2520,14 @@ on the one above it. Every decision, every rejection and every measurement behin
   under the opening paragraph — but carrying **the two commands themselves** rather than a link to
   them, since a pointer to another page is still indirection when the install is one line. `##
   Install` was reframed as the detail behind those two lines rather than a restatement of them, so
-  the command appears once as an instruction. The framing paragraphs (independent of the app, your
+  the command appears once as an instruction. **The block names its combination** — Claude Code on
+  Linux or macOS — rather than reading as universal, because only the `pipx` line is: the path and
+  the client command both change elsewhere, and `QUICKSTART.md` carries each combination. Checking
+  that claim was true found it was not quite: QUICKSTART said how to *find* the path on Windows but
+  showed only the Linux one in its client examples, so step 3 now says to substitute it. The same
+  check retired a Windows `pipx` path this file had stated confidently — it named the *venv*
+  directory rather than the shim on PATH, and an unverifiable path does not belong in a document
+  that ships inside published artifacts, so the table now says which command to read it off with. The framing paragraphs (independent of the app, your
   PDFs stay put, it does not understand your documents) keep their place, now following the
   actionable block instead of gating it.
 
