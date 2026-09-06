@@ -254,7 +254,23 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   spare machine / a fresh local user with networking disabled.
 
 ## Status
-**Current: v0.18.0 shipped** — **the MCP / Agent Bridge (M39–M44)**, the roadmap's last unticked box.
+**Current: v0.19.0 shipped** — **the bridge you can actually install (M133–M136)**. Installing it
+was nine commands and the step that failed was the path; it is now `pipx install klarpdf`, or a
+single downloaded **`install.py`** that needs nothing but a supported Python — no clone, no `uv`, no
+`pipx`, no global `pip`. **`klarpdf` is on PyPI** with all 29 dependencies pinned exactly, so every
+route resolves the audited set rather than whatever is newest; publishing is Trusted Publishing off
+`release: published`, so **no API token exists anywhere** and the existing manual smoke test gates
+PyPI too. Underneath: `packaging/` says which product each file builds (**M133**), and the wheel
+installs **one** top-level name rather than four (**M134**) — `model`, `util` and a plain `version`
+would otherwise collide with anyone else's. **The four milestones each found their defect by doing
+rather than reading**: a directory move repoints every relative path computed from `__file__` and
+none of them contains the string you grep for (M133); a grep that is *wrong* looks exactly like one
+that is clean, so a negative result needs a positive control (M134); and a readme ships *inside* the
+wheel, so it must be true before the upload, not after — the TestPyPI rehearsal caught the project
+page advertising "the bridge is not published to PyPI" (M135). Also shipping: **M137**, the dev lock
+is compiled off Windows, and **pypdf 6.15.0 → 6.17.0** clearing three parse-DoS advisories.
+**1.0 is still deliberately not taken** — the gate is listed in `PROGRESS.md`.
+It supersedes **v0.18.0** — **the MCP / Agent Bridge (M39–M44)**, the roadmap's last unticked box.
 `klarpdf/mcp_bridge/` exposes the core engine to Claude Code, Claude Desktop and other agentic clients as a
 local MCP server: **19 tools**, every write tool leaving its input byte-identical, no network, no Qt.
 It is a **separate, optional component** — the installer is untouched. **M44's verification pass is
