@@ -2543,6 +2543,145 @@ on the one above it. Every decision, every rejection and every measurement behin
   by rewriting one back to its pre-M134 path and watching it fail. Design in `PLAN.md` §M133–M136 —
   *WSL + CI*
 
+- [x] **M136** *(unplanned)* **`install.py` — needs nothing but a Python** — 2026-09-05, the last
+  of the four. Download one file, run it with any supported Python, and a client is talking to the
+  bridge. **No clone, no `uv`, no `pipx`, no global `pip`** — stdlib `venv` creates the environment
+  and its bundled `ensurepip` provides pip offline. Measured end to end: venv, install, both
+  validations, `uninstall.py` written, config printed, **exactly 29 packages at our pins**.
+
+  **It contains no HTTP code at all.** M135 made that possible: it hands pip a package name and lets
+  pip own TLS, proxies, retries and corporate certificates, which is where installers of this kind
+  break. No embedded lock, no release-asset URL, no checksum logic of its own.
+
+  **It needs no stdin, deliberately.** What would be a prompt is a flag (`--reinstall`,
+  `--install-dir`), which makes it scriptable, usable in a Dockerfile, and safe to pipe — and when it
+  *is* piped it says so, because `__file__` is then `'<stdin>'` and there is no file to check against
+  `SHA256SUMS`. Refusing was rejected: it is not enforcement (they would `curl -o` and run it) and it
+  breaks legitimate automation. The embedded `uninstall.py` keeps its prompt; it always runs from disk.
+
+  **The design correction worth recording.** The plan said validation would reuse
+  `tools/mcp_stdio_check.py`. It cannot — that script is not shipped in the wheel, and a downloaded
+  single file has nothing to import it from. Implemented inline instead, and the hand-written version
+  is better: it sends a real JSON-RPC `initialize` and **accepts an error reply as success**, because
+  pinning a protocol version into a shipped installer would break it the next time the MCP SDK moves.
+  What it proves is that the process started, read stdin and answered in JSON-RPC — and it catches
+  what nothing else does, *anything else* writing to stdout, fatal for a stdio server and otherwise
+  invisible until a session dies mid-conversation.
+
+  **Prevention and detection turned out to be different jobs.** Stripping `PIP_TARGET` *prevents* the
+  M136-measured silent failure rather than catching it: a run with `PIP_TARGET` set installed
+  correctly and left the decoy directory empty. Validation is still not redundant, because pip's
+  config files can set `target` as well and those are deliberately not suppressed — doing so would
+  break the corporate mirrors the pass-through exists for.
+
+  **The `installer` CI job runs it for real on Ubuntu, macOS and Windows** — the only honest test of
+  a file whose subject is someone else's machine. It also asserts nothing leaked into the
+  interpreter's own site-packages, that a second run reuses the environment, and that the uninstaller
+  **refuses** a directory that is not ours. **This closes the macOS follow-up from M133**: nothing we
+  ship had ever run on macOS, and `install.py` prints a macOS path that depends on `venv` writing a
+  `/bin/sh` exec shebang for the space in "Application Support" — measured on Linux and assumed for
+  Darwin until now.
+
+  `sync_installer.py` bakes in the version and the Python window, mirroring `sync_pins.py`, because
+  a downloaded file has no repo to read them from — and that would otherwise be the window's fourth
+  hand-maintained copy. `release.yml` stages the file into `dist/`, checksums it into `SHA256SUMS`
+  beside the exes, and re-runs `--check` first; `RELEASE.md` §3 step 1 regenerates it with the bump,
+  so a stale version fails in three places rather than reaching a user. Design in `PLAN.md`
+  §M133–M136 — *WSL + CI*
+
+- [x] **M135** *(unplanned)* **One distribution on PyPI, pinned like the application it is** —
+  2026-09-05. The bridge's whole install story was a clone: nine commands, and the one that fails is
+  the path. `klarpdf` now builds a publishable distribution — **one `py3-none-any` wheel for every
+  OS, architecture and Python**, because we compile nothing and the C and Rust dependencies ship
+  their own per-platform wheels.
+
+  **The metadata was eight lines** and none of what PyPI shows was in it: no readme (the project
+  page would have rendered blank), no licence expression, no classifiers, no project URLs, no
+  author. Worse, `Summary` was *the app's* — "Local, offline, native-Windows PDF viewer + page
+  editor" — describing software this distribution does not contain, and it is the first line a
+  visitor reads. Now: the bridge README as the long description, `AGPL-3.0-or-later` with both
+  licence files travelling alongside, ten classifiers, five project URLs, and a summary about the
+  bridge. One relative link in that README (`](QUICKSTART.md)`) became absolute, because a readme
+  rendered on PyPI has no repository around it; the three in-page anchors are fine.
+
+  **`dependencies` moved from floors to all 29 exact pins, generated.** They become `Requires-Dist`,
+  which is what `pip`, `pipx`, `uvx` and M136's `install.py` all resolve against — floors would hand
+  a `uvx` install and a lock install two different dependency sets from one package, the drift
+  already recorded against `pipx install .`. "Floors, never pins" is a **library's** convention; this
+  is an application, installed by `uvx`/`pipx` into an environment of its own where nothing can
+  conflict. The audited set is now what every route installs, so `pip-audit`'s existing scan of
+  `requirements-mcp.txt` covers users too. `packaging/mcp/pypi/sync_pins.py` writes the block
+  between sentinels and **reads the lock through `build_mcpb.py`'s own `read_pins()`** rather than a
+  second parser, so the bundle and the wheel cannot disagree about what the lock says.
+
+  **The trade, accepted knowingly:** `pip install klarpdf` into a shared environment now conflicts
+  loudly. That is correct for an application and is why the docs will name `uvx`/`pipx`. A two-package
+  residue stays unpinned — `requirements-mcp.txt` is deliberately marker-free, so it structurally
+  cannot name `colorama` or `pywin32`; the same gap the `.mcpb` carries.
+
+  **Publishing hangs off `release: published`, not the tag push** — so the manual smoke test that
+  already gates the GitHub Release gates PyPI too, and `release.yml` needed no change. Trusted
+  Publishing (OIDC), so **no API token exists anywhere**; the workflow filename and the `pypi`
+  environment are both matched by PyPI, which is why renaming either breaks the upload with nothing
+  failing beforehand. Two guards run *before* the upload because a publish cannot be undone — a
+  version number is unusable on PyPI forever, even after deletion: the pins must still match the
+  lock, and the built version must equal the release tag. `twine check` covers the readme rendering.
+  A `workflow_dispatch` leg publishes to **TestPyPI** for a rehearsal.
+
+  **Also:** `MANIFEST.in` stops the sdist carrying the test suite — 129 files, 659 KB against the
+  wheel's 245 KB; now 250 KB. `tests/test_pypi_metadata.py` asserts over **built** metadata rather
+  than a TOML read, for the reason M42 established when a right-looking `pyproject.toml` produced
+  zero `Requires-Dist` and a `klarpdf-mcp` that died on `import mcp`. The staleness guard was
+  verified by deleting a pin and watching `--check` name it.
+
+  **The install docs were deferred and then un-deferred, and the reversal is the useful part.** The
+  original reasoning was that documenting PyPI before publishing would promise a package that did
+  not exist, so `RELEASE.md` §3 step 7 carried it as a first-publish item. **The TestPyPI rehearsal
+  showed that backwards.** The readme ships *inside the wheel*, as that version's `Description`
+  metadata — so the project page for `0.18.0` advertised *"the bridge is not published to PyPI"*
+  and a `git clone`, and no later commit could fix the version already uploaded, nor could the
+  version number be reused to try again. Docs that ride in an artifact must be correct **before**
+  the upload, not after it. `klarpdf/mcp_bridge/README.md`, `QUICKSTART.md` and the root
+  `README.md` now lead with `pipx install klarpdf` / `uv tool install klarpdf`, keep the clone path
+  for contributors, and say plainly that the exact pins make a shared-environment `pip install`
+  conflict on purpose. The eleven client-config examples move from the virtualenv path to
+  `~/.local/bin/klarpdf-mcp`, the one the documented install actually produces; the two that
+  describe the clone route keep theirs. `RELEASE.md` §3 step 7 now says to read the rendered
+  TestPyPI page rather than the markdown in the repo.
+
+  **This is exactly what the rehearsal was for.** Nothing local could have caught it: `twine check`
+  validates that a readme will render, not that it is true, and the file reads correctly in the
+  repo — where the clone path *is* how you install.
+
+  **A third pass, from reading the rendered page rather than the file.** The owner asked whether the
+  Quick setup pointer should come first, and the count says yes: a PyPI visitor met **~20 lines of
+  prose before anything actionable**, with the install command 35 lines down. It now sits directly
+  under the opening paragraph — but carrying **the two commands themselves** rather than a link to
+  them, since a pointer to another page is still indirection when the install is one line. `##
+  Install` was reframed as the detail behind those two lines rather than a restatement of them, so
+  the command appears once as an instruction. **The block names its combination** — Claude Code on
+  Linux or macOS — rather than reading as universal, because only the `pipx` line is: the path and
+  the client command both change elsewhere, and `QUICKSTART.md` carries each combination. Checking
+  that claim was true found it was not quite: QUICKSTART said how to *find* the path on Windows but
+  showed only the Linux one in its client examples, so step 3 now says to substitute it. The same
+  check retired a Windows `pipx` path this file had stated confidently — it named the *venv*
+  directory rather than the shim on PATH, and an unverifiable path does not belong in a document
+  that ships inside published artifacts, so the table now says which command to read it off with. The framing paragraphs (independent of the app, your
+  PDFs stay put, it does not understand your documents) keep their place, now following the
+  actionable block instead of gating it.
+
+  **The rehearsal then found a second one, a level down.** The corrected page's *Quick setup* link
+  is a `blob/main/…` URL, and three shipped artifacts carry one: the bridge README (the wheel's
+  `Description`), `manifest.json` (inside the `.mcpb`) and `pyproject.toml`'s Documentation URL (a
+  PyPI sidebar link). Each names a **repo path**, and M134 moved all three targets — the manifest's
+  was caught by reading, not by any check. Nothing fails when a target moves; the link simply 404s
+  for everyone who installed that version, and published metadata cannot be corrected. `main` rather
+  than a tag stays deliberate, so a reader of an older version still reaches current setup
+  instructions — which is what makes the guard necessary rather than optional.
+  `tests/test_packaging_layout.py` now resolves every such link against the working tree, verified
+  by rewriting one back to its pre-M134 path and watching it fail. Design in `PLAN.md` §M133–M136 —
+  *WSL + CI*
+
 - [ ] **M136** *(unplanned)* **`install.py` — needs nothing but a Python** — a single generated file:
   download it, run it, and a client is talking to the bridge. No clone, no `uv`, no `pipx`, no
   global `pip`. It creates its own venv with stdlib `venv` (`ensurepip` bootstraps pip offline),
@@ -4018,6 +4157,27 @@ it on this side of the line.
   filter `*.md`, which would also cover the next doc someone adds. Not decided. Harmless either way
   — nothing reads it at runtime and the bundle is 239 KiB.
   `packaging/mcp/mcpb/build_mcpb.py`.
+
+- **`test_saving_twice_from_one_model_does_not_stack_revisions` failed once in CI and has not been
+  reproduced** — 2026-09-06, on [#328](https://github.com/utyagi24/klarpdf/pull/328), whose changes
+  are confined to `packaging/mcp/installer/`, the workflows and docs and cannot reach the save path.
+  The assertion is that two saves of the same edits produce files of equal length; it saw
+  `2517 == 2518`. **What is measured so far:** locally the length is **always 2518** — 40 runs of the
+  test, then 100+ direct save-pairs, under both `Asia/Kolkata` and `UTC`, with and without a second
+  boundary between the two saves. So the anomaly is CI's **first** save at 2517, not the second.
+  Test ordering was ruled out: `test_incremental_save.py` sorts before the new `test_installer.py`,
+  so the latter's `monkeypatch` of `sys.platform`/`sys.version_info` (which patches the real module,
+  restored per test) runs afterwards and cannot reach it.
+  **The decision this needs** is whether the assertion is right. The test's own docstring accepts
+  that the two files legitimately differ — an annotation carries a modification date and MuPDF
+  writes a fresh trailer `/ID` — and asserts only that neither grows. If some field in that set can
+  vary in *length* rather than only in content, equal-length is too strong a claim and the check
+  should be "no third `%%EOF`, and the second is not larger". If nothing can, this is a real
+  nondeterminism in the append path and belongs in an issue with a reproduction. Not decided, and
+  deliberately not filed as a bug yet: the repo's rule is that an issue asserts a defect someone can
+  reproduce, and nobody has. `tests/test_incremental_save.py:189`, `PLAN.md` §M116–M117.
+
+- ~~**Nothing we ship has ever been tested on macOS**~~ — **closed 2026-09-05 by M136**, which adds an `installer` CI job running `install.py` for real on `macos-latest` alongside Ubuntu and Windows. The cheap middle the entry itself proposed — one macOS leg on the installer rather than the whole suite — is what shipped, because that is where the claim is actually made. Original entry:
 
 - **Nothing we ship has ever been tested on macOS** — noticed 2026-09-04 while scoping M133–M136.
   There is **no macOS runner anywhere in `.github/workflows/`**: the bridge's coverage is `bridge`

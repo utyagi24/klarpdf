@@ -6093,7 +6093,7 @@ version and never spells the bound the other two use.
 | **M133** `packaging/` bifurcates into `app/` and `mcp/` | `packaging/{app,mcp}/`, 108 textual references + 17 computed paths | WSL (+ Windows build) | `build_mcpb.py --validate` and the suite pass. **Not** "pure moves" — see below. `invoke build` on Windows is the only check of the PowerShell/Inno/spec root computations |
 | **M134** One top-level name: everything moves under `klarpdf/` | `klarpdf/` holding `mcp_bridge`, `model`, `util`, `version.py`; 390 imports, 14 config/string sites, 3 CI path filters, 232 doc references | WSL | Suite green; a built wheel installs exactly one top-level name, and the console script runs from a real install of it |
 | **M135** Publish one distribution to PyPI | `pyproject.toml` metadata + generated pins, `packaging/mcp/pypi/sync_pins.py`, `.github/workflows/publish-pypi.yml`, `MANIFEST.in`, `tests/test_pypi_metadata.py` | WSL + CI | Built metadata carries all 29 pins, five project URLs, the AGPL expression and a renderable readme; the publish fires on `release: published`, after the existing smoke test |
-| **M136** `install.py` — a bootstrap needing nothing but a supported Python | `packaging/mcp/installer/`, `tests/`, `.github/workflows/test.yml` | WSL + CI | Download, run, and a client is talking to the bridge; no clone, no `uv`, no `pipx`, no global `pip` |
+| **M136** `install.py` — a bootstrap needing nothing but a supported Python | `packaging/mcp/installer/{install.py,sync_installer.py}`, `tests/test_installer.py`, an `installer` CI job on three OSes, `release.yml` staging + checksumming it | WSL + CI | Download, run, and a client is talking to the bridge; no clone, no `uv`, no `pipx`, no global `pip`, nothing written outside one directory |
 
 **What is wrong today.** The bridge's install story is nine commands — clone, check out a tag, make
 a virtualenv, activate it, two `pip` lines, `which`, then the client's own `mcp add`. Every one of
@@ -6246,6 +6246,24 @@ its own venv, and the bridge has no QSettings so not even the settings directory
 core fix present on one surface and absent on the other is exactly the divergence `CLAUDE.md`'s
 *two consumers share one core* rule exists to catch. Lockstep numbering makes the skew visible; it
 cannot prevent it.
+
+**M136's one correction to its own design.** The plan said validation would reuse
+`tools/mcp_stdio_check.py`. It cannot: that script lives in `tools/`, is not shipped in the wheel,
+and `install.py` runs as a downloaded single file with nothing to import it from. So the check is
+implemented inline — and doing it by hand made it *better* than the reuse would have been. It sends
+one real JSON-RPC `initialize` and requires a well-formed JSON-RPC answer on stdout, but
+deliberately **accepts an error reply as success**: pinning a protocol version into a shipped
+installer would break it the next time the MCP SDK moves, and what matters is that the process
+started, read stdin and spoke the protocol. It also catches something nothing else does — *anything
+else* writing to stdout, which for a stdio server is fatal and otherwise invisible until a client
+session dies mid-conversation.
+
+The environment split earns its place twice over, and the second is the interesting one. Stripping
+`PIP_TARGET` **prevents** the silent failure rather than detecting it: a run with `PIP_TARGET` set
+installed correctly and left the decoy directory empty. Validation is still not redundant, because
+pip's config files can set `target` too and those are deliberately not suppressed — suppressing them
+would break the corporate mirrors the pass-through exists for. Prevention and detection cover
+different halves of the same hazard.
 
 **The generalisable part.** The install path is the one part of a product that is never exercised by
 the people who build it — a maintainer always has the clone, the venv and the tooling already. Every
