@@ -138,9 +138,17 @@ def test_a_missing_entry_point_is_reported_with_the_cause_named(installer, tmp_p
         installer.validate(tmp_path, verbose=False)
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="the stand-in server is a /bin/sh script")
 def test_output_that_is_not_json_rpc_on_stdout_fails_validation(installer, tmp_path, monkeypatch):
     """A stray print to stdout corrupts every client session, and is otherwise invisible until one
-    dies mid-conversation. The handshake is what makes it visible at install time."""
+    dies mid-conversation. The handshake is what makes it visible at install time.
+
+    Skipped on Windows because the stand-in server here is a shell script, and `CreateProcess`
+    cannot run one (`WinError 193`). What is under test — how `validate` reads a subprocess's
+    stdout — has no platform-specific branch, and the Windows path is covered for real by the
+    `installer (windows-latest)` CI job, which installs the actual package and completes a real
+    handshake. This is where a fake is cheap and a real install is not.
+    """
     monkeypatch.setattr(installer.sys, "platform", "linux")
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -151,10 +159,11 @@ def test_output_that_is_not_json_rpc_on_stdout_fails_validation(installer, tmp_p
         installer.validate(tmp_path, verbose=False)
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="the stand-in server is a /bin/sh script")
 def test_a_json_rpc_error_reply_still_counts_as_alive(installer, tmp_path, monkeypatch):
     """Deliberate: pinning a protocol version into a shipped installer would break it the next time
     the MCP SDK moves. What matters is that the process started, read stdin and answered in
-    JSON-RPC."""
+    JSON-RPC. Skipped on Windows for the same reason as the test above."""
     monkeypatch.setattr(installer.sys, "platform", "linux")
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()

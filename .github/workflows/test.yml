@@ -493,6 +493,13 @@ jobs:
               "POSIX symlink semantics",
               "off-Windows it must be an inert no-op",
               "Poppler pdftotext not installed",
+              # M136. Two tests in tests/test_installer.py stand a shell script in for the server to
+              # check how `validate` reads its stdout. CreateProcess cannot run one (WinError 193),
+              # and the logic under test has no platform branch. Allowed rather than fixed because
+              # the Windows path is covered for real by the `installer (windows-latest)` job, which
+              # installs the actual package and completes a real handshake -- a better test than a
+              # fake, and the reason a fake is acceptable everywhere else.
+              "the stand-in server is a /bin/sh script",
           }
 
           root = ET.parse("junit.xml").getroot()
