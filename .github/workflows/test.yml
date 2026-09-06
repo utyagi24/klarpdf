@@ -560,10 +560,13 @@ jobs:
   # whole thing on a runner with no clone of the package and no `uv` or `pipx` — which is the
   # machine the file exists for.
   #
-  # It installs from TestPyPI because that is where `klarpdf` currently lives; PyPI supplies the
-  # dependencies (PIP_EXTRA_INDEX_URL, which reaches pip only because install.py's environment
-  # pass-through works — so this leg tests that too). After the first real publish, drop both index
-  # settings and it becomes a plain `python install.py`.
+  # It installs the wheel built HERE, not one from an index. The first version of this leg pulled
+  # from TestPyPI, which worked only while the baked-in version happened to be published — so it
+  # broke the moment v0.19.0 was cut, on the release PR, with `No matching distribution found`. The
+  # version under development is never on an index yet; a leg that requires one can only ever test
+  # the previous release. Building the wheel removes that dependency and tests the artifact actually
+  # about to ship. `PIP_FIND_LINKS` reaches pip only because install.py passes the environment
+  # through — so this exercises that too, and the dependencies still come from real PyPI.
   #
   # macOS is here deliberately. Nothing else in this repo runs on it, yet install.py prints a macOS
   # path and relies on `venv` writing a /bin/sh exec shebang for the space in "Application Support"
@@ -585,13 +588,17 @@ jobs:
       - name: The baked-in constants must match the repo
         run: python packaging/mcp/installer/sync_installer.py --check
 
+      - name: Build the wheel this installer will install
+        run: |
+          pip install build
+          python -m build --wheel
+
       - name: Install, for real, into a directory of its own
         shell: bash
         env:
-          PIP_EXTRA_INDEX_URL: https://pypi.org/simple/
+          PIP_FIND_LINKS: ${{ github.workspace }}/dist
         run: |
           python packaging/mcp/installer/install.py \
-            --index-url https://test.pypi.org/simple/ \
             --install-dir "$RUNNER_TEMP/Application Support/klarpdf-mcp" --verbose
 
       # The install directory deliberately contains a space, because the macOS default
@@ -636,10 +643,9 @@ jobs:
       - name: Re-running is safe, and the uninstaller refuses a directory that is not ours
         shell: bash
         env:
-          PIP_EXTRA_INDEX_URL: https://pypi.org/simple/
+          PIP_FIND_LINKS: ${{ github.workspace }}/dist
         run: |
           python packaging/mcp/installer/install.py \
-            --index-url https://test.pypi.org/simple/ \
             --install-dir "$RUNNER_TEMP/Application Support/klarpdf-mcp" | grep -q "reusing the existing environment"
           mkdir -p "$RUNNER_TEMP/not-ours"
           cp "$RUNNER_TEMP/Application Support/klarpdf-mcp/uninstall.py" "$RUNNER_TEMP/not-ours/"

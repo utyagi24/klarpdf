@@ -2595,7 +2595,15 @@ on the one above it. Every decision, every rejection and every measurement behin
   break the corporate mirrors the pass-through exists for.
 
   **The `installer` CI job runs it for real on Ubuntu, macOS and Windows** — the only honest test of
-  a file whose subject is someone else's machine. It also asserts nothing leaked into the
+  a file whose subject is someone else's machine. It **builds the wheel and installs that**, which
+  it did not at first: the original leg pulled from TestPyPI, and that worked only while the
+  baked-in version happened to be published there. It broke the moment **v0.19.0** was cut — on the
+  release PR, with `No matching distribution found`, on all three platforms at once. The version
+  under development is never on an index yet, so a leg that requires one can only ever test the
+  *previous* release, and would have failed at every future release for the same reason. Building
+  the wheel removes the dependency and tests the artifact actually about to ship;
+  `PIP_FIND_LINKS` reaches pip only because install.py passes the environment through, so the
+  pass-through is exercised on the way past. It also asserts nothing leaked into the
   interpreter's own site-packages, that a second run reuses the environment, and that the uninstaller
   **refuses** a directory that is not ours. **This closes the macOS follow-up from M133**: nothing we
   ship had ever run on macOS, and `install.py` prints a macOS path that depends on `venv` writing a
