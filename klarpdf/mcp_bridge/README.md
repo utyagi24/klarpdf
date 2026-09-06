@@ -6,6 +6,16 @@ read a document without pulling it whole into context; transform it by splitting
 reordering, rotating, deleting pages, filling forms and annotating; and redact it destructively
 with cross-engine verification.
 
+```bash
+pipx install klarpdf                                  # or: uv tool install klarpdf
+claude mcp add klarpdf -- ~/.local/bin/klarpdf-mcp    # Claude Code
+```
+
+That is the whole install. [Quick setup](https://github.com/utyagi24/klarpdf/blob/main/klarpdf/mcp_bridge/QUICKSTART.md)
+does the same for Codex CLI and Gemini CLI; [Claude Desktop](#claude-desktop) takes a bundle instead.
+Everything below is the reference — what each tool guarantees, how to restrict what the server may
+touch, and what redaction does and does not promise.
+
 **It is independent of the KlarPDF app** and needs no GUI components. It runs on macOS, Linux and
 Windows.
 
@@ -22,9 +32,6 @@ text rather than meaning, `extract_text` returns what is on the page rather than
 clause means, which name matters, or what ought to be removed is the model's job — this server's job
 is to hand it accurate material and then do exactly what it is told.
 
-**Just want it running?** [Quick setup](https://github.com/utyagi24/klarpdf/blob/main/klarpdf/mcp_bridge/QUICKSTART.md) gets Claude Code, Codex CLI or Gemini CLI
-talking to it in six commands. This page is the full reference.
-
 ## What you need
 
 | | |
@@ -39,15 +46,13 @@ No GUI toolkit is installed. The bridge's only dependencies are PyMuPDF and the 
 
 ## Install
 
-```bash
-pipx install klarpdf
-```
+The two lines at the top of this page are the whole install. `pipx` puts the bridge in an isolated
+environment and its `klarpdf-mcp` command on your PATH, so nothing else on your machine is touched;
+`uv tool install klarpdf` does the same job. To try it once without installing anything,
+`uvx --from klarpdf klarpdf-mcp --help` runs it straight from the package.
 
-That is the whole thing. `pipx` puts the bridge in an isolated environment and its `klarpdf-mcp`
-command on your PATH, so nothing else on your machine is touched.
-
-Prefer `uv`? `uv tool install klarpdf` does the same job. To try it once without installing
-anything, `uvx --from klarpdf klarpdf-mcp --help` runs it straight from the package.
+The rest of this section is the detail behind that — what you get, what to avoid, and how to work
+from a clone instead.
 
 **Every install gets the exact versions we test and scan.** The published package pins all 29 of
 its dependencies at `==`, rather than declaring floors the way a library would — because this is an

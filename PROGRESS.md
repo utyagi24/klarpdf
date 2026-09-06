@@ -2514,6 +2514,16 @@ on the one above it. Every decision, every rejection and every measurement behin
   validates that a readme will render, not that it is true, and the file reads correctly in the
   repo — where the clone path *is* how you install.
 
+  **A third pass, from reading the rendered page rather than the file.** The owner asked whether the
+  Quick setup pointer should come first, and the count says yes: a PyPI visitor met **~20 lines of
+  prose before anything actionable**, with the install command 35 lines down. It now sits directly
+  under the opening paragraph — but carrying **the two commands themselves** rather than a link to
+  them, since a pointer to another page is still indirection when the install is one line. `##
+  Install` was reframed as the detail behind those two lines rather than a restatement of them, so
+  the command appears once as an instruction. The framing paragraphs (independent of the app, your
+  PDFs stay put, it does not understand your documents) keep their place, now following the
+  actionable block instead of gating it.
+
   **The rehearsal then found a second one, a level down.** The corrected page's *Quick setup* link
   is a `blob/main/…` URL, and three shipped artifacts carry one: the bridge README (the wheel's
   `Description`), `manifest.json` (inside the `.mcpb`) and `pyproject.toml`'s Documentation URL (a
