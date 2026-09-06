@@ -38,6 +38,9 @@ spaces in it needs quoting.
 claude mcp add klarpdf -- ~/.local/bin/klarpdf-mcp
 ```
 
+That default is `--scope local` — this directory only. Add `--scope user` to have it in every Claude
+Code session instead; see [scopes](README.md#claude-code) in the full guide.
+
 **Codex CLI**
 
 ```bash
