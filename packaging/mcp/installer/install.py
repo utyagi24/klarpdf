@@ -39,7 +39,7 @@ import venv
 from pathlib import Path
 
 # BEGIN GENERATED — packaging/mcp/installer/sync_installer.py, from klarpdf/version.py + pyproject.toml
-KLARPDF_VERSION = "0.18.0"
+KLARPDF_VERSION = "0.19.0"
 PYTHON_MIN = (3, 11)
 PYTHON_MAX = (3, 14)
 # END GENERATED

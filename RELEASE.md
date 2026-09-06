@@ -219,11 +219,18 @@ When it finally returns `true`, delete this block — its whole subject is gone 
    (`packaging/app/installer.iss`), and the `v<version>` git tag. SemVer: **patch** = fixes / dependency
    bumps only; **minor** = features; **major** = breaking.
 
-   Then regenerate the two files that restate it, in the same commit:
+   **Three other files restate that number**, and only two of them are generated. In the same commit:
    ```sh
-   python packaging/mcp/mcpb/build_mcpb.py --validate      # manifest.json + the bundle pyproject
-   python packaging/mcp/installer/sync_installer.py        # install.py's baked-in version
+   # 1. by hand — packaging/mcp/mcpb/manifest.json  "version": "X.Y.Z"
+   python packaging/mcp/mcpb/build_mcpb.py --validate      # 2. the bundle's generated pyproject
+   python packaging/mcp/installer/sync_installer.py        # 3. install.py's baked-in version
    ```
+   > **`--validate` does not touch the committed manifest**, despite regenerating the pyproject
+   > beside it. `build_mcpb.py` sets `manifest["version"]` inside `stage()`, which writes the
+   > *staged* copy under `dist/` at pack time; the committed file is an input and is edited by hand.
+   > This line claimed otherwise when M136 wrote it, and the v0.19.0 release found out the usual
+   > way: `test_the_manifest_version_tracks_the_app_version` went red. Consolidating the four
+   > restatements into one command is an open follow-up.
    > `install.py` is downloaded and run on a machine with no clone, so it cannot read
    > `klarpdf/version.py` — it carries the version as a literal. Forgetting this ships an installer
    > that pins the **previous** release, silently. `tests/test_installer.py` and the `installer` CI

@@ -29,18 +29,14 @@ the unit of audit; it ships as a pinned, fully offline Windows installer.
 <p align="center"><sub>The real app, captured from a real build — and it follows the Windows theme, so
 this screenshot follows your GitHub one.</sub></p>
 
-**Status: `v0.18.0` shipped** — [download the installer or portable exe](https://github.com/utyagi24/klarpdf/releases/latest).
-**New in v0.18.0 — the MCP / Agent Bridge:** the same PDF engine the app uses is now available to
-**Claude Code, Claude Desktop** and other agentic clients as a local MCP server — **19 tools** to
-read a document without pulling it whole into context, transform it losslessly to a new file, mark it
-up, and **verifiably redact** it with cross-engine leak checking. Every write tool takes an explicit
-output path and leaves its input **byte-identical**, and the server makes **no network connections**.
-It is a **separate, optional component**: the installer is unchanged — same size, same offline
-hash-verified build — and nobody installing the app gets any of it. See
-[Use it from an agent](#use-it-from-an-agent-mcp).
-Alongside it, in the app: adding a highlight now **appends ~1.8 KB instead of rewriting the whole
-file**, saves on object-heavy documents drop from minutes to about **two seconds**, and a rectangle
-or ellipse no longer **changes size every time you save**.
+**Status: `v0.19.0` shipped** — [download the installer or portable exe](https://github.com/utyagi24/klarpdf/releases/latest).
+**New in v0.19.0 — the bridge you can actually install:** the MCP bridge is published on **PyPI**,
+so `pipx install klarpdf` (or `uv tool install klarpdf`) replaces the nine-command clone-and-build it
+took before — and for a machine with neither, a single downloadable **`install.py`** needs nothing
+but a supported Python. All 29 dependencies are pinned exactly in the published package, so an
+install gets the set our CI tests and our weekly audit scans. **The Windows app is unchanged**: same
+installer, same size, same offline hash-verified build, and nobody installing it gets any of this.
+See [Use it from an agent](#use-it-from-an-agent-mcp).
 Full release notes live on
 [GitHub Releases](https://github.com/utyagi24/klarpdf/releases); live status — milestones
 (**M0–M44 + R1–R6 complete**), per-release notes, open follow-ups — in [PROGRESS.md](PROGRESS.md).
