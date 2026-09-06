@@ -151,6 +151,29 @@ Install first (above), then:
 claude mcp add klarpdf -- ~/.local/bin/klarpdf-mcp
 ```
 
+**That registers it for the current directory only.** `claude mcp add` defaults to `--scope local`,
+which is almost never what you want for this server: the bridge works on any PDF anywhere, while a
+local-scope entry follows you into exactly one project. Three scopes are available:
+
+| `--scope` | Stored in | Applies to |
+|---|---|---|
+| `local` *(default)* | `~/.claude.json`, under the current directory | you, in that one directory |
+| `user` | `~/.claude.json`, at the top level | you, in **every** directory |
+| `project` | `.mcp.json` committed in the repo | anyone who clones it |
+
+For a `pipx` or `uv tool` install — where the command is already on your PATH everywhere — add it
+once for your whole account instead:
+
+```bash
+claude mcp add --scope user klarpdf -- ~/.local/bin/klarpdf-mcp
+```
+
+**When the same name exists in more than one scope, the narrowest wins: `local` beats `project`,
+which beats `user`.** That matters here because the three usually point at *different binaries* — a
+working tree's virtualenv, whatever is on PATH, and the installed tool — so "the server is broken"
+can mean three different programs depending on where you launched from. `claude mcp get klarpdf`
+names the scope and the exact command it resolved; `claude mcp list` warns when scopes conflict.
+
 **If you run Claude Code from inside this repo, skip that command.** A `.mcp.json` at the repo root
 already describes the server, and Claude Code offers it when you start here — approve the prompt and
 you are configured. (It is offered rather than switched on silently, which is why checking it in is
