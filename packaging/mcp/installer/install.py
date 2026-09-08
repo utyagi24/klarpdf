@@ -325,12 +325,15 @@ KlarPDF MCP {version} is installed.
         print(f"""Add it to your client — the command is the whole configuration; there is no URL,
 port or token, because this server speaks stdio and makes no network connections.
 
-  Claude Code   claude mcp add klarpdf -- {quoted}
+  Claude Code   claude mcp add --scope user klarpdf -- {quoted}
   Codex CLI     codex mcp add klarpdf -- {quoted}
-  Gemini CLI    gemini mcp add klarpdf {quoted}
+  Gemini CLI    gemini mcp add klarpdf {quoted} --scope user
 
   Claude Desktop and anything else using an `mcpServers` block:
     {{"mcpServers": {{"klarpdf": {{"command": {json.dumps(str(script))}}}}}}}
+
+`--scope user` registers it for every directory; Claude Code and Gemini CLI both
+default to the one you run them in. Codex CLI has no scope — it is always global.
 """)
     print(f"""Two switches narrow what it may do — `--read-only`, and `--allow-root DIR` to confine
 it to one directory tree. Pass them as `args` beside the command. Full reference:

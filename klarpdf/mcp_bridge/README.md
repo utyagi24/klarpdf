@@ -10,12 +10,15 @@ with cross-engine verification.
 
 ```bash
 pipx install klarpdf                                  # or: uv tool install klarpdf
-claude mcp add klarpdf -- ~/.local/bin/klarpdf-mcp
+claude mcp add --scope user klarpdf -- ~/.local/bin/klarpdf-mcp
 ```
 
-That is the whole install. **The first line is the same everywhere** — only the path and the client
-command change: on Windows `where klarpdf-mcp` prints the path to use, Codex CLI and Gemini CLI take
-their own `mcp add`, and [Claude Desktop](#claude-desktop) installs a bundle rather than a command.
+That is the whole install. **`--scope user` is the part worth not dropping** — without it
+`claude mcp add` registers the server for the current directory alone
+([scopes](#claude-code)). **The first line is the same everywhere** — only the path and the client
+command change: on Windows `where klarpdf-mcp` prints the path to use (and if it prints nothing, see
+[PATH](#if-those-say-command-not-found)), Codex CLI and Gemini CLI take their own `mcp add`, and
+[Claude Desktop](#claude-desktop) installs a bundle rather than a command.
 [Quick setup](https://github.com/utyagi24/klarpdf/blob/main/klarpdf/mcp_bridge/QUICKSTART.md) has
 each of those combinations written out.
 
@@ -79,6 +82,43 @@ which klarpdf-mcp        # Windows: where klarpdf-mcp
 # -> ~/.local/bin/klarpdf-mcp
 ```
 
+### If those say `command not found`
+
+Then the install worked and its `bin` directory is not on your PATH — the most common thing to go
+wrong here, and not really about this package. `pipx` and `uv tool` install into a directory of
+their own (`~/.local/bin` on Linux and macOS), and **putting that directory on your PATH is a
+separate, one-time step**. Both tools warn you when it is missing, in the middle of the install
+output where it scrolls past:
+
+> `/home/you/.local/bin` is not on your PATH. To use installed tools, run `uv tool update-shell` or
+> add the directory to your PATH.
+
+```bash
+uv tool update-shell        # pipx: pipx ensurepath
+```
+
+**Then start something new — the session you ran it in will never see it.** These commands edit your
+shell profile (Linux, macOS) or your user `PATH` variable (Windows), and a process keeps the
+environment it was started with. pipx puts it plainly: *"You will need to open a new terminal or
+re-login for the PATH changes to take effect."* Which means, concretely:
+
+| What | What to do about it |
+|---|---|
+| **The terminal you installed from** | Open a new one. On Linux and macOS, `source ~/.bashrc` — or whichever file your shell reads — updates the current one instead. Windows has no equivalent: open a new terminal. |
+| **A client that is already running** | Quit and reopen it. Claude Desktop, your editor, a `claude` session you started earlier — each holds the PATH it was launched with, and opening a new terminal does not restart them. |
+| **Windows specifically** | `update-shell` sets the variable for *new* processes. Anything started from an icon or a login item before that keeps the old value; signing out and back in is the blunt fix that always works. |
+
+**None of this is required to run the bridge.** PATH is a convenience for typing `klarpdf-mcp`
+yourself. Every client below is given an **absolute path**, which works whether or not PATH knows
+about it — and you can read that path off without PATH at all:
+
+```bash
+uv tool dir --bin                         # -> /home/you/.local/bin
+pipx environment --value PIPX_BIN_DIR     # the pipx equivalent
+```
+
+`klarpdf-mcp` is inside whichever directory that prints — `klarpdf-mcp.exe` on Windows.
+
 ### With neither `pipx` nor `uv`
 
 Download **`install.py`** from the [latest release](https://github.com/utyagi24/klarpdf/releases/latest)
@@ -94,7 +134,9 @@ python3 install.py                                # Windows: py -3 install.py
 It makes a virtual environment of its own, installs into it, proves the server starts, and prints
 the exact line your client needs — then writes an `uninstall.py` beside it. It touches nothing else:
 not your PATH, not your shell profile, not your system Python. `--client claude-code` also registers
-the server for you, using that client's own CLI; `--help` lists the rest.
+the server for you, using that client's own CLI — at that client's **default scope**, which for
+Claude Code means the current directory only; re-add it with `--scope user` (below) if you want it
+everywhere. `--help` lists the rest.
 
 The checksum step is worth the two extra lines. `curl … | python3 -` works and the file says so when
 you do it, but there is then no file to verify.
@@ -132,15 +174,16 @@ over a network, and this one does not. Your client starts `klarpdf-mcp` as a sub
 talk over its stdin and stdout. (Two optional switches can restrict what it is allowed to do — see
 [Limiting what the server can do](#limiting-what-the-server-can-do).)
 
-**Use the full path that `which klarpdf-mcp` printed.** A `pipx` or `uv tool` install already puts
-`klarpdf-mcp` on your PATH, so the bare name often works — but *often* is the problem: a client
+**Use the full path that `which klarpdf-mcp` printed.** Once its bin directory is
+[on your PATH](#if-those-say-command-not-found), `klarpdf-mcp` resolves by name and the bare name
+often works — but *often* is the problem: a client
 launched from an icon or a login item inherits a different PATH from your terminal, and the symptom
 is a server that simply fails to start with nothing explaining why. The absolute path always works,
 so the examples below use one. Substitute yours:
 
 | Installed with | Find it with | Typically |
 |---|---|---|
-| `pipx` / `uv tool` | `which klarpdf-mcp` · Windows: `where klarpdf-mcp` | `~/.local/bin/klarpdf-mcp` on Linux and macOS. On Windows it depends on where your `pipx`/`uv` puts its shims, so read it off rather than assuming |
+| `pipx` / `uv tool` | `which klarpdf-mcp` · Windows: `where klarpdf-mcp`. Prints nothing? It is not on your PATH — `uv tool dir --bin` or `pipx environment --value PIPX_BIN_DIR` names the directory regardless | `~/.local/bin/klarpdf-mcp` on Linux and macOS. On Windows it depends on where your `pipx`/`uv` puts its shims, so read it off rather than assuming |
 | a clone + virtualenv | the same, with the virtualenv active | `/path/to/klarpdf/.venv/bin/klarpdf-mcp` — Windows: `...\.venv\Scripts\klarpdf-mcp.exe` |
 
 ### Claude Code
@@ -148,12 +191,14 @@ so the examples below use one. Substitute yours:
 Install first (above), then:
 
 ```bash
-claude mcp add klarpdf -- ~/.local/bin/klarpdf-mcp
+claude mcp add --scope user klarpdf -- ~/.local/bin/klarpdf-mcp
 ```
 
-**That registers it for the current directory only.** `claude mcp add` defaults to `--scope local`,
-which is almost never what you want for this server: the bridge works on any PDF anywhere, while a
-local-scope entry follows you into exactly one project. Three scopes are available:
+**`--scope user` is doing real work there.** Drop it and `claude mcp add` falls back to its default,
+`--scope local` — the current directory alone, which is almost never what you want from this
+server: the bridge works on any PDF anywhere, while a local-scope entry follows you into exactly one
+project. A `pipx` or `uv tool` install is one command at one absolute path, good from any directory,
+so register it once for the whole account. Three scopes are available:
 
 | `--scope` | Stored in | Applies to |
 |---|---|---|
@@ -161,10 +206,24 @@ local-scope entry follows you into exactly one project. Three scopes are availab
 | `user` | `~/.claude.json`, at the top level | you, in **every** directory |
 | `project` | `.mcp.json` committed in the repo | anyone who clones it |
 
-For a `pipx` or `uv tool` install — where the command is already on your PATH everywhere — add it
-once for your whole account instead:
+**Read the line as three parts, and the order matters.** Flags for `claude` come **first**
+(`--scope user`); then the **name** the server appears under in `/mcp` (`klarpdf`); then `--`, after
+which everything is the **command Claude Code will run**. The `--` is what keeps the two apart — a
+flag written after it is handed to `klarpdf-mcp`, so `claude mcp add klarpdf --scope user -- …` does
+not set a scope, it passes `--scope user` to a server that has no such option.
+
+The same line on Windows, with the path `where klarpdf-mcp` printed, quoted because it can contain
+spaces:
+
+```bat
+claude mcp add --scope user klarpdf -- "C:\Users\you\.local\bin\klarpdf-mcp.exe"
+```
+
+**Already added it at the wrong scope?** There is no move — remove and re-add. `claude mcp remove`
+takes it out of whichever scope holds it (pass `--scope` to name one, when it is in more than one):
 
 ```bash
+claude mcp remove klarpdf
 claude mcp add --scope user klarpdf -- ~/.local/bin/klarpdf-mcp
 ```
 
@@ -227,7 +286,8 @@ sees. If that residual risk isn't acceptable, use Option B.
 codex mcp add klarpdf -- ~/.local/bin/klarpdf-mcp
 ```
 
-Or write it into `~/.codex/config.toml` yourself:
+There is no scope to choose here: `codex mcp add` writes `~/.codex/config.toml`, which applies
+everywhere. Or write it into that file yourself:
 
 ```toml
 [mcp_servers.klarpdf]
@@ -237,11 +297,13 @@ command = "~/.local/bin/klarpdf-mcp"
 ### Gemini CLI
 
 ```bash
-gemini mcp add klarpdf ~/.local/bin/klarpdf-mcp
+gemini mcp add klarpdf ~/.local/bin/klarpdf-mcp --scope user
 ```
 
-Or edit `~/.gemini/settings.json` (or `.gemini/settings.json` for a single project), which uses the
-same `mcpServers` block Claude Desktop does:
+**Gemini takes the flag after the command, where Claude Code takes it before the name** — and its
+default is `--scope project`, meaning the `.gemini/settings.json` of the directory you run it in.
+`--scope user` writes `~/.gemini/settings.json`, which is the one that applies everywhere. Or edit
+either file yourself; both use the same `mcpServers` block Claude Desktop does:
 
 ```json
 {
