@@ -4,16 +4,18 @@ Use this quick setup guide for configuring KlarPDF MCP in your Claude Code, Code
 environments. For setting up Claude Desktop, and for a more detailed explanation of the interface
 the MCP server offers, refer to the [full guide](README.md).
 
-Needs Python 3.11–3.14 and [`pipx`](https://pipx.pypa.io) (or [`uv`](https://docs.astral.sh/uv/)).
+Needs [`uv`](https://docs.astral.sh/uv/), and Python 3.11–3.14 — which `uv` will fetch for you if
+you have none that fits. [`pipx`](https://pipx.pypa.io) works just as well if you already have it
+and a suitable Python; every command below names its `pipx` equivalent.
 
 ## 1. Install
 
 ```bash
-pipx install klarpdf
+uv tool install klarpdf        # pipx: pipx install klarpdf
 ```
 
-With `uv` instead: `uv tool install klarpdf`. Either way the bridge lands in an environment of its
-own, at the exact 29 dependency versions we test and scan.
+Either way the bridge lands in an environment of its own, at the exact 29 dependency versions we
+test and scan.
 
 ### Then put that install's `bin` directory on your PATH
 
@@ -29,7 +31,7 @@ uv tool update-shell        # pipx: pipx ensurepath
 
 **That will never affect the session you are in.** It edits your shell profile (Linux, macOS) or
 your user `PATH` variable (Windows), and a process keeps whatever environment it was started with —
-which pipx says in as many words: *"You will need to open a new terminal or re-login for the PATH
+which `pipx` says in as many words: *"You will need to open a new terminal or re-login for the PATH
 changes to take effect."* So:
 
 - **Open a new terminal** before step 2. On Linux and macOS, `source ~/.bashrc` in the current one
@@ -51,8 +53,8 @@ which klarpdf-mcp        # Windows: where klarpdf-mcp
 finish. Ask the installer where it put the command instead:
 
 ```bash
-uv tool dir --bin                         # -> /home/you/.local/bin
-pipx environment --value PIPX_BIN_DIR     # the pipx equivalent
+uv tool dir --bin                            # -> /home/you/.local/bin
+# pipx: pipx environment --value PIPX_BIN_DIR
 ```
 
 `klarpdf-mcp` is inside whichever directory that prints (`klarpdf-mcp.exe` on Windows).

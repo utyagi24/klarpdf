@@ -284,7 +284,7 @@ jobs:
   # M126 — the same lock, on the platform that ships.
   #
   # `bridge` above proves requirements-mcp.txt resolves and behaves on Linux. RELEASE.md §7 exists
-  # because that is not the interesting platform: the app ships Windows, `pipx install` is what the
+  # because that is not the interesting platform: the app ships Windows, `uv tool install` is what the
   # bridge README tells a user to run, and "a lock that only resolves on one platform" is the defect
   # PLAN.md flags as expensive to discover late. Until now nothing checked it — the `windows` job
   # below installs requirements-dev.txt (the **app's** lock), so the bridge's own dependency set had
