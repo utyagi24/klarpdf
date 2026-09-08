@@ -4263,8 +4263,13 @@ it on this side of the line.
   are the contents page is unsolved**: the session's monotonic-and-forward heuristic over-fired on
   `WH-1000XM6.pdf`, flagging in-body link clusters on pages 31, 36, 37, 59 and 84 alongside the
   three real contents pages — which is itself an argument for showing the agent the link-dense pages
-  and letting it choose. If code-side classification is ever wanted, `pymupdf_layout` is the
-  serious option (Graph Neural Networks over PDF internals, emitting semantic roles for titles,
+  and letting it choose. **A motivating case arrived 2026-09-08**: `kasaragodhr.pdf`, a
+  graphics-rich magazine whose pages carry right-hand **side information panels** (getting there,
+  contact, hours, fee) that plain extraction cannot render in either mode — `get_text("text")`
+  returns content-stream order so the panel arrives scrambled, and `sort=True` interleaves its lines
+  into the body paragraph because they share y-bands. Labels separate from their values. That is a
+  layout problem, not a missing flag. If code-side classification is ever wanted, `pymupdf_layout`
+  is the serious option (Graph Neural Networks over PDF internals, emitting semantic roles for titles,
   headings, headers, footers, tables) and also the expensive one: ~11 new pins and ≈100 MB, with the
   side effects catalogued in `PLAN.md` §M138–M140. **The decision this needs** is whether a
   no-agent path is wanted at all — if it is only ever the GUI, a cruder heuristic scoped to the app

@@ -6423,6 +6423,48 @@ covers every document with a printed contents page — manuals, reports, filings
 serves what is left over. M139 is also independently shippable on its own, since an agent can supply
 entries from its own reading of a short document without any candidate extraction.
 
+#### A second document, a different shape — what it adds to M138 and M139
+
+`kasaragodhr.pdf` (35 pages, a graphics-rich tourism magazine, **0 bookmarks**) was tested against
+the plan because it fails almost every assumption the manual satisfied, and it is the case that
+sharpens the rules.
+
+**It makes M138 the headline rather than the enabler.** 156 links, and **119 of them are external**:
+39 `google.com`, 23 `keralatourism.org`, 15 `maps.app.goo.gl` anchored on place names, 14
+**YouTube**, and **21 `tel:` numbers**. None of that is reachable today by any tool the bridge has.
+"What does this document link to" and "list its phone numbers" are ordinary questions here, and the
+anchor text makes the answers meaningful (`'Mangalore International Airport'` → its map link).
+
+**Its contents pages work, and teach four rules M139 needs.** Pages 4–5 are a visual grid, not an
+indented list, and they reconstruct cleanly into 12 sections (pages 6, 8, 10 … 28) — but only with:
+
+* **Dedupe by target.** Each entry is linked **twice**, once on its photograph and once on its
+  caption, both to the same page. 12 links on page 4 are 6 entries.
+* **Drop empty anchors.** The photograph's link has no text under it; only the caption's does. An
+  entry with no recoverable title must not be emitted.
+* **Filter navigation chrome.** Every content page (7, 9, 11 … 33) carries a link *back* to page 4
+  anchored `'Kasaragod NN'` — a running footer. A link target reached from many pages, pointing
+  backwards, is furniture, not a contents entry.
+* **Indent-derived levels do not generalise.** The `x0` trick that gave the manual its hierarchy is
+  meaningless here — anchors sit at x0 10.1 to 233.6 in a magazine grid. The fallback must be a
+  **flat level 1**, which is the correct answer for this document, rather than levels invented from
+  layout noise.
+
+**M140 would work exceptionally well on it**, and is worth running as a *cross-check* rather than a
+fallback: section titles are set at **44 pt** against a 10 pt body, the easiest possible signal, and
+each title page carries almost nothing else (page 6 is two words and a photograph). Where both
+sources exist they should agree, and disagreement is a signal worth surfacing.
+
+**It has no tabular data, and it is the first document that argues for layout analysis.** What it
+has instead are **side information panels** — a right-hand column of getting-there, contact, hours
+and fee lines at 9 pt. Plain extraction cannot render them either way: `get_text("text")` returns
+content-stream order, so the panel arrives scrambled (`Location`, `08:00 AM - 06:00 PM`,
+`+91 467 2310700`, then the railway, airport and bus entries out of sequence), and `sort=True`
+interleaves the panel's lines **into the body paragraph** because they share y-bands. Labels
+separate from their values, and the icons pairing them are images. This is not a flag we failed to
+pass; it is the layout problem, and it is the strongest argument yet for the deferred
+`pymupdf_layout` question — the manual was not.
+
 #### Why `get_links` is its own tool and not an extension of `get_annotations`
 
 A `/Link` **is** an annotation subtype in the PDF spec, so extending `get_annotations` is the
