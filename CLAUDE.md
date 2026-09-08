@@ -344,8 +344,9 @@ to the find bar, an **Annotations sidebar tab**, and **Full Screen / Slideshow /
 modes; and (M78.2–.6) adds arrow-key nudge, text-box reflow, HUS arming swatches and a split style
 button, with the sidebar (M79.1–.3) losing its title bar and showing optional tabs only on demand.
 **M0–M44 and R1–R6 are all complete**, the bridge included — its reserved v0.11.0 was long spent by
-the time it shipped, so it took **v0.18.0** at tag time. Nothing is scheduled next; the remaining
-named work is the **1.0 gate** in `PROGRESS.md`.
+the time it shipped, so it took **v0.18.0** at tag time. **M138–M140** (document structure for
+agents — `get_links`, `set_outline`, heading candidates) are scheduled but unstarted; the other
+named work is the **1.0 gate**. Both are in `PROGRESS.md`.
 For live status — shipped versions, per-release notes, release links, milestone ticks, and **Open
 follow-ups** — see `PROGRESS.md` (the single source of status; read it first). Design/spec, including
 §Future enhancements for what's next, lives in `PLAN.md`.

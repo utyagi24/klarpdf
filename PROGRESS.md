@@ -577,6 +577,41 @@ items, which are independent of it.
   (**M128**); and row 10's own instructions not putting the lock in the bundle (**M129**). What
   remains is the tag, which is an owner action.
 
+## Roadmap — document structure for agents (planned; M138–M140)
+
+Design in `PLAN.md` §M138–M140 — **not restated here**. Same conventions: **one PR per milestone**,
+tick the box here on merge. Scoped **2026-09-07** from a session comparing the bridge against
+**DocSlicer** (a multi-format MCP server posted to r/mcp) and then against the owner's own three
+goals: structural information for agents when a PDF has no bookmarks; *enriching* PDFs by writing
+that structure back as real bookmarks; and a Markdown rendering. The third is **not** scheduled —
+it is carried in §Open follow-ups.
+
+The session's finding is what set the order. On the owner's `WH-1000XM6.pdf` — 146 pages, **zero
+bookmarks**, RC4-encrypted — the printed contents page is built from **591 named-destination link
+annotations**, and those links carry title, target page **and** indent-derived level. A throwaway
+script recovered **65 entries spanning pages 13–140** and wrote them with `set_toc`: encryption and
+permissions intact, **+14.7 KB appended** to a 2.7 MB file. So structure does not have to be
+inferred for a large class of documents — it is already in the file, and the bridge had no way to
+read it. **M138 + M139 + agent judgement is the shippable feature**; M140 is the fallback for what
+is left over.
+
+- [ ] **M138** **`get_links`** — a read tool: one entry per link with `page`, `rect`, `kind`, the
+  resolved target page for an internal link, `uri` for an external one, and the anchor text.
+  Independently useful — an agent asked to list a document's hyperlinks is currently told KlarPDF
+  does not support it, correctly, even though `transforms.py` already **remaps** internal links
+  through every page move. Titles come from `PageText` word-centre containment, **not**
+  `get_textbox`, which truncates and steals neighbouring lines on link rectangles (measured).
+- [ ] **M139** **`set_outline`** — write `[{level, title, page}]` into a copy as real bookmarks;
+  the same shape `get_outline` returns and `remapped_toc()` produces. A catalog-only change, so the
+  `insert_pdf` graft hazard does not apply and encryption survives (verified); with M116 it appends
+  rather than rewrites. Must normalise levels before writing — `set_toc` refuses a first item that
+  is not level 1 and refuses skipped levels.
+- [ ] **M140** **Heading candidates** — the typography fallback for documents with neither
+  bookmarks nor a linked contents page. Mechanical **candidate extraction** only (larger-than-body,
+  bold, numbering patterns, short-line-before-body → `{text, page, size, bold, y}`); the calling
+  agent classifies. Recall, not precision. Classification **in code** is deliberately out of scope —
+  see §Open follow-ups.
+
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 
 Spec, per-milestone scope, and the binding **design budgets** (UI / lightness / honesty) in
@@ -4174,6 +4209,45 @@ released build or in the code on `main` that is unambiguous and readily reproduc
 the PR that fixes it. See `CLAUDE.md` §How we work for the split and why. Items already carried here
 were not migrated wholesale: each is listed because a decision is outstanding, which is what keeps
 it on this side of the line.
+
+- **Should the bridge offer a Markdown rendering of a PDF, and if so through `pymupdf4llm` or our
+  own code** — raised 2026-09-07, the third of the owner's three goals (`PLAN.md` §M138–M140).
+  Undecided, and the measurements cut both ways. **For renting it:** `pymupdf4llm==0.3.4` installs
+  against our exact pinned `pymupdf==1.27.2.3` and adds only **`tabulate`** — 2 new pins, pure
+  Python; it accepts a **stream-opened** `Document`, which is what `VirtualDocument` holds, so no
+  second open and no re-decrypt; and Markdown costs only **1.03×** the characters of the flat text
+  dump, so the table and heading structure is nearly free in tokens. Its output on a ruled financial
+  table is a correct pipe table where our `extract_text` returns a flat list of cells with nothing
+  recording which belong to a row. **Against:** it is **75× slower** than `get_text("text")`
+  (12.4 pages/s against 932 on a 60-page table-heavy document — a 372-page report is ~30 s for a
+  full pass); **0.3.4 is the end of a line Artifex has moved past**, so it gets no further fixes or
+  security patches, which is a real cost for a project that runs `pip-audit` over its lock weekly;
+  and importing it makes PyMuPDF print `Consider using the pymupdf_layout package…` **to stdout**,
+  which on a stdio MCP server injects a bare line into the JSON-RPC stream — one
+  `contextlib.redirect_stdout` fixes it, but nothing would catch it except a client failing to
+  connect. The alternative is ours: `find_tables()` is already in the PyMuPDF we ship and we call it
+  nowhere, and pipe-table emission is small. **The decision this needs** is whether the serializer's
+  accumulated edge cases (multi-column reflow, lists, code, images) are worth depending on a frozen
+  version — which should be answered by running it over a real filing, not the synthetic fixtures
+  used so far. The 1.28.x line is **rejected** with reasons in `PLAN.md` §M138–M140; that half is
+  settled and should not be re-derived.
+
+- **Classifying headings in code, with no agent in the loop — and whether `pymupdf_layout` ever
+  earns its place** — deferred 2026-09-07. M140 stops at *candidate extraction* and lets the calling
+  agent decide which candidates are headings, because an LLM is a better classifier than any
+  typographic rule and it costs us no algorithm. Two things keep the question open. **The GUI has no
+  LLM in it** — `klarpdf/model/` is reached by both consumers, so a "generate bookmarks for this
+  document" menu item in the viewer could not use the agent-in-the-loop form, and neither could
+  anyone wanting a deterministic, repeatable TOC from the same input. And **selecting *which* pages
+  are the contents page is unsolved**: the session's monotonic-and-forward heuristic over-fired on
+  `WH-1000XM6.pdf`, flagging in-body link clusters on pages 31, 36, 37, 59 and 84 alongside the
+  three real contents pages — which is itself an argument for showing the agent the link-dense pages
+  and letting it choose. If code-side classification is ever wanted, `pymupdf_layout` is the
+  serious option (Graph Neural Networks over PDF internals, emitting semantic roles for titles,
+  headings, headers, footers, tables) and also the expensive one: ~11 new pins and ≈100 MB, with the
+  side effects catalogued in `PLAN.md` §M138–M140. **The decision this needs** is whether a
+  no-agent path is wanted at all — if it is only ever the GUI, a cruder heuristic scoped to the app
+  may be the honest answer rather than a shared dependency.
 
 - **The `.mcpb` carries `QUICKSTART.md` but deliberately drops `README.md`** — noticed 2026-09-05
   while verifying M134's staged bundle. `build_mcpb.py`'s payload copy passes

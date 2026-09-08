@@ -6318,6 +6318,153 @@ line naming a real package at a real version. The check cannot be "does the lock
 "which machine is allowed to write it" — which is why the guard lives in the task runner and the
 suite, not in the review.
 
+### M138–M140 — structure an agent can navigate: links, outlines, headings (2026-09-07)
+
+**Where this came from.** The owner read a Reddit post for **DocSlicer**, a multi-format MCP server
+whose pitch is that an agent should *flip through* a large document rather than swallow it: `parse`
+returns a heading outline with each line priced in tokens, `read` pulls the sections chosen with
+tables intact and page numbers attached, `search` is the fallback. The question was whether our
+bridge already meets that use case for PDFs. It half does — `search` returns page-anchored snippets
+so citations are real, `get_info` reports whether a text layer exists at all, and a
+`get_outline` → `search` → `extract_text(pages=[n])` loop lands in the same token order of magnitude
+(~5–8k against their ~7.5k on a 372-page report). Three primitives are missing, and they are the
+ones that matter: **a heading map finer than the bookmark tree**, **a cost preview**, and
+**sub-page addressing with table structure**. `extract_text` is `page.get_text("text")`, which
+returns a table as a flat list of cells with nothing recording which belong to a row, and we call
+`find_tables()` nowhere.
+
+That framed the owner's own goal, which is larger than matching a competitor and points the other
+way: **(1)** give agents structural information when a PDF has no bookmarks; **(2)** *enrich* the
+PDF by writing that structure back as real bookmarks; **(3)** offer a Markdown rendering. (2) is the
+one nobody else in this space does, because the others are all extractors — it makes the document
+permanently better for every later reader, agent or human, instead of re-deriving structure per
+session.
+
+#### The finding that reordered the plan: the links **are** the table of contents
+
+The sequencing looked like "infer structure, then write it", with inference the expensive part. It
+is not, for a large class of documents. Measured on the owner's `WH-1000XM6.pdf` (a 146-page Sony
+manual, `Standard V4 R4 128-bit RC4`, **zero bookmarks**) — the case the whole exercise is about:
+
+    pages=146  bookmarks=0   link kinds: {LINK_NAMED: 591, LINK_URI: 30}
+
+Its printed contents on pages 3–5 is built entirely from link annotations, and each one carries
+every field a TOC entry needs, authored by the publisher rather than guessed:
+
+    [   p13]  x0=48.8  Location and function of parts
+    [   p35]  x0=36.8  How to make a wireless connection to Bluetooth devices
+    [   p36]  x0=48.8  Connecting with the "Sony | Sound Connect" app
+
+The target page comes from the link, the title from the words under its rectangle, and **the
+hierarchy level from `x0`** — the two indents 36.8 / 48.8 are level 1 and level 2. A throwaway
+script recovered **65 entries spanning pages 13–140**, wrote them with `set_toc`, and saved
+incrementally:
+
+    entries: 65  levels: [1, 2]
+    encryption: Standard V4 R4 128-bit RC4   permissions: -1324   +14,667 bytes on a 2.7 MB file
+
+Exact rather than heuristic, works where typography analysis fails, and costs 621 link records
+instead of 518k tokens of document. So the missing primitive is not a heading detector — it is
+`get_links`, which the bridge does not have. The asymmetry is worth naming: `transforms.py` already
+**remaps** internal links through every page move, and nothing exposes them for reading. An agent
+asked to find the hyperlinks in a document was told KlarPDF does not support it, correctly.
+
+#### M138 — `get_links`
+
+A read tool returning one entry per link: `page`, `rect`, `kind`, the resolved target `page` for an
+internal link, `uri` for an external one, and the text under the rectangle. Independently useful
+before any outline work — "where does this PDF point" is a fair question on its own, and the 30
+`LINK_URI` entries have a privacy dimension beyond navigation.
+
+Two facts that shape it, both measured on 1.27.2.3. **PyMuPDF already resolves named
+destinations** — 591 of the 621 links here are `LINK_NAMED`, and `get_links()` returns a populated
+`'page'` for them, so no `/Names` tree walking is needed. And **the title must not come from
+`get_textbox`**: on link rectangles it truncates and steals neighbouring lines
+(`'Speaking with someone while wearing the headset (S'`, plus a stray `'t)'`) — the same fault
+`klarpdf/model/page_text.py` was built for. Word-centre containment against `get_text("words")`
+fixed it, and `PageText` is the right home.
+
+#### M139 — `set_outline`
+
+Write a table of contents into a copy of the document. The entry shape is `[{level, title, page}]`,
+which is already what `get_outline` returns and `remapped_toc()` produces, so the writer and the
+reader agree by construction and a TOC we write stays correct through a later reorder.
+
+It is a **catalog-only** change — `/Outlines`, no page moves — so by the rule in `CLAUDE.md`
+§Gotchas the `insert_pdf` graft hazard does not apply and everything survives: verified above on an
+RC4-encrypted file, with `permissions` and `metadata["encryption"]` intact. Combined with M116 it is
+an append: **+14.7 KB on a 2.7 MB document** rather than a rewrite.
+
+One constraint found by hitting it: `set_toc` **rejects a TOC whose first item is not level 1**, and
+will not let levels skip (`ValueError: hierarchy level of item 0 must be 1`). Indent-derived levels
+do not satisfy that on their own — a contents page can open at the second indent — so entries need
+normalising (`level = min(level, previous + 1)`) before the write.
+
+#### M140 — heading candidates, the fallback
+
+For a document with neither bookmarks nor a linked contents page, structure has to come from
+typography. The design splits it, because the split is what avoids a dependency:
+
+* **candidate extraction (ours, mechanical)** — walk every span, keep what looks structural
+  (larger than the body size, or bold, or matching a numbering pattern, or a short line before
+  body text) and return `{text, page, size, bold, y}`. This needs **recall, not precision**: it is
+  a filter, not a classifier.
+* **classification (the calling agent)** — it reads a few thousand candidates instead of the
+  document, decides which are headings and at what level, and calls M139.
+
+An LLM is a better heading classifier than any typographic rule — it knows `Item 7. Management's
+Discussion` is a heading and `325,790` is not. Doing classification **in code** with no agent in the
+loop is a separate, later question (see §Open follow-ups in `PROGRESS.md`), and it exists only
+because of the two-consumers rule: `klarpdf/model/` is reached by the **GUI**, which has no LLM in
+it, so a "generate bookmarks" menu item could not use the agent-in-the-loop form.
+
+Ordering, and why M140 is last: the shippable feature is **M138 + M139 + agent judgement**, which
+covers every document with a printed contents page — manuals, reports, filings, standards. M140 only
+serves what is left over. M139 is also independently shippable on its own, since an agent can supply
+entries from its own reading of a short document without any candidate extraction.
+
+#### The `pymupdf4llm` evaluation — what was rejected, and why
+
+Considered for goals (1) and (3), and measured rather than assumed. There are effectively **two
+libraries under one name**:
+
+* **`0.3.4`** — `pymupdf>=1.27.1` + `tabulate`, layout engine an *optional extra*. Installs against
+  our exact pinned `pymupdf==1.27.2.3`; **2 new pins**.
+* **`>=1.27.2.1`** — `pymupdf_layout` becomes a **hard** dependency: ~11 new pins, ≈100 MB
+  (`pymupdf_layout` 42.9 MB + `onnxruntime` 23.1 MB + numpy, networkx, protobuf, flatbuffers,
+  pyyaml), and a Graph-Neural-Network runtime.
+
+**The 1.28.x line is rejected.** Three reasons beyond size: it pins `pymupdf` **exactly**
+(`pymupdf4llm==1.28.2` requires `pymupdf==1.28.2`), putting the bridge's PyMuPDF version under a
+third party's control when M115 exists precisely because the app and bridge locks drifted apart
+once; `onnxruntime` ships cp311–cp314 only, which would make `requires-python`'s `<3.15` ceiling
+**forced** where `pyproject.toml` argues at length that it is chosen; and a 42 MB ML blob is a
+different product from a bridge whose pitch is local, offline and auditable at 29 pinned
+dependencies.
+
+**And `0.3.4` does not solve goal (1) anyway.** Its `IdentifyHeaders` is ~40 lines of **font size
+and nothing else** — no weight, no numbering, no position — with body text floored at **12 pt**
+(`max(body_limit=12, most_frequent_size)`). On filing typography (9 pt body, 11 pt bold headings)
+it finds **zero headings** and emits the heading as inline `**bold**`. Both escapes are available —
+`IdentifyHeaders(body_limit=10)` recovers them, and `to_markdown(hdr_info=…)` accepts any object
+with `get_header_id(span, page)`, so a four-line bold detector works — but the first needs the
+document's typography known in advance, which an agent cannot supply. **The conclusion is that
+heading detection is the replaceable part and the Markdown serializer is the substantial one**,
+which is why goal (1) is M140 and goal (3) is carried as an open question instead.
+
+**One trap recorded, should the library ever be adopted.** `to_markdown` **silently deletes
+`StructTreeRoot` from the live `Document` handed to it** — deliberately, "to avoid possible
+performance degradation" — while leaving `/MarkInfo` in place:
+
+    StructTreeRoot before=('xref','8 0 R')  after to_markdown=('null','null')
+    MarkInfo after: ('dict', '<</Marked true>>')
+
+That is the M93 defect class reintroduced by a call that looks read-only, and it produces a
+document that *claims* to be tagged and is not — worse than either state alone. It would bite
+hardest in exactly the combination this section plans: infer structure, write an outline, ship an
+untagged file advertising itself as tagged. The rule would be **never hand it the live document**,
+always a throwaway copy, with a test pinning it.
+
 ## Future enhancements (deferred beyond the roadmap)
 
 Captured but not yet scheduled:
