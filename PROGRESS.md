@@ -611,10 +611,16 @@ is left over.
   rather than rewrites. Must normalise levels before writing — `set_toc` refuses a first item that
   is not level 1 and refuses skipped levels.
 - [ ] **M140** **Heading candidates** — the typography fallback for documents with neither
-  bookmarks nor a linked contents page. Mechanical **candidate extraction** only (larger-than-body,
-  bold, numbering patterns, short-line-before-body → `{text, page, size, bold, y}`); the calling
-  agent classifies. Recall, not precision. Classification **in code** is deliberately out of scope —
-  see §Open follow-ups.
+  bookmarks nor a linked contents page, and the only route to **subsections** a contents page omits.
+  Mechanical **candidate extraction** only (bold, larger-than-body, numbering patterns,
+  short-line-before-body → `{text, page, size, bold, y}`); the calling agent classifies. Recall, not
+  precision. Three things measured on `dhariwal_ipo.pdf` (572-page prospectus) shape it: **weight is
+  the signal, not size** — the body is 10 pt Times across all 572 pages and a size-based detector
+  returns *zero* headings for the section whose subheadings are unnumbered, while a bold filter
+  returns exactly them; the **payload is ~22,000 tokens (5% of the document), not the "few thousand"
+  first estimated**; and the extractor must accept a **page range**, because heading conventions
+  differ by section in a compiled document even when the typography does not. Classification **in
+  code** is deliberately out of scope — see §Open follow-ups.
 
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 
@@ -4229,7 +4235,10 @@ it on this side of the line.
   detector loses the association — the same class as a table continuing across a page break), and
   **unruled tables are untested**, since this document's happen to be ruled. Related to but separate
   from the Markdown question below: a `get_tables` tool returns rows an agent can read, where
-  Markdown is a rendering of the whole page.
+  Markdown is a rendering of the whole page. **It is also not independent of M140**: measured on
+  `dhariwal_ipo.pdf`, most of the 2,287 distinct heading candidates a bold filter yields are **table
+  cell headers**, not section headings, so table regions are the filter M140 actually wants. If
+  `get_tables` is built, M140 should exclude text inside detected table bboxes.
 
 - **Should the bridge offer a Markdown rendering of a PDF, and if so through `pymupdf4llm` or our
   own code** — raised 2026-09-07, the third of the owner's three goals (`PLAN.md` §M138–M140).

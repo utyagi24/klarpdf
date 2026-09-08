@@ -6465,6 +6465,72 @@ separate from their values, and the icons pairing them are images. This is not a
 pass; it is the layout problem, and it is the strongest argument yet for the deferred
 `pymupdf_layout` question — the manual was not.
 
+#### A third document — the compiled prospectus, and the numbers that correct M140
+
+`dhariwal_ipo.pdf` (572 pages, 9 MB, MS Word, **0 bookmarks**) is the messy case: a filing assembled
+from parts written by different parties, with a contents page that is flat, partial, and out of step
+with the body's own numbering.
+
+**M138 + M139 still recover the contents, and improve on it.** All 52 links in the document sit on
+**one page** — 47 `LINK_GOTO` on page 5 — and they reconstruct the printed contents exactly, with
+the dot leaders (`SECTION I – GENERAL.......`) stripped. Two things make the result *better* than
+what is printed:
+
+* **The hierarchy the contents page does not mark.** `^SECTION [IVX]+` is a reliable level-1
+  pattern here, everything else level 2. That also explains an oddity: `SECTION IV – ABOUT OUR
+  COMPANY` and `INDUSTRY OVERVIEW` both target **page 197**, because Section IV is a divider with
+  no body of its own — a parent, not a sibling.
+* **A rule that contradicts the manual's, and must override it.** The two distinct `x0` values on
+  page 5 are **not** indent levels: `MANAGEMENT'S DISCUSSION AND ANALYSIS OF FINANCIAL CONDITION AND
+  RESULT` (x0 57.5) and `OPERATIONS` (x0 12.1) are **one wrapped title**, both pointing at page 445;
+  likewise `CERTAIN CONVENTIONS … USE OF FINANCIAL INFORM` + `MARKET DATA`, both page 19. The
+  Sony-derived indent rule would emit each continuation as a child. **The disambiguator is the
+  target: same target page and adjacent `y` means continuation, a different target means a new
+  entry.** Indent may only be read as level after continuations are merged.
+
+**Only M140 reaches the subsections, and this document kills the font-size heuristic outright.**
+The body is `TimesNewRomanPSMT` **10 pt across all 572 pages** — sampled over six sections
+(Risk Factors, Industry Overview, Our Business, Key Regulations, Financial Statements, Issue
+Procedure), the dominant size is 10.0 in every one, and the larger sizes carry tens of characters.
+Run against the library that does this by size:
+
+    IdentifyHeaders(INDUSTRY OVERVIEW) -> {14: '# '}   (from 24 characters in 87 pages)
+    IdentifyHeaders(KEY REGULATIONS)   -> {}            (zero headings, 10 pages)
+
+`KEY REGULATIONS AND POLICIES` is the section whose subheadings are unnumbered, and a size-based
+detector finds **none** of them. **The signal is weight, not size**: those subheadings are
+`TimesNewRomanPS-BoldMT` at the same 10 pt, and a bold-short-line filter returns 40 candidates in
+those 10 pages — `National Highways Act, 1956`, `The Railways Act, 1989`, `Indian Tolls Act, 1851` —
+which is exactly the list. This is the empirical case for M140 owning its detector rather than
+renting one, and it is decisive.
+
+**The candidate-payload estimate was wrong by 5× and is now measured.** M140's design rests on the
+claim that candidates are far cheaper than the document; the guess offered when it was written was
+"a few thousand tokens". Measured over all 572 pages:
+
+    whole-doc text    1,760,540 chars  (~440,000 tokens)
+    bold candidates   6,654 (2,480 unique)
+    payload           87,901 chars  (~22,000 tokens)  = 4.99% of the document
+    extraction        15.6 s (37 pages/s)
+
+**~22,000 tokens, not a few thousand.** Still a 95% reduction and still workable as a one-time cost
+on a 572-page filing, but the design should be stated against the real figure. A boilerplate filter
+(drop text appearing on more than three pages) barely helps — it removes repeated *short* table
+labels (`Particulars` on 89 pages, `Date of` on 65) and recovers only ~1,000 tokens.
+
+**Which points at the real refinement, and at a dependency between two pieces of deferred work.**
+Most of those 2,287 distinct candidates are **table cell headers**, not section headings — this is a
+prospectus, and it is largely tables. The effective filter is therefore to **exclude text inside
+detected table regions**, which means the `get_tables` follow-up would materially improve M140
+rather than being independent of it. Recorded in `PROGRESS.md` §Open follow-ups on both sides.
+
+**One further consequence for how M140 is driven.** The heading *conventions* differ by section even
+though the typography does not: Industry Overview numbers its subsections (`2.10.1.1`, `2.11.6.3` —
+though only 17 sit on their own text line, the rest being split across spans), while Key Regulations
+leaves them unnumbered. A single global rule for "what is a heading" is wrong for this document. The
+candidate extractor should be runnable **over a page range**, so an agent can work section by section
+and apply the convention it has just observed rather than one derived from the whole file.
+
 #### Why `get_links` is its own tool and not an extension of `get_annotations`
 
 A `/Link` **is** an annotation subtype in the PDF spec, so extending `get_annotations` is the
