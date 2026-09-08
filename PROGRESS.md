@@ -4214,6 +4214,23 @@ the PR that fixes it. See `CLAUDE.md` §How we work for the split and why. Items
 were not migrated wholesale: each is listed because a decision is outstanding, which is what keeps
 it on this side of the line.
 
+- **A `get_tables` tool on `find_tables()` plus a shape filter** — raised 2026-09-08, after the
+  owner supplied ground truth for `WH-1000XM6.pdf` and an earlier measurement of mine was found to
+  be wrong. Today the bridge has **no** table handling: `extract_text` is `page.get_text("text")`,
+  which on page 29 — three titled tables — returns the titles in a run followed by a stream of
+  cells with nothing recording which form a row. `find_tables()` ships in the PyMuPDF we already
+  pin and is called nowhere. **Measured against the real tables rather than against pages that have
+  none** (the error in the first pass): the default `lines_strict` has **perfect recall** — all
+  three real tables, cleanly extracted with header rows — and **poor but filterable precision**,
+  3 real of 16 detections, every false positive being 1×N, newline-stuffed or header-less. That is
+  a real improvement over flat text at **zero new dependencies**. **The decision this needs** is
+  whether the two known gaps are acceptable in a first version: a **title does not come with its
+  table** (*Headphone cable connected* heads a table whose body is on the next page, and a per-page
+  detector loses the association — the same class as a table continuing across a page break), and
+  **unruled tables are untested**, since this document's happen to be ruled. Related to but separate
+  from the Markdown question below: a `get_tables` tool returns rows an agent can read, where
+  Markdown is a rendering of the whole page.
+
 - **Should the bridge offer a Markdown rendering of a PDF, and if so through `pymupdf4llm` or our
   own code** — raised 2026-09-07, the third of the owner's three goals (`PLAN.md` §M138–M140).
   Undecided, and the measurements cut both ways. **For renting it:** `pymupdf4llm==0.3.4` installs
@@ -4229,17 +4246,11 @@ it on this side of the line.
   and importing it makes PyMuPDF print `Consider using the pymupdf_layout package…` **to stdout**,
   which on a stdio MCP server injects a bare line into the JSON-RPC stream — one
   `contextlib.redirect_stdout` fixes it, but nothing would catch it except a client failing to
-  connect. **The "write it ourselves" half got harder on measurement.** `find_tables()` is
-  already in the PyMuPDF we ship and we call it nowhere, but on a real document it is not usable as
-  it stands: on `WH-1000XM6.pdf` the default `lines_strict` found tables on 14 of 146 pages and its
-  first hit was a **false positive** — the contents page as a 3-column table — while finding
-  **nothing** on the unruled specification pages; `strategy="text"` then **invented** an 87×3 table
-  out of a plain spec list, splitting `2.400 0 GHz - 2.483 5 GHz` across three columns. The
-  synthetic fixture that made this look solved had drawn ruling lines. **The decision this needs**
-  is whether the serializer's accumulated edge cases (multi-column reflow, lists, code, images) are
+  connect. **The "write it ourselves" half is more viable than first measured** — see the
+  `get_tables` follow-up below, and `PLAN.md` §M138–M140 for the corrected numbers. **The decision
+  this needs** is whether the serializer's accumulated edge cases (multi-column reflow, lists, code, images) are
   worth depending on a frozen version — which should be answered by running it over a real filing,
-  not the synthetic fixtures used so far. Note that neither option makes **table** structure good;
-  that is what `pymupdf_layout` exists for, and it is the other follow-up's question. The 1.28.x line is **rejected** with reasons in `PLAN.md` §M138–M140; that half is
+  not the synthetic fixtures used so far. The 1.28.x line is **rejected** with reasons in `PLAN.md` §M138–M140; that half is
   settled and should not be re-derived.
 
 - **Classifying headings in code, with no agent in the loop — and whether `pymupdf_layout` ever

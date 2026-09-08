@@ -6447,29 +6447,42 @@ URI — bolted on. And the callers differ: `get_annotations` answers *"what did 
 `get_links` answers *"where does this document point"*, which is a navigation and a privacy
 question. Two tools, each honest about its shape.
 
-#### Table structure is **not** improved by any of this, and the obvious fix does not work
+#### Table structure is **not** improved by any of this — but `find_tables()` is closer than it looked
 
 Worth stating plainly so it is not assumed: M138–M140 are about **navigation** structure — where
 the sections are and what they are called. **Content** structure is untouched. `extract_text`
-remains `page.get_text("text")`, which returns a table as a flat list of cells with nothing
-recording which belong to a row, and that is exactly as true after M140 as before it.
+remains `page.get_text("text")`, and on a real multi-table page that is genuinely mangled: page 29
+of `WH-1000XM6.pdf` carries three titled tables (*Music playback time*, *Communication time*,
+*Headphone cable connected*), and the flat extraction returns the three titles in a run followed by
+a stream of cells — `LDAC`, `Noise canceling function: ON`, `Max. 26 hours`, … — with nothing
+recording which cells form a row, which rows form a table, or which table a title belongs to.
 
-The cheap fix looked available — `find_tables()` ships in the PyMuPDF we already pin and we call it
-nowhere — and it does not survive contact with a real document. Measured on the same manual:
+`find_tables()` ships in the PyMuPDF we already pin and we call it nowhere. Measured against the
+document's **ground truth** (supplied by the owner, who knows what is actually on the page — an
+earlier pass judged it on the contents and specification pages, which have no data tables at all,
+and drew the wrong conclusion from it):
 
-* `lines_strict` (the default) found tables on **14 of 146** pages, and the first hit is a **false
-  positive**: the *contents page*, returned as a 3-column table with an entire column of TOC entries
-  crammed into one cell. It found **nothing** on the specification pages, which have real tables but
-  no ruling.
-* `strategy="text"` on those same pages **invented** an 87×3 table out of a plain specification
-  list, splitting `2.400 0 GHz - 2.483 5 GHz` into fragments across three columns — actively worse
-  than the flat text it started from.
+* **Recall is perfect.** The default `lines_strict` found **all three** real tables — the 13×3 on
+  page 29, the 4×2 below it, and the 4×2 on page 30 — and `extract()` returned them cleanly, header
+  row included: `['Codec', 'Noise canceling function/Ambient Sound Mode', 'Available operating
+  time']`, then `['LDAC™', 'Noise canceling function: ON', 'Max. 26 hours']`.
+* **Precision is poor but filterable — 3 real of 16 detections.** The rest are *layout* tables:
+  the three contents pages as 3×3, seven numbered step-lists as 1×2 with `2\n3\n4\n5` stuffed in
+  one cell, and four 1×3 fragments of video-player timestamps. Every false positive here is 1×N, or
+  has newline-stuffed cells, or an empty header — cheap to reject.
+* **`strategy="text"` is the one that genuinely misbehaves**: on the specification pages, which have
+  **no** tables, it invented an 87×3 one out of a plain list, splitting `2.400 0 GHz - 2.483 5 GHz`
+  across three columns. `lines_strict` correctly found nothing there.
 
-The synthetic fixture that made table extraction look solved had drawn ruling lines, which real
-documents frequently lack; that is the lesson, and it generalises past tables. So decent table
-structure is genuinely hard, it is precisely what `pymupdf_layout`'s GNN exists for, and it should
-not be smuggled in as a small addition to a milestone about outlines. It belongs with the Markdown
-question in `PROGRESS.md` §Open follow-ups.
+So the honest position is that a `get_tables` tool built on `lines_strict` plus a shape filter would
+be a real improvement over the flat text, at **zero new dependencies**. Two things stop it being
+free, and they are why it stays a follow-up rather than joining this milestone group. **Titles do
+not come with the table** — *Headphone cable connected (power is turned on)* is the heading of a
+table whose body is on the **next page**, and a per-page detector loses the association entirely;
+that is the same class of problem as a table continuing across a page break. And **a document with
+unruled tables is untested** — everything above is one manual, whose tables happen to be ruled.
+The earlier synthetic fixture that made extraction look solved had drawn ruling lines too, which is
+the standing lesson about fixtures.
 
 #### The `pymupdf4llm` evaluation — what was rejected, and why
 
