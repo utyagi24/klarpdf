@@ -6320,8 +6320,8 @@ suite, not in the review.
 
 ### M138–M140 — structure an agent can navigate: links, outlines, headings (2026-09-07)
 
-**Where this came from.** The owner read a Reddit post for **DocSlicer**, a multi-format MCP server
-whose pitch is that an agent should *flip through* a large document rather than swallow it: `parse`
+**Where this came from.** The owner brought a competing multi-format document MCP server, whose
+pitch is that an agent should *flip through* a large document rather than swallow it: `parse`
 returns a heading outline with each line priced in tokens, `read` pulls the sections chosen with
 tables intact and page numbers attached, `search` is the fallback. The question was whether our
 bridge already meets that use case for PDFs. It half does — `search` returns page-anchored snippets
@@ -6422,6 +6422,54 @@ Ordering, and why M140 is last: the shippable feature is **M138 + M139 + agent j
 covers every document with a printed contents page — manuals, reports, filings, standards. M140 only
 serves what is left over. M139 is also independently shippable on its own, since an agent can supply
 entries from its own reading of a short document without any candidate extraction.
+
+#### Why `get_links` is its own tool and not an extension of `get_annotations`
+
+A `/Link` **is** an annotation subtype in the PDF spec, so extending `get_annotations` is the
+obvious first thought. It is wrong on both counts that matter.
+
+**Mechanically, they are separate APIs.** PyMuPDF excludes links from `Page.annots()` entirely —
+measured on `WH-1000XM6.pdf`, whose 146 pages carry 621 links:
+
+    get_links()                      -> 21 on page 3,  621 across the document
+    annots()                         -> 0  on page 3,  0   across the document
+    annots(types=[PDF_ANNOT_LINK])   -> 0
+
+Asking `annots()` for links explicitly still returns nothing. So "extending" the tool would mean
+running a second, unrelated traversal inside it and merging two result sets that share no code.
+
+**Semantically, they answer different questions.** `get_annotations` returns *the review layer* in
+this app's editable-mark model — `color`, `color_name`, `color_exact`, `note`, `author`, plus
+`mine` (our author tag) and `editable` (`parse_annotation(annot) is not None`). Every one of those
+is null or false for a link, permanently: a link has no author, no colour, no note, and can never
+be an editable mark. It would be a row of nulls with the two fields that matter — target page and
+URI — bolted on. And the callers differ: `get_annotations` answers *"what did a reviewer say"*,
+`get_links` answers *"where does this document point"*, which is a navigation and a privacy
+question. Two tools, each honest about its shape.
+
+#### Table structure is **not** improved by any of this, and the obvious fix does not work
+
+Worth stating plainly so it is not assumed: M138–M140 are about **navigation** structure — where
+the sections are and what they are called. **Content** structure is untouched. `extract_text`
+remains `page.get_text("text")`, which returns a table as a flat list of cells with nothing
+recording which belong to a row, and that is exactly as true after M140 as before it.
+
+The cheap fix looked available — `find_tables()` ships in the PyMuPDF we already pin and we call it
+nowhere — and it does not survive contact with a real document. Measured on the same manual:
+
+* `lines_strict` (the default) found tables on **14 of 146** pages, and the first hit is a **false
+  positive**: the *contents page*, returned as a 3-column table with an entire column of TOC entries
+  crammed into one cell. It found **nothing** on the specification pages, which have real tables but
+  no ruling.
+* `strategy="text"` on those same pages **invented** an 87×3 table out of a plain specification
+  list, splitting `2.400 0 GHz - 2.483 5 GHz` into fragments across three columns — actively worse
+  than the flat text it started from.
+
+The synthetic fixture that made table extraction look solved had drawn ruling lines, which real
+documents frequently lack; that is the lesson, and it generalises past tables. So decent table
+structure is genuinely hard, it is precisely what `pymupdf_layout`'s GNN exists for, and it should
+not be smuggled in as a small addition to a milestone about outlines. It belongs with the Markdown
+question in `PROGRESS.md` §Open follow-ups.
 
 #### The `pymupdf4llm` evaluation — what was rejected, and why
 

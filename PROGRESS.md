@@ -580,9 +580,8 @@ items, which are independent of it.
 ## Roadmap — document structure for agents (planned; M138–M140)
 
 Design in `PLAN.md` §M138–M140 — **not restated here**. Same conventions: **one PR per milestone**,
-tick the box here on merge. Scoped **2026-09-07** from a session comparing the bridge against
-**DocSlicer** (a multi-format MCP server posted to r/mcp) and then against the owner's own three
-goals: structural information for agents when a PDF has no bookmarks; *enriching* PDFs by writing
+tick the box here on merge. Scoped **2026-09-07** from a session comparing the bridge against a
+competing multi-format document MCP server, and then against the owner's own three goals: structural information for agents when a PDF has no bookmarks; *enriching* PDFs by writing
 that structure back as real bookmarks; and a Markdown rendering. The third is **not** scheduled —
 it is carried in §Open follow-ups.
 
@@ -601,6 +600,11 @@ is left over.
   does not support it, correctly, even though `transforms.py` already **remaps** internal links
   through every page move. Titles come from `PageText` word-centre containment, **not**
   `get_textbox`, which truncates and steals neighbouring lines on link rectangles (measured).
+  **A separate tool, not an extension of `get_annotations`** — PyMuPDF excludes links from
+  `Page.annots()` altogether (0 returned across a 146-page document carrying 621 links, even asking
+  for `PDF_ANNOT_LINK` explicitly), and every field `get_annotations` exists to report — `color`,
+  `note`, `author`, `mine`, `editable` — is permanently null or false for a link. Rationale in
+  `PLAN.md` §M138–M140.
 - [ ] **M139** **`set_outline`** — write `[{level, title, page}]` into a copy as real bookmarks;
   the same shape `get_outline` returns and `remapped_toc()` produces. A catalog-only change, so the
   `insert_pdf` graft hazard does not apply and encryption survives (verified); with M116 it appends
@@ -4225,11 +4229,17 @@ it on this side of the line.
   and importing it makes PyMuPDF print `Consider using the pymupdf_layout package…` **to stdout**,
   which on a stdio MCP server injects a bare line into the JSON-RPC stream — one
   `contextlib.redirect_stdout` fixes it, but nothing would catch it except a client failing to
-  connect. The alternative is ours: `find_tables()` is already in the PyMuPDF we ship and we call it
-  nowhere, and pipe-table emission is small. **The decision this needs** is whether the serializer's
-  accumulated edge cases (multi-column reflow, lists, code, images) are worth depending on a frozen
-  version — which should be answered by running it over a real filing, not the synthetic fixtures
-  used so far. The 1.28.x line is **rejected** with reasons in `PLAN.md` §M138–M140; that half is
+  connect. **The "write it ourselves" half got harder on measurement.** `find_tables()` is
+  already in the PyMuPDF we ship and we call it nowhere, but on a real document it is not usable as
+  it stands: on `WH-1000XM6.pdf` the default `lines_strict` found tables on 14 of 146 pages and its
+  first hit was a **false positive** — the contents page as a 3-column table — while finding
+  **nothing** on the unruled specification pages; `strategy="text"` then **invented** an 87×3 table
+  out of a plain spec list, splitting `2.400 0 GHz - 2.483 5 GHz` across three columns. The
+  synthetic fixture that made this look solved had drawn ruling lines. **The decision this needs**
+  is whether the serializer's accumulated edge cases (multi-column reflow, lists, code, images) are
+  worth depending on a frozen version — which should be answered by running it over a real filing,
+  not the synthetic fixtures used so far. Note that neither option makes **table** structure good;
+  that is what `pymupdf_layout` exists for, and it is the other follow-up's question. The 1.28.x line is **rejected** with reasons in `PLAN.md` §M138–M140; that half is
   settled and should not be re-derived.
 
 - **Classifying headings in code, with no agent in the loop — and whether `pymupdf_layout` ever
