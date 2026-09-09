@@ -4229,23 +4229,42 @@ it on this side of the line.
   none** (the error in the first pass): the default `lines_strict` has **perfect recall** — all
   three real tables, cleanly extracted with header rows — and **poor but filterable precision**,
   3 real of 16 detections, every false positive being 1×N, newline-stuffed or header-less. That is
-  a real improvement over flat text at **zero new dependencies**. **"Unruled tables are untested" was tested on 2026-09-08, and the answer
-  is bad.** The prospectus's **core financial statements** — Restated Consolidated Statement of
-  Assets and Liabilities (p387) and Statement of Profit and Loss (p388) — carry **zero stroke
-  drawings**, and `lines_strict` finds **no table on either**. `strategy="text"` is not a fallback:
-  on p388 it returns a 78×11 grid that splits words mid-token (`'Dhariwal Buildt'` + `'ech
-  Limited'`, `'March 31, 2'` + `'024'`), having already been shown to invent an 87×3 table out of a
-  non-tabular list. So **neither built-in strategy reads an unruled table**, and unruled is not an
-  edge case — it is the highest-value table content in a filing. Also measured: `find_tables()` runs
-  at **6.9 pages/s**, ~135× slower than `get_text`, so a whole-document scan of 572 pages is ~85 s
-  and the tool must take a page range rather than a document. **What remains to be decided** is
-  therefore narrower and sharper than when this was raised: (a) whether a **ruled-tables-only** tool
-  is worth shipping given it returns nothing for a prospectus's financial statements — and if so
-  that it must *say* so, distinguishing "no tables here" from "no *detectable* tables here", which
-  `get_drawings()` stroke count answers cheaply; (b) whether the **title/continuation gap** is
-  accepted for a first version (*Headphone cable connected* heads a table whose body is on the next
-  page, and a per-page detector loses the association); and (c) whether the honest answer to unruled
-  tables is `pymupdf_layout` after all, which this measurement strengthens considerably. Related to but separate
+  a real improvement over flat text at **zero new dependencies**. **"Unruled tables are untested" was tested on 2026-09-08, then re-tested
+  properly on 2026-09-09 after the owner asked how correctness was being established — the first
+  answer was wrong and is recorded here because the *method* was the fault.** The prospectus's
+  financial statements (PDF pages 387–389: Assets & Liabilities, Profit & Loss, Cash Flows) are not
+  unruled; they are **partially ruled** — horizontal rules under headers and subtotals plus an outer
+  frame, and **no vertical column separators**, which is the standard financial-statement layout.
+  `find_tables()` derives cells from *intersecting* lines, so with no verticals both `lines_strict`
+  and `lines` return **0 tables** on all three. That much held up.
+  **What did not hold up is the claim that `strategy="text"` returns garbage.** It was made by
+  eyeballing six rows, and it is false. Verified against **hand-read ground truth** — values read
+  off the rendered page, written into the test as a fixture, then compared — the text strategy
+  returns one table per page with **correct rows and correctly separated numeric columns**: page 387
+  matched **18 of 18** hand-read rows including every subtotal, and pages 388–389 matched every
+  hand-read value. Two label defects are cosmetic and deterministic: the Notes column glues onto the
+  label (it is a separate cell, so this was the harness's fault, not the extractor's), and a
+  line-wrapped label loses its space (`Cost of materialsconsumed`).
+  **The one real defect is a sign error, and it is the finding that matters.** Parenthesised
+  negatives get split across cell boundaries — measured over 287 numeric cells on the three pages:
+  **0% corrupted on p387** (which has no negatives), **5% on p388**, and **29% on p389**, the cash
+  flow statement, whose figures are negative-dense. Of 36 corrupted cells, **35 lose only the
+  trailing `)`** — the leading `(` survives, so the sign is still visible and repair is
+  deterministic — but **1 lost the leading `(`**, which reads as a positive number with nothing to
+  indicate otherwise. A silent sign flip in financial data at ~0.35% of cells.
+  Also measured: `find_tables()` runs at **6.9 pages/s**, ~135× slower than `get_text`, so a
+  572-page scan is ~85 s and the tool must take a page range rather than a document.
+  **What remains to be decided**, restated on the corrected evidence: (a) whether `get_tables`
+  selects a strategy per page — `lines_strict` where ruling exists, `text` where it does not — since
+  each is right where the other fails, and whether it must *report* which it used and that
+  `strategy="text"` on a non-tabular page **invents** tables (an 87×3 grid from a plain list), so
+  the caller can distinguish a real table from a hallucinated one; (b) whether the parenthesis
+  repair is acceptable as a documented post-process given the one unrecoverable case, or whether a
+  cell whose parens are unbalanced should be flagged rather than silently repaired; and (c) whether
+  the **title/continuation gap** is accepted for a first version (*Headphone cable connected* heads
+  a table whose body is on the next page, and a per-page detector loses the association).
+  **The case for `pymupdf_layout` is weaker than it looked on 2026-09-08** — it rested on "no free
+  option reads financial statements", and that premise did not survive verification. Related to but separate
   from the Markdown question below: a `get_tables` tool returns rows an agent can read, where
   Markdown is a rendering of the whole page. **It touches M140, but as a *hint*, not a filter**: measured on
   `dhariwal_ipo.pdf`, most of the 2,287 distinct heading candidates a bold filter yields are **table

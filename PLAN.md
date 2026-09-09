@@ -6598,10 +6598,13 @@ be a real improvement over the flat text, at **zero new dependencies**. Two thin
 free, and they are why it stays a follow-up rather than joining this milestone group. **Titles do
 not come with the table** — *Headphone cable connected (power is turned on)* is the heading of a
 table whose body is on the **next page**, and a per-page detector loses the association entirely;
-that is the same class of problem as a table continuing across a page break. And **a document with
-unruled tables is untested** — everything above is one manual, whose tables happen to be ruled.
-The earlier synthetic fixture that made extraction look solved had drawn ruling lines too, which is
-the standing lesson about fixtures.
+that is the same class of problem as a table continuing across a page break. And **the manual's tables are all ruled**, which the
+prospectus later showed to be the narrow case: its financial statements are *partially* ruled —
+horizontal rules and an outer frame, no vertical separators — so `find_tables()` derives no cell
+grid and `lines_strict` returns nothing, while `strategy="text"` reads them correctly apart from
+splitting parenthesised negatives across cells. The numbers, and the method that produced them, are
+in `PROGRESS.md` §Open follow-ups. The standing lesson about fixtures holds either way: the
+synthetic fixture that made extraction look solved had drawn ruling lines too.
 
 #### The `pymupdf4llm` evaluation — what was rejected, and why
 
