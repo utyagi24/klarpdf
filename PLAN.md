@@ -6375,6 +6375,30 @@ from the mutated source. **The suite reported on a version of the file that no l
 loads a file by path is only testing that file while its bytecode cache agrees, and the cache's
 idea of "changed" is coarser than an editor's.
 
+### M143.1 — Claude Desktop gets told where its config lives *(unplanned)* (2026-09-09)
+
+Asked by the owner straight after M143 merged: can `install.py` configure Claude Desktop too?
+
+**It cannot register it, and should not.** Desktop has no CLI, so `--client` has nothing to call.
+Registering it would mean `install.py` editing another application's config file — the one thing
+decisions 9 and 10 rule out, and not a symmetric risk: a botched `claude mcp add` costs one entry,
+while a botched JSON rewrite can damage a config holding someone's other MCP servers, and this
+script has no backup, no atomic write, and no answer for Desktop rewriting the file underneath it.
+**Rejected as `--client claude-desktop`, so the argument does not restart.** Reopening it means
+bringing a read-merge-write that preserves every other key, refusal on malformed JSON rather than
+overwrite, temp+replace, a backup, and a check for Desktop running — a milestone of its own, not a
+fourth entry in `CLIENTS`.
+
+**The real gap was smaller, and it was ours.** The report printed the `mcpServers` block and never
+said *where it goes* — a JSON blob and a shrug, on a machine that by construction has no clone and
+no README open. It now names `claude_desktop_config.json` for the running platform, and on Linux
+names **both** documented paths, because under WSL the Desktop being configured is very often the
+Windows one. `--print-config CLIENT` prints any client's configuration and exits without installing,
+so "where does this go again?" costs a flag rather than a reinstall. `client_command()` is the
+single source it and the report both read, and a test pins that they agree — the first cut of the
+refactor silently dropped the report's client labels, which is exactly the drift the shared source
+exists to prevent.
+
 ## Future enhancements (deferred beyond the roadmap)
 
 Captured but not yet scheduled:

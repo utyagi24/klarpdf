@@ -366,6 +366,55 @@ def configure_client(client: str, script: Path, scope: str | None, *, verbose: b
     return True
 
 
+# Where Claude Desktop keeps its config, per platform. Desktop has **no CLI**, so `--client` cannot
+# reach it and this script will not edit it: writing another application's config file is the one
+# thing `install.py` promises not to do (PLAN.md §M133–M136 decisions 9 and 10). Naming the path and
+# handing over the exact block is the whole of what it can honestly offer.
+DESKTOP_CONFIG = {
+    "darwin": "~/Library/Application Support/Claude/claude_desktop_config.json",
+    "win32": r"%APPDATA%\Claude\claude_desktop_config.json",
+}
+
+
+def desktop_instructions(script: Path) -> str:
+    """The Desktop block, and — the part that was missing — where to put it."""
+    block = '{"mcpServers": {"klarpdf": {"command": %s}}}' % json.dumps(str(script))
+    path = DESKTOP_CONFIG.get(sys.platform)
+    if path:
+        where = f"  file:  {path}"
+    else:
+        # Linux, and WSL — where the Desktop being configured is very often the Windows one.
+        where = ("  Desktop's config location is documented for macOS and Windows. If you are\n"
+                 "  configuring one of those from here, the file is:\n"
+                 "    macOS    ~/Library/Application Support/Claude/claude_desktop_config.json\n"
+                 "    Windows  %APPDATA%\\Claude\\claude_desktop_config.json")
+    return (f"  Claude Desktop has no CLI, so this one is by hand:\n"
+            f"{where}\n"
+            f"  Merge the \"klarpdf\" key into whatever `mcpServers` already holds — adding a server,\n"
+            f"  not replacing the file.\n"
+            f"    {block}")
+
+
+CLIENT_LABELS = {"claude-code": "Claude Code", "codex": "Codex CLI", "gemini": "Gemini CLI",
+                 "claude-desktop": "Claude Desktop"}
+
+
+def client_command(client: str, script: Path) -> str:
+    """What each client needs, from one place, so the report and `--print-config` cannot drift.
+
+    CLI clients get one unindented line; Claude Desktop gets its own block, since it is a file to
+    edit rather than a command to run.
+    """
+    if client == "claude-desktop":
+        return desktop_instructions(script)
+    quoted = f'"{script}"' if " " in str(script) else str(script)
+    if client == "claude-code":
+        return f"claude mcp add --scope user klarpdf -- {quoted}"
+    if client == "gemini":
+        return f"gemini mcp add klarpdf {quoted} --scope user"
+    return f"codex mcp add klarpdf -- {quoted}"
+
+
 def report(install_dir: Path, script: Path, version: str, configured: bool) -> None:
     quoted = f'"{script}"' if " " in str(script) else str(script)
     print(f"""
@@ -379,15 +428,17 @@ KlarPDF MCP {version} is installed.
         print(f"""Add it to your client — the command is the whole configuration; there is no URL,
 port or token, because this server speaks stdio and makes no network connections.
 
-  Claude Code   claude mcp add --scope user klarpdf -- {quoted}
-  Codex CLI     codex mcp add klarpdf -- {quoted}
-  Gemini CLI    gemini mcp add klarpdf {quoted} --scope user
+  Claude Code   {client_command("claude-code", script)}
+  Codex CLI     {client_command("codex", script)}
+  Gemini CLI    {client_command("gemini", script)}
 
-  Claude Desktop and anything else using an `mcpServers` block:
-    {{"mcpServers": {{"klarpdf": {{"command": {json.dumps(str(script))}}}}}}}
+{client_command("claude-desktop", script)}
 
 `--scope user` registers it for every directory; Claude Code and Gemini CLI both
 default to the one you run them in. Codex CLI has no scope — it is always global.
+Any other client using an `mcpServers` block takes the same JSON.
+
+Need this again later: `install.py --print-config <client>` prints it without installing.
 """)
     print(f"""Two switches narrow what it may do — `--read-only`, and `--allow-root DIR` to confine
 it to one directory tree. Pass them as `args` beside the command. Full reference:
@@ -407,6 +458,13 @@ examples:
 
   python3 install.py --client codex
       Codex CLI has no scopes, so --client-scope is not accepted for it.
+
+  python3 install.py --print-config claude-desktop
+      print what to paste, and the file to paste it into. Installs nothing.
+
+Claude Desktop is not a --client value: it has no CLI, and this script does not edit
+another application's config file. --print-config gives you the block and names the
+path; every other client is registered through its own CLI.
 
 --client-scope is required with --client, and the values differ per client because the
 clients differ. `local` and `project` mean *the directory install.py is running in* — which
@@ -439,9 +497,24 @@ def main(argv: list | None = None) -> int:
     parser.add_argument("--client-scope", choices=sorted({s for v in CLIENT_SCOPES.values() for s in v}),
                         help="which scope --client registers in; required with --client "
                              "(except codex, which has none). See the examples below")
+    parser.add_argument("--print-config", choices=sorted(CLIENTS) + ["claude-desktop"],
+                        metavar="CLIENT",
+                        help="print what this client needs and exit, installing nothing "
+                             "(claude-code, claude-desktop, codex, gemini)")
     parser.add_argument("--verbose", action="store_true", help="show every command that is run")
     args = parser.parse_args(argv)
     check_client_scope(parser, args.client, args.client_scope)
+
+    # Answers "where does this go again?" without a reinstall — and it is the only route to Claude
+    # Desktop, which has no CLI for `--client` to call. Prints and exits: touches nothing.
+    if args.print_config:
+        install_dir = (args.install_dir or default_install_dir()).expanduser().resolve()
+        text = client_command(args.print_config, venv_script(install_dir / ".venv"))
+        if args.print_config == "claude-desktop":
+            print(text)
+        else:
+            print(f"{CLIENT_LABELS[args.print_config]}:\n  {text}")
+        return 0
 
     # `python -` reads the program from stdin, so there is no file on disk to verify. It works;
     # it just skips a check the documented path gives you for free.

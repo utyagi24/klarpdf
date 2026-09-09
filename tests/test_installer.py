@@ -297,3 +297,57 @@ def test_every_client_has_a_scope_rule_and_a_position_for_it(installer):
     scoped = {c for c, s in installer.CLIENT_SCOPES.items() if s}
     assert set(installer.SCOPE_POSITION) == scoped
     assert set(installer.SCOPE_POSITION.values()) <= {"before-name", "after-command"}
+
+
+# --- `--print-config`: the only route to Claude Desktop, which has no CLI --------------------------
+
+def test_print_config_installs_nothing_and_exits_clean(installer, monkeypatch, capsys):
+    """M143.1 — it answers "where does this go again?" without a reinstall, so it must touch nothing."""
+    touched = []
+    for name in ("check_python", "check_venv_module", "make_venv", "install_package", "validate",
+                 "write_uninstaller"):
+        monkeypatch.setattr(installer, name, lambda *a, _n=name, **k: touched.append(_n))
+    assert installer.main(["--print-config", "claude-desktop"]) == 0
+    assert touched == [], f"--print-config did work: {touched}"
+    assert "mcpServers" in capsys.readouterr().out
+
+
+def test_claude_desktop_is_reachable_only_by_printing(installer):
+    """Desktop has no CLI, so it is a `--print-config` value and deliberately not a `--client` one:
+    registering it would mean editing another application's config file, which this script does not
+    do (`PLAN.md` §M133–M136 decisions 9 and 10).
+    """
+    assert "claude-desktop" not in installer.CLIENTS
+    assert "claude-desktop" in installer.CLIENT_LABELS
+
+
+def test_the_desktop_block_names_the_file_on_each_documented_platform(installer, monkeypatch, tmp_path):
+    """The block without its path was the actual gap: a JSON blob and nowhere to put it."""
+    for platform, expected in (("darwin", "Library/Application Support/Claude"),
+                               ("win32", r"%APPDATA%\Claude")):
+        monkeypatch.setattr(installer.sys, "platform", platform)
+        text = installer.client_command("claude-desktop", tmp_path / "klarpdf-mcp")
+        assert expected in text, platform
+        assert "claude_desktop_config.json" in text, platform
+
+    # Linux — and WSL, where the Desktop being configured is very often the Windows one — has no
+    # documented path of its own, so both are named rather than one being guessed.
+    monkeypatch.setattr(installer.sys, "platform", "linux")
+    text = installer.client_command("claude-desktop", tmp_path / "klarpdf-mcp")
+    assert "macOS" in text and "Windows" in text
+
+
+def test_the_printed_commands_come_from_one_place(installer, tmp_path):
+    """`report()` and `--print-config` must not drift: same function, same strings."""
+    script = tmp_path / "klarpdf-mcp"
+    assert installer.client_command("claude-code", script).startswith("claude mcp add --scope user")
+    assert installer.client_command("gemini", script).endswith("--scope user")
+    assert "--scope" not in installer.client_command("codex", script)
+    for client in installer.CLIENTS:
+        assert str(script) in installer.client_command(client, script), client
+
+
+def test_a_path_with_spaces_is_quoted_for_the_shell_commands(installer, tmp_path):
+    """These are printed for a human to paste into a shell, unlike the argv lists `--client` runs."""
+    script = tmp_path / "a dir" / "klarpdf-mcp"
+    assert f'"{script}"' in installer.client_command("claude-code", script)
