@@ -150,8 +150,19 @@ python3 install.py --client claude-code --client-scope user
 ```
 
 `--client-scope` takes `local`, `user` or `project` for Claude Code and `user` or `project` for
-Gemini CLI, and is not accepted with `--client codex`, which has no scopes. `--help` carries the
-table and four worked examples; `--install-dir`, `--reinstall` and `--index-url` are there too.
+Gemini CLI, and is not accepted with `--client codex`, which has no scopes.
+
+**Claude Desktop is not a `--client` value** — it has no CLI, and `install.py` does not edit another
+application's config file. `--print-config claude-desktop` gives you the JSON block *and* names the
+`claude_desktop_config.json` to paste it into; it works for the other clients too, and installs
+nothing, so it is also how you get the line back later:
+
+```bash
+python3 install.py --print-config claude-desktop
+```
+
+`--help` carries the scope table and worked examples; `--install-dir`, `--reinstall` and
+`--index-url` are there too.
 
 The checksum step is worth the two extra lines. `curl … | python3 -` works and the file says so when
 you do it, but there is then no file to verify.
