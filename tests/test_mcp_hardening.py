@@ -22,6 +22,7 @@ from tests.conftest import A_TEXT
 READ_TOOLS = {
     "get_info",
     "get_outline",
+    "get_links",
     "search",
     "extract_text",
     "render_page",

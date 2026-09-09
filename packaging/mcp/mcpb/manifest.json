@@ -45,6 +45,10 @@
       "description": "The document's bookmarks."
     },
     {
+      "name": "get_links",
+      "description": "Every link: where it points, and the words under it."
+    },
+    {
       "name": "search",
       "description": "Find text; returns pages, snippets and boxes."
     },

@@ -26,7 +26,7 @@
   <tr>
     <td><b>🏠 The app</b><br><sub>you are here</sub></td>
     <td><a href="klarpdf/mcp_bridge/QUICKSTART.md">🚀 <b>MCP — quick setup</b></a><br><sub>running in three commands</sub></td>
-    <td><a href="klarpdf/mcp_bridge/README.md">📖 <b>MCP — full reference</b></a><br><sub>19 tools · client config · restricting what it may touch</sub></td>
+    <td><a href="klarpdf/mcp_bridge/README.md">📖 <b>MCP — full reference</b></a><br><sub>20 tools · client config · restricting what it may touch</sub></td>
   </tr>
 </table>
 
@@ -155,14 +155,22 @@ tests and our weekly audit scans — not whatever is newest that day.
 Full install options, the Claude Desktop config, and the one-click `.mcpb` bundle are in
 **[klarpdf/mcp_bridge/README.md](klarpdf/mcp_bridge/README.md)**.
 
-Nineteen tools in three groups. **Read** — `get_info`, `get_outline`, `search`, `extract_text`,
-`render_page`, `get_form_fields`, `get_annotations` — let an agent pull only the pages it needs
-instead of loading an 800-page file whole. **Transform** — `extract_pages`, `split`, `merge`,
-`reorder`, `delete_pages`, `rotate`, `fill_form`, `flatten`, `export_images`, `annotate` — keep the
-content and always write a *new* file. **Redact** —
+Twenty tools in three groups. **Read** — `get_info`, `get_outline`, `get_links`, `search`,
+`extract_text`, `render_page`, `get_form_fields`, `get_annotations` — let an agent pull only the
+pages it needs instead of loading an 800-page file whole. **Transform** — `extract_pages`, `split`,
+`merge`, `reorder`, `delete_pages`, `rotate`, `fill_form`, `flatten`, `export_images`, `annotate` —
+keep the content and always write a *new* file. **Redact** —
 `redact_text`, `redact_regions` — physically delete the content and then re-read the written file to
 prove it, with a second engine when Poppler is installed; if anything is still recoverable the
 output is deleted and the call fails.
+
+**Follow a document's own links.** `get_links` reports every link a PDF carries — where it points
+(a page in this file, a web address, a `tel:` number, another document) and the words it is anchored
+on. Two questions that had no answer before it: *where does this document send me*, which is a
+privacy question as much as a navigation one, and *what is its structure* when it has no bookmarks —
+because a printed contents page is usually a stack of link annotations, each already carrying its
+title, its target page and, in its indent, its level. Authored by the publisher, not inferred from
+typography.
 
 **Mark up a document, then hand it to a person.** `annotate` writes highlights, underlines and
 strike-throughs — each able to carry a **note** — and `get_annotations` reads back every mark a file

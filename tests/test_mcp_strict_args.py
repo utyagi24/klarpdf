@@ -190,7 +190,11 @@ def test_the_guard_covers_every_tool_not_just_the_redactors():
     here — which is the property that makes one loop over the whole surface possible.
     """
     names = sorted(tool.name for tool in asyncio.run(server.list_tools()))
-    assert set(names) == EXPECTED_TOOLS and len(names) == 19
+    # Counted against `EXPECTED_TOOLS` rather than a literal, so the roster has one source of truth:
+    # the literal was `19` and went stale the day a twentieth tool was registered (M138), failing
+    # here for a reason that had nothing to do with the argument guard. The length comparison still
+    # earns its place — it is what catches the same name registered twice, which a set would hide.
+    assert set(names) == EXPECTED_TOOLS and len(names) == len(EXPECTED_TOOLS)
     for name in names:
         message = error_text(call(name, {"definitely_not_a_parameter": 1}))
         assert "'definitely_not_a_parameter'" in message, name

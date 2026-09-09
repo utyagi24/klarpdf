@@ -43,6 +43,25 @@ marks are dropped and `more_available` is set, so the caller pages through with 
 losing the tail.
 """
 
+DEFAULT_MAX_LINKS = 500
+"""How many links `get_links` returns per call (M138).
+
+Its own cap for the same reason `DEFAULT_MAX_ANNOTATIONS` has one: a link is a different kind of
+thing from a search hit, and the number that makes sense is "more than a real document's navigation
+set", not "more than a sane query". A 146-page manual whose contents page is built from links
+carries 621; a 320-page prospectus, 502.
+"""
+
+DEFAULT_MAX_LINK_CHARS = 60_000
+"""How many characters of link JSON `get_links` returns per call (M138).
+
+Beside `DEFAULT_MAX_LINKS`, not instead of it — the lesson `DEFAULT_MAX_ANNOTATION_CHARS` records,
+applied before it could bite. A link entry runs 127-647 characters depending on its anchor text and
+the length of its URI, so the count cap alone bounds a reply only loosely: 502 links measured out
+at **79,518 characters**, comfortably under the count cap and over what the caller wants. Whichever
+cap is reached first, whole links are dropped and `more_available` is set.
+"""
+
 DEFAULT_MAX_LISTED_FILES = 25
 """How many written paths `export_images` spells out before it stops listing them.
 
@@ -130,6 +149,8 @@ class Limits:
     max_listed_files: int = DEFAULT_MAX_LISTED_FILES
     max_annotations: int = DEFAULT_MAX_ANNOTATIONS
     max_annotation_chars: int = DEFAULT_MAX_ANNOTATION_CHARS
+    max_links: int = DEFAULT_MAX_LINKS
+    max_link_chars: int = DEFAULT_MAX_LINK_CHARS
 
 
 @dataclass(frozen=True)

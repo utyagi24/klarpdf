@@ -86,6 +86,7 @@ _CHILD = textwrap.dedent(
         # reads
         await server.call_tool("get_info", {"path": PDF})
         await server.call_tool("get_outline", {"path": PDF})
+        await server.call_tool("get_links", {"path": PDF})
         await server.call_tool("search", {"path": PDF, "query": "ALPHA"})
         await server.call_tool("extract_text", {"path": PDF, "pages": [1]})
         await server.call_tool("render_page", {"path": PDF, "page": 1, "dpi": 36})
@@ -217,10 +218,10 @@ def test_the_exerciser_covers_every_registered_tool():
     Everything above is only as strong as the exerciser: an import that happens *inside* a tool body
     is invisible until that tool runs, which is the whole reason the child calls them all. So a tool
     added without a line in ``_CHILD`` is not covered by the no-Qt, no-pypdf or no-socket assertions
-    — silently, because every one of them still passes on the nineteen that are there.
+    — silently, because every one of them still passes on the twenty that are there.
 
     ``tests/test_mcp_server.py`` pins the *registry* against ``EXPECTED_TOOLS``, so tool number
-    twenty cannot register unnoticed; it says nothing about this file. This is the other half: the
+    twenty-one cannot register unnoticed; it says nothing about this file. This is the other half: the
     registry is the source of truth, and the exerciser must match it exactly. Equality rather than
     containment, so a line left behind for a removed tool fails here too.
     """
