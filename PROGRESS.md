@@ -577,7 +577,7 @@ items, which are independent of it.
   (**M128**); and row 10's own instructions not putting the lock in the bundle (**M129**). What
   remains is the tag, which is an owner action.
 
-## Roadmap — document structure for agents (planned; M138–M141)
+## Roadmap — document structure for agents (planned; M138–M142)
 
 Design in `PLAN.md` §M138–M140 — **not restated here**. Same conventions: **one PR per milestone**,
 tick the box here on merge. Scoped **2026-09-07** from a session comparing the bridge against a
@@ -622,6 +622,16 @@ is left over.
   while being different tables, and the orphan title is what tells them apart. Takes a **page
   range**: `find_tables()` runs at 6.9 pages/s, ~135× slower than `get_text`. Design and the
   measurements behind each decision in `PLAN.md` §M141.
+
+- [ ] **M142** **`extract_markdown`** — a Markdown rendering of a page range, built on M140 and M141
+  with **no new dependency**. Prototyped before being scheduled: headings by weight/size, ruled
+  tables exactly, and **multi-column reading order** all work; a partially-ruled financial table, a
+  structured side panel, a drop cap and justified single-word lines are the known holes. **Binding
+  rule: a table that cannot be reconstructed is emitted as-is with a note, never as a mangled grid**
+  — the third application of *report the uncertainty, never paper over it*, after M140's `in_table`
+  and M141's `continues_from`. A **separate tool**, not a `format` flag on `extract_text`, because
+  the cost differs by two orders of magnitude (~930 pages/s against 6.9). Depends on M140 + M141.
+  Design, and why `pymupdf4llm` is rejected, in `PLAN.md` §M142.
 
 - [ ] **M140** **Heading candidates** — the typography fallback for documents with neither
   bookmarks nor a linked contents page, and the only route to **subsections** a contents page omits.
@@ -4246,55 +4256,12 @@ it on this side of the line.
   the rendered page, `strategy="text"` matched **18 of 18** rows on the Assets & Liabilities
   statement. Nothing carried.
 
-- **Should the bridge offer a Markdown rendering of a PDF, and if so through `pymupdf4llm` or our
-  own code** — raised 2026-09-07, the third of the owner's three goals (`PLAN.md` §M138–M140).
-  Undecided, and the measurements cut both ways. **For renting it:** `pymupdf4llm==0.3.4` installs
-  against our exact pinned `pymupdf==1.27.2.3` and adds only **`tabulate`** — 2 new pins, pure
-  Python; it accepts a **stream-opened** `Document`, which is what `VirtualDocument` holds, so no
-  second open and no re-decrypt; and Markdown costs only **1.03×** the characters of the flat text
-  dump, so the table and heading structure is nearly free in tokens. Its output on a ruled financial
-  table is a correct pipe table where our `extract_text` returns a flat list of cells with nothing
-  recording which belong to a row. **Against:** it is **75× slower** than `get_text("text")`
-  (12.4 pages/s against 932 on a 60-page table-heavy document — a 372-page report is ~30 s for a
-  full pass); **0.3.4 is the end of a line Artifex has moved past**, so it gets no further fixes or
-  security patches, which is a real cost for a project that runs `pip-audit` over its lock weekly;
-  and importing it makes PyMuPDF print `Consider using the pymupdf_layout package…` **to stdout**,
-  which on a stdio MCP server injects a bare line into the JSON-RPC stream — one
-  `contextlib.redirect_stdout` fixes it, but nothing would catch it except a client failing to
-  connect. **The "write it ourselves" half is more viable than first measured** — see the
-  `get_tables` follow-up below, and `PLAN.md` §M138–M140 for the corrected numbers. **Prototyped 2026-09-09 to answer "are we capable" with evidence rather than
-  argument.** ~90 lines over what M140 and M141 already provide — heading detection by weight/size,
-  tables with the shape filter and parenthesis repair, a column-collapse pass, reading order.
-  Results, and they cut cleanly in two. **Ruled documents: yes, today.** `WH-1000XM6.pdf` page 29
-  emits both tables correctly (3-col and 2-col, values intact) and the collapse pass correctly
-  leaves genuine text columns alone. **Partially-ruled financial statements: no — and neither does
-  the library.** On the prospectus P&L, `pymupdf4llm` 0.3.4 emits the header lines as bold text and
-  **no table at all** (it runs `find_tables` with `lines_strict`, which returns nothing there), while
-  ours gets correct values in a fragmented grid that the collapse pass improves but does not fix —
-  it reassembles the split labels and then merges some numeric columns, taking 41 raw data rows down
-  to 24. **Column reconstruction from alignment is the unsolved piece**, it is real engineering, and
-  depending on `pymupdf4llm` would not buy it.
-  **Multi-column tested 2026-09-09 on `kasaragodhr.pdf` p7, and the scope is wider
-  than feared.** Reading order is **substantially fixed**: the body narrative reconstructs correctly
-  across blocks, which neither `get_text("text")` (content-stream order) nor `sort=True`
-  (panel lines interleaved into the paragraph) manages. Three failures, all specific and none fatal:
-  a **drop cap** becomes a heading (`# N` — one 44 pt character); a **single word migrated columns**
-  ("the Kolathiri Rajas, *the* Vijayanagara Empire's" lost its `the`, which reappeared inside the
-  side panel), because justified text with one word per line is fragile under geometric sorting; and
-  the **side panel flattens** to a run of items rather than label/value pairs, though grouped and
-  ordered sensibly rather than scrambled. So the honest scope does **not** shrink to single-column
-  documents — it is "structured body text yes, structured side panels no".
-  **A hard finding against adopting the library at all, at any version.** Merely `import
-  pymupdf4llm` changes plain PyMuPDF's behaviour globally: the identical `find_tables()` call on the
-  same page returns **78×11 with 24 data rows** without the import and **86×7 with 3 data rows**
-  with it. Not a formatting difference — a worse result, silently, for code that does not use the
-  library. In a shared process like the MCP server that would perturb `get_tables`, and anything else
-  touching these paths, from an import made for an unrelated tool. This is separate from, and larger
-  than, the stdout nag already recorded above. **The decision this needs** is whether the
-  serializer's accumulated edge cases (multi-column reflow, lists, code, images) are
-  worth depending on a frozen version — which should be answered by running it over a real filing,
-  not the synthetic fixtures used so far. The 1.28.x line is **rejected** with reasons in `PLAN.md` §M138–M140; that half is
-  settled and should not be re-derived.
+- ~~**Should the bridge offer a Markdown rendering of a PDF, and if so through `pymupdf4llm` or our
+  own code**~~ — **graduated 2026-09-09 into M142** (roadmap above; design in `PLAN.md` §M142).
+  Decided *"I want markdown, lets do it"* after a prototype answered the capability question with
+  evidence. Ours, not rented: the deciding measurement is that **importing `pymupdf4llm` changes
+  plain PyMuPDF's results globally** — 24 data rows to 3 on an identical call — which in a
+  one-process server means an import for Markdown degrading `get_tables` beside it. Nothing carried.
 
 - ~~**Classifying headings in code, with no agent in the loop — and whether `pymupdf_layout` ever
   earns its place**~~ — **rejected by the owner 2026-09-09.** Raised 2026-09-07 as the third rung of

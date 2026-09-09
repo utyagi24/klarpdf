@@ -6665,6 +6665,50 @@ one. The mechanism is mechanical, and `WH-1000XM6.pdf` page 29 supplies all thre
 **Scope and cost.** `find_tables()` runs at **6.9 pages/s**, ~135× slower than `get_text`, so a
 572-page document is ~85 s: the tool takes a **page range**, never a whole document by default.
 
+#### M142 — `extract_markdown`, and why it is ours rather than rented
+
+Carried as an open question from 2026-09-07 and **decided by the owner on 2026-09-09** after a
+prototype was built to answer *"are we capable"* with evidence. It is: ~90 lines over what M140 and
+M141 already provide, with no new dependency. What that prototype established, and what the
+milestone therefore commits to:
+
+**Works today.** Headings by weight and size (the prospectus proves weight is the load-bearing
+signal — size alone returns *zero* headings for its unnumbered section). Ruled tables, exactly:
+`WH-1000XM6.pdf` page 29 emits both, and the column-collapse pass reassembles the prospectus's
+split labels **while leaving genuine text columns alone** — one rule, two shapes, no per-document
+tuning. And **multi-column reading order**, which was the risk this was tested for: the magazine's
+body narrative reconstructs correctly across blocks, where `get_text("text")` gives content-stream
+order and `sort=True` interleaves the side panel into the paragraph.
+
+**Degrades, and must do so visibly.** A partially-ruled financial statement yields correct values in
+a fragmented grid; the collapse pass improves it and does not fix it (41 raw data rows down to 24 —
+it merges some numeric columns). A structured side panel flattens to a readable run of items with
+its label/value pairing lost. A drop cap is read as a heading (`# N`, one 44 pt character), and
+justified text with one word per line can migrate a word across columns.
+
+**So the binding design rule is: a table that cannot be reconstructed is emitted as-is with a note,
+never as a mangled grid presented as a table.** This is the third application of a principle this
+group has now settled three times — M140's `in_table`, M141's `continues_from`, and here: *report
+the uncertainty, never paper over it*. A Markdown renderer that silently mis-renders a balance sheet
+is worse than one that declines to.
+
+**Shape.** A separate tool rather than a `format` option on `extract_text`, for a reason the
+`get_links`/`get_annotations` split did not have: the **cost profile differs by two orders of
+magnitude**. `extract_text` runs at ~930 pages/s; Markdown needs `find_tables` at **6.9 pages/s**.
+An agent reaching for `extract_text` must not be able to trip an 85-second call by passing a flag.
+It takes a **page range**, like M141, and depends on M140 and M141 landing first.
+
+**The dependency is rejected, and one measurement decided it.** `pymupdf4llm` 0.3.4 was the
+alternative. Merely importing it **changes plain PyMuPDF's behaviour globally**: the identical
+`find_tables()` call on the same page returns **78×11 with 24 data rows** without the import and
+**86×7 with 3** with it — silently, for code that does not use the library. The bridge is one
+process, so an import made for Markdown would degrade `get_tables` beside it. That alone is
+disqualifying, and it does not stand alone: 0.3.4 is a **frozen line** Artifex has moved past, it is
+**75× slower** than plain extraction, its import writes to **stdout** (fatal on a stdio server), and
+on the case that mattered most it **produces no table at all** — the prospectus P&L comes out as
+bold text lines, because it runs `find_tables` with `lines_strict`, which returns nothing there. We
+would be taking on all of that to solve a problem it does not solve.
+
 #### The `pymupdf4llm` evaluation — what was rejected, and why
 
 Considered for goals (1) and (3), and measured rather than assumed. There are effectively **two
