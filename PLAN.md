@@ -6518,11 +6518,22 @@ on a 572-page filing, but the design should be stated against the real figure. A
 (drop text appearing on more than three pages) barely helps — it removes repeated *short* table
 labels (`Particulars` on 89 pages, `Date of` on 65) and recovers only ~1,000 tokens.
 
-**Which points at the real refinement, and at a dependency between two pieces of deferred work.**
-Most of those 2,287 distinct candidates are **table cell headers**, not section headings — this is a
-prospectus, and it is largely tables. The effective filter is therefore to **exclude text inside
-detected table regions**, which means the `get_tables` follow-up would materially improve M140
-rather than being independent of it. Recorded in `PROGRESS.md` §Open follow-ups on both sides.
+**Which points at a refinement — and at a trap that was measured rather than assumed.**
+Most of those 2,287 distinct candidates are **table cell headers**, not section headings; this is a
+prospectus, and it is largely tables. The obvious move is to **exclude text inside detected table
+regions**, and it is **wrong**. It works only where detection is precise: over KEY REGULATIONS it
+keeps 36 of 40 candidates and the 4 it drops are genuine cell headers (`Date of change`,
+`Particulars`). On `WH-1000XM6.pdf` the same rule is catastrophic — the false-positive table on each
+contents page covers **85% of the page** and contains **every** contents link (21/21, 22/22, 22/22),
+so it would delete the entire table of contents.
+
+The error is structural, not a matter of tuning a threshold. M140's invariant is **recall, not
+precision — the agent classifies**; exclusion buys precision with recall, which is the single
+failure a candidate extractor cannot have, and it fails *silently*. **So a candidate carries an
+`in_table` flag and is never dropped for it.** The agent gets the signal that dismisses 2,287 cell
+headers, recall is untouched, and M140 stops depending on `find_tables()` being reliable at all — a
+wrong tag can be overruled, a wrong exclusion cannot be seen. The same reasoning applies to every
+future signal of this kind: **tag, do not filter**, unless the detector is known-precise.
 
 **One further consequence for how M140 is driven.** The heading *conventions* differ by section even
 though the typography does not: Industry Overview numbers its subsections (`2.10.1.1`, `2.11.6.3` —

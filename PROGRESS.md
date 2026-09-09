@@ -4235,10 +4235,19 @@ it on this side of the line.
   detector loses the association — the same class as a table continuing across a page break), and
   **unruled tables are untested**, since this document's happen to be ruled. Related to but separate
   from the Markdown question below: a `get_tables` tool returns rows an agent can read, where
-  Markdown is a rendering of the whole page. **It is also not independent of M140**: measured on
+  Markdown is a rendering of the whole page. **It touches M140, but as a *hint*, not a filter**: measured on
   `dhariwal_ipo.pdf`, most of the 2,287 distinct heading candidates a bold filter yields are **table
-  cell headers**, not section headings, so table regions are the filter M140 actually wants. If
-  `get_tables` is built, M140 should exclude text inside detected table bboxes.
+  cell headers**, not section headings. The obvious move — have M140 *exclude* text inside detected
+  table bboxes — was raised by the owner and **measured, and it is wrong**. It works where detection
+  is precise (KEY REGULATIONS: 40 candidates, 36 kept, the 4 dropped all genuine cell headers) and
+  is **catastrophic** where it is not: on `WH-1000XM6.pdf` the false-positive table on each contents
+  page covers **85% of the page** and contains **every** TOC link (21/21, 22/22, 22/22), so the rule
+  would delete the entire table of contents. It also contradicts M140's own invariant — *recall, not
+  precision* — by paying for precision in recall, which is the one failure a candidate extractor
+  must not have. **So M140 tags rather than drops**: a candidate carries `in_table` and the agent
+  weighs it. Recall stays intact, the agent still gets the signal, and M140 stops depending on
+  `find_tables()` being reliable — a wrong tag is a hint that can be overruled, a wrong exclusion is
+  silent data loss.
 
 - **Should the bridge offer a Markdown rendering of a PDF, and if so through `pymupdf4llm` or our
   own code** — raised 2026-09-07, the third of the owner's three goals (`PLAN.md` §M138–M140).
