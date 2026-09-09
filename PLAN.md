@@ -6414,9 +6414,19 @@ typography. The design splits it, because the split is what avoids a dependency:
 
 An LLM is a better heading classifier than any typographic rule — it knows `Item 7. Management's
 Discussion` is a heading and `325,790` is not. Doing classification **in code** with no agent in the
-loop is a separate, later question (see §Open follow-ups in `PROGRESS.md`), and it exists only
-because of the two-consumers rule: `klarpdf/model/` is reached by the **GUI**, which has no LLM in
-it, so a "generate bookmarks" menu item could not use the agent-in-the-loop form.
+loop was raised as a separate question — it existed only because `klarpdf/model/` is reached by the
+**GUI**, which has no LLM in it — and was **rejected by the owner on 2026-09-09**:
+
+> *"No 1c needed. I expect users to use MCP bridge services to close the gap where app is unable to
+> do it."*
+
+**This is a standing architectural position, not a decision about one milestone.** The two consumers
+share a core and every change answers for both (`CLAUDE.md` §How we work), but they are **not**
+expected to reach capability parity: where the viewer cannot do something, the answer is the bridge
+rather than a second implementation in the core built to serve a consumer that has no agent. It also
+closes the `pymupdf_layout` question outright — 1c was the last place a layout model could have
+earned ~11 pins and ≈100 MB, since every other use is either served by what we already pin or
+answerable by an agent reading a `render_page` image.
 
 Ordering, and why M140 is last: the shippable feature is **M138 + M139 + agent judgement**, which
 covers every document with a printed contents page — manuals, reports, filings, standards. M140 only
@@ -6462,8 +6472,9 @@ content-stream order, so the panel arrives scrambled (`Location`, `08:00 AM - 06
 `+91 467 2310700`, then the railway, airport and bus entries out of sequence), and `sort=True`
 interleaves the panel's lines **into the body paragraph** because they share y-bands. Labels
 separate from their values, and the icons pairing them are images. This is not a flag we failed to
-pass; it is the layout problem, and it is the strongest argument yet for the deferred
-`pymupdf_layout` question — the manual was not.
+pass; it is the layout problem. It was the strongest argument for `pymupdf_layout` while that
+question was open; with 1c rejected on 2026-09-09 the answer here is an agent reading a
+`render_page` image of the panel, which costs nothing and needs no dependency.
 
 #### A third document — the compiled prospectus, and the numbers that correct M140
 

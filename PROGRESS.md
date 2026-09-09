@@ -4268,27 +4268,30 @@ it on this side of the line.
   not the synthetic fixtures used so far. The 1.28.x line is **rejected** with reasons in `PLAN.md` §M138–M140; that half is
   settled and should not be re-derived.
 
-- **Classifying headings in code, with no agent in the loop — and whether `pymupdf_layout` ever
-  earns its place** — deferred 2026-09-07. M140 stops at *candidate extraction* and lets the calling
-  agent decide which candidates are headings, because an LLM is a better classifier than any
-  typographic rule and it costs us no algorithm. Two things keep the question open. **The GUI has no
-  LLM in it** — `klarpdf/model/` is reached by both consumers, so a "generate bookmarks for this
-  document" menu item in the viewer could not use the agent-in-the-loop form, and neither could
-  anyone wanting a deterministic, repeatable TOC from the same input. And **selecting *which* pages
-  are the contents page is unsolved**: the session's monotonic-and-forward heuristic over-fired on
-  `WH-1000XM6.pdf`, flagging in-body link clusters on pages 31, 36, 37, 59 and 84 alongside the
-  three real contents pages — which is itself an argument for showing the agent the link-dense pages
-  and letting it choose. **A motivating case arrived 2026-09-08**: `kasaragodhr.pdf`, a
-  graphics-rich magazine whose pages carry right-hand **side information panels** (getting there,
-  contact, hours, fee) that plain extraction cannot render in either mode — `get_text("text")`
-  returns content-stream order so the panel arrives scrambled, and `sort=True` interleaves its lines
-  into the body paragraph because they share y-bands. Labels separate from their values. That is a
-  layout problem, not a missing flag. If code-side classification is ever wanted, `pymupdf_layout`
-  is the serious option (Graph Neural Networks over PDF internals, emitting semantic roles for titles,
-  headings, headers, footers, tables) and also the expensive one: ~11 new pins and ≈100 MB, with the
-  side effects catalogued in `PLAN.md` §M138–M140. **The decision this needs** is whether a
-  no-agent path is wanted at all — if it is only ever the GUI, a cruder heuristic scoped to the app
-  may be the honest answer rather than a shared dependency.
+- ~~**Classifying headings in code, with no agent in the loop — and whether `pymupdf_layout` ever
+  earns its place**~~ — **rejected by the owner 2026-09-09.** Raised 2026-09-07 as the third rung of
+  M140's split: **1a** candidate extraction (ours, mechanical — M140), **1b** classification by the
+  calling agent (no algorithm needed), **1c** classification *in code*. 1c existed for one reason
+  only — **the GUI has no LLM in it**, so a "generate bookmarks" menu item in the viewer could not
+  use the agent-in-the-loop form.
+
+  **The owner's answer removes the premise:** *"No 1c needed. I expect users to use MCP bridge
+  services to close the gap where app is unable to do it."* The app and the bridge share a core but
+  are **not** expected to reach capability parity; where the viewer cannot do something, the answer
+  is the bridge, not a second implementation in the core to serve a consumer that has no agent. That
+  is a standing architectural position, recorded in `PLAN.md` §M138–M140, and it settles more than
+  this item.
+
+  **It closes the `pymupdf_layout` question outright.** 1c was the only remaining place a layout
+  model could have earned its ~11 pins and ≈100 MB — every other use (heading detection, tables,
+  the side panels in `kasaragodhr.pdf`) is either served by what we already pin or answerable by an
+  agent reading a `render_page` image. Nothing carried. Two things are worth keeping so they are not
+  re-derived: `pymupdf4llm` **1.28.x remains rejected** on its own separate grounds (`PLAN.md`
+  §M138–M140), and the entry's original claim that *"an LLM is a better classifier than any
+  typographic rule"* was later sharpened by the prospectus — bold-at-body-size is a strong, cheap
+  signal that a size-based rule misses entirely — so a code-side classifier was less hopeless than
+  this item implied. That does not revive it; it only means the rejection rests on the architecture,
+  not on 1c being infeasible.
 
 - **The `.mcpb` carries `QUICKSTART.md` but deliberately drops `README.md`** — noticed 2026-09-05
   while verifying M134's staged bundle. `build_mcpb.py`'s payload copy passes
