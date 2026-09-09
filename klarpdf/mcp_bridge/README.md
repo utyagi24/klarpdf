@@ -9,13 +9,16 @@ with cross-engine verification.
 **Claude Code, on Linux or macOS:**
 
 ```bash
-pipx install klarpdf                                  # or: uv tool install klarpdf
-claude mcp add klarpdf -- ~/.local/bin/klarpdf-mcp
+uv tool install klarpdf                               # pipx: pipx install klarpdf
+claude mcp add --scope user klarpdf -- ~/.local/bin/klarpdf-mcp
 ```
 
-That is the whole install. **The first line is the same everywhere** — only the path and the client
-command change: on Windows `where klarpdf-mcp` prints the path to use, Codex CLI and Gemini CLI take
-their own `mcp add`, and [Claude Desktop](#claude-desktop) installs a bundle rather than a command.
+That is the whole install. **`--scope user` is the part worth not dropping** — without it
+`claude mcp add` registers the server for the current directory alone
+([scopes](#claude-code)). **The first line is the same everywhere** — only the path and the client
+command change: on Windows `where klarpdf-mcp` prints the path to use (and if it prints nothing, see
+[PATH](#if-those-say-command-not-found)), Codex CLI and Gemini CLI take their own `mcp add`, and
+[Claude Desktop](#claude-desktop) installs a bundle rather than a command.
 [Quick setup](https://github.com/utyagi24/klarpdf/blob/main/klarpdf/mcp_bridge/QUICKSTART.md) has
 each of those combinations written out.
 
@@ -42,20 +45,25 @@ is to hand it accurate material and then do exactly what it is told.
 
 | | |
 |---|---|
-| **Python 3.11 – 3.14** | Any version in that range; each is tested in CI on Linux and Windows. |
-| **A way to install it** | [`pipx`](https://pipx.pypa.io) or [`uv`](https://docs.astral.sh/uv/) — either puts the bridge in an environment of its own, which is what you want: it pins all 29 of its dependencies exactly, so it will conflict with anything you co-install. **Neither is required**: `install.py` below needs only the Python you already have. Plain `pip` works too, into a virtualenv you made for it. |
-| **`uv`, again** | **Additionally required for the `.mcpb` bundle in Claude Desktop.** Desktop launches it with `uv run`, so `uv` must be on the PATH *Desktop* sees, which is not always the PATH your terminal has. Nothing warns you if it is missing; the symptom is the server failing to start. |
+| **[`uv`](https://docs.astral.sh/uv/)** | What the examples here use. It puts the bridge in an environment of its own — which is what you want, because it pins all 29 of its dependencies exactly and will conflict with anything you co-install. `uv` is a single binary rather than a Python program, so it is also the one option that does not presuppose the next row. |
+| **Python 3.11 – 3.14** | Any version in that range; each is tested in CI on Linux and Windows. **`uv` will fetch one** if you have none that fits — `uv python list` shows what it can download. Every other route needs you to already have it. |
+| **or [`pipx`](https://pipx.pypa.io)** | Does the same job and is equally supported; every `uv` command below names its `pipx` equivalent. It is a Python application itself, so it needs a suitable Python first, and it cannot launch the Claude Desktop bundle (next row). |
+| **`uv` for Claude Desktop, specifically** | The `.mcpb` bundle is launched with `uv run`, so there `uv` is required rather than preferred — and it must be on the PATH *Desktop* sees, which is not always the PATH your terminal has. Nothing warns you if it is missing; the symptom is the server failing to start. |
 | **An MCP client** | The app your AI assistant runs in — Claude Code, Claude Desktop, Codex CLI, Gemini CLI and others. It starts `klarpdf-mcp` as a local subprocess and relays the model's tool calls to it. |
 | **`poppler-utils`** | **Optional.** Adds a second, independent engine to redaction's verification step. Without it, redaction still verifies — with PyMuPDF alone. See [What redaction guarantees](#what-redaction-guarantees-and-where-it-stops). |
+
+**Neither installer is required.** [`install.py`](#with-neither-uv-nor-pipx) below needs only the
+Python you already have, and plain `pip` works too, into a virtualenv you made for it. `uv` leads
+here because it is the one route that also covers Claude Desktop and can supply the Python.
 
 No GUI toolkit is installed. The bridge's only dependencies are PyMuPDF and the MCP SDK.
 
 ## Install
 
-The two lines at the top of this page are the whole install. `pipx` puts the bridge in an isolated
-environment and its `klarpdf-mcp` command on your PATH, so nothing else on your machine is touched;
-`uv tool install klarpdf` does the same job. To try it once without installing anything,
-`uvx --from klarpdf klarpdf-mcp --help` runs it straight from the package.
+The two lines at the top of this page are the whole install. `uv tool install` puts the bridge in
+an isolated environment and its `klarpdf-mcp` command in `uv`'s bin directory, so nothing else on
+your machine is touched; `pipx install klarpdf` does the same job. To try it once without installing
+anything, `uvx --from klarpdf klarpdf-mcp --help` runs it straight from the package.
 
 The rest of this section is the detail behind that — what you get, what to avoid, and how to work
 from a clone instead.
@@ -63,7 +71,7 @@ from a clone instead.
 **Every install gets the exact versions we test and scan.** The published package pins all 29 of
 its dependencies at `==`, rather than declaring floors the way a library would — because this is an
 application, and an application installed into an environment of its own has nothing to conflict
-with. So `pipx install klarpdf` resolves to the set our CI runs against and our weekly audit
+with. So `uv tool install klarpdf` resolves to the set our CI runs against and our weekly audit
 scans, not to whatever happens to be newest that day.
 
 The flip side, worth knowing before you reach for plain `pip`: those exact pins mean
@@ -79,7 +87,44 @@ which klarpdf-mcp        # Windows: where klarpdf-mcp
 # -> ~/.local/bin/klarpdf-mcp
 ```
 
-### With neither `pipx` nor `uv`
+### If those say `command not found`
+
+Then the install worked and its `bin` directory is not on your PATH — the most common thing to go
+wrong here, and not really about this package. `uv tool` and `pipx` install into a directory of
+their own (`~/.local/bin` on Linux and macOS), and **putting that directory on your PATH is a
+separate, one-time step**. Both tools warn you when it is missing, in the middle of the install
+output where it scrolls past:
+
+> `/home/you/.local/bin` is not on your PATH. To use installed tools, run `uv tool update-shell` or
+> add the directory to your PATH.
+
+```bash
+uv tool update-shell        # pipx: pipx ensurepath
+```
+
+**Then start something new — the session you ran it in will never see it.** These commands edit your
+shell profile (Linux, macOS) or your user `PATH` variable (Windows), and a process keeps the
+environment it was started with. `pipx` puts it plainly: *"You will need to open a new terminal or
+re-login for the PATH changes to take effect."* Which means, concretely:
+
+| What | What to do about it |
+|---|---|
+| **The terminal you installed from** | Open a new one. On Linux and macOS, `source ~/.bashrc` — or whichever file your shell reads — updates the current one instead. Windows has no equivalent: open a new terminal. |
+| **A client that is already running** | Quit and reopen it. Claude Desktop, your editor, a `claude` session you started earlier — each holds the PATH it was launched with, and opening a new terminal does not restart them. |
+| **Windows specifically** | `update-shell` sets the variable for *new* processes. Anything started from an icon or a login item before that keeps the old value; signing out and back in is the blunt fix that always works. |
+
+**None of this is required to run the bridge.** PATH is a convenience for typing `klarpdf-mcp`
+yourself. Every client below is given an **absolute path**, which works whether or not PATH knows
+about it — and you can read that path off without PATH at all:
+
+```bash
+uv tool dir --bin                            # -> /home/you/.local/bin
+# pipx: pipx environment --value PIPX_BIN_DIR
+```
+
+`klarpdf-mcp` is inside whichever directory that prints — `klarpdf-mcp.exe` on Windows.
+
+### With neither `uv` nor `pipx`
 
 Download **`install.py`** from the [latest release](https://github.com/utyagi24/klarpdf/releases/latest)
 and run it with any supported Python:
@@ -93,8 +138,31 @@ python3 install.py                                # Windows: py -3 install.py
 
 It makes a virtual environment of its own, installs into it, proves the server starts, and prints
 the exact line your client needs — then writes an `uninstall.py` beside it. It touches nothing else:
-not your PATH, not your shell profile, not your system Python. `--client claude-code` also registers
-the server for you, using that client's own CLI; `--help` lists the rest.
+not your PATH, not your shell profile, not your system Python.
+
+`--client claude-code` also registers the server for you, using that client's own CLI. It requires
+`--client-scope` alongside it — there is no default, because the two on offer are both wrong: a
+client's own default is *the directory `install.py` is running in*, which is wherever you downloaded
+it to, and `user` would write a config file you never named. So:
+
+```bash
+python3 install.py --client claude-code --client-scope user
+```
+
+`--client-scope` takes `local`, `user` or `project` for Claude Code and `user` or `project` for
+Gemini CLI, and is not accepted with `--client codex`, which has no scopes.
+
+**Claude Desktop is not a `--client` value** — it has no CLI, and `install.py` does not edit another
+application's config file. `--print-config claude-desktop` gives you the JSON block *and* names the
+`claude_desktop_config.json` to paste it into; it works for the other clients too, and installs
+nothing, so it is also how you get the line back later:
+
+```bash
+python3 install.py --print-config claude-desktop
+```
+
+`--help` carries the scope table and worked examples; `--install-dir`, `--reinstall` and
+`--index-url` are there too.
 
 The checksum step is worth the two extra lines. `curl … | python3 -` works and the file says so when
 you do it, but there is then no file to verify.
@@ -132,15 +200,16 @@ over a network, and this one does not. Your client starts `klarpdf-mcp` as a sub
 talk over its stdin and stdout. (Two optional switches can restrict what it is allowed to do — see
 [Limiting what the server can do](#limiting-what-the-server-can-do).)
 
-**Use the full path that `which klarpdf-mcp` printed.** A `pipx` or `uv tool` install already puts
-`klarpdf-mcp` on your PATH, so the bare name often works — but *often* is the problem: a client
+**Use the full path that `which klarpdf-mcp` printed.** Once its bin directory is
+[on your PATH](#if-those-say-command-not-found), `klarpdf-mcp` resolves by name and the bare name
+often works — but *often* is the problem: a client
 launched from an icon or a login item inherits a different PATH from your terminal, and the symptom
 is a server that simply fails to start with nothing explaining why. The absolute path always works,
 so the examples below use one. Substitute yours:
 
 | Installed with | Find it with | Typically |
 |---|---|---|
-| `pipx` / `uv tool` | `which klarpdf-mcp` · Windows: `where klarpdf-mcp` | `~/.local/bin/klarpdf-mcp` on Linux and macOS. On Windows it depends on where your `pipx`/`uv` puts its shims, so read it off rather than assuming |
+| `uv tool` / `pipx` | `which klarpdf-mcp` · Windows: `where klarpdf-mcp`. Prints nothing? It is not on your PATH — `uv tool dir --bin` (pipx: `pipx environment --value PIPX_BIN_DIR`) names the directory regardless | `~/.local/bin/klarpdf-mcp` on Linux and macOS. On Windows it depends on where your `uv`/`pipx` puts its shims, so read it off rather than assuming |
 | a clone + virtualenv | the same, with the virtualenv active | `/path/to/klarpdf/.venv/bin/klarpdf-mcp` — Windows: `...\.venv\Scripts\klarpdf-mcp.exe` |
 
 ### Claude Code
@@ -148,12 +217,14 @@ so the examples below use one. Substitute yours:
 Install first (above), then:
 
 ```bash
-claude mcp add klarpdf -- ~/.local/bin/klarpdf-mcp
+claude mcp add --scope user klarpdf -- ~/.local/bin/klarpdf-mcp
 ```
 
-**That registers it for the current directory only.** `claude mcp add` defaults to `--scope local`,
-which is almost never what you want for this server: the bridge works on any PDF anywhere, while a
-local-scope entry follows you into exactly one project. Three scopes are available:
+**`--scope user` is doing real work there.** Drop it and `claude mcp add` falls back to its default,
+`--scope local` — the current directory alone, which is almost never what you want from this
+server: the bridge works on any PDF anywhere, while a local-scope entry follows you into exactly one
+project. A `uv tool` or `pipx` install is one command at one absolute path, good from any directory,
+so register it once for the whole account. Three scopes are available:
 
 | `--scope` | Stored in | Applies to |
 |---|---|---|
@@ -161,10 +232,24 @@ local-scope entry follows you into exactly one project. Three scopes are availab
 | `user` | `~/.claude.json`, at the top level | you, in **every** directory |
 | `project` | `.mcp.json` committed in the repo | anyone who clones it |
 
-For a `pipx` or `uv tool` install — where the command is already on your PATH everywhere — add it
-once for your whole account instead:
+**Read the line as three parts, and the order matters.** Flags for `claude` come **first**
+(`--scope user`); then the **name** the server appears under in `/mcp` (`klarpdf`); then `--`, after
+which everything is the **command Claude Code will run**. The `--` is what keeps the two apart — a
+flag written after it is handed to `klarpdf-mcp`, so `claude mcp add klarpdf --scope user -- …` does
+not set a scope, it passes `--scope user` to a server that has no such option.
+
+The same line on Windows, with the path `where klarpdf-mcp` printed, quoted because it can contain
+spaces:
+
+```bat
+claude mcp add --scope user klarpdf -- "C:\Users\you\.local\bin\klarpdf-mcp.exe"
+```
+
+**Already added it at the wrong scope?** There is no move — remove and re-add. `claude mcp remove`
+takes it out of whichever scope holds it (pass `--scope` to name one, when it is in more than one):
 
 ```bash
+claude mcp remove klarpdf
 claude mcp add --scope user klarpdf -- ~/.local/bin/klarpdf-mcp
 ```
 
@@ -227,7 +312,8 @@ sees. If that residual risk isn't acceptable, use Option B.
 codex mcp add klarpdf -- ~/.local/bin/klarpdf-mcp
 ```
 
-Or write it into `~/.codex/config.toml` yourself:
+There is no scope to choose here: `codex mcp add` writes `~/.codex/config.toml`, which applies
+everywhere. Or write it into that file yourself:
 
 ```toml
 [mcp_servers.klarpdf]
@@ -237,11 +323,13 @@ command = "~/.local/bin/klarpdf-mcp"
 ### Gemini CLI
 
 ```bash
-gemini mcp add klarpdf ~/.local/bin/klarpdf-mcp
+gemini mcp add klarpdf ~/.local/bin/klarpdf-mcp --scope user
 ```
 
-Or edit `~/.gemini/settings.json` (or `.gemini/settings.json` for a single project), which uses the
-same `mcpServers` block Claude Desktop does:
+**Gemini takes the flag after the command, where Claude Code takes it before the name** — and its
+default is `--scope project`, meaning the `.gemini/settings.json` of the directory you run it in.
+`--scope user` writes `~/.gemini/settings.json`, which is the one that applies everywhere. Or edit
+either file yourself; both use the same `mcpServers` block Claude Desktop does:
 
 ```json
 {

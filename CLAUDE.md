@@ -68,6 +68,25 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   that adds or changes a user-facing behaviour updates the Features list *in that PR* (M93 did, for
   document fidelity and permission carry-through); only the version, the what's-new line and the
   release links wait for the tag.
+- **User-facing install examples lead with `uv`; `pipx` is the named equivalent, never the lead.**
+  Decided 2026-09-07, after `QUICKSTART.md` opened with `pipx install klarpdf` and then used
+  `uv tool update-shell` for the very next step — two tools in five lines, with no statement that
+  either was preferred. The choice is not fashion, it is two project-specific facts. **`uv` is
+  already mandatory for one of the four install paths**: the `.mcpb` Claude Desktop bundle is
+  launched with `uv run` (`packaging/mcp/mcpb/manifest.json`), so leading with `pipx` tells part of
+  the audience to install two tool managers. And **`uv` removes a prerequisite rather than adding
+  one**: the bridge needs Python 3.11–3.14, `pipx` is itself a Python application and so
+  presupposes a suitable one, while `uv` is a single binary that downloads a Python when none fits
+  (`uv tool install` does it by default — `--no-python-downloads` exists to turn it off).
+  `pipx` stays **fully documented and equally supported**, not demoted to a footnote: it works for
+  every path but the Desktop bundle, it is PyPA-governed and distro-packaged, and a reader who
+  already has it should not be pushed to install a second tool. The rule is about *order and
+  consistency*, so it is mechanical: in a code block, `uv` is the line and `pipx` is a trailing
+  `# pipx: <equivalent>` comment; in prose and tables, `uv` is named first. Applies to
+  `README.md`, `klarpdf/mcp_bridge/README.md`, `klarpdf/mcp_bridge/QUICKSTART.md` and any text
+  `install.py` prints. `PLAN.md`/`PROGRESS.md` are records, not instructions — do not rewrite their
+  history to match.
+
 - **Capture the follow-up in the session that found it.** *Where things live* routes open
   follow-ups to `PROGRESS.md`; this is the part that rule assumes — that they get written at
   all. Anything deferred, **rejected**, or noticed-but-not-fixed is committed before the session
@@ -100,7 +119,14 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   behaves or how it is built: a new route through the save path, a contract change, a defect whose
   cause is worth knowing. A one-line typo fix is not; a fix that changes what a Save *writes* is.
   The milestone gets the next free number and `*(unplanned)*` when it was not on the roadmap (see
-  M43.1, M93). This is the rule that keeps the design docs from becoming a description of the app as
+  M43.1, M93). **"Next free" means free across the open PRs too, not just `main`** — milestone
+  numbers are claimed the moment a PR defines one, and two branches that both read `main` will both
+  pick the same next number and collide at merge. This is not hypothetical: M143 was written as M138
+  on 2026-09-09 and had to be renumbered, because an open PR had already taken M138–M142 (three
+  implemented, two as planned roadmap entries — **a reserved number counts as taken**). So before
+  choosing, check what is claimed:
+  `for n in $(gh pr list --state open --json number -q '.[].number'); do gh pr diff $n | grep -E '^\+' | grep -oE '\bM[0-9]{2,3}\b'; done | sort -u`.
+  Worth doing even when no PR looks related — the collision is with the *number*, not the subject. This is the rule that keeps the design docs from becoming a description of the app as
   it was first imagined rather than as it is.
 - **Two consumers share one core — every change answers for both.** `klarpdf/model/`, `viewer/` and
   `organize/` are reached by the **GUI app** (`app.py`, `main_window.py`) and by the **MCP bridge**

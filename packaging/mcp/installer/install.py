@@ -9,8 +9,8 @@ with the standard library's `venv` — whose bundled `ensurepip` provides `pip` 
 `klarpdf` from PyPI into it, proves the server actually starts, and prints the one line your MCP
 client needs.
 
-**Why this exists when `pipx install klarpdf` is one line.** Because `pipx` is itself a
-prerequisite, and so is `uv`. Those are the right tools if you have them; this is for the machine
+**Why this exists when `uv tool install klarpdf` is one line.** Because `uv` is itself a
+prerequisite, and so is `pipx`. Those are the right tools if you have them; this is for the machine
 that has a Python and nothing else. See `PLAN.md` §M133–M136.
 
 **It never touches your PATH**, your shell profile, or anything outside the one directory it owns.
@@ -296,10 +296,63 @@ CLIENTS = {
     "gemini": ["gemini", "mcp", "add", "klarpdf"],
 }
 
+# What a scope means to each client, read off each CLI rather than assumed (M143). Values a client
+# does not list are refused rather than passed through — `gemini` has no `local`, and Codex CLI has
+# no scopes at all, always writing `~/.codex/config.toml`.
+CLIENT_SCOPES = {
+    "claude-code": ("local", "user", "project"),
+    "codex": (),
+    "gemini": ("user", "project"),
+}
 
-def configure_client(client: str, script: Path, *, verbose: bool) -> bool:
+# Where each client wants the flag. Not cosmetic: Claude Code parses flags before the name and hands
+# everything after `--` to the server, so a `--scope` written late is passed to `klarpdf-mcp`, which
+# has no such option and fails. Gemini CLI takes it after the command instead.
+SCOPE_POSITION = {"claude-code": "before-name", "gemini": "after-command"}
+
+
+def client_argv(client: str, script: Path, scope: str | None) -> list:
+    """The client's own registration command, with the scope where that client expects it."""
+    argv = list(CLIENTS[client])
+    if scope is None:
+        return argv + [str(script)]
+    if SCOPE_POSITION[client] == "before-name":
+        cut = argv.index("klarpdf")
+        return argv[:cut] + ["--scope", scope] + argv[cut:] + [str(script)]
+    return argv + [str(script), "--scope", scope]
+
+
+def check_client_scope(parser, client: str | None, scope: str | None) -> None:
+    """Refuse anything ambiguous *before* installing, so a mistake costs a retype, not an install.
+
+    `--client-scope` is mandatory with `--client` rather than defaulted, because both defaults on
+    offer were wrong. Deferring to the client's own default anchors the entry to whatever directory
+    `install.py` was run from — normally the download directory, which is the one place the reader
+    will never work — while defaulting to `user` writes to a config file they did not name. Neither
+    is a decision this script gets to make quietly.
+    """
+    if client is None:
+        if scope is not None:
+            parser.error("--client-scope has no meaning without --client")
+        return
+
+    allowed = CLIENT_SCOPES[client]
+    if not allowed:
+        if scope is not None:
+            parser.error(f"--client {client} takes no --client-scope: {client} has no scopes and "
+                         f"always writes one global config file")
+        return
+
+    if scope is None:
+        parser.error(f"--client {client} requires --client-scope ({' | '.join(allowed)}). "
+                     f"There is no default: see the scope table in --help")
+    if scope not in allowed:
+        parser.error(f"--client {client} has no `{scope}` scope; it accepts {' | '.join(allowed)}")
+
+
+def configure_client(client: str, script: Path, scope: str | None, *, verbose: bool) -> bool:
     """Call the client's *own* CLI, on request. Not silent editing — the user passed `--client`."""
-    argv = CLIENTS[client] + [str(script)]
+    argv = client_argv(client, script, scope)
     if shutil.which(argv[0]) is None:
         print(f"  `{argv[0]}` is not on your PATH — skipping, the command is printed below.")
         return False
@@ -308,8 +361,58 @@ def configure_client(client: str, script: Path, *, verbose: bool) -> bool:
         print(f"  `{' '.join(argv[:3])}` failed; the command is printed below.")
         print(_excerpt(result.stderr or result.stdout, 6))
         return False
-    print(f"  registered with {client}")
+    where = f" at --scope {scope}" if scope else " (Codex CLI has no scopes; this applies everywhere)"
+    print(f"  registered with {client}{where}")
     return True
+
+
+# Where Claude Desktop keeps its config, per platform. Desktop has **no CLI**, so `--client` cannot
+# reach it and this script will not edit it: writing another application's config file is the one
+# thing `install.py` promises not to do (PLAN.md §M133–M136 decisions 9 and 10). Naming the path and
+# handing over the exact block is the whole of what it can honestly offer.
+DESKTOP_CONFIG = {
+    "darwin": "~/Library/Application Support/Claude/claude_desktop_config.json",
+    "win32": r"%APPDATA%\Claude\claude_desktop_config.json",
+}
+
+
+def desktop_instructions(script: Path) -> str:
+    """The Desktop block, and — the part that was missing — where to put it."""
+    block = '{"mcpServers": {"klarpdf": {"command": %s}}}' % json.dumps(str(script))
+    path = DESKTOP_CONFIG.get(sys.platform)
+    if path:
+        where = f"  file:  {path}"
+    else:
+        # Linux, and WSL — where the Desktop being configured is very often the Windows one.
+        where = ("  Desktop's config location is documented for macOS and Windows. If you are\n"
+                 "  configuring one of those from here, the file is:\n"
+                 "    macOS    ~/Library/Application Support/Claude/claude_desktop_config.json\n"
+                 "    Windows  %APPDATA%\\Claude\\claude_desktop_config.json")
+    return (f"  Claude Desktop has no CLI, so this one is by hand:\n"
+            f"{where}\n"
+            f"  Merge the \"klarpdf\" key into whatever `mcpServers` already holds — adding a server,\n"
+            f"  not replacing the file.\n"
+            f"    {block}")
+
+
+CLIENT_LABELS = {"claude-code": "Claude Code", "codex": "Codex CLI", "gemini": "Gemini CLI",
+                 "claude-desktop": "Claude Desktop"}
+
+
+def client_command(client: str, script: Path) -> str:
+    """What each client needs, from one place, so the report and `--print-config` cannot drift.
+
+    CLI clients get one unindented line; Claude Desktop gets its own block, since it is a file to
+    edit rather than a command to run.
+    """
+    if client == "claude-desktop":
+        return desktop_instructions(script)
+    quoted = f'"{script}"' if " " in str(script) else str(script)
+    if client == "claude-code":
+        return f"claude mcp add --scope user klarpdf -- {quoted}"
+    if client == "gemini":
+        return f"gemini mcp add klarpdf {quoted} --scope user"
+    return f"codex mcp add klarpdf -- {quoted}"
 
 
 def report(install_dir: Path, script: Path, version: str, configured: bool) -> None:
@@ -325,16 +428,54 @@ KlarPDF MCP {version} is installed.
         print(f"""Add it to your client — the command is the whole configuration; there is no URL,
 port or token, because this server speaks stdio and makes no network connections.
 
-  Claude Code   claude mcp add klarpdf -- {quoted}
-  Codex CLI     codex mcp add klarpdf -- {quoted}
-  Gemini CLI    gemini mcp add klarpdf {quoted}
+  Claude Code   {client_command("claude-code", script)}
+  Codex CLI     {client_command("codex", script)}
+  Gemini CLI    {client_command("gemini", script)}
 
-  Claude Desktop and anything else using an `mcpServers` block:
-    {{"mcpServers": {{"klarpdf": {{"command": {json.dumps(str(script))}}}}}}}
+{client_command("claude-desktop", script)}
+
+`--scope user` registers it for every directory; Claude Code and Gemini CLI both
+default to the one you run them in. Codex CLI has no scope — it is always global.
+Any other client using an `mcpServers` block takes the same JSON.
+
+Need this again later: `install.py --print-config <client>` prints it without installing.
 """)
     print(f"""Two switches narrow what it may do — `--read-only`, and `--allow-root DIR` to confine
 it to one directory tree. Pass them as `args` beside the command. Full reference:
   {DOCS}""")
+
+
+EPILOG = """
+examples:
+  python3 install.py
+      install only. The commands to register it by hand are printed at the end.
+
+  python3 install.py --client claude-code --client-scope user
+      install, and register for every directory you use Claude Code in.
+
+  py -3 install.py --client gemini --client-scope project
+      Windows. Registers in the .gemini/settings.json of the directory this is run from.
+
+  python3 install.py --client codex
+      Codex CLI has no scopes, so --client-scope is not accepted for it.
+
+  python3 install.py --print-config claude-desktop
+      print what to paste, and the file to paste it into. Installs nothing.
+
+Claude Desktop is not a --client value: it has no CLI, and this script does not edit
+another application's config file. --print-config gives you the block and names the
+path; every other client is registered through its own CLI.
+
+--client-scope is required with --client, and the values differ per client because the
+clients differ. `local` and `project` mean *the directory install.py is running in* — which
+is wherever you downloaded it to, so `user` is usually what you want:
+
+  claude-code   local | user | project    local   = this directory only  (Claude Code's own default)
+  gemini        user | project            project = this directory only  (Gemini CLI's own default)
+  codex         --                        always ~/.codex/config.toml
+
+Full setup guide: https://github.com/utyagi24/klarpdf/blob/main/klarpdf/mcp_bridge/QUICKSTART.md
+"""
 
 
 # --- entry point ----------------------------------------------------------------------------------
@@ -343,6 +484,7 @@ def main(argv: list | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="install.py", description="Install the KlarPDF MCP bridge.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=EPILOG,
     )
     parser.add_argument("--install-dir", type=Path, default=None,
                         help=f"where to install (default: {default_install_dir()})")
@@ -352,8 +494,27 @@ def main(argv: list | None = None) -> int:
                         help="package index to install from (default: PyPI, or your pip config)")
     parser.add_argument("--client", choices=sorted(CLIENTS),
                         help="also register the server with this client, using its own CLI")
+    parser.add_argument("--client-scope", choices=sorted({s for v in CLIENT_SCOPES.values() for s in v}),
+                        help="which scope --client registers in; required with --client "
+                             "(except codex, which has none). See the examples below")
+    parser.add_argument("--print-config", choices=sorted(CLIENTS) + ["claude-desktop"],
+                        metavar="CLIENT",
+                        help="print what this client needs and exit, installing nothing "
+                             "(claude-code, claude-desktop, codex, gemini)")
     parser.add_argument("--verbose", action="store_true", help="show every command that is run")
     args = parser.parse_args(argv)
+    check_client_scope(parser, args.client, args.client_scope)
+
+    # Answers "where does this go again?" without a reinstall — and it is the only route to Claude
+    # Desktop, which has no CLI for `--client` to call. Prints and exits: touches nothing.
+    if args.print_config:
+        install_dir = (args.install_dir or default_install_dir()).expanduser().resolve()
+        text = client_command(args.print_config, venv_script(install_dir / ".venv"))
+        if args.print_config == "claude-desktop":
+            print(text)
+        else:
+            print(f"{CLIENT_LABELS[args.print_config]}:\n  {text}")
+        return 0
 
     # `python -` reads the program from stdin, so there is no file on disk to verify. It works;
     # it just skips a check the documented path gives you for free.
@@ -376,7 +537,8 @@ def main(argv: list | None = None) -> int:
     write_uninstaller(install_dir)
 
     script = venv_script(venv_dir)
-    configured = configure_client(args.client, script, verbose=args.verbose) if args.client else False
+    configured = (configure_client(args.client, script, args.client_scope, verbose=args.verbose)
+                  if args.client else False)
     report(install_dir, script, version, configured)
     return 0
 

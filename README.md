@@ -45,7 +45,7 @@ this screenshot follows your GitHub one.</sub></p>
 
 **Status: `v0.19.0` shipped** — [download the installer or portable exe](https://github.com/utyagi24/klarpdf/releases/latest).
 **New in v0.19.0 — the bridge you can actually install:** the MCP bridge is published on **PyPI**,
-so `pipx install klarpdf` (or `uv tool install klarpdf`) replaces the nine-command clone-and-build it
+so `uv tool install klarpdf` (or `pipx install klarpdf`) replaces the nine-command clone-and-build it
 took before — and for a machine with neither, a single downloadable **`install.py`** needs nothing
 but a supported Python. All 29 dependencies are pinned exactly in the published package, so an
 install gets the set our CI tests and our weekly audit scans. **The Windows app is unchanged**: same
@@ -145,8 +145,8 @@ component** — the Windows installer above does not contain it and is not made 
 **any Python from 3.11 to 3.14**. Like the app, it makes no network connections.
 
 ```bash
-pipx install klarpdf                          # or: uv tool install klarpdf
-claude mcp add klarpdf -- ~/.local/bin/klarpdf-mcp   # any other client just needs that path
+uv tool install klarpdf                       # pipx: pipx install klarpdf
+claude mcp add --scope user klarpdf -- ~/.local/bin/klarpdf-mcp   # other clients just need the path
 ```
 
 All 29 dependencies are pinned exactly in the published package, so an install gets the set our CI
