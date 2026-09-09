@@ -4262,8 +4262,26 @@ it on this side of the line.
   which on a stdio MCP server injects a bare line into the JSON-RPC stream — one
   `contextlib.redirect_stdout` fixes it, but nothing would catch it except a client failing to
   connect. **The "write it ourselves" half is more viable than first measured** — see the
-  `get_tables` follow-up below, and `PLAN.md` §M138–M140 for the corrected numbers. **The decision
-  this needs** is whether the serializer's accumulated edge cases (multi-column reflow, lists, code, images) are
+  `get_tables` follow-up below, and `PLAN.md` §M138–M140 for the corrected numbers. **Prototyped 2026-09-09 to answer "are we capable" with evidence rather than
+  argument.** ~90 lines over what M140 and M141 already provide — heading detection by weight/size,
+  tables with the shape filter and parenthesis repair, a column-collapse pass, reading order.
+  Results, and they cut cleanly in two. **Ruled documents: yes, today.** `WH-1000XM6.pdf` page 29
+  emits both tables correctly (3-col and 2-col, values intact) and the collapse pass correctly
+  leaves genuine text columns alone. **Partially-ruled financial statements: no — and neither does
+  the library.** On the prospectus P&L, `pymupdf4llm` 0.3.4 emits the header lines as bold text and
+  **no table at all** (it runs `find_tables` with `lines_strict`, which returns nothing there), while
+  ours gets correct values in a fragmented grid that the collapse pass improves but does not fix —
+  it reassembles the split labels and then merges some numeric columns, taking 41 raw data rows down
+  to 24. **Column reconstruction from alignment is the unsolved piece**, it is real engineering, and
+  depending on `pymupdf4llm` would not buy it.
+  **A hard finding against adopting the library at all, at any version.** Merely `import
+  pymupdf4llm` changes plain PyMuPDF's behaviour globally: the identical `find_tables()` call on the
+  same page returns **78×11 with 24 data rows** without the import and **86×7 with 3 data rows**
+  with it. Not a formatting difference — a worse result, silently, for code that does not use the
+  library. In a shared process like the MCP server that would perturb `get_tables`, and anything else
+  touching these paths, from an import made for an unrelated tool. This is separate from, and larger
+  than, the stdout nag already recorded above. **The decision this needs** is whether the
+  serializer's accumulated edge cases (multi-column reflow, lists, code, images) are
   worth depending on a frozen version — which should be answered by running it over a real filing,
   not the synthetic fixtures used so far. The 1.28.x line is **rejected** with reasons in `PLAN.md` §M138–M140; that half is
   settled and should not be re-derived.
