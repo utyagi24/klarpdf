@@ -606,7 +606,12 @@ is left over.
   `note`, `author`, `mine`, `editable` — is permanently null or false for a link. Rationale in
   `PLAN.md` §M138–M140.
 - [ ] **M139** **`set_outline`** — write `[{level, title, page}]` into a copy as real bookmarks;
-  the same shape `get_outline` returns and `remapped_toc()` produces. A catalog-only change, so the
+  the same shape `get_outline` returns and `remapped_toc()` produces. **The sink for M138 and
+  M140 alike** — an agent supplies entries derived from links (M138, the primary and exact source),
+  from typography (M140, the fallback), or from its own reading of a short document, which is why
+  it is independently shippable and why it comes **before** M140 despite M140 feeding it: building
+  the sink first pins the contract, and M138 + M139 is already a working feature where M138 + M140
+  would be two sources with nothing able to write. A catalog-only change, so the
   `insert_pdf` graft hazard does not apply and encryption survives (verified); with M116 it appends
   rather than rewrites. Must normalise levels before writing — `set_toc` refuses a first item that
   is not level 1 and refuses skipped levels.
@@ -635,6 +640,8 @@ is left over.
 
 - [ ] **M140** **Heading candidates** — the typography fallback for documents with neither
   bookmarks nor a linked contents page, and the only route to **subsections** a contents page omits.
+  **Feeds M139**, which is already built by then and defines the `[{level, title, page}]` target
+  this must produce.
   Mechanical **candidate extraction** only (bold, larger-than-body, numbering patterns,
   short-line-before-body → `{text, page, size, bold, y}`); the calling agent classifies. Recall, not
   precision. Three things measured on `dhariwal_ipo.pdf` (572-page prospectus) shape it: **weight is
