@@ -119,7 +119,14 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   behaves or how it is built: a new route through the save path, a contract change, a defect whose
   cause is worth knowing. A one-line typo fix is not; a fix that changes what a Save *writes* is.
   The milestone gets the next free number and `*(unplanned)*` when it was not on the roadmap (see
-  M43.1, M93). This is the rule that keeps the design docs from becoming a description of the app as
+  M43.1, M93). **"Next free" means free across the open PRs too, not just `main`** — milestone
+  numbers are claimed the moment a PR defines one, and two branches that both read `main` will both
+  pick the same next number and collide at merge. This is not hypothetical: M143 was written as M138
+  on 2026-09-09 and had to be renumbered, because an open PR had already taken M138–M142 (three
+  implemented, two as planned roadmap entries — **a reserved number counts as taken**). So before
+  choosing, check what is claimed:
+  `for n in $(gh pr list --state open --json number -q '.[].number'); do gh pr diff $n | grep -E '^\+' | grep -oE '\bM[0-9]{2,3}\b'; done | sort -u`.
+  Worth doing even when no PR looks related — the collision is with the *number*, not the subject. This is the rule that keeps the design docs from becoming a description of the app as
   it was first imagined rather than as it is.
 - **Two consumers share one core — every change answers for both.** `klarpdf/model/`, `viewer/` and
   `organize/` are reached by the **GUI app** (`app.py`, `main_window.py`) and by the **MCP bridge**
