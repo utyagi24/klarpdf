@@ -4274,6 +4274,16 @@ it on this side of the line.
   it reassembles the split labels and then merges some numeric columns, taking 41 raw data rows down
   to 24. **Column reconstruction from alignment is the unsolved piece**, it is real engineering, and
   depending on `pymupdf4llm` would not buy it.
+  **Multi-column tested 2026-09-09 on `kasaragodhr.pdf` p7, and the scope is wider
+  than feared.** Reading order is **substantially fixed**: the body narrative reconstructs correctly
+  across blocks, which neither `get_text("text")` (content-stream order) nor `sort=True`
+  (panel lines interleaved into the paragraph) manages. Three failures, all specific and none fatal:
+  a **drop cap** becomes a heading (`# N` — one 44 pt character); a **single word migrated columns**
+  ("the Kolathiri Rajas, *the* Vijayanagara Empire's" lost its `the`, which reappeared inside the
+  side panel), because justified text with one word per line is fragile under geometric sorting; and
+  the **side panel flattens** to a run of items rather than label/value pairs, though grouped and
+  ordered sensibly rather than scrambled. So the honest scope does **not** shrink to single-column
+  documents — it is "structured body text yes, structured side panels no".
   **A hard finding against adopting the library at all, at any version.** Merely `import
   pymupdf4llm` changes plain PyMuPDF's behaviour globally: the identical `find_tables()` call on the
   same page returns **78×11 with 24 data rows** without the import and **86×7 with 3 data rows**
