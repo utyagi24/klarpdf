@@ -577,7 +577,7 @@ items, which are independent of it.
   (**M128**); and row 10's own instructions not putting the lock in the bundle (**M129**). What
   remains is the tag, which is an owner action.
 
-## Roadmap — document structure for agents (planned; M138–M140)
+## Roadmap — document structure for agents (planned; M138–M141)
 
 Design in `PLAN.md` §M138–M140 — **not restated here**. Same conventions: **one PR per milestone**,
 tick the box here on merge. Scoped **2026-09-07** from a session comparing the bridge against a
@@ -610,6 +610,19 @@ is left over.
   `insert_pdf` graft hazard does not apply and encryption survives (verified); with M116 it appends
   rather than rewrites. Must normalise levels before writing — `set_toc` refuses a first item that
   is not level 1 and refuses skipped levels.
+- [ ] **M141** **`get_tables`** — rows an agent can read, at **zero new dependencies**. Strategy is
+  chosen per page (ruling present → `lines_strict`, else `text`) and **deliberately not reported**;
+  precision comes from a **shape filter** (reject 1×N, newline-stuffed cells, empty header).
+  Parenthesised negatives split across cells are **repaired by rule** — a leading `(` with no closer
+  is negative, which covers 35 of 36 measured cases — and the one cell that lost its leading `(`
+  is a documented limitation, not code. **Titles and cross-page continuation are in scope**: a
+  table's title is the nearest *free* block above its bbox, an orphan free block below the last
+  table on a page titles the first table on the next, and continuation is **flagged, never
+  auto-merged** — page 29 and page 30 of `WH-1000XM6.pdf` share identical column edges and headers
+  while being different tables, and the orphan title is what tells them apart. Takes a **page
+  range**: `find_tables()` runs at 6.9 pages/s, ~135× slower than `get_text`. Design and the
+  measurements behind each decision in `PLAN.md` §M141.
+
 - [ ] **M140** **Heading candidates** — the typography fallback for documents with neither
   bookmarks nor a linked contents page, and the only route to **subsections** a contents page omits.
   Mechanical **candidate extraction** only (bold, larger-than-body, numbering patterns,
@@ -4220,65 +4233,18 @@ the PR that fixes it. See `CLAUDE.md` §How we work for the split and why. Items
 were not migrated wholesale: each is listed because a decision is outstanding, which is what keeps
 it on this side of the line.
 
-- **A `get_tables` tool on `find_tables()` plus a shape filter** — raised 2026-09-08, after the
-  owner supplied ground truth for `WH-1000XM6.pdf` and an earlier measurement of mine was found to
-  be wrong. Today the bridge has **no** table handling: `extract_text` is `page.get_text("text")`,
-  which on page 29 — three titled tables — returns the titles in a run followed by a stream of
-  cells with nothing recording which form a row. `find_tables()` ships in the PyMuPDF we already
-  pin and is called nowhere. **Measured against the real tables rather than against pages that have
-  none** (the error in the first pass): the default `lines_strict` has **perfect recall** — all
-  three real tables, cleanly extracted with header rows — and **poor but filterable precision**,
-  3 real of 16 detections, every false positive being 1×N, newline-stuffed or header-less. That is
-  a real improvement over flat text at **zero new dependencies**. **"Unruled tables are untested" was tested on 2026-09-08, then re-tested
-  properly on 2026-09-09 after the owner asked how correctness was being established — the first
-  answer was wrong and is recorded here because the *method* was the fault.** The prospectus's
-  financial statements (PDF pages 387–389: Assets & Liabilities, Profit & Loss, Cash Flows) are not
-  unruled; they are **partially ruled** — horizontal rules under headers and subtotals plus an outer
-  frame, and **no vertical column separators**, which is the standard financial-statement layout.
-  `find_tables()` derives cells from *intersecting* lines, so with no verticals both `lines_strict`
-  and `lines` return **0 tables** on all three. That much held up.
-  **What did not hold up is the claim that `strategy="text"` returns garbage.** It was made by
-  eyeballing six rows, and it is false. Verified against **hand-read ground truth** — values read
-  off the rendered page, written into the test as a fixture, then compared — the text strategy
-  returns one table per page with **correct rows and correctly separated numeric columns**: page 387
-  matched **18 of 18** hand-read rows including every subtotal, and pages 388–389 matched every
-  hand-read value. Two label defects are cosmetic and deterministic: the Notes column glues onto the
-  label (it is a separate cell, so this was the harness's fault, not the extractor's), and a
-  line-wrapped label loses its space (`Cost of materialsconsumed`).
-  **The one real defect is a sign error, and it is the finding that matters.** Parenthesised
-  negatives get split across cell boundaries — measured over 287 numeric cells on the three pages:
-  **0% corrupted on p387** (which has no negatives), **5% on p388**, and **29% on p389**, the cash
-  flow statement, whose figures are negative-dense. Of 36 corrupted cells, **35 lose only the
-  trailing `)`** — the leading `(` survives, so the sign is still visible and repair is
-  deterministic — but **1 lost the leading `(`**, which reads as a positive number with nothing to
-  indicate otherwise. A silent sign flip in financial data at ~0.35% of cells.
-  Also measured: `find_tables()` runs at **6.9 pages/s**, ~135× slower than `get_text`, so a
-  572-page scan is ~85 s and the tool must take a page range rather than a document.
-  **What remains to be decided**, restated on the corrected evidence: (a) whether `get_tables`
-  selects a strategy per page — `lines_strict` where ruling exists, `text` where it does not — since
-  each is right where the other fails, and whether it must *report* which it used and that
-  `strategy="text"` on a non-tabular page **invents** tables (an 87×3 grid from a plain list), so
-  the caller can distinguish a real table from a hallucinated one; (b) whether the parenthesis
-  repair is acceptable as a documented post-process given the one unrecoverable case, or whether a
-  cell whose parens are unbalanced should be flagged rather than silently repaired; and (c) whether
-  the **title/continuation gap** is accepted for a first version (*Headphone cable connected* heads
-  a table whose body is on the next page, and a per-page detector loses the association).
-  **The case for `pymupdf_layout` is weaker than it looked on 2026-09-08** — it rested on "no free
-  option reads financial statements", and that premise did not survive verification. Related to but separate
-  from the Markdown question below: a `get_tables` tool returns rows an agent can read, where
-  Markdown is a rendering of the whole page. **It touches M140, but as a *hint*, not a filter**: measured on
-  `dhariwal_ipo.pdf`, most of the 2,287 distinct heading candidates a bold filter yields are **table
-  cell headers**, not section headings. The obvious move — have M140 *exclude* text inside detected
-  table bboxes — was raised by the owner and **measured, and it is wrong**. It works where detection
-  is precise (KEY REGULATIONS: 40 candidates, 36 kept, the 4 dropped all genuine cell headers) and
-  is **catastrophic** where it is not: on `WH-1000XM6.pdf` the false-positive table on each contents
-  page covers **85% of the page** and contains **every** TOC link (21/21, 22/22, 22/22), so the rule
-  would delete the entire table of contents. It also contradicts M140's own invariant — *recall, not
-  precision* — by paying for precision in recall, which is the one failure a candidate extractor
-  must not have. **So M140 tags rather than drops**: a candidate carries `in_table` and the agent
-  weighs it. Recall stays intact, the agent still gets the signal, and M140 stops depending on
-  `find_tables()` being reliable — a wrong tag is a hint that can be overruled, a wrong exclusion is
-  silent data loss.
+- ~~**A `get_tables` tool on `find_tables()` plus a shape filter**~~ — **graduated 2026-09-09 into
+  M141** (see the roadmap above; design in `PLAN.md` §M141). All three open questions were decided
+  by the owner: the strategy is chosen per page and **not** reported (*"I see no value in disclosing
+  the strategy unless we expect the calling agents to perform some post processing based on it"*);
+  the parenthesis repair is a rule with the residue documented (*"we are not aiming to be 100%
+  accurate… don't over compensate for the corner cases"*); and the title/continuation gap was
+  rejected as a gap at all (*"we can't expect tables to be present as a whole on a single page"*) —
+  it is in scope. The finding worth keeping out of the verification that preceded it: the first
+  round's conclusions were reached by comparing PyMuPDF's table output against PyMuPDF's text output
+  and reading **consistency as correctness**, and were wrong. Redone against hand-read values from
+  the rendered page, `strategy="text"` matched **18 of 18** rows on the Assets & Liabilities
+  statement. Nothing carried.
 
 - **Should the bridge offer a Markdown rendering of a PDF, and if so through `pymupdf4llm` or our
   own code** — raised 2026-09-07, the third of the owner's three goals (`PLAN.md` §M138–M140).

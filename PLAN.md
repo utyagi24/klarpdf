@@ -6606,6 +6606,54 @@ splitting parenthesised negatives across cells. The numbers, and the method that
 in `PROGRESS.md` §Open follow-ups. The standing lesson about fixtures holds either way: the
 synthetic fixture that made extraction look solved had drawn ruling lines too.
 
+#### M141 — `get_tables`, and the decisions that closed it
+
+Raised as an open question on 2026-09-08 and **closed by the owner on 2026-09-09**. The evidence is
+in `PROGRESS.md` §Open follow-ups' history; what follows is the decided design.
+
+**Strategy is chosen per page and is not reported.** `lines_strict` reads a fully ruled table and
+returns nothing for a partially ruled one; `strategy="text"` reads the partially ruled financial
+statements correctly and invents tables on non-tabular pages. Each is right where the other fails,
+so the tool picks: ruling present → `lines_strict`, else `text`. The owner rejected reporting which
+was used — *"I see no value in disclosing the strategy unless we expect the calling agents to
+perform some post processing based on it"*, and they do not. The precision problem it was standing
+in for is handled where precision problems belong: the **shape filter** (reject 1×N, newline-stuffed
+cells, empty header), which was already the answer for `lines_strict`'s 3-of-16 precision.
+
+**Parenthesised negatives are repaired deterministically, and the residue is documented, not coded
+around.** Measured over 287 numeric cells on PDF pages 387–389, cells split so the parenthesis
+becomes unbalanced: 0% where a statement has no negatives, 5% on the P&L, **29% on the cash flow
+statement**. Of 36 such cells **35 lose only the trailing `)`**, so a leading `(` with no closer is
+unambiguously a negative and the repair is a rule. **One lost the leading `(`** and reads as
+positive. That case gets a line in the tool's documentation and nothing else — the owner's
+direction: *"we are not aiming to be 100% accurate, 100% of the times. don't over compensate for the
+corner cases."*
+
+**Titles and cross-page continuation are in scope, not a deferred gap.** This was recorded as an
+acceptable limitation and the owner corrected it: *"we can't expect tables to be present as a whole
+on a single page."* Quite right — a table spanning a page break is the normal case, not a corner
+one. The mechanism is mechanical, and `WH-1000XM6.pdf` page 29 supplies all three cases at once
+(table bboxes at y 217–528 and 659–755, page height 842):
+
+    y=196.4  free      Music playback time                       -> title of the table at y=217
+    y=638.9  free      Communication time                        -> title of the table at y=659
+    y=772.4  free      Headphone cable connected (power is on)   -> orphan, below the last table
+
+* **A table's title is the nearest *free* text block above its bbox** — free meaning not inside any
+  detected table region. Both titled tables on the page resolve this way.
+* **An orphan free block below the last table on a page is the title of the first table on the next
+  page.** That is the *Headphone cable connected* case, whose body is on page 30.
+* **Continuation is flagged, never auto-merged**, and the orphan title is what makes that safe.
+  There is a real trap here: page 29's second table and page 30's table have **identical column
+  x-edges `[36.4, 265.2]` and identical header rows**, so geometry matching alone would merge two
+  genuinely different tables. The orphan title on page 29 is the signal that page 30 starts something
+  new. So the tool reports `title`, `title_from_previous_page` and `continues_from` and lets the
+  caller decide — **the same principle already settled for M140's `in_table`: report the signal, do
+  not act on it silently.**
+
+**Scope and cost.** `find_tables()` runs at **6.9 pages/s**, ~135× slower than `get_text`, so a
+572-page document is ~85 s: the tool takes a **page range**, never a whole document by default.
+
 #### The `pymupdf4llm` evaluation — what was rejected, and why
 
 Considered for goals (1) and (3), and measured rather than assumed. There are effectively **two
