@@ -2353,6 +2353,32 @@ on the one above it. Every decision, every rejection and every measurement behin
 `PLAN.md` §M133–M136 — **not restated here**. The headline: the install goes from nine commands to
 `python install.py`, or to `uvx --from klarpdf klarpdf-mcp` for anyone who already has `uv`.
 
+- [x] **M138** *(unplanned)* **The installer stops guessing which scope you meant** — 2026-09-09,
+  from the owner's decision on the M136 follow-up carried below. `install.py --client claude-code`
+  registered the bridge without saying where: no `--scope`, so Claude Code's default `local`, which
+  means **the directory `install.py` ran from** — and `run()` passes no `cwd`, so that is the
+  download directory the documented `curl -LO` flow leaves you in. `--client gemini` had the same
+  shape (Gemini CLI defaults to `project`); `--client codex` was unaffected, Codex having no scopes.
+  Silent and delayed: the install succeeds and `/mcp` is empty where you actually work.
+
+  **`--client-scope` is now mandatory with `--client`** rather than defaulted, because both
+  candidate defaults are wrong in different ways — the client's own anchors the entry to an
+  accidental directory, `user` writes a config file the reader never named. `--client` itself stays
+  optional, so plain `python3 install.py` is untouched; a bare `--client-scope` is refused. Values
+  are validated **per client** (`claude-code`: local·user·project · `gemini`: user·project, no
+  `local` · `codex`: none accepted) and the flag is placed where each CLI wants it — before the name
+  for Claude Code, after the command for Gemini — since a late `--scope` reaches `klarpdf-mcp`,
+  which has no such option. Validation runs before anything touches disk or network. `--help` gains
+  the `epilog` the parser has been formatted for since M136 and never had: four worked examples plus
+  the scope table. Seven new tests, each confirmed by reverting the behaviour and watching it fail.
+
+  **One of those reverts exposed a defect in the harness rather than the code.** A mutation that
+  moved a line appeared to pass: `tests/test_installer.py` loaded `install.py` through
+  `SourceFileLoader`, whose `__pycache__` entry is validated by `(mtime, size)` alone — the move
+  preserved the byte count and the restore landed in the same second, so **the suite reported on a
+  version of the file that no longer existed**. `_load` now compiles the source itself and writes no
+  cache. Design in `PLAN.md` §M138 — *WSL*
+
 - [x] **M137** *(unplanned)* **The dev lock is compiled off Windows** — 2026-09-05, found while doing
   the Windows half of the pypdf security bump ([#324](https://github.com/utyagi24/klarpdf/pull/324)).
   `RELEASE.md` §1 step 2 sent both lock recompiles to Windows; run as written, the dev-lock command
@@ -4175,20 +4201,15 @@ the PR that fixes it. See `CLAUDE.md` §How we work for the split and why. Items
 were not migrated wholesale: each is listed because a decision is outstanding, which is what keeps
 it on this side of the line.
 
-- **`install.py --client claude-code` registers at the client's default scope — `local`** — noticed
-  2026-09-07, while fixing the MCP setup docs after the owner reported that neither document showed
-  a complete `--scope` example. `CLIENTS` in `packaging/mcp/installer/install.py` is
-  `["claude", "mcp", "add", "klarpdf", "--"]`, with no scope, so `--client claude-code` registers
-  the bridge **for the directory `install.py` happened to be run in** — usually `~/Downloads`, which
-  is the one directory the user will never be working in. The same is true of `--client gemini`
-  (Gemini CLI defaults to `--scope project`); Codex CLI has no scopes and is unaffected. The printed
-  fallback hints now say `--scope user`, so the *manual* path is right and the *automatic* one is
-  the odd one out. **What is undecided is which way to close that gap**: pass `--scope user`
-  unconditionally (opinionated, and the installer would then write to a config the user did not
-  name), add an `--client-scope` flag (one more knob on a script whose whole point is that it needs
-  no knobs), or leave it and let the docs carry the warning. Not urgent — the failure is a server
-  that is simply absent elsewhere, and `claude mcp add` fixes it in one line.
-  `packaging/mcp/installer/install.py`.
+- ~~**`install.py --client claude-code` registers at the client's default scope — `local`**~~ —
+  **closed 2026-09-09**, graduated into **M138** above: `--client-scope` is now mandatory with
+  `--client`. Worth keeping the correction that changed the fix, so it is not re-derived: this was
+  first written up here as an *inconsistency* between the printed hints (`--scope user`) and the
+  automation, which makes "default to `user`" look obvious. It is not one — `install.py` has no
+  scope policy to contradict, and deferring to each client's own default is coherent and uniform.
+  The real objection is that a directory-scoped default assumes you invoked it from the directory
+  you care about, and a wrapper run from a download directory breaks that assumption rather than
+  disagreeing with anything. Hence neither default, and a required flag.
 
 - **The `.mcpb` carries `QUICKSTART.md` but deliberately drops `README.md`** — noticed 2026-09-05
   while verifying M134's staged bundle. `build_mcpb.py`'s payload copy passes

@@ -6126,7 +6126,7 @@ proxies, retries and corporate MITM certificates, which is where installers of t
 | 7 | It **works when piped anyway**, and says what was skipped | We cannot enforce it — `install.py` is a file at a URL. Measured: `__file__` is `'<stdin>'` when piped, so it is cleanly detectable. Refusing would be theatre (they would `curl -o` and run it) and would break CI, Dockerfiles and provisioning. **Consequence: `install.py` must need no stdin — anything that would prompt becomes a flag** (an existing venv errors naming `--reinstall`, it does not ask). That is better design regardless |
 | 8 | `~/.local/share/klarpdf-mcp` · `~/Library/Application Support/klarpdf-mcp` · `%LOCALAPPDATA%\klarpdf-mcp`; `--install-dir` overrides | Flat and identically named on all three, honouring `XDG_DATA_HOME`. Independent of the app on disk, because the bridge is a separate optional component and many users will never install the app |
 | 9 | **Touches no PATH** — no symlink, no profile edit | Clients take an absolute path, so nothing needs it; the blast radius stays one directory we own |
-| 10 | Prints the client config; **opt-in `--client`** runs the client's own CLI | `claude`/`codex`/`gemini mcp add` are those clients' supported APIs, so calling one on request is not silent editing. Claude Desktop has no CLI and stays a printed JSON block |
+| 10 | Prints the client config; **opt-in `--client`** runs the client's own CLI | `claude`/`codex`/`gemini mcp add` are those clients' supported APIs, so calling one on request is not silent editing. Claude Desktop has no CLI and stays a printed JSON block. **M138 adds a mandatory `--client-scope`** — the scope was left to the client's default, which anchors the entry to the directory `install.py` ran in |
 | 11 | `install.py` **writes `uninstall.py`** into the install directory | Not a release artifact, per the owner. ~18 lines: a `pyvenv.cfg` guard so a wrong `--install-dir` is refused rather than obeyed, `os.chdir` before `rmtree` (Windows cannot remove a directory that is the process's CWD), and it **prints** the client-removal commands rather than running them |
 | 12 | pip environment: **pass network variables through, strip location ones** | Corporate mirrors and proxies must keep working, so `--isolated` and a scrubbed `env` are both wrong — they would also ignore `pip.conf`/`pip.ini`. Keep `PIP_INDEX_URL`, `PIP_EXTRA_INDEX_URL`, `PIP_TRUSTED_HOST`, `PIP_CERT`, `HTTP(S)_PROXY`, `NO_PROXY`, `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`; strip `PIP_USER`, `PIP_TARGET`, `PIP_PREFIX`, `PYTHONHOME`, `PYTHONPATH`. A `--index-url` flag covers anyone whose mirror is not in the environment |
 | 13 | Startup validation is **mandatory**, reusing `tools/mcp_stdio_check.py` | It is the only thing that catches the silent failure in the measurement below, and it already exists: 197 lines driving the console script over real stdio with the MCP client SDK |
@@ -6317,6 +6317,63 @@ because the wrong answer is a *valid file that looks right*: the diff a reviewer
 line naming a real package at a real version. The check cannot be "does the lock look correct" but
 "which machine is allowed to write it" — which is why the guard lives in the task runner and the
 suite, not in the review.
+
+### M138 — the installer stops guessing which scope you meant *(unplanned)* (2026-09-09)
+
+`install.py --client claude-code` registered the bridge and never said where. It ran
+`claude mcp add klarpdf -- <path>` with no `--scope`, so it landed at Claude Code's default,
+`local` — **the directory `install.py` was run from**. `run()` passes no `cwd`, so that is
+whatever the reader was in when they typed `python3 install.py`, and the documented flow is
+`curl -LO install.py && python3 install.py`: the download directory. `--client gemini` had the same
+shape (Gemini CLI defaults to `--scope project`); only `--client codex` was unaffected, Codex having
+no scopes at all. The failure is silent and delayed — the install succeeds, `/mcp` is empty in the
+directory you actually work in, and nothing connects the two.
+
+**The framing this came in under was wrong, and correcting it changed the fix.** It was first
+written up as an *inconsistency*: the printed hints and both documents say `--scope user`, the
+automation did not. That reading makes "default to `user`" the obvious answer. But `install.py` has
+no scope policy to contradict — deferring to the client's own default is a coherent stance, and a
+uniform one across all three clients. **The real objection is narrower and has nothing to do with
+consistency**: a client's directory-scoped default is a good default *under the assumption that you
+invoked it from the directory you care about*, and a wrapper invoked from a download directory
+breaks that assumption rather than disagreeing with anything.
+
+Which is why the answer is neither default. `--client-scope` is **mandatory whenever `--client` is
+given**, because both available defaults are wrong in different ways: the client's own anchors the
+entry to an accidental directory, and `user` writes to a config file the reader never named. The
+script asks instead. `--client` itself stays optional — plain `python3 install.py` is the whole
+promise of the file and needs no scope, so a bare `--client-scope` is refused too.
+
+**What each client accepts differs, so the flag is validated per client rather than globally.**
+
+| `--client` | `--client-scope` | Where the flag goes | Read from |
+|---|---|---|---|
+| `claude-code` | `local` · `user` · `project` **(required)** | before the name, ahead of `--` | `claude mcp add --help` |
+| `gemini` | `user` · `project` **(required)** — no `local` | after the command | gemini-cli `packages/cli/src/commands/mcp/add.ts` (`default: 'project'`) |
+| `codex` | **not accepted** — no scopes exist | — | `codex mcp add --help` |
+
+Position is not cosmetic. Claude Code parses flags before the name and hands everything after `--`
+to the server, so a `--scope` written late reaches `klarpdf-mcp`, which has no such option and
+fails. `SCOPE_POSITION` encodes that per client and `client_argv()` builds the list; a test pins
+each shape, so a client changing its syntax fails there rather than at the last step of a real
+install. Validation runs on the parsed args **before anything touches the disk or the network**, so
+a mistake costs a retype rather than a venv — also pinned by a test.
+
+`--help` gains the `epilog` the parser had been formatted for since M136 and never had:
+`RawDescriptionHelpFormatter` exists to stop argparse re-wrapping hand-laid text, and there was
+none to preserve. It now carries four worked examples and the scope table above, including the part
+that is easy to get wrong — that `local` and `project` mean *the directory `install.py` runs in*.
+
+**A verification note that is the real lesson, and not about scopes.** Confirming the new tests
+fail when the behaviour is reverted — `CLAUDE.md` §How we work — produced a mutation that appeared
+to pass, and the code was blameless. `tests/test_installer.py` loads `install.py` by path through
+`SourceFileLoader`, which writes and consults `__pycache__`; a `.pyc` is validated by
+`(source mtime, source size)` alone. The mutation *moved a line*, preserving the byte count, and the
+restore landed inside the same second — so both fields matched and Python served bytecode compiled
+from the mutated source. **The suite reported on a version of the file that no longer existed.**
+`_load` now compiles the source itself, writing and reading no cache. The general form: a test that
+loads a file by path is only testing that file while its bytecode cache agrees, and the cache's
+idea of "changed" is coarser than an editor's.
 
 ## Future enhancements (deferred beyond the roadmap)
 

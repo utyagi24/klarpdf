@@ -25,9 +25,17 @@ SYNC = ROOT / "packaging" / "mcp" / "installer" / "sync_installer.py"
 
 
 def _load(path: Path, name: str):
+    """Compiled here rather than through the loader, so no `__pycache__` is written or consulted.
+
+    A `.pyc` is validated by `(source mtime, source size)` alone, and these two files get rewritten
+    in place — by `sync_installer.py`, and by anyone confirming a test fails when the behaviour is
+    reverted. An edit that preserves the byte count, landing in the same second as the last one, is
+    then served from **stale bytecode with no warning**: the suite reports on a version of the file
+    that no longer exists. Measured, not theorised — it cost a debugging round on 2026-09-09.
+    """
     spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    exec(compile(path.read_text(encoding="utf-8"), str(path), "exec"), module.__dict__)
     return module
 
 
@@ -211,3 +219,81 @@ def test_the_client_commands_are_argument_lists_not_shell_strings(installer):
     for client, argv in installer.CLIENTS.items():
         assert isinstance(argv, list) and argv, client
         assert not any(" " in part for part in argv), f"{client}: a shell string would need quoting"
+
+
+# --- `--client-scope`: mandatory, per-client, and checked before anything installs ------------------
+
+def test_a_scoped_client_refuses_to_guess(installer, capsys):
+    """M138 — `--client` without `--client-scope` is an error, not a default.
+
+    Both available defaults were wrong. The client's own default (`local`, `project`) anchors the
+    entry to the directory `install.py` runs in — the download directory, the one place the reader
+    will never work. Defaulting to `user` writes a config file they never named. So the script asks.
+    """
+    for client in ("claude-code", "gemini"):
+        with pytest.raises(SystemExit) as exc:
+            installer.main([f"--client={client}"])
+        assert exc.value.code == 2
+        assert "requires --client-scope" in capsys.readouterr().err
+
+
+def test_each_client_accepts_only_the_scopes_it_actually_has(installer, capsys):
+    """Gemini CLI has no `local`, and Codex CLI has no scopes at all. Read off `claude mcp add
+    --help`, `codex mcp add --help` and gemini-cli's `packages/cli/src/commands/mcp/add.ts`.
+    """
+    with pytest.raises(SystemExit):
+        installer.main(["--client=gemini", "--client-scope=local"])
+    assert "has no `local` scope" in capsys.readouterr().err
+
+    with pytest.raises(SystemExit):
+        installer.main(["--client=codex", "--client-scope=user"])
+    assert "takes no --client-scope" in capsys.readouterr().err
+
+
+def test_a_scope_without_a_client_is_refused_rather_than_ignored(installer, capsys):
+    with pytest.raises(SystemExit):
+        installer.main(["--client-scope=user"])
+    assert "no meaning without --client" in capsys.readouterr().err
+
+
+def test_the_scope_is_checked_before_anything_is_installed(installer, monkeypatch):
+    """A mistake should cost a retype, not a venv. `check_client_scope` runs on the parsed args,
+    ahead of every step that touches the disk or the network.
+    """
+    reached = []
+    monkeypatch.setattr(installer, "check_python", lambda: reached.append("check_python"))
+    monkeypatch.setattr(installer, "make_venv", lambda *a, **k: reached.append("make_venv"))
+    with pytest.raises(SystemExit):
+        installer.main(["--client=claude-code"])
+    assert reached == [], f"installed before validating: {reached}"
+
+
+def test_the_scope_flag_goes_where_each_client_wants_it(installer, tmp_path):
+    """Position is not cosmetic. Claude Code parses flags before the name and hands everything after
+    `--` to the server, so a late `--scope` reaches `klarpdf-mcp`, which has no such option. Gemini
+    CLI takes it after the command instead.
+    """
+    script = tmp_path / "klarpdf-mcp"
+
+    claude = installer.client_argv("claude-code", script, "user")
+    assert claude[:5] == ["claude", "mcp", "add", "--scope", "user"]
+    assert claude.index("--scope") < claude.index("klarpdf") < claude.index("--")
+    assert claude[-1] == str(script)
+
+    gemini = installer.client_argv("gemini", script, "project")
+    assert gemini == ["gemini", "mcp", "add", "klarpdf", str(script), "--scope", "project"]
+    assert "--" not in gemini, "Gemini CLI takes no `--` separator"
+
+    codex = installer.client_argv("codex", script, None)
+    assert codex == ["codex", "mcp", "add", "klarpdf", "--", str(script)]
+    assert "--scope" not in codex
+
+
+def test_every_client_has_a_scope_rule_and_a_position_for_it(installer):
+    """The three tables are indexed by the same keys, so a fourth client cannot be added to one and
+    forgotten in the others — which would be a KeyError at the last step of a real install.
+    """
+    assert set(installer.CLIENT_SCOPES) == set(installer.CLIENTS)
+    scoped = {c for c, s in installer.CLIENT_SCOPES.items() if s}
+    assert set(installer.SCOPE_POSITION) == scoped
+    assert set(installer.SCOPE_POSITION.values()) <= {"before-name", "after-command"}

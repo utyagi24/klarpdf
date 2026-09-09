@@ -138,10 +138,20 @@ python3 install.py                                # Windows: py -3 install.py
 
 It makes a virtual environment of its own, installs into it, proves the server starts, and prints
 the exact line your client needs — then writes an `uninstall.py` beside it. It touches nothing else:
-not your PATH, not your shell profile, not your system Python. `--client claude-code` also registers
-the server for you, using that client's own CLI — at that client's **default scope**, which for
-Claude Code means the current directory only; re-add it with `--scope user` (below) if you want it
-everywhere. `--help` lists the rest.
+not your PATH, not your shell profile, not your system Python.
+
+`--client claude-code` also registers the server for you, using that client's own CLI. It requires
+`--client-scope` alongside it — there is no default, because the two on offer are both wrong: a
+client's own default is *the directory `install.py` is running in*, which is wherever you downloaded
+it to, and `user` would write a config file you never named. So:
+
+```bash
+python3 install.py --client claude-code --client-scope user
+```
+
+`--client-scope` takes `local`, `user` or `project` for Claude Code and `user` or `project` for
+Gemini CLI, and is not accepted with `--client codex`, which has no scopes. `--help` carries the
+table and four worked examples; `--install-dir`, `--reinstall` and `--index-url` are there too.
 
 The checksum step is worth the two extra lines. `curl … | python3 -` works and the file says so when
 you do it, but there is then no file to verify.
