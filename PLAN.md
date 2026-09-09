@@ -6447,6 +6447,84 @@ from 1,853 to **1,866** characters against the enforced 1,900 budget. The fuller
 *when the outline is empty, the links usually hold the contents page* — sits in the tool's own
 description instead, where it is billed to `get_links` alone.
 
+#### M138.1 — what TC-017 found, and the defect it could not see *(2026-09-09, unplanned)*
+
+The owner ran **TC-017** against `get_links` while M138's PR was open — four real documents, with
+poppler 24.02.0 and a hand-written raw `/Annots` parser as independent oracles. **The counts were
+exact on all four**, including an RC4-encrypted manual where klarpdf is a strict superset of poppler
+(26 distinct URLs against 25, zero misses; the extra is a logo hotspot with `text: null`, which
+`pdftohtml` structurally cannot see because it emits `<a href>` by wrapping *text*). Pagination
+closed exactly in both directions on two documents that exceeded the cap. Three findings, all filed
+`low` and all about **what the contract says rather than what it does** — and chasing one of them
+turned up a defect the report could not have found.
+
+**The defect: a link's rectangle is reported in *displayed* space, and every corpus page is
+unrotated.** TC-017 FINDING 2 observed that the top-left origin is undocumented, measured it on two
+unrotated documents, and asked for a sentence. Verifying that sentence before writing it turned up
+something else: `page.get_links()` reports a rect that **turns with `/Rotate`**, while `search_for`,
+`redact_regions`, `clip` and `annot.rect` all work unrotated. Measured on a 400×700 page holding one
+link at `[70, 88, 220, 104]` — `[596, 70, 612, 220]` at 90°, `[180, 596, 330, 612]` at 180°,
+`[88, 180, 104, 330]` at 270°.
+
+This is the trap in `CLAUDE.md` §Gotchas about two APIs that look like siblings: `annotations.py`
+needs no conversion, and its docstring says so explicitly after measuring 0/90/180/270 — so
+`get_links` was written assuming the same and asserting it in the docs. It was wrong at three of the
+four angles, and it broke two things:
+
+* **The loud half.** A caller feeding a link's rect to `redact_regions` — *"redact every external
+  link on this page"*, the tool's own privacy use case — would clear a band somewhere else.
+* **The silent half.** `text` came back **`null` on every rotated page**, because `PageText` indexes
+  `get_text("words")` unrotated, so no word centre could fall inside a rotated rectangle. That is a
+  wrong answer wearing the costume of a documented, legitimate one — *"this link covers no words"*,
+  the photograph case the description itself calls out.
+
+`* page.derotation_matrix` recovers the original quadruple at all four angles and fixes both halves
+at once, which is why it is applied where the box is built rather than at the field.
+
+**Why nothing caught it.** **No document in the corpus has a rotated page** — checked across all 51,
+zero. TC-017's four fixtures could not have found it, and neither could my own tests, which had no
+rotated fixture either. The generalisable form: *the axis a real-document corpus does not vary is
+the axis a constructed fixture has to cover*, and rotation is the standing example in this repo
+(M99.1, TC-008, and `annotations.py`'s own parametrised test, which is what this now mirrors).
+
+**FINDING 1 — an action-less link is dropped silently, and `none` is advertised but unreachable.**
+`kasaragodhr.pdf` obj 597 is a `/Link` with a `/Rect`, no `/A` and no `/Dest` — a dead hotspot,
+live in the page's `/Annots`. `get_links()` omits it, so an auditor reconciling against a raw
+`/Subtype/Link` count found **156 against 157** with nothing in the reply to explain it; meanwhile
+`_resolve_kinds` advertised a `none` kind that no call could ever produce.
+
+The report offered two fixes — return it as `kind: "none"`, or soften the docstring — and **neither
+is taken**. Returning it puts a row that is *not a place the document points* into every reply and
+into `total_links`, which is noise for the privacy use case and wrong for the structure one; the
+report itself argues excluding it is the right default. Softening the prose gives the auditor a
+caveat where they need a number. So the reply carries **`links_without_action`** instead:
+`total_links + links_without_action` is the raw `/Subtype/Link` count, the omission is right *and*
+accounted for, and `none` is withdrawn from the filterable set because it could only ever match
+nothing — which is the same false statement `_resolve_kinds` exists to prevent, made by the error
+message rather than the reply. `page.annot_xrefs()` is a metadata read: **0.03 s over 35 pages**.
+
+**FINDING 3 — "where does this document point outwards" has a blind spot.** A 6-page bill returns
+**0 links**, correctly — three oracles agree it has no annotations at all — while printing **five**
+distinct URLs as ordinary glyphs. Viewers auto-linkify anything URL-shaped, so they look clickable
+and a caller will expect them here. This is **not a defect**: an annotation-reading tool should
+report annotations, and that fidelity is what makes `target_page` trustworthy on the same documents.
+It is an over-promise in prose, fixed in prose — the description now says it reads link annotations
+and to pair it with `search` for a privacy sweep.
+
+**One observation folded in.** `SpaceX-EUProspectus.pdf` carries two overlapping text layers
+differing in straight vs. smart quotes, so a TOC row legitimately returns both and a title reads
+`"8.1.8 “8.1.8`. Not a bug — the rectangle really does cover both — but a caller building an
+outline has to de-duplicate the string, so it joins the `text: null` caution in the docs resource.
+
+**The description went 402 characters over the M105 budget** absorbing all this, which is the budget
+doing its job: the field-by-field detail, the rotation conversion and the printed-URL guidance moved
+to `klarpdf://docs/get_links` (6,356 chars) and the description came back to 1,803.
+
+**Still untested, and deliberately named rather than left implicit:** `launch` links. No corpus
+document has one and PyMuPDF rewrites a `LINK_LAUNCH` written through `insert_link` into a `gotor`,
+so the kind is reachable in the mapping and unproven in the wild. `gotor` itself *is* covered, by
+the unit test that pins `target_page: null` for it.
+
 #### M139 — `set_outline`
 
 Write a table of contents into a copy of the document. The entry shape is `[{level, title, page}]`,

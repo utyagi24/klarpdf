@@ -252,10 +252,28 @@ def _kind_name(link: dict) -> str:
     return _LINK_KINDS.get(kind, str(kind))
 
 
-def _describe_link(link: dict, page_number: int, text: PageText) -> dict:
-    """One ``get_links()`` entry as the tool reports it, with its anchor text read off the page."""
-    rect = link["from"]
-    box = (rect.x0, rect.y0, rect.x1, rect.y1)
+def _describe_link(link: dict, page: fitz.Page, page_number: int, text: PageText) -> dict:
+    """One ``get_links()`` entry as the tool reports it, with its anchor text read off the page.
+
+    **The rect is derotated, and that is not cosmetic** (M138.1). ``page.get_links()`` reports a
+    link's rectangle in *displayed* space — the space that turns with ``/Rotate`` — while
+    ``search``, ``redact_regions``, ``clip`` and ``annot.rect`` all work in the **unrotated** one.
+    Links are the odd one out: an annotation's own ``rect`` comes back unrotated at every angle
+    (`annotations.py:_describe` pins it), so the two APIs that look like siblings disagree, and
+    assuming they agreed was wrong at 90°, 180° and 270° alike.
+
+    Measured on a 400x700 page carrying one link at ``[70, 88, 220, 104]``: `get_links` reports
+    ``[596, 70, 612, 220]`` at 90°, ``[180, 596, 330, 612]`` at 180°, ``[88, 180, 104, 330]`` at
+    270°. ``* page.derotation_matrix`` returns the original quadruple at all four angles.
+
+    Two things were broken by it, one loud and one silent. A caller feeding a link's rect to
+    `redact_regions` — "redact every external link on this page", the tool's own privacy use
+    case — would have cleared a band somewhere else on the page. And ``text`` came back **null on
+    every rotated page**, because :class:`PageText` indexes ``get_text("words")`` in unrotated
+    space, so no word centre could ever fall inside a rotated rectangle. Both are fixed by the one
+    multiplication, which is why it happens here rather than at the field.
+    """
+    box = tuple(link["from"] * page.derotation_matrix)
     kind = link.get("kind", fitz.LINK_NONE)
     target = link.get("page", -1)
     anchor = text.word_text_under(box)
@@ -278,10 +296,17 @@ def _resolve_kinds(kinds: list[str] | None) -> set[str] | None:
     An unknown name is an error naming the ones that exist, not a silent empty result — the same
     rule M106 settled for annotation colours. A caller who asked for ``"external"`` and got
     ``count: 0`` has been told this document has no external links, which may be false.
+
+    ``"none"`` is deliberately **not** offered (M138.1, TC-017 FINDING 1): a ``/Link`` carrying no
+    action at all is never returned, so filtering for it could only ever produce ``count: 0`` —
+    which is the same false statement the paragraph above exists to prevent, made by the error
+    message instead of by the reply. Those links are reported as ``links_without_action`` on the
+    reply rather than as rows. The kind stays in :data:`_LINK_KINDS` so that a link PyMuPDF someday
+    does hand back as kind 0 is *named* rather than rendered as a bare integer.
     """
     if kinds is None:
         return None
-    known = set(_LINK_KINDS.values())
+    known = set(_LINK_KINDS.values()) - {"none"}
     unknown = [k for k in kinds if k not in known]
     if unknown:
         raise ValueError(
@@ -315,11 +340,23 @@ def links(
     asking for ``PDF_ANNOT_LINK`` explicitly — so this is a second traversal, not a filter over
     ``get_annotations``.
 
-    **Nothing is deduplicated or filtered out.** A magazine links each contents entry twice, once
-    on its photograph and once on its caption, and the photograph's rectangle covers no text, so
-    that entry arrives as two rows, one of them with ``text: null``. Both are true statements about
-    the file; which of them is a contents entry is a judgement, and a judgement made here would be
-    invisible and unappealable (the rule M140 states as *tag, do not filter*).
+    **Nothing is deduplicated.** A magazine links each contents entry twice, once on its photograph
+    and once on its caption, and the photograph's rectangle covers no text, so that entry arrives as
+    two rows, one of them with ``text: null``. Both are true statements about the file; which of
+    them is a contents entry is a judgement, and a judgement made here would be invisible and
+    unappealable (the rule M140 states as *tag, do not filter*).
+
+    **One thing is not returned, and it is counted rather than hidden.** ``get_links()`` omits a
+    ``/Link`` annotation carrying no ``/A`` and no ``/Dest`` — a dead hotspot, of which one real
+    35-page brochure has exactly one. Omitting it is right: it is not a place the document points.
+    Omitting it *silently* was not, because the natural way to check this tool is to count
+    ``/Subtype/Link`` in the file, and that count came out one higher with nothing in the reply to
+    say why (TC-017 FINDING 1). ``links_without_action`` closes the arithmetic.
+
+    **What it reads is annotations**, which is less than every address the document shows a reader:
+    a URL merely typeset on the page carries no annotation and is not here, though most viewers
+    auto-linkify it. That belongs in the contract rather than in the code, and it is in the tool's
+    description and in ``klarpdf://docs/get_links``.
 
     **Paginated on the same two bounds as ``get_annotations``, and for the same measured reason.**
     A count cap alone does not bound a reply: 502 links on a 320-page prospectus serialise to
@@ -334,20 +371,31 @@ def links(
         indices = resolve_pages(vdoc, pages)
         all_found: list[dict] = []
         by_kind: Counter[str] = Counter()
+        without_action = 0
         for index0 in indices:
             page = _page_of(vdoc, index0)
             # The word index is the cost of this loop, so it is built only once a link on this
             # page has survived `kinds` — which is what makes a filtered call cheap as well as
             # small: all 502 links of a 320-page prospectus take 0.99 s, its 37 `uri` ones 0.06 s.
             text = None
-            for link in page.get_links():
+            raw = page.get_links()
+            # `get_links()` silently omits a `/Link` annotation with no `/A` and no `/Dest` — a
+            # dead hotspot a designer left behind. Excluding it from *where this document points*
+            # is right; excluding it without saying so is what left an auditor reconciling 156
+            # against a raw count of 157 with nothing in the reply to explain the gap (TC-017
+            # FINDING 1). `annot_xrefs()` is a metadata read, measured at 0.03 s over 35 pages.
+            without_action += sum(
+                1 for _xref, subtype, _name in page.annot_xrefs()
+                if subtype == fitz.PDF_ANNOT_LINK
+            ) - len(raw)
+            for link in raw:
                 kind = _kind_name(link)
                 by_kind[kind] += 1          # the census is of the document, not of the filter
                 if wanted is not None and kind not in wanted:
                     continue
                 if text is None:
                     text = PageText(page)
-                all_found.append(_describe_link(link, index0 + 1, text))
+                all_found.append(_describe_link(link, page, index0 + 1, text))
         total = len(all_found)
         found: list[dict] = []
         used = 0
@@ -370,6 +418,11 @@ def links(
             # still learns the document holds 465 internal jumps — and one who filtered to nothing
             # learns what a second, narrower call would cost.
             "kinds": dict(sorted(by_kind.items())),
+            # Not a row and not an error: the number of `/Link` annotations in scope that name no
+            # destination at all. Almost always 0; when it is not, it is the difference between
+            # `total_links` and a raw `/Subtype/Link` count, and saying so is what makes that
+            # reconciliation possible.
+            "links_without_action": without_action,
             "pages_scanned": [i + 1 for i in indices],
             "source": os.path.abspath(path),
             "more_available": more_available,

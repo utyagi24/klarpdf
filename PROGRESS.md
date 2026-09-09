@@ -626,6 +626,35 @@ is left over.
   its photograph and on its caption, arrives as two rows with one `text: null`. Deduping, dropping
   empty anchors and filtering running footers are the caller's four rules, listed in
   `klarpdf://docs/get_links` — M140's *tag, do not filter*, two milestones early.
+- [x] **M138.1** *(unplanned)* **The rect a rotated page reports, and two contract gaps** —
+  2026-09-09, from the owner's **TC-017**, run against M138 while its PR was open: four real
+  documents, poppler 24.02.0 and a hand-written raw `/Annots` parser as independent oracles.
+  **`get_links` passed on every count** — exact totals on all four, a strict superset of poppler on
+  an RC4-encrypted manual (26 distinct URLs to 25, zero misses), pagination closing exactly in both
+  directions. Three findings, all filed `low` and all about the contract rather than the behaviour.
+  Verifying one of them turned up a defect the report could not have found. Design in `PLAN.md`
+  §M138.1 — *WSL* ([#341](https://github.com/utyagi24/klarpdf/pull/341)).
+
+  **The defect: a link's rect is reported in *displayed* space.** `page.get_links()` returns a
+  rectangle that turns with `/Rotate`, while `search_for`, `redact_regions`, `clip` and
+  `annot.rect` are all unrotated — so `get_links` and `get_annotations` look like siblings and
+  disagree, and M138 asserted the wrong one in its docs. Measured on a 400×700 page: a link at
+  `[70, 88, 220, 104]` reads back `[596, 70, 612, 220]` at 90°. It broke a **loud** half — a rect
+  fed to `redact_regions` clears a band somewhere else, which is the tool's own privacy use case —
+  and a **silent** one: `text` was `null` on every rotated page, because `PageText` indexes words
+  unrotated, and that wrong answer is indistinguishable from the documented "this link covers no
+  words" case. `* page.derotation_matrix` fixes both. **Nothing caught it because no document in
+  the 51-file corpus has a rotated page** — the axis a real corpus does not vary is the axis a
+  constructed fixture has to cover.
+
+  **The two contract gaps, neither fixed the way the report proposed.** An action-less `/Link` (a
+  dead hotspot) is omitted by PyMuPDF, leaving an auditor reconciling **156 against a raw 157**;
+  rather than returning it as a `none` row — noise in every reply, and wrong in `total_links` — the
+  reply now carries **`links_without_action`**, so the arithmetic closes and the omission stays
+  right. `none` is withdrawn from the filterable kinds, since it could only ever match nothing. And
+  a 6-page bill correctly returns **0 links** while *printing* five URLs as ordinary glyphs, which
+  viewers auto-linkify: not a defect, an over-promise, fixed in prose. Seven new tests, each
+  confirmed by reverting the behaviour and watching it fail.
 - [ ] **M139** **`set_outline`** — write `[{level, title, page}]` into a copy as real bookmarks;
   the same shape `get_outline` returns and `remapped_toc()` produces. **The sink for M138 and
   M140 alike** — an agent supplies entries derived from links (M138, the primary and exact source),
