@@ -68,6 +68,25 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   that adds or changes a user-facing behaviour updates the Features list *in that PR* (M93 did, for
   document fidelity and permission carry-through); only the version, the what's-new line and the
   release links wait for the tag.
+- **User-facing install examples lead with `uv`; `pipx` is the named equivalent, never the lead.**
+  Decided 2026-09-07, after `QUICKSTART.md` opened with `pipx install klarpdf` and then used
+  `uv tool update-shell` for the very next step — two tools in five lines, with no statement that
+  either was preferred. The choice is not fashion, it is two project-specific facts. **`uv` is
+  already mandatory for one of the four install paths**: the `.mcpb` Claude Desktop bundle is
+  launched with `uv run` (`packaging/mcp/mcpb/manifest.json`), so leading with `pipx` tells part of
+  the audience to install two tool managers. And **`uv` removes a prerequisite rather than adding
+  one**: the bridge needs Python 3.11–3.14, `pipx` is itself a Python application and so
+  presupposes a suitable one, while `uv` is a single binary that downloads a Python when none fits
+  (`uv tool install` does it by default — `--no-python-downloads` exists to turn it off).
+  `pipx` stays **fully documented and equally supported**, not demoted to a footnote: it works for
+  every path but the Desktop bundle, it is PyPA-governed and distro-packaged, and a reader who
+  already has it should not be pushed to install a second tool. The rule is about *order and
+  consistency*, so it is mechanical: in a code block, `uv` is the line and `pipx` is a trailing
+  `# pipx: <equivalent>` comment; in prose and tables, `uv` is named first. Applies to
+  `README.md`, `klarpdf/mcp_bridge/README.md`, `klarpdf/mcp_bridge/QUICKSTART.md` and any text
+  `install.py` prints. `PLAN.md`/`PROGRESS.md` are records, not instructions — do not rewrite their
+  history to match.
+
 - **Capture the follow-up in the session that found it.** *Where things live* routes open
   follow-ups to `PROGRESS.md`; this is the part that rule assumes — that they get written at
   all. Anything deferred, **rejected**, or noticed-but-not-fixed is committed before the session

@@ -4175,6 +4175,21 @@ the PR that fixes it. See `CLAUDE.md` §How we work for the split and why. Items
 were not migrated wholesale: each is listed because a decision is outstanding, which is what keeps
 it on this side of the line.
 
+- **`install.py --client claude-code` registers at the client's default scope — `local`** — noticed
+  2026-09-07, while fixing the MCP setup docs after the owner reported that neither document showed
+  a complete `--scope` example. `CLIENTS` in `packaging/mcp/installer/install.py` is
+  `["claude", "mcp", "add", "klarpdf", "--"]`, with no scope, so `--client claude-code` registers
+  the bridge **for the directory `install.py` happened to be run in** — usually `~/Downloads`, which
+  is the one directory the user will never be working in. The same is true of `--client gemini`
+  (Gemini CLI defaults to `--scope project`); Codex CLI has no scopes and is unaffected. The printed
+  fallback hints now say `--scope user`, so the *manual* path is right and the *automatic* one is
+  the odd one out. **What is undecided is which way to close that gap**: pass `--scope user`
+  unconditionally (opinionated, and the installer would then write to a config the user did not
+  name), add an `--client-scope` flag (one more knob on a script whose whole point is that it needs
+  no knobs), or leave it and let the docs carry the warning. Not urgent — the failure is a server
+  that is simply absent elsewhere, and `claude mcp add` fixes it in one line.
+  `packaging/mcp/installer/install.py`.
+
 - **The `.mcpb` carries `QUICKSTART.md` but deliberately drops `README.md`** — noticed 2026-09-05
   while verifying M134's staged bundle. `build_mcpb.py`'s payload copy passes
   `ignore_patterns("__pycache__", "*.pyc", "README.md")`, so the bridge README is excluded on

@@ -9,8 +9,8 @@ with the standard library's `venv` — whose bundled `ensurepip` provides `pip` 
 `klarpdf` from PyPI into it, proves the server actually starts, and prints the one line your MCP
 client needs.
 
-**Why this exists when `pipx install klarpdf` is one line.** Because `pipx` is itself a
-prerequisite, and so is `uv`. Those are the right tools if you have them; this is for the machine
+**Why this exists when `uv tool install klarpdf` is one line.** Because `uv` is itself a
+prerequisite, and so is `pipx`. Those are the right tools if you have them; this is for the machine
 that has a Python and nothing else. See `PLAN.md` §M133–M136.
 
 **It never touches your PATH**, your shell profile, or anything outside the one directory it owns.
@@ -325,12 +325,15 @@ KlarPDF MCP {version} is installed.
         print(f"""Add it to your client — the command is the whole configuration; there is no URL,
 port or token, because this server speaks stdio and makes no network connections.
 
-  Claude Code   claude mcp add klarpdf -- {quoted}
+  Claude Code   claude mcp add --scope user klarpdf -- {quoted}
   Codex CLI     codex mcp add klarpdf -- {quoted}
-  Gemini CLI    gemini mcp add klarpdf {quoted}
+  Gemini CLI    gemini mcp add klarpdf {quoted} --scope user
 
   Claude Desktop and anything else using an `mcpServers` block:
     {{"mcpServers": {{"klarpdf": {{"command": {json.dumps(str(script))}}}}}}}
+
+`--scope user` registers it for every directory; Claude Code and Gemini CLI both
+default to the one you run them in. Codex CLI has no scope — it is always global.
 """)
     print(f"""Two switches narrow what it may do — `--read-only`, and `--allow-root DIR` to confine
 it to one directory tree. Pass them as `args` beside the command. Full reference:
