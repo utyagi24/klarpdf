@@ -577,6 +577,81 @@ items, which are independent of it.
   (**M128**); and row 10's own instructions not putting the lock in the bundle (**M129**). What
   remains is the tag, which is an owner action.
 
+## Roadmap — document structure for agents (planned; M138–M142)
+
+Design in `PLAN.md` §M138–M140 — **not restated here**. Same conventions: **one PR per milestone**,
+tick the box here on merge. Scoped **2026-09-07** from a session comparing the bridge against a
+competing multi-format document MCP server, and then against the owner's own three goals: structural information for agents when a PDF has no bookmarks; *enriching* PDFs by writing
+that structure back as real bookmarks; and a Markdown rendering. The third is **not** scheduled —
+it is carried in §Open follow-ups.
+
+The session's finding is what set the order. On the owner's `WH-1000XM6.pdf` — 146 pages, **zero
+bookmarks**, RC4-encrypted — the printed contents page is built from **591 named-destination link
+annotations**, and those links carry title, target page **and** indent-derived level. A throwaway
+script recovered **65 entries spanning pages 13–140** and wrote them with `set_toc`: encryption and
+permissions intact, **+14.7 KB appended** to a 2.7 MB file. So structure does not have to be
+inferred for a large class of documents — it is already in the file, and the bridge had no way to
+read it. **M138 + M139 + agent judgement is the shippable feature**; M140 is the fallback for what
+is left over.
+
+- [ ] **M138** **`get_links`** — a read tool: one entry per link with `page`, `rect`, `kind`, the
+  resolved target page for an internal link, `uri` for an external one, and the anchor text.
+  Independently useful — an agent asked to list a document's hyperlinks is currently told KlarPDF
+  does not support it, correctly, even though `transforms.py` already **remaps** internal links
+  through every page move. Titles come from `PageText` word-centre containment, **not**
+  `get_textbox`, which truncates and steals neighbouring lines on link rectangles (measured).
+  **A separate tool, not an extension of `get_annotations`** — PyMuPDF excludes links from
+  `Page.annots()` altogether (0 returned across a 146-page document carrying 621 links, even asking
+  for `PDF_ANNOT_LINK` explicitly), and every field `get_annotations` exists to report — `color`,
+  `note`, `author`, `mine`, `editable` — is permanently null or false for a link. Rationale in
+  `PLAN.md` §M138–M140.
+- [ ] **M139** **`set_outline`** — write `[{level, title, page}]` into a copy as real bookmarks;
+  the same shape `get_outline` returns and `remapped_toc()` produces. **The sink for M138 and
+  M140 alike** — an agent supplies entries derived from links (M138, the primary and exact source),
+  from typography (M140, the fallback), or from its own reading of a short document, which is why
+  it is independently shippable and why it comes **before** M140 despite M140 feeding it: building
+  the sink first pins the contract, and M138 + M139 is already a working feature where M138 + M140
+  would be two sources with nothing able to write. A catalog-only change, so the
+  `insert_pdf` graft hazard does not apply and encryption survives (verified); with M116 it appends
+  rather than rewrites. Must normalise levels before writing — `set_toc` refuses a first item that
+  is not level 1 and refuses skipped levels.
+- [ ] **M141** **`get_tables`** — rows an agent can read, at **zero new dependencies**. Strategy is
+  chosen per page (ruling present → `lines_strict`, else `text`) and **deliberately not reported**;
+  precision comes from a **shape filter** (reject 1×N, newline-stuffed cells, empty header).
+  Parenthesised negatives split across cells are **repaired by rule** — a leading `(` with no closer
+  is negative, which covers 35 of 36 measured cases — and the one cell that lost its leading `(`
+  is a documented limitation, not code. **Titles and cross-page continuation are in scope**: a
+  table's title is the nearest *free* block above its bbox, an orphan free block below the last
+  table on a page titles the first table on the next, and continuation is **flagged, never
+  auto-merged** — page 29 and page 30 of `WH-1000XM6.pdf` share identical column edges and headers
+  while being different tables, and the orphan title is what tells them apart. Takes a **page
+  range**: `find_tables()` runs at 6.9 pages/s, ~135× slower than `get_text`. Design and the
+  measurements behind each decision in `PLAN.md` §M141.
+
+- [ ] **M142** **`extract_markdown`** — a Markdown rendering of a page range, built on M140 and M141
+  with **no new dependency**. Prototyped before being scheduled: headings by weight/size, ruled
+  tables exactly, and **multi-column reading order** all work; a partially-ruled financial table, a
+  structured side panel, a drop cap and justified single-word lines are the known holes. **Binding
+  rule: a table that cannot be reconstructed is emitted as-is with a note, never as a mangled grid**
+  — the third application of *report the uncertainty, never paper over it*, after M140's `in_table`
+  and M141's `continues_from`. A **separate tool**, not a `format` flag on `extract_text`, because
+  the cost differs by two orders of magnitude (~930 pages/s against 6.9). Depends on M140 + M141.
+  Design, and why `pymupdf4llm` is rejected, in `PLAN.md` §M142.
+
+- [ ] **M140** **Heading candidates** — the typography fallback for documents with neither
+  bookmarks nor a linked contents page, and the only route to **subsections** a contents page omits.
+  **Feeds M139**, which is already built by then and defines the `[{level, title, page}]` target
+  this must produce.
+  Mechanical **candidate extraction** only (bold, larger-than-body, numbering patterns,
+  short-line-before-body → `{text, page, size, bold, y}`); the calling agent classifies. Recall, not
+  precision. Three things measured on `dhariwal_ipo.pdf` (572-page prospectus) shape it: **weight is
+  the signal, not size** — the body is 10 pt Times across all 572 pages and a size-based detector
+  returns *zero* headings for the section whose subheadings are unnumbered, while a bold filter
+  returns exactly them; the **payload is ~22,000 tokens (5% of the document), not the "few thousand"
+  first estimated**; and the extractor must accept a **page range**, because heading conventions
+  differ by section in a compiled document even when the typography does not. Classification **in
+  code** is deliberately out of scope — see §Open follow-ups.
+
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 
 Spec, per-milestone scope, and the binding **design budgets** (UI / lightness / honesty) in
@@ -4215,6 +4290,51 @@ released build or in the code on `main` that is unambiguous and readily reproduc
 the PR that fixes it. See `CLAUDE.md` §How we work for the split and why. Items already carried here
 were not migrated wholesale: each is listed because a decision is outstanding, which is what keeps
 it on this side of the line.
+
+- ~~**A `get_tables` tool on `find_tables()` plus a shape filter**~~ — **graduated 2026-09-09 into
+  M141** (see the roadmap above; design in `PLAN.md` §M141). All three open questions were decided
+  by the owner: the strategy is chosen per page and **not** reported (*"I see no value in disclosing
+  the strategy unless we expect the calling agents to perform some post processing based on it"*);
+  the parenthesis repair is a rule with the residue documented (*"we are not aiming to be 100%
+  accurate… don't over compensate for the corner cases"*); and the title/continuation gap was
+  rejected as a gap at all (*"we can't expect tables to be present as a whole on a single page"*) —
+  it is in scope. The finding worth keeping out of the verification that preceded it: the first
+  round's conclusions were reached by comparing PyMuPDF's table output against PyMuPDF's text output
+  and reading **consistency as correctness**, and were wrong. Redone against hand-read values from
+  the rendered page, `strategy="text"` matched **18 of 18** rows on the Assets & Liabilities
+  statement. Nothing carried.
+
+- ~~**Should the bridge offer a Markdown rendering of a PDF, and if so through `pymupdf4llm` or our
+  own code**~~ — **graduated 2026-09-09 into M142** (roadmap above; design in `PLAN.md` §M142).
+  Decided *"I want markdown, lets do it"* after a prototype answered the capability question with
+  evidence. Ours, not rented: the deciding measurement is that **importing `pymupdf4llm` changes
+  plain PyMuPDF's results globally** — 24 data rows to 3 on an identical call — which in a
+  one-process server means an import for Markdown degrading `get_tables` beside it. Nothing carried.
+
+- ~~**Classifying headings in code, with no agent in the loop — and whether `pymupdf_layout` ever
+  earns its place**~~ — **rejected by the owner 2026-09-09.** Raised 2026-09-07 as the third rung of
+  M140's split: **1a** candidate extraction (ours, mechanical — M140), **1b** classification by the
+  calling agent (no algorithm needed), **1c** classification *in code*. 1c existed for one reason
+  only — **the GUI has no LLM in it**, so a "generate bookmarks" menu item in the viewer could not
+  use the agent-in-the-loop form.
+
+  **The owner's answer removes the premise:** *"No 1c needed. I expect users to use MCP bridge
+  services to close the gap where app is unable to do it."* The app and the bridge share a core but
+  are **not** expected to reach capability parity; where the viewer cannot do something, the answer
+  is the bridge, not a second implementation in the core to serve a consumer that has no agent. That
+  is a standing architectural position, recorded in `PLAN.md` §M138–M140, and it settles more than
+  this item.
+
+  **It closes the `pymupdf_layout` question outright.** 1c was the only remaining place a layout
+  model could have earned its ~11 pins and ≈100 MB — every other use (heading detection, tables,
+  the side panels in `kasaragodhr.pdf`) is either served by what we already pin or answerable by an
+  agent reading a `render_page` image. Nothing carried. Two things are worth keeping so they are not
+  re-derived: `pymupdf4llm` **1.28.x remains rejected** on its own separate grounds (`PLAN.md`
+  §M138–M140), and the entry's original claim that *"an LLM is a better classifier than any
+  typographic rule"* was later sharpened by the prospectus — bold-at-body-size is a strong, cheap
+  signal that a size-based rule misses entirely — so a code-side classifier was less hopeless than
+  this item implied. That does not revive it; it only means the rejection rests on the architecture,
+  not on 1c being infeasible.
 
 - ~~**`install.py --client claude-code` registers at the client's default scope — `local`**~~ —
   **closed 2026-09-09**, graduated into **M143** above: `--client-scope` is now mandatory with

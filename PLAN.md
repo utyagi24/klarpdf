@@ -6318,6 +6318,439 @@ line naming a real package at a real version. The check cannot be "does the lock
 "which machine is allowed to write it" — which is why the guard lives in the task runner and the
 suite, not in the review.
 
+### M138–M140 — structure an agent can navigate: links, outlines, headings (2026-09-07)
+
+**Where this came from.** The owner brought a competing multi-format document MCP server, whose
+pitch is that an agent should *flip through* a large document rather than swallow it: `parse`
+returns a heading outline with each line priced in tokens, `read` pulls the sections chosen with
+tables intact and page numbers attached, `search` is the fallback. The question was whether our
+bridge already meets that use case for PDFs. It half does — `search` returns page-anchored snippets
+so citations are real, `get_info` reports whether a text layer exists at all, and a
+`get_outline` → `search` → `extract_text(pages=[n])` loop lands in the same token order of magnitude
+(~5–8k against their ~7.5k on a 372-page report). Three primitives are missing, and they are the
+ones that matter: **a heading map finer than the bookmark tree**, **a cost preview**, and
+**sub-page addressing with table structure**. `extract_text` is `page.get_text("text")`, which
+returns a table as a flat list of cells with nothing recording which belong to a row, and we call
+`find_tables()` nowhere.
+
+That framed the owner's own goal, which is larger than matching a competitor and points the other
+way: **(1)** give agents structural information when a PDF has no bookmarks; **(2)** *enrich* the
+PDF by writing that structure back as real bookmarks; **(3)** offer a Markdown rendering. (2) is the
+one nobody else in this space does, because the others are all extractors — it makes the document
+permanently better for every later reader, agent or human, instead of re-deriving structure per
+session.
+
+#### The finding that reordered the plan: the links **are** the table of contents
+
+The sequencing looked like "infer structure, then write it", with inference the expensive part. It
+is not, for a large class of documents. Measured on the owner's `WH-1000XM6.pdf` (a 146-page Sony
+manual, `Standard V4 R4 128-bit RC4`, **zero bookmarks**) — the case the whole exercise is about:
+
+    pages=146  bookmarks=0   link kinds: {LINK_NAMED: 591, LINK_URI: 30}
+
+Its printed contents on pages 3–5 is built entirely from link annotations, and each one carries
+every field a TOC entry needs, authored by the publisher rather than guessed:
+
+    [   p13]  x0=48.8  Location and function of parts
+    [   p35]  x0=36.8  How to make a wireless connection to Bluetooth devices
+    [   p36]  x0=48.8  Connecting with the "Sony | Sound Connect" app
+
+The target page comes from the link, the title from the words under its rectangle, and **the
+hierarchy level from `x0`** — the two indents 36.8 / 48.8 are level 1 and level 2. A throwaway
+script recovered **65 entries spanning pages 13–140**, wrote them with `set_toc`, and saved
+incrementally:
+
+    entries: 65  levels: [1, 2]
+    encryption: Standard V4 R4 128-bit RC4   permissions: -1324   +14,667 bytes on a 2.7 MB file
+
+Exact rather than heuristic, works where typography analysis fails, and costs 621 link records
+instead of 518k tokens of document. So the missing primitive is not a heading detector — it is
+`get_links`, which the bridge does not have. The asymmetry is worth naming: `transforms.py` already
+**remaps** internal links through every page move, and nothing exposes them for reading. An agent
+asked to find the hyperlinks in a document was told KlarPDF does not support it, correctly.
+
+#### M138 — `get_links`
+
+A read tool returning one entry per link: `page`, `rect`, `kind`, the resolved target `page` for an
+internal link, `uri` for an external one, and the text under the rectangle. Independently useful
+before any outline work — "where does this PDF point" is a fair question on its own, and the 30
+`LINK_URI` entries have a privacy dimension beyond navigation.
+
+Two facts that shape it, both measured on 1.27.2.3. **PyMuPDF already resolves named
+destinations** — 591 of the 621 links here are `LINK_NAMED`, and `get_links()` returns a populated
+`'page'` for them, so no `/Names` tree walking is needed. And **the title must not come from
+`get_textbox`**: on link rectangles it truncates and steals neighbouring lines
+(`'Speaking with someone while wearing the headset (S'`, plus a stray `'t)'`) — the same fault
+`klarpdf/model/page_text.py` was built for. Word-centre containment against `get_text("words")`
+fixed it, and `PageText` is the right home.
+
+#### M139 — `set_outline`
+
+Write a table of contents into a copy of the document. The entry shape is `[{level, title, page}]`,
+which is already what `get_outline` returns and `remapped_toc()` produces, so the writer and the
+reader agree by construction and a TOC we write stays correct through a later reorder.
+
+It is a **catalog-only** change — `/Outlines`, no page moves — so by the rule in `CLAUDE.md`
+§Gotchas the `insert_pdf` graft hazard does not apply and everything survives: verified above on an
+RC4-encrypted file, with `permissions` and `metadata["encryption"]` intact. Combined with M116 it is
+an append: **+14.7 KB on a 2.7 MB document** rather than a rewrite.
+
+One constraint found by hitting it: `set_toc` **rejects a TOC whose first item is not level 1**, and
+will not let levels skip (`ValueError: hierarchy level of item 0 must be 1`). Indent-derived levels
+do not satisfy that on their own — a contents page can open at the second indent — so entries need
+normalising (`level = min(level, previous + 1)`) before the write.
+
+#### M140 — heading candidates, the fallback
+
+For a document with neither bookmarks nor a linked contents page, structure has to come from
+typography. The design splits it, because the split is what avoids a dependency:
+
+* **candidate extraction (ours, mechanical)** — walk every span, keep what looks structural
+  (larger than the body size, or bold, or matching a numbering pattern, or a short line before
+  body text) and return `{text, page, size, bold, y}`. This needs **recall, not precision**: it is
+  a filter, not a classifier.
+* **classification (the calling agent)** — it reads a few thousand candidates instead of the
+  document, decides which are headings and at what level, and calls M139.
+
+An LLM is a better heading classifier than any typographic rule — it knows `Item 7. Management's
+Discussion` is a heading and `325,790` is not. Doing classification **in code** with no agent in the
+loop was raised as a separate question — it existed only because `klarpdf/model/` is reached by the
+**GUI**, which has no LLM in it — and was **rejected by the owner on 2026-09-09**:
+
+> *"No 1c needed. I expect users to use MCP bridge services to close the gap where app is unable to
+> do it."*
+
+**This is a standing architectural position, not a decision about one milestone.** The two consumers
+share a core and every change answers for both (`CLAUDE.md` §How we work), but they are **not**
+expected to reach capability parity: where the viewer cannot do something, the answer is the bridge
+rather than a second implementation in the core built to serve a consumer that has no agent. It also
+closes the `pymupdf_layout` question outright — 1c was the last place a layout model could have
+earned ~11 pins and ≈100 MB, since every other use is either served by what we already pin or
+answerable by an agent reading a `render_page` image.
+
+Ordering, and why M140 is last: the shippable feature is **M138 + M139 + agent judgement**, which
+covers every document with a printed contents page — manuals, reports, filings, standards. M140 only
+serves what is left over. M139 is also independently shippable on its own, since an agent can supply
+entries from its own reading of a short document without any candidate extraction.
+
+#### A second document, a different shape — what it adds to M138 and M139
+
+`kasaragodhr.pdf` (35 pages, a graphics-rich tourism magazine, **0 bookmarks**) was tested against
+the plan because it fails almost every assumption the manual satisfied, and it is the case that
+sharpens the rules.
+
+**It makes M138 the headline rather than the enabler.** 156 links, and **119 of them are external**:
+39 `google.com`, 23 `keralatourism.org`, 15 `maps.app.goo.gl` anchored on place names, 14
+**YouTube**, and **21 `tel:` numbers**. None of that is reachable today by any tool the bridge has.
+"What does this document link to" and "list its phone numbers" are ordinary questions here, and the
+anchor text makes the answers meaningful (`'Mangalore International Airport'` → its map link).
+
+**Its contents pages work, and teach four rules M139 needs.** Pages 4–5 are a visual grid, not an
+indented list, and they reconstruct cleanly into 12 sections (pages 6, 8, 10 … 28) — but only with:
+
+* **Dedupe by target.** Each entry is linked **twice**, once on its photograph and once on its
+  caption, both to the same page. 12 links on page 4 are 6 entries.
+* **Drop empty anchors.** The photograph's link has no text under it; only the caption's does. An
+  entry with no recoverable title must not be emitted.
+* **Filter navigation chrome.** Every content page (7, 9, 11 … 33) carries a link *back* to page 4
+  anchored `'Kasaragod NN'` — a running footer. A link target reached from many pages, pointing
+  backwards, is furniture, not a contents entry.
+* **Indent-derived levels do not generalise.** The `x0` trick that gave the manual its hierarchy is
+  meaningless here — anchors sit at x0 10.1 to 233.6 in a magazine grid. The fallback must be a
+  **flat level 1**, which is the correct answer for this document, rather than levels invented from
+  layout noise.
+
+**M140 would work exceptionally well on it**, and is worth running as a *cross-check* rather than a
+fallback: section titles are set at **44 pt** against a 10 pt body, the easiest possible signal, and
+each title page carries almost nothing else (page 6 is two words and a photograph). Where both
+sources exist they should agree, and disagreement is a signal worth surfacing.
+
+**It has no tabular data, and it is the first document that argues for layout analysis.** What it
+has instead are **side information panels** — a right-hand column of getting-there, contact, hours
+and fee lines at 9 pt. Plain extraction cannot render them either way: `get_text("text")` returns
+content-stream order, so the panel arrives scrambled (`Location`, `08:00 AM - 06:00 PM`,
+`+91 467 2310700`, then the railway, airport and bus entries out of sequence), and `sort=True`
+interleaves the panel's lines **into the body paragraph** because they share y-bands. Labels
+separate from their values, and the icons pairing them are images. This is not a flag we failed to
+pass; it is the layout problem. It was the strongest argument for `pymupdf_layout` while that
+question was open; with 1c rejected on 2026-09-09 the answer here is an agent reading a
+`render_page` image of the panel, which costs nothing and needs no dependency.
+
+#### A third document — the compiled prospectus, and the numbers that correct M140
+
+`dhariwal_ipo.pdf` (572 pages, 9 MB, MS Word, **0 bookmarks**) is the messy case: a filing assembled
+from parts written by different parties, with a contents page that is flat, partial, and out of step
+with the body's own numbering.
+
+**M138 + M139 still recover the contents, and improve on it.** All 52 links in the document sit on
+**one page** — 47 `LINK_GOTO` on page 5 — and they reconstruct the printed contents exactly, with
+the dot leaders (`SECTION I – GENERAL.......`) stripped. Two things make the result *better* than
+what is printed:
+
+* **The hierarchy the contents page does not mark.** `^SECTION [IVX]+` is a reliable level-1
+  pattern here, everything else level 2. That also explains an oddity: `SECTION IV – ABOUT OUR
+  COMPANY` and `INDUSTRY OVERVIEW` both target **page 197**, because Section IV is a divider with
+  no body of its own — a parent, not a sibling.
+* **A rule that contradicts the manual's, and must override it.** The two distinct `x0` values on
+  page 5 are **not** indent levels: `MANAGEMENT'S DISCUSSION AND ANALYSIS OF FINANCIAL CONDITION AND
+  RESULT` (x0 57.5) and `OPERATIONS` (x0 12.1) are **one wrapped title**, both pointing at page 445;
+  likewise `CERTAIN CONVENTIONS … USE OF FINANCIAL INFORM` + `MARKET DATA`, both page 19. The
+  Sony-derived indent rule would emit each continuation as a child. **The disambiguator is the
+  target: same target page and adjacent `y` means continuation, a different target means a new
+  entry.** Indent may only be read as level after continuations are merged.
+
+**Only M140 reaches the subsections, and this document kills the font-size heuristic outright.**
+The body is `TimesNewRomanPSMT` **10 pt across all 572 pages** — sampled over six sections
+(Risk Factors, Industry Overview, Our Business, Key Regulations, Financial Statements, Issue
+Procedure), the dominant size is 10.0 in every one, and the larger sizes carry tens of characters.
+Run against the library that does this by size:
+
+    IdentifyHeaders(INDUSTRY OVERVIEW) -> {14: '# '}   (from 24 characters in 87 pages)
+    IdentifyHeaders(KEY REGULATIONS)   -> {}            (zero headings, 10 pages)
+
+`KEY REGULATIONS AND POLICIES` is the section whose subheadings are unnumbered, and a size-based
+detector finds **none** of them. **The signal is weight, not size**: those subheadings are
+`TimesNewRomanPS-BoldMT` at the same 10 pt, and a bold-short-line filter returns 40 candidates in
+those 10 pages — `National Highways Act, 1956`, `The Railways Act, 1989`, `Indian Tolls Act, 1851` —
+which is exactly the list. This is the empirical case for M140 owning its detector rather than
+renting one, and it is decisive.
+
+**The candidate-payload estimate was wrong by 5× and is now measured.** M140's design rests on the
+claim that candidates are far cheaper than the document; the guess offered when it was written was
+"a few thousand tokens". Measured over all 572 pages:
+
+    whole-doc text    1,760,540 chars  (~440,000 tokens)
+    bold candidates   6,654 (2,480 unique)
+    payload           87,901 chars  (~22,000 tokens)  = 4.99% of the document
+    extraction        15.6 s (37 pages/s)
+
+**~22,000 tokens, not a few thousand.** Still a 95% reduction and still workable as a one-time cost
+on a 572-page filing, but the design should be stated against the real figure. A boilerplate filter
+(drop text appearing on more than three pages) barely helps — it removes repeated *short* table
+labels (`Particulars` on 89 pages, `Date of` on 65) and recovers only ~1,000 tokens.
+
+**Which points at a refinement — and at a trap that was measured rather than assumed.**
+Most of those 2,287 distinct candidates are **table cell headers**, not section headings; this is a
+prospectus, and it is largely tables. The obvious move is to **exclude text inside detected table
+regions**, and it is **wrong**. It works only where detection is precise: over KEY REGULATIONS it
+keeps 36 of 40 candidates and the 4 it drops are genuine cell headers (`Date of change`,
+`Particulars`). On `WH-1000XM6.pdf` the same rule is catastrophic — the false-positive table on each
+contents page covers **85% of the page** and contains **every** contents link (21/21, 22/22, 22/22),
+so it would delete the entire table of contents.
+
+The error is structural, not a matter of tuning a threshold. M140's invariant is **recall, not
+precision — the agent classifies**; exclusion buys precision with recall, which is the single
+failure a candidate extractor cannot have, and it fails *silently*. **So a candidate carries an
+`in_table` flag and is never dropped for it.** The agent gets the signal that dismisses 2,287 cell
+headers, recall is untouched, and M140 stops depending on `find_tables()` being reliable at all — a
+wrong tag can be overruled, a wrong exclusion cannot be seen. The same reasoning applies to every
+future signal of this kind: **tag, do not filter**, unless the detector is known-precise.
+
+**One further consequence for how M140 is driven.** The heading *conventions* differ by section even
+though the typography does not: Industry Overview numbers its subsections (`2.10.1.1`, `2.11.6.3` —
+though only 17 sit on their own text line, the rest being split across spans), while Key Regulations
+leaves them unnumbered. A single global rule for "what is a heading" is wrong for this document. The
+candidate extractor should be runnable **over a page range**, so an agent can work section by section
+and apply the convention it has just observed rather than one derived from the whole file.
+
+#### Why `get_links` is its own tool and not an extension of `get_annotations`
+
+A `/Link` **is** an annotation subtype in the PDF spec, so extending `get_annotations` is the
+obvious first thought. It is wrong on both counts that matter.
+
+**Mechanically, they are separate APIs.** PyMuPDF excludes links from `Page.annots()` entirely —
+measured on `WH-1000XM6.pdf`, whose 146 pages carry 621 links:
+
+    get_links()                      -> 21 on page 3,  621 across the document
+    annots()                         -> 0  on page 3,  0   across the document
+    annots(types=[PDF_ANNOT_LINK])   -> 0
+
+Asking `annots()` for links explicitly still returns nothing. So "extending" the tool would mean
+running a second, unrelated traversal inside it and merging two result sets that share no code.
+
+**Semantically, they answer different questions.** `get_annotations` returns *the review layer* in
+this app's editable-mark model — `color`, `color_name`, `color_exact`, `note`, `author`, plus
+`mine` (our author tag) and `editable` (`parse_annotation(annot) is not None`). Every one of those
+is null or false for a link, permanently: a link has no author, no colour, no note, and can never
+be an editable mark. It would be a row of nulls with the two fields that matter — target page and
+URI — bolted on. And the callers differ: `get_annotations` answers *"what did a reviewer say"*,
+`get_links` answers *"where does this document point"*, which is a navigation and a privacy
+question. Two tools, each honest about its shape.
+
+#### Table structure is **not** improved by any of this — but `find_tables()` is closer than it looked
+
+Worth stating plainly so it is not assumed: M138–M140 are about **navigation** structure — where
+the sections are and what they are called. **Content** structure is untouched. `extract_text`
+remains `page.get_text("text")`, and on a real multi-table page that is genuinely mangled: page 29
+of `WH-1000XM6.pdf` carries three titled tables (*Music playback time*, *Communication time*,
+*Headphone cable connected*), and the flat extraction returns the three titles in a run followed by
+a stream of cells — `LDAC`, `Noise canceling function: ON`, `Max. 26 hours`, … — with nothing
+recording which cells form a row, which rows form a table, or which table a title belongs to.
+
+`find_tables()` ships in the PyMuPDF we already pin and we call it nowhere. Measured against the
+document's **ground truth** (supplied by the owner, who knows what is actually on the page — an
+earlier pass judged it on the contents and specification pages, which have no data tables at all,
+and drew the wrong conclusion from it):
+
+* **Recall is perfect.** The default `lines_strict` found **all three** real tables — the 13×3 on
+  page 29, the 4×2 below it, and the 4×2 on page 30 — and `extract()` returned them cleanly, header
+  row included: `['Codec', 'Noise canceling function/Ambient Sound Mode', 'Available operating
+  time']`, then `['LDAC™', 'Noise canceling function: ON', 'Max. 26 hours']`.
+* **Precision is poor but filterable — 3 real of 16 detections.** The rest are *layout* tables:
+  the three contents pages as 3×3, seven numbered step-lists as 1×2 with `2\n3\n4\n5` stuffed in
+  one cell, and four 1×3 fragments of video-player timestamps. Every false positive here is 1×N, or
+  has newline-stuffed cells, or an empty header — cheap to reject.
+* **`strategy="text"` is the one that genuinely misbehaves**: on the specification pages, which have
+  **no** tables, it invented an 87×3 one out of a plain list, splitting `2.400 0 GHz - 2.483 5 GHz`
+  across three columns. `lines_strict` correctly found nothing there.
+
+So the honest position is that a `get_tables` tool built on `lines_strict` plus a shape filter would
+be a real improvement over the flat text, at **zero new dependencies**. Two things stop it being
+free, and they are why it stays a follow-up rather than joining this milestone group. **Titles do
+not come with the table** — *Headphone cable connected (power is turned on)* is the heading of a
+table whose body is on the **next page**, and a per-page detector loses the association entirely;
+that is the same class of problem as a table continuing across a page break. And **the manual's tables are all ruled**, which the
+prospectus later showed to be the narrow case: its financial statements are *partially* ruled —
+horizontal rules and an outer frame, no vertical separators — so `find_tables()` derives no cell
+grid and `lines_strict` returns nothing, while `strategy="text"` reads them correctly apart from
+splitting parenthesised negatives across cells. The numbers, and the method that produced them, are
+in `PROGRESS.md` §Open follow-ups. The standing lesson about fixtures holds either way: the
+synthetic fixture that made extraction look solved had drawn ruling lines too.
+
+#### M141 — `get_tables`, and the decisions that closed it
+
+Raised as an open question on 2026-09-08 and **closed by the owner on 2026-09-09**. The evidence is
+in `PROGRESS.md` §Open follow-ups' history; what follows is the decided design.
+
+**Strategy is chosen per page and is not reported.** `lines_strict` reads a fully ruled table and
+returns nothing for a partially ruled one; `strategy="text"` reads the partially ruled financial
+statements correctly and invents tables on non-tabular pages. Each is right where the other fails,
+so the tool picks: ruling present → `lines_strict`, else `text`. The owner rejected reporting which
+was used — *"I see no value in disclosing the strategy unless we expect the calling agents to
+perform some post processing based on it"*, and they do not. The precision problem it was standing
+in for is handled where precision problems belong: the **shape filter** (reject 1×N, newline-stuffed
+cells, empty header), which was already the answer for `lines_strict`'s 3-of-16 precision.
+
+**Parenthesised negatives are repaired deterministically, and the residue is documented, not coded
+around.** Measured over 287 numeric cells on PDF pages 387–389, cells split so the parenthesis
+becomes unbalanced: 0% where a statement has no negatives, 5% on the P&L, **29% on the cash flow
+statement**. Of 36 such cells **35 lose only the trailing `)`**, so a leading `(` with no closer is
+unambiguously a negative and the repair is a rule. **One lost the leading `(`** and reads as
+positive. That case gets a line in the tool's documentation and nothing else — the owner's
+direction: *"we are not aiming to be 100% accurate, 100% of the times. don't over compensate for the
+corner cases."*
+
+**Titles and cross-page continuation are in scope, not a deferred gap.** This was recorded as an
+acceptable limitation and the owner corrected it: *"we can't expect tables to be present as a whole
+on a single page."* Quite right — a table spanning a page break is the normal case, not a corner
+one. The mechanism is mechanical, and `WH-1000XM6.pdf` page 29 supplies all three cases at once
+(table bboxes at y 217–528 and 659–755, page height 842):
+
+    y=196.4  free      Music playback time                       -> title of the table at y=217
+    y=638.9  free      Communication time                        -> title of the table at y=659
+    y=772.4  free      Headphone cable connected (power is on)   -> orphan, below the last table
+
+* **A table's title is the nearest *free* text block above its bbox** — free meaning not inside any
+  detected table region. Both titled tables on the page resolve this way.
+* **An orphan free block below the last table on a page is the title of the first table on the next
+  page.** That is the *Headphone cable connected* case, whose body is on page 30.
+* **Continuation is flagged, never auto-merged**, and the orphan title is what makes that safe.
+  There is a real trap here: page 29's second table and page 30's table have **identical column
+  x-edges `[36.4, 265.2]` and identical header rows**, so geometry matching alone would merge two
+  genuinely different tables. The orphan title on page 29 is the signal that page 30 starts something
+  new. So the tool reports `title`, `title_from_previous_page` and `continues_from` and lets the
+  caller decide — **the same principle already settled for M140's `in_table`: report the signal, do
+  not act on it silently.**
+
+**Scope and cost.** `find_tables()` runs at **6.9 pages/s**, ~135× slower than `get_text`, so a
+572-page document is ~85 s: the tool takes a **page range**, never a whole document by default.
+
+#### M142 — `extract_markdown`, and why it is ours rather than rented
+
+Carried as an open question from 2026-09-07 and **decided by the owner on 2026-09-09** after a
+prototype was built to answer *"are we capable"* with evidence. It is: ~90 lines over what M140 and
+M141 already provide, with no new dependency. What that prototype established, and what the
+milestone therefore commits to:
+
+**Works today.** Headings by weight and size (the prospectus proves weight is the load-bearing
+signal — size alone returns *zero* headings for its unnumbered section). Ruled tables, exactly:
+`WH-1000XM6.pdf` page 29 emits both, and the column-collapse pass reassembles the prospectus's
+split labels **while leaving genuine text columns alone** — one rule, two shapes, no per-document
+tuning. And **multi-column reading order**, which was the risk this was tested for: the magazine's
+body narrative reconstructs correctly across blocks, where `get_text("text")` gives content-stream
+order and `sort=True` interleaves the side panel into the paragraph.
+
+**Degrades, and must do so visibly.** A partially-ruled financial statement yields correct values in
+a fragmented grid; the collapse pass improves it and does not fix it (41 raw data rows down to 24 —
+it merges some numeric columns). A structured side panel flattens to a readable run of items with
+its label/value pairing lost. A drop cap is read as a heading (`# N`, one 44 pt character), and
+justified text with one word per line can migrate a word across columns.
+
+**So the binding design rule is: a table that cannot be reconstructed is emitted as-is with a note,
+never as a mangled grid presented as a table.** This is the third application of a principle this
+group has now settled three times — M140's `in_table`, M141's `continues_from`, and here: *report
+the uncertainty, never paper over it*. A Markdown renderer that silently mis-renders a balance sheet
+is worse than one that declines to.
+
+**Shape.** A separate tool rather than a `format` option on `extract_text`, for a reason the
+`get_links`/`get_annotations` split did not have: the **cost profile differs by two orders of
+magnitude**. `extract_text` runs at ~930 pages/s; Markdown needs `find_tables` at **6.9 pages/s**.
+An agent reaching for `extract_text` must not be able to trip an 85-second call by passing a flag.
+It takes a **page range**, like M141, and depends on M140 and M141 landing first.
+
+**The dependency is rejected, and one measurement decided it.** `pymupdf4llm` 0.3.4 was the
+alternative. Merely importing it **changes plain PyMuPDF's behaviour globally**: the identical
+`find_tables()` call on the same page returns **78×11 with 24 data rows** without the import and
+**86×7 with 3** with it — silently, for code that does not use the library. The bridge is one
+process, so an import made for Markdown would degrade `get_tables` beside it. That alone is
+disqualifying, and it does not stand alone: 0.3.4 is a **frozen line** Artifex has moved past, it is
+**75× slower** than plain extraction, its import writes to **stdout** (fatal on a stdio server), and
+on the case that mattered most it **produces no table at all** — the prospectus P&L comes out as
+bold text lines, because it runs `find_tables` with `lines_strict`, which returns nothing there. We
+would be taking on all of that to solve a problem it does not solve.
+
+#### The `pymupdf4llm` evaluation — what was rejected, and why
+
+Considered for goals (1) and (3), and measured rather than assumed. There are effectively **two
+libraries under one name**:
+
+* **`0.3.4`** — `pymupdf>=1.27.1` + `tabulate`, layout engine an *optional extra*. Installs against
+  our exact pinned `pymupdf==1.27.2.3`; **2 new pins**.
+* **`>=1.27.2.1`** — `pymupdf_layout` becomes a **hard** dependency: ~11 new pins, ≈100 MB
+  (`pymupdf_layout` 42.9 MB + `onnxruntime` 23.1 MB + numpy, networkx, protobuf, flatbuffers,
+  pyyaml), and a Graph-Neural-Network runtime.
+
+**The 1.28.x line is rejected.** Three reasons beyond size: it pins `pymupdf` **exactly**
+(`pymupdf4llm==1.28.2` requires `pymupdf==1.28.2`), putting the bridge's PyMuPDF version under a
+third party's control when M115 exists precisely because the app and bridge locks drifted apart
+once; `onnxruntime` ships cp311–cp314 only, which would make `requires-python`'s `<3.15` ceiling
+**forced** where `pyproject.toml` argues at length that it is chosen; and a 42 MB ML blob is a
+different product from a bridge whose pitch is local, offline and auditable at 29 pinned
+dependencies.
+
+**And `0.3.4` does not solve goal (1) anyway.** Its `IdentifyHeaders` is ~40 lines of **font size
+and nothing else** — no weight, no numbering, no position — with body text floored at **12 pt**
+(`max(body_limit=12, most_frequent_size)`). On filing typography (9 pt body, 11 pt bold headings)
+it finds **zero headings** and emits the heading as inline `**bold**`. Both escapes are available —
+`IdentifyHeaders(body_limit=10)` recovers them, and `to_markdown(hdr_info=…)` accepts any object
+with `get_header_id(span, page)`, so a four-line bold detector works — but the first needs the
+document's typography known in advance, which an agent cannot supply. **The conclusion is that
+heading detection is the replaceable part and the Markdown serializer is the substantial one**,
+which is why goal (1) is M140 and goal (3) is carried as an open question instead.
+
+**One trap recorded, should the library ever be adopted.** `to_markdown` **silently deletes
+`StructTreeRoot` from the live `Document` handed to it** — deliberately, "to avoid possible
+performance degradation" — while leaving `/MarkInfo` in place:
+
+    StructTreeRoot before=('xref','8 0 R')  after to_markdown=('null','null')
+    MarkInfo after: ('dict', '<</Marked true>>')
+
+That is the M93 defect class reintroduced by a call that looks read-only, and it produces a
+document that *claims* to be tagged and is not — worse than either state alone. It would bite
+hardest in exactly the combination this section plans: infer structure, write an outline, ship an
+untagged file advertising itself as tagged. The rule would be **never hand it the live document**,
+always a throwaway copy, with a test pinning it.
+
 ### M143 — the installer stops guessing which scope you meant *(unplanned)* (2026-09-09)
 
 `install.py --client claude-code` registered the bridge and never said where. It ran
