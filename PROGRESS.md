@@ -4229,11 +4229,23 @@ it on this side of the line.
   none** (the error in the first pass): the default `lines_strict` has **perfect recall** — all
   three real tables, cleanly extracted with header rows — and **poor but filterable precision**,
   3 real of 16 detections, every false positive being 1×N, newline-stuffed or header-less. That is
-  a real improvement over flat text at **zero new dependencies**. **The decision this needs** is
-  whether the two known gaps are acceptable in a first version: a **title does not come with its
-  table** (*Headphone cable connected* heads a table whose body is on the next page, and a per-page
-  detector loses the association — the same class as a table continuing across a page break), and
-  **unruled tables are untested**, since this document's happen to be ruled. Related to but separate
+  a real improvement over flat text at **zero new dependencies**. **"Unruled tables are untested" was tested on 2026-09-08, and the answer
+  is bad.** The prospectus's **core financial statements** — Restated Consolidated Statement of
+  Assets and Liabilities (p387) and Statement of Profit and Loss (p388) — carry **zero stroke
+  drawings**, and `lines_strict` finds **no table on either**. `strategy="text"` is not a fallback:
+  on p388 it returns a 78×11 grid that splits words mid-token (`'Dhariwal Buildt'` + `'ech
+  Limited'`, `'March 31, 2'` + `'024'`), having already been shown to invent an 87×3 table out of a
+  non-tabular list. So **neither built-in strategy reads an unruled table**, and unruled is not an
+  edge case — it is the highest-value table content in a filing. Also measured: `find_tables()` runs
+  at **6.9 pages/s**, ~135× slower than `get_text`, so a whole-document scan of 572 pages is ~85 s
+  and the tool must take a page range rather than a document. **What remains to be decided** is
+  therefore narrower and sharper than when this was raised: (a) whether a **ruled-tables-only** tool
+  is worth shipping given it returns nothing for a prospectus's financial statements — and if so
+  that it must *say* so, distinguishing "no tables here" from "no *detectable* tables here", which
+  `get_drawings()` stroke count answers cheaply; (b) whether the **title/continuation gap** is
+  accepted for a first version (*Headphone cable connected* heads a table whose body is on the next
+  page, and a per-page detector loses the association); and (c) whether the honest answer to unruled
+  tables is `pymupdf_layout` after all, which this measurement strengthens considerably. Related to but separate
   from the Markdown question below: a `get_tables` tool returns rows an agent can read, where
   Markdown is a rendering of the whole page. **It touches M140, but as a *hint*, not a filter**: measured on
   `dhariwal_ipo.pdf`, most of the 2,287 distinct heading candidates a bold filter yields are **table
