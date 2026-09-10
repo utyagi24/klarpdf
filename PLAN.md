@@ -6635,6 +6635,16 @@ implementation at the cost of the contract. Both directions are now pinned by te
 the correction fails the `goto` cases, over-applying it fails the `named` ones — so the narrowness is
 enforced rather than trusted.
 
+**The mixture that finally tests it *(added 2026-09-10, after TC-024)*.** Every document in the
+corpus is uniformly one kind or the other, so `kinds: ["goto", "named"]` had only ever been
+exercised where one side was empty — carried as untested by **four** successive rounds (TC-021
+through TC-024). It cannot be closed with a corpus document or with `merge`: the `/Names` tree does
+not survive a page move, so a merged document comes out uniformly `goto`, which TC-024 confirmed
+again on a three-way merge of two all-`named` sources. A constructed fixture holding one direct
+GoTo **and** one real named destination closes it, and it is the strongest control the correction
+has: over-applying now fails **six** tests instead of three, because the mixture is the only place
+where collapsing the two labels is visible in a single reply.
+
 #### M139 — `set_outline`
 
 Write a table of contents into a copy of the document. The entry shape is `[{level, title, page}]`,
