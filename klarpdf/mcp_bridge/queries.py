@@ -248,10 +248,32 @@ _FILE_KINDS = (fitz.LINK_LAUNCH, fitz.LINK_GOTOR)
 
 
 def _kind_name(link: dict) -> str:
-    """``link``'s action type as a name. A kind PyMuPDF grows later reports as its own integer, in
-    string form — honest about being unrecognised, where falling back to ``"none"`` would claim the
-    link goes nowhere."""
+    """``link``'s action type as a name — **what the document declares**, not how it parsed (M138.3).
+
+    A kind PyMuPDF grows later reports as its own integer, in string form — honest about being
+    unrecognised, where falling back to ``"none"`` would claim the link goes nowhere.
+
+    **One correction is applied, to ``named``.** The two internal kinds answer different questions
+    for a caller: ``goto`` writes its destination down, ``named`` writes a *nickname* the document
+    keeps a lookup table for. PyMuPDF decides between them by pattern-matching a URI it builds
+    itself, and only recognises ``#page=N`` and ``#page=N&zoom=…``; a perfectly ordinary
+    ``<< /S /GoTo /D [46 0 R /Fit] >>`` becomes ``#page=4&view=Fit``, matches neither, and is
+    labelled ``LINK_NAMED``. Nothing about that link is named — it has no nickname and there is no
+    table to look it up in. Measured: **18 of the Cisco 2025 annual report's 119 links**, beside
+    95 identical links whose only difference is a ``/XYZ`` view instead of ``/Fit``.
+
+    ``nameddest`` is what separates them, and it is set by construction rather than inferred:
+    PyMuPDF writes it **only** on the branch that actually resolved a name
+    (``self.named['nameddest'] = named``), so its absence on a ``LINK_NAMED`` means the link
+    reached that label through the URI fallback. Verified on two real documents with no overlap —
+    all 18 Cisco links lack it, all 37 of `kasaragodhr.pdf`'s genuine named destinations carry it.
+
+    A named destination that fails to resolve still reports ``named``: the document really does use
+    a nickname there, and the lookup failing is a fact about the document, not about the parse.
+    """
     kind = link.get("kind", fitz.LINK_NONE)
+    if kind == fitz.LINK_NAMED and "nameddest" not in link:
+        return _LINK_KINDS[fitz.LINK_GOTO]
     return _LINK_KINDS.get(kind, str(kind))
 
 

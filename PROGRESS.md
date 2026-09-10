@@ -683,6 +683,20 @@ is left over.
   return a string. Also fixes **TC-018's** one new low — the docs listed a `none` kind three bullets
   above the sentence denying it — and adds `links_with_unresolved_target`, TC-019's suggested
   counter. Eleven new tests across the three surfaces, each confirmed by reverting the fix.
+- [x] **M138.3** *(unplanned)* **`kind` describes the document, not the parse** — 2026-09-10, the
+  owner's decision on the judgement call M138.2 flagged and left open: *"I would rather have `goto`
+  mean `goto` and `named` mean `named`."* PyMuPDF labels an ordinary
+  `<< /S /GoTo /D [46 0 R /Fit] >>` as `LINK_NAMED` because its URI pattern-match only recognises
+  `#page=N` and `#page=N&zoom=…`; `get_links` reported that label, so **18 of the Cisco report's
+  113 internal links were invisible to `kinds: ["goto"]`**. They are `goto` now, and `named` means
+  only what it says: a link that writes a *nickname* the document keeps a lookup table for — the
+  kind that breaks when the table is incomplete, which is a real thing to be able to ask about.
+  The discriminator is `nameddest`, which PyMuPDF sets **only** on the branch that resolved a name;
+  verified with no overlap on two real documents (all 18 Cisco links lack it, all 37 of
+  `kasaragodhr.pdf`'s genuine named destinations carry it). A nickname that fails to resolve stays
+  `named`. Five new tests bracketing the change from **both** sides — under-applying fails the
+  `goto` cases, over-applying fails the `named` ones. Design in `PLAN.md` §M138.3 — *WSL*
+  ([#343](https://github.com/utyagi24/klarpdf/pull/343)).
 - [ ] **M139** **`set_outline`** — write `[{level, title, page}]` into a copy as real bookmarks;
   the same shape `get_outline` returns and `remapped_toc()` produces. **The sink for M138 and
   M140 alike** — an agent supplies entries derived from links (M138, the primary and exact source),

@@ -6596,6 +6596,45 @@ rows whose `target_page` is `null` — a destination the document genuinely does
 is still returned, because its rectangle and anchor text are true and only its destination is not.
 Unlike `links_without_action` it counts what came back, so it moves with `kinds` and `offset`.
 
+#### M138.3 — `kind` describes the document, not the parse *(2026-09-10, unplanned)*
+
+M138.2 left a judgement call open and flagged it for the owner: PyMuPDF labels 18 of the Cisco
+report's links `LINK_NAMED` although the file declares them `<< /S /GoTo /D [46 0 R /Fit] >>`, and
+the milestone reported the library's label rather than the document's. **The owner's decision, on
+2026-09-10, was the other way — *"I would rather have `goto` mean `goto` and `named` mean
+`named`"*** — and it is the better answer, because the two kinds are not a distinction without a
+difference:
+
+* a **`goto`** link writes its destination down;
+* a **`named`** link writes a *nickname* the document keeps a lookup table for, so its target can
+  move without every link being rewritten — and which therefore **breaks when that table is
+  incomplete**, exactly the failure `kasaragodhr.pdf`'s dead hotspot and a dangling nickname are.
+
+A caller asking *"which of these links depend on a lookup that might be missing?"* was getting an
+answer contaminated by a parsing artefact. Under the old labelling `kinds: ["goto"]` returned **95**
+of the Cisco report's 113 internal links; it now returns all 113, and `named` means only what its
+name says.
+
+**The correction is narrow and its discriminator is set by construction rather than inferred.**
+PyMuPDF writes `nameddest` onto a link **only** on the branch that actually resolved a name
+(`self.named['nameddest'] = named`); the URI-fallback branch that produces this mislabel never sets
+it. So `LINK_NAMED` without `nameddest` is precisely "reached that label without a name being
+involved". Verified on two real documents with **no overlap**: all **18** Cisco links lack it, all
+**37** of `kasaragodhr.pdf`'s genuine named destinations carry it.
+
+**A named destination that fails to resolve keeps its `named` label.** The document really does use
+a nickname there and the lookup really did fail — that is a fact about the document, and
+relabelling it `goto` would add a second error on top of the document's own.
+
+**Why this was worth reversing rather than defending.** The original reasoning — *do not override
+the library on your own reading of the format* — is sound in general and was the right default while
+the question was open. What it undervalued is that `kind` is not a diagnostic field: it is the one
+word a caller routes on, and a field that sometimes means "what the document declares" and sometimes
+means "what the parser concluded" cannot be routed on at all. The conservative choice protected the
+implementation at the cost of the contract. Both directions are now pinned by tests — under-applying
+the correction fails the `goto` cases, over-applying it fails the `named` ones — so the narrowness is
+enforced rather than trusted.
+
 #### M139 — `set_outline`
 
 Write a table of contents into a copy of the document. The entry shape is `[{level, title, page}]`,
