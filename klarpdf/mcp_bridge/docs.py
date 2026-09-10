@@ -525,15 +525,44 @@ underneath, and measured, the old bookmark titles are still readable in the outp
 titles you are replacing are the sensitive part, this is the case to know about, and the rewrite is
 what makes replacing them mean it.
 
+## Enriching an outline the document already has
+
+If the document has bookmarks, this **refuses** unless you pass `replace_outline: true`. That is
+not an obstacle to work around — it is the fork in the road, and the two ways past it are different
+operations.
+
+**To enrich** (the usual intent — the document has chapters, you want sections under them):
+
+```
+existing = get_outline(path)["entries"]     # [{level, title, page}], the same shape
+merged   = ...                              # weave yours in; keeping one is one `+`
+set_outline(path, merged, out, replace_outline=True)
+```
+
+You send the **whole tree**, not a delta. There is no "insert into" operation, because deciding
+where a new entry belongs is a judgement about meaning: whether a derived *Revenue by quarter*
+duplicates an existing *Q3 Revenue*, parents it, or sits beside it cannot be settled by rule. That
+onus is yours, and this tool will not pretend to take it — it never merges.
+
+**To discard** the existing bookmarks deliberately, pass `replace_outline: true` and send only your
+own entries. The reply's `replaced` count tells you how many went.
+
+Where the sub-entries come from is the open part. `get_links` is exact when the document has a
+printed contents page, but a document that already ships bookmarks usually does not have one —
+the bookmarks *are* its navigation. Failing that today: `extract_text` over the section's page
+range and read it, or `render_page` and look. Note that `extract_text` returns plain strings with
+no font or weight, and weight is usually the signal that separates an unnumbered subheading from
+body text set at the same size.
+
 ## What it does not do
 
 It **replaces**; it does not merge. An outline is a single tree and interleaving two of them has no
-right answer. Call `get_outline` first and concatenate the lists yourself — the shapes are the
-same, so that is one `+`.
+right answer — see above.
 
 It does not **remove** an outline: `entries: []` is refused. An empty list is far more often a
 filter that matched nothing than a request to strip a document's navigation, and the destructive
-reading of an ambiguous argument is not the one to take.
+reading of an ambiguous argument is not the one to take. (`replace_outline: true` is the same
+principle said the other way: the destructive reading is available, but only when you ask for it.)
 
 It does not write **destination points within a page** (a bookmark to a heading halfway down),
 colours, or open/collapsed state. Each entry lands at the top of its page, which is what a

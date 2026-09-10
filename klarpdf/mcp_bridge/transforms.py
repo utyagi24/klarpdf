@@ -477,6 +477,7 @@ def set_outline(
     entries: list[dict],
     out: str,
     *,
+    replace_outline: bool = False,
     password: str | None = None,
     overwrite: bool = False,
 ) -> dict:
@@ -491,10 +492,20 @@ def set_outline(
     published manual, and the whole point of adding navigation to one is to hand back the same
     document with bookmarks, not a permissive copy of it.
 
-    Whatever outline the document already had is **replaced**, not merged: an outline is a single
-    tree and there is no defensible way to interleave two. ``get_outline`` first if the existing
-    entries are wanted — the two shapes are the same, so keeping them is concatenation at the
-    caller.
+    **An outline the document already has is not replaced unless ``replace_outline`` says so**, and
+    the split that rule draws is the point of it. Deciding what an *enriched* outline should say is
+    a judgement about meaning — whether a derived "Revenue by quarter" duplicates the existing "Q3
+    Revenue", parents it, or sits beside it — and nothing mechanical can make it. That onus is the
+    caller's and this function will not take it: it does not merge, ever. But making sure the
+    caller *made* that decision is this function's job, and it was not being done — the old tree
+    simply vanished, with a ``replaced`` count in the reply as the only trace.
+
+    So the refusal, on exactly the argument this module already makes about output files one level
+    up: *"refusing to silently overwrite an unrelated file is the same argument applied
+    consistently, and an agent that meant it can say so in one word."* An existing outline is
+    content that disappears silently, which is the same shape of thing. Note what it does **not**
+    cost: a document with no outline — the case this tool was built for, a 146-page manual with
+    zero bookmarks — never sees the argument at all.
     """
     target = _resolve_out(out, sources=[path], overwrite=overwrite)
     if not isinstance(entries, list):
@@ -515,6 +526,16 @@ def set_outline(
     prepared = _outline_entries(entries)
     with open_document(path, password) as vdoc:
         had = len(vdoc.remapped_toc())
+        if had and not replace_outline:
+            raise ValueError(
+                f"this document already has an outline of {had} bookmark(s), and writing yours "
+                "would discard all of it — this tool replaces an outline, it never merges one. "
+                "Nothing was written. To **enrich** what is there, call `get_outline`, weave your "
+                "entries into the list it returns (the shapes are identical, so keeping an entry "
+                "is one `+`) and send the whole tree; deciding what the combined outline should "
+                "say is a judgement only you can make. To discard the existing bookmarks "
+                "deliberately, pass replace_outline=true."
+            )
         authored = [[e["level"], e["title"], e["page"]] for e in prepared]
         vdoc.set_outline_override(authored)
         written = vdoc.remapped_toc()

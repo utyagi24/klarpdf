@@ -180,6 +180,12 @@ permissions included: a restricted published manual comes back restricted, with 
 the document does not have is an **error** rather than a bookmark quietly pointing at the nearest
 real page, which is what the PDF layer would do on its own.
 
+It never merges, and it will not let you find that out afterwards: if the document already has
+bookmarks, the call is **refused** unless you pass `replace_outline`. To *enrich* an outline rather
+than replace it — chapters that want sections under them — read it with `get_outline`, weave your
+entries into that list and send the whole tree back. The two shapes are identical by construction,
+so keeping an existing entry is one `+`.
+
 **Mark up a document, then hand it to a person.** `annotate` writes highlights, underlines and
 strike-throughs — each able to carry a **note** — and `get_annotations` reads back every mark a file
 holds, including ones made in Acrobat, Preview or Edge, each reporting the text it actually covers

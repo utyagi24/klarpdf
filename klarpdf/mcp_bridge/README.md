@@ -440,7 +440,7 @@ error, never a silent clamp. Every tool takes an optional `password` — see
 | `delete_pages` · `reorder` · `rotate` | Page-set edits; bookmarks follow their pages. |
 | `split` · `merge` | Cut into several files by print-dialog ranges (`"1-3"`, `"5-"`) / concatenate; merge renames colliding fields. |
 | `fill_form` · `flatten` | Fill (still editable; checkboxes take `true` or their own export state, anything else is an error) / bake in (no longer editable). `fill_form` warns on an XFA form and on read-only fields. |
-| `set_outline` | Give a document bookmarks: write `[{level, title, page}]` as its outline. The shape `get_outline` returns, so an outline round-trips; a page the document does not have is an error, levels are repaired. |
+| `set_outline` | Give a document bookmarks: write `[{level, title, page}]` as its outline — the shape `get_outline` returns, so an outline round-trips and enriching one is `get_outline` + concatenate. Refuses if the document already has an outline unless `replace_outline: true`; a page the document does not have is an error, levels are repaired. |
 | `export_images` | Rasterise pages — or one `clip` region of each — to png/jpg files. |
 | `annotate` | Write highlights / underlines / strike-throughs, each able to carry a note. Takes boxes, not queries; merges with markup already there rather than stacking. |
 

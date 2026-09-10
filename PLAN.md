@@ -6852,6 +6852,38 @@ ambiguous argument is not the one to take. And it writes no **within-page destin
 colours or open state; each entry lands at the top of its page, which is what a contents-page link
 resolves to for a reader anyway.
 
+##### `replace_outline`, and the two onuses an existing outline splits
+
+Asked by the owner on 2026-09-10, after the first cut shipped the replacement silently with a
+`replaced` count in the reply: *"when a document has an outline already, the purpose of a rewrite
+ought to be to improve and enrich it — but who carries this onus, the MCP or the caller?"* The
+answer is that there are **two** onuses and they belong to different parties, which the first cut
+conflated.
+
+**The semantic onus is the caller's, and can be nowhere else.** Whether a derived *Revenue by
+quarter* duplicates an existing *Q3 Revenue*, parents it, or sits beside it is a judgement about
+meaning, and merging by rule produces plausible-looking nonsense. This is the M140 position applied
+one milestone early — classification in code with no agent in the loop was rejected on 2026-09-09 —
+and the same shape as `get_links`, which deliberately does not decide and hands dedupe, empty
+anchors and running-footer filtering to the caller as four documented rules. So `set_outline` does
+not merge, ever.
+
+**The procedural onus is the server's, and the first cut was not carrying it.** Making sure the
+caller *made* that decision is a different job from making it for them, and `replaced: 5` in the
+reply discharges it only for an agent that reads the field. An agent told *"add a bookmark for the
+appendix"* would plausibly send one entry, drop four, and report success. So an existing outline is
+now refused unless `replace_outline=True` — on precisely the argument this module already makes one
+level up about output files: *"refusing to silently overwrite an unrelated file is the same argument
+applied consistently, and an agent that meant it can say so in one word."* An existing outline is
+content that disappears silently; same shape, one level in.
+
+Two properties make this cheap rather than friction. The **headline case never sees it** — a
+document with no outline, which is what the tool was built for, takes no new argument. And the
+**refusal is the teaching surface**: it names the count, says the tool never merges, and spells out
+the enrichment path, so the correct workflow is the one a caller is told about rather than the one
+they had to already know. A warning was considered first and rejected as strictly weaker: it fires
+after the loss, and the repo had already chosen refusal for the analogous case.
+
 The `subset()` view deliberately does not carry the override: it is pinned to *this* document's page
 numbers and an extract renumbers every one of them.
 
@@ -6883,10 +6915,43 @@ closes the `pymupdf_layout` question outright — 1c was the last place a layout
 earned ~11 pins and ≈100 MB, since every other use is either served by what we already pin or
 answerable by an agent reading a `render_page` image.
 
-Ordering, and why M140 is last: the shippable feature is **M138 + M139 + agent judgement**, which
-covers every document with a printed contents page — manuals, reports, filings, standards. M140 only
-serves what is left over. M139 is also independently shippable on its own, since an agent can supply
-entries from its own reading of a short document without any candidate extraction.
+Ordering, and why M140 was put last: the shippable feature is **M138 + M139 + agent judgement**,
+which covers every document with a printed contents page — manuals, reports, filings, standards.
+M140 only serves what is left over. M139 is also independently shippable on its own, since an agent
+can supply entries from its own reading of a short document without any candidate extraction.
+
+**That rationale is now incomplete, and the gap was found by asking the tool a question it cannot
+answer** (owner, 2026-09-10, immediately after M139 landed): *"a doc might have defined only
+high-level bookmarks, and our caller might decide to insert second-level bookmarks wherever
+applicable — does the bridge offer enough information to infer how?"* It does not.
+
+The case is **enrichment**, and it is not a leftover — it is the other half of M139:
+
+* `get_outline` gives the existing tree. Necessary, not sufficient: it says *Financials, p5* and
+  nothing about what is inside pages 5-9.
+* `get_links` does not help here, and the reason is structural rather than incidental. A document
+  that already ships bookmarks usually has **no printed linked contents page** — the bookmarks
+  *are* its navigation. M138 serves the complement of this case, not this case.
+* `extract_text` returns `get_text("text")` — plain strings, no font, size, weight or position. It
+  therefore discards the one signal that works. Measured on a synthetic report reproducing
+  `dhariwal_ipo.pdf`'s shape: subheadings set in **Helvetica-Bold at 10 pt against a 10 pt body**
+  arrive as lines indistinguishable from the paragraph beneath them, while `get_text("dict")` names
+  them exactly. This is M140's own finding — *"weight is the signal, not size"* — arriving from the
+  enrichment direction.
+* `render_page` works and costs an image per page, with the agent reading headings by eye.
+
+So the tool that closes this is **M140**, whose entry already anticipates it in one clause — *"and
+the only route to subsections a contents page omits"* — without that clause reaching the ordering
+argument. Its **page range**, justified by *"heading conventions differ by section in a compiled
+document"*, turns out to be the enrichment primitive as well: `get_outline` says Financials is pages
+5-9, so the caller asks for candidates in 5-9 and nowhere else.
+
+**Recommendation, for the owner to take or leave: promote M140 ahead of M141 and M142.** The
+argument that put it last was written when M139 did not exist and the only question was *"where does
+structure come from when there is none"*. With the sink built, the more common real-world ask is
+arguably the opposite one — a document good enough to ship with bookmarks is exactly the kind that
+ships only top-level ones — and M140 is the sole tool that serves it. `get_tables` and
+`extract_markdown` are both independently valuable and neither is blocked by this.
 
 #### A second document, a different shape — what it adds to M138 and M139
 

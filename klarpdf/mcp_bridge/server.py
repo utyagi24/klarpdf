@@ -804,6 +804,7 @@ def create_server(config: Config | None = None) -> MCPServer:
         path: str,
         entries: list[dict],
         out: str,
+        replace_outline: bool = False,
         password: str | None = None,
         overwrite: bool = False,
     ) -> dict:
@@ -813,31 +814,36 @@ def create_server(config: Config | None = None) -> MCPServer:
         outline can be read, edited and written back unchanged in between. `level` is 1 for a
         top-level heading, 2 for a subsection; `page` is 1-based.
 
-        **Most documents that need this have no outline at all, and the structure is already in
-        them.** A printed contents page is usually built from real link annotations, so
-        `get_links` on those pages gives you title, target page and — from the `rect` x0 — the
-        indent that implies the level. That is the primary source and it is exact; read
-        `klarpdf://docs/get_links` for the four rules that turn those links into entries (dedupe
-        by target, drop empty anchors, filter the back-to-contents furniture, and fall back to a
-        flat level 1 when the indents are layout noise rather than hierarchy). Failing that, an
-        agent's own reading of a short document is a perfectly good source.
+        **Where the entries come from.** A document with no bookmarks usually still carries its
+        structure: a printed contents page is built from real link annotations, so `get_links` on
+        those pages gives title, target page and — from `rect` x0 — the indent implying the level.
+        Exact, authored by the publisher; `klarpdf://docs/get_links` has the four rules for reading
+        it. An agent's own reading of a short document works too.
 
         **A page the document does not have is an error, and nothing is written.** The PDF layer
         does not refuse one — it silently moves the bookmark to the nearest real page, or writes
-        one that navigates nowhere — so a miscounted page would otherwise come back as success
-        with a plausible-looking outline. Levels are the opposite: an outline must start at level
-        1 and may not skip a level, so levels are **repaired** rather than refused, and the reply
-        says what changed under `levels_normalised`.
+        one that navigates nowhere — so a miscount would come back as success with a
+        plausible-looking outline. Levels are the opposite: an outline must start at level 1 and
+        may not skip a level, so they are **repaired**, and the reply says what changed under
+        `levels_normalised`.
 
-        Whatever outline the document had is replaced, not merged. Call `get_outline` first and
-        concatenate if you mean to keep it — the shapes are identical.
+        **If the document already has an outline, this refuses** unless you pass
+        `replace_outline: true` — writing yours would discard all of it, and this tool never
+        merges. To *enrich* an existing outline (say it has chapters and you want sections under
+        them), call `get_outline`, weave your entries into the list it returns — the shapes are
+        identical, so keeping an entry is one `+` — and send the whole tree. Deciding what the
+        combined outline should say is a judgement only you can make.
 
         The page set does not change, so the copy keeps everything: tags, encryption and
-        permissions, links. On a document with no outline the write is an **append** — the
-        original bytes are left untouched and a couple of kilobytes go on the end.
+        permissions, links. Full contract in `klarpdf://docs/set_outline`.
         """
         return transforms.set_outline(
-            check(path), entries, check(out), password=password, overwrite=overwrite
+            check(path),
+            entries,
+            check(out),
+            replace_outline=replace_outline,
+            password=password,
+            overwrite=overwrite,
         )
 
     @server.tool()

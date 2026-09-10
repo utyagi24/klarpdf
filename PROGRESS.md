@@ -594,6 +594,16 @@ inferred for a large class of documents — it is already in the file, and the b
 read it. **M138 + M139 + agent judgement is the shippable feature**; M140 is the fallback for what
 is left over.
 
+**Amended 2026-09-10, after M139 shipped.** "The fallback for what is left over" undersells M140,
+and the owner's question found the gap: a document with only high-level bookmarks, whose caller
+wants second-level ones inserted, is served by **nothing the bridge has**. `get_outline` gives the
+existing tree but not what is inside a section; `get_links` does not help, because a document that
+already ships bookmarks usually has no printed linked contents page; and `extract_text` returns
+plain strings with no weight, which is the one signal that separates an unnumbered subheading from
+body text set at the same size. **Enrichment is the other half of M139, not a leftover, and M140 is
+the only tool that serves it** — so promoting it ahead of M141/M142 is recommended and left to the
+owner. Argument and the measurement in `PLAN.md` §M140 → *Ordering*.
+
 - [x] **M138** **`get_links`** — 2026-09-09, the bridge's **20th tool**. One entry per link with
   `page`, `rect`, `kind`, the resolved `target_page` for an internal jump, `uri` for a web address,
   `file` for a link into another document, and the anchor text. Independently useful — an agent
@@ -791,6 +801,18 @@ is left over.
   outline, since `entries: []` is far more often a filter that matched nothing than a request to
   strip a document's navigation; and it writes no within-page destination points, colours or open
   state.
+
+  **`replace_outline` — the two onuses an existing outline splits** (owner question, 2026-09-10,
+  after the first cut replaced silently with only a `replaced` count in the reply). The **semantic**
+  onus — what an enriched outline should *say* — is the caller's and can be nowhere else, so the
+  tool never merges. The **procedural** onus — making sure the caller *made* that call — is the
+  server's, and was not being carried: an agent told *"add a bookmark for the appendix"* would send
+  one entry, drop four, and report success. An existing outline is now **refused** unless
+  `replace_outline=true`, on the argument `transforms.py` already makes about output files (*"an
+  agent that meant it can say so in one word"*). The headline zero-bookmark case never sees the
+  argument, and the refusal names the count and spells out the `get_outline` + concatenate path, so
+  enrichment is what a caller is told about rather than what they had to already know. A warning was
+  considered first and rejected as strictly weaker — it fires after the loss.
 - [ ] **M141** **`get_tables`** — rows an agent can read, at **zero new dependencies**. Strategy is
   chosen per page (ruling present → `lines_strict`, else `text`) and **deliberately not reported**;
   precision comes from a **shape filter** (reject 1×N, newline-stuffed cells, empty header).

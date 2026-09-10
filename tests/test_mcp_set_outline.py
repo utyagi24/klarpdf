@@ -86,13 +86,77 @@ def test_the_written_outline_is_a_real_goto_that_survives_a_later_reorder(tmp_pa
     ]
 
 
-def test_an_existing_outline_is_replaced_not_merged(tmp_path):
+def test_an_existing_outline_is_not_replaced_without_being_asked(tmp_path):
+    """The refusal, and the reason it is a refusal rather than a warning.
+
+    Deciding what an *enriched* outline should say is a judgement about meaning, so this tool never
+    merges — that onus is the caller's. But making sure the caller knowingly declined to enrich is
+    this tool's job, and a `replaced` count in the reply discharges it only for an agent that reads
+    the field. It is the same argument `_resolve_out` already makes about an existing output file:
+    refuse, and let an agent that meant it say so in one word.
+
+    The error has to name the count, because "how much am I about to lose" is the thing that
+    changes the caller's mind.
+    """
     src = _make(str(tmp_path / "src.pdf"), toc=[[1, "Old One", 1], [1, "Old Two", 5]])
     out = str(tmp_path / "out.pdf")
-    result = T.set_outline(src, ENTRIES, out)
+
+    with pytest.raises(ValueError, match="already has an outline of 2 bookmark"):
+        T.set_outline(src, ENTRIES, out)
+    assert not os.path.exists(out)
+    assert queries.outline(src) == [
+        {"level": 1, "title": "Old One", "page": 1},
+        {"level": 1, "title": "Old Two", "page": 5},
+    ]
+
+
+def test_a_document_with_no_outline_never_sees_the_argument(tmp_path):
+    """The case the tool was built for — a manual with zero bookmarks — pays nothing for the guard.
+
+    Worth its own test: a refusal that fired on every document would have made the headline use
+    case (146 pages, no bookmarks, structure only in its link annotations) need a flag to do the
+    one thing it exists to do.
+    """
+    src = _make(str(tmp_path / "src.pdf"))
+    result = T.set_outline(src, ENTRIES, str(tmp_path / "out.pdf"))
+
+    assert result["replaced"] == 0
+    assert result["entries"] == 3
+
+
+def test_replace_outline_discards_the_existing_tree(tmp_path):
+    src = _make(str(tmp_path / "src.pdf"), toc=[[1, "Old One", 1], [1, "Old Two", 5]])
+    out = str(tmp_path / "out.pdf")
+    result = T.set_outline(src, ENTRIES, out, replace_outline=True)
 
     assert result["replaced"] == 2
     assert queries.outline(out) == ENTRIES
+
+
+def test_enriching_is_get_outline_plus_concatenation(tmp_path):
+    """The workflow the refusal points at, asserted end to end.
+
+    The shapes being identical is what makes this one `+` rather than a translation layer, and that
+    is the property M139 was designed around — so it is worth a test that would fail if either side
+    of the round trip drifted.
+    """
+    src = _make(str(tmp_path / "src.pdf"), toc=[[1, "Chapter One", 1], [1, "Chapter Two", 6]])
+
+    existing = queries.outline(src)
+    merged = [
+        existing[0],
+        {"level": 2, "title": "Section 1.1", "page": 3},
+        existing[1],
+        {"level": 2, "title": "Section 2.1", "page": 7},
+    ]
+    out = T.set_outline(src, merged, str(tmp_path / "out.pdf"), replace_outline=True)["out"]
+
+    assert queries.outline(out) == [
+        {"level": 1, "title": "Chapter One", "page": 1},
+        {"level": 2, "title": "Section 1.1", "page": 3},
+        {"level": 1, "title": "Chapter Two", "page": 6},
+        {"level": 2, "title": "Section 2.1", "page": 7},
+    ]
 
 
 # ---- levels are repaired, and the repair is reported ---------------------------
@@ -205,7 +269,7 @@ def test_replacing_an_outline_rewrites_so_the_old_titles_do_not_survive(tmp_path
     document that has an outline pays for a rewrite, and gets a file that means it.
     """
     src = _make(str(tmp_path / "src.pdf"), toc=[[1, "CODENAME BLUEBIRD", 1]])
-    out = T.set_outline(src, ENTRIES, str(tmp_path / "out.pdf"))["out"]
+    out = T.set_outline(src, ENTRIES, str(tmp_path / "out.pdf"), replace_outline=True)["out"]
 
     assert b"BLUEBIRD" not in open(out, "rb").read()
     assert queries.outline(out) == ENTRIES
@@ -276,7 +340,7 @@ def test_the_page_content_is_untouched(tmp_path):
 def test_the_source_is_never_touched(tmp_path):
     src = _make(str(tmp_path / "src.pdf"), toc=[[1, "Old", 1]])
     before = open(src, "rb").read()
-    result = T.set_outline(src, ENTRIES, str(tmp_path / "out.pdf"))
+    result = T.set_outline(src, ENTRIES, str(tmp_path / "out.pdf"), replace_outline=True)
 
     assert result["source_unchanged"] is True
     assert open(src, "rb").read() == before

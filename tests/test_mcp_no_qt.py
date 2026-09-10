@@ -112,6 +112,10 @@ _CHILD = textwrap.dedent(
                 "path": PDF,
                 "entries": [{"level": 1, "title": "Top", "page": 1}],
                 "out": out("so.pdf"),
+                # The fixture ships an outline, so this is the replace path — which is the one
+                # worth exercising here anyway: it is the full-rewrite route, where the append
+                # route's narrower code path would not reach `set_toc` at all.
+                "replace_outline": True,
             },
         )
         # `annotate` reaches model.page_edits' merge/markup path and model.markup_palette — the
