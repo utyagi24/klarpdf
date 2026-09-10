@@ -6776,21 +6776,84 @@ recording because it is the second time a testing round has spent effort on it, 
 diagnostic is cheap and general: **if the docs page and the served description disagree, the client
 is holding an old tool list — the server cannot produce that pair.**
 
-#### M139 — `set_outline`
+#### M139 — `set_outline` *(2026-09-10, the bridge's 21st tool)*
 
 Write a table of contents into a copy of the document. The entry shape is `[{level, title, page}]`,
 which is already what `get_outline` returns and `remapped_toc()` produces, so the writer and the
-reader agree by construction and a TOC we write stays correct through a later reorder.
+reader agree by construction and a TOC we write stays correct through a later reorder — verified:
+reversing a 10-page document moves the three bookmarks 1→10, 5→6, 9→2, because `set_toc` writes
+direct GoTo destinations (`kind: 1`) and those are the ones `bake_dest` can re-point (M138.4).
 
 It is a **catalog-only** change — `/Outlines`, no page moves — so by the rule in `CLAUDE.md`
-§Gotchas the `insert_pdf` graft hazard does not apply and everything survives: verified above on an
-RC4-encrypted file, with `permissions` and `metadata["encryption"]` intact. Combined with M116 it is
-an append: **+14.7 KB on a 2.7 MB document** rather than a rewrite.
+§Gotchas the `insert_pdf` graft hazard does not apply and everything survives: verified on an
+AES-256 owner-restricted file, with `permissions` (-3388) and `metadata["encryption"]` intact.
 
-One constraint found by hitting it: `set_toc` **rejects a TOC whose first item is not level 1**, and
-will not let levels skip (`ValueError: hierarchy level of item 0 must be 1`). Indent-derived levels
-do not satisfy that on their own — a contents page can open at the second indent — so entries need
-normalising (`level = min(level, previous + 1)`) before the write.
+**The sink for M138 and M140 alike**, which is why it comes before M140 despite M140 feeding it:
+building the sink first pins the contract, and M138 + M139 is already a working feature where
+M138 + M140 would be two sources with nothing able to write. M138's two dangling pointers now
+terminate here — `get_links`' description names `set_outline`, and
+`klarpdf://docs/get_links` §*Rebuilding a contents page from links* hands its four caller rules to
+it.
+
+##### Where it lives, and why it is not bridge-local
+
+The tool is thin, like every other transform: the capability is
+`VirtualDocument.set_outline_override`, and `remapped_toc()` returns the authored entries when one
+is set. That placement is the §*Two consumers share one core* rule taken seriously rather than a
+gesture at it — the validation that makes this tool safe is at the chokepoint both consumers reach,
+so a future GUI outline editor cannot be built with weaker rules than the bridge has, and the graft
+route and the pypdf fallback pick the authored outline up **without knowing it exists**, since they
+already read `remapped_toc()`.
+
+One consequence worth stating: `_edit_origin_copy` deliberately does **not** call `set_toc`, on the
+grounds that doing so would flatten named destinations and rewrite a rich outline through
+`set_toc`'s simple triples — *"losing fidelity to fix nothing"*. An authored outline is the exception
+for exactly that reason. The objection is to destroying fidelity nobody asked to lose; when the
+request *is* a new table of contents, losing the old one is the point, and refusing would leave the
+route that preserves the most as the only one unable to do this at all.
+
+##### What building it added, all measured
+
+**A page the document does not have is not refused by `set_toc` — it is silently moved.** Measured
+on 1.27.2.3 against a 6-page document: `page=99` writes a bookmark to page 6, `page=0` writes one to
+page 1, and `page=-1` writes `{'kind': 0}` — a bookmark that appears in the outline and navigates
+nowhere, which is M138.4's defect arriving by a different door. All three report success. This is
+the `fill_form` unknown-field argument (*"a typo that writes nothing and reports success is the
+worst outcome here"*) applied to the one argument that carries the meaning, so the page range is
+checked in `set_outline_override` and nothing is written when it fails.
+
+**Levels are repaired, not refused, and the repair is reported.** `set_toc` rejects a first item
+that is not level 1 (`ValueError: hierarchy level of item 0 must be 1`) and any skipped level
+(`bad hierarchy level in row 1`), which indent-derived levels do not satisfy — a contents page can
+open at the second indent. The normaliser is **`toc_remap.repair_levels`**, already written for the
+remap, rather than the `level = min(level, previous + 1)` this milestone was planned around: it
+keeps a stack, so relative nesting survives and an entry whose parent level never appeared is
+promoted to where it belongs. Measured difference on `[2, 4, 2]` → `[1, 2, 1]`. Silence would hide a
+genuine mistake, so the reply carries `levels_normalised` naming every entry whose level moved.
+
+**The append/rewrite fork, and why it is a fork.** The plan said "with M116 it appends rather than
+rewrites". That is true of the headline case and false of the other one, and the difference is the
+same argument `edits_are_additive` already makes about a removed mark:
+
+* **No outline of its own → append.** Nothing is taken away. Measured: +772 B on a 40-page file with
+  the first 16,925 bytes identical, encryption and permissions intact.
+* **An outline already there → full rewrite.** Replacing is a removal wearing a write, and an append
+  cannot remove: the entries being replaced stay in the revision underneath. Measured, the old
+  bookmark titles are **still readable in the output's bytes** after an incremental replace. So
+  `edits_are_additive` answers False when `_outline_override` meets a non-empty `_origin_toc`, and
+  the document is rewritten. Not a fallback — decided before the write, like every other clause
+  there.
+
+**Three deliberate non-features**, recorded so they are not re-derived. It **replaces** rather than
+merges (an outline is a single tree; the caller concatenates, which the shared shape makes one `+`).
+It does not **remove** an outline — `entries: []` is refused, because an agent that built entries
+from `get_links` and filtered them all away arrives with `[]`, and the destructive reading of an
+ambiguous argument is not the one to take. And it writes no **within-page destination points**,
+colours or open state; each entry lands at the top of its page, which is what a contents-page link
+resolves to for a reader anyway.
+
+The `subset()` view deliberately does not carry the override: it is pinned to *this* document's page
+numbers and an extract renumbers every one of them.
 
 #### M140 — heading candidates, the fallback
 

@@ -472,6 +472,106 @@ def flatten(
         return _result(target, vdoc, path, flattened=True)
 
 
+def set_outline(
+    path: str,
+    entries: list[dict],
+    out: str,
+    *,
+    password: str | None = None,
+    overwrite: bool = False,
+) -> dict:
+    """Write ``entries`` into a copy of ``path`` as its outline (bookmarks).
+
+    ``entries`` is ``[{level, title, page}]`` — the shape ``get_outline`` returns, so a document's
+    outline can be read, edited and written back without reshaping anything in between.
+
+    **The page set does not change**, so this is the preserving route: the structure tree, the
+    ``/Names`` tree, ``/Perms`` and encryption all come through, which is the property that makes
+    it usable on the documents that need it most. Restricted PDFs are the ordinary case for a
+    published manual, and the whole point of adding navigation to one is to hand back the same
+    document with bookmarks, not a permissive copy of it.
+
+    Whatever outline the document already had is **replaced**, not merged: an outline is a single
+    tree and there is no defensible way to interleave two. ``get_outline`` first if the existing
+    entries are wanted — the two shapes are the same, so keeping them is concatenation at the
+    caller.
+    """
+    target = _resolve_out(out, sources=[path], overwrite=overwrite)
+    if not isinstance(entries, list):
+        raise ValueError(
+            "entries must be a list of {level, title, page}, got "
+            f"{type(entries).__name__}"
+        )
+    if not entries:
+        # An agent that builds entries from `get_links` and filters them all away arrives here with
+        # `[]`, and the destructive reading of that is not the one it meant. `set_outline` is
+        # scoped to *writing* a table of contents (PLAN.md §M139); removing one is a different verb
+        # and is not offered, so there is no ambiguity to resolve in the caller's favour.
+        raise ValueError(
+            "entries is empty, so there is nothing to write. This tool writes an outline; it does "
+            "not remove one, and an empty list is far more often a filter that matched nothing "
+            "than a request to strip a document's navigation. Nothing was written."
+        )
+    prepared = _outline_entries(entries)
+    with open_document(path, password) as vdoc:
+        had = len(vdoc.remapped_toc())
+        authored = [[e["level"], e["title"], e["page"]] for e in prepared]
+        vdoc.set_outline_override(authored)
+        written = vdoc.remapped_toc()
+        _write(vdoc, target)
+        renumbered = [
+            {"index": i, "title": entry[1], "from": authored[i][0], "to": entry[0]}
+            for i, entry in enumerate(written)
+            if entry[0] != authored[i][0]
+        ]
+        extra: dict = {"entries": len(written), "replaced": had}
+        if renumbered:
+            extra["levels_normalised"] = renumbered
+            extra["warnings"] = [
+                f"{len(renumbered)} entry level(s) were normalised: a PDF outline must start at "
+                "level 1 and may not skip a level, so the nesting was repaired while keeping the "
+                "relative depth you asked for. `entries` in the reply is what was written."
+            ]
+        return _result(target, vdoc, path, **extra)
+
+
+def _outline_entries(entries: list) -> list[dict]:
+    """Validate the caller's ``entries`` into ``[{level, title, page}]`` dicts, or refuse.
+
+    Shape only — the *meaning* checks (a page the document does not have, a level below 1, a blank
+    title) belong to :meth:`~model.virtual_document.VirtualDocument.set_outline_override`, which is
+    the chokepoint both consumers reach and the only place that knows the page count. Splitting it
+    this way is what stops the GUI ever gaining an outline editor with weaker rules than the
+    bridge.
+
+    An unknown key is an error rather than an ignored extra, for the reason ``fill_form`` refuses
+    an unknown field name: an agent that writes ``{"level", "text", "page"}`` from memory would
+    otherwise get every title silently dropped and a success report counting the rows.
+    """
+    allowed = {"level", "title", "page"}
+    prepared: list[dict] = []
+    for position, entry in enumerate(entries):
+        if not isinstance(entry, dict):
+            raise ValueError(
+                f"entry {position} is {type(entry).__name__}, not an object — each entry is "
+                '{"level": 1, "title": "...", "page": 1}'
+            )
+        unknown = sorted(set(entry) - allowed)
+        if unknown:
+            raise ValueError(
+                f"entry {position} has unknown key(s) {unknown}; an entry is "
+                '{"level", "title", "page"} and nothing else. Nothing was written.'
+            )
+        missing = sorted(allowed - set(entry))
+        if missing:
+            raise ValueError(
+                f"entry {position} is missing {missing}; every entry needs level, title and page. "
+                "Nothing was written."
+            )
+        prepared.append({"level": entry["level"], "title": entry["title"], "page": entry["page"]})
+    return prepared
+
+
 def export_images(
     path: str,
     out_dir: str,

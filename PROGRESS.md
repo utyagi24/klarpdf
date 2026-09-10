@@ -577,7 +577,7 @@ items, which are independent of it.
   (**M128**); and row 10's own instructions not putting the lock in the bundle (**M129**). What
   remains is the tag, which is an owner action.
 
-## Roadmap — document structure for agents (planned; M138–M142)
+## Roadmap — document structure for agents (M138–M142; M138 + M139 shipped)
 
 Design in `PLAN.md` §M138–M140 — **not restated here**. Same conventions: **one PR per milestone**,
 tick the box here on merge. Scoped **2026-09-07** from a session comparing the bridge against a
@@ -756,21 +756,41 @@ is left over.
   resource is assembled from the live description at read time, so both strings come from the same
   process and a current docs page proves a current `list_tools()`. Confirmed directly against the
   server. The client is holding a stale tool list; details in `PLAN.md` §M138.5.
-- [ ] **M139** **`set_outline`** — write `[{level, title, page}]` into a copy as real bookmarks;
-  the same shape `get_outline` returns and `remapped_toc()` produces. **The sink for M138 and
-  M140 alike** — an agent supplies entries derived from links (M138, the primary and exact source),
-  from typography (M140, the fallback), or from its own reading of a short document, which is why
-  it is independently shippable and why it comes **before** M140 despite M140 feeding it: building
-  the sink first pins the contract, and M138 + M139 is already a working feature where M138 + M140
-  would be two sources with nothing able to write. A catalog-only change, so the
-  `insert_pdf` graft hazard does not apply and encryption survives (verified); with M116 it appends
-  rather than rewrites. Must normalise levels before writing — `set_toc` refuses a first item that
-  is not level 1 and refuses skipped levels.
+- [x] **M139** **`set_outline`** — 2026-09-10, the bridge's **21st tool**. Write
+  `[{level, title, page}]` into a copy as real bookmarks; the same shape `get_outline` returns and
+  `remapped_toc()` produces, so a document's outline round-trips and the two compose. **The sink
+  for M138 and M140 alike** — an agent supplies entries derived from links (M138, the primary and
+  exact source), from typography (M140, the fallback), or from its own reading of a short document.
+  A catalog-only change, so the `insert_pdf` graft hazard does not apply: verified on an AES-256
+  owner-restricted file, permissions (-3388) and encryption intact. **M138's two dangling pointers
+  now terminate here** — `get_links`' description names it, and `klarpdf://docs/get_links`
+  §*Rebuilding a contents page from links* hands its four caller rules to it. Design in `PLAN.md`
+  §M139 — *WSL*.
 
-  **Two pointers M138 left for it**, since a description may not name a tool that does not exist:
-  `get_links`' own description explains the indent-as-level trick and stops short of saying what to
-  do with it, and `klarpdf://docs/get_links` §*Rebuilding a contents page from links* carries the
-  four caller rules with no sink to hand them to. Both should name `set_outline` in M139's PR.
+  **The capability is `VirtualDocument.set_outline_override`, not the tool.** `remapped_toc()`
+  returns the authored entries when one is set, so the graft route and the pypdf fallback pick it
+  up without knowing it exists, and the validation sits at the chokepoint **both** consumers reach
+  — a future GUI outline editor cannot be built with weaker rules than the bridge has.
+
+  **Three things building it added, all measured.** A **page the document does not have is not
+  refused by `set_toc`, it is silently moved**: on a 6-page document `page=99` writes a bookmark to
+  page 6, `page=0` to page 1, and `page=-1` one with **no destination at all** — M138.4's defect
+  arriving by a different door — and all three report success, so the range is checked before
+  anything is written. **Levels are repaired rather than refused**, through `repair_levels` (already
+  written for the remap) rather than the planned `min(level, previous + 1)`: it keeps a stack, so
+  `[2, 4, 2]` → `[1, 2, 1]` preserves nesting instead of flattening it, and `levels_normalised` in
+  the reply names every entry that moved, because silence would hide a genuine mistake. And the
+  plan's *"with M116 it appends rather than rewrites"* turned out to be **a fork, not a fact**: a
+  document with no outline appends (**+772 B on a 40-page file, the first 16,925 bytes identical**),
+  while *replacing* one is a removal wearing a write — measured, the old bookmark titles are still
+  readable in the output's bytes after an incremental replace — so that case takes the full rewrite,
+  by the same rule `edits_are_additive` already applies to a removed mark.
+
+  **Three deliberate non-features**, recorded so they are not re-derived: it replaces rather than
+  merges (the caller concatenates — one `+`, given the shared shape); it does **not remove** an
+  outline, since `entries: []` is far more often a filter that matched nothing than a request to
+  strip a document's navigation; and it writes no within-page destination points, colours or open
+  state.
 - [ ] **M141** **`get_tables`** — rows an agent can read, at **zero new dependencies**. Strategy is
   chosen per page (ruling present → `lines_strict`, else `text`) and **deliberately not reported**;
   precision comes from a **shape filter** (reject 1×N, newline-stuffed cells, empty header).
@@ -4447,6 +4467,17 @@ the PR that fixes it. See `CLAUDE.md` §How we work for the split and why. Items
 were not migrated wholesale: each is listed because a decision is outstanding, which is what keeps
 it on this side of the line.
 
+- **An authored outline is pinned to the page numbers it was written against** (M139, 2026-09-10).
+  `VirtualDocument._outline_override` holds `[level, title, page]` in *output* page numbers and is
+  validated against the page count as it stands when it is set. Nothing re-points it afterwards the
+  way `remap_toc` re-points a document's own outline, so a page moved or deleted between authoring
+  and saving would leave the entries aimed at the old positions. **Not reachable today and not a
+  defect**: the only writer is the bridge's `set_outline`, which authors and materialises in one
+  call with no page edit in between, which is also why the override is left out of `subset()` and of
+  the undo snapshot. The decision is owed by whoever builds the **GUI** outline editor this
+  capability was deliberately placed in the core to enable — re-point the override on every page
+  edit (a second `remap_toc` caller), or drop it and make the user re-author. Worth settling before
+  that editor exists rather than during it.
 - ~~**A `get_tables` tool on `find_tables()` plus a shape filter**~~ — **graduated 2026-09-09 into
   M141** (see the roadmap above; design in `PLAN.md` §M141). All three open questions were decided
   by the owner: the strategy is chosen per page and **not** reported (*"I see no value in disclosing

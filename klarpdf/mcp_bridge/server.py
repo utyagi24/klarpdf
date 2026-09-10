@@ -64,8 +64,9 @@ writes a new file, and refuses if `out` is the input or an existing file (pass `
 replacing one is intended).
 
 What survives a write depends on whether the **page set** changed. A tool that leaves every page in
-place — `fill_form`, `flatten`, the redactions — edits a copy of the original, so everything the
-document holds comes through, including its accessibility structure tree and its encryption. A tool
+place — `fill_form`, `flatten`, `set_outline`, the redactions — edits a copy of the original, so
+everything the document holds comes through, including its accessibility structure tree and its
+encryption. A tool
 that moves pages — `reorder`, `delete_pages`, `extract_pages`, `split`, `merge` — builds a new
 document: the text layer, annotations and form fields come with the pages and the bookmarks and
 internal links are re-pointed, but the structure tree, `/Perms`, the `/Names` tree and encryption do
@@ -409,6 +410,8 @@ def create_server(config: Config | None = None) -> MCPServer:
         structure**, when `get_outline` returns nothing: a printed contents page is usually a stack
         of links, each already carrying its title (`text`), its target (`target_page`) and its level
         (the indent, `rect[0]`) — authored by the publisher, exact where a heading detector guesses.
+        Feed those entries to **`set_outline`**, which takes that shape and writes them into the
+        document as real bookmarks.
 
         It reads **link annotations**. A URL merely typeset on the page carries none and is not
         here, though most viewers auto-linkify it so it looks clickable — for a privacy sweep, pair
@@ -416,8 +419,7 @@ def create_server(config: Config | None = None) -> MCPServer:
         is the only tool that sees them.
 
         Nothing is deduplicated: an entry linked on both its photograph and its caption is two rows,
-        the photograph's with `text: null`. A `/Link` naming no destination is not a row —
-        `links_without_action` counts those. `rect` is unrotated with a top-left origin, at every
+        the photograph's with `text: null`. `rect` is unrotated with a top-left origin, at every
         page rotation, so it feeds `redact_regions` untouched.
 
         `kinds` filters before the caps (`["uri"]` for external, `["goto", "named"]` for every
@@ -794,6 +796,48 @@ def create_server(config: Config | None = None) -> MCPServer:
         """
         return transforms.fill_form(
             check(path), values, check(out), password=password, overwrite=overwrite
+        )
+
+    @server.tool()
+    @guarded
+    def set_outline(
+        path: str,
+        entries: list[dict],
+        out: str,
+        password: str | None = None,
+        overwrite: bool = False,
+    ) -> dict:
+        """Give a document bookmarks: write `entries` as its outline, into a new file.
+
+        `entries` is `[{level, title, page}]` — the exact shape `get_outline` returns, so an
+        outline can be read, edited and written back unchanged in between. `level` is 1 for a
+        top-level heading, 2 for a subsection; `page` is 1-based.
+
+        **Most documents that need this have no outline at all, and the structure is already in
+        them.** A printed contents page is usually built from real link annotations, so
+        `get_links` on those pages gives you title, target page and — from the `rect` x0 — the
+        indent that implies the level. That is the primary source and it is exact; read
+        `klarpdf://docs/get_links` for the four rules that turn those links into entries (dedupe
+        by target, drop empty anchors, filter the back-to-contents furniture, and fall back to a
+        flat level 1 when the indents are layout noise rather than hierarchy). Failing that, an
+        agent's own reading of a short document is a perfectly good source.
+
+        **A page the document does not have is an error, and nothing is written.** The PDF layer
+        does not refuse one — it silently moves the bookmark to the nearest real page, or writes
+        one that navigates nowhere — so a miscounted page would otherwise come back as success
+        with a plausible-looking outline. Levels are the opposite: an outline must start at level
+        1 and may not skip a level, so levels are **repaired** rather than refused, and the reply
+        says what changed under `levels_normalised`.
+
+        Whatever outline the document had is replaced, not merged. Call `get_outline` first and
+        concatenate if you mean to keep it — the shapes are identical.
+
+        The page set does not change, so the copy keeps everything: tags, encryption and
+        permissions, links. On a document with no outline the write is an **append** — the
+        original bytes are left untouched and a couple of kilobytes go on the end.
+        """
+        return transforms.set_outline(
+            check(path), entries, check(out), password=password, overwrite=overwrite
         )
 
     @server.tool()

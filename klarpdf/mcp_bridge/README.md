@@ -265,7 +265,7 @@ you are configured. (It is offered rather than switched on silently, which is wh
 safe.) That file calls the bare `klarpdf-mcp`, so activate the virtualenv before you start Claude
 Code: `source .venv/bin/activate`.
 
-Confirm with `/mcp`: it should say **klarpdf — 20 tools**. If it says *failed*, run the command by
+Confirm with `/mcp`: it should say **klarpdf — 21 tools**. If it says *failed*, run the command by
 hand in the same shell you launch Claude from; the error is almost always `command not found`
 (nothing installed, or a different virtualenv active) or `No module named mcp` (installed the
 package but not its dependencies).
@@ -440,6 +440,7 @@ error, never a silent clamp. Every tool takes an optional `password` — see
 | `delete_pages` · `reorder` · `rotate` | Page-set edits; bookmarks follow their pages. |
 | `split` · `merge` | Cut into several files by print-dialog ranges (`"1-3"`, `"5-"`) / concatenate; merge renames colliding fields. |
 | `fill_form` · `flatten` | Fill (still editable; checkboxes take `true` or their own export state, anything else is an error) / bake in (no longer editable). `fill_form` warns on an XFA form and on read-only fields. |
+| `set_outline` | Give a document bookmarks: write `[{level, title, page}]` as its outline. The shape `get_outline` returns, so an outline round-trips; a page the document does not have is an error, levels are repaired. |
 | `export_images` | Rasterise pages — or one `clip` region of each — to png/jpg files. |
 | `annotate` | Write highlights / underlines / strike-throughs, each able to carry a note. Takes boxes, not queries; merges with markup already there rather than stacking. |
 
@@ -462,8 +463,8 @@ error, never a silent clamp. Every tool takes an optional `password` — see
   `extract_pages`, `split`, `merge`) builds a new document, and the accessibility structure tree,
   `/Perms`, the `/Names` tree and encryption do not survive that — they are document-level, and
   copying pages does not copy them. A tool that leaves every page in place (`fill_form`, `flatten`,
-  the redactions) edits a copy of the original instead and keeps all of it. See PLAN.md §Key design
-  idea for the table.
+  `set_outline`, the redactions) edits a copy of the original instead and keeps all of it. See
+  PLAN.md §Key design idea for the table.
 - **A mistake is an error, not a quiet partial success.** An unknown form-field name, a `reorder`
   that is not a full permutation, a `delete_pages` that would empty the document, a `redact_text`
   that matches nothing — all fail loudly rather than writing something plausible.

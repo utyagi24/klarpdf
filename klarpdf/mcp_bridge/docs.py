@@ -441,6 +441,13 @@ learned from real documents:
 Watch also for a link that appears on many pages pointing *backwards* to one of them: that is a
 running footer, not a contents entry.
 
+What to do with the entries once you have them: **`set_outline`** takes exactly this shape —
+`[{level, title, page}]`, where `page` is the link's `target_page` — and writes it into a copy of
+the document as real bookmarks. Every viewer then has the contents page in its sidebar, and the
+navigation stops depending on a reader finding page 3. `set_outline` refuses a page the document
+does not have, so a rule you applied wrongly surfaces as an error rather than as a bookmark quietly
+pointing at the nearest real page.
+
 ## What this does not see: URLs that are only printed
 
 A link is an **annotation** — an object in the file with a rectangle and an action. A document can
@@ -467,6 +474,70 @@ bound a reply: an entry runs 127-647 characters depending on its anchor text and
 measured out at 79,518 characters. Whole links are dropped, never trimmed. When `more_available` is
 `true`, call again with `offset = offset + count` until it is `false` — or narrow first, which is
 cheaper: `kinds: ["uri"]` on a prospectus cut 502 links to 37.
+""",
+    "set_outline": """\
+## The entry shape, and why it is the one `get_outline` returns
+
+An entry is `{"level": 1, "title": "Introduction", "page": 12}` and nothing else — an unknown key
+is an error, not an ignored extra, because an agent writing `text` instead of `title` from memory
+would otherwise get an outline of empty rows and a success report counting them.
+
+`level` is 1 for a top-level heading and 2 for a subsection under the entry above it. `page` is
+1-based, and it is the page the bookmark *lands on*, not the page the heading is printed on if
+those differ. Order matters: the outline is read top to bottom, and an entry's parent is the
+nearest preceding entry with a lower level.
+
+Because the shape is `get_outline`'s, a document's own outline round-trips through this tool
+unchanged, and the two compose: read, splice, write.
+
+## Pages are checked; levels are repaired
+
+The two arguments are treated differently on purpose, and the difference is about what can be
+recovered from a mistake.
+
+**A page outside the document is an error and nothing is written.** The PDF layer will not refuse
+one: measured against a 6-page document, `page: 99` writes a bookmark to page 6, `page: 0` writes
+one to page 1, and `page: -1` writes a bookmark with no destination at all — one that appears in
+the sidebar and navigates nowhere. All three report success. There is no way to tell afterwards
+that a number was wrong, so it is checked before anything is written.
+
+**A level sequence that a PDF cannot express is repaired.** An outline must begin at level 1 and
+may not skip a level, which a contents page derived from indents does not satisfy on its own — one
+that opens at the second indent is ordinary. So levels are normalised, relative nesting is kept,
+and the reply carries `levels_normalised` listing every entry whose level moved, plus a `warnings`
+line. Read it: it is also how a genuine mistake shows up, since a level that jumps from 1 to 4 is
+repaired to 2 and named.
+
+## What the write costs, and what it keeps
+
+The page set does not change, so this is the preserving route — the accessibility structure tree,
+`/Perms`, the `/Names` tree, encryption and permissions all come through. A restricted published
+manual comes back restricted, which is the point: the reason to add navigation to one is to hand
+back the same document with bookmarks.
+
+On a document with **no outline**, the write is an incremental append: the original bytes are left
+exactly where they are and the new objects go on the end. Measured, +772 bytes on a 40-page file
+with the first 16,925 byte-identical.
+
+On a document that **already has** an outline, the file is rewritten instead. That is deliberate.
+An append cannot take anything away — the entries being replaced would survive in the revision
+underneath, and measured, the old bookmark titles are still readable in the output's bytes. If the
+titles you are replacing are the sensitive part, this is the case to know about, and the rewrite is
+what makes replacing them mean it.
+
+## What it does not do
+
+It **replaces**; it does not merge. An outline is a single tree and interleaving two of them has no
+right answer. Call `get_outline` first and concatenate the lists yourself — the shapes are the
+same, so that is one `+`.
+
+It does not **remove** an outline: `entries: []` is refused. An empty list is far more often a
+filter that matched nothing than a request to strip a document's navigation, and the destructive
+reading of an ambiguous argument is not the one to take.
+
+It does not write **destination points within a page** (a bookmark to a heading halfway down),
+colours, or open/collapsed state. Each entry lands at the top of its page, which is what a
+contents-page link resolves to for a reader anyway.
 """,
     "search": """\
 ## Feeding hits straight to `redact_regions`
