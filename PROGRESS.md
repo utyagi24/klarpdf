@@ -729,6 +729,33 @@ is left over.
   the third time in this group that a convenience API could not produce the shape real documents
   have. Thirteen new tests, asserting **targets** rather than counts, each confirmed by reverting
   the fix. TC-020 and TC-021 closed the remaining items and are recorded in `PLAN.md` §M138.4.
+- [x] **M138.5** *(unplanned)* **A merge keeps every document's outline, not the first one's** —
+  2026-09-10, from **TC-023**, which confirmed M138.4 (39 entries through a merge, `extract_pages`
+  shifting all 37 survivors correctly) and then found a HIGH four rounds of testing could not see.
+  `merge` returned the **first** document's outline and discarded every later one: merging a
+  175-page annual report carrying **223 bookmarks nested eight levels deep** lost all 223, while the
+  same call re-pointed all 281 of its links perfectly. Proven a rule, not an observation, by three
+  merges — reverse order ruled out "the second had none anyway", NVIDIA ruled out "mis-shifted
+  rather than absent". Design in `PLAN.md` §M138.5 — *WSL*
+  ([#345](https://github.com/utyagi24/klarpdf/pull/345)).
+
+  **The cause was a documented assumption that had expired.** `build_index_map` said *"Only pages
+  from the origin source appear (others carry no outline)"* — true when written for M33, where the
+  only second source was the app splicing in a page or two, and false the moment `merge` made
+  documents 2..n first-class. Nobody re-read it when the surrounding facts changed, which is exactly
+  what a comment stating an assumption exists to prevent. `remapped_toc` now walks **every**
+  contributing source, remaps each through its **own** index map (so per-source offsets need no
+  arithmetic in the caller) and concatenates in output order. Verified on the real pair: **39 + 223
+  = 262 entries, 8 levels preserved, NVIDIA's shifted exactly +128, Cisco's unmoved, none dangling.**
+  Deliberately **not** nested under a synthetic per-document parent — that would invent a bookmark
+  in neither input. **It improves the app too**: dragging a PDF in from Explorer now brings its
+  bookmarks with its pages. Three-way merges, TC-023's own stated gap, are now measured. Eight new
+  tests, each confirmed by reverting the fix.
+
+  **TC-021's and TC-023's served-description observation is settled and is not ours** — the docs
+  resource is assembled from the live description at read time, so both strings come from the same
+  process and a current docs page proves a current `list_tools()`. Confirmed directly against the
+  server. The client is holding a stale tool list; details in `PLAN.md` §M138.5.
 - [ ] **M139** **`set_outline`** — write `[{level, title, page}]` into a copy as real bookmarks;
   the same shape `get_outline` returns and `remapped_toc()` produces. **The sink for M138 and
   M140 alike** — an agent supplies entries derived from links (M138, the primary and exact source),

@@ -6702,6 +6702,80 @@ is for, not what it is made of.* An outline is for navigating; its length is not
 asserting, and every test that had asserted length passed throughout. The new tests assert
 **targets**.
 
+#### M138.5 — a merge keeps every document's outline, not the first one's *(2026-09-10, unplanned)*
+
+**TC-023** confirmed M138.4 — Cisco's outline comes through a merge complete at 39 entries with its
+nesting, and `extract_pages` shifts all 37 survivors by −4 and drops only the two whose target left
+the document. It then found a HIGH that four rounds of testing had been structurally unable to see.
+
+**`merge` returned the *first* document's outline and discarded every later one.** Measured three
+ways, which is what makes it a rule rather than an observation:
+
+| merge | first outline | second outline | result |
+|---|---|---|---|
+| Cisco + brochure | 39 | 0 | 39 ✅ |
+| brochure + Cisco | 0 | 39 | **0** |
+| Cisco + NVIDIA | 39 | **223** | **39** |
+
+The reverse-order row rules out *"the brochure had none anyway"*; the NVIDIA row rules out
+*mis-shifted rather than absent*. Merging a 175-page annual report carrying **223 bookmarks nested
+eight levels deep** lost all 223 — while the same call re-pointed all **281** of its links perfectly.
+
+**The cause was a documented assumption that had quietly expired.** `build_index_map` said so in as
+many words: *"Only pages from the origin source appear (others carry no outline)."* That was true
+when it was written for M33 — the only way a second source entered a document was the app splicing
+a page or two in from Explorer, and a spliced page's bookmarks were not the point. `merge` made
+documents 2..n first-class and nothing revisited the sentence. **This is the failure mode a comment
+that states an assumption is *supposed* to prevent, and it did not, because nobody re-read it when
+the surrounding facts changed.**
+
+The fix generalises the remap rather than special-casing `merge`: `remapped_toc` now walks **every
+source contributing a page**, remaps each through its **own** index map — so the per-source offsets
+fall out with no arithmetic in the caller — and concatenates in the order the sources appear in the
+output, which is the order a reader meets them. Each source's levels are repaired independently, so
+two trees that each start at level 1 concatenate into something `set_toc` accepts. Verified on the
+real pair: **39 + 223 = 262 entries, eight levels preserved, NVIDIA's shifted exactly +128, Cisco's
+unmoved, none dangling.**
+
+**Deliberately not** nested under a synthetic per-document parent. NVIDIA's own report does exactly
+that — its bookmark titles include `NVDA 2026 Definitive Proxy Statement (Color PDF).pdf`, so
+whoever assembled it kept each component's bookmarks under a filename heading — but inventing a
+bookmark that is in neither input is a product decision, not a repair, and a caller who wants one
+can add it.
+
+**It changes the app too, and for the better**: dragging a PDF in from Explorer now brings its
+bookmarks with its pages, remapped, where before they were dropped. That is the two-consumers rule
+paying out in the good direction for once.
+
+**Three-way merges were TC-023's own stated gap** — *"whether documents 3..n behave like document 2
+is inferred, not measured"* — and are now measured by a test.
+
+**The standing lesson is about the comment, not the code.** `build_index_map`'s docstring was
+accurate, load-bearing, and wrong by the time it mattered, because it recorded a fact about the
+*callers* rather than about itself. An assumption written down where it cannot be checked ages
+silently; the test that now pins multi-source outlines is where that sentence should have been.
+
+#### On TC-021's and TC-023's served-description observation — settled, not ours
+
+Both rounds recorded that the `get_links` description served to the session was its TC-017-era
+text while `klarpdf://docs/get_links` had tracked every fix, and TC-023 — after reconnecting the
+server — concluded the likelier reading was that *"the registered tool description genuinely differs
+from the copy embedded in the docs page"*.
+
+It does not, and the reason is structural rather than a matter of checking: the docs resource is
+**assembled from the live description at read time** (`_documentation` concatenates
+`registered.description` with the appendix), and `tests/test_mcp_docs.py` asserts the resource
+contains it verbatim. **Both strings come out of the same server process in the same session** — so
+a docs page carrying the new text is itself proof that that process's `list_tools()` returns the new
+text. Confirmed directly: the server registers the 1,803-character current description, carrying the
+printed-URL scoping, the coordinate note and the `Two questions` opening, with the old
+`or dropped` wording absent.
+
+The staleness is therefore downstream of the server, in the client's cached `tools/list`. Worth
+recording because it is the second time a testing round has spent effort on it, and because the
+diagnostic is cheap and general: **if the docs page and the served description disagree, the client
+is holding an old tool list — the server cannot produce that pair.**
+
 #### M139 — `set_outline`
 
 Write a table of contents into a copy of the document. The entry shape is `[{level, title, page}]`,
