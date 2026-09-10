@@ -54,7 +54,8 @@ KlarPDF exposes a local, offline PDF engine: reading, page transforms, and verif
 Nothing here touches the network.
 
 Route with the cheap tools first. `get_info` tells you the page count, whether the file has a text
-layer at all, and whether it is encrypted; `get_outline` and `search` locate the part you want.
+layer at all, and whether it is encrypted; `get_outline`, `get_links` and `search` locate the part
+you want.
 Reach for `extract_text` on specific pages once you know which, and `render_page` only when the
 text layer cannot answer the question (scans, figures, layout, signatures).
 
@@ -388,6 +389,50 @@ def create_server(config: Config | None = None) -> MCPServer:
         """
         entries = queries.outline(check(path), password)
         return {"count": len(entries), "entries": entries}
+
+    @server.tool()
+    @guarded
+    def get_links(
+        path: str,
+        pages: list[int] | None = None,
+        kinds: list[str] | None = None,
+        password: str | None = None,
+        offset: int = 0,
+    ) -> dict:
+        """Every link a PDF carries, as `links`: the `page` it sits on, its `rect`, its `kind`, the
+        `text` under it, and where it points — `target_page` for an internal jump, `uri` for a web
+        address, `file` for another document. Plus `kinds`, a count per kind over the whole scope.
+
+        Two different questions, both unanswerable any other way. **Where does this document point
+        outwards** — its web addresses, `tel:` numbers and mail addresses, each with the words it is
+        anchored on, which is a privacy question as much as a navigation one. And **what is its
+        structure**, when `get_outline` returns nothing: a printed contents page is usually a stack
+        of links, and each one already carries its title (the `text`), its target (`target_page`)
+        and its level (the indent, `rect[0]`) — authored by the publisher, not inferred from
+        typography, and exact where a heading detector would be guessing.
+
+        Links are *not* annotations, whatever the PDF spec says: `get_annotations` returns none of
+        these, so this is the only tool that sees them.
+
+        Nothing is deduplicated or dropped. A contents entry linked twice — on its photograph and
+        on its caption — is two rows, and the photograph's has `text: null` because its rectangle
+        covers no words. Both are true about the file; deciding which is a contents entry is yours.
+
+        `kinds` filters before the caps (`["uri"]` for the external ones, `["goto", "named"]` for
+        internal jumps), `pages` narrows to a range. The reply **paginates**: when `more_available`
+        is true, call again with `offset` set to this reply's `offset + count`. Never report "these
+        are all the links" from a reply that says there are more. Field contract in
+        `klarpdf://docs/get_links`.
+        """
+        return queries.links(
+            check(path),
+            pages,
+            kinds=kinds,
+            password=password,
+            max_links=limits.max_links,
+            max_chars=limits.max_link_chars,
+            offset=offset,
+        )
 
     @server.tool()
     @guarded

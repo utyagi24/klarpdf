@@ -18,7 +18,9 @@ Two conventions hold across every function and are part of the tool contract:
 
 from __future__ import annotations
 
+import json
 import os
+from collections import Counter
 from contextlib import contextmanager
 
 import pymupdf as fitz
@@ -203,6 +205,182 @@ def outline(path: str, password: str | None = None) -> list[dict]:
             {"level": entry[0], "title": entry[1], "page": entry[2]}
             for entry in vdoc.remapped_toc()
         ]
+
+
+# ---- query: links (M138) -----------------------------------------------------
+#
+# How many links one `get_links` reply may carry, and how many characters of JSON, on the two-cap
+# pattern `get_annotations` arrived at the hard way (M113.2). Kept here rather than taken from
+# `config.py` for the reason that module's own docstring gives: this layer is a library that does
+# not know it is being served, and `server.py` passes the server's numbers in.
+#
+# The count is sized against real navigation sets — 621 links on a 146-page manual, 502 on a
+# 320-page prospectus — and the character cap exists because the count alone does not bound a
+# reply: an entry runs 127-647 characters, and those 502 links serialise to 79,518.
+MAX_LINKS = 500
+MAX_LINK_CHARS = 60_000
+
+# PyMuPDF's own kind constants, named. An integer is not an answer an agent can branch on, and the
+# names are the vocabulary the PDF spec uses for the action types, so a caller who knows PDFs and a
+# caller who does not both read the same word.
+_LINK_KINDS = {
+    fitz.LINK_NONE: "none",
+    fitz.LINK_GOTO: "goto",
+    fitz.LINK_URI: "uri",
+    fitz.LINK_LAUNCH: "launch",
+    fitz.LINK_NAMED: "named",
+    fitz.LINK_GOTOR: "gotor",
+}
+
+# The kinds whose `page` names a page in **this** document. `LINK_GOTOR` also carries a `page`, and
+# it is a page in the *other* file — reporting it as `target_page` would tell a caller a link jumps
+# to their page 4 when it opens someone else's. This is the same restriction
+# `model/links_remap.py:internal_link_target` makes for the same reason, and it is measured: a
+# `LINK_LAUNCH` written with no page at all reads back as `{"kind": 5, "page": 0, ...}`.
+_INTERNAL_KINDS = (fitz.LINK_GOTO, fitz.LINK_NAMED)
+
+# The kinds that name a file rather than a page — `file` is where they point, and is as much part
+# of "where does this document send me" as a URI is.
+_FILE_KINDS = (fitz.LINK_LAUNCH, fitz.LINK_GOTOR)
+
+
+def _kind_name(link: dict) -> str:
+    """``link``'s action type as a name. A kind PyMuPDF grows later reports as its own integer, in
+    string form — honest about being unrecognised, where falling back to ``"none"`` would claim the
+    link goes nowhere."""
+    kind = link.get("kind", fitz.LINK_NONE)
+    return _LINK_KINDS.get(kind, str(kind))
+
+
+def _describe_link(link: dict, page_number: int, text: PageText) -> dict:
+    """One ``get_links()`` entry as the tool reports it, with its anchor text read off the page."""
+    rect = link["from"]
+    box = (rect.x0, rect.y0, rect.x1, rect.y1)
+    kind = link.get("kind", fitz.LINK_NONE)
+    target = link.get("page", -1)
+    anchor = text.word_text_under(box)
+    return {
+        "page": page_number,
+        "rect": [round(v, 2) for v in box],
+        "kind": _kind_name(link),
+        # 1-based like every other page number here; `get_links` reports the target 0-based, and an
+        # unresolved named destination comes back as -1.
+        "target_page": target + 1 if kind in _INTERNAL_KINDS and target >= 0 else None,
+        "uri": link.get("uri") if kind == fitz.LINK_URI else None,
+        "file": link.get("file") if kind in _FILE_KINDS else None,
+        "text": anchor or None,
+    }
+
+
+def _resolve_kinds(kinds: list[str] | None) -> set[str] | None:
+    """A caller's ``kinds`` filter as a set of kind names, or ``None`` for no filter.
+
+    An unknown name is an error naming the ones that exist, not a silent empty result — the same
+    rule M106 settled for annotation colours. A caller who asked for ``"external"`` and got
+    ``count: 0`` has been told this document has no external links, which may be false.
+    """
+    if kinds is None:
+        return None
+    known = set(_LINK_KINDS.values())
+    unknown = [k for k in kinds if k not in known]
+    if unknown:
+        raise ValueError(
+            f"unknown link kind(s) {', '.join(repr(k) for k in unknown)}; this document format "
+            f"has {', '.join(sorted(known))}"
+        )
+    return set(kinds)
+
+
+def links(
+    path: str,
+    pages: list[int] | None = None,
+    *,
+    kinds: list[str] | None = None,
+    password: str | None = None,
+    max_links: int = MAX_LINKS,
+    max_chars: int = MAX_LINK_CHARS,
+    offset: int = 0,
+) -> dict:
+    """Every link annotation on ``pages`` (default: all), in document order.
+
+    The navigation structure a PDF already carries and nothing here could read. It is exact rather
+    than inferred: for a large class of documents the printed contents page *is* a stack of link
+    annotations, each one carrying its target page, its title as the words under its rectangle, and
+    its level as the indent of that rectangle — authored by the publisher, not guessed from
+    typography (PLAN.md §M138-M140). It is also the only way to ask where a document points
+    outwards, which is a privacy question as much as a navigation one.
+
+    **Links are not annotations here**, however the spec files them. PyMuPDF excludes them from
+    ``Page.annots()`` entirely — 0 returned across a 146-page document carrying 621 links, even
+    asking for ``PDF_ANNOT_LINK`` explicitly — so this is a second traversal, not a filter over
+    ``get_annotations``.
+
+    **Nothing is deduplicated or filtered out.** A magazine links each contents entry twice, once
+    on its photograph and once on its caption, and the photograph's rectangle covers no text, so
+    that entry arrives as two rows, one of them with ``text: null``. Both are true statements about
+    the file; which of them is a contents entry is a judgement, and a judgement made here would be
+    invisible and unappealable (the rule M140 states as *tag, do not filter*).
+
+    **Paginated on the same two bounds as ``get_annotations``, and for the same measured reason.**
+    A count cap alone does not bound a reply: 502 links on a 320-page prospectus serialise to
+    79,518 characters. Whichever cap is reached first, whole links are dropped rather than trimmed
+    and ``more_available`` is set. ``kinds`` narrows *before* the caps, so filtering to ``uri``
+    reduces the total honestly rather than hiding part of it behind a page boundary.
+    """
+    if offset < 0:
+        raise ValueError(f"offset must be >= 0; got {offset}")
+    wanted = _resolve_kinds(kinds)
+    with open_document(path, password) as vdoc:
+        indices = resolve_pages(vdoc, pages)
+        all_found: list[dict] = []
+        by_kind: Counter[str] = Counter()
+        for index0 in indices:
+            page = _page_of(vdoc, index0)
+            # The word index is the cost of this loop, so it is built only once a link on this
+            # page has survived `kinds` — which is what makes a filtered call cheap as well as
+            # small: all 502 links of a 320-page prospectus take 0.99 s, its 37 `uri` ones 0.06 s.
+            text = None
+            for link in page.get_links():
+                kind = _kind_name(link)
+                by_kind[kind] += 1          # the census is of the document, not of the filter
+                if wanted is not None and kind not in wanted:
+                    continue
+                if text is None:
+                    text = PageText(page)
+                all_found.append(_describe_link(link, index0 + 1, text))
+        total = len(all_found)
+        found: list[dict] = []
+        used = 0
+        for entry in all_found[offset:]:
+            if len(found) >= max_links:
+                break
+            size = len(json.dumps(entry))
+            # Always take at least one: an empty batch with `more_available: true` pages forever.
+            if found and used + size > max_chars:
+                break
+            found.append(entry)
+            used += size
+        more_available = offset + len(found) < total
+        result = {
+            "count": len(found),
+            "total_links": total,
+            "offset": offset,
+            "links": found,
+            # Over the whole scanned range and before `kinds`, so a caller who filtered to `uri`
+            # still learns the document holds 465 internal jumps — and one who filtered to nothing
+            # learns what a second, narrower call would cost.
+            "kinds": dict(sorted(by_kind.items())),
+            "pages_scanned": [i + 1 for i in indices],
+            "source": os.path.abspath(path),
+            "more_available": more_available,
+        }
+        if more_available:
+            result["warnings"] = [
+                f"{total} links in scope; returned {len(found)} starting at offset {offset}. "
+                f"Call again with offset: {offset + len(found)} for the rest, or narrow with "
+                "`kinds` / `pages`."
+            ]
+        return result
 
 
 def search(

@@ -109,7 +109,7 @@ Using Claude Desktop instead? It installs from a downloadable bundle rather than
 
 ## 4. Check it worked
 
-In Claude Code, `/mcp` should list **klarpdf — 19 tools**.
+In Claude Code, `/mcp` should list **klarpdf — 20 tools**.
 
 **Not listed at all?** That is a scope question, not a broken server: you are in a directory the
 entry does not cover. `claude mcp list` shows what *this* directory sees, and `claude mcp get

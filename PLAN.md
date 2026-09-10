@@ -6384,6 +6384,69 @@ destinations** — 591 of the 621 links here are `LINK_NAMED`, and `get_links()`
 `klarpdf/model/page_text.py` was built for. Word-centre containment against `get_text("words")`
 fixed it, and `PageText` is the right home.
 
+##### What building it added *(implemented 2026-09-09)*
+
+Three things the design did not have, each found by running the tool against real files rather than
+by re-reading the plan.
+
+**A `gotor` link carries a page number, and it is a page in somebody else's document.** The obvious
+`entry["page"] + 1` is wrong for it in a way that looks entirely right: the reply would say a link
+jumps to *your* page 4 when it opens `elsewhere.pdf` at its page 4. So `target_page` is populated
+for `goto` and `named` only — the same restriction `model/links_remap.py:internal_link_target`
+makes, and for the same reason, which is why an internal link survives a reorder and this one is
+left alone. The trap is easy to fall into because PyMuPDF *manufactures* it: a `LINK_LAUNCH` written
+with no page at all reads back as `{"kind": 5, "page": 0, …}`, so the field is present and plausible
+on a link that has no page in this file whatsoever. `file` is reported instead, for `gotor` and
+`launch` alike — "where does this document send me" is the tool's question and another document is
+an answer to it.
+
+**The `get_textbox` claim is now a number, and `struck` is not a substitute for it.** Over **710**
+link rectangles in three documents (`kasaragodhr.pdf`, `dhariwal_ipo.pdf`, `spaceX_prospectus.pdf`),
+`page.get_textbox(rect)` disagreed with word-centre containment on **96** — on a contents page whose
+rows abut, a clip returns the row above and the row below as well. The near-miss is the interesting
+one: `PageText.struck`, the lookup `search` already uses, disagreed on **3**, because it asks which
+words a box *touches*. That is right for a search hit, whose rectangle MuPDF fits to the glyphs, and
+wrong for an authored rectangle drawn a little wider than the words it labels — a link over
+`www.nseindia.com),` read back as `and www.nseindia.com),`. Hence a second lookup rather than a
+reuse: `PageText.words_under` / `word_text_under`, containment by word centre, sitting beside
+`struck` with each docstring naming the other. Both routes were confirmed by breaking the code and
+watching the tests fail.
+
+**The reply needed the two-cap pager, not a cap.** `get_annotations` learned at 139,288 characters
+that a count does not bound a size (M113.2); links are the same shape and the numbers were taken
+before it could bite — an entry runs **127–647** characters, and the 502 links on
+`spaceX_prospectus.pdf` serialise to **79,518**. So the same contract: `max_links` **and**
+`max_link_chars`, whole links dropped rather than trimmed, `offset` + `more_available` to page.
+
+**One addition beyond the scoped shape, and the measurement that argued for it.** The plan's own
+headline use case is *"where does this document point"* — 119 external links in the magazine, 21 of
+them `tel:` numbers. Without a filter that question costs the whole payload: `spaceX_prospectus.pdf`
+holds **502** links of which **37** are `uri`, so an agent asking for the external ones pays 13× and
+two round trips for them. `kinds` filters *before* the caps, so it narrows the total honestly rather
+than hiding part of the answer behind a page boundary, and an unknown kind name is an error naming
+the real ones rather than a `count: 0` that would be a false statement about the document (M106's
+rule). It filters before the *word index* too, which is where the cost is: `PageText` is built per
+page only once a link on it survives, so the same prospectus answers "the external links" in
+**0.06 s** against **0.99 s** for all of them. The per-kind census `kinds` is taken *before* the
+filter, so a call narrowed to `uri` still reports how many internal jumps the document holds.
+
+**What the tool deliberately does not do** is decide anything. A magazine links each contents entry
+twice, once on its photograph and once on its caption, and the photograph's rectangle covers no
+words — so that entry arrives as two rows, one with `text: null`. Deduping by target, dropping the
+empty anchors and filtering the running footers are the four rules the *caller* applies (they are
+listed above, and they are in `klarpdf://docs/get_links`); applied here they would be invisible and
+unappealable. This is M140's *tag, do not filter* arriving two milestones early, and for the same
+reason: a wrong tag can be overruled, a wrong exclusion cannot be seen.
+
+**One shared budget was spent, deliberately and by 13 characters.** The server's `instructions`
+block is the router an agent reads before choosing a tool, and it goes through the same 2,048-char
+truncation as a description (M105) — so naming `get_links` there is what makes the tool findable at
+all when `get_outline` comes back empty, and it costs from a pool no single tool owns. The
+`--read-only` build, which appends to the block and is therefore the longest configuration, moves
+from 1,853 to **1,866** characters against the enforced 1,900 budget. The fuller routing advice —
+*when the outline is empty, the links usually hold the contents page* — sits in the tool's own
+description instead, where it is billed to `get_links` alone.
+
 #### M139 — `set_outline`
 
 Write a table of contents into a copy of the document. The entry shape is `[{level, title, page}]`,

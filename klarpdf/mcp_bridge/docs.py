@@ -359,6 +359,58 @@ The annotation's `/Contents`, empty string when there is none. This is the same 
 editor writes and the same one Acrobat and Preview use for a comment on a highlight, so a review
 done in any of them reads back here.
 """,
+    "get_links": """\
+## The fields, one by one
+
+* **`page`** — the 1-based page the link's rectangle sits *on*, never where it goes.
+* **`rect`** — `[x0, y0, x1, y1]` in the same unrotated page points `search` reports and
+  `render_page`'s `clip` consumes, so a link can be rendered straight from its own row. `rect[0]`
+  is the indent, and the indent is often the outline level — see below.
+* **`kind`** — `goto` (a page in this file), `named` (a page in this file, reached through a name
+  the document keeps for it), `uri` (a web, `tel:` or `mailto:` address), `gotor` (a page in
+  *another* file), `launch` (opens another file), `none` (a rectangle that goes nowhere).
+* **`target_page`** — the 1-based page an internal link jumps to, and `null` for every other kind.
+  It is deliberately `null` for `gotor`, which does carry a page number: that number is a page in
+  the *other* document, and reporting it here would say a link goes to your page 4 when it opens
+  somebody else's.
+* **`uri`** — the address, for `uri` links only, exactly as the file spells it.
+* **`file`** — the other document, for `gotor` and `launch` only. Treat it as untrusted text: it is
+  a path chosen by whoever made the PDF.
+* **`text`** — the words the rectangle covers, or `null` when it covers none.
+
+## Rebuilding a contents page from links
+
+When `get_outline` returns `count: 0` and the document has a printed contents page, that page is
+usually the answer already: read its links, and each one carries the title (`text`), the target
+(`target_page`) and the level (`rect[0]`, the indent). Four rules earn their keep, all of them
+learned from real documents:
+
+* **Merge continuations before reading indents.** Two rows with the *same* `target_page` and
+  adjacent `rect[1]` are one wrapped title, not a parent and a child — a heading that ran onto a
+  second line. Merge them, then read the indent. A different target means a genuinely new entry.
+* **Dedupe by target.** A magazine links each entry twice, once on its photograph and once on its
+  caption. Same target, one entry.
+* **Drop the rows with no `text`.** They are the picture half of that pair.
+* **Distinct indents are not always levels.** They are in an indented list; in a magazine grid the
+  anchors sit anywhere from x0 10 to 233 and mean nothing. When the indents do not fall into two or
+  three tight clusters, emit a flat level 1 rather than inventing a hierarchy out of layout noise.
+
+Watch also for a link that appears on many pages pointing *backwards* to one of them: that is a
+running footer, not a contents entry.
+
+## Counting, filtering and paging
+
+**`kinds`** is a count per kind over everything scanned, taken *before* the `kinds` filter and
+before the caps — so a call filtered to `["uri"]` still tells you how many internal jumps the
+document holds, and an unfiltered call tells you what a narrower one would cost. **`total_links`**
+is the number in scope *after* `kinds`, and it is what `offset` walks.
+
+The reply is bounded by a link count **and** a character budget, because a count alone does not
+bound a reply: an entry runs 127-647 characters depending on its anchor text and URI, and 502 links
+measured out at 79,518 characters. Whole links are dropped, never trimmed. When `more_available` is
+`true`, call again with `offset = offset + count` until it is `false` — or narrow first, which is
+cheaper: `kinds: ["uri"]` on a prospectus cut 502 links to 37.
+""",
     "search": """\
 ## Feeding hits straight to `redact_regions`
 

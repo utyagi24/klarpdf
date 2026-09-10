@@ -137,6 +137,45 @@ class PageText:
         found.sort(key=lambda t: t[0])
         return found
 
+    def words_under(self, box: tuple) -> list:
+        """The page words whose **own centre** falls inside ``box``, as ``(index, word)`` in
+        document order — the words the box *contains*, as against the ones it merely touches.
+
+        A different question from :meth:`struck`, and the one an *authored* rectangle asks (M138).
+        A search hit's box is drawn tightly around part of a word, so ``struck`` has to count a
+        word the box only clips; a link's ``/Rect`` is drawn by the document's own author around
+        the run of words it labels, so a word hanging into it from outside is not part of the
+        anchor. Measured over 710 link rectangles in three real documents, ``struck`` picked up a
+        neighbouring word on 3 of them — a link covering ``www.nseindia.com),`` read back as
+        ``and www.nseindia.com),`` — and centre containment picked up none.
+
+        The same rule :func:`_centre_inside` applies to characters, one level up: a word belongs to
+        exactly one box, so overlapping rectangles cannot both claim it.
+        """
+        found = [(i, w) for _ly0, _ly1, ws in self._band(self._lines, box)
+                 for i, w in ws if _centre_inside(w[:4], box)]
+        found.sort(key=lambda t: t[0])
+        return found
+
+    def word_text_under(self, box: tuple) -> str:
+        """The whole words inside ``box``, space-joined in reading order — its **anchor text**.
+
+        The word-level counterpart of :meth:`text_under`, and what a caller wants from a rectangle
+        that was authored around text rather than measured from it. Two other routes were tried on
+        the same 710 link rectangles and both are wrong here:
+
+        * ``page.get_textbox(rect)`` differs from this on **96** of them — it clips, so it
+          truncates the anchor and steals the neighbouring line, exactly the fault this module was
+          built for (see the module docstring).
+        * :meth:`text_under` differs on 3: character centres admit a stray character of a word the
+          box half-covers, and glue the blank lines above and below onto the result. A link's
+          anchor is a run of *words*, so words are the right unit.
+
+        Empty when the rectangle covers no text at all — a link on a photograph, which is ordinary
+        in a magazine and is a fact about the document, not a failure to read it.
+        """
+        return " ".join(w[4] for _i, w in self.words_under(box))
+
     def is_whole_word(self, box: tuple, tol: float = 0.5) -> bool:
         """Is ``box`` a whole word rather than part of a longer one?
 

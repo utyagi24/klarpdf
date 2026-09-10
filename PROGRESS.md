@@ -594,17 +594,38 @@ inferred for a large class of documents — it is already in the file, and the b
 read it. **M138 + M139 + agent judgement is the shippable feature**; M140 is the fallback for what
 is left over.
 
-- [ ] **M138** **`get_links`** — a read tool: one entry per link with `page`, `rect`, `kind`, the
-  resolved target page for an internal link, `uri` for an external one, and the anchor text.
-  Independently useful — an agent asked to list a document's hyperlinks is currently told KlarPDF
-  does not support it, correctly, even though `transforms.py` already **remaps** internal links
-  through every page move. Titles come from `PageText` word-centre containment, **not**
-  `get_textbox`, which truncates and steals neighbouring lines on link rectangles (measured).
-  **A separate tool, not an extension of `get_annotations`** — PyMuPDF excludes links from
-  `Page.annots()` altogether (0 returned across a 146-page document carrying 621 links, even asking
-  for `PDF_ANNOT_LINK` explicitly), and every field `get_annotations` exists to report — `color`,
-  `note`, `author`, `mine`, `editable` — is permanently null or false for a link. Rationale in
-  `PLAN.md` §M138–M140.
+- [x] **M138** **`get_links`** — 2026-09-09, the bridge's **20th tool**. One entry per link with
+  `page`, `rect`, `kind`, the resolved `target_page` for an internal jump, `uri` for a web address,
+  `file` for a link into another document, and the anchor text. Independently useful — an agent
+  asked to list a document's hyperlinks was told KlarPDF does not support it, correctly, even though
+  `transforms.py` already **remaps** internal links through every page move. **A separate tool, not
+  an extension of `get_annotations`** — PyMuPDF excludes links from `Page.annots()` altogether (0
+  returned across a 146-page document carrying 621 links, even asking for `PDF_ANNOT_LINK`
+  explicitly), and every field `get_annotations` exists to report — `color`, `note`, `author`,
+  `mine`, `editable` — is permanently null or false for a link. Rationale in `PLAN.md` §M138–M140 —
+  *WSL* ([#340](https://github.com/utyagi24/klarpdf/pull/340)).
+
+  **Three things building it added, all measured rather than reasoned** (design in `PLAN.md` §M138 →
+  *What building it added*). A **`gotor` link carries a page number belonging to somebody else's
+  document**, and PyMuPDF manufactures the trap — a `LINK_LAUNCH` written with no page reads back as
+  `{"kind": 5, "page": 0}` — so `target_page` is populated for `goto` and `named` only, the same
+  restriction `links_remap.py` already makes. The **`get_textbox` claim is now a number**: over 710
+  link rectangles in three real documents it disagreed with word-centre containment on **96**, and
+  the near-miss matters more — `PageText.struck`, the lookup `search` uses, disagreed on **3**,
+  because a search hit's box is fitted to the glyphs while an authored rectangle is drawn a little
+  wider than the words it labels. Hence `PageText.words_under` / `word_text_under` beside `struck`
+  rather than a reuse of it. And the reply needed the **two-cap pager**, not a cap: an entry runs
+  127–647 characters and 502 links serialise to 79,518, which is `get_annotations`' 139,288-character
+  lesson (M113.2) applied before it could bite.
+
+  **One addition beyond the scoped shape:** a `kinds` filter, because the plan's own headline
+  question — *where does this document point* — otherwise costs the whole payload (502 links of
+  which 37 are `uri`). It filters *before* the caps so the total stays honest, and an unknown kind
+  name is an error naming the real ones rather than a `count: 0` that would misdescribe the
+  document. What the tool deliberately does **not** do is decide: a contents entry linked twice, on
+  its photograph and on its caption, arrives as two rows with one `text: null`. Deduping, dropping
+  empty anchors and filtering running footers are the caller's four rules, listed in
+  `klarpdf://docs/get_links` — M140's *tag, do not filter*, two milestones early.
 - [ ] **M139** **`set_outline`** — write `[{level, title, page}]` into a copy as real bookmarks;
   the same shape `get_outline` returns and `remapped_toc()` produces. **The sink for M138 and
   M140 alike** — an agent supplies entries derived from links (M138, the primary and exact source),
@@ -615,6 +636,11 @@ is left over.
   `insert_pdf` graft hazard does not apply and encryption survives (verified); with M116 it appends
   rather than rewrites. Must normalise levels before writing — `set_toc` refuses a first item that
   is not level 1 and refuses skipped levels.
+
+  **Two pointers M138 left for it**, since a description may not name a tool that does not exist:
+  `get_links`' own description explains the indent-as-level trick and stops short of saying what to
+  do with it, and `klarpdf://docs/get_links` §*Rebuilding a contents page from links* carries the
+  four caller rules with no sink to hand them to. Both should name `set_outline` in M139's PR.
 - [ ] **M141** **`get_tables`** — rows an agent can read, at **zero new dependencies**. Strategy is
   chosen per page (ruling present → `lines_strict`, else `text`) and **deliberately not reported**;
   precision comes from a **shape filter** (reject 1×N, newline-stuffed cells, empty header).

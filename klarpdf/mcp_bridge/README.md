@@ -265,7 +265,7 @@ you are configured. (It is offered rather than switched on silently, which is wh
 safe.) That file calls the bare `klarpdf-mcp`, so activate the virtualenv before you start Claude
 Code: `source .venv/bin/activate`.
 
-Confirm with `/mcp`: it should say **klarpdf — 19 tools**. If it says *failed*, run the command by
+Confirm with `/mcp`: it should say **klarpdf — 20 tools**. If it says *failed*, run the command by
 hand in the same shell you launch Claude from; the error is almost always `command not found`
 (nothing installed, or a different virtualenv active) or `No module named mcp` (installed the
 package but not its dependencies).
@@ -427,6 +427,7 @@ error, never a silent clamp. Every tool takes an optional `password` — see
 |---|---|
 | `get_info` | Pages, size, page sizes, encryption + permissions, **has-text-layer**, outline. Call it first. |
 | `get_outline` | Bookmarks as `{level, title, page}`. |
+| `get_links` | Every link: where it points (`target_page` / `uri` / `file`), its `rect`, and the words under it. The structure a document carries when it has no bookmarks, and the only view of where it points outwards. |
 | `search` | Hits with page, snippet, box, and whether the text is `invisible` on the page. `match_case`, `whole_words`. |
 | `extract_text` | Text of named pages. |
 | `render_page` | One page — or one `clip` region of it — as a PNG image block. |
