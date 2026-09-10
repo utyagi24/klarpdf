@@ -377,9 +377,16 @@ done in any of them reads back here.
   stores and reports annotation geometry unrotated; a link's rectangle comes out of the library in
   *displayed* space, which turns with `/Rotate`, and is converted here. You see the unrotated
   quadruple at 0°, 90°, 180° and 270° alike.
-* **`kind`** — `goto` (a page in this file), `named` (a page in this file, reached through a name
-  the document keeps for it), `uri` (a web, `tel:` or `mailto:` address), `gotor` (a page in
-  *another* file), `launch` (opens another file), `none` (a rectangle that goes nowhere).
+* **`kind`** — `goto` (a page in this file), `named` (also a page in this file — see below),
+  `uri` (a web, `tel:` or `mailto:` address), `gotor` (a page in *another* file), `launch` (opens
+  another file). There is no `none` row: a rectangle that goes nowhere is counted in
+  `links_without_action` instead, and `kinds: ["none"]` is rejected.
+
+  **`goto` and `named` are one question, not two**, and which you get is not a fact about the
+  document you can rely on. Both mean "a page in this file"; the split reflects how the library
+  parsed the destination, and a plain internal jump lands in `named` whenever its destination
+  carries a `/Fit`-style view rather than a zoom — 18 of one annual report's 119 links do. Filter
+  internal navigation with `["goto", "named"]`, never `["goto"]` alone.
 * **`target_page`** — the 1-based page an internal link jumps to, and `null` for every other kind.
   It is deliberately `null` for `gotor`, which does carry a page number: that number is a page in
   the *other* document, and reporting it here would say a link goes to your page 4 when it opens
@@ -394,6 +401,12 @@ done in any of them reads back here.
   title reads `"8.1.8 “8.1.8`; and a link over a photograph or a logo returns `null`, which is a
   fact about the document and not a failure to read it. Building an outline from `text` means
   de-duplicating the string yourself.
+* **`links_with_unresolved_target`** — on the reply, not the row: how many of the rows returned
+  are internal links (`goto` or `named`) whose `target_page` came back `null`. The row is still
+  returned, because its rectangle and its anchor text are true and only the destination is not —
+  and a link that names a destination the document does not define is a defect in the document
+  worth seeing rather than one worth hiding. Unlike `links_without_action` this counts the rows
+  **returned**, so it moves with `kinds` and `offset`.
 * **`links_without_action`** — on the reply, not the row: how many `/Link` annotations in scope
   name no destination at all. These are **not** returned as rows, because a dead hotspot a designer
   left behind is not a place the document points, and listing it in a privacy audit would be noise.

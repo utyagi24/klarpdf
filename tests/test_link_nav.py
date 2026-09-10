@@ -107,3 +107,57 @@ def test_hover_over_link_shows_pointing_hand(app, linked_pdf):
     win = app.open_document(linked_pdf)
     win.view._update_hover_cursor(_center_of(win.view, 0, _GOTO_BOX))
     assert win.view.viewport().cursor().shape() == Qt.CursorShape.PointingHandCursor
+
+
+# ---- a destination PyMuPDF hands back as a string (M138.2) ---------------------
+
+
+@pytest.fixture
+def view_dest_pdf(tmp_path) -> str:
+    """A Contents-style link whose action is `/S /GoTo /D [<page> 0 R /Fit]`.
+
+    The shape a real InDesign export writes — the owner's Cisco 2025 annual report has 18 of them
+    on its Contents and cross-reference pages. PyMuPDF reports it as `kind: LINK_NAMED` with
+    `page: '3'`, **a string**, because `getLinkDict` only converts `#page=N` and `#page=N&zoom=…`
+    into an int and `&view=Fit` matches neither.
+
+    Hand-built because `insert_link` cannot produce it: every fixture written through the API comes
+    back as a 0-based int, which is why this went unnoticed until a real document arrived.
+    """
+    path = str(tmp_path / "viewdest.pdf")
+    doc = fitz.open()
+    for i in range(5):
+        doc.new_page().insert_text((72, 72), f"PAGE {i}", fontsize=20)
+    # Written as raw PDF, so the /Rect is in the format's own **bottom-left** origin while
+    # `_GOTO_BOX` is in PyMuPDF's top-left one — the very flip `klarpdf://docs/get_links` warns
+    # callers about. Converting here keeps the fixture comparable with the others in this file.
+    height = doc[0].rect.height
+    x0, y0, x1, y1 = _GOTO_BOX
+    annot, action = doc.get_new_xref(), doc.get_new_xref()
+    doc.update_object(action, "<< /S /GoTo /D [ %d 0 R /Fit ] >>" % doc.page_xref(3))
+    doc.update_object(annot, "<< /Type/Annot /Subtype/Link /Rect [%g %g %g %g] "
+                             "/Border[0 0 0] /A %d 0 R >>"
+                             % (x0, height - y1, x1, height - y0, action))
+    doc.xref_set_key(doc.page_xref(0), "Annots", "[%d 0 R]" % annot)
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def test_a_string_spelled_destination_is_clickable(app, view_dest_pdf, monkeypatch):
+    """The owner's report: *"in KlarPDF I am not able to click on the page numbers listed under
+    Contents on Page 3 of the Cisco Annual report; in Edge those page numbers are clickable"*.
+
+    `LinkNavigator._build` skips any link whose `internal_link_target` is `None`, so before the fix
+    these were not links at all — no cursor, no navigation, and no error to notice.
+    """
+    win = app.open_document(view_dest_pdf)
+    calls = _spy_goto(win.view, monkeypatch)
+    assert win.view.links.navigate_at(_center_of(win.view, 0, _GOTO_BOX)) is True
+    assert calls == [3]
+
+
+def test_a_string_spelled_destination_shows_the_pointing_hand(app, view_dest_pdf):
+    """The other half of "not clickable": the cursor is what tells a reader a link is there."""
+    win = app.open_document(view_dest_pdf)
+    assert win.view.links.link_at(_center_of(win.view, 0, _GOTO_BOX)) == 3

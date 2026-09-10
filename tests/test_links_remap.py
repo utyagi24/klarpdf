@@ -15,7 +15,7 @@ import pymupdf as fitz
 import pytest
 
 from klarpdf.model.edit_engine import PyMuPDFEngine
-from klarpdf.model.links_remap import link_target_map
+from klarpdf.model.links_remap import internal_link_target, link_target_map
 from klarpdf.model.virtual_document import PageRef, VirtualDocument
 
 
@@ -284,3 +284,103 @@ def test_pdf_string_escape_round_trips_through_a_written_file(tmp_path):
     doc.save(path)
     doc.close()
     assert _uris(path, 0) == [nasty]  # the escape is undone by PDF string decoding
+
+
+# ---- the two spellings of a destination page (M138.2) --------------------------
+#
+# TC-019 found `get_links` raising `TypeError: '>=' not supported between instances of 'str' and
+# 'int'` on a 128-page annual report, taking 101 healthy links down with 18 sick ones. The cause is
+# here rather than in the bridge: PyMuPDF reports a destination page as a 0-based **int** when it
+# resolved through the name tree and as a 1-based **str** when it fell through `getLinkDict`'s
+# URI pattern-match, and this is the one function that is allowed to know that.
+
+
+def _string_spelling_pdf(tmp_path) -> str:
+    """A link whose action is `/S /GoTo /D [<page> 0 R /Fit]` — the shape a real InDesign export
+    produces, and the one PyMuPDF hands back as `{'kind': 4, 'page': '3', 'view': 'Fit'}`.
+
+    Built by hand: `insert_link` always writes a form PyMuPDF reads back as a 0-based int, so no
+    fixture written through the API can reach this path. That is exactly why the crash shipped.
+    """
+    path = str(tmp_path / "viewdest.pdf")
+    doc = fitz.open()
+    for _ in range(4):
+        doc.new_page()
+    annot, action = doc.get_new_xref(), doc.get_new_xref()
+    doc.update_object(action, "<< /S /GoTo /D [ %d 0 R /Fit ] >>" % doc.page_xref(2))
+    doc.update_object(annot, "<< /Type/Annot /Subtype/Link /Rect [70 88 200 104] "
+                             "/Border[0 0 0] /A %d 0 R >>" % action)
+    doc.xref_set_key(doc.page_xref(0), "Annots", "[%d 0 R]" % annot)
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def test_the_fixture_really_produces_the_string_spelling(tmp_path):
+    """The control. If PyMuPDF ever normalises this to an int the tests below stop testing
+    anything, and they should say so rather than passing quietly."""
+    doc = fitz.open(_string_spelling_pdf(tmp_path))
+    (link,) = doc[0].get_links()
+    doc.close()
+    assert link["kind"] == fitz.LINK_NAMED
+    assert link["page"] == "3" and isinstance(link["page"], str)
+
+
+def test_a_string_page_is_read_as_one_based(tmp_path):
+    """The destination points at `page_xref(2)` — 0-based index 2 — and arrives spelled `'3'`.
+
+    Reading it as 0-based would return index 3: a real, adjacent, entirely plausible wrong page.
+    """
+    doc = fitz.open(_string_spelling_pdf(tmp_path))
+    (link,) = doc[0].get_links()
+    doc.close()
+    assert internal_link_target(link) == 2
+
+
+def test_an_int_page_is_read_as_zero_based(tmp_path):
+    """The other spelling, pinned beside it so the pair cannot drift apart."""
+    path = str(tmp_path / "intdest.pdf")
+    doc = fitz.open()
+    for _ in range(4):
+        doc.new_page()
+    doc[0].insert_link({"kind": fitz.LINK_GOTO, "from": fitz.Rect(70, 88, 200, 104),
+                        "page": 2, "to": fitz.Point(0, 0)})
+    doc.save(path)
+    doc.close()
+    doc = fitz.open(path)
+    (link,) = doc[0].get_links()
+    doc.close()
+    assert isinstance(link["page"], int)
+    assert internal_link_target(link) == 2
+
+
+@pytest.mark.parametrize("page", ["", "abc", "-1", "4.5", "٤", None, True, False, -1])
+def test_a_page_that_names_no_index_resolves_to_none_and_never_raises(page):
+    """The guard TC-019 broke through. `'4' >= 0` is a TypeError, and the crash was not a wrong
+    answer but a dead call — so every shape that is not a usable index must come back `None`.
+
+    `True` is here because `bool` is an `int` subclass: a link whose target reads `True` is not a
+    link to page 2. `'٤'` is an Arabic-Indic 4 — `str.isdigit()` accepts it and `int()` parses it,
+    so a plain `isdigit()` test would silently accept a spelling MuPDF never emits.
+    """
+    link = {"kind": fitz.LINK_GOTO, "page": page}
+    assert internal_link_target(link) is None
+
+
+def test_a_string_page_survives_a_reorder(linked_pdf, tmp_path):
+    """The consequence nobody reported: `remap_internal_links` drops a link whose target does not
+    resolve, so before this fix a reorder or delete silently deleted every such link from the
+    output. On the Cisco annual report that was 18 of its 119."""
+    path = _string_spelling_pdf(tmp_path)
+    vdoc = VirtualDocument.from_path(path)
+    # [0,1,2,3] -> [1,2,3,0]: the link rides to the end and its target (source 2) slides to index 1.
+    vdoc.move_pages([0], 4)
+    out = PyMuPDFEngine().render_output(vdoc)
+    try:
+        links = [l for i in range(out.page_count) for l in out[i].get_links()
+                 if l["kind"] in (fitz.LINK_GOTO, fitz.LINK_NAMED)]
+        assert len(links) == 1, "the link was dropped by the remap"
+        assert links[0]["page"] == 1, "the link survived but points at the wrong page"
+    finally:
+        out.close()
+        vdoc.close()

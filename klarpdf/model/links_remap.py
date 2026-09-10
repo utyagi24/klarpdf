@@ -34,11 +34,40 @@ _INTERNAL_KINDS = (fitz.LINK_GOTO, fitz.LINK_NAMED)
 
 def internal_link_target(link: dict) -> int | None:
     """The 0-based **source** page a GoTo / named-destination link points at, or ``None`` if the
-    link isn't an internal one or its destination doesn't resolve to a page."""
+    link isn't an internal one or its destination doesn't resolve to a page.
+
+    **PyMuPDF spells that page two ways, and they are numbered differently** (M138.2). Both come
+    out of ``get_links()`` on ordinary documents, so both have to be read:
+
+    * an **int**, and **0-based** — the destination resolved through the document's name tree
+      (``Document.resolve_names()``). Measured on a real magazine: ``page=5`` is the sixth page,
+      the one whose printed folio reads ``06``.
+    * a **str of digits**, and **1-based** — a destination MuPDF turned into its own
+      ``#page=N&view=Fit`` URI which PyMuPDF then failed to pattern-match. Its ``getLinkDict``
+      only converts ``#page=N`` and ``#page=N&zoom=…`` into a 0-based int; anything else
+      (``&view=Fit`` is the common one) falls through to a generic URI-to-dict split that leaves
+      every value a **string, still 1-based**, and relabels the link ``LINK_NAMED``. Measured on a
+      128-page annual report: ``page='4'`` is the fourth page, whose printed folio reads ``2``.
+
+    Reading the string as 0-based, or the int as 1-based, is an **off-by-one that looks entirely
+    plausible** — it lands on a real neighbouring page — which is why the two spellings are named
+    here rather than normalised at a call site.
+
+    The `isinstance` guard is load-bearing beyond correctness: `'4' >= 0` is a ``TypeError``, and
+    the bridge's own copy of this logic raised exactly that on the first document to carry the
+    string spelling, failing a whole-document call over 18 of its 119 links (TC-019).
+    """
     if link.get("kind") not in _INTERNAL_KINDS:
         return None
     page = link.get("page")
-    return page if isinstance(page, int) and page >= 0 else None
+    if isinstance(page, bool):          # bool is an int subclass; a True target is not a page 1
+        return None
+    if isinstance(page, int):
+        return page if page >= 0 else None
+    if isinstance(page, str) and page.isascii() and page.isdigit():
+        index = int(page) - 1           # this spelling counts from 1
+        return index if index >= 0 else None
+    return None
 
 
 def link_target_map(ordered) -> dict[tuple[str, int], int]:
