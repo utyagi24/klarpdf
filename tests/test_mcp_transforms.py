@@ -848,12 +848,18 @@ def test_reorder_keeps_named_outline_destinations_pointing_somewhere(fit_outline
 
 def test_merge_keeps_them_too(fit_outline_pdf, a_pdf, tmp_path):
     """The tool TC-022 ran first, and the one where the loss is largest — a merged annual report
-    came back with 156 pages and no working navigation."""
+    came back with 156 pages and no working navigation.
+
+    `a_pdf` carries its own three-entry outline, which M138.5 now carries through as well, so the
+    named destinations under test are the first three entries rather than the whole outline.
+    """
     out = str(tmp_path / "merged.pdf")
     T.merge([fit_outline_pdf, a_pdf], out)
     toc = _outline_of(out)
     assert not [e for e in toc if e[2] < 1]
-    assert {title: page for _lvl, title, page in toc} == {
+    named = {title: page for _lvl, title, page in toc if title.startswith("Chapter ")}
+    assert {k: v for k, v in named.items() if k in
+            ("Chapter One", "Chapter Two", "Chapter Three")} == {
         "Chapter One": 3, "Chapter Two": 5, "Chapter Three": 6}
 
 
@@ -874,3 +880,83 @@ def test_get_outline_reads_back_what_the_transform_wrote(fit_outline_pdf, tmp_pa
     out = str(tmp_path / "rot.pdf")
     T.reorder(fit_outline_pdf, [6, 5, 4, 3, 2, 1], out)
     assert len(queries.outline(out)) == 3
+
+
+# ---- merge carries every document's outline (M138.5 / TC-023) ------------------
+
+
+def _outlined(tmp_path, name, pages, entries) -> str:
+    path = str(tmp_path / name)
+    doc = fitz.open()
+    for i in range(pages):
+        doc.new_page().insert_text((72, 72), f"{name} {i + 1}", fontsize=18)
+    doc.set_toc(entries)
+    doc.save(path)
+    doc.close()
+    return path
+
+
+@pytest.fixture
+def outlined_pair(tmp_path):
+    """Two documents that *both* have an outline — the case TC-022's fixtures could not cover,
+    because its second document had none to lose."""
+    return (_outlined(tmp_path, "one.pdf", 4, [[1, "F-One", 1], [2, "F-One-a", 2], [1, "F-Two", 3]]),
+            _outlined(tmp_path, "two.pdf", 3, [[1, "S-One", 1], [1, "S-Two", 2], [2, "S-Two-a", 3]]))
+
+
+def test_merge_keeps_the_second_documents_outline(outlined_pair, tmp_path):
+    """TC-023: `merge` returned the first document's outline and discarded every later one, so a
+    175-page annual report carrying 223 bookmarks eight levels deep merged into anything lost all
+    223 — while its 281 links were re-pointed perfectly in the same call."""
+    first, second = outlined_pair
+    out = str(tmp_path / "merged.pdf")
+    T.merge([first, second], out)
+    assert [(lvl, title, page) for lvl, title, page in _outline_of(out)] == [
+        (1, "F-One", 1), (2, "F-One-a", 2), (1, "F-Two", 3),
+        (1, "S-One", 5), (1, "S-Two", 6), (2, "S-Two-a", 7),
+    ]
+
+
+def test_merge_order_decides_which_offset_each_outline_gets(outlined_pair, tmp_path):
+    """The reverse order is what ruled out "the second document had nothing to lose" as an
+    explanation, so it is worth pinning as well as the forward one."""
+    first, second = outlined_pair
+    out = str(tmp_path / "reversed.pdf")
+    T.merge([second, first], out)
+    assert [(lvl, title, page) for lvl, title, page in _outline_of(out)] == [
+        (1, "S-One", 1), (1, "S-Two", 2), (2, "S-Two-a", 3),
+        (1, "F-One", 4), (2, "F-One-a", 5), (1, "F-Two", 6),
+    ]
+
+
+def test_a_three_way_merge_carries_all_three(tmp_path):
+    """TC-023 established the rule on two-document merges and said explicitly that documents 3..n
+    were *inferred, not measured*. Measured here."""
+    a = _outlined(tmp_path, "a.pdf", 2, [[1, "A", 1]])
+    b = _outlined(tmp_path, "b.pdf", 3, [[1, "B", 2]])
+    c = _outlined(tmp_path, "c.pdf", 2, [[1, "C", 1]])
+    out = str(tmp_path / "three.pdf")
+    T.merge([a, b, c], out)
+    assert [(title, page) for _lvl, title, page in _outline_of(out)] == [
+        ("A", 1), ("B", 4), ("C", 6)]
+
+
+def test_merge_keeps_a_document_with_no_outline_out_of_the_way(outlined_pair, tmp_path):
+    """A source with nothing to contribute must contribute nothing — not a gap, not a stray level.
+
+    Built here rather than reusing `a_pdf`, which has an outline of its own: a fixture that only
+    *looks* outline-less would make this assert the opposite of what it says.
+    """
+    first, _second = outlined_pair
+    plain = str(tmp_path / "plain.pdf")
+    doc = fitz.open()
+    for i in range(2):
+        doc.new_page().insert_text((72, 72), f"PLAIN {i + 1}", fontsize=18)
+    doc.save(plain)
+    doc.close()
+    assert not _outline_of(plain), "the fixture is meant to have no outline"
+
+    out = str(tmp_path / "withblank.pdf")
+    T.merge([plain, first], out)
+    assert [(lvl, title, page) for lvl, title, page in _outline_of(out)] == [
+        (1, "F-One", 3), (2, "F-One-a", 4), (1, "F-Two", 5)]

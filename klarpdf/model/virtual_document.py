@@ -589,23 +589,70 @@ class VirtualDocument:
     def ref_at(self, index: int) -> PageRef:
         return self.ordered[index]
 
-    def build_index_map(self) -> dict[int, int]:
-        """Map origin page index (0-based) -> output index (0-based) for surviving pages.
+    def build_index_map(self, source_id: str | None = None) -> dict[int, int]:
+        """Map a source's page index (0-based) -> output index (0-based) for surviving pages.
 
-        Only pages from the origin source appear (others carry no outline). If a duplicated
-        origin page survives more than once, the first occurrence wins — outline targets are
+        Defaults to the **origin** source, which is every caller but the outline remap. If a
+        duplicated page survives more than once, the first occurrence wins — an outline target is
         single-valued.
         """
+        wanted = self.origin_source_id if source_id is None else source_id
         index_map: dict[int, int] = {}
         for new_index, ref in enumerate(self.ordered):
-            if ref.source_id == self.origin_source_id:
+            if ref.source_id == wanted:
                 index_map.setdefault(ref.source_page_index, new_index)
         return index_map
 
+    def _sources_in_output_order(self) -> list[str]:
+        """Every source contributing a page, ordered by where its first page lands in the output.
+
+        So a merged document's bookmarks read in the order a reader meets them, rather than in the
+        order the sources happened to be opened.
+        """
+        seen: dict[str, int] = {}
+        for new_index, ref in enumerate(self.ordered):
+            seen.setdefault(ref.source_id, new_index)
+        return sorted(seen, key=seen.get)
+
+    def source_toc(self, source_id: str) -> list:
+        """``source_id``'s own outline, as ``get_toc(simple=False)`` reports it.
+
+        The origin's is the copy captured when it was opened — reading it back off the live source
+        would pick up an outline a save had already rewritten. Every other source is read on
+        demand: nothing edits one, so there is no earlier state to preserve.
+        """
+        if source_id == self.origin_source_id:
+            return self._origin_toc
+        source = self.sources.get(source_id)
+        return source.get_toc(simple=False) if source is not None else []
+
     def remapped_toc(self) -> list:
+        """The output's outline: **every** contributing source's bookmarks, each re-pointed.
+
+        **Not just the origin's** (M138.5). This used to remap `_origin_toc` alone, on the stated
+        assumption that other sources "carry no outline" — true when the only way to gain one was
+        the app splicing a page or two in, and false the moment `merge` made documents 2..n
+        first-class. Merging a 175-page annual report carrying **223 bookmarks nested eight levels
+        deep** into another document dropped all 223 of them, silently, while re-pointing all 281
+        of its links perfectly in the same call.
+
+        Each source is remapped through its **own** index map, so the offsets differ per source and
+        come out right without any arithmetic here. The outlines are then concatenated in the order
+        the sources appear in the output, which is the order a reader meets them. Each source's own
+        level structure is preserved and normalised independently (`remap_toc` repairs levels), so
+        concatenating two trees that each start at level 1 stays valid for `set_toc`.
+
+        Deliberately **not** nested under a synthetic per-document parent. That would invent a
+        bookmark present in neither input; a reader who wants one can add it.
+        """
         from klarpdf.model.toc_remap import remap_toc
 
-        return remap_toc(self._origin_toc, self.build_index_map())
+        entries: list = []
+        for source_id in self._sources_in_output_order():
+            toc = self.source_toc(source_id)
+            if toc:
+                entries.extend(remap_toc(toc, self.build_index_map(source_id)))
+        return entries
 
     def subset(self, indices: Iterable[int]) -> "VirtualDocument":
         """A throwaway extract view holding only the pages at ``indices``, in document order (M51

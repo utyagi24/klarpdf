@@ -170,3 +170,100 @@ def test_a_bookmark_whose_page_is_deleted_is_still_dropped(fit_outline_pdf):
     finally:
         out.close()
         vdoc.close()
+
+
+# ---- outlines from every source, not just the origin (M138.5 / TC-023) ---------
+
+
+@pytest.fixture
+def two_outlined_pdfs(tmp_path):
+    """Two documents that each carry their own outline, at different depths.
+
+    The shape TC-022 could not test — its second document had no outline to lose, so `merge`
+    keeping only the first one looked like correct behaviour for four rounds.
+    """
+    def build(name, pages, entries):
+        path = str(tmp_path / name)
+        doc = fitz.open()
+        for i in range(pages):
+            doc.new_page().insert_text((72, 72), f"{name} {i + 1}", fontsize=18)
+        doc.set_toc(entries)
+        doc.save(path)
+        doc.close()
+        return path
+
+    first = build("first.pdf", 4, [[1, "F-One", 1], [2, "F-One-a", 2], [1, "F-Two", 3]])
+    second = build("second.pdf", 3, [[1, "S-One", 1], [1, "S-Two", 2], [2, "S-Two-a", 3]])
+    return first, second
+
+
+def test_a_second_source_contributes_its_outline_with_its_own_offset(two_outlined_pdfs):
+    """`remapped_toc` used to remap the origin's outline alone, on the documented assumption that
+    other sources "carry no outline". True while the only way to gain one was the app splicing a
+    page or two in; false the moment `merge` made documents 2..n first-class."""
+    from klarpdf.model.virtual_document import PageRef, VirtualDocument
+
+    first, second = two_outlined_pdfs
+    vdoc = VirtualDocument.from_path(first)
+    try:
+        sid = vdoc.open_source(second)
+        vdoc.append_pages([PageRef(sid, i) for i in range(vdoc.sources[sid].page_count)])
+        got = [(lvl, title, page) for lvl, title, page, *_ in vdoc.remapped_toc()]
+    finally:
+        vdoc.close()
+
+    assert got == [
+        (1, "F-One", 1), (2, "F-One-a", 2), (1, "F-Two", 3),      # origin, unmoved
+        (1, "S-One", 5), (1, "S-Two", 6), (2, "S-Two-a", 7),      # appended, +4
+    ]
+
+
+def test_each_source_keeps_its_own_nesting(two_outlined_pdfs):
+    """Two trees that each start at level 1 concatenate into something `set_toc` accepts, and the
+    child entries stay children rather than being flattened or re-parented."""
+    from klarpdf.model.virtual_document import PageRef, VirtualDocument
+
+    first, second = two_outlined_pdfs
+    vdoc = VirtualDocument.from_path(first)
+    try:
+        sid = vdoc.open_source(second)
+        vdoc.append_pages([PageRef(sid, i) for i in range(vdoc.sources[sid].page_count)])
+        levels = [entry[0] for entry in vdoc.remapped_toc()]
+    finally:
+        vdoc.close()
+    assert levels == [1, 2, 1, 1, 1, 2]
+
+
+def test_bookmarks_read_in_the_order_a_reader_meets_them(two_outlined_pdfs):
+    """The appended document's pages come first here, so its bookmarks must too — the order is the
+    output's, not the order the sources happened to be opened in."""
+    from klarpdf.model.virtual_document import PageRef, VirtualDocument
+
+    first, second = two_outlined_pdfs
+    vdoc = VirtualDocument.from_path(first)
+    try:
+        sid = vdoc.open_source(second)
+        count = vdoc.sources[sid].page_count
+        first_appended = vdoc.page_count                  # 4 origin pages, so the append starts at 4
+        vdoc.append_pages([PageRef(sid, i) for i in range(count)])
+        vdoc.move_pages(list(range(first_appended, first_appended + count)), 0)
+        titles = [entry[1] for entry in vdoc.remapped_toc()]
+    finally:
+        vdoc.close()
+    assert titles == ["S-One", "S-Two", "S-Two-a", "F-One", "F-One-a", "F-Two"]
+
+
+def test_a_second_source_bookmark_whose_page_is_absent_is_still_dropped(two_outlined_pdfs):
+    """The rule that applied to the origin has to apply to every source: only pages that made it
+    into the output keep their bookmarks."""
+    from klarpdf.model.virtual_document import PageRef, VirtualDocument
+
+    first, second = two_outlined_pdfs
+    vdoc = VirtualDocument.from_path(first)
+    try:
+        sid = vdoc.open_source(second)
+        vdoc.append_pages([PageRef(sid, 0)])              # only the second document's first page
+        titles = [entry[1] for entry in vdoc.remapped_toc()]
+    finally:
+        vdoc.close()
+    assert titles == ["F-One", "F-One-a", "F-Two", "S-One"]
