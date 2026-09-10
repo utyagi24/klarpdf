@@ -551,8 +551,61 @@ def test_kinds_filters_the_entries_but_not_the_counts(linked_pdf):
 
 
 def test_kinds_accepts_several(linked_pdf):
+    """The union filter where one side is empty. The mixture is covered below."""
     result = queries.links(linked_pdf, kinds=["goto", "named"])
     assert [entry["kind"] for entry in result["links"]] == ["goto"]
+
+
+@pytest.fixture
+def mixed_kinds_pdf(tmp_path) -> str:
+    """One document carrying **both** internal kinds: a direct GoTo and a real named destination.
+
+    Carried as untested by four successive test rounds (TC-021 through TC-024), for a reason worth
+    recording: **no corpus document is a mixture, and a merge cannot make one** — the `/Names` tree
+    does not survive a page move, so every merged document comes out uniformly `goto`. The union
+    filter had only ever been exercised against a set where one side was empty.
+    """
+    path = str(tmp_path / "mixed.pdf")
+    doc = fitz.open()
+    for _ in range(4):
+        doc.new_page()
+    doc[0].insert_text((72, 100), "direct jump", fontsize=11)
+    doc[0].insert_text((72, 130), "nickname jump", fontsize=11)
+    doc[0].insert_link({"kind": fitz.LINK_GOTO, "from": fitz.Rect(70, 88, 200, 104),
+                        "page": 2, "to": fitz.Point(0, 0)})
+    dests = doc.get_new_xref()
+    doc.update_object(dests, "<< /chap [ %d 0 R /XYZ 0 792 0 ] >>" % doc.page_xref(3))
+    doc.xref_set_key(doc.pdf_catalog(), "Dests", "%d 0 R" % dests)
+    doc[0].insert_link({"kind": fitz.LINK_NAMED, "from": fitz.Rect(70, 118, 200, 134),
+                        "name": "chap", "page": 3, "to": fitz.Point(0, 0)})
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def test_a_document_can_hold_both_kinds_and_the_census_says_so(mixed_kinds_pdf):
+    result = queries.links(mixed_kinds_pdf)
+    assert result["kinds"] == {"goto": 1, "named": 1}
+    assert [(e["kind"], e["target_page"], e["text"]) for e in result["links"]] == [
+        ("goto", 3, "direct jump"), ("named", 4, "nickname jump")]
+
+
+def test_filtering_one_kind_out_of_a_mixture_leaves_the_other(mixed_kinds_pdf):
+    """The check M138.3's correction most needs, because over-applying it would collapse the two
+    into one label and this is the only fixture where that shows."""
+    assert [e["text"] for e in queries.links(mixed_kinds_pdf, kinds=["goto"])["links"]] == [
+        "direct jump"]
+    assert [e["text"] for e in queries.links(mixed_kinds_pdf, kinds=["named"])["links"]] == [
+        "nickname jump"]
+
+
+def test_the_union_filter_returns_a_real_mixture_in_document_order(mixed_kinds_pdf):
+    """What `["goto", "named"]` is documented to do — *every* internal jump — asserted at last
+    against a document that actually has both."""
+    result = queries.links(mixed_kinds_pdf, kinds=["goto", "named"])
+    assert result["total_links"] == 2
+    assert [e["kind"] for e in result["links"]] == ["goto", "named"]
+    assert result["links_with_unresolved_target"] == 0
 
 
 def test_an_unknown_kind_is_an_error_naming_the_real_ones(linked_pdf):

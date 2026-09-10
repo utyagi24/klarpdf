@@ -697,6 +697,12 @@ is left over.
   `named`. Five new tests bracketing the change from **both** sides — under-applying fails the
   `goto` cases, over-applying fails the `named` ones. Design in `PLAN.md` §M138.3 — *WSL*
   ([#343](https://github.com/utyagi24/klarpdf/pull/343)).
+
+  **Follow-up closed 2026-09-10** ([#346](https://github.com/utyagi24/klarpdf/pull/346)): a document
+  holding **both** kinds, carried as untested by TC-021 through TC-024. No corpus document is a
+  mixture and `merge` cannot make one — the `/Names` tree does not survive a page move, so a merged
+  document is uniformly `goto` — so it needed a constructed fixture. It is the correction's
+  strongest control: over-applying it now fails six tests rather than three.
 - [ ] **M139** **`set_outline`** — write `[{level, title, page}]` into a copy as real bookmarks;
   the same shape `get_outline` returns and `remapped_toc()` produces. **The sink for M138 and
   M140 alike** — an agent supplies entries derived from links (M138, the primary and exact source),
