@@ -466,6 +466,66 @@ def test_an_ordinary_document_reports_no_unresolved_targets(linked_pdf):
     assert queries.links(linked_pdf)["links_with_unresolved_target"] == 0
 
 
+# ---- `kind` describes the document, not the parse (M138.3) ---------------------
+
+
+def test_an_explicit_destination_is_a_goto_however_it_is_viewed(view_dest_pdf):
+    """`<< /S /GoTo /D [<page> 0 R /Fit] >>` has no nickname and no lookup table, so it is a
+    `goto` — even though PyMuPDF labels it `LINK_NAMED` because its URI pattern-match only
+    recognises `#page=N` and `#page=N&zoom=…`, and this one renders as `#page=3&view=Fit`.
+
+    On the Cisco annual report this is 18 links sitting beside 95 identical ones whose only
+    difference is a `/XYZ` view instead of `/Fit`.
+    """
+    (entry,) = queries.links(view_dest_pdf)["links"]
+    assert entry["kind"] == "goto"
+    assert entry["target_page"] == 3
+
+
+def test_the_library_really_does_mislabel_it(view_dest_pdf):
+    """The control. If PyMuPDF ever classifies this correctly the correction becomes dead code, and
+    this should say so rather than letting the test above pass for a new reason."""
+    doc = fitz.open(view_dest_pdf)
+    (link,) = doc[0].get_links()
+    doc.close()
+    assert link["kind"] == fitz.LINK_NAMED
+    assert "nameddest" not in link
+
+
+def test_a_real_named_destination_is_still_named(named_dest_pdf):
+    """The other direction, and the reason the correction is narrow. This link *does* carry a
+    nickname resolved through the document's name table, so `named` is the truthful answer and
+    must survive — the distinction is only worth reporting if it still means something."""
+    (entry,) = queries.links(named_dest_pdf)["links"]
+    assert entry["kind"] == "named"
+    assert entry["target_page"] == 3
+
+
+def test_a_named_destination_that_does_not_resolve_stays_named(tmp_path):
+    """A nickname the document never defined is still a nickname. The lookup failing is a fact
+    about the document, not about the parse, so relabelling it `goto` would be a second error on
+    top of the document's own."""
+    path = str(tmp_path / "dangling.pdf")
+    doc = fitz.open()
+    for _ in range(3):
+        doc.new_page()
+    doc[0].insert_link({"kind": fitz.LINK_NAMED, "from": fitz.Rect(70, 88, 200, 104),
+                        "name": "no-such-name"})
+    doc.save(path)
+    doc.close()
+
+    (entry,) = queries.links(path)["links"]
+    assert entry["kind"] == "named"
+    assert entry["target_page"] is None
+
+
+def test_filtering_goto_finds_every_explicit_jump(view_dest_pdf):
+    """The point of the change, from the caller's side: `["goto"]` no longer misses links that were
+    never named. On the Cisco report this moves 95 to 113."""
+    assert queries.links(view_dest_pdf, kinds=["goto"])["total_links"] == 1
+    assert queries.links(view_dest_pdf, kinds=["named"])["total_links"] == 0
+
+
 # ---- narrowing ----------------------------------------------------------------
 
 
@@ -491,8 +551,61 @@ def test_kinds_filters_the_entries_but_not_the_counts(linked_pdf):
 
 
 def test_kinds_accepts_several(linked_pdf):
+    """The union filter where one side is empty. The mixture is covered below."""
     result = queries.links(linked_pdf, kinds=["goto", "named"])
     assert [entry["kind"] for entry in result["links"]] == ["goto"]
+
+
+@pytest.fixture
+def mixed_kinds_pdf(tmp_path) -> str:
+    """One document carrying **both** internal kinds: a direct GoTo and a real named destination.
+
+    Carried as untested by four successive test rounds (TC-021 through TC-024), for a reason worth
+    recording: **no corpus document is a mixture, and a merge cannot make one** — the `/Names` tree
+    does not survive a page move, so every merged document comes out uniformly `goto`. The union
+    filter had only ever been exercised against a set where one side was empty.
+    """
+    path = str(tmp_path / "mixed.pdf")
+    doc = fitz.open()
+    for _ in range(4):
+        doc.new_page()
+    doc[0].insert_text((72, 100), "direct jump", fontsize=11)
+    doc[0].insert_text((72, 130), "nickname jump", fontsize=11)
+    doc[0].insert_link({"kind": fitz.LINK_GOTO, "from": fitz.Rect(70, 88, 200, 104),
+                        "page": 2, "to": fitz.Point(0, 0)})
+    dests = doc.get_new_xref()
+    doc.update_object(dests, "<< /chap [ %d 0 R /XYZ 0 792 0 ] >>" % doc.page_xref(3))
+    doc.xref_set_key(doc.pdf_catalog(), "Dests", "%d 0 R" % dests)
+    doc[0].insert_link({"kind": fitz.LINK_NAMED, "from": fitz.Rect(70, 118, 200, 134),
+                        "name": "chap", "page": 3, "to": fitz.Point(0, 0)})
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def test_a_document_can_hold_both_kinds_and_the_census_says_so(mixed_kinds_pdf):
+    result = queries.links(mixed_kinds_pdf)
+    assert result["kinds"] == {"goto": 1, "named": 1}
+    assert [(e["kind"], e["target_page"], e["text"]) for e in result["links"]] == [
+        ("goto", 3, "direct jump"), ("named", 4, "nickname jump")]
+
+
+def test_filtering_one_kind_out_of_a_mixture_leaves_the_other(mixed_kinds_pdf):
+    """The check M138.3's correction most needs, because over-applying it would collapse the two
+    into one label and this is the only fixture where that shows."""
+    assert [e["text"] for e in queries.links(mixed_kinds_pdf, kinds=["goto"])["links"]] == [
+        "direct jump"]
+    assert [e["text"] for e in queries.links(mixed_kinds_pdf, kinds=["named"])["links"]] == [
+        "nickname jump"]
+
+
+def test_the_union_filter_returns_a_real_mixture_in_document_order(mixed_kinds_pdf):
+    """What `["goto", "named"]` is documented to do — *every* internal jump — asserted at last
+    against a document that actually has both."""
+    result = queries.links(mixed_kinds_pdf, kinds=["goto", "named"])
+    assert result["total_links"] == 2
+    assert [e["kind"] for e in result["links"]] == ["goto", "named"]
+    assert result["links_with_unresolved_target"] == 0
 
 
 def test_an_unknown_kind_is_an_error_naming_the_real_ones(linked_pdf):

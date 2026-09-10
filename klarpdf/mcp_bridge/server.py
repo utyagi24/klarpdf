@@ -420,8 +420,8 @@ def create_server(config: Config | None = None) -> MCPServer:
         `links_without_action` counts those. `rect` is unrotated with a top-left origin, at every
         page rotation, so it feeds `redact_regions` untouched.
 
-        `kinds` filters before the caps (`["uri"]` for external, `["goto", "named"]` for internal),
-        `pages` narrows to a range. The reply **paginates**: when `more_available` is true, call
+        `kinds` filters before the caps (`["uri"]` for external, `["goto", "named"]` for every
+        internal jump), `pages` narrows to a range. The reply **paginates**: when `more_available` is true, call
         again with `offset` set to this reply's `offset + count`. Never report "these are all the
         links" from a reply that says there are more. Field contract in `klarpdf://docs/get_links`.
         """
