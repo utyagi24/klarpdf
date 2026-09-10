@@ -6887,7 +6887,7 @@ after the loss, and the repo had already chosen refusal for the analogous case.
 The `subset()` view deliberately does not carry the override: it is pinned to *this* document's page
 numbers and an extract renumbers every one of them.
 
-#### M140 — heading candidates, the fallback
+#### M140 — heading candidates: the typography fallback, and the route to subsections
 
 For a document with neither bookmarks nor a linked contents page, structure has to come from
 typography. The design splits it, because the split is what avoids a dependency:
@@ -6915,10 +6915,14 @@ closes the `pymupdf_layout` question outright — 1c was the last place a layout
 earned ~11 pins and ≈100 MB, since every other use is either served by what we already pin or
 answerable by an agent reading a `render_page` image.
 
-Ordering, and why M140 was put last: the shippable feature is **M138 + M139 + agent judgement**,
-which covers every document with a printed contents page — manuals, reports, filings, standards.
-M140 only serves what is left over. M139 is also independently shippable on its own, since an agent
-can supply entries from its own reading of a short document without any candidate extraction.
+Ordering — **the build order is `M141 → M140 → M142`**, and the reasoning below is kept in two
+layers because the second corrects the first.
+
+*As originally argued (2026-09-07), when M140 was last of three:* the shippable feature is
+**M138 + M139 + agent judgement**, which covers every document with a printed contents page —
+manuals, reports, filings, standards. M140 only serves what is left over. M139 is also independently
+shippable on its own, since an agent can supply entries from its own reading of a short document
+without any candidate extraction.
 
 **That rationale is now incomplete, and the gap was found by asking the tool a question it cannot
 answer** (owner, 2026-09-10, immediately after M139 landed): *"a doc might have defined only
@@ -6946,12 +6950,32 @@ argument. Its **page range**, justified by *"heading conventions differ by secti
 document"*, turns out to be the enrichment primitive as well: `get_outline` says Financials is pages
 5-9, so the caller asks for candidates in 5-9 and nowhere else.
 
-**Recommendation, for the owner to take or leave: promote M140 ahead of M141 and M142.** The
-argument that put it last was written when M139 did not exist and the only question was *"where does
-structure come from when there is none"*. With the sink built, the more common real-world ask is
-arguably the opposite one — a document good enough to ship with bookmarks is exactly the kind that
-ships only top-level ones — and M140 is the sole tool that serves it. `get_tables` and
-`extract_markdown` are both independently valuable and neither is blocked by this.
+**Decided by the owner, 2026-09-10: the build order is `M141 → M140 → M142`.** Only M142 moves.
+Getting there took one wrong turn worth recording, because the wrong turn is the instructive part.
+
+The first proposal was *"promote M140 ahead of both, restoring numeric order"*, argued from the
+enrichment gap alone. **It was wrong**, and the owner caught it by asking the right question — *"there
+must have been a good reason to deviate from the natural numeric order, so double-check we are not
+missing something."* There was. The history shows M140 scoped with M138/M139 (last, which was also
+numeric order at the time), then **deliberately demoted twice** as M141 and M142 were each inserted
+above it. Neither commit explains the placement, but the design does: **M140's `in_table` flag needs
+table detection**, and M141 is where that machinery lands — along with the decision M141 settles
+about *how* to call it, strategy chosen per page (ruling → `lines_strict`, else `text`). Building
+M140 first means making that call independently, and probably differently. So `M141 → M140` encodes
+real reasoning and stays.
+
+**What was genuinely wrong is narrower: M142 sat above a milestone it depends on.** Its own section
+says it *"depends on M140 and M141 landing first"*, and it was scheduled ahead of M140 — a sequence
+that cannot be executed as written. Moving it to the end fixes that and touches nothing else.
+
+The lesson generalises past this roadmap, and is the same one `CLAUDE.md` §*Two consumers share one
+core* makes about claims: **an ordering that looks arbitrary is a claim to be checked, not a defect
+to be corrected.** The value argument above is sound and the enrichment gap is real; it simply was
+not sufficient to reorder on, because it never asked what the existing order already knew.
+
+One consequence to hold: this puts enrichment behind `get_tables`. M140 *could* ship without
+`in_table` to bring it forward, but `in_table` is what dismisses 2,287 cell headers on the
+prospectus, so that trade weakens M140 on the document it was designed against. Not taken.
 
 #### A second document, a different shape — what it adds to M138 and M139
 

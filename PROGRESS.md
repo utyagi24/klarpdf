@@ -594,15 +594,30 @@ inferred for a large class of documents — it is already in the file, and the b
 read it. **M138 + M139 + agent judgement is the shippable feature**; M140 is the fallback for what
 is left over.
 
-**Amended 2026-09-10, after M139 shipped.** "The fallback for what is left over" undersells M140,
-and the owner's question found the gap: a document with only high-level bookmarks, whose caller
-wants second-level ones inserted, is served by **nothing the bridge has**. `get_outline` gives the
-existing tree but not what is inside a section; `get_links` does not help, because a document that
-already ships bookmarks usually has no printed linked contents page; and `extract_text` returns
-plain strings with no weight, which is the one signal that separates an unnumbered subheading from
-body text set at the same size. **Enrichment is the other half of M139, not a leftover, and M140 is
-the only tool that serves it** — so promoting it ahead of M141/M142 is recommended and left to the
-owner. Argument and the measurement in `PLAN.md` §M140 → *Ordering*.
+**Amended 2026-09-10, after M139 shipped. The build order is `M141 → M140 → M142`** — decided by
+the owner that day, and it is deliberately *not* numeric. Two findings moved it, one about value and
+one about correctness.
+
+**Value: "the fallback for what is left over" undersells M140.** The owner's question found the gap
+— a document with only high-level bookmarks, whose caller wants second-level ones inserted, is
+served by **nothing the bridge has**. `get_outline` gives the existing tree but not what is inside a
+section; `get_links` does not help, because a document that already ships bookmarks usually has no
+printed linked contents page; and `extract_text` returns plain strings with no weight, which is the
+one signal separating an unnumbered subheading from body text set at the same size (measured:
+Helvetica-Bold 10 pt against a 10 pt body reads identically through it). **Enrichment is the other
+half of M139, not a leftover.**
+
+**Correctness: M142 was scheduled ahead of a milestone it declares a dependency on.** Its own entry
+says *"Depends on M140 + M141"* and `PLAN.md` §M142 says it *"depends on M140 and M141 landing
+first"*, while it sat above M140 in this list. That sequence could not be executed as written, and
+it was the one unambiguous error here.
+
+**But M141 stays ahead of M140, and the first proposal to make the order numeric was wrong.** M140's
+`in_table` flag needs table detection, and M141 is where that machinery lands together with the
+decision M141 settles about how to call it (ruling present → `lines_strict`, else `text`, chosen per
+page). Building M140 first would mean making that call independently and probably differently. The
+1→2 demotion of M140 encoded real engineering reasoning; only M142's placement did not. So M142
+moves to the end and nothing else does. Argument and measurements in `PLAN.md` §M140 → *Ordering*.
 
 - [x] **M138** **`get_links`** — 2026-09-09, the bridge's **20th tool**. One entry per link with
   `page`, `rect`, `kind`, the resolved `target_page` for an internal jump, `uri` for a web address,
@@ -826,16 +841,6 @@ owner. Argument and the measurement in `PLAN.md` §M140 → *Ordering*.
   range**: `find_tables()` runs at 6.9 pages/s, ~135× slower than `get_text`. Design and the
   measurements behind each decision in `PLAN.md` §M141.
 
-- [ ] **M142** **`extract_markdown`** — a Markdown rendering of a page range, built on M140 and M141
-  with **no new dependency**. Prototyped before being scheduled: headings by weight/size, ruled
-  tables exactly, and **multi-column reading order** all work; a partially-ruled financial table, a
-  structured side panel, a drop cap and justified single-word lines are the known holes. **Binding
-  rule: a table that cannot be reconstructed is emitted as-is with a note, never as a mangled grid**
-  — the third application of *report the uncertainty, never paper over it*, after M140's `in_table`
-  and M141's `continues_from`. A **separate tool**, not a `format` flag on `extract_text`, because
-  the cost differs by two orders of magnitude (~930 pages/s against 6.9). Depends on M140 + M141.
-  Design, and why `pymupdf4llm` is rejected, in `PLAN.md` §M142.
-
 - [ ] **M140** **Heading candidates** — the typography fallback for documents with neither
   bookmarks nor a linked contents page, and the only route to **subsections** a contents page omits.
   **Feeds M139**, which is already built by then and defines the `[{level, title, page}]` target
@@ -849,6 +854,16 @@ owner. Argument and the measurement in `PLAN.md` §M140 → *Ordering*.
   first estimated**; and the extractor must accept a **page range**, because heading conventions
   differ by section in a compiled document even when the typography does not. Classification **in
   code** is deliberately out of scope — see §Open follow-ups.
+
+- [ ] **M142** **`extract_markdown`** — a Markdown rendering of a page range, built on M140 and M141
+  with **no new dependency**. Prototyped before being scheduled: headings by weight/size, ruled
+  tables exactly, and **multi-column reading order** all work; a partially-ruled financial table, a
+  structured side panel, a drop cap and justified single-word lines are the known holes. **Binding
+  rule: a table that cannot be reconstructed is emitted as-is with a note, never as a mangled grid**
+  — the third application of *report the uncertainty, never paper over it*, after M140's `in_table`
+  and M141's `continues_from`. A **separate tool**, not a `format` flag on `extract_text`, because
+  the cost differs by two orders of magnitude (~930 pages/s against 6.9). Depends on M140 + M141.
+  Design, and why `pymupdf4llm` is rejected, in `PLAN.md` §M142.
 
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 
