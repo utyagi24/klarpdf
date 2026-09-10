@@ -794,3 +794,83 @@ def test_no_transform_here_appends_to_its_input(a_pdf, b_pdf, tmp_path):
         run(out_path)
         written = open(out_path, "rb").read()
         assert written[: len(source)] != source, f"{name} appended to its input"
+
+
+# ---- outlines whose destinations are named (M138.4 / TC-022) -------------------
+
+
+@pytest.fixture
+def fit_outline_pdf(tmp_path) -> str:
+    """A document whose 3-entry outline uses `/Dest [<page> 0 R /Fit]` — the InDesign shape.
+
+    Shares its construction with `tests/test_toc_remap.py`; both are needed because the model test
+    proves the remap and this one proves the tools a caller actually reaches.
+    """
+    path = str(tmp_path / "fitoutline.pdf")
+    doc = fitz.open()
+    for i in range(6):
+        doc.new_page().insert_text((72, 72), f"PAGE {i + 1}", fontsize=20)
+    items = [(doc.get_new_xref(), title, target)
+             for title, target in (("Chapter One", 2), ("Chapter Two", 4), ("Chapter Three", 5))]
+    root = doc.get_new_xref()
+    for i, (xref, title, target) in enumerate(items):
+        nxt = f"/Next {items[i + 1][0]} 0 R" if i + 1 < len(items) else ""
+        prv = f"/Prev {items[i - 1][0]} 0 R" if i else ""
+        doc.update_object(xref, f"<< /Title ({title}) /Parent {root} 0 R {prv} {nxt} "
+                                f"/Dest [ {doc.page_xref(target)} 0 R /Fit ] >>")
+    doc.update_object(root, f"<< /Type /Outlines /First {items[0][0]} 0 R "
+                            f"/Last {items[-1][0]} 0 R /Count {len(items)} >>")
+    doc.xref_set_key(doc.pdf_catalog(), "Outlines", f"{root} 0 R")
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def _outline_of(path):
+    doc = fitz.open(path)
+    toc = doc.get_toc()
+    doc.close()
+    return toc
+
+
+def test_reorder_keeps_named_outline_destinations_pointing_somewhere(fit_outline_pdf, tmp_path):
+    """TC-022: every page-moving tool wrote bookmarks with no destination at all. They stayed in
+    the outline, so a count looked right — `get_outline` then filtered the dead ones and reported
+    2 of 39 on a real annual report, with nothing in any reply mentioning it."""
+    out = str(tmp_path / "reordered.pdf")
+    T.reorder(fit_outline_pdf, [6, 5, 4, 3, 2, 1], out)
+    toc = _outline_of(out)
+    assert len(toc) == 3
+    assert not [e for e in toc if e[2] < 1]
+    assert {title: page for _lvl, title, page in toc} == {
+        "Chapter One": 4, "Chapter Two": 2, "Chapter Three": 1}
+
+
+def test_merge_keeps_them_too(fit_outline_pdf, a_pdf, tmp_path):
+    """The tool TC-022 ran first, and the one where the loss is largest — a merged annual report
+    came back with 156 pages and no working navigation."""
+    out = str(tmp_path / "merged.pdf")
+    T.merge([fit_outline_pdf, a_pdf], out)
+    toc = _outline_of(out)
+    assert not [e for e in toc if e[2] < 1]
+    assert {title: page for _lvl, title, page in toc} == {
+        "Chapter One": 3, "Chapter Two": 5, "Chapter Three": 6}
+
+
+def test_extract_pages_keeps_the_ones_it_takes(fit_outline_pdf, tmp_path):
+    """And still drops the bookmarks whose target is not in the extract, which is the behaviour the
+    fix must not loosen while making the survivors work."""
+    out = str(tmp_path / "extracted.pdf")
+    T.extract_pages(fit_outline_pdf, [3, 5, 6], out)
+    toc = _outline_of(out)
+    assert not [e for e in toc if e[2] < 1]
+    assert {title: page for _lvl, title, page in toc} == {
+        "Chapter One": 1, "Chapter Two": 2, "Chapter Three": 3}
+
+
+def test_get_outline_reads_back_what_the_transform_wrote(fit_outline_pdf, tmp_path):
+    """The end-to-end shape a caller sees: the write tool and the read tool have to agree, and it
+    was their disagreement that made the loss look like a smaller one than it was."""
+    out = str(tmp_path / "rot.pdf")
+    T.reorder(fit_outline_pdf, [6, 5, 4, 3, 2, 1], out)
+    assert len(queries.outline(out)) == 3
