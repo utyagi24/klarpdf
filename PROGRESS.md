@@ -683,6 +683,31 @@ is left over.
   return a string. Also fixes **TC-018's** one new low — the docs listed a `none` kind three bullets
   above the sentence denying it — and adds `links_with_unresolved_target`, TC-019's suggested
   counter. Eleven new tests across the three surfaces, each confirmed by reverting the fix.
+- [x] **M138.4** *(unplanned)* **The outline a page move leaves pointing nowhere** — 2026-09-10,
+  from **TC-022**. Merging a 128-page annual report returned a document whose outline had gone from
+  39 entries to 2, silently. **The real shape is worse than "dropped": the bookmarks are written
+  with no destination at all** — all 39 are still in the file, 37 pointing at `page -1`, and
+  `get_outline` reports 2 only because `remapped_toc` filters the dead ones out. Design in
+  `PLAN.md` §M138.4 — *WSL* ([#344](https://github.com/utyagi24/klarpdf/pull/344)).
+
+  **Cause: M138.2's, one level up.** An InDesign outline item reads back as a *named* destination
+  with a string page and an `xref` pointing into the **source** document; `remap_toc` corrected the
+  page and handed the rest back to `set_toc` on the output, which chased an xref that was not there
+  and wrote the bookmark destination-less. The discriminator is the destination **kind** (37 named
+  broke, 2 direct survived), not the `/Fit` view TC-022 inferred. Fixed the way the *link* remap has
+  worked since M33 — bake a foreign destination into a direct GoTo at the remapped page; measured
+  across every candidate, **only the `kind` matters**, the stale xref being harmless and `to`
+  optional. A destination that is already direct keeps its own `to`.
+
+  **It hit both consumers**, which TC-022 could not see: the bridge's `merge` / `reorder` /
+  `delete_pages` / `extract_pages` **and the app's Save** — reorder a page in KlarPDF and 37 of that
+  document's 39 bookmarks stop working. **Why nothing caught it: counting is the wrong
+  measurement.** The outline came out the right length, in the right order, with the right titles;
+  only the destinations were dead. Every existing outline test built its fixture with `set_toc`,
+  which writes *direct* destinations, so no fixture written the ordinary way can reach this path —
+  the third time in this group that a convenience API could not produce the shape real documents
+  have. Thirteen new tests, asserting **targets** rather than counts, each confirmed by reverting
+  the fix. TC-020 and TC-021 closed the remaining items and are recorded in `PLAN.md` §M138.4.
 - [ ] **M139** **`set_outline`** — write `[{level, title, page}]` into a copy as real bookmarks;
   the same shape `get_outline` returns and `remapped_toc()` produces. **The sink for M138 and
   M140 alike** — an agent supplies entries derived from links (M138, the primary and exact source),

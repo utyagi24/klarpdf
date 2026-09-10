@@ -6596,6 +6596,63 @@ rows whose `target_page` is `null` — a destination the document genuinely does
 is still returned, because its rectangle and anchor text are true and only its destination is not.
 Unlike `links_without_action` it counts what came back, so it moves with `kinds` and `offset`.
 
+#### M138.4 — the outline a page move leaves pointing nowhere *(2026-09-10, unplanned)*
+
+**TC-020** and **TC-021** closed the open items — the TC-019 crash resolves rather than degrades
+(18/18 targets cross-checked against `get_outline`), the `none` contradiction is gone, and M138.3's
+relabel was verified against **independently parsed destinations on three documents, 3 for 3**, with
+`kasaragodhr.pdf` as the control a careless fix would have broken. TC-020 also **retracted its own
+TC-019 root cause** before we raised it, and named the discipline failure exactly: two structures in
+one file both matched `/Fit`, and *"10 ≠ 18 was visible on the page and I did not ask why."*
+
+**TC-022 then found a HIGH that is worse than it looks, and older than this milestone group.**
+Merging a 128-page annual report returned a document whose outline had collapsed from 39 entries to
+2, with nothing in any reply mentioning it.
+
+**The reported shape is "bookmarks are dropped". The actual shape is worse: they are written with
+no destination at all.** The output's raw outline still holds all 39 entries; 37 of them point at
+`page -1`. `get_outline` reads through `remapped_toc`, which drops an entry whose page does not
+resolve, so the *tool* reported 2 — and the file itself carries 39 bookmarks that navigate nowhere.
+
+**Why it shipped, and why no test caught it: counting is the wrong measurement.** A page-moving save
+produced an outline of exactly the right length, in the right order, with the right titles. Only the
+destinations were dead, and nothing counted those. The suite's outline tests all build their
+fixtures with `set_toc`, which writes *direct* destinations — so no fixture the project could write
+the ordinary way can reach this path at all. That is the third time in this group that the shapes a
+convenience API produces turned out not to be the shapes real documents contain (M138.1's rotation,
+M138.2's string page, and now this).
+
+**The cause is M138.2's, one level up.** `get_toc(simple=False)` reports an InDesign outline item as
+`{'kind': 4, 'xref': 6614, 'page': '4', 'view': 'Fit'}` — the same *named* destination with a
+string page, and an `xref` that points into the **source** document. `remap_toc` corrected the page
+and handed the rest of the dict back to `set_toc` on the materialised output, which chased an xref
+that is not there (`cannot find object in xref`, ~90 lines of it on stderr, which nothing was
+reading) and wrote the bookmark destination-less.
+
+Measured, and the discriminator is the destination *kind*, not the `/Fit` view TC-022 inferred:
+
+| outline dest | count on the annual report | after a page move |
+|---|---|---|
+| `kind 4` (named) | 37 | **destination-less** |
+| `kind 1` (GoTo) | 2 | correct |
+
+**The fix is the one the link path has had since M33: bake a foreign destination into a direct
+GoTo at the remapped page.** Measured across every candidate — the stale `xref` turns out to be
+harmless and the `to` point optional; **the only thing that matters is the `kind`**. A destination
+that is already a GoTo keeps its own `to`, so an outline aimed at a precise spot on the page still
+is. `toc_remap` stays PyMuPDF-free, with `_LINK_GOTO = 1` pinned against `fitz.LINK_GOTO` by a test
+rather than asserted in a comment.
+
+**It affected both consumers, which the `CLAUDE.md` §two-consumers rule predicts and TC-022 could
+not see.** The bridge's `merge`, `reorder`, `delete_pages` and `extract_pages` all go through
+`remapped_toc`, and so does the **app's Save**: reorder or delete a page in KlarPDF and 37 of that
+document's 39 bookmarks stop working, silently. The report tested only the bridge.
+
+**The standing lesson, and it is a measurement one rather than a PDF one:** *count what the thing
+is for, not what it is made of.* An outline is for navigating; its length is not the property worth
+asserting, and every test that had asserted length passed throughout. The new tests assert
+**targets**.
+
 #### M139 — `set_outline`
 
 Write a table of contents into a copy of the document. The entry shape is `[{level, title, page}]`,

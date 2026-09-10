@@ -31,3 +31,142 @@ def test_remap_updates_explicit_destination_page():
     assert out[0][2] == 1  # 1-based page
     assert out[0][3]["page"] == 0  # dest carries the new 0-based page
     assert out[0][3]["to"] == (0, 700)  # other dest keys untouched
+
+
+# ---- destinations a page move cannot carry (M138.4 / TC-022) -------------------
+#
+# A bookmark whose destination is *named* rather than direct cannot be handed back to `set_toc` on
+# a different document: its `xref` points into the source, so the written bookmark ends up with no
+# destination at all — present in the outline, navigating nowhere. Counting entries finds 39 of 39
+# and looks correct, which is why this shipped; the count that matters is how many still point
+# somewhere.
+
+import pymupdf as fitz
+import pytest
+
+from klarpdf.model.toc_remap import _LINK_GOTO, bake_dest
+
+
+def test_the_goto_constant_matches_the_library():
+    """`toc_remap` is deliberately PyMuPDF-free, so the kind is written as its value. This is the
+    seam that keeps that honest — if the library ever renumbers, this fails here rather than
+    silently writing the wrong destination kind into every outline we produce."""
+    assert _LINK_GOTO == fitz.LINK_GOTO
+
+
+def test_a_named_destination_is_baked_to_a_direct_goto():
+    """The fix. `set_toc` writes a bookmark with no destination when handed this dict, because the
+    `xref` belongs to the document it was read from."""
+    dest = {"kind": fitz.LINK_NAMED, "xref": 6614, "page": "4", "view": "Fit", "zoom": 0.0}
+    baked = bake_dest(dest, 7)
+    assert baked == {"kind": fitz.LINK_GOTO, "page": 7, "zoom": 0.0}
+
+
+def test_a_direct_destination_keeps_its_own_scroll_position():
+    """The narrowness. A GoTo destination already works, and its `to` is the exact spot on the page
+    the publisher aimed at — rewriting it to the page top would be a silent fidelity loss on the
+    entries that were never broken."""
+    point = fitz.Point(-276.976, 0.023986817)
+    dest = {"kind": fitz.LINK_GOTO, "xref": 6652, "page": 16, "to": point, "zoom": 0.0}
+    baked = bake_dest(dest, 3)
+    assert baked["kind"] == fitz.LINK_GOTO
+    assert baked["page"] == 3
+    assert baked["to"] == point
+
+
+def test_the_source_xref_is_never_carried_into_the_output():
+    """It names an object in another document. Leaving it is what made the dict look reusable."""
+    for dest in ({"kind": fitz.LINK_GOTO, "xref": 99, "page": 1},
+                 {"kind": fitz.LINK_NAMED, "xref": 99, "page": "1", "view": "Fit"}):
+        assert "xref" not in bake_dest(dest, 0)
+
+
+def test_an_entry_with_no_dest_stays_without_one():
+    assert bake_dest(None, 4) is None
+
+
+@pytest.fixture
+def fit_outline_pdf(tmp_path) -> str:
+    """6 pages with a 3-entry outline whose items use `/Dest [<page> 0 R /Fit]`.
+
+    The shape InDesign and most publishing pipelines emit, and the one no fixture had: `set_toc`
+    writes direct GoTo destinations, so an outline built through the API can never reach this path.
+    Hand-built raw objects are the only way to get there — which is exactly why 37 of a real annual
+    report's 39 bookmarks could break with the suite green.
+    """
+    path = str(tmp_path / "fitoutline.pdf")
+    doc = fitz.open()
+    for i in range(6):
+        doc.new_page().insert_text((72, 72), f"PAGE {i + 1}", fontsize=20)
+    # `target` is a 0-based page index, so "Chapter One" lands on 1-based page 3.
+    items = [(doc.get_new_xref(), title, target)
+             for title, target in (("Chapter One", 2), ("Chapter Two", 4), ("Chapter Three", 5))]
+    root = doc.get_new_xref()
+    for i, (xref, title, target) in enumerate(items):
+        nxt = f"/Next {items[i + 1][0]} 0 R" if i + 1 < len(items) else ""
+        prv = f"/Prev {items[i - 1][0]} 0 R" if i else ""
+        doc.update_object(xref, f"<< /Title ({title}) /Parent {root} 0 R {prv} {nxt} "
+                                f"/Dest [ {doc.page_xref(target)} 0 R /Fit ] >>")
+    doc.update_object(root, f"<< /Type /Outlines /First {items[0][0]} 0 R "
+                            f"/Last {items[-1][0]} 0 R /Count {len(items)} >>")
+    doc.xref_set_key(doc.pdf_catalog(), "Outlines", f"{root} 0 R")
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def test_the_fixture_really_carries_named_destinations(fit_outline_pdf):
+    """The control. If PyMuPDF ever reports these as direct GoTo the tests below stop exercising
+    the fix, and this says so rather than letting them pass for a new reason."""
+    doc = fitz.open(fit_outline_pdf)
+    toc = doc.get_toc(simple=False)
+    doc.close()
+    assert [e[3]["kind"] for e in toc] == [fitz.LINK_NAMED] * 3
+    assert [e[3]["page"] for e in toc] == ["3", "5", "6"]     # strings, not ints
+
+
+@pytest.mark.parametrize("mutate,expected", [
+    (lambda v: v.move_pages([0], 6), {"Chapter One": 2, "Chapter Two": 4, "Chapter Three": 5}),
+    (lambda v: v.delete_pages([0]),  {"Chapter One": 2, "Chapter Two": 4, "Chapter Three": 5}),
+])
+def test_named_outline_destinations_survive_a_page_move(fit_outline_pdf, mutate, expected):
+    """The bug as a user meets it: reorder or delete a page, save, and the bookmarks are still
+    listed but navigate nowhere (`page -1`). Both the app's Save and the bridge's page-moving
+    tools go through this path.
+
+    Targets are asserted, not just counted — the whole reason this was invisible is that the count
+    stayed right while every destination went dead.
+    """
+    from klarpdf.model.edit_engine import PyMuPDFEngine
+    from klarpdf.model.virtual_document import VirtualDocument
+
+    vdoc = VirtualDocument.from_path(fit_outline_pdf)
+    mutate(vdoc)
+    out = PyMuPDFEngine().render_output(vdoc)
+    try:
+        toc = out.get_toc()
+        assert not [e for e in toc if e[2] < 1], "bookmarks written with no destination"
+        assert {title: page for _lvl, title, page in toc} == expected
+    finally:
+        out.close()
+        vdoc.close()
+
+
+def test_a_bookmark_whose_page_is_deleted_is_still_dropped(fit_outline_pdf):
+    """The pre-existing behaviour the fix must not loosen: a target that is gone leaves no
+    bookmark, rather than one pointing at an arbitrary survivor."""
+    from klarpdf.model.edit_engine import PyMuPDFEngine
+    from klarpdf.model.virtual_document import VirtualDocument
+
+    vdoc = VirtualDocument.from_path(fit_outline_pdf)
+    # 0-based: index 2 is 1-based page 3, which is "Chapter One"'s target (the fixture builds its
+    # destinations from `page_xref(2)`, so the printed page number is one higher than the index).
+    vdoc.delete_pages([2])
+    out = PyMuPDFEngine().render_output(vdoc)
+    try:
+        titles = [t for _l, t, _p in out.get_toc()]
+        assert "Chapter One" not in titles
+        assert titles == ["Chapter Two", "Chapter Three"]
+    finally:
+        out.close()
+        vdoc.close()
