@@ -371,6 +371,101 @@ def test_none_is_not_offered_as_a_filter_because_it_can_never_match(dead_hotspot
     assert "none" not in message.split("has ")[1]
 
 
+# ---- a destination spelled as a string (M138.2 / TC-019) -----------------------
+
+
+@pytest.fixture
+def view_dest_pdf(tmp_path) -> str:
+    """A `/S /GoTo /D [<page> 0 R /Fit]` link — read back as `kind: named`, `page: '3'` (a str).
+
+    Hand-built: `insert_link` cannot produce this shape, which is precisely why a crash on it
+    reached a real document (the owner's 128-page Cisco annual report, 18 of 119 links) before any
+    fixture had it.
+    """
+    path = str(tmp_path / "viewdest.pdf")
+    doc = fitz.open()
+    for _ in range(4):
+        doc.new_page()
+    doc[2].insert_text((72, 100), "target page", fontsize=11)
+    doc[0].insert_text((72, 100), "Letter to stockholders", fontsize=11)
+    height = doc[0].rect.height
+    annot, action = doc.get_new_xref(), doc.get_new_xref()
+    doc.update_object(action, "<< /S /GoTo /D [ %d 0 R /Fit ] >>" % doc.page_xref(2))
+    doc.update_object(annot, "<< /Type/Annot /Subtype/Link /Rect [70 %g 220 %g] "
+                             "/Border[0 0 0] /A %d 0 R >>"
+                             % (height - 104, height - 88, action))
+    doc.xref_set_key(doc.page_xref(0), "Annots", "[%d 0 R]" % annot)
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def test_a_string_spelled_target_does_not_crash_the_call(view_dest_pdf):
+    """TC-019's headline. `'3' >= 0` raises `TypeError`, and because the comparison sat in the row
+    builder it failed the **whole document** — 101 healthy links taken down with 18 sick ones, and
+    the error reaching the agent as a raw Python message naming no page, link or field."""
+    result = queries.links(view_dest_pdf)
+    assert result["total_links"] == 1
+
+
+def test_a_string_spelled_target_resolves_to_the_right_page(view_dest_pdf):
+    """And it resolves rather than merely degrading. The destination names `page_xref(2)`, so the
+    answer is 1-based page 3; reading the string as 0-based would give 4 — a real, adjacent page,
+    which is what makes the off-by-one worth a test of its own."""
+    (entry,) = queries.links(view_dest_pdf)["links"]
+    assert entry["target_page"] == 3
+    assert entry["text"] == "Letter to stockholders"
+
+
+def test_an_unresolvable_internal_link_is_reported_not_dropped(tmp_path):
+    """A named destination missing from the document's own name tree. The row is still a row — its
+    rectangle and anchor text are true — and `links_with_unresolved_target` says the target is not.
+    """
+    path = str(tmp_path / "dangling.pdf")
+    doc = fitz.open()
+    for _ in range(3):
+        doc.new_page()
+    doc[0].insert_text((72, 100), "goes nowhere", fontsize=11)
+    doc[0].insert_link({"kind": fitz.LINK_NAMED, "from": fitz.Rect(70, 88, 200, 104),
+                        "name": "no-such-name"})
+    doc.save(path)
+    doc.close()
+
+    result = queries.links(path)
+    assert result["total_links"] == 1
+    assert result["links"][0]["target_page"] is None
+    assert result["links"][0]["text"] == "goes nowhere"
+    assert result["links_with_unresolved_target"] == 1
+
+
+def test_a_target_past_the_last_page_is_not_reported_as_a_page(tmp_path):
+    """The range check the bridge adds over the shared resolver. The viewer and the save path both
+    look the index up in a page map, so a miss simply drops the link; this tool would print it, and
+    `target_page: 900` on a 3-page document sends a reader somewhere that does not exist."""
+    path = str(tmp_path / "past_end.pdf")
+    doc = fitz.open()
+    for _ in range(3):
+        doc.new_page()
+    height = doc[0].rect.height
+    annot, action = doc.get_new_xref(), doc.get_new_xref()
+    # A destination naming a page object that is not in this document's page tree.
+    doc.update_object(action, "<< /S /GoTo /D [ 900 0 R /Fit ] >>")
+    doc.update_object(annot, "<< /Type/Annot /Subtype/Link /Rect [70 %g 220 %g] "
+                             "/Border[0 0 0] /A %d 0 R >>" % (height - 104, height - 88, action))
+    doc.xref_set_key(doc.page_xref(0), "Annots", "[%d 0 R]" % annot)
+    doc.save(path)
+    doc.close()
+
+    result = queries.links(path)
+    for entry in result["links"]:
+        assert entry["target_page"] is None or 1 <= entry["target_page"] <= 3
+
+
+def test_an_ordinary_document_reports_no_unresolved_targets(linked_pdf):
+    """The common case stays quiet, so a non-zero value means something."""
+    assert queries.links(linked_pdf)["links_with_unresolved_target"] == 0
+
+
 # ---- narrowing ----------------------------------------------------------------
 
 

@@ -25,6 +25,7 @@ from contextlib import contextmanager
 
 import pymupdf as fitz
 
+from klarpdf.model.links_remap import internal_link_target
 from klarpdf.model.page_text import PageText
 from klarpdf.model.virtual_document import PasswordRequired, VirtualDocument
 
@@ -232,15 +233,17 @@ _LINK_KINDS = {
     fitz.LINK_GOTOR: "gotor",
 }
 
-# The kinds whose `page` names a page in **this** document. `LINK_GOTOR` also carries a `page`, and
-# it is a page in the *other* file — reporting it as `target_page` would tell a caller a link jumps
-# to their page 4 when it opens someone else's. This is the same restriction
-# `model/links_remap.py:internal_link_target` makes for the same reason, and it is measured: a
-# `LINK_LAUNCH` written with no page at all reads back as `{"kind": 5, "page": 0, ...}`.
-_INTERNAL_KINDS = (fitz.LINK_GOTO, fitz.LINK_NAMED)
-
 # The kinds that name a file rather than a page — `file` is where they point, and is as much part
 # of "where does this document send me" as a URI is.
+#
+# There is no matching `_INTERNAL_KINDS` here any more, and its absence is the point (M138.2). The
+# internal-target rule lives in `model/links_remap.py:internal_link_target` and is *imported*: this
+# module had its own copy, which agreed with the model on the restriction that matters — a
+# `LINK_GOTOR`'s `page` belongs to the *other* file, so it is never a `target_page` — and then
+# diverged on the part it had not measured. The model guards `isinstance(page, int)`; the copy
+# tested `page >= 0`, which raises `TypeError` on the string spelling PyMuPDF hands back for a
+# destination it could not pattern-match, and took a whole 119-link document down over 18 of them
+# (TC-019). One rule, one place, read by the viewer and the bridge alike.
 _FILE_KINDS = (fitz.LINK_LAUNCH, fitz.LINK_GOTOR)
 
 
@@ -252,7 +255,9 @@ def _kind_name(link: dict) -> str:
     return _LINK_KINDS.get(kind, str(kind))
 
 
-def _describe_link(link: dict, page: fitz.Page, page_number: int, text: PageText) -> dict:
+def _describe_link(
+    link: dict, page: fitz.Page, page_number: int, page_count: int, text: PageText
+) -> dict:
     """One ``get_links()`` entry as the tool reports it, with its anchor text read off the page.
 
     **The rect is derotated, and that is not cosmetic** (M138.1). ``page.get_links()`` reports a
@@ -275,19 +280,35 @@ def _describe_link(link: dict, page: fitz.Page, page_number: int, text: PageText
     """
     box = tuple(link["from"] * page.derotation_matrix)
     kind = link.get("kind", fitz.LINK_NONE)
-    target = link.get("page", -1)
     anchor = text.word_text_under(box)
     return {
         "page": page_number,
         "rect": [round(v, 2) for v in box],
         "kind": _kind_name(link),
-        # 1-based like every other page number here; `get_links` reports the target 0-based, and an
-        # unresolved named destination comes back as -1.
-        "target_page": target + 1 if kind in _INTERNAL_KINDS and target >= 0 else None,
+        "target_page": _target_page(link, page_count),
         "uri": link.get("uri") if kind == fitz.LINK_URI else None,
         "file": link.get("file") if kind in _FILE_KINDS else None,
         "text": anchor or None,
     }
+
+
+def _target_page(link: dict, page_count: int) -> int | None:
+    """The **1-based** page an internal link jumps to, or ``None`` when it names none.
+
+    The resolution itself is :func:`~model.links_remap.internal_link_target`, shared with the
+    viewer's click navigation and with the save path's link remap, so all three agree on what a
+    destination means — including that PyMuPDF spells the target page two ways with two different
+    bases, which that function documents and measures.
+
+    What is added here is the **range check**, which the other two callers get for free: they look
+    the index up in a page map and a miss simply drops the link, while this one would otherwise
+    print it. A destination naming page 900 of a 128-page document is a broken link, and answering
+    ``900`` sends a reader somewhere that does not exist.
+    """
+    index = internal_link_target(link)
+    if index is None or index >= page_count:
+        return None
+    return index + 1
 
 
 def _resolve_kinds(kinds: list[str] | None) -> set[str] | None:
@@ -372,6 +393,7 @@ def links(
         all_found: list[dict] = []
         by_kind: Counter[str] = Counter()
         without_action = 0
+        unresolved = 0
         for index0 in indices:
             page = _page_of(vdoc, index0)
             # The word index is the cost of this loop, so it is built only once a link on this
@@ -395,7 +417,10 @@ def links(
                     continue
                 if text is None:
                     text = PageText(page)
-                all_found.append(_describe_link(link, page, index0 + 1, text))
+                entry = _describe_link(link, page, index0 + 1, vdoc.page_count, text)
+                if entry["target_page"] is None and entry["kind"] in ("goto", "named"):
+                    unresolved += 1
+                all_found.append(entry)
         total = len(all_found)
         found: list[dict] = []
         used = 0
@@ -423,6 +448,12 @@ def links(
             # `total_links` and a raw `/Subtype/Link` count, and saying so is what makes that
             # reconciliation possible.
             "links_without_action": without_action,
+            # An internal link that named no page this tool could find — a destination missing from
+            # the document's own name tree, or one pointing past its last page. The row is still
+            # returned, with `target_page: null`: it is a real link and its rectangle and anchor
+            # text are still true, so dropping it would hide a broken document rather than report
+            # one. Counted over the rows actually returned, so it moves with `kinds` and `offset`.
+            "links_with_unresolved_target": unresolved,
             "pages_scanned": [i + 1 for i in indices],
             "source": os.path.abspath(path),
             "more_available": more_available,

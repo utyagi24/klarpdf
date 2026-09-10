@@ -6525,6 +6525,77 @@ document has one and PyMuPDF rewrites a `LINK_LAUNCH` written through `insert_li
 so the kind is reachable in the mapping and unproven in the wild. `gotor` itself *is* covered, by
 the unit test that pins `target_page: null` for it.
 
+#### M138.2 — one destination, two spellings, three broken surfaces *(2026-09-09, unplanned)*
+
+**TC-018** replayed the four TC-017 documents at identical md5 and passed all three fixes, testing
+the rotation claim on a **real** natively-rotated page (`xfinity_06-09-2026.pdf` page 2 at 270°)
+rather than the constructed ones M138.1 shipped with — a stronger control than we had. It filed one
+low: the `kind` enumeration in `klarpdf://docs/get_links` still listed `none` three bullets above
+the sentence saying no such row exists. Fixed by deletion.
+
+**TC-019** then found `get_links` **failing an entire 128-page document** — the owner's Cisco 2025
+annual report — with a raw `TypeError: '>=' not supported between instances of 'str' and 'int'`,
+taking 101 healthy links down with 18 that PyMuPDF classified `named`. The owner reported the
+matching app symptom independently: *"in KlarPDF I am not able to click on the page numbers listed
+under Contents on Page 3 … in Edge those page numbers are clickable and navigate correctly."*
+
+**The report's root cause is wrong, and the difference matters.** TC-019 concluded that *"every
+named destination in this document has `null` where its page should be — an InDesign export
+artifact"*, measured from a raw parse showing `[null /Fit]`, and proposed degrading to
+`target_page: null`. The destinations are **fine**. Reading the annotation's own action object:
+
+    /A 5901: << /S /GoTo /D [ 46 0 R /Fit ] >>
+
+— an ordinary explicit destination whose first element is an **indirect reference to a page**. The
+report's parser did not resolve `46 0 R` and rendered it null. Had we taken the suggested fix we
+would have permanently reported `null` for 18 perfectly good links, and called it correct.
+
+**What is actually happening is in PyMuPDF, and it is a numbering trap.** MuPDF renders every
+destination as a URI; `getLinkDict` converts `#page=N` and `#page=N&zoom=…` into a **0-based int**
+and relabels the link `LINK_GOTO`. Anything else — `&view=Fit` above all — falls through to a
+generic `uri_to_dict` split that leaves every value a **string**, still **1-based**, and labels the
+link `LINK_NAMED`. So `get_links()` reports a destination page two ways:
+
+| spelling | source | base | measured |
+|---|---|---|---|
+| `int` | `Document.resolve_names()` | **0-based** | `kasaragodhr.pdf`: `page=5` is the 6th page, printed folio `06` |
+| `str` | `getLinkDict`'s URI fallback | **1-based** | Cisco: `page='4'` is the 4th page, printed folio `2` |
+
+Reading either as the other is an **off-by-one that lands on a real adjacent page** — plausible,
+silent, and unfalsifiable without an external check. Both were verified against independent
+evidence: five of the six Cisco Contents entries match the document's own outline exactly
+(*Letter to stockholders → 4*, *Fiscal 2025 highlights → 6*, …), and the sixth, absent from the
+outline, lands on the page whose text reads *"People, Policy, and Purpose"*.
+
+**One root cause, three broken surfaces — which is the `CLAUDE.md` §two-consumers rule doing exactly
+what it warns about.** The resolution lives in `model/links_remap.py:internal_link_target`, and it
+guarded `isinstance(page, int)` — correctly refusing to crash, and silently returning `None`:
+
+* **The bridge** never called it. `queries.py` had its own copy that tested `page >= 0` without the
+  type guard, so it *crashed* where the model would merely have declined. The copy existed because
+  M138 needed a 1-based answer and wrote one rather than converting the model's. **It is now
+  deleted**: `_target_page` calls `internal_link_target` and adds only the range check.
+* **The viewer** called it and got `None`, so `LinkNavigator._build` skipped the link entirely —
+  no cursor, no navigation, no error. That is the owner's reported symptom, and it was never a GUI
+  bug.
+* **The save path** called it and got `None`, so `remap_internal_links` **dropped every one of
+  those 18 links** from any reordered or deleted output. Nobody had reported this and no test
+  covered it; it was found by asking what else read the same function.
+
+**Why no fixture had this shape.** `insert_link` cannot write it — every destination written
+through the API comes back as a 0-based int, so the string spelling is unreachable from any
+test the project could have written the ordinary way. All three fixtures here are hand-built
+raw-PDF objects, and each carries a control asserting PyMuPDF really does hand back a string, so a
+future PyMuPDF that normalises this makes the tests say so rather than pass vacuously. This is the
+same lesson as M138.1's rotation gap one turn later: *the shapes a convenience API can produce are
+not the shapes real documents contain.*
+
+**The new reply field.** TC-019 asked for a counter beside `links_without_action`, and it is worth
+having even though the Cisco links now all resolve: `links_with_unresolved_target` counts returned
+rows whose `target_page` is `null` — a destination the document genuinely does not define. The row
+is still returned, because its rectangle and anchor text are true and only its destination is not.
+Unlike `links_without_action` it counts what came back, so it moves with `kinds` and `offset`.
+
 #### M139 — `set_outline`
 
 Write a table of contents into a copy of the document. The entry shape is `[{level, title, page}]`,

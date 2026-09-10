@@ -655,6 +655,34 @@ is left over.
   a 6-page bill correctly returns **0 links** while *printing* five URLs as ordinary glyphs, which
   viewers auto-linkify: not a defect, an over-promise, fixed in prose. Seven new tests, each
   confirmed by reverting the behaviour and watching it fail.
+- [x] **M138.2** *(unplanned)* **One destination, two spellings, three broken surfaces** —
+  2026-09-09, from **TC-019** plus the owner's own report that *"in KlarPDF I am not able to click
+  on the page numbers listed under Contents on Page 3 of the Cisco Annual report; in Edge those
+  page numbers are clickable"*. `get_links` failed the **whole 128-page document** with a raw
+  `TypeError: '>=' not supported between instances of 'str' and 'int'`, losing 101 healthy links
+  with 18 sick ones. Design in `PLAN.md` §M138.2 — *WSL*
+  ([#342](https://github.com/utyagi24/klarpdf/pull/342)).
+
+  **TC-019's root cause is wrong and the fix it proposed would have been a permanent wrong answer.**
+  The report concluded the destinations hold `null` where a page should be and suggested degrading
+  to `target_page: null`; the annotations' own actions read `<< /S /GoTo /D [ 46 0 R /Fit ] >>` —
+  ordinary explicit destinations, whose indirect page reference the report's raw parser did not
+  resolve. Taking the suggestion would have reported `null` for 18 good links and called it correct.
+  The real cause is in PyMuPDF: `getLinkDict` converts `#page=N` and `#page=N&zoom=…` to a **0-based
+  int**, and everything else — `&view=Fit` above all — falls through to a string split that leaves
+  the page a **1-based str** and relabels the link `named`. **Reading either as the other is an
+  off-by-one that lands on a real adjacent page**, so both bases are now measured and pinned.
+
+  **Three surfaces, one function.** `model/links_remap.py:internal_link_target` had the type guard
+  and returned `None`; the **bridge** never called it (it had its own weaker copy, which crashed
+  instead of declining — now deleted), the **viewer** called it and silently skipped the link, which
+  is the owner's symptom and was never a GUI bug, and the **save path** called it and **dropped all
+  18 links from any reordered output** — unreported, untested, found by asking what else read the
+  same function. **No fixture could have caught it**: `insert_link` cannot write this shape, so all
+  three new fixtures are hand-built raw PDF, each with a control asserting PyMuPDF really does
+  return a string. Also fixes **TC-018's** one new low — the docs listed a `none` kind three bullets
+  above the sentence denying it — and adds `links_with_unresolved_target`, TC-019's suggested
+  counter. Eleven new tests across the three surfaces, each confirmed by reverting the fix.
 - [ ] **M139** **`set_outline`** — write `[{level, title, page}]` into a copy as real bookmarks;
   the same shape `get_outline` returns and `remapped_toc()` produces. **The sink for M138 and
   M140 alike** — an agent supplies entries derived from links (M138, the primary and exact source),
