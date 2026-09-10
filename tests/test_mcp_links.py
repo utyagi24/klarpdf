@@ -466,6 +466,66 @@ def test_an_ordinary_document_reports_no_unresolved_targets(linked_pdf):
     assert queries.links(linked_pdf)["links_with_unresolved_target"] == 0
 
 
+# ---- `kind` describes the document, not the parse (M138.3) ---------------------
+
+
+def test_an_explicit_destination_is_a_goto_however_it_is_viewed(view_dest_pdf):
+    """`<< /S /GoTo /D [<page> 0 R /Fit] >>` has no nickname and no lookup table, so it is a
+    `goto` — even though PyMuPDF labels it `LINK_NAMED` because its URI pattern-match only
+    recognises `#page=N` and `#page=N&zoom=…`, and this one renders as `#page=3&view=Fit`.
+
+    On the Cisco annual report this is 18 links sitting beside 95 identical ones whose only
+    difference is a `/XYZ` view instead of `/Fit`.
+    """
+    (entry,) = queries.links(view_dest_pdf)["links"]
+    assert entry["kind"] == "goto"
+    assert entry["target_page"] == 3
+
+
+def test_the_library_really_does_mislabel_it(view_dest_pdf):
+    """The control. If PyMuPDF ever classifies this correctly the correction becomes dead code, and
+    this should say so rather than letting the test above pass for a new reason."""
+    doc = fitz.open(view_dest_pdf)
+    (link,) = doc[0].get_links()
+    doc.close()
+    assert link["kind"] == fitz.LINK_NAMED
+    assert "nameddest" not in link
+
+
+def test_a_real_named_destination_is_still_named(named_dest_pdf):
+    """The other direction, and the reason the correction is narrow. This link *does* carry a
+    nickname resolved through the document's name table, so `named` is the truthful answer and
+    must survive — the distinction is only worth reporting if it still means something."""
+    (entry,) = queries.links(named_dest_pdf)["links"]
+    assert entry["kind"] == "named"
+    assert entry["target_page"] == 3
+
+
+def test_a_named_destination_that_does_not_resolve_stays_named(tmp_path):
+    """A nickname the document never defined is still a nickname. The lookup failing is a fact
+    about the document, not about the parse, so relabelling it `goto` would be a second error on
+    top of the document's own."""
+    path = str(tmp_path / "dangling.pdf")
+    doc = fitz.open()
+    for _ in range(3):
+        doc.new_page()
+    doc[0].insert_link({"kind": fitz.LINK_NAMED, "from": fitz.Rect(70, 88, 200, 104),
+                        "name": "no-such-name"})
+    doc.save(path)
+    doc.close()
+
+    (entry,) = queries.links(path)["links"]
+    assert entry["kind"] == "named"
+    assert entry["target_page"] is None
+
+
+def test_filtering_goto_finds_every_explicit_jump(view_dest_pdf):
+    """The point of the change, from the caller's side: `["goto"]` no longer misses links that were
+    never named. On the Cisco report this moves 95 to 113."""
+    assert queries.links(view_dest_pdf, kinds=["goto"])["total_links"] == 1
+    assert queries.links(view_dest_pdf, kinds=["named"])["total_links"] == 0
+
+
 # ---- narrowing ----------------------------------------------------------------
 
 
