@@ -427,7 +427,7 @@ error, never a silent clamp. Every tool takes an optional `password` — see
 |---|---|
 | `get_info` | Pages, size, page sizes, encryption + permissions, **has-text-layer**, outline. Call it first. |
 | `get_outline` | Bookmarks as `{level, title, page}`. |
-| `get_links` | Every link: where it points (`target_page` / `uri` / `file`), its `rect`, and the words under it. The structure a document carries when it has no bookmarks, and the only view of where it points outwards. |
+| `get_links` | Every link: where it points (`target_page` / `uri` / `file`), its `rect`, and the words under it. The structure a document carries when it has no bookmarks. Link *annotations* only — a URL merely typeset on the page is not one, so pair it with `search` for a privacy sweep. |
 | `search` | Hits with page, snippet, box, and whether the text is `invisible` on the page. `match_case`, `whole_words`. |
 | `extract_text` | Text of named pages. |
 | `render_page` | One page — or one `clip` region of it — as a PNG image block. |

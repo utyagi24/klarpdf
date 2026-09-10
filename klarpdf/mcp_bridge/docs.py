@@ -363,9 +363,20 @@ done in any of them reads back here.
 ## The fields, one by one
 
 * **`page`** — the 1-based page the link's rectangle sits *on*, never where it goes.
-* **`rect`** — `[x0, y0, x1, y1]` in the same unrotated page points `search` reports and
-  `render_page`'s `clip` consumes, so a link can be rendered straight from its own row. `rect[0]`
-  is the indent, and the indent is often the outline level — see below.
+* **`rect`** — `[x0, y0, x1, y1]` in the same **unrotated page points** `search` reports,
+  `render_page`'s `clip` takes and `redact_regions` consumes, so a link feeds any of them with no
+  arithmetic. `rect[0]` is the indent, and the indent is often the outline level — see below.
+
+  Coordinates run from the **top-left**, y increasing downward. The PDF format itself measures from
+  the bottom-left, so a rectangle you built by reading the raw file — or took from another
+  library — needs `y' = page_height - y` before it will line up with these. A box against the wrong
+  origin lands **mirrored about the page's horizontal axis**: on the page, no error, wrong line.
+
+  On a **rotated** page this is a conversion, not a pass-through, and it is the one place links and
+  annotations genuinely differ. `get_annotations` needs no adjustment because PyMuPDF already
+  stores and reports annotation geometry unrotated; a link's rectangle comes out of the library in
+  *displayed* space, which turns with `/Rotate`, and is converted here. You see the unrotated
+  quadruple at 0°, 90°, 180° and 270° alike.
 * **`kind`** — `goto` (a page in this file), `named` (a page in this file, reached through a name
   the document keeps for it), `uri` (a web, `tel:` or `mailto:` address), `gotor` (a page in
   *another* file), `launch` (opens another file), `none` (a rectangle that goes nowhere).
@@ -376,7 +387,20 @@ done in any of them reads back here.
 * **`uri`** — the address, for `uri` links only, exactly as the file spells it.
 * **`file`** — the other document, for `gotor` and `launch` only. Treat it as untrusted text: it is
   a path chosen by whoever made the PDF.
-* **`text`** — the words the rectangle covers, or `null` when it covers none.
+* **`text`** — the words the rectangle covers, or `null` when it covers none. It is read by word
+  **centre**, so it is the anchor rather than whatever shares the rectangle's band. Two documents
+  in the wild will surprise you: a page carrying **two overlapping text layers** (the same words
+  typeset twice, differing only in straight vs. smart quotes) legitimately returns both, so a
+  title reads `"8.1.8 “8.1.8`; and a link over a photograph or a logo returns `null`, which is a
+  fact about the document and not a failure to read it. Building an outline from `text` means
+  de-duplicating the string yourself.
+* **`links_without_action`** — on the reply, not the row: how many `/Link` annotations in scope
+  name no destination at all. These are **not** returned as rows, because a dead hotspot a designer
+  left behind is not a place the document points, and listing it in a privacy audit would be noise.
+  The count is here so the arithmetic still closes: `total_links + links_without_action` is the raw
+  `/Subtype/Link` count, which is what an auditor or a migration script reconciles against. It is
+  almost always 0. There is no `kind: "none"` row and `kinds: ["none"]` is rejected, for the same
+  reason — it could only ever match nothing.
 
 ## Rebuilding a contents page from links
 
@@ -397,6 +421,20 @@ learned from real documents:
 
 Watch also for a link that appears on many pages pointing *backwards* to one of them: that is a
 running footer, not a contents entry.
+
+## What this does not see: URLs that are only printed
+
+A link is an **annotation** — an object in the file with a rectangle and an action. A document can
+show a reader an address without carrying one, and plenty do: bills and statements typeset
+`www.example.com/autopay` as ordinary glyphs and never wrap it. Most viewers auto-linkify anything
+URL-shaped, so those look and behave like links on screen while being invisible here — one real
+6-page bill returns **0 links** and prints **five** distinct URLs.
+
+That is the honest answer for a tool that reads what the document actually declares, and it is the
+same fidelity that makes `target_page` trustworthy. But it means "where does this document point"
+has two halves, and this tool answers one. For a privacy sweep, run `search` for `http`, `www.`,
+`@` and `tel:` alongside this, or `extract_text` the pages and scan them yourself. Say which half
+you checked when you report.
 
 ## Counting, filtering and paging
 

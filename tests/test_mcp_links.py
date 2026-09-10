@@ -230,6 +230,147 @@ def test_indent_survives_as_the_level_signal(contents_pdf):
     assert indents == [72.0, 96.0]
 
 
+# ---- rotation: the space the rect is reported in (M138.1) ----------------------
+
+
+@pytest.mark.parametrize("rotation", [0, 90, 180, 270])
+def test_the_rect_is_unrotated_at_every_rotation(tmp_path, rotation):
+    """`search`, `redact_regions` and `clip` all work unrotated, so link rects must too.
+
+    Unlike `get_annotations`, this one **is** a conversion: `page.get_links()` reports in
+    *displayed* space, which turns with `/Rotate`, while `annot.rect` does not. The two APIs look
+    like siblings and disagree, and no document in the test corpus has a rotated page — so nothing
+    but this test can catch it (TC-017 FINDING 2, and the half of it the report could not see).
+    """
+    path = str(tmp_path / f"rot{rotation}.pdf")
+    box = fitz.Rect(70, 88, 220, 104)
+    doc = fitz.open()
+    page = doc.new_page(width=400, height=700)
+    page.insert_text((72, 100), "ROTATED-ANCHOR", fontsize=12)
+    page.insert_link({"kind": fitz.LINK_URI, "from": box, "uri": "https://example.invalid/rot"})
+    page.set_rotation(rotation)
+    doc.save(path)
+    doc.close()
+
+    (entry,) = queries.links(path)["links"]
+    assert entry["rect"] == pytest.approx(list(box), abs=0.05)
+
+
+@pytest.mark.parametrize("rotation", [0, 90, 180, 270])
+def test_anchor_text_survives_rotation(tmp_path, rotation):
+    """The silent half of the same defect, and the reason the fix belongs in one place.
+
+    `PageText` indexes `get_text("words")` in unrotated space, so before the derotation no word
+    centre could fall inside a rotated link's rectangle and every anchor on a rotated page came
+    back `null` — a wrong answer that looks exactly like the documented, legitimate "this link
+    covers no words" case.
+    """
+    path = str(tmp_path / f"rot{rotation}.pdf")
+    doc = fitz.open()
+    page = doc.new_page(width=400, height=700)
+    page.insert_text((72, 100), "ROTATED-ANCHOR", fontsize=12)
+    page.insert_link({"kind": fitz.LINK_URI, "from": fitz.Rect(70, 88, 220, 104),
+                      "uri": "https://example.invalid/rot"})
+    page.set_rotation(rotation)
+    doc.save(path)
+    doc.close()
+
+    (entry,) = queries.links(path)["links"]
+    assert entry["text"] == "ROTATED-ANCHOR"
+
+
+def test_a_link_rect_feeds_search_geometry_on_a_rotated_page(tmp_path):
+    """The hand-off the conversion exists for, asserted rather than reasoned about.
+
+    "Redact every external link on this page" is the tool's own privacy use case, and it is a
+    composition: the rect goes to `redact_regions`, which works unrotated. Comparing against
+    `search_for` on the same words is the check that the two agree.
+    """
+    path = str(tmp_path / "rot90.pdf")
+    doc = fitz.open()
+    page = doc.new_page(width=400, height=700)
+    page.insert_text((72, 100), "ROTATED-ANCHOR", fontsize=12)
+    page.insert_link({"kind": fitz.LINK_URI, "from": fitz.Rect(70, 88, 220, 104),
+                      "uri": "https://example.invalid/rot"})
+    page.set_rotation(90)
+    doc.save(path)
+    doc.close()
+
+    (entry,) = queries.links(path)["links"]
+    doc = fitz.open(path)
+    (hit,) = doc[0].search_for("ROTATED-ANCHOR")
+    doc.close()
+    assert entry["rect"][0] <= hit.x0 and hit.x1 <= entry["rect"][2]
+    assert entry["rect"][1] <= hit.y0 + 1 and hit.y1 <= entry["rect"][3] + 1
+
+
+# ---- a /Link that points nowhere (M138.1) --------------------------------------
+
+
+@pytest.fixture
+def dead_hotspot_pdf(tmp_path) -> str:
+    """A `/Link` annotation with a `/Rect` but no `/A` and no `/Dest`, beside a live one.
+
+    The shape of `kasaragodhr.pdf`'s obj 597, found by TC-017: a dead hotspot a designer left
+    behind, referenced from the page's `/Annots` and reachable, pointing at nothing. Built by hand
+    because `insert_link` will not write one — which is also why no fixture had this shape before.
+    """
+    path = str(tmp_path / "dead.pdf")
+    doc = fitz.open()
+    doc.new_page()
+    doc.new_page()
+    doc[0].insert_text((72, 100), "live link", fontsize=11)
+    doc[0].insert_link({"kind": fitz.LINK_GOTO, "from": fitz.Rect(70, 88, 200, 104),
+                        "page": 1, "to": fitz.Point(0, 0)})
+    doc.save(path)
+    doc.close()
+
+    doc = fitz.open(path)
+    xref = doc.get_new_xref()
+    doc.update_object(xref, "<< /Type/Annot /Subtype/Link /Rect [70 118 200 134] /Border[0 0 0] >>")
+    kind, array = doc.xref_get_key(doc.page_xref(0), "Annots")
+    assert kind == "array"
+    doc.xref_set_key(doc.page_xref(0), "Annots", f"{array[:-1]} {xref} 0 R]")
+    doc.saveIncr()
+    doc.close()
+    return path
+
+
+def test_a_link_with_no_destination_is_not_a_row(dead_hotspot_pdf):
+    """PyMuPDF omits it and that is the right default — it is not a place the document points, and
+    surfacing it in a privacy audit would be noise."""
+    result = queries.links(dead_hotspot_pdf)
+    assert result["total_links"] == 1
+    assert result["links"][0]["kind"] == "goto"
+
+
+def test_a_link_with_no_destination_is_counted_so_the_arithmetic_closes(dead_hotspot_pdf):
+    """The gap TC-017 FINDING 1 is about: dropping it is right, dropping it *silently* is not.
+
+    An auditor reconciling this reply against a raw `/Subtype/Link` count found 156 against 157 on
+    a real document with nothing in the reply to explain the difference. Now the reply carries it.
+    """
+    result = queries.links(dead_hotspot_pdf)
+    assert result["links_without_action"] == 1
+    assert result["total_links"] + result["links_without_action"] == 2   # the raw /Link count
+
+
+def test_an_ordinary_document_reports_no_action_less_links(linked_pdf):
+    """The common case stays quiet: a number that is almost always 0 must actually be 0."""
+    assert queries.links(linked_pdf)["links_without_action"] == 0
+
+
+def test_none_is_not_offered_as_a_filter_because_it_can_never_match(dead_hotspot_pdf):
+    """It was advertised in the error message and matched nothing on the very document that has an
+    action-less link — the same false statement `_resolve_kinds` exists to prevent, made by the
+    error message instead of the reply (TC-017 FINDING 1)."""
+    with pytest.raises(ValueError) as excinfo:
+        queries.links(dead_hotspot_pdf, kinds=["none"])
+    message = str(excinfo.value)
+    assert "'none'" in message
+    assert "none" not in message.split("has ")[1]
+
+
 # ---- narrowing ----------------------------------------------------------------
 
 

@@ -403,26 +403,27 @@ def create_server(config: Config | None = None) -> MCPServer:
         `text` under it, and where it points — `target_page` for an internal jump, `uri` for a web
         address, `file` for another document. Plus `kinds`, a count per kind over the whole scope.
 
-        Two different questions, both unanswerable any other way. **Where does this document point
+        Two questions, both unanswerable any other way. **Where does this document point
         outwards** — its web addresses, `tel:` numbers and mail addresses, each with the words it is
         anchored on, which is a privacy question as much as a navigation one. And **what is its
         structure**, when `get_outline` returns nothing: a printed contents page is usually a stack
-        of links, and each one already carries its title (the `text`), its target (`target_page`)
-        and its level (the indent, `rect[0]`) — authored by the publisher, not inferred from
-        typography, and exact where a heading detector would be guessing.
+        of links, each already carrying its title (`text`), its target (`target_page`) and its level
+        (the indent, `rect[0]`) — authored by the publisher, exact where a heading detector guesses.
 
-        Links are *not* annotations, whatever the PDF spec says: `get_annotations` returns none of
-        these, so this is the only tool that sees them.
+        It reads **link annotations**. A URL merely typeset on the page carries none and is not
+        here, though most viewers auto-linkify it so it looks clickable — for a privacy sweep, pair
+        this with `search`. In the other direction `get_annotations` returns none of these, so this
+        is the only tool that sees them.
 
-        Nothing is deduplicated or dropped. A contents entry linked twice — on its photograph and
-        on its caption — is two rows, and the photograph's has `text: null` because its rectangle
-        covers no words. Both are true about the file; deciding which is a contents entry is yours.
+        Nothing is deduplicated: an entry linked on both its photograph and its caption is two rows,
+        the photograph's with `text: null`. A `/Link` naming no destination is not a row —
+        `links_without_action` counts those. `rect` is unrotated with a top-left origin, at every
+        page rotation, so it feeds `redact_regions` untouched.
 
-        `kinds` filters before the caps (`["uri"]` for the external ones, `["goto", "named"]` for
-        internal jumps), `pages` narrows to a range. The reply **paginates**: when `more_available`
-        is true, call again with `offset` set to this reply's `offset + count`. Never report "these
-        are all the links" from a reply that says there are more. Field contract in
-        `klarpdf://docs/get_links`.
+        `kinds` filters before the caps (`["uri"]` for external, `["goto", "named"]` for internal),
+        `pages` narrows to a range. The reply **paginates**: when `more_available` is true, call
+        again with `offset` set to this reply's `offset + count`. Never report "these are all the
+        links" from a reply that says there are more. Field contract in `klarpdf://docs/get_links`.
         """
         return queries.links(
             check(path),
