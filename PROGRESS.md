@@ -683,6 +683,27 @@ is left over.
   return a string. Also fixes **TC-018's** one new low — the docs listed a `none` kind three bullets
   above the sentence denying it — and adds `links_with_unresolved_target`, TC-019's suggested
   counter. Eleven new tests across the three surfaces, each confirmed by reverting the fix.
+- [x] **M138.3** *(unplanned)* **`kind` describes the document, not the parse** — 2026-09-10, the
+  owner's decision on the judgement call M138.2 flagged and left open: *"I would rather have `goto`
+  mean `goto` and `named` mean `named`."* PyMuPDF labels an ordinary
+  `<< /S /GoTo /D [46 0 R /Fit] >>` as `LINK_NAMED` because its URI pattern-match only recognises
+  `#page=N` and `#page=N&zoom=…`; `get_links` reported that label, so **18 of the Cisco report's
+  113 internal links were invisible to `kinds: ["goto"]`**. They are `goto` now, and `named` means
+  only what it says: a link that writes a *nickname* the document keeps a lookup table for — the
+  kind that breaks when the table is incomplete, which is a real thing to be able to ask about.
+  The discriminator is `nameddest`, which PyMuPDF sets **only** on the branch that resolved a name;
+  verified with no overlap on two real documents (all 18 Cisco links lack it, all 37 of
+  `kasaragodhr.pdf`'s genuine named destinations carry it). A nickname that fails to resolve stays
+  `named`. Five new tests bracketing the change from **both** sides — under-applying fails the
+  `goto` cases, over-applying fails the `named` ones. Design in `PLAN.md` §M138.3 — *WSL*
+  ([#343](https://github.com/utyagi24/klarpdf/pull/343)).
+
+  **Follow-up closed 2026-09-10** ([#346](https://github.com/utyagi24/klarpdf/pull/346)): a document
+  holding **both** kinds, carried as untested by TC-021 through TC-024. No corpus document is a
+  mixture and `merge` cannot make one — the `/Names` tree does not survive a page move, so a merged
+  document is uniformly `goto` — so it needed a constructed fixture. It is the correction's
+  strongest control: over-applying it now fails six tests rather than three.
+
 - [x] **M138.4** *(unplanned)* **The outline a page move leaves pointing nowhere** — 2026-09-10,
   from **TC-022**. Merging a 128-page annual report returned a document whose outline had gone from
   39 entries to 2, silently. **The real shape is worse than "dropped": the bookmarks are written

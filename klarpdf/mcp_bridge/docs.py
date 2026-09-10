@@ -382,11 +382,17 @@ done in any of them reads back here.
   another file). There is no `none` row: a rectangle that goes nowhere is counted in
   `links_without_action` instead, and `kinds: ["none"]` is rejected.
 
-  **`goto` and `named` are one question, not two**, and which you get is not a fact about the
-  document you can rely on. Both mean "a page in this file"; the split reflects how the library
-  parsed the destination, and a plain internal jump lands in `named` whenever its destination
-  carries a `/Fit`-style view rather than a zoom — 18 of one annual report's 119 links do. Filter
-  internal navigation with `["goto", "named"]`, never `["goto"]` alone.
+  **`goto` and `named` both mean "a page in this file", and the difference is real.** A `goto`
+  link writes its destination down. A `named` link writes a *nickname* — `Chapter3` — that the
+  document keeps a separate lookup table for, so the target can move without every link being
+  rewritten. If a document's name table is incomplete, its `named` links are the ones that break;
+  its `goto` links cannot.
+
+  The label describes **the document**, not how it parsed. That is worth stating because the
+  underlying library decides between the two by pattern-matching, and mislabels an ordinary
+  `<< /S /GoTo /D [46 0 R /Fit] >>` as named whenever the destination carries a `/Fit`-style view
+  instead of a zoom; those are corrected here. To list every internal jump regardless, ask for
+  `["goto", "named"]`.
 * **`target_page`** — the 1-based page an internal link jumps to, and `null` for every other kind.
   It is deliberately `null` for `gotor`, which does carry a page number: that number is a page in
   the *other* document, and reporting it here would say a link goes to your page 4 when it opens
