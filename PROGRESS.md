@@ -877,6 +877,17 @@ importantly, `read_page`'s shape: try, then test the *output*, then decline out 
   appears in one list or the other, never neither. Titles step over the introductory paragraph
   between caption and table, splitting recovers several tables from one region, continuation is
   flagged never merged, and `header` is claimed only where a grid proves it.
+  **Two rounds of owner testing after the PR opened found five defects, all now fixed.**
+  `LLY_Proxy.pdf` p64 (below), then **TC-026** against three documents this milestone had never
+  seen — an EDGAR Alphabet 10-K, a designed InDesign report and Apple's 10-Q. TC-026's verdict is
+  the part worth keeping: **the refusal logic passed everything, and the pages the tool *accepted*
+  were doing exactly what the refusal exists to prevent** — dropping Apple's largest current asset,
+  deleting a balance-sheet row whose label wrapped, flipping two cash-flow figures positive by
+  stranding their minus sign, and clipping outdented labels mid-word on two unrelated filers. All
+  four share one shape: *the region's boundaries cut content that belongs to it, and every test ran
+  on what survived.* Fixed, each with a negative control; 70 corpus tables → 90, none previously
+  correct changed. Six lower-severity findings are carried in §Open follow-ups. `PLAN.md` §M141 →
+  *TC-026*.
   **One defect was found by the owner after the PR opened, on `LLY_Proxy.pdf` page 64**, and it is
   the one this milestone exists to refuse: a clean 25-row table came back as two near-empty grids
   under the page's own correct title. Splitting *deletes* rows, and with 25 rows against four ruled
@@ -4577,6 +4588,43 @@ it on this side of the line.
   a plausible header row, or drop a title whose text appears verbatim in `rows[0]` — and neither is
   worth doing without more documents. Also unmeasured: a **centred** caption fails
   `_TITLE_LEFT_TOLERANCE` outright, and the corpus contains none.
+- **TC-026's six lower-severity `get_tables` findings, deferred with the HIGHs fixed** (2026-09-11,
+  [#348](https://github.com/utyagi24/klarpdf/pull/348)). The round's three HIGHs — dropped rows,
+  lost minus signs, clipped labels — are fixed and tested (`PLAN.md` §M141 → *TC-026*). These six
+  are real and reproducible but each needs a judgement before it can be worked:
+  - **Not ours, and recorded so nobody chases it:** the round's third HIGH 1 instance — the
+    designed report's p15 returning `["", "17", "3%"]` for *"Domestic Partnership"* — is a label
+    **absent from the page's text layer**. `extract_text` does not return it either, no word
+    containing "Partnership" exists on the page, and the page has no images. It was verified
+    against `render_page` pixels, which show it because it is drawn rather than because it is text.
+    `render_page` is the only route to it.
+  - **Ligature glyphs reorder inside cell assembly.** `'Ofet n, more than'` for `'Often, more than'`
+    and `'Twitet r'` for `'Twitter'` — the same `t`/`e` transposition plus an injected space, on
+    words containing an `ft`/`tt` ligature. **`extract_text` returns both correctly from the same
+    page**, which localises it to `find_tables`' own cell assembly rather than the text layer. The
+    decision: work around it here (re-read a cell's text from `get_text("words")` when its content
+    disagrees with the page's words), or report it upstream to PyMuPDF and wait. Not obviously ours.
+  - **A clean ruled statement is declined.** Alphabet 10-K page 53, Comprehensive Income — zebra
+    striping, ruled subtotals, every value in the text layer — declined as *"the rows it produced
+    did not hold together"*. Its only structural difference from page 51, which reads, is a 2-line
+    wrapped label. So wrapped rows drove both of this milestone's failure modes: page 51 dropped one
+    quietly, page 53 declines the page loudly. The decline is the **safe** branch and is working as
+    designed; what needs deciding is whether the stuffed-cell limit can be relaxed for a region
+    whose *only* stuffed cells carry figures, now that a wrapped data row is recognised as data.
+  - **`title` returns mid-sentence fragments** on the designed report — `"to the population (30
+    percent vs. 47 percent); and"`, and on page 13 a caption pulled from *below* the table while the
+    real one went into `header`. These are not near-misses; a plausible wrong caption is worse than
+    null. Candidate rule: reject a candidate that does not begin a sentence. Interacts with the
+    `_TITLE_LOOKBACK` step-over, so it needs measuring, not just adding.
+  - **`header` duplicates `rows[0]`** where a grid proves it and is null otherwise, so a consumer
+    must branch on `header !== null` to know whether to skip row 0. Defensible, undocumented; either
+    document it in one sentence or stop repeating the row.
+  - **The `$` column marker migrates to the previous cell** (`"Cash and cash equivalents $"`), so
+    every marked row needs stripping and the last column loses its marker. Same column-edge bleed as
+    HIGH 2 and probably the same fix.
+  - **`unread_regions.bbox` is always the whole page.** It reads as though it localises the problem
+    and does not — it is literally `page.rect`. Either compute the region that failed, or drop the
+    field rather than imply a precision that is not there.
 - **`set_outline` is untested on four shapes TC-025 names** (2026-09-10). An outline **deeper than
   two levels** written by this tool — NVIDIA's 8-level outline read back correctly through `merge`
   in TC-024, but nothing has *written* more than two; `set_outline` on a real **encrypted** document

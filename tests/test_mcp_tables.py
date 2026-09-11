@@ -384,6 +384,62 @@ def test_a_split_that_discards_the_data_is_disbelieved():
     assert tables.split_is_credible(table_rows, [table_rows])
 
 
+class _FakeRow:
+    def __init__(self, top, bottom):
+        self.bbox = (0.0, top, 500.0, bottom)
+
+
+class _FakeTable:
+    """The narrow slice of PyMuPDF's Table that `_split_prose_rows` reads.
+
+    Used because the defect lives in row *geometry* — a tall row holding line breaks — and a
+    constructed PDF does not reproduce PyMuPDF's row division reliably enough to pin it. The
+    heights here are Alphabet's measured ones: 10.2 pt data rows against a 33.6 pt wrapped row.
+    """
+
+    def __init__(self, rows, heights):
+        self._rows = rows
+        self.rows = []
+        y = 0.0
+        for height in heights:
+            self.rows.append(_FakeRow(y, y + height))
+            y += height
+        self.bbox = (0.0, 0.0, 500.0, y)
+
+    def extract(self):
+        return self._rows
+
+
+def test_a_wrapped_data_row_is_not_mistaken_for_a_separator():
+    """TC-026 HIGH 1 — the splitter deleted a real row because its label wrapped.
+
+    Alphabet's 2026 10-K page 51 lost `['Class A, Class B, and Class C stoc', '84,800', '93,126']`,
+    which left the balance sheet's returned components missing their returned total by 93,126. It
+    was 3.1% of the region, far under `_MAX_SPLIT_LOSS`, so the guard for the gross case could not
+    have caught it. A heading and its paragraph carry no figures; a wrapped data row does.
+    """
+    data = ["Class A, Class B, and Class C stoc\nand additional paid-in capital", "84,800", "93,126"]
+    table = _FakeTable(
+        [["Retained earnings", "1", "2"], data, ["Total equity", "3", "4"], ["x", "5", "6"]],
+        [10.2, 33.6, 10.2, 10.2],
+    )
+    kept = [row for rows, _, _ in tables._split_prose_rows(table) for row in rows]
+    assert data in kept, "a tall wrapped row carrying figures is data, not a separator"
+
+
+def test_a_wrapped_heading_between_tables_is_still_a_separator():
+    """The other half: the split must keep working where the tall row really is prose."""
+    prose = ["Stock Incentives — Target ", "Values\nrget values based o", "nternal relativ\ntween"]
+    table = _FakeTable(
+        [["Name", "2024", "2025"], ["Ricks", "150%", "175%"], prose, ["Hakim", "1", "2"],
+         ["Coxe", "3", "4"]],
+        [10.2, 10.2, 33.6, 10.2, 10.2],
+    )
+    kept = [row for rows, _, _ in tables._split_prose_rows(table) for row in rows]
+    assert prose not in kept, "a tall wrapped row with no figures is prose"
+    assert len(tables._split_prose_rows(table)) == 2, "and it splits the region in two"
+
+
 def test_the_credibility_guard_is_actually_wired_into_the_read(captioned_pdf, monkeypatch):
     """Pins the call site, not just the arithmetic.
 
@@ -504,6 +560,80 @@ def test_identical_geometry_does_not_merge_two_different_tables(straddling_pdf):
     assert "24 hours" in values and "38 hours" in values
 
 
+# ---- TC-026: content the region's own boundaries cut off -------------------
+
+
+@pytest.fixture
+def outdented_pdf(tmp_path) -> str:
+    """A row-ruled statement whose section headers are outdented, and whose first data row sits
+    *above* the first rule — the two shapes TC-026 found losing data on three SEC filers.
+
+    Apple's 10-Q page 6 has both at once: `Cash and cash equivalents 39,544` above the band, and
+    `Non-current assets:` starting 18 pt left of the first column's edge.
+    """
+    path = str(tmp_path / "outdented.pdf")
+    doc = fitz.open()
+    page = doc.new_page()
+    edges = [70.0, 300.0, 400.0]
+    right = edges[-1] + 100
+
+    # The row that sits ABOVE the first rule — a real data row the band will exclude.
+    page.insert_text((edges[0] + 2, 74), "Cash and cash equivalents", fontsize=9)
+    page.insert_text((edges[1] + 2, 74), "39,544", fontsize=9)
+    page.insert_text((edges[2] + 2, 74), "35,934", fontsize=9)
+
+    # A section header on a line of its OWN, outdented 18 pt left of the first column, among
+    # ordinary data rows. Sharing a line with data would merely interleave the two strings.
+    body = [(name, f"{10 + i},{100 + i}", f"{20 + i},{200 + i}") for i, name in enumerate(_OFFICERS)]
+    body.insert(4, ("Non-current assets:", "", ""))
+
+    top = 80.0
+    _rule(page, top, edges[0], right)
+    for index, row in enumerate(body):
+        y = top + index * 22.0
+        outdent = 18 if row[0].endswith(":") else 0
+        for column, value in enumerate(row):
+            if value:
+                page.insert_text((edges[column] + 2 - outdent, y + 15), value, fontsize=9)
+        _rule(page, y + 22.0, edges[0], right)
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def test_a_label_clipped_by_the_left_edge_is_restored(outdented_pdf):
+    """TC-026 HIGH 3 — outdented headers were cut mid-word at a fixed x, silently."""
+    result = tables.tables(outdented_pdf, pages=[1])
+    labels = [row[0] for t in result["tables"] for row in t["rows"]]
+    clipped = [
+        l for l in labels
+        if l.strip() and "current assets:" in l and l != "Non-current assets:"
+    ]
+    assert not clipped, f"a label is still cut: {clipped}"
+
+
+def test_the_left_repair_refuses_when_it_would_re_cut_the_right():
+    """The condition that makes the repair safe rather than merely better.
+
+    Re-reading a cell from the page's true margin can also lose its tail, because a label may run
+    past its own column: Cisco's 10-K page 61 turns `'flows from i'` into `'Cash flows from'` —
+    a word gained and a character lost. Only a pure prefix addition is accepted.
+    """
+    assert " ".join("Non-current assets:".split()).endswith("-current assets:")
+    assert not " ".join("Cash flows from".split()).endswith("flows from i")
+
+
+def test_a_data_row_just_outside_the_band_is_recovered(outdented_pdf):
+    """TC-026 HIGH 1 — a statement's first line often sits above the first drawn rule.
+
+    Apple's largest current asset went missing this way, and the returned rows missed the returned
+    total by exactly that figure.
+    """
+    result = tables.tables(outdented_pdf, pages=[1])
+    values = [c for t in result["tables"] for row in t["rows"] for c in row]
+    assert "39,544" in values and "35,934" in values
+
+
 # ---- accounting negatives ------------------------------------------------
 
 
@@ -511,6 +641,46 @@ def test_a_split_negative_regains_its_closing_bracket():
     """35 of 36 measured cases lose only the closer, so restoring it is a rule, not a guess."""
     assert tables.repair_negative("(1,234") == "(1,234)"
     assert tables.repair_negative("(112") == "(112)"
+
+
+def test_an_opening_bracket_stranded_on_the_previous_cell_is_moved_back():
+    """TC-026 HIGH 2 — the sign error that is invisible and arithmetically plausible.
+
+    A column edge inside `(103,773)` can leave the opening bracket on the cell to its left, so the
+    figure arrives **positive**. Measured on Alphabet's 2026 10-K page 55, where the printed
+    subtotal proves both affected lines are negative.
+    """
+    assert tables.rejoin_split_bracket(
+        ["Purchases of marketable securities", "(77,858)", "(86,679) (", "103,773"]
+    ) == ["Purchases of marketable securities", "(77,858)", "(86,679)", "(103,773"]
+
+    # The closer may already be on the right-hand cell; only the opener moved.
+    assert tables.rejoin_split_bracket(["x", "68,184 $ (", "7,603) $"]) == [
+        "x", "68,184 $", "(7,603) $"
+    ]
+
+
+def test_the_bracket_rejoin_runs_on_every_row_the_tool_returns():
+    """Pins the call site, not just the function.
+
+    Deleting the call left the suite green when only the unit test above existed — the same gap
+    that let two other defects through in this milestone.
+    """
+    rows = [["Particulars", "2025", "2024"],
+            ["Purchases of marketable securities", "(86,679) (", "103,773"]]
+    repaired = tables._repair_rows(rows)
+    assert repaired[1] == ["Purchases of marketable securities", "(86,679)", "(103,773)"], (
+        "the stranded bracket must be moved, and then closed by repair_negative"
+    )
+
+
+def test_a_bracket_that_belongs_where_it_is_stays_there():
+    for row in (
+        ["Total net sales", "109,417", "94,036"],   # nothing adrift
+        ["Note (a)", "12", "13"],                   # balanced, and not at a cell end
+        ["x", "(1,234)", "5"],                      # already a complete negative
+    ):
+        assert tables.rejoin_split_bracket(row) == row
 
 
 def test_a_balanced_or_positive_cell_is_left_alone():

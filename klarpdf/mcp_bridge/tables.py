@@ -174,6 +174,8 @@ _DECLINE_REASONS = {
 }
 
 _BARE_NUMBER = re.compile(r"^[\d,]+(\.\d+)?$")
+_NUMBER_START = re.compile(r"^[\$€£₹]?\s*[\d,]")
+_FIGURE = re.compile(r"^[\$€£₹(]?\s*[-–—]?[\d,]+(\.\d+)?\s*[%)]?$")
 _WORD_END = re.compile(r"[A-Za-z]$")
 _WORD_START = re.compile(r"^[a-z]")
 
@@ -424,7 +426,14 @@ def _split_prose_rows(table) -> list[tuple[list[list[str | None]], float, float]
     for cells, row in zip(rows, geometry):
         tall = (row.bbox[3] - row.bbox[1]) > _TALL_ROW_FACTOR * median
         prose = any(c and "\n" in c for c in cells)
-        if tall and prose:
+        # A row carrying figures is data, whatever its height (TC-026 HIGH 1). A heading and its
+        # paragraph do not have numbers in the numeric columns; a *wrapped* data row does, and it
+        # is otherwise indistinguishable — tall, and full of line breaks. Alphabet's 2026 10-K
+        # page 51 lost `['Class A, Class B, and Class C stoc', '84,800', '93,126']` exactly this
+        # way, which left a balance sheet whose returned components miss their returned total by
+        # 93,126. The loss was 3.1% of the region, far under `_MAX_SPLIT_LOSS`, so the guard that
+        # catches the gross case could never have caught this one.
+        if tall and prose and not any(c and _FIGURE.match(c.strip()) for c in cells):
             flush()
             current = []
             continue
@@ -434,6 +443,120 @@ def _split_prose_rows(table) -> list[tuple[list[list[str | None]], float, float]
     if not groups:
         return [(rows, table.bbox[1], table.bbox[3])]
     return groups
+
+
+def _line_text(words: list, rect: fitz.Rect) -> str:
+    """The words inside ``rect``, joined, with the page's own line breaks kept."""
+    inside = [
+        w
+        for w in words
+        if fitz.Rect(w[:4]).intersects(rect)
+        and (fitz.Rect(w[:4]) & rect).get_area() > 0.4 * fitz.Rect(w[:4]).get_area()
+    ]
+    lines: dict[float, list[str]] = {}
+    for word in sorted(inside, key=lambda w: (round(w[1], 0), w[0])):
+        lines.setdefault(round(word[1], 0), []).append(word[4])
+    return "\n".join(" ".join(parts) for _, parts in sorted(lines.items()))
+
+
+def recover_left_margin(page: fitz.Page, table, rows: list[list[str]]) -> list[list[str]]:
+    """Restore row labels clipped by the region's left edge (TC-026 HIGH 3).
+
+    A financial statement outdents its section headers, and the first column's left edge is derived
+    from the *indented* data rows — so anything starting left of it is cut at a fixed x, mid-word,
+    and silently. Measured across two unrelated SEC filers:
+
+        '-current assets:'            was  'Non-current assets:'
+        'ent liabilities:'            was  'Current liabilities:'
+        'mitments and contingencies'  was  'Commitments and contingencies'
+        'nce as of December 31, 2022' was  'Balance as of December 31, 2022'
+
+    This is the harm the tool declines whole pages to avoid — *"the columns would have to be
+    inferred from spacing, which silently drops characters"* — happening inside the happy path,
+    where nothing flags it.
+
+    **The repair only ever adds a prefix**, and that condition is what makes it safe rather than
+    merely better. Re-reading a cell from the page's true left margin can also *re-cut* it on the
+    right, because a label may run past its own column into the next one: Cisco's 10-K page 61 turns
+    ``'flows from i'`` into ``'Cash flows from'``, gaining a word and losing the ``i``. So a rebuild
+    is accepted only when the original survives inside it as a suffix — 9 repairs applied across
+    Apple and Alphabet, and all 25 of Cisco's rows correctly left alone.
+    """
+    box = fitz.Rect(table.bbox)
+    words = page.get_text("words")
+    margin = min(
+        (w[0] for w in words if box.y0 - 2 <= w[1] and w[3] <= box.y1 + 2), default=box.x0
+    )
+    if margin >= box.x0 - 1:
+        return rows
+
+    repaired = [list(row) for row in rows]
+    for index, geometry in enumerate(table.rows):
+        if index >= len(repaired) or not geometry.cells or not geometry.cells[0]:
+            continue
+        original = repaired[index][0] if repaired[index] else ""
+        if not original.strip():
+            continue
+        top, bottom = geometry.bbox[1], geometry.bbox[3]
+        if not any(w[0] < box.x0 - 1 and top - 1 <= (w[1] + w[3]) / 2 <= bottom + 1 for w in words):
+            continue
+        widened = _line_text(words, fitz.Rect(margin - 1, top, geometry.cells[0][2], bottom))
+        flat, was = " ".join(widened.split()), " ".join(original.split())
+        if flat and flat != was and flat.endswith(was):
+            repaired[index][0] = widened
+    return repaired
+
+
+def recover_edge_row(page: fitz.Page, table, rows: list[list[str]]) -> list[list[str]]:
+    """Restore a data row sitting just outside the ruled band (TC-026 HIGH 1).
+
+    The row-ruled reader takes its band from the drawn rules, and a statement's first line often
+    sits *above* the first rule. Apple's Q3 2026 10-Q page 6 begins its balance sheet at y=152.6
+    while the band starts at y=163.0, so **`Cash and cash equivalents, 39,544 / 35,934` — its
+    largest current asset — is simply absent**, and the returned rows miss the returned total by
+    exactly that figure.
+
+    Recovered only on the signature of a data row and nothing looser: within **one** median row
+    height of the edge, and carrying a **numeric value in every data column**. That is what
+    separates it from the things that also sit next to a band — a column header (`Name / 2024 Annual
+    Base Salary`), a section label (`Current assets`), a footnote, a rule of underscores. Checked
+    against all five: the Apple row is recovered and none of the others is.
+    """
+    box = fitz.Rect(table.bbox)
+    columns = [c for c in table.rows[0].cells if c][1:] if table.rows else []
+    if not columns or not rows:
+        return rows
+    heights = sorted(r.bbox[3] - r.bbox[1] for r in table.rows)
+    median = heights[len(heights) // 2]
+    if median <= 0:
+        return rows
+
+    words = page.get_text("words")
+    width = max(len(row) for row in rows)
+    for at_top, low, high in (
+        (True, box.y0 - median, box.y0 - 1),
+        (False, box.y1 + 1, box.y1 + median),
+    ):
+        line = [w for w in words if low <= (w[1] + w[3]) / 2 <= high]
+        if not line:
+            continue
+        values = []
+        for column in columns:
+            found = [
+                w[4]
+                for w in line
+                if column[0] - 2 <= (w[0] + w[2]) / 2 <= column[2] + 2 and _FIGURE.match(w[4])
+            ]
+            values.append(found[0] if found else None)
+        if not values or any(value is None for value in values):
+            continue
+        label = " ".join(
+            w[4] for w in sorted(line, key=lambda w: w[0]) if (w[0] + w[2]) / 2 < columns[0][0]
+        )
+        recovered = ([label] + values)[:width]
+        recovered += [""] * (width - len(recovered))
+        rows = [recovered, *rows] if at_top else [*rows, recovered]
+    return rows
 
 
 def split_is_credible(whole: list[list[str | None]], groups: list[list[list[str | None]]]) -> bool:
@@ -479,8 +602,45 @@ def repair_negative(cell: str) -> str:
     return f"{text})"
 
 
+def rejoin_split_bracket(row: list[str]) -> list[str]:
+    """Move an opening bracket that landed at the end of the *previous* cell (TC-026 HIGH 2).
+
+    The other half of :func:`repair_negative`, and the more dangerous half. A column edge falling
+    inside ``(103,773)`` can strand the opening bracket on the cell to its left:
+
+        ['Purchases of marketable securities', '(77,858)', '(86,679) (', '103,773']
+                                                                     ^^^        ^^^^^^^
+                                                        stranded here   reads as POSITIVE
+
+    Measured on Alphabet's 2026 10-K, page 55: two cash-flow lines arrive unsigned, and the printed
+    subtotal proves both are negative (``-91,447 -103,773 +83,240 -5,716 +1,367 -1,592 -2,370 =
+    -120,291``). Page 54 is full of the same shape. A dropped label is visibly wrong; **a sign flip
+    on a cash-flow line is invisible and arithmetically plausible**, which is why this is repaired
+    rather than merely disclosed.
+
+    The rule is unambiguous in a way the residue in :func:`repair_negative` is not: a lone ``(`` at
+    the *end* of a cell cannot belong to that cell — nothing closes it there — and the only thing it
+    can be opening is the value immediately to its right.
+    """
+    out = list(row)
+    for index in range(len(out) - 1):
+        left = (out[index] or "").rstrip()
+        if not left.endswith("(") or left.count("(") <= left.count(")"):
+            continue
+        right = (out[index + 1] or "").strip()
+        if not right or not _NUMBER_START.match(right) or right.startswith("("):
+            continue
+        out[index] = left[:-1].rstrip()
+        out[index + 1] = f"({right}"
+    return out
+
+
 def _repair_rows(rows: list[list[str | None]]) -> list[list[str]]:
-    return [[repair_negative(c) if c else "" for c in row] for row in rows]
+    repaired = []
+    for row in rows:
+        cells = rejoin_split_bracket([c or "" for c in row])
+        repaired.append([repair_negative(c) if c else "" for c in cells])
+    return repaired
 
 
 def read_page(page: fitz.Page) -> tuple[list[dict], str]:
@@ -552,6 +712,16 @@ def _describe(
                 continue
             box = fitz.Rect(table.bbox[0], top, table.bbox[2], bottom)
             repaired = _repair_rows(rows)
+            # Recover what the region's own boundaries cut off, before anything is reported. Only
+            # for the row-ruled reader: a drawn grid states its own edges, so there is nothing
+            # outside them that belongs inside (TC-026 HIGH 1, HIGH 3).
+            if split:
+                repaired = recover_left_margin(page, table, repaired)
+                if len(groups) == 1:
+                    grown = recover_edge_row(page, table, repaired)
+                    if len(grown) != len(repaired):
+                        box = fitz.Rect(box.x0, min(box.y0, table.bbox[1]), box.x1, box.y1)
+                    repaired = grown
             described.append(
                 {
                     "bbox": [round(v, 1) for v in box],

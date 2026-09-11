@@ -7408,6 +7408,93 @@ came from PyMuPDF giving different *columns* different row granularity (71 pt ro
 ones), which a constructed PDF does not reproduce, and a fixture that merely looks similar would
 pin nothing.
 
+##### TC-026 — four defects the happy path was hiding, and what they have in common
+
+**Found by the owner's manual round on 2026-09-11**, against three documents and two table
+generators this milestone had never seen: an EDGAR-rendered Alphabet 10-K, a designed InDesign
+market-research report, and Apple's 10-Q as an independent cross-check. Every finding was verified
+here against the report's own arithmetic before any code moved.
+
+The round's verdict is the useful part: **the refusal logic passes everything — and the pages it
+*accepts* were doing exactly what the refusal exists to prevent.** Silently dropping characters is
+the harm the tool declines whole pages to avoid; inside the happy path it was dropping characters,
+whole rows, and minus signs, with nothing flagging any of it. All four have the same shape — *the
+region's own boundaries cut content that belongs to it, and every test ran on what survived.*
+
+**HIGH 1 — rows vanish, two independent causes.**
+
+*The band starts inside the table.* The row-ruled reader takes its band from the drawn rules, and a
+statement's first line often sits above the first rule. Apple's page 6 begins at y=152.6 while the
+band begins at y=163.0, so `Cash and cash equivalents 39,544 / 35,934` — its **largest current
+asset** — was absent, and the returned rows missed the returned total by exactly 39,544. Now
+recovered by :func:`recover_edge_row`, on the signature of a data row and nothing looser: within one
+median row height of the edge, with a numeric value in **every** data column. Checked against the
+four things that also sit beside a band — a column header, a section label, a footnote, a rule of
+underscores — and none is picked up.
+
+*The splitter deleted a data row.* Alphabet's page 51 lost
+`['Class A, Class B, and Class C stoc', '84,800', '93,126']`, splitting the page in two at exactly
+that row, because its label wraps to four lines and a wrapped row is tall and full of line breaks —
+**the exact signature of prose between two tables**. The loss was 3.1% of the region, far under
+`_MAX_SPLIT_LOSS`, so the guard written for the gross case could never have caught this one. The fix
+is a distinction rather than a threshold: **a heading and its paragraph carry no figures in the
+numeric columns; a wrapped data row does.** One rule, and it settles all three known cases — the
+Alphabet row is kept, LLY page 56's two genuine separators are still removed, and LLY page 64 still
+declines (now because its data is stuffed, which is the true reason, rather than because the residue
+was empty).
+
+**HIGH 2 — the sign error nothing downstream can see.** A column edge inside `(103,773)` can strand
+the opening bracket on the cell to its *left*, so the figure arrives **positive**:
+
+    ['Purchases of marketable securities', '(77,858)', '(86,679) (', '103,773']
+
+Two cash-flow lines on Alphabet's page 55, with the printed subtotal proving both negative
+(`-91,447 -103,773 +83,240 -5,716 +1,367 -1,592 -2,370 = -120,291`), and the same shape pervasive on
+page 54. **A dropped label is visibly wrong; a flipped sign on a cash-flow line is invisible and
+arithmetically plausible** — which is why this is repaired rather than disclosed. The rule is
+unambiguous in the way `repair_negative`'s residue is not: a lone `(` at the *end* of a cell cannot
+belong to that cell, since nothing closes it there, and the only thing it can open is the value to
+its right. Note this is a **different shape** from the one §M141 documents as unrepaired; that
+disclosure was never about this case.
+
+**HIGH 3 — labels clipped by the left edge.** A statement outdents its section headers while the
+first column's edge is derived from the *indented* data rows, so anything starting left of it is cut
+at a fixed x, mid-word: `'-current assets:'`, `'ent liabilities:'`,
+`'mitments and contingencies'`, `'nce as of December 31, 2022'`. Reproduces on two unrelated SEC
+filers, so it is not one generator's quirk.
+
+The repair re-reads the first cell from the page's true left margin — and **only ever adds a
+prefix**, which is the condition that makes it safe rather than merely better. Re-reading can also
+*re-cut* a cell on the right, because a label may run past its own column into the next: Cisco's
+page 61 turns `'flows from i'` into `'Cash flows from'`, a word gained and a character lost. So a
+rebuild is accepted only when the original survives inside it as a suffix — **9 repairs applied
+across Apple and Alphabet, all 25 of Cisco's rows correctly left alone**.
+
+**One of the round's three HIGH 1 instances is not this tool's defect, and saying so matters.**
+TC-026 grouped a third case with the two above: the designed report's page 15 returns
+`["", "17", "3%"]` where the page reads *"Domestic Partnership"*. Checked here, **the label is not in
+the page's text layer at all** — `extract_text` does not return it either, no word containing
+"Partnership" exists anywhere on the page, and the page carries no images. The report verified it
+against `render_page` pixels, which is the right method for the other findings and the wrong one for
+this: the pixels show the label because it is *drawn*, not because it is *text*. Nothing reading the
+text layer can return it, so this is a document whose label is unextractable, not a cell-assembly
+bug, and `render_page` is the only route to it. Recorded rather than fixed, so that nobody chases it
+as ours.
+
+**What the round says about this milestone's method.** The acceptance tests were built to catch a
+reading that came apart, and they do. They cannot see content that was never in the region, or that
+a discard removed — the same blind spot that produced the LLY page 64 defect, arriving three more
+times. The invariant worth carrying forward is narrower than "test the output": **whenever a step
+narrows or discards, something must account for what fell outside it.** Corpus-wide the four fixes
+take 70 tables to 90 with every previously-correct table unchanged.
+
+Left open, recorded in `PROGRESS.md` §Open follow-ups rather than fixed here: ligature glyph
+reordering inside cell assembly (`'Ofet n'` for `'Often'`, where `extract_text` is correct on the
+same page, localising it to this path), a clean statement declined on Alphabet page 53, `title`
+returning mid-sentence fragments on the designed report, `header` duplicating `rows[0]`, the `$`
+column marker migrating, and `unread_regions.bbox` always being the whole page rather than the
+region.
+
 ##### `header` is claimed only where a drawn grid proves it
 
 A row-ruled read routinely starts its band one row inside the table, leaving `rows[0]` holding data
