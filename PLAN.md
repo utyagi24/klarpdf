@@ -7227,53 +7227,180 @@ splitting parenthesised negatives across cells. The numbers, and the method that
 in `PROGRESS.md` §Open follow-ups. The standing lesson about fixtures holds either way: the
 synthetic fixture that made extraction look solved had drawn ruling lines too.
 
-#### M141 — `get_tables`, and the decisions that closed it
+#### M141 — `get_tables`, and what fourteen documents corrected
 
-Raised as an open question on 2026-09-08 and **closed by the owner on 2026-09-09**. The evidence is
-in `PROGRESS.md` §Open follow-ups' history; what follows is the decided design.
+Raised as an open question on 2026-09-08, **closed by the owner on 2026-09-09**, and then
+**substantially rewritten on 2026-09-11 when it was built**, because the decided design did not
+survive contact with the corpus it was built against. Both layers are kept: the first records what
+was decided and why, the second what measurement changed, since the *reason* the first was wrong is
+the most reusable thing here.
 
-**Strategy is chosen per page and is not reported.** `lines_strict` reads a fully ruled table and
-returns nothing for a partially ruled one; `strategy="text"` reads the partially ruled financial
-statements correctly and invents tables on non-tabular pages. Each is right where the other fails,
-so the tool picks: ruling present → `lines_strict`, else `text`. The owner rejected reporting which
-was used — *"I see no value in disclosing the strategy unless we expect the calling agents to
-perform some post processing based on it"*, and they do not. The precision problem it was standing
-in for is handled where precision problems belong: the **shape filter** (reject 1×N, newline-stuffed
-cells, empty header), which was already the answer for `lines_strict`'s 3-of-16 precision.
+##### What the 2026-09-09 design said
 
-**Parenthesised negatives are repaired deterministically, and the residue is documented, not coded
-around.** Measured over 287 numeric cells on PDF pages 387–389, cells split so the parenthesis
-becomes unbalanced: 0% where a statement has no negatives, 5% on the P&L, **29% on the cash flow
-statement**. Of 36 such cells **35 lose only the trailing `)`**, so a leading `(` with no closer is
-unambiguously a negative and the repair is a rule. **One lost the leading `(`** and reads as
-positive. That case gets a line in the tool's documentation and nothing else — the owner's
-direction: *"we are not aiming to be 100% accurate, 100% of the times. don't over compensate for the
-corner cases."*
+Strategy chosen per page and not reported (`lines_strict` where ruling is present, `strategy="text"`
+otherwise), precision supplied by a **shape filter** (reject 1×N, newline-stuffed cells, empty
+header), parenthesised negatives repaired by rule, titles from the nearest free block above, and
+cross-page continuation flagged rather than merged. The owner's directions behind it stand unchanged
+and are still the operating rules: **do not disclose the strategy** — *"I see no value in disclosing
+the strategy unless we expect the calling agents to perform some post processing based on it"* — and
+**do not over-fit** — *"we are not aiming to be 100% accurate, 100% of the times. don't over
+compensate for the corner cases."*
 
-**Titles and cross-page continuation are in scope, not a deferred gap.** This was recorded as an
-acceptable limitation and the owner corrected it: *"we can't expect tables to be present as a whole
-on a single page."* Quite right — a table spanning a page break is the normal case, not a corner
-one. The mechanism is mechanical, and `WH-1000XM6.pdf` page 29 supplies all three cases at once
-(table bboxes at y 217–528 and 659–755, page height 842):
+##### Why it had to change, and the honest account of what was wrong with it
 
-    y=196.4  free      Music playback time                       -> title of the table at y=217
-    y=638.9  free      Communication time                        -> title of the table at y=659
-    y=772.4  free      Headphone cable connected (power is on)   -> orphan, below the last table
+The design was measured on **two** documents, `WH-1000XM6.pdf` and `dhariwal_ipo.pdf`. Its numbers
+are *exactly* reproducible — the parenthesised-negative work re-measured to the cell: 36 unbalanced
+numeric cells on pages 387–389, **35 losing only the trailing `)`**, one (`1,051.42)`) losing the
+leading `(`. Nothing about that investigation was sloppy.
 
-* **A table's title is the nearest *free* text block above its bbox** — free meaning not inside any
-  detected table region. Both titled tables on the page resolve this way.
-* **An orphan free block below the last table on a page is the title of the first table on the next
-  page.** That is the *Headphone cable connected* case, whose body is on page 30.
-* **Continuation is flagged, never auto-merged**, and the orphan title is what makes that safe.
-  There is a real trap here: page 29's second table and page 30's table have **identical column
-  x-edges `[36.4, 265.2]` and identical header rows**, so geometry matching alone would merge two
-  genuinely different tables. The orphan title on page 29 is the signal that page 30 starts something
-  new. So the tool reports `title`, `title_from_previous_page` and `continues_from` and lets the
-  caller decide — **the same principle already settled for M140's `in_table`: report the signal, do
-  not act on it silently.**
+**What it measured was the numeric cells, and the damage is in the label column.** On the same pages
+at the same settings the numbers land correctly while the labels shatter:
 
-**Scope and cost.** `find_tables()` runs at **6.9 pages/s**, ~135× slower than `get_text`, so a
-572-page document is ~85 s: the tool takes a **page range**, never a whole document by default.
+    ['', 'Property, plan', 't and equipment', '', '', '', '3', '', '1,279.34', '994.92', '627.25']
+
+So the claim *"`strategy="text"` reads the partially ruled financial statements correctly"* is true
+of the half that was checked and false of the half that was not, and the generalisation from one to
+the other is the entire error. **Two documents could not have shown it**, either: both are ruled
+documents, and the failure only becomes structural on whitespace-aligned SEC filings, which were not
+in the corpus. That is the transferable lesson — *a claim about "documents" needs documents, plural
+and various*, and it is the §Gotchas rule about green local suites one level up.
+
+Twelve more were added: Apple's Q3 2026 10-Q, Cisco's 10-K and annual report, NVIDIA's annual
+report, LLY's proxy, the SpaceX EU prospectus, IRS f8949, a brokerage statement, an AT&T bill, an
+auto policy, a bank statement and a fee schedule. Roughly 280 sampled pages.
+
+##### The two findings that rebuilt it
+
+**1. There is a third reader, and it is the one the filings need.** The design named two strategies;
+PyMuPDF takes the two axes separately. Setting `horizontal_strategy="lines"` with
+`vertical_strategy="text"` — **drawn rules for the rows, alignment for the columns** — reads the
+commonest filing shape, a rule above and below the header and nothing else. Taking the rows from the
+rules is what keeps the column inference honest, because it then has to explain only the horizontal
+spacing inside a row whose bounds are already known:
+
+    rules for rows, alignment for columns   ["Total net sales", "109,417", "94,036", "364,357"]
+    both axes inferred                      ["Total net sales 109,417 ", "313,695"]
+
+This is not a marginal gain. `lines_strict` returns **zero** tables on Apple's 10-Q, NVIDIA's and
+Cisco's annual reports, LLY's proxy and the SpaceX prospectus — the five most table-dense files in
+the corpus. Ruled-only would have shipped a table tool that reads no SEC filing at all. The owner's
+question is what surfaced it: *"what if header rows have lines above and below, rest of the rows do
+not have separator lines, and no column lines — are those tables considered ruled or text?"* The
+answer under the old design was "text", and text mangles them.
+
+**2. No shape filter separates a real table from prose in a grid — six were measured and five
+invert.** This is the part of the old design that could not be repaired, only replaced. Fill ratio,
+empty-header count, newline-stuffing, word loss and mid-word split rate were each measured over
+labelled sets, and the real financial tables score *worse* than the prose on most of them: 0.27–0.41
+fill against prose's 0.33–0.79, and 6-of-11 to 10-of-13 empty header cells against prose's 0-of-8.
+**The specified filter would have rejected exactly the financial statements it was written to
+protect and kept the prose.** Numeric density (≥0.35) does separate pure prose cleanly, but the
+tables surviving it are still shattered, because `find_tables` returns one region per page and mixes
+the table with the prose around it.
+
+What works is not a filter over layout at all but **a test over the result**, applied after the
+read. Two of them carry the weight:
+
+* **Newline-stuffed cells** (>0.15 of data cells) mean the reader merged rows the document keeps
+  apart. This is what declines a bank statement and a brokerage statement whose printed rules do not
+  correspond to their rows — neither anticipated by anyone.
+* **Shattering** (>0.40 of adjacent filled cell pairs reading as one word cut in two) separates the
+  two kinds of damage, and the line matters more than it looks. Below it a label lands across two
+  cells with every character intact and the caller can rejoin them; above it the reading has stopped
+  tracking the page and characters **disappear** — `'Statutory federal inco'` + `'e tax rate'`, the
+  `m` simply gone. Measured over the 69 tables the tool returns from the corpus, prose-in-a-grid
+  scores 0.75–1.00, the first result with real character loss scores 0.417, and everything at or
+  below 0.40 is split-but-complete.
+
+**Inferring both axes is therefore not a third reader.** It adds ~10 tables across the corpus of
+which 4 are damaged, and its failure mode is the one an agent cannot detect: `"Beginning balance"`
+arrives as `"eginning balance"`, `"Total current assets"` as `"tal current assets"`, and nothing in
+the row says so. This is *"a table that cannot be reconstructed is emitted as-is with a note, never
+as a mangled grid"* (§M142) applied a milestone early.
+
+##### What the declining costs, measured rather than assumed
+
+Very little, which is what makes the strictness affordable. `extract_text` on a declined page
+returns **every value the table holds**, in reading order — header cells, then each row's cells:
+
+    Name / 2024 Bonus Target / 2025 Bonus Target / Mr. Ricks / 150% / 175% / …
+
+What is lost is the grouping, which an LLM recovers easily; it degrades only on **blank cells**,
+where a missing value is simply absent from the sequence with nothing marking its column. So
+`unread_regions` carries `page`, `bbox`, `reason` and `suggestion`, and the contract is that **every
+page asked for appears in `tables` or `unread_regions`, never in neither** — a page absent from both
+would be indistinguishable from a page with no table.
+
+##### Titles: three corrections, all from real pages
+
+**The nearest free block above is usually not the title.** Measured, it returns a *column header* on
+SpaceX page 251 (`December 31, 2025 2024`), a *data row* on Apple page 6
+(`Cash and cash equivalents $ 39,544 $ 35,934`) and a *sentence* on SpaceX page 274. A caption has
+to be short, not a sentence, not mostly numbers, **one line**, and starting near the table's left
+edge. The one-line test is load-bearing in a way that is not obvious: when a reader's band stops a
+line short, the header or last data row becomes loose text next to the table, and `"Mode\nOperating
+time"` reads as a perfectly good caption. It carries a line break because it is several cells.
+
+**A caption is often not the nearest thing above its table.** The standard report shape is heading,
+then an introductory paragraph, then the table — LLY's proxy page 56 does it twice, with the caption
+62.9 pt and 50.9 pt up and a paragraph filling the gap. So the search **steps over** anything that
+does not read as a caption, bounded at 160 pt so it cannot adopt the previous section's heading.
+
+**A title below its table is not handled, and the evidence says leave it.** Searching six documents
+for caption-style titles (`Table 3:`, `Exhibit 2 –`, `Figure 1.`) found **none**: every title in
+this corpus sits above. Worse, a below-lookup actively breaks a real document — the manual's page 29
+carries *"Headphone cable connected (power is turned on)"* 17 pt below its last table, which reads
+exactly like that table's caption and is in fact the **stranded title of the table overleaf**.
+
+##### Splitting, and why it is the same mechanism as titling
+
+A reader taking rows from page-width rules sweeps several tables into one region, and the headings
+and paragraphs between them become rows of it. LLY's page 56 is three tables returned as one
+19-row region. Those rows are recognisable without reading them — **much taller than the table's own
+rows and holding line breaks** (15.0 pt data rows against prose bands of 90.2 and 78.2). Splitting
+there recovers the three tables **and** makes their captions reachable: inside the un-split region
+the headings are not free text, so every table on the page falls back to whatever preceded the whole
+band. Split first, then test, then title — the order is load-bearing at each step, and testing before
+splitting is what rejected that page outright at 0.158 against a 0.15 limit.
+
+##### `header` is claimed only where a drawn grid proves it
+
+A row-ruled read routinely starts its band one row inside the table, leaving `rows[0]` holding data
+and the real header outside — Apple's page 4 returns `["Products $", "78,678 $", …]` there.
+PyMuPDF's own detection is no help: `external: false` with `names == rows[0]`, i.e. it assumes what
+it is asked to determine. So the field is filled where the grid settles it and **null** elsewhere,
+with the caller pointed at `title`, where an escaped header often lands.
+
+##### Discovery — the gap the owner's second question found
+
+A caller using only `extract_text` gets a table's content in full and **no indication it was a
+table**, so the tool that would return rows is never called. Detecting tables to find out is not
+affordable (`find_tables` at 5.9 pages/s against `get_text`'s 158, ~27×), but **counting ruled lines
+is half the cost of reading the text** (314 pages/s). So `extract_text` gains `table_pages`, and at
+a threshold of 3 rules it names **every** page `get_tables` can read a grid from (recall 100% over
+204 pages of nine documents) plus roughly two others for each — over-flagging being the cheap
+direction to be wrong. This touches a shipped tool, and `queries.py` is bridge-only, so the GUI is
+unaffected (`CLAUDE.md` §Two consumers share one core).
+
+##### Scope, cost and the settled points that did not change
+
+`pages` is **required** — a 572-page scan is ~85 s. Caps are a count (50) and a character budget
+(60,000), the second because one 92-row financial table serialises past 20,000 characters. The
+strategy is still **not reported**. Negatives are still repaired by the 35-of-36 rule, with the 36th
+documented and not coded around. Continuation is still **flagged, never merged**, and the manual is
+still why: pages 29 and 30 share column edges `[36.4, 265.1]` and headers exactly while reporting 24
+hours and 28 — so a table that received a stranded title is never marked a continuation, because
+that title is evidence it starts something new.
+
+**And the dependency stays rejected.** `pymupdf-layout` 1.28.2 was re-costed when the owner asked:
+AGPL-3.0-or-commercial (so licensing is not the obstacle), but ~11 new pins and ≈100 MB
+(`pymupdf_layout` 42.9 MB + `onnxruntime` 14.7 + numpy 12.9 + networkx 2.1 + transitive), a Graph
+Neural Network runtime, and `pymupdf==1.28.2` pinned **exactly**, which would hand the bridge's
+PyMuPDF version to a third party — the drift M115 exists because of. `pymupdf4llm` is not required
+by it; the dependency runs the other way. The deciding reason remains the owner's own standing
+position of 2026-09-09 (§M140): where the app cannot do something the answer is the bridge, and
+where the bridge cannot, an agent reading a `render_page` image — which closes the
+`pymupdf_layout` question outright.
 
 #### M142 — `extract_markdown`, and why it is ours rather than rented
 

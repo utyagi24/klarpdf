@@ -26,7 +26,7 @@
   <tr>
     <td><b>🏠 The app</b><br><sub>you are here</sub></td>
     <td><a href="klarpdf/mcp_bridge/QUICKSTART.md">🚀 <b>MCP — quick setup</b></a><br><sub>running in three commands</sub></td>
-    <td><a href="klarpdf/mcp_bridge/README.md">📖 <b>MCP — full reference</b></a><br><sub>21 tools · client config · restricting what it may touch</sub></td>
+    <td><a href="klarpdf/mcp_bridge/README.md">📖 <b>MCP — full reference</b></a><br><sub>22 tools · client config · restricting what it may touch</sub></td>
   </tr>
 </table>
 
@@ -155,9 +155,9 @@ tests and our weekly audit scans — not whatever is newest that day.
 Full install options, the Claude Desktop config, and the one-click `.mcpb` bundle are in
 **[klarpdf/mcp_bridge/README.md](klarpdf/mcp_bridge/README.md)**.
 
-Twenty-one tools in three groups. **Read** — `get_info`, `get_outline`, `get_links`, `search`,
-`extract_text`, `render_page`, `get_form_fields`, `get_annotations` — let an agent pull only the
-pages it needs instead of loading an 800-page file whole. **Transform** — `extract_pages`, `split`,
+Twenty-two tools in three groups. **Read** — `get_info`, `get_outline`, `get_links`, `get_tables`,
+`search`, `extract_text`, `render_page`, `get_form_fields`, `get_annotations` — let an agent pull
+only the pages it needs instead of loading an 800-page file whole. **Transform** — `extract_pages`, `split`,
 `merge`, `reorder`, `delete_pages`, `rotate`, `fill_form`, `flatten`, `set_outline`,
 `export_images`, `annotate` — keep the content and always write a *new* file. **Redact** —
 `redact_text`, `redact_regions` — physically delete the content and then re-read the written file to
@@ -185,6 +185,19 @@ bookmarks, the call is **refused** unless you pass `replace_outline`. To *enrich
 than replace it — chapters that want sections under them — read it with `get_outline`, weave your
 entries into that list and send the whole tree back. The two shapes are identical by construction,
 so keeping an existing entry is one `+`.
+
+**Read the tables, or say plainly that you cannot.** `get_tables` returns rows — with each table's
+caption, page and box — for the pages you name. It reads a table when the *document* says where the
+cells are: a drawn grid, or drawn rules for the rows with the columns taken from alignment, which is
+the shape nearly every financial filing uses. Where neither holds, the columns would have to be
+guessed from spacing, and guessing quietly eats characters — `"Beginning balance"` comes back as
+`"eginning balance"` and nothing in the row says so. Those pages are **declined by name** instead,
+with the region and what to try, so **every page you ask about comes back in one list or the other,
+never silently missing**. A caption is found even when a paragraph sits between it and the table;
+several tables sharing one ruled band are separated rather than run together; a table continuing
+onto the next page is *flagged*, never merged, because two different tables can share a header and
+column positions exactly. Accounting negatives split across a column edge get their sign back.
+`extract_text` now also reports `table_pages`, so an agent discovers there was a table at all.
 
 **Mark up a document, then hand it to a person.** `annotate` writes highlights, underlines and
 strike-throughs — each able to carry a **note** — and `get_annotations` reads back every mark a file

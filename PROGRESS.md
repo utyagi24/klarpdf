@@ -577,7 +577,7 @@ items, which are independent of it.
   (**M128**); and row 10's own instructions not putting the lock in the bundle (**M129**). What
   remains is the tag, which is an owner action.
 
-## Roadmap — document structure for agents (M138–M142; M138 + M139 shipped)
+## Roadmap — document structure for agents (M138–M142; M138, M139 + M141 shipped)
 
 Design in `PLAN.md` §M138–M140 — **not restated here**. Same conventions: **one PR per milestone**,
 tick the box here on merge. Scoped **2026-09-07** from a session comparing the bridge against a
@@ -614,10 +614,16 @@ it was the one unambiguous error here.
 
 **But M141 stays ahead of M140, and the first proposal to make the order numeric was wrong.** M140's
 `in_table` flag needs table detection, and M141 is where that machinery lands together with the
-decision M141 settles about how to call it (ruling present → `lines_strict`, else `text`, chosen per
-page). Building M140 first would mean making that call independently and probably differently. The
-1→2 demotion of M140 encoded real engineering reasoning; only M142's placement did not. So M142
-moves to the end and nothing else does. Argument and measurements in `PLAN.md` §M140 → *Ordering*.
+decision M141 settles about how to call it. Building M140 first would mean making that call
+independently and probably differently. The 1→2 demotion of M140 encoded real engineering reasoning;
+only M142's placement did not. So M142 moves to the end and nothing else does. Argument and
+measurements in `PLAN.md` §M140 → *Ordering*.
+**This is exactly what the ordering bought, and it is worth recording that it paid.** The call M141
+was to settle was written here as *"ruling present → `lines_strict`, else `text`, chosen per page"* —
+and building it found that rule to be wrong in both halves (`PLAN.md` §M141). Had M140 gone first it
+would have made that call independently, from the same two documents, and reached the same wrong
+answer on its own. M140 now inherits a **third** reader it would not have invented and, more
+importantly, `read_page`'s shape: try, then test the *output*, then decline out loud.
 
 - [x] **M138** **`get_links`** — 2026-09-09, the bridge's **20th tool**. One entry per link with
   `page`, `rect`, `kind`, the resolved `target_page` for an internal jump, `uri` for a web address,
@@ -858,18 +864,26 @@ moves to the end and nothing else does. Argument and measurements in `PLAN.md` �
   indexed document and dedupe stays off. `tests/test_mcp_links.py` pins the polarity against a
   constructed dot-leader contents page, verified by inverting the fixture and watching it go red.
 
-- [ ] **M141** **`get_tables`** — rows an agent can read, at **zero new dependencies**. Strategy is
-  chosen per page (ruling present → `lines_strict`, else `text`) and **deliberately not reported**;
-  precision comes from a **shape filter** (reject 1×N, newline-stuffed cells, empty header).
-  Parenthesised negatives split across cells are **repaired by rule** — a leading `(` with no closer
-  is negative, which covers 35 of 36 measured cases — and the one cell that lost its leading `(`
-  is a documented limitation, not code. **Titles and cross-page continuation are in scope**: a
-  table's title is the nearest *free* block above its bbox, an orphan free block below the last
-  table on a page titles the first table on the next, and continuation is **flagged, never
-  auto-merged** — page 29 and page 30 of `WH-1000XM6.pdf` share identical column edges and headers
-  while being different tables, and the orphan title is what tells them apart. Takes a **page
-  range**: `find_tables()` runs at 6.9 pages/s, ~135× slower than `get_text`. Design and the
-  measurements behind each decision in `PLAN.md` §M141.
+- [x] **M141** **`get_tables`** — tables an agent can read, at **zero new dependencies**, plus
+  `table_pages` on `extract_text` so a caller discovers they exist. **Built 2026-09-11; the design
+  was substantially rewritten in the doing** — see `PLAN.md` §M141, which keeps both layers. Two
+  readers, tried in order and tested on their *output* rather than predicted from the layout: a
+  drawn grid (exact — 15 tables across the corpus, none damaged), then **drawn rules for the rows
+  with the columns from alignment** (22 tables, 2 damaged), which the old design had no reader for
+  and which is the only thing that reads an SEC filing — `lines_strict` returns **zero** on Apple's
+  10-Q, NVIDIA's and Cisco's annual reports, LLY's proxy and the SpaceX prospectus. Everything else
+  is **declined into `unread_regions`** with its bbox and what to try, because inferring both axes
+  silently eats characters (`"Beginning balance"` → `"eginning balance"`). Every page asked for
+  appears in one list or the other, never neither. Titles step over the introductory paragraph
+  between caption and table, splitting recovers several tables from one region, continuation is
+  flagged never merged, and `header` is claimed only where a grid proves it.
+  **Three things the original design got wrong, all found by measuring 14 documents instead of 2**
+  (the two it was written against): `strategy="text"` does *not* read financial statements correctly
+  — the numbers land and the labels shatter, and only the numbers had been checked; the specified
+  shape filter (1×N / newline-stuffed / **empty header**) would have **rejected the very financial
+  statements it was written to protect and kept the prose**, since real tables score *worse* than
+  prose on five of the six candidate metrics; and "nearest free block above" returns a column header,
+  a data row or a sentence on real pages. [#348](https://github.com/utyagi24/klarpdf/pull/348)
 
 - [ ] **M140** **Heading candidates** — the typography fallback for documents with neither
   bookmarks nor a linked contents page, and the only route to **subsections** a contents page omits.
@@ -4534,6 +4548,27 @@ the PR that fixes it. See `CLAUDE.md` §How we work for the split and why. Items
 were not migrated wholesale: each is listed because a decision is outstanding, which is what keeps
 it on this side of the line.
 
+- **The row-ruled reader can drop the first and last row of a band, and only the header case is
+  handled** (M141, 2026-09-11). Reading rows from drawn rules routinely starts the band one row
+  inside the table: on a synthetic 11-row fixture both the header row and the last data row fell
+  outside the detected box, and Apple's 10-Q page 4 shows the same shape (`rows[0]` holds data, the
+  real header is outside). The **header** end is handled honestly — `header` is null unless a drawn
+  grid proves it, and the escaped header often reappears as `title` — but the **trailing** end is
+  not: a last row lost that way is simply absent, with nothing in the reply saying so, which is the
+  class of silent loss this milestone otherwise refuses. Unquantified on real documents, because
+  knowing whether a row went missing needs ground truth the tool does not have. The decision needed
+  is which way to close it: compare the band against the page's own line count and warn, widen the
+  band by a row and let the acceptance tests judge, or document it as a limit. `PLAN.md` §M141.
+- **`get_tables` titles are best-effort in ways worth bounding** (M141, 2026-09-11). Two misses
+  survive on real pages, both harmless and both the same shape — something that is not a caption
+  passing the caption tests. LLY's proxy page 56 gives its first table `title: "Name"`, a column
+  heading that happens to sit at the table's left edge; Apple's 10-Q page 4 adopts the section
+  heading `"Item 1. Financial Statements"` from 160 pt above, because the table genuinely has no
+  caption and the lookback found the nearest thing that reads like one. Both argue for the same
+  possible fix — require a caption to be *closer* than the current bound when the table already has
+  a plausible header row, or drop a title whose text appears verbatim in `rows[0]` — and neither is
+  worth doing without more documents. Also unmeasured: a **centred** caption fails
+  `_TITLE_LEFT_TOLERANCE` outright, and the corpus contains none.
 - **`set_outline` is untested on four shapes TC-025 names** (2026-09-10). An outline **deeper than
   two levels** written by this tool — NVIDIA's 8-level outline read back correctly through `merge`
   in TC-024, but nothing has *written* more than two; `set_outline` on a real **encrypted** document
