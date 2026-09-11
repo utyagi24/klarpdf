@@ -710,3 +710,79 @@ def test_a_read_only_build_still_serves_it(linked_pdf):
     server = create_server(Config(read_only=True))
     names = {tool.name for tool in asyncio.run(server.list_tools())}
     assert "get_links" in names
+
+
+# ---- the contents-page rules the docs hand callers (M139.1) --------------------
+
+
+def _contents_page_pdf(path: str) -> str:
+    """A two-page document whose page 1 is a dot-leader contents page with one wrapped title.
+
+    Built rather than fixtured because the behaviour being pinned is a property of that layout, and
+    the real documents it was measured on (a 400-page prospectus) are not in the repo. Three linked
+    rows, of which rows 2 and 3 are one entry that ran onto a second line.
+    """
+    doc = fitz.open()
+    for _ in range(2):
+        doc.new_page()
+    contents = doc[0]
+    doc[1].insert_text((72, 100), "Section body")
+
+    leader = "." * 60
+    lines = [
+        (100.0, f"1. First Section {leader} 2", True),
+        # The wrapped entry: the first line carries no leader and no page number, because both
+        # belong to the *end* of the entry — which is on the line below it.
+        (120.0, "2. A Title Long Enough To Run Onto", False),
+        (140.0, f"A Second Line {leader} 2", True),
+    ]
+    for y, text, _has_leader in lines:
+        contents.insert_text((70, y), text, fontsize=9)
+        rect = fitz.Rect(70, y - 9, 520, y + 2)
+        contents.insert_link({"kind": fitz.LINK_GOTO, "from": rect, "page": 1, "to": fitz.Point(0, 0)})
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def test_the_row_missing_the_dot_leader_is_the_first_line_not_the_continuation(tmp_path):
+    """The polarity of the dot-leader rule, which is the half that is easy to state backwards.
+
+    A complete contents entry ends in a run of dots and a page number. Those sit at the **end** of
+    the entry, so on a title that wrapped they land on its **last** line — meaning the continuation
+    *carries* the leader and the first line is the one missing it. A caller who reads it the other
+    way merges upward, which corrupts two entries at once: the preceding entry gains text that is
+    not its own, and the real continuation is left as an orphan top-level bookmark.
+
+    This is asserted rather than trusted because it was written down inverted once (TC-025), in the
+    same paragraph that stated it correctly, and the delivered outline was right only because the
+    tester did the right thing rather than the written thing.
+    """
+    path = _contents_page_pdf(str(tmp_path / "contents.pdf"))
+    rows = queries.links(path, [1], max_links=50, max_chars=50_000, offset=0)["links"]
+    rows.sort(key=lambda row: row["rect"][1])
+
+    assert len(rows) == 3
+    without = [i for i, row in enumerate(rows) if "..." not in (row["text"] or "")]
+    assert without == [1], "the leader-less row must be the wrapped entry's FIRST line"
+    assert rows[1]["text"].startswith("2. A Title Long Enough To Run Onto")
+    assert "..." in rows[2]["text"], "the continuation carries the leader, not the first line"
+
+
+def test_rows_per_target_separates_an_indexed_document_from_a_magazine_grid(tmp_path):
+    """The discriminator the docs give for *which* profile a contents page is.
+
+    It matters because "dedupe by target" is required for one layout and destructive for the other —
+    measured, deduping an indexed prospectus would discard 41 of 101 entries. The test here is the
+    cheap one the docs name: in a grid every target has exactly two rows; in an indexed document the
+    counts are uneven, and several sections legitimately share a page.
+    """
+    from collections import Counter
+
+    path = _contents_page_pdf(str(tmp_path / "contents.pdf"))
+    rows = queries.links(path, [1], max_links=50, max_chars=50_000, offset=0)["links"]
+    per_target = Counter(row["target_page"] for row in rows)
+
+    # Three rows, one target: uneven, so *not* a grid — dedupe would collapse it to one entry.
+    assert set(per_target.values()) != {2}
+    assert len(rows) > len(per_target), "the collision dedupe-by-target would act on"

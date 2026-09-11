@@ -26,7 +26,7 @@
   <tr>
     <td><b>🏠 The app</b><br><sub>you are here</sub></td>
     <td><a href="klarpdf/mcp_bridge/QUICKSTART.md">🚀 <b>MCP — quick setup</b></a><br><sub>running in three commands</sub></td>
-    <td><a href="klarpdf/mcp_bridge/README.md">📖 <b>MCP — full reference</b></a><br><sub>20 tools · client config · restricting what it may touch</sub></td>
+    <td><a href="klarpdf/mcp_bridge/README.md">📖 <b>MCP — full reference</b></a><br><sub>21 tools · client config · restricting what it may touch</sub></td>
   </tr>
 </table>
 
@@ -155,11 +155,11 @@ tests and our weekly audit scans — not whatever is newest that day.
 Full install options, the Claude Desktop config, and the one-click `.mcpb` bundle are in
 **[klarpdf/mcp_bridge/README.md](klarpdf/mcp_bridge/README.md)**.
 
-Twenty tools in three groups. **Read** — `get_info`, `get_outline`, `get_links`, `search`,
+Twenty-one tools in three groups. **Read** — `get_info`, `get_outline`, `get_links`, `search`,
 `extract_text`, `render_page`, `get_form_fields`, `get_annotations` — let an agent pull only the
 pages it needs instead of loading an 800-page file whole. **Transform** — `extract_pages`, `split`,
-`merge`, `reorder`, `delete_pages`, `rotate`, `fill_form`, `flatten`, `export_images`, `annotate` —
-keep the content and always write a *new* file. **Redact** —
+`merge`, `reorder`, `delete_pages`, `rotate`, `fill_form`, `flatten`, `set_outline`,
+`export_images`, `annotate` — keep the content and always write a *new* file. **Redact** —
 `redact_text`, `redact_regions` — physically delete the content and then re-read the written file to
 prove it, with a second engine when Poppler is installed; if anything is still recoverable the
 output is deleted and the call fails.
@@ -171,6 +171,20 @@ privacy question as much as a navigation one, and *what is its structure* when i
 because a printed contents page is usually a stack of link annotations, each already carrying its
 title, its target page and, in its indent, its level. Authored by the publisher, not inferred from
 typography.
+
+**Then write that structure back.** `set_outline` takes `[{level, title, page}]` — the same shape
+`get_outline` returns — and writes it into a copy of the document as real bookmarks, so a manual
+whose contents page only worked if you found page 3 gets a sidebar that works in every viewer. The
+page set does not change, so the copy keeps everything the original held, encryption and
+permissions included: a restricted published manual comes back restricted, with navigation. A page
+the document does not have is an **error** rather than a bookmark quietly pointing at the nearest
+real page, which is what the PDF layer would do on its own.
+
+It never merges, and it will not let you find that out afterwards: if the document already has
+bookmarks, the call is **refused** unless you pass `replace_outline`. To *enrich* an outline rather
+than replace it — chapters that want sections under them — read it with `get_outline`, weave your
+entries into that list and send the whole tree back. The two shapes are identical by construction,
+so keeping an existing entry is one `+`.
 
 **Mark up a document, then hand it to a person.** `annotate` writes highlights, underlines and
 strike-throughs — each able to carry a **note** — and `get_annotations` reads back every mark a file

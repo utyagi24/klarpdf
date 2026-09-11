@@ -415,6 +415,14 @@ class PyMuPDFEngine(EditEngine):
         out = fitz.open(out_path)
         try:
             self._apply_page_edits(out, vdoc, appending=True)
+            # An authored outline reaches this route only for a document that had none of its own
+            # — :meth:`~model.virtual_document.VirtualDocument.edits_are_additive` refuses the
+            # replacement case, because the entries being replaced would survive in the revision
+            # underneath. So this writes an outline where there was no outline, which is the shape
+            # an append is *for*, and it is why M139 lands as a couple of kilobytes on the end of a
+            # 2.7 MB manual rather than as a rewrite of it.
+            if vdoc.outline_override is not None:
+                out.set_toc(vdoc.remapped_toc())
             out.save(out_path, **append_options())
         finally:
             out.close()
@@ -475,10 +483,18 @@ class PyMuPDFEngine(EditEngine):
         outline (colours, open state, named targets) through ``set_toc``'s simple triples, losing
         fidelity to fix nothing. The metadata pass stays: it is how a user's *edit* to the Info dict
         or XMP is applied, which has nothing to do with grafting.
+
+        The one exception is an outline the caller **authored** (M139), and it is the exception for
+        exactly the reason the paragraph above gives. The objection to ``set_toc`` here is that it
+        would destroy fidelity nobody asked to lose; when the request *is* a new table of contents,
+        losing the old one is the point, and refusing to write it because the page set is unchanged
+        would mean the route that preserves the most is the only one that cannot do this at all.
         """
         out = vdoc.fresh_source(vdoc.origin_source_id)
         try:
             self._apply_page_edits(out, vdoc)
+            if vdoc.outline_override is not None:
+                out.set_toc(vdoc.remapped_toc())
             # ...and only when the user actually edited the metadata (M114). `apply_metadata`'s
             # untouched branch copies the origin's Info dict and XMP packet onto the output — a pass
             # written for the *graft*, where `insert_pdf` copies neither store and they would

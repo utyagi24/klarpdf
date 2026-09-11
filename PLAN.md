@@ -6776,23 +6776,177 @@ recording because it is the second time a testing round has spent effort on it, 
 diagnostic is cheap and general: **if the docs page and the served description disagree, the client
 is holding an old tool list — the server cannot produce that pair.**
 
-#### M139 — `set_outline`
+#### M139 — `set_outline` *(2026-09-10, the bridge's 21st tool)*
 
 Write a table of contents into a copy of the document. The entry shape is `[{level, title, page}]`,
 which is already what `get_outline` returns and `remapped_toc()` produces, so the writer and the
-reader agree by construction and a TOC we write stays correct through a later reorder.
+reader agree by construction and a TOC we write stays correct through a later reorder — verified:
+reversing a 10-page document moves the three bookmarks 1→10, 5→6, 9→2, because `set_toc` writes
+direct GoTo destinations (`kind: 1`) and those are the ones `bake_dest` can re-point (M138.4).
 
 It is a **catalog-only** change — `/Outlines`, no page moves — so by the rule in `CLAUDE.md`
-§Gotchas the `insert_pdf` graft hazard does not apply and everything survives: verified above on an
-RC4-encrypted file, with `permissions` and `metadata["encryption"]` intact. Combined with M116 it is
-an append: **+14.7 KB on a 2.7 MB document** rather than a rewrite.
+§Gotchas the `insert_pdf` graft hazard does not apply and everything survives: verified on an
+AES-256 owner-restricted file, with `permissions` (-3388) and `metadata["encryption"]` intact.
 
-One constraint found by hitting it: `set_toc` **rejects a TOC whose first item is not level 1**, and
-will not let levels skip (`ValueError: hierarchy level of item 0 must be 1`). Indent-derived levels
-do not satisfy that on their own — a contents page can open at the second indent — so entries need
-normalising (`level = min(level, previous + 1)`) before the write.
+**The sink for M138 and M140 alike**, which is why it comes before M140 despite M140 feeding it:
+building the sink first pins the contract, and M138 + M139 is already a working feature where
+M138 + M140 would be two sources with nothing able to write. M138's two dangling pointers now
+terminate here — `get_links`' description names `set_outline`, and
+`klarpdf://docs/get_links` §*Rebuilding a contents page from links* hands its four caller rules to
+it.
 
-#### M140 — heading candidates, the fallback
+##### Where it lives, and why it is not bridge-local
+
+The tool is thin, like every other transform: the capability is
+`VirtualDocument.set_outline_override`, and `remapped_toc()` returns the authored entries when one
+is set. That placement is the §*Two consumers share one core* rule taken seriously rather than a
+gesture at it — the validation that makes this tool safe is at the chokepoint both consumers reach,
+so a future GUI outline editor cannot be built with weaker rules than the bridge has, and the graft
+route and the pypdf fallback pick the authored outline up **without knowing it exists**, since they
+already read `remapped_toc()`.
+
+One consequence worth stating: `_edit_origin_copy` deliberately does **not** call `set_toc`, on the
+grounds that doing so would flatten named destinations and rewrite a rich outline through
+`set_toc`'s simple triples — *"losing fidelity to fix nothing"*. An authored outline is the exception
+for exactly that reason. The objection is to destroying fidelity nobody asked to lose; when the
+request *is* a new table of contents, losing the old one is the point, and refusing would leave the
+route that preserves the most as the only one unable to do this at all.
+
+##### What building it added, all measured
+
+**A page the document does not have is not refused by `set_toc` — it is silently moved.** Measured
+on 1.27.2.3 against a 6-page document: `page=99` writes a bookmark to page 6, `page=0` writes one to
+page 1, and `page=-1` writes `{'kind': 0}` — a bookmark that appears in the outline and navigates
+nowhere, which is M138.4's defect arriving by a different door. All three report success. This is
+the `fill_form` unknown-field argument (*"a typo that writes nothing and reports success is the
+worst outcome here"*) applied to the one argument that carries the meaning, so the page range is
+checked in `set_outline_override` and nothing is written when it fails.
+
+**Levels are repaired, not refused, and the repair is reported.** `set_toc` rejects a first item
+that is not level 1 (`ValueError: hierarchy level of item 0 must be 1`) and any skipped level
+(`bad hierarchy level in row 1`), which indent-derived levels do not satisfy — a contents page can
+open at the second indent. The normaliser is **`toc_remap.repair_levels`**, already written for the
+remap, rather than the `level = min(level, previous + 1)` this milestone was planned around: it
+keeps a stack, so relative nesting survives and an entry whose parent level never appeared is
+promoted to where it belongs. Measured difference on `[2, 4, 2]` → `[1, 2, 1]`. Silence would hide a
+genuine mistake, so the reply carries `levels_normalised` naming every entry whose level moved.
+
+**The append/rewrite fork, and why it is a fork.** The plan said "with M116 it appends rather than
+rewrites". That is true of the headline case and false of the other one, and the difference is the
+same argument `edits_are_additive` already makes about a removed mark:
+
+* **No outline of its own → append.** Nothing is taken away. Measured: +772 B on a 40-page file with
+  the first 16,925 bytes identical, encryption and permissions intact.
+* **An outline already there → full rewrite.** Replacing is a removal wearing a write, and an append
+  cannot remove: the entries being replaced stay in the revision underneath. Measured, the old
+  bookmark titles are **still readable in the output's bytes** after an incremental replace. So
+  `edits_are_additive` answers False when `_outline_override` meets a non-empty `_origin_toc`, and
+  the document is rewritten. Not a fallback — decided before the write, like every other clause
+  there.
+
+**Three deliberate non-features**, recorded so they are not re-derived. It **replaces** rather than
+merges (an outline is a single tree; the caller concatenates, which the shared shape makes one `+`).
+It does not **remove** an outline — `entries: []` is refused, because an agent that built entries
+from `get_links` and filtered them all away arrives with `[]`, and the destructive reading of an
+ambiguous argument is not the one to take. And it writes no **within-page destination points**,
+colours or open state; each entry lands at the top of its page, which is what a contents-page link
+resolves to for a reader anyway.
+
+##### `replace_outline`, and the two onuses an existing outline splits
+
+Asked by the owner on 2026-09-10, after the first cut shipped the replacement silently with a
+`replaced` count in the reply: *"when a document has an outline already, the purpose of a rewrite
+ought to be to improve and enrich it — but who carries this onus, the MCP or the caller?"* The
+answer is that there are **two** onuses and they belong to different parties, which the first cut
+conflated.
+
+**The semantic onus is the caller's, and can be nowhere else.** Whether a derived *Revenue by
+quarter* duplicates an existing *Q3 Revenue*, parents it, or sits beside it is a judgement about
+meaning, and merging by rule produces plausible-looking nonsense. This is the M140 position applied
+one milestone early — classification in code with no agent in the loop was rejected on 2026-09-09 —
+and the same shape as `get_links`, which deliberately does not decide and hands dedupe, empty
+anchors and running-footer filtering to the caller as four documented rules. So `set_outline` does
+not merge, ever.
+
+**The procedural onus is the server's, and the first cut was not carrying it.** Making sure the
+caller *made* that decision is a different job from making it for them, and `replaced: 5` in the
+reply discharges it only for an agent that reads the field. An agent told *"add a bookmark for the
+appendix"* would plausibly send one entry, drop four, and report success. So an existing outline is
+now refused unless `replace_outline=True` — on precisely the argument this module already makes one
+level up about output files: *"refusing to silently overwrite an unrelated file is the same argument
+applied consistently, and an agent that meant it can say so in one word."* An existing outline is
+content that disappears silently; same shape, one level in.
+
+Two properties make this cheap rather than friction. The **headline case never sees it** — a
+document with no outline, which is what the tool was built for, takes no new argument. And the
+**refusal is the teaching surface**: it names the count, says the tool never merges, and spells out
+the enrichment path, so the correct workflow is the one a caller is told about rather than the one
+they had to already know. A warning was considered first and rejected as strictly weaker: it fires
+after the loss, and the repo had already chosen refusal for the analogous case.
+
+The `subset()` view deliberately does not carry the override: it is pinned to *this* document's page
+numbers and an extract renumbers every one of them.
+
+#### M139.1 — what TC-025 found, and the sentence that was inverted *(2026-09-10, unplanned)*
+
+The owner's **TC-025** is the first hands-on coverage of `set_outline`, run against two documents
+chosen because they need **opposite readings of the same four rules**: `SpaceX-EUProspectus.pdf`
+(400 pp, 362 links, densely numbered sections) and `kasaragodhr.pdf` (35 pp, 156 links, magazine
+grid). It reports **PASS on every documented promise and no defects** — round trip exact, page set
+and all 362 links preserved, both refusals verified fail-closed *on disk* rather than believed from
+the reply, level repair correct and individually attributable, `replace_outline` correct.
+
+Every measurement in it reproduced exactly: 101 entries over 60 distinct target pages; 37 `named`
+links on the brochure splitting 12 + 12 + 13; 24 contents rows deduping to 12 destinations with 12
+carrying no anchor text; three duplicate titles and an em dash round-tripping byte-exact. (One
+transcription drift, immaterial: the brochure's anchor `x0` runs to 233.63, not 233.16.)
+
+**So the finding is not a defect in the tool — it is in the guidance the tool points at.** The four
+contents-page rules in `klarpdf://docs/get_links` read as a checklist, and two of the four are
+*actively wrong* for the document type `set_outline`'s own description names:
+
+* **"Dedupe by target" is destructive on an indexed document.** It was written from a magazine,
+  where each entry is linked twice. A prospectus puts many sections on one page — measured, one page
+  carries six — so 101 entries span only 60 distinct targets and the rule would have discarded
+  **41 of 101, 41% of the outline**.
+* **The continuation test is necessary but not sufficient.** *"Same `target_page` and adjacent
+  `rect[1]`"* also matches `2.1 Responsibility Statement` and `2.2 General Disclaimers`, which share
+  page 50, sit 14 pt apart, and are different sections.
+
+**And the correction the report proposed was itself stated backwards — in the same paragraph that
+stated it correctly.** TC-025 offers the **dot leader** as the discriminator and says first, rightly,
+that *"a complete TOC entry always ends in a run of dots and a page number; a wrapped first line has
+neither"* — then, one sentence later, *"all three true continuations lack dots"*. Measured over the
+104 contents rows: **101 carry a leader and the 3 that do not are the wrapped *first* lines**, because
+the leader runs to the page number at the **end** of the entry, which lands on its **last** line. The
+continuation carries the dots.
+
+The inversion is not cosmetic. The rule decides which way to merge, and merging upward corrupts two
+entries at once — the preceding entry gains text that is not its own, and the real continuation is
+left as an orphan top-level bookmark. Written into the docs as phrased, it would have been a
+plausible instruction producing a wrong outline with no error anywhere. The delivered outline is
+correct because the tester did the right thing, not the written thing, which is exactly the gap
+between a finding and its explanation that `CLAUDE.md`'s harness note warns about.
+
+**The fix is a layout classifier the caller can compute from the reply it already has**, rather than
+a fifth rule. TC-025's own one-line summary is the insight — *"the rules are sound; which ones apply
+is a property of the layout, and nothing in the reply tells you which document you have"* — and the
+answer is that the reply does tell you, if you ask it the right question: in a grid **every target
+has exactly two rows and about half the anchors are empty**; uneven rows-per-target means an indexed
+document and dedupe must stay off. That table now sits under the four rules, with the per-profile
+answer for dedupe, continuations and levels. Deliberately guidance rather than a new field: deciding
+what a contents page *is* stays the caller's, the same position `get_links` has held since M138.
+
+`tests/test_mcp_links.py` pins the polarity against a constructed dot-leader contents page, so a
+future re-inversion fails there rather than in somebody's outline. Verified by inverting the fixture
+and watching it go red.
+
+**Untested surface TC-025 names for a later round**, carried rather than closed: an outline **deeper
+than two levels** written by this tool, `set_outline` on an **encrypted** document and on a **tagged**
+one, and empty-string / very long titles. The encryption and tagging claims are asserted in
+`tests/test_mcp_set_outline.py` at unit scale; what is untested is a real document of that shape.
+
+#### M140 — heading candidates: the typography fallback, and the route to subsections
 
 For a document with neither bookmarks nor a linked contents page, structure has to come from
 typography. The design splits it, because the split is what avoids a dependency:
@@ -6820,10 +6974,67 @@ closes the `pymupdf_layout` question outright — 1c was the last place a layout
 earned ~11 pins and ≈100 MB, since every other use is either served by what we already pin or
 answerable by an agent reading a `render_page` image.
 
-Ordering, and why M140 is last: the shippable feature is **M138 + M139 + agent judgement**, which
-covers every document with a printed contents page — manuals, reports, filings, standards. M140 only
-serves what is left over. M139 is also independently shippable on its own, since an agent can supply
-entries from its own reading of a short document without any candidate extraction.
+Ordering — **the build order is `M141 → M140 → M142`**, and the reasoning below is kept in two
+layers because the second corrects the first.
+
+*As originally argued (2026-09-07), when M140 was last of three:* the shippable feature is
+**M138 + M139 + agent judgement**, which covers every document with a printed contents page —
+manuals, reports, filings, standards. M140 only serves what is left over. M139 is also independently
+shippable on its own, since an agent can supply entries from its own reading of a short document
+without any candidate extraction.
+
+**That rationale is now incomplete, and the gap was found by asking the tool a question it cannot
+answer** (owner, 2026-09-10, immediately after M139 landed): *"a doc might have defined only
+high-level bookmarks, and our caller might decide to insert second-level bookmarks wherever
+applicable — does the bridge offer enough information to infer how?"* It does not.
+
+The case is **enrichment**, and it is not a leftover — it is the other half of M139:
+
+* `get_outline` gives the existing tree. Necessary, not sufficient: it says *Financials, p5* and
+  nothing about what is inside pages 5-9.
+* `get_links` does not help here, and the reason is structural rather than incidental. A document
+  that already ships bookmarks usually has **no printed linked contents page** — the bookmarks
+  *are* its navigation. M138 serves the complement of this case, not this case.
+* `extract_text` returns `get_text("text")` — plain strings, no font, size, weight or position. It
+  therefore discards the one signal that works. Measured on a synthetic report reproducing
+  `dhariwal_ipo.pdf`'s shape: subheadings set in **Helvetica-Bold at 10 pt against a 10 pt body**
+  arrive as lines indistinguishable from the paragraph beneath them, while `get_text("dict")` names
+  them exactly. This is M140's own finding — *"weight is the signal, not size"* — arriving from the
+  enrichment direction.
+* `render_page` works and costs an image per page, with the agent reading headings by eye.
+
+So the tool that closes this is **M140**, whose entry already anticipates it in one clause — *"and
+the only route to subsections a contents page omits"* — without that clause reaching the ordering
+argument. Its **page range**, justified by *"heading conventions differ by section in a compiled
+document"*, turns out to be the enrichment primitive as well: `get_outline` says Financials is pages
+5-9, so the caller asks for candidates in 5-9 and nowhere else.
+
+**Decided by the owner, 2026-09-10: the build order is `M141 → M140 → M142`.** Only M142 moves.
+Getting there took one wrong turn worth recording, because the wrong turn is the instructive part.
+
+The first proposal was *"promote M140 ahead of both, restoring numeric order"*, argued from the
+enrichment gap alone. **It was wrong**, and the owner caught it by asking the right question — *"there
+must have been a good reason to deviate from the natural numeric order, so double-check we are not
+missing something."* There was. The history shows M140 scoped with M138/M139 (last, which was also
+numeric order at the time), then **deliberately demoted twice** as M141 and M142 were each inserted
+above it. Neither commit explains the placement, but the design does: **M140's `in_table` flag needs
+table detection**, and M141 is where that machinery lands — along with the decision M141 settles
+about *how* to call it, strategy chosen per page (ruling → `lines_strict`, else `text`). Building
+M140 first means making that call independently, and probably differently. So `M141 → M140` encodes
+real reasoning and stays.
+
+**What was genuinely wrong is narrower: M142 sat above a milestone it depends on.** Its own section
+says it *"depends on M140 and M141 landing first"*, and it was scheduled ahead of M140 — a sequence
+that cannot be executed as written. Moving it to the end fixes that and touches nothing else.
+
+The lesson generalises past this roadmap, and is the same one `CLAUDE.md` §*Two consumers share one
+core* makes about claims: **an ordering that looks arbitrary is a claim to be checked, not a defect
+to be corrected.** The value argument above is sound and the enrichment gap is real; it simply was
+not sufficient to reorder on, because it never asked what the existing order already knew.
+
+One consequence to hold: this puts enrichment behind `get_tables`. M140 *could* ship without
+`in_table` to bring it forward, but `in_table` is what dismisses 2,287 cell headers on the
+prospectus, so that trade weakens M140 on the document it was designed against. Not taken.
 
 #### A second document, a different shape — what it adds to M138 and M139
 
@@ -6839,6 +7050,13 @@ anchor text makes the answers meaningful (`'Mangalore International Airport'` �
 
 **Its contents pages work, and teach four rules M139 needs.** Pages 4–5 are a visual grid, not an
 indented list, and they reconstruct cleanly into 12 sections (pages 6, 8, 10 … 28) — but only with:
+
+> **Read with M139.1.** These four were derived from *this* document and hold for its layout. TC-025
+> later ran the same rules against a 400-page prospectus and found two of them inverted there —
+> dedupe-by-target would have deleted 41% of that outline, and the adjacency test for continuations
+> misfires where several sections share a page. The rules below are not wrong; they are the
+> **magazine-grid** half of a two-profile problem. §M139.1 has the classifier that decides which
+> half a document is.
 
 * **Dedupe by target.** Each entry is linked **twice**, once on its photograph and once on its
   caption, both to the same page. 12 links on page 4 are 6 entries.

@@ -577,7 +577,7 @@ items, which are independent of it.
   (**M128**); and row 10's own instructions not putting the lock in the bundle (**M129**). What
   remains is the tag, which is an owner action.
 
-## Roadmap — document structure for agents (planned; M138–M142)
+## Roadmap — document structure for agents (M138–M142; M138 + M139 shipped)
 
 Design in `PLAN.md` §M138–M140 — **not restated here**. Same conventions: **one PR per milestone**,
 tick the box here on merge. Scoped **2026-09-07** from a session comparing the bridge against a
@@ -593,6 +593,31 @@ permissions intact, **+14.7 KB appended** to a 2.7 MB file. So structure does no
 inferred for a large class of documents — it is already in the file, and the bridge had no way to
 read it. **M138 + M139 + agent judgement is the shippable feature**; M140 is the fallback for what
 is left over.
+
+**Amended 2026-09-10, after M139 shipped. The build order is `M141 → M140 → M142`** — decided by
+the owner that day, and it is deliberately *not* numeric. Two findings moved it, one about value and
+one about correctness.
+
+**Value: "the fallback for what is left over" undersells M140.** The owner's question found the gap
+— a document with only high-level bookmarks, whose caller wants second-level ones inserted, is
+served by **nothing the bridge has**. `get_outline` gives the existing tree but not what is inside a
+section; `get_links` does not help, because a document that already ships bookmarks usually has no
+printed linked contents page; and `extract_text` returns plain strings with no weight, which is the
+one signal separating an unnumbered subheading from body text set at the same size (measured:
+Helvetica-Bold 10 pt against a 10 pt body reads identically through it). **Enrichment is the other
+half of M139, not a leftover.**
+
+**Correctness: M142 was scheduled ahead of a milestone it declares a dependency on.** Its own entry
+says *"Depends on M140 + M141"* and `PLAN.md` §M142 says it *"depends on M140 and M141 landing
+first"*, while it sat above M140 in this list. That sequence could not be executed as written, and
+it was the one unambiguous error here.
+
+**But M141 stays ahead of M140, and the first proposal to make the order numeric was wrong.** M140's
+`in_table` flag needs table detection, and M141 is where that machinery lands together with the
+decision M141 settles about how to call it (ruling present → `lines_strict`, else `text`, chosen per
+page). Building M140 first would mean making that call independently and probably differently. The
+1→2 demotion of M140 encoded real engineering reasoning; only M142's placement did not. So M142
+moves to the end and nothing else does. Argument and measurements in `PLAN.md` §M140 → *Ordering*.
 
 - [x] **M138** **`get_links`** — 2026-09-09, the bridge's **20th tool**. One entry per link with
   `page`, `rect`, `kind`, the resolved `target_page` for an internal jump, `uri` for a web address,
@@ -756,21 +781,83 @@ is left over.
   resource is assembled from the live description at read time, so both strings come from the same
   process and a current docs page proves a current `list_tools()`. Confirmed directly against the
   server. The client is holding a stale tool list; details in `PLAN.md` §M138.5.
-- [ ] **M139** **`set_outline`** — write `[{level, title, page}]` into a copy as real bookmarks;
-  the same shape `get_outline` returns and `remapped_toc()` produces. **The sink for M138 and
-  M140 alike** — an agent supplies entries derived from links (M138, the primary and exact source),
-  from typography (M140, the fallback), or from its own reading of a short document, which is why
-  it is independently shippable and why it comes **before** M140 despite M140 feeding it: building
-  the sink first pins the contract, and M138 + M139 is already a working feature where M138 + M140
-  would be two sources with nothing able to write. A catalog-only change, so the
-  `insert_pdf` graft hazard does not apply and encryption survives (verified); with M116 it appends
-  rather than rewrites. Must normalise levels before writing — `set_toc` refuses a first item that
-  is not level 1 and refuses skipped levels.
+- [x] **M139** **`set_outline`** — 2026-09-10, the bridge's **21st tool**. Write
+  `[{level, title, page}]` into a copy as real bookmarks; the same shape `get_outline` returns and
+  `remapped_toc()` produces, so a document's outline round-trips and the two compose. **The sink
+  for M138 and M140 alike** — an agent supplies entries derived from links (M138, the primary and
+  exact source), from typography (M140, the fallback), or from its own reading of a short document.
+  A catalog-only change, so the `insert_pdf` graft hazard does not apply: verified on an AES-256
+  owner-restricted file, permissions (-3388) and encryption intact. **M138's two dangling pointers
+  now terminate here** — `get_links`' description names it, and `klarpdf://docs/get_links`
+  §*Rebuilding a contents page from links* hands its four caller rules to it. Design in `PLAN.md`
+  §M139 — *WSL*.
 
-  **Two pointers M138 left for it**, since a description may not name a tool that does not exist:
-  `get_links`' own description explains the indent-as-level trick and stops short of saying what to
-  do with it, and `klarpdf://docs/get_links` §*Rebuilding a contents page from links* carries the
-  four caller rules with no sink to hand them to. Both should name `set_outline` in M139's PR.
+  **The capability is `VirtualDocument.set_outline_override`, not the tool.** `remapped_toc()`
+  returns the authored entries when one is set, so the graft route and the pypdf fallback pick it
+  up without knowing it exists, and the validation sits at the chokepoint **both** consumers reach
+  — a future GUI outline editor cannot be built with weaker rules than the bridge has.
+
+  **Three things building it added, all measured.** A **page the document does not have is not
+  refused by `set_toc`, it is silently moved**: on a 6-page document `page=99` writes a bookmark to
+  page 6, `page=0` to page 1, and `page=-1` one with **no destination at all** — M138.4's defect
+  arriving by a different door — and all three report success, so the range is checked before
+  anything is written. **Levels are repaired rather than refused**, through `repair_levels` (already
+  written for the remap) rather than the planned `min(level, previous + 1)`: it keeps a stack, so
+  `[2, 4, 2]` → `[1, 2, 1]` preserves nesting instead of flattening it, and `levels_normalised` in
+  the reply names every entry that moved, because silence would hide a genuine mistake. And the
+  plan's *"with M116 it appends rather than rewrites"* turned out to be **a fork, not a fact**: a
+  document with no outline appends (**+772 B on a 40-page file, the first 16,925 bytes identical**),
+  while *replacing* one is a removal wearing a write — measured, the old bookmark titles are still
+  readable in the output's bytes after an incremental replace — so that case takes the full rewrite,
+  by the same rule `edits_are_additive` already applies to a removed mark.
+
+  **Three deliberate non-features**, recorded so they are not re-derived: it replaces rather than
+  merges (the caller concatenates — one `+`, given the shared shape); it does **not remove** an
+  outline, since `entries: []` is far more often a filter that matched nothing than a request to
+  strip a document's navigation; and it writes no within-page destination points, colours or open
+  state.
+
+  **`replace_outline` — the two onuses an existing outline splits** (owner question, 2026-09-10,
+  after the first cut replaced silently with only a `replaced` count in the reply). The **semantic**
+  onus — what an enriched outline should *say* — is the caller's and can be nowhere else, so the
+  tool never merges. The **procedural** onus — making sure the caller *made* that call — is the
+  server's, and was not being carried: an agent told *"add a bookmark for the appendix"* would send
+  one entry, drop four, and report success. An existing outline is now **refused** unless
+  `replace_outline=true`, on the argument `transforms.py` already makes about output files (*"an
+  agent that meant it can say so in one word"*). The headline zero-bookmark case never sees the
+  argument, and the refusal names the count and spells out the `get_outline` + concatenate path, so
+  enrichment is what a caller is told about rather than what they had to already know. A warning was
+  considered first and rejected as strictly weaker — it fires after the loss.
+- [x] **M139.1** *(unplanned)* **What TC-025 found, and the sentence that was inverted** —
+  2026-09-10, the owner's **TC-025**, the first hands-on coverage of `set_outline`. Two documents
+  needing **opposite readings of the same four rules**: `SpaceX-EUProspectus.pdf` (400 pp, 362
+  links, densely numbered) and `kasaragodhr.pdf` (35 pp, magazine grid). **PASS on every documented
+  promise, no defects** — round trip exact, page set and all 362 links preserved, both refusals
+  verified fail-closed *on disk*, level repair individually attributable, `replace_outline` correct.
+  Every measurement reproduced exactly. Design in `PLAN.md` §M139.1 — *WSL*.
+
+  **The finding is in the guidance, not the tool.** The four contents-page rules in
+  `klarpdf://docs/get_links` read as a checklist, and two are *actively wrong* for the document type
+  `set_outline`'s own description names. **Dedupe by target** was written from a magazine; on an
+  indexed document many sections legitimately share a page (one carries six), so 101 entries span 60
+  distinct targets and the rule would have discarded **41 of 101 — 41% of the outline**. And the
+  **continuation test** (*same target, adjacent `rect[1]`*) also matches `2.1` and `2.2`, which share
+  page 50, sit 14 pt apart and are different sections.
+
+  **The correction the report proposed was itself inverted** — in the same paragraph that stated it
+  correctly. TC-025 offers the **dot leader**, saying first that *"a wrapped first line has neither"*
+  (right) and then that *"all three true continuations lack dots"* (wrong). Measured over 104 rows:
+  **101 carry a leader; the 3 that do not are the wrapped first lines**, because the leader runs to
+  the page number at the *end* of an entry, which lands on its *last* line. Not cosmetic — the rule
+  decides which way to merge, and merging upward corrupts two entries at once, silently. The
+  delivered outline is right because the tester did the right thing rather than the written thing,
+  which is precisely the finding-versus-explanation gap the harness note warns about.
+
+  **The fix is a layout classifier the caller computes from the reply**, not a fifth rule: in a grid
+  every target has exactly two rows and half the anchors are empty; uneven rows-per-target means an
+  indexed document and dedupe stays off. `tests/test_mcp_links.py` pins the polarity against a
+  constructed dot-leader contents page, verified by inverting the fixture and watching it go red.
+
 - [ ] **M141** **`get_tables`** — rows an agent can read, at **zero new dependencies**. Strategy is
   chosen per page (ruling present → `lines_strict`, else `text`) and **deliberately not reported**;
   precision comes from a **shape filter** (reject 1×N, newline-stuffed cells, empty header).
@@ -783,16 +870,6 @@ is left over.
   while being different tables, and the orphan title is what tells them apart. Takes a **page
   range**: `find_tables()` runs at 6.9 pages/s, ~135× slower than `get_text`. Design and the
   measurements behind each decision in `PLAN.md` §M141.
-
-- [ ] **M142** **`extract_markdown`** — a Markdown rendering of a page range, built on M140 and M141
-  with **no new dependency**. Prototyped before being scheduled: headings by weight/size, ruled
-  tables exactly, and **multi-column reading order** all work; a partially-ruled financial table, a
-  structured side panel, a drop cap and justified single-word lines are the known holes. **Binding
-  rule: a table that cannot be reconstructed is emitted as-is with a note, never as a mangled grid**
-  — the third application of *report the uncertainty, never paper over it*, after M140's `in_table`
-  and M141's `continues_from`. A **separate tool**, not a `format` flag on `extract_text`, because
-  the cost differs by two orders of magnitude (~930 pages/s against 6.9). Depends on M140 + M141.
-  Design, and why `pymupdf4llm` is rejected, in `PLAN.md` §M142.
 
 - [ ] **M140** **Heading candidates** — the typography fallback for documents with neither
   bookmarks nor a linked contents page, and the only route to **subsections** a contents page omits.
@@ -807,6 +884,16 @@ is left over.
   first estimated**; and the extractor must accept a **page range**, because heading conventions
   differ by section in a compiled document even when the typography does not. Classification **in
   code** is deliberately out of scope — see §Open follow-ups.
+
+- [ ] **M142** **`extract_markdown`** — a Markdown rendering of a page range, built on M140 and M141
+  with **no new dependency**. Prototyped before being scheduled: headings by weight/size, ruled
+  tables exactly, and **multi-column reading order** all work; a partially-ruled financial table, a
+  structured side panel, a drop cap and justified single-word lines are the known holes. **Binding
+  rule: a table that cannot be reconstructed is emitted as-is with a note, never as a mangled grid**
+  — the third application of *report the uncertainty, never paper over it*, after M140's `in_table`
+  and M141's `continues_from`. A **separate tool**, not a `format` flag on `extract_text`, because
+  the cost differs by two orders of magnitude (~930 pages/s against 6.9). Depends on M140 + M141.
+  Design, and why `pymupdf4llm` is rejected, in `PLAN.md` §M142.
 
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 
@@ -4447,6 +4534,26 @@ the PR that fixes it. See `CLAUDE.md` §How we work for the split and why. Items
 were not migrated wholesale: each is listed because a decision is outstanding, which is what keeps
 it on this side of the line.
 
+- **`set_outline` is untested on four shapes TC-025 names** (2026-09-10). An outline **deeper than
+  two levels** written by this tool — NVIDIA's 8-level outline read back correctly through `merge`
+  in TC-024, but nothing has *written* more than two; `set_outline` on a real **encrypted** document
+  (`WH-1000XM6.pdf`, `Cisco_FORM10-K.pdf`) and on a real **tagged** one; and **empty-string / very
+  long titles**. The encryption and tagging promises are asserted at unit scale in
+  `tests/test_mcp_set_outline.py` and an empty title is refused, so this is not an open defect — it
+  is that the claims have not met a document of that shape. Needs a decision only in the sense of
+  scheduling: fold into the next manual round, or write fixtures for the depth case, which is the
+  one a unit test can actually cover.
+- **An authored outline is pinned to the page numbers it was written against** (M139, 2026-09-10).
+  `VirtualDocument._outline_override` holds `[level, title, page]` in *output* page numbers and is
+  validated against the page count as it stands when it is set. Nothing re-points it afterwards the
+  way `remap_toc` re-points a document's own outline, so a page moved or deleted between authoring
+  and saving would leave the entries aimed at the old positions. **Not reachable today and not a
+  defect**: the only writer is the bridge's `set_outline`, which authors and materialises in one
+  call with no page edit in between, which is also why the override is left out of `subset()` and of
+  the undo snapshot. The decision is owed by whoever builds the **GUI** outline editor this
+  capability was deliberately placed in the core to enable — re-point the override on every page
+  edit (a second `remap_toc` caller), or drop it and make the user re-author. Worth settling before
+  that editor exists rather than during it.
 - ~~**A `get_tables` tool on `find_tables()` plus a shape filter**~~ — **graduated 2026-09-09 into
   M141** (see the roadmap above; design in `PLAN.md` §M141). All three open questions were decided
   by the owner: the strategy is chosen per page and **not** reported (*"I see no value in disclosing

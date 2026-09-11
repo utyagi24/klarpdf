@@ -42,6 +42,7 @@ WRITE_TOOLS = {
     "merge",
     "fill_form",
     "flatten",
+    "set_outline",
     "export_images",
 }
 REDACT_TOOLS = {"redact_text", "redact_regions"}

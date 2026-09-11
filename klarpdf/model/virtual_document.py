@@ -175,6 +175,21 @@ class VirtualDocument:
         self._origin_info: dict = {}
         self._origin_xmp: str = ""
         self._metadata_override: dict | None = None
+        # A table of contents the caller has authored, to be written in place of whatever outline
+        # the document arrived with (M139). ``None`` = untouched, so ``remapped_toc`` keeps doing
+        # what it always did; a list of ``[level, title, page]`` = write exactly this.
+        #
+        # Held as *output* page numbers, which is what the author of a TOC is looking at, and
+        # validated against the page count **as it stands when it is set**. That is the whole of
+        # the contract, and the part worth naming is what it does not cover: moving or deleting a
+        # page afterwards would leave these entries pointing at the old positions, and nothing
+        # here would re-point them the way `remap_toc` re-points a document's own outline. The
+        # bridge cannot reach that — `set_outline` authors and materialises in one call, with no
+        # page edit in between — so this is a constraint on the *next* writer rather than a live
+        # defect, and it is why the override is also left out of `subset()` and of the undo
+        # snapshot. A GUI outline editor has to either re-point it on every page edit or drop it;
+        # `PROGRESS.md` §Open follow-ups carries the item.
+        self._outline_override: list | None = None
         # Document encryption (M54) — a save-path capability: the password a Save applies
         # (AES-256), or None to save unencrypted, plus the advisory permission flags (-1 = all
         # allowed). Held in memory only, never persisted anywhere but the encrypted output
@@ -440,6 +455,14 @@ class VirtualDocument:
         * no page is rotated or cropped, no form field is filled, the metadata stores are untouched,
           and the user has not staged an encryption change. Each of those rewrites something the
           file already had rather than adding to it.
+        * an **authored outline** (M139) is judged by the same test, and it is the one edit here
+          that can answer either way. Giving an outline to a document that has none adds an object
+          and takes nothing away, so it appends: measured, +772 B on a 40-page file with the first
+          16,925 byte-identical, encryption and permissions intact. *Replacing* an outline is a
+          removal wearing a write — the entries being replaced stay in the previous revision, and
+          measured, the old bookmark titles are still readable in the output's bytes. So a document
+          that already has one takes the full rewrite, which is not a fallback but the same rule
+          this method applies to a removed mark, asked of a different object.
 
         Note what this is *not* asked about: whether the origin's pages already carry KlarPDF marks.
         They may — a document annotated last week, opened again, and given one more highlight is
@@ -457,6 +480,8 @@ class VirtualDocument:
         if not self.page_set_unchanged():
             return False
         if self._metadata_override is not None or self._form_values or self._encryption_staged:
+            return False
+        if self._outline_override is not None and self._origin_toc:
             return False
         arrived_with = self._source_marks.get(self.origin_source_id)
         if arrived_with is None or len(arrived_with) != len(self.ordered):
@@ -644,8 +669,19 @@ class VirtualDocument:
 
         Deliberately **not** nested under a synthetic per-document parent. That would invent a
         bookmark present in neither input; a reader who wants one can add it.
+
+        An **authored** outline (M139) short-circuits all of it: when the caller has said what the
+        table of contents should be, there is nothing to remap and nothing to merge — their entries
+        *are* the answer, already expressed in output page numbers. Returning them from here rather
+        than from a second method is what keeps the one guarantee M139 was scoped around: every
+        route that writes an outline reads it from this method, so the graft route
+        (:meth:`~model.edit_engine.PyMuPDFEngine._graft_output`) and the pypdf fallback pick the
+        authored one up without knowing it exists.
         """
         from klarpdf.model.toc_remap import remap_toc
+
+        if self._outline_override is not None:
+            return [list(entry) for entry in self._outline_override]
 
         entries: list = []
         for source_id in self._sources_in_output_order():
@@ -675,6 +711,10 @@ class VirtualDocument:
         sub._origin_info = dict(self._origin_info)
         sub._origin_xmp = self._origin_xmp
         sub._metadata_override = self.metadata_override
+        # The authored outline (M139) deliberately does **not** ride along: it is pinned to *this*
+        # document's page numbers, and an extract renumbers every one of them. Carrying it would
+        # point each entry at whatever page happened to land at that index. The subset keeps the
+        # origin outline instead, which `remapped_toc` re-points correctly because it knows how.
         return sub
 
     def page_visible_size(self, index: int) -> tuple:
@@ -866,6 +906,77 @@ class VirtualDocument:
 
     def metadata_is_removed(self) -> bool:
         return self._metadata_override == {}
+
+    # ---- authored outline (M139; a save-path capability) ------------------------
+
+    @property
+    def outline_override(self) -> "list | None":
+        """The table of contents the caller authored, or ``None`` when the document's own is to be
+        kept. Entries are ``[level, title, page]`` with ``page`` **1-based**, the shape
+        :meth:`remapped_toc` returns and ``Document.set_toc`` takes."""
+        override = self._outline_override
+        return None if override is None else [list(entry) for entry in override]
+
+    def set_outline_override(self, entries: "list | None") -> None:
+        """Author the outline a Save writes, or pass ``None`` to keep the document's own.
+
+        ``entries`` is ``[[level, title, page], ...]``, 1-based pages, and is validated **here**
+        rather than at the caller — this is the chokepoint both consumers reach, and the two
+        things being checked for are ones ``set_toc`` does not check for itself:
+
+        * **A page outside the document is silently clamped, not refused.** Measured on 1.27.2.3
+          against a 6-page document: ``page=99`` writes a bookmark to page 6, ``page=0`` writes one
+          to page 1, and ``page=-1`` writes ``{'kind': 0}`` — a bookmark that appears in the
+          outline and navigates nowhere, which is exactly the failure M138.4 was about. An agent
+          that miscounts gets a plausible-looking outline and a success report, so the miscount is
+          invisible. That is the ``fill_form`` unknown-field argument (*"a typo that writes nothing
+          and reports success is the worst outcome here"*) applied to the one argument that carries
+          the meaning.
+        * **A level sequence ``set_toc`` will reject**, which it signals late and obscurely
+          (``ValueError: hierarchy level of item 0 must be 1``, ``bad hierarchy level in row 1``).
+          Levels are repaired rather than refused — see below.
+
+        Levels go through :func:`~model.toc_remap.repair_levels`, the same normaliser the remap
+        already uses, so an authored outline and a remapped one are levelled by one implementation.
+        It does more than the ``min(level, previous + 1)`` this milestone was planned around: it
+        keeps a stack, so relative nesting survives and an entry whose parent level never appeared
+        is promoted to where it belongs rather than flattened to its neighbour's depth. Levels that
+        need repair are not an error — a contents page that opens at the second indent is ordinary,
+        and the caller is told what changed rather than made to fix it.
+        """
+        if entries is None:
+            self._outline_override = None
+            self.dirty = True
+            return
+        from klarpdf.model.toc_remap import repair_levels
+
+        cleaned: list = []
+        for position, entry in enumerate(entries):
+            level, title, page = entry[0], entry[1], entry[2]
+            if not isinstance(page, int) or isinstance(page, bool):
+                raise ValueError(f"entry {position}: page must be an integer, got {page!r}")
+            if not 1 <= page <= self.page_count:
+                raise ValueError(
+                    f"entry {position} ({title!r}) points at page {page}, and the document has "
+                    f"{self.page_count} page(s). Nothing was written. Pages are 1-based; an "
+                    "out-of-range page is not refused by the PDF layer, it is silently moved to "
+                    "the nearest real page, so this is checked here instead."
+                )
+            if not isinstance(level, int) or isinstance(level, bool) or level < 1:
+                raise ValueError(
+                    f"entry {position} ({title!r}) has level {level!r}; levels are integers from "
+                    "1 (top). Nothing was written."
+                )
+            if not isinstance(title, str) or not title.strip():
+                raise ValueError(
+                    f"entry {position} has no title ({title!r}). A bookmark with no text is a row "
+                    "a reader cannot read or click meaningfully. Nothing was written."
+                )
+            cleaned.append([level, title, page])
+        for entry, repaired in zip(cleaned, repair_levels([e[0] for e in cleaned])):
+            entry[0] = repaired
+        self._outline_override = cleaned
+        self.dirty = True
 
     # ---- document encryption (M54; a save-path capability) ----------------------
 
