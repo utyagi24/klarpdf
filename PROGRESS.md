@@ -4588,6 +4588,30 @@ it on this side of the line.
   a plausible header row, or drop a title whose text appears verbatim in `rows[0]` — and neither is
   worth doing without more documents. Also unmeasured: a **centred** caption fails
   `_TITLE_LEFT_TOLERANCE` outright, and the corpus contains none.
+- **`get_tables` word loss, beyond the header case that was fixed** (TC-027 + a corpus sweep,
+  2026-09-11, [#348](https://github.com/utyagi24/klarpdf/pull/348)). TC-027's header high is
+  **fixed** for the single-line shape it named — Amazon's page 10 now returns
+  `['', 'December 31, 2025', 'June 30, 2026']` where it had returned `['December','31,','30,']`,
+  and the cause was `recover_edge_row` keeping only the *first* figure per column, i.e. the function
+  written to recover a row was itself dropping data. What is **not** fixed is everything the sweep
+  that followed turned up, which is why this is one entry rather than a closed item:
+  - **Multi-tier headers.** Alphabet's page 54 spreads its header over **six lines** (y 99.9-119.7)
+    of which the ruled band captures one, leaving `['', 'es Am', '', '', '', '']` and 9 header words
+    lost. Collapsing `Class A, Class B, Class C Stock and Additional Paid-In Capital / Shares /
+    Amount` into one row is genuinely ambiguous, which is the decision needed before any code.
+  - **37% of returned tables lose at least one word inside their own region** — 27 of 73 across ten
+    documents, 209 words total. Most are header fragments; some are not. Apple's page 11 fair-value
+    hierarchy loses `Cash` and `28,267`; NVIDIA's page 73 loses names and two figures
+    (`179,411`, `33,670,062`). Needs triage before a fix: the measurement tool here compares the
+    region's words against the returned cells, which over-reports where a cell legitimately
+    reformats, so the 37% is an upper bound rather than a count of defects.
+  - **Double-printed bold is returned as a grid.** SpaceX's page 161 comes back as
+    `['RReevveennuuee ...', '$$22,,662200', ...]` — the PDF simulates bold by printing every glyph
+    twice, and the text layer genuinely contains the doubled characters (`extract_text` shows them
+    too), so this is not a cell-assembly fault. But the output is unusable as figures, and the tool
+    returns it confidently. The decision: detect the doubling and decline, detect and *undo* it
+    (mechanical — every character repeated), or leave it and document. Related to the ligature
+    finding below only in that both are text-layer facts rather than extraction faults.
 - **TC-026's six lower-severity `get_tables` findings, deferred with the HIGHs fixed** (2026-09-11,
   [#348](https://github.com/utyagi24/klarpdf/pull/348)). The round's three HIGHs — dropped rows,
   lost minus signs, clipped labels — are fixed and tested (`PLAN.md` §M141 → *TC-026*). These six
@@ -4598,6 +4622,17 @@ it on this side of the line.
     containing "Partnership" exists on the page, and the page has no images. It was verified
     against `render_page` pixels, which show it because it is drawn rather than because it is text.
     `render_page` is the only route to it.
+  - **`title` can eat a section heading out of the table body** (TC-027, worse than the fragment
+    case below). Amazon's page 9 returns `title: "North America"` — the **first segment's own
+    heading** — so its three numeric rows sit at the top of `rows` attributed to nothing while
+    `International`, `AWS` and `Consolidated` appear as heading rows. A naive parse assigns North
+    America's figures to the wrong segment. This *removes structure from the body* rather than
+    merely adding a wrong caption. The signal that would fix it: the candidate's siblings are
+    present as label-only rows inside the same table, so it belongs to the body.
+  - **The last column loses a trailing `%`** (TC-027): `["North America","11 %","16 %","9 %","14"]`
+    where the page reads `14 %`. Rows whose source prints no `%` are correctly bare, so it is
+    specifically the final column dropping its symbol — the same family as the `$` migration and the
+    stranded `)`, and probably the same fix.
   - **Ligature glyphs reorder inside cell assembly.** `'Ofet n, more than'` for `'Often, more than'`
     and `'Twitet r'` for `'Twitter'` — the same `t`/`e` transposition plus an injected space, on
     words containing an `ft`/`tt` ligature. **`extract_text` returns both correctly from the same

@@ -176,6 +176,7 @@ _DECLINE_REASONS = {
 _BARE_NUMBER = re.compile(r"^[\d,]+(\.\d+)?$")
 _NUMBER_START = re.compile(r"^[\$€£₹]?\s*[\d,]")
 _FIGURE = re.compile(r"^[\$€£₹(]?\s*[-–—]?[\d,]+(\.\d+)?\s*[%)]?$")
+_BARE_DIGIT = re.compile(r"\d")
 _WORD_END = re.compile(r"[A-Za-z]$")
 _WORD_START = re.compile(r"^[a-z]")
 
@@ -241,6 +242,51 @@ grid scores 0.75-1.00, the first result with real character loss scores 0.417, a
 below 0.40 is split-but-complete. So this rejects five prose grids from a brokerage statement and a
 pension statement, plus the two lossy readings, and touches nothing else.
 """
+
+
+def cuts_a_figure(page: fitz.Page, rows: list[list[str | None]]) -> bool:
+    """Does a column edge run straight through a number in a row that carries data? (TC-027.)
+
+    The cardinal failure, and the one :func:`_shattered_ratio` cannot see. Amazon's Q2 2026 release,
+    page 6, is returned as a confident 8-column grid for a 7-column statement, with the boundary
+    drawn through the middle of a value:
+
+        ['Net cash p', 'rovided by (used in) investing activities',
+         '(39,424)', '(79,245)', '(69,227) (1', '43,457) (', '123,569) (', '216,775']
+                                              ^^^^^^^^^^^^^^^  (143,457) split across two columns
+
+    Three things hid it. ``_WORD_START`` requires a **lowercase** continuation, so the all-caps
+    ``EQUIV`` / ``ALENTS`` on the same page is invisible; the ratio never looks at **digits** at all;
+    and over a 46x8 table roughly 200 legitimately-unmatched numeric pairs dilute what it does see to
+    0.131, comfortably under a 0.4 limit.
+
+    **Asking the page settles all three.** Two adjacent fragments that rejoin into a word the page
+    actually contains — while neither fragment is itself such a word — is a cut, whatever its case or
+    character class. Restricted to **figures in rows that carry at least two complete numeric
+    cells**, because that is precisely where a misplaced edge stops being cosmetic: a split label is
+    visible and rejoinable, a split *value* silently misaligns the columns it lands between. Both
+    restrictions earn their place — LLY's proxy page 56 splits ``202``/``4`` in its header row and is
+    otherwise a good table, and Cisco's 10-K page 61 cuts 26 labels while every figure stays whole.
+
+    Measured over the ten tables this milestone reads correctly plus the one it does not: **Amazon
+    page 6 is the only one flagged.**
+    """
+    vocabulary = {w[4] for w in page.get_text("words")}
+    for row in rows:
+        if sum(1 for c in row if c and _FIGURE.match(c.strip())) < 2:
+            continue
+        for left, right in zip(row, row[1:]):
+            left = (left or "").strip()
+            right = (right or "").strip()
+            if not left or not right:
+                continue
+            tail = left.split()[-1]
+            head = right.split()[0]
+            if not _BARE_DIGIT.search(tail) or not _BARE_DIGIT.search(head):
+                continue
+            if tail + head in vocabulary and tail not in vocabulary:
+                return True
+    return False
 
 
 def _shattered_ratio(rows: list[list[str | None]]) -> float:
@@ -507,6 +553,47 @@ def recover_left_margin(page: fitz.Page, table, rows: list[list[str]]) -> list[l
     return repaired
 
 
+_RUN_GAP = 10.0
+"""Horizontal gap that separates two column entries on one line.
+
+Within `December 31, 2025` the word gaps are ~2 pt; between `2025` and `June` there are 20.9. So a
+run is what belongs to one column, and assigning by run rather than by word is what puts a heading
+that straddles a boundary on the correct side of it.
+"""
+
+
+def _runs(line: list) -> list[list]:
+    """Split one line's words into runs separated by more than :data:`_RUN_GAP`."""
+    grouped: list[list] = []
+    current: list = []
+    for word in sorted(line, key=lambda w: w[0]):
+        if current and word[0] - current[-1][2] > _RUN_GAP:
+            grouped.append(current)
+            current = []
+        current.append(word)
+    if current:
+        grouped.append(current)
+    return grouped
+
+
+def _column_of(centre: float, columns: list) -> int | None:
+    """Index of the column containing ``centre``, else the nearest one.
+
+    Strict containment first and a tolerance nowhere: a ±2 pt slack matched the *label* column for
+    a heading whose centre sat 0.25 pt inside the next one, which is how `December 31, 2025` was
+    first put back in the wrong place.
+    """
+    for index, column in enumerate(columns):
+        if column[0] <= centre < column[2]:
+            return index
+    if not columns:
+        return None
+    return min(
+        range(len(columns)),
+        key=lambda i: abs(centre - (columns[i][0] + columns[i][2]) / 2),
+    )
+
+
 def recover_edge_row(page: fitz.Page, table, rows: list[list[str]]) -> list[list[str]]:
     """Restore a data row sitting just outside the ruled band (TC-026 HIGH 1).
 
@@ -523,7 +610,10 @@ def recover_edge_row(page: fitz.Page, table, rows: list[list[str]]) -> list[list
     against all five: the Apple row is recovered and none of the others is.
     """
     box = fitz.Rect(table.bbox)
-    columns = [c for c in table.rows[0].cells if c][1:] if table.rows else []
+    # Column geometry from the widest row, not row 0 — row 0 is very often the damaged header.
+    widest = max(table.rows, key=lambda r: sum(1 for c in r.cells if c)) if table.rows else None
+    all_columns = [c for c in widest.cells if c] if widest else []
+    columns = all_columns[1:]
     if not columns or not rows:
         return rows
     heights = sorted(r.bbox[3] - r.bbox[1] for r in table.rows)
@@ -550,11 +640,21 @@ def recover_edge_row(page: fitz.Page, table, rows: list[list[str]]) -> list[list
             values.append(found[0] if found else None)
         if not values or any(value is None for value in values):
             continue
-        label = " ".join(
-            w[4] for w in sorted(line, key=lambda w: w[0]) if (w[0] + w[2]) / 2 < columns[0][0]
-        )
-        recovered = ([label] + values)[:width]
-        recovered += [""] * (width - len(recovered))
+        # Assemble by *run*, not by taking one figure per column, which is how this function
+        # itself came to drop data (TC-027): Amazon's page 10 carries `December 31, 2025` and
+        # `June 30, 2026` over its two figure columns, and keeping only the first figure in each
+        # returned `['December', '31,', '30,']` — both years gone, from the code meant to recover
+        # them. A run also lands in the right column where a single word does not: `December 31,
+        # 2025` straddles the boundary at x=449 while the run's centre, 449.25, sits inside it.
+        recovered = [""] * width
+        for run in _runs(line):
+            index = _column_of((run[0][0] + run[-1][2]) / 2, all_columns)
+            if index is None or index >= width:
+                continue
+            joined = " ".join(w[4] for w in run)
+            recovered[index] = f"{recovered[index]} {joined}".strip()
+        if not any(cell for cell in recovered):
+            continue
         rows = [recovered, *rows] if at_top else [*rows, recovered]
     return rows
 
@@ -709,6 +809,10 @@ def _describe(
 
         for rows, top, bottom in groups:
             if not _acceptable(rows, stuffed_limit):
+                continue
+            # A column edge through a value misaligns every figure it lands between, and unlike a
+            # split label it leaves nothing for the caller to notice (TC-027).
+            if cuts_a_figure(page, rows):
                 continue
             box = fitz.Rect(table.bbox[0], top, table.bbox[2], bottom)
             repaired = _repair_rows(rows)

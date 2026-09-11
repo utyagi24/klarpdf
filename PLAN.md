@@ -7495,6 +7495,79 @@ returning mid-sentence fragments on the designed report, `header` duplicating `r
 column marker migrating, and `unread_regions.bbox` always being the whole page rather than the
 region.
 
+##### TC-027 — the retest, and the one defect that had to be caught by asking the page
+
+**2026-09-11, the round after TC-026**, on the same three fixtures at identical md5 plus a new one:
+Amazon's Q2 2026 earnings release, chosen because it is the densest table-per-page document in the
+corpus and carries the **three-tier column headers** TC-026 had parked as untested.
+
+**All three TC-026 highs verified fixed**, each re-proved by arithmetic rather than by a string
+looking better: Alphabet's page 51 is one table again with `93,126 − 1,916 + 324,055 = 415,265`
+tying to its returned total, and Apple's page 6 opens with the recovered cash line and reconciles to
+`149,818`. The round also **retracted** TC-026's third row-loss instance — the designed report's
+*"Domestic Partnership"* — reaching independently the conclusion recorded above: the label is not in
+the text layer. Its method note is the durable part: *a claim that the tool lost a value now requires
+showing the value is in the text layer, not merely on the page.* Pixels prove what is printed and say
+nothing about what is extractable.
+
+**The new defect is the cardinal one, and three separate blind spots hid it.** Amazon's page 6 is
+returned as a confident 8-column grid for a 7-column statement, its boundary drawn through the
+middle of a value:
+
+    ['Net cash p', 'rovided by (used in) investing activities',
+     '(39,424)', '(79,245)', '(69,227) (1', '43,457) (', '123,569) (', '216,775']
+
+`(143,457)` split across two columns. `_shattered_ratio` — the test written precisely to catch a
+column edge through a word — could not see it, for three compounding reasons: its `_WORD_START`
+requires a **lowercase** continuation, so the all-caps `EQUIV` / `ALENTS` on the same page is
+invisible; it never examines **digits** at all; and across a 46×8 table roughly 200 legitimately
+unmatched numeric pairs dilute what it does see to **0.131**, comfortably under a 0.4 limit. Three
+independent reasons to miss the same thing, in a detector that was measured and tuned against real
+documents — the measurement was simply over a corpus where none of the three bit.
+
+**The fix stops guessing and asks the page.** :func:`cuts_a_figure` treats two adjacent fragments as
+a cut when they **rejoin into a word the page actually contains** while neither fragment is itself
+such a word. That is immune to case, to character class, and to dilution, because it is evidence
+rather than a statistic. It is restricted to **figures in rows carrying at least two complete numeric
+cells**, which is where a misplaced edge stops being cosmetic: a split *label* is visible and
+rejoinable, a split *value* silently misaligns the columns it falls between. Both restrictions earn
+their keep — LLY's page 56 splits `202`/`4` in its header and is otherwise sound, Cisco's page 61
+cuts 26 labels with every figure whole. Measured over the ten tables this milestone reads correctly
+plus the one it does not: **Amazon page 6 is the only one flagged**, and it now declines.
+
+That also resolves a consistency complaint the round raised separately: pages 11 and 12 of the same
+release were declined while page 6 was returned, on the same house style. Both now decline.
+
+**The header high, and the recovery function that was itself losing data.** TC-027's second new
+finding is that correct figures arrive unlabelled: Amazon's page 10 returned `['December','31,','30,']`
+where the page reads **December 31, 2025** and **June 30, 2026** — both years gone, `header` null,
+two perfectly reconciling columns and no way to tell which is which. The cause was not the reader
+but :func:`recover_edge_row`, added one round earlier to *stop* row loss: it took the **first
+figure** in each column, so `31,` won and `2025` was discarded. Assembling by **run** instead — words
+separated by more than :data:`_RUN_GAP` belong to different columns — returns both dates whole, and
+also lands them correctly, since `December 31, 2025` straddles the boundary at x=449 while its run
+centre, 449.25, sits inside the column that owns it. Two things had to be right together: without
+:func:`_column_of`'s **strict containment** the run falls back to nearest-centre, which on Apple's
+page 6 moves a row label out of a 378 pt label column into a 69 pt figure column because it is
+nearer to the latter's centre.
+
+**What is left is larger than it looked, and is recorded rather than half-fixed.** A sweep prompted
+by this fix found that **27 of 73 tables across ten documents lose at least one word inside their own
+region** (209 words). Most are header fragments — Alphabet's page 54 spreads its header over six
+lines of which the ruled band captures one — but not all: Apple's fair-value hierarchy loses a value,
+and SpaceX's page 161 is returned as `['RReevveennuuee ...', '$$22,,662200', ...]` because that PDF
+simulates bold by printing every glyph twice, which is in the text layer rather than in our
+assembly. Each needs a decision before code, and they are in `PROGRESS.md` §Open follow-ups with the
+measurement that bounds them.
+
+**What the three blind spots say, since this is the third round to say a version of it.** Each of
+this milestone's acceptance tests was written from a real failure and tuned against real documents,
+and each has since been beaten by a document outside the set it was tuned on — the shatter ratio
+here, the split guard on LLY page 64, the region tests in TC-026. The pattern is not carelessness in
+any one of them; it is that **a statistic over a corpus generalises only as far as the corpus**,
+while a check that consults the document itself does not have that ceiling. Where a test can be
+grounded in the page rather than in a threshold, it should be.
+
 ##### `header` is claimed only where a drawn grid proves it
 
 A row-ruled read routinely starts its band one row inside the table, leaving `rows[0]` holding data

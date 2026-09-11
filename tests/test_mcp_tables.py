@@ -510,6 +510,56 @@ def test_the_shatter_measure_separates_split_from_lost(columned_prose_pdf, capti
     assert tables._shattered_ratio(intact) <= tables._SHATTER_LIMIT
 
 
+class _FakePage:
+    """Just the `get_text("words")` that `cuts_a_figure` consults for the page's vocabulary."""
+
+    def __init__(self, vocabulary):
+        self._words = [(0, 0, 1, 1, w, 0, 0, 0) for w in vocabulary]
+
+    def get_text(self, _kind):
+        return self._words
+
+
+def test_a_column_edge_through_a_figure_is_detected():
+    """TC-027 — the cardinal failure, and the one the shatter ratio cannot see.
+
+    Amazon's Q2 2026 release page 6 was returned as a confident 8-column grid for a 7-column
+    statement, with `(143,457)` split across two columns as `'(1'` + `'43,457)'`. Three things hid
+    it: the shatter test wants a *lowercase* continuation (so all-caps `EQUIV`/`ALENTS` on the same
+    page is invisible), it never looks at digits, and 200 legitimately-unmatched numeric pairs in a
+    46x8 table dilute what it does see to 0.131 against a 0.4 limit.
+    """
+    page = _FakePage({"(143,457)", "(39,424)", "(79,245)", "Net", "cash"})
+    row = ["Net cash", "(39,424)", "(79,245)", "(69,227) (1", "43,457) ("]
+    assert tables.cuts_a_figure(page, [row])
+
+
+def test_a_split_year_in_a_header_is_not_a_cut_figure():
+    """Restricted to rows carrying data, because that is where a bad edge stops being cosmetic.
+
+    LLY's proxy page 56 splits `202`/`4` in its header row and is otherwise a good table; Cisco's
+    10-K page 61 cuts 26 labels while every figure stays whole. Both must survive.
+    """
+    page = _FakePage({"2024", "2025", "Name", "Bonus", "Target"})
+    header = ["Name 202", "4 Bonus Target 202", "5 Bonus Tar"]
+    assert not tables.cuts_a_figure(page, [header]), "a header row carries no data to misalign"
+
+    page = _FakePage({"Depreciation,", "investing", "14,177", "14,193"})
+    labels_only = ["Deprecia", "tion, and other", "14,177", "14,193"]
+    assert not tables.cuts_a_figure(page, [labels_only]), "a split label is visible and rejoinable"
+
+
+def test_the_figure_cut_check_is_wired_into_the_read(captioned_pdf, monkeypatch):
+    """Pins the call site. Deleting the call leaves the unit tests above perfectly green."""
+    monkeypatch.setattr(tables, "cuts_a_figure", lambda page, rows: True)
+    result = tables.tables(captioned_pdf, pages=[1])
+    assert result["total_tables"] == 0, "a region whose edge cuts a value must not be reported"
+    assert [r["page"] for r in result["unread_regions"]] == [1]
+
+    monkeypatch.setattr(tables, "cuts_a_figure", lambda page, rows: False)
+    assert tables.tables(captioned_pdf, pages=[1])["total_tables"] == 2
+
+
 # ---- titles --------------------------------------------------------------
 
 
@@ -621,6 +671,41 @@ def test_the_left_repair_refuses_when_it_would_re_cut_the_right():
     """
     assert " ".join("Non-current assets:".split()).endswith("-current assets:")
     assert not " ".join("Cash flows from".split()).endswith("flows from i")
+
+
+def test_a_recovered_row_keeps_every_word_not_just_the_first_figure():
+    """TC-027 — the recovery function itself was dropping data.
+
+    Amazon's page 10 carries `December 31, 2025` and `June 30, 2026` across its two figure columns.
+    Taking one figure per column returned `['December', '31,', '30,']` — **both years gone, from the
+    code written to recover them**. Assembling by run also lands a heading in the right column where
+    a single word does not: `December 31, 2025` straddles the boundary at x=449 while the run's
+    centre, 449.25, sits inside it.
+    """
+    line = [
+        (416.9, 89.4, 451.6, 98.3, "December", 0, 0, 0),
+        (453.6, 89.4, 463.6, 98.3, "31,", 0, 0, 0),
+        (465.6, 89.4, 481.6, 98.3, "2025", 0, 0, 0),
+        (502.5, 89.4, 519.0, 98.3, "June", 0, 0, 0),
+        (521.0, 89.4, 531.0, 98.3, "30,", 0, 0, 0),
+        (533.0, 89.4, 549.0, 98.3, "2026", 0, 0, 0),
+    ]
+    grouped = tables._runs(line)
+    assert [" ".join(w[4] for w in run) for run in grouped] == [
+        "December 31, 2025",
+        "June 30, 2026",
+    ], "a 20.9 pt gap separates the two column entries; the 2 pt gaps inside them do not"
+
+    columns = [(70.5, 0, 449.0, 0), (449.0, 0, 518.0, 0), (518.0, 0, 558.0, 0)]
+    assert tables._column_of(449.25, columns) == 1, "strict containment, no tolerance"
+    assert tables._column_of(525.75, columns) == 2
+
+    # Containment must beat proximity, and Apple's page 6 is where that bites: its label column is
+    # 378 pt wide against 69 pt figure columns, so a word sitting well inside the label column is
+    # still *nearer* to the next column's centre. Falling back to nearest here moves a row label
+    # into a figure column.
+    assert tables._column_of(440.0, columns) == 0, "inside the wide label column, though 140 pt "\
+        "from its centre and 43 pt from the next column's"
 
 
 def test_a_data_row_just_outside_the_band_is_recovered(outdented_pdf):
