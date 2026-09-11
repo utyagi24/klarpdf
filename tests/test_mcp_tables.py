@@ -333,11 +333,13 @@ def test_reads_rows_from_rules_when_only_the_rows_are_ruled(captioned_pdf):
     result = tables.tables(captioned_pdf, pages=[1])
     assert result["total_tables"] == 2
     names = [row[0] for row in result["tables"][0]["rows"]]
-    # Every officer's row is read, with its values in the right columns.
+    # Every officer's row is read, with its values in the right columns. `rows[0]` is the header
+    # once edge recovery reaches it, so the percentages are asserted on a row known to be data.
     assert set(names) <= {"Name", *_OFFICERS}
     assert len(names) >= len(_OFFICERS) - 1
-    first = result["tables"][0]["rows"][0]
-    assert first[1].endswith("%") and first[2].endswith("%")
+    data = [row for row in result["tables"][0]["rows"] if row[0] in _OFFICERS]
+    assert data, "no officer rows were returned"
+    assert all(row[1].endswith("%") and row[2].endswith("%") for row in data)
 
 
 def test_a_header_is_claimed_only_when_a_drawn_grid_proves_it(ruled_pdf, captioned_pdf):
@@ -732,6 +734,92 @@ def test_a_region_refused_on_a_page_that_also_succeeds_is_still_reported(outdent
     # And the bbox localises the region rather than shrugging at the whole page.
     page_height = fitz.open(outdented_pdf)[0].rect.height
     assert region["bbox"][3] < page_height, "a refused region reports its own box, not the page"
+
+
+def test_a_region_that_leaves_a_column_outside_itself_is_refused():
+    """TC-030 — 84 correct figures with nothing to say what any of them is.
+
+    Qualcomm's page 5 came back as a region starting at x=309.9 — the numeric columns only — with
+    every row label (`Revenues:`, `Equipment and services`, `Licensing`) printing outside it and
+    `unread_regions: []`. Against the decline it replaced that is a *worse* outcome: a decline at
+    least tells the caller to go read the page.
+    """
+    box = fitz.Rect(300, 100, 500, 200)
+    rows_y = [110, 130, 150, 170, 190]
+    # A label column to the left, one entry per row: every line of the region is affected.
+    labels = _WordPage([(60, y, 250, y + 8, f"Label{i}") for i, y in enumerate(rows_y)]
+                       + [(320, y, 400, y + 8, f"{i},000") for i, y in enumerate(rows_y)])
+    assert tables.column_dropped(labels, box, [])
+
+    # Decoration beside a table touches a few lines, not all of them — the designed report prints
+    # `PIE CHART PLACEHOLDER` next to a five-row table and must not cost it.
+    decorated = _WordPage([(390, 130, 460, 138, "PIE"), (390, 150, 460, 158, "CHART")]
+                          + [(320, y, 400, y + 8, f"{i},000") for i, y in enumerate(rows_y)])
+    assert not tables.column_dropped(decorated, box, [])
+
+
+def test_the_dropped_column_check_is_wired_into_the_read(captioned_pdf, monkeypatch):
+    """Pins the call site. Without it, deleting the check leaves the unit tests above green."""
+    monkeypatch.setattr(tables, "column_dropped", lambda page, box, others: True)
+    result = tables.tables(captioned_pdf, pages=[1])
+    assert result["total_tables"] == 0
+    assert any("left a whole column" in r["reason"] for r in result["unread_regions"])
+
+    monkeypatch.setattr(tables, "column_dropped", lambda page, box, others: False)
+    assert tables.tables(captioned_pdf, pages=[1])["total_tables"] == 2
+
+
+def test_ruling_with_nothing_table_shaped_in_it_says_so(tmp_path):
+    """TC-030 — a decline must not assert rows it never produced.
+
+    Salesforce's page 5 is heavily ruled (34 rules) and yields no region at all, yet reported
+    *"the rows it produced did not hold together"*. Three declines are now distinguished: no ruling,
+    ruling with no region, and a region that was found and refused.
+    """
+    path = str(tmp_path / "ruled_but_empty.pdf")
+    doc = fitz.open()
+    page = doc.new_page()
+    for index in range(8):
+        _rule(page, 100 + index * 40, 60, 400)
+    doc.save(path)
+    doc.close()
+
+    result = tables.tables(path, pages=[1])
+    assert result["total_tables"] == 0
+    reason = result["unread_regions"][0]["reason"]
+    assert "nothing table-shaped was found within the ruling" in reason
+    assert "the rows it produced" not in reason
+
+
+def test_a_neighbouring_table_is_not_mistaken_for_a_dropped_column():
+    """A page of side-by-side tables would otherwise have each accuse the other."""
+    box = fitz.Rect(300, 100, 500, 200)
+    rows_y = [110, 130, 150, 170, 190]
+    page = _WordPage([(60, y, 250, y + 8, f"Other{i}") for i, y in enumerate(rows_y)]
+                     + [(320, y, 400, y + 8, f"{i},000") for i, y in enumerate(rows_y)])
+    neighbour = fitz.Rect(50, 100, 260, 200)
+    assert tables.column_dropped(page, box, [])
+    assert not tables.column_dropped(page, box, [neighbour])
+
+
+def test_a_year_in_a_two_tier_header_may_go_unassigned():
+    """TC-030's asymmetry: header damage is tolerated everywhere else and must be here too.
+
+    Salesforce's page 4 lost two footnote tables whose bodies are pristine, because a two-tier
+    period header (`Three Months Ended July 31,` over `2026 2025 2026 2025`) has a tier belonging to
+    no single column. LLY's page 56 keeps its table with `2024` merely *split*. Same kind of fault.
+    """
+    box = fitz.Rect(0, 100, 500, 200)
+    page = _WordPage([(60, 105, 100, 113, "2026"), (160, 105, 200, 113, "2025"),
+                      (60, 130, 120, 138, "147"), (160, 130, 220, 138, "126")])
+    # The years never reached a cell; the body did.
+    assert tables.digits_lost(page, box, [["", "2025"], ["147", "126"]]) < tables.MIN_DIGIT_DEFICIT
+
+    # But a *value* on that same top line is not forgiven — Apple's page 11 has a data row there,
+    # and blanket forgiveness readmitted the table TC-028 was filed for.
+    page = _WordPage([(60, 105, 120, 113, "28,267"), (160, 105, 220, 113, "28,267"),
+                      (60, 130, 120, 138, "147"), (160, 130, 220, 138, "126")])
+    assert tables.digits_lost(page, box, [["", ""], ["147", "126"]]) >= tables.MIN_DIGIT_DEFICIT
 
 
 # ---- titles --------------------------------------------------------------

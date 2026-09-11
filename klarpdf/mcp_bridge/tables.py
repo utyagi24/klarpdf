@@ -172,6 +172,10 @@ _REFUSALS = {
         "a table-like region here has a column edge running through a value, which misaligns the "
         "figures either side of it"
     ),
+    "column": (
+        "a table-like region here left a whole column of text outside it — the figures would have "
+        "arrived with nothing to say what they are"
+    ),
     "lost": (
         "a table-like region here printed numbers that did not reach any cell, so the rows would "
         "have been incomplete without saying so"
@@ -183,6 +187,10 @@ _DECLINE_REASONS = {
         "nothing on this page marks where the cells are — no drawn grid and no ruled rows, so the "
         "columns would have to be inferred from spacing, which silently drops characters"
     ),
+    "declined-no-region": (
+        "this page is ruled, but nothing table-shaped was found within the ruling — the lines here "
+        "are dividing something other than rows and columns"
+    ),
     "declined-unreliable": (
         "there is ruling here, but the rows it produced did not hold together — values landed "
         "merged or cut, so reporting them as a grid would be worse than not"
@@ -193,6 +201,7 @@ _BARE_NUMBER = re.compile(r"^[\d,]+(\.\d+)?$")
 _NUMBER_START = re.compile(r"^[\$€£₹]?\s*[\d,]")
 _FIGURE = re.compile(r"^[\$€£₹(]?\s*[-–—]?[\d,]+(\.\d+)?\s*[%)]?$")
 _BARE_DIGIT = re.compile(r"\d")
+_YEAR = re.compile(r"^(19|20)\d{2}[,.]?$")
 _WORD_END = re.compile(r"[A-Za-z]$")
 _WORD_START = re.compile(r"^[a-z]")
 
@@ -271,6 +280,60 @@ floor is stated rather than hidden: a single lost one- or two-digit value would 
 """
 
 
+COLUMN_DROPPED_SHARE = 0.8
+"""How much of a region's own rows must carry text *outside* its box before a column is presumed
+missing.
+
+Deliberately near-total rather than a middling fraction, because the two things being separated are
+structurally different rather than merely different in degree. A **dropped column** appears on
+essentially every row — it is a column. **Decoration beside a table** appears on a few: the designed
+report's page 15 prints `PIE CHART PLACEHOLDER MARITAL STATUS` next to a five-row table and touches
+0.44 of its lines, and Cisco's page 61 overflows a few long labels past the box at 0.15. Both
+measured cases of a genuinely missing column sit at **1.00**.
+"""
+
+
+def column_dropped(page: fitz.Page, box: fitz.Rect, others: list[fitz.Rect]) -> bool:
+    """Whether text on this region's own row-lines was left outside its box (TC-030).
+
+    :func:`digits_lost` asks the same question down the page; this asks it across. Qualcomm's Q3 FY26
+    10-Q page 5 is why it exists: the region begins at **x = 309.9**, the numeric columns only, and
+    every row label — `Revenues:`, `Equipment and services`, `Licensing`, `Total revenues` — prints
+    at x 57-250 outside it. The reply was 84 correct figures with nothing to say what any of them
+    was, `unread_regions: []`, and no indication a column existed. The tester's judgement on that is
+    the right one and worth recording: **against the decline it replaced, that is a worse outcome,
+    not a better one** — a decline at least tells the caller to go read the page.
+
+    Text belonging to *another* region returned from the same page is excluded, since a page of
+    side-by-side tables would otherwise accuse each of swallowing its neighbour.
+
+    Counting **lines touched** rather than words is what makes it work on a ragged label column:
+    Qualcomm's labels are indented to three different depths, so no single x-position covers enough
+    of them, while together they touch all 21 rows.
+    """
+    inside: set[float] = set()
+    outside: set[float] = set()
+    for word in page.get_text("words"):
+        centre_y = (word[1] + word[3]) / 2
+        centre_x = (word[0] + word[2]) / 2
+        if not (box.y0 - 1 <= centre_y <= box.y1 + 1):
+            continue
+        line = round(word[1], 0)
+        if box.x0 - 2 <= centre_x <= box.x1 + 2:
+            inside.add(line)
+            continue
+        if any(
+            other.x0 - 2 <= centre_x <= other.x1 + 2 and other.y0 - 1 <= centre_y <= other.y1 + 1
+            for other in others
+        ):
+            continue
+        outside.add(line)
+    total = len(inside | outside)
+    if total < 3:
+        return False
+    return len(outside) / total >= COLUMN_DROPPED_SHARE
+
+
 def digits_lost(page: fitz.Page, box: fitz.Rect, rows: list[list[str]]) -> int:
     """How many digits printed inside the region never reached a cell (TC-028).
 
@@ -298,12 +361,32 @@ def digits_lost(page: fitz.Page, box: fitz.Rect, rows: list[list[str]]) -> int:
     holds, because :func:`recover_edge_row` adds a row from just outside the box. Four correct tables
     do exactly that.
     """
+    inside = [
+        word
+        for word in page.get_text("words")
+        if box.y0 - 1 <= (word[1] + word[3]) / 2 <= box.y1 + 1
+        and box.x0 - 2 <= (word[0] + word[2]) / 2 <= box.x1 + 2
+    ]
+    # A **year on the region's topmost line** is exempt, and nothing else is (TC-030). A two-tier
+    # period header — `Three Months Ended July 31,` over `2026 2025 2026 2025` — has a tier that
+    # belongs to no single column, so those years legitimately reach no cell: Salesforce's page 4
+    # was losing two footnote tables whose bodies are pristine for exactly that, while LLY's page 56
+    # keeps its table with `2024` merely *split*. Forgiving one and killing the other for the same
+    # kind of fault was the asymmetry to remove.
+    #
+    # Deliberately not "ignore the top line", which was tried and is wrong: Apple's page 11 has a
+    # **data** row in that position — the `Cash $ 28,267 …` line — and blanket forgiveness there
+    # readmitted the very table TC-028 was filed for.
+    if inside:
+        header_line = min(round(word[1], 0) for word in inside)
+        inside = [
+            word
+            for word in inside
+            if not (round(word[1], 0) == header_line and _YEAR.match(word[4].strip()))
+        ]
+
     region: dict[str, int] = {}
-    for word in page.get_text("words"):
-        centre_y = (word[1] + word[3]) / 2
-        centre_x = (word[0] + word[2]) / 2
-        if not (box.y0 - 1 <= centre_y <= box.y1 + 1 and box.x0 - 2 <= centre_x <= box.x1 + 2):
-            continue
+    for word in inside:
         for character in word[4]:
             if character.isdigit():
                 region[character] = region.get(character, 0) + 1
@@ -688,7 +771,10 @@ def _column_of(centre: float, columns: list) -> int | None:
     )
 
 
-def recover_edge_row(page: fitz.Page, table, rows: list[list[str]]) -> list[list[str]]:
+def recover_edge_row(
+    page: fitz.Page, table, rows: list[list[str]], top: float | None = None,
+    bottom: float | None = None,
+) -> list[list[str]]:
     """Restore a data row sitting just outside the ruled band (TC-026 HIGH 1).
 
     The row-ruled reader takes its band from the drawn rules, and a statement's first line often
@@ -703,7 +789,12 @@ def recover_edge_row(page: fitz.Page, table, rows: list[list[str]]) -> list[list
     Base Salary`), a section label (`Current assets`), a footnote, a rule of underscores. Checked
     against all five: the Apple row is recovered and none of the others is.
     """
-    box = fitz.Rect(table.bbox)
+    box = fitz.Rect(
+        table.bbox[0],
+        table.bbox[1] if top is None else top,
+        table.bbox[2],
+        table.bbox[3] if bottom is None else bottom,
+    )
     # Column geometry from the widest row, not row 0 — row 0 is very often the damaged header.
     widest = max(table.rows, key=lambda r: sum(1 for c in r.cells if c)) if table.rows else None
     all_columns = [c for c in widest.cells if c] if widest else []
@@ -741,7 +832,7 @@ def recover_edge_row(page: fitz.Page, table, rows: list[list[str]]) -> list[list
             )
             if hits >= max(2, len(rows) // 4):
                 numeric_columns.append(column)
-        if len(numeric_columns) < 2:
+        if len(numeric_columns) < 1:
             continue
         if any(
             not any(
@@ -881,6 +972,10 @@ def read_page(page: fitz.Page) -> tuple[list[dict], str, list[dict]]:
             horizontal_strategy="lines",
             min_words_vertical=_MIN_WORDS_VERTICAL,
         ).tables
+        if not mixed:
+            # Ruling is present but nothing table-shaped was located in it. Saying "the rows it
+            # produced did not hold together" would assert rows that were never produced (TC-030).
+            return [], "declined-no-region", []
         described, refused = _describe(
             page, mixed, split=True, stuffed_limit=_STUFFED_LIMIT, header_known=False
         )
@@ -964,11 +1059,14 @@ def _describe(
                 continue
             if split:
                 repaired = recover_left_margin(page, table, repaired)
-                if len(groups) == 1:
-                    grown = recover_edge_row(page, table, repaired)
-                    if len(grown) != len(repaired):
-                        box = fitz.Rect(box.x0, min(box.y0, table.bbox[1]), box.x1, box.y1)
-                    repaired = grown
+                grown = recover_edge_row(page, table, repaired, top, bottom)
+                if len(grown) != len(repaired):
+                    # Grow the box by the row that was recovered, not to the whole region's top:
+                    # with per-group recovery the latter swallows every group above this one.
+                    heights = sorted(r.bbox[3] - r.bbox[1] for r in table.rows)
+                    grew = heights[len(heights) // 2] if heights else 0.0
+                    box = fitz.Rect(box.x0, box.y0 - grew, box.x1, box.y1 + grew)
+                repaired = grown
             described.append(
                 {
                     "bbox": [round(v, 1) for v in box],
@@ -985,6 +1083,18 @@ def _describe(
     # makes a heading sitting between two tables reachable at all: inside the original region it is
     # not free text, and every table on the page would fall back to whatever preceded the region —
     # which on LLY's proxy page 56 is a column heading three columns in.
+    # A region that left a whole column outside its own box can only be judged once the page's
+    # other regions are known — otherwise side-by-side tables accuse each other (TC-030).
+    boxes = [fitz.Rect(entry["bbox"]) for entry in described]
+    kept: list[dict] = []
+    for index, entry in enumerate(described):
+        others = [box for position, box in enumerate(boxes) if position != index]
+        if column_dropped(page, boxes[index], others):
+            refused.append({"bbox": entry["bbox"], "reason": _REFUSALS["column"]})
+            continue
+        kept.append(entry)
+    described = kept
+
     blocks = _free_blocks(page, [fitz.Rect(entry["bbox"]) for entry in described])
     for entry in described:
         entry["title"] = _title_above(blocks, fitz.Rect(entry["bbox"]))

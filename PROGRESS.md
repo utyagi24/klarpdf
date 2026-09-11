@@ -4589,7 +4589,7 @@ it on this side of the line.
   worth doing without more documents. Also unmeasured: a **centred** caption fails
   `_TITLE_LEFT_TOLERANCE` outright, and the corpus contains none.
 - **`get_tables` still declines pages whose rows cannot be assembled, and reading them is the open
-  work** (TC-028/TC-029, 2026-09-11, [#348](https://github.com/utyagi24/klarpdf/pull/348)).
+  work** (TC-028/TC-029/TC-030, 2026-09-11, [#348](https://github.com/utyagi24/klarpdf/pull/348)).
   **Restated after TC-029, because the earlier version of this entry overstated the cost.** TC-028
   measured the digit check at 86 → 64 tables and called the loss the price of being careful. TC-029
   aimed a round at *false* declines and found that two of my own rules were rejecting good tables:

@@ -7660,6 +7660,58 @@ thirteen documents the tool returns **80 tables where TC-028 measured 64** — A
 the price of being careful was simply two of my own rules rejecting good tables, and it took a round
 aimed at false declines to separate the two.
 
+##### TC-030 — the mirror of the last round: pages that return and say nothing
+
+**2026-09-11.** It verified all three TC-029 fixes to their exact values, held all eighteen anchors,
+**closed the `unread_regions.bbox` low** — and confirmed the boxes are *accurate*, not merely
+sub-page, by rendering a refused box and finding it framed the RSU table exactly on a page with
+three. It also closed the parked *"successful read inside an encrypted document"* item on a
+Standard V2 R3 RC4 filing that opens freely.
+
+**Its framing is the useful part:** where TC-029 found a page that *declined* and said so loudly,
+this round found two that **return and say nothing** — one of them the page my own fix had restored.
+
+**A region can leave a whole column outside itself.** Qualcomm's page 5 came back as a region
+starting at **x = 309.9** — the numeric columns only — with every row label (`Revenues:`, `Equipment
+and services`, `Licensing`) printing at x 57-250 outside it, `unread_regions: []`, `count: 1`. Eighty
+-four correct figures with nothing to say what any of them is. The tester's judgement is right and
+worth keeping: *against the decline it replaced, this is a worse outcome, not a better one — a
+decline at least told the caller to go read the page.* :func:`column_dropped` is
+:func:`digits_lost`'s question asked across the page instead of down it, and it takes **lines
+touched** rather than words, because Qualcomm's labels are indented to three depths so no single
+x-position covers them while together they touch all 21 rows. Decoration beside a table touches some
+lines and a missing column touches all: the designed report's `PIE CHART PLACEHOLDER` measures 0.44,
+Cisco's overflowing labels 0.15, and both real missing columns **1.00**.
+
+**It also caught a table I had been treating as a passing anchor for five rounds.** LLY's page 56
+first table returns Name / 2024 / 2025 salary and has been silently dropping the printed `Increase`
+column (`0.0%`, `3.4%`, `2.8%`) the whole time. It is refused and reported now, and that page drops
+from three tables to two — a correct change to a number this milestone had been quoting as evidence.
+
+**A one-column table could not be repaired at all.** Apple's page 14 returned an unconditional
+-purchase-obligations table whose rows summed to 25,575 against its own returned `Total` of 27,628 —
+short by exactly the `2,053` first row. Two of my own limits stacked: edge recovery ran only on
+single-group regions, and required **two** numeric columns where that table has one. Both lifted,
+with the box now grown by the recovered row rather than to the whole region's top — which was a bug
+the change exposed immediately, since per-group recovery made the old expansion swallow every group
+above. The table now foots: `2,053 + 7,652 + 6,406 + 5,421 + 5,481 + 615 = 27,628`.
+
+**And a header asymmetry had to go.** Salesforce's page 4 was losing two footnote tables whose
+bodies are pristine, because a two-tier period header — `Three Months Ended July 31,` over
+`2026 2025 2026 2025` — has a tier belonging to no single column, so those years reach no cell.
+Header damage is tolerated everywhere else here (LLY page 56 keeps its table with `2024` merely
+*split*), so forgiving one and killing the other for the same kind of fault was wrong. **A year on
+the region's topmost line is now exempt, and nothing else is** — the obvious generalisation, "ignore
+the top line", was tried and readmitted Apple's page 11, whose topmost line is a *data* row.
+
+**Finally, a decline that asserted rows it never produced.** Salesforce's page 5 is heavily ruled and
+yields no region at all, yet reported *"the rows it produced did not hold together"*. Three declines
+are now distinguished: no ruling, ruling with nothing table-shaped inside it, and a region found and
+refused.
+
+Corpus: **89 tables across fourteen documents**, with two new fixtures and every correctness gain
+kept.
+
 ##### `header` is claimed only where a drawn grid proves it
 
 A row-ruled read routinely starts its band one row inside the table, leaving `rows[0]` holding data
