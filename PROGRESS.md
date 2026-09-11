@@ -4707,9 +4707,22 @@ it on this side of the line.
   low-urgency rather than ignorable: the test catches it every time, loudly, before a tag exists.
   `RELEASE.md` §3 step 1.
 
-- **`test_saving_twice_from_one_model_does_not_stack_revisions` failed once in CI and has not been
-  reproduced** — 2026-09-06, on [#328](https://github.com/utyagi24/klarpdf/pull/328), whose changes
-  are confined to `packaging/mcp/installer/`, the workflows and docs and cannot reach the save path.
+- **`test_saving_twice_from_one_model_does_not_stack_revisions` has now failed twice in CI, both
+  times on a PR that cannot reach the save path** — 2026-09-06 on
+  [#328](https://github.com/utyagi24/klarpdf/pull/328) (changes confined to
+  `packaging/mcp/installer/`, the workflows and docs) and **2026-09-11 on
+  [#348](https://github.com/utyagi24/klarpdf/pull/348)** (M141, confined to `klarpdf/mcp_bridge/`,
+  docs, the `.mcpb` manifest and tests; `test_incremental_save.py` imports only `klarpdf/model/*`,
+  none of which that PR touches). **Identical signature both times: `assert 2517 == 2518` at
+  `tests/test_incremental_save.py:189`, on the `windows` job only.**
+  The second occurrence answers the "has not been reproduced" half of this entry and sharpens what
+  is left. Two independent PRs, neither able to influence the bytes being compared, producing the
+  same one-byte shortfall in the same direction on the same platform, is not a change-induced
+  regression — it is either a real nondeterminism in the append path that only Windows CI exposes,
+  or an assertion that is too strong. It is still not reproducible locally (Linux), so the decision
+  below is unchanged and now better evidenced; a third occurrence adds nothing, and the cheap next
+  step is to have the test print both files' trailer `/ID` and modification dates on failure, so the
+  next CI run says *which field* moved instead of only that something did.
   The assertion is that two saves of the same edits produce files of equal length; it saw
   `2517 == 2518`. **What is measured so far:** locally the length is **always 2518** — 40 runs of the
   test, then 100+ direct save-pairs, under both `Asia/Kolkata` and `UTC`, with and without a second
