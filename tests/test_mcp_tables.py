@@ -549,6 +549,76 @@ def test_a_split_year_in_a_header_is_not_a_cut_figure():
     assert not tables.cuts_a_figure(page, [labels_only]), "a split label is visible and rejoinable"
 
 
+class _WordPage:
+    """A page whose words are placed, so `digits_lost` can weigh a region against a reading."""
+
+    def __init__(self, words):
+        self._words = [(x0, y0, x1, y1, text, 0, 0, 0) for x0, y0, x1, y1, text in words]
+
+    def get_text(self, _kind):
+        return self._words
+
+
+def test_digits_printed_in_a_region_must_reach_a_cell():
+    """TC-028 — the general form of every row-loss defect in this milestone.
+
+    Tesla's final row arrives as a single value with its label and four figures gone; Apple's page 11
+    header loses all three instances of `28,267`. Both evade `cuts_a_figure`, because that check
+    needs two complete numeric cells in the row before it will look and **the loss is what removes
+    them** — the worse a row is mangled, the less likely the guard is to fire.
+    """
+    words = [(0, 0, 20, 10, "Diluted"), (30, 0, 50, 10, "3,519"), (60, 0, 80, 10, "3,526"),
+             (90, 0, 110, 10, "3,540")]
+    page = _WordPage(words)
+    box = fitz.Rect(0, -5, 200, 15)
+
+    stripped = [["", "", "3,540"]]          # the label and two figures never arrived
+    assert tables.digits_lost(page, box, stripped) >= tables.MIN_DIGIT_DEFICIT
+
+    whole = [["Diluted", "3,519", "3,526", "3,540"]]
+    assert tables.digits_lost(page, box, whole) == 0
+
+
+def test_a_split_figure_keeps_its_digits_so_the_two_checks_differ():
+    """Why both checks exist rather than one.
+
+    Digits survive being *split* and do not survive being *dropped*. `(143,457)` cut into `(1` and
+    `43,457)` loses nothing countable, so `digits_lost` is blind to it and `cuts_a_figure` is not;
+    a row stripped to one value loses digits, so `digits_lost` sees it and `cuts_a_figure` cannot.
+    Neither subsumes the other on the failure each was written for.
+    """
+    page = _WordPage([(0, 0, 40, 10, "(143,457)"), (50, 0, 70, 10, "(39,424)")])
+    box = fitz.Rect(0, -5, 200, 15)
+    cut = [["(39,424)", "(1", "43,457)"]]
+    assert tables.digits_lost(page, box, cut) == 0, "a cut preserves every digit"
+
+    vocabulary = _FakePage({"(143,457)", "(39,424)"})
+    assert tables.cuts_a_figure(vocabulary, cut), "but the fragments rejoin into a word on the page"
+
+
+def test_a_double_printed_glyph_is_not_counted_as_a_loss():
+    """The reason the floor is not zero.
+
+    The designed report's page 15 draws `6+` twice to simulate bold, so one digit is "missing" from
+    a row that is completely correct. Every correct table measured shows a deficit of 0 or that 1;
+    every damaged one shows 8 to 20.
+    """
+    page = _WordPage([(0, 0, 10, 10, "6+"), (0, 0, 10, 10, "6+"), (20, 0, 40, 10, "26")])
+    box = fitz.Rect(0, -5, 200, 15)
+    assert tables.digits_lost(page, box, [["6+", "26"]]) < tables.MIN_DIGIT_DEFICIT
+
+
+def test_the_digit_check_is_wired_into_the_read(captioned_pdf, monkeypatch):
+    """Pins the call site, as every other guard in this module now does."""
+    monkeypatch.setattr(tables, "digits_lost", lambda page, box, rows: 99)
+    result = tables.tables(captioned_pdf, pages=[1])
+    assert result["total_tables"] == 0
+    assert [r["page"] for r in result["unread_regions"]] == [1]
+
+    monkeypatch.setattr(tables, "digits_lost", lambda page, box, rows: 0)
+    assert tables.tables(captioned_pdf, pages=[1])["total_tables"] == 2
+
+
 def test_the_figure_cut_check_is_wired_into_the_read(captioned_pdf, monkeypatch):
     """Pins the call site. Deleting the call leaves the unit tests above perfectly green."""
     monkeypatch.setattr(tables, "cuts_a_figure", lambda page, rows: True)

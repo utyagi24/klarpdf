@@ -244,6 +244,64 @@ pension statement, plus the two lossy readings, and touches nothing else.
 """
 
 
+MIN_DIGIT_DEFICIT = 3
+"""How many digits may go missing from a region before its reading is disbelieved.
+
+Not zero, because a **document** can print a glyph twice: the designed report's page 15 draws `6+`
+twice to simulate bold, so one digit is "missing" from a row that is entirely correct. Measured, the
+gap is wide — every correct table in the corpus shows a deficit of **0** (one shows 1, the artifact
+above) and every damaged one shows **8 to 20**. Three is comfortably between, and the cost of the
+floor is stated rather than hidden: a single lost one- or two-digit value would slip under it.
+"""
+
+
+def digits_lost(page: fitz.Page, box: fitz.Rect, rows: list[list[str]]) -> int:
+    """How many digits printed inside the region never reached a cell (TC-028).
+
+    **The general form of every "the tool lost a value" defect this milestone has had**, and it
+    replaces reasoning about *how* a reading went wrong with checking *what came back*. The invariant
+    is one line: every digit printed in the table's region must appear in the returned rows.
+
+    **It exists because :func:`cuts_a_figure` is structurally unable to protect the rows that need
+    it.** That check requires two complete numeric cells in the row before it will look, and TC-028
+    found the inversion: damage *removes* complete numeric cells, so the worse a row is mangled the
+    less likely the guard is to fire. Apple's page 11 header keeps two `$ —` and no parseable figure,
+    so it can never qualify — *the loss itself disqualifies the row from the guard meant to catch
+    it*. Three Tesla pages lose a label and four figures from their final row and evade it the same
+    way. Asking the region what it contained has no such hole: a row stripped to nothing is then the
+    easiest case to see rather than the hardest.
+
+    **Counting digits rather than words or figures is what makes it clean**, and each was measured.
+    *Words* do not separate: Cisco's page 61 and SpaceX's page 251 legitimately lose 7-10% of theirs
+    to split labels and dot leaders while losing no data. *Figures* misfire on a split header —
+    LLY's page 56 breaks `2024` into `202` + `4`, which is visible, rejoinable, and deliberately
+    tolerated, yet reads as a missing figure. Digits survive being split and do not survive being
+    dropped, which is exactly the distinction the tool already draws everywhere else.
+
+    A **deficit**, not a difference: the count may legitimately come out *higher* than the region
+    holds, because :func:`recover_edge_row` adds a row from just outside the box. Four correct tables
+    do exactly that.
+    """
+    region: dict[str, int] = {}
+    for word in page.get_text("words"):
+        centre_y = (word[1] + word[3]) / 2
+        centre_x = (word[0] + word[2]) / 2
+        if not (box.y0 - 1 <= centre_y <= box.y1 + 1 and box.x0 - 2 <= centre_x <= box.x1 + 2):
+            continue
+        for character in word[4]:
+            if character.isdigit():
+                region[character] = region.get(character, 0) + 1
+    if not region:
+        return 0
+    returned: dict[str, int] = {}
+    for row in rows:
+        for cell in row:
+            for character in cell or "":
+                if character.isdigit():
+                    returned[character] = returned.get(character, 0) + 1
+    return sum(max(0, count - returned.get(d, 0)) for d, count in region.items())
+
+
 def cuts_a_figure(page: fitz.Page, rows: list[list[str | None]]) -> bool:
     """Does a column edge run straight through a number in a row that carries data? (TC-027.)
 
@@ -819,6 +877,10 @@ def _describe(
             # Recover what the region's own boundaries cut off, before anything is reported. Only
             # for the row-ruled reader: a drawn grid states its own edges, so there is nothing
             # outside them that belongs inside (TC-026 HIGH 1, HIGH 3).
+            # Digits printed in this region that never reached a cell. Whatever went wrong —
+            # a cut, a merge, a row dropped whole — the grid is not what the page says.
+            if split and digits_lost(page, box, repaired) >= MIN_DIGIT_DEFICIT:
+                continue
             if split:
                 repaired = recover_left_margin(page, table, repaired)
                 if len(groups) == 1:

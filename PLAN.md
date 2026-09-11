@@ -7568,6 +7568,52 @@ any one of them; it is that **a statistic over a corpus generalises only as far 
 while a check that consults the document itself does not have that ceiling. Where a test can be
 grounded in the page rather than in a threshold, it should be.
 
+##### TC-028 — the guard that could not protect the rows that needed it
+
+**2026-09-11, the round after TC-027**, on the same fixtures plus two new ones: a **landscape**
+Tesla update (1583 x 890 pt — the series' first non-portrait document) and a Broadcom 10-K. Both
+TC-027 fixes verified, all six regression anchors held, and `title_from_previous_page` fired on a
+real document for the first time in four rounds (the manual's page 30).
+
+**Its central finding is a structural inversion, and it is the most useful thing any round has
+produced.** :func:`cuts_a_figure` requires **two complete numeric cells** in a row before it will
+examine that row. But damage is what *removes* complete numeric cells — so the worse a row is
+mangled, the less likely the guard is to look at it. Apple's page 11 header retains two `$ —` and no
+parseable figure, so it can never qualify: *the loss itself disqualifies the row from the guard meant
+to catch it.* Three Tesla pages lose a label and four figures from their final row and evade it the
+same way. The tester's own phrasing is worth keeping: *"the rows that need protecting are precisely
+the ones a loss has already stripped below that threshold."*
+
+**The fix is to stop reasoning about how a reading went wrong and check what came back.**
+:func:`digits_lost` weighs the digits printed inside the region against the digits present in the
+returned rows. A row stripped to nothing is then the *easiest* case to see rather than the hardest,
+and one rule covers cuts, merges and rows dropped whole.
+
+**Counting digits is what makes it work, and the two obvious alternatives were measured and
+rejected.** *Words* do not separate: Cisco's page 61 and SpaceX's page 251 legitimately shed 7-10%
+of theirs to split labels and dot leaders while losing no data. *Figures* misfire on a split header —
+LLY's page 56 breaks `2024` into `202` + `4`, which is visible, rejoinable and deliberately
+tolerated, yet reads as a missing figure and cost that page two of its three tables. Digits survive
+being **split** and do not survive being **dropped**, which is precisely the distinction this tool
+draws everywhere else. The floor is 3 rather than 0 because a *document* may print a glyph twice:
+the designed report draws `6+` twice to simulate bold, so one digit goes "missing" from a row that
+is entirely correct. Measured, every correct table shows a deficit of 0 (that one shows 1) and every
+damaged one shows **8 to 20**.
+
+**Neither check subsumes the other, and that was tested rather than assumed.** Digits survive a
+clean cut, so `digits_lost` is blind to `(143,457)` split into `(1` + `43,457)` where nothing else is
+lost; a row stripped to one value loses digits, so `cuts_a_figure` cannot see it. Both are kept, each
+with its own negative control.
+
+**What it costs, and why the cost is the point.** Across twelve documents the tool now returns **64
+tables where it returned 86** — a quarter more declines. Every rejected one was checked: they lose
+4 to 35 digits. The clearest is Apple's page 9, which was returning a net-sales table **with the
+iPhone row missing entirely** — `iPhone® 54,252 44,582`, the company's largest product line, gone
+from a table whose remaining rows and total looked perfectly sound. TC-026 and TC-027 had each found
+a sample of this class by hand; this measures it. The rows are *inside* the band, so it is a
+cell-assembly failure rather than the edge case :func:`recover_edge_row` handles, and recovering
+them rather than declining them is the open work recorded in `PROGRESS.md`.
+
 ##### `header` is claimed only where a drawn grid proves it
 
 A row-ruled read routinely starts its band one row inside the table, leaving `rows[0]` holding data
