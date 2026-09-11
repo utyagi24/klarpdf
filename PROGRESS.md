@@ -828,6 +828,36 @@ moves to the end and nothing else does. Argument and measurements in `PLAN.md` �
   argument, and the refusal names the count and spells out the `get_outline` + concatenate path, so
   enrichment is what a caller is told about rather than what they had to already know. A warning was
   considered first and rejected as strictly weaker — it fires after the loss.
+- [x] **M139.1** *(unplanned)* **What TC-025 found, and the sentence that was inverted** —
+  2026-09-10, the owner's **TC-025**, the first hands-on coverage of `set_outline`. Two documents
+  needing **opposite readings of the same four rules**: `SpaceX-EUProspectus.pdf` (400 pp, 362
+  links, densely numbered) and `kasaragodhr.pdf` (35 pp, magazine grid). **PASS on every documented
+  promise, no defects** — round trip exact, page set and all 362 links preserved, both refusals
+  verified fail-closed *on disk*, level repair individually attributable, `replace_outline` correct.
+  Every measurement reproduced exactly. Design in `PLAN.md` §M139.1 — *WSL*.
+
+  **The finding is in the guidance, not the tool.** The four contents-page rules in
+  `klarpdf://docs/get_links` read as a checklist, and two are *actively wrong* for the document type
+  `set_outline`'s own description names. **Dedupe by target** was written from a magazine; on an
+  indexed document many sections legitimately share a page (one carries six), so 101 entries span 60
+  distinct targets and the rule would have discarded **41 of 101 — 41% of the outline**. And the
+  **continuation test** (*same target, adjacent `rect[1]`*) also matches `2.1` and `2.2`, which share
+  page 50, sit 14 pt apart and are different sections.
+
+  **The correction the report proposed was itself inverted** — in the same paragraph that stated it
+  correctly. TC-025 offers the **dot leader**, saying first that *"a wrapped first line has neither"*
+  (right) and then that *"all three true continuations lack dots"* (wrong). Measured over 104 rows:
+  **101 carry a leader; the 3 that do not are the wrapped first lines**, because the leader runs to
+  the page number at the *end* of an entry, which lands on its *last* line. Not cosmetic — the rule
+  decides which way to merge, and merging upward corrupts two entries at once, silently. The
+  delivered outline is right because the tester did the right thing rather than the written thing,
+  which is precisely the finding-versus-explanation gap the harness note warns about.
+
+  **The fix is a layout classifier the caller computes from the reply**, not a fifth rule: in a grid
+  every target has exactly two rows and half the anchors are empty; uneven rows-per-target means an
+  indexed document and dedupe stays off. `tests/test_mcp_links.py` pins the polarity against a
+  constructed dot-leader contents page, verified by inverting the fixture and watching it go red.
+
 - [ ] **M141** **`get_tables`** — rows an agent can read, at **zero new dependencies**. Strategy is
   chosen per page (ruling present → `lines_strict`, else `text`) and **deliberately not reported**;
   precision comes from a **shape filter** (reject 1×N, newline-stuffed cells, empty header).
@@ -4504,6 +4534,15 @@ the PR that fixes it. See `CLAUDE.md` §How we work for the split and why. Items
 were not migrated wholesale: each is listed because a decision is outstanding, which is what keeps
 it on this side of the line.
 
+- **`set_outline` is untested on four shapes TC-025 names** (2026-09-10). An outline **deeper than
+  two levels** written by this tool — NVIDIA's 8-level outline read back correctly through `merge`
+  in TC-024, but nothing has *written* more than two; `set_outline` on a real **encrypted** document
+  (`WH-1000XM6.pdf`, `Cisco_FORM10-K.pdf`) and on a real **tagged** one; and **empty-string / very
+  long titles**. The encryption and tagging promises are asserted at unit scale in
+  `tests/test_mcp_set_outline.py` and an empty title is refused, so this is not an open defect — it
+  is that the claims have not met a document of that shape. Needs a decision only in the sense of
+  scheduling: fold into the next manual round, or write fixtures for the depth case, which is the
+  one a unit test can actually cover.
 - **An authored outline is pinned to the page numbers it was written against** (M139, 2026-09-10).
   `VirtualDocument._outline_override` holds `[level, title, page]` in *output* page numbers and is
   validated against the page count as it stands when it is set. Nothing re-points it afterwards the

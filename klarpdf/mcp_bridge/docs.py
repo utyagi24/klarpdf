@@ -428,18 +428,53 @@ usually the answer already: read its links, and each one carries the title (`tex
 (`target_page`) and the level (`rect[0]`, the indent). Four rules earn their keep, all of them
 learned from real documents:
 
-* **Merge continuations before reading indents.** Two rows with the *same* `target_page` and
-  adjacent `rect[1]` are one wrapped title, not a parent and a child — a heading that ran onto a
-  second line. Merge them, then read the indent. A different target means a genuinely new entry.
-* **Dedupe by target.** A magazine links each entry twice, once on its photograph and once on its
-  caption. Same target, one entry.
+* **Merge continuations before reading indents.** A heading that ran onto a second line arrives as
+  two rows. Merge them, then read the indent — the continuation often sits at the *outer* indent and
+  would otherwise read as a phantom top-level section.
+
+  Two rows sharing a `target_page` at adjacent `rect[1]` is the **first** test, and on a densely
+  sectioned document it is not sufficient: a prospectus routinely puts several sections on one page,
+  so `2.1 Responsibility Statement` and `2.2 General Disclaimers` share target page 50 and sit
+  14 pt apart while being different sections. When the entries carry **dot leaders**, those settle
+  it: a complete entry ends in a run of dots and a page number, so **the row *missing* the leader is
+  the incomplete one — it is the *first* line, and it merges with the row below it.** Measured over
+  a 400-page prospectus, 104 contents rows: 101 carry a leader, and the 3 that do not are exactly
+  the three wrapped first lines. Note the direction — the leader runs to the page number at the
+  *end* of the entry, which lands on its **last** line, so it is the continuation that carries the
+  dots. Merging upward instead of downward corrupts two entries at once.
+* **Dedupe by target — only when the layout is one entry per page.** A magazine links each entry
+  twice, once on its photograph and once on its caption; same target, one entry. **This rule is
+  destructive on an indexed document**, where many sections legitimately begin on the same page:
+  measured on that prospectus, 101 entries span 60 distinct target pages (one page carries six
+  sections), so deduping by target would have discarded **41 of 101 entries — 41% of the outline**.
 * **Drop the rows with no `text`.** They are the picture half of that pair.
 * **Distinct indents are not always levels.** They are in an indented list; in a magazine grid the
   anchors sit anywhere from x0 10 to 233 and mean nothing. When the indents do not fall into two or
   three tight clusters, emit a flat level 1 rather than inventing a hierarchy out of layout noise.
 
 Watch also for a link that appears on many pages pointing *backwards* to one of them: that is a
-running footer, not a contents entry.
+running footer, not a contents entry. A 35-page brochure carried 13, all aimed at its contents page;
+taken as entries they would have produced thirteen junk bookmarks.
+
+### Which of these rules apply is a property of the layout — and the reply tells you
+
+The four are not a checklist to run in order: two contents pages can need **opposite** readings, and
+applying the wrong profile silently produces a plausible outline that is wrong. Classify the
+document first, from the reply you already have:
+
+| | **Indexed / dense** (prospectus, standard, manual) | **Magazine grid** (brochure) |
+|---|---|---|
+| rows per target | uneven — 6, 3, 1 … | exactly 2, every time |
+| rows with `text: null` | ~none | ~half (the photograph) |
+| dot leaders | present | absent |
+| `rect[0]` | two or three tight clusters | scattered across the page |
+| **dedupe by target** | **no** — it deletes real entries | **yes** |
+| **continuations** | dot-leader test | rare; adjacency is enough |
+| **levels** | from the indent clusters | flat level 1 |
+
+The cheap discriminator is the first two rows of that table: compute rows-per-target, and if every
+target has exactly two rows with half the anchors empty, it is a grid. Uneven counts mean an indexed
+document, and dedupe must stay off.
 
 What to do with the entries once you have them: **`set_outline`** takes exactly this shape —
 `[{level, title, page}]`, where `page` is the link's `target_page` — and writes it into a copy of

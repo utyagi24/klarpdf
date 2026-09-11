@@ -6887,6 +6887,65 @@ after the loss, and the repo had already chosen refusal for the analogous case.
 The `subset()` view deliberately does not carry the override: it is pinned to *this* document's page
 numbers and an extract renumbers every one of them.
 
+#### M139.1 — what TC-025 found, and the sentence that was inverted *(2026-09-10, unplanned)*
+
+The owner's **TC-025** is the first hands-on coverage of `set_outline`, run against two documents
+chosen because they need **opposite readings of the same four rules**: `SpaceX-EUProspectus.pdf`
+(400 pp, 362 links, densely numbered sections) and `kasaragodhr.pdf` (35 pp, 156 links, magazine
+grid). It reports **PASS on every documented promise and no defects** — round trip exact, page set
+and all 362 links preserved, both refusals verified fail-closed *on disk* rather than believed from
+the reply, level repair correct and individually attributable, `replace_outline` correct.
+
+Every measurement in it reproduced exactly: 101 entries over 60 distinct target pages; 37 `named`
+links on the brochure splitting 12 + 12 + 13; 24 contents rows deduping to 12 destinations with 12
+carrying no anchor text; three duplicate titles and an em dash round-tripping byte-exact. (One
+transcription drift, immaterial: the brochure's anchor `x0` runs to 233.63, not 233.16.)
+
+**So the finding is not a defect in the tool — it is in the guidance the tool points at.** The four
+contents-page rules in `klarpdf://docs/get_links` read as a checklist, and two of the four are
+*actively wrong* for the document type `set_outline`'s own description names:
+
+* **"Dedupe by target" is destructive on an indexed document.** It was written from a magazine,
+  where each entry is linked twice. A prospectus puts many sections on one page — measured, one page
+  carries six — so 101 entries span only 60 distinct targets and the rule would have discarded
+  **41 of 101, 41% of the outline**.
+* **The continuation test is necessary but not sufficient.** *"Same `target_page` and adjacent
+  `rect[1]`"* also matches `2.1 Responsibility Statement` and `2.2 General Disclaimers`, which share
+  page 50, sit 14 pt apart, and are different sections.
+
+**And the correction the report proposed was itself stated backwards — in the same paragraph that
+stated it correctly.** TC-025 offers the **dot leader** as the discriminator and says first, rightly,
+that *"a complete TOC entry always ends in a run of dots and a page number; a wrapped first line has
+neither"* — then, one sentence later, *"all three true continuations lack dots"*. Measured over the
+104 contents rows: **101 carry a leader and the 3 that do not are the wrapped *first* lines**, because
+the leader runs to the page number at the **end** of the entry, which lands on its **last** line. The
+continuation carries the dots.
+
+The inversion is not cosmetic. The rule decides which way to merge, and merging upward corrupts two
+entries at once — the preceding entry gains text that is not its own, and the real continuation is
+left as an orphan top-level bookmark. Written into the docs as phrased, it would have been a
+plausible instruction producing a wrong outline with no error anywhere. The delivered outline is
+correct because the tester did the right thing, not the written thing, which is exactly the gap
+between a finding and its explanation that `CLAUDE.md`'s harness note warns about.
+
+**The fix is a layout classifier the caller can compute from the reply it already has**, rather than
+a fifth rule. TC-025's own one-line summary is the insight — *"the rules are sound; which ones apply
+is a property of the layout, and nothing in the reply tells you which document you have"* — and the
+answer is that the reply does tell you, if you ask it the right question: in a grid **every target
+has exactly two rows and about half the anchors are empty**; uneven rows-per-target means an indexed
+document and dedupe must stay off. That table now sits under the four rules, with the per-profile
+answer for dedupe, continuations and levels. Deliberately guidance rather than a new field: deciding
+what a contents page *is* stays the caller's, the same position `get_links` has held since M138.
+
+`tests/test_mcp_links.py` pins the polarity against a constructed dot-leader contents page, so a
+future re-inversion fails there rather than in somebody's outline. Verified by inverting the fixture
+and watching it go red.
+
+**Untested surface TC-025 names for a later round**, carried rather than closed: an outline **deeper
+than two levels** written by this tool, `set_outline` on an **encrypted** document and on a **tagged**
+one, and empty-string / very long titles. The encryption and tagging claims are asserted in
+`tests/test_mcp_set_outline.py` at unit scale; what is untested is a real document of that shape.
+
 #### M140 — heading candidates: the typography fallback, and the route to subsections
 
 For a document with neither bookmarks nor a linked contents page, structure has to come from
@@ -6991,6 +7050,13 @@ anchor text makes the answers meaningful (`'Mangalore International Airport'` �
 
 **Its contents pages work, and teach four rules M139 needs.** Pages 4–5 are a visual grid, not an
 indented list, and they reconstruct cleanly into 12 sections (pages 6, 8, 10 … 28) — but only with:
+
+> **Read with M139.1.** These four were derived from *this* document and hold for its layout. TC-025
+> later ran the same rules against a 400-page prospectus and found two of them inverted there —
+> dedupe-by-target would have deleted 41% of that outline, and the adjacency test for continuations
+> misfires where several sections share a page. The rules below are not wrong; they are the
+> **magazine-grid** half of a two-profile problem. §M139.1 has the classifier that decides which
+> half a document is.
 
 * **Dedupe by target.** Each entry is linked **twice**, once on its photograph and once on its
   caption, both to the same page. 12 links on page 4 are 6 entries.
