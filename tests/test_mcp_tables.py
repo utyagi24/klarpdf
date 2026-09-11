@@ -255,6 +255,40 @@ def underruled_pdf(tmp_path) -> str:
 
 
 @pytest.fixture
+def spanning_label_pdf(tmp_path) -> str:
+    """A statement whose label runs across two columns, with a real data row below the last rule.
+
+    Qualcomm's cash-flow statement: the label spills past the first column, so the second never
+    holds a number, and requiring a figure in *every* data column refused its genuine final row
+    (`Total cash and cash equivalents at end of period $ 4,533 $ 7,771`).
+    """
+    path = str(tmp_path / "spanning.pdf")
+    doc = fitz.open()
+    page = doc.new_page()
+    label_x, first, second = 60.0, 380.0, 460.0
+    right = second + 90
+    top = 100.0
+    _rule(page, top, label_x, right)
+    body = [
+        (f"Cash and equivalents {name}", f"{10 + i},{100 + i}", f"{20 + i},{200 + i}")
+        for i, name in enumerate(_OFFICERS)
+    ]
+    for index, (label, left_value, right_value) in enumerate(body):
+        y = top + index * 22.0
+        page.insert_text((label_x + 2, y + 15), label, fontsize=9)
+        page.insert_text((first + 2, y + 15), left_value, fontsize=9)
+        page.insert_text((second + 2, y + 15), right_value, fontsize=9)
+        _rule(page, y + 22.0, label_x, right)
+    below = top + len(body) * 22.0 + 12
+    page.insert_text((label_x + 2, below), "Total cash at end of period", fontsize=9)
+    page.insert_text((first + 2, below), "4,533", fontsize=9)
+    page.insert_text((second + 2, below), "7,771", fontsize=9)
+    doc.save(path)
+    doc.close()
+    return path
+
+
+@pytest.fixture
 def prose_pdf(tmp_path) -> str:
     """A page of running prose with **no** ruling at all — the other kind of decline.
 
@@ -466,8 +500,9 @@ def test_the_credibility_guard_is_actually_wired_into_the_read(captioned_pdf, mo
 
 def test_the_decline_reason_says_which_kind_of_decline_it_was(underruled_pdf, prose_pdf):
     """Ruling that failed and no ruling at all are different answers to the caller."""
+    # A region that was found and refused names *itself* and why, rather than shrugging at the page.
     ruled_but_bad = tables.tables(underruled_pdf, pages=[1])["unread_regions"][0]
-    assert "there is ruling here" in ruled_but_bad["reason"]
+    assert "a table-like region here" in ruled_but_bad["reason"]
 
     nothing_there = tables.tables(prose_pdf, pages=[1])["unread_regions"][0]
     assert "nothing on this page marks where the cells are" in nothing_there["reason"]
@@ -613,7 +648,9 @@ def test_the_digit_check_is_wired_into_the_read(captioned_pdf, monkeypatch):
     monkeypatch.setattr(tables, "digits_lost", lambda page, box, rows: 99)
     result = tables.tables(captioned_pdf, pages=[1])
     assert result["total_tables"] == 0
-    assert [r["page"] for r in result["unread_regions"]] == [1]
+    # Both of the page's regions are refused, and each is named — one entry per region, not per page.
+    assert {r["page"] for r in result["unread_regions"]} == {1}
+    assert len(result["unread_regions"]) == 2
 
     monkeypatch.setattr(tables, "digits_lost", lambda page, box, rows: 0)
     assert tables.tables(captioned_pdf, pages=[1])["total_tables"] == 2
@@ -624,10 +661,77 @@ def test_the_figure_cut_check_is_wired_into_the_read(captioned_pdf, monkeypatch)
     monkeypatch.setattr(tables, "cuts_a_figure", lambda page, rows: True)
     result = tables.tables(captioned_pdf, pages=[1])
     assert result["total_tables"] == 0, "a region whose edge cuts a value must not be reported"
-    assert [r["page"] for r in result["unread_regions"]] == [1]
+    assert {r["page"] for r in result["unread_regions"]} == {1}
+    assert len(result["unread_regions"]) == 2
 
     monkeypatch.setattr(tables, "cuts_a_figure", lambda page, rows: False)
     assert tables.tables(captioned_pdf, pages=[1])["total_tables"] == 2
+
+
+def test_a_group_that_merely_begins_with_a_blank_row_is_kept():
+    """TC-029 — a spacer row was costing whole tables.
+
+    `_acceptable` reads `rows[0]` to decide whether a block has a header at all, so a group that
+    merely *started* with a blank row was thrown away entire. Qualcomm's Q3 FY26 10-Q page 4 lost
+    its whole asset side that way — thirteen clean rows reconciling to the `57,367` the tool
+    returned on the liability side.
+    """
+    with_spacer = [["", "", ""], ["Cash", "4,533", "5,520"], ["Total", "23,004", "25,754"]]
+    trimmed = tables.trim_blank_edges(with_spacer)
+    assert trimmed[0] == ["Cash", "4,533", "5,520"]
+    assert tables._acceptable(trimmed, tables._STUFFED_LIMIT)
+    assert not tables._acceptable(with_spacer, tables._STUFFED_LIMIT), (
+        "untrimmed, the blank first row is what the shape test reads"
+    )
+    # Only the edges, and only when wholly blank — an interior gap is part of the table's shape.
+    inner = [["A", "1"], ["", ""], ["B", "2"]]
+    assert tables.trim_blank_edges(inner) == inner
+
+
+def test_a_label_spanning_two_columns_does_not_block_edge_recovery(spanning_label_pdf):
+    """TC-029 — requiring a figure in *every* data column refused a genuine final row.
+
+    The label spills past the first column here, so the second never holds a number. Which columns
+    are numeric is now taken from the table's own body rather than assumed.
+    """
+    result = tables.tables(spanning_label_pdf, pages=[1])
+    values = [c for t in result["tables"] for row in t["rows"] for c in row]
+    assert "4,533" in values and "7,771" in values, "the row below the last rule must be recovered"
+
+
+def test_the_blank_edge_trim_is_wired_into_the_read(captioned_pdf, monkeypatch):
+    """Pins the call site: PyMuPDF will not emit a leading blank row on demand, so the group is
+    forced instead. Without the trim, `_acceptable` reads that blank row as a missing header and
+    throws the whole group away — which is how Qualcomm's page 4 lost its asset side."""
+    real = tables._split_prose_rows
+
+    def with_spacer(table):
+        return [([[""] * len(rows[0]), *rows], top, bottom) for rows, top, bottom in real(table)]
+
+    monkeypatch.setattr(tables, "_split_prose_rows", with_spacer)
+    assert tables.tables(captioned_pdf, pages=[1])["total_tables"] == 2, (
+        "a group that merely begins with a spacer must still be read"
+    )
+
+
+def test_a_region_refused_on_a_page_that_also_succeeds_is_still_reported(outdented_pdf, monkeypatch):
+    """TC-029's central finding: extraction went region-granular, reporting stayed page-granular.
+
+    A page holding one readable region and one unreadable one came back looking complete. Qualcomm's
+    page 4 returned its liabilities and dropped its entire asset side — 13 rows, 26 figures — with
+    `unread_regions: []` and a final row balancing against a total whose every component was gone.
+    The description's promise stayed *literally* true, which is why it stopped protecting anyone.
+    """
+    # Force every region to fail the digit check, on a page that otherwise reads.
+    monkeypatch.setattr(tables, "digits_lost", lambda page, box, rows: 99)
+    result = tables.tables(outdented_pdf, pages=[1])
+    assert result["total_tables"] == 0
+    assert result["unread_regions"], "a refused region must be named even when others pass"
+    region = result["unread_regions"][0]
+    assert "did not reach any cell" in region["reason"]
+    # And the bbox localises the region rather than shrugging at the whole page.
+    page_height = fitz.open(outdented_pdf)[0].rect.height
+    assert region["bbox"][3] < page_height, "a refused region reports its own box, not the page"
 
 
 # ---- titles --------------------------------------------------------------

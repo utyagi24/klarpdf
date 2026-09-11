@@ -4588,27 +4588,27 @@ it on this side of the line.
   a plausible header row, or drop a title whose text appears verbatim in `rows[0]` — and neither is
   worth doing without more documents. Also unmeasured: a **centred** caption fails
   `_TITLE_LEFT_TOLERANCE` outright, and the corpus contains none.
-- **`get_tables` declines about a quarter of the tables it used to return, and recovering them
-  rather than declining them is the open work** (TC-028 + measurement, 2026-09-11,
-  [#348](https://github.com/utyagi24/klarpdf/pull/348)). `digits_lost` now refuses any region whose
-  printed digits did not all reach a cell, which took the corpus from **86 tables to 64** across
-  twelve documents. **That is correct, not over-strict** — every rejected table was checked and each
-  loses 4 to 35 digits. The clearest: Apple's page 9 was returning a net-sales table **with the
-  iPhone row missing entirely** (`iPhone® 54,252 44,582`, the company's largest product line), while
-  its remaining rows and its total both looked sound. Three manual rounds each found a sample of this
-  class by hand; the check measures it.
-  **The open question is whether these can be read instead of declined.** The lost rows sit *inside*
-  the band, so this is a cell-assembly failure rather than the band-edge case `recover_edge_row`
-  already handles — on Apple p9 the header and the iPhone line collapse into two mangled rows.
-  Worth deciding before it is worked: a rebuild would assign every word in a row's y-band to the
-  column containing its centre, which is the machinery `recover_edge_row` and `recover_left_margin`
-  already use, applied to *every* row rather than the edges. That is close to reimplementing cell
-  assembly, which is a real scope call rather than a patch.
-  Related, unfixed, and recorded with it: **multi-tier headers** (Alphabet p54 spreads its header
-  over six lines of which the band captures one, leaving `['', 'es Am', '', '', '', '']`), and
-  **double-printed bold returned as a grid** (SpaceX p161 → `['RReevveennuuee ...', '$$22,,662200']`;
-  the doubling is genuinely in the text layer, `extract_text` shows it too, so the decision is
-  whether to detect and decline, detect and undo, or document).
+- **`get_tables` still declines pages whose rows cannot be assembled, and reading them is the open
+  work** (TC-028/TC-029, 2026-09-11, [#348](https://github.com/utyagi24/klarpdf/pull/348)).
+  **Restated after TC-029, because the earlier version of this entry overstated the cost.** TC-028
+  measured the digit check at 86 → 64 tables and called the loss the price of being careful. TC-029
+  aimed a round at *false* declines and found that two of my own rules were rejecting good tables:
+  a group beginning with a blank spacer row failed the shape test outright, and a label spanning two
+  columns blocked edge recovery. Both fixed; the corpus now returns **80 tables across thirteen
+  documents** with every correctness gain kept. So the real cost of the conservative stance is
+  roughly a third of what it appeared to be.
+  **What remains genuinely unreadable** is the class the digit check was built for: rows that are
+  lost *inside* the band, where cell assembly collapses a header and a data line into one mangled
+  row. Apple's page 9 is the reference case — it was returning a net-sales table with the iPhone row
+  missing (`iPhone® 54,252 44,582`) while its remaining rows and its printed total both reconciled.
+  Reading these rather than declining them means assigning every word in a row's y-band to the
+  column containing its centre — the machinery `recover_edge_row` and `recover_left_margin` already
+  use, applied to *every* row rather than the edges. That is close to reimplementing cell assembly,
+  so it is a scope decision rather than a patch, and it is the largest single item left on this tool.
+  Related, unfixed, recorded with it: **multi-tier headers** (Alphabet p54 spreads its header over
+  six lines of which the band captures one) and **double-printed bold** (SpaceX p161 — now declined
+  by the digit floor, which TC-029 rightly notes is a decision made *implicitly* by glyph counting
+  rather than deliberately; it happens to be the right outcome).
 - **TC-026's six lower-severity `get_tables` findings, deferred with the HIGHs fixed** (2026-09-11,
   [#348](https://github.com/utyagi24/klarpdf/pull/348)). The round's three HIGHs — dropped rows,
   lost minus signs, clipped labels — are fixed and tested (`PLAN.md` §M141 → *TC-026*). These six
@@ -4654,9 +4654,9 @@ it on this side of the line.
   - **The `$` column marker migrates to the previous cell** (`"Cash and cash equivalents $"`), so
     every marked row needs stripping and the last column loses its marker. Same column-edge bleed as
     HIGH 2 and probably the same fix.
-  - **`unread_regions.bbox` is always the whole page.** It reads as though it localises the problem
-    and does not — it is literally `page.rect`. Either compute the region that failed, or drop the
-    field rather than imply a precision that is not there.
+  - ~~**`unread_regions.bbox` is always the whole page.**~~ — **closed 2026-09-11 by TC-029's fix.**
+    A region that was found and refused now reports its own box and its own reason. The whole-page
+    bbox survives only where it is honest: a page on which nothing table-like was located at all.
 - **`set_outline` is untested on four shapes TC-025 names** (2026-09-10). An outline **deeper than
   two levels** written by this tool — NVIDIA's 8-level outline read back correctly through `merge`
   in TC-024, but nothing has *written* more than two; `set_outline` on a real **encrypted** document

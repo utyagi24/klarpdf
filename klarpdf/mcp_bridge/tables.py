@@ -162,6 +162,22 @@ mistaken for a caption.
 _CONTINUATION_TOLERANCE = 2.0
 _TOP_OF_PAGE = 0.15
 
+_REFUSALS = {
+    "split": (
+        "a table-like region here was split into pieces that discarded most of its content, so the "
+        "split was not believed"
+    ),
+    "shape": "a table-like region here did not come out as usable rows",
+    "cut": (
+        "a table-like region here has a column edge running through a value, which misaligns the "
+        "figures either side of it"
+    ),
+    "lost": (
+        "a table-like region here printed numbers that did not reach any cell, so the rows would "
+        "have been incomplete without saying so"
+    ),
+}
+
 _DECLINE_REASONS = {
     "declined-unruled": (
         "nothing on this page marks where the cells are — no drawn grid and no ruled rows, so the "
@@ -360,6 +376,26 @@ def _shattered_ratio(rows: list[list[str | None]]) -> float:
             if _WORD_END.search(left) and _WORD_START.match(right):
                 cut += 1
     return cut / pairs if pairs else 0.0
+
+
+def trim_blank_edges(rows: list[list[str]]) -> list[list[str]]:
+    """Drop wholly empty rows from the top and bottom of a group (TC-029).
+
+    A blank row is not evidence of anything, but :func:`_acceptable` reads ``rows[0]`` to decide
+    whether the block has a header at all — so a group that merely *begins* with a spacer was
+    thrown away whole. Qualcomm's Q3 FY26 10-Q page 4 lost its entire asset side that way: thirteen
+    clean rows, every figure correct, `digits_lost` of 0, reconciling to the `57,367` the tool
+    returned on the liability side — rejected because row 0 was `['', '', '']`.
+
+    The bbox is deliberately left alone. It is used to weigh the region's printed digits against
+    what came back, and an empty row contributes none either way.
+    """
+    start, end = 0, len(rows)
+    while start < end and not any(c and c.strip() for c in rows[start]):
+        start += 1
+    while end > start and not any(c and c.strip() for c in rows[end - 1]):
+        end -= 1
+    return rows[start:end]
 
 
 def _acceptable(rows: list[list[str | None]], stuffed_limit: float) -> bool:
@@ -688,15 +724,32 @@ def recover_edge_row(page: fitz.Page, table, rows: list[list[str]]) -> list[list
         line = [w for w in words if low <= (w[1] + w[3]) / 2 <= high]
         if not line:
             continue
-        values = []
-        for column in columns:
-            found = [
-                w[4]
+        # Which columns actually carry figures in this table's own body? Requiring one in *every*
+        # data column is wrong where a label spills past the first: Qualcomm's cash-flow statement
+        # runs its label across two columns, so the second never holds a number, and a real final
+        # row — `Total cash and cash equivalents at end of period $ 4,533 $ 7,771` — was refused
+        # for it (TC-029). Asking the table which of its own columns are numeric uses the structure
+        # already established instead of assuming one.
+        numeric_columns = []
+        for index, column in enumerate(all_columns):
+            if index == 0:
+                continue                      # the label column is never required to hold a figure
+            hits = sum(
+                1
+                for row in rows
+                if index < len(row) and _FIGURE.match((row[index] or "").strip())
+            )
+            if hits >= max(2, len(rows) // 4):
+                numeric_columns.append(column)
+        if len(numeric_columns) < 2:
+            continue
+        if any(
+            not any(
+                column[0] - 2 <= (w[0] + w[2]) / 2 <= column[2] + 2 and _FIGURE.match(w[4])
                 for w in line
-                if column[0] - 2 <= (w[0] + w[2]) / 2 <= column[2] + 2 and _FIGURE.match(w[4])
-            ]
-            values.append(found[0] if found else None)
-        if not values or any(value is None for value in values):
+            )
+            for column in numeric_columns
+        ):
             continue
         # Assemble by *run*, not by taking one figure per column, which is how this function
         # itself came to drop data (TC-027): Amazon's page 10 carries `December 31, 2025` and
@@ -801,7 +854,7 @@ def _repair_rows(rows: list[list[str | None]]) -> list[list[str]]:
     return repaired
 
 
-def read_page(page: fitz.Page) -> tuple[list[dict], str]:
+def read_page(page: fitz.Page) -> tuple[list[dict], str, list[dict]]:
     """Read every table on one page, or decline. Returns ``(tables, mode)``.
 
     ``mode`` is one of ``ruled`` (a drawn grid), ``row-ruled`` (rules for rows, alignment for
@@ -816,11 +869,11 @@ def read_page(page: fitz.Page) -> tuple[list[dict], str]:
     a small lie in the one field whose whole job is to explain a refusal.
     """
     strict = page.find_tables(strategy="lines_strict").tables
-    described = _describe(
+    described, refused = _describe(
         page, strict, split=False, stuffed_limit=_RULED_STUFFED_LIMIT, header_known=True
     )
     if described:
-        return described, "ruled"
+        return described, "ruled", refused
 
     if horizontal_rules(page) >= MIN_RULES:
         mixed = page.find_tables(
@@ -828,14 +881,16 @@ def read_page(page: fitz.Page) -> tuple[list[dict], str]:
             horizontal_strategy="lines",
             min_words_vertical=_MIN_WORDS_VERTICAL,
         ).tables
-        described = _describe(
+        described, refused = _describe(
             page, mixed, split=True, stuffed_limit=_STUFFED_LIMIT, header_known=False
         )
         if described:
-            return described, "row-ruled"
-        return [], "declined-unreliable"
+            return described, "row-ruled", refused
+        # Keep the per-region reasons rather than falling back to the page-level sentence: they are
+        # most useful precisely when nothing on the page could be read.
+        return [], "declined-unreliable", refused
 
-    return [], "declined-unruled"
+    return [], "declined-unruled", []
 
 
 def _describe(
@@ -857,20 +912,45 @@ def _describe(
     told in ``klarpdf://docs/get_tables`` to look at ``title`` for a header that went missing.
     """
     described: list[dict] = []
+    refused: list[dict] = []
+
+    def refuse(top: float, bottom: float, why: str) -> None:
+        """Record a region this page *did* find and could not read (TC-029).
+
+        Extraction became region-granular when splitting arrived; reporting stayed page-granular,
+        so a page holding one readable region and one unreadable one came back looking complete.
+        Qualcomm's page 4 returned its liabilities and dropped its entire asset side — thirteen rows
+        and twenty-six figures — with `unread_regions: []` and a final row reading `Total liabilities
+        and stockholders' equity $ 57,367`, balancing against a total whose every component was gone.
+        The description's promise (*"every page comes back in one list or the other"*) stayed
+        literally true, which is exactly why it stopped protecting anyone: it was written when the
+        unit of failure was the page, and the unit of failure is now the region.
+        """
+        refused.append(
+            {
+                "bbox": [round(v, 1) for v in (table.bbox[0], top, table.bbox[2], bottom)],
+                "reason": why,
+            }
+        )
+
     for table in found:
         whole = table.extract()
         groups = _split_prose_rows(table) if split else [(whole, table.bbox[1], table.bbox[3])]
 
         # What the split threw away has to be accounted for, or it escapes every test below.
         if not split_is_credible(whole, [rows for rows, _, _ in groups]):
+            refuse(table.bbox[1], table.bbox[3], _REFUSALS["split"])
             continue
 
         for rows, top, bottom in groups:
+            rows = trim_blank_edges([[c or "" for c in row] for row in rows])
             if not _acceptable(rows, stuffed_limit):
+                refuse(top, bottom, _REFUSALS["shape"])
                 continue
             # A column edge through a value misaligns every figure it lands between, and unlike a
             # split label it leaves nothing for the caller to notice (TC-027).
             if cuts_a_figure(page, rows):
+                refuse(top, bottom, _REFUSALS["cut"])
                 continue
             box = fitz.Rect(table.bbox[0], top, table.bbox[2], bottom)
             repaired = _repair_rows(rows)
@@ -880,6 +960,7 @@ def _describe(
             # Digits printed in this region that never reached a cell. Whatever went wrong —
             # a cut, a merge, a row dropped whole — the grid is not what the page says.
             if split and digits_lost(page, box, repaired) >= MIN_DIGIT_DEFICIT:
+                refuse(top, bottom, _REFUSALS["lost"])
                 continue
             if split:
                 repaired = recover_left_margin(page, table, repaired)
@@ -907,7 +988,7 @@ def _describe(
     blocks = _free_blocks(page, [fitz.Rect(entry["bbox"]) for entry in described])
     for entry in described:
         entry["title"] = _title_above(blocks, fitz.Rect(entry["bbox"]))
-    return described
+    return described, refused
 
 
 def _continues_from(entry: dict, previous: dict | None, page_height: float) -> int | None:
@@ -990,8 +1071,25 @@ def tables(
 
         for index0 in indices:
             page = _page_of(vdoc, index0)
-            described, mode = read_page(page)
+            described, mode, refused = read_page(page)
             if not described:
+                # Prefer the regions actually found and refused; fall back to the page-level
+                # sentence only when nothing table-like was located at all.
+                for region in refused:
+                    unread.append(
+                        {
+                            "page": index0 + 1,
+                            "bbox": region["bbox"],
+                            "reason": region["reason"],
+                            "suggestion": (
+                                f"extract_text on page {index0 + 1} returns every value in reading "
+                                f"order, or render_page to look at it"
+                            ),
+                        }
+                    )
+                if refused:
+                    carried, previous = None, None
+                    continue
                 unread.append(
                     {
                         "page": index0 + 1,
@@ -1005,6 +1103,21 @@ def tables(
                 )
                 carried, previous = None, None
                 continue
+
+            # Regions this page found and could not read are reported even when other regions on
+            # the same page came back fine — otherwise the pages that lose the most look cleanest.
+            for region in refused:
+                unread.append(
+                    {
+                        "page": index0 + 1,
+                        "bbox": region["bbox"],
+                        "reason": region["reason"],
+                        "suggestion": (
+                            f"extract_text on page {index0 + 1} returns every value in reading "
+                            f"order, or render_page to look at it"
+                        ),
+                    }
+                )
 
             for position, entry in enumerate(described):
                 entry["page"] = index0 + 1

@@ -7614,6 +7614,52 @@ a sample of this class by hand; this measures it. The rows are *inside* the band
 cell-assembly failure rather than the edge case :func:`recover_edge_row` handles, and recovering
 them rather than declining them is the open work recorded in `PROGRESS.md`.
 
+##### TC-029 — reporting that did not follow extraction, and two declines that were never justified
+
+**2026-09-11, testing the digit check.** It verified every decline, held all thirteen anchors, and
+confirmed the three design-critical ones (LLY page 56, Cisco page 61, SpaceX page 251) that justify
+counting **digits** rather than words or figures. Then it found the consequence nobody had looked
+for.
+
+**The central finding is a mismatch this milestone created and did not notice.** Splitting made
+extraction **region-granular**; `unread_regions` stayed **page-granular**. So a page holding one
+readable region and one unreadable one came back looking complete. Qualcomm's Q3 FY26 10-Q page 4
+returned its liabilities and dropped its **entire asset side** — thirteen rows, twenty-six figures,
+both subtotals reconciling — with `unread_regions: []`, `count: 1`, and a final row reading
+`Total liabilities and stockholders' equity $ 57,367`, balancing against a total whose every
+component was gone. The tester's diagnosis is exact and worth keeping verbatim: the description's
+promise that *"every page you ask about comes back in one list or the other"* was **still literally
+true, which is precisely why it no longer protected anyone — it was written when the unit of failure
+was the page, and the unit of failure is now the region.** Apple's page 14 is the same defect on the
+very page the previous brief had offered as a showcase of region granularity working.
+
+Regions found and refused are now reported individually, each with **its own bbox and its own
+reason** — which incidentally closes the standing low that `unread_regions.bbox` was always the whole
+page, for every case except a page where nothing table-like was located at all.
+
+**And two of the declines were never justified.** Investigating the report's findings turned up
+defects of mine underneath them:
+
+* **A blank first row cost whole tables.** `_acceptable` reads `rows[0]` to decide whether a block
+  has a header, so a group that merely *began* with a spacer was thrown away entire. That is what
+  removed Qualcomm's asset side — thirteen clean rows, every figure correct, `digits_lost` of 0.
+  Edges are now trimmed before the shape is judged. This was also, exactly, the report's §4
+  **candidate false decline** (page 5 of the same filing, filed properly with its evidence): it
+  reads correctly now, from the same one-line fix.
+* **A label spanning two columns blocked edge recovery.** :func:`recover_edge_row` required a figure
+  in *every* data column, and Qualcomm's cash-flow statement runs its label across two — so the
+  second never holds a number and a genuine final row, `Total cash and cash equivalents at end of
+  period $ 4,533 $ 7,771`, was refused. Which columns are numeric is now read from the table's own
+  body instead of assumed. The report filed this as *"TC-028's last-row loss, relocated"*, and it is
+  a fair correction of §4 of the previous brief, which claimed the band-edge case was handled and
+  the remaining losses sat inside the band.
+
+**The conservatism cost is therefore much smaller than TC-028's measurement implied.** Across
+thirteen documents the tool returns **80 tables where TC-028 measured 64** — Apple 4 → 8, Broadcom
+4 → 6, plus Qualcomm's 9 — with every correctness gain kept. A meaningful share of what looked like
+the price of being careful was simply two of my own rules rejecting good tables, and it took a round
+aimed at false declines to separate the two.
+
 ##### `header` is claimed only where a drawn grid proves it
 
 A row-ruled read routinely starts its band one row inside the table, leaving `rows[0]` holding data
