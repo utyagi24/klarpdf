@@ -877,6 +877,14 @@ importantly, `read_page`'s shape: try, then test the *output*, then decline out 
   appears in one list or the other, never neither. Titles step over the introductory paragraph
   between caption and table, splitting recovers several tables from one region, continuation is
   flagged never merged, and `header` is claimed only where a grid proves it.
+  **One defect was found by the owner after the PR opened, on `LLY_Proxy.pdf` page 64**, and it is
+  the one this milestone exists to refuse: a clean 25-row table came back as two near-empty grids
+  under the page's own correct title. Splitting *deletes* rows, and with 25 rows against four ruled
+  lines the merged data rows wore the exact signature of prose between two tables — so the split
+  removed them and the acceptance tests judged only the empty filler that survived. The general
+  rule it produced: **split-then-test lets anything the split removed escape the test**, so the
+  discard is now counted (a genuine split drops 11% of filled cells, this dropped 84%). Removes 12
+  of 82 corpus tables, all residue of the same kind, with every correct table unchanged.
   **Three things the original design got wrong, all found by measuring 14 documents instead of 2**
   (the two it was written against): `strategy="text"` does *not* read financial statements correctly
   — the numbers land and the labels shatter, and only the numbers had been checked; the specified

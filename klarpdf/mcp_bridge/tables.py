@@ -94,6 +94,29 @@ looser bound, since a drawn cell may legitimately wrap its text.
 
 _RULED_STUFFED_LIMIT = 0.5
 
+_MAX_SPLIT_LOSS = 0.35
+"""How much of a region's content splitting may discard before the split is disbelieved.
+
+**The guard on :func:`_split_prose_rows`, and it exists because that function deletes rows.** It is
+right to: prose between two tables is not data, and dropping it is the point. But the same
+signature — a tall row holding line breaks — is also what a *badly read table* produces, and there
+the deleted rows hold everything. LLY's proxy page 64 is the measured case: 25 real rows with only
+**four** ruled lines to divide them, so each band swallowed five rows into stuffed cells, the split
+took those for separators, and what survived was the genuinely empty filler between them. It passed
+every other test — not stuffed, not shattered, merely empty — and reported two confident tables
+holding almost nothing.
+
+The tell is unmissable once looked for: a real split discards the prose and keeps the table (LLY
+page 56 drops **11%** of filled cells), while this drops **84%**, and a region needing no split at
+all drops **0%**. So when the discarded share crosses this line the conclusion is not "here are the
+pieces" but "the boundaries held the data, so these were never boundaries" — and the region is
+dropped, which leaves the page to decline honestly.
+
+The general lesson, which outlives this constant: **split-then-test lets anything the split removed
+escape the test.** A test applied only to the residue cannot see what was thrown away, so whenever a
+step discards input, something has to account for what it discarded.
+"""
+
 _TALL_ROW_FACTOR = 2.5
 """How many times the median row height marks a row as prose rather than data.
 
@@ -138,6 +161,17 @@ mistaken for a caption.
 
 _CONTINUATION_TOLERANCE = 2.0
 _TOP_OF_PAGE = 0.15
+
+_DECLINE_REASONS = {
+    "declined-unruled": (
+        "nothing on this page marks where the cells are — no drawn grid and no ruled rows, so the "
+        "columns would have to be inferred from spacing, which silently drops characters"
+    ),
+    "declined-unreliable": (
+        "there is ruling here, but the rows it produced did not hold together — values landed "
+        "merged or cut, so reporting them as a grid would be worse than not"
+    ),
+}
 
 _BARE_NUMBER = re.compile(r"^[\d,]+(\.\d+)?$")
 _WORD_END = re.compile(r"[A-Za-z]$")
@@ -402,6 +436,25 @@ def _split_prose_rows(table) -> list[tuple[list[list[str | None]], float, float]
     return groups
 
 
+def split_is_credible(whole: list[list[str | None]], groups: list[list[list[str | None]]]) -> bool:
+    """Did splitting remove *separators*, or did it remove the table?
+
+    :func:`_split_prose_rows` deletes rows, and rightly — the prose between two tables is not data.
+    But the signature it keys on, a tall row holding line breaks, is also what a badly read table
+    produces, and there the deleted rows hold everything. Counting what was discarded is the only
+    check that can tell those apart, because every other test in this module runs on the survivors
+    and therefore cannot see what is missing.
+
+    Measured: a genuine split drops **11%** of filled cells, a region needing no split drops
+    **0%**, and the failure this exists for drops **84%**. See :data:`_MAX_SPLIT_LOSS`.
+    """
+    before = len(_cells_of(whole))
+    if not before:
+        return False
+    after = sum(len(_cells_of(rows)) for rows in groups)
+    return (before - after) / before <= _MAX_SPLIT_LOSS
+
+
 def repair_negative(cell: str) -> str:
     """Restore the closing bracket on an accounting negative that a column boundary split.
 
@@ -434,9 +487,15 @@ def read_page(page: fitz.Page) -> tuple[list[dict], str]:
     """Read every table on one page, or decline. Returns ``(tables, mode)``.
 
     ``mode`` is one of ``ruled`` (a drawn grid), ``row-ruled`` (rules for rows, alignment for
-    columns) or ``declined``. It is not reported to the caller — the owner's direction, since no
-    post-processing depends on it — but it is what the tests assert against, and it is the reason
-    this returns it rather than logging it.
+    columns), or one of two declines. *Which reader succeeded* is not reported to the caller — the
+    owner's direction, since no post-processing depends on it — but it is what the tests assert
+    against, and it is the reason this returns it rather than logging it.
+
+    The two declines **are** distinguished, because they mean different things to a caller holding
+    the page. ``declined-unruled`` is "there is nothing here to read a grid from". ``declined-
+    unreliable`` is "there is, and it did not come out trustworthy" — which is the more interesting
+    answer, and saying the first when the second is true (this page has four ruled lines) would be
+    a small lie in the one field whose whole job is to explain a refusal.
     """
     strict = page.find_tables(strategy="lines_strict").tables
     described = _describe(
@@ -456,8 +515,9 @@ def read_page(page: fitz.Page) -> tuple[list[dict], str]:
         )
         if described:
             return described, "row-ruled"
+        return [], "declined-unreliable"
 
-    return [], "declined"
+    return [], "declined-unruled"
 
 
 def _describe(
@@ -480,11 +540,13 @@ def _describe(
     """
     described: list[dict] = []
     for table in found:
-        groups = (
-            _split_prose_rows(table)
-            if split
-            else [(table.extract(), table.bbox[1], table.bbox[3])]
-        )
+        whole = table.extract()
+        groups = _split_prose_rows(table) if split else [(whole, table.bbox[1], table.bbox[3])]
+
+        # What the split threw away has to be accounted for, or it escapes every test below.
+        if not split_is_credible(whole, [rows for rows, _, _ in groups]):
+            continue
+
         for rows, top, bottom in groups:
             if not _acceptable(rows, stuffed_limit):
                 continue
@@ -592,16 +654,13 @@ def tables(
 
         for index0 in indices:
             page = _page_of(vdoc, index0)
-            described, _mode = read_page(page)
+            described, mode = read_page(page)
             if not described:
                 unread.append(
                     {
                         "page": index0 + 1,
                         "bbox": [round(v, 1) for v in page.rect],
-                        "reason": (
-                            "no drawn grid and no ruled rows — the columns would have to be "
-                            "inferred from spacing, which silently drops characters"
-                        ),
+                        "reason": _DECLINE_REASONS[mode],
                         "suggestion": (
                             f"extract_text on page {index0 + 1} returns every value in reading "
                             f"order, or render_page to look at it"

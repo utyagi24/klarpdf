@@ -224,14 +224,48 @@ def mismatched_rules_pdf(tmp_path) -> str:
 
 
 @pytest.fixture
+def underruled_pdf(tmp_path) -> str:
+    """A real table with far too few rules to divide it — five text rows inside every ruled band.
+
+    LLY's proxy page 64: 25 data rows and four ruled lines. Each band merges five rows into stuffed
+    cells, which look exactly like the prose that separates two tables — so the split deletes them
+    and leaves the empty filler behind, and the filler passes every other test by being empty.
+    Structurally the opposite of `mismatched_rules_pdf`: there the survivors are stuffed, here the
+    stuffing is in what got removed.
+    """
+    path = str(tmp_path / "underruled.pdf")
+    doc = fitz.open()
+    page = doc.new_page()
+    edges = [50.0, 200.0, 300.0, 400.0]
+    line = 0
+    for band in range(5):
+        top = 60.0 + band * 90.0
+        _rule(page, top, edges[0], edges[-1] + 100)
+        for within in range(5):
+            y = top + 14 + within * 15
+            page.insert_text((edges[0] + 4, y), _OFFICERS[line % len(_OFFICERS)], fontsize=9)
+            page.insert_text((edges[1] + 4, y), f"202{within}", fontsize=9)
+            page.insert_text((edges[2] + 4, y), f"{10 + line},0{within}8", fontsize=9)
+            page.insert_text((edges[3] + 4, y), f"${100 + line},{200 + line}", fontsize=9)
+            line += 1
+    _rule(page, 60.0 + 5 * 90.0, edges[0], edges[-1] + 100)
+    doc.save(path)
+    doc.close()
+    return path
+
+
+@pytest.fixture
 def prose_pdf(tmp_path) -> str:
-    """A page of running prose with a couple of rules on it — nothing a grid can be read from."""
+    """A page of running prose with **no** ruling at all — the other kind of decline.
+
+    Kept unruled on purpose: it is the fixture for "nothing here marks where the cells are", while
+    `columned_prose_pdf`, `mismatched_rules_pdf` and `underruled_pdf` cover the pages that do carry
+    ruling and still cannot be read. The two declines say different things to a caller and the
+    reason field has to distinguish them.
+    """
     path = str(tmp_path / "prose.pdf")
     doc = fitz.open()
     page = doc.new_page()
-    _rule(page, 60)
-    _rule(page, 300)
-    _rule(page, 500)
     for index in range(14):
         page.insert_text(
             (50, 80 + index * 15),
@@ -316,6 +350,71 @@ def test_rules_that_do_not_match_the_rows_are_rejected(mismatched_rules_pdf):
     result = tables.tables(mismatched_rules_pdf, pages=[1])
     assert result["total_tables"] == 0
     assert [region["page"] for region in result["unread_regions"]] == [1]
+
+
+def test_a_split_that_discards_the_data_is_disbelieved():
+    """A split may remove separators; it may not remove the table.
+
+    Found by the owner on LLY's proxy page 64 — 25 data rows and four ruled lines, so each band
+    merged five rows into stuffed cells, the split took those for separators and deleted them, and
+    what survived was the empty filler between them. It passed every other test by being empty and
+    reported two confident tables holding two stray numbers, under the page's correct title.
+
+    Tested against the measured proportions rather than a rendered page: the region's row division
+    there came from PyMuPDF giving *different columns* different row granularity (71 pt rows beside
+    14 pt ones), which a constructed fixture does not reproduce. The arithmetic this guards is the
+    part that has to be right, so it is asserted directly.
+    """
+    whole = [
+        ["Ricks", "2025\n2024\n2023", "22,086\n19,158", "$23,735,382\n$20,588,719"],
+        ["", "", "20,197", ""],
+        ["", "", "17,850", ""],
+    ]
+    # The split keeps only the two near-empty rows: 84% of the filled cells went with the row it
+    # mistook for a separator. That is a badly read table, not three tables in one band.
+    residue = [[["", "", "20,197", ""], ["", "", "17,850", ""]]]
+    assert not tables.split_is_credible(whole, residue)
+
+    # A real split: the prose row goes, every data row stays (LLY p56 measures 11% loss).
+    table_rows = [["Name", "2024", "2025"], ["Ricks", "150%", "175%"], ["Hakim", "100%", "100%"]]
+    with_prose = [*table_rows, ["Stock Incentives\nThe committee set", "", ""]]
+    assert tables.split_is_credible(with_prose, [table_rows])
+
+    # No split at all discards nothing.
+    assert tables.split_is_credible(table_rows, [table_rows])
+
+
+def test_the_credibility_guard_is_actually_wired_into_the_read(captioned_pdf, monkeypatch):
+    """Pins the call site, not just the arithmetic.
+
+    The unit test above proves the sum is right; this proves it is consulted. Without it, deleting
+    the check produces a green suite — which is exactly how the defect it guards reached the owner.
+    The split is forced to throw away everything but one row, so a wired guard must decline the page
+    and an unwired one will happily report the residue.
+    """
+    real = tables._split_prose_rows
+
+    def lossy(table):
+        rows = table.extract()
+        kept = rows[:1] + rows[-1:]
+        return [(kept, table.bbox[1], table.bbox[3])]
+
+    monkeypatch.setattr(tables, "_split_prose_rows", lossy)
+    result = tables.tables(captioned_pdf, pages=[1])
+    assert result["total_tables"] == 0, "a split that discards the table must not be believed"
+    assert [region["page"] for region in result["unread_regions"]] == [1]
+
+    monkeypatch.setattr(tables, "_split_prose_rows", real)
+    assert tables.tables(captioned_pdf, pages=[1])["total_tables"] == 2
+
+
+def test_the_decline_reason_says_which_kind_of_decline_it_was(underruled_pdf, prose_pdf):
+    """Ruling that failed and no ruling at all are different answers to the caller."""
+    ruled_but_bad = tables.tables(underruled_pdf, pages=[1])["unread_regions"][0]
+    assert "there is ruling here" in ruled_but_bad["reason"]
+
+    nothing_there = tables.tables(prose_pdf, pages=[1])["unread_regions"][0]
+    assert "nothing on this page marks where the cells are" in nothing_there["reason"]
 
 
 def test_prose_laid_into_columns_is_rejected_even_though_it_has_ruled_rows(columned_prose_pdf):

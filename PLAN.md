@@ -7363,6 +7363,51 @@ the headings are not free text, so every table on the page falls back to whateve
 band. Split first, then test, then title — the order is load-bearing at each step, and testing before
 splitting is what rejected that page outright at 0.158 against a 0.15 limit.
 
+##### The defect splitting introduced, and the rule that generalises from it
+
+**Found by the owner on `LLY_Proxy.pdf` page 64, after the milestone was built and pushed.** That
+page carries a clean 25-row table — `Mr. Ricks | 2025 SVA | 22,086 | 1 | $23,735,382` — and
+`get_tables` reported **two tables holding two stray numbers**, under the page's own correct title:
+
+    3x8  title='Outstanding Stock Awards on December 31, 2025'
+         ['', '', '', '', '', '20,197', '', '']
+         ['', '', '', '', '', '17,850', '', '']
+
+Exactly the failure this milestone is built to refuse — a confident grid the caller cannot tell is
+wrong — and made *more* convincing by the title being right.
+
+**The cause is that splitting deletes rows.** The page has 25 rows and only **four** ruled lines, so
+each band merged five rows into stuffed cells; `_split_prose_rows` saw tall rows full of line breaks
+— its exact signature for prose between two tables — and removed them; and the acceptance tests then
+ran on what was left, which was the genuinely empty filler. Not stuffed, not shattered, merely
+empty: it passed everything.
+
+**The rule that closes it, and the reason it is worth stating generally: split-then-test lets
+anything the split removed escape the test.** Every check in the module runs on survivors, so none
+of them can see what was thrown away. What is needed is not a better test of the residue but an
+account of the *discard* — and it separates cleanly, because a real split removes separators while
+this one removed the table:
+
+| | filled cells discarded |
+|---|---|
+| a genuine split (LLY p56, three tables in one band) | **11%** |
+| a region needing no split (Apple p4, p6; SpaceX p251; Cisco p61) | **0%** |
+| a badly read table mistaken for a split (LLY p64) | **84%** |
+
+So `split_is_credible()` rejects a region whose split discards more than 35% of its content, and the
+page then declines honestly. Corpus-wide this removes **12 of 82** reported tables, all of them
+residue of this kind, with every previously-correct table unchanged.
+
+**Two smaller things came with it.** The decline reason now distinguishes *no ruling at all* from
+*ruling that did not hold together* — page 64 has four ruled lines, and telling its caller "nothing
+here marks where the cells are" would be false in the one field whose job is to explain a refusal.
+And the guard is pinned **twice**: once on the arithmetic, once on the call site via a forced lossy
+split, because removing the call alone left the suite green — the same gap that let the defect
+through. The synthetic fixture deliberately does *not* try to reproduce the page: its row division
+came from PyMuPDF giving different *columns* different row granularity (71 pt rows beside 14 pt
+ones), which a constructed PDF does not reproduce, and a fixture that merely looks similar would
+pin nothing.
+
 ##### `header` is claimed only where a drawn grid proves it
 
 A row-ruled read routinely starts its band one row inside the table, leaving `rows[0]` holding data
