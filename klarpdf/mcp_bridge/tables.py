@@ -202,6 +202,7 @@ _NUMBER_START = re.compile(r"^[\$€£₹]?\s*[\d,]")
 _FIGURE = re.compile(r"^[\$€£₹(]?\s*[-–—]?[\d,]+(\.\d+)?\s*[%)]?$")
 _BARE_DIGIT = re.compile(r"\d")
 _YEAR = re.compile(r"^(19|20)\d{2}[,.]?$")
+_LONG_NUMBER = re.compile(r"^[\d,]{5,}$")
 _WORD_END = re.compile(r"[A-Za-z]$")
 _WORD_START = re.compile(r"^[a-z]")
 
@@ -291,6 +292,85 @@ report's page 15 prints `PIE CHART PLACEHOLDER MARITAL STATUS` next to a five-ro
 0.44 of its lines, and Cisco's page 61 overflows a few long labels past the box at 0.15. Both
 measured cases of a genuinely missing column sit at **1.00**.
 """
+
+
+_COLUMN_EDGE_TOLERANCE = 2.0
+"""How close to the region's edge a recovered column's words must start.
+
+Exact rather than generous, and it is the whole separation. On the Nature page the dropped column's
+words begin at **252.7** — precisely the region's right edge — while the journal's second text column
+begins at **306.1**, and both are left-aligned and both fall inside the table's row bands, so nothing
+softer than adjacency tells them apart. It also excludes the table's own footnote, whose words start
+ragged (242.7, 244.6, 250.2, 254.8 …) rather than on a common edge.
+"""
+
+_MIN_RECOVERED_CELLS = 5
+"""How many rows a recovered column must reach before it is believed to be a column."""
+
+
+def recover_column(
+    page: fitz.Page, box: fitz.Rect, rows: list[list[str]], row_bands: list[tuple[float, float]]
+) -> list[list[str]] | None:
+    """Read a column the region left outside itself, rather than refusing the table (TC-031).
+
+    :func:`column_dropped` can only refuse, and it cannot even do that when the column is **gappy**:
+    the Nature paper's third result column has values on 26 of ~50 rows, which is 0.38 of the
+    region's lines — *below* the 0.44 that decoration beside a table scores, so no threshold on that
+    measure separates them. The paper supplies its own control: its Table 1 has the same three-column
+    design with a dense third column, and that one is correctly refused. **The threshold was provably
+    the discriminator, not anything a caller could see.**
+
+    So the column is read instead. Its values are already aligned to the region's own row bands —
+    that is what makes it a column — and each one is placed in the row whose band contains it. The
+    rows it has nothing for stay empty, which is the truth about them.
+
+    **Why the gaps made this urgent rather than merely lossy.** With the column dropped, those rows
+    came back as ``["Primary", "", "0.026", ""]`` — a label with an empty cell, which reads as *this
+    was not measured*. It was measured; it is in the column that went missing. The table did not
+    just omit an answer, it implied the opposite one.
+
+    Returns ``None`` when nothing column-shaped is adjacent, which is the common case.
+    """
+    for side in ("right", "left"):
+        edge = box.x1 if side == "right" else box.x0
+        candidates = []
+        for word in page.get_text("words"):
+            centre_y = (word[1] + word[3]) / 2
+            if not (box.y0 - 1 <= centre_y <= box.y1 + 1):
+                continue
+            if side == "right" and abs(word[0] - edge) > _COLUMN_EDGE_TOLERANCE:
+                continue
+            if side == "left" and abs(word[2] - edge) > _COLUMN_EDGE_TOLERANCE:
+                continue
+            candidates.append(word)
+        if len(candidates) < _MIN_RECOVERED_CELLS:
+            continue
+
+        # Place each word in the single row band that contains it; a word spanning two bands is
+        # ambiguous and is dropped rather than guessed into one of them.
+        placed: dict[int, list[str]] = {}
+        for word in candidates:
+            centre_y = (word[1] + word[3]) / 2
+            hits = [
+                i for i, (top, bottom) in enumerate(row_bands) if top - 1 <= centre_y <= bottom + 1
+            ]
+            if not hits:
+                continue
+            # The reader's own row bands overlap on this page (row 2 spans 117-153 while row 3 spans
+            # 129-141), so a value legitimately falls in several. The **tightest** band is the one
+            # that actually describes it; taking it is what recovers the standard errors rather than
+            # leaving them blank, and it never places a value in a row that does not contain it.
+            best = min(hits, key=lambda i: row_bands[i][1] - row_bands[i][0])
+            placed.setdefault(best, []).append(word[4])
+        if len(placed) < _MIN_RECOVERED_CELLS:
+            continue
+
+        widened = []
+        for index, row in enumerate(rows):
+            cell = " ".join(placed.get(index, []))
+            widened.append([*row, cell] if side == "right" else [cell, *row])
+        return widened
+    return None
 
 
 def column_dropped(page: fitz.Page, box: fitz.Rect, others: list[fitz.Rect]) -> bool:
@@ -429,6 +509,31 @@ def cuts_a_figure(page: fitz.Page, rows: list[list[str | None]]) -> bool:
     page 6 is the only one flagged.**
     """
     vocabulary = {w[4] for w in page.get_text("words")}
+    # A cut through a **long identifier** is fatal whatever else the row holds, and it needs its own
+    # pass because the restriction below cannot see it (TC-031). A rental statement's 3-column table
+    # came back as 7, with the printed reference `211206 1017242382155` existing nowhere in the reply
+    # as a whole value — it arrived as `2112` + `06 10172` + `42382155`. Its neighbouring cells are
+    # prose, so the row never has the two complete numeric cells the restriction requires, and
+    # `digits_lost` is blind because every digit *did* arrive: coverage asks whether digits arrived,
+    # not whether they arrived **together**. Years are exempt, so LLY's tolerated `202` + `4` split
+    # stays tolerated. Measured: the rental page is the only one of eighteen flagged.
+    for row in rows:
+        for left, right in zip(row, row[1:]):
+            left = (left or "").strip()
+            right = (right or "").strip()
+            if not left or not right:
+                continue
+            tail = left.split()[-1]
+            head = right.split()[0]
+            joined = tail + head
+            if (
+                joined in vocabulary
+                and tail not in vocabulary
+                and _LONG_NUMBER.match(joined)
+                and not _YEAR.match(joined)
+            ):
+                return True
+
     for row in rows:
         if sum(1 for c in row if c and _FIGURE.match(c.strip())) < 2:
             continue
@@ -459,6 +564,41 @@ def _shattered_ratio(rows: list[list[str | None]]) -> float:
             if _WORD_END.search(left) and _WORD_START.match(right):
                 cut += 1
     return cut / pairs if pairs else 0.0
+
+
+def drop_misplaced_year_header(rows: list[list[str]]) -> list[list[str]]:
+    """Remove a period-header row whose years do not sit over the figures they label (TC-031).
+
+    A two-tier period header has a tier belonging to no single column, and what survives of it is
+    routinely misaligned. Salesforce's page 4 shows both shapes: its statement emits
+    ``['2026', '2025', '2026', '2025', '']`` with the years one column **left** of the figures, and
+    its two footnote tables emit ``['', '2025', '', '2025', '']`` — two years for four figure
+    columns, because the unassignable ``2026``s were exempted away and only the ``2025``s remain,
+    landing where 2026 belongs. Either way a caller joining ``rows[0]`` to the body labels the 2026
+    figures as 2025.
+
+    **A partial header that misstates periods is more dangerous than no header**, and both measured
+    tables are perfectly usable without one — so the row is dropped rather than repaired. The test
+    is exact rather than a tolerance: a year-only header is kept only when the columns it fills are
+    precisely the columns the body puts figures in. Anything carrying more than a bare year —
+    ``December 31, 2025`` on Amazon's page 10 — is not a candidate here at all, places correctly,
+    and is worth keeping.
+    """
+    if len(rows) < 2:
+        return rows
+    header = rows[0]
+    if not any(cell.strip() for cell in header):
+        return rows
+    if not all(not cell.strip() or _YEAR.match(cell.strip()) for cell in header):
+        return rows
+    filled = {index for index, cell in enumerate(header) if cell.strip()}
+    figures = {
+        index
+        for row in rows[1:]
+        for index, cell in enumerate(row)
+        if cell and _FIGURE.match(cell.strip())
+    }
+    return rows if filled == figures else rows[1:]
 
 
 def trim_blank_edges(rows: list[list[str]]) -> list[list[str]]:
@@ -857,6 +997,14 @@ def recover_edge_row(
             recovered[index] = f"{recovered[index]} {joined}".strip()
         if not any(cell for cell in recovered):
             continue
+        # A row that is nothing but bare years is a period header tier, and this function cannot
+        # place it: the years print centred over their figure columns, so the run centres land one
+        # column left and the emitted header labels the 2026 figures as 2025 (TC-031). A partial
+        # header that misstates periods is more dangerous than none — both measured tables were
+        # usable without one — so it is dropped rather than guessed at. `December 31, 2025` is not
+        # affected: it carries more than a year, places correctly, and is worth keeping.
+        if all(not cell or _YEAR.match(cell.strip()) for cell in recovered):
+            continue
         rows = [recovered, *rows] if at_top else [*rows, recovered]
     return rows
 
@@ -1039,6 +1187,7 @@ def _describe(
 
         for rows, top, bottom in groups:
             rows = trim_blank_edges([[c or "" for c in row] for row in rows])
+            rows = drop_misplaced_year_header(rows)
             if not _acceptable(rows, stuffed_limit):
                 refuse(top, bottom, _REFUSALS["shape"])
                 continue
@@ -1075,6 +1224,11 @@ def _describe(
                     "row_count": len(repaired),
                     "col_count": max(len(row) for row in repaired),
                     "column_edges": _column_edges(table),
+                    "row_bands": [
+                        (r.bbox[1], r.bbox[3])
+                        for r in table.rows
+                        if top - 1 <= (r.bbox[1] + r.bbox[3]) / 2 <= bottom + 1
+                    ],
                 }
             )
     described.sort(key=lambda entry: entry["bbox"][1])
@@ -1089,6 +1243,13 @@ def _describe(
     kept: list[dict] = []
     for index, entry in enumerate(described):
         others = [box for position, box in enumerate(boxes) if position != index]
+        recovered = recover_column(page, boxes[index], entry["rows"], entry["row_bands"])
+        if recovered is not None:
+            entry["rows"] = recovered
+            entry["col_count"] = max(len(row) for row in recovered)
+            entry["header"] = recovered[0] if entry.get("header") is not None else None
+            kept.append(entry)
+            continue
         if column_dropped(page, boxes[index], others):
             refused.append({"bbox": entry["bbox"], "reason": _REFUSALS["column"]})
             continue
@@ -1259,6 +1420,7 @@ def tables(
 
         for entry in batch:
             entry.pop("column_edges", None)
+            entry.pop("row_bands", None)
 
         more_available = offset + len(batch) < total
         result = {

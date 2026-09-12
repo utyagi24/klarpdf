@@ -4609,6 +4609,18 @@ it on this side of the line.
   six lines of which the band captures one) and **double-printed bold** (SpaceX p161 — now declined
   by the digit floor, which TC-029 rightly notes is a decision made *implicitly* by glyph counting
   rather than deliberately; it happens to be the right outcome).
+- **Two `get_tables` shapes are known-unhandled rather than merely untested** (TC-031, 2026-09-11).
+  Both were reached by the tester and neither is a defect with a fix pending — each needs a document
+  before it can be worked:
+  - **A two-tier header whose lower tier is not years** (`Q1 Q2 Q3 Q4`, `A B C D`). The year
+    exemption that saved Salesforce's footnote tables is keyed on years specifically, so the same
+    shape with quarter labels would still lose its table. Predicted in the TC-030 brief, **attempted
+    in TC-031 and not reproduced** — the research paper's `(1) (2) (3)` tier is unassignable in
+    exactly that way and costs neither of its tables. Recorded as a corpus gap, not a clearance.
+  - **A column with gaps that is *not* adjacent to its region.** `recover_column` requires the
+    recovered words to begin within 2 pt of the region's edge, which is what keeps a journal's second
+    text column out. A table whose dropped column sits across a wide gutter would be neither
+    recovered nor detected — the detection half is the part no threshold can do, measured.
 - **TC-026's six lower-severity `get_tables` findings, deferred with the HIGHs fixed** (2026-09-11,
   [#348](https://github.com/utyagi24/klarpdf/pull/348)). The round's three HIGHs — dropped rows,
   lost minus signs, clipped labels — are fixed and tested (`PLAN.md` §M141 → *TC-026*). These six

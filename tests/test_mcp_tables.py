@@ -571,6 +571,24 @@ def test_a_column_edge_through_a_figure_is_detected():
     assert tables.cuts_a_figure(page, [row])
 
 
+def test_a_cut_through_a_long_identifier_is_fatal_whatever_the_row_holds():
+    """TC-031 — the overlap where both guards are blind.
+
+    A rental statement's 3-column table came back as 7, and the printed reference
+    `211206 1017242382155` exists nowhere in the reply as a whole value: it arrived as `2112` +
+    `06 10172` + `42382155`. Its neighbouring cells are prose, so the row never has the two complete
+    numeric cells the general check requires, and `digits_lost` is blind because every digit *did*
+    arrive — coverage asks whether digits arrived, not whether they arrived **together**.
+    """
+    page = _FakePage({"211206", "DEPOSITED", "ITEM"})
+    row = ["12/6/21", "DEPOSITED ITEM RETN", "UNPAID 2112", "06 PAPER"]
+    assert tables.cuts_a_figure(page, [row])
+
+    # A year stays tolerated, so LLY p56's `202` + `4` split keeps its table.
+    page = _FakePage({"2024", "Name", "Bonus"})
+    assert not tables.cuts_a_figure(page, [["Name 202", "4 Bonus Target"]])
+
+
 def test_a_split_year_in_a_header_is_not_a_cut_figure():
     """Restricted to rows carrying data, because that is where a bad edge stops being cosmetic.
 
@@ -758,6 +776,60 @@ def test_a_region_that_leaves_a_column_outside_itself_is_refused():
     assert not tables.column_dropped(decorated, box, [])
 
 
+def test_a_column_left_outside_the_region_is_read_rather_than_refused():
+    """TC-031 — the gappy column no threshold can detect.
+
+    A research paper's third result column has values on about half the rows: 0.38 of the region's
+    lines, which is *below* the 0.44 that decoration beside a table scores. The paper supplies its
+    own control — its other table has the same three-column design with a dense third column, and
+    that one is correctly refused — so the threshold was provably the discriminator. Reading the
+    column makes detection unnecessary.
+    """
+    box = fitz.Rect(40, 60, 252.7, 200)
+    bands = [(60.0, 90.0), (90.0, 120.0), (120.0, 150.0), (150.0, 180.0), (180.0, 200.0)]
+    # Values left-aligned at exactly the region's right edge, one per row band.
+    page = _WordPage([(252.7, top + 4, 280.0, top + 12, f"0.{index}77***")
+                      for index, (top, _bottom) in enumerate(bands)])
+    rows = [["label", "x"] for _ in bands]
+    widened = tables.recover_column(page, box, rows, bands)
+    assert widened is not None
+    assert [row[-1] for row in widened] == [f"0.{i}77***" for i in range(len(bands))]
+
+
+def test_column_recovery_is_wired_into_the_read(captioned_pdf, monkeypatch):
+    """Pins the call site: without it, deleting the call silently drops the column again."""
+    def widen(page, box, rows, bands):
+        return [[*row, "RECOVERED"] for row in rows]
+
+    monkeypatch.setattr(tables, "recover_column", widen)
+    result = tables.tables(captioned_pdf, pages=[1])
+    assert result["tables"], "the page still reads"
+    for entry in result["tables"]:
+        assert all(row[-1] == "RECOVERED" for row in entry["rows"])
+        assert entry["col_count"] == len(entry["rows"][0])
+
+
+def test_the_journals_second_text_column_is_not_read_as_a_table_column():
+    """Adjacency is the whole separation, and nothing softer works.
+
+    On the measured page the dropped column begins at **252.7** — the region's own right edge — and
+    the journal's article text begins at **306.1**. Both are left-aligned and both fall inside the
+    table's row bands, so only the distance tells them apart. The table's own footnote is excluded
+    too, because its words start ragged rather than on a common edge.
+    """
+    box = fitz.Rect(40, 60, 252.7, 200)
+    bands = [(60.0, 90.0), (90.0, 120.0), (120.0, 150.0), (150.0, 180.0), (180.0, 200.0)]
+    words = "where that children worked levels".split()
+    prose = _WordPage(
+        [(306.1, top + 4, 340.0, top + 12, word) for (top, _b), word in zip(bands, words)]
+    )
+    assert tables.recover_column(prose, box, [["a", "b"] for _ in bands], bands) is None
+
+    ragged = _WordPage([(252.7 + index * 4, top + 4, 290.0, top + 12, "note")
+                        for index, (top, _b) in enumerate(bands)])
+    assert tables.recover_column(ragged, box, [["a", "b"] for _ in bands], bands) is None
+
+
 def test_the_dropped_column_check_is_wired_into_the_read(captioned_pdf, monkeypatch):
     """Pins the call site. Without it, deleting the check leaves the unit tests above green."""
     monkeypatch.setattr(tables, "column_dropped", lambda page, box, others: True)
@@ -820,6 +892,67 @@ def test_a_year_in_a_two_tier_header_may_go_unassigned():
     page = _WordPage([(60, 105, 120, 113, "28,267"), (160, 105, 220, 113, "28,267"),
                       (60, 130, 120, 138, "147"), (160, 130, 220, 138, "126")])
     assert tables.digits_lost(page, box, [["", ""], ["147", "126"]]) >= tables.MIN_DIGIT_DEFICIT
+
+
+def test_a_period_header_that_does_not_sit_over_its_figures_is_dropped():
+    """TC-031 — a partial header that misstates periods is worse than no header.
+
+    Salesforce's page 4 shows both shapes. Its statement emitted `['2026','2025','2026','2025','']`
+    with the years one column **left** of the figures; its footnote tables emitted
+    `['','2025','','2025','']` — two years for four figure columns, because the unassignable `2026`s
+    were exempted away and only the `2025`s remained, landing where 2026 belongs. Either way a
+    caller joining `rows[0]` to the body labels the 2026 figures as 2025.
+    """
+    shifted = [["2026", "2025", ""], ["Cash $", "4,533 $", "5,520"]]
+    assert tables.drop_misplaced_year_header(shifted) == shifted[1:]
+
+    incomplete = [["", "2025", "", "2025", ""], ["Cost $", "234", "150", "478", "312"]]
+    assert tables.drop_misplaced_year_header(incomplete) == incomplete[1:]
+
+    # Kept when the years sit exactly over the columns the body puts figures in.
+    aligned = [["", "2026", "2025"], ["Cash", "4,533", "5,520"]]
+    assert tables.drop_misplaced_year_header(aligned) == aligned
+
+    # And a header carrying more than a bare year is not a candidate at all.
+    dated = [["", "December 31, 2025", "June 30, 2026"], ["Cash", "4,533", "5,520"]]
+    assert tables.drop_misplaced_year_header(dated) == dated
+
+
+def test_the_year_header_drop_is_wired_into_the_read(captioned_pdf, monkeypatch):
+    """Pins the call site: without it, deleting the call leaves the unit test above green.
+
+    A shifted period header is injected at the top of each group, exactly the shape Salesforce's
+    page 4 emitted, and must not survive into the reply.
+    """
+    real = tables._split_prose_rows
+
+    def with_shifted_header(table):
+        return [
+            ([["2026", "2025", ""], *rows], top, bottom) for rows, top, bottom in real(table)
+        ]
+
+    monkeypatch.setattr(tables, "_split_prose_rows", with_shifted_header)
+    result = tables.tables(captioned_pdf, pages=[1])
+    for entry in result["tables"]:
+        assert entry["rows"][0] != ["2026", "2025", ""], (
+            "a period header that does not sit over its figures must be dropped"
+        )
+
+
+def test_a_recovered_row_of_only_years_is_not_prepended():
+    """The same defect from the recovery side.
+
+    Per-group edge recovery was prepending a period header tier it cannot place: the years print
+    centred over their figure columns, so the run centres land one column left. Qualcomm's page 4
+    gained a wrong header that way, having had none at all the round before.
+    """
+    assert tables._YEAR.match("2026") and tables._YEAR.match("2025,")
+    assert not tables._YEAR.match("December")
+    # The guard's own predicate: all-years is refused, a dated header is not.
+    assert all(not c or tables._YEAR.match(c) for c in ["2026", "2025", ""])
+    assert not all(
+        not c or tables._YEAR.match(c) for c in ["", "December 31, 2025", "June 30, 2026"]
+    )
 
 
 # ---- titles --------------------------------------------------------------

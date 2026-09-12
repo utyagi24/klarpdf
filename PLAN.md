@@ -7712,6 +7712,64 @@ refused.
 Corpus: **89 tables across fourteen documents**, with two new fixtures and every correctness gain
 kept.
 
+##### TC-031 — a column read instead of detected, and a fix of mine audited into a defect
+
+**2026-09-11.** All four TC-030 fixes verified to their stated values, the moved `LLY p56` anchor
+confirmed at 2 with the `Increase` region refused at the exact box, and the decline vocabulary
+observed at **six** distinct and accurate messages. Three findings, and the first is the most
+expensive this series has produced.
+
+**A column with gaps is invisible to a threshold, and the paper proves it.** A research paper's
+results table prints three columns of figures; the tool returned two. The third has values on **26 of
+~50 rows**, which is 0.38 of the region's lines — **below** the 0.44 that decoration beside a table
+scores on the designed report, so *no* threshold on that measure can separate them. x-alignment fails
+too, and for a reason worth recording: on that page the strongest aligned block outside the region is
+**the journal's own second text column**, 54 lines of article prose. The paper then supplies its own
+control — its other table has the identical three-column design with a *dense* third column, and
+that one is **correctly refused**. So the discriminator was provably the threshold rather than
+anything a caller could see.
+
+**It is worse than a column missing, because the table asserts the opposite.** With the column gone,
+its rows came back as `["Primary", "", "0.026", ""]` — a label beside an empty cell, which reads as
+*this was not measured*. It was; the number is in the column that vanished.
+
+**So the column is read rather than detected** (:func:`recover_column`), which is the tester's
+suggestion and the right shape: detection stops mattering once the data is returned. Two things make
+it safe. **Adjacency** — a recovered column's words must begin within 2 pt of the region's own edge:
+the dropped column starts at exactly **252.7**, the region's right edge, while the article text starts
+at **306.1**, and since both are left-aligned and both fall inside the table's row bands, nothing
+softer than distance tells them apart. It also excludes the table's own footnote, whose words start
+ragged (242.7, 244.6, 250.2…) rather than on a common edge. And **placement into the tightest row
+band**, because the reader's bands overlap here (row 2 spans 117-153 while row 3 spans 129-141) so a
+value legitimately falls in several; the tightest is the one that describes it, and taking it recovers
+the standard errors instead of leaving them blank. Every value now sits in the row the page prints it
+in, and the emptied rows are empty because the paper leaves them empty.
+
+**A value cut across cells is invisible to digit coverage, and the tester's phrasing is the whole
+insight:** *coverage asks whether digits arrived, not whether they arrived together.* A rental
+statement's three-column table came back as seven, with the printed reference `211206 1017242382155`
+existing nowhere in the reply as a whole value — `2112` + `06 10172` + `42382155`. Three guards were
+silent at once: :func:`digits_lost` because every digit did arrive, :func:`column_dropped` because
+the damage is inside the region, and :func:`cuts_a_figure` because the neighbouring cells are prose so
+the row never has the two complete numeric cells it requires. **A cut through a long non-year
+identifier is now fatal whatever else the row holds** — the rental page is the only one of eighteen
+flagged, and LLY's tolerated `202` + `4` split stays tolerated.
+
+**And rule 3 turned my own previous fix into a defect, for the second round running.** TC-030's
+per-group edge recovery was prepending a period-header tier it cannot place: the years print centred
+over their figure columns, so the run centres land one column left and the emitted header labels the
+2026 figures as 2025. Qualcomm's page 4 had **no** header before that fix and gained a wrong one. The
+extraction's own header rows were shifted the same way, and the footnote tables' headers were worse —
+two years for four figure columns, because the year exemption had removed the unassignable ones and
+only the assignable survived, in the wrong places. A year-only header now survives **only** when the
+columns it fills are exactly the columns the body puts figures in, and an all-years recovered row is
+not prepended at all. `December 31, 2025` is unaffected: it carries more than a year, places
+correctly, and is kept.
+
+**The negative result is recorded as one.** The tester attempted the predicted non-year two-tier
+header case (`Q1 Q2 Q3 Q4`) and did not reproduce it; the paper's `(1) (2) (3)` tier is unassignable
+in exactly that way and costs neither table. That is a corpus gap rather than a clearance.
+
 ##### `header` is claimed only where a drawn grid proves it
 
 A row-ruled read routinely starts its band one row inside the table, leaving `rows[0]` holding data
