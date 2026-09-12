@@ -603,6 +603,131 @@ It does not write **destination points within a page** (a bookmark to a heading 
 colours, or open/collapsed state. Each entry lands at the top of its page, which is what a
 contents-page link resolves to for a reader anyway.
 """,
+    "get_tables": """\
+## The two readers, and why there is no third
+
+A table is returned only when the document itself says where the cells are.
+
+**A drawn grid.** Lines box every cell in, so nothing is inferred. Across a 14-document corpus this
+returned 15 tables with no damage of any kind.
+
+**Drawn rules for the rows, alignment for the columns.** The common filing shape: a rule above and
+below the header and nothing else. Taking the rows from the drawn rules is what keeps the column
+inference honest — it has to explain only the horizontal spacing within a row it already knows the
+bounds of. 22 tables, 2 damaged.
+
+**Inferring both axes was measured and rejected.** It adds about ten tables across the same corpus,
+four of them damaged, and its failure mode is the one you cannot detect from the reply: it drops
+leading characters. `Beginning balance` arrives as `eginning balance`, `Total current assets` as
+`tal current assets`. Nothing in the row says a character is missing. Rather than return that, the
+page is declined and named in `unread_regions`.
+
+## What `unread_regions` means, and what to do about it
+
+Each entry gives `page`, `bbox`, a `reason` and a `suggestion`. It means: there is something
+table-shaped here and reading it as a grid would have required guessing.
+
+`extract_text` on that page returns **every value the table holds**, in reading order, one per
+line — the header cells first, then each row's cells in order. What you do not get is the grouping,
+so `Name / 2024 Bonus Target / 2025 Bonus Target / Mr. Ricks / 150% / 175%` arrives flat and you
+infer that it is a three-column table. That is usually easy. It degrades when a row has **blank
+cells**, because a missing value simply is not in the sequence and nothing marks which column it
+belonged to. For a sparse table, `render_page` and read the image.
+
+## Fields
+
+| field | meaning |
+|---|---|
+| `rows` | every row, as a list of lists of strings |
+| `header` | the first row **when a drawn grid proves it is a header**, else null |
+| `title` | the caption above the table, or null — best-effort, see below |
+| `title_from_previous_page` | the title was stranded at the foot of the previous page |
+| `continues_from` | page number this *may* continue from — a hint, never applied |
+| `continuation_checked` | whether the question could be answered at all — see below |
+| `bbox` | `[x0, y0, x1, y1]`, unrotated, top-left origin — feeds `render_page`'s `clip` |
+| `row_count` / `col_count` | the shape actually returned |
+
+## `header` is null more often than you expect, and that is deliberate
+
+A table read from **drawn rules** routinely starts its band one row inside the table, so `rows[0]`
+is the first line of data and the real header is left outside it. Apple's 10-Q page 4 comes back
+with `["Products $", "78,678 $", ...]` in that position — plausible column names, and wrong.
+PyMuPDF's own header detection does not help: it reports `external: false` and hands back the same
+first row, assuming exactly what it was asked to determine.
+
+So `header` is filled in only where a drawn grid settles it, and null everywhere else. When it is
+null, look at `title` — a header that fell outside the band is often picked up there — and at
+`rows[0]`, which may or may not be one. This is the same rule as everything else here: state it
+where the document states it, say nothing where it would be a guess.
+
+## A column can be missing because it was swept into the cell beside it
+
+Where several narrow numeric columns sit against a wide text one — a statement's *number of units*
+and *unit price* beside a *fund name* — the reader can fail to find their boundaries and return them
+inside the text cell. That is repaired where the evidence is unambiguous: values at the same x on
+three or more rows, with text in front of them, are given their own columns. It is **not** caught in
+general, so the check worth doing on a many-columned statement is to count the columns you can see
+against `col_count`.
+
+## A long label can be split across the first two cells
+
+Where a row label runs past the first column's right edge, it arrives as two cells —
+`["Liabilities and Stockholders'", "Equity"]`, `["Property and equipment,", "net"]`. This is not
+damage and nothing is lost: **the split is placed where no word is cut, so joining the two with a
+space reproduces the printed line.** A row where the label fits keeps its own cell and the second
+cell holds the second column's value as usual, so the test is whether the second cell looks like a
+continuation of the first rather than a value.
+
+The same rule holds for a label the page **outdents** left of the table's own column — a section
+header, a total. Those are read from the page's margin rather than from the column, so the first
+character is present; earlier builds cut it (`Total current assets` as `otal current ass`).
+
+## Titles are best-effort
+
+The caption is taken from the nearest block above the table that reads like one — short, not a
+sentence, not mostly numbers — **stepping over any introductory paragraph in between**, which is
+the common report shape (heading, paragraph, table). It can still be wrong: a column heading that
+sits at the table's left margin can be picked up instead, and a table with no caption may borrow a
+section heading. Treat `title` as a label to show a user, not as a key to match on.
+
+A title *below* a table is not handled. Searching the corpus for caption-style titles
+(`Table 3:`, `Figure 1.`) across six documents found none, so there is no evidence either way and
+the rule stays where the evidence is. A below-lookup was tried and actively broke a real document:
+it stole the stranded title that belongs to the *next* page's table.
+
+## Continuation is flagged, never applied
+
+Two tables on consecutive pages can share a header and column positions exactly and still be
+different tables — a product manual in the corpus does this, one reporting 24 hours and the next 28.
+Merging them by geometry produces plausible nonsense. So `continues_from` is a hint for you to
+judge, and a table that received a stranded title from the previous page is never marked as a
+continuation, because that title is evidence it starts something new.
+
+**`continues_from` can only be answered if the page before is in the same request**, and
+`continuation_checked` tells you whether it was. This matters because the natural workflow walks
+straight into it: `search` points you at page 77, you call `get_tables(pages=[77])`, and you get
+`continues_from: null`. That does **not** mean "this table starts here" — it means the previous page
+was never looked at. With `continuation_checked: false`, ask for `[76, 77]` before concluding
+anything; a balance sheet running off page 76 onto 77 reports `continues_from: 76` once it can see
+both. When `continuation_checked` is true, `null` really does mean *not a continuation*.
+
+## Accounting negatives
+
+A negative prints as `(1,234)`. When a column edge falls inside it the closing bracket lands in the
+next cell and the value reads positive — a sign error nothing downstream can see. Measured over 36
+such cells in a prospectus, **35 keep the opening bracket and lose only the closer**, so a leading
+`(` with nothing closing it is restored to `(1,234)`.
+
+**The 36th lost its opening bracket instead** and still reads positive. That case is not repaired:
+treating a stray closing bracket as a sign is not sound in the other direction. If you are reading a
+cash-flow statement where sign matters, spot-check against `render_page`.
+
+## Cost
+
+Reading tables runs at about 6 pages/s against `extract_text`'s 158, which is why `pages` is
+required. Narrow first with `get_outline`, `search`, or `extract_text`'s `table_pages` — that last
+one names every page this tool can read a grid from, plus some it cannot, at no meaningful cost.
+""",
     "search": """\
 ## Feeding hits straight to `redact_regions`
 

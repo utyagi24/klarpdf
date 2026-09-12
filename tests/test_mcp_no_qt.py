@@ -87,6 +87,7 @@ _CHILD = textwrap.dedent(
         await server.call_tool("get_info", {"path": PDF})
         await server.call_tool("get_outline", {"path": PDF})
         await server.call_tool("get_links", {"path": PDF})
+        await server.call_tool("get_tables", {"path": PDF, "pages": [1]})
         await server.call_tool("search", {"path": PDF, "query": "ALPHA"})
         await server.call_tool("extract_text", {"path": PDF, "pages": [1]})
         await server.call_tool("render_page", {"path": PDF, "page": 1, "dpi": 36})

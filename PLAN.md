@@ -7227,53 +7227,875 @@ splitting parenthesised negatives across cells. The numbers, and the method that
 in `PROGRESS.md` §Open follow-ups. The standing lesson about fixtures holds either way: the
 synthetic fixture that made extraction look solved had drawn ruling lines too.
 
-#### M141 — `get_tables`, and the decisions that closed it
+#### M141 — `get_tables`, and what fourteen documents corrected
 
-Raised as an open question on 2026-09-08 and **closed by the owner on 2026-09-09**. The evidence is
-in `PROGRESS.md` §Open follow-ups' history; what follows is the decided design.
+Raised as an open question on 2026-09-08, **closed by the owner on 2026-09-09**, and then
+**substantially rewritten on 2026-09-11 when it was built**, because the decided design did not
+survive contact with the corpus it was built against. Both layers are kept: the first records what
+was decided and why, the second what measurement changed, since the *reason* the first was wrong is
+the most reusable thing here.
 
-**Strategy is chosen per page and is not reported.** `lines_strict` reads a fully ruled table and
-returns nothing for a partially ruled one; `strategy="text"` reads the partially ruled financial
-statements correctly and invents tables on non-tabular pages. Each is right where the other fails,
-so the tool picks: ruling present → `lines_strict`, else `text`. The owner rejected reporting which
-was used — *"I see no value in disclosing the strategy unless we expect the calling agents to
-perform some post processing based on it"*, and they do not. The precision problem it was standing
-in for is handled where precision problems belong: the **shape filter** (reject 1×N, newline-stuffed
-cells, empty header), which was already the answer for `lines_strict`'s 3-of-16 precision.
+##### What the 2026-09-09 design said
 
-**Parenthesised negatives are repaired deterministically, and the residue is documented, not coded
-around.** Measured over 287 numeric cells on PDF pages 387–389, cells split so the parenthesis
-becomes unbalanced: 0% where a statement has no negatives, 5% on the P&L, **29% on the cash flow
-statement**. Of 36 such cells **35 lose only the trailing `)`**, so a leading `(` with no closer is
-unambiguously a negative and the repair is a rule. **One lost the leading `(`** and reads as
-positive. That case gets a line in the tool's documentation and nothing else — the owner's
-direction: *"we are not aiming to be 100% accurate, 100% of the times. don't over compensate for the
-corner cases."*
+Strategy chosen per page and not reported (`lines_strict` where ruling is present, `strategy="text"`
+otherwise), precision supplied by a **shape filter** (reject 1×N, newline-stuffed cells, empty
+header), parenthesised negatives repaired by rule, titles from the nearest free block above, and
+cross-page continuation flagged rather than merged. The owner's directions behind it stand unchanged
+and are still the operating rules: **do not disclose the strategy** — *"I see no value in disclosing
+the strategy unless we expect the calling agents to perform some post processing based on it"* — and
+**do not over-fit** — *"we are not aiming to be 100% accurate, 100% of the times. don't over
+compensate for the corner cases."*
 
-**Titles and cross-page continuation are in scope, not a deferred gap.** This was recorded as an
-acceptable limitation and the owner corrected it: *"we can't expect tables to be present as a whole
-on a single page."* Quite right — a table spanning a page break is the normal case, not a corner
-one. The mechanism is mechanical, and `WH-1000XM6.pdf` page 29 supplies all three cases at once
-(table bboxes at y 217–528 and 659–755, page height 842):
+##### Why it had to change, and the honest account of what was wrong with it
 
-    y=196.4  free      Music playback time                       -> title of the table at y=217
-    y=638.9  free      Communication time                        -> title of the table at y=659
-    y=772.4  free      Headphone cable connected (power is on)   -> orphan, below the last table
+The design was measured on **two** documents, `WH-1000XM6.pdf` and `dhariwal_ipo.pdf`. Its numbers
+are *exactly* reproducible — the parenthesised-negative work re-measured to the cell: 36 unbalanced
+numeric cells on pages 387–389, **35 losing only the trailing `)`**, one (`1,051.42)`) losing the
+leading `(`. Nothing about that investigation was sloppy.
 
-* **A table's title is the nearest *free* text block above its bbox** — free meaning not inside any
-  detected table region. Both titled tables on the page resolve this way.
-* **An orphan free block below the last table on a page is the title of the first table on the next
-  page.** That is the *Headphone cable connected* case, whose body is on page 30.
-* **Continuation is flagged, never auto-merged**, and the orphan title is what makes that safe.
-  There is a real trap here: page 29's second table and page 30's table have **identical column
-  x-edges `[36.4, 265.2]` and identical header rows**, so geometry matching alone would merge two
-  genuinely different tables. The orphan title on page 29 is the signal that page 30 starts something
-  new. So the tool reports `title`, `title_from_previous_page` and `continues_from` and lets the
-  caller decide — **the same principle already settled for M140's `in_table`: report the signal, do
-  not act on it silently.**
+**What it measured was the numeric cells, and the damage is in the label column.** On the same pages
+at the same settings the numbers land correctly while the labels shatter:
 
-**Scope and cost.** `find_tables()` runs at **6.9 pages/s**, ~135× slower than `get_text`, so a
-572-page document is ~85 s: the tool takes a **page range**, never a whole document by default.
+    ['', 'Property, plan', 't and equipment', '', '', '', '3', '', '1,279.34', '994.92', '627.25']
+
+So the claim *"`strategy="text"` reads the partially ruled financial statements correctly"* is true
+of the half that was checked and false of the half that was not, and the generalisation from one to
+the other is the entire error. **Two documents could not have shown it**, either: both are ruled
+documents, and the failure only becomes structural on whitespace-aligned SEC filings, which were not
+in the corpus. That is the transferable lesson — *a claim about "documents" needs documents, plural
+and various*, and it is the §Gotchas rule about green local suites one level up.
+
+Twelve more were added: Apple's Q3 2026 10-Q, Cisco's 10-K and annual report, NVIDIA's annual
+report, LLY's proxy, the SpaceX EU prospectus, IRS f8949, a brokerage statement, an AT&T bill, an
+auto policy, a bank statement and a fee schedule. Roughly 280 sampled pages.
+
+##### The two findings that rebuilt it
+
+**1. There is a third reader, and it is the one the filings need.** The design named two strategies;
+PyMuPDF takes the two axes separately. Setting `horizontal_strategy="lines"` with
+`vertical_strategy="text"` — **drawn rules for the rows, alignment for the columns** — reads the
+commonest filing shape, a rule above and below the header and nothing else. Taking the rows from the
+rules is what keeps the column inference honest, because it then has to explain only the horizontal
+spacing inside a row whose bounds are already known:
+
+    rules for rows, alignment for columns   ["Total net sales", "109,417", "94,036", "364,357"]
+    both axes inferred                      ["Total net sales 109,417 ", "313,695"]
+
+This is not a marginal gain. `lines_strict` returns **zero** tables on Apple's 10-Q, NVIDIA's and
+Cisco's annual reports, LLY's proxy and the SpaceX prospectus — the five most table-dense files in
+the corpus. Ruled-only would have shipped a table tool that reads no SEC filing at all. The owner's
+question is what surfaced it: *"what if header rows have lines above and below, rest of the rows do
+not have separator lines, and no column lines — are those tables considered ruled or text?"* The
+answer under the old design was "text", and text mangles them.
+
+**2. No shape filter separates a real table from prose in a grid — six were measured and five
+invert.** This is the part of the old design that could not be repaired, only replaced. Fill ratio,
+empty-header count, newline-stuffing, word loss and mid-word split rate were each measured over
+labelled sets, and the real financial tables score *worse* than the prose on most of them: 0.27–0.41
+fill against prose's 0.33–0.79, and 6-of-11 to 10-of-13 empty header cells against prose's 0-of-8.
+**The specified filter would have rejected exactly the financial statements it was written to
+protect and kept the prose.** Numeric density (≥0.35) does separate pure prose cleanly, but the
+tables surviving it are still shattered, because `find_tables` returns one region per page and mixes
+the table with the prose around it.
+
+What works is not a filter over layout at all but **a test over the result**, applied after the
+read. Two of them carry the weight:
+
+* **Newline-stuffed cells** (>0.15 of data cells) mean the reader merged rows the document keeps
+  apart. This is what declines a bank statement and a brokerage statement whose printed rules do not
+  correspond to their rows — neither anticipated by anyone.
+* **Shattering** (>0.40 of adjacent filled cell pairs reading as one word cut in two) separates the
+  two kinds of damage, and the line matters more than it looks. Below it a label lands across two
+  cells with every character intact and the caller can rejoin them; above it the reading has stopped
+  tracking the page and characters **disappear** — `'Statutory federal inco'` + `'e tax rate'`, the
+  `m` simply gone. Measured over the 69 tables the tool returns from the corpus, prose-in-a-grid
+  scores 0.75–1.00, the first result with real character loss scores 0.417, and everything at or
+  below 0.40 is split-but-complete.
+
+**Inferring both axes is therefore not a third reader.** It adds ~10 tables across the corpus of
+which 4 are damaged, and its failure mode is the one an agent cannot detect: `"Beginning balance"`
+arrives as `"eginning balance"`, `"Total current assets"` as `"tal current assets"`, and nothing in
+the row says so. This is *"a table that cannot be reconstructed is emitted as-is with a note, never
+as a mangled grid"* (§M142) applied a milestone early.
+
+##### What the declining costs, measured rather than assumed
+
+Very little, which is what makes the strictness affordable. `extract_text` on a declined page
+returns **every value the table holds**, in reading order — header cells, then each row's cells:
+
+    Name / 2024 Bonus Target / 2025 Bonus Target / Mr. Ricks / 150% / 175% / …
+
+What is lost is the grouping, which an LLM recovers easily; it degrades only on **blank cells**,
+where a missing value is simply absent from the sequence with nothing marking its column. So
+`unread_regions` carries `page`, `bbox`, `reason` and `suggestion`, and the contract is that **every
+page asked for appears in `tables` or `unread_regions`, never in neither** — a page absent from both
+would be indistinguishable from a page with no table.
+
+##### Titles: three corrections, all from real pages
+
+**The nearest free block above is usually not the title.** Measured, it returns a *column header* on
+SpaceX page 251 (`December 31, 2025 2024`), a *data row* on Apple page 6
+(`Cash and cash equivalents $ 39,544 $ 35,934`) and a *sentence* on SpaceX page 274. A caption has
+to be short, not a sentence, not mostly numbers, **one line**, and starting near the table's left
+edge. The one-line test is load-bearing in a way that is not obvious: when a reader's band stops a
+line short, the header or last data row becomes loose text next to the table, and `"Mode\nOperating
+time"` reads as a perfectly good caption. It carries a line break because it is several cells.
+
+**A caption is often not the nearest thing above its table.** The standard report shape is heading,
+then an introductory paragraph, then the table — LLY's proxy page 56 does it twice, with the caption
+62.9 pt and 50.9 pt up and a paragraph filling the gap. So the search **steps over** anything that
+does not read as a caption, bounded at 160 pt so it cannot adopt the previous section's heading.
+
+**A title below its table is not handled, and the evidence says leave it.** Searching six documents
+for caption-style titles (`Table 3:`, `Exhibit 2 –`, `Figure 1.`) found **none**: every title in
+this corpus sits above. Worse, a below-lookup actively breaks a real document — the manual's page 29
+carries *"Headphone cable connected (power is turned on)"* 17 pt below its last table, which reads
+exactly like that table's caption and is in fact the **stranded title of the table overleaf**.
+
+##### Splitting, and why it is the same mechanism as titling
+
+A reader taking rows from page-width rules sweeps several tables into one region, and the headings
+and paragraphs between them become rows of it. LLY's page 56 is three tables returned as one
+19-row region. Those rows are recognisable without reading them — **much taller than the table's own
+rows and holding line breaks** (15.0 pt data rows against prose bands of 90.2 and 78.2). Splitting
+there recovers the three tables **and** makes their captions reachable: inside the un-split region
+the headings are not free text, so every table on the page falls back to whatever preceded the whole
+band. Split first, then test, then title — the order is load-bearing at each step, and testing before
+splitting is what rejected that page outright at 0.158 against a 0.15 limit.
+
+##### The defect splitting introduced, and the rule that generalises from it
+
+**Found by the owner on `LLY_Proxy.pdf` page 64, after the milestone was built and pushed.** That
+page carries a clean 25-row table — `Mr. Ricks | 2025 SVA | 22,086 | 1 | $23,735,382` — and
+`get_tables` reported **two tables holding two stray numbers**, under the page's own correct title:
+
+    3x8  title='Outstanding Stock Awards on December 31, 2025'
+         ['', '', '', '', '', '20,197', '', '']
+         ['', '', '', '', '', '17,850', '', '']
+
+Exactly the failure this milestone is built to refuse — a confident grid the caller cannot tell is
+wrong — and made *more* convincing by the title being right.
+
+**The cause is that splitting deletes rows.** The page has 25 rows and only **four** ruled lines, so
+each band merged five rows into stuffed cells; `_split_prose_rows` saw tall rows full of line breaks
+— its exact signature for prose between two tables — and removed them; and the acceptance tests then
+ran on what was left, which was the genuinely empty filler. Not stuffed, not shattered, merely
+empty: it passed everything.
+
+**The rule that closes it, and the reason it is worth stating generally: split-then-test lets
+anything the split removed escape the test.** Every check in the module runs on survivors, so none
+of them can see what was thrown away. What is needed is not a better test of the residue but an
+account of the *discard* — and it separates cleanly, because a real split removes separators while
+this one removed the table:
+
+| | filled cells discarded |
+|---|---|
+| a genuine split (LLY p56, three tables in one band) | **11%** |
+| a region needing no split (Apple p4, p6; SpaceX p251; Cisco p61) | **0%** |
+| a badly read table mistaken for a split (LLY p64) | **84%** |
+
+So `split_is_credible()` rejects a region whose split discards more than 35% of its content, and the
+page then declines honestly. Corpus-wide this removes **12 of 82** reported tables, all of them
+residue of this kind, with every previously-correct table unchanged.
+
+**Two smaller things came with it.** The decline reason now distinguishes *no ruling at all* from
+*ruling that did not hold together* — page 64 has four ruled lines, and telling its caller "nothing
+here marks where the cells are" would be false in the one field whose job is to explain a refusal.
+And the guard is pinned **twice**: once on the arithmetic, once on the call site via a forced lossy
+split, because removing the call alone left the suite green — the same gap that let the defect
+through. The synthetic fixture deliberately does *not* try to reproduce the page: its row division
+came from PyMuPDF giving different *columns* different row granularity (71 pt rows beside 14 pt
+ones), which a constructed PDF does not reproduce, and a fixture that merely looks similar would
+pin nothing.
+
+##### TC-026 — four defects the happy path was hiding, and what they have in common
+
+**Found by the owner's manual round on 2026-09-11**, against three documents and two table
+generators this milestone had never seen: an EDGAR-rendered Alphabet 10-K, a designed InDesign
+market-research report, and Apple's 10-Q as an independent cross-check. Every finding was verified
+here against the report's own arithmetic before any code moved.
+
+The round's verdict is the useful part: **the refusal logic passes everything — and the pages it
+*accepts* were doing exactly what the refusal exists to prevent.** Silently dropping characters is
+the harm the tool declines whole pages to avoid; inside the happy path it was dropping characters,
+whole rows, and minus signs, with nothing flagging any of it. All four have the same shape — *the
+region's own boundaries cut content that belongs to it, and every test ran on what survived.*
+
+**HIGH 1 — rows vanish, two independent causes.**
+
+*The band starts inside the table.* The row-ruled reader takes its band from the drawn rules, and a
+statement's first line often sits above the first rule. Apple's page 6 begins at y=152.6 while the
+band begins at y=163.0, so `Cash and cash equivalents 39,544 / 35,934` — its **largest current
+asset** — was absent, and the returned rows missed the returned total by exactly 39,544. Now
+recovered by :func:`recover_edge_row`, on the signature of a data row and nothing looser: within one
+median row height of the edge, with a numeric value in **every** data column. Checked against the
+four things that also sit beside a band — a column header, a section label, a footnote, a rule of
+underscores — and none is picked up.
+
+*The splitter deleted a data row.* Alphabet's page 51 lost
+`['Class A, Class B, and Class C stoc', '84,800', '93,126']`, splitting the page in two at exactly
+that row, because its label wraps to four lines and a wrapped row is tall and full of line breaks —
+**the exact signature of prose between two tables**. The loss was 3.1% of the region, far under
+`_MAX_SPLIT_LOSS`, so the guard written for the gross case could never have caught this one. The fix
+is a distinction rather than a threshold: **a heading and its paragraph carry no figures in the
+numeric columns; a wrapped data row does.** One rule, and it settles all three known cases — the
+Alphabet row is kept, LLY page 56's two genuine separators are still removed, and LLY page 64 still
+declines (now because its data is stuffed, which is the true reason, rather than because the residue
+was empty).
+
+**HIGH 2 — the sign error nothing downstream can see.** A column edge inside `(103,773)` can strand
+the opening bracket on the cell to its *left*, so the figure arrives **positive**:
+
+    ['Purchases of marketable securities', '(77,858)', '(86,679) (', '103,773']
+
+Two cash-flow lines on Alphabet's page 55, with the printed subtotal proving both negative
+(`-91,447 -103,773 +83,240 -5,716 +1,367 -1,592 -2,370 = -120,291`), and the same shape pervasive on
+page 54. **A dropped label is visibly wrong; a flipped sign on a cash-flow line is invisible and
+arithmetically plausible** — which is why this is repaired rather than disclosed. The rule is
+unambiguous in the way `repair_negative`'s residue is not: a lone `(` at the *end* of a cell cannot
+belong to that cell, since nothing closes it there, and the only thing it can open is the value to
+its right. Note this is a **different shape** from the one §M141 documents as unrepaired; that
+disclosure was never about this case.
+
+**HIGH 3 — labels clipped by the left edge.** A statement outdents its section headers while the
+first column's edge is derived from the *indented* data rows, so anything starting left of it is cut
+at a fixed x, mid-word: `'-current assets:'`, `'ent liabilities:'`,
+`'mitments and contingencies'`, `'nce as of December 31, 2022'`. Reproduces on two unrelated SEC
+filers, so it is not one generator's quirk.
+
+The repair re-reads the first cell from the page's true left margin — and **only ever adds a
+prefix**, which is the condition that makes it safe rather than merely better. Re-reading can also
+*re-cut* a cell on the right, because a label may run past its own column into the next: Cisco's
+page 61 turns `'flows from i'` into `'Cash flows from'`, a word gained and a character lost. So a
+rebuild is accepted only when the original survives inside it as a suffix — **9 repairs applied
+across Apple and Alphabet, all 25 of Cisco's rows correctly left alone**.
+
+**One of the round's three HIGH 1 instances is not this tool's defect, and saying so matters.**
+TC-026 grouped a third case with the two above: the designed report's page 15 returns
+`["", "17", "3%"]` where the page reads *"Domestic Partnership"*. Checked here, **the label is not in
+the page's text layer at all** — `extract_text` does not return it either, no word containing
+"Partnership" exists anywhere on the page, and the page carries no images. The report verified it
+against `render_page` pixels, which is the right method for the other findings and the wrong one for
+this: the pixels show the label because it is *drawn*, not because it is *text*. Nothing reading the
+text layer can return it, so this is a document whose label is unextractable, not a cell-assembly
+bug, and `render_page` is the only route to it. Recorded rather than fixed, so that nobody chases it
+as ours.
+
+**What the round says about this milestone's method.** The acceptance tests were built to catch a
+reading that came apart, and they do. They cannot see content that was never in the region, or that
+a discard removed — the same blind spot that produced the LLY page 64 defect, arriving three more
+times. The invariant worth carrying forward is narrower than "test the output": **whenever a step
+narrows or discards, something must account for what fell outside it.** Corpus-wide the four fixes
+take 70 tables to 90 with every previously-correct table unchanged.
+
+Left open, recorded in `PROGRESS.md` §Open follow-ups rather than fixed here: ligature glyph
+reordering inside cell assembly (`'Ofet n'` for `'Often'`, where `extract_text` is correct on the
+same page, localising it to this path), a clean statement declined on Alphabet page 53, `title`
+returning mid-sentence fragments on the designed report, `header` duplicating `rows[0]`, the `$`
+column marker migrating, and `unread_regions.bbox` always being the whole page rather than the
+region.
+
+##### TC-027 — the retest, and the one defect that had to be caught by asking the page
+
+**2026-09-11, the round after TC-026**, on the same three fixtures at identical md5 plus a new one:
+Amazon's Q2 2026 earnings release, chosen because it is the densest table-per-page document in the
+corpus and carries the **three-tier column headers** TC-026 had parked as untested.
+
+**All three TC-026 highs verified fixed**, each re-proved by arithmetic rather than by a string
+looking better: Alphabet's page 51 is one table again with `93,126 − 1,916 + 324,055 = 415,265`
+tying to its returned total, and Apple's page 6 opens with the recovered cash line and reconciles to
+`149,818`. The round also **retracted** TC-026's third row-loss instance — the designed report's
+*"Domestic Partnership"* — reaching independently the conclusion recorded above: the label is not in
+the text layer. Its method note is the durable part: *a claim that the tool lost a value now requires
+showing the value is in the text layer, not merely on the page.* Pixels prove what is printed and say
+nothing about what is extractable.
+
+**The new defect is the cardinal one, and three separate blind spots hid it.** Amazon's page 6 is
+returned as a confident 8-column grid for a 7-column statement, its boundary drawn through the
+middle of a value:
+
+    ['Net cash p', 'rovided by (used in) investing activities',
+     '(39,424)', '(79,245)', '(69,227) (1', '43,457) (', '123,569) (', '216,775']
+
+`(143,457)` split across two columns. `_shattered_ratio` — the test written precisely to catch a
+column edge through a word — could not see it, for three compounding reasons: its `_WORD_START`
+requires a **lowercase** continuation, so the all-caps `EQUIV` / `ALENTS` on the same page is
+invisible; it never examines **digits** at all; and across a 46×8 table roughly 200 legitimately
+unmatched numeric pairs dilute what it does see to **0.131**, comfortably under a 0.4 limit. Three
+independent reasons to miss the same thing, in a detector that was measured and tuned against real
+documents — the measurement was simply over a corpus where none of the three bit.
+
+**The fix stops guessing and asks the page.** :func:`cuts_a_figure` treats two adjacent fragments as
+a cut when they **rejoin into a word the page actually contains** while neither fragment is itself
+such a word. That is immune to case, to character class, and to dilution, because it is evidence
+rather than a statistic. It is restricted to **figures in rows carrying at least two complete numeric
+cells**, which is where a misplaced edge stops being cosmetic: a split *label* is visible and
+rejoinable, a split *value* silently misaligns the columns it falls between. Both restrictions earn
+their keep — LLY's page 56 splits `202`/`4` in its header and is otherwise sound, Cisco's page 61
+cuts 26 labels with every figure whole. Measured over the ten tables this milestone reads correctly
+plus the one it does not: **Amazon page 6 is the only one flagged**, and it now declines.
+
+That also resolves a consistency complaint the round raised separately: pages 11 and 12 of the same
+release were declined while page 6 was returned, on the same house style. Both now decline.
+
+**The header high, and the recovery function that was itself losing data.** TC-027's second new
+finding is that correct figures arrive unlabelled: Amazon's page 10 returned `['December','31,','30,']`
+where the page reads **December 31, 2025** and **June 30, 2026** — both years gone, `header` null,
+two perfectly reconciling columns and no way to tell which is which. The cause was not the reader
+but :func:`recover_edge_row`, added one round earlier to *stop* row loss: it took the **first
+figure** in each column, so `31,` won and `2025` was discarded. Assembling by **run** instead — words
+separated by more than :data:`_RUN_GAP` belong to different columns — returns both dates whole, and
+also lands them correctly, since `December 31, 2025` straddles the boundary at x=449 while its run
+centre, 449.25, sits inside the column that owns it. Two things had to be right together: without
+:func:`_column_of`'s **strict containment** the run falls back to nearest-centre, which on Apple's
+page 6 moves a row label out of a 378 pt label column into a 69 pt figure column because it is
+nearer to the latter's centre.
+
+**What is left is larger than it looked, and is recorded rather than half-fixed.** A sweep prompted
+by this fix found that **27 of 73 tables across ten documents lose at least one word inside their own
+region** (209 words). Most are header fragments — Alphabet's page 54 spreads its header over six
+lines of which the ruled band captures one — but not all: Apple's fair-value hierarchy loses a value,
+and SpaceX's page 161 is returned as `['RReevveennuuee ...', '$$22,,662200', ...]` because that PDF
+simulates bold by printing every glyph twice, which is in the text layer rather than in our
+assembly. Each needs a decision before code, and they are in `PROGRESS.md` §Open follow-ups with the
+measurement that bounds them.
+
+**What the three blind spots say, since this is the third round to say a version of it.** Each of
+this milestone's acceptance tests was written from a real failure and tuned against real documents,
+and each has since been beaten by a document outside the set it was tuned on — the shatter ratio
+here, the split guard on LLY page 64, the region tests in TC-026. The pattern is not carelessness in
+any one of them; it is that **a statistic over a corpus generalises only as far as the corpus**,
+while a check that consults the document itself does not have that ceiling. Where a test can be
+grounded in the page rather than in a threshold, it should be.
+
+##### TC-028 — the guard that could not protect the rows that needed it
+
+**2026-09-11, the round after TC-027**, on the same fixtures plus two new ones: a **landscape**
+Tesla update (1583 x 890 pt — the series' first non-portrait document) and a Broadcom 10-K. Both
+TC-027 fixes verified, all six regression anchors held, and `title_from_previous_page` fired on a
+real document for the first time in four rounds (the manual's page 30).
+
+**Its central finding is a structural inversion, and it is the most useful thing any round has
+produced.** :func:`cuts_a_figure` requires **two complete numeric cells** in a row before it will
+examine that row. But damage is what *removes* complete numeric cells — so the worse a row is
+mangled, the less likely the guard is to look at it. Apple's page 11 header retains two `$ —` and no
+parseable figure, so it can never qualify: *the loss itself disqualifies the row from the guard meant
+to catch it.* Three Tesla pages lose a label and four figures from their final row and evade it the
+same way. The tester's own phrasing is worth keeping: *"the rows that need protecting are precisely
+the ones a loss has already stripped below that threshold."*
+
+**The fix is to stop reasoning about how a reading went wrong and check what came back.**
+:func:`digits_lost` weighs the digits printed inside the region against the digits present in the
+returned rows. A row stripped to nothing is then the *easiest* case to see rather than the hardest,
+and one rule covers cuts, merges and rows dropped whole.
+
+**Counting digits is what makes it work, and the two obvious alternatives were measured and
+rejected.** *Words* do not separate: Cisco's page 61 and SpaceX's page 251 legitimately shed 7-10%
+of theirs to split labels and dot leaders while losing no data. *Figures* misfire on a split header —
+LLY's page 56 breaks `2024` into `202` + `4`, which is visible, rejoinable and deliberately
+tolerated, yet reads as a missing figure and cost that page two of its three tables. Digits survive
+being **split** and do not survive being **dropped**, which is precisely the distinction this tool
+draws everywhere else. The floor is 3 rather than 0 because a *document* may print a glyph twice:
+the designed report draws `6+` twice to simulate bold, so one digit goes "missing" from a row that
+is entirely correct. Measured, every correct table shows a deficit of 0 (that one shows 1) and every
+damaged one shows **8 to 20**.
+
+**Neither check subsumes the other, and that was tested rather than assumed.** Digits survive a
+clean cut, so `digits_lost` is blind to `(143,457)` split into `(1` + `43,457)` where nothing else is
+lost; a row stripped to one value loses digits, so `cuts_a_figure` cannot see it. Both are kept, each
+with its own negative control.
+
+**What it costs, and why the cost is the point.** Across twelve documents the tool now returns **64
+tables where it returned 86** — a quarter more declines. Every rejected one was checked: they lose
+4 to 35 digits. The clearest is Apple's page 9, which was returning a net-sales table **with the
+iPhone row missing entirely** — `iPhone® 54,252 44,582`, the company's largest product line, gone
+from a table whose remaining rows and total looked perfectly sound. TC-026 and TC-027 had each found
+a sample of this class by hand; this measures it. The rows are *inside* the band, so it is a
+cell-assembly failure rather than the edge case :func:`recover_edge_row` handles, and recovering
+them rather than declining them is the open work recorded in `PROGRESS.md`.
+
+##### TC-029 — reporting that did not follow extraction, and two declines that were never justified
+
+**2026-09-11, testing the digit check.** It verified every decline, held all thirteen anchors, and
+confirmed the three design-critical ones (LLY page 56, Cisco page 61, SpaceX page 251) that justify
+counting **digits** rather than words or figures. Then it found the consequence nobody had looked
+for.
+
+**The central finding is a mismatch this milestone created and did not notice.** Splitting made
+extraction **region-granular**; `unread_regions` stayed **page-granular**. So a page holding one
+readable region and one unreadable one came back looking complete. Qualcomm's Q3 FY26 10-Q page 4
+returned its liabilities and dropped its **entire asset side** — thirteen rows, twenty-six figures,
+both subtotals reconciling — with `unread_regions: []`, `count: 1`, and a final row reading
+`Total liabilities and stockholders' equity $ 57,367`, balancing against a total whose every
+component was gone. The tester's diagnosis is exact and worth keeping verbatim: the description's
+promise that *"every page you ask about comes back in one list or the other"* was **still literally
+true, which is precisely why it no longer protected anyone — it was written when the unit of failure
+was the page, and the unit of failure is now the region.** Apple's page 14 is the same defect on the
+very page the previous brief had offered as a showcase of region granularity working.
+
+Regions found and refused are now reported individually, each with **its own bbox and its own
+reason** — which incidentally closes the standing low that `unread_regions.bbox` was always the whole
+page, for every case except a page where nothing table-like was located at all.
+
+**And two of the declines were never justified.** Investigating the report's findings turned up
+defects of mine underneath them:
+
+* **A blank first row cost whole tables.** `_acceptable` reads `rows[0]` to decide whether a block
+  has a header, so a group that merely *began* with a spacer was thrown away entire. That is what
+  removed Qualcomm's asset side — thirteen clean rows, every figure correct, `digits_lost` of 0.
+  Edges are now trimmed before the shape is judged. This was also, exactly, the report's §4
+  **candidate false decline** (page 5 of the same filing, filed properly with its evidence): it
+  reads correctly now, from the same one-line fix.
+* **A label spanning two columns blocked edge recovery.** :func:`recover_edge_row` required a figure
+  in *every* data column, and Qualcomm's cash-flow statement runs its label across two — so the
+  second never holds a number and a genuine final row, `Total cash and cash equivalents at end of
+  period $ 4,533 $ 7,771`, was refused. Which columns are numeric is now read from the table's own
+  body instead of assumed. The report filed this as *"TC-028's last-row loss, relocated"*, and it is
+  a fair correction of §4 of the previous brief, which claimed the band-edge case was handled and
+  the remaining losses sat inside the band.
+
+**The conservatism cost is therefore much smaller than TC-028's measurement implied.** Across
+thirteen documents the tool returns **80 tables where TC-028 measured 64** — Apple 4 → 8, Broadcom
+4 → 6, plus Qualcomm's 9 — with every correctness gain kept. A meaningful share of what looked like
+the price of being careful was simply two of my own rules rejecting good tables, and it took a round
+aimed at false declines to separate the two.
+
+##### TC-030 — the mirror of the last round: pages that return and say nothing
+
+**2026-09-11.** It verified all three TC-029 fixes to their exact values, held all eighteen anchors,
+**closed the `unread_regions.bbox` low** — and confirmed the boxes are *accurate*, not merely
+sub-page, by rendering a refused box and finding it framed the RSU table exactly on a page with
+three. It also closed the parked *"successful read inside an encrypted document"* item on a
+Standard V2 R3 RC4 filing that opens freely.
+
+**Its framing is the useful part:** where TC-029 found a page that *declined* and said so loudly,
+this round found two that **return and say nothing** — one of them the page my own fix had restored.
+
+**A region can leave a whole column outside itself.** Qualcomm's page 5 came back as a region
+starting at **x = 309.9** — the numeric columns only — with every row label (`Revenues:`, `Equipment
+and services`, `Licensing`) printing at x 57-250 outside it, `unread_regions: []`, `count: 1`. Eighty
+-four correct figures with nothing to say what any of them is. The tester's judgement is right and
+worth keeping: *against the decline it replaced, this is a worse outcome, not a better one — a
+decline at least told the caller to go read the page.* :func:`column_dropped` is
+:func:`digits_lost`'s question asked across the page instead of down it, and it takes **lines
+touched** rather than words, because Qualcomm's labels are indented to three depths so no single
+x-position covers them while together they touch all 21 rows. Decoration beside a table touches some
+lines and a missing column touches all: the designed report's `PIE CHART PLACEHOLDER` measures 0.44,
+Cisco's overflowing labels 0.15, and both real missing columns **1.00**.
+
+**It also caught a table I had been treating as a passing anchor for five rounds.** LLY's page 56
+first table returns Name / 2024 / 2025 salary and has been silently dropping the printed `Increase`
+column (`0.0%`, `3.4%`, `2.8%`) the whole time. It is refused and reported now, and that page drops
+from three tables to two — a correct change to a number this milestone had been quoting as evidence.
+
+**A one-column table could not be repaired at all.** Apple's page 14 returned an unconditional
+-purchase-obligations table whose rows summed to 25,575 against its own returned `Total` of 27,628 —
+short by exactly the `2,053` first row. Two of my own limits stacked: edge recovery ran only on
+single-group regions, and required **two** numeric columns where that table has one. Both lifted,
+with the box now grown by the recovered row rather than to the whole region's top — which was a bug
+the change exposed immediately, since per-group recovery made the old expansion swallow every group
+above. The table now foots: `2,053 + 7,652 + 6,406 + 5,421 + 5,481 + 615 = 27,628`.
+
+**And a header asymmetry had to go.** Salesforce's page 4 was losing two footnote tables whose
+bodies are pristine, because a two-tier period header — `Three Months Ended July 31,` over
+`2026 2025 2026 2025` — has a tier belonging to no single column, so those years reach no cell.
+Header damage is tolerated everywhere else here (LLY page 56 keeps its table with `2024` merely
+*split*), so forgiving one and killing the other for the same kind of fault was wrong. **A year on
+the region's topmost line is now exempt, and nothing else is** — the obvious generalisation, "ignore
+the top line", was tried and readmitted Apple's page 11, whose topmost line is a *data* row.
+
+**Finally, a decline that asserted rows it never produced.** Salesforce's page 5 is heavily ruled and
+yields no region at all, yet reported *"the rows it produced did not hold together"*. Three declines
+are now distinguished: no ruling, ruling with nothing table-shaped inside it, and a region found and
+refused.
+
+Corpus: **89 tables across fourteen documents**, with two new fixtures and every correctness gain
+kept.
+
+##### TC-031 — a column read instead of detected, and a fix of mine audited into a defect
+
+**2026-09-11.** All four TC-030 fixes verified to their stated values, the moved `LLY p56` anchor
+confirmed at 2 with the `Increase` region refused at the exact box, and the decline vocabulary
+observed at **six** distinct and accurate messages. Three findings, and the first is the most
+expensive this series has produced.
+
+**A column with gaps is invisible to a threshold, and the paper proves it.** A research paper's
+results table prints three columns of figures; the tool returned two. The third has values on **26 of
+~50 rows**, which is 0.38 of the region's lines — **below** the 0.44 that decoration beside a table
+scores on the designed report, so *no* threshold on that measure can separate them. x-alignment fails
+too, and for a reason worth recording: on that page the strongest aligned block outside the region is
+**the journal's own second text column**, 54 lines of article prose. The paper then supplies its own
+control — its other table has the identical three-column design with a *dense* third column, and
+that one is **correctly refused**. So the discriminator was provably the threshold rather than
+anything a caller could see.
+
+**It is worse than a column missing, because the table asserts the opposite.** With the column gone,
+its rows came back as `["Primary", "", "0.026", ""]` — a label beside an empty cell, which reads as
+*this was not measured*. It was; the number is in the column that vanished.
+
+**So the column is read rather than detected** (:func:`recover_column`), which is the tester's
+suggestion and the right shape: detection stops mattering once the data is returned. Two things make
+it safe. **Adjacency** — a recovered column's words must begin within 2 pt of the region's own edge:
+the dropped column starts at exactly **252.7**, the region's right edge, while the article text starts
+at **306.1**, and since both are left-aligned and both fall inside the table's row bands, nothing
+softer than distance tells them apart. It also excludes the table's own footnote, whose words start
+ragged (242.7, 244.6, 250.2…) rather than on a common edge. And **placement into the tightest row
+band**, because the reader's bands overlap here (row 2 spans 117-153 while row 3 spans 129-141) so a
+value legitimately falls in several; the tightest is the one that describes it, and taking it recovers
+the standard errors instead of leaving them blank. Every value now sits in the row the page prints it
+in, and the emptied rows are empty because the paper leaves them empty.
+
+**A value cut across cells is invisible to digit coverage, and the tester's phrasing is the whole
+insight:** *coverage asks whether digits arrived, not whether they arrived together.* A rental
+statement's three-column table came back as seven, with the printed reference `211206 1017242382155`
+existing nowhere in the reply as a whole value — `2112` + `06 10172` + `42382155`. Three guards were
+silent at once: :func:`digits_lost` because every digit did arrive, :func:`column_dropped` because
+the damage is inside the region, and :func:`cuts_a_figure` because the neighbouring cells are prose so
+the row never has the two complete numeric cells it requires. **A cut through a long non-year
+identifier is now fatal whatever else the row holds** — the rental page is the only one of eighteen
+flagged, and LLY's tolerated `202` + `4` split stays tolerated.
+
+**And rule 3 turned my own previous fix into a defect, for the second round running.** TC-030's
+per-group edge recovery was prepending a period-header tier it cannot place: the years print centred
+over their figure columns, so the run centres land one column left and the emitted header labels the
+2026 figures as 2025. Qualcomm's page 4 had **no** header before that fix and gained a wrong one. The
+extraction's own header rows were shifted the same way, and the footnote tables' headers were worse —
+two years for four figure columns, because the year exemption had removed the unassignable ones and
+only the assignable survived, in the wrong places. A year-only header now survives **only** when the
+columns it fills are exactly the columns the body puts figures in, and an all-years recovered row is
+not prepended at all. `December 31, 2025` is unaffected: it carries more than a year, places
+correctly, and is kept.
+
+**The negative result is recorded as one.** The tester attempted the predicted non-year two-tier
+header case (`Q1 Q2 Q3 Q4`) and did not reproduce it; the paper's `(1) (2) (3)` tier is unassignable
+in exactly that way and costs neither table. That is a corpus gap rather than a clearance.
+
+##### TC-032 — the risk that held, and one letter no guard compares
+
+**2026-09-11.** All three TC-031 fixes verified, and the round's main effort went where the brief
+asked: **attacking the new risk directly.** Column recovery is the first change in this milestone that
+*adds* data rather than withholding it, so it is the first that can be wrong by putting a value in a
+row that does not contain it.
+
+**It held, and that is worth recording as a positive result rather than an absence of news.** The
+tester rendered the recovered column at 300 dpi across its hardest band — the transition where the
+column goes from blank to populated, with overlapping row bands on both sides — and compared ten rows
+against the print. Every value is in the right row, blanks included. The tightest-row-band rule does
+the job it was added for. The decoration that broke thresholding in TC-031 (0.44, higher than the real
+missing column's 0.38) is **not** pulled in by the new reader either: the 2 pt adjacency holds exactly
+where a score could not.
+
+**The round's best finding is one letter, and it says something about the guard design.** TEAM's 2025
+annual report, page 69 — a balance sheet whose **seven subtotals all reconcile** — loses the first
+character of eight outdented labels: `'otal current ass'` for *Total current assets*,
+`'iabilities and S'` for *Liabilities and Stockholders' Equity*. Every guard is structurally blind:
+:func:`digits_lost` compares **digits** and this is a letter, :func:`column_dropped` sees nothing
+outside the region because the character is inside it, and the identifier-cut check sees no figure.
+The tester's sharpening of the brief's own advice is the durable line: *the comparing guard is
+narrower than the damage it is trusted for.* `digits_lost` earns its reputation on financial tables
+because there the digits are the payload — but a label is payload too, and nothing compares it.
+
+**It is also TC-027's defect at a smaller offset**, which is the brief's §6 pattern applied to an
+*older* fix. That repair accepted a rebuild only when it **ended with** the cell's text — true when a
+label is cut on the left alone, and TEAM's 5.4 pt outdent cuts on both: the `T` to the region's edge
+and the `ets` into the next column. So the rebuild read `'Total current assets'`, which does not end
+with `'otal current ass'`, and the repair declined. :func:`_missing_prefix` now locates the cell's own
+text inside the fuller read — whether the read is longer than the cell or shorter — and prepends only
+what was clipped, so the cell keeps every character it had. Cisco's `'flows from i'` becomes
+`'Cash flows from i'` with its neighbour still holding `'nvesting activities:'`; nothing duplicated,
+nothing lost, and the guard against re-cutting is kept because a rebuild that cannot be aligned
+prepends nothing.
+
+**Two smaller corrections to column recovery itself.** It returned `All` where the page prints
+`All 5`: anchoring on the region's edge finds a value's first token, and a second token on the same
+line sits further right. The run is now extended while the gap stays small, which cannot bridge the
+53 pt gutter to the journal's article text. And it joined stacked lines with spaces where the ordinary
+reader uses newlines, so a multi-line header had a different shape in the recovered column than in its
+neighbours — now `'(3)\nOperations\ngained'` beside `'(1)\nOperations\ngained'`.
+
+**One filing was retracted by the tester, with reasoning worth keeping.** A NAEP state-snapshot poster
+page declines, and its one genuine ruled table is not returned. They filed it, then withdrew it on
+three grounds: the decline is **disclosed** so no caller is misled; it fails the standing policy that
+a decline is a finding only if the *page* was readable, and three of that page's six blocks carry
+numbers positioned by geometry; and the implied claim — *the table would read if isolated* — is
+untestable through an API that takes pages rather than regions. What survives is a **corpus note**: a
+poster or dashboard one-pager, one ruled table among geometry-positioned graphics, is a shape this
+tool cannot reach. Common in government and NGO reporting, and a limit worth knowing rather than a
+defect. It also leaves the non-year two-tier header a corpus gap for a second round — that page
+carries one, behind a decline.
+
+##### TC-033 — the sixth instance of one cause, and the fix that stops the series
+
+**2026-09-11.** All three TC-032 fixes verified to their exact values, the Cisco side effect
+confirmed, and the brief's §3 question answered — with a **negative result the tester reported as a
+result**: hunting across six documents including two new ones (a Sacramento office-market report and
+NVIDIA's annual report, a fifteenth filer), there is no third shape of text damage. No label silently
+shortened, no word dropped from the middle, no label on the wrong row. NVIDIA's page 141 is clean
+throughout — every label whole, all seven subtotals reconciling. So the case for comparing *text* the
+way :func:`digits_lost` compares digits rests on the left-truncation class alone.
+
+**Which turned out to be larger than believed, and that is the finding.** The TC-032 repair —
+verified on the two documents that prompted it — failed on the first two it had not been run
+against: six more instances, including a Cisco label whose **two printed lines each lose their
+start** (`'ct of foreign c\nequivalents'` for *Effect of foreign currency … cash equivalents*), and
+five single-character losses on the market report (`'acramento Total'`, `'lass A'`, `'lass B'`,
+`'lass C'`) sitting beside flush-left labels in the same table that come back complete. The tester
+stopped at instances rather than asserting a mechanism, correctly: there is no mechanism visible from
+outside, because the trigger is neither "flush left" nor "multi-line".
+
+**Counting the series is what settled the response.** Left-clipped labels had now been found and
+fixed **five times** — TC-026, TC-027, TC-032, and twice within TC-033 — each fix fitted to the
+documents in front of it and each beaten by the next. They are not five defects. They are six
+instances of **one cause**: the reader's first column begins at the *indented* rows' left edge, so
+anything outdented past it is cut, and the amount cut varies with the outdent. Every patch had to
+reconstruct what a cell *should* have said from what it *did* say — a suffix test, then a prefix
+alignment, then a containment check — and each of those is an assumption about how the damage looks.
+
+**So :func:`recover_left_margin` now rebuilds the label column from the page instead.** For each row,
+take the words between the page's true left margin and the first column's right edge. There is
+nothing to align and nothing to assume, and the six patched cases plus the two that defeated the
+patches all come back whole. It only ever widens — a rebuild yielding fewer words than the reader
+produced is discarded — and a label still stops at its own column's right edge, so a long one stays
+split across two cells with its tail in the next, the tolerated case. :func:`_missing_prefix` and its
+anchor constant are deleted. **Measured across the corpus: zero mid-word labels, 30 of 30 anchors
+unchanged.**
+
+This is the same move that settled the dropped column in TC-031, and the pattern is now explicit
+enough to state as a rule for this module: **every guard and repair built on asking the page has
+held; every one built on inferring from the reader's own output has been beaten by the next
+document.**
+
+**The fix broke the seam, and the way that escaped notice is the round's real methodological
+finding.** The reader splits a cell's text by **character**, so a label cut at a column boundary
+comes back as `"otal current ass"` + `"ets"` — ugly, and *lossless*: concatenating the two cells
+reproduces the printed line, which is exactly why the split label was the tolerated case.
+:func:`_line_text` reads by **word**, because a rebuild has to decide which side of the boundary a
+word belongs to. Rebuilding only the first cell mixes the two conventions, and the seam then either
+repeats the reader's tail (`"Total current assets"` + `"ets"`) or drops the straddling word's first
+characters outright (`"Liabilities and"` + `"tockholders’ Equity"`, no `S`). Measured against the
+page, the first version of this fix **lost ten words on Cisco's page 61** (`operating`, `losses`,
+`investments`, `assets`, `taxes,`, `liabilities`, `investing`, `financing`, `borrowings,`,
+`currency`) and six on TEAM's page 69 (`equipment,`, `liabilities`, `equity`, `deficit`, `and`,
+`other`).
+
+So :func:`_word_seam` places the boundary past the word the column edge cuts through, and **both**
+cells are re-read from it: `["Total current assets", ""]`, `["Liabilities and Stockholders’",
+"Equity"]`, `["Property and equipment,", "net"]`. Rows whose boundary cuts no word keep the reader's
+split byte for byte, so the blast radius is only the rows that were already damaged.
+
+**Why it was not caught:** the verification that cleared the fix counted *mid-word labels in the
+first cell*, because the first cell was what the fix was for. Every one was gone, and the damage had
+moved one cell to the right. The check that found it compares each table's returned words against
+the words the page prints inside its box — evidence rather than a property of the output. The
+word-level form of it is pinned in `tests/test_mcp_tables.py`; the corpus sweep is a manual script,
+handed to the tester with the round's brief, and over 24 tables on seventeen documents it now leaves
+no word printed-but-not-returned on either page. **A check scoped to the thing you fixed cannot see
+what the fix displaced.**
+
+**One bug the structural fix introduced, found by its own control.** The rebuild indexed a *group's*
+rows against the *whole table's* geometry — an off-by-N that silently relabels, and on the market
+report it moved `Carmichael/Fair Oaks` up onto `Campus Commons`. The patch it replaced had the same
+flaw and hid it by firing on very few rows, which is how it survived six rounds unnoticed. It is
+invisible by construction: every label still looks like a label. `tests/test_mcp_tables.py`'s
+`two_group_pdf` pins it with two ruled tables in one region carrying **distinct** labels and a few
+**outdented** rows — the first property makes a shift visible, the second makes the reader cut a
+label at all. Three controls were confirmed red before the test was kept: the whole-table index
+unbounded, the whole-table index bounded (the historical shape, which silently relabels), and the
+rebuild removed entirely.
+
+**Not fixed, deliberately: sub-visible text merged into a visible row.** The market report's
+`West Sacramento` row comes back with two values in every cell, the second being the market total.
+The tester nearly filed it as tool-side row duplication and did not, because they checked the text
+layer first: `search` finds the total's figures **twice**, once at 43.5 × 8.45 pt and once as a
+degenerate frame of **0.56 × 0.12 pt** — a design-tool artifact that renders nowhere. The duplication
+is the document's; what is ours is that `get_tables` has **no size floor**, so 1/100-scale text lands
+in a row band and concatenates into that row's cells with nothing to signal it. Recorded in
+`PROGRESS.md` rather than patched, under the owner's instruction to make one structural fix and stop
+patching. The round also found a documentation gap with a wider blast radius: `search` reports
+`invisible: false` for that frame, correct by its own definition, while the docs present `invisible`
+as how to find text the reader cannot see. Sub-visible *by size* is exactly that, and it matters more
+for the redaction tools than for this one.
+
+##### TC-034 / TC-035 — the third shape of text damage, and a nine-round-old item it retired
+
+**2026-09-12.** Two rounds, and between them they corrected a claim this milestone had been making
+about itself.
+
+**TC-034 set its own agenda and that is why it found something.** Told to treat the brief as advisory,
+the tester derived a plan from the *public tool description* instead and observed that every document
+this milestone had ever been iterated against is a **row-ruled** table — while the contract names the
+**drawn grid** first. So they picked nine documents built that way (a filled and an unfilled IRS
+Form 8949, a filled AcroForm, a work-order record, a monospace payslip, a utility bill, an insurance
+schedule, a fee schedule, a benefit estimate), eight of them new, and found in the fourth a defect the
+grid reader had never been caught in: a work order prints `umesh_tyagi@yahoo.com` in one bordered
+cell, `extract_text` returns it intact, and ``get_tables`` returned ``"umesh tyagi@yahoo.com\n_"`` —
+the underscore lifted out from between `umesh` and `tyagi`, a space left in its place, the character
+emitted as a second line of the same cell. A plausible, invalid address, in a table whose every other
+cell is correct, with `unread_regions` empty.
+
+**It is the third shape.** Not clipped at a region edge, not cut at a column boundary: a value
+corrupted *in the middle*. TC-033 had reported the absence of exactly this as a negative result with
+its search space stated, and the absence did not survive nine documents outside the corpus. The
+premise the text-guard decision rested on — *the class is unobserved* — no longer holds.
+
+**And it was in the very first report of the series, unrecognised for nine rounds.** TC-026's
+`"Twitet r"` for *Twitter* was filed as ligature reordering and treated as PyMuPDF's to fix. It holds
+the same letters as `Twitter` in the wrong order, which is the same shape as the address.
+:func:`unscramble_cells` closes both: where the page's words inside a cell hold exactly the characters
+the cell holds, rearranged, the page's arrangement wins. Same multiset, different sequence — so it
+cannot add a character, cannot remove one, cannot resurrect a row the reader dropped, and therefore
+changes nothing the digit check or the acceptance tests see. It also declines on a deliberate
+character-level split at a column boundary, because a straddling word contributes characters the cell
+does not have and the multiset stops matching.
+
+**TC-035 caught the seam regression fifteen minutes after it was fixed**, and every row of its
+seventeen matches what the page-versus-cells check had already found. Recorded because the report is
+right and only its timing was not: the round independently reproduced a defect by the same method, on
+the same two documents, which is corroboration rather than duplication.
+
+**Two things TC-035's Part 2 list turned out to be one cause with the above.** The `$` it reported "in
+a new form" — on its own **line** inside a cell rather than inline — was :func:`_line_text` grouping
+printed lines by a *rounded* `y0`. Amazon's page 9 puts the dollar sign's box at 157.689 where the
+letters beside it start at 157.019, and rounding to the point made that 158 against 157. Lines are now
+grouped by **mutual vertical overlap**, which fixes the `$` and, by mechanism rather than by instance,
+any glyph whose box is shifted against its neighbours': a footnote dagger, a superscript marker, the
+underscore above.
+
+**The seam and the outdent were being gated together, and should not have been.** An outdent is what
+makes a label's *left* edge need rebuilding; it is not what makes the cut into the next cell need
+moving. Returning early where no outdent existed left two contracts for one field — TEAM's balance
+sheet joined cleanly while the journal page still returned ``["Countries inclu", "ded"]``. The margin
+now decides only how far left to read. Measured: three anchors change and all three improve —
+LLY p56's `2024` / `2025` stop being cut into `202` + `4` (the split every earlier note called
+*tolerated*), the journal page recovers `Countries included` and `P value: SMS versus`, and the SpaceX
+prospectus's returned label text matches the page's own words on nineteen rows where it had not. No
+table gained or lost, no shape changed. The contract is now checkable in one line — **join a row's
+first two cells with a space and compare against the print** — and it holds over 544 rows on eighteen
+documents.
+
+**The correction this pair forces, and it is about a number in `PROGRESS.md`.** The milestone had
+recorded the fully-ruled reader as *41 tables, 0 defects across eight rounds* against the row-ruled
+reader's *53 tables, every defect*. The zero was not a measurement of quality; it was the absence of
+exposure. One round aimed at that branch produced a defect that had been invisible through all eight,
+and retired a ninth-round-old item with it. Restated: **the grid reader has one known defect, fixed,
+on one round of exposure.** The general form is worth more than the correction — *a component with no
+recorded defects and no recorded tests has an untested record, not a clean one* — and it is the same
+error as CI's macOS leg passing while testing everything except its reason for existing.
+
+**One decline confirmed correct from the inside.** TC-034 recorded the Form 8949 transaction grid as a
+capability note rather than a defect, on the grounds that it could not be shown from outside that the
+grid was readable. It cannot be read, and for a reason only visible from within: the three filled rows
+carry a value in the description column alone — `FilledByAppOne`, `FilledByAppTwo`, `thank you` — and
+every other cell in them is genuinely blank on the page. Nothing is lost. What survives from that part
+is the tester's *other* point: the grid's `(f)` / `(g)` beneath *"Adjustment, if any, to gain or
+loss"* is the **non-year two-tier header** that has been a corpus gap for four rounds, and unlike the
+NAEP poster its region is correctly isolated — so a Form 8949 with amounts in every column is the one
+fixture that would put that shape in front of the reader.
+
+##### TC-036 — the merge direction, and a field that answered two questions with one value
+
+**2026-09-12.** The round verified every TC-034/TC-035 claim against the page — including applying the
+join test to **all 80 rows** of Cisco's page 61 and TEAM's page 69 rather than a sample — and then
+found two things in documents nobody had opened.
+
+**One of its three sub-findings was mine, introduced the same day.** On a retirement-account statement
+the fund code `2327` came back glued to the asset class, and that was :func:`_word_seam`: the code
+spans 135.4–155.5 against a column boundary at 137.3, so it *straddles* — and the seam moved past it,
+lifting a correct value out of *Fund code and name* where the reader had put it. The rule conflated a
+word the boundary **cut** with one it merely **overlaps**. They are told apart by the reader's own two
+strings and nothing else: a cut word is whole in neither cell, an overlapping one is whole in one of
+them. Fixed there, with the 637-row join check across eighteen documents still finding no glued
+fragment and no repeated tail.
+
+**The genuine finding is the *merge* direction of the depth axis**, which TC-031 settled only in the
+split direction. The statement prints six columns — asset class, fund code and name, number of units,
+unit price, value, percentage — and came back as **four**, with *number of units* and *unit price*
+absorbed into the fund-name cell. It is the worst shape this tool produces: every figure is present
+and correct, the percentages sum to 100.0 and the values foot to the returned total, so the table
+looks complete while two of its six columns cannot be read as values at all.
+
+**No threshold fixes it, and that is measured rather than argued.** The boundaries here come from
+alignment, and :data:`_MIN_WORDS_VERTICAL` wants ten vertically aligned words before it places one —
+unreachable in a table with three data rows. At five the two numeric columns separate and the fund
+name shatters into `"BR LifePath"` / `"Idx 20"` / `"35 7g"`, which is the reason the constant is ten.
+There is no setting at which this table reads.
+
+**And detecting the boundary by alignment was built, measured, and thrown away** — worth recording
+because it is the cheaper thing to reach for. An exact-alignment rule (three rows agreeing on a word's
+left edge to 0.5 pt, nothing crossing it) **missed this very page**, because the region also holds a
+paragraph whose words cross every candidate boundary, and it fired on **six** filings where the thing
+after the gap is the label column's own right-aligned `$` — `"Products $"` split at 314 on Apple,
+Alphabet, Amazon, Qualcomm, NVIDIA and Broadcom. A rule that misses its own case and breaks six good
+ones is not a tuning problem.
+
+:func:`split_hidden_columns` asks a structural question instead: a cell that ends in **two or more**
+runs of *value* words at x positions repeating across at least three rows, with non-value text in
+front of them. Across twenty-one documents that fires on **exactly one cell** — this one — and on no
+anchor. A bare `$` is not a value and one run is not two, so both halves of the alignment rule's
+mistake are out of reach, and each of those two guards is independently sufficient (the test pins the
+conjunction; its control had to break both).
+
+Two plumbing defects it surfaced, both found by looking at the output rather than by reasoning: run on
+the whole region it padded a *neighbouring* table in the same region with blank columns and cost that
+table outright, so it runs per group; and a row recovered from *outside* the band afterwards is built
+on the reader's own column edges and padded to the new width, which put the statement's total two
+columns left of the Value heading it belongs under — the recovered rows are now shifted by the same
+insertion, identified by position because length cannot distinguish them.
+
+**`continues_from` worked for the first time in ten rounds, and the round's better finding is what it
+does not say.** A 572-page prospectus runs a restated balance sheet from page 76 onto 77, and the
+arithmetic settles that they are one table in all three comparatives (`4,165.18 + 6,368.98 =
+10,534.16`, and so on). `get_tables(pages=[77])` reports `continues_from: null`; `pages=[76, 77]`
+reports `76`. So the feature is correct — but `null` was answering two different questions with one
+value, and the natural workflow walks into it: `search` points at page 77, the caller asks for 77
+alone, and reads *"this is not a continuation"* where the truth is *"the page before was never
+scanned"*. A fragment then gets treated as a whole table. `continuation_checked` now says which of the
+two it is, and `klarpdf://docs/get_tables` says so too. The tester tested it **both ways before
+writing it up**, which is what turned "a documented field that never fires" into this.
+
+**One decline recorded as a limit, not chased.** A Form 8949 re-saved through a different application
+reports *"nothing on this page marks where the cells are"* on an A4 page where the Letter-size
+originals both report a grid. The tester did not establish whether that is the document or the reader
+and neither did this session; it is in `PROGRESS.md` as a question with a named reproduction.
+
+##### `header` is claimed only where a drawn grid proves it
+
+A row-ruled read routinely starts its band one row inside the table, leaving `rows[0]` holding data
+and the real header outside — Apple's page 4 returns `["Products $", "78,678 $", …]` there.
+PyMuPDF's own detection is no help: `external: false` with `names == rows[0]`, i.e. it assumes what
+it is asked to determine. So the field is filled where the grid settles it and **null** elsewhere,
+with the caller pointed at `title`, where an escaped header often lands.
+
+##### Discovery — the gap the owner's second question found
+
+A caller using only `extract_text` gets a table's content in full and **no indication it was a
+table**, so the tool that would return rows is never called. Detecting tables to find out is not
+affordable (`find_tables` at 5.9 pages/s against `get_text`'s 158, ~27×), but **counting ruled lines
+is half the cost of reading the text** (314 pages/s). So `extract_text` gains `table_pages`, and at
+a threshold of 3 rules it names **every** page `get_tables` can read a grid from (recall 100% over
+204 pages of nine documents) plus roughly two others for each — over-flagging being the cheap
+direction to be wrong. This touches a shipped tool, and `queries.py` is bridge-only, so the GUI is
+unaffected (`CLAUDE.md` §Two consumers share one core).
+
+##### Scope, cost and the settled points that did not change
+
+`pages` is **required** — a 572-page scan is ~85 s. Caps are a count (50) and a character budget
+(60,000), the second because one 92-row financial table serialises past 20,000 characters. The
+strategy is still **not reported**. Negatives are still repaired by the 35-of-36 rule, with the 36th
+documented and not coded around. Continuation is still **flagged, never merged**, and the manual is
+still why: pages 29 and 30 share column edges `[36.4, 265.1]` and headers exactly while reporting 24
+hours and 28 — so a table that received a stranded title is never marked a continuation, because
+that title is evidence it starts something new.
+
+**And the dependency stays rejected.** `pymupdf-layout` 1.28.2 was re-costed when the owner asked:
+AGPL-3.0-or-commercial (so licensing is not the obstacle), but ~11 new pins and ≈100 MB
+(`pymupdf_layout` 42.9 MB + `onnxruntime` 14.7 + numpy 12.9 + networkx 2.1 + transitive), a Graph
+Neural Network runtime, and `pymupdf==1.28.2` pinned **exactly**, which would hand the bridge's
+PyMuPDF version to a third party — the drift M115 exists because of. `pymupdf4llm` is not required
+by it; the dependency runs the other way. The deciding reason remains the owner's own standing
+position of 2026-09-09 (§M140): where the app cannot do something the answer is the bridge, and
+where the bridge cannot, an agent reading a `render_page` image — which closes the
+`pymupdf_layout` question outright.
 
 #### M142 — `extract_markdown`, and why it is ours rather than rented
 
