@@ -7865,6 +7865,33 @@ enough to state as a rule for this module: **every guard and repair built on ask
 held; every one built on inferring from the reader's own output has been beaten by the next
 document.**
 
+**The fix broke the seam, and the way that escaped notice is the round's real methodological
+finding.** The reader splits a cell's text by **character**, so a label cut at a column boundary
+comes back as `"otal current ass"` + `"ets"` — ugly, and *lossless*: concatenating the two cells
+reproduces the printed line, which is exactly why the split label was the tolerated case.
+:func:`_line_text` reads by **word**, because a rebuild has to decide which side of the boundary a
+word belongs to. Rebuilding only the first cell mixes the two conventions, and the seam then either
+repeats the reader's tail (`"Total current assets"` + `"ets"`) or drops the straddling word's first
+characters outright (`"Liabilities and"` + `"tockholders’ Equity"`, no `S`). Measured against the
+page, the first version of this fix **lost ten words on Cisco's page 61** (`operating`, `losses`,
+`investments`, `assets`, `taxes,`, `liabilities`, `investing`, `financing`, `borrowings,`,
+`currency`) and six on TEAM's page 69 (`equipment,`, `liabilities`, `equity`, `deficit`, `and`,
+`other`).
+
+So :func:`_word_seam` places the boundary past the word the column edge cuts through, and **both**
+cells are re-read from it: `["Total current assets", ""]`, `["Liabilities and Stockholders’",
+"Equity"]`, `["Property and equipment,", "net"]`. Rows whose boundary cuts no word keep the reader's
+split byte for byte, so the blast radius is only the rows that were already damaged.
+
+**Why it was not caught:** the verification that cleared the fix counted *mid-word labels in the
+first cell*, because the first cell was what the fix was for. Every one was gone, and the damage had
+moved one cell to the right. The check that found it compares each table's returned words against
+the words the page prints inside its box — evidence rather than a property of the output. The
+word-level form of it is pinned in `tests/test_mcp_tables.py`; the corpus sweep is a manual script,
+handed to the tester with the round's brief, and over 24 tables on seventeen documents it now leaves
+no word printed-but-not-returned on either page. **A check scoped to the thing you fixed cannot see
+what the fix displaced.**
+
 **One bug the structural fix introduced, found by its own control.** The rebuild indexed a *group's*
 rows against the *whole table's* geometry — an off-by-N that silently relabels, and on the market
 report it moved `Carmichael/Fair Oaks` up onto `Campus Commons`. The patch it replaced had the same

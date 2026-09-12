@@ -1128,6 +1128,57 @@ def test_a_label_clipped_by_the_left_edge_is_restored(outdented_pdf):
     assert not clipped, f"a label is still cut: {clipped}"
 
 
+class _CellRow:
+    """A row that also states its own cells — what :func:`recover_left_margin` reads."""
+
+    def __init__(self, top, bottom, cells):
+        self.bbox = (cells[0][0], top, cells[-1][2], bottom)
+        self.cells = cells
+
+
+class _CellTable:
+    def __init__(self, bbox, rows):
+        self.bbox = bbox
+        self.rows = rows
+
+
+def test_a_rebuilt_label_joins_its_neighbour_without_repeating_or_losing_a_word():
+    """The seam between a rebuilt cell and the one the reader cut (TC-033 follow-up).
+
+    The reader splits a cell's text by **character**, so a label cut at a column boundary is ugly
+    but **lossless** — `"otal current ass"` + `"ets and receivables"` concatenates back to the
+    printed line. The page-based rebuild reads by **word**, and rebuilding only the first cell mixes
+    the two: on TEAM's balance sheet it produced `"Total current assets"` beside the reader's
+    `"ets"`, and `"Liabilities and"` beside `"tockholders’ Equity"` with the `S` gone for good.
+    So the seam moves past the word the boundary cuts and *both* cells are re-read from it.
+
+    Word geometry rather than a constructed PDF, for the reason `_FakeTable` exists: the defect is
+    in where a column edge falls inside a word, and PyMuPDF's own column inference will not place
+    one there on demand.
+    """
+    y0, y1 = 100.0, 112.0
+    words = [
+        (54.0, y0, 78.0, y1, "Total"),
+        (80.0, y0, 112.0, y1, "current"),
+        (114.0, y0, 158.0, y1, "assets"),   # straddles the first column's right edge at 150
+        (160.0, y0, 176.0, y1, "and"),
+        (178.0, y0, 240.0, y1, "receivables"),
+    ]
+    page = _WordPage([w[:5] for w in words])
+    row = _CellRow(y0, y1, [(60.0, y0, 150.0, y1), (150.0, y0, 260.0, y1)])
+    table = _CellTable((60.0, y0, 260.0, y1), [row])
+
+    # What the reader returns: clipped on the left by the column's start, cut mid-word at its end.
+    rebuilt = tables.recover_left_margin(
+        page, table, [["otal current ass", "ets and receivables"]], y0, y1
+    )
+    assert " ".join(rebuilt[0]).split() == [w[4] for w in words], (
+        f"the seam repeated or dropped a word: {rebuilt[0]}"
+    )
+    assert rebuilt[0][0] == "Total current assets", rebuilt[0]
+    assert rebuilt[0][1] == "and receivables", rebuilt[0]
+
+
 def test_the_label_column_is_rebuilt_per_group_not_per_table(two_group_pdf):
     """The off-by-N that silently relabels rows (TC-033).
 

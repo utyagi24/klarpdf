@@ -659,6 +659,19 @@ null, look at `title` — a header that fell outside the band is often picked up
 `rows[0]`, which may or may not be one. This is the same rule as everything else here: state it
 where the document states it, say nothing where it would be a guess.
 
+## A long label can be split across the first two cells
+
+Where a row label runs past the first column's right edge, it arrives as two cells —
+`["Liabilities and Stockholders'", "Equity"]`, `["Property and equipment,", "net"]`. This is not
+damage and nothing is lost: **the split is placed where no word is cut, so joining the two with a
+space reproduces the printed line.** A row where the label fits keeps its own cell and the second
+cell holds the second column's value as usual, so the test is whether the second cell looks like a
+continuation of the first rather than a value.
+
+The same rule holds for a label the page **outdents** left of the table's own column — a section
+header, a total. Those are read from the page's margin rather than from the column, so the first
+character is present; earlier builds cut it (`Total current assets` as `otal current ass`).
+
 ## Titles are best-effort
 
 The caption is taken from the nearest block above the table that reads like one — short, not a

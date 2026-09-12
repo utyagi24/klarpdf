@@ -913,6 +913,12 @@ importantly, `read_page`'s shape: try, then test the *output*, then decline out 
   mid-word labels corpus-wide, 30 of 30 anchors unchanged). Same move as TC-031's dropped column,
   and the same rule underneath both: **every guard and repair built on asking the page has held;
   every one built on inferring from the reader's own output has been beaten by the next document.**
+  That fix broke the **seam** into the next cell and the first verification missed it, because the
+  verification counted mid-word labels in the cell the fix was *for* — the damage had moved one cell
+  right, losing ten words on Cisco's page 61 and six on TEAM's page 69. Fixed by placing the seam
+  past the word the column edge cuts and re-reading both cells, with the word-level case pinned in
+  `tests/test_mcp_tables.py` and the corpus sweep handed to the tester as a script.
+  **A check scoped to the thing you fixed cannot see what the fix displaced.**
   The measured split says where the risk lives — the fully-ruled reader returned 41 tables with **0**
   defects across eight rounds, the row-ruled reader 53 tables and **every** defect — and dropping the
   second is not an option, since it is the only one that reads Apple, Alphabet, Qualcomm, Salesforce,

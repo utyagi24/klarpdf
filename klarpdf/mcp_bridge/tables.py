@@ -849,6 +849,29 @@ def _line_text(words: list, rect: fitz.Rect) -> str:
     return "\n".join(" ".join(parts) for _, parts in sorted(lines.items()))
 
 
+def _word_seam(words: list, edge: float, top: float, bottom: float) -> float:
+    """Where the first column really ends on this row: past the word its right edge cuts through.
+
+    The reader splits a cell's text by **character**, so a label cut at a column boundary comes back
+    as `"…current ass"` + `"ets"` — ugly but lossless, and concatenating the two cells reproduces the
+    line. :func:`_line_text` splits by **word**, because a rebuild has to decide which side a word
+    belongs to. Mixing the two is what breaks the seam: rebuilding only the first cell leaves the
+    reader's character-level tail beside a word-level head, which either repeats the tail
+    (`"Total current assets"` + `"ets"`) or loses the character the 40 % rule dropped
+    (`"Liabilities and"` + `"tockholders’ Equity"`, no `S`).
+
+    So the seam moves to the end of the straddling word and **both** cells are rebuilt from it. The
+    widest straddle on the row wins, since a tall row's two printed lines are cut at different
+    points and the first cell has to clear both.
+    """
+    cut = [
+        w[2]
+        for w in words
+        if w[0] < edge < w[2] and top - 1 <= (w[1] + w[3]) / 2 <= bottom + 1
+    ]
+    return max(cut) if cut else edge
+
+
 def recover_left_margin(
     page: fitz.Page, table, rows: list[list[str]], top: float | None = None,
     bottom: float | None = None,
@@ -872,10 +895,11 @@ def recover_left_margin(
     label losing the start of *both* lines), a market report losing five single-line first characters,
     and TEAM's balance sheet losing eight — all come back whole, with the anchors unchanged.
 
-    It only ever widens: a row whose rebuild yields *fewer* words than the reader already produced
-    keeps what the reader produced. A label still stops at its own column's right edge, so a long one
-    remains split across two cells with its tail in the next — the tolerated case, since concatenating
-    them loses nothing.
+    A long label still ends up split across two cells, which is the tolerated case — but only
+    because the split is placed where no word is cut, so concatenating the two reproduces the line.
+    See :func:`_word_seam`: the rebuild reads by word where the reader cuts by character, and getting
+    that seam wrong is how the first version of this function turned `"otal current ass"` + `"ets"`
+    into `"Total current assets"` + `"ets"`.
 
     This is the same move that settled the dropped column in TC-031, and the pattern worth carrying:
     **every guard and repair built on asking the page has held; every one built on inferring from the
@@ -904,14 +928,22 @@ def recover_left_margin(
 
     rebuilt = [list(row) for row in rows]
     for index, row_geometry in enumerate(geometry):
-        if not row_geometry.cells or not row_geometry.cells[0]:
+        cells = row_geometry.cells
+        if not cells or not cells[0]:
             continue
-        label = _line_text(
-            words,
-            fitz.Rect(margin - 1, row_geometry.bbox[1], row_geometry.cells[0][2], row_geometry.bbox[3]),
-        )
-        if label.strip():
-            rebuilt[index][0] = label
+        top_y, bottom_y = row_geometry.bbox[1], row_geometry.bbox[3]
+        seam = _word_seam(words, cells[0][2], top_y, bottom_y)
+        label = _line_text(words, fitz.Rect(margin - 1, top_y, seam, bottom_y))
+        if not label.strip():
+            continue
+        rebuilt[index][0] = label
+        # The seam moved, so the next cell has to be re-read from it or the word it held the tail of
+        # is counted twice. Only ever the *next* cell: everything past its own right edge is
+        # untouched, and a row whose boundary cuts nothing keeps the reader's split exactly.
+        if seam > cells[0][2] and len(cells) > 1 and cells[1] and len(rebuilt[index]) > 1:
+            rebuilt[index][1] = _line_text(
+                words, fitz.Rect(seam, top_y, cells[1][2], bottom_y)
+            )
     return rebuilt
 
 
