@@ -877,7 +877,8 @@ importantly, `read_page`'s shape: try, then test the *output*, then decline out 
   appears in one list or the other, never neither. Titles step over the introductory paragraph
   between caption and table, splitting recovers several tables from one region, continuation is
   flagged never merged, and `header` is claimed only where a grid proves it.
-  **Two rounds of owner testing after the PR opened found five defects, all now fixed.**
+  **Eight rounds of owner testing after the PR opened (TC-026 … TC-033) drove the tool to its
+  shipped shape; the first two found five defects, all fixed.**
   `LLY_Proxy.pdf` p64 (below), then **TC-026** against three documents this milestone had never
   seen — an EDGAR Alphabet 10-K, a designed InDesign report and Apple's 10-Q. TC-026's verdict is
   the part worth keeping: **the refusal logic passed everything, and the pages the tool *accepted*
@@ -903,6 +904,19 @@ importantly, `read_page`'s shape: try, then test the *output*, then decline out 
   statements it was written to protect and kept the prose**, since real tables score *worse* than
   prose on five of the six candidate metrics; and "nearest free block above" returns a column header,
   a data row or a sentence on real pages. [#348](https://github.com/utyagi24/klarpdf/pull/348)
+  **What the remaining six rounds settled, and the one line worth carrying out of them.** TC-027
+  through TC-033 are written up per round in `PLAN.md` §M141; the pattern across them is not.
+  Left-clipped labels were found and fixed **five separate times**, each fix fitted to the documents
+  in front of it and each beaten by the next — six instances of one cause, which is that the
+  reader's first column starts at the *indented* rows' left edge. TC-033 stopped the series by
+  reading the label column from the page rather than reconstructing it from damaged cells (zero
+  mid-word labels corpus-wide, 30 of 30 anchors unchanged). Same move as TC-031's dropped column,
+  and the same rule underneath both: **every guard and repair built on asking the page has held;
+  every one built on inferring from the reader's own output has been beaten by the next document.**
+  The measured split says where the risk lives — the fully-ruled reader returned 41 tables with **0**
+  defects across eight rounds, the row-ruled reader 53 tables and **every** defect — and dropping the
+  second is not an option, since it is the only one that reads Apple, Alphabet, Qualcomm, Salesforce,
+  Amazon, Broadcom or Tesla at all.
 
 - [ ] **M140** **Heading candidates** — the typography fallback for documents with neither
   bookmarks nor a linked contents page, and the only route to **subsections** a contents page omits.
@@ -4620,6 +4634,37 @@ it on this side of the line.
   exactly why it was scoped to digits in TC-028), or accept that label damage is caught only by the
   specific repairs and keep finding those one document at a time. Worth settling deliberately rather
   than by default, because the tool's whole promise rests on that guard.
+  **Narrowed by TC-033, which went looking for the evidence that would settle it.** The brief asked
+  for label damage that is *not* left-truncation — a label silently shortened, a word dropped from
+  the middle, a label on the wrong row — since finding one would make extending the guard an obvious
+  yes. Across six documents including two new ones, **none exists**: every text defect this series
+  has found is still cut-at-a-column-edge or clipped-at-the-region-edge, and NVIDIA's page 141 is
+  clean throughout. So the case for a text guard rests on the left-truncation class alone, and that
+  class is now closed *structurally* rather than by repair (`PLAN.md` §M141 → *TC-033*) — the label
+  column is read from the page instead of reconstructed from damaged cells. The decision therefore
+  changes shape: it is no longer "catch the damage we keep missing" but "insure against a class we
+  have not observed", which is a materially weaker case for paying the false-decline cost. Still
+  open, still the owner's call.
+- **`get_tables` has no size floor, so sub-visible text merges into a visible row** (TC-033,
+  2026-09-11). The Sacramento office-market report's `West Sacramento` row comes back with two
+  values in every cell, the second being the market total — a caller reading the submarket's
+  inventory gets a string holding both figures, with `unread_regions` empty and nothing to
+  distinguish them. The duplication is **the document's**: `search` finds the total's figures twice,
+  once at 43.5 × 8.45 pt and once as a degenerate frame of **0.56 × 0.12 pt**, a design-tool
+  artifact that renders nowhere. What is ours is placing 1/100-scale text into a row band at all.
+  Not fixed under the owner's instruction to make one structural fix and stop patching; recorded
+  here so the next session does not re-derive it. What needs deciding before it can be worked: a
+  point-size floor is a threshold, and this module's record on thresholds is that every one of them
+  was eventually beaten — so the question is whether there is a way to *ask the page* instead
+  (compare against what a render shows, say) rather than pick a number.
+- **`search`'s `invisible` flag does not cover text that is invisible by size** (TC-033,
+  2026-09-11). It reports `invisible: false` for the 0.12 pt frame above, correct by its own
+  definition — the text is neither white nor transparent — while `klarpdf://docs/search` presents
+  the flag as the way to find text that "will not appear in `render_page` and the reader cannot
+  see". A degenerate frame is exactly that. This is a **shipped** tool and the same blind spot
+  matters more for the redaction tools, where "the reader cannot see it" is the safety claim. Needs
+  deciding: widen the flag's meaning (and what threshold makes text sub-visible), or document the
+  limit as a clause. Separate from M141 and not carried by #348.
 - **A poster or dashboard one-pager is out of reach** (TC-032, corpus note rather than a defect). One
   ruled table among graphics whose numbers are positioned by geometry — bar-segment labels, a
   cartogram, a line chart — declines as a single region. The decline is disclosed and correct: a split

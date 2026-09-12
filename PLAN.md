@@ -7824,6 +7824,71 @@ tool cannot reach. Common in government and NGO reporting, and a limit worth kno
 defect. It also leaves the non-year two-tier header a corpus gap for a second round — that page
 carries one, behind a decline.
 
+##### TC-033 — the sixth instance of one cause, and the fix that stops the series
+
+**2026-09-11.** All three TC-032 fixes verified to their exact values, the Cisco side effect
+confirmed, and the brief's §3 question answered — with a **negative result the tester reported as a
+result**: hunting across six documents including two new ones (a Sacramento office-market report and
+NVIDIA's annual report, a fifteenth filer), there is no third shape of text damage. No label silently
+shortened, no word dropped from the middle, no label on the wrong row. NVIDIA's page 141 is clean
+throughout — every label whole, all seven subtotals reconciling. So the case for comparing *text* the
+way :func:`digits_lost` compares digits rests on the left-truncation class alone.
+
+**Which turned out to be larger than believed, and that is the finding.** The TC-032 repair —
+verified on the two documents that prompted it — failed on the first two it had not been run
+against: six more instances, including a Cisco label whose **two printed lines each lose their
+start** (`'ct of foreign c\nequivalents'` for *Effect of foreign currency … cash equivalents*), and
+five single-character losses on the market report (`'acramento Total'`, `'lass A'`, `'lass B'`,
+`'lass C'`) sitting beside flush-left labels in the same table that come back complete. The tester
+stopped at instances rather than asserting a mechanism, correctly: there is no mechanism visible from
+outside, because the trigger is neither "flush left" nor "multi-line".
+
+**Counting the series is what settled the response.** Left-clipped labels had now been found and
+fixed **five times** — TC-026, TC-027, TC-032, and twice within TC-033 — each fix fitted to the
+documents in front of it and each beaten by the next. They are not five defects. They are six
+instances of **one cause**: the reader's first column begins at the *indented* rows' left edge, so
+anything outdented past it is cut, and the amount cut varies with the outdent. Every patch had to
+reconstruct what a cell *should* have said from what it *did* say — a suffix test, then a prefix
+alignment, then a containment check — and each of those is an assumption about how the damage looks.
+
+**So :func:`recover_left_margin` now rebuilds the label column from the page instead.** For each row,
+take the words between the page's true left margin and the first column's right edge. There is
+nothing to align and nothing to assume, and the six patched cases plus the two that defeated the
+patches all come back whole. It only ever widens — a rebuild yielding fewer words than the reader
+produced is discarded — and a label still stops at its own column's right edge, so a long one stays
+split across two cells with its tail in the next, the tolerated case. :func:`_missing_prefix` and its
+anchor constant are deleted. **Measured across the corpus: zero mid-word labels, 30 of 30 anchors
+unchanged.**
+
+This is the same move that settled the dropped column in TC-031, and the pattern is now explicit
+enough to state as a rule for this module: **every guard and repair built on asking the page has
+held; every one built on inferring from the reader's own output has been beaten by the next
+document.**
+
+**One bug the structural fix introduced, found by its own control.** The rebuild indexed a *group's*
+rows against the *whole table's* geometry — an off-by-N that silently relabels, and on the market
+report it moved `Carmichael/Fair Oaks` up onto `Campus Commons`. The patch it replaced had the same
+flaw and hid it by firing on very few rows, which is how it survived six rounds unnoticed. It is
+invisible by construction: every label still looks like a label. `tests/test_mcp_tables.py`'s
+`two_group_pdf` pins it with two ruled tables in one region carrying **distinct** labels and a few
+**outdented** rows — the first property makes a shift visible, the second makes the reader cut a
+label at all. Three controls were confirmed red before the test was kept: the whole-table index
+unbounded, the whole-table index bounded (the historical shape, which silently relabels), and the
+rebuild removed entirely.
+
+**Not fixed, deliberately: sub-visible text merged into a visible row.** The market report's
+`West Sacramento` row comes back with two values in every cell, the second being the market total.
+The tester nearly filed it as tool-side row duplication and did not, because they checked the text
+layer first: `search` finds the total's figures **twice**, once at 43.5 × 8.45 pt and once as a
+degenerate frame of **0.56 × 0.12 pt** — a design-tool artifact that renders nowhere. The duplication
+is the document's; what is ours is that `get_tables` has **no size floor**, so 1/100-scale text lands
+in a row band and concatenates into that row's cells with nothing to signal it. Recorded in
+`PROGRESS.md` rather than patched, under the owner's instruction to make one structural fix and stop
+patching. The round also found a documentation gap with a wider blast radius: `search` reports
+`invisible: false` for that frame, correct by its own definition, while the docs present `invisible`
+as how to find text the reader cannot see. Sub-visible *by size* is exactly that, and it matters more
+for the redaction tools than for this one.
+
 ##### `header` is claimed only where a drawn grid proves it
 
 A row-ruled read routinely starts its band one row inside the table, leaving `rows[0]` holding data

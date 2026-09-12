@@ -255,6 +255,48 @@ def underruled_pdf(tmp_path) -> str:
 
 
 @pytest.fixture
+def two_group_pdf(tmp_path) -> str:
+    """Two row-ruled tables in one region, with **distinct** labels and a few **outdented** rows.
+
+    Both properties are what make the off-by-N visible. The outdent is what makes the reader cut a
+    label at all — the first column starts at the indented rows' left edge, so rows 3 and 7 lose
+    everything to the left of it and come back as ``m3`` / ``m7``. Distinct labels are what make a
+    *shift* visible: with the same names in both halves, the second group receiving the first
+    group's labels looks exactly like a correct read, which is how the bug survived six rounds.
+    """
+    path = str(tmp_path / "two_group.pdf")
+    doc = fitz.open()
+    page = doc.new_page()
+    indented, outdented = 100.0, 62.0
+    figures = [320.0, 420.0]
+
+    def group(top: float, name: str) -> float:
+        height = 22.0
+        right = figures[-1] + 90
+        _rule(page, top, indented, right)
+        for index in range(10):
+            y = top + index * height
+            left = outdented if index in (3, 7) else indented
+            page.insert_text((left, y + 15), f"{name}item{index}", fontsize=10)
+            page.insert_text((figures[0] + 4, y + 15), f"{10 + index},100", fontsize=10)
+            page.insert_text((figures[1] + 4, y + 15), f"{20 + index},200", fontsize=10)
+            _rule(page, y + height, indented, right)
+        return top + 10 * height
+
+    bottom = group(90.0, "Alpha")
+    page.insert_text((indented - 18, bottom + 30), "Second Section Heading", fontsize=12)
+    page.insert_text(
+        (indented - 18, bottom + 52),
+        "An introductory paragraph long enough not to read as a caption on its own, sitting here.",
+        fontsize=9,
+    )
+    group(bottom + 74, "Bravo")
+    doc.save(path)
+    doc.close()
+    return path
+
+
+@pytest.fixture
 def spanning_label_pdf(tmp_path) -> str:
     """A statement whose label runs across two columns, with a real data row below the last rule.
 
@@ -1086,71 +1128,26 @@ def test_a_label_clipped_by_the_left_edge_is_restored(outdented_pdf):
     assert not clipped, f"a label is still cut: {clipped}"
 
 
-def test_a_label_cut_on_both_sides_still_gets_its_first_letter_back():
-    """TC-032 — the same defect as TC-027 at a 5.4 pt outdent instead of a deep one.
+def test_the_label_column_is_rebuilt_per_group_not_per_table(two_group_pdf):
+    """The off-by-N that silently relabels rows (TC-033).
 
-    TEAM's 2025 report prints `Total current assets` flush at the region's left edge while indented
-    rows begin a few points right, so the label lost its `T` to that edge **and** its `ets` to the
-    next column, arriving as `'otal current ass'`. The earlier rule accepted a rebuild only when it
-    *ended with* the cell's text — true when the cut is on the left alone, false here, so the repair
-    declined and the letter stayed lost. Eight labels on one page, and no guard could see it:
-    `digits_lost` compares digits and this is a letter.
+    The rebuild must index a *group's* rows against that group's own geometry. Against the whole
+    table's it shifts, and the shift is invisible because every label still looks like a label: on a
+    market report it moved `Carmichael/Fair Oaks` up onto `Campus Commons`, the row above it. The
+    patch this replaced had the same flaw and hid it by firing on very few rows, which is how it
+    survived six rounds unnoticed.
+
+    Both failure shapes land here. A whole-table index of a nine-row group either writes the first
+    group's labels onto the second group's rows, or — with the length check in place — declines
+    entirely and leaves the outdented labels cut to `m3` / `m7`.
     """
-    # Rebuild longer than the cell: the cell's text sits whole inside it.
-    assert tables._missing_prefix("Total current assets", "otal current ass") == "T"
-    # Rebuild shorter, because the label also ran past this column's right edge.
-    assert tables._missing_prefix("Liabilities and", "iabilities and S") == "L"
-    assert tables._missing_prefix("Stockholders’", "tockholders’ e") == "S"
-    # Cisco's case gains its prefix and keeps its own text, so the neighbour's tail is not lost.
-    assert tables._missing_prefix("Cash flows from", "flows from i") == "Cash "
-    # Nothing to establish: no alignment, no guess.
-    assert tables._missing_prefix("Unrelated text", "otal current ass") == ""
-
-
-def test_the_left_repair_refuses_when_it_would_re_cut_the_right():
-    """The condition that makes the repair safe rather than merely better.
-
-    Re-reading a cell from the page's true margin can also lose its tail, because a label may run
-    past its own column: Cisco's 10-K page 61 turns `'flows from i'` into `'Cash flows from'` —
-    a word gained and a character lost. Only a pure prefix addition is accepted.
-    """
-    assert " ".join("Non-current assets:".split()).endswith("-current assets:")
-    assert not " ".join("Cash flows from".split()).endswith("flows from i")
-
-
-def test_a_recovered_row_keeps_every_word_not_just_the_first_figure():
-    """TC-027 — the recovery function itself was dropping data.
-
-    Amazon's page 10 carries `December 31, 2025` and `June 30, 2026` across its two figure columns.
-    Taking one figure per column returned `['December', '31,', '30,']` — **both years gone, from the
-    code written to recover them**. Assembling by run also lands a heading in the right column where
-    a single word does not: `December 31, 2025` straddles the boundary at x=449 while the run's
-    centre, 449.25, sits inside it.
-    """
-    line = [
-        (416.9, 89.4, 451.6, 98.3, "December", 0, 0, 0),
-        (453.6, 89.4, 463.6, 98.3, "31,", 0, 0, 0),
-        (465.6, 89.4, 481.6, 98.3, "2025", 0, 0, 0),
-        (502.5, 89.4, 519.0, 98.3, "June", 0, 0, 0),
-        (521.0, 89.4, 531.0, 98.3, "30,", 0, 0, 0),
-        (533.0, 89.4, 549.0, 98.3, "2026", 0, 0, 0),
-    ]
-    grouped = tables._runs(line)
-    assert [" ".join(w[4] for w in run) for run in grouped] == [
-        "December 31, 2025",
-        "June 30, 2026",
-    ], "a 20.9 pt gap separates the two column entries; the 2 pt gaps inside them do not"
-
-    columns = [(70.5, 0, 449.0, 0), (449.0, 0, 518.0, 0), (518.0, 0, 558.0, 0)]
-    assert tables._column_of(449.25, columns) == 1, "strict containment, no tolerance"
-    assert tables._column_of(525.75, columns) == 2
-
-    # Containment must beat proximity, and Apple's page 6 is where that bites: its label column is
-    # 378 pt wide against 69 pt figure columns, so a word sitting well inside the label column is
-    # still *nearer* to the next column's centre. Falling back to nearest here moves a row label
-    # into a figure column.
-    assert tables._column_of(440.0, columns) == 0, "inside the wide label column, though 140 pt "\
-        "from its centre and 43 pt from the next column's"
+    result = tables.tables(two_group_pdf, pages=[1])
+    labels = [row[0] for entry in result["tables"] for row in entry["rows"] if row[0].strip()]
+    assert len(labels) == 20, f"both groups must be read whole; got {labels}"
+    assert labels == sorted(labels), f"a label landed on the wrong row: {labels}"
+    assert labels == [f"{name}item{index}" for name in ("Alpha", "Bravo") for index in range(10)], (
+        f"labels are cut or shifted: {labels}"
+    )
 
 
 def test_a_data_row_just_outside_the_band_is_recovered(outdented_pdf):

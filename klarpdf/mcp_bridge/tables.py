@@ -849,60 +849,37 @@ def _line_text(words: list, rect: fitz.Rect) -> str:
     return "\n".join(" ".join(parts) for _, parts in sorted(lines.items()))
 
 
-_MIN_PREFIX_ANCHOR = 3
-"""How much of a cell's own text must match the fuller read before a prefix is prepended."""
+def recover_left_margin(
+    page: fitz.Page, table, rows: list[list[str]], top: float | None = None,
+    bottom: float | None = None,
+) -> list[list[str]]:
+    """Rebuild the label column from the page rather than repairing the reader's cells (TC-033).
 
+    **This replaced six patches, and the reason it had to is the more useful lesson.** Left-clipped
+    labels were found and fixed five times — TC-026, TC-027, TC-032, and twice in TC-033 — each fix
+    fitted to the documents in front of it and each beaten by the next one. TC-033's finding was
+    literally the TC-032 repair failing on two documents it had never been run against. Six instances
+    of **one cause**: the reader's first column starts at the indented rows' left edge, so anything
+    outdented past it is cut, and the amount cut varies with the outdent.
 
-def _missing_prefix(rebuilt: str, original: str) -> str:
-    """The characters a cell lost at its left edge, or ``""`` if none can be established.
+    Patching that meant reconstructing what a cell *should* have said from what it *did* say —
+    prefix alignment, suffix tests, containment checks — and every one of those is an assumption
+    about how the damage looks. Reading the column from the page instead makes the question moot:
+    for each row, take the words between the page's true left margin and the first column's right
+    edge. There is nothing to align and nothing to assume.
 
-    Found by sliding the fuller read forward until its tail lines up with the start of what the cell
-    actually holds. That handles the case a straight containment test cannot: a label cut on **both**
-    sides, where the rebuild is *shorter* than the cell's text rather than longer. TEAM's 2025 report
-    has three — ``'iabilities and S'`` against a rebuild of ``'Liabilities and'``, whose own tail
-    stops before the ``S`` the cell already carries.
+    Measured on the three documents that defeated the patches — Cisco's 10-K page 61 (a two-line
+    label losing the start of *both* lines), a market report losing five single-line first characters,
+    and TEAM's balance sheet losing eight — all come back whole, with the anchors unchanged.
 
-    Only the prefix is returned, never a replacement, which is what makes it safe: the cell keeps
-    every character it had and gains only what was clipped off the front. Cisco's
-    ``'flows from i'`` becomes ``'Cash flows from i'`` and its neighbour still holds
-    ``'nvesting activities:'`` — nothing duplicated, nothing lost.
-    """
-    # The fuller read is *longer* than the cell: the cell's text sits whole inside it.
-    at = rebuilt.find(original)
-    if at > 0:
-        return rebuilt[:at]
-    # Or *shorter*, because the label also ran past this column's right edge and the cell already
-    # carries a fragment the rebuild stops before. Slide forward until the rebuild's tail lines up
-    # with the start of what the cell holds.
-    for start in range(1, len(rebuilt)):
-        tail = rebuilt[start:]
-        if len(tail) >= _MIN_PREFIX_ANCHOR and original.startswith(tail):
-            return rebuilt[:start]
-    return ""
+    It only ever widens: a row whose rebuild yields *fewer* words than the reader already produced
+    keeps what the reader produced. A label still stops at its own column's right edge, so a long one
+    remains split across two cells with its tail in the next — the tolerated case, since concatenating
+    them loses nothing.
 
-
-def recover_left_margin(page: fitz.Page, table, rows: list[list[str]]) -> list[list[str]]:
-    """Restore row labels clipped by the region's left edge (TC-026 HIGH 3).
-
-    A financial statement outdents its section headers, and the first column's left edge is derived
-    from the *indented* data rows — so anything starting left of it is cut at a fixed x, mid-word,
-    and silently. Measured across two unrelated SEC filers:
-
-        '-current assets:'            was  'Non-current assets:'
-        'ent liabilities:'            was  'Current liabilities:'
-        'mitments and contingencies'  was  'Commitments and contingencies'
-        'nce as of December 31, 2022' was  'Balance as of December 31, 2022'
-
-    This is the harm the tool declines whole pages to avoid — *"the columns would have to be
-    inferred from spacing, which silently drops characters"* — happening inside the happy path,
-    where nothing flags it.
-
-    **The repair only ever adds a prefix**, and that condition is what makes it safe rather than
-    merely better. Re-reading a cell from the page's true left margin can also *re-cut* it on the
-    right, because a label may run past its own column into the next one: Cisco's 10-K page 61 turns
-    ``'flows from i'`` into ``'Cash flows from'``, gaining a word and losing the ``i``. So a rebuild
-    is accepted only when the original survives inside it as a suffix — 9 repairs applied across
-    Apple and Alphabet, and all 25 of Cisco's rows correctly left alone.
+    This is the same move that settled the dropped column in TC-031, and the pattern worth carrying:
+    **every guard and repair built on asking the page has held; every one built on inferring from the
+    reader's own output has been beaten by the next document.**
     """
     box = fitz.Rect(table.bbox)
     words = page.get_text("words")
@@ -912,35 +889,30 @@ def recover_left_margin(page: fitz.Page, table, rows: list[list[str]]) -> list[l
     if margin >= box.x0 - 1:
         return rows
 
-    repaired = [list(row) for row in rows]
-    for index, geometry in enumerate(table.rows):
-        if index >= len(repaired) or not geometry.cells or not geometry.cells[0]:
+    # Only this group's rows. Indexing the whole table's rows against a group's is an off-by-N that
+    # silently relabels: on a market report it moved `Carmichael/Fair Oaks` to `Campus Commons`, the
+    # row above it. The patch this replaced had the same flaw and hid it by firing on very few rows.
+    geometry = [
+        row
+        for row in table.rows
+        if top is None
+        or bottom is None
+        or top - 1 <= (row.bbox[1] + row.bbox[3]) / 2 <= bottom + 1
+    ]
+    if len(geometry) != len(rows):
+        return rows
+
+    rebuilt = [list(row) for row in rows]
+    for index, row_geometry in enumerate(geometry):
+        if not row_geometry.cells or not row_geometry.cells[0]:
             continue
-        original = repaired[index][0] if repaired[index] else ""
-        if not original.strip():
-            continue
-        top, bottom = geometry.bbox[1], geometry.bbox[3]
-        if not any(w[0] < box.x0 - 1 and top - 1 <= (w[1] + w[3]) / 2 <= bottom + 1 for w in words):
-            continue
-        widened = _line_text(words, fitz.Rect(margin - 1, top, geometry.cells[0][2], bottom))
-        flat, was = " ".join(widened.split()), " ".join(original.split())
-        if not flat or flat == was:
-            continue
-        # Prepend only what the cell is missing at the front, and take it from where the cell's own
-        # text sits inside the fuller read. The earlier rule — accept when the rebuild *ends with*
-        # the original — assumed the cut was on the left alone, and a small outdent breaks that
-        # assumption: TEAM's 2025 report outdents by 5.4 pt, so `Total current assets` lost its `T`
-        # to the region's left edge **and** its `ets` to the next column, leaving
-        # `'otal current ass'`. The rebuild reads `'Total current assets'`, which does not end with
-        # that, so the repair declined and the letter stayed lost (TC-032).
-        #
-        # Locating the original inside the rebuild keeps the guard the old rule was there for:
-        # Cisco's `'flows from i'` is absent from its own rebuild `'Cash flows from'`, so that one is
-        # still refused rather than silently re-cut on the right.
-        prefix = _missing_prefix(flat, was)
-        if prefix:
-            repaired[index][0] = prefix + original
-    return repaired
+        label = _line_text(
+            words,
+            fitz.Rect(margin - 1, row_geometry.bbox[1], row_geometry.cells[0][2], row_geometry.bbox[3]),
+        )
+        if label.strip():
+            rebuilt[index][0] = label
+    return rebuilt
 
 
 _RUN_GAP = 10.0
@@ -1280,7 +1252,7 @@ def _describe(
                 refuse(top, bottom, _REFUSALS["lost"])
                 continue
             if split:
-                repaired = recover_left_margin(page, table, repaired)
+                repaired = recover_left_margin(page, table, repaired, top, bottom)
                 grown = recover_edge_row(page, table, repaired, top, bottom)
                 if len(grown) != len(repaired):
                     # Grow the box by the row that was recovered, not to the whole region's top:
