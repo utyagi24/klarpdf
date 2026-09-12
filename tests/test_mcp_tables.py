@@ -528,8 +528,8 @@ def test_the_credibility_guard_is_actually_wired_into_the_read(captioned_pdf, mo
     """
     real = tables._split_prose_rows
 
-    def lossy(table):
-        rows = table.extract()
+    def lossy(table, rows=None):
+        rows = table.extract() if rows is None else rows
         kept = rows[:1] + rows[-1:]
         return [(kept, table.bbox[1], table.bbox[3])]
 
@@ -767,8 +767,11 @@ def test_the_blank_edge_trim_is_wired_into_the_read(captioned_pdf, monkeypatch):
     throws the whole group away — which is how Qualcomm's page 4 lost its asset side."""
     real = tables._split_prose_rows
 
-    def with_spacer(table):
-        return [([[""] * len(rows[0]), *rows], top, bottom) for rows, top, bottom in real(table)]
+    def with_spacer(table, rows=None):
+        return [
+            ([[""] * len(group[0]), *group], top, bottom)
+            for group, top, bottom in real(table, rows)
+        ]
 
     monkeypatch.setattr(tables, "_split_prose_rows", with_spacer)
     assert tables.tables(captioned_pdf, pages=[1])["total_tables"] == 2, (
@@ -997,9 +1000,10 @@ def test_the_year_header_drop_is_wired_into_the_read(captioned_pdf, monkeypatch)
     """
     real = tables._split_prose_rows
 
-    def with_shifted_header(table):
+    def with_shifted_header(table, rows=None):
         return [
-            ([["2026", "2025", ""], *rows], top, bottom) for rows, top, bottom in real(table)
+            ([["2026", "2025", ""], *group], top, bottom)
+            for group, top, bottom in real(table, rows)
         ]
 
     monkeypatch.setattr(tables, "_split_prose_rows", with_shifted_header)
@@ -1177,6 +1181,117 @@ def test_a_rebuilt_label_joins_its_neighbour_without_repeating_or_losing_a_word(
     )
     assert rebuilt[0][0] == "Total current assets", rebuilt[0]
     assert rebuilt[0][1] == "and receivables", rebuilt[0]
+
+
+def test_a_dollar_sign_sitting_lower_than_its_line_is_not_stranded_on_one_of_its_own():
+    """TC-035 — lines must be grouped by overlap, never by a rounded coordinate.
+
+    Amazon's page 9 prints `Net sales $`, and the dollar sign's box starts at 157.689 where the
+    letters' start at 157.019. Rounding `y0` to the point put them 157 against 158 and the cell came
+    back as `"Net sales\n$"` — a caller splitting on the newline sees a value where a label is. The
+    same 0.7 pt strands any glyph whose box is shifted against its neighbours': a footnote dagger, a
+    superscript marker, the underscore in TC-034's address.
+    """
+    words = [
+        (60.0, 157.019, 84.0, 168.093, "Net"),
+        (86.0, 157.019, 110.0, 168.093, "sales"),
+        (112.0, 157.689, 118.0, 168.763, "$"),
+    ]
+    text = tables._line_text(
+        [(*w, 0, 0, 0) for w in words], fitz.Rect(55.0, 150.0, 200.0, 175.0)
+    )
+    assert text == "Net sales $", repr(text)
+
+
+def test_two_printed_lines_are_still_two_lines():
+    """The other half: grouping by overlap must not merge rows that really are separate.
+
+    Mutual centre containment is what holds the two apart — a one-way test would let a tall glyph
+    spanning both pull them into one line.
+    """
+    words = [
+        (60.0, 100.0, 90.0, 110.0, "first"),
+        (60.0, 112.0, 90.0, 122.0, "second"),
+    ]
+    text = tables._line_text(
+        [(*w, 0, 0, 0) for w in words], fitz.Rect(55.0, 95.0, 200.0, 130.0)
+    )
+    assert text == "first\nsecond", repr(text)
+
+
+def test_a_cell_holding_the_right_characters_in_the_wrong_order_is_rebuilt():
+    """TC-034 — the drawn-grid reader's first defect, and it is PyMuPDF's, not ours.
+
+    A work-order record prints `umesh_tyagi@yahoo.com` in one bordered cell and the page's word list
+    holds it as a single token, but `Table.extract()` returns `"umesh tyagi@yahoo.com\n_"`: the
+    underscore lifted out from between `umesh` and `tyagi`, a space left in its place, the character
+    emitted as a second line. The address is invalid and every other cell on the page is correct, so
+    there is nothing to make a caller look.
+    """
+    y0, y1 = 218.32, 230.69
+    page = _WordPage([(405.60, y0, 509.78, y1, "umesh_tyagi@yahoo.com")])
+    row = _CellRow(214.0, 236.0, [(399.6, 214.0, 558.0, 236.0)])
+    table = _CellTable((399.6, 214.0, 558.0, 236.0), [row])
+    repaired = tables.unscramble_cells(page, table, [["umesh tyagi@yahoo.com\n_"]])
+    assert repaired == [["umesh_tyagi@yahoo.com"]], repaired
+
+
+def test_the_unscramble_never_adds_or_removes_a_character():
+    """What bounds the repair above — and the reason it cannot undo a deliberate split.
+
+    A word straddling a column boundary is cut by *character* on purpose, and that cut is lossless.
+    Such a cell holds fewer characters than the page's words inside it, so the multiset differs and
+    the repair declines. If it fired here it would silently merge two columns.
+    """
+    y0, y1 = 100.0, 112.0
+    page = _WordPage([(60.0, y0, 200.0, y1, "Depreciation,")])
+    row = _CellRow(y0, y1, [(55.0, y0, 205.0, y1)])
+    table = _CellTable((55.0, y0, 205.0, y1), [row])
+    # The reader kept only the part left of a boundary inside this cell.
+    assert tables.unscramble_cells(page, table, [["Deprecia"]]) == [["Deprecia"]]
+    # And a cell the page does not contradict is returned untouched.
+    assert tables.unscramble_cells(page, table, [["Depreciation,"]]) == [["Depreciation,"]]
+
+
+def test_the_seam_is_repaired_even_where_no_label_is_outdented():
+    """The seam and the outdent are two different problems (TC-035 follow-up).
+
+    An outdent is what makes the *left* edge need rebuilding. It is not what makes the cut into the
+    next cell need moving, and gating both on it left two contracts for one field: TEAM's balance
+    sheet joined cleanly while the journal page still returned `["Countries inclu", "ded"]`, which
+    joins to `Countries inclu ded`. Here the page's margin equals the region's own left edge — no
+    outdent at all — and the seam must still land on a word boundary.
+    """
+    y0, y1 = 100.0, 112.0
+    words = [
+        (60.0, y0, 128.0, y1, "Countries"),
+        (130.0, y0, 190.0, y1, "included"),   # straddles the boundary at 150
+    ]
+    page = _WordPage(words)
+    row = _CellRow(y0, y1, [(60.0, y0, 150.0, y1), (150.0, y0, 260.0, y1)])
+    table = _CellTable((60.0, y0, 260.0, y1), [row])
+    repaired = tables.recover_left_margin(page, table, [["Countries inclu", "ded"]], y0, y1)
+    assert repaired == [["Countries included", ""]], repaired
+
+
+def test_the_unscramble_is_wired_into_the_read(captioned_pdf, monkeypatch):
+    """Pins the call site, as every other guard in this module now does.
+
+    The unit tests above call :func:`unscramble_cells` directly, so deleting the call site leaves
+    them green — which is the mistake this project has made often enough to have a rule about it.
+    """
+    seen: list[list[list[str]]] = []
+
+    def spy(page, table, rows):
+        seen.append([list(row) for row in rows])
+        return [["scrambled"] * len(row) for row in rows]
+
+    monkeypatch.setattr(tables, "unscramble_cells", spy)
+    result = tables.tables(captioned_pdf, pages=[1])
+    assert seen, "the reader's raw rows never reached unscramble_cells"
+    # It runs before everything, so what it returns is what the rest of the read judges.
+    returned = {cell for entry in result["tables"] for row in entry["rows"] for cell in row}
+    assert returned <= {"scrambled", ""}, returned
 
 
 def test_the_label_column_is_rebuilt_per_group_not_per_table(two_group_pdf):

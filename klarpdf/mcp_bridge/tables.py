@@ -40,6 +40,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from collections import Counter
 
 import pymupdf as fitz
 
@@ -780,7 +781,9 @@ def _column_edges(table) -> list[float]:
     return [round(cell[0], 1) for cell in first if cell]
 
 
-def _split_prose_rows(table) -> list[tuple[list[list[str | None]], float, float]]:
+def _split_prose_rows(
+    table, rows: list[list[str | None]] | None = None
+) -> list[tuple[list[list[str | None]], float, float]]:
     """Split one detected region wherever prose sits between two tables.
 
     A reader that takes its rows from drawn rules will sweep several tables into one region when the
@@ -794,7 +797,10 @@ def _split_prose_rows(table) -> list[tuple[list[list[str | None]], float, float]
     :func:`_read_page` which band to look in for each one's title — so the caller's two problems,
     a merged region and a missing caption, have one answer.
     """
-    rows = table.extract()
+    # ``rows`` is passed in so the split works on the *repaired* cells rather than re-extracting
+    # them. Re-extracting here is what silently discarded :func:`unscramble_cells`' work on the
+    # row-ruled path, and it was invisible until the call site itself was pinned by a test.
+    rows = table.extract() if rows is None else rows
     geometry = list(table.rows)
     if len(geometry) != len(rows) or len(rows) < 3:
         return [(rows, table.bbox[1], table.bbox[3])]
@@ -836,17 +842,38 @@ def _split_prose_rows(table) -> list[tuple[list[list[str | None]], float, float]
 
 
 def _line_text(words: list, rect: fitz.Rect) -> str:
-    """The words inside ``rect``, joined, with the page's own line breaks kept."""
+    """The words inside ``rect``, joined, with the page's own line breaks kept.
+
+    Lines are grouped by **vertical overlap**, never by a rounded coordinate. Rounding ``y0`` to the
+    point is what put a `$` on a line of its own: on Amazon's page 9 the dollar sign's box starts at
+    157.689 where the letters beside it start at 157.019, so `Net sales $` came back as
+    ``"Net sales\n$"`` (TC-035). The same 0.7 pt is enough to strand any glyph whose box is shifted
+    against its neighbours' — a superscript marker, a footnote dagger, an underscore.
+
+    Two words share a line when each one's vertical centre falls inside the other's span. Mutual
+    containment rather than one-way, so a tall glyph spanning two printed lines cannot pull them
+    together.
+    """
     inside = [
         w
         for w in words
         if fitz.Rect(w[:4]).intersects(rect)
         and (fitz.Rect(w[:4]) & rect).get_area() > 0.4 * fitz.Rect(w[:4]).get_area()
     ]
-    lines: dict[float, list[str]] = {}
-    for word in sorted(inside, key=lambda w: (round(w[1], 0), w[0])):
-        lines.setdefault(round(word[1], 0), []).append(word[4])
-    return "\n".join(" ".join(parts) for _, parts in sorted(lines.items()))
+    lines: list[list] = []
+    for word in sorted(inside, key=lambda w: ((w[1] + w[3]) / 2, w[0])):
+        centre = (word[1] + word[3]) / 2
+        for line in lines:
+            top, bottom = min(w[1] for w in line), max(w[3] for w in line)
+            span = sum((w[1] + w[3]) / 2 for w in line) / len(line)
+            if top <= centre <= bottom and word[1] <= span <= word[3]:
+                line.append(word)
+                break
+        else:
+            lines.append([word])
+    return "\n".join(
+        " ".join(w[4] for w in sorted(line, key=lambda w: w[0])) for line in lines
+    )
 
 
 def _word_seam(words: list, edge: float, top: float, bottom: float) -> float:
@@ -870,6 +897,56 @@ def _word_seam(words: list, edge: float, top: float, bottom: float) -> float:
         if w[0] < edge < w[2] and top - 1 <= (w[1] + w[3]) / 2 <= bottom + 1
     ]
     return max(cut) if cut else edge
+
+
+def unscramble_cells(page: fitz.Page, table, rows: list[list[str]]) -> list[list[str]]:
+    """A cell holding the right characters in the wrong order, rebuilt from the page (TC-034).
+
+    The first defect the **drawn-grid** reader has produced in nine rounds, and it comes from
+    PyMuPDF's own cell extraction rather than from anything here. A work-order record prints
+    `umesh_tyagi@yahoo.com` in one bordered cell; the word list holds it as a single token; and
+    ``Table.extract()`` returns ``"umesh tyagi@yahoo.com\n_"`` — the underscore lifted out from
+    between `umesh` and `tyagi`, a space left behind, and the character emitted as a second line.
+    The result is a plausible, invalid address in a table whose every other cell is correct, with
+    nothing in the reply to mark it.
+
+    The repair is bounded by the thing that makes it safe: it fires **only where the page's words
+    inside the cell hold exactly the characters the cell holds, in a different arrangement.** Same
+    multiset, different string. That cannot add a character, cannot remove one, and cannot resurrect
+    a row the reader dropped — so it changes nothing the digit check or the acceptance tests see,
+    and it leaves alone the deliberate character-level split at a column boundary (a word straddling
+    the edge contributes characters the cell does not have, so the multiset never matches).
+
+    ``extract()`` returns one row per ``table.rows`` entry, so this runs on the whole region before
+    any split and needs no group alignment — the off-by-N that :func:`recover_left_margin` documents
+    cannot arise here.
+    """
+    words = page.get_text("words")
+    repaired = [list(row) for row in rows]
+    for row_geometry, row in zip(table.rows, repaired):
+        for index, cell in enumerate(row_geometry.cells or []):
+            if cell is None or index >= len(row) or not row[index]:
+                continue
+            rect = fitz.Rect(cell)
+            contained = [
+                w
+                for w in words
+                if rect.x0 - 0.5 <= w[0] and w[2] <= rect.x1 + 0.5
+                and rect.y0 - 0.5 <= (w[1] + w[3]) / 2 <= rect.y1 + 0.5
+            ]
+            if not contained:
+                continue
+            printed = _line_text(contained, rect)
+            # Compare the characters with whitespace removed, and require the *sequence* to differ,
+            # not merely where the spaces fall. Without the second half this fires on cosmetics: the
+            # SpaceX prospectus prints `Inventory` against a dot leader, the reader joins them with
+            # no space and the page's word list with one, and rewriting that changes a long-standing
+            # anchor for no gain. Reordering is the defect; spacing is not.
+            here = re.sub(r"\s", "", row[index])
+            there = re.sub(r"\s", "", printed)
+            if here != there and Counter(here) == Counter(there):
+                row[index] = printed
+    return repaired
 
 
 def recover_left_margin(
@@ -910,8 +987,12 @@ def recover_left_margin(
     margin = min(
         (w[0] for w in words if box.y0 - 2 <= w[1] and w[3] <= box.y1 + 2), default=box.x0
     )
-    if margin >= box.x0 - 1:
-        return rows
+    # An outdent is what makes the *left* edge need rebuilding; it is not what makes the seam into
+    # the next cell need moving. Returning early where there is no outdent left that seam on the
+    # reader's mid-word cut, so `["Countries inclu", "ded"]` survived on the journal page while the
+    # same shape was repaired on TEAM's — two contracts for one field. So the margin only decides how
+    # far left to read.
+    margin = min(margin, box.x0)
 
     # Only this group's rows. Indexing the whole table's rows against a group's is an off-by-N that
     # silently relabels: on a market report it moved `Carmichael/Fair Oaks` to `Campus Commons`, the
@@ -1254,8 +1335,13 @@ def _describe(
         )
 
     for table in found:
-        whole = table.extract()
-        groups = _split_prose_rows(table) if split else [(whole, table.bbox[1], table.bbox[3])]
+        # Before anything else: a cell whose characters are the page's but in the wrong order. The
+        # grid reader's own output can be scrambled (TC-034), and every test below would judge the
+        # scrambled version.
+        whole = unscramble_cells(page, table, table.extract())
+        groups = (
+            _split_prose_rows(table, whole) if split else [(whole, table.bbox[1], table.bbox[3])]
+        )
 
         # What the split threw away has to be accounted for, or it escapes every test below.
         if not split_is_credible(whole, [rows for rows, _, _ in groups]):

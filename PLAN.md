@@ -7916,6 +7916,82 @@ patching. The round also found a documentation gap with a wider blast radius: `s
 as how to find text the reader cannot see. Sub-visible *by size* is exactly that, and it matters more
 for the redaction tools than for this one.
 
+##### TC-034 / TC-035 — the third shape of text damage, and a nine-round-old item it retired
+
+**2026-09-12.** Two rounds, and between them they corrected a claim this milestone had been making
+about itself.
+
+**TC-034 set its own agenda and that is why it found something.** Told to treat the brief as advisory,
+the tester derived a plan from the *public tool description* instead and observed that every document
+this milestone had ever been iterated against is a **row-ruled** table — while the contract names the
+**drawn grid** first. So they picked nine documents built that way (a filled and an unfilled IRS
+Form 8949, a filled AcroForm, a work-order record, a monospace payslip, a utility bill, an insurance
+schedule, a fee schedule, a benefit estimate), eight of them new, and found in the fourth a defect the
+grid reader had never been caught in: a work order prints `umesh_tyagi@yahoo.com` in one bordered
+cell, `extract_text` returns it intact, and ``get_tables`` returned ``"umesh tyagi@yahoo.com\n_"`` —
+the underscore lifted out from between `umesh` and `tyagi`, a space left in its place, the character
+emitted as a second line of the same cell. A plausible, invalid address, in a table whose every other
+cell is correct, with `unread_regions` empty.
+
+**It is the third shape.** Not clipped at a region edge, not cut at a column boundary: a value
+corrupted *in the middle*. TC-033 had reported the absence of exactly this as a negative result with
+its search space stated, and the absence did not survive nine documents outside the corpus. The
+premise the text-guard decision rested on — *the class is unobserved* — no longer holds.
+
+**And it was in the very first report of the series, unrecognised for nine rounds.** TC-026's
+`"Twitet r"` for *Twitter* was filed as ligature reordering and treated as PyMuPDF's to fix. It holds
+the same letters as `Twitter` in the wrong order, which is the same shape as the address.
+:func:`unscramble_cells` closes both: where the page's words inside a cell hold exactly the characters
+the cell holds, rearranged, the page's arrangement wins. Same multiset, different sequence — so it
+cannot add a character, cannot remove one, cannot resurrect a row the reader dropped, and therefore
+changes nothing the digit check or the acceptance tests see. It also declines on a deliberate
+character-level split at a column boundary, because a straddling word contributes characters the cell
+does not have and the multiset stops matching.
+
+**TC-035 caught the seam regression fifteen minutes after it was fixed**, and every row of its
+seventeen matches what the page-versus-cells check had already found. Recorded because the report is
+right and only its timing was not: the round independently reproduced a defect by the same method, on
+the same two documents, which is corroboration rather than duplication.
+
+**Two things TC-035's Part 2 list turned out to be one cause with the above.** The `$` it reported "in
+a new form" — on its own **line** inside a cell rather than inline — was :func:`_line_text` grouping
+printed lines by a *rounded* `y0`. Amazon's page 9 puts the dollar sign's box at 157.689 where the
+letters beside it start at 157.019, and rounding to the point made that 158 against 157. Lines are now
+grouped by **mutual vertical overlap**, which fixes the `$` and, by mechanism rather than by instance,
+any glyph whose box is shifted against its neighbours': a footnote dagger, a superscript marker, the
+underscore above.
+
+**The seam and the outdent were being gated together, and should not have been.** An outdent is what
+makes a label's *left* edge need rebuilding; it is not what makes the cut into the next cell need
+moving. Returning early where no outdent existed left two contracts for one field — TEAM's balance
+sheet joined cleanly while the journal page still returned ``["Countries inclu", "ded"]``. The margin
+now decides only how far left to read. Measured: three anchors change and all three improve —
+LLY p56's `2024` / `2025` stop being cut into `202` + `4` (the split every earlier note called
+*tolerated*), the journal page recovers `Countries included` and `P value: SMS versus`, and the SpaceX
+prospectus's returned label text matches the page's own words on nineteen rows where it had not. No
+table gained or lost, no shape changed. The contract is now checkable in one line — **join a row's
+first two cells with a space and compare against the print** — and it holds over 544 rows on eighteen
+documents.
+
+**The correction this pair forces, and it is about a number in `PROGRESS.md`.** The milestone had
+recorded the fully-ruled reader as *41 tables, 0 defects across eight rounds* against the row-ruled
+reader's *53 tables, every defect*. The zero was not a measurement of quality; it was the absence of
+exposure. One round aimed at that branch produced a defect that had been invisible through all eight,
+and retired a ninth-round-old item with it. Restated: **the grid reader has one known defect, fixed,
+on one round of exposure.** The general form is worth more than the correction — *a component with no
+recorded defects and no recorded tests has an untested record, not a clean one* — and it is the same
+error as CI's macOS leg passing while testing everything except its reason for existing.
+
+**One decline confirmed correct from the inside.** TC-034 recorded the Form 8949 transaction grid as a
+capability note rather than a defect, on the grounds that it could not be shown from outside that the
+grid was readable. It cannot be read, and for a reason only visible from within: the three filled rows
+carry a value in the description column alone — `FilledByAppOne`, `FilledByAppTwo`, `thank you` — and
+every other cell in them is genuinely blank on the page. Nothing is lost. What survives from that part
+is the tester's *other* point: the grid's `(f)` / `(g)` beneath *"Adjustment, if any, to gain or
+loss"* is the **non-year two-tier header** that has been a corpus gap for four rounds, and unlike the
+NAEP poster its region is correctly isolated — so a Form 8949 with amounts in every column is the one
+fixture that would put that shape in front of the reader.
+
 ##### `header` is claimed only where a drawn grid proves it
 
 A row-ruled read routinely starts its band one row inside the table, leaving `rows[0]` holding data

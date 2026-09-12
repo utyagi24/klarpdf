@@ -919,10 +919,18 @@ importantly, `read_page`'s shape: try, then test the *output*, then decline out 
   past the word the column edge cuts and re-reading both cells, with the word-level case pinned in
   `tests/test_mcp_tables.py` and the corpus sweep handed to the tester as a script.
   **A check scoped to the thing you fixed cannot see what the fix displaced.**
-  The measured split says where the risk lives — the fully-ruled reader returned 41 tables with **0**
-  defects across eight rounds, the row-ruled reader 53 tables and **every** defect — and dropping the
-  second is not an option, since it is the only one that reads Apple, Alphabet, Qualcomm, Salesforce,
-  Amazon, Broadcom or Tesla at all.
+  The measured split looked like it said where the risk lives — the fully-ruled reader 41 tables with
+  **0** defects across eight rounds, the row-ruled reader 53 tables and **every** defect — and
+  dropping the second is not an option, since it is the only one that reads Apple, Alphabet,
+  Qualcomm, Salesforce, Amazon, Broadcom or Tesla at all. **The zero was corrected in TC-034 and the
+  correction matters more than the number**: every document the milestone had ever been iterated
+  against was row-ruled, so the grid reader's clean record was the absence of *exposure*, not of
+  defects. One round aimed at it found a value corrupted mid-cell, and the same cause turned out to
+  be behind `"Twitet r"` — filed in TC-026 and open for nine rounds as a ligature problem. Restated:
+  the grid reader has **one** known defect, fixed, on **one** round of exposure. The general form:
+  *a component with no recorded defects and no recorded tests has an untested record, not a clean
+  one* — the same error as CI's macOS leg passing while testing everything except its reason for
+  existing (`CLAUDE.md` §The thing that verifies the code needs verifying too).
 
 - [ ] **M140** **Heading candidates** — the typography fallback for documents with neither
   bookmarks nor a linked contents page, and the only route to **subsections** a contents page omits.
@@ -4651,6 +4659,32 @@ it on this side of the line.
   changes shape: it is no longer "catch the damage we keep missing" but "insure against a class we
   have not observed", which is a materially weaker case for paying the false-decline cost. Still
   open, still the owner's call.
+  **And reopened by TC-034 (2026-09-12), which is why the round that looked outside the corpus was
+  worth more than the count suggested.** The third shape exists: a character taken out of the middle
+  of a value and relocated inside the cell, found in the fourth document tried outside the corpus.
+  The individual defect is fixed and so is the nine-round-old `"Twitet r"` that shares its cause, but
+  the premise this entry rested on — *the class is unobserved* — is gone, and a word-level
+  page-versus-cells comparison would have caught both. What is still undecided is the same trade:
+  such a comparison declines tables that legitimately reformat text, which is why TC-028 scoped the
+  guard to digits. The case for it is now stronger than it was one round ago.
+- **Four `get_tables` items are open on *header* rows rather than label rows** (TC-035, 2026-09-12).
+  Grouped because they are one region of the reader and were being reported as four: a centred heading
+  cut across two columns (Broadcom p49 `["", "millions, except par va", "lue)"]`, AMZN p10
+  `["", "(un", "audited)"]`), a multi-tier header collapsed to one line (GOOGL p54
+  `["", "es Am", …]`), `header` duplicated into `rows[0]`, and `title` taking a row's own label
+  (AMZN p9 `title: "North America"`) or a page furniture string (Broadcom p49
+  `title: "Table of Contents"`). The seam rule that closed the *label* class in TC-033/TC-035 does
+  not reach any of them, because it works on a row's first two cells and these are the row above the
+  data. Needs deciding before it can be worked: whether the reader should place a header row's cells
+  by its own geometry (a centred span belongs to no single column) or keep declining to claim one —
+  the existing contract says `header` is null unless a drawn grid proves it, and these are cases
+  where the grid does *not* prove it but a caller still receives the mangled row as `rows[0]`.
+- **A filled Form 8949 is the fixture that would reach the non-year two-tier header** (TC-034,
+  2026-09-12). Open since TC-030 as a corpus gap and attempted in three rounds. The IRS grid's
+  `(f)` / `(g)` under *"Adjustment, if any, to gain or loss"* is exactly the shape, and unlike the
+  NAEP poster that carried one behind a decline, **this region is correctly isolated** — the only
+  thing between the shape and a test is that the sample form has amounts in no column but the
+  description. Recorded so the next round knows what to bring rather than re-deriving it.
 - **`get_tables` has no size floor, so sub-visible text merges into a visible row** (TC-033,
   2026-09-11). The Sacramento office-market report's `West Sacramento` row comes back with two
   values in every cell, the second being the market total — a caller reading the submarket's
