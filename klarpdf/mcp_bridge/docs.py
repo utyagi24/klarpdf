@@ -643,6 +643,7 @@ belonged to. For a sparse table, `render_page` and read the image.
 | `title` | the caption above the table, or null — best-effort, see below |
 | `title_from_previous_page` | the title was stranded at the foot of the previous page |
 | `continues_from` | page number this *may* continue from — a hint, never applied |
+| `continuation_checked` | whether the question could be answered at all — see below |
 | `bbox` | `[x0, y0, x1, y1]`, unrotated, top-left origin — feeds `render_page`'s `clip` |
 | `row_count` / `col_count` | the shape actually returned |
 
@@ -658,6 +659,15 @@ So `header` is filled in only where a drawn grid settles it, and null everywhere
 null, look at `title` — a header that fell outside the band is often picked up there — and at
 `rows[0]`, which may or may not be one. This is the same rule as everything else here: state it
 where the document states it, say nothing where it would be a guess.
+
+## A column can be missing because it was swept into the cell beside it
+
+Where several narrow numeric columns sit against a wide text one — a statement's *number of units*
+and *unit price* beside a *fund name* — the reader can fail to find their boundaries and return them
+inside the text cell. That is repaired where the evidence is unambiguous: values at the same x on
+three or more rows, with text in front of them, are given their own columns. It is **not** caught in
+general, so the check worth doing on a many-columned statement is to count the columns you can see
+against `col_count`.
 
 ## A long label can be split across the first two cells
 
@@ -692,6 +702,14 @@ different tables — a product manual in the corpus does this, one reporting 24 
 Merging them by geometry produces plausible nonsense. So `continues_from` is a hint for you to
 judge, and a table that received a stranded title from the previous page is never marked as a
 continuation, because that title is evidence it starts something new.
+
+**`continues_from` can only be answered if the page before is in the same request**, and
+`continuation_checked` tells you whether it was. This matters because the natural workflow walks
+straight into it: `search` points you at page 77, you call `get_tables(pages=[77])`, and you get
+`continues_from: null`. That does **not** mean "this table starts here" — it means the previous page
+was never looked at. With `continuation_checked: false`, ask for `[76, 77]` before concluding
+anything; a balance sheet running off page 76 onto 77 reports `continues_from: 76` once it can see
+both. When `continuation_checked` is true, `null` really does mean *not a continuation*.
 
 ## Accounting negatives
 

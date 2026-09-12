@@ -1274,6 +1274,174 @@ def test_the_seam_is_repaired_even_where_no_label_is_outdented():
     assert repaired == [["Countries included", ""]], repaired
 
 
+@pytest.fixture
+def two_page_pdf(tmp_path) -> str:
+    """A row-ruled table on page 1 and another on page 2, so a request for page 2 alone is possible.
+
+    What TC-036 needed: `continues_from: null` has to mean something different when the page before
+    was never scanned, and page 1 of a one-page fixture can never show that.
+    """
+    path = str(tmp_path / "two_page.pdf")
+    doc = fitz.open()
+    edges = [70.0, 300.0, 400.0]
+    for page_number in range(2):
+        page = doc.new_page()
+        body = [
+            (f"{_OFFICERS[index % len(_OFFICERS)]}", f"{10 + index},100", f"{20 + index},200")
+            for index in range(11)
+        ]
+        _write_row_ruled(page, 90.0, body, edges)
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def test_a_whole_word_overlapping_a_boundary_is_not_moved_to_the_other_cell():
+    """TC-036 — the seam must move past a word the boundary *cut*, not one it merely overlaps.
+
+    On a retirement-account statement the fund code `2327` spans 135.4-155.5 against a column
+    boundary at 137.3. The reader had correctly filed it under *Fund code and name*; moving the seam
+    past it pulled it onto the asset class. The two cases are told apart by the reader's own strings:
+    a cut word is in neither cell whole, an overlapping one is in one of them.
+    """
+    y0, y1 = 145.2, 160.3
+    page = _WordPage([
+        (54.0, y0, 125.2, y1, "Funds"),
+        (135.4, y0, 155.5, y1, "2327"),
+        (158.2, y0, 216.7, y1, "LifePath"),
+    ])
+    row = _CellRow(y0, y1, [(54.0, y0, 137.3, y1), (137.3, y0, 472.1, y1)])
+    table = _CellTable((54.0, y0, 472.1, y1), [row])
+    kept = tables.recover_left_margin(page, table, [["Funds", "2327 LifePath"]], y0, y1)
+    assert kept == [["Funds", "2327 LifePath"]], kept
+
+
+def test_a_word_repeated_inside_a_long_label_is_still_seen_as_cut():
+    """TC-036 — the cut test has to be positional, and per printed line.
+
+    Two ways a substring test gets this wrong, both found by comparing the returned words against
+    the page's rather than by any assertion.
+
+    Cisco's `Cash, cash equivalents, restricted cash and restricted cash equivalents, beginning of
+    fiscal year` is cut through its *first* `equivalents,` while a second sits further along the same
+    cell — so asking *is the word absent from both cells?* finds it, calls the split whole, and leaves
+    `"Cash, cash equivalents,"` beside `"lents, restricted cash …"`.
+
+    And on a tall row the cut falls mid-string: `"Effect of foreign c"` is the first of two lines in
+    one cell, so testing the cell's end asks about the wrong line and loses the `c`.
+    """
+    # Repeated vocabulary: the cut is through the first instance.
+    assert tables._was_cut(
+        "equivalents,", "Cash, cash equiva", "lents, restricted cash and restricted cash equivalents,"
+    )
+    # Two printed lines in one cell: the cut is at the end of the first, not of the string.
+    assert tables._was_cut(
+        "currency", "Effect of foreign c\nequivalents", "urrency exchange rate changes\ncash "
+    )
+    # And a whole word the boundary merely overlaps is not cut.
+    assert not tables._was_cut("2327", "Target Date Funds", "2327 ML BR LifePath")
+
+
+def test_a_column_swept_into_a_text_cell_gets_its_own_back():
+    """TC-036 — the merge direction of the depth axis.
+
+    A statement prints six columns and returned four, with *number of units* and *unit price*
+    absorbed into the *fund name* cell. The figures were all present and the table footed to its own
+    total, which is what made it dangerous. No column threshold fixes it: this table has three data
+    rows, so the ten aligned words a boundary needs are unreachable, and lowering the bar shatters
+    the fund name instead.
+    """
+    rows_y = [(145.0, 160.0), (160.0, 175.0), (175.0, 190.0)]
+    words = []
+    for index, (top, bottom) in enumerate(rows_y):
+        words += [
+            (137.5, top + 2, 290.0, bottom - 2, f"Fund{index}"),
+            (338.6, top + 2, 381.6, bottom - 2, f"45{index}.10594"),
+            (411.6, top + 2, 449.5, bottom - 2, f"$3{index}.8000"),
+        ]
+    page = _WordPage(words)
+    geometry = [
+        _CellRow(top, bottom, [(54.0, top, 137.3, bottom), (137.3, top, 472.1, bottom),
+                               (472.1, top, 537.8, bottom)])
+        for top, bottom in rows_y
+    ]
+    table = _CellTable((54.0, 145.0, 537.8, 190.0), geometry)
+    rows = [[f"Asset{i}", f"Fund{i} 45{i}.10594 $3{i}.8000", f"$1{i},000"] for i in range(3)]
+    split, where = tables.split_hidden_columns(page, table, rows, 145.0, 190.0)
+    assert where == (1, 2), where
+    assert split[0] == ["Asset0", "Fund0", "450.10594", "$30.8000", "$10,000"], split[0]
+    # And the column that was already to the right keeps its place rather than being padded past.
+    assert all(row[-1].startswith("$1") for row in split), split
+
+
+def test_a_right_aligned_dollar_in_a_label_is_not_read_as_a_hidden_column():
+    """What bounds the split above, and the reason it is not an alignment rule.
+
+    An exact-alignment rule was tried and measured wrong: it missed the statement (a paragraph in the
+    same region crosses every candidate boundary) and fired on six filings where the thing after the
+    gap is the label column's own right-aligned `$` — `"Products $"` split at 314. A bare `$` is not
+    a value and one run is not two, so **either** guard alone keeps that out of reach: this goes red
+    only when both are broken together, which is what its control confirmed.
+    """
+    rows_y = [(100.0, 112.0), (112.0, 124.0), (124.0, 136.0)]
+    words = []
+    for index, (top, bottom) in enumerate(rows_y):
+        words += [
+            (60.0, top + 2, 120.0, bottom - 2, f"Products{index}"),
+            (310.0, top + 2, 314.0, bottom - 2, "$"),
+        ]
+    page = _WordPage(words)
+    geometry = [
+        _CellRow(top, bottom, [(55.0, top, 320.0, bottom), (320.0, top, 400.0, bottom)])
+        for top, bottom in rows_y
+    ]
+    table = _CellTable((55.0, 100.0, 400.0, 136.0), geometry)
+    rows = [[f"Products{i} $", f"{i},000"] for i in range(3)]
+    split, where = tables.split_hidden_columns(page, table, rows, 100.0, 136.0)
+    assert where is None, where
+    assert split == rows
+
+
+def test_continuation_says_when_it_could_not_look(two_page_pdf):
+    """TC-036 — `null` must not mean both "no" and "I could not tell".
+
+    A 572-page prospectus has a balance sheet running from page 76 onto 77. Asked for page 77 alone —
+    the natural workflow, since `search` points there — the reply said `continues_from: null`, which
+    reads as *this is not a continuation* when it means *the page before was not scanned*. A caller
+    then treats a fragment as a whole table.
+    """
+    # Page 2 alone: the question cannot be answered, and the reply must say so.
+    alone = tables.tables(two_page_pdf, pages=[2])
+    assert alone["total_tables"] == 1, alone["total_tables"]
+    assert alone["tables"][0]["continues_from"] is None
+    assert alone["tables"][0]["continuation_checked"] is False, "null must not read as 'no' here"
+
+    # Both pages: now it is answered, whatever the answer is.
+    both = tables.tables(two_page_pdf, pages=[1, 2])
+    second = [entry for entry in both["tables"] if entry["page"] == 2]
+    assert second and second[0]["continuation_checked"] is True
+
+    # And page 1 has no page before it at all, so there is nothing to be unsure about.
+    first = [entry for entry in both["tables"] if entry["page"] == 1]
+    assert first and first[0]["continuation_checked"] is True
+
+
+def test_the_hidden_column_split_is_wired_into_the_read(captioned_pdf, monkeypatch):
+    """Pins the call site. Deleting it leaves every unit test above green."""
+    seen: list[int] = []
+
+    def spy(page, table, rows, top=None, bottom=None):
+        seen.append(len(rows))
+        return [row + ["injected"] for row in rows], (len(rows[0]) - 1, 1)
+
+    monkeypatch.setattr(tables, "split_hidden_columns", spy)
+    result = tables.tables(captioned_pdf, pages=[1])
+    assert seen, "the repaired rows never reached split_hidden_columns"
+    assert any("injected" in row for entry in result["tables"] for row in entry["rows"]), (
+        "what the split returns is not what the reply carries"
+    )
+
+
 def test_the_unscramble_is_wired_into_the_read(captioned_pdf, monkeypatch):
     """Pins the call site, as every other guard in this module now does.
 

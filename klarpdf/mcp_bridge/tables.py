@@ -876,7 +876,36 @@ def _line_text(words: list, rect: fitz.Rect) -> str:
     )
 
 
-def _word_seam(words: list, edge: float, top: float, bottom: float) -> float:
+def _was_cut(word: str, before: str, after: str) -> bool:
+    """Did the reader split ``word`` between these two cells, rather than keep it whole in one?
+
+    The question has to be asked **positionally**. A substring test — *is the word absent from both
+    cells?* — looks equivalent and is not, because a long label repeats its own vocabulary: Cisco's
+    `Cash, cash equivalents, restricted cash and restricted cash equivalents, beginning of fiscal
+    year` is cut through the first `equivalents,` while a second one sits further along the same
+    cell, so the word *is* found, the split is judged whole, and the seam stays where it cut —
+    leaving `"Cash, cash equivalents,"` beside `"lents, restricted cash …"` (TC-036, caught by
+    comparing the returned words against the page's rather than by any test).
+
+    Cut means the first cell ends with a non-empty prefix of the word and the second begins with
+    exactly the rest of it — **per printed line**, not per cell. A tall row holds several lines in one
+    cell and the cut then falls in the middle of the string: Cisco's `Effect of foreign currency …`
+    keeps `"Effect of foreign c"` as its *first* line with `"equivalents"` below it, so testing the
+    cell's end asks about the wrong line and loses the `c`.
+    """
+    heads = before.split("\n")
+    tails = after.split("\n")
+    return any(
+        head.endswith(word[:at]) and tail.startswith(word[at:])
+        for head in heads
+        for tail in tails
+        for at in range(1, len(word))
+    )
+
+
+def _word_seam(
+    words: list, edge: float, top: float, bottom: float, cells: tuple[str, str] | None = None
+) -> float:
     """Where the first column really ends on this row: past the word its right edge cuts through.
 
     The reader splits a cell's text by **character**, so a label cut at a column boundary comes back
@@ -890,13 +919,24 @@ def _word_seam(words: list, edge: float, top: float, bottom: float) -> float:
     So the seam moves to the end of the straddling word and **both** cells are rebuilt from it. The
     widest straddle on the row wins, since a tall row's two printed lines are cut at different
     points and the first cell has to clear both.
+
+    ``cells`` is the reader's own pair of strings, and it is what separates a word the boundary *cut*
+    from one it merely *overlaps* — see the comment on the filter below (TC-036).
     """
-    cut = [
-        w[2]
+    straddling = [
+        w
         for w in words
         if w[0] < edge < w[2] and top - 1 <= (w[1] + w[3]) / 2 <= bottom + 1
     ]
-    return max(cut) if cut else edge
+    # A word may *overlap* the boundary without being cut by it, and then the reader has already put
+    # it whole on one side. Moving the seam then relocates a correct value: on a retirement-account
+    # statement the fund code `2327` spans 135.4-155.5 against a boundary at 137.3, the reader
+    # correctly filed it under *Fund code and name*, and moving the seam pulled it onto the asset
+    # class. So the seam only moves past a word the reader actually split — read off its own two
+    # strings by :func:`_was_cut`, positionally rather than by searching for the word in them.
+    if cells is not None:
+        straddling = [w for w in straddling if _was_cut(w[4], cells[0], cells[1])]
+    return max((w[2] for w in straddling), default=edge)
 
 
 def unscramble_cells(page: fitz.Page, table, rows: list[list[str]]) -> list[list[str]]:
@@ -947,6 +987,117 @@ def unscramble_cells(page: fitz.Page, table, rows: list[list[str]]) -> list[list
             if here != there and Counter(here) == Counter(there):
                 row[index] = printed
     return repaired
+
+
+def _trailing_value_runs(inside: list) -> list[list]:
+    """Runs of value words at the end of one cell, split where the whitespace is wide."""
+    runs: list[list] = []
+    current: list = []
+    for index, word in enumerate(inside):
+        if index and word[0] - inside[index - 1][2] >= _RUN_GAP + 2 and current:
+            runs.append(current)
+            current = []
+        current.append(word)
+    if current:
+        runs.append(current)
+    trailing: list[list] = []
+    for run in reversed(runs):
+        if all(_NUMERIC_CELL.match(word[4]) for word in run):
+            trailing.insert(0, run)
+        else:
+            break
+    return trailing
+
+
+def split_hidden_columns(
+    page: fitz.Page, table, rows: list[list[str]], top: float | None = None,
+    bottom: float | None = None,
+) -> tuple[list[list[str]], tuple[int, int] | None]:
+    """Columns the reader swept into a neighbouring text cell, given back their own (TC-036).
+
+    The **merge** direction of the depth axis; TC-031 settled the split direction. A retirement
+    statement prints six columns — asset class, fund code and name, number of units, unit price,
+    value, percentage — and came back as four, with *number of units* and *unit price* absorbed into
+    the fund-name cell. It is the worst failure shape this tool has: the figures are all present and
+    correct, the percentages sum to 100.0 and the values foot to the returned total, so the table
+    looks complete while two of its six columns cannot be read as values at all.
+
+    **Why no threshold fixes it, measured.** The column boundaries here come from alignment, and
+    :data:`_MIN_WORDS_VERTICAL` asks for ten vertically aligned words before it will place one. This
+    table has three data rows, so ten is unreachable. Lowering it does not help: at five the two
+    numeric columns separate and the *fund name* shatters into `"BR LifePath"`, `"Idx 20"`, `"35 7g"`
+    — the reason the constant is ten in the first place. There is no setting at which this table
+    reads, so the region has to be repaired after it is read.
+
+    **And detecting the boundary by alignment was tried and measured wrong.** An exact-alignment rule
+    (three rows agreeing on a word's left edge, nothing crossing it) *misses this page*, because the
+    region also holds a paragraph whose words cross every candidate boundary, and it fires on six
+    filings where the thing after the gap is the label column's right-aligned `$` — `"Products $"`
+    split at 314. So the test is structural instead: a cell that ends in **two or more** runs of
+    *value* words at x positions repeating across at least three rows, with non-value text before
+    them. Across twenty-one documents that fires on exactly one cell — this one — and on no anchor.
+    """
+    words = page.get_text("words")
+    # This group's rows only. Padding the whole region would add blank columns to a *neighbouring*
+    # table that shares the region — measured: doing that cost the statement's first table outright.
+    geometry_rows = [
+        row
+        for row in table.rows
+        if top is None
+        or bottom is None
+        or top - 1 <= (row.bbox[1] + row.bbox[3]) / 2 <= bottom + 1
+    ]
+    if len(geometry_rows) != len(rows):
+        return rows, None
+    width = max((len(row) for row in rows), default=0)
+    for column in range(width):
+        votes: dict[tuple, list[tuple[int, list[list]]]] = {}
+        for index, geometry in enumerate(geometry_rows):
+            cells = geometry.cells or []
+            if column >= len(cells) or cells[column] is None or index >= len(rows):
+                continue
+            rect = fitz.Rect(cells[column])
+            inside = sorted(
+                (
+                    w
+                    for w in words
+                    if rect.x0 - 0.5 <= w[0] and w[2] <= rect.x1 + 0.5
+                    and rect.y0 <= (w[1] + w[3]) / 2 <= rect.y1
+                ),
+                key=lambda w: w[0],
+            )
+            runs = _trailing_value_runs(inside)
+            if len(runs) < 2:
+                continue
+            consumed = sum(len(run) for run in runs)
+            leading = inside[: len(inside) - consumed]
+            if not leading or all(_NUMERIC_CELL.match(w[4]) for w in leading):
+                continue
+            key = tuple(round(run[0][0] * 2) / 2 for run in runs)
+            votes.setdefault(key, []).append((index, runs))
+        for key, hits in votes.items():
+            if len(hits) < _HIDDEN_COLUMN_ROWS:
+                continue
+            extra = len(key)
+            taken = dict(hits)
+            # Every row gains the same columns in the same place: the new cells are *inserted* after
+            # `column`, never appended, or the columns that were already to the right of it stay at
+            # their old index while the split rows carry theirs two places along.
+            rebuilt: list[list[str]] = []
+            for index, row in enumerate(rows):
+                head, tail = list(row[: column + 1]), list(row[column + 1 :])
+                if index not in taken:
+                    rebuilt.append(head + [""] * extra + tail)
+                    continue
+                values = [" ".join(w[4] for w in run) for run in taken[index]]
+                joined = " ".join(values)
+                # What stays behind is the cell minus the values lifted out of it.
+                kept = head[column]
+                if kept.endswith(joined):
+                    kept = kept[: -len(joined)].rstrip()
+                rebuilt.append(head[:column] + [kept] + values + tail)
+            return rebuilt, (column, extra)
+    return rows, None
 
 
 def recover_left_margin(
@@ -1013,7 +1164,9 @@ def recover_left_margin(
         if not cells or not cells[0]:
             continue
         top_y, bottom_y = row_geometry.bbox[1], row_geometry.bbox[3]
-        seam = _word_seam(words, cells[0][2], top_y, bottom_y)
+        current = rebuilt[index]
+        neighbours = (current[0], current[1] if len(current) > 1 else "")
+        seam = _word_seam(words, cells[0][2], top_y, bottom_y, neighbours)
         label = _line_text(words, fitz.Rect(margin - 1, top_y, seam, bottom_y))
         if not label.strip():
             continue
@@ -1027,6 +1180,22 @@ def recover_left_margin(
             )
     return rebuilt
 
+
+_HIDDEN_COLUMN_ROWS = 3
+"""Rows that must agree before a column hiding inside a text cell is believed (TC-036).
+
+Three, because that is what the evidence supports rather than a tuning choice: a retirement-account
+statement's *number of units* and *unit price* both live inside its *fund name* cell, and it has
+exactly three fund rows. Requiring more would mean no statement of this shape is ever readable.
+"""
+
+_NUMERIC_CELL = re.compile(r"^[$(]?[\d,]+(?:\.\d+)?\)?%?$")
+"""A word that is a value rather than a label — a figure, optionally with `$`, brackets or `%`.
+
+Deliberately *not* matched by a bare `$`. That is what separates the shape this finds from the
+ordinary filing where a right-aligned `$` sits at the end of the label cell: `"Products $"` ends in
+one non-numeric run, `"ML BR LifePath Idx 2035 7g 459.10594 $33.8000"` in two numeric ones.
+"""
 
 _RUN_GAP = 10.0
 """Horizontal gap that separates two column entries on one line.
@@ -1371,7 +1540,24 @@ def _describe(
                 continue
             if split:
                 repaired = recover_left_margin(page, table, repaired, top, bottom)
+                repaired, split_at = split_hidden_columns(page, table, repaired, top, bottom)
                 grown = recover_edge_row(page, table, repaired, top, bottom)
+                if split_at is not None and len(grown) != len(repaired):
+                    # A row recovered from outside the band is built on the reader's *own* column
+                    # edges and padded to the current width, so its figures sit under the headings
+                    # they had before the split — the statement's total landed two columns left of
+                    # Value. Length cannot identify those rows, so position does: `recover_edge_row`
+                    # either prepends or appends, and the rows it added are the ones that moved.
+                    at, added = split_at
+                    def shift(row: list[str], at: int = at, added: int = added) -> list[str]:
+                        """Insert the split's columns and drop the padding it was given instead."""
+                        return row[: at + 1] + [""] * added + row[at + 1 : len(row) - added]
+                    if grown[len(grown) - len(repaired) :] == repaired:
+                        head = [shift(row) for row in grown[: len(grown) - len(repaired)]]
+                        grown = head + repaired
+                    elif grown[: len(repaired)] == repaired:
+                        tail = [shift(row) for row in grown[len(repaired) :]]
+                        grown = repaired + tail
                 if len(grown) != len(repaired):
                     # Grow the box by the row that was recovered, not to the whole region's top:
                     # with per-group recovery the latter swallows every group above this one.
@@ -1434,7 +1620,14 @@ def _continues_from(entry: dict, previous: dict | None, page_height: float) -> i
     be a confident lie. What separates them is the stranded title on page 29, so a table that
     received one is never reported as a continuation.
     """
-    if previous is None or entry.get("title_from_previous_page"):
+    # `previous` is None when the page before was not in the request, and that is a different
+    # answer from "this does not continue anything" — TC-036 found the natural workflow lands on it:
+    # `search` points at page 77, the caller asks for page 77 alone, and a fragment of a table that
+    # began on 76 comes back reporting `continues_from: null`. The reply now says which of the two it
+    # is, because a caller cannot tell from the outside and the wrong reading is the dangerous one.
+    if previous is None:
+        return None
+    if entry.get("title_from_previous_page"):
         return None
     if entry["bbox"][1] > _TOP_OF_PAGE * page_height:
         return None
@@ -1561,6 +1754,11 @@ def tables(
                     entry["title_from_previous_page"] = True
                 entry["continues_from"] = (
                     _continues_from(entry, previous, page.rect.height) if position == 0 else None
+                )
+                # Whether the question could be answered at all. False says the page before was not
+                # scanned, so `continues_from: null` means "unknown", not "no" (TC-036).
+                entry["continuation_checked"] = not (
+                    position == 0 and previous is None and index0 + 1 > 1
                 )
                 found.append(entry)
 

@@ -7992,6 +7992,72 @@ loss"* is the **non-year two-tier header** that has been a corpus gap for four r
 NAEP poster its region is correctly isolated — so a Form 8949 with amounts in every column is the one
 fixture that would put that shape in front of the reader.
 
+##### TC-036 — the merge direction, and a field that answered two questions with one value
+
+**2026-09-12.** The round verified every TC-034/TC-035 claim against the page — including applying the
+join test to **all 80 rows** of Cisco's page 61 and TEAM's page 69 rather than a sample — and then
+found two things in documents nobody had opened.
+
+**One of its three sub-findings was mine, introduced the same day.** On a retirement-account statement
+the fund code `2327` came back glued to the asset class, and that was :func:`_word_seam`: the code
+spans 135.4–155.5 against a column boundary at 137.3, so it *straddles* — and the seam moved past it,
+lifting a correct value out of *Fund code and name* where the reader had put it. The rule conflated a
+word the boundary **cut** with one it merely **overlaps**. They are told apart by the reader's own two
+strings and nothing else: a cut word is whole in neither cell, an overlapping one is whole in one of
+them. Fixed there, with the 637-row join check across eighteen documents still finding no glued
+fragment and no repeated tail.
+
+**The genuine finding is the *merge* direction of the depth axis**, which TC-031 settled only in the
+split direction. The statement prints six columns — asset class, fund code and name, number of units,
+unit price, value, percentage — and came back as **four**, with *number of units* and *unit price*
+absorbed into the fund-name cell. It is the worst shape this tool produces: every figure is present
+and correct, the percentages sum to 100.0 and the values foot to the returned total, so the table
+looks complete while two of its six columns cannot be read as values at all.
+
+**No threshold fixes it, and that is measured rather than argued.** The boundaries here come from
+alignment, and :data:`_MIN_WORDS_VERTICAL` wants ten vertically aligned words before it places one —
+unreachable in a table with three data rows. At five the two numeric columns separate and the fund
+name shatters into `"BR LifePath"` / `"Idx 20"` / `"35 7g"`, which is the reason the constant is ten.
+There is no setting at which this table reads.
+
+**And detecting the boundary by alignment was built, measured, and thrown away** — worth recording
+because it is the cheaper thing to reach for. An exact-alignment rule (three rows agreeing on a word's
+left edge to 0.5 pt, nothing crossing it) **missed this very page**, because the region also holds a
+paragraph whose words cross every candidate boundary, and it fired on **six** filings where the thing
+after the gap is the label column's own right-aligned `$` — `"Products $"` split at 314 on Apple,
+Alphabet, Amazon, Qualcomm, NVIDIA and Broadcom. A rule that misses its own case and breaks six good
+ones is not a tuning problem.
+
+:func:`split_hidden_columns` asks a structural question instead: a cell that ends in **two or more**
+runs of *value* words at x positions repeating across at least three rows, with non-value text in
+front of them. Across twenty-one documents that fires on **exactly one cell** — this one — and on no
+anchor. A bare `$` is not a value and one run is not two, so both halves of the alignment rule's
+mistake are out of reach, and each of those two guards is independently sufficient (the test pins the
+conjunction; its control had to break both).
+
+Two plumbing defects it surfaced, both found by looking at the output rather than by reasoning: run on
+the whole region it padded a *neighbouring* table in the same region with blank columns and cost that
+table outright, so it runs per group; and a row recovered from *outside* the band afterwards is built
+on the reader's own column edges and padded to the new width, which put the statement's total two
+columns left of the Value heading it belongs under — the recovered rows are now shifted by the same
+insertion, identified by position because length cannot distinguish them.
+
+**`continues_from` worked for the first time in ten rounds, and the round's better finding is what it
+does not say.** A 572-page prospectus runs a restated balance sheet from page 76 onto 77, and the
+arithmetic settles that they are one table in all three comparatives (`4,165.18 + 6,368.98 =
+10,534.16`, and so on). `get_tables(pages=[77])` reports `continues_from: null`; `pages=[76, 77]`
+reports `76`. So the feature is correct — but `null` was answering two different questions with one
+value, and the natural workflow walks into it: `search` points at page 77, the caller asks for 77
+alone, and reads *"this is not a continuation"* where the truth is *"the page before was never
+scanned"*. A fragment then gets treated as a whole table. `continuation_checked` now says which of the
+two it is, and `klarpdf://docs/get_tables` says so too. The tester tested it **both ways before
+writing it up**, which is what turned "a documented field that never fires" into this.
+
+**One decline recorded as a limit, not chased.** A Form 8949 re-saved through a different application
+reports *"nothing on this page marks where the cells are"* on an A4 page where the Letter-size
+originals both report a grid. The tester did not establish whether that is the document or the reader
+and neither did this session; it is in `PROGRESS.md` as a question with a named reproduction.
+
 ##### `header` is claimed only where a drawn grid proves it
 
 A row-ruled read routinely starts its band one row inside the table, leaving `rows[0]` holding data

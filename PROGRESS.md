@@ -4685,6 +4685,31 @@ it on this side of the line.
   NAEP poster that carried one behind a decline, **this region is correctly isolated** — the only
   thing between the shape and a test is that the sample form has amounts in no column but the
   description. Recorded so the next round knows what to bring rather than re-deriving it.
+- **`get_tables` finds a column swept into a neighbouring text cell only where the evidence is
+  unambiguous** (TC-036, 2026-09-12). The **merge** direction of the depth axis; TC-031 settled the
+  split direction. A retirement-account statement printed six columns and came back as four, with
+  *number of units* and *unit price* absorbed into the *fund name* cell — every figure present and
+  correct, percentages summing to 100.0, values footing to the returned total, so the table looked
+  complete while two of six columns could not be read as values. Fixed for the shape where two or
+  more runs of value words repeat at the same x across three rows with text in front of them; that is
+  the case the evidence supports and nothing else was claimed.
+  **What is still open is the general case**, and two measurements bound it. No column threshold
+  works: `_MIN_WORDS_VERTICAL` wants ten vertically aligned words and a three-row statement cannot
+  supply them, while lowering the bar shatters the fund name (`"BR LifePath"` / `"Idx 20"` /
+  `"35 7g"`) — there is no setting at which that table reads. And detecting the boundary by exact
+  alignment was built and thrown away: it **missed the page it was written for**, because a paragraph
+  in the same region crosses every candidate boundary, and it fired on **six** filings where the
+  thing after the gap is the label column's right-aligned `$`. So a statement whose hidden column
+  carries one value per row, or whose rows number fewer than three, is still returned merged and
+  silent. Needs deciding: whether to read the region's columns independently of the reader (the
+  TC-031 move taken further) or to disclose the doubt instead of returning the narrower table.
+- **A re-saved Form 8949 loses the ruling the original reports** (TC-036, 2026-09-12). Open as a
+  question with a named reproduction rather than a defect, because neither the tester nor this
+  session established which side it belongs to. `f8949_filled_saved_app.pdf` — A4, 595 x 842 —
+  reports *"nothing on this page marks where the cells are — no drawn grid and no ruled rows"*, while
+  `f8949.pdf` and `f8949_filled.pdf` — Letter, 612 x 792 — both report a grid. A re-save through a
+  different application appears to change what ruling survives. Worth settling because it bears on
+  `extract_text`'s `table_pages` too, which counts the same rules.
 - **`get_tables` has no size floor, so sub-visible text merges into a visible row** (TC-033,
   2026-09-11). The Sacramento office-market report's `West Sacramento` row comes back with two
   values in every cell, the second being the market total — a caller reading the submarket's
