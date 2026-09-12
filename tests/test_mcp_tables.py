@@ -809,6 +809,35 @@ def test_column_recovery_is_wired_into_the_read(captioned_pdf, monkeypatch):
         assert entry["col_count"] == len(entry["rows"][0])
 
 
+def test_a_recovered_column_keeps_a_multi_token_value_and_its_line_breaks():
+    """TC-032 — the recovered column returned `All` where the page prints `All 5`.
+
+    Anchoring on the region's edge finds the first token of each value; a second token on the same
+    line sits further right and was dropped. The run is now extended while the gap stays small,
+    which cannot bridge the 53 pt gutter to the journal's article text. Stacked lines are joined
+    with a newline so a consumer splitting a multi-line header sees the same shape in every column.
+    """
+    box = fitz.Rect(40, 60, 252.7, 260)
+    bands = [(60.0, 90.0), (90.0, 120.0), (120.0, 150.0), (150.0, 180.0),
+             (180.0, 210.0), (210.0, 240.0)]
+    page = _WordPage([
+        (252.7, 64, 268.0, 72, "All"), (271.0, 64, 277.0, 72, "5"),        # same line, small gap
+        (252.7, 94, 280.0, 102, "Baseline"), (252.7, 106, 270.0, 114, "level"),  # stacked
+        (252.7, 124, 280.0, 132, "0.277***"),
+        (252.7, 154, 280.0, 162, "0.219**"),
+        (252.7, 184, 280.0, 192, "0.360***"),
+        (252.7, 214, 280.0, 222, "9,148"),
+        # Far right: the journal's article text. The continuation allowance must not bridge to it.
+        (306.1, 64, 340.0, 72, "where"),
+    ])
+    widened = tables.recover_column(page, box, [["a"] for _ in bands], bands)
+    assert widened is not None
+    assert widened[0][-1] == "All 5", "a second token on the same line belongs to the value"
+    assert widened[1][-1] == "Baseline\nlevel", "stacked lines keep their newline"
+    assert widened[2][-1] == "0.277***"
+    assert not any("where" in row[-1] for row in widened), "the 53 pt gutter is not bridged"
+
+
 def test_the_journals_second_text_column_is_not_read_as_a_table_column():
     """Adjacency is the whole separation, and nothing softer works.
 
@@ -1055,6 +1084,27 @@ def test_a_label_clipped_by_the_left_edge_is_restored(outdented_pdf):
         if l.strip() and "current assets:" in l and l != "Non-current assets:"
     ]
     assert not clipped, f"a label is still cut: {clipped}"
+
+
+def test_a_label_cut_on_both_sides_still_gets_its_first_letter_back():
+    """TC-032 — the same defect as TC-027 at a 5.4 pt outdent instead of a deep one.
+
+    TEAM's 2025 report prints `Total current assets` flush at the region's left edge while indented
+    rows begin a few points right, so the label lost its `T` to that edge **and** its `ets` to the
+    next column, arriving as `'otal current ass'`. The earlier rule accepted a rebuild only when it
+    *ended with* the cell's text — true when the cut is on the left alone, false here, so the repair
+    declined and the letter stayed lost. Eight labels on one page, and no guard could see it:
+    `digits_lost` compares digits and this is a letter.
+    """
+    # Rebuild longer than the cell: the cell's text sits whole inside it.
+    assert tables._missing_prefix("Total current assets", "otal current ass") == "T"
+    # Rebuild shorter, because the label also ran past this column's right edge.
+    assert tables._missing_prefix("Liabilities and", "iabilities and S") == "L"
+    assert tables._missing_prefix("Stockholders’", "tockholders’ e") == "S"
+    # Cisco's case gains its prefix and keeps its own text, so the neighbour's tail is not lost.
+    assert tables._missing_prefix("Cash flows from", "flows from i") == "Cash "
+    # Nothing to establish: no alignment, no guess.
+    assert tables._missing_prefix("Unrelated text", "otal current ass") == ""
 
 
 def test_the_left_repair_refuses_when_it_would_re_cut_the_right():

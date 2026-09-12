@@ -4609,6 +4609,24 @@ it on this side of the line.
   six lines of which the band captures one) and **double-printed bold** (SpaceX p161 — now declined
   by the digit floor, which TC-029 rightly notes is a decision made *implicitly* by glyph counting
   rather than deliberately; it happens to be the right outcome).
+- **Nothing compares the *text* a table returns against the text the page printed** (TC-032,
+  2026-09-11). The deepest structural point any round has made, and it is not fixed. `digits_lost`
+  is the guard that compares evidence rather than guessing at a shape, and it is the reason the
+  row-loss class stayed closed — but it compares **digits only**. A lost letter is invisible to it,
+  as TEAM's page 69 showed with eight labels missing their first character on a balance sheet whose
+  seven subtotals all reconciled. The individual defect is fixed; the **gap in the guard** is not.
+  What needs deciding: extend `digits_lost` to compare letters too (the risk is false positives,
+  since a cell legitimately reformats text far more often than it reformats a number — which is
+  exactly why it was scoped to digits in TC-028), or accept that label damage is caught only by the
+  specific repairs and keep finding those one document at a time. Worth settling deliberately rather
+  than by default, because the tool's whole promise rests on that guard.
+- **A poster or dashboard one-pager is out of reach** (TC-032, corpus note rather than a defect). One
+  ruled table among graphics whose numbers are positioned by geometry — bar-segment labels, a
+  cartogram, a line chart — declines as a single region. The decline is disclosed and correct: a split
+  that tried to read the graphics really would discard most of the page. Recorded because the shape is
+  common in government and NGO reporting, and because the tester filed it as a defect and then
+  retracted it on the standing policy that a decline is a finding only if the *page* was readable.
+  It also keeps the non-year two-tier header a corpus gap: that page carries one, behind the decline.
 - **Two `get_tables` shapes are known-unhandled rather than merely untested** (TC-031, 2026-09-11).
   Both were reached by the tester and neither is a defect with a fix pending — each needs a document
   before it can be worked:

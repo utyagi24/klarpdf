@@ -348,7 +348,26 @@ def recover_column(
 
         # Place each word in the single row band that contains it; a word spanning two bands is
         # ambiguous and is dropped rather than guessed into one of them.
-        placed: dict[int, list[str]] = {}
+        # A value may be more than one token on its line — the paper prints `All 5` — so the run is
+        # extended rightwards while the gap stays small. 2 pt anchors the column; the continuation
+        # allowance cannot bridge the 53 pt gutter to the journal's article text (TC-032).
+        anchored = {id(word) for word in candidates}
+        for word in page.get_text("words"):
+            if id(word) in anchored:
+                continue
+            centre_y = (word[1] + word[3]) / 2
+            if not (box.y0 - 1 <= centre_y <= box.y1 + 1):
+                continue
+            line = round(word[1], 0)
+            same = [w for w in candidates if round(w[1], 0) == line]
+            if not same:
+                continue
+            rightmost = max(w[2] for w in same)
+            if 0 <= word[0] - rightmost <= _RUN_GAP:
+                candidates.append(word)
+                anchored.add(id(word))
+
+        placed: dict[int, list[tuple[float, float, str]]] = {}
         for word in candidates:
             centre_y = (word[1] + word[3]) / 2
             hits = [
@@ -361,13 +380,21 @@ def recover_column(
             # that actually describes it; taking it is what recovers the standard errors rather than
             # leaving them blank, and it never places a value in a row that does not contain it.
             best = min(hits, key=lambda i: row_bands[i][1] - row_bands[i][0])
-            placed.setdefault(best, []).append(word[4])
+            placed.setdefault(best, []).append((round(word[1], 0), word[0], word[4]))
         if len(placed) < _MIN_RECOVERED_CELLS:
             continue
 
         widened = []
         for index, row in enumerate(rows):
-            cell = " ".join(placed.get(index, []))
+            # Stacked lines are joined with a newline, as the ordinary reader does, so a consumer
+            # splitting a multi-line header on "\n" sees the same shape in every column (TC-032).
+            lines: dict[float, list[tuple[float, str]]] = {}
+            for line, left, text in placed.get(index, []):
+                lines.setdefault(line, []).append((left, text))
+            cell = "\n".join(
+                " ".join(text for _left, text in sorted(parts))
+                for _line, parts in sorted(lines.items())
+            )
             widened.append([*row, cell] if side == "right" else [cell, *row])
         return widened
     return None
@@ -822,6 +849,38 @@ def _line_text(words: list, rect: fitz.Rect) -> str:
     return "\n".join(" ".join(parts) for _, parts in sorted(lines.items()))
 
 
+_MIN_PREFIX_ANCHOR = 3
+"""How much of a cell's own text must match the fuller read before a prefix is prepended."""
+
+
+def _missing_prefix(rebuilt: str, original: str) -> str:
+    """The characters a cell lost at its left edge, or ``""`` if none can be established.
+
+    Found by sliding the fuller read forward until its tail lines up with the start of what the cell
+    actually holds. That handles the case a straight containment test cannot: a label cut on **both**
+    sides, where the rebuild is *shorter* than the cell's text rather than longer. TEAM's 2025 report
+    has three — ``'iabilities and S'`` against a rebuild of ``'Liabilities and'``, whose own tail
+    stops before the ``S`` the cell already carries.
+
+    Only the prefix is returned, never a replacement, which is what makes it safe: the cell keeps
+    every character it had and gains only what was clipped off the front. Cisco's
+    ``'flows from i'`` becomes ``'Cash flows from i'`` and its neighbour still holds
+    ``'nvesting activities:'`` — nothing duplicated, nothing lost.
+    """
+    # The fuller read is *longer* than the cell: the cell's text sits whole inside it.
+    at = rebuilt.find(original)
+    if at > 0:
+        return rebuilt[:at]
+    # Or *shorter*, because the label also ran past this column's right edge and the cell already
+    # carries a fragment the rebuild stops before. Slide forward until the rebuild's tail lines up
+    # with the start of what the cell holds.
+    for start in range(1, len(rebuilt)):
+        tail = rebuilt[start:]
+        if len(tail) >= _MIN_PREFIX_ANCHOR and original.startswith(tail):
+            return rebuilt[:start]
+    return ""
+
+
 def recover_left_margin(page: fitz.Page, table, rows: list[list[str]]) -> list[list[str]]:
     """Restore row labels clipped by the region's left edge (TC-026 HIGH 3).
 
@@ -865,8 +924,22 @@ def recover_left_margin(page: fitz.Page, table, rows: list[list[str]]) -> list[l
             continue
         widened = _line_text(words, fitz.Rect(margin - 1, top, geometry.cells[0][2], bottom))
         flat, was = " ".join(widened.split()), " ".join(original.split())
-        if flat and flat != was and flat.endswith(was):
-            repaired[index][0] = widened
+        if not flat or flat == was:
+            continue
+        # Prepend only what the cell is missing at the front, and take it from where the cell's own
+        # text sits inside the fuller read. The earlier rule — accept when the rebuild *ends with*
+        # the original — assumed the cut was on the left alone, and a small outdent breaks that
+        # assumption: TEAM's 2025 report outdents by 5.4 pt, so `Total current assets` lost its `T`
+        # to the region's left edge **and** its `ets` to the next column, leaving
+        # `'otal current ass'`. The rebuild reads `'Total current assets'`, which does not end with
+        # that, so the repair declined and the letter stayed lost (TC-032).
+        #
+        # Locating the original inside the rebuild keeps the guard the old rule was there for:
+        # Cisco's `'flows from i'` is absent from its own rebuild `'Cash flows from'`, so that one is
+        # still refused rather than silently re-cut on the right.
+        prefix = _missing_prefix(flat, was)
+        if prefix:
+            repaired[index][0] = prefix + original
     return repaired
 
 

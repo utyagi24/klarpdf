@@ -7770,6 +7770,60 @@ correctly, and is kept.
 header case (`Q1 Q2 Q3 Q4`) and did not reproduce it; the paper's `(1) (2) (3)` tier is unassignable
 in exactly that way and costs neither table. That is a corpus gap rather than a clearance.
 
+##### TC-032 — the risk that held, and one letter no guard compares
+
+**2026-09-11.** All three TC-031 fixes verified, and the round's main effort went where the brief
+asked: **attacking the new risk directly.** Column recovery is the first change in this milestone that
+*adds* data rather than withholding it, so it is the first that can be wrong by putting a value in a
+row that does not contain it.
+
+**It held, and that is worth recording as a positive result rather than an absence of news.** The
+tester rendered the recovered column at 300 dpi across its hardest band — the transition where the
+column goes from blank to populated, with overlapping row bands on both sides — and compared ten rows
+against the print. Every value is in the right row, blanks included. The tightest-row-band rule does
+the job it was added for. The decoration that broke thresholding in TC-031 (0.44, higher than the real
+missing column's 0.38) is **not** pulled in by the new reader either: the 2 pt adjacency holds exactly
+where a score could not.
+
+**The round's best finding is one letter, and it says something about the guard design.** TEAM's 2025
+annual report, page 69 — a balance sheet whose **seven subtotals all reconcile** — loses the first
+character of eight outdented labels: `'otal current ass'` for *Total current assets*,
+`'iabilities and S'` for *Liabilities and Stockholders' Equity*. Every guard is structurally blind:
+:func:`digits_lost` compares **digits** and this is a letter, :func:`column_dropped` sees nothing
+outside the region because the character is inside it, and the identifier-cut check sees no figure.
+The tester's sharpening of the brief's own advice is the durable line: *the comparing guard is
+narrower than the damage it is trusted for.* `digits_lost` earns its reputation on financial tables
+because there the digits are the payload — but a label is payload too, and nothing compares it.
+
+**It is also TC-027's defect at a smaller offset**, which is the brief's §6 pattern applied to an
+*older* fix. That repair accepted a rebuild only when it **ended with** the cell's text — true when a
+label is cut on the left alone, and TEAM's 5.4 pt outdent cuts on both: the `T` to the region's edge
+and the `ets` into the next column. So the rebuild read `'Total current assets'`, which does not end
+with `'otal current ass'`, and the repair declined. :func:`_missing_prefix` now locates the cell's own
+text inside the fuller read — whether the read is longer than the cell or shorter — and prepends only
+what was clipped, so the cell keeps every character it had. Cisco's `'flows from i'` becomes
+`'Cash flows from i'` with its neighbour still holding `'nvesting activities:'`; nothing duplicated,
+nothing lost, and the guard against re-cutting is kept because a rebuild that cannot be aligned
+prepends nothing.
+
+**Two smaller corrections to column recovery itself.** It returned `All` where the page prints
+`All 5`: anchoring on the region's edge finds a value's first token, and a second token on the same
+line sits further right. The run is now extended while the gap stays small, which cannot bridge the
+53 pt gutter to the journal's article text. And it joined stacked lines with spaces where the ordinary
+reader uses newlines, so a multi-line header had a different shape in the recovered column than in its
+neighbours — now `'(3)\nOperations\ngained'` beside `'(1)\nOperations\ngained'`.
+
+**One filing was retracted by the tester, with reasoning worth keeping.** A NAEP state-snapshot poster
+page declines, and its one genuine ruled table is not returned. They filed it, then withdrew it on
+three grounds: the decline is **disclosed** so no caller is misled; it fails the standing policy that
+a decline is a finding only if the *page* was readable, and three of that page's six blocks carry
+numbers positioned by geometry; and the implied claim — *the table would read if isolated* — is
+untestable through an API that takes pages rather than regions. What survives is a **corpus note**: a
+poster or dashboard one-pager, one ruled table among geometry-positioned graphics, is a shape this
+tool cannot reach. Common in government and NGO reporting, and a limit worth knowing rather than a
+defect. It also leaves the non-year two-tier header a corpus gap for a second round — that page
+carries one, behind a decline.
+
 ##### `header` is claimed only where a drawn grid proves it
 
 A row-ruled read routinely starts its band one row inside the table, leaving `rows[0]` holding data
