@@ -49,6 +49,10 @@
       "description": "Every link: where it points, and the words under it."
     },
     {
+      "name": "get_tables",
+      "description": "Tables on named pages as rows; names what it cannot read."
+    },
+    {
       "name": "search",
       "description": "Find text; returns pages, snippets and boxes."
     },

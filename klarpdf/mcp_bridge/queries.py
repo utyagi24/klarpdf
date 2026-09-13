@@ -572,15 +572,37 @@ def search(
 
 
 def extract_text(path: str, pages: list[int] | None = None, password: str | None = None) -> dict:
-    """Text of ``pages`` (1-based; ``None`` = all), one entry per page, in document order."""
+    """Text of ``pages`` (1-based; ``None`` = all), one entry per page, in document order.
+
+    ``table_pages`` names the pages carrying ruled lines, where ``get_tables`` may return the same
+    content as rows instead of as a flat run of values (M141).
+
+    **It exists because nothing else tells the caller a table was there.** The text of a table comes
+    back complete — every cell, in reading order — but flattened, so an agent reading a filing sees
+    a column of names and percentages with nothing saying they form a grid, and never calls the tool
+    that would hand it back structured. Detecting tables to find out is not affordable here:
+    ``find_tables`` is ~27x the cost of ``get_text`` and would make the bridge's cheapest call
+    expensive. Counting ruled lines is **half** the cost of reading the text, so the hint is free in
+    the only sense that matters.
+
+    Deliberately over-inclusive: measured across 204 pages of nine documents it names every page
+    where ``get_tables`` returns a grid, plus roughly two others for each. Missing a table is the
+    expensive error; naming one page too many costs a call.
+    """
+    # Imported here rather than at module scope: `tables` imports this module for `open_document`
+    # and `resolve_pages`, so a top-level import would be circular.
+    from klarpdf.mcp_bridge.tables import MIN_RULES, horizontal_rules
+
     with open_document(path, password) as vdoc:
         indices = resolve_pages(vdoc, pages)
-        return {
-            "page_count": vdoc.page_count,
-            "pages": [
-                {"page": i + 1, "text": _page_of(vdoc, i).get_text("text")} for i in indices
-            ],
-        }
+        rendered = []
+        ruled = []
+        for i in indices:
+            page = _page_of(vdoc, i)
+            rendered.append({"page": i + 1, "text": page.get_text("text")})
+            if horizontal_rules(page) >= MIN_RULES:
+                ruled.append(i + 1)
+        return {"page_count": vdoc.page_count, "pages": rendered, "table_pages": ruled}
 
 
 def render_page(

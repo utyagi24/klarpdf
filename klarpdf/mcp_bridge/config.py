@@ -72,6 +72,22 @@ them all can list the directory; what they need from the reply is where the file
 there are, and how they are named.
 """
 
+DEFAULT_MAX_TABLES = 50
+"""How many tables `get_tables` returns per call (M141).
+
+Its own cap for the reason `DEFAULT_MAX_LINKS` has one: the number that makes sense is "more than a
+real page range holds" rather than "more than a sane query". The measured worst case is 4 tables on
+one page, so this is a mis-call bound rather than a working limit.
+"""
+
+DEFAULT_MAX_TABLE_CHARS = 60_000
+"""How many characters of table JSON `get_tables` returns per call (M141).
+
+Beside `DEFAULT_MAX_TABLES`, not instead of it — the lesson `DEFAULT_MAX_ANNOTATION_CHARS` records.
+A count cap does not bound a reply: a single 92-row financial table serialises past 20,000
+characters, so three of them exceed what a caller wants while sitting far under the count cap.
+"""
+
 ENV_ALLOW_ROOTS = "KLARPDF_MCP_ALLOW_ROOTS"
 ENV_READ_ONLY = "KLARPDF_MCP_READ_ONLY"
 
@@ -151,6 +167,8 @@ class Limits:
     max_annotation_chars: int = DEFAULT_MAX_ANNOTATION_CHARS
     max_links: int = DEFAULT_MAX_LINKS
     max_link_chars: int = DEFAULT_MAX_LINK_CHARS
+    max_tables: int = DEFAULT_MAX_TABLES
+    max_table_chars: int = DEFAULT_MAX_TABLE_CHARS
 
 
 @dataclass(frozen=True)
