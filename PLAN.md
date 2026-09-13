@@ -8058,6 +8058,120 @@ reports *"nothing on this page marks where the cells are"* on an A4 page where t
 originals both report a grid. The tester did not establish whether that is the document or the reader
 and neither did this session; it is in `PROGRESS.md` as a question with a named reproduction.
 
+##### The tester's accuracy guidance, item by item — and what was nearly dropped
+
+**2026-09-12.** After thirteen rounds the black-box tester wrote up what the *pattern* of ~40 filed
+defects says about where accuracy is being lost (`klarpdf-tests/GUIDANCE-improving-get_tables-accuracy.md`).
+This section is the accounting of every item in it, because the first pass at responding covered only
+the code changes that happened to be quick to measure, and four items surfaced only when the owner
+asked whether the list was complete. **Carrying them in chat was the failure** — `CLAUDE.md`
+§*Capture the follow-up in the session that found it* exists for exactly this, and was not followed.
+
+**§1 — the distinction that has predicted every outcome.** Sort every rule this module has shipped
+into *guesses from a shape* and *compares two observations*. Six of the first kind — the 0.8
+line-coverage threshold, the 2 pt adjacency, the 10 pt run gap, `cuts_a_figure`'s two-complete-cells
+gate, `_missing_prefix`'s suffix test, and three successive seam placements — have each been beaten by
+a document. Two of the second kind — `digits_lost` and word-level printed-versus-returned — have not
+been beaten at all. The sorting is perfect, which is what makes it worth a rule rather than an
+observation: **before shipping a rule, ask whether it compares two observations or infers one from a
+shape; if it infers, assume a document will beat it and plan for that rather than tuning it.** A
+`CLAUDE.md` convention, not recorded anywhere before this entry.
+
+**§2.1 — bbox containment.** No cell may hold a word the reply's own `bbox` excludes. Measured over 41
+tables it flags 13 and **10 of those are correct tables**, so it is not usable as written — and the
+cause is ours, not the check's: :func:`recover_left_margin` reads outdented labels from *outside* the
+box we then report, so the reply contradicts itself on the tables that are right. TEAM's page 69
+carries 100 surplus characters, Cisco's 61 carries 31, Amazon's 10 carries 98, all legitimate. See the
+ordering below — the check becomes exact once the box tells the truth, and it is the goal the other
+changes exist to enable.
+
+**§2.2 — a column empty on every row.** One flag across 41 tables (NADA page 8's chart) and **zero**
+false positives. Ready as written; the cheapest real item in the document.
+
+**§2.3 — word *multiset*, not word set.** Coverage asks whether every printed word arrived, never
+whether it arrived *once*. Duplication is invisible today. Deferred rather than rejected, and for a
+reason the measurement gives: its false positives share a root cause with §2.1's — until the box is
+honest it flags the journal page at 62 duplicates and TEAM's at 12, both correct.
+
+**§3 — the structural bug, and the largest item in the document.** *A check evaluated on the output of
+a step cannot see what that step removed.* It has recurred three times: `cuts_a_figure` needs two
+complete numeric cells and damage is what removes them; digit coverage counts digits inside the
+detected region, so a row excluded from the band contributes none and its loss is undetectable by
+construction; and the structural label fix was cleared by counting mid-word labels in the cell the fix
+worked on. The remedy asked for is that **every guard consume the region's inventory of printed
+content rather than inspect its own output** — an inventory already computed for the word comparison.
+The signatures say how far that is from true today: `digits_lost(page, box, rows)` and
+`cuts_a_figure(page, rows)` are handed the page, while `_acceptable(rows, stuffed_limit)` and
+`split_is_credible(whole, groups)` **are not given it at all** and therefore cannot consult it. This
+is architectural, it is the deepest answer to why the milestone keeps needing another round, and the
+first response to the guidance omitted it entirely.
+
+**§4/§5 — a verification protocol, and verifying the displacement.** Four checks in cost order — word
+multiset, bbox containment, join test, arithmetic reconciliation — re-run over the **whole corpus**
+after any change to *where a value belongs*, not over the fixture that motivated it. Both regressions
+this milestone shipped (the TC-035 seam, the TC-036 `2327`) were caught by comparing against the page
+and neither by a test. Two specifics worth keeping: **arithmetic is a signal, never a gate** — NADA's
+50 state figures sum 2 short of the printed total on 1.3 trillion, which is 50 legitimate roundings and
+a gate would decline a perfect table; and **render a fixture set once per build, not once per call** —
+rendering is the only thing that sees meaning encoded outside the text layer and is far too expensive
+at runtime, so store expected word-and-position sets from a render and diff on change. The render
+baseline does not exist in any form.
+
+**§6 — the corpus selects for defects already fixed.** Nine rounds inside a corpus of ruled-row filings
+produced ~20 defects with the count falling 9 → 3 per round; one round aimed at the drawn-grid branch
+found a class invisible through all nine, which turned out to be a TC-026 item carried as unfixable;
+one round on a chart-heavy statistics annual produced two highs. **A corpus that grows by adding
+whatever broke the last fix converges on shapes it has already seen, so a falling defect count partly
+measures fewer new documents.** Exposure by branch, worth recording because it is the fixture-choosing
+rule: drawn grid one round; ruled rows nine; charts and tables sharing a page one, two highs; forms,
+bills, payslips, statements one, one high; non-US typesetting one.
+
+**§7 — bound the margin read by the region's ruling instead of the page. Measured, and it does not
+work.** The proposal is right in spirit — it would remove a geometric guess rather than detect its
+consequences — but the ruling does not span what it needs to. On TEAM's page 69 the drawn rules run
+`371.2 → 594.0` while the labels sit at x ≈ 19–24: **164 words, the entire label column, lie left of
+the ruling**. Cisco's page 61 is the same at `388.1 → 591.3` with 246 words outside it. Bounding the
+read by the ruling would cut off every label on both pages and re-break the left-clipping class. And
+it fails in the other direction too: NADA's page 12 rules span `70.7 → 557.5`, which *includes* the
+bar chart, so it would not exclude the contamination either. The tester could not have known this —
+ruling extents are not visible from outside.
+
+**What the same measurement does support.** The discriminator is whether a word actually **straddles**
+the box's left edge, which is :func:`_was_cut`'s test one axis over — the machinery that settled the
+seam. Across the four decisive pages it separates them 4 of 4 with no threshold: TEAM 11 straddling
+words, Cisco 6, the market report 4, and NADA page 12 **zero**, with a 32.5 pt gutter. Better than a
+gate, it names *which rows* need the repair, where today one outdent anywhere in a group rebuilds
+every row's label — so it would have prevented the NADA contamination rather than detecting it.
+
+**And it is what makes §2.1 exact, in this order and no other.** Growing the reported box to cover
+what was returned is only safe *after* the straddle restriction, because with no straddle there is no
+growth: measured, the straddle-grown box takes Cisco from 31 surplus characters to **0** and the
+market report from 25 to **0**, leaves TEAM at a single word (`(3,204,516)`, the accounting-negative
+repair rejoining two printed tokens — enumerable, not noise), and leaves NADA page 12 **unchanged at
+204**. Growing the box *without* the straddle restriction would have covered the charts and made that
+reply self-consistent while still wrong, which is laundering the defect rather than fixing it.
+
+**§8 — the tester's own ranking**, resolved: (1) bbox containment — the goal, blocked until the box is
+honest; (2) bound by ruling — refuted above; (3) empty-column ready, multiset deferred; (4) the
+no-text-layer decline reason — a scanned page is told its columns *"would have to be inferred from
+spacing, which silently drops characters"* and pointed at `extract_text`, which returns `""`, while
+`get_info` already reports `has_text_layer: false`; (5) two documentation lines — direction encoded as
+an **arrow** needs the sign warning accounting negatives already carry, and `continuation_checked` can
+differ between two tables in one reply.
+
+**§9 — four constraints.** No new thresholds (six have been beaten); no arithmetic gate; a falling
+defect count is not convergence without changing where you look; and **do not fix the chart-as-table
+case by detecting charts** — that is shape-guessing and will be beaten, where §2.1 and §2.2 catch it as
+self-consistency failures without needing the concept. The changes proposed above honour all four, but
+by construction rather than by design, because the constraints were not written down.
+
+**§10 — the habit.** *Compare against what the document actually holds before concluding anything
+about the code.* It caught both of this milestone's regressions, and on the tester's side it retracted
+four of their own findings — outlined vector art read as a lost label, a correct decline filed as a
+defect, a document's own duplicate blamed on the reader, and a table whose signs are all wrong turning
+out to have no signs in its text layer at all. One call, and worth more than any other single thing in
+the series.
+
 ##### `header` is claimed only where a drawn grid proves it
 
 A row-ruled read routinely starts its band one row inside the table, leaving `rows[0]` holding data

@@ -4685,6 +4685,36 @@ it on this side of the line.
   NAEP poster that carried one behind a decline, **this region is correctly isolated** — the only
   thing between the shape and a test is that the sample form has amounts in no column but the
   description. Recorded so the next round knows what to bring rather than re-deriving it.
+- **The tester's accuracy guidance is accounted for item by item, and six of its ten items are
+  unstarted** (2026-09-12, `PLAN.md` §M141 → *The tester's accuracy guidance, item by item*). After
+  thirteen rounds the black-box tester wrote up what the pattern of ~40 defects says about where
+  accuracy is being lost. The first response to it covered only the code items that were quick to
+  measure; four more surfaced when the owner asked whether the list was complete, which is the
+  failure this bullet exists to close. Routed by kind:
+  - **Ready to build, measured** — restrict the margin read to rows with a straddle at the box's left
+    edge (4-of-4 separation, no threshold, and it names which rows need repair); then grow the
+    reported `bbox` by that recovery only; then bbox containment becomes exact (Cisco 31 surplus
+    characters → 0, the market report 25 → 0, NADA page 12 unchanged at 204). Plus the empty-column
+    assertion (1 flag, 0 false positives over 41 tables) and the no-text-layer decline reason.
+    **Order matters and is not interchangeable**: growing the box first would cover the charts and
+    make a wrong reply self-consistent.
+  - **Refused, with the measurement** — bounding the margin read by the region's ruling. The rules
+    span only the figure columns on the two filings it must not break (TEAM's 164-word label column
+    and Cisco's 246 both lie left of the ruling) and span *wider* than the contamination on the page
+    it must catch.
+  - **Deferred, not rejected** — the word-duplication check, whose false positives share a cause with
+    bbox containment's and which is only worth adding after the box is honest.
+  - **Unstarted and architectural** — every guard consuming the region's printed inventory instead of
+    its own output (`PLAN.md` §3 of that section). `_acceptable` and `split_is_credible` are not even
+    handed the page. This is the deepest answer to why the milestone keeps needing another round.
+  - **Unstarted and process** — a render-derived baseline of expected words and positions, diffed per
+    build, which is the only way to see meaning encoded outside the text layer at a cost that is not
+    per-call.
+  - **Wanted as `CLAUDE.md` conventions, deliberately not written unilaterally** — the
+    shape-guessing-versus-evidence rule, the four constraints, the fixture-choosing rule, and
+    *compare against the document before concluding anything about the code*. These cost nothing to
+    land, outlive this milestone, and are the part that stops the next session re-deriving six beaten
+    thresholds. Needs the owner's go-ahead because process changes are their own PR.
 - **`get_tables` finds a column swept into a neighbouring text cell only where the evidence is
   unambiguous** (TC-036, 2026-09-12). The **merge** direction of the depth axis; TC-031 settled the
   split direction. A retirement-account statement printed six columns and came back as four, with
