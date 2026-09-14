@@ -1,0 +1,722 @@
+"""M141 — ``get_tables``: rows read from the page's own structure, checked against the page.
+
+Every fixture here is built with PyMuPDF and read by PyMuPDF's real table finder, so each test runs
+the same path a caller's document does. The behaviours pinned fall into four groups:
+
+* **Reading** — a drawn grid, and ruled or shaded rows whose columns come from whitespace; the table
+  growing only on evidence the page states (a line crossing its edge, text in its own ruled rows,
+  a row just outside it that fits its columns).
+* **Declining** — every check that compares the table with the page, each shown declining the shape
+  it exists for.
+* **Wiring** — each check's call site is broken on purpose and the fixture that depends on it is
+  shown to change, so a check that is defined but no longer called cannot pass silently (#348 had
+  six "negative controls" that pinned a function while its call site could be deleted).
+* **The reply** — pagination, caps, rotation, continuation, and ``extract_text``'s ``table_pages``.
+"""
+
+from __future__ import annotations
+
+import collections
+import threading
+
+import pymupdf as fitz
+import pytest
+
+from klarpdf.mcp_bridge import queries, tables
+
+FONT = 9
+PITCH = 16
+
+ASSETS = [
+    ("Cash and cash equivalents", "39,544", "35,934"),
+    ("Marketable securities", "22,855", "18,763"),
+    ("Accounts receivable, net", "31,398", "39,777"),
+    ("Vendor non-trade receivables", "27,509", "33,180"),
+    ("Inventories", "11,092", "5,718"),
+    ("Other current assets", "17,420", "14,585"),
+    ("Total current assets", "149,818", "147,957"),
+    ("Marketable securities, non-current", "84,118", "77,723"),
+    ("Property, plant and equipment, net", "51,431", "49,834"),
+    ("Intangible assets, net", "(20,342)", "(11,093)"),
+    ("Other non-current assets", "77,557", "72,634"),
+    ("Total assets", "342,582", "347,561"),
+]
+
+
+def _right(page: fitz.Page, x: float, y: float, text: str, size: float = FONT) -> None:
+    """Right-align ``text`` so it ends at ``x`` — how a statement sets its figures."""
+    page.insert_text((x - fitz.get_text_length(text, fontsize=size), y), text, fontsize=size)
+
+
+def _statement(
+    page: fitz.Page,
+    top: float,
+    rows,
+    *,
+    labels: tuple[float, ...] = (60,),
+    columns: tuple[float, ...] = (420, 520),
+    rule: tuple[float, float] = (55, 540),
+    ruled_rows: range | None = None,
+    bands: bool = False,
+) -> float:
+    """Draw a row-ruled statement and return the y of its last row's baseline.
+
+    Each row gets a rule above it (``ruled_rows`` narrows which do) and the last row a rule below.
+    ``labels`` cycles label indents, so a ragged label column can be left out of the finder's region.
+    ``bands`` shades alternate rows full-width instead of drawing rules.
+    """
+    ruled_rows = range(len(rows)) if ruled_rows is None else ruled_rows
+    for i, (label, *figures) in enumerate(rows):
+        y = top + i * PITCH
+        if bands:
+            fill = (0.8, 0.93, 1.0) if i % 2 == 0 else (1, 1, 1)
+            page.draw_rect(fitz.Rect(rule[0], y, rule[1], y + PITCH), color=None, fill=fill)
+        elif i in ruled_rows:
+            page.draw_line((rule[0], y), (rule[1], y))
+        if label:
+            page.insert_text((labels[i % len(labels)], y + 11), label, fontsize=FONT)
+        for x, figure in zip(columns, figures):
+            if figure:
+                _right(page, x, y + 11, figure)
+    bottom = top + len(rows) * PITCH
+    if not bands and (len(rows) - 1) in ruled_rows:
+        page.draw_line((rule[0], bottom), (rule[1], bottom))
+    return top + (len(rows) - 1) * PITCH + 11
+
+
+def _save(doc: fitz.Document, tmp_path, name: str) -> str:
+    path = str(tmp_path / name)
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def _read(path: str, page: int = 1) -> tables.PageRead:
+    return tables.read_page(fitz.open(path)[page - 1])
+
+
+def _rows(result: tables.PageRead, index: int = 0) -> list[list[str]]:
+    return result.tables[index]["rows"]
+
+
+def _codes(result: tables.PageRead) -> list[str]:
+    return [u["_code"] for u in result.unread]
+
+
+def _expected(rows) -> list[list[str]]:
+    return [list(row) for row in rows]
+
+
+# ---------------------------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------------------------
+
+
+@pytest.fixture
+def statement_pdf(tmp_path) -> str:
+    doc = fitz.open()
+    _statement(doc.new_page(), 100, ASSETS)
+    return _save(doc, tmp_path, "statement.pdf")
+
+
+@pytest.fixture
+def grid_pdf(tmp_path) -> str:
+    """A drawn grid: every cell boxed, a header row, one cell holding an address with an underscore
+    (the character PyMuPDF's own cell extraction lifted out of its word and put on a line of its
+    own, TC-034)."""
+    doc = fitz.open()
+    page = doc.new_page()
+    xs = [60, 200, 340, 480]
+    ys = [100 + i * 22 for i in range(5)]
+    for x in xs:
+        page.draw_line((x, ys[0]), (x, ys[-1]))
+    for y in ys:
+        page.draw_line((xs[0], y), (xs[-1], y))
+    cells = [
+        ["Name", "Contact", "Balance"],
+        ["Alpha", "first_last@example.com", "1,234.50"],
+        ["Beta", "second_person@example.com", "(98.10)"],
+        ["Gamma", "n/a", "0.00"],
+    ]
+    for r, row in enumerate(cells):
+        for c, text in enumerate(row):
+            page.insert_text((xs[c] + 4, ys[r] + 15), text, fontsize=FONT)
+    return _save(doc, tmp_path, "grid.pdf")
+
+
+# ---------------------------------------------------------------------------------------------
+# Reading
+# ---------------------------------------------------------------------------------------------
+
+
+def test_a_drawn_grid_is_read_cell_for_cell_with_its_header(grid_pdf):
+    result = _read(grid_pdf)
+    assert len(result.tables) == 1
+    table = result.tables[0]
+    assert table["reader"] == "grid"
+    assert table["rows"] == [
+        ["Name", "Contact", "Balance"],
+        ["Alpha", "first_last@example.com", "1,234.50"],
+        ["Beta", "second_person@example.com", "(98.10)"],
+        ["Gamma", "n/a", "0.00"],
+    ]
+    assert table["header"] == ["Name", "Contact", "Balance"]
+
+
+def test_ruled_rows_read_whole_labels_and_whole_figures(statement_pdf):
+    """Columns from whitespace: nothing is cut, negatives keep both brackets, no header is claimed."""
+    result = _read(statement_pdf)
+    assert len(result.tables) == 1
+    table = result.tables[0]
+    assert table["reader"] == "ruled"
+    assert table["rows"] == _expected(ASSETS)
+    assert table["header"] is None
+
+
+def test_an_outdented_label_crossing_the_regions_edge_is_read_whole(tmp_path):
+    """Totals outdented left of the indented rows the finder's region starts at (TEAM's balance
+    sheet, Cisco's cash flows). The line crossing the edge belongs to the table whole."""
+    rows = [(("Total " if "Total" in label else "") + label.replace("Total ", ""), *f) for label, *f in ASSETS]
+    doc = fitz.open()
+    page = doc.new_page()
+    _statement(page, 100, [(label if not label.startswith("Total") else "", *f) for label, *f in rows])
+    for i, (label, *_f) in enumerate(rows):
+        if label.startswith("Total"):
+            page.insert_text((44, 100 + i * PITCH + 11), label, fontsize=FONT)
+    path = _save(doc, tmp_path, "outdented.pdf")
+    result = _read(path)
+    assert len(result.tables) == 1
+    got = result.tables[0]["rows"]
+    assert ["Total current assets", "149,818", "147,957"] in got
+    assert ["Total assets", "342,582", "347,561"] in got
+    assert result.tables[0]["bbox"].x0 <= 44
+
+
+def test_a_label_column_left_outside_the_region_is_taken_in_when_its_bands_run_under_it(tmp_path):
+    """QCOM's statement of operations: ragged labels form no column the finder can see, so its
+    region starts at the figures — but the shaded bands run under the labels too."""
+    rows = [(label, *f) for label, *f in ASSETS]
+    rows[4] = ("", *rows[4][1:])  # one row with no label, so it is the bands and not every-row alignment
+    doc = fitz.open()
+    _statement(doc.new_page(), 100, rows, labels=(60, 66, 72, 78, 64), bands=True)
+    path = _save(doc, tmp_path, "banded.pdf")
+    result = _read(path)
+    assert len(result.tables) == 1
+    got = result.tables[0]["rows"]
+    assert ["Cash and cash equivalents", "39,544", "35,934"] in got
+    assert ["", "11,092", "5,718"] in got
+
+
+def test_a_label_column_with_no_ruling_under_it_is_reported_beside_the_table(tmp_path):
+    """The same statement drawn with rules under the figures only: the labels are not the table's
+    rows by any drawn evidence, so they are not taken in — and a table of figures is never returned
+    without saying there is text level with its rows beside it (TC-030)."""
+    rows = [(label, *f) for label, *f in ASSETS]
+    rows[4] = ("", *rows[4][1:])
+    doc = fitz.open()
+    _statement(doc.new_page(), 100, rows, labels=(60, 66, 72, 78, 64), rule=(360, 540))
+    path = _save(doc, tmp_path, "figures_ruled.pdf")
+    result = _read(path)
+    if result.tables:
+        labels = {row[0] for row in result.tables[0]["rows"]}
+        if "Cash and cash equivalents" not in labels:
+            assert "beside" in _codes(result)
+
+
+def test_a_first_row_above_the_ruling_and_a_total_below_it_are_taken_in(tmp_path):
+    """A list ruled under each row has no rule above its first row; a total is set apart below the
+    last rule. Both fit the table's columns at its own row spacing."""
+    doc = fitz.open()
+    page = doc.new_page()
+    _statement(page, 100, ASSETS, ruled_rows=range(1, len(ASSETS) - 1))
+    path = _save(doc, tmp_path, "edges.pdf")
+    result = _read(path)
+    assert len(result.tables) == 1
+    got = result.tables[0]["rows"]
+    assert got[0] == list(ASSETS[0])
+    assert got[-1] == list(ASSETS[-1])
+
+
+def test_a_title_above_a_table_is_its_title_and_not_a_row(tmp_path):
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((230, 90), "CONDENSED BALANCE SHEETS", fontsize=FONT)
+    _statement(page, 100, ASSETS)
+    path = _save(doc, tmp_path, "titled.pdf")
+    result = _read(path)
+    assert len(result.tables) == 1
+    assert all("CONDENSED" not in cell for row in _rows(result) for cell in row)
+    assert result.tables[0]["title"] == "CONDENSED BALANCE SHEETS"
+
+
+def test_a_two_up_list_whose_rows_line_up_is_read_as_one_table(tmp_path):
+    """The owner's reading of a list printed in two halves (2026-09-13): four columns, not half a
+    list. Each half is ruled on its own, so nothing drawn joins them; every row of one half has a
+    row of the other on the same line."""
+    left = [(f"State {chr(65 + i)}", str(100 + i)) for i in range(12)]
+    right = [(f"State {chr(77 + i)}", str(200 + i)) for i in range(12)]
+    doc = fitz.open()
+    page = doc.new_page()
+    _statement(page, 100, left, labels=(60,), columns=(230,), rule=(55, 235))
+    _statement(page, 100, right, labels=(300,), columns=(470,), rule=(295, 475))
+    path = _save(doc, tmp_path, "two_up.pdf")
+    result = _read(path)
+    assert len(result.tables) == 1
+    assert _rows(result)[0] == ["State A", "100", "State M", "200"]
+
+
+DOLLAR = 372
+"""Where a statement's first `$` column sits: 16 pt clear of the widest figure, so MuPDF keeps the
+`$` and the figure as two text lines. Set a few points closer and it joins them into one line,
+which is a different shape — the one ``one_run_row`` builds on purpose."""
+
+
+def _dollar_statement(
+    page: fitz.Page,
+    top: float,
+    rows,
+    *,
+    dollar_rows: tuple[int, ...] = (0, 11),
+    one_run_row: int | None = None,
+) -> None:
+    """A statement set the way SEC filings set one: a two-line period heading over each figure
+    column, a `$` printed apart from its figure on ``dollar_rows``, and a rule above each row.
+
+    ``one_run_row`` prints that row's first `$` and figure as a single run of text — the `$` at the
+    `$` column and the figure ending at the figure column, joined by spaces — which is how Apple
+    prints ``"$ 109,417"`` beside rows that print the two apart."""
+    page.draw_line((55, top), (540, top))
+    for (x0, x1), (month, year) in (((DOLLAR, 420), ("June 27,", "2026")), ((460, 520), ("June 28,", "2025"))):
+        for text, dy in ((month, 11), (year, 23)):
+            width = fitz.get_text_length(text, fontsize=FONT)
+            page.insert_text(((x0 + x1) / 2 - width / 2, top + dy), text, fontsize=FONT)
+    start = top + 2 * PITCH
+    for i, (label, first, second) in enumerate(rows):
+        y = start + i * PITCH
+        page.draw_line((55, y), (540, y))
+        page.insert_text((60, y + 11), label, fontsize=FONT)
+        if i == one_run_row:
+            run = "$"
+            while fitz.get_text_length(run + " " + first, fontsize=FONT) < 420 - DOLLAR:
+                run += " "
+            page.insert_text((DOLLAR, y + 11), run + first, fontsize=FONT)
+        else:
+            if i in dollar_rows:
+                page.insert_text((DOLLAR, y + 11), "$", fontsize=FONT)
+            _right(page, 420, y + 11, first)
+        if i in dollar_rows:
+            page.insert_text((460, y + 11), "$", fontsize=FONT)
+        _right(page, 520, y + 11, second)
+    bottom = start + len(rows) * PITCH
+    page.draw_line((55, bottom), (540, bottom))
+
+
+def test_a_statement_reads_its_period_heading_and_its_dollar_signs_apart(tmp_path):
+    """The heading's two printed lines become the first two rows; each `$` printed apart from its
+    figure is a column of its own, empty where the page prints no `$`.
+
+    PyMuPDF's finder locates only the rows between the first and the total — the two rows carrying
+    `$` — so both arrive from outside the region with each `$` in whitespace no column covers. That
+    they join, rather than the table silently starting at its second row, is the point."""
+    doc = fitz.open()
+    _dollar_statement(doc.new_page(), 80, ASSETS)
+    path = _save(doc, tmp_path, "dollars.pdf")
+    result = _read(path)
+    assert len(result.tables) == 1
+    rows = _rows(result)
+    assert rows[0] == ["", "", "June 27,", "", "June 28,"]
+    assert rows[1] == ["", "", "2026", "", "2025"]
+    assert rows[2] == ["Cash and cash equivalents", "$", "39,544", "$", "35,934"]
+    assert rows[3] == ["Marketable securities", "", "22,855", "", "18,763"]
+    assert rows[-1] == ["Total assets", "$", "342,582", "$", "347,561"]
+
+
+def test_a_dollar_sign_printed_in_one_run_with_its_figure_is_divided_by_the_rows_that_print_them_apart(
+    tmp_path, monkeypatch
+):
+    """Apple's ``"$ 109,417"``: one run of text bridging the `$` column and the figure column, on a row
+    inside the region, below another row inside it that prints the two apart. That row states the
+    boundary, so the merged column is divided and the run stays whole in the figure's cell. With the
+    division disabled the two columns stay merged, the row printing them apart holds two pieces in
+    one cell, and the table declines — which is what shows the division is wired in."""
+    doc = fitz.open()
+    _dollar_statement(doc.new_page(), 80, ASSETS, dollar_rows=(0, 3, 11), one_run_row=6)
+    path = _save(doc, tmp_path, "one_run.pdf")
+    result = _read(path)
+    assert len(result.tables) == 1
+    rows = _rows(result)
+    assert ["Vendor non-trade receivables", "$", "27,509", "$", "33,180"] in rows
+    total_current = next(row for row in rows if row[0] == "Total current assets")
+    assert total_current[1] == "" and total_current[2].startswith("$") and total_current[2].endswith("149,818")
+
+    monkeypatch.setattr(tables, "_divide", lambda columns, rows, spanning: columns)
+    assert "side_by_side" in _codes(_read(path))
+
+
+def test_a_chart_beside_a_table_is_named_and_not_taken_in(tmp_path):
+    """NADA's service-labor page: a bar chart to the left of a ruled table. The chart's gridlines stop
+    short of the table, so nothing drawn joins them; the table comes back exactly, and the chart text
+    level with its rows is named rather than read (TC-038)."""
+    rows = [(f"Line item {i + 1}", f"{(i + 1) * 1111:,}", f"{(i + 2) * 777:,}") for i in range(12)]
+    doc = fitz.open()
+    page = doc.new_page()
+    _statement(page, 100, rows, labels=(330,), columns=(470, 535), rule=(325, 540))
+    for i in range(0, len(rows) + 1, 3):
+        page.draw_line((60, 100 + i * PITCH), (250, 100 + i * PITCH))
+    for i, tick in enumerate(["$40", "30", "20", "10", "0"]):
+        page.insert_text((36, 100 + i * 3 * PITCH + 3), tick, fontsize=FONT)
+    page.insert_text((110, 100 + 2 * PITCH + 11), "$31.48", fontsize=FONT)
+    page.insert_text((180, 100 + 5 * PITCH + 11), "$15.46", fontsize=FONT)
+    path = _save(doc, tmp_path, "chart_beside.pdf")
+    result = _read(path)
+    assert len(result.tables) == 1
+    assert _rows(result) == _expected(rows)
+    assert "beside" in _codes(result)
+
+
+# ---------------------------------------------------------------------------------------------
+# Declining
+# ---------------------------------------------------------------------------------------------
+
+
+def test_text_running_across_a_drawn_grids_border_declines(tmp_path):
+    """A chart's frame and gridlines look like a grid; its labels cross them (TC-038)."""
+    doc = fitz.open()
+    page = doc.new_page()
+    for y in (100, 130, 160, 190):
+        page.draw_line((100, y), (400, y))
+    for x in (100, 250, 400):
+        page.draw_line((x, 100), (x, 190))
+    page.insert_text((105, 120), "Domestic", fontsize=FONT)
+    page.insert_text((230, 147), "Import 47", fontsize=FONT)  # straddles the column line at x=250
+    page.insert_text((260, 180), "54", fontsize=FONT)
+    path = _save(doc, tmp_path, "chart_grid.pdf")
+    result = _read(path)
+    assert not result.tables
+    assert "grid_crossed" in _codes(result)
+
+
+def test_a_rule_through_text_declines(tmp_path):
+    """Gridlines drawn through labels are not row separators."""
+    doc = fitz.open()
+    page = doc.new_page()
+    _statement(page, 100, ASSETS)
+    page.draw_line((55, 100 + 3 * PITCH + 8), (540, 100 + 3 * PITCH + 8))  # through row 4's letters
+    path = _save(doc, tmp_path, "rule_through.pdf")
+    result = _read(path)
+    assert not result.tables
+    assert "rule_through_text" in _codes(result)
+
+
+def test_text_printed_twice_to_look_bold_declines(tmp_path):
+    """A document that doubles its glyphs offset by a fraction of a point (a prospectus does this for
+    bold): two overlapping pieces of text in one cell are not two columns."""
+    doc = fitz.open()
+    page = doc.new_page()
+    _statement(page, 100, ASSETS)
+    page.insert_text((60.4, 100 + 2 * PITCH + 11), "Accounts receivable, net", fontsize=FONT)
+    path = _save(doc, tmp_path, "doubled.pdf")
+    result = _read(path)
+    assert not result.tables
+    assert "side_by_side" in _codes(result)
+
+
+def test_rows_stacked_in_one_ruled_band_decline_when_nothing_says_how_to_divide_them(tmp_path):
+    """A band holding two rows of figures and a lone line between them: the lone line belongs to
+    the row above or the row below and the page does not say which."""
+    rows = list(ASSETS)
+    doc = fitz.open()
+    page = doc.new_page()
+    _statement(page, 100, rows, ruled_rows=[i for i in range(len(rows)) if i != 5])
+    page.insert_text((60, 100 + 5 * PITCH + 4), "of which restricted", fontsize=FONT)
+    path = _save(doc, tmp_path, "stacked.pdf")
+    result = _read(path)
+    assert not result.tables
+    assert "stacked" in _codes(result)
+
+
+def test_two_columns_of_prose_between_rules_are_not_read_as_a_table(tmp_path):
+    """Header and footer rules around two text columns: one band of side-by-side lines, and no
+    band anywhere holding a single row, so the ruling marks no rows."""
+    doc = fitz.open()
+    page = doc.new_page()
+    for y in (90, 90 + 14 * 13):
+        page.draw_line((55, y), (540, y))
+    page.draw_line((55, 60), (540, 60))
+    for i in range(12):
+        y = 104 + i * 13
+        page.insert_text((60, y), f"left column line {i} of some prose", fontsize=FONT)
+        page.insert_text((310, y), f"right column line {i} continues here", fontsize=FONT)
+    path = _save(doc, tmp_path, "prose.pdf")
+    result = _read(path)
+    assert not result.tables
+
+
+def test_a_page_with_no_text_says_it_is_an_image(tmp_path):
+    doc = fitz.open()
+    page = doc.new_page()
+    for y in range(100, 400, 20):
+        page.draw_line((60, y), (500, y))
+    path = _save(doc, tmp_path, "image.pdf")
+    result = _read(path)
+    assert not result.tables
+    assert _codes(result) == ["no_text"]
+    assert "render_page" in result.unread[0]["suggestion"]
+    assert "extract_text" not in result.unread[0]["suggestion"]
+
+
+def test_rows_printed_as_single_runs_of_text_say_so(tmp_path):
+    """A line-printer payslip: each row is one run of text and its columns are spaces inside it."""
+    doc = fitz.open()
+    page = doc.new_page()
+    for i, (label, a, b) in enumerate(ASSETS):
+        y = 100 + i * PITCH
+        page.draw_line((55, y), (540, y))
+        page.insert_text((60, y + 11), f"{label:<40}{a:>12}{b:>12}", fontsize=FONT, fontname="cour")
+    page.draw_line((55, 100 + len(ASSETS) * PITCH), (540, 100 + len(ASSETS) * PITCH))
+    path = _save(doc, tmp_path, "single_runs.pdf")
+    result = _read(path)
+    assert not result.tables
+    assert set(_codes(result)) <= {"single_runs", "no_region"}
+
+
+def test_text_below_one_point_is_not_read_into_cells(tmp_path):
+    """A market report carries a regular-weight copy of a row at 0.1 pt, drawn just before the row a
+    reader sees. The owner's decision: it is not read (MIN_TEXT_SIZE)."""
+    doc = fitz.open()
+    page = doc.new_page()
+    y = 100 + 6 * PITCH + 11
+    page.insert_text((60, y - 5), "Total current assets", fontsize=0.1)
+    _right(page, 420, y - 5, "999,999", size=0.1)
+    _statement(page, 100, ASSETS)
+    path = _save(doc, tmp_path, "tiny.pdf")
+    result = _read(path)
+    assert len(result.tables) == 1
+    assert result.tables[0]["rows"] == _expected(ASSETS)
+
+
+# ---------------------------------------------------------------------------------------------
+# Wiring — each check's call site, broken on purpose
+# ---------------------------------------------------------------------------------------------
+
+
+def test_the_word_check_is_wired_into_the_read(statement_pdf, monkeypatch):
+    """Sabotage assembly so one word goes missing: the independent check must decline the table.
+    Then disable the check too, and the damaged table would have shipped — which is what proves the
+    first half exercised the call site rather than a function nobody calls."""
+    real = tables._cell_text
+
+    def lossy(lines):
+        text = real(lines)
+        return text.replace("Inventories", "") if text == "Inventories" else text
+
+    monkeypatch.setattr(tables, "_cell_text", lossy)
+    result = _read(statement_pdf)
+    assert not result.tables
+    assert "unaccounted" in _codes(result)
+
+    monkeypatch.setattr(tables, "_check_accounted", lambda table, inventory: None)
+    damaged = _read(statement_pdf)
+    assert damaged.tables and ["", "11,092", "5,718"] in damaged.tables[0]["rows"]
+
+
+def test_the_side_by_side_check_is_wired_into_the_read(tmp_path, monkeypatch):
+    doc = fitz.open()
+    page = doc.new_page()
+    _statement(page, 100, ASSETS)
+    page.insert_text((60.4, 100 + 2 * PITCH + 11), "Accounts receivable, net", fontsize=FONT)
+    path = _save(doc, tmp_path, "doubled.pdf")
+    assert "side_by_side" in _codes(_read(path))
+
+    real_visual = tables._visual_rows
+    calls = collections.Counter()
+
+    def counting(lines):
+        calls["n"] += 1
+        return real_visual(lines)
+
+    monkeypatch.setattr(tables, "_visual_rows", counting)
+    _read(path)
+    assert calls["n"] > 0
+
+
+def test_the_grid_crossing_check_is_what_declines_a_chart(tmp_path, monkeypatch):
+    doc = fitz.open()
+    page = doc.new_page()
+    for y in (100, 130, 160, 190):
+        page.draw_line((100, y), (400, y))
+    for x in (100, 250, 400):
+        page.draw_line((x, 100), (x, 190))
+    page.insert_text((105, 120), "Domestic", fontsize=FONT)
+    page.insert_text((230, 147), "Import 47", fontsize=FONT)
+    page.insert_text((260, 180), "54", fontsize=FONT)
+    path = _save(doc, tmp_path, "chart_grid.pdf")
+    assert "grid_crossed" in _codes(_read(path))
+
+    real = tables._read_grid
+
+    def permissive(found, inventory):
+        try:
+            return real(found, inventory)
+        except tables._Decline as decline:
+            if decline.reason != "grid_crossed":
+                raise
+            raise tables._NotATable() from None
+
+    monkeypatch.setattr(tables, "_read_grid", permissive)
+    assert "grid_crossed" not in _codes(_read(path))
+
+
+def test_the_every_row_beside_rule_is_what_joins_a_two_up_list(tmp_path, monkeypatch):
+    left = [(f"State {chr(65 + i)}", str(100 + i)) for i in range(12)]
+    right = [(f"State {chr(77 + i)}", str(200 + i)) for i in range(12)]
+    doc = fitz.open()
+    page = doc.new_page()
+    _statement(page, 100, left, labels=(60,), columns=(230,), rule=(55, 235))
+    _statement(page, 100, right, labels=(300,), columns=(470,), rule=(295, 475))
+    path = _save(doc, tmp_path, "two_up.pdf")
+    assert len(_read(path).tables) == 1
+
+    monkeypatch.setattr(tables, "_same_row", lambda a, b: False)
+    assert len(_read(path).tables) != 1 or _rows(_read(path))[0] != ["State A", "100", "State M", "200"]
+
+
+# ---------------------------------------------------------------------------------------------
+# Rotation
+# ---------------------------------------------------------------------------------------------
+
+
+def _rotated(tmp_path, draw, rotation: int, name: str) -> str:
+    """A page that *displays* upright under ``/Rotate``: the content is drawn upright, placed on a
+    page rotated the other way, and the page's rotation set so a viewer sees it upright — the real
+    shape of a landscape exhibit, unlike merely setting /Rotate on upright content."""
+    src = fitz.open()
+    draw(src.new_page(width=612, height=500))
+    doc = fitz.open()
+    width, height = (500, 612) if rotation in (90, 270) else (612, 500)
+    page = doc.new_page(width=width, height=height)
+    page.show_pdf_page(page.rect, src, 0, rotate=rotation)
+    page.set_rotation(rotation)
+    return _save(doc, tmp_path, name)
+
+
+@pytest.mark.parametrize("rotation", [0, 90, 180, 270])
+def test_a_rotated_statement_reads_the_same_and_reports_an_unrotated_box(tmp_path, rotation):
+    path = _rotated(tmp_path, lambda page: _statement(page, 60, ASSETS), rotation, f"rot{rotation}.pdf")
+    reply = tables.tables(path, pages=[1])
+    assert reply["count"] == 1
+    table = reply["tables"][0]
+    assert table["rows"] == _expected(ASSETS)
+    box = fitz.Rect(table["bbox"]) + (-0.05, -0.05, 0.05, 0.05)
+    words = fitz.open(path)[0].get_text("words")  # unrotated, like search and redact_regions
+    covered = collections.Counter(w[4] for w in words if fitz.Rect(w[:4]) in box)
+    cells = collections.Counter(token for row in table["rows"] for cell in row for token in cell.split())
+    assert not cells - covered
+
+
+@pytest.mark.parametrize("rotation", [0, 90, 180, 270])
+def test_a_rotated_grid_reads_the_same(tmp_path, rotation, grid_pdf):
+    def draw(page):
+        page.show_pdf_page(page.rect, fitz.open(grid_pdf), 0)
+
+    path = _rotated(tmp_path, draw, rotation, f"grid{rotation}.pdf")
+    reply = tables.tables(path, pages=[1])
+    assert reply["count"] == 1
+    assert reply["tables"][0]["rows"][1] == ["Alpha", "first_last@example.com", "1,234.50"]
+
+
+# ---------------------------------------------------------------------------------------------
+# The reply
+# ---------------------------------------------------------------------------------------------
+
+
+def test_a_whole_document_scan_is_refused(statement_pdf):
+    with pytest.raises(ValueError, match="explicit page range"):
+        tables.tables(statement_pdf, pages=[])
+
+
+def test_every_page_asked_for_is_accounted_for(statement_pdf, tmp_path):
+    doc = fitz.open()
+    doc.insert_pdf(fitz.open(statement_pdf))
+    doc.new_page().insert_text((72, 100), "Just a paragraph of text with no table at all.", fontsize=11)
+    path = _save(doc, tmp_path, "mixed.pdf")
+    reply = tables.tables(path, pages=[1, 2])
+    pages_with_tables = {t["page"] for t in reply["tables"]}
+    pages_declined = {u["page"] for u in reply["unread_regions"]}
+    assert pages_with_tables | pages_declined == {1, 2}
+    assert all(not k.startswith("_") for u in reply["unread_regions"] for k in u)
+
+
+def test_the_reply_paginates(tmp_path):
+    doc = fitz.open()
+    for _ in range(3):
+        _statement(doc.new_page(), 100, ASSETS)
+    path = _save(doc, tmp_path, "three.pdf")
+    first = tables.tables(path, pages=[1, 2, 3], max_tables=2)
+    assert first["count"] == 2 and first["more_available"] and first["total_tables"] == 3
+    rest = tables.tables(path, pages=[1, 2, 3], max_tables=2, offset=2)
+    assert rest["count"] == 1 and not rest["more_available"]
+
+
+def test_a_character_budget_bounds_the_reply_as_well_as_a_count(tmp_path):
+    doc = fitz.open()
+    for _ in range(3):
+        _statement(doc.new_page(), 100, ASSETS)
+    path = _save(doc, tmp_path, "three.pdf")
+    reply = tables.tables(path, pages=[1, 2, 3], max_chars=100)
+    assert reply["count"] == 1 and reply["more_available"]
+
+
+def test_continuation_is_flagged_and_says_when_it_could_not_look(tmp_path):
+    doc = fitz.open()
+    _statement(doc.new_page(), 40, ASSETS)
+    _statement(doc.new_page(), 40, ASSETS)
+    path = _save(doc, tmp_path, "continued.pdf")
+    both = tables.tables(path, pages=[1, 2])["tables"]
+    assert both[1]["continues_from"] == 1 and both[1]["continuation_checked"]
+    alone = tables.tables(path, pages=[2])["tables"][0]
+    assert alone["continues_from"] is None and not alone["continuation_checked"]
+
+
+def test_a_stranded_title_starts_a_new_table_rather_than_continuing_one(tmp_path):
+    """A product manual ends a page with a caption and starts its table on the next; the two tables
+    share every column position, and the stranded caption is what says they differ."""
+    doc = fitz.open()
+    first = doc.new_page()
+    _statement(first, 40, ASSETS)
+    first.insert_text((60, 40 + len(ASSETS) * PITCH + 30), "Headphone cable connected", fontsize=FONT)
+    _statement(doc.new_page(), 40, ASSETS)
+    path = _save(doc, tmp_path, "stranded.pdf")
+    second = tables.tables(path, pages=[1, 2])["tables"][1]
+    assert second["title"] == "Headphone cable connected"
+    assert second["title_from_previous_page"] is True
+    assert second["continues_from"] is None
+
+
+def test_extract_text_names_the_pages_worth_calling_get_tables_on(statement_pdf, tmp_path):
+    doc = fitz.open()
+    doc.insert_pdf(fitz.open(statement_pdf))
+    doc.new_page().insert_text((72, 100), "No ruling here.", fontsize=11)
+    banded = doc.new_page()
+    _statement(banded, 100, ASSETS, bands=True)
+    path = _save(doc, tmp_path, "hint.pdf")
+    assert queries.extract_text(path, [1, 2, 3])["table_pages"] == [1, 3]
+
+
+def test_concurrent_calls_read_the_same_as_sequential_ones(statement_pdf, grid_pdf):
+    """PyMuPDF's finder keeps the page's characters in module-level state; the lock keeps two
+    calls in two worker threads from reading each other's."""
+    expected = {path: tables.tables(path, pages=[1])["tables"] for path in (statement_pdf, grid_pdf)}
+    failures = []
+
+    def run(path):
+        for _ in range(3):
+            if tables.tables(path, pages=[1])["tables"] != expected[path]:
+                failures.append(path)
+
+    threads = [threading.Thread(target=run, args=(p,)) for p in (statement_pdf, grid_pdf) * 2]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert not failures

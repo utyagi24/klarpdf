@@ -265,7 +265,7 @@ you are configured. (It is offered rather than switched on silently, which is wh
 safe.) That file calls the bare `klarpdf-mcp`, so activate the virtualenv before you start Claude
 Code: `source .venv/bin/activate`.
 
-Confirm with `/mcp`: it should say **klarpdf — 21 tools**. If it says *failed*, run the command by
+Confirm with `/mcp`: it should say **klarpdf — 22 tools**. If it says *failed*, run the command by
 hand in the same shell you launch Claude from; the error is almost always `command not found`
 (nothing installed, or a different virtualenv active) or `No module named mcp` (installed the
 package but not its dependencies).
@@ -427,6 +427,7 @@ error, never a silent clamp. Every tool takes an optional `password` — see
 |---|---|
 | `get_info` | Pages, size, page sizes, encryption + permissions, **has-text-layer**, outline. Call it first. |
 | `get_outline` | Bookmarks as `{level, title, page}`. |
+| `get_tables` | Tables on the pages you name, as `rows` with each table's `title`, `page` and `bbox` — plus `unread_regions`, naming every region that could not be read and why. Rows come only from what the page draws (a grid, or ruled lines and shaded bands), columns from the white space no text crosses, and every table is checked against its page before it is returned. `pages` is required: reading tables costs far more than `extract_text`. |
 | `get_links` | Every link: where it points (`target_page` / `uri` / `file`), its `rect`, and the words under it. The structure a document carries when it has no bookmarks. Link *annotations* only — a URL merely typeset on the page is not one, so pair it with `search` for a privacy sweep. |
 | `search` | Hits with page, snippet, box, and whether the text is `invisible` on the page. `match_case`, `whole_words`. |
 | `extract_text` | Text of named pages. |
