@@ -603,6 +603,99 @@ It does not write **destination points within a page** (a bookmark to a heading 
 colours, or open/collapsed state. Each entry lands at the top of its page, which is what a
 contents-page link resolves to for a reader anyway.
 """,
+    "get_tables": """\
+## How a table is read
+
+**A drawn grid.** Lines box every cell, so the drawn cells are the cells, and each word goes to the
+cell its letters sit in. `header` is the grid's first row.
+
+**Ruled or shaded rows.** Most financial statements draw a rule or a shaded band for each row and
+nothing between the columns. The rows come from those drawn edges; the columns come from the page's
+whitespace — the vertical gaps that no line of text crosses. A cell holds whole lines of the page's
+text, so a long label is never split across two cells and `(1,234)` keeps both brackets. `header` is
+null: the header lines, when they sit in or just above the ruled rows and fit the columns, are
+simply the first rows, often one row per printed line (`June 27,` over `2026`).
+
+Narrow marks come back as the page prints them. A `$` printed apart from its figure is a column of
+its own, mostly empty; a `$` printed against the figure stays in the figure's cell (`"$ 109,417"`).
+A two-line cell keeps its line break (`"Total R&D, sales and marketing, general\\nand administrative"`).
+
+## How far a table reaches
+
+A table is taken to be larger than where the finder first located it only on evidence the page
+states, and whatever is added passes the same checks as the rest:
+
+* a line of text crossing the table's edge — an outdented total, a bracket overhanging the last column
+* text inside the table's own ruled or shaded rows, where those drawn edges run on under it — a label
+  column the finder left out
+* a row just above or below that fits the table's columns, either inside a ruled band or no further
+  away than the table's own rows are spaced — a first row above the first rule, a total set apart below
+* text level with **every** row of the table, beside it — the two halves of a list printed two-up,
+  which comes back as one wider table
+
+A line alone on its row just outside the table — a centred title, a footnote — is not taken in,
+unless its letters touch the table.
+
+## What `unread_regions` means
+
+Each entry names a `page`, a `bbox` (unrotated, like the boxes `search` returns), a `reason` and a
+`suggestion`. A decline means reading the region as rows would have required guessing something the
+page does not state. `extract_text` still returns every value in reading order; `render_page` shows
+the layout. The reasons, in plain terms:
+
+| `reason` begins | what the page showed |
+|---|---|
+| "this page has no text layer" | an image of a page — only `render_page` can read it |
+| "nothing on this page marks where rows are" | no drawn grid, no rules, no bands |
+| "this page has ruled lines or shaded bands, but…" | the drawn lines enclose nothing table-shaped |
+| "the ruled rows here each hold a single run of text" | columns exist only as spaces inside lines (a line-printer layout) |
+| "text here runs across the drawn cell borders" | a chart, or a form whose entries overflow their boxes |
+| "a ruled line runs through text here" | lines that are not row separators — usually gridlines |
+| "two separate pieces of text share one column here" | a column boundary the page does not state; also text printed twice to simulate bold |
+| "several rows of text share one ruled band here" | the drawn lines do not say which line belongs to which row |
+| "text here sits level with the rows of a table read on this page" | something beside a table that *was* returned — labels it needs, a second table, or a chart |
+| "text inside this region is set at an angle" | rotated text inside the region |
+| "the text here runs into a table already read" | two regions that cannot be separated |
+
+**An entry beside a returned table is worth reading.** When a ruled or shaded table's labels sit
+outside it and the page gives no drawn evidence that they belong to it, the table is returned *and*
+the labels are named here — so such a table never arrives without saying there is text level with
+its rows. Text beside a drawn grid is not reported.
+
+## Known limits
+
+* **Two tables stacked in one ruled region**, with a heading or a sentence between them, can come
+  back as one table whose middle rows hold that text. Every value is still in the right row and
+  column; read each row against the header row nearest above it.
+* **A small table on a page with little other text may not be found at all.** The finder needs a
+  handful of words lined up down the page before it locates a region; such a page reports no table.
+* **`title` is best-effort.** It is the nearest caption-like line above the table, stepping over an
+  introductory paragraph; a centred statement title can be passed over for page furniture such as
+  "Table of Contents". Treat it as a label to show a user, never as a key.
+* **Signs are what the text says.** A negative printed as `(1,234)` comes back as `(1,234)`. A
+  direction shown only as a red or green arrow — common in market-share and KPI tables — is not in
+  the text at all, and the magnitude comes back unsigned. Where sign matters, check `render_page`.
+* Text set smaller than 1 pt is not read: at least one document carries invisible duplicate rows at
+  a tenth of a point, which `extract_text` and `search` do return.
+
+## Continuation is flagged, never applied
+
+Two tables on consecutive pages can share a header and every column position and still be different
+tables. So `continues_from` is a hint for you to judge, and a table that received a title stranded at
+the foot of the previous page (`title_from_previous_page`) is never marked as a continuation, because
+that title says it starts something new.
+
+`continues_from` can only be answered when the page before is in the same request.
+`continuation_checked: false` means it was not — `null` then says nothing; ask for both pages. Only
+the first table on a page can continue anything, so a second table on the same page reports `true`:
+two tables in one reply can legitimately differ here.
+
+## Cost
+
+Reading tables is tens of times slower than reading text, which is why `pages` is required. Narrow
+first with `get_outline`, `search`, or `extract_text`'s `table_pages`, which names the pages
+carrying ruled lines or shaded bands for a small fraction of what reading their tables costs.
+""",
     "search": """\
 ## Feeding hits straight to `redact_regions`
 

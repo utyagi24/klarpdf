@@ -43,7 +43,7 @@ from mcp.server.mcpserver import Image
 from mcp.server.mcpserver.exceptions import ResourceError
 from mcp_types import CallToolRequestParams, CallToolResult, TextContent
 
-from klarpdf.mcp_bridge import annotations, docs, queries, redaction, transforms
+from klarpdf.mcp_bridge import annotations, docs, queries, redaction, tables, transforms
 from klarpdf.mcp_bridge.config import Config, PathNotAllowed, PathPolicy
 from klarpdf.mcp_bridge.strict_args import rejection_message, unknown_parameters
 from klarpdf.model.virtual_document import PasswordRequired
@@ -515,6 +515,12 @@ def create_server(config: Config | None = None) -> MCPServer:
         Prefer naming the pages you need — that is the point of this server over reading the file
         directly. Use `search` or `get_outline` to find them first. A very large request is cut off
         at a character budget and reports `truncated: true` with the pages that made it.
+
+        A table's text comes back **complete but flattened** — every cell, in reading order, one
+        value per line, so a row arrives as consecutive lines rather than as a row. `table_pages`
+        names the pages carrying ruled lines or shaded bands, where **`get_tables`** may return that
+        same content as actual rows. It is deliberately over-inclusive — it also names pages where
+        `get_tables` finds no table — and it is the only signal that a table was there at all.
         """
         result = queries.extract_text(check(path), pages, password)
         budget = limits.max_text_chars
@@ -535,6 +541,50 @@ def create_server(config: Config | None = None) -> MCPServer:
             )
             result["pages"] = kept
         return result
+
+    @server.tool()
+    @guarded
+    def get_tables(
+        path: str,
+        pages: list[int],
+        password: str | None = None,
+        offset: int = 0,
+    ) -> dict:
+        """Read the tables on specific pages as `tables` — each with `rows`, `header`, `title`,
+        `page` and `bbox` — plus `unread_regions`, naming every region that could not be read with its
+        `bbox`, a `reason` and what to try.
+
+        `pages` is **required**: reading tables is tens of times slower than reading text. Narrow
+        with `get_outline`, `search`, or `extract_text`'s `table_pages`.
+
+        **Rows come only from what the page draws** — a drawn grid, or ruled lines or shaded bands
+        for the rows, with the columns taken from the whitespace no text crosses. Each cell holds
+        whole lines of the page's text; nothing is cut or reconstructed. Every table is checked
+        against its page before it is returned — each word inside `bbox` in exactly one cell, no text
+        across a line that separates cells, no cell holding two separate pieces side by side — and a
+        table that fails is **declined** into `unread_regions`, never returned as a plausible guess.
+
+        So **every page you ask about comes back in `tables`, `unread_regions`, or both**. Read the
+        regions even when tables came back: text level with a ruled or shaded table's rows but beside
+        it — a chart, a second table, or labels the table needs — is named there.
+
+        `header` is the first row of a drawn grid and null otherwise; a ruled table's header lines,
+        when they could be read, are its first rows. `title` is best-effort. `continues_from` flags a
+        table that *may* continue one on the page before — **flagged, never merged** — and
+        `continuation_checked` says whether that page was looked at. Figures are what the page
+        prints: a sign shown only as a coloured arrow is not in the text.
+
+        The reply paginates: when `more_available` is true, call again with `offset` set to
+        `offset + count`. Field contract and known limits in `klarpdf://docs/get_tables`.
+        """
+        return tables.tables(
+            check(path),
+            pages,
+            password=password,
+            max_tables=limits.max_tables,
+            max_chars=limits.max_table_chars,
+            offset=offset,
+        )
 
     # `structured_output=False` because the return is an image block, not JSON. Without it the SDK
     # tries to build a pydantic output schema from the `-> Image` annotation and fails at import;

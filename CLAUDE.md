@@ -183,6 +183,31 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   §Gotchas' *"a green Windows + WSL suite does not mean CI is green"*, one level up: it applies to
   the tests as much as to the code.
 
+- **Compare, don't guess.** Before adding a rule that decides something about a document, ask
+  whether it compares two things the page actually shows and answers yes or no, or guesses from what
+  documents usually look like — a threshold, a tuned distance, a shape filter. Guesses get beaten by
+  the next document, so prefer a check that needs no tuned number; and when a check grows into a
+  repair, keep the check. This is measured, not taste: M141's first attempt (PR #348) carried ~22
+  tuned numbers, six of them beaten outright by real documents, and at least three of its five
+  repairs that *rebuilt* what a cell should say were beaten too — while its two checks that compared
+  the page with the output never were (`PLAN.md` §M141).
+- **Fix a class of bug once, then question the approach.** A second report of the same kind of
+  defect is evidence against the approach, not a new case to patch — #348 patched left-clipped labels
+  four times before anyone counted, and six in all. After a fix, check what it newly touches, not
+  only the case that prompted it, and compare every run against **fixed expectations you have
+  verified**, not only against the previous run: the M141 rewrite lost a label column in one round,
+  and six rounds of run-to-run diffs did not notice. Keep measured numbers out of user-facing
+  documentation unless a test re-checks them — `klarpdf://docs/get_tables` once said a reader
+  returned tables "with no damage of any kind", true when written and false eight rounds later.
+- **Choose new test documents for the least-tested part of a feature.** A corpus that grows by adding
+  whatever broke last keeps finding shapes it has already seen: nine rounds of ruled financial
+  statements found ~20 defects in #348, while one round on a chart-heavy statistics annual found two
+  serious ones nobody had looked for.
+- **Check what the document holds before concluding anything about the code.** Before calling a
+  result a defect — or a success — compare it with the page: `extract_text`, `search`, `render_page`.
+  It costs one call; in M141's test rounds it withdrew three findings that were the document's doing,
+  and the same comparison caught both regressions the first attempt shipped.
+
 ## Gotchas (cost real time if missed)
 - **`insert_pdf` copies pages, not documents.** Everything a PDF keeps at the *catalog* level — the
   accessibility structure tree, `/MarkInfo`, Reader Extensions `/Perms`, the `/Names` tree,
@@ -300,6 +325,17 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   One trap underneath it: the SDK sends `fn.__doc__` **verbatim** (no `inspect.getdoc`), so a
   docstring's indentation is billed against the cap — ~1,800 chars across the tools — which is why
   `guarded` runs `cleandoc`. See `PLAN.md` §Architecture and §M105.
+- **PyMuPDF's `find_tables` locates tables; do not let it read them.** Three habits, all met in
+  M141. **On a page with `/Rotate` it measures the page as displayed**, while `get_text` reports the
+  page unrotated — carry words into the displayed orientation before comparing, and convert boxes back
+  at the boundary, since `search`, `clip` and `redact_regions` all work unrotated. **It keeps the page's
+  characters and edges in module-level lists and turns the process-wide `set_small_glyph_heights` on
+  while it runs**, and the MCP SDK runs tool calls concurrently in worker threads — so `get_tables`
+  holds a lock, which cannot shield *other* tools from the glyph setting (`PROGRESS.md` §Open
+  follow-ups). **Its own text page and `Table.extract()` both damage text**: the first breaks words on
+  some documents (`'P'`, `'rcent'`), and the second puts each character in whichever cell its centre
+  falls in, which cuts words at a column edge and once moved an address's underscore onto a line of
+  its own. Cells are built from the ordinary word extraction instead (`PLAN.md` §M141).
 - **Windows Python must be python.org 3.12.x**, not the Microsoft Store stub (which can't build).
   That is the **app's build** requirement and nothing else. The MCP bridge is `pip`-installed rather
   than frozen, so `requires-python` genuinely gates it, and since M132 it is `>=3.11,<3.15` — do not

@@ -7019,7 +7019,7 @@ missing something."* There was. The history shows M140 scoped with M138/M139 (la
 numeric order at the time), then **deliberately demoted twice** as M141 and M142 were each inserted
 above it. Neither commit explains the placement, but the design does: **M140's `in_table` flag needs
 table detection**, and M141 is where that machinery lands — along with the decision M141 settles
-about *how* to call it, strategy chosen per page (ruling → `lines_strict`, else `text`). Building
+about *how* to call it (as rebuilt on 2026-09-13: a drawn grid, or ruled and shaded rows, and a decline rather than a guess where neither holds — §M141). Building
 M140 first means making that call independently, and probably differently. So `M141 → M140` encodes
 real reasoning and stays.
 
@@ -7227,53 +7227,126 @@ splitting parenthesised negatives across cells. The numbers, and the method that
 in `PROGRESS.md` §Open follow-ups. The standing lesson about fixtures holds either way: the
 synthetic fixture that made extraction look solved had drawn ruling lines too.
 
-#### M141 — `get_tables`, and the decisions that closed it
+#### M141 — `get_tables`, rebuilt around checks against the page
 
-Raised as an open question on 2026-09-08 and **closed by the owner on 2026-09-09**. The evidence is
-in `PROGRESS.md` §Open follow-ups' history; what follows is the decided design.
+Raised 2026-09-08 and scoped by the owner on 2026-09-09. The first implementation (PR #348) went
+through thirteen rounds of black-box testing (TC-026 … TC-038, ~40 defects) and was set aside on
+2026-09-13 for a rewrite on a fresh branch. This entry is the design that replaced it; #348's own
+description and the tester's reports hold its history.
 
-**Strategy is chosen per page and is not reported.** `lines_strict` reads a fully ruled table and
-returns nothing for a partially ruled one; `strategy="text"` reads the partially ruled financial
-statements correctly and invents tables on non-tabular pages. Each is right where the other fails,
-so the tool picks: ruling present → `lines_strict`, else `text`. The owner rejected reporting which
-was used — *"I see no value in disclosing the strategy unless we expect the calling agents to
-perform some post processing based on it"*, and they do not. The precision problem it was standing
-in for is handled where precision problems belong: the **shape filter** (reject 1×N, newline-stuffed
-cells, empty header), which was already the answer for `lines_strict`'s 3-of-16 precision.
+**Kept from 2026-09-09.** `pages` is required — reading tables runs at under ten pages a second, against
+hundreds for `extract_text`. Zero new dependencies. Titles and cross-page continuation are in scope,
+and continuation is **flagged, never merged**: `WH-1000XM6.pdf` pages 29 and 30 share every column
+position and are different tables, and the caption stranded at the foot of page 29 is what tells them
+apart. Which reader produced a table is still not reported (the owner's call on 2026-09-09); the reason
+to revisit it — the two readers being trusted differently — goes away when both are checked the same
+way.
 
-**Parenthesised negatives are repaired deterministically, and the residue is documented, not coded
-around.** Measured over 287 numeric cells on PDF pages 387–389, cells split so the parenthesis
-becomes unbalanced: 0% where a statement has no negatives, 5% on the P&L, **29% on the cash flow
-statement**. Of 36 such cells **35 lose only the trailing `)`**, so a leading `(` with no closer is
-unambiguously a negative and the repair is a rule. **One lost the leading `(`** and reads as
-positive. That case gets a line in the tool's documentation and nothing else — the owner's
-direction: *"we are not aiming to be 100% accurate, 100% of the times. don't over compensate for the
-corner cases."*
+**What the first attempt taught.** #348 took PyMuPDF's cells as given and put a layer of guards and
+repairs on top. The guards judged the reader's *output*, so none of them could see what the reader had
+removed. The repairs *rebuilt* content — a label's lost first letters, a column hidden inside its
+neighbour, a row just outside the table — and each rebuild was an assumption about how the damage
+looks. Of its ~22 tuned numbers, six were beaten outright by documents; at least three of its five
+repairs were beaten too, and left-clipped labels alone were patched six times. The only rules no
+document beat compared two observations and answered yes or no: the digits printed in a region
+against the digits in its cells, and a word-by-word page-versus-cells script the tester wrote.
 
-**Titles and cross-page continuation are in scope, not a deferred gap.** This was recorded as an
-acceptable limitation and the owner corrected it: *"we can't expect tables to be present as a whole
-on a single page."* Quite right — a table spanning a page break is the normal case, not a corner
-one. The mechanism is mechanical, and `WH-1000XM6.pdf` page 29 supplies all three cases at once
-(table bboxes at y 217–528 and 659–755, page height 842):
+**The measurement that set the new design.** Read with no repairs at all over ~40 documents, and every
+region compared with its page: PyMuPDF's drawn-grid reader agreed with the page on 44 of 61 regions,
+and the other 17 were real problems — a chart, form entries overflowing their boxes. Its row-ruled
+reader, which takes rows from drawn rules and **columns from text alignment**, agreed on 10 of 80, and
+only 4 of those were tables the grid reader had not also found. The rows were sound. The columns were
+the damage: an edge through Atlassian's labels (`"Marketable sec"` + `"urities"`), through Amazon's
+`(69,013)`, and no edge at all between two narrow columns of a three-row statement, because ten words
+must line up before PyMuPDF places one.
 
-    y=196.4  free      Music playback time                       -> title of the table at y=217
-    y=638.9  free      Communication time                        -> title of the table at y=659
-    y=772.4  free      Headphone cable connected (power is on)   -> orphan, below the last table
+**The design.**
 
-* **A table's title is the nearest *free* text block above its bbox** — free meaning not inside any
-  detected table region. Both titled tables on the page resolve this way.
-* **An orphan free block below the last table on a page is the title of the first table on the next
-  page.** That is the *Headphone cable connected* case, whose body is on page 30.
-* **Continuation is flagged, never auto-merged**, and the orphan title is what makes that safe.
-  There is a real trap here: page 29's second table and page 30's table have **identical column
-  x-edges `[36.4, 265.2]` and identical header rows**, so geometry matching alone would merge two
-  genuinely different tables. The orphan title on page 29 is the signal that page 30 starts something
-  new. So the tool reports `title`, `title_from_previous_page` and `continues_from` and lets the
-  caller decide — **the same principle already settled for M140's `in_table`: report the signal, do
-  not act on it silently.**
+* **PyMuPDF only locates.** `strategy="lines_strict"` finds drawn grids;
+  `vertical_strategy="text", horizontal_strategy="lines"` finds ruled or shaded rows. From the second
+  only the region and its row boundaries are used — never its columns, and never `Table.extract()`,
+  which puts each character in whichever cell its centre falls in and so cuts words at a column edge.
+* **Words come from the ordinary extraction** — the flags `extract_text` and `search` use — not from
+  the finder's own text page, which breaks words on at least one document (a state education poster:
+  `'P'`, `'rcent'`).
+* **A drawn grid's cells are its drawn cells.** Each word goes to the cell its letters sit in, and
+  `header` is the first row.
+* **A ruled table's columns are its whitespace** — the x-ranges no text line crosses, taken from the
+  lines that sit side by side. A text line is never divided, so nothing is cut. Two refinements, both
+  read off the page. A line holding two columns together is a *spanning* cell only when every other
+  line on its row does the same (a row of years centred over each `$` and its figure). And a column is
+  divided where its rows say it holds more than one: the rows with the most separate pieces in it
+  define the sub-columns, and every other row must fit them (Apple printing `"$ 109,417"` as one run
+  beside rows that print `$` and the figure apart; Salesforce's two figure columns whose extents touch
+  across rows but never on one).
+* **The checks.** Each compares the finished table with the page, and a failure declines the region
+  with the text that disagreed recorded. Every word inside the box is in exactly one cell — a recount
+  from the page's words that shares nothing with how the cells were built. No text runs across a drawn
+  grid's borders (a chart). No ruled line runs through a line's letters, judged above the baseline so a
+  descender touching a border does not count (gridlines). No cell holds two separate pieces side by
+  side (a column the page does not state, or text printed twice to look bold). No ruled band holds
+  several rows with a lone line among them, or with no band anywhere holding a single row (rules that
+  do not mark rows — two columns of prose between header and footer rules).
+* **Growth only on stated evidence**, and every addition passes the same checks. A line crossing the
+  region's edge belongs to it whole (outdented totals). Text on one side joins when every line there
+  sits in a row whose edge has a drawn segment under it running unbroken into the table (QCOM's label
+  column under full-width bands; a bar chart beside a table stays out, because its gridlines stop short
+  of the table). A row just above or below joins when each of its lines covers its own run of columns,
+  inside a ruled band or within the table's own row spacing — lone lines only when a side-by-side row
+  lies beyond them or their letters touch the table (a centred page title stays out). Such a row, when
+  it holds several pieces, may add a column where a piece sits wholly in whitespace: a statement whose
+  `$` signs appear only on its first and total rows has no `$` column among the rows the finder
+  located, and without this its first row was lost without a word. A line alone on its row never adds
+  or spans columns. Text level with
+  **every** row of the table, beside it, is taken in and the whole re-checked: a two-up list becomes one
+  wider table, and a balance sheet whose labels sit beside its figures then declines as stacked instead
+  of returning figures with nothing to say what they are.
+* **Nothing beside a returned ruled table goes unmentioned.** Text level with a ruled or shaded table's
+  rows but outside it is reported in `unread_regions` — a chart, a second table, or labels the table
+  needs. The tester's judgement on figures without labels (TC-030) was that they are worse than a
+  decline. A drawn grid is not checked this way: every case the report exists for — labels the ruling
+  does not reach, the other half of a two-up list, a chart beside the figures — was a ruled table.
+* **Rotation.** The finder works in the page as displayed; words are carried into that orientation once,
+  and the reported `bbox` goes back to unrotated space, where `search`, `clip` and `redact_regions` work.
+  The box covers each word's ordinary box; the "inside the box" checks use the letters, so a line set
+  tight against the table is not counted as inside it.
+* **Text under 1 pt is not read** — the owner's decision, for a market report's invisible duplicate row
+  at 0.1 pt.
 
-**Scope and cost.** `find_tables()` runs at **6.9 pages/s**, ~135× slower than `get_text`, so a
-572-page document is ~85 s: the tool takes a **page range**, never a whole document by default.
+**The numbers it uses, and why none is a guess about documents.** `_SNAP` (3 pt) is PyMuPDF's own snap
+tolerance, reused wherever two measured positions must count as the same. `MIN_RULES = 3` gates the
+row-ruled finder and `extract_text`'s `table_pages`; counting shaded-band edges as well as rules, it
+names all 72 of 172 corpus pages that return a table, where thin rules alone miss three (Amazon's pages
+11 and 12 among them). Counting costs 1.0–1.6× reading the text, so `table_pages` roughly doubles
+`extract_text` — not the half #348 recorded. `MIN_TEXT_SIZE = 1.0` is a physical floor. `_MIN_WORDS_VERTICAL = 10` still steers where the finder
+looks but decides no cell. The caption and continuation rules keep #348's constants; they label a table
+and never change what it holds.
+
+**Owner decisions, 2026-09-13.** Columns from whitespace, declining where they cannot be found reliably
+(*"Page Whitespace if it can be done reliably and decline where we cant"*). A table may grow when the
+added text fits its columns. Text under 1 pt ignored. Four working rules added to `CLAUDE.md`.
+
+**Tried and rejected on the way, each on a named page.** Taking a table's width from any drawn segment
+at any row height stretched NADA's two-up state list across the map beside it. Requiring the width to be
+ruled at every row height lost QCOM's label column, whose subtotal rules run under the figures only.
+Judging each line alone let a bar chart's labels in where two of its gridlines happened to meet a table
+row. Requiring both edges of a row lost the first label under a column-heading rule. Accepting any
+caption centred over the table picked header fragments (`Six Months Ended`) and cost two real captions;
+a caption now may not sit over the figures without reaching the labels, and a line wholly in brackets
+is stepped over. Letting a line alone on its row span two columns took in NADA's two-line chart caption
+as two rows.
+
+**Known limits, recorded rather than coded around** (`PROGRESS.md` §Open follow-ups has the decisions
+owed). Two tables stacked in one ruled region with prose between them come back as one (LLY's proxy
+p56, SpaceX's prospectus p274; the values stay in their right cells). A small ruled table on a page with
+little other text is not found. `title` is best-effort. A sign shown only as a coloured arrow is not in
+the text.
+
+**Verification.** `tests/test_mcp_tables.py` builds each shape with PyMuPDF and reads it through the
+real finder, and each check's call site is broken on purpose in a test and shown to change the result.
+The design itself was driven by `tools/table_corpus_check.py`: fixed expectations for pages verified by
+eye, arithmetic or render, compared on every run — adopted after a label column lost in one round
+survived six rounds of comparing each run only with the one before.
 
 #### M142 — `extract_markdown`, and why it is ours rather than rented
 

@@ -614,8 +614,8 @@ it was the one unambiguous error here.
 
 **But M141 stays ahead of M140, and the first proposal to make the order numeric was wrong.** M140's
 `in_table` flag needs table detection, and M141 is where that machinery lands together with the
-decision M141 settles about how to call it (ruling present → `lines_strict`, else `text`, chosen per
-page). Building M140 first would mean making that call independently and probably differently. The
+decision M141 settles about how to call it (as rebuilt 2026-09-13: a drawn grid, or ruled and shaded
+rows, else a decline — `PLAN.md` §M141). Building M140 first would mean making that call independently and probably differently. The
 1→2 demotion of M140 encoded real engineering reasoning; only M142's placement did not. So M142
 moves to the end and nothing else does. Argument and measurements in `PLAN.md` §M140 → *Ordering*.
 
@@ -858,18 +858,19 @@ moves to the end and nothing else does. Argument and measurements in `PLAN.md` �
   indexed document and dedupe stays off. `tests/test_mcp_links.py` pins the polarity against a
   constructed dot-leader contents page, verified by inverting the fixture and watching it go red.
 
-- [ ] **M141** **`get_tables`** — rows an agent can read, at **zero new dependencies**. Strategy is
-  chosen per page (ruling present → `lines_strict`, else `text`) and **deliberately not reported**;
-  precision comes from a **shape filter** (reject 1×N, newline-stuffed cells, empty header).
-  Parenthesised negatives split across cells are **repaired by rule** — a leading `(` with no closer
-  is negative, which covers 35 of 36 measured cases — and the one cell that lost its leading `(`
-  is a documented limitation, not code. **Titles and cross-page continuation are in scope**: a
-  table's title is the nearest *free* block above its bbox, an orphan free block below the last
-  table on a page titles the first table on the next, and continuation is **flagged, never
-  auto-merged** — page 29 and page 30 of `WH-1000XM6.pdf` share identical column edges and headers
-  while being different tables, and the orphan title is what tells them apart. Takes a **page
-  range**: `find_tables()` runs at 6.9 pages/s, ~135× slower than `get_text`. Design and the
-  measurements behind each decision in `PLAN.md` §M141.
+- [x] **M141** **`get_tables`** — tables an agent can read, at **zero new dependencies**, each one
+  checked against its page before it is returned. **Rebuilt 2026-09-13** after the first attempt
+  (PR #348) went through thirteen black-box rounds (TC-026 … TC-038, ~40 defects) and was set aside.
+  PyMuPDF now only *locates* a table: a drawn grid's cells are its drawn cells, and a ruled or shaded
+  table's columns are the page's whitespace, so no word is ever cut and nothing is rebuilt. A table the
+  page contradicts — a chart that looks like a grid, a column the page does not state, rows the drawn
+  lines do not separate — is **declined** into `unread_regions` with the reason. A table grows past
+  where it was found only on evidence the page states (a label column its own bands run under, a total
+  below its last rule), and text level with a ruled or shaded table's rows but beside it is named.
+  Owner decisions (2026-09-13): columns from whitespace, growth only when the added text fits, text
+  under 1 pt ignored, four working rules added to `CLAUDE.md`. `extract_text` gains `table_pages`
+  (pages with ruled lines or shaded bands). Design, measurements, and the rules tried and rejected in
+  `PLAN.md` §M141 — *WSL* ([#349](https://github.com/utyagi24/klarpdf/pull/349)).
 
 - [ ] **M140** **Heading candidates** — the typography fallback for documents with neither
   bookmarks nor a linked contents page, and the only route to **subsections** a contents page omits.
@@ -4534,6 +4535,51 @@ the PR that fixes it. See `CLAUDE.md` §How we work for the split and why. Items
 were not migrated wholesale: each is listed because a decision is outstanding, which is what keeps
 it on this side of the line.
 
+- **Two tables stacked in one ruled region, with prose between them, come back as one** (M141,
+  2026-09-13). LLY's proxy page 56 (base salaries, bonus targets, stock grants) and the SpaceX
+  prospectus page 274 (a roll-forward, then Note 8's fair-value table) each return a single table whose
+  middle rows hold the heading and sentence between the two. Every value is still in its right row and
+  column, and `klarpdf://docs/get_tables` says to read each row against the header row nearest above.
+  Splitting needs a way to tell "this band is prose, not a row", and the only signals measured so far
+  are thresholds (band height, line count) — the kind `CLAUDE.md` now asks to avoid. Decision owed:
+  keep it documented, or find a signal the page states.
+- **A small ruled table on a page with little other text is not found at all** (M141). PyMuPDF's
+  row-ruled finder needs ten words lined up down the page before it locates a region, so a four-row
+  table alone on a page reports no table (`tests/test_mcp_tables.py` uses twelve-row fixtures for this
+  reason). Reading ruled blocks straight from the drawn edges would reach it, but that is new
+  region-finding with failure modes of its own — a page's header and footer rules make a "block" too —
+  so it waits for a document that needs it.
+- **`find_tables` switches a process-wide PyMuPDF setting while it runs** (M141). It turns
+  `set_small_glyph_heights` on for the duration, and the MCP SDK runs tool calls concurrently in worker
+  threads, so a `search` or `redact_text` executing at that moment would measure glyph boxes tighter than
+  usual. `get_tables` serialises itself (`tables._READ_LOCK`) but cannot serialise other tools;
+  redaction re-reads what it wrote before reporting success, so a miss would surface as a failed call
+  rather than a leak. Decision owed: serialise every tool call in `server.guarded` — one lock, changing
+  nothing but concurrency — or accept the window.
+- **Text under 1 pt: `get_tables` skips it, `extract_text` and `search` do not** (M141; the owner asked
+  where such text comes from, 2026-09-13). A market report's page carries a regular-weight copy of a
+  table's Total row at 0.1 pt, drawn just before the bold row a reader sees, so `extract_text` returns
+  the figures twice and `search` finds a second hit of 0.56 × 0.12 pt. Whether the text tools should
+  flag or skip it is a change to those tools; TC-033 separately notes `search`'s `invisible` flag does
+  not cover text that is invisible by size. Decision owed.
+- **`title` misses a statement heading that shares a text block with the company name** (M141). Cisco's
+  cash-flow statement prints `CISCO SYSTEMS, INC.`, the statement name and `(in millions)` as one block,
+  which the caption rule rejects as more than one line, so the title falls through to "Table of
+  Contents" above it. Titles are documented as best-effort; recorded so the next change starts from the
+  measured case.
+- **`table_pages` roughly doubles what `extract_text` costs** (M141, measured 2026-09-13). Counting a
+  page's ruled lines and shaded bands took 1.0–1.6× as long as reading its text on the table corpus,
+  at most 17 ms on any page — not the half that #348's docstring stated. It stays a small fraction of
+  `get_tables`, which took 72× the text. Untried: `get_cdrawings()`, which skips building a Python
+  object for every path and might give the same count for less. Decision owed only if a caller finds
+  `extract_text` slow.
+- **PR #348, the first M141 attempt, is superseded** by the rewrite and left open for the owner to
+  close; its description and the tester's reports hold the history, and nothing in it is needed now.
+- **Expectations about private documents live outside the repository** (M141).
+  `tools/table_corpus_check.py` runs from a plan file, and the committed plan names public filings and
+  reports only. The plan for the owner's statements, payslips and forms was written to the local test
+  folder beside `check-row-words.py`.
+
 - **`set_outline` is untested on four shapes TC-025 names** (2026-09-10). An outline **deeper than
   two levels** written by this tool — NVIDIA's 8-level outline read back correctly through `merge`
   in TC-024, but nothing has *written* more than two; `set_outline` on a real **encrypted** document
@@ -4565,7 +4611,9 @@ it on this side of the line.
   round's conclusions were reached by comparing PyMuPDF's table output against PyMuPDF's text output
   and reading **consistency as correctness**, and were wrong. Redone against hand-read values from
   the rendered page, `strategy="text"` matched **18 of 18** rows on the Assets & Liabilities
-  statement. Nothing carried.
+  statement. Nothing carried. *Superseded 2026-09-13 by the rewrite:* a page with neither a drawn
+  grid nor ruled rows is declined rather than read with `strategy="text"`, and no parentheses are
+  repaired, because cells are built from whole words — `PLAN.md` §M141.
 
 - ~~**Should the bridge offer a Markdown rendering of a PDF, and if so through `pymupdf4llm` or our
   own code**~~ — **graduated 2026-09-09 into M142** (roadmap above; design in `PLAN.md` §M142).
