@@ -7301,9 +7301,11 @@ must line up before PyMuPDF places one.
   **every** row of the table, beside it, is taken in and the whole re-checked: a two-up list becomes one
   wider table, and a balance sheet whose labels sit beside its figures then declines as stacked instead
   of returning figures with nothing to say what they are.
-* **Nothing beside a returned table goes unmentioned.** Text level with a returned table's rows but
-  outside it is reported in `unread_regions` — a chart, a second table, or labels the table needs. The
-  tester's judgement on figures without labels (TC-030) was that they are worse than a decline.
+* **Nothing beside a returned ruled table goes unmentioned.** Text level with a ruled or shaded table's
+  rows but outside it is reported in `unread_regions` — a chart, a second table, or labels the table
+  needs. The tester's judgement on figures without labels (TC-030) was that they are worse than a
+  decline. A drawn grid is not checked this way: every case the report exists for — labels the ruling
+  does not reach, the other half of a two-up list, a chart beside the figures — was a ruled table.
 * **Rotation.** The finder works in the page as displayed; words are carried into that orientation once,
   and the reported `bbox` goes back to unrotated space, where `search`, `clip` and `redact_regions` work.
   The box covers each word's ordinary box; the "inside the box" checks use the letters, so a line set

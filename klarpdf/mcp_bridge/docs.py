@@ -657,9 +657,10 @@ the layout. The reasons, in plain terms:
 | "text inside this region is set at an angle" | rotated text inside the region |
 | "the text here runs into a table already read" | two regions that cannot be separated |
 
-**An entry beside a returned table is worth reading.** When a table's labels sit outside it and
-the page gives no drawn evidence that they belong to it, the table is returned *and* the labels are
-named here — so a table of figures never arrives without saying there is text level with its rows.
+**An entry beside a returned table is worth reading.** When a ruled or shaded table's labels sit
+outside it and the page gives no drawn evidence that they belong to it, the table is returned *and*
+the labels are named here — so such a table never arrives without saying there is text level with
+its rows. Text beside a drawn grid is not reported.
 
 ## Known limits
 

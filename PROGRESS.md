@@ -866,11 +866,11 @@ moves to the end and nothing else does. Argument and measurements in `PLAN.md` �
   page contradicts — a chart that looks like a grid, a column the page does not state, rows the drawn
   lines do not separate — is **declined** into `unread_regions` with the reason. A table grows past
   where it was found only on evidence the page states (a label column its own bands run under, a total
-  below its last rule), and text level with a returned table's rows but beside it is always named.
+  below its last rule), and text level with a ruled or shaded table's rows but beside it is named.
   Owner decisions (2026-09-13): columns from whitespace, growth only when the added text fits, text
   under 1 pt ignored, four working rules added to `CLAUDE.md`. `extract_text` gains `table_pages`
   (pages with ruled lines or shaded bands). Design, measurements, and the rules tried and rejected in
-  `PLAN.md` §M141.
+  `PLAN.md` §M141 — *WSL* ([#349](https://github.com/utyagi24/klarpdf/pull/349)).
 
 - [ ] **M140** **Heading candidates** — the typography fallback for documents with neither
   bookmarks nor a linked contents page, and the only route to **subsections** a contents page omits.

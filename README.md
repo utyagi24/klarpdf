@@ -194,10 +194,10 @@ holds whole lines of the page's text, so a label is never cut in two and `(1,234
 brackets, and every table is checked against its page before it is returned. Where a table cannot be
 read without guessing — a chart that looks like a grid, several rows with no line between them — it
 is **declined by name**, with the region and what to try, so every page you ask about comes back in
-one list or the other. Text sitting level with a table's rows but outside it — a chart beside it, a
-second table, labels the table needs — is named too. A table continuing onto the next page is
-*flagged*, never merged, and `extract_text` now reports `table_pages`, so an agent finds out there was
-a table at all.
+one list or the other. Text sitting level with a ruled or shaded table's rows but outside it — a
+chart beside it, a second table, labels the table needs — is named too. A table continuing onto the
+next page is *flagged*, never merged, and `extract_text` now reports `table_pages`, so an agent finds
+out there was a table at all.
 
 **Mark up a document, then hand it to a person.** `annotate` writes highlights, underlines and
 strike-throughs — each able to carry a **note** — and `get_annotations` reads back every mark a file

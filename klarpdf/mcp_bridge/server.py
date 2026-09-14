@@ -565,8 +565,8 @@ def create_server(config: Config | None = None) -> MCPServer:
         table that fails is **declined** into `unread_regions`, never returned as a plausible guess.
 
         So **every page you ask about comes back in `tables`, `unread_regions`, or both**. Read the
-        regions even when tables came back: text level with a table's rows but beside it — a chart, a
-        second table, or labels the table needs — is named there.
+        regions even when tables came back: text level with a ruled or shaded table's rows but beside
+        it — a chart, a second table, or labels the table needs — is named there.
 
         `header` is the first row of a drawn grid and null otherwise; a ruled table's header lines,
         when they could be read, are its first rows. `title` is best-effort. `continues_from` flags a
