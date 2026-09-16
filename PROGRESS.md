@@ -871,6 +871,21 @@ moves to the end and nothing else does. Argument and measurements in `PLAN.md` �
   under 1 pt ignored, four working rules added to `CLAUDE.md`. `extract_text` gains `table_pages`
   (pages with ruled lines or shaded bands). Design, measurements, and the rules tried and rejected in
   `PLAN.md` §M141 — *WSL* ([#349](https://github.com/utyagi24/klarpdf/pull/349)).
+  **TC-039 (2026-09-16), the first round on the rebuilt reader**, found the architecture sound — the
+  cuts-through-words and landscape-final-row classes are now fixed by *correct recovery* rather than
+  by declining — and four defects of its own, each fixed on the same PR. A **banded block** whose
+  shading the finder stitched into a "grid" came back as four cells holding ten values apiece with
+  its label column dropped (GOOGL p54): a drawn line crossing every cell of a drawn row now says
+  those rows are not the page's, and the block is left to the reader that takes rows from the bands.
+  **Dot leaders** are typesetting and are no longer read into cells, which returns a balance sheet
+  that had declined because two leader runs shared its label column (SpaceX p251, ties to 92,079).
+  **Several tables in one located region** are read in the parts their prose divides, each with its
+  own caption, where the whole region had declined (Apple p14, p10, p12, p20, two statement pages);
+  recovery is offered only for failures about rows and columns, never for ones naming the drawn lines
+  themselves, because the parts would be cut along a chart's gridlines. And a **linked "Table of
+  Contents"** heading is navigation rather than a caption, so it no longer titles the statement below
+  it. Columns from drawn segments — the owner's reading of Cisco p32 and AMZN p7 — is measured and
+  deferred to its own milestone (§Open follow-ups).
 
 - [ ] **M140** **Heading candidates** — the typography fallback for documents with neither
   bookmarks nor a linked contents page, and the only route to **subsections** a contents page omits.
@@ -4535,14 +4550,29 @@ the PR that fixes it. See `CLAUDE.md` §How we work for the split and why. Items
 were not migrated wholesale: each is listed because a decision is outstanding, which is what keeps
 it on this side of the line.
 
-- **Two tables stacked in one ruled region, with prose between them, come back as one** (M141,
-  2026-09-13). LLY's proxy page 56 (base salaries, bonus targets, stock grants) and the SpaceX
-  prospectus page 274 (a roll-forward, then Note 8's fair-value table) each return a single table whose
-  middle rows hold the heading and sentence between the two. Every value is still in its right row and
-  column, and `klarpdf://docs/get_tables` says to read each row against the header row nearest above.
-  Splitting needs a way to tell "this band is prose, not a row", and the only signals measured so far
-  are thresholds (band height, line count) — the kind `CLAUDE.md` now asks to avoid. Decision owed:
-  keep it documented, or find a signal the page states.
+- **Several tables in one ruled region: solved where the region fails, open where it succeeds** (M141;
+  raised 2026-09-13, half-closed 2026-09-16 by TC-039's fixes). A region that declines is now read in
+  the parts its prose divides it into, which returned Apple p14's three notes, p10's and p20's two
+  each, and two statement pages. What is left is the pages that read *successfully* as one table with
+  a caption and its lead-in sentence inside a cell — the SpaceX prospectus p274 ("Note 8 — Financial
+  Instruments" and its sentence in one cell) and LLY's proxy p56. Recovery never sees them, because it
+  only runs on failures, and that is deliberate: the rule that would catch them ("a lone line crossing
+  more than one column is prose") also matches a legitimate spanning group header, so applying it to
+  tables that read would risk cutting one below its header. Decision owed: extend the split to
+  successful reads behind a stricter signal, or treat it as the title problem the owner reads it as
+  (2026-09-16) and let the caption machinery claim those lines.
+- **Columns from what the page draws, not only from whitespace** (M141, measured 2026-09-16; owner's
+  proposal). Where a table draws segments, the narrowest mark a column and a wider one with a heading
+  above it marks a group — so Cisco p32's `$ 17,252` is one cell rather than two, and AMZN p7 is five
+  columns with two groups. Measured across the corpus: joining collinear pieces within `_SNAP` is what
+  separates a dashed full-width rule (1.1 pt gaps) from real column gaps (3.7–5.4 pt), but adopting
+  marks as the column source changes the shape of **35 of 36** ruled tables (every `$` joins its
+  figure), and "text spilling past its mark means decline" would decline Cisco p61 — whose free-text
+  first column carries an underline under "Years Ended" only — unless such a column is exempt. The
+  narrow form, splitting a line at a word gap that sits on a drawn boundary, was prototyped and
+  rejected: it splits ~20 legitimate spanning headers and prose lines to fix 9 glued cells (`(3,027) $
+  132,420`), and AMZN p10's trailing `$` needs its column *divided*, not its line split. Sized as its
+  own milestone: it rewrites most expectations and needs its own blackbox round.
 - **A small ruled table on a page with little other text is not found at all** (M141). PyMuPDF's
   row-ruled finder needs ten words lined up down the page before it locates a region, so a four-row
   table alone on a page reports no table (`tests/test_mcp_tables.py` uses twelve-row fixtures for this
@@ -4562,11 +4592,14 @@ it on this side of the line.
   the figures twice and `search` finds a second hit of 0.56 × 0.12 pt. Whether the text tools should
   flag or skip it is a change to those tools; TC-033 separately notes `search`'s `invisible` flag does
   not cover text that is invisible by size. Decision owed.
-- **`title` misses a statement heading that shares a text block with the company name** (M141). Cisco's
-  cash-flow statement prints `CISCO SYSTEMS, INC.`, the statement name and `(in millions)` as one block,
-  which the caption rule rejects as more than one line, so the title falls through to "Table of
-  Contents" above it. Titles are documented as best-effort; recorded so the next change starts from the
-  measured case.
+- **`title` misses a statement heading that shares a text block with the company name** (M141; the
+  wrong answer removed 2026-09-16). Cisco's cash-flow statement prints `CISCO SYSTEMS, INC.`, the
+  statement name and `(in millions)` as one block, which the caption rule rejects as more than one
+  line. TC-039's fix stops the page's *linked* "Table of Contents" heading from taking the slot
+  instead, so Cisco p61, Broadcom p49 and salesforce p4 now return `title: null` rather than
+  navigation — 3 titles changed across the corpus, all three of them that one. The right caption is
+  still not found. Decision owed: take a caption out of a multi-line block, and if so which of its
+  lines, or leave such statements untitled.
 - **`table_pages` roughly doubles what `extract_text` costs** (M141, measured 2026-09-13). Counting a
   page's ruled lines and shaded bands took 1.0–1.6× as long as reading its text on the table corpus,
   at most 17 ms on any page — not the half that #348's docstring stated. It stays a small fraction of

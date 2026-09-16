@@ -650,7 +650,7 @@ the layout. The reasons, in plain terms:
 | "this page has ruled lines or shaded bands, but…" | the drawn lines enclose nothing table-shaped |
 | "the ruled rows here each hold a single run of text" | columns exist only as spaces inside lines (a line-printer layout) |
 | "text here runs across the drawn cell borders" | a chart, or a form whose entries overflow their boxes |
-| "a ruled line runs through text here" | lines that are not row separators — usually gridlines |
+| "a ruled line runs through text here" | lines that are not row separators — a chart's gridlines, or ruling that belongs to the text |
 | "two separate pieces of text share one column here" | a column boundary the page does not state; also text printed twice to simulate bold |
 | "several rows of text share one ruled band here" | the drawn lines do not say which line belongs to which row |
 | "text here sits level with the rows of a table read on this page" | something beside a table that *was* returned — labels it needs, a second table, or a chart |
@@ -662,16 +662,25 @@ outside it and the page gives no drawn evidence that they belong to it, the tabl
 the labels are named here — so such a table never arrives without saying there is text level with
 its rows. Text beside a drawn grid is not reported.
 
+`pages_scanned` lists the pages actually read, with duplicates dropped, so asking for the same page
+twice reads it once.
+
 ## Known limits
 
-* **Two tables stacked in one ruled region**, with a heading or a sentence between them, can come
-  back as one table whose middle rows hold that text. Every value is still in the right row and
-  column; read each row against the header row nearest above it.
+* **Several tables in one ruled region** are read separately where prose divides them: each comes
+  back with its own box and its own caption, and a part that cannot be read is named on its own.
+  Where only a rule separates them, they can still come back as one table whose middle rows hold
+  the heading or paragraph between them. Every value is then still in the right row and column, so
+  read each row against the header row nearest above it.
+* **Dot leaders are not read.** A run of dots joining a label to its figure is typesetting rather
+  than content, so it is dropped instead of filling a cell — the same treatment as text under a
+  point.
 * **A small table on a page with little other text may not be found at all.** The finder needs a
   handful of words lined up down the page before it locates a region; such a page reports no table.
 * **`title` is best-effort.** It is the nearest caption-like line above the table, stepping over an
-  introductory paragraph; a centred statement title can be passed over for page furniture such as
-  "Table of Contents". Treat it as a label to show a user, never as a key.
+  introductory paragraph and over headings that are links rather than text. A caption printed as one
+  block together with the company name and "(in millions)" is passed over as well, so a statement can
+  come back with no title at all. Treat it as a label to show a user, never as a key.
 * **Signs are what the text says.** A negative printed as `(1,234)` comes back as `(1,234)`. A
   direction shown only as a red or green arrow — common in market-share and KPI tables — is not in
   the text at all, and the magnitude comes back unsigned. Where sign matters, check `render_page`.

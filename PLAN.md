@@ -7342,6 +7342,44 @@ p56, SpaceX's prospectus p274; the values stay in their right cells). A small ru
 little other text is not found. `title` is best-effort. A sign shown only as a coloured arrow is not in
 the text.
 
+**What the first blackbox round on the rebuilt reader changed (TC-039, 2026-09-16).** The two worst
+standing classes were confirmed fixed by recovery rather than by declining. Four new defects were
+found and closed, each measured against the corpus before and after:
+
+* **A banded block is not a grid.** Alphabet's stockholders'-equity roll-forward shades each row in
+  column-wide pieces; `lines_strict` stitches those rectangles into a grid whose rows are whole year
+  blocks, and the drawn cells then hold ten values each while the label column — outside the box —
+  is dropped without a word. A line the page draws across *every* cell of a drawn row, with text on
+  both sides of it, says that row holds more than one of the page's rows; the region is then left
+  unclaimed for the reader that takes its rows from those same bands, which reads such a block whole.
+  The check fires on that page and on none of the other 53 grid tables in the corpus.
+* **Dot leaders are not content.** Two leader runs on the SpaceX prospectus p251 were set far enough
+  from their labels for MuPDF to give them lines of their own, and they shared the label column; the
+  statement declined. Leaders are dropped from the page's words, like text under a point, so both
+  that case and the dots that were being read into a label's cell go away together.
+* **Several tables in one located region.** Apple's p14 carries three notes, p10 and p20 two each,
+  a retirement statement two; read as one their columns come from unrelated layouts and the page
+  declines entirely — three pages earlier rounds had verified came back empty. A region that fails is
+  now read again in the parts its own prose divides it into, each part passing every check on its own
+  and each keeping its caption. Only failures about *where the rows and columns are* are offered:
+  `rule_through_text` and `grid_crossed` name the drawn lines themselves, and cutting along a chart's
+  gridlines returned a California schools poster's axis (`← lower`, `higher →`) as a table's header.
+  Reading a region in parts also made a latent crash reachable — a part of pure prose has no columns,
+  and `_place` raised `ValueError` rather than declining.
+* **A linked heading is navigation.** Every filing prints a "Table of Contents" link in its top
+  margin, and it titled the statement below it on Cisco p61, Broadcom p49 and salesforce p4 alike.
+  A block a link annotation covers is no longer a caption candidate: 3 titles change across the
+  corpus, all three of them that one.
+
+**Columns from drawn segments is deferred, with the measurements taken** (`PROGRESS.md` §Open
+follow-ups). The owner's reading — a segment marks a column, a wider one with a heading above marks a
+group, and text spilling past its mark means decline — holds up on the pages that motivate it, but it
+changes the shape of 35 of the corpus's 36 ruled tables (every `$` joining its figure) and would make
+Cisco p61 decline unless a free-text first column is exempt from carrying a mark. The narrow form of
+it, splitting a line at a word gap that sits on a drawn boundary, was prototyped and rejected for now:
+it would split ~20 legitimate spanning headers and prose lines to fix 9 glued cells, and AMZN p10's
+`$` needs the column *divided* rather than the line split.
+
 **Verification.** `tests/test_mcp_tables.py` builds each shape with PyMuPDF and reads it through the
 real finder, and each check's call site is broken on purpose in a test and shown to change the result.
 The design itself was driven by `tools/table_corpus_check.py`: fixed expectations for pages verified by
