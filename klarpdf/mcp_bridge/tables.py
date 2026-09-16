@@ -138,8 +138,8 @@ _REASONS = {
         "this is usually a chart, or a form whose entries overflow their boxes"
     ),
     "rule_through_text": (
-        "a ruled line runs through text here, so the lines are not separating rows — this is "
-        "usually a chart's gridlines"
+        "a ruled line runs through text here, so the lines are not separating rows — a chart's "
+        "gridlines do this, and so does ruling that belongs to the text rather than to a table"
     ),
     "side_by_side": (
         "two separate pieces of text share one column here, so the columns cannot be told apart "
@@ -254,6 +254,25 @@ class _Inventory:
     angled: list[fitz.Rect]
 
 
+_LEADER_CHARACTERS = frozenset(".·…")
+
+
+def _is_leader(text: str) -> bool:
+    """A run of dots joining a label to its figure, which states nothing a cell should hold.
+
+    Dropped like text under a point, and for the same reason: it is typesetting, not content. It
+    has to be dropped from the page's words rather than from the finished cells, so that the
+    recount in :func:`_check_accounted` and the cells agree about what the page holds.
+
+    Measured on the SpaceX prospectus p251, a dot-leader balance sheet: 2 of its 134 lines are a
+    leader alone, because the leader happened to be set far enough from its label for MuPDF to give
+    it a line of its own. Those two shared the label column and the page declined, losing a
+    statement that reconciles. Where a leader sits closer it joins the label's line instead, and its
+    dots were read into the label's cell.
+    """
+    return len(text) > 1 and set(text) <= _LEADER_CHARACTERS
+
+
 def _page_inventory(page: fitz.Page) -> _Inventory:
     """The page's horizontal text lines, in the orientation the page is displayed.
 
@@ -321,6 +340,8 @@ def _page_inventory(page: fitz.Page) -> _Inventory:
             )
             if span is not None and span["size"] < MIN_TEXT_SIZE:
                 continue
+            if _is_leader(word[4]):
+                continue
             tight = shown(*word[:4])
             kept.append(_Word(tight.x0, tight.y0, tight.x1, tight.y1, word[4], shown(*outer[:4])))
         if not kept:
@@ -362,6 +383,36 @@ def horizontal_rules(page: fitz.Page) -> int:
                 if width > 30:
                     found += 1 if height < 2 else 2
     return found
+
+
+def _horizontal_edges(page: fitz.Page) -> list[tuple[float, float, float]]:
+    """Every horizontal edge the page draws, as ``(top, x0, x1)``, in display orientation.
+
+    A rule, a hairline rectangle and the top or bottom of a shaded band all count: what matters is
+    where the page draws a line across, not which kind of drawing object carries it. Read from the
+    page's own drawings rather than from a finder's snapshot, because ``lines_strict`` reports none
+    of a banded table's band edges — measured on Alphabet's 10-K p54, where its snapshot holds 139
+    edges and not one of them is a band's, while the page draws 28 band tops, one per printed row.
+
+    :func:`horizontal_rules` counts rather than collects, and only edges wide enough to be a row
+    rule; this keeps every edge, since a band drawn in column-wide pieces is what says a drawn row
+    holds more than one of the page's rows.
+    """
+    matrix = page.rotation_matrix
+    edges: list[tuple[float, float, float]] = []
+    for drawing in page.get_drawings():
+        for item in drawing["items"]:
+            if item[0] == "l":
+                start, end = item[1] * matrix, item[2] * matrix
+                if abs(start.y - end.y) < 1 and abs(start.x - end.x) > _SNAP:
+                    edges.append((min(start.y, end.y), min(start.x, end.x), max(start.x, end.x)))
+            elif item[0] == "re":
+                rect = fitz.Rect(item[1]) * matrix
+                rect.normalize()
+                if rect.width > _SNAP:
+                    edges.append((rect.y0, rect.x0, rect.x1))
+                    edges.append((rect.y1, rect.x0, rect.x1))
+    return edges
 
 
 # ---------------------------------------------------------------------------------------------
@@ -517,7 +568,7 @@ def _quote(text: str) -> str:
 # ---------------------------------------------------------------------------------------------
 
 
-def _read_grid(found: _Found, inventory: _Inventory) -> dict:
+def _read_grid(found: _Found, inventory: _Inventory, edges: list[tuple[float, float, float]]) -> dict:
     """Cells are the drawn cells; each word goes to the one cell its letters sit in.
 
     Words rather than lines, because a grid's cells are drawn and a text line may legitimately be
@@ -525,12 +576,43 @@ def _read_grid(found: _Found, inventory: _Inventory) -> dict:
     border**. A chart's plot frame and gridlines look like a grid to the finder, and its axis and
     point labels are what cross them — measured on a statistics annual, where a line chart was
     returned as an 11 × 2 table with ``"76"`` read as ``"6"``.
+
+    The second check asks the opposite question — whether the page marks *more* rows than the grid
+    draws. ``edges`` is everything the page draws across (:func:`_horizontal_edges`), and a line
+    crossing **every** cell of a drawn row with text on both sides of it says that row holds more
+    than one of the page's rows. A banded table shades each row in column-wide pieces, which the
+    finder stitches into a grid whose rows are whole blocks: Alphabet's stockholders'-equity
+    roll-forward (10-K p54) came back as four rows of five cells, each holding ten values joined by
+    newlines, with the label column — printed outside the drawn box — dropped without a word.
     """
     box = found.bbox
     cells = [(r, c, rect) for r, row in enumerate(found.rows) for c, rect in enumerate(row) if rect]
     for rect in inventory.angled:
         if rect.intersects(box):
             raise _Decline("angled_text", "text set at an angle inside the grid")
+    for row in found.rows:
+        boxes = [rect for rect in row if rect]
+        if len(boxes) < 2:
+            continue
+        top, bottom = min(b[1] for b in boxes), max(b[3] for b in boxes)
+        held = [
+            line for line in inventory.lines
+            if top <= line.baseline <= bottom and boxes[0][0] - _SNAP <= line.x0 and line.x1 <= boxes[-1][2] + _SNAP
+        ]
+        for height in sorted({round(top_ / _SNAP) * _SNAP for top_, _, _ in edges}):
+            if not (top + _SNAP < height < bottom - _SNAP):
+                continue
+            covered = _covered([(x0, x1) for top_, x0, x1 in edges if abs(top_ - height) <= _SNAP])
+            if not all(any(a - _SNAP <= b[0] and b[2] <= z + _SNAP for a, z in covered) for b in boxes):
+                continue
+            above = [line for line in held if line.baseline < height]
+            if above and any(line.baseline > height for line in held):
+                nearest = max(above, key=lambda line: line.baseline)
+                raise _Decline(
+                    "stacked",
+                    f"the page draws a line across every cell at y={height:.1f}, under "
+                    f"{_quote(nearest.text)} and above more text in the same drawn row",
+                )
     placed: dict[tuple[int, int], list[_Line]] = {}
     reported = fitz.Rect(box)
     for line in inventory.lines:
@@ -798,8 +880,13 @@ def _read_ruled(
                 raise _Decline("unaccounted", f"{_quote(line.text)} sits in no row")
             banded[index].append(line)
         visual = [row for band in banded for row in _visual_rows(band)]
-        # 4. Columns, from everything the bands hold.
+        # 4. Columns, from everything the bands hold. Nothing side by side anywhere means no
+        #    columns at all — not a failed table, just not one. Reached since :func:`_recover`
+        #    offers the parts it cuts a region into, one of which can be a block of prose: before
+        #    that, `_divide` was handed an empty column list and `_place` raised ValueError.
         columns, spanning = _columns(visual)
+        if len(columns) < 2:
+            raise _NotATable()
         return bands, banded, visual, _divide(columns, visual, spanning), spanning
 
     bands, banded, visual, columns, spanning = layout(mine, box)
@@ -988,6 +1075,87 @@ def _read_ruled(
     }
 
 
+_RECOVERABLE = frozenset({"side_by_side", "stacked", "angled_text"})
+"""Which failures are worth reading again in parts.
+
+The first two say the region's rows or columns are ambiguous, and the third that it holds something
+that is not table text at all — each a reason to look for the boundary the finder missed.
+``rule_through_text`` and ``grid_crossed`` are not on the list, and that is the point: they say the
+drawn lines run through text, which is a chart's gridlines rather than a table's ruling, and the
+parts would be cut along those same lines. A California schools poster (`report_CA_06_california.pdf`
+p4) proved it — cut up, one part came back as a table whose first rows were a chart's axis, `← lower`
+and `higher →` above a legend's real numbers.
+"""
+
+
+def _recover(
+    found: _Found,
+    inventory: _Inventory,
+    edges: list[tuple[float, float, float]],
+    claimed: list[fitz.Rect],
+    others: list[fitz.Rect],
+) -> tuple[list[dict], list[tuple[fitz.Rect, _Decline]]]:
+    """Read a region that failed as a whole in the parts its own prose divides it into.
+
+    One located region often holds several tables: Apple's 10-Q p14 carries three notes, a
+    retirement statement carries two, Lilly's proxy p56 three. Read as one, their columns are
+    derived across layouts that have nothing to do with each other and the whole page declines —
+    three pages that earlier rounds had verified correct came back empty (TC-039).
+
+    **A band breaks the region when it holds more than one row of text and one of those rows is a
+    lone line crossing more than one column**: prose, or a caption and the sentence introducing its
+    table. A wrapped label's second line stays inside its own column and a section label such as
+    ``Current assets:`` sits in one column too, so neither divides a table.
+
+    Every part is read by the same reader and passes the same checks on its own, and a part that
+    fails is declined with its own box — the region is re-located, never repaired. Only a region
+    that has already failed is offered here, so a page that reads today cannot be split by it.
+    """
+    inside = [
+        line for line in inventory.lines
+        if not _inside_any(line, claimed)
+        and found.bounds[0] - _EPS <= line.baseline <= found.bounds[-1] + _EPS
+        and found.bbox.x0 - _SNAP <= line.x0 and line.x1 <= found.bbox.x1 + _SNAP
+    ]
+    rough, _ = _columns(_visual_rows(inside))
+    if len(rough) < 2:
+        return [], []
+
+    runs: list[list[float]] = []
+    current: list[float] = []
+    for top, bottom in zip(found.bounds, found.bounds[1:]):
+        band = [line for line in inside if top - _EPS <= line.baseline <= bottom + _EPS]
+        rows = _visual_rows(band)
+        prose = len(rows) > 1 and any(
+            len(row) == 1 and len(_columns_touched(row[0], rough)) > 1 for row in rows
+        )
+        if prose:
+            if len(current) > 1:
+                runs.append(current)
+            current = []
+        else:
+            current = [*current, bottom] if current else [top, bottom]
+    if len(current) > 1:
+        runs.append(current)
+    if len(runs) < 2:
+        return [], []
+
+    recovered: list[dict] = []
+    refused: list[tuple[fitz.Rect, _Decline]] = []
+    for bounds in runs:
+        part = _Found(fitz.Rect(found.bbox.x0, bounds[0], found.bbox.x1, bounds[-1]), [], bounds)
+        try:
+            table = _read_ruled(part, inventory, edges, claimed, others)
+            _check_accounted(table, inventory)
+        except _NotATable:
+            continue
+        except _Decline as decline:
+            refused.append((fitz.Rect(part.bbox), decline))
+        else:
+            recovered.append(table)
+    return recovered, refused
+
+
 # ---------------------------------------------------------------------------------------------
 # The independent check
 # ---------------------------------------------------------------------------------------------
@@ -1046,13 +1214,22 @@ def read_page(page: fitz.Page) -> PageRead:
     unread: list[dict] = []
     claimed: list[fitz.Rect] = []
     single_runs: list[fitz.Rect] = []
+    deferred: list[tuple[fitz.Rect, dict]] = []
+    edges = _horizontal_edges(page)
     for found in grid.found:
         try:
-            table = _read_grid(found, inventory)
+            table = _read_grid(found, inventory, edges)
             _check_accounted(table, inventory)
         except _NotATable:
             pass
         except _Decline as decline:
+            # A drawn row the page's own lines cut across is not this reader's to report. The
+            # region is left *unclaimed* so the reader that takes its rows from those lines can
+            # have it — on a banded block that returns the table whole, labels and all — and the
+            # decline is reported below only if nothing else on the page covers the region.
+            if decline.reason == "stacked":
+                deferred.append((fitz.Rect(found.bbox), _unread(page, found.bbox, decline)))
+                continue
             unread.append(_unread(page, found.bbox, decline))
         else:
             tables.append(table)
@@ -1090,11 +1267,38 @@ def read_page(page: fitz.Page) -> PageRead:
                 except _NotATable:
                     claimed.append(found.bbox)
                 except _Decline as decline:
-                    unread.append(_unread(page, found.bbox, decline))
-                    claimed.append(found.bbox)
+                    # Several tables in one located region read as one only by accident. Offer the
+                    # region to :func:`_recover`, which reads the parts its own prose divides it
+                    # into; the region's own decline stands when that finds nothing, and a failure
+                    # that names the drawn lines themselves is never offered (see `_RECOVERABLE`).
+                    recovered: list[dict] = []
+                    refused: list[tuple[fitz.Rect, _Decline]] = []
+                    if decline.reason in _RECOVERABLE:
+                        recovered, refused = _recover(found, inventory, ruled.edges, claimed, later)
+                    if recovered:
+                        for part in recovered:
+                            tables.append(part)
+                            claimed.append(part["bbox"])
+                        for box, refusal in refused:
+                            unread.append(_unread(page, box, refusal))
+                            claimed.append(box)
+                        # The parts and their refusals are claimed, the region itself is not: the
+                        # captions that divide it stay free, and each part can be given the one
+                        # above it. Claiming the whole region left Apple's p14 notes untitled.
+                    else:
+                        unread.append(_unread(page, found.bbox, decline))
+                        claimed.append(found.bbox)
                 else:
                     tables.append(table)
                     claimed.append(table["bbox"])
+
+    # A grid left unclaimed above is reported here, unless something else has taken the region on
+    # since: the reader that takes its rows from the drawn lines has had its turn, and either read
+    # the block whole or declined it with a reason of its own, which is the better one to give.
+    for box, entry in deferred:
+        if not any(box.intersects(other) for other in claimed):
+            unread.append(entry)
+            claimed.append(box)
 
     # Text level with a returned table's rows, beside it, in no region at all. A statistics annual
     # lists states two-up and the finder located only one half; a restated balance sheet rules under
@@ -1121,7 +1325,14 @@ def read_page(page: fitz.Page) -> PageRead:
         if single_runs:
             unread.extend(_unread(page, box, _Decline("single_runs")) for box in single_runs)
         else:
-            unread.append(_unread(page, page.rect, _Decline("no_region" if ruled_page else "unruled")))
+            # Nothing was located, so there is no region to point at — but the page's own text is
+            # narrower than the page, and that is what a caller can act on. Salesforce's p5 handed
+            # back the whole 612 x 792 where a sub-page box had been shipped before (TC-039).
+            outers = [line.outer for line in inventory.lines]
+            where = fitz.Rect(outers[0]) if outers else fitz.Rect(page.rect)
+            for outer in outers[1:]:
+                where |= outer
+            unread.append(_unread(page, where, _Decline("no_region" if ruled_page else "unruled")))
 
     tables.sort(key=lambda t: (t["bbox"].y0, t["bbox"].x0))
     blocks = _free_blocks(page, claimed)
@@ -1170,7 +1381,21 @@ def looks_like_title(text: str) -> bool:
 
 def _free_blocks(page: fitz.Page, boxes: list[fitz.Rect]) -> list[tuple[fitz.Rect, str]]:
     """Text blocks outside every table and every declined region, top to bottom — in the page's
-    displayed orientation, like the boxes they are compared with."""
+    displayed orientation, like the boxes they are compared with.
+
+    **A block a link annotation covers is navigation, not a caption.** Every filing in the corpus
+    prints a "Table of Contents" link in its top margin, and it was being handed back as the title
+    of the statement below it on Cisco's cash-flow statement, Broadcom's balance sheet and
+    Salesforce's income statement alike (TC-039). The page says so itself: the caption of a table is
+    text, while that heading is a link to somewhere else.
+    """
+    links: list[fitz.Rect] = []
+    for link in page.get_links():
+        rect = fitz.Rect(link["from"])
+        if page.rotation:
+            rect = rect * page.rotation_matrix
+            rect.normalize()
+        links.append(rect)
     free: list[tuple[fitz.Rect, str]] = []
     for block in page.get_text("blocks"):
         rect = fitz.Rect(block[:4])
@@ -1182,6 +1407,8 @@ def _free_blocks(page: fitz.Page, boxes: list[fitz.Rect]) -> list[tuple[fitz.Rec
             continue
         area = rect.get_area()
         if area > 0 and any(box.intersects(rect) and (rect & box).get_area() > 0.5 * area for box in boxes):
+            continue
+        if area > 0 and any(link.intersects(rect) and (rect & link).get_area() > 0.5 * area for link in links):
             continue
         free.append((rect, text))
     free.sort(key=lambda entry: entry[0].y0)

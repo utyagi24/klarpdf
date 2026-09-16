@@ -249,6 +249,24 @@ def test_a_title_above_a_table_is_its_title_and_not_a_row(tmp_path):
     assert result.tables[0]["title"] == "CONDENSED BALANCE SHEETS"
 
 
+def test_a_linked_heading_is_navigation_rather_than_a_title(tmp_path):
+    """Every filing prints a "Table of Contents" link in its top margin, and it was handed back as
+    the title of the statement below it — Cisco p61, Broadcom p49 and salesforce p4 alike (TC-039).
+    The same heading without the link is an ordinary caption, and still titles the table."""
+    doc = fitz.open()
+    for linked in (True, False):
+        page = doc.new_page()
+        heading = fitz.Rect(55, 28, 150, 40)
+        page.insert_text((heading.x0, heading.y1 - 2), "Table of Contents", fontsize=FONT)
+        if linked:
+            page.insert_link({"kind": fitz.LINK_GOTO, "from": heading, "page": 0})
+        _statement(page, 100, ASSETS)
+    path = _save(doc, tmp_path, "linked_heading.pdf")
+
+    assert _read(path, 1).tables[0]["title"] is None
+    assert _read(path, 2).tables[0]["title"] == "Table of Contents"
+
+
 def test_a_two_up_list_whose_rows_line_up_is_read_as_one_table(tmp_path):
     """The owner's reading of a list printed in two halves (2026-09-13): four columns, not half a
     list. Each half is ruled on its own, so nothing drawn joins them; every row of one half has a
@@ -353,6 +371,56 @@ def test_a_dollar_sign_printed_in_one_run_with_its_figure_is_divided_by_the_rows
     assert "side_by_side" in _codes(_read(path))
 
 
+def test_a_banded_block_drawn_as_a_box_is_read_from_its_bands_not_from_the_box(tmp_path):
+    """Alphabet's stockholders'-equity roll-forward (10-K p54, TC-039). The shading is drawn in
+    column-wide pieces, so the finder stitches the page's boxes into a "grid" whose rows are whole
+    blocks. Read as drawn cells that returns two cells holding twelve values joined by newlines,
+    with the label column — printed outside the box — dropped without a word. The page's own bands
+    cross every cell of each drawn row, which says those rows are not the page's rows, so the region
+    is left to the reader that takes its rows from the bands."""
+    doc = fitz.open()
+    page = doc.new_page()
+    bottom = 100 + len(ASSETS) * PITCH
+    for i, (label, *figures) in enumerate(ASSETS):
+        y = 100 + i * PITCH
+        page.draw_rect(fitz.Rect(240, y, 480, y + PITCH), color=None, fill=(0.8, 0.93, 1.0) if i % 2 == 0 else (1, 1, 1))
+        page.insert_text((60, y + 11), label, fontsize=FONT)
+        for x, figure in zip((355, 475), figures):
+            _right(page, x, y + 11, figure)
+    page.draw_rect(fitz.Rect(240, 100, 480, bottom), color=(0, 0, 0), fill=None)
+    page.draw_line((240, 100 + 6 * PITCH), (480, 100 + 6 * PITCH))
+    page.draw_line((360, 100), (360, bottom))
+    path = _save(doc, tmp_path, "banded_block.pdf")
+
+    result = _read(path)
+    assert len(result.tables) == 1
+    table = result.tables[0]
+    assert table["reader"] == "ruled"
+    assert table["rows"] == _expected(ASSETS)
+
+
+def test_dot_leaders_are_not_read_into_cells(tmp_path):
+    """A dot-leader statement (the SpaceX prospectus p251, TC-039). Set far enough from its label,
+    the leader gets a text line of its own and then shares the label's column, and the page
+    declined; set closer it joins the label's line, and its dots were read into the label's cell.
+    Both pages here hold the same statement, and both must read the same."""
+    doc = fitz.open()
+    for gap in (12, 4):
+        page = doc.new_page()
+        for i, (label, *figures) in enumerate(ASSETS):
+            y = 100 + i * PITCH
+            page.draw_line((55, y), (540, y))
+            page.insert_text((60, y + 11), label, fontsize=FONT)
+            page.insert_text((60 + fitz.get_text_length(label, fontsize=FONT) + gap, y + 11), "." * 40, fontsize=FONT)
+            for x, figure in zip((420, 520), figures):
+                _right(page, x, y + 11, figure)
+        page.draw_line((55, 100 + len(ASSETS) * PITCH), (540, 100 + len(ASSETS) * PITCH))
+    path = _save(doc, tmp_path, "leaders.pdf")
+
+    for page_number in (1, 2):
+        assert _rows(_read(path, page_number)) == _expected(ASSETS)
+
+
 def test_a_chart_beside_a_table_is_named_and_not_taken_in(tmp_path):
     """NADA's service-labor page: a bar chart to the left of a ruled table. The chart's gridlines stop
     short of the table, so nothing drawn joins them; the table comes back exactly, and the chart text
@@ -450,6 +518,25 @@ def test_two_columns_of_prose_between_rules_are_not_read_as_a_table(tmp_path):
     path = _save(doc, tmp_path, "prose.pdf")
     result = _read(path)
     assert not result.tables
+
+
+def test_a_decline_with_no_region_points_at_the_text_rather_than_the_whole_page(tmp_path):
+    """Nothing located means no region to name, and the whole page was handed back — salesforce p5
+    reported [0, 0, 612, 792] where a sub-page box had been shipped before (TC-039). The text's own
+    box is what a caller can clip, search or render."""
+    doc = fitz.open()
+    page = doc.new_page()
+    for i in range(20):
+        page.insert_text((80, 120 + i * 14), f"An ordinary paragraph line {i}, with nothing tabular about it.", fontsize=FONT)
+    path = _save(doc, tmp_path, "prose_page.pdf")
+
+    result = _read(path)
+    assert not result.tables
+    assert _codes(result) == ["unruled"]
+    box = fitz.Rect(result.unread[0]["bbox"])
+    page_rect = fitz.open(path)[0].rect
+    assert box.y0 > 100 and box.x0 > 50
+    assert box.width < page_rect.width and box.height < page_rect.height
 
 
 def test_a_page_with_no_text_says_it_is_an_image(tmp_path):
@@ -555,9 +642,9 @@ def test_the_grid_crossing_check_is_what_declines_a_chart(tmp_path, monkeypatch)
 
     real = tables._read_grid
 
-    def permissive(found, inventory):
+    def permissive(found, inventory, edges):
         try:
-            return real(found, inventory)
+            return real(found, inventory, edges)
         except tables._Decline as decline:
             if decline.reason != "grid_crossed":
                 raise
@@ -565,6 +652,101 @@ def test_the_grid_crossing_check_is_what_declines_a_chart(tmp_path, monkeypatch)
 
     monkeypatch.setattr(tables, "_read_grid", permissive)
     assert "grid_crossed" not in _codes(_read(path))
+
+
+def test_the_drawn_row_check_is_what_saves_a_banded_block(tmp_path, monkeypatch):
+    """Blind the check — by telling it the page draws nothing across — and the twelve rows come
+    back merged into one drawn row per block, which is what GOOGL p54 returned (TC-039)."""
+    doc = fitz.open()
+    page = doc.new_page()
+    bottom = 100 + len(ASSETS) * PITCH
+    for i, (label, *figures) in enumerate(ASSETS):
+        y = 100 + i * PITCH
+        page.draw_rect(fitz.Rect(240, y, 480, y + PITCH), color=None, fill=(0.8, 0.93, 1.0) if i % 2 == 0 else (1, 1, 1))
+        page.insert_text((60, y + 11), label, fontsize=FONT)
+        for x, figure in zip((355, 475), figures):
+            _right(page, x, y + 11, figure)
+    page.draw_rect(fitz.Rect(240, 100, 480, bottom), color=(0, 0, 0), fill=None)
+    page.draw_line((240, 100 + 6 * PITCH), (480, 100 + 6 * PITCH))
+    page.draw_line((360, 100), (360, bottom))
+    path = _save(doc, tmp_path, "banded_block_blinded.pdf")
+    assert _rows(_read(path)) == _expected(ASSETS)
+
+    monkeypatch.setattr(tables, "_horizontal_edges", lambda page: [])
+    table = _read(path).tables[0]
+    assert table["reader"] == "grid"
+    assert "\n" in table["rows"][0][0]
+
+
+def test_a_region_holding_two_tables_is_read_in_the_parts_its_prose_divides(tmp_path):
+    """Apple's 10-Q p14 carries three notes in one located region and a retirement statement two
+    (TC-039). Read as one, their columns come from layouts with nothing to do with each other and
+    the whole page declined; the prose between them is the boundary the finder missed."""
+    doc = fitz.open()
+    page = doc.new_page()
+    y = 60
+    for label, *figures in ASSETS:
+        page.draw_line((55, y), (540, y))
+        page.insert_text((60, y + 11), label, fontsize=FONT)
+        for x, figure in zip((420, 520), figures):
+            _right(page, x, y + 11, figure)
+        y += PITCH
+    page.draw_line((55, y), (540, y))
+    for line in (
+        "The total vesting-date fair value of restricted stock units was $12.3 billion and $10.9 billion",
+        "for the three- and nine-month periods, and share-based compensation expense for each reportable",
+        "segment was as follows:",
+    ):
+        y += 13
+        page.insert_text((60, y), line, fontsize=FONT)
+    y += 14
+    for i in range(12):
+        page.draw_line((55, y), (540, y))
+        page.insert_text((60, y + 11), f"Segment {chr(65 + i)}", fontsize=FONT)
+        _right(page, 300, y + 11, f"{3 + i},{401 + i}")
+        y += PITCH
+    page.draw_line((55, y), (540, y))
+    path = _save(doc, tmp_path, "two_notes.pdf")
+
+    page = fitz.open(path)[0]
+    inventory = tables._page_inventory(page)
+    reading = tables._read_with(
+        page, vertical_strategy="text", horizontal_strategy="lines",
+        min_words_vertical=tables._MIN_WORDS_VERTICAL,
+    )
+    recovered, refused = tables._recover(reading.found[0], inventory, reading.edges, [], [])
+
+    assert not refused
+    assert [len(table["rows"]) for table in recovered] == [12, 12]
+    assert recovered[0]["rows"] == _expected(ASSETS)
+    assert recovered[1]["rows"][0][0] == "Segment A"
+    assert recovered[1]["rows"][-1][0] == "Segment L"
+
+
+def test_recovery_is_offered_for_ambiguous_rows_and_never_for_a_chart(statement_pdf, monkeypatch):
+    """The call site and `_RECOVERABLE` together. A region whose rows or columns are ambiguous is
+    read again in parts; one whose drawn lines run through text never is, because the parts would
+    be cut along those same lines — which is how a schools poster's chart axis became the header
+    rows of a table (TC-039, `report_CA_06_california.pdf` p4)."""
+    offered: list[str] = []
+
+    def spy(found, inventory, edges, claimed, others):
+        offered.append("offered")
+        return [], []
+
+    def refuse(reason):
+        def fail(*args, **kwargs):
+            raise tables._Decline(reason, "as if the region failed this way")
+
+        return fail
+
+    monkeypatch.setattr(tables, "_recover", spy)
+    for reason, expected in (("side_by_side", 1), ("stacked", 1), ("rule_through_text", 0), ("grid_crossed", 0)):
+        offered.clear()
+        monkeypatch.setattr(tables, "_read_ruled", refuse(reason))
+        result = _read(statement_pdf)
+        assert not result.tables, reason
+        assert len(offered) == expected, reason
 
 
 def test_the_every_row_beside_rule_is_what_joins_a_two_up_list(tmp_path, monkeypatch):
