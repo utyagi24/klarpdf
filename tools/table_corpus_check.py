@@ -55,8 +55,20 @@ def _displayed(page: fitz.Page, words: list) -> list[tuple]:
     return out
 
 
+def _is_leader_text(text: str) -> bool:
+    """A run of dots joining a label to its figure: typesetting, which no cell should hold.
+
+    Written out here rather than imported, like the one-point floor below: this check is only worth
+    anything while it reaches its verdict without the module's help.
+    """
+    return len(text) > 1 and set(text) <= set(".·…")
+
+
 def word_check(page: fitz.Page, table: dict) -> tuple[dict, dict]:
-    """``(printed but not returned, returned but not inside the box)`` for one table."""
+    """``(printed but not returned, returned but not inside the box)`` for one table.
+
+    Text under a point and dot leaders are not read into cells, so neither counts as printed here.
+    """
     x0, y0, x1, y1 = table["bbox"]
     old = bool(fitz.TOOLS.set_small_glyph_heights())
     fitz.TOOLS.set_small_glyph_heights(True)
@@ -68,7 +80,10 @@ def word_check(page: fitz.Page, table: dict) -> tuple[dict, dict]:
     printed = collections.Counter(
         t[4]
         for t, o in zip(tight, ordinary)
-        if x0 <= (t[0] + t[2]) / 2 <= x1 and y0 <= (t[1] + t[3]) / 2 <= y1 and (o[3] - o[1]) >= 1.0
+        if x0 <= (t[0] + t[2]) / 2 <= x1
+        and y0 <= (t[1] + t[3]) / 2 <= y1
+        and (o[3] - o[1]) >= 1.0
+        and not _is_leader_text(t[4])
     )
     returned = collections.Counter(token for row in table["rows"] for cell in row for token in cell.split())
     covered = collections.Counter(
