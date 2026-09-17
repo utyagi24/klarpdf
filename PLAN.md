@@ -7566,6 +7566,74 @@ single source it and the report both read, and a test pins that they agree — t
 refactor silently dropped the report's client labels, which is exactly the drift the shared source
 exists to prevent.
 
+### M144 — `httpx2` 2.10.0 → 2.12.0: three advisories in the bridge's HTTP client *(unplanned)* (2026-09-16)
+
+**Found by the weekly `audit` job**, not a person: the 2026-09-14 scheduled run
+([34846383316](https://github.com/utyagi24/klarpdf/actions/runs/34846383316)) went red on
+`requirements-dev.txt`, and the owner filed it as
+[#336](https://github.com/utyagi24/klarpdf/issues/336). The three advisories were published
+2026-09-08, a day after the previous green run — the case the cron exists for.
+
+| Advisory | What goes wrong | Severity | Fixed in |
+|---|---|---|---|
+| GHSA-8xx6-hgc6-gc2m (PYSEC-2026-3846) | a compressed response is inflated whole per network read, so a small body can force a large allocation | high | 2.12.0 |
+| GHSA-pf96-p4fj-6566 (PYSEC-2026-3848) | CR/LF in a multipart part's content type or headers injects extra part headers | moderate | 2.11.0 |
+| GHSA-h4x7-gw46-3wm6 (PYSEC-2026-3849) | a request can carry both `Content-Length` and `Transfer-Encoding` | moderate | 2.11.0 |
+
+**Surfaces.** `httpx2` reaches the repo only through the MCP SDK (`# via mcp`), so this is the
+**bridge's** dependency surface: `requirements-mcp.txt`, the pin block `sync_pins.py` writes into
+`pyproject.toml` (which becomes the PyPI wheel's `Requires-Dist`), and the `.mcpb`'s generated
+`pyproject.toml` + `uv.lock`. `requirements-dev.txt` carries it because CI runs the bridge tests.
+**The GUI app is untouched**: neither `requirements-win.txt` nor `requirements-build-win.txt` names it.
+
+**None of the three was reachable through KlarPDF.** The SDK imports `httpx2` when the server
+starts (checked: it is in `sys.modules` after `import klarpdf.mcp_bridge.server`), but the server
+speaks stdio and makes no HTTP requests. It sends no request that could carry the conflicting
+headers, uploads no multipart body and decodes no response. `tests/test_mcp_no_qt.py` already
+enforces the premise by making `connect`/`bind` raise across every tool. **It still needed fixing**:
+the audit gate blocks a release, and the published wheel pins `httpx2==2.10.0` exactly, so anyone
+who installs `klarpdf` 0.19.0 gets the vulnerable version and cannot upgrade it without putting the
+install in conflict with its own declared requirements. **Only a release fixes the installed base**; this milestone
+fixes `main`.
+
+**The fix is four regenerated files and no hand-edited pin**, as #336 prescribed:
+`requirements-mcp.txt` and `requirements-dev.txt` recompiled in WSL (the dev lock per M137), then
+`sync_pins.py`, `build_mcpb.py --validate` and `uv lock`. Each lock moved exactly two lines.
+
+**Why 2.12.0 and not 2.13.0.** 2.12.0 is the first release that clears all three, and #336 names
+it. 2.13.0 appeared on 2026-09-14, two days before this change, with no security content, so taking
+it would add untested changes to a security fix.
+
+**Two things were found by doing the fix, and both are worth knowing.**
+
+1. **`--upgrade-package httpx2` did nothing, and said nothing.** `httpx2` 2.12.0 requires
+   `httpcore2==2.12.0` *exactly*. pip-compile keeps every pin you did not name, so it kept
+   `httpcore2==2.10.0`, and the only `httpx2` compatible with that is 2.10.0. The compile succeeded
+   with an empty diff. `RELEASE.md` §1 already warns that a plain recompile moves nothing; this is
+   the same trap one step removed, because **naming the package is not enough when a sibling is
+   pinned in lockstep with it.** The fix names both
+   (`--upgrade-package httpx2==2.12.0 --upgrade-package httpcore2==2.12.0`), and `RELEASE.md` §2
+   now says to check `Requires-Dist` for an exact pin when a named package refuses to move.
+2. **The bundle's `uv.lock` had been stale since v0.19.0, and the test meant to catch that could
+   not see it.** Re-resolving also moved `klarpdf-mcp` 0.18.0 → 0.19.0 in the lock. The v0.19.0
+   release PR regenerated the bundle's `pyproject.toml` with the new version but never re-ran
+   `uv lock`, and `test_the_committed_lock_is_in_step_with_the_generated_pyproject` compared
+   **dependency pins only**, while a version bump changes none. `uv lock --check` on `main`'s two
+   files fails on exactly that line. The bundle starts with plain `uv run --directory` (no
+   `--locked`), so a stale lock is re-resolved on the user's machine rather than followed. Measured
+   with `uv lock --dry-run` on the v0.19.0 files: the re-resolve changes **only** that version
+   line, so users got the same package set. M129's promise held by luck, not because anything
+   checked it. The test now compares the project's own version too. It was verified by breaking
+   it: with the version alone reverted to 0.18.0, the old test passes and the new one fails,
+   naming `('klarpdf-mcp', '0.19.0', '0.18.0')`. `RELEASE.md` §3 step 1 now lists `uv lock` beside
+   the other version restatements, so the next release PR is told to run it rather than caught.
+
+**Left alone, on purpose.** The dev lock pins `typing-inspection==0.4.3` where the bridge lock pins
+0.4.4. That was already true before this change, it is the only shared package where the two locks
+differ, and CI's `bridge` job already tests the bridge against its own lock. Aligning them is a
+separate question, so it is recorded in `PROGRESS.md` §Open follow-ups rather than folded into a
+security fix.
+
 ## Future enhancements (deferred beyond the roadmap)
 
 Captured but not yet scheduled:
