@@ -26,6 +26,7 @@ READ_TOOLS = {
     "get_info",
     "get_outline",
     "get_links",
+    "get_tables",
     "search",
     "extract_text",
     "render_page",
