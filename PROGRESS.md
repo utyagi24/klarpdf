@@ -2711,6 +2711,12 @@ on the one above it. Every decision, every rejection and every measurement behin
   `requirements-mcp.txt` as well as the dev lock. Each new check was confirmed by breaking it.
   Design in `PLAN.md` §M144 — *WSL* — [#350](https://github.com/utyagi24/klarpdf/pull/350)
 
+  **After the merge (2026-09-17):** the `audit` workflow, run by hand on `main`, passed. Dependabot
+  had **18** alerts open, not the 12 the issue counted: the three advisories on six files. **15**
+  closed as fixed once GitHub rescanned. The other **3** (#31–#33) pointed at
+  `packaging/mcpb/uv.lock`, a path M133 moved away on 2026-09-05, and were dismissed as
+  *inaccurate* with the owner's go-ahead. Why that path is still reported is in Open follow-ups.
+
 - [x] **M143.1** *(unplanned)* **Claude Desktop gets told where its config lives** — 2026-09-09,
   from the owner asking whether `install.py` could configure Desktop too, right after M143 merged.
   **It cannot register it, and should not**: Desktop has no CLI, so `--client` has nothing to call,
@@ -4776,6 +4782,18 @@ it on this side of the line.
   whose only evidence was "it passed" — which for a CI job proves that it passed, not that it tests
   what it claims. Nothing reached a user; each was caught by machinery already in the repo. Nothing
   carried.
+
+- **GitHub's dependency graph still lists `packaging/mcpb/uv.lock`, a file that no longer exists** —
+  found 2026-09-17 after M144 merged. M133 (2026-09-05) moved the bundle to `packaging/mcp/mcpb/`,
+  but the graph (`dependencyGraphManifests` in the GraphQL API) still reports the old path as a
+  file on `main`. So Dependabot raises alerts against it that no commit can close, because there is
+  no file left to change: M144's three advisories did exactly that, as #31–#33, which were
+  dismissed by hand. **Until the entry goes, every future advisory against a bridge dependency will
+  do the same**; `RELEASE.md` §2 says how to recognise and dismiss those alerts. **Decision owed:**
+  keep dismissing them, ask GitHub Support to drop the entry, or turn the dependency graph off and
+  on to force a full rebuild. The last option is untested here and may discard the alert history,
+  which is why it has not been tried. Check whether the entry is still there:
+  `gh api graphql -f query='{repository(owner:"utyagi24",name:"klarpdf"){dependencyGraphManifests(first:50){nodes{filename}}}}'`
 
 - **The dev lock and the bridge lock pin different `typing-inspection` versions** (0.4.3 vs 0.4.4) —
   noticed 2026-09-16 while doing M144, and already true on `main` before it. It is the only package
