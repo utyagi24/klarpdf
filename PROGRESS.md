@@ -897,7 +897,8 @@ moves to the end and nothing else does. Argument and measurements in `PLAN.md` �
   a table describing each style once. The calling agent picks the headings and writes them with
   `set_outline` (M139). It serves documents with neither bookmarks nor a linked contents page, and
   adds sections under an outline that has only chapters (name a chapter's pages). Design and
-  measurements in `PLAN.md` §M140 → *What building it added* — *WSL*.
+  measurements in `PLAN.md` §M140 → *What building it added* — *WSL*
+  ([#353](https://github.com/utyagi24/klarpdf/pull/353)).
 
   **Checked against an answer key the plan did not have**: 502 bookmark titles that the publishers of
   ten corpus documents wrote and that are printed on their pages. The tool finds 501; the miss is a
