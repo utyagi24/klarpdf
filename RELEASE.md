@@ -147,6 +147,16 @@ tells you *what* and *how severe*, and you do the bump yourself.
 
 1. **Read the alert** — note the package, severity, and the first patched version.
 
+   **Check the alert's manifest path exists before acting on it.** GitHub's dependency graph still
+   lists `packaging/mcpb/uv.lock`, which M133 moved to `packaging/mcp/mcpb/uv.lock`. An alert on the
+   old path cannot be closed by a commit, because the file is gone. Fix the real files as usual,
+   then dismiss the leftover alerts as *inaccurate* (`PROGRESS.md` §Open follow-ups has the
+   background; M144 did this for #31–#33):
+   ```sh
+   gh api -X PATCH repos/utyagi24/klarpdf/dependabot/alerts/<N> -f state=dismissed \
+     -f dismissed_reason=inaccurate -f dismissed_comment="stale path packaging/mcpb/uv.lock (moved in M133)"
+   ```
+
 2. **Bump it via §1** — edit the `.in` floor to the patched version, recompile the affected lock(s)
    on Windows, re-vendor. (Pure-Python vs native doesn't change the steps; recompiling on Windows
    yields the correct `win_amd64` hashes either way.)
