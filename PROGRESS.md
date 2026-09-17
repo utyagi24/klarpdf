@@ -2709,7 +2709,7 @@ on the one above it. Every decision, every rejection and every measurement behin
   not see because it compared dependency pins only. It now checks the version too, `RELEASE.md` §3
   lists `uv lock` among the release-bump steps, and the Windows-compile guard from M137 now covers
   `requirements-mcp.txt` as well as the dev lock. Each new check was confirmed by breaking it.
-  Design in `PLAN.md` §M144 — *WSL*
+  Design in `PLAN.md` §M144 — *WSL* — [#350](https://github.com/utyagi24/klarpdf/pull/350)
 
 - [x] **M143.1** *(unplanned)* **Claude Desktop gets told where its config lives** — 2026-09-09,
   from the owner asking whether `install.py` could configure Desktop too, right after M143 merged.
