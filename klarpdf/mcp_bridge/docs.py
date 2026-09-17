@@ -584,10 +584,11 @@ own entries. The reply's `replaced` count tells you how many went.
 
 Where the sub-entries come from is the open part. `get_links` is exact when the document has a
 printed contents page, but a document that already ships bookmarks usually does not have one —
-the bookmarks *are* its navigation. Failing that today: `extract_text` over the section's page
-range and read it, or `render_page` and look. Note that `extract_text` returns plain strings with
-no font or weight, and weight is usually the signal that separates an unnumbered subheading from
-body text set at the same size.
+the bookmarks *are* its navigation. So call `get_heading_candidates` with the chapter's pages: it
+returns the lines set to stand out from the body text, with their styles, and you decide which are
+the sections. `extract_text` is not a substitute here — it returns plain strings with no font or
+weight, and weight is usually the only thing separating an unnumbered subheading from the body text
+around it.
 
 ## What it does not do
 
@@ -717,6 +718,120 @@ two tables in one reply can legitimately differ here.
 Reading tables is tens of times slower than reading text, which is why `pages` is required. Narrow
 first with `get_outline`, `search`, or `extract_text`'s `table_pages`, which names the pages
 carrying ruled lines or shaded bands for a small fraction of what reading their tables costs.
+""",
+    "get_heading_candidates": """\
+## What makes a line a candidate
+
+Everything is compared with `body`: the style that carries the most characters in the **whole
+document**, whatever `pages` names. A section made mostly of tables would otherwise make its table
+text the yardstick, and every ordinary paragraph would then count as "larger".
+
+Text **stands out** when its style is:
+
+* **larger** than the body (sizes are compared to a tenth of a point), or
+* **bold** where the body is not, at any size, or
+* **italic** where the body is not, at the body's size or larger.
+
+A line that **opens** with text that stands out and then continues in ordinary text is a run-in
+heading, such as `Plan Information: Following the amendment…`, however long the opening is. Only the
+opening phrase is the candidate: the entry has `run_in: true`, and its `text` and `bbox` cover that
+phrase. The phrase may mix styles that stand out (a bold number before a bold-italic title). It is not
+taken when the line before it, in the same text block, is ordinary text ending in that same style —
+that is a bold phrase wrapping onto the next line, not a heading starting one. A heading line
+directly above does not count.
+
+Any other line is a candidate when the style most of its characters are set in stands out.
+
+Bold is read from the font's flags and from the weight in its name (`-Bold`, `-Black`, `-Heavy`,
+`-Demi`…), italic from its flags and from `Italic` or `Oblique` in its name.
+
+Candidate lines side by side **in the same text block** are one entry, so a numbered heading printed
+as `2.8.1` and its title comes back as `2.8.1 Issues and challenges`. Lines in different blocks are
+never joined: on a two-column page that would weld a heading to whatever is level with it in the
+other column. A heading that wraps onto a second line is two consecutive entries in the same style.
+
+A line with no letter or digit in it (a bullet, a row of dashes) is never a candidate.
+
+## What is not read
+
+* **Text a reader cannot see.** A span painted with neither fill nor stroke is skipped: a hidden
+  OCR layer under a scanned image, or a hidden copy of the visible text, which some converters add
+  and which would otherwise double every line. `pages_without_visible_text` names the pages in scope
+  where nothing at all is drawn; their typography says nothing, so look at them with `render_page`.
+* Text set smaller than 1 pt.
+* Text set at an angle as the page is displayed (a rotated label, a vertical margin note).
+
+## Fields
+
+**`candidates`** — in page order, top to bottom within a page:
+
+| field | meaning |
+|---|---|
+| `page` | 1-based |
+| `bbox` | `[x0, y0, x1, y1]`, unrotated, top-left origin — the space `search` reports and `render_page`'s `clip` takes |
+| `text` | the line's text, whitespace collapsed (for a run-in heading, the opening phrase) |
+| `style` | an id from `styles` |
+| `run_in` | the entry is a paragraph's opening phrase, not a whole line |
+| `in_table` | present only with `tables: true`: the entry's centre lies inside a table `get_tables` returns for that page |
+
+**`styles`** — one row per style the candidates **in scope** use, counted before the `styles` filter
+is applied, loudest first (larger before smaller; at one size, bold before regular, then italic):
+
+| field | meaning |
+|---|---|
+| `style` | the id candidates refer to |
+| `font`, `size`, `bold`, `italic` | the style |
+| `count` | candidates in this style |
+| `distinct` | how many different texts they hold — far below `count` means repetition, such as a running head |
+| `pages` | how many pages they sit on |
+| `examples` | up to two texts, preferring ones that occur only once; longer ones are cut with `…` |
+| `in_table` | present only with `tables: true`: how many of `count` are inside a returned table |
+
+**Style ids belong to the document**, not to the call: every style in the file is ranked once, so an
+id means the same style whatever `pages` you ask for, and ids from one call can be used in the next.
+An id that is not a style of this document is an error; a real id with no candidates on these pages
+returns nothing.
+
+`body` is the document's body style (`null` when nothing in it is drawn). `tables_checked` says
+whether `in_table` was computed. `pages_scanned` lists the pages read, `total_candidates` counts the
+candidates after the `styles` filter, and `count` / `offset` / `more_available` page through them.
+
+## From candidates to an outline
+
+1. Name the pages you care about — a chapter from `get_outline` when enriching — or none for the
+   whole document.
+2. Read `styles` against `body`. A heading style is usually used a modest number of times, with
+   `distinct` close to `count`, across many pages. A style whose `distinct` is far below `count` is a
+   running head or a repeated label; bold smaller than `body` is usually table text.
+3. Call again with `styles` set to the styles you judged to be headings, and page through them.
+4. Give levels: larger before smaller, then bold before regular; where styles tie, the numbering in
+   the text (`2.8` over `2.8.1`) and the indent (`bbox[0]`) decide.
+5. Join a heading that wraps (consecutive entries, same style, same page) and drop what is not a
+   heading: running heads, table headers, labels such as `Telephone:`.
+6. Send `[{level, title, page}]` to `set_outline`. To enrich an existing outline, weave your entries
+   into what `get_outline` returned and send the whole tree.
+
+## Known limits
+
+* **A heading set exactly like the body text is not found** — one marked only by the space around
+  it, or only by its number. Documents that do this are usually plain typescript; `search` for the
+  numbering, or read the pages.
+* **Where most of a document is bold (or italic), bold (or italic) stops counting**, because it is
+  what the body is set in. Size still counts.
+* **A run-in heading ends where its style changes**, so one with an italic word inside it comes back
+  cut at that word.
+* **`in_table` follows `get_tables`, misreadings included.** Where two tables are separated only by
+  a rule, `get_tables` can return them as one, with the heading between them inside a cell; that
+  heading then reports `in_table: true`. Treat the flag as a hint, never as a reason to drop an entry
+  unseen.
+* **Text in a broken encoding** comes back as the characters the file maps it to, the same as
+  `extract_text` returns.
+
+## Cost
+
+The body style comes from a pass over the whole document on every call, whatever `pages` names.
+`tables: true` also reads the tables of every page that has a candidate, which is tens of times
+slower than reading text — that is why it needs `pages`.
 """,
     "search": """\
 ## Feeding hits straight to `redact_regions`

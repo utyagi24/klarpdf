@@ -43,7 +43,7 @@ from mcp.server.mcpserver import Image
 from mcp.server.mcpserver.exceptions import ResourceError
 from mcp_types import CallToolRequestParams, CallToolResult, TextContent
 
-from klarpdf.mcp_bridge import annotations, docs, queries, redaction, tables, transforms
+from klarpdf.mcp_bridge import annotations, docs, headings, queries, redaction, tables, transforms
 from klarpdf.mcp_bridge.config import Config, PathNotAllowed, PathPolicy
 from klarpdf.mcp_bridge.strict_args import rejection_message, unknown_parameters
 from klarpdf.model.virtual_document import PasswordRequired
@@ -387,6 +387,11 @@ def create_server(config: Config | None = None) -> MCPServer:
 
         The fastest way to find the section you want in a long structured document — cheaper and
         more reliable than searching for a heading. `count` is 0 if the PDF has no outline.
+
+        With no outline, `get_links` often finds a printed contents page, and
+        `get_heading_candidates` the lines set like headings; either feeds `set_outline`, which
+        writes real bookmarks. To add sections under an outline that has only chapters, call
+        `get_heading_candidates` with a chapter's pages.
         """
         entries = queries.outline(check(path), password)
         return {"count": len(entries), "entries": entries}
@@ -583,6 +588,54 @@ def create_server(config: Config | None = None) -> MCPServer:
             password=password,
             max_tables=limits.max_tables,
             max_chars=limits.max_table_chars,
+            offset=offset,
+        )
+
+    @server.tool()
+    @guarded
+    def get_heading_candidates(
+        path: str,
+        pages: list[int] | None = None,
+        styles: list[str] | None = None,
+        tables: bool = False,  # the argument an agent sees; shadows the module only in this body
+        password: str | None = None,
+        offset: int = 0,
+    ) -> dict:
+        """Lines set to look like headings — larger than the document's body text, bold where it
+        is not, or italic — as `candidates` with `page`, `bbox`, `text` and a `style` id, for **you**
+        to judge. Nothing is decided for you: table headers, bold labels and captions come back too,
+        because a heading missed here is lost, while a wrong candidate costs a glance.
+
+        Use it when `get_outline` is empty and `get_links` finds no linked contents page, or to add
+        sub-bookmarks under existing chapters by naming a chapter's `pages`. Pick the headings, give
+        each a level, and send `[{level, title, page}]` to `set_outline`.
+
+        `styles` describes each candidate style once — `font`, `size`, `bold`, `italic`, `count`,
+        `distinct`, `examples` — and `body` is the style most of the document is set in. Decide
+        from that which styles are heading levels, then call again with `styles: ["s2", "s5"]` for
+        just those. Ids stay the same for a document across page ranges.
+
+        `run_in: true` marks a heading that opens a paragraph ("Plan Information: Following…"); its
+        `text` is the opening phrase alone. A heading that wraps is consecutive entries in one style.
+        Text a reader cannot see (a hidden OCR or duplicate layer) is ignored;
+        `pages_without_visible_text` names pages with nothing drawn — look at them with
+        `render_page`.
+
+        `tables: true` adds `in_table`: whether the line sits inside a table `get_tables` returns.
+        It needs `pages` and reads each page's tables, which is slow; `get_tables` can also swallow
+        a heading into a cell, so do not discard on it alone.
+
+        The reply paginates: when `more_available` is true, call again with `offset` set to
+        `offset + count`. Field contract in `klarpdf://docs/get_heading_candidates`.
+        """
+        return headings.heading_candidates(
+            check(path),
+            pages,
+            styles=styles,
+            tables=tables,
+            password=password,
+            max_candidates=limits.max_heading_candidates,
+            max_chars=limits.max_heading_chars,
             offset=offset,
         )
 
@@ -868,7 +921,8 @@ def create_server(config: Config | None = None) -> MCPServer:
         structure: a printed contents page is built from real link annotations, so `get_links` on
         those pages gives title, target page and — from `rect` x0 — the indent implying the level.
         Exact, authored by the publisher; `klarpdf://docs/get_links` has the four rules for reading
-        it. An agent's own reading of a short document works too.
+        it. Without one, `get_heading_candidates` lists the lines set like headings; your own
+        reading of a short document works too.
 
         **A page the document does not have is an error, and nothing is written.** The PDF layer
         does not refuse one — it silently moves the bookmark to the nearest real page, or writes
@@ -1139,7 +1193,7 @@ def parse_args(argv: list[str] | None = None) -> Config:
         "--read-only",
         action="store_true",
         help=(
-            "expose only the seven query tools; the transform and redaction tools are not "
+            "expose only the query tools; the transform and redaction tools are not "
             "registered at all, so the model never sees them. Writes are ON by default: no "
             "write tool can destroy data by construction (each needs an explicit new output "
             "path, in-place save is never exposed), so this is the cautious opt-out rather "

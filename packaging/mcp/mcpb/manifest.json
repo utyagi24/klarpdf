@@ -53,6 +53,10 @@
       "description": "Tables on named pages as rows; names what it cannot read."
     },
     {
+      "name": "get_heading_candidates",
+      "description": "Lines set like headings, with their styles, to build bookmarks from."
+    },
+    {
       "name": "search",
       "description": "Find text; returns pages, snippets and boxes."
     },

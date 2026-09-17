@@ -1,0 +1,29 @@
+{
+ "documents": [
+  {"doc": "LLY_Proxy.pdf", "printed": 131, "found": 131, "candidates": 1061, "styles": 20},
+  {"doc": "NVIDIA_2026-Annual-Report-Web.pdf", "printed": 92, "found": 92, "candidates": 1754, "styles": 23},
+  {"doc": "Apple_10Q-Q3-2026-as-filed.pdf", "printed": 60, "found": 60, "candidates": 382, "styles": 8},
+  {"doc": "QCOM-Q3FY26-10-Q_Final.pdf", "printed": 32, "found": 32, "candidates": 618, "styles": 8},
+  {"doc": "2025-cisco-full-annual-report.pdf", "printed": 35, "found": 35, "candidates": 1565, "styles": 43},
+  {"doc": "AMZN-Q2-2026-Earnings-Release.pdf", "printed": 6, "found": 6, "candidates": 112, "styles": 4},
+  {"doc": "s41586-026-10990-x.pdf", "printed": 24, "found": 23,
+   "missed": ["Extended Data Fig. 5 Maps of the Study Sample by Country."], "candidates": 541, "styles": 22},
+  {"doc": "SpaceX-EUProspectus-outlined.pdf", "printed": 101, "found": 101, "candidates": 2740, "styles": 19},
+  {"doc": "kasaragodhr-outlined.pdf", "printed": 19, "found": 19, "candidates": 114, "styles": 17},
+  {"doc": "Q4 2025 Sacramento Multifamily Market Report.pdf", "printed": 2, "found": 2, "candidates": 169, "styles": 17}
+ ],
+ "sections": [
+  {"doc": "dhariwal_ipo.pdf", "pages": [332, 340],
+   "style": {"font": "TimesNewRomanPS-BoldItalicMT", "size": 10.0},
+   "count": 42,
+   "includes": [
+    "Key industry specific regulations",
+    "National Highways Act, 1956",
+    "The Railways Act, 1989",
+    "Indian Tolls Act, 1851",
+    "Code on Wages, 2019,",
+    "Occupational Safety, Health and Working Conditions Code, 2020,",
+    "Other applicable laws"
+   ]}
+ ]
+}

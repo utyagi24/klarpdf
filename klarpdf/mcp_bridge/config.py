@@ -89,6 +89,23 @@ the largest in the M141 corpus is three rows long and serialises to 8,820 charac
 of such tables exceed what a caller wants while sitting far under the count cap.
 """
 
+DEFAULT_MAX_HEADING_CANDIDATES = 500
+"""How many candidates `get_heading_candidates` returns per call (M140).
+
+A mis-call bound rather than a working limit: the character cap below is the one that usually binds,
+since an entry runs roughly 70-150 characters. A whole 572-page prospectus holds 10,114 candidates,
+which is what the tool's `styles` filter exists to narrow.
+"""
+
+DEFAULT_MAX_HEADING_CHARS = 60_000
+"""How many characters of candidates `get_heading_candidates` returns per call, its style table
+included (M140).
+
+The style table is charged against this rather than added to it, so a document with many styles
+leaves less room for candidates instead of producing a longer reply. The largest measured table was
+10 KB.
+"""
+
 ENV_ALLOW_ROOTS = "KLARPDF_MCP_ALLOW_ROOTS"
 ENV_READ_ONLY = "KLARPDF_MCP_READ_ONLY"
 
@@ -170,6 +187,8 @@ class Limits:
     max_link_chars: int = DEFAULT_MAX_LINK_CHARS
     max_tables: int = DEFAULT_MAX_TABLES
     max_table_chars: int = DEFAULT_MAX_TABLE_CHARS
+    max_heading_candidates: int = DEFAULT_MAX_HEADING_CANDIDATES
+    max_heading_chars: int = DEFAULT_MAX_HEADING_CHARS
 
 
 @dataclass(frozen=True)
