@@ -884,7 +884,11 @@ moves to the end and nothing else does. Argument and measurements in `PLAN.md` �
   recovery is offered only for failures about rows and columns, never for ones naming the drawn lines
   themselves, because the parts would be cut along a chart's gridlines. And a **linked "Table of
   Contents"** heading is navigation rather than a caption, so it no longer titles the statement below
-  it. Columns from drawn segments — the owner's reading of Cisco p32 and AMZN p7 — is measured and
+  it. Checking those results before reporting them found the split dropping table text that sat
+  between the parts — a beneficiary's row, a declined table's headings, and the upper lines of a
+  returned table's headings — on four pages; every such line now lands in a returned table or a
+  declined region, and a table that could not take in its own heading is declined rather than
+  returned with half of it. Columns from drawn segments — the owner's reading of Cisco p32 and AMZN p7 — is measured and
   deferred to its own milestone (§Open follow-ups).
 
 - [ ] **M140** **Heading candidates** — the typography fallback for documents with neither
@@ -4573,6 +4577,13 @@ it on this side of the line.
   rejected: it splits ~20 legitimate spanning headers and prose lines to fix 9 glued cells (`(3,027) $
   132,420`), and AMZN p10's trailing `$` needs its column *divided*, not its line split. Sized as its
   own milestone: it rewrites most expectations and needs its own blackbox round.
+- **Two TC-039 findings are the documents, not the reader — no change** (M141, 2026-09-16). AMZN's
+  Q2 release p9 prints `%` only on the first row of each block (*North America*); the other rows print
+  bare numbers, and the tool returns exactly that — confirmed on a render. The 2021 rental statement
+  p1 prints *Amount* to the left of its amounts, sharing no x-range with them, so heading and figures
+  fall in separate columns; putting them together would mean deciding that a heading belongs to the
+  column beside it, which the page does not state. Recorded so a later round does not re-derive
+  either; the tester has been told both (`TC-039-RESPONSE-fixed-and-deferred.md`).
 - **A small ruled table on a page with little other text is not found at all** (M141). PyMuPDF's
   row-ruled finder needs ten words lined up down the page before it locates a region, so a four-row
   table alone on a page reports no table (`tests/test_mcp_tables.py` uses twelve-row fixtures for this

@@ -7365,7 +7365,14 @@ found and closed, each measured against the corpus before and after:
   `rule_through_text` and `grid_crossed` name the drawn lines themselves, and cutting along a chart's
   gridlines returned a California schools poster's axis (`← lower`, `higher →`) as a table's header.
   Reading a region in parts also made a latent crash reachable — a part of pure prose has no columns,
-  and `_place` raised `ValueError` rather than declining.
+  and `_place` raised `ValueError` rather than declining. And the first version dropped table text
+  that lay in the dividing bands: a beneficiary's row, a declined table's column headings, and the
+  upper lines of a returned table's headings, which then came back headed "period" for "For this
+  statement period" — in no table and no declined region, on four pages, found while checking the
+  round's results. Every side-by-side line a split leaves over now goes to the nearest part: a
+  declined part's box grows to name it, and a returned part is declined instead, since a table with
+  its own text pressed against it that its rows could not take in is not known to be whole. A line
+  level with a returned table is left to the beside report.
 * **A linked heading is navigation.** Every filing prints a "Table of Contents" link in its top
   margin, and it titled the statement below it on Cisco p61, Broadcom p49 and salesforce p4 alike.
   A block a link annotation covers is no longer a caption candidate: 3 titles change across the

@@ -1153,6 +1153,43 @@ def _recover(
             refused.append((fitz.Rect(part.bbox), decline))
         else:
             recovered.append(table)
+    if not recovered:
+        return recovered, refused
+
+    # Text the parts leave behind. A band that divides the region can hold table text as well as
+    # prose — a column heading, a beneficiary's row — and dropping the band dropped that text: it
+    # was in no table and in no declined region, on four pages of the corpus. Each side-by-side
+    # line left over goes to the part nearest it. A declined part's box grows to name it. A returned
+    # part is declined instead, because text pressed against a table that its rows could not take
+    # in means the table is not known to be whole: a retirement statement's performance table came
+    # back headed "period" where the page prints "For this statement period". A line level with a
+    # returned table is not handled here — it sits beside that table, and is reported as such.
+    def gap(line: _Line, box: fitz.Rect) -> float:
+        return max(0.0, box.y0 - line.baseline, line.top - box.y1)
+
+    placed = [table["bbox"] for table in recovered] + [box for box, _ in refused]
+    loose = [
+        line
+        for row in _visual_rows(inside)
+        if len(row) > 1
+        for line in row
+        if not any(box.contains(fitz.Point((line.x0 + line.x1) / 2, line.middle)) for box in placed)
+        and all(gap(line, table["bbox"]) > 0 for table in recovered)
+    ]
+    grown = [fitz.Rect(box) for box, _ in refused]
+    demoted: dict[int, tuple[fitz.Rect, str]] = {}
+    for line in loose:
+        near_table = min(range(len(recovered)), key=lambda i: gap(line, recovered[i]["bbox"]))
+        near_refused = min(range(len(refused)), key=lambda i: gap(line, refused[i][0]), default=None)
+        if near_refused is not None and gap(line, refused[near_refused][0]) <= gap(line, recovered[near_table]["bbox"]):
+            grown[near_refused] = grown[near_refused] | line.outer
+        else:
+            box, first = demoted.get(near_table, (fitz.Rect(recovered[near_table]["bbox"]), line.text))
+            demoted[near_table] = (box | line.outer, first)
+    refused = [(grown[i], decline) for i, (_, decline) in enumerate(refused)]
+    for index, (box, first) in demoted.items():
+        refused.append((box, _Decline("unaccounted", f"{_quote(first)} is pressed against a table and in none of its rows")))
+    recovered = [table for i, table in enumerate(recovered) if i not in demoted]
     return recovered, refused
 
 

@@ -678,10 +678,16 @@ def test_the_drawn_row_check_is_what_saves_a_banded_block(tmp_path, monkeypatch)
     assert "\n" in table["rows"][0][0]
 
 
-def test_a_region_holding_two_tables_is_read_in_the_parts_its_prose_divides(tmp_path):
-    """Apple's 10-Q p14 carries three notes in one located region and a retirement statement two
-    (TC-039). Read as one, their columns come from layouts with nothing to do with each other and
-    the whole page declined; the prose between them is the boundary the finder missed."""
+SEGMENTS = [(f"Segment {chr(65 + i)}", f"{3 + i},{401 + i}") for i in range(12)]
+LONG_SEGMENTS = [("Segment A, Americas and Canada", SEGMENTS[0][1]), *SEGMENTS[1:]]
+
+
+def _two_notes(tmp_path, name: str, *, heading: str | None = None, segments=SEGMENTS,
+               rule_through: int | None = None) -> str:
+    """A statement, a paragraph, then a one-figure table, all in one ruled region — the shape of
+    Apple's 10-Q p14. ``heading`` adds a heading row between the paragraph and the second table:
+    ``"fits"`` sets ``Amount`` over the figures, ``"bridging"`` sets a piece reaching from the label
+    column into the figures. ``rule_through`` draws a rule through that row of the second table."""
     doc = fitz.open()
     page = doc.new_page()
     y = 60
@@ -699,28 +705,80 @@ def test_a_region_holding_two_tables_is_read_in_the_parts_its_prose_divides(tmp_
     ):
         y += 13
         page.insert_text((60, y), line, fontsize=FONT)
-    y += 14
-    for i in range(12):
+    if heading:
+        y += 16
+        page.insert_text((60, y), "Segment", fontsize=FONT)
+        if heading == "fits":
+            _right(page, 300, y, "Amount")
+        else:
+            page.insert_text((150, y), "Amount, in millions", fontsize=FONT)
+        y += 6
+    else:
+        y += 14
+    for i, (label, figure) in enumerate(segments):
         page.draw_line((55, y), (540, y))
-        page.insert_text((60, y + 11), f"Segment {chr(65 + i)}", fontsize=FONT)
-        _right(page, 300, y + 11, f"{3 + i},{401 + i}")
+        page.insert_text((60, y + 11), label, fontsize=FONT)
+        _right(page, 300, y + 11, figure)
+        if i == rule_through:
+            page.draw_line((55, y + 8), (540, y + 8))
         y += PITCH
     page.draw_line((55, y), (540, y))
-    path = _save(doc, tmp_path, "two_notes.pdf")
+    return _save(doc, tmp_path, name)
 
+
+def _recover_the_region(path: str):
     page = fitz.open(path)[0]
-    inventory = tables._page_inventory(page)
     reading = tables._read_with(
         page, vertical_strategy="text", horizontal_strategy="lines",
         min_words_vertical=tables._MIN_WORDS_VERTICAL,
     )
-    recovered, refused = tables._recover(reading.found[0], inventory, reading.edges, [], [])
+    assert len(reading.found) == 1
+    return tables._recover(reading.found[0], tables._page_inventory(page), reading.edges, [], [])
+
+
+def _centre_of(path: str, text: str) -> fitz.Point:
+    hits = fitz.open(path)[0].search_for(text)
+    assert len(hits) == 1, text
+    return hits[0].tl + (hits[0].br - hits[0].tl) * 0.5
+
+
+def test_a_region_holding_two_tables_is_read_in_the_parts_its_prose_divides(tmp_path):
+    """Apple's 10-Q p14 carries three notes in one located region and a retirement statement two
+    (TC-039). Read as one, their columns come from layouts with nothing to do with each other and
+    the whole page declined; the prose between them is the boundary the finder missed."""
+    recovered, refused = _recover_the_region(_two_notes(tmp_path, "two_notes.pdf"))
 
     assert not refused
     assert [len(table["rows"]) for table in recovered] == [12, 12]
     assert recovered[0]["rows"] == _expected(ASSETS)
     assert recovered[1]["rows"][0][0] == "Segment A"
     assert recovered[1]["rows"][-1][0] == "Segment L"
+
+
+def test_table_text_a_part_cannot_take_in_declines_that_part(tmp_path):
+    """The band that divides a region can hold a table's own heading as well as prose. A heading the
+    table below could not take in was dropped with the band — in no table and no declined region —
+    and the table came back headed by what was left (a retirement statement's "period" for "For
+    this statement period"). A table with text pressed against it that its rows cannot hold is not
+    known to be whole, so it is declined, and the declined region names the heading too."""
+    path = _two_notes(tmp_path, "bridging_heading.pdf", heading="bridging", segments=LONG_SEGMENTS)
+    recovered, refused = _recover_the_region(path)
+
+    assert [table["rows"] for table in recovered] == [_expected(ASSETS)]
+    assert [decline.reason for _, decline in refused] == ["unaccounted"]
+    assert refused[0][0].contains(_centre_of(path, "Amount, in millions"))
+
+
+def test_table_text_beside_a_declined_part_widens_the_declined_region(tmp_path):
+    """The same heading, over a table that declines on its own account (a rule through one of its
+    rows): the declined region grows to take the heading in, rather than leaving it in neither list —
+    how a statement's beneficiary row and a 10-Q's date headings went unmentioned (TC-039)."""
+    path = _two_notes(tmp_path, "declined_part.pdf", heading="fits", segments=LONG_SEGMENTS, rule_through=5)
+    recovered, refused = _recover_the_region(path)
+
+    assert [table["rows"] for table in recovered] == [_expected(ASSETS)]
+    assert [decline.reason for _, decline in refused] == ["rule_through_text"]
+    assert refused[0][0].contains(_centre_of(path, "Amount"))
 
 
 def test_recovery_is_offered_for_ambiguous_rows_and_never_for_a_chart(statement_pdf, monkeypatch):

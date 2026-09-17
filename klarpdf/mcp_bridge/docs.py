@@ -669,8 +669,10 @@ twice reads it once.
 
 * **Several tables in one ruled region** are read separately where prose divides them: each comes
   back with its own box and its own caption, and a part that cannot be read is named on its own.
-  Where only a rule separates them, they can still come back as one table whose middle rows hold
-  the heading or paragraph between them. Every value is then still in the right row and column, so
+  Table text between the parts is never dropped: it is inside a returned table or a named region,
+  and a table whose own heading its rows could not take in is declined rather than returned with
+  part of that heading. Where only a rule separates the tables, they can still come back as one
+  table whose middle rows hold the heading or paragraph between them. Every value is then still in the right row and column, so
   read each row against the header row nearest above it.
 * **Dot leaders are not read.** A run of dots joining a label to its figure is typesetting rather
   than content, so it is dropped instead of filling a cell — the same treatment as text under a
