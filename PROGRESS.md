@@ -577,7 +577,7 @@ items, which are independent of it.
   (**M128**); and row 10's own instructions not putting the lock in the bundle (**M129**). What
   remains is the tag, which is an owner action.
 
-## Roadmap — document structure for agents (M138–M142; M138 + M139 shipped)
+## Roadmap — document structure for agents (M138–M142; M138–M141 done, M142 next)
 
 Design in `PLAN.md` §M138–M140 — **not restated here**. Same conventions: **one PR per milestone**,
 tick the box here on merge. Scoped **2026-09-07** from a session comparing the bridge against a
@@ -891,19 +891,36 @@ moves to the end and nothing else does. Argument and measurements in `PLAN.md` �
   returned with half of it. Columns from drawn segments — the owner's reading of Cisco p32 and AMZN p7 — is measured and
   deferred to its own milestone (§Open follow-ups).
 
-- [ ] **M140** **Heading candidates** — the typography fallback for documents with neither
-  bookmarks nor a linked contents page, and the only route to **subsections** a contents page omits.
-  **Feeds M139**, which is already built by then and defines the `[{level, title, page}]` target
-  this must produce.
-  Mechanical **candidate extraction** only (bold, larger-than-body, numbering patterns,
-  short-line-before-body → `{text, page, size, bold, y}`); the calling agent classifies. Recall, not
-  precision. Three things measured on `dhariwal_ipo.pdf` (572-page prospectus) shape it: **weight is
-  the signal, not size** — the body is 10 pt Times across all 572 pages and a size-based detector
-  returns *zero* headings for the section whose subheadings are unnumbered, while a bold filter
-  returns exactly them; the **payload is ~22,000 tokens (5% of the document), not the "few thousand"
-  first estimated**; and the extractor must accept a **page range**, because heading conventions
-  differ by section in a compiled document even when the typography does not. Classification **in
-  code** is deliberately out of scope — see §Open follow-ups.
+- [x] **M140** **`get_heading_candidates`** — 2026-09-17, the bridge's **23rd tool**. It lists the
+  lines a document sets to stand out from its body text — larger, bold, or italic, plus the opening
+  phrase of a paragraph set that way (a run-in heading) — each with its page, box and a style id, and
+  a table describing each style once. The calling agent picks the headings and writes them with
+  `set_outline` (M139). It serves documents with neither bookmarks nor a linked contents page, and
+  adds sections under an outline that has only chapters (name a chapter's pages). Design and
+  measurements in `PLAN.md` §M140 → *What building it added* — *WSL*.
+
+  **Checked against an answer key the plan did not have**: 502 bookmark titles that the publishers of
+  ten corpus documents wrote and that are printed on their pages. The tool finds 501; the miss is a
+  figure caption. The check is committed (`tools/heading_corpus_check.py`), with each document's
+  candidate and style counts pinned too.
+
+  What measurement changed from the plan: **run-in and italic headings added** (Lilly's proxy and
+  Apple's 10-Q need them); the **numbering-pattern and short-line criteria dropped** (they could add
+  nothing, and both are guesses); the **body style is the whole document's** (measured on its own,
+  the prospectus's table-heavy *Basis for Issue Price* returns 1,159 candidates instead of 315); and
+  **text a reader cannot see is ignored** (a prospectus's hidden copy of its text would add 362
+  candidates and 31 bogus styles).
+
+  **Owner decisions, 2026-09-17.** `in_table` is **opt-in** — `tables: true`, which needs `pages` —
+  because with M141's rebuilt reader it marked 0–44% of candidates, cost 0.1–0.4 s a page, and marked
+  five real headings as table text. A **style table plus a `styles` filter** rather than paging alone:
+  the whole 572-page prospectus is 10,114 candidates (1.24 MB), and its bold-italic headings alone are
+  62 KB. The name `get_heading_candidates`, and `pages` optional. Classification **in code** stays out
+  of scope — see §Open follow-ups.
+
+  **Found on the way**: `get_tables` declines every table on that hidden-layer prospectus
+  ([#352](https://github.com/utyagi24/klarpdf/issues/352)), and three more pages of the
+  stacked-tables limit (§Open follow-ups).
 
 - [ ] **M142** **`extract_markdown`** — a Markdown rendering of a page range, built on M140 and M141
   with **no new dependency**. Prototyped before being scheduled: headings by weight/size, ruled
@@ -4585,7 +4602,11 @@ it on this side of the line.
   the parts its prose divides it into, which returned Apple p14's three notes, p10's and p20's two
   each, and two statement pages. What is left is the pages that read *successfully* as one table with
   a caption and its lead-in sentence inside a cell — the SpaceX prospectus p274 ("Note 8 — Financial
-  Instruments" and its sentence in one cell) and LLY's proxy p56. Recovery never sees them, because it
+  Instruments" and its sentence in one cell) and LLY's proxy p56. M140's measurement (2026-09-17) found
+  three more, each with a note's *heading* and its paragraph in one cell: NVIDIA's annual report p151
+  (`Note 4 - Net Income Per Share`) and p167 (`Note 17 - Leases`), and Apple's 10-Q p13 (`Note 6 –
+  Debt`). That now matters outside `get_tables`: `get_heading_candidates` with `tables: true` reports
+  those headings as table text. Recovery never sees them, because it
   only runs on failures, and that is deliberate: the rule that would catch them ("a lone line crossing
   more than one column is prose") also matches a legitimate spanning group header, so applying it to
   tables that read would risk cutting one below its header. Decision owed: extend the split to
