@@ -4584,6 +4584,22 @@ it on this side of the line.
   fall in separate columns; putting them together would mean deciding that a heading belongs to the
   column beside it, which the page does not state. Recorded so a later round does not re-derive
   either; the tester has been told both (`TC-039-RESPONSE-fixed-and-deferred.md`).
+- **A grid with no lines between its printed rows returns each column as one multi-line cell —
+  documented, not split** (M141, TC-040, decided 2026-09-16). A Treasury TIPS index-ratio report
+  (`CPI_20260911.pdf`, 14 pages) boxes a month of daily figures under one drawn row and a block of
+  labels beside a block of values under another. The daily cells line up one for one on every page;
+  the only short column is a matured security's, and it holds the first 15 dates. The label block
+  does not: a wrapped name or a second additional-issue date adds a line to one cell only — 29 cells
+  on 13 pages — and on p1 the line counts still match, so pairing lines by position is wrong there
+  without any sign of it. The owner gave the tool's output to several AI agents with a one-line prompt
+  and every one rebuilt the rows correctly, pairing by content. Splitting a drawn row wherever its
+  lines align across cells was measured as the alternative: it changes 25 of 67 grid tables — 11 of
+  the corpus's 53, NADA p5 and dhariwal p76 among them — and leaves 8 with rows it cannot split
+  safely, forms included. So `klarpdf://docs/get_tables` says to pair such lines by what they say.
+  Revisit if a caller that pairs by position turns up. TC-040 also found the tool description
+  promising a check the reader cannot make — "no cell holding two separate pieces" cannot see two
+  values printed as one run — so it now says "separately printed" and the known limits name the case;
+  the fix itself stays with columns from drawn segments (above).
 - **A small ruled table on a page with little other text is not found at all** (M141). PyMuPDF's
   row-ruled finder needs ten words lined up down the page before it locates a region, so a four-row
   table alone on a page reports no table (`tests/test_mcp_tables.py` uses twelve-row fixtures for this

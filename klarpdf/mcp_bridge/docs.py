@@ -672,8 +672,19 @@ twice reads it once.
   Table text between the parts is never dropped: it is inside a returned table or a named region,
   and a table whose own heading its rows could not take in is declined rather than returned with
   part of that heading. Where only a rule separates the tables, they can still come back as one
-  table whose middle rows hold the heading or paragraph between them. Every value is then still in the right row and column, so
-  read each row against the header row nearest above it.
+  table whose middle rows hold the heading or paragraph between them. Every value is then still in
+  the right row and column, so read each row against the header row nearest above it.
+* **Two values printed as one run stay in one cell.** The check for two pieces sharing a cell sees
+  pieces the page prints apart; it cannot see values the page prints as a single run of text. A total
+  row set tighter than the rows above it can come back with `"(3,027) $ 132,420"` in one cell and the
+  column beside it empty, and a `$` printed hard against the figure before it can end that figure's
+  cell (`"86,810 $"`) instead of starting the next. Every value is still there; read a total row
+  against the rows above it.
+* **A drawn cell holds every line printed inside it.** Where a grid draws no line between the rows it
+  prints — a month of daily figures under one box, a block of labels beside a block of values — each
+  cell comes back as many lines joined by newlines, and the cell beside it need not hold the same
+  number: a value that wraps onto a second line, or a field that lists two dates, adds a line to its
+  own cell only. Pair such lines by what they say, not by counting them.
 * **Dot leaders are not read.** A run of dots joining a label to its figure is typesetting rather
   than content, so it is dropped instead of filling a cell — the same treatment as text under a
   point.

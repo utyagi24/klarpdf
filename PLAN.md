@@ -7340,7 +7340,13 @@ as two rows.
 owed). Two tables stacked in one ruled region with prose between them come back as one (LLY's proxy
 p56, SpaceX's prospectus p274; the values stay in their right cells). A small ruled table on a page with
 little other text is not found. `title` is best-effort. A sign shown only as a coloured arrow is not in
-the text.
+the text. Two values printed as one run stay in one cell (Apple p11's Total row, `"(3,027) $ 132,420"`),
+because the side-by-side check sees only pieces the page prints apart — a limit the tool description
+overstated until TC-040. And a grid that draws no line between its printed rows returns each column
+as one multi-line cell whose line count need not match the next cell's (a Treasury TIPS index-ratio
+report, TC-040): splitting such a row wherever its lines align across cells was measured and not
+adopted — it changes 25 of 67 grid tables, forms and verified statements among them — while AI callers
+given the unsplit output rebuilt the rows correctly by reading what the lines say.
 
 **What the first blackbox round on the rebuilt reader changed (TC-039, 2026-09-16).** The two worst
 standing classes were confirmed fixed by recovery rather than by declining. Four new defects were

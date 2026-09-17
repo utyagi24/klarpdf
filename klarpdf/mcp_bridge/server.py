@@ -561,7 +561,7 @@ def create_server(config: Config | None = None) -> MCPServer:
         for the rows, with the columns taken from the whitespace no text crosses. Each cell holds
         whole lines of the page's text; nothing is cut or reconstructed. Every table is checked
         against its page before it is returned — each word inside `bbox` in exactly one cell, no text
-        across a line that separates cells, no cell holding two separate pieces side by side — and a
+        across a line that separates cells, no cell holding two separately printed pieces — and a
         table that fails is **declined** into `unread_regions`, never returned as a plausible guess.
 
         So **every page you ask about comes back in `tables`, `unread_regions`, or both**. Read the
