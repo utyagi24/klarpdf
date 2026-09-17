@@ -159,6 +159,23 @@ tells you *what* and *how severe*, and you do the bump yourself.
    the build lock's wheels itself). A build-only package also means the **shipped exe is
    unaffected** — confirm with a quick search of `dist/klarpdf` before deciding a release is needed.
 
+   **If the diff is empty, look for a sibling pinned in lockstep.** `httpx2` 2.12.0 requires
+   `httpcore2==2.12.0` *exactly*, so `--upgrade-package httpx2` alone kept the existing
+   `httpcore2==2.10.0` pin, and with it `httpx2` 2.10.0 — a successful compile with no diff and no
+   warning (M144). Read the fixed version's `Requires-Dist` for an `==` and name both:
+   ```sh
+   curl -s https://pypi.org/pypi/httpx2/2.12.0/json | python -c "import json,sys; print(json.load(sys.stdin)['info']['requires_dist'])"
+   pip-compile --upgrade-package httpx2==2.12.0 --upgrade-package httpcore2==2.12.0 -o requirements-mcp.txt requirements-mcp.in
+   ```
+
+   **A package the bridge lock carries** (`requirements-mcp.txt`) is compiled in **WSL**, like the dev
+   lock and for the same M137 reason: a Windows compile writes `mcp`'s `pywin32` in as a bare pin,
+   and `sync_pins.py` would copy it into the wheel published to PyPI. Such a package is usually in
+   the dev lock too (`invoke lock-dev`), and it moves three generated files as well — the root
+   `pyproject.toml` pin block (`python packaging/mcp/pypi/sync_pins.py`), the bundle's
+   `pyproject.toml` (`python packaging/mcp/mcpb/build_mcpb.py --validate`) and the bundle's lock
+   (`cd packaging/mcp/mcpb && uv lock`).
+
 3. **Clean the audit gate** — if the advisory was being carried as track-only, remove its
    `--ignore-vuln <GHSA-id>` from `.github/workflows/audit.yml` **and** `tools/audit-deps.ps1`, and
    resolve the matching `PROGRESS.md` "Open follow-ups" entry.
@@ -219,17 +236,24 @@ When it finally returns `true`, delete this block — its whole subject is gone 
    (`packaging/app/installer.iss`), and the `v<version>` git tag. SemVer: **patch** = fixes / dependency
    bumps only; **minor** = features; **major** = breaking.
 
-   **Three other files restate that number**, and only two of them are generated. In the same commit:
+   **Four other files restate that number**, and only three of them are generated. In the same commit:
    ```sh
    # 1. by hand — packaging/mcp/mcpb/manifest.json  "version": "X.Y.Z"
    python packaging/mcp/mcpb/build_mcpb.py --validate      # 2. the bundle's generated pyproject
-   python packaging/mcp/installer/sync_installer.py        # 3. install.py's baked-in version
+   (cd packaging/mcp/mcpb && uv lock)                      # 3. the bundle's lock records it too
+   python packaging/mcp/installer/sync_installer.py        # 4. install.py's baked-in version
    ```
+   > **Step 3 was missing until M144, and v0.19.0 shipped without it.** `uv.lock` records the
+   > bundle's own version, so after step 2 the lock no longer matches its pyproject. The bundle
+   > starts with plain `uv run`, which then re-resolves on the user's machine instead of following
+   > the lock. (On v0.19.0 the re-resolve changed only that one line, so no user got a different
+   > package.) `test_the_committed_lock_is_in_step_with_the_generated_pyproject` now checks the
+   > version as well as the pins.
    > **`--validate` does not touch the committed manifest**, despite regenerating the pyproject
    > beside it. `build_mcpb.py` sets `manifest["version"]` inside `stage()`, which writes the
    > *staged* copy under `dist/` at pack time; the committed file is an input and is edited by hand.
    > This line claimed otherwise when M136 wrote it, and the v0.19.0 release found out the usual
-   > way: `test_the_manifest_version_tracks_the_app_version` went red. Consolidating the four
+   > way: `test_the_manifest_version_tracks_the_app_version` went red. Consolidating the five
    > restatements into one command is an open follow-up.
    > `install.py` is downloaded and run on a machine with no clone, so it cannot read
    > `klarpdf/version.py` — it carries the version as a literal. Forgetting this ships an installer

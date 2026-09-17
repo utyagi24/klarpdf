@@ -444,13 +444,19 @@ def test_the_committed_lock_is_in_step_with_the_generated_pyproject():
     refreshed only when someone runs `uv lock`. So a dependency bump that skips that step leaves a
     lock pinning the previous version, and since M129 that lock is what a Desktop install obeys.
     Regenerate with: `cd packaging/mcp/mcpb && uv lock`.
+
+    The bundle's **own** version is compared too (M144). A release bump regenerates the pyproject
+    and changes no pin, so a check over the pins alone passed while v0.19.0 shipped a lock still
+    recording `klarpdf-mcp 0.18.0` — which `uv lock --check` calls stale, so the install re-locks on
+    the user's machine instead of obeying the file.
     """
+    pyproject = BUNDLE_PYPROJECT.read_text(encoding="utf-8")
     locked = _lock_versions(BUNDLE_UV_LOCK.read_text(encoding="utf-8"))
-    declared = re.findall(
-        r'"([A-Za-z0-9][A-Za-z0-9._-]*)(?:\[[^\]]+\])?==([^"]+)"',
-        BUNDLE_PYPROJECT.read_text(encoding="utf-8"),
-    )
+    declared = re.findall(r'"([A-Za-z0-9][A-Za-z0-9._-]*)(?:\[[^\]]+\])?==([^"]+)"', pyproject)
     assert declared, "no pins found in the generated pyproject"
+    project = re.search(r'^name = "([^"]+)"\nversion = "([^"]+)"', pyproject, re.M)
+    assert project, "no [project] name/version in the generated pyproject"
+    declared.append(project.groups())
 
     drift = [
         (name, want, locked.get(name.lower().replace("_", "-")))

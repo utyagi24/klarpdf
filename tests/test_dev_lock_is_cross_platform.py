@@ -17,6 +17,12 @@ This is the mirror image of the `colorama` note in `requirements-dev.in`: there 
 uninstallable one. The fix for colorama — declare it unmarkered in the `.in` — cannot work here,
 since the package genuinely does not exist off Windows. So the rule is the compile platform itself,
 enforced by `invoke lock-dev` refusing to run on Windows and pinned by this test.
+
+**The bridge lock has the same two customers and a worse failure (M144).** `requirements-mcp.txt`
+is installed by CI's Linux `bridge` job, and `sync_pins.py` copies every pin in it into the root
+`pyproject.toml` — so a bare `pywin32` there would become an unconditional `Requires-Dist` of the
+wheel published to PyPI, and `pipx install klarpdf` would fail on Linux and macOS. The platform
+checks below therefore run over both locks; the setuptools one is the dev lock's alone.
 """
 
 from __future__ import annotations
@@ -24,8 +30,18 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
 DEV_LOCK = ROOT / "requirements-dev.txt"
+MCP_LOCK = ROOT / "requirements-mcp.txt"
+
+# How to recompile each cross-platform lock correctly — both in WSL, never on Windows.
+RECOMPILE = {
+    DEV_LOCK: "`invoke lock-dev` (see RELEASE.md §1)",
+    MCP_LOCK: "`pip-compile -o requirements-mcp.txt requirements-mcp.in` (see RELEASE.md §2)",
+}
+CROSS_PLATFORM_LOCKS = pytest.mark.parametrize("lock", list(RECOMPILE), ids=lambda p: p.name)
 
 # Distributions that ship Windows-only wheels and no sdist, so a bare pin makes the lock
 # uninstallable off Windows. `pywin32` is the one that actually reached a lock (M137); the rest are
@@ -43,20 +59,22 @@ def _pinned_names(text: str) -> set[str]:
     return names
 
 
-def test_the_dev_lock_carries_no_windows_only_package():
+@CROSS_PLATFORM_LOCKS
+def test_the_lock_carries_no_windows_only_package(lock):
     """The failure this prevents is not a red test — it is `pip install` dying before pytest runs."""
-    pinned = _pinned_names(DEV_LOCK.read_text(encoding="utf-8"))
+    pinned = _pinned_names(lock.read_text(encoding="utf-8"))
     for package in WINDOWS_ONLY:
         assert package not in pinned, (
-            f"{package} is pinned in requirements-dev.txt, which Linux CI and the WSL dev venv "
-            f"install. It has no Linux wheel, so that install now fails outright. This lock was "
-            f"compiled on Windows: recompile it in WSL with `invoke lock-dev` (see RELEASE.md §1)."
+            f"{package} is pinned in {lock.name}, which Linux installs. It has no Linux wheel, so "
+            f"that install now fails outright. This lock was compiled on Windows: recompile it in "
+            f"WSL with {RECOMPILE[lock]}."
         )
 
 
-def test_the_dev_lock_stays_unhashed_and_unmarkered():
-    """Both properties are what let one file serve Linux CI, WSL and the Windows release run."""
-    text = DEV_LOCK.read_text(encoding="utf-8")
+@CROSS_PLATFORM_LOCKS
+def test_the_lock_stays_unhashed_and_unmarkered(lock):
+    """Both properties are what let one file serve Linux, macOS and Windows installs alike."""
+    text = lock.read_text(encoding="utf-8")
     assert "--hash" not in text, "hashes are per-platform; --require-hashes cannot be shared"
     assert "sys_platform" not in text and "platform_system" not in text
 
