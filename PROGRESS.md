@@ -577,7 +577,7 @@ items, which are independent of it.
   (**M128**); and row 10's own instructions not putting the lock in the bundle (**M129**). What
   remains is the tag, which is an owner action.
 
-## Roadmap — document structure for agents (M138–M142 and M145; M138–M141 done, M145 next)
+## Roadmap — document structure for agents (M138–M142 and M145; M138–M141 done, M145 next, M142 deferred)
 
 Design in `PLAN.md` §M138–M140 — **not restated here**. Same conventions: **one PR per milestone**,
 tick the box here on merge. Scoped **2026-09-07** from a session comparing the bridge against a
@@ -625,6 +625,10 @@ same day: **no chart list**, because a PDF has no chart object and a prototype c
 wrong on half the chart pages it was checked on. **Table titles get fixed first (M145)**, because
 `get_tables` already titles every table but not reliably, and M142 prints what it returns. Both
 arguments are in `PLAN.md` §M145.
+
+**Amended 2026-09-18: M142 is deferred** (owner: *"I want to put off export to markdown for now"*).
+The roadmap ends at M145. M142's design and its prototype stand unchanged, and when it is picked up
+it still comes after M145, for the reason above.
 
 - [x] **M138** **`get_links`** — 2026-09-09, the bridge's **20th tool**. One entry per link with
   `page`, `rect`, `kind`, the resolved `target_page` for an internal jump, `uri` for a web address,
@@ -943,7 +947,7 @@ arguments are in `PLAN.md` §M145.
   agreement: a tool that lists charts. Design, measurements and the reasons in `PLAN.md` §M145.
   Plan: *WSL* ([#356](https://github.com/utyagi24/klarpdf/pull/356)).
 
-- [ ] **M142** **`extract_markdown`** — a Markdown rendering of a page range, built on M140 and M141
+- [ ] **M142** **`extract_markdown`** — ***deferred by the owner, 2026-09-18; not scheduled.*** A Markdown rendering of a page range, built on M140 and M141
   with **no new dependency**. Prototyped before being scheduled: headings by weight/size, ruled
   tables exactly, and **multi-column reading order** all work; a partially-ruled financial table, a
   structured side panel, a drop cap and justified single-word lines are the known holes. **Binding

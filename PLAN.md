@@ -6976,7 +6976,8 @@ answerable by an agent reading a `render_page` image.
 
 Ordering — **the build order is `M141 → M140 → M142`**, and the reasoning below is kept in two
 layers because the second corrects the first. *(Amended 2026-09-17: `M141 → M140 → M145 → M142`,
-with table titles fixed before the Markdown export prints them — §M145.)*
+with table titles fixed before the Markdown export prints them — §M145. Amended 2026-09-18: M142
+deferred by the owner, so the roadmap ends at M145.)*
 
 *As originally argued (2026-09-07), when M140 was last of three:* the shippable feature is
 **M138 + M139 + agent judgement**, which covers every document with a printed contents page —
@@ -7643,6 +7644,9 @@ but not in scope: Tesla p7's table border drawn in white, which takes the title 
 claim a note's heading inside a cell. Both change rows rather than titles.
 
 #### M142 — `extract_markdown`, and why it is ours rather than rented
+
+*Deferred by the owner on 2026-09-18 ("I want to put off export to markdown for now"). The design
+below stands and nothing in it is withdrawn. If it is picked up, it still comes after M145.*
 
 Carried as an open question from 2026-09-07 and **decided by the owner on 2026-09-09** after a
 prototype was built to answer *"are we capable"* with evidence. It is: ~90 lines over what M140 and
