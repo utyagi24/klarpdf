@@ -153,26 +153,13 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   (`tests/test_mcp_*.py` for the bridge) rather than only the one the session was holding.
 
   **What is not core.** The app's own code (`viewer/`, `organize/`, `ui/`, `store/` and the
-  top-level modules) is not in the wheel, and the bridge imports none of it; most of it needs Qt,
-  which the bridge must never load. Three files in the core's own directories belong to the app
-  alone as well: `klarpdf/model/edit_commands.py` imports Qt, `klarpdf/util/reveal.py` is the
-  scroll-into-view policy of the page view and the Pages sidebar, and `klarpdf/util/resources.py`
-  locates the files bundled with the app. A fix to any of these is `app`, not `core`, and owes no
-  bridge test. **A test keeps this list true** (M146): `tests/test_mcp_no_qt.py` runs every tool in
-  a fresh interpreter, and fails if any of the app's modules loads, or if the files in
-  `klarpdf/model/` and `klarpdf/util/` that the bridge does not load stop being exactly those three.
-  Checking for Qt alone is not enough, because `viewer/links.py`, `pixmap_cache.py` and `tools.py`
-  need none: a tool importing one passes every other test and fails only where the bridge is
-  installed. When the bridge needs something the app keeps, it moves into `klarpdf/model/` first,
-  as the markup palette did in M101, and from then on it is core.
-
-  Until 2026-09-18 this rule named `viewer/` and `organize/` as shared and left out `klarpdf/util/`.
-  That was wrong from the day it was written ([#279](https://github.com/utyagi24/klarpdf/pull/279),
-  2026-08-23). Its list is the *Hybrid dev* bullet's "cross-platform core": the same three
-  directories in the same order. That list answers a different question: which OS the code runs
-  on, not which program runs it. It asked for bridge tests on changes that cannot reach the bridge,
-  and for none on `util/`, which the bridge does use. *Hybrid dev* now says "cross-platform code",
-  so "core" has one meaning here.
+  top-level modules) is not in the wheel, and the bridge imports none of it. Three files in the
+  core's own directories are the app's alone as well: `klarpdf/model/edit_commands.py` (it imports
+  Qt), `klarpdf/util/reveal.py` and `klarpdf/util/resources.py`. A fix to any of these is `app`, not
+  `core`, and owes no bridge test. `tests/test_mcp_no_qt.py` fails if either statement stops being
+  true, and says which list to update (`PLAN.md` §M146). When the bridge needs something the app
+  keeps, it moves into `klarpdf/model/` first, as the markup palette did in M101, and from then on
+  it is core.
 
   It distorts *documents* as much as code: a fact stated from whichever surface is in hand gets filed
   as a fact about the core. M114's entry called *"the output goes to a new path"* an obstacle — true
