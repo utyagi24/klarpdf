@@ -7,7 +7,7 @@ Click a fillable AcroForm field on the page and edit it in place:
 * **checkbox** → a single click toggles it (no editor).
 
 Committing calls back into the MainWindow, which pushes a
-:class:`~model.edit_commands.SetFieldValueCommand` (so fills are undoable). The value itself is
+:class:`~edit_commands.SetFieldValueCommand` (so fills are undoable). The value itself is
 *displayed* by :class:`~viewer.pdf_view.PdfView`, which re-renders an edited page from a filled
 copy — this controller only drives editing and paints faint highlights so fillable fields are
 discoverable. Rotation-0 only, like the other overlays (the geometry helpers it uses are).

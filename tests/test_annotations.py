@@ -11,7 +11,7 @@ import pymupdf as fitz
 import pytest
 from PySide6.QtGui import QUndoStack
 
-from klarpdf.model.edit_commands import (
+from edit_commands import (
     AddAnnotationCommand,
     RemoveAnnotationCommand,
     ReplaceAnnotationCommand,

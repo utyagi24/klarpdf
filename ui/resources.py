@@ -4,7 +4,7 @@ The single chokepoint for "where does a bundled data file live at runtime?" (PLA
 §Public-release readiness / G4). PyInstaller unpacks ``datas`` into a temp dir and points
 ``sys._MEIPASS`` at it; a source checkout has them next to the repo root. Everything else in the app
 asks here rather than reaching for ``__file__`` and guessing — the same reason
-``util.paths.normalize_path`` exists.
+``klarpdf.util.paths.normalize_path`` exists.
 
 This mirrors :func:`ui.icons.icons_dir`, which solves the identical problem for the SVGs. Two copies
 of the ``_MEIPASS`` dance is one too many; if a third appears, fold ``ui.icons`` into this module.
@@ -31,7 +31,7 @@ def resource_root() -> Path:
     meipass = getattr(sys, "_MEIPASS", None)  # set by PyInstaller at runtime; absent from source
     if meipass:
         return Path(meipass)
-    return Path(__file__).resolve().parent.parent.parent  # klarpdf/util/ -> repo root
+    return Path(__file__).resolve().parent.parent  # ui/ -> repo root
 
 
 def resource_path(*parts: str) -> Path:

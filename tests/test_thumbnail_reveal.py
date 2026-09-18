@@ -7,7 +7,7 @@ reader was travelling, because ``scrollToItem``'s default ``EnsureVisible`` hint
 
 ``PositionAtCenter`` on its own would trade one annoyance for another — it scrolls *every* time, so
 reading down a page would keep tugging the strip while the current thumbnail was plainly in sight.
-So both surfaces share one policy (:mod:`util.reveal`): leave it alone when it is already well
+So both surfaces share one policy (:mod:`viewer.reveal`): leave it alone when it is already well
 inside, centre it otherwise. These tests assert that split, and the ``util`` half is asserted
 directly because it is the piece the two callers must not diverge on.
 """
@@ -20,7 +20,7 @@ import pytest
 from app import PdfApp
 from klarpdf.model.virtual_document import VirtualDocument
 from organize.thumbnail_panel import ThumbnailPanel
-from klarpdf.util.reveal import is_settled
+from viewer.reveal import is_settled
 
 _BAR_W = 210
 _BAR_H = 700

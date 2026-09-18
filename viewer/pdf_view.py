@@ -39,7 +39,7 @@ from klarpdf.model.form_fields import NewField
 from viewer.pixmap_cache import pixmap_cache
 from viewer.resize_handles import cursor_for
 from viewer.tools import ArmedTool, InteractionMode
-from klarpdf.util.reveal import is_settled
+from viewer.reveal import is_settled
 
 _PAGE_GAP = 14          # px between pages in the strip
 _PREFETCH = 2           # pages to render above/below the viewport, at ordinary page sizes

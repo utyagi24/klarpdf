@@ -17,7 +17,7 @@ from PySide6.QtWidgets import QTabWidget
 
 import main_window
 from app import PdfApp
-from klarpdf.model.edit_commands import DeleteCommand, InsertCommand
+from edit_commands import DeleteCommand, InsertCommand
 from klarpdf.model.virtual_document import PageRef
 from organize.thumbnail_panel import ThumbnailPanel
 from store.settings import Settings

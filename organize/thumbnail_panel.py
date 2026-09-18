@@ -29,7 +29,7 @@ from PySide6.QtWidgets import QAbstractItemView, QListWidget, QListWidgetItem
 
 from klarpdf.model.edit_engine import PyMuPDFEngine
 from klarpdf.model.virtual_document import IMAGE_EXTENSIONS, VirtualDocument
-from klarpdf.util.reveal import is_settled
+from viewer.reveal import is_settled
 
 _DRAG_W = 96    # width of the page image carried under the cursor while dragging
 _ACCENT = QColor(0, 120, 215)  # drop-marker + count-badge colour
@@ -662,7 +662,7 @@ class ThumbnailPanel(QListWidget):
         current thumbnail was plainly in sight.
 
         So the shared policy applies here too — leave it alone when it is already well inside the
-        strip, centre it otherwise. See :mod:`util.reveal`.
+        strip, centre it otherwise. See :mod:`viewer.reveal`.
         """
         item = self.item(index)
         if item is None:

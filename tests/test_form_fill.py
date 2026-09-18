@@ -13,7 +13,7 @@ import pymupdf as fitz
 import pytest
 from PySide6.QtGui import QUndoStack
 
-from klarpdf.model.edit_commands import SetFieldValueCommand
+from edit_commands import SetFieldValueCommand
 from klarpdf.model.edit_engine import PyMuPDFEngine
 from klarpdf.model.page_edits import apply_form_values, read_form_fields
 from klarpdf.model.virtual_document import VirtualDocument

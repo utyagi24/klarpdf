@@ -118,11 +118,10 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   **Every issue is labelled with its type and the part it lives in** (owner, 2026-09-18). It gets
   `bug` or `enhancement`, plus each of these that applies:
 
-  * `app`: seen in the desktop app (its code: `app.py`, `main_window.py`, `launcher.py`,
-    `platform_integration.py`, `viewer/`, `organize/`, `ui/`, `store/`);
+  * `app`: seen in the desktop app (its code: `app.py`, `main_window.py`, `edit_commands.py`,
+    `launcher.py`, `platform_integration.py`, `viewer/`, `organize/`, `ui/`, `store/`);
   * `mcp-bridge`: seen through the bridge's tools (`klarpdf/mcp_bridge/`);
-  * `core`: the fix belongs in the core, which is `klarpdf/model/` and `klarpdf/util/` less three
-    app-only files named below.
+  * `core`: the fix belongs in `klarpdf/model/` or `klarpdf/util/`.
 
   `core` is the one to get right, because it is what tells whoever picks the issue up that the
   change reaches both surfaces and owes tests on both (*Two consumers share one core*, below). Where
@@ -144,22 +143,21 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   Worth doing even when no PR looks related — the collision is with the *number*, not the subject. This is the rule that keeps the design docs from becoming a description of the app as
   it was first imagined rather than as it is.
 - **Two consumers share one core — every change answers for both.** `klarpdf/model/` and
-  `klarpdf/util/`, less three app-only files named below, are reached by the **GUI app** (`app.py`,
-  `main_window.py`) and by the **MCP bridge** (`klarpdf/mcp_bridge/`), so a change to the core is a
-  change to *both* whether or not the session was thinking about both. The failure is silent and
+  `klarpdf/util/` are reached by the **GUI app** (`app.py`, `main_window.py`) and by the **MCP
+  bridge** (`klarpdf/mcp_bridge/`), so a change to the core is a change to *both* whether or not
+  the session was thinking about both. The failure is silent and
   runs in either direction: a fix aimed at the app changes what a bridge tool writes, or a bridge
   feature changes what Save does. So every behaviour change, design entry and new feature names the
   surfaces it touches, and a core behaviour change wants a test on **both** sides
   (`tests/test_mcp_*.py` for the bridge) rather than only the one the session was holding.
 
-  **What is not core.** The app's own code (`viewer/`, `organize/`, `ui/`, `store/` and the
-  top-level modules) is not in the wheel, and the bridge imports none of it. Three files in the
-  core's own directories are the app's alone as well: `klarpdf/model/edit_commands.py` (it imports
-  Qt), `klarpdf/util/reveal.py` and `klarpdf/util/resources.py`. A fix to any of these is `app`, not
-  `core`, and owes no bridge test. `tests/test_mcp_no_qt.py` fails if either statement stops being
-  true, and says which list to update (`PLAN.md` §M146). When the bridge needs something the app
-  keeps, it moves into `klarpdf/model/` first, as the markup palette did in M101, and from then on
-  it is core.
+  **What is not core.** The app's own code lives outside `klarpdf/` (`viewer/`, `organize/`, `ui/`,
+  `store/` and the top-level modules). It is not in the wheel, the bridge imports none of it, and a
+  fix to it is `app`, not `core`. So the folder a file goes in decides it: code only the app uses
+  goes outside `klarpdf/`, and when the bridge needs something the app keeps, it moves into
+  `klarpdf/model/` first, as the markup palette did in M101. `tests/test_mcp_no_qt.py` fails if the
+  bridge loads the app's code, or if a module in `klarpdf/model/` or `klarpdf/util/` is one it never
+  uses (`PLAN.md` §M147).
 
   It distorts *documents* as much as code: a fact stated from whichever surface is in hand gets filed
   as a fact about the core. M114's entry called *"the output goes to a new path"* an obstacle — true

@@ -57,12 +57,6 @@ UV_LOCK = HERE / "uv.lock"
 PAYLOAD_PACKAGES = ("klarpdf",)
 PAYLOAD_MODULES = ()  # version.py lives inside klarpdf/ since M134
 
-# model/edit_commands.py imports QUndoCommand. Nothing on the server path touches it (that is what
-# tests/test_mcp_no_qt.py pins), but shipping it inside a bundle that deliberately has no PySide6
-# would put an unimportable file in a user's install for no reason. Dropped here rather than left
-# to be discovered.
-EXCLUDE_FILES = {"klarpdf/model/edit_commands.py"}
-
 _PIN = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*(?:\[[^\]]+\])?)==([^\s;#]+)")
 
 # The packer is pinned, not floated (M131). It was `@latest`, which put an unpinned third-party tool
@@ -161,10 +155,6 @@ def stage(target: Path, version: str, pins: list[str]) -> Path:
         )
     for module in PAYLOAD_MODULES:
         shutil.copy2(ROOT / module, server / module)
-    for relative in EXCLUDE_FILES:
-        dropped = server / relative
-        if dropped.exists():
-            dropped.unlink()
 
     (server / "pyproject.toml").write_text(render_pyproject(version, pins), encoding="utf-8")
 

@@ -490,8 +490,8 @@ as OS-specific code stays quarantined.
    case-sensitivity switch (Windows case-fold vs Linux case-sensitive) is one function.
 
 **Reuse / rewrite map (if Linux is targeted later):**
-- **Reusable unchanged:** all `klarpdf/model/` (`virtual_document`, `edit_commands`, `edit_engine`,
-  `toc_remap`, materialize), all `viewer/`, `organize/thumbnail_panel`, `main_window.py`, the
+- **Reusable unchanged:** all `klarpdf/model/` (`virtual_document`, `edit_engine`, `toc_remap`,
+  materialize), `edit_commands.py`, all `viewer/`, `organize/thumbnail_panel`, `main_window.py`, the
   `QUndoStack` undo/redo, all `tests/`, `requirements.in`.
 - **Small platform branches:** `klarpdf/util/paths.py` (case semantics), `store/settings.py` (config path,
   solved by hedge #1), `app.py`/`launcher.py` focus/raise shims (Wayland forbids programmatic
@@ -511,12 +511,12 @@ klarpdf/
   platform_integration.py      # OS seam (portability hedge): single-instance name, activate_window() focus shims; register_file_association() slot (Windows uses the installer, so unused there; for future Linux xdg-mime). Windows now / Linux stub later
   main_window.py               # MainWindow: View + Organize modes, toolbar/menu, holds a VirtualDocument;
                                #   owns the QUndoStack (Ctrl+Z/Y) and the closeEvent save-on-close prompt
+  edit_commands.py             # QUndoCommand subclasses (reorder/delete/insert/rotate/paste): snapshot+restore ordered[]
   viewer/pdf_view.py           # QGraphicsView continuous-scroll renderer (PyMuPDF pixmaps, lazy, zoom/fit/rotate)
   viewer/text_selection.py     # word-box selection overlay + clipboard copy (feature QPdfView lacks)
   viewer/search.py             # page.search_for highlighting + hit navigation
   organize/thumbnail_panel.py  # grid bound to ordered[]: drag-reorder, cross-window drag (QDrag MIME), cut/copy/paste, delete
   klarpdf/model/virtual_document.py    # VirtualDocument + PageRef; all list-edit ops, dirty tracking
-  klarpdf/model/edit_commands.py       # QUndoCommand subclasses (reorder/delete/insert/rotate/paste): snapshot+restore ordered[]
   klarpdf/model/edit_engine.py         # EditEngine interface; PyMuPDFEngine (default) + PyPdfEngine (fallback); materialize-on-save
   klarpdf/model/toc_remap.py           # outline snapshot + old->new page remap + drop-dangling
   store/settings.py            # per-document last page/zoom/geometry — JSON via QStandardPaths AppConfigLocation (%LOCALAPPDATA% on Windows, ~/.config on Linux)
@@ -733,7 +733,7 @@ stored in the model, applied only at materialize, on the output copy:**
 
 - **Model (`klarpdf/model/page_edits.py`, new):** frozen descriptors (form-field values, annotations,
   redaction rects) attached per page and snapshotted alongside `ordered[]`, so the existing
-  `QUndoStack` snapshot/restore in `klarpdf/model/edit_commands.py` keeps undo/redo working unchanged.
+  `QUndoStack` snapshot/restore in `edit_commands.py` keeps undo/redo working unchanged.
   Sources stay read-only.
 - **Save (`klarpdf/model/edit_engine.py`):** after `insert_pdf` copies each page, a post-copy pass applies
   that page's edits to the **output** page — `add_highlight_annot` / `add_freetext_annot`, set
@@ -942,9 +942,10 @@ and already produces the page + snippet output `search` needs.
   named 'mcp.server'` — measured before a line of the server was written, not theorised. The name
   in the milestone table below is `klarpdf/mcp_bridge/` for the same reason.
 - **Reuses the GUI-free core only.** Imports `model/virtual_document`, `edit_engine`, `export`,
-  `page_edits`, `links_remap`, `toc_remap` — **not** `klarpdf/model/edit_commands.py` (it imports
-  `QUndoCommand`); the server calls `VirtualDocument` ops directly, so it runs **without PySide6/Qt**.
-  M39 confirms no Qt import reaches the server path.
+  `page_edits`, `links_remap`, `toc_remap` — **not** the app's undo commands (`edit_commands.py`,
+  which imports `QUndoCommand`, and since M147 lives outside `klarpdf/`); the server calls
+  `VirtualDocument` ops directly, so it runs **without PySide6/Qt**. M39 confirms no Qt import
+  reaches the server path.
 - **Same repo** (decided 2026-08-12). `klarpdf/mcp_bridge/` sits beside `klarpdf/model/` and imports it directly — the same
   quarantined-seam pattern as `packaging/`, not a repo boundary. A sibling repo was rejected because
   the bridge's whole leverage is that `klarpdf/model/` already implements every transform: splitting would
@@ -1186,8 +1187,8 @@ bugs cannot happen.
   command, so a later edit back to a bare interpreter cannot quietly reintroduce the need for
   vendored dependencies the format forbids.
   **How it is built:** `packaging/mcp/mcpb/build_mcpb.py` assembles `server/` from the checkout
-  (`klarpdf/mcp_bridge/`, `klarpdf/model/`, `klarpdf/util/`, `klarpdf/version.py`, minus `klarpdf/model/edit_commands.py` — the one
-  Qt-importing file), generates the bundle's `pyproject.toml` **from `requirements-mcp.txt** so the
+  (the whole `klarpdf/` package: `mcp_bridge/`, `model/`, `util/`, `version.py`, none of which
+  imports Qt since M147), generates the bundle's `pyproject.toml` **from `requirements-mcp.txt** so the
   two cannot drift, and runs `mcpb pack`. The `.mcpb` is a **release artifact in `dist/`, not a
   committed file** — same treatment as the installer; what is committed is the script, the manifest
   and the generated `pyproject.toml`, so the inputs are reviewable. Measured output: 95 KiB,
@@ -7695,6 +7696,59 @@ every tool in a clean interpreter; the child now also reports what it loaded.
 **Surfaces.** Bridge tests and documents only; no product code changes. The `bridge` CI job runs
 these tests under the bridge's own lock, which has no PySide6. The negative control is built to run
 there: `viewer/links.py` needs only PyMuPDF and `klarpdf.model`.
+
+### M147 — the core's folders hold only the core *(unplanned)* (2026-09-18)
+
+**The fix M146 pointed at.** M146 found three files in `klarpdf/model/` and `klarpdf/util/` that
+only the app uses, and listed them as exceptions to "the core". The owner asked why they were in the
+core's folders at all. Their history answers it: each was placed by what kind of code it is, before
+anyone counted those folders as shared with the bridge, and M134 then moved both folders into
+`klarpdf/` whole, because the wheel needed them.
+
+| File | Placed | Why there | Now |
+|---|---|---|---|
+| `edit_commands.py` | M1, 2026-06-15 | `model/` meant the document layer you can test without a display, and `QUndoCommand` needs none | top level, beside `main_window.py`, its only user |
+| `resources.py` | G4, 2026-07-09 | `util/` was the app's helpers folder | `ui/`, beside `ui/about.py` (its only user) and `ui/icons.py`, which solves the same problem for the icons |
+| `reveal.py` | [#252](https://github.com/utyagi24/klarpdf/pull/252), 2026-08-15 | its two callers are in different app packages | `viewer/`; `organize/` already imports from `viewer/` |
+
+**An exception list is a smoke alarm; moving the files is the fix.** §M115 drew that line for two
+declarations that must agree. Here four lists held the boundary: `EXCLUDE_FILES` in the bundle
+build, `FORBIDDEN_MODEL` and `APP_ONLY_CORE` in `tests/test_mcp_no_qt.py`, and a sentence in
+`CLAUDE.md`. All four are gone. `CLAUDE.md` now states the rule by location: the app's code lives
+outside `klarpdf/`, and `klarpdf/model/` and `klarpdf/util/` are the core.
+
+**What changes for users.** Nothing they can call, since the package has no importable API
+(§M134). The PyPI wheel stops shipping three files the bridge never used. One of them could not even
+load there: `edit_commands.py` imports PySide6, which the wheel does not install. The `.mcpb` had
+deleted that file by name while the wheel shipped it, so the two packages now carry the same files.
+
+**What checks it now.**
+
+1. `test_the_bridge_loads_everything_in_the_core_directories` (`tests/test_mcp_no_qt.py`) replaces
+   M146's three-file list with an empty one. Every module in `klarpdf/model/` and `klarpdf/util/`
+   must be one the bridge loads, so an app-only file added there fails by name.
+2. `test_nothing_in_the_package_imports_qt` (`tests/test_mcp_packaging.py`) replaces
+   `EXCLUDE_FILES`. It parses every file in `klarpdf/` and fails on any PySide6 or shiboken6 import,
+   including one inside a function. Both packages ship `klarpdf/` whole, so it covers both.
+3. The app-code check from M146 also names `edit_commands`, now that it is app code by location.
+
+**Verified by breaking each.**
+
+- The move itself. Left at its old depth, `ui/resources.py` put the repo root one folder too high,
+  and 5 of the 14 About-dialog tests failed, `test_resource_root_is_repo_root_from_source` among
+  them. With `parent.parent` all 14 pass. This is the M133/M134 trap: a path computed from
+  `__file__` changes meaning when the file moves.
+- A Qt import inside a function, in a probe file under `klarpdf/util/`, failed check 2 with the
+  file and line.
+- `reveal.py` copied back into `klarpdf/util/` failed check 1, naming `klarpdf.util.reveal`.
+- The bridge importing `edit_commands` is reported both as app code and as Qt.
+
+**Surfaces.** The app changes import paths only (`main_window.py`, `viewer/pdf_view.py`,
+`organize/thumbnail_panel.py`, `ui/about.py`), and nothing it does. The bridge loads the same modules
+as before; its packages lose the three files. CI's bridge jobs, which run when a change touches
+`klarpdf/`, no longer run for edits to these three files, which cannot reach the bridge. The frozen
+app still finds its license files through `sys._MEIPASS`, which the move does not touch; only a
+Windows build exercises that path.
 
 ## Future enhancements (deferred beyond the roadmap)
 

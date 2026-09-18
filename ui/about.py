@@ -8,7 +8,7 @@ Two dialogs an AGPL release owes its users:
   must ship the licence; showing it in-app is how a GUI honours that without a terminal.
 
 Everything renders from files bundled by ``packaging/app/klarpdf.spec`` and resolved through
-``util.resources`` — no network. The only outbound action is the user *clicking* a link, which hands
+``ui.resources`` — no network. The only outbound action is the user *clicking* a link, which hands
 off to the system browser via ``QDesktopServices``; the app itself opens no socket, so the
 offline / no-telemetry guarantee in PLAN.md still holds.
 """
@@ -27,7 +27,7 @@ from PySide6.QtWidgets import (
 )
 
 from ui import icons
-from klarpdf.util.resources import LICENSE_FILES, read_text_resource
+from ui.resources import LICENSE_FILES, read_text_resource
 from klarpdf.version import __version__
 
 APP_NAME = "KlarPDF"  # display spelling (assets/brand/BRAND.md §Type); `klarpdf` is the identifier

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtGui import QUndoStack
 
-from klarpdf.model.edit_commands import (
+from edit_commands import (
     DeleteCommand,
     InsertCommand,
     MoveCommand,

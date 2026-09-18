@@ -416,7 +416,7 @@ a new `uv` / Claude Desktop major version.
 | 1 | Tool round-trips preserve OCR text / TOC / form fields | `tests/test_mcp_transforms.py` — the same invariants as `test_materialize.py`, same fixtures | **automated**, every PR |
 | 2 | Redaction is leak-free, cross-engine | `tests/test_mcp_redaction.py` + `test_redaction.py::…poppler_cross_engine`; `test.yml` asserts the Poppler test **did not skip** | **automated**, every PR |
 | 3 | No outbound connection, no listening port | `tests/test_mcp_no_qt.py` — the child runs every tool with `socket.connect`/`bind` poisoned | **automated**, every PR |
-| 4 | No Qt on the server path | same file — a fresh interpreter, **every registered tool** exercised (pinned to the registry, so a new tool cannot escape the guard), then `PySide6`/`shiboken6`/`klarpdf.model.edit_commands` asserted absent. Has a negative control | **automated**, every PR |
+| 4 | No Qt on the server path | same file — a fresh interpreter, **every registered tool** exercised (pinned to the registry, so a new tool cannot escape the guard), then `PySide6`/`shiboken6` and every module of the app's own code asserted absent. Has negative controls | **automated**, every PR |
 | 5 | Source left byte-identical by every write tool | `tests/test_mcp_transforms.py`, parametrised over every write tool | **automated**, every PR |
 | 6 | Cross-platform — **Linux** | CI runs the whole suite on `ubuntu-latest`; `tests/test_mcp_packaging.py` asserts the lock is unhashed and platform-marker-free | **automated**, every PR |
 | 7 | Cross-platform — **Windows** | the `bridge-windows` job resolves `requirements-mcp.txt` on `windows-latest` and runs the bridge suite against it (M126) | **automated**, every PR that reaches the bridge |

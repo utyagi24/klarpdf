@@ -4,7 +4,7 @@ Headless (offscreen, set in conftest). These tests carry an unusual burden: the 
 texts that only *move* in the frozen build, which this suite never produces. So rather than only
 exercising the source path, we also assert the contract the frozen build depends on — that
 ``packaging/app/klarpdf.spec`` lists both licence files in ``datas``, landing them where
-``util.resources.resource_root()`` will look. If someone drops a ``datas`` entry, this fails here
+``ui.resources.resource_root()`` will look. If someone drops a ``datas`` entry, this fails here
 instead of silently shipping an installer whose licence dialog is empty.
 """
 
@@ -17,7 +17,7 @@ import pytest
 
 from app import PdfApp
 from store.settings import Settings
-from klarpdf.util.resources import LICENSE_FILES, read_text_resource, resource_path, resource_root
+from ui.resources import LICENSE_FILES, read_text_resource, resource_path, resource_root
 from klarpdf.version import __version__
 
 ROOT = Path(__file__).resolve().parents[1]
