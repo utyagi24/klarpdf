@@ -7623,10 +7623,11 @@ halves of a table printed two-up share one title.
 
 **Order of work.**
 
-1. **An answer key first.** Pin the titles in the public plan, each verified on a render, and in the
-   private plan too. Today's rule is the baseline, so every change is reported as fixed or broken
-   against fixed expectations, never against the previous run (`CLAUDE.md` §*Fix a class of bug
-   once*).
+1. **An answer key first.** Pin the titles, each verified on a render, in the table checker's
+   expectation files: `tools/table_corpus_public.json` for public documents, and the private file
+   kept outside the repository for the rest. Today's rule is the baseline, so every change is
+   reported as fixed or broken against fixed expectations, never against the previous run
+   (`CLAUDE.md` §*Fix a class of bug once*).
 2. **#354.** Find which check should decline NADA p4, and pin that page.
 3. **The title rule**, measured against the key and broken on purpose in tests, as M140's rules
    were.
@@ -7642,6 +7643,16 @@ its marks too, and `tools/heading_corpus_check.py` is re-run alongside the table
 but not in scope: Tesla p7's table border drawn in white, which takes the title in as a first row
 (`PROGRESS.md` §Open follow-ups), and the stacked-tables follow-up's option of letting captions
 claim a note's heading inside a cell. Both change rows rather than titles.
+
+**Not in M145: [#352](https://github.com/utyagi24/klarpdf/issues/352)** *(recorded 2026-09-18, in
+review)*. It is a `get_tables` defect in the same module, but it is about which text the reader
+reads, not which title it picks. The SpaceX prospectus carries a hidden second copy of every line,
+both copies land in the cells, and every table on the file is declined. So it returns no tables and
+no wrong titles, where #354 is in M145 because it returns a wrong title. Two more things keep it
+separate. It has an open question about the tool's contract: `extract_text` and `search` both
+return that hidden text, so should `get_tables` skip it? And the issue records that removing the
+hidden copy makes p92 and p93 return prose as tables, so the fix needs a corpus run and a test
+round of its own.
 
 #### M142 — `extract_markdown`, and why it is ours rather than rented
 

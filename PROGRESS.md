@@ -944,7 +944,9 @@ it still comes after M145, for the reason above.
   lines above the table that `get_heading_candidates` (M140) reports. A prototype of that fixed 9
   titles and made 5 worse on 35 tables. Before M142, which prints what `get_tables` returns. Needs
   M140 merged. Also settles the multi-line caption follow-up. Not taken on the way, with the owner's
-  agreement: a tool that lists charts. Design, measurements and the reasons in `PLAN.md` §M145.
+  agreement: a tool that lists charts. Not in it either:
+  [#352](https://github.com/utyagi24/klarpdf/issues/352), where hidden text makes `get_tables`
+  decline every table on one file. Design, measurements and the reasons for both in `PLAN.md` §M145.
   Plan: *WSL* ([#356](https://github.com/utyagi24/klarpdf/pull/356)).
 
 - [ ] **M142** **`extract_markdown`** — ***deferred by the owner, 2026-09-18; not scheduled.*** A Markdown rendering of a page range, built on M140 and M141
