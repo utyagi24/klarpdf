@@ -2,7 +2,7 @@
 
 Owns the :class:`~model.virtual_document.VirtualDocument`, the :class:`PdfView`, the thumbnail
 panel, and (M4) the ``QUndoStack`` that drives every page edit. All edits go through
-:mod:`model.edit_commands` so undo/redo and the dirty flag come for free; a structural change
+:mod:`edit_commands` so undo/redo and the dirty flag come for free; a structural change
 refreshes the view + thumbnails and clears stale selection/search overlays. Save materialises the
 edit list losslessly (:class:`~model.edit_engine.PyMuPDFEngine`) with an atomic temp+replace;
 closing a dirty document prompts Save / Discard / Cancel.
@@ -38,7 +38,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from klarpdf.model.edit_commands import (
+from edit_commands import (
     AddAnnotationCommand,
     CropPagesCommand,
     DeleteCommand,

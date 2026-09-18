@@ -2691,6 +2691,15 @@ on the one above it. Every decision, every rejection and every measurement behin
 `PLAN.md` §M133–M136 — **not restated here**. The headline: the install goes from nine commands to
 `python install.py`, or to `uvx --from klarpdf klarpdf-mcp` for anyone who already has `uv`.
 
+- [x] **M147** *(unplanned)* **The core's folders hold only the core** — 2026-09-18, the follow-up to
+  M146. The three app-only files it listed as exceptions now sit beside their users:
+  `edit_commands.py` at the top level beside `main_window.py`, `reveal.py` in `viewer/`,
+  `resources.py` in `ui/`. The four lists that held the boundary are gone, and the tests now
+  require every module in `klarpdf/model/` and `klarpdf/util/` to be one the bridge uses, and no
+  file in `klarpdf/` to import Qt. The PyPI wheel stops shipping `edit_commands.py`, which could not
+  load there. No behaviour changes. Design in `PLAN.md` §M147 — *WSL* —
+  [#364](https://github.com/utyagi24/klarpdf/pull/364)
+
 - [x] **M146** *(unplanned)* **The shared core is what the bridge loads, and a test pins it** —
   2026-09-18, found while reviewing [#363](https://github.com/utyagi24/klarpdf/pull/363).
   `CLAUDE.md` §*Two consumers share one core* named `viewer/` and `organize/` as shared with the

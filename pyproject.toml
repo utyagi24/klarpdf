@@ -140,12 +140,8 @@ build-backend = "setuptools.build_meta"
 
 # An install carries the bridge and the GUI-free core it stands on — and NOT the GUI. That is the
 # quarantined seam expressed as a package boundary: `pip install klarpdf` for the bridge pulls no
-# PySide6, matching what tests/test_mcp_no_qt.py asserts at runtime.
-#
-# NB `model/edit_commands.py` rides along inside `model` and imports QUndoCommand, so it would fail
-# to import on a GUI-less install. Nothing on the server path imports it (that is the invariant the
-# keystone test pins), so it is inert — listed here so its presence is a known quantity rather than
-# a surprise.
+# PySide6, matching what tests/test_mcp_no_qt.py asserts at runtime. Nothing inside klarpdf/ imports
+# Qt at all, which tests/test_mcp_packaging.py checks (M147).
 [tool.setuptools]
 packages = ["klarpdf", "klarpdf.mcp_bridge", "klarpdf.model", "klarpdf.util"]
 

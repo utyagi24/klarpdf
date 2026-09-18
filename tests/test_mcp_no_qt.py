@@ -30,10 +30,6 @@ import pytest
 # something imported a Qt submodule by a path that dodged the PySide6 name.
 FORBIDDEN = ("PySide6", "shiboken6")
 
-# The GUI-only corner of model/: it imports QUndoCommand, and excluding it is what lets the rest of
-# model/ be shared (PLAN.md §Architecture).
-FORBIDDEN_MODEL = "klarpdf.model.edit_commands"
-
 # The *other* library the bridge's lock leaves out (M115). `requirements-mcp.in` says "the bridge
 # never uses PyPdfEngine" — true, and until now nothing checked it. The import sits inside
 # `PyPdfEngine.materialize` rather than at module level, so `model.edit_engine` loads fine without
@@ -43,14 +39,6 @@ FORBIDDEN_MODEL = "klarpdf.model.edit_commands"
 # runs is not what the bridge ships. Cheap to close here, since this exerciser already runs every
 # tool in a clean interpreter.
 FORBIDDEN_LIB = "pypdf"
-
-# The core both surfaces share is klarpdf/model/ and klarpdf/util/ less these three files, which
-# only the app loads (CLAUDE.md §Two consumers share one core names the same three, M146):
-# edit_commands imports Qt, reveal is the scroll-into-view policy of the page view and the Pages
-# sidebar, and resources locates the files bundled with the app (the About box's license texts).
-APP_ONLY_CORE = frozenset(
-    {"klarpdf.model.edit_commands", "klarpdf.util.reveal", "klarpdf.util.resources"}
-)
 
 _CHILD = textwrap.dedent(
     '''
@@ -162,17 +150,16 @@ _CHILD = textwrap.dedent(
         name for name in sys.modules
         if name == "PySide6" or name.startswith("PySide6.")
         or name == "shiboken6" or name.startswith("shiboken6.")
-        or name == "klarpdf.model.edit_commands"
         or name == "pypdf" or name.startswith("pypdf.")
     )
     # The desktop app's own code, none of which is in the wheel (M146). Kept out of `leaked`, which
-    # is about Qt and pypdf: most of it would show up there as Qt anyway, but three viewer/ modules
-    # would not.
+    # is about Qt and pypdf: most of it would show up there as Qt anyway, but not all of it
+    # (viewer/links.py imports no Qt, for one).
     app_code = sorted(
         name for name in sys.modules
         if name.split(".")[0] in (
             "viewer", "organize", "ui", "store",
-            "app", "main_window", "launcher", "platform_integration",
+            "app", "main_window", "edit_commands", "launcher", "platform_integration",
         )
     )
     core = sorted(n for n in sys.modules if n.startswith(("klarpdf.model.", "klarpdf.util.")))
@@ -204,12 +191,6 @@ def test_no_qt_reaches_the_server_path(child_result):
     assert child_result["leaked"] == []
 
 
-def test_the_qt_bound_corner_of_model_stays_excluded(child_result):
-    """``klarpdf/model/edit_commands.py`` imports ``QUndoCommand``. The server calls ``VirtualDocument``
-    operations directly to avoid it — this is what proves the avoidance is real."""
-    assert FORBIDDEN_MODEL not in child_result["leaked"]
-
-
 def test_the_bridge_never_reaches_the_pypdf_engine(child_result):
     """``requirements-mcp.in`` leaves pypdf out because "the bridge never uses PyPdfEngine" — and
     until M115 nothing checked that the claim stayed true.
@@ -224,14 +205,15 @@ def test_the_bridge_never_reaches_the_pypdf_engine(child_result):
 
 
 def test_nothing_of_the_apps_own_code_reaches_the_server_path(child_result):
-    """``viewer/``, ``organize/``, ``ui/``, ``store/`` and the app's top-level modules are not in
-    the wheel (``tests/test_mcp_packaging.py``), so an installed bridge cannot import them (M146).
+    """``viewer/``, ``organize/``, ``ui/``, ``store/`` and the app's top-level modules (the undo
+    commands in ``edit_commands.py`` among them) are not in the wheel
+    (``tests/test_mcp_packaging.py``), so an installed bridge cannot import them (M146).
 
-    Most of them need Qt and would fail the Qt check first, but not all: ``viewer/links.py``,
-    ``pixmap_cache.py`` and ``tools.py`` import none. The repo root is on ``sys.path`` here, so an
-    import of one inside a tool body would pass every other test in the suite and fail only on a
-    user's machine, as ``ModuleNotFoundError`` when that tool is called. CI's installer job starts
-    the installed server but calls no tool, so it would not see it either.
+    Most of them need Qt and would fail the Qt check first, but not all: ``viewer/links.py`` imports
+    none, for one. The repo root is on ``sys.path`` here, so an import of such a module inside a tool
+    body would pass every other test in the suite and fail only on a user's machine, as
+    ``ModuleNotFoundError`` when that tool is called. CI's installer job starts the installed server
+    but calls no tool, so it would not see it either.
     """
     assert child_result["app"] == [], (
         f"the bridge loaded the desktop app's own code: {child_result['app']}. Move what it needs "
@@ -240,15 +222,15 @@ def test_nothing_of_the_apps_own_code_reaches_the_server_path(child_result):
     )
 
 
-def test_the_bridge_loads_the_whole_core_but_three_app_only_files(child_result):
-    """CLAUDE.md's "core" (what a ``core`` issue is, and what owes a test on both surfaces) is
-    ``klarpdf/model/`` and ``klarpdf/util/`` less ``APP_ONLY_CORE``. This keeps that true (M146).
+def test_the_bridge_loads_everything_in_the_core_directories(child_result):
+    """``klarpdf/model/`` and ``klarpdf/util/`` are the core both surfaces share (CLAUDE.md §Two
+    consumers share one core), so every module in them must be one the bridge uses (M147).
 
-    It can go wrong silently in either direction. If the bridge starts using one of the three, a
-    change to that file reaches the bridge while the docs still call it app-only. If a new file
-    there is used by the app alone, it reads as core and asks for bridge tests that cannot reach
-    it, the same mistake as the rule naming ``viewer/`` and ``organize/`` as shared. So equality,
-    not containment.
+    That is what a ``core`` issue means, and what a core change owes a test on both surfaces for. A
+    file only the app uses belongs outside ``klarpdf/``, beside the rest of the app's code: left
+    inside, it reads as core and asks for bridge tests that cannot reach it. M146 found three such
+    files and listed them as exceptions; M147 moved them out, so there is no list to keep in step
+    with the docs.
     """
     klarpdf_dir = pathlib.Path(__file__).resolve().parent.parent / "klarpdf"
     in_core_dirs = {
@@ -257,12 +239,11 @@ def test_the_bridge_loads_the_whole_core_but_three_app_only_files(child_result):
         for path in (klarpdf_dir / folder).glob("*.py")
         if path.stem != "__init__"
     }
-    unloaded = in_core_dirs - set(child_result["core"])
-    assert unloaded == APP_ONLY_CORE, (
-        f"listed as app-only but now loaded by the bridge: {sorted(APP_ONLY_CORE - unloaded)}; "
-        f"not loaded by the bridge and not listed: {sorted(unloaded - APP_ONLY_CORE)} (if a tool "
-        "does use it, the exerciser is not reaching it). Update APP_ONLY_CORE and the list in "
-        "CLAUDE.md §Two consumers share one core together."
+    unloaded = sorted(in_core_dirs - set(child_result["core"]))
+    assert unloaded == [], (
+        f"in the core's directories but never loaded by the bridge: {unloaded}. If only the app "
+        "uses it, move it outside klarpdf/ (CLAUDE.md §Two consumers share one core); if a tool "
+        "does use it, the exerciser is not reaching it."
     )
 
 

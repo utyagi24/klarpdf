@@ -1,12 +1,12 @@
 """KlarPDF's MCP (Model Context Protocol) server — the agent-facing surface.
 
 A **quarantined seam**, the same pattern as ``packaging/`` and ``platform_integration.py``: the GUI
-never imports this package, and this package never imports the GUI. It reuses the Qt-free half of
-``model/`` — ``virtual_document``, ``edit_engine``, ``export``, ``page_edits``, ``page_text``,
-``links_remap``, ``toc_remap`` — and deliberately **not** ``model/edit_commands.py``, which imports
-``QUndoCommand``. That exclusion is the whole architecture: ``tests/test_mcp_no_qt.py`` asserts in a
-subprocess that PySide6 never reaches ``sys.modules`` after every tool has run, so "reuses the
-GUI-free core" is verified rather than believed (PLAN.md §MCP / Agent Bridge roadmap → Architecture).
+never imports this package, and this package never imports the GUI. It reuses the core both
+surfaces share, ``klarpdf/model/`` and ``klarpdf/util/``, and nothing in them imports Qt: the app's
+undo commands, which need ``QUndoCommand``, live outside ``klarpdf/`` in ``edit_commands.py`` (M147).
+``tests/test_mcp_no_qt.py`` asserts in a subprocess that PySide6 never reaches ``sys.modules`` after
+every tool has run, so "reuses the GUI-free core" is verified rather than believed (PLAN.md §MCP /
+Agent Bridge roadmap → Architecture).
 
 **Why the directory is not called ``mcp/``.** PLAN.md named it that, and it cannot be: the official
 SDK this server is built on *is* the top-level module ``mcp``. The app runs with the repo root on

@@ -15,7 +15,7 @@ from PySide6.QtGui import QUndoStack
 
 from app import PdfApp
 from main_window import MainWindow
-from klarpdf.model.edit_commands import SetEncryptionCommand
+from edit_commands import SetEncryptionCommand
 from klarpdf.model.edit_engine import PyMuPDFEngine, PyPdfEngine
 from klarpdf.model.virtual_document import VirtualDocument
 from store.settings import Settings

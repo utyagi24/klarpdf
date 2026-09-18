@@ -17,7 +17,7 @@ import pytest
 import main_window as mw
 from app import PdfApp
 from main_window import MainWindow
-from klarpdf.model.edit_commands import RotatePagesCommand
+from edit_commands import RotatePagesCommand
 from klarpdf.model.edit_engine import PyMuPDFEngine
 from klarpdf.model.export import export_selected_pages
 from klarpdf.model.page_edits import Redaction, TextBox

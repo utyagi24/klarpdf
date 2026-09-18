@@ -12,6 +12,7 @@ needs the Node CLI and is a release step, not a test.
 
 from __future__ import annotations
 
+import ast
 import asyncio
 import json
 import os
@@ -341,6 +342,30 @@ def test_an_install_carries_the_core_but_not_the_gui():
         assert f'"{gui}"' not in packages, f"{gui} would drag Qt into a bridge install"
 
 
+def test_nothing_in_the_package_imports_qt():
+    """The wheel and the `.mcpb` both ship `klarpdf/` whole, and neither installs PySide6, so a module
+    in it that imports Qt would reach bridge users unable to load (M147).
+
+    Until M147 one did: `model/edit_commands.py`, the app's undo commands. The two packages handled it
+    differently: the bundle deleted it by name, and the wheel shipped it with a comment saying so. It
+    now lives outside `klarpdf/`, beside `main_window.py`, so the package is Qt-free by what is in it
+    rather than by a list of exceptions. Every import counts, including one inside a function, since
+    that is where a lazy import hides.
+    """
+    offenders = []
+    for path in sorted((ROOT / "klarpdf").rglob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Import):
+                names = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                names = [node.module]
+            else:
+                continue
+            if any(name.split(".")[0] in ("PySide6", "shiboken6") for name in names):
+                offenders.append(f"{path.relative_to(ROOT).as_posix()}:{node.lineno}")
+    assert offenders == [], f"Qt imported inside klarpdf/, which the bridge ships: {offenders}"
+
+
 # ---- the .mcpb bundle ---------------------------------------------------------------
 
 
@@ -401,8 +426,6 @@ def test_the_bundle_never_ships_a_vendored_environment(build_mcpb):
     cannot portably vendor the compiled dependencies we have (PyMuPDF is C, pydantic is Rust)."""
     assert "lib" not in build_mcpb.PAYLOAD_PACKAGES
     assert "venv" not in build_mcpb.PAYLOAD_PACKAGES
-    # the one Qt-importing file in model/
-    assert "klarpdf/model/edit_commands.py" in build_mcpb.EXCLUDE_FILES
 
 
 def _lock_versions(text: str) -> dict[str, str]:

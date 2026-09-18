@@ -16,9 +16,9 @@ The rule both surfaces now follow:
 * **Anything else → centre it**, which is what Preview and the browsers do, and what makes the
   result independent of window height, zoom, and the direction of travel.
 
-Kept here, GUI-free and headless-testable, because the two callers sit in different packages
-(``viewer/`` and ``organize/``) and a copy each is how a routine that has already been subtly wrong
-once ends up subtly wrong twice.
+Kept in one module, GUI-free and headless-testable, because the two callers sit in different
+packages (``viewer/``, and ``organize/``, which imports it from here) and a copy each is how a
+routine that has already been subtly wrong once ends up subtly wrong twice.
 """
 
 from __future__ import annotations

@@ -7,7 +7,7 @@ edit — reorder, delete, merge/insert, rotate, cross-window paste — is a chea
 ``ordered``. Nothing is written until :mod:`model.edit_engine` materialises on Save.
 
 This module is GUI-free and headless-testable (no Qt). The undo/redo wiring lives in
-:mod:`model.edit_commands`, which snapshots/restores this object's state.
+:mod:`edit_commands`, which snapshots/restores this object's state.
 """
 
 from __future__ import annotations

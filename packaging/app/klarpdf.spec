@@ -82,7 +82,7 @@ a = Analysis(
         # The hand-authored toolbar SVGs (rendered at runtime by ui/icons.py).
         (str(ROOT / "ui" / "icons"), "ui/icons"),
         # AGPL §5 obliges us to ship the license with the binary, and Help ▸ Open-Source Licenses
-        # reads these at runtime via util/resources.py. Land them at the bundle root, which is
+        # reads these at runtime via ui/resources.py. Land them at the bundle root, which is
         # where `resource_root()` looks. Drop either entry and that dialog shows a placeholder —
         # the headless suite cannot catch it, so `tests/test_about_dialog.py` asserts this list.
         (str(ROOT / "LICENSE"), "."),

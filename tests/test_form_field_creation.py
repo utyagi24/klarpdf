@@ -471,7 +471,7 @@ def test_clicking_a_created_field_in_select_mode_grabs_it(win, qapp):
     from PySide6.QtCore import QEvent, QPointF, Qt as _Qt
     from PySide6.QtGui import QMouseEvent
 
-    from klarpdf.model.edit_commands import AddAnnotationCommand
+    from edit_commands import AddAnnotationCommand
     from klarpdf.model.form_fields import NewField
     from viewer.tools import InteractionMode
 
