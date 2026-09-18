@@ -577,7 +577,7 @@ items, which are independent of it.
   (**M128**); and row 10's own instructions not putting the lock in the bundle (**M129**). What
   remains is the tag, which is an owner action.
 
-## Roadmap — document structure for agents (M138–M142; M138–M141 done, M142 next)
+## Roadmap — document structure for agents (M138–M142 and M145; M138–M141 done, M145 next)
 
 Design in `PLAN.md` §M138–M140 — **not restated here**. Same conventions: **one PR per milestone**,
 tick the box here on merge. Scoped **2026-09-07** from a session comparing the bridge against a
@@ -618,6 +618,13 @@ decision M141 settles about how to call it (as rebuilt 2026-09-13: a drawn grid,
 rows, else a decline — `PLAN.md` §M141). Building M140 first would mean making that call independently and probably differently. The
 1→2 demotion of M140 encoded real engineering reasoning; only M142's placement did not. So M142
 moves to the end and nothing else does. Argument and measurements in `PLAN.md` §M140 → *Ordering*.
+
+**Amended 2026-09-17: the build order is `M141 → M140 → M145 → M142`.** The owner asked whether the
+bridge should also list a document's charts and tables with their titles. Measured and decided the
+same day: **no chart list**, because a PDF has no chart object and a prototype chart finder was
+wrong on half the chart pages it was checked on. **Table titles get fixed first (M145)**, because
+`get_tables` already titles every table but not reliably, and M142 prints what it returns. Both
+arguments are in `PLAN.md` §M145.
 
 - [x] **M138** **`get_links`** — 2026-09-09, the bridge's **20th tool**. One entry per link with
   `page`, `rect`, `kind`, the resolved `target_page` for an internal jump, `uri` for a web address,
@@ -923,6 +930,19 @@ moves to the end and nothing else does. Argument and measurements in `PLAN.md` �
   ([#352](https://github.com/utyagi24/klarpdf/issues/352)), and three more pages of the
   stacked-tables limit (§Open follow-ups).
 
+- [ ] **M145** **Table titles you can trust** — `get_tables` gives each table a `title`, and on
+  NADA's dealer report 13 of 16 were right. **[#354](https://github.com/utyagi24/klarpdf/issues/354):**
+  its bar chart on p4 comes back as a 2 × 13 table titled with the chart's axis label.
+  **[#355](https://github.com/utyagi24/klarpdf/issues/355):** a title printed on two lines is skipped and
+  other text takes its place: the charts' source note on NADA p8, a line from the other column on
+  NADA p12, and the section heading `Item 1. …` on Apple's and QCOM's 10-Qs. No test pins a title
+  today, so the work starts with an answer key. It then tries titles from typography, the nearest
+  lines above the table that `get_heading_candidates` (M140) reports. A prototype of that fixed 9
+  titles and made 5 worse on 35 tables. Before M142, which prints what `get_tables` returns. Needs
+  M140 merged. Also settles the multi-line caption follow-up. Not taken on the way, with the owner's
+  agreement: a tool that lists charts. Design, measurements and the reasons in `PLAN.md` §M145.
+  Plan: *WSL* ([#356](https://github.com/utyagi24/klarpdf/pull/356)).
+
 - [ ] **M142** **`extract_markdown`** — a Markdown rendering of a page range, built on M140 and M141
   with **no new dependency**. Prototyped before being scheduled: headings by weight/size, ruled
   tables exactly, and **multi-column reading order** all work; a partially-ruled financial table, a
@@ -930,7 +950,8 @@ moves to the end and nothing else does. Argument and measurements in `PLAN.md` �
   rule: a table that cannot be reconstructed is emitted as-is with a note, never as a mangled grid**
   — the third application of *report the uncertainty, never paper over it*, after M140's `in_table`
   and M141's `continues_from`. A **separate tool**, not a `format` flag on `extract_text`, because
-  the cost differs by two orders of magnitude (~930 pages/s against 6.9). Depends on M140 + M141.
+  the cost differs by two orders of magnitude (~930 pages/s against 6.9). Depends on M140 + M141,
+  and on M145 (added 2026-09-17), so that it does not print a chart read as a table.
   Design, and why `pymupdf4llm` is rejected, in `PLAN.md` §M142.
 
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
@@ -4667,14 +4688,20 @@ it on this side of the line.
   the figures twice and `search` finds a second hit of 0.56 × 0.12 pt. Whether the text tools should
   flag or skip it is a change to those tools; TC-033 separately notes `search`'s `invisible` flag does
   not cover text that is invisible by size. Decision owed.
-- **`title` misses a statement heading that shares a text block with the company name** (M141; the
-  wrong answer removed 2026-09-16). Cisco's cash-flow statement prints `CISCO SYSTEMS, INC.`, the
-  statement name and `(in millions)` as one block, which the caption rule rejects as more than one
-  line. TC-039's fix stops the page's *linked* "Table of Contents" heading from taking the slot
-  instead, so Cisco p61, Broadcom p49 and salesforce p4 now return `title: null` rather than
-  navigation — 3 titles changed across the corpus, all three of them that one. The right caption is
-  still not found. Decision owed: take a caption out of a multi-line block, and if so which of its
-  lines, or leave such statements untitled.
+- ~~**`title` misses a statement heading that shares a text block with the company name**~~ —
+  **graduated 2026-09-17 into M145** (roadmap above;
+  [#355](https://github.com/utyagi24/klarpdf/issues/355) has the wider defect).
+- **A table border drawn in white takes the title in as the first row** (M141; found 2026-09-17
+  while measuring M145). On Tesla's Q2 2026 update p7, `get_tables` returns *Installed Annual
+  Capacity* as the table's first row and `header`, with `title: null`. A reader sees a title above the
+  grey header band (title at y 135–157, band from y 162). But the file draws the table's border as
+  **white** lines on the page's white background, and the top edge is at y 130, above the title. By
+  the lines the page draws, the title is inside the table; by what a reader sees, it is not. The
+  same kind of problem as the hidden text in [#352](https://github.com/utyagi24/klarpdf/issues/352):
+  something a reader cannot see changes what is read. Decision owed: whether an edge drawn in the
+  colour of what lies beneath it counts as a table edge. The check compares two colours the page
+  states, but the background can be an image or a gradient, and the answer changes which regions
+  every drawn grid finds. Not a title rule, so it stays out of M145.
 - **`table_pages` roughly doubles what `extract_text` costs** (M141, measured 2026-09-13). Counting a
   page's ruled lines and shaded bands took 1.0–1.6× as long as reading its text on the table corpus,
   at most 17 ms on any page — not the half that #348's docstring stated. It stays a small fraction of

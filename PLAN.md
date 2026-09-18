@@ -6975,7 +6975,8 @@ earned ~11 pins and ≈100 MB, since every other use is either served by what we
 answerable by an agent reading a `render_page` image.
 
 Ordering — **the build order is `M141 → M140 → M142`**, and the reasoning below is kept in two
-layers because the second corrects the first.
+layers because the second corrects the first. *(Amended 2026-09-17: `M141 → M140 → M145 → M142`,
+with table titles fixed before the Markdown export prints them — §M145.)*
 
 *As originally argued (2026-09-07), when M140 was last of three:* the shippable feature is
 **M138 + M139 + agent judgement**, which covers every document with a printed contents page —
@@ -7542,6 +7543,105 @@ The design itself was driven by `tools/table_corpus_check.py`: fixed expectation
 eye, arithmetic or render, compared on every run — adopted after a label column lost in one round
 survived six rounds of comparing each run only with the one before.
 
+#### M145 — table titles you can trust, and why there is no chart list *(planned 2026-09-17)*
+
+Asked by the owner right after M140 was built: *"in addition to headings, would it be helpful to
+provide list of charts and tables along with their titles?"* Answered by measuring the corpus, and
+**decided by the owner the same day**: no tool that lists charts, for the reasons below; and table
+titles are fixed first, as M145, ahead of M142.
+
+**Numbered captions and figure bookmarks are rare, so neither is something to build on.** Across 30
+public corpus documents, only two number their captions: the Nature paper (`Fig. 1 | …`,
+`Table 1 | …`) and a Treasury auction specification (`Table 1 - Announcement XML`). The SEC filings'
+`Exhibit 31.1` lines are attached legal documents, not figures, and even in the Nature paper a line
+opening "Table 3" is as often a sentence (`Table 3 shows that…`), so a word-and-number pattern is not
+a caption detector. Business reports title a chart with a plain bold line, above it or, in Tesla's
+update, below it. No document prints a List of Figures or of Tables. Only the Nature paper's
+publisher bookmarks figures and tables, 16 of its 24 bookmarks, and `get_heading_candidates` already
+finds 23 of those 24.
+
+**Not taken: a tool that lists charts** (owner, 2026-09-17). A PDF has no chart object. A vector
+chart is paths, fills and text, and a chart can also be part of a raster picture. A prototype grouped
+each page's drawings with `Page.cluster_drawings()` (PyMuPDF's own tolerances), dropped the groups a
+returned table covers, and added the raster images. The six chart pages it was run on were then
+checked against their renders:
+
+* **Right on 2:** NADA's dealer report p6 (a line chart and two pies) and Tesla's update p7. Each
+  also had extra boxes: the report's logo, which is drawn on every page, and footer icons.
+* **Partly right on 1:** NADA p8. Both line charts were found, plus legend fragments, and one group
+  covering a table and an infographic together.
+* **Wrong on 3:**
+  * NADA p4's bar chart is missing, because `get_tables` returns it as a table (#354).
+  * NADA p12's two bar charts came back as one group.
+  * The Sacramento market report's p2 is one group covering the whole page, charts and all.
+
+NVIDIA's annual report opens with pages that are each one full-page picture, so nothing inside them
+can be located at all. Telling a chart from a logo, a background or a table's ruling would take the
+tuned shape filters that `CLAUDE.md` §*Compare, don't guess* rules out.
+
+The route agents already have works without any of this. A chart's title is ordinary text, so
+`search` and `get_heading_candidates` find it, and `render_page` with `clip` shows the chart. Revisit
+only if a document turns up where that route fails, and bring an answer key for it.
+
+**What M145 fixes.** `get_tables` already returns a `title` for each table, so the table half of the
+question is about how often that title is right. On NADA's report, every returned table was checked
+against its page. Of 16 returned, **13 titles are right, 2 are wrong, and 1 is not a table**:
+
+* [#354](https://github.com/utyagi24/klarpdf/issues/354): the bar chart on p4 is returned as a 2 × 13
+  table. It is titled with the chart's axis label, and one bar's value is in no cell.
+* [#355](https://github.com/utyagi24/klarpdf/issues/355): a title printed on two lines is passed
+  over, because `looks_like_title` rejects any block of more than one line, and the search carries on
+  upward. NADA p8 got the source note of the charts above it. NADA p12 got a subtitle from the other
+  column, since `at_margin` accepts any line that starts left of the table. Apple's and QCOM's 10-Qs
+  (p4 each) got the section heading `Item 1. …`. The docs promise *no* title in that case, not a
+  wrong one.
+
+The open follow-up on a statement name printed in one block with the company name is the same cause,
+so it graduates here. No titles are pinned in `tools/table_corpus_public.json` today (0 `title`
+expectations), which is why the corpus check stayed green through all of these.
+
+**The rule to try, and what a prototype of it measured.** Take titles from typography rather than
+from length and word counts: the nearest lines above the table that `get_heading_candidates` reports
+(lines that stand out from the document's body style) and that overlap the table horizontally,
+joined when they are consecutive lines of one style in one MuPDF block. The prototype ran on 35
+tables across NADA, Tesla, CPI, Cisco, Broadcom, Salesforce, Apple and QCOM:
+
+* **9 fixed:** NADA p8 and p12; CPI p1 and p2; Cisco p61, Broadcom p49 and Salesforce p4 (company
+  name plus statement name); Apple p4 and p6.
+* **5 made worse:**
+  * the right-hand halves of NADA's two- and three-up tables (p5, p18, p20) lost the title printed
+    over the left half;
+  * QCOM p5 got `(Unaudited)`;
+  * Apple p3 got the column header `Page`.
+* **2 wrong either way:** QCOM p4 and the NADA p4 chart.
+* **19 unchanged:** 13 right, and 6 with no title either way.
+
+So the signal is right and the rule is not finished. A line wholly in brackets qualifies a title
+rather than being one; today's rule already steps over such lines, and the new one must too. And the
+halves of a table printed two-up share one title.
+
+**Order of work.**
+
+1. **An answer key first.** Pin the titles in the public plan, each verified on a render, and in the
+   private plan too. Today's rule is the baseline, so every change is reported as fixed or broken
+   against fixed expectations, never against the previous run (`CLAUDE.md` §*Fix a class of bug
+   once*).
+2. **#354.** Find which check should decline NADA p4, and pin that page.
+3. **The title rule**, measured against the key and broken on purpose in tests, as M140's rules
+   were.
+4. **The `title` entry under *Known limits* in `klarpdf://docs/get_tables`**, rewritten to match.
+
+**Why before M142.** M142 prints what `get_tables` returns. As things stand it would print NADA's bar
+chart as a Markdown table and head financial statements with the wrong text.
+
+**Surfaces.** Bridge only: `tables.py`, which would read the heading candidates from `headings.py`
+(so M145 needs M140 merged); the app does not read tables. `get_heading_candidates` with
+`tables: true` marks lines using `read_page`, so a chart that stops being read as a table changes
+its marks too, and `tools/heading_corpus_check.py` is re-run alongside the table checker. Adjacent
+but not in scope: Tesla p7's table border drawn in white, which takes the title in as a first row
+(`PROGRESS.md` §Open follow-ups), and the stacked-tables follow-up's option of letting captions
+claim a note's heading inside a cell. Both change rows rather than titles.
+
 #### M142 — `extract_markdown`, and why it is ours rather than rented
 
 Carried as an open question from 2026-09-07 and **decided by the owner on 2026-09-09** after a
@@ -7573,7 +7673,9 @@ is worse than one that declines to.
 `get_links`/`get_annotations` split did not have: the **cost profile differs by two orders of
 magnitude**. `extract_text` runs at ~930 pages/s; Markdown needs `find_tables` at **6.9 pages/s**.
 An agent reaching for `extract_text` must not be able to trip an 85-second call by passing a flag.
-It takes a **page range**, like M141, and depends on M140 and M141 landing first.
+It takes a **page range**, like M141, and depends on M140 and M141 landing first. *(Amended
+2026-09-17: and on M145, so that it does not print a chart read as a table or head a statement with
+the wrong text — §M145.)*
 
 **The dependency is rejected, and one measurement decided it.** `pymupdf4llm` 0.3.4 was the
 alternative. Merely importing it **changes plain PyMuPDF's behaviour globally**: the identical
