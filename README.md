@@ -300,7 +300,7 @@ invoke --list                   # all build/release tasks: test · audit · lock
 python launcher.py file.pdf     # run the GUI via WSLg
 ```
 
-The cross-platform core (`klarpdf/model/`, `viewer/`, `organize/`) + headless tests run in WSL; the GUI
+The cross-platform code (`klarpdf/model/`, `viewer/`, `organize/`) + headless tests run in WSL; the GUI
 iterates via WSLg. Packaging and Windows shell-integration happen on Windows only
 (PLAN.md §Development environment). **git is the only bridge** between the WSL and Windows checkouts.
 Build steps are wrapped as [`invoke`](tasks.py) tasks; CI runs the full suite on every PR and a

@@ -118,9 +118,11 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   **Every issue is labelled with its type and the part it lives in** (owner, 2026-09-18). It gets
   `bug` or `enhancement`, plus each of these that applies:
 
-  * `app`: seen in the desktop app (`app.py`, `main_window.py`, `viewer/`, `organize/`);
+  * `app`: seen in the desktop app (its code: `app.py`, `main_window.py`, `launcher.py`,
+    `platform_integration.py`, `viewer/`, `organize/`, `ui/`, `store/`);
   * `mcp-bridge`: seen through the bridge's tools (`klarpdf/mcp_bridge/`);
-  * `core`: the fix belongs in `klarpdf/model/` or `klarpdf/util/`.
+  * `core`: the fix belongs in the core, which is `klarpdf/model/` and `klarpdf/util/` less three
+    app-only files named below.
 
   `core` is the one to get right, because it is what tells whoever picks the issue up that the
   change reaches both surfaces and owes tests on both (*Two consumers share one core*, below). Where
@@ -142,21 +144,35 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   Worth doing even when no PR looks related — the collision is with the *number*, not the subject. This is the rule that keeps the design docs from becoming a description of the app as
   it was first imagined rather than as it is.
 - **Two consumers share one core — every change answers for both.** `klarpdf/model/` and
-  `klarpdf/util/` are reached by the **GUI app** (`app.py`, `main_window.py`) and by the **MCP bridge**
-  (`klarpdf/mcp_bridge/`), so a change to the core is a change to *both* whether or not the session was
-  thinking about both. The failure is silent and runs in either direction: a fix aimed at the app
-  changes what a bridge tool writes, or a bridge feature changes what Save does. So every behaviour
-  change, design entry and new feature names the surfaces it touches, and a core behaviour change
-  wants a test on **both** sides (`tests/test_mcp_*.py` for the bridge) rather than only the one the
-  session was holding.
+  `klarpdf/util/`, less three app-only files named below, are reached by the **GUI app** (`app.py`,
+  `main_window.py`) and by the **MCP bridge** (`klarpdf/mcp_bridge/`), so a change to the core is a
+  change to *both* whether or not the session was thinking about both. The failure is silent and
+  runs in either direction: a fix aimed at the app changes what a bridge tool writes, or a bridge
+  feature changes what Save does. So every behaviour change, design entry and new feature names the
+  surfaces it touches, and a core behaviour change wants a test on **both** sides
+  (`tests/test_mcp_*.py` for the bridge) rather than only the one the session was holding.
 
-  **`viewer/` and `organize/` are not part of the core.** The bridge imports nothing from either
-  (checked 2026-09-18). Most of what they hold needs Qt, and the bridge must never load it:
-  `tests/test_mcp_no_qt.py` runs every tool in a fresh interpreter and fails if `PySide6` appears.
-  So they belong to the app alone. When the bridge needs something kept there, it is moved into
-  `klarpdf/model/` first rather than imported from where it is (the markup palette was, in M101),
-  and from then on it is core. Until 2026-09-18 this rule listed both directories as shared, which
-  asked for bridge tests on changes that cannot reach the bridge.
+  **What is not core.** The app's own code (`viewer/`, `organize/`, `ui/`, `store/` and the
+  top-level modules) is not in the wheel, and the bridge imports none of it; most of it needs Qt,
+  which the bridge must never load. Three files in the core's own directories belong to the app
+  alone as well: `klarpdf/model/edit_commands.py` imports Qt, `klarpdf/util/reveal.py` is the
+  scroll-into-view policy of the page view and the Pages sidebar, and `klarpdf/util/resources.py`
+  locates the files bundled with the app. A fix to any of these is `app`, not `core`, and owes no
+  bridge test. **A test keeps this list true** (M146): `tests/test_mcp_no_qt.py` runs every tool in
+  a fresh interpreter, and fails if any of the app's modules loads, or if the files in
+  `klarpdf/model/` and `klarpdf/util/` that the bridge does not load stop being exactly those three.
+  Checking for Qt alone is not enough, because `viewer/links.py`, `pixmap_cache.py` and `tools.py`
+  need none: a tool importing one passes every other test and fails only where the bridge is
+  installed. When the bridge needs something the app keeps, it moves into `klarpdf/model/` first,
+  as the markup palette did in M101, and from then on it is core.
+
+  Until 2026-09-18 this rule named `viewer/` and `organize/` as shared and left out `klarpdf/util/`.
+  That was wrong from the day it was written ([#279](https://github.com/utyagi24/klarpdf/pull/279),
+  2026-08-23). Its list is the *Hybrid dev* bullet's "cross-platform core": the same three
+  directories in the same order. That list answers a different question: which OS the code runs
+  on, not which program runs it. It asked for bridge tests on changes that cannot reach the bridge,
+  and for none on `util/`, which the bridge does use. *Hybrid dev* now says "cross-platform code",
+  so "core" has one meaning here.
 
   It distorts *documents* as much as code: a fact stated from whichever surface is in hand gets filed
   as a fact about the core. M114's entry called *"the output goes to a new path"* an obstacle — true
