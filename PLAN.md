@@ -7036,6 +7036,149 @@ not sufficient to reorder on, because it never asked what the existing order alr
 One consequence to hold: this puts enrichment behind `get_tables`. M140 *could* ship without
 `in_table` to bring it forward, but `in_table` is what dismisses 2,287 cell headers on the
 prospectus, so that trade weakens M140 on the document it was designed against. Not taken.
+*(Built 2026-09-17: with M141's rebuilt reader the flag does much less than that — see below.)*
+
+##### What building it added *(implemented 2026-09-17)*
+
+The tool is **`get_heading_candidates`**. The outline of the design held: the tool extracts, the
+agent classifies; recall comes before precision; a signal is reported, never used to drop a line; a
+page range serves both the fallback and enrichment. Most of the details changed, because
+measurement had something to check against that the plan did not.
+
+**The answer key.** Ten documents in the corpus carry bookmarks that their publishers wrote, and
+**502** of those titles are printed on the page each one points to. (The rest are form IDs, "Slide 3"
+and the like.) If the candidates on a page include a printed title, the tool found that heading. The
+ten: Lilly's proxy, NVIDIA's annual report, Apple's and Qualcomm's 10-Qs, Cisco's annual report,
+Amazon's earnings release, a Nature paper, the SpaceX EU prospectus (outlined by TC-025), the
+Kasaragod magazine (outlined by TC-025) and a Sacramento market report. The check is committed as
+`tools/heading_corpus_check.py` with `tools/heading_corpus_public.json`; its test of "printed" reads
+`get_text("text")` lines and shares no code with the module.
+
+**What makes a line a candidate.** Four tests, each a comparison with the **body style** — the style
+that carries the most characters in the document:
+
+* larger than the body;
+* bold where the body is not, at any size;
+* italic where the body is not, at the body's size or larger;
+* the same three for a line's **opening phrase**, when the line then continues in ordinary text. This
+  is a *run-in* heading: `Post-2009 Plan Information: Following amendment of our Retirement Plan…`.
+
+Together they find **501 of the 502**. The miss is a figure caption whose title runs on, in ordinary
+text, over several rows. Every test was needed by some document. "Bold or larger" alone found 47 of
+Apple's 60, whose fourth-level headings are only italic, and missed two of Lilly's, which are run-in.
+
+**Two of the plan's four criteria were dropped.** "Matches a numbering pattern" and "a short line
+before body text" could add nothing here: every title found is bold, larger or italic, and the one
+miss is not a line of its own. Both are also guesses about what documents usually look like, which
+`CLAUDE.md` §*Compare, don't guess* warns about, and an agent reads `2.8.1` in the text without help.
+The cost is a known limit, recorded in the tool's docs: a heading set exactly like the body text is not
+found. The second criterion was also tried as a *filter* ("keep a line only if the row below it is
+body text"). It would have cut 30–55% of the candidates, and lost 7–30% of the headings: a statement's
+title sits above a table, and a magazine's title page has no body text at all.
+
+**Italic counts only at the body's size or larger; bold counts at any size.** Small italic is a source
+note or a caption — the prospectus sets 81,000 characters of 8 pt italic — and no answer-key heading
+was set that way. Small bold is mostly table headers, but some real headings are set small, and
+recall decides.
+
+**The body style is measured over the whole document**, because a page range can be mostly tables.
+In seven of the prospectus's 37 sections the most common style is table text. Measured against that,
+ordinary 10 pt paragraphs count as "larger": the 17-page *Basis for Issue Price* returns 1,159
+candidates instead of 315, and the two-page *Section III* 46 instead of 9. Where the most common style
+is *bold* table text, bold stops counting at all. The whole-document pass takes under 2 s on 572
+pages, so it is paid on every call, whatever `pages` names.
+
+**Text a reader cannot see is skipped.** That means spans MuPDF reports with neither fill nor stroke
+(`char_flags & (FZ_STEXT_FILLED | FZ_STEXT_STROKED) == 0`, render mode 3). `SpaceX-EUProspectus.pdf`
+carries every line twice: the visible text, and a hidden copy in `Times-Roman` whose sizes wander
+word by word (2.9 to 46.7 pt, median 9.64, where the visible body is 10). Read, the copy found no
+heading the visible text did not, and added **362 candidates and 31 styles** (19 became 50):
+ordinary paragraph lines that happened to measure larger than the body, each size a "style" of its
+own — noise in exactly the table an agent classifies from. *(An earlier prototype grouped lines into
+visual rows, and there each heading was welded to its hidden twin — `1.1 1.1 Risks… Risks…` — so 98
+of the file's 100 headings no longer matched their titles. The final per-line rule is not fooled that
+way; the skip stays for the noise.)* A page with nothing drawn is listed in
+`pages_without_visible_text` instead of being read: the corpus's one OCR'd scan sets its hidden layer
+in one font, at a size guessed word by word (4–14 pt), which says nothing about headings. The same
+hidden layer makes `get_tables` decline every table on that file — filed as
+[#352](https://github.com/utyagi24/klarpdf/issues/352), with the catch that fixing it exposes prose
+read as tables on two pages.
+
+**A word space can be a span of its own.** The same prospectus sets the space in `Naked Short
+Selling` as a one-character span in another font. Skipping blank spans printed `ShortSelling`. A
+space now separates words, but never counts as a style and never ends an opening phrase.
+
+**Each line is judged on its own, and joined only within a text block.** A numbered heading is often
+two lines side by side, `2.8.1` and its title, so candidate lines on one row become one entry. The
+first prototype judged whole *rows* instead, and missed two of the Nature paper's headings that way:
+each shared a row with a 6 pt caption line in the other column, and the caption's style won the vote.
+Joining only inside one MuPDF text block (MuPDF's own paragraph grouping) keeps columns apart. It
+costs size — a table header whose cells are separate blocks becomes several entries — and the style
+filter below is what pays for that.
+
+**A run-in heading is its opening phrase, however long.** The first version judged a mixed line by
+the style carrying most of it, and returned `Occupational Safety, Health and Working Conditions Code,
+2020, amends and consolidates…` whole, because the bold heading outweighed the four ordinary words
+after it. Now any line that opens with emphasised text and continues in ordinary text is a run-in,
+and only the opening is the candidate; the opening may mix emphasised styles (a bold `2.10.1.1` before
+a bold-italic title). **It is not taken when the line above, in the same block, is ordinary text
+ending in that same style** — a bold term wrapping onto the line (`…India Act, 19` / `88 (the "NHAI
+Act")`). A line above that stands out all through does not count: it is a heading, and a heading can
+sit directly over another whose tail is in body text. Both are comparisons with the line before, and
+neither needs a number.
+
+**The size estimate was wrong again, and a style table is the answer.** The plan's corrected figure
+(87,901 characters) counted the text of bold short lines only. The real reply for the whole
+572-page prospectus is **10,114 candidates, 1.24 MB**: table headers, running heads and bold lead-ins
+all come back. So every reply carries a **style table** — each candidate style once, with `count`,
+`distinct` (how many different texts), `pages` and two `examples` — and `styles: [...]` returns only
+the styles the agent picked. The prospectus's bold-italic 10 pt headings alone are 359 candidates,
+62 KB. Examples prefer texts that occur once, because a style's first lines are usually a running
+head: the prospectus's bold style opened with the company name and its registration number. Style
+ids rank every style in the document, so an id means the same style for any page range. Chosen by the
+owner over plain paging, 2026-09-17.
+
+**`in_table` is opt-in, and does less than the plan assumed** (owner, 2026-09-17). "Dismisses 2,287
+cell headers" was measured before M141 was rebuilt. With the reader that shipped:
+
+* it marks **0–44%** of each answer-key document's candidates, and 36% on the prospectus it was
+  designed against (3,629 of 10,114), where the call takes **89 s** instead of under 2 s;
+* it reads the tables of every page that has a candidate, which added 0.10–0.18 s a page on the
+  answer keys and 0.42 s a page on the magazine, where the rest of the call costs 3–23 ms a page;
+* it marked **five real headings** as table text. `get_tables` returns NVIDIA p151 and p167, Apple p13
+  and Lilly p56 (twice) with a note's heading inside a table cell — the known limit where two tables
+  separated only by a rule are read as one (`PROGRESS.md` §Open follow-ups).
+
+So `tables: true` has to be asked for, needs `pages`, and the docs say never to drop a candidate on it
+alone. It calls `tables.read_page` — the function `get_tables` itself uses — so the two tools cannot
+disagree. A test swaps that function out and watches the marks change with it.
+
+**Measured and left as they are.** Italic run-ins are rare (0–42 per document) and several are real
+headings (`Emergency Succession Plan`), so they count like bold ones. And MuPDF's error messages,
+raised inside the table reader on one market report, are printed to the `sys.stdout` PyMuPDF saved
+when it was imported, not to stderr. That cannot reach the protocol: while serving, the SDK's stdio
+transport points file descriptor 1 at stderr and writes the protocol through a private copy
+(`mcp/server/stdio.py`, `_claim_fd`) — the same diversion `tables.py` already relies on.
+
+**What a whole-document call costs.** On the 572-page prospectus: under 2 s, and about 90 MB above
+the server's baseline at its peak — 24 MB to open the file, 36 MB passing through while MuPDF reads
+every page, and 28 MB for the lines held until the body style is known. `pages` stayed optional on
+those numbers.
+
+**Where it lives.** `klarpdf/mcp_bridge/headings.py`, bridge only. The GUI has no agent to classify
+candidates, and the owner's position of 2026-09-09 is that it does not need one.
+
+**Verification.** `tests/test_mcp_headings.py` builds each shape with PyMuPDF (37 cases). Each rule was
+then broken on purpose, one at a time — 22 breaks, from measuring the body over the requested pages to
+joining lines across blocks — and every break made its test fail. Two of the checks needed fixing
+before they could be trusted, which is the reason for breaking things on purpose at all:
+
+* the first break of the body rule was itself faulty (it overwrote counts instead of subtracting them)
+  and left its test green until it was corrected;
+* `tools/heading_corpus_check.py` **stayed green when the hidden-text skip was removed**, because no
+  heading was lost — the damage was 362 extra candidates and 31 extra styles. It now also pins each
+  document's candidate and style counts, and turns red on that break (as it does on removing the
+  italic test: Apple drops to 47 of 60).
 
 #### A second document, a different shape — what it adds to M138 and M139
 

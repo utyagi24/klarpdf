@@ -358,6 +358,17 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   some documents (`'P'`, `'rcent'`), and the second puts each character in whichever cell its centre
   falls in, which cuts words at a column edge and once moved an address's underscore onto a line of
   its own. Cells are built from the ordinary word extraction instead (`PLAN.md` §M141).
+- **A PDF can carry its text twice, with only one copy visible.** Some converters add a hidden copy
+  of every line (render mode 3: no fill, no stroke) at slightly different sizes, and a scanner's OCR
+  layer is the same thing with nothing visible above it. `get_text()` returns both, so reading code
+  sees every line twice, in two fonts — on `SpaceX-EUProspectus.pdf` the copy's wandering sizes
+  added 31 bogus styles to M140's reply, and code that groups text by position welds each line to
+  its twin (an M140 prototype returned `1.1 1.1 Risks… Risks…`, and 98 of 100 headings stopped
+  matching their titles). **The tell is
+  `span["char_flags"] & (FZ_STEXT_FILLED | FZ_STEXT_STROKED) == 0`** (and `alpha == 0`);
+  `get_texttrace()` reports `type == 3`. `get_heading_candidates` skips such spans; `get_tables`
+  does not yet and declines every table on that file
+  ([#352](https://github.com/utyagi24/klarpdf/issues/352)); `extract_text` returns both copies.
 - **Windows Python must be python.org 3.12.x**, not the Microsoft Store stub (which can't build).
   That is the **app's build** requirement and nothing else. The MCP bridge is `pip`-installed rather
   than frozen, so `requires-python` genuinely gates it, and since M132 it is `>=3.11,<3.15` — do not

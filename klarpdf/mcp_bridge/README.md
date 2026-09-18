@@ -265,7 +265,7 @@ you are configured. (It is offered rather than switched on silently, which is wh
 safe.) That file calls the bare `klarpdf-mcp`, so activate the virtualenv before you start Claude
 Code: `source .venv/bin/activate`.
 
-Confirm with `/mcp`: it should say **klarpdf — 22 tools**. If it says *failed*, run the command by
+Confirm with `/mcp`: it should say **klarpdf — 23 tools**. If it says *failed*, run the command by
 hand in the same shell you launch Claude from; the error is almost always `command not found`
 (nothing installed, or a different virtualenv active) or `No module named mcp` (installed the
 package but not its dependencies).
@@ -358,7 +358,7 @@ machine, an agent you are still learning to trust, a directory of client documen
 
 | Switch | Environment variable | What it does |
 |---|---|---|
-| `--read-only` | `KLARPDF_MCP_READ_ONLY=1` | Registers only the seven read tools. The twelve transform and redaction tools are never advertised, so the model does not see them and cannot ask for them. |
+| `--read-only` | `KLARPDF_MCP_READ_ONLY=1` | Registers only the ten read tools. The thirteen transform and redaction tools are never advertised, so the model does not see them and cannot ask for them. |
 | `--allow-root DIR` | `KLARPDF_MCP_ALLOW_ROOTS` | Confines every path — inputs and outputs alike — to that directory tree. Repeatable on the command line; the variable takes a list separated by your platform's path separator (`:` on macOS and Linux, `;` on Windows). |
 
 Pass them wherever your client names the command:
@@ -428,6 +428,7 @@ error, never a silent clamp. Every tool takes an optional `password` — see
 | `get_info` | Pages, size, page sizes, encryption + permissions, **has-text-layer**, outline. Call it first. |
 | `get_outline` | Bookmarks as `{level, title, page}`. |
 | `get_tables` | Tables on the pages you name, as `rows` with each table's `title`, `page` and `bbox` — plus `unread_regions`, naming every region that could not be read and why. Rows come only from what the page draws (a grid, or ruled lines and shaded bands), columns from the white space no text crosses, and every table is checked against its page before it is returned. `pages` is required: reading tables costs far more than `extract_text`. |
+| `get_heading_candidates` | Lines set to stand out from the document's body text — larger, bold, or italic, including a heading that opens a paragraph — with page, `bbox` and a `style` id, plus a table describing each style once. For building bookmarks with `set_outline` when a document has neither an outline nor a linked contents page, or to add sections under an outline that has only chapters. The agent decides what is a heading; `styles` narrows to the ones it chose, and `tables: true` marks lines inside a table `get_tables` returns. |
 | `get_links` | Every link: where it points (`target_page` / `uri` / `file`), its `rect`, and the words under it. The structure a document carries when it has no bookmarks. Link *annotations* only — a URL merely typeset on the page is not one, so pair it with `search` for a privacy sweep. |
 | `search` | Hits with page, snippet, box, and whether the text is `invisible` on the page. `match_case`, `whole_words`. |
 | `extract_text` | Text of named pages. |

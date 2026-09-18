@@ -26,7 +26,7 @@
   <tr>
     <td><b>🏠 The app</b><br><sub>you are here</sub></td>
     <td><a href="klarpdf/mcp_bridge/QUICKSTART.md">🚀 <b>MCP — quick setup</b></a><br><sub>running in three commands</sub></td>
-    <td><a href="klarpdf/mcp_bridge/README.md">📖 <b>MCP — full reference</b></a><br><sub>22 tools · client config · restricting what it may touch</sub></td>
+    <td><a href="klarpdf/mcp_bridge/README.md">📖 <b>MCP — full reference</b></a><br><sub>23 tools · client config · restricting what it may touch</sub></td>
   </tr>
 </table>
 
@@ -155,9 +155,10 @@ tests and our weekly audit scans — not whatever is newest that day.
 Full install options, the Claude Desktop config, and the one-click `.mcpb` bundle are in
 **[klarpdf/mcp_bridge/README.md](klarpdf/mcp_bridge/README.md)**.
 
-Twenty-two tools in three groups. **Read** — `get_info`, `get_outline`, `get_links`, `get_tables`,
-`search`, `extract_text`, `render_page`, `get_form_fields`, `get_annotations` — let an agent pull
-only the pages it needs instead of loading an 800-page file whole. **Transform** — `extract_pages`, `split`,
+Twenty-three tools in three groups. **Read** — `get_info`, `get_outline`, `get_links`, `get_tables`,
+`get_heading_candidates`, `search`, `extract_text`, `render_page`, `get_form_fields`,
+`get_annotations` — let an agent pull only the pages it needs instead of loading an 800-page file
+whole. **Transform** — `extract_pages`, `split`,
 `merge`, `reorder`, `delete_pages`, `rotate`, `fill_form`, `flatten`, `set_outline`,
 `export_images`, `annotate` — keep the content and always write a *new* file. **Redact** —
 `redact_text`, `redact_regions` — physically delete the content and then re-read the written file to
@@ -171,6 +172,16 @@ privacy question as much as a navigation one, and *what is its structure* when i
 because a printed contents page is usually a stack of link annotations, each already carrying its
 title, its target page and, in its indent, its level. Authored by the publisher, not inferred from
 typography.
+
+**No bookmarks and no linked contents page? Read the typography.** `get_heading_candidates` lists
+the lines a document sets to stand out — larger than its body text, bold, or italic, including a
+heading that opens a paragraph — each with its page, its position and a style, plus a short table
+describing each style once. The agent decides which styles are headings and at what level; the tool
+only makes sure none is missed. "Larger" is measured against the body text of the whole document,
+so a section full of tables does not make every paragraph look like a heading, and text a reader
+cannot see — a hidden copy of the page's text, which some converters add — is ignored rather than
+doubling every line. Name a chapter's pages and the same call finds the sections to add under an
+outline that has only chapters.
 
 **Then write that structure back.** `set_outline` takes `[{level, title, page}]` — the same shape
 `get_outline` returns — and writes it into a copy of the document as real bookmarks, so a manual
