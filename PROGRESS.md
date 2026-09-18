@@ -2691,6 +2691,19 @@ on the one above it. Every decision, every rejection and every measurement behin
 `PLAN.md` §M133–M136 — **not restated here**. The headline: the install goes from nine commands to
 `python install.py`, or to `uvx --from klarpdf klarpdf-mcp` for anyone who already has `uv`.
 
+- [x] **M146** *(unplanned)* **The shared core is what the bridge loads, and a test pins it** —
+  2026-09-18, found while reviewing [#363](https://github.com/utyagi24/klarpdf/pull/363).
+  `CLAUDE.md` §*Two consumers share one core* named `viewer/` and `organize/` as shared with the
+  bridge. The bridge has never imported either, and the list also left out `klarpdf/util/`, which
+  the bridge does use. It had been wrong since it was written (#279, 2026-08-23): its list is the
+  *Hybrid dev* bullet's, which is about which OS the code runs on. Running every tool shows what the
+  bridge loads: all of `klarpdf/model/` and `klarpdf/util/` except three app-only files
+  (`edit_commands.py`, `reveal.py`, `resources.py`), and nothing of the app's own code. `CLAUDE.md`
+  now says exactly that, and `tests/test_mcp_no_qt.py` keeps it true. That closes a real gap: three
+  `viewer/` modules need no Qt, so a bridge tool importing one passed every test and would have
+  failed only on a user's machine. Each new check was confirmed by breaking it. Design in `PLAN.md`
+  §M146 — *WSL* — [#363](https://github.com/utyagi24/klarpdf/pull/363)
+
 - [x] **M144** *(unplanned)* **`httpx2` 2.10.0 → 2.12.0 — three advisories in the bridge's HTTP
   client** — 2026-09-16, fixes [#336](https://github.com/utyagi24/klarpdf/issues/336), found by the
   weekly `audit` job going red on 2026-09-14. One high (a small compressed response can force a large

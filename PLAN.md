@@ -7634,6 +7634,68 @@ differ, and CI's `bridge` job already tests the bridge against its own lock. Ali
 separate question, so it is recorded in `PROGRESS.md` §Open follow-ups rather than folded into a
 security fix.
 
+### M146 — the shared core is what the bridge loads, and a test pins it *(unplanned)* (2026-09-18)
+
+**Found by reviewing a rule, not by a failure.** [#363](https://github.com/utyagi24/klarpdf/pull/363)
+adds the issue labels, and `core` means "the fix changes code both surfaces run, so it owes tests on
+both". Checking what that covers found the list behind it wrong. `CLAUDE.md` §*Two consumers share
+one core* named `klarpdf/model/`, `viewer/` and `organize/` as reached by the app and the bridge,
+and it had been wrong since it was written in [#279](https://github.com/utyagi24/klarpdf/pull/279)
+(2026-08-23):
+
+- **The bridge has never imported `viewer/` or `organize/`.** No commit on any branch adds such an
+  import. On 2026-08-23 the bridge on `main` imported only `model/` and `util/`, and its bundle
+  build script already said "no `viewer/`". The one time `viewer/` came close, M101 moved the
+  markup palette into `model/` rather than import it.
+- **It left out `klarpdf/util/`**, which the bridge already used (`paths`, `atomic`, `page_range`).
+- **Its list is the *Hybrid dev* bullet's "cross-platform core"**: the same three directories in
+  the same order. That list answers which OS the code runs on, not which program runs it, the same
+  split the rule's own last paragraph draws. `CLAUDE.md`, `README.md` and `CONTRIBUTING.md` now call
+  it "cross-platform code".
+
+**What the bridge loads, measured.** All 22 tools were run in a fresh interpreter, and every project
+module that loaded was listed: all of `klarpdf/model/` and `klarpdf/util/` except three files, plus
+`klarpdf/version.py`, and nothing of the app's own code (`viewer/`, `organize/`, `ui/`, `store/`,
+the top-level modules). The three are the app's alone: `klarpdf/model/edit_commands.py` imports Qt,
+`klarpdf/util/reveal.py` is the scroll-into-view policy of the page view and the Pages sidebar, and
+`klarpdf/util/resources.py` locates the files bundled with the app. The other direction holds too:
+the app reaches all eighteen modules in those two directories (a static scan of every import in its
+code, followed through `klarpdf/`), so none of them is bridge-only. The core is therefore the two
+directories less those three files, and `CLAUDE.md` now says so.
+
+**A dated check is not enough, so `tests/test_mcp_no_qt.py` now pins both halves.** It already ran
+every tool in a clean interpreter; the child now also reports what it loaded.
+
+1. `test_nothing_of_the_apps_own_code_reaches_the_server_path`. The Qt check did not cover this,
+   because `viewer/links.py`, `pixmap_cache.py` and `tools.py` import no Qt. The repo root is on
+   `sys.path` in the tests, so a tool importing one of them passes the whole suite. Where the bridge
+   is installed there is no `viewer/` (the wheel ships only `klarpdf.*`), so the tool fails when it
+   is called, and CI's installer job, which starts the server but calls no tool, cannot see it.
+   It is the pypdf gap M115 closed, in another shape: what the tests run is not what the bridge
+   ships.
+2. `test_the_bridge_loads_the_whole_core_but_three_app_only_files`: the files in `klarpdf/model/`
+   and `klarpdf/util/` that the bridge does not load must be exactly `APP_ONLY_CORE`. Equality, so
+   a stale list fails in either direction, naming the file and the two places to update.
+3. `test_the_guard_would_notice_app_code_that_needs_no_qt`, the negative control: it imports
+   `viewer.links` on purpose and asserts that the app-code check catches it while the Qt check stays
+   empty.
+
+**Each check was verified by breaking it.**
+
+- Adding `import viewer.links` inside `get_links` failed check 1, naming `viewer.links`. With that
+  break in place, every other bridge test still passed.
+- Run from outside the checkout, where only `klarpdf` is importable, as when installed, the same
+  call returned `Error executing tool get_links: No module named 'viewer'`. Without the break it
+  succeeded.
+- Adding `from klarpdf.util import resources` to a tool failed check 2 with
+  `listed as app-only but now loaded by the bridge: ['klarpdf.util.resources']`.
+- Adding an empty `klarpdf/util/zz_probe_app_only.py` failed it with
+  `not loaded by the bridge and not listed: ['klarpdf.util.zz_probe_app_only']`.
+
+**Surfaces.** Bridge tests and documents only; no product code changes. The `bridge` CI job runs
+these tests under the bridge's own lock, which has no PySide6. The negative control is built to run
+there: `viewer/links.py` needs only PyMuPDF and `klarpdf.model`.
+
 ## Future enhancements (deferred beyond the roadmap)
 
 Captured but not yet scheduled:
