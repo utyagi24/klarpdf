@@ -692,10 +692,18 @@ twice reads it once.
   point.
 * **A small table on a page with little other text may not be found at all.** The finder needs a
   handful of words lined up down the page before it locates a region; such a page reports no table.
-* **`title` is best-effort.** It is the nearest caption-like line above the table, stepping over an
-  introductory paragraph and over headings that are links rather than text. A caption printed as one
-  block together with the company name and "(in millions)" is passed over as well, so a statement can
-  come back with no title at all. Treat it as a label to show a user, never as a key.
+* **`title` is the caption the page sets over the table, or `null`.** It is the nearest line above
+  the table set to stand out from the page's text (larger, or bold or italic where the rest is not),
+  stepping over what qualifies a table rather than naming it (a line in brackets such as "(in
+  millions)", a column heading left above the table) and over one paragraph introducing it. A title
+  printed on two lines comes back whole, with the company's name when the page prints the two in one
+  heading. It is `null` rather than a guess wherever the page does not say: nothing stands out above
+  the table, a second paragraph or another table lies between, the line is a sentence (a form's
+  instruction), or it is a chart's caption set under the chart. Two titles a reader would see come
+  back `null` too: a heading set in the page's own type (a slide deck's letter-spaced headings, on a
+  page set mostly in that type), and a title the page before prints word for word in the same place,
+  which reads as a running header, so a statement continued under a repeated title is titled on its
+  first page only. Show it to a user as a label; never use it as a key.
 * **Signs are what the text says.** A negative printed as `(1,234)` comes back as `(1,234)`. A
   direction shown only as a red or green arrow — common in market-share and KPI tables — is not in
   the text at all, and the magnitude comes back unsigned. Where sign matters, check `render_page`.

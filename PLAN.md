@@ -7545,7 +7545,7 @@ The design itself was driven by `tools/table_corpus_check.py`: fixed expectation
 eye, arithmetic or render, compared on every run — adopted after a label column lost in one round
 survived six rounds of comparing each run only with the one before.
 
-#### M145 — table titles you can trust, and why there is no chart list *(planned 2026-09-17)*
+#### M145 — table titles you can trust, and why there is no chart list *(planned 2026-09-17, built 2026-09-19)*
 
 Asked by the owner right after M140 was built: *"in addition to headings, would it be helpful to
 provide list of charts and tables along with their titles?"* Answered by measuring the corpus, and
@@ -7644,6 +7644,136 @@ halves of a table printed two-up share one title.
 3. **The title rule**, measured against the key and broken on purpose in tests, as M140's rules
    were.
 4. **The `title` entry under *Known limits* in `klarpdf://docs/get_tables`**, rewritten to match.
+
+**Built 2026-09-19, in that order.** Two defects turned up on the way and are fixed here too:
+[#366](https://github.com/utyagi24/klarpdf/issues/366), and a caption carried over from the page
+before that was a rule of underscores (Amazon's release, p12). The rule the plan proposed was the
+starting point. What it got wrong on pages it had not been built on is what shaped the result.
+
+**The answer key.** `tools/table_corpus_public.json` pins the title of each of the 89 tables its
+pages return, and the private plan pins the owner's 16. Each was judged on a render and checked to be
+text printed on the page. What counts as right:
+
+1. A table's **own title** is the text printed to name it: a caption or heading directly above (or
+   stranded at the foot of the page before), with nothing between but qualifiers (units,
+   "(Unaudited)", dates) and column headings. When a statement prints the company's name in its
+   heading, the name alone and the company with the name are both right.
+2. A table with **no title of its own**, introduced by a sentence or by nothing, is right untitled,
+   and right titled with the heading of the section that holds it: the nearest heading above it,
+   with no other heading between.
+3. **Anything else is wrong**: a heading further up than the table's own title (#355's `Item 1. …`),
+   another object's text (a chart's axis label or source note, a pictogram's caption, a line from the
+   next column), prose, a units line on its own, a rule of underscores, a running page header.
+
+A pinned entry is a list when several answers are right, and `null` in the list accepts no title as
+well. The checker compares titles as the tool returns them, a caption from the page before included,
+and refuses a key it does not know. Both were shown failing on a wrong title and a misspelt key
+before either was trusted (`tests/test_table_corpus_check.py`, which fails 7 of 7 on the checker as
+it was). Against the key, the rule this replaces scored **66 right, 23 missing, 16 wrong** of 105.
+Besides #355's four it took prose fragments (`information upon which`, `For example,`), a
+pictogram's caption, a checkbox's label (`Yes`), a value typed into a form field, and the rule of
+underscores.
+
+**#354: a grid whose drawn cells overlap is declined.** NADA's chart is bars with white outlines
+standing on gridlines. The finder took the band between two gridlines for one cell and each bar top
+inside that band for another, so its cells overlap, which no table's cells do. The grid reader now
+declines such a region as `overlapping_cells`. It checks this after everything else, so a region
+another check declines keeps that check's reason. Five of the corpus's 79 grid regions have
+overlapping cells; the other four were already declined or not a table, so across both plans the
+check changes one page, NADA p4.
+
+**#366: only the page before hands a table a caption or a continuation.** Found while deciding what
+the checker should compare: `tables()` took the previous page *asked for* to be the page before.
+Asked for pages 1 and 3, page 3's table took a caption stranded at the foot of page 1, and
+`continuation_checked` said the opposite of its documented meaning on both sides of the gap.
+
+**The rule.** The search walks up from the table through the lines over it, nearest first.
+
+* The title is the first line **set to stand out** from the body text, by M140's comparisons:
+  larger, or bold or italic where the body is not. A line in the body's own type is prose however
+  short, and that alone ends the fragments and the checkbox label.
+* On the way it **steps over** a line wholly in brackets; a **column heading** the table's box left
+  out, which is a line right of the label column that is set smaller than the body or lies off the
+  table's centre (every heading measured is one or the other, and a short centred title like
+  Amazon's `Segment Information` is neither); a line **naming nothing** (a year, a chart's figures);
+  **pieces side by side** (a header row); and **one block of body text**, the paragraph
+  introducing the table under its heading.
+* It **stops with no title** at a second block of prose; a **sentence** set to stand out (a form's
+  instruction); text that **cannot be read** (control characters where letters were); **another
+  object's text** (a line inside another table or a declined region); and a **running header**, a
+  line the page before prints word for word in the same place.
+* The title is the line found and the lines of its MuPDF block **stacked above it in its style**, so
+  a title printed on two lines comes back whole and a label level with it does not join it. A line's
+  style is judged **without its bracketed runs**: NADA ends a title line with "(in billions of
+  dollars)" in small type, which by character count outweighed the title's words.
+* The line found is dropped if it is a **figure's caption**: the nearest thing above it is a drawing
+  or picture taller than the line, and it is nearer that than the table. Tesla's update sets a
+  chart's title under the chart, and a table can follow. A title in **a band of its own**, a filled
+  shape holding it and not the table, is a heading whatever stands above it: GE's guide heads a grid
+  "Mythe ou réalité" in white on black under a boxed note.
+* A table with no title takes one from **the half of a list printed two-up** beside it, level with
+  it and headed the same.
+
+A caption stranded at the foot of a page is found the same way, looking down. Every rule compares two
+things the page shows. The only fixed distances are the two the old code already had, how far above a
+table the search looks (160 pt) and how far below it a stranded caption may sit (120 pt), and "the same
+place" means within PyMuPDF's own snap tolerance, which `tables.py` reuses wherever it compares two
+positions.
+
+**Measured on pages the rule was not built on.** The key was in view while the rule was written, so
+two rounds of **held-out** tables were drawn at random, with fixed seeds, from pages outside both
+plans: 58 tables, then 33, from 19 public documents. Four of those documents are in no plan: Cisco's
+annual report, a Treasury auction specification, a GE refrigerator guide and a Java API reference.
+Every title was judged on its render.
+
+| | right | missing | wrong |
+|---|---|---|---|
+| key (public and private), old rule | 66 | 23 | 16 |
+| key, new rule | 103 | 2 | **0** |
+| held-out round 1, old rule | 45 | 5 | 8 |
+| held-out round 1, new rule as first drafted | 51 | 1 | 6 |
+| held-out round 1, new rule | 56 | 2 | **0** |
+| held-out round 2, old rule | 32 | 1 | 0 |
+| held-out round 2, new rule | 33 | 0 | **0** |
+
+The first draft's six wrong titles in round 1 are why four of the rules above exist. Three were a
+notes section's running header (QCOM p11, NVIDIA p154, Cisco's annual report p98), one a column's
+date that sat between two figure columns (NVIDIA p154), one a chart's caption (Tesla p9), and one
+two labels joined into `FIRST FLOOR SECOND FLOOR` (a brochure). Round 2, run on the rule as it then
+stood, found two more, both fixed before the scores above: GE p95's prose, whose font maps letters to
+control characters so its full stops are invisible to the sentence test, and GE p92's band.
+
+**Four misses, accepted.** Two are a title the page before prints word for word in the same place.
+Amazon's release continues its supplemental statement across p11 to p13, and the TIPS table prints one
+heading over every page, so the rule reads both as a running header, which it has to do for the notes
+pages above. The key accepts `null` there, with a note on each anchor. The other two are Tesla's p5,
+where a slide's heading is set in the page's own type, and Amazon p13 (held out, the same repetition).
+
+**The body is the page's, not the document's.** M140 measures the body over the whole document.
+Measured both ways on all 196 tables, neither gave a wrong title. The page's body found three more
+(Tesla's statement headings are the deck's body type, and still larger than the tables under them),
+and it costs nothing, where the document's took 1 to 2.7 s a document to title a table on one page. It
+has one known cost. On a page of small-type tables, prose above a table stands out from the page's
+body, and only the sentence test keeps it out. NVIDIA's p71 introduction stops the walk that way, so
+its heading is not reached (a miss, and accepted by rule 2). An unpunctuated line of prose there
+would be taken; none of the 196 tables did that.
+
+**Considered and not taken.** A paragraph's run-in heading as the title (QCOM p11's `Concentrations.`):
+right, but rare, and the page's running header was the defect to fix. A figure lying *between* a title
+and its table as a stop: nothing in the corpus needs it. Letting a sentence set to stand out
+introduce a table, so that the resource guide's p9 heading would be reached: the same step would let
+the bold lead-in of an infographic pass, split one line to a block as the survey report's is.
+
+**Where it lives.** `klarpdf/mcp_bridge/tables.py`, which reads styled lines from `headings.py`;
+`tools/table_corpus_check.py` and the two plans. Bridge only: the app does not read tables.
+`get_heading_candidates` with `tables: true` reads tables through the same `read_page` and does not
+use titles; `tools/heading_corpus_check.py` holds.
+
+**Verification.** `tests/test_mcp_tables.py` has a test for each rule, each a built page with a known
+answer, beside #354's three and #366's two. Each rule was then removed in turn, 16 breaks, and its
+test seen to fail. One test at first passed with its rule removed: the bracket lines in its heading
+sat right of the label column, so the column-heading test stepped over them before the bracket rule
+could. The fixture was moved until only the bracket rule could. Both corpus plans: 0 problems.
 
 **Why before M142.** M142 prints what `get_tables` returns. As things stand it would print NADA's bar
 chart as a Markdown table and head financial statements with the wrong text.
