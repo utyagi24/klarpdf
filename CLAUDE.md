@@ -128,6 +128,22 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   an issue *shows* is not always where its fix goes. #361 is a bridge feature that writes through
   the core's `set_outline_override`, so it carries `mcp-bridge` and `core`. Check the code before
   labelling, as for any other claim, and relabel when the fix turns out to go elsewhere.
+- **Investigate a defect once, when it is fixed** (owner, 2026-09-19). Filing an issue, planning a
+  milestone for it and building the fix each used to dig into the same defect, so one cause was
+  worked out three times over. The M149–M152 planning session re-measured issues that had been
+  measured when they were filed, and would have been measured again when built. Each step now does
+  only its own job:
+
+  * **Filing an issue** records the report: what the reader sees, the steps and the document that
+    reproduce it, the environment, and what was expected. If the work that found it already knows
+    the cause, say so in a line. Do not go looking for it. Label from what is known then; the
+    session that fixes it relabels if the fix goes elsewhere.
+  * **Planning** groups issues from what their tickets already say: which share a theme, the order,
+    the surfaces. It runs no new measurements and writes no design.
+  * **Building the fix** is where the diagnosis happens: the root cause, the measurements, the
+    design, the questions for the owner, and the `PLAN.md` entry.
+
+  Each step starts in a fresh session, so a diagnosis done early gets done again anyway.
 - **Every non-trivial change gets both a `PLAN.md` design entry and a `PROGRESS.md` milestone** —
   in the *same* PR as the code, not afterwards. "Non-trivial" is anything that changes how the app
   behaves or how it is built: a new route through the save path, a contract change, a defect whose
