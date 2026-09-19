@@ -7599,8 +7599,9 @@ against its page. Of 16 returned, **13 titles are right, 2 are wrong, and 1 is n
   wrong one.
 
 The open follow-up on a statement name printed in one block with the company name is the same cause,
-so it graduates here. No titles are pinned in `tools/table_corpus_public.json` today (0 `title`
-expectations), which is why the corpus check stayed green through all of these.
+so it graduates here. No titles are pinned in `tools/table_corpus_public.json` today, and the checker
+has no way to pin one yet (step 1 below), which is why the corpus check stayed green through all of
+these.
 
 **The rule to try, and what a prototype of it measured.** Take titles from typography rather than
 from length and word counts: the nearest lines above the table that `get_heading_candidates` reports
@@ -7629,6 +7630,16 @@ halves of a table printed two-up share one title.
    kept outside the repository for the rest. Today's rule is the baseline, so every change is
    reported as fixed or broken against fixed expectations, never against the previous run
    (`CLAUDE.md` §*Fix a class of bug once*).
+
+   **The checker has to learn titles first** *(found 2026-09-18)*. `anchor_failures` in
+   `tools/table_corpus_check.py` compares five keys (`tables`, `shapes`, `rows`,
+   `first_cell_prefix`, `unread`) and silently skips any other. Measured: an anchor on TEAM p69
+   holding `"title": "DEFINITELY NOT THE TITLE"` reports 0 problems, although the title returned is
+   `CONSOLIDATED BALANCE SHEETS`; so does the typo `"row"` for `"rows"`. A row with one wrong figure
+   does fail, so the checker works; it just never reads those keys. Pinning titles in the JSON files
+   alone would change nothing. So step 1 also adds a `title` comparison, makes a key the checker does
+   not know an error rather than a silence, and shows a wrong title failing the run before any title
+   result is trusted (`CLAUDE.md` §*The thing that verifies the code needs verifying too*).
 2. **#354.** Find which check should decline NADA p4, and pin that page.
 3. **The title rule**, measured against the key and broken on purpose in tests, as M140's rules
    were.
