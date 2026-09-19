@@ -574,10 +574,11 @@ def create_server(config: Config | None = None) -> MCPServer:
         it — a chart, a second table, or labels the table needs — is named there.
 
         `header` is the first row of a drawn grid and null otherwise; a ruled table's header lines,
-        when they could be read, are its first rows. `title` is best-effort. `continues_from` flags a
-        table that *may* continue one on the page before — **flagged, never merged** — and
-        `continuation_checked` says whether that page was looked at. Figures are what the page
-        prints: a sign shown only as a coloured arrow is not in the text.
+        when they could be read, are its first rows. `title` is the caption set over the table, or in
+        a first row drawn across it, and null where the page does not say. `continues_from` flags a table that *may* continue one on the page
+        before — **flagged, never merged** — and `continuation_checked` says whether that page was
+        looked at. Figures are what the page prints: a sign shown only as a coloured arrow is not in
+        the text.
 
         The reply paginates: when `more_available` is true, call again with `offset` set to
         `offset + count`. Field contract and known limits in `klarpdf://docs/get_tables`.

@@ -198,7 +198,9 @@ entries into that list and send the whole tree back. The two shapes are identica
 so keeping an existing entry is one `+`.
 
 **Read the tables — or say plainly why not.** `get_tables` returns the tables on the pages you name
-as rows, each with its page, its box on the page and its caption. It reads a table only from what the
+as rows, each with its page, its box on the page and its caption: the one the page sets over it, or
+in a first row drawn across the table, or none, never a heading or a note that belongs to something
+else. It reads a table only from what the
 page itself draws: a drawn grid, or ruled lines or shaded bands for the rows — the shape of nearly
 every financial statement — with the columns taken from the white space no text crosses. Each cell
 holds whole lines of the page's text, so a label is never cut in two and `(1,234)` keeps both

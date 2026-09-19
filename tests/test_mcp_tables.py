@@ -11,6 +11,9 @@ the same path a caller's document does. The behaviours pinned fall into four gro
 * **Wiring** — each check's call site is broken on purpose and the fixture that depends on it is
   shown to change, so a check that is defined but no longer called cannot pass silently (#348 had
   six "negative controls" that pinned a function while its call site could be deleted).
+* **Titles** (M145) — each rule that picks a table's caption, shown deciding the shape it exists for.
+  Every one was also removed in turn and its test seen to fail; ``tools/table_corpus_check.py``
+  measures the same rules against an answer key of real pages.
 * **The reply** — pagination, caps, rotation, continuation, and ``extract_text``'s ``table_pages``.
 """
 
@@ -240,7 +243,7 @@ def test_a_first_row_above_the_ruling_and_a_total_below_it_are_taken_in(tmp_path
 def test_a_title_above_a_table_is_its_title_and_not_a_row(tmp_path):
     doc = fitz.open()
     page = doc.new_page()
-    page.insert_text((230, 90), "CONDENSED BALANCE SHEETS", fontsize=FONT)
+    page.insert_text((230, 90), "CONDENSED BALANCE SHEETS", fontsize=FONT, fontname="hebo")
     _statement(page, 100, ASSETS)
     path = _save(doc, tmp_path, "titled.pdf")
     result = _read(path)
@@ -253,18 +256,19 @@ def test_a_linked_heading_is_navigation_rather_than_a_title(tmp_path):
     """Every filing prints a "Table of Contents" link in its top margin, and it was handed back as
     the title of the statement below it — Cisco p61, Broadcom p49 and salesforce p4 alike (TC-039).
     The same heading without the link is an ordinary caption, and still titles the table."""
-    doc = fitz.open()
+    titles = {}
     for linked in (True, False):
+        doc = fitz.open()  # one page each: a heading repeated on the page before is a running header
         page = doc.new_page()
         heading = fitz.Rect(55, 28, 150, 40)
-        page.insert_text((heading.x0, heading.y1 - 2), "Table of Contents", fontsize=FONT)
+        page.insert_text((heading.x0, heading.y1 - 2), "Table of Contents", fontsize=FONT, fontname="hebo")
         if linked:
             page.insert_link({"kind": fitz.LINK_GOTO, "from": heading, "page": 0})
         _statement(page, 100, ASSETS)
-    path = _save(doc, tmp_path, "linked_heading.pdf")
+        titles[linked] = _read(_save(doc, tmp_path, f"linked_{linked}.pdf")).tables[0]["title"]
 
-    assert _read(path, 1).tables[0]["title"] is None
-    assert _read(path, 2).tables[0]["title"] == "Table of Contents"
+    assert titles[True] is None
+    assert titles[False] == "Table of Contents"
 
 
 def test_a_two_up_list_whose_rows_line_up_is_read_as_one_table(tmp_path):
@@ -464,6 +468,53 @@ def test_text_running_across_a_drawn_grids_border_declines(tmp_path):
     assert "grid_crossed" in _codes(result)
 
 
+def _bar_chart(page: fitz.Page) -> None:
+    """Bars with white outlines standing on gridlines inside a frame, each with its value printed
+    above it: how NADA's dealer report draws the chart on its p4 (#354)."""
+    left, right, top, bottom = 80, 320, 100, 300
+    for y in range(top, bottom + 1, 50):
+        page.draw_line((left, y), (right, y), color=(0.6, 0.6, 0.6), width=0.5)
+    for x in (left, right):
+        page.draw_line((x, top), (x, bottom), width=0.5)
+    for i, (bar_top, label) in enumerate([(90, "19.1%"), (130, "17.6%"), (160, "16.8%"), (75, "20.9%"), (230, "10.2%")]):
+        x = 90 + 45 * i
+        page.draw_rect(fitz.Rect(x, bar_top + 20, x + 30, bottom), color=(1, 1, 1), fill=(0.5, 0.7, 0.9), width=0.5)
+        page.insert_text((x + 2, bar_top + 16), label, fontsize=FONT)
+
+
+def test_a_bar_chart_drawn_over_its_gridlines_is_declined(tmp_path):
+    """The finder boxes the band between two gridlines and each bar top standing inside it, so its
+    cells overlap. A table's never do."""
+    doc = fitz.open()
+    _bar_chart(doc.new_page())
+    path = _save(doc, tmp_path, "bar_chart.pdf")
+    result = _read(path)
+    assert not result.tables
+    assert _codes(result) == ["overlapping_cells"]
+
+
+def test_a_merged_cell_is_not_an_overlap(tmp_path):
+    """A header cell spanning two columns is one drawn cell, not two overlapping ones."""
+    doc = fitz.open()
+    page = doc.new_page()
+    for y in (100, 120, 140, 160, 180):
+        page.draw_line((100, y), (400, y))
+    for x in (100, 200, 400):
+        page.draw_line((x, 100), (x, 180))
+    page.draw_line((300, 120), (300, 180))  # no line between the two figure columns in the header
+    page.insert_text((105, 114), "Segment", fontsize=FONT)
+    page.insert_text((265, 114), "Net sales", fontsize=FONT)
+    for i, (name, first, second) in enumerate([("Americas", "12", "14"), ("Europe", "8", "9"), ("Japan", "3", "4")]):
+        y = 134 + 20 * i
+        page.insert_text((105, y), name, fontsize=FONT)
+        page.insert_text((205, y), first, fontsize=FONT)
+        page.insert_text((305, y), second, fontsize=FONT)
+    path = _save(doc, tmp_path, "merged_header.pdf")
+    result = _read(path)
+    assert not result.unread
+    assert _rows(result) == [["Segment", "Net sales", ""], ["Americas", "12", "14"], ["Europe", "8", "9"], ["Japan", "3", "4"]]
+
+
 def test_a_rule_through_text_declines(tmp_path):
     """Gridlines drawn through labels are not row separators."""
     doc = fitz.open()
@@ -654,6 +705,18 @@ def test_the_grid_crossing_check_is_what_declines_a_chart(tmp_path, monkeypatch)
     assert "grid_crossed" not in _codes(_read(path))
 
 
+def test_the_overlapping_cells_check_is_what_declines_a_bar_chart(tmp_path, monkeypatch):
+    """Blind the check and the chart comes back as a table with bar labels stacked in one cell, the
+    shape #354 reported."""
+    doc = fitz.open()
+    _bar_chart(doc.new_page())
+    path = _save(doc, tmp_path, "bar_chart.pdf")
+    monkeypatch.setattr(tables, "_overlapping", lambda cells: None)
+    table = _read(path).tables[0]
+    assert table["reader"] == "grid"
+    assert table["rows"][0][0] == "19.1%\n17.6%"
+
+
 def test_the_drawn_row_check_is_what_saves_a_banded_block(tmp_path, monkeypatch):
     """Blind the check — by telling it the page draws nothing across — and the twelve rows come
     back merged into one drawn row per block, which is what GOOGL p54 returned (TC-039)."""
@@ -822,6 +885,305 @@ def test_the_every_row_beside_rule_is_what_joins_a_two_up_list(tmp_path, monkeyp
 
 
 # ---------------------------------------------------------------------------------------------
+# Titles (M145) — each rule shown deciding the shape it exists for
+# ---------------------------------------------------------------------------------------------
+
+
+def _bold(page: fitz.Page, x: float, y: float, text: str, size: float = FONT) -> None:
+    page.insert_text((x, y), text, fontsize=size, fontname="hebo")
+
+
+def _titled(tmp_path, name: str, heading, top: float = 200, **statement) -> str | None:
+    """The title given to a statement at ``top``, under whatever ``heading`` draws above it."""
+    doc = fitz.open()
+    page = doc.new_page()
+    heading(page)
+    _statement(page, top, ASSETS, **statement)
+    return _read(_save(doc, tmp_path, name)).tables[0]["title"]
+
+
+def test_a_title_is_set_to_be_seen_as_one(tmp_path):
+    """A line in the body's own type is prose, however short: the rule this replaced took
+    "information upon which", a fragment of a sentence, for a survey table's title."""
+    assert _titled(tmp_path, "bold.pdf", lambda p: _bold(p, 60, 185, "Balance Sheets")) == "Balance Sheets"
+    assert _titled(tmp_path, "plain.pdf", lambda p: p.insert_text((60, 185), "Balance Sheets", fontsize=FONT)) is None
+
+
+def test_a_title_printed_on_two_lines_is_one_title(tmp_path):
+    """#355: NADA's report prints its title on two lines, and a rule that refused any block of two
+    lines took the source note of the charts above instead."""
+    two = "Average Number of New Vehicles Sold Per Dealership\nand Selling Price, by Year"
+    title = _titled(tmp_path, "two_lines.pdf", lambda p: _bold(p, 60, 172, two))
+    assert title == "Average Number of New Vehicles Sold Per Dealership and Selling Price, by Year"
+
+
+def test_a_statements_heading_block_gives_its_name_not_the_section_above(tmp_path):
+    """#355: Apple's and QCOM's statements came back titled "Item 1. …", the heading above the block
+    that holds the company, the statement's name, its units and "(Unaudited)"."""
+    def heading(page):
+        _bold(page, 60, 110, "Item 1. Financial Statements")
+        # From x 150 every line reaches the label column, so only the bracket rule can step over the
+        # last two; set further right, they would pass for column headings.
+        _bold(page, 150, 140, "ACME INC.\nCONSOLIDATED BALANCE SHEETS\n(In millions)\n(Unaudited)")
+    assert _titled(tmp_path, "statement.pdf", heading) == "ACME INC. CONSOLIDATED BALANCE SHEETS"
+
+
+def test_a_column_heading_left_above_the_table_is_stepped_over(tmp_path):
+    """The table's box can leave a column heading above it, set small over the figures. A short title
+    centred over the table misses the label column as well, and is still the title: Amazon's
+    "Segment Information"."""
+    def heading(page):
+        _bold(page, 250, 160, "Segment Information")
+        _bold(page, 440, 190, "Nine Months Ended", size=7)
+    assert _titled(tmp_path, "column_heading.pdf", heading) == "Segment Information"
+
+
+def test_one_block_of_text_may_stand_between_a_heading_and_its_table(tmp_path):
+    """Apple's notes print a heading, a sentence introducing the table, then the table. A second block
+    of prose means the heading heads more than the table, and there is no title."""
+    intro = "The following table shows net sales by category (in millions):"
+
+    def one(page):
+        _bold(page, 60, 150, "Note 2 - Revenue")
+        page.insert_text((60, 175), intro, fontsize=FONT)
+
+    def two(page):
+        _bold(page, 60, 120, "Note 2 - Revenue")
+        page.insert_text((60, 145), "Net sales rose in every region this quarter.", fontsize=FONT)
+        page.insert_text((60, 175), intro, fontsize=FONT)
+
+    assert _titled(tmp_path, "one.pdf", one) == "Note 2 - Revenue"
+    assert _titled(tmp_path, "two.pdf", two) is None
+
+
+def test_a_sentence_set_in_bold_is_not_a_title(tmp_path):
+    """A form sets its instructions in bold right above the part they govern (SSA-1)."""
+    assert _titled(tmp_path, "form.pdf", lambda p: _bold(p, 60, 185, "Answer this item only if you are now retired.")) is None
+
+
+def test_the_search_stops_at_another_objects_text(tmp_path):
+    """A title is over its own table, not over something else: a chart declined above this table has
+    a bold label that would otherwise be taken."""
+    doc = fitz.open()
+    page = doc.new_page()
+    for y in (100, 130, 160, 190):
+        page.draw_line((100, y), (400, y))
+    for x in (100, 250, 400):
+        page.draw_line((x, 100), (x, 190))
+    _bold(page, 105, 120, "Domestic")
+    page.insert_text((230, 147), "Import 47", fontsize=FONT)  # across a column line: the grid is declined
+    _statement(page, 220, ASSETS)
+    result = _read(_save(doc, tmp_path, "under_a_chart.pdf"))
+    assert "grid_crossed" in _codes(result)
+    assert result.tables[0]["title"] is None
+
+
+def test_a_line_the_page_before_prints_in_the_same_place_is_a_running_header(tmp_path):
+    """Notes pages repeat their section's name at the head of each page. An earlier draft of this rule
+    titled QCOM's, NVIDIA's and Cisco's notes tables with it."""
+    doc = fitz.open()
+    for _ in range(2):
+        page = doc.new_page()
+        _bold(page, 150, 185, "Notes to Consolidated Financial Statements")
+        _statement(page, 200, ASSETS)
+    path = _save(doc, tmp_path, "running_header.pdf")
+    assert [_read(path, n).tables[0]["title"] for n in (1, 2)] == ["Notes to Consolidated Financial Statements", None]
+
+
+@pytest.mark.parametrize(("caption_y", "expected"), [(172, None), (192, "Cumulative Miles")])
+def test_a_caption_under_a_figure_belongs_to_whichever_it_is_nearer(tmp_path, caption_y, expected):
+    """Tesla's update sets a chart's title under the chart, and a table can follow. Nearer the figure,
+    the line is its caption; nearer the table, the same line is the table's title."""
+    def heading(page):
+        page.draw_rect(fitz.Rect(55, 60, 540, 160), color=(0, 0, 0))
+        _bold(page, 60, caption_y, "Cumulative Miles")
+    assert _titled(tmp_path, f"caption_{caption_y}.pdf", heading) == expected
+
+
+def _grid(page: fitz.Page, x0: float, y0: float, rows: list[tuple[str, str]]) -> None:
+    widths, height = (110, 70), 20
+    xs = [x0, x0 + widths[0], x0 + sum(widths)]
+    for i in range(len(rows) + 1):
+        page.draw_line((xs[0], y0 + i * height), (xs[-1], y0 + i * height))
+    for x in xs:
+        page.draw_line((x, y0), (x, y0 + len(rows) * height))
+    for i, row in enumerate(rows):
+        for x, text in zip(xs, row):
+            page.insert_text((x + 4, y0 + i * height + 14), text, fontsize=FONT)
+
+
+def test_a_title_in_its_own_band_is_a_heading_whatever_stands_above(tmp_path):
+    """GE's guide heads a grid in white on a black band, right under a boxed note: nearer the note
+    than the grid, and still the grid's title, because the band is its own."""
+    doc = fitz.open()
+    page = doc.new_page()
+    page.draw_rect(fitz.Rect(55, 100, 540, 150), color=None, fill=(0, 0, 0))
+    page.insert_text((60, 125), "Call a technician only after reading the guide.", fontsize=FONT, color=(1, 1, 1))
+    page.draw_rect(fitz.Rect(55, 153, 540, 173), color=None, fill=(0, 0, 0))
+    page.insert_text((60, 168), "Myth or Fact", fontsize=14, color=(1, 1, 1))
+    _grid(page, 60, 200, [("Claim", "Answer"), ("Doors come off", "Myth"), ("Filters last", "Fact")])
+    assert _read(_save(doc, tmp_path, "band.pdf")).tables[0]["title"] == "Myth or Fact"
+
+
+def test_the_halves_of_a_list_printed_two_up_share_its_title(tmp_path):
+    """NADA's report sets its state lists two and three across, titled over the first part only."""
+    doc = fitz.open()
+    page = doc.new_page()
+    _bold(page, 60, 90, "Dealerships by State, 2025")
+    _grid(page, 60, 100, [("State", "Dealers"), ("Alabama", "278"), ("Alaska", "27"), ("Arizona", "250")])
+    _grid(page, 320, 100, [("State", "Dealers"), ("Nebraska", "153"), ("Nevada", "107")])
+    result = _read(_save(doc, tmp_path, "two_up.pdf"))
+    assert [t["title"] for t in result.tables] == ["Dealerships by State, 2025"] * 2
+
+
+def test_text_that_cannot_be_read_stops_the_search(tmp_path):
+    """GE's guide encodes a page's prose so that control characters stand where letters were, its full
+    stops too, and the sentence test cannot see the prose for what it is."""
+    assert _titled(tmp_path, "garbled.pdf", lambda p: _bold(p, 60, 185, "Syst\x03me certifi\x03 par l'IAPMO")) is None
+
+
+def test_a_titles_small_bracketed_tail_does_not_hide_its_style(tmp_path):
+    """NADA p12 ends a two-line title's last line with "(in billions of dollars)" in small type, whose
+    characters outnumber the title's own on that line."""
+    def heading(page):
+        writer = fitz.TextWriter(page.rect)
+        bold, plain = fitz.Font("hebo"), fitz.Font("helv")
+        writer.append((60, 172), "Dealerships Total Service and", font=bold, fontsize=12)
+        tail = writer.append((60, 188), "Parts Sales, 2025", font=bold, fontsize=12)[1]
+        writer.append((tail.x + 3, 188), "(in billions of dollars)", font=plain, fontsize=7)
+        writer.write_text(page)
+    title = _titled(tmp_path, "tail.pdf", heading)
+    assert title == "Dealerships Total Service and Parts Sales, 2025 (in billions of dollars)"
+
+
+def test_labels_side_by_side_in_one_block_are_not_one_title(tmp_path):
+    """A brochure prints "FIRST FLOOR" and "SECOND FLOOR" in one text block, over two plans."""
+    doc = fitz.open()
+    page = doc.new_page()
+    writer = fitz.TextWriter(page.rect)
+    font = fitz.Font("hebo")
+    writer.append((60, 185), "FIRST FLOOR", font=font, fontsize=FONT)
+    writer.append((330, 185), "SECOND FLOOR", font=font, fontsize=FONT)
+    writer.write_text(page)
+    _grid(page, 330, 200, [("Room", "Size"), ("Primary suite", "21 x 12"), ("Bedroom 4", "11 x 10")])
+    assert _read(_save(doc, tmp_path, "floors.pdf")).tables[0]["title"] == "SECOND FLOOR"
+
+
+def test_a_line_naming_nothing_is_stepped_over(tmp_path):
+    """A year row or a chart's figures name nothing; the title is above them."""
+    def heading(page):
+        _bold(page, 60, 160, "Deferred Revenue")
+        _bold(page, 60, 185, "2025")
+    assert _titled(tmp_path, "year.pdf", heading) == "Deferred Revenue"
+
+
+BANNER_ROWS = [("Field", "Required"), ("AccruedInterest", "Y"), ("AdjustedPrice", "Y"), ("CUSIP", "N")]
+
+
+def _banner_grid(page: fitz.Page, top: float, banner=None) -> None:
+    """A grid whose first row is one drawn cell across it, as a Treasury specification heads its
+    tables. ``banner(page, x0, y0, x1)`` writes that row's text."""
+    x0, x1, split, height = 60, 360, 240, 20
+    page.draw_rect(fitz.Rect(x0, top, x1, top + height))
+    for i in range(len(BANNER_ROWS) + 1):
+        page.draw_line((x0, top + height * (i + 1)), (x1, top + height * (i + 1)))
+    for x in (x0, split, x1):
+        page.draw_line((x, top + height), (x, top + height * (len(BANNER_ROWS) + 1)))
+    if banner:
+        banner(page, x0, top, x1)
+    for i, row in enumerate(BANNER_ROWS, 1):
+        for x, text in zip((x0, split), row):
+            page.insert_text((x + 4, top + height * i + 14), text, fontsize=FONT)
+
+
+def _banner_titles(tmp_path, name: str, banner, above=None) -> list:
+    doc = fitz.open()
+    page = doc.new_page()
+    if above:
+        above(page)
+    _banner_grid(page, 200, banner)
+    return [t["title"] for t in _read(_save(doc, tmp_path, name)).tables]
+
+
+def _title_line(text: str):
+    return lambda page, x0, top, x1: _bold(page, x0 + 60, top + 14, text)
+
+
+def test_a_grids_banner_row_titles_it_when_nothing_above_does(tmp_path):
+    """The owner's rule (M145): a table can print its title inside, as a first row the page draws as
+    one cell across it. A fallback only: a title above the table comes first."""
+    banner = _title_line("Table 1 - Announcement XML")
+    assert _banner_titles(tmp_path, "banner.pdf", banner) == ["Table 1 - Announcement XML"]
+    above = lambda page: _bold(page, 60, 190, "Announcement Fields")  # noqa: E731
+    assert _banner_titles(tmp_path, "both.pdf", banner, above) == ["Announcement Fields"]
+
+
+def test_a_banner_holding_labels_side_by_side_is_a_header_band(tmp_path):
+    """The IPO prospectus draws a header row as one band, its column headings side by side in it."""
+    def band(page, x0, top, x1):
+        _bold(page, x0 + 4, top + 14, "Components")
+        _bold(page, x0 + 200, top + 14, "Length (in km)")
+    assert _banner_titles(tmp_path, "band.pdf", band) == [None]
+
+
+def test_a_banner_that_only_qualifies_is_no_title(tmp_path):
+    """A banner reading "(In millions)" is a units line, which names nothing."""
+    assert _banner_titles(tmp_path, "units.pdf", _title_line("(In millions)")) == [None]
+
+
+def test_a_banners_title_stays_inside_its_cell(tmp_path):
+    """The IPO prospectus sets the header row under its banner in the banner's own text block and
+    type; the title is the banner's, not "As at Fiscal 2024 Field Required". Rows 12 pt apart, the
+    spacing at which MuPDF puts the three lines in one block."""
+    x0, x1, split, height, top = 60, 360, 240, 12, 200
+    rows = [("AccruedInterest", "Y"), ("AdjustedPrice", "Y"), ("CUSIP", "N"), ("IssueDate", "N")]
+    doc = fitz.open()
+    page = doc.new_page()
+    page.draw_rect(fitz.Rect(x0, top, x1, top + height))
+    for i in range(len(rows) + 2):
+        page.draw_line((x0, top + height * (i + 1)), (x1, top + height * (i + 1)))
+    for x in (x0, split, x1):
+        page.draw_line((x, top + height), (x, top + height * (len(rows) + 2)))
+    writer = fitz.TextWriter(page.rect)
+    font = fitz.Font("hebo")
+    writer.append((x0 + 60, top + 9), "As at Fiscal 2024", font=font, fontsize=FONT)
+    writer.append((x0 + 4, top + 21), "Field", font=font, fontsize=FONT)
+    writer.append((split + 4, top + 21), "Required", font=font, fontsize=FONT)
+    writer.write_text(page)
+    for i, row in enumerate(rows, 2):
+        for x, text in zip((x0, split), row):
+            page.insert_text((x + 4, top + height * i + 9), text, fontsize=FONT)
+    assert [t["title"] for t in _read(_save(doc, tmp_path, "inside.pdf")).tables] == ["As at Fiscal 2024"]
+
+
+def test_a_caption_stranded_on_the_page_before_outranks_a_banner(tmp_path):
+    """The banner is for a table nothing above names, and a caption at the foot of the page before
+    is above it."""
+    doc = fitz.open()
+    first = doc.new_page()
+    _statement(first, 40, ASSETS)
+    first.insert_text((60, 40 + len(ASSETS) * PITCH + 30), "Headphone cable connected", fontsize=FONT, fontname="hebo")
+    _banner_grid(doc.new_page(), 40, _title_line("Table 2 - Results"))
+    path = _save(doc, tmp_path, "stranded_over_banner.pdf")
+    assert tables.tables(path, pages=[2])["tables"][0]["title"] == "Table 2 - Results"
+    carried = tables.tables(path, pages=[1, 2])["tables"][1]
+    assert (carried["title"], carried["title_from_previous_page"]) == ("Headphone cable connected", True)
+
+
+def test_a_ruled_tables_first_line_is_never_a_banner(tmp_path):
+    """Of the ruled tables measured, every first row holding one line held a column heading or a
+    units line ("Y/Y %", "(In millions)"); none held a title, so only a drawn grid has a banner."""
+    rows = [("", "", "")] + ASSETS
+    doc = fitz.open()
+    page = doc.new_page()
+    _statement(page, 200, rows)
+    _bold(page, 200, 211, "Quarterly Change")
+    result = _read(_save(doc, tmp_path, "ruled_first_line.pdf"))
+    assert result.tables[0]["reader"] == "ruled"
+    assert result.tables[0]["title"] is None
+
+
+# ---------------------------------------------------------------------------------------------
 # Rotation
 # ---------------------------------------------------------------------------------------------
 
@@ -924,13 +1286,50 @@ def test_a_stranded_title_starts_a_new_table_rather_than_continuing_one(tmp_path
     doc = fitz.open()
     first = doc.new_page()
     _statement(first, 40, ASSETS)
-    first.insert_text((60, 40 + len(ASSETS) * PITCH + 30), "Headphone cable connected", fontsize=FONT)
+    first.insert_text((60, 40 + len(ASSETS) * PITCH + 30), "Headphone cable connected", fontsize=FONT, fontname="hebo")
     _statement(doc.new_page(), 40, ASSETS)
     path = _save(doc, tmp_path, "stranded.pdf")
     second = tables.tables(path, pages=[1, 2])["tables"][1]
     assert second["title"] == "Headphone cable connected"
     assert second["title_from_previous_page"] is True
     assert second["continues_from"] is None
+
+
+def _on_page_three(path: str, pages: list[int]) -> dict:
+    return next(t for t in tables.tables(path, pages=pages)["tables"] if t["page"] == 3)
+
+
+def test_a_stranded_title_reaches_the_next_page_only_and_never_across_a_skipped_one(tmp_path):
+    """The previous page *asked for* stood in for the page before, so a request that skipped a page
+    gave its table a caption stranded two pages up (#366)."""
+    doc = fitz.open()
+    first = doc.new_page()
+    _statement(first, 40, ASSETS)
+    first.insert_text((60, 40 + len(ASSETS) * PITCH + 30), "Headphone cable connected", fontsize=FONT, fontname="hebo")
+    doc.new_page().insert_text((72, 100), "A page with no table on it.", fontsize=11)
+    _statement(doc.new_page(), 40, ASSETS)
+    path = _save(doc, tmp_path, "gap.pdf")
+    for pages in ([1, 2, 3], [1, 3]):
+        third = _on_page_three(path, pages)
+        assert third["title"] is None, pages
+        assert third["title_from_previous_page"] is False, pages
+
+
+def test_continuation_is_checked_against_the_page_before_and_only_that_page(tmp_path):
+    """``continuation_checked`` says whether the page before was read: true when it was, even with no
+    table on it, and false when the request skipped it — where it had said the opposite of both, and a
+    table could be flagged as continuing one two pages up (#366)."""
+    doc = fitz.open()
+    _statement(doc.new_page(), 40, ASSETS)
+    doc.new_page().insert_text((72, 100), "A page with no table on it.", fontsize=11)
+    _statement(doc.new_page(), 40, ASSETS)
+    path = _save(doc, tmp_path, "gap.pdf")
+    read_through = _on_page_three(path, [1, 2, 3])
+    assert read_through["continuation_checked"] is True
+    assert read_through["continues_from"] is None
+    skipped = _on_page_three(path, [1, 3])
+    assert skipped["continuation_checked"] is False
+    assert skipped["continues_from"] is None
 
 
 def test_extract_text_names_the_pages_worth_calling_get_tables_on(statement_pdf, tmp_path):

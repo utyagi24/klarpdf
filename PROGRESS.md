@@ -577,7 +577,7 @@ items, which are independent of it.
   (**M128**); and row 10's own instructions not putting the lock in the bundle (**M129**). What
   remains is the tag, which is an owner action.
 
-## Roadmap — document structure for agents (M138–M142 and M145; M138–M141 done, M145 next, M142 deferred)
+## Roadmap — document structure for agents (M138–M142 and M145; M138–M141 and M145 done, M142 deferred)
 
 Design in `PLAN.md` §M138–M140 — **not restated here**. Same conventions: **one PR per milestone**,
 tick the box here on merge. Scoped **2026-09-07** from a session comparing the bridge against a
@@ -934,20 +934,26 @@ it still comes after M145, for the reason above.
   ([#352](https://github.com/utyagi24/klarpdf/issues/352)), and three more pages of the
   stacked-tables limit (§Open follow-ups).
 
-- [ ] **M145** **Table titles you can trust** — `get_tables` gives each table a `title`, and on
-  NADA's dealer report 13 of 16 were right. **[#354](https://github.com/utyagi24/klarpdf/issues/354):**
-  its bar chart on p4 comes back as a 2 × 13 table titled with the chart's axis label.
-  **[#355](https://github.com/utyagi24/klarpdf/issues/355):** a title printed on two lines is skipped and
-  other text takes its place: the charts' source note on NADA p8, a line from the other column on
-  NADA p12, and the section heading `Item 1. …` on Apple's and QCOM's 10-Qs. No test pins a title
-  today, so the work starts with an answer key. It then tries titles from typography, the nearest
-  lines above the table that `get_heading_candidates` (M140) reports. A prototype of that fixed 9
-  titles and made 5 worse on 35 tables. Before M142, which prints what `get_tables` returns. Needs
-  M140 merged. Also settles the multi-line caption follow-up. Not taken on the way, with the owner's
-  agreement: a tool that lists charts. Not in it either:
-  [#352](https://github.com/utyagi24/klarpdf/issues/352), where hidden text makes `get_tables`
-  decline every table on one file. Design, measurements and the reasons for both in `PLAN.md` §M145.
-  Plan: *WSL* ([#356](https://github.com/utyagi24/klarpdf/pull/356)).
+- [x] **M145** **Table titles you can trust** — 2026-09-19. A table's `title` is now the caption the
+  page sets over it, or `null`: never another object's text. On an answer key of 105 tables, each
+  judged on its render, the old rule got 66 right, 23 missing and **16 wrong**; the new one 103 right,
+  2 missing, **0 wrong**. On 91 held-out tables drawn at random from 19 documents, pages the rule was
+  not built on, it got 89 right, 2 missing and 0 wrong, where the old rule got 8 wrong. A title is the
+  nearest line above the table set to stand out from the page's text (M140's comparisons). The search
+  steps over brackets, column headings and one introducing paragraph, and stops at more prose, a bold
+  sentence, another table's text, a chart's caption or a running page header. Every rule has a test
+  that fails without it. **[#355](https://github.com/utyagi24/klarpdf/issues/355) fixed**, all four
+  cases. Where nothing above names a drawn grid, its title can be its own first row, when the page
+  draws that row as one cell across the table (the owner's rule: a Treasury specification titles every
+  table that way). Accepted, with the owner: a title the page before prints in the same place reads as
+  a running header, so 13 of the TIPS document's 14 tables come back untitled.
+  **[#354](https://github.com/utyagi24/klarpdf/issues/354) fixed:** a grid whose drawn cells
+  overlap, as NADA's bar chart's do, is declined. **[#366](https://github.com/utyagi24/klarpdf/issues/366)
+  fixed:** a request that skipped a page gave the next table a caption from two pages up. The table
+  checker compares titles, and refuses a key it does not know. Not taken, with the owner's
+  agreement: a tool that lists charts. Not in it: [#352](https://github.com/utyagi24/klarpdf/issues/352).
+  The answer key's rules, both held-out rounds and the four accepted misses are in `PLAN.md` §M145.
+  Plan: *WSL* ([#356](https://github.com/utyagi24/klarpdf/pull/356)); build: *WSL* ([#367](https://github.com/utyagi24/klarpdf/pull/367)).
 
 - [ ] **M142** **`extract_markdown`** — ***deferred by the owner, 2026-09-18; not scheduled.*** A Markdown rendering of a page range, built on M140 and M141
   with **no new dependency**. Prototyped before being scheduled: headings by weight/size, ruled
@@ -4717,11 +4723,12 @@ it on this side of the line.
   flag or skip it is a change to those tools; TC-033 separately notes `search`'s `invisible` flag does
   not cover text that is invisible by size. Decision owed.
 - ~~**`title` misses a statement heading that shares a text block with the company name**~~ —
-  **graduated 2026-09-17 into M145** (roadmap above;
-  [#355](https://github.com/utyagi24/klarpdf/issues/355) has the wider defect).
+  **graduated 2026-09-17 into M145, and settled there** (2026-09-19): the statement's name comes back,
+  with the company's name when the page prints the two in one block.
 - **A table border drawn in white takes the title in as the first row** (M141; found 2026-09-17
   while measuring M145). On Tesla's Q2 2026 update p7, `get_tables` returns *Installed Annual
-  Capacity* as the table's first row and `header`, with `title: null`. A reader sees a title above the
+  Capacity* as the table's first row and `header`, with `title: null`. (Since M145 the `title` comes
+  back too, read from that row as the table's banner; the row itself is still there.) A reader sees a title above the
   grey header band (title at y 135–157, band from y 162). But the file draws the table's border as
   **white** lines on the page's white background, and the top edge is at y 130, above the title. By
   the lines the page draws, the title is inside the table; by what a reader sees, it is not. The
@@ -4730,6 +4737,19 @@ it on this side of the line.
   colour of what lies beneath it counts as a table edge. The check compares two colours the page
   states, but the background can be an image or a gradient, and the answer changes which regions
   every drawn grid finds. Not a title rule, so it stays out of M145.
+- **A declined region can reach over a table that was returned** (noticed 2026-09-19, during M145).
+  On the survey report's p16 (`Research Doc2_Market Research Report_6.25.19.pdf`), `get_tables`
+  returns two grids starting at y 311 and declines a region as `stacked` that runs from y 191, over
+  the infographic above them, down to y 694, across the first grid. Its box covers the paragraph
+  between the infographic and the grids, and part of a table that was returned. Not diagnosed:
+  whether the ruled pass should have seen the grids' claim first, and whether an unread region may
+  overlap a returned table at all. Decision owed after the diagnosis.
+- **Text with no usable character map comes back as control characters** (noticed 2026-09-19). GE's
+  refrigerator guide sets whole lines in a font whose codes are its letters shifted by a fixed amount
+  (`6\VWqPH` for `Système`), with a control character for each space. `extract_text`, `search` and
+  `get_tables`' cells return it as it is, and nothing tells the caller it is unreadable; `title`
+  declines such a line (M145). Decision owed: whether the text tools should flag text that no reader
+  can read.
 - **`table_pages` roughly doubles what `extract_text` costs** (M141, measured 2026-09-13). Counting a
   page's ruled lines and shaded bands took 1.0–1.6× as long as reading its text on the table corpus,
   at most 17 ms on any page — not the half that #348's docstring stated. It stays a small fraction of
