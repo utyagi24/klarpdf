@@ -2630,6 +2630,7 @@ correct for an image-only PDF.
   UI thread stops the app freezing while we do. On this evidence E is required rather than
   conditional; the "only if still needed" gate has been met, and the open question is now scheduling,
   not justification.
+  *(Scheduled as **M156**, 2026-09-19 — §The open issues, grouped.)*
 
 ### M92 — Mouse-wheel scrolling (owner-reported 2026-07-30)
 
@@ -8306,6 +8307,40 @@ as before; its packages lose the three files. CI's bridge jobs, which run when a
 `klarpdf/`, no longer run for edits to these three files, which cannot reach the bridge. The frozen
 app still finds its license files through `sys._MEIPASS`, which the move does not touch; only a
 Windows build exercises that path.
+
+## The open issues, grouped — M149–M156 *(planned 2026-09-19)*
+
+Grouped at the owner's request (2026-09-19: *"plan milestones for all of the issues, except for 352
+and 370"*): every open GitHub issue except the two `get_tables` ones, plus
+[#373](https://github.com/utyagi24/klarpdf/issues/373) and
+[#374](https://github.com/utyagi24/klarpdf/issues/374), found while grouping. **This section is the
+grouping and the order only.** Each issue holds its report. The diagnosis and the design are each
+milestone's own work, done in the session that builds it, and are added here as that milestone's
+entry.
+
+**The order is numeric.** Two dependencies set it: **M151 before M152**, because the app has to
+honour a bookmark's position before the bridge writes one (#362's closing note); and **M155 before
+M156**, so #360's two cheap causes are fixed before the large one. The rest is smallest first.
+
+| Milestone | Issues | Why these belong together | Surfaces |
+|---|---|---|---|
+| **M149** A file that cannot be opened says so | #332, #374 | Both are what the open path does when an open produces no window. #374 is what #332's fix would run into next at a cold start | app |
+| **M150** The window keeps a usable size | #358 | — | app |
+| **M151** Links and bookmarks land where they point, and a save keeps where they point | #362, #373 | Both need the same missing piece: reading where on its page a destination points, and writing it back unchanged | core, app, and the bridge's page-move tools through the core |
+| **M152** The bridge reads and writes where a bookmark points | #361 | The bridge's side of M151 | bridge (on M151's core) |
+| **M153** Zoom and resize keep the page you are reading | #357, #359 | One cause: the reading position is re-read from a view that is stopped at an end of the document | app |
+| **M154** Web links open in the browser | #333 | Reverses M33/M46's copy-only rule. Which kinds of link open, and whether to ask first, are this milestone's decisions | app |
+| **M155** A slow page costs only while it is on screen | #360, causes 2 and 3 | A page touching the view's edge is drawn in full, and every resize step redraws | app |
+| **M156** Pages are drawn in the background | #360, causes 1 and 4 | The 1.0 gate's Item E (§Deferred E) | app |
+
+**Found while grouping, for the sessions that build these** (facts that affect a milestone's shape,
+not its design):
+
+* **M151, M152:** PyMuPDF's link and outline dictionaries drop or misplace a destination's in-page
+  position for several destination forms and rotations; #373 has the measurements.
+* **M156:** PyMuPDF's documentation says it *"does not support running on multiple threads"*
+  (recipes-multiprocessing) and recommends processes, so §Deferred E's "off the UI thread" may
+  mean a second process. The milestone decides.
 
 ## Future enhancements (deferred beyond the roadmap)
 
