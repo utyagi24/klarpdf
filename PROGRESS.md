@@ -1895,7 +1895,7 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
     which is the ceiling rather than the everyday figure). A 10-detent notched flick paced 25 ms
     apart coalesces little **by design** — events arriving slower than a frame have nothing to
     merge — and still drops 21 → 7 passes, which is M86.1 doing the work
-- [ ] **M87** Render-resource discipline — what the app *keeps*. **Sized against post-M88 numbers**,
+- [x] **M87** Render-resource discipline — what the app *keeps*. **Sized against post-M88 numbers**,
   since the DPI correction makes every page ~5.4× heavier. Spec in `PLAN.md` §M87.
   **Premise check done 2026-07-28 before building** (numbers + method in `PLAN.md` §M87). Three of
   the milestone's four assumptions held, one was wrong, and one reorders the work:
@@ -2483,7 +2483,7 @@ merge; ⭐ = keystone. **Zero new dependencies** across the tranche. Versions pr
       already held and stayed silent. The sidebar never showed it because `showEvent` carried a
       private workaround (`mark_open_page`); the counter had none, and neither would the next
       indicator bound to that signal
-- [ ] **M92** Mouse-wheel scrolling — the owner reported (2026-07-30) that **one detent moves too
+- [x] **M92** Mouse-wheel scrolling — the owner reported (2026-07-30) that **one detent moves too
   much of the page**, and separately that scrolling is less fluid than Edge. Measured on the owner's
   display, those are one defect and one polish, in that order of weight. Spec + every number behind
   it in `PLAN.md` §M92. **Touchpad scrolling is out of scope** by owner call (*"though not perfect I
@@ -3113,113 +3113,6 @@ on the one above it. Every decision, every rejection and every measurement behin
   beside the exes, and re-runs `--check` first; `RELEASE.md` §3 step 1 regenerates it with the bump,
   so a stale version fails in three places rather than reaching a user. Design in `PLAN.md`
   §M133–M136 — *WSL + CI*
-
-- [x] **M135** *(unplanned)* **One distribution on PyPI, pinned like the application it is** —
-  2026-09-05. The bridge's whole install story was a clone: nine commands, and the one that fails is
-  the path. `klarpdf` now builds a publishable distribution — **one `py3-none-any` wheel for every
-  OS, architecture and Python**, because we compile nothing and the C and Rust dependencies ship
-  their own per-platform wheels.
-
-  **The metadata was eight lines** and none of what PyPI shows was in it: no readme (the project
-  page would have rendered blank), no licence expression, no classifiers, no project URLs, no
-  author. Worse, `Summary` was *the app's* — "Local, offline, native-Windows PDF viewer + page
-  editor" — describing software this distribution does not contain, and it is the first line a
-  visitor reads. Now: the bridge README as the long description, `AGPL-3.0-or-later` with both
-  licence files travelling alongside, ten classifiers, five project URLs, and a summary about the
-  bridge. One relative link in that README (`](QUICKSTART.md)`) became absolute, because a readme
-  rendered on PyPI has no repository around it; the three in-page anchors are fine.
-
-  **`dependencies` moved from floors to all 29 exact pins, generated.** They become `Requires-Dist`,
-  which is what `pip`, `pipx`, `uvx` and M136's `install.py` all resolve against — floors would hand
-  a `uvx` install and a lock install two different dependency sets from one package, the drift
-  already recorded against `pipx install .`. "Floors, never pins" is a **library's** convention; this
-  is an application, installed by `uvx`/`pipx` into an environment of its own where nothing can
-  conflict. The audited set is now what every route installs, so `pip-audit`'s existing scan of
-  `requirements-mcp.txt` covers users too. `packaging/mcp/pypi/sync_pins.py` writes the block
-  between sentinels and **reads the lock through `build_mcpb.py`'s own `read_pins()`** rather than a
-  second parser, so the bundle and the wheel cannot disagree about what the lock says.
-
-  **The trade, accepted knowingly:** `pip install klarpdf` into a shared environment now conflicts
-  loudly. That is correct for an application and is why the docs will name `uvx`/`pipx`. A two-package
-  residue stays unpinned — `requirements-mcp.txt` is deliberately marker-free, so it structurally
-  cannot name `colorama` or `pywin32`; the same gap the `.mcpb` carries.
-
-  **Publishing hangs off `release: published`, not the tag push** — so the manual smoke test that
-  already gates the GitHub Release gates PyPI too, and `release.yml` needed no change. Trusted
-  Publishing (OIDC), so **no API token exists anywhere**; the workflow filename and the `pypi`
-  environment are both matched by PyPI, which is why renaming either breaks the upload with nothing
-  failing beforehand. Two guards run *before* the upload because a publish cannot be undone — a
-  version number is unusable on PyPI forever, even after deletion: the pins must still match the
-  lock, and the built version must equal the release tag. `twine check` covers the readme rendering.
-  A `workflow_dispatch` leg publishes to **TestPyPI** for a rehearsal.
-
-  **Also:** `MANIFEST.in` stops the sdist carrying the test suite — 129 files, 659 KB against the
-  wheel's 245 KB; now 250 KB. `tests/test_pypi_metadata.py` asserts over **built** metadata rather
-  than a TOML read, for the reason M42 established when a right-looking `pyproject.toml` produced
-  zero `Requires-Dist` and a `klarpdf-mcp` that died on `import mcp`. The staleness guard was
-  verified by deleting a pin and watching `--check` name it.
-
-  **The install docs were deferred and then un-deferred, and the reversal is the useful part.** The
-  original reasoning was that documenting PyPI before publishing would promise a package that did
-  not exist, so `RELEASE.md` §3 step 7 carried it as a first-publish item. **The TestPyPI rehearsal
-  showed that backwards.** The readme ships *inside the wheel*, as that version's `Description`
-  metadata — so the project page for `0.18.0` advertised *"the bridge is not published to PyPI"*
-  and a `git clone`, and no later commit could fix the version already uploaded, nor could the
-  version number be reused to try again. Docs that ride in an artifact must be correct **before**
-  the upload, not after it. `klarpdf/mcp_bridge/README.md`, `QUICKSTART.md` and the root
-  `README.md` now lead with `pipx install klarpdf` / `uv tool install klarpdf`, keep the clone path
-  for contributors, and say plainly that the exact pins make a shared-environment `pip install`
-  conflict on purpose. The eleven client-config examples move from the virtualenv path to
-  `~/.local/bin/klarpdf-mcp`, the one the documented install actually produces; the two that
-  describe the clone route keep theirs. `RELEASE.md` §3 step 7 now says to read the rendered
-  TestPyPI page rather than the markdown in the repo.
-
-  **This is exactly what the rehearsal was for.** Nothing local could have caught it: `twine check`
-  validates that a readme will render, not that it is true, and the file reads correctly in the
-  repo — where the clone path *is* how you install.
-
-  **A third pass, from reading the rendered page rather than the file.** The owner asked whether the
-  Quick setup pointer should come first, and the count says yes: a PyPI visitor met **~20 lines of
-  prose before anything actionable**, with the install command 35 lines down. It now sits directly
-  under the opening paragraph — but carrying **the two commands themselves** rather than a link to
-  them, since a pointer to another page is still indirection when the install is one line. `##
-  Install` was reframed as the detail behind those two lines rather than a restatement of them, so
-  the command appears once as an instruction. **The block names its combination** — Claude Code on
-  Linux or macOS — rather than reading as universal, because only the `pipx` line is: the path and
-  the client command both change elsewhere, and `QUICKSTART.md` carries each combination. Checking
-  that claim was true found it was not quite: QUICKSTART said how to *find* the path on Windows but
-  showed only the Linux one in its client examples, so step 3 now says to substitute it. The same
-  check retired a Windows `pipx` path this file had stated confidently — it named the *venv*
-  directory rather than the shim on PATH, and an unverifiable path does not belong in a document
-  that ships inside published artifacts, so the table now says which command to read it off with. The framing paragraphs (independent of the app, your
-  PDFs stay put, it does not understand your documents) keep their place, now following the
-  actionable block instead of gating it.
-
-  **The rehearsal then found a second one, a level down.** The corrected page's *Quick setup* link
-  is a `blob/main/…` URL, and three shipped artifacts carry one: the bridge README (the wheel's
-  `Description`), `manifest.json` (inside the `.mcpb`) and `pyproject.toml`'s Documentation URL (a
-  PyPI sidebar link). Each names a **repo path**, and M134 moved all three targets — the manifest's
-  was caught by reading, not by any check. Nothing fails when a target moves; the link simply 404s
-  for everyone who installed that version, and published metadata cannot be corrected. `main` rather
-  than a tag stays deliberate, so a reader of an older version still reaches current setup
-  instructions — which is what makes the guard necessary rather than optional.
-  `tests/test_packaging_layout.py` now resolves every such link against the working tree, verified
-  by rewriting one back to its pre-M134 path and watching it fail. Design in `PLAN.md` §M133–M136 —
-  *WSL + CI*
-
-- [ ] **M136** *(unplanned)* **`install.py` — needs nothing but a Python** — a single generated file:
-  download it, run it, and a client is talking to the bridge. No clone, no `uv`, no `pipx`, no
-  global `pip`. It creates its own venv with stdlib `venv` (`ensurepip` bootstraps pip offline),
-  installs `klarpdf==<baked version>` from PyPI so **pip owns TLS, proxies and retries** rather than
-  the installer, validates over real stdio by reusing `tools/mcp_stdio_check.py`, then prints the
-  absolute path and the client configuration — the step that actually fails today, per the README's
-  own troubleshooting. Also writes an `uninstall.py` beside the venv, offers an opt-in `--client`
-  that calls the client's own `mcp add`, and touches no PATH. **Measured before designing it**: the
-  flow works (venv 3.7 s, install 14.3 s warm, 121 MB); `pip --constraint` refuses our lock over
-  `pyjwt[crypto]`, so `-r` it is; **`PIP_TARGET` installs outside the venv silently at exit 0**,
-  which is why the startup check is mandatory rather than nice-to-have; and a space in the install
-  path is safe because `venv` writes a `/bin/sh` exec-trick shebang. Design in `PLAN.md` §M133–M136
-  — *WSL + CI*
 
 - [x] **M132** *(unplanned)* **The bridge installs on the Python people have** — 2026-08-31, raised
   by the owner: *"for the MCP bridge the python requirement is suffocatingly narrow… we cannot expect
