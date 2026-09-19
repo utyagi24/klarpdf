@@ -885,6 +885,201 @@ def test_the_every_row_beside_rule_is_what_joins_a_two_up_list(tmp_path, monkeyp
 
 
 # ---------------------------------------------------------------------------------------------
+# A region that hangs from a line that is not the table's (#369)
+# ---------------------------------------------------------------------------------------------
+
+PROSE = [
+    "Revenue grew in every region this year, led by networking products sold to large cloud providers.",
+    "Revenue from security products rose on new subscriptions, partly offset by lower hardware sales.",
+    "Revenue recognised over time increased as more customers moved to software offered as a service.",
+    "Revenue in the Americas benefited from higher demand, while pricing in other markets was weaker.",
+    "Revenue from services was flat, as renewals of support contracts offset lower advisory projects.",
+    "Revenue timing depends on shipments, which in turn depend on supply of memory and other parts.",
+    "Revenue backlog at the end of the year was higher, reflecting orders from several large clients.",
+    "Revenue per customer grew modestly, and the number of customers buying several products rose.",
+    "Revenue from collaboration products declined, because fewer devices were sold to schools again.",
+    "Revenue guidance for next year assumes steady demand and no change in the rates of currencies.",
+    "Revenue is recognised when control passes, which is usually at shipment for hardware products.",
+    "Revenue from observability products rose, helped by the full year of an acquired business line.",
+]
+"""Prose whose lines all open with the same word, so the words after it start at one x down the
+page. On Cisco's 10-K p42 eleven words that happened to start at x 73.7 gave PyMuPDF a vertical edge
+inside the link's underline, and every edge it builds from text runs the height of the page's text."""
+
+MARGIN = 58
+"""Where the prose starts: 2 pt left of the table's labels, as Cisco's does (18.2 against 20.8)."""
+
+
+def _prose(page: fitz.Page, top: float, lines=PROSE) -> float:
+    for i, line in enumerate(lines):
+        page.insert_text((MARGIN, top + i * 12), line, fontsize=FONT)
+    return top + (len(lines) - 1) * 12
+
+
+def _located(path: str) -> list[fitz.Rect]:
+    page = fitz.open(path)[0]
+    reading = tables._read_with(
+        page, vertical_strategy="text", horizontal_strategy="lines",
+        min_words_vertical=tables._MIN_WORDS_VERTICAL,
+    )
+    return [found.bbox for found in reading.found]
+
+
+def _under_a_link(tmp_path, name: str, *, prose=PROSE, declines: bool = False) -> str:
+    """Cisco's p42 in miniature: an underlined "Table of Contents" link at the top of the page, prose,
+    a heading, the sentence introducing the table, the year headings just above its first rule, and
+    the table. ``declines`` leaves a rule out and sets a line between two rows, as in the stacked
+    test, so the table itself cannot be read."""
+    doc = fitz.open()
+    page = doc.new_page()
+    link = "Table of Contents"
+    width = fitz.get_text_length(link, fontsize=FONT)
+    page.insert_text((MARGIN, 40), link, fontsize=FONT, color=(0, 0, 1))
+    page.draw_line((MARGIN, 41.5), (MARGIN + width, 41.5), color=(0, 0, 1))
+    page.insert_link({"kind": fitz.LINK_GOTO, "from": fitz.Rect(MARGIN, 31, MARGIN + width, 42), "page": 0})
+    y = _prose(page, 70, prose)
+    page.insert_text((MARGIN, y + 24), "Gross Margin by Segment", fontsize=FONT, fontname="hebo")
+    page.insert_text((MARGIN, y + 40), "The following table presents the gross margin for each segment:", fontsize=FONT)
+    top = y + 64
+    _right(page, 420, top - 3, "2026")
+    _right(page, 520, top - 3, "2025")
+    if declines:
+        _statement(page, top, ASSETS, ruled_rows=[i for i in range(len(ASSETS)) if i != 5])
+        page.insert_text((60, top + 5 * PITCH + 4), "of which restricted", fontsize=FONT)
+    else:
+        _statement(page, top, ASSETS)
+    return _save(doc, tmp_path, name)
+
+
+def test_a_region_hanging_from_a_links_underline_leaves_the_prose_above_its_table_out(tmp_path):
+    """The band from the underline down to the table's first rule used to be the table's first row:
+    Cisco's p42 returned its running header and six paragraphs in one cell, and no title. The
+    underline reaches one of the table's columns and the prose lies across the others, so the band is
+    not the table's. The year headings just above the first rule still join the table, the way any
+    row outside it does, and the heading above the introducing sentence is its title."""
+    path = _under_a_link(tmp_path, "link.pdf")
+    assert _located(path)[0].y0 < 45, "the finder no longer hangs the region from the underline"
+
+    result = _read(path)
+    assert len(result.tables) == 1
+    assert _rows(result) == [["", "2026", "2025"], *_expected(ASSETS)]
+    assert result.tables[0]["title"] == "Gross Margin by Segment"
+
+
+def test_a_region_standing_on_a_run_in_headings_underline_leaves_the_paragraph_below_out(tmp_path):
+    """The same from below: the paragraph after the table opens with an underlined run-in heading,
+    the region reached down to that underline, and the paragraph's first line was the table's last
+    row (Cisco's p48 and p65). The heading's first word is shorter than the prose's "Revenue", or
+    PyMuPDF folds the aligned words into the margin's cluster and no edge crosses the underline."""
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((MARGIN, 60), "Balance Sheet", fontsize=FONT, fontname="hebo")
+    _statement(page, 80, ASSETS)
+    heading = "Loan Receivables"
+    y = 80 + len(ASSETS) * PITCH + 24
+    paragraph = f"{heading} Our financing arrangements include loans and leases to customers."
+    page.insert_text((MARGIN, y), paragraph, fontsize=FONT)
+    page.draw_line((MARGIN, y + 1.5), (MARGIN + fitz.get_text_length(heading, fontsize=FONT), y + 1.5))
+    _prose(page, y + 14)
+    path = _save(doc, tmp_path, "run_in.pdf")
+    assert _located(path)[0].y1 > y, "the finder no longer stands the region on the underline"
+
+    assert _rows(_read(path)) == _expected(ASSETS)
+
+
+CONTENTS = [
+    ("Item 1.", "Financial Statements", "1"),
+    ("Item 2.", "Management's Discussion and Analysis of Results", "13"),
+    ("Item 3.", "Quantitative and Qualitative Disclosures", "19"),
+    ("Item 4.", "Controls and Procedures", "19"),
+    ("Item 5.", "Legal Proceedings", "20"),
+    ("Item 6.", "Risk Factors", "21"),
+    ("Item 7.", "Unregistered Sales of Equity Securities", "24"),
+    ("Item 8.", "Defaults Upon Senior Securities", "24"),
+    ("Item 9.", "Mine Safety Disclosures", "24"),
+    ("Item 10.", "Other Information", "25"),
+    ("Item 11.", "Exhibits", "25"),
+    ("Item 12.", "Signatures", "26"),
+]
+
+
+def test_a_one_column_line_over_a_row_inside_the_columns_still_bounds_the_table(tmp_path):
+    """A contents page's first rule is the underline of its "Page" heading, over the page numbers
+    only, and the row under it is "Part I" (Apple's 10-Q p3, Broadcom's 10-K p2). The line alone says
+    the band is not the table's; "Part I" lies inside a column, so the band stays. The heading's own
+    "g" reaches below its underline, and it is not judged with the band under it: a line belongs to
+    the band its baseline sits in, and "Page" is wider than the numbers it heads."""
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((250, 60), "TABLE OF CONTENTS", fontsize=FONT, fontname="hebo")
+    width = fitz.get_text_length("Page", fontname="hebo", fontsize=FONT)
+    page.insert_text((540 - width, 90), "Page", fontsize=FONT, fontname="hebo")
+    page.draw_line((540 - width, 91.5), (540, 91.5))
+    page.insert_text((250, 104), "Part I", fontsize=FONT, fontname="hebo")
+    for i, (item, title, number) in enumerate(CONTENTS):
+        y = 110 + i * PITCH
+        page.draw_line((55, y), (540, y))
+        page.insert_text((60, y + 11), item, fontsize=FONT)
+        page.insert_text((130, y + 11), title, fontsize=FONT)
+        _right(page, 540, y + 11, number)
+    page.draw_line((55, 110 + len(CONTENTS) * PITCH), (540, 110 + len(CONTENTS) * PITCH))
+    path = _save(doc, tmp_path, "contents.pdf")
+    assert _located(path)[0].y0 < 92, "the finder no longer hangs the region from the heading's underline"
+
+    rows = _rows(_read(path))
+    assert rows[0] == ["", "Part I", "Page"]
+    assert rows[1:] == [list(row) for row in CONTENTS]
+
+
+def test_a_heading_across_the_figures_under_the_tables_own_top_rule_stays_in_the_table(tmp_path):
+    """The other half of that pair. "Years Ended December 31," is centred over both figure columns,
+    so it lies across their whitespace as prose would, but the band's line is the table's own top
+    rule, drawn across every column."""
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((60, 60), "CONDENSED BALANCE SHEETS", fontsize=FONT, fontname="hebo")
+    page.draw_line((55, 76), (540, 76))
+    heading = "Years Ended December 31,"
+    page.insert_text((455 - fitz.get_text_length(heading, fontsize=FONT) / 2, 87), heading, fontsize=FONT)
+    _right(page, 420, 99, "2026")
+    _right(page, 520, 99, "2025")
+    _statement(page, 102, ASSETS)
+    path = _save(doc, tmp_path, "spanning.pdf")
+    assert _located(path)[0].y0 < 77, "the finder no longer starts the region at the top rule"
+
+    rows = _rows(_read(path))
+    assert any("Years Ended December 31," in cell for cell in rows[0])
+    assert rows[1:] == _expected(ASSETS)
+
+
+def test_lying_inside_a_column_is_the_test_not_touching_only_one(tmp_path):
+    """Broadcom's 10-K p63 introduces its table with a sentence that starts in the label column and
+    runs across most of the whitespace beside it, without reaching the next column. Each line here
+    does the same: it touches one column and still lies where the table's text never is."""
+    path = _under_a_link(tmp_path, "short.pdf", prose=[line[: len(line) // 2] for line in PROSE])
+    assert _located(path)[0].y0 < 45, "the finder no longer hangs the region from the underline"
+
+    assert _rows(_read(path)) == [["", "2026", "2025"], *_expected(ASSETS)]
+
+
+def test_a_region_whose_table_declines_anyway_is_declined_as_it_was_located(tmp_path):
+    """Read without the band, the table declines too, so the band is not set against a table that
+    does not read: the region is read as located and declined over the box it had. Judged against
+    the columns of a failed table, the year headings above the first rule fell outside the smaller
+    declined box and into no region at all, as the lower half of a declined table did on Cisco's
+    annual report p57."""
+    path = _under_a_link(tmp_path, "declined.pdf", declines=True)
+    assert _located(path)[0].y0 < 45, "the finder no longer hangs the region from the underline"
+
+    result = _read(path)
+    assert not result.tables
+    assert "stacked" in _codes(result)
+    boxes = [fitz.Rect(u["bbox"]) for u in result.unread]
+    for year in ("2026", "2025"):
+        assert any(box.contains(_centre_of(path, year)) for box in boxes), year
+
+
+# ---------------------------------------------------------------------------------------------
 # Titles (M145) — each rule shown deciding the shape it exists for
 # ---------------------------------------------------------------------------------------------
 
