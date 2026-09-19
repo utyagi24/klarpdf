@@ -126,7 +126,7 @@ open is almost entirely in that category. The gate, all small and all concrete:
   the `windows` job (§Open follow-ups).
 - [ ] **Item E — background rendering** (`PLAN.md` §Deferred): 1–3 s of frozen UI per page per zoom
   on image-heavy documents. Its gate is already met; this is scheduling, not justification. **Scheduled as
-  M156** (2026-09-19).
+  M152.2** (2026-09-19).
 - **Code signing** stays deferred (needs a certificate) — it is the one gate item that may never be
   purchasable, so it is explicitly *not* a blocker for 1.0.
 
@@ -986,38 +986,37 @@ it still comes after M145, for the reason above.
   and on M145 (added 2026-09-17), so that it does not print a chart read as a table.
   Design, and why `pymupdf4llm` is rejected, in `PLAN.md` §M142.
 
-## Roadmap — the open issues (M149–M156; planned 2026-09-19)
+## Roadmap — the open issues (M149–M152; planned 2026-09-19)
 
 Grouping and order in `PLAN.md` §*The open issues, grouped* — **not restated here**. Every open
 GitHub issue except [#352](https://github.com/utyagi24/klarpdf/issues/352) and
 [#370](https://github.com/utyagi24/klarpdf/issues/370) (owner, 2026-09-19). Each milestone's
-diagnosis and design happen in the session that builds it. Same conventions: **one PR per
-milestone**, tick the box here on merge. Build in number order.
+diagnosis and design happen in the session that builds it, and its open questions are settled with
+the owner then. Same conventions: **one PR per milestone, or per part** where a milestone has parts;
+tick the box here on merge. Build in number order.
 
-- [ ] **M149** **A file that cannot be opened says so** —
-  [#332](https://github.com/utyagi24/klarpdf/issues/332) (an empty file crashes the open),
-  [#374](https://github.com/utyagi24/klarpdf/issues/374) (a launch that opens no window stays
-  running with none). *App.*
-- [ ] **M150** **The window keeps a usable size** —
-  [#358](https://github.com/utyagi24/klarpdf/issues/358) (no minimum size). *App.*
-- [ ] **M151** **Links and bookmarks land where they point, and a save keeps where they point** —
-  [#362](https://github.com/utyagi24/klarpdf/issues/362) (a link lands on its page's top),
-  [#373](https://github.com/utyagi24/klarpdf/issues/373) (a page move drops or shifts a bookmark's
-  position). *Core + app; the bridge's page-move tools through the core.*
-- [ ] **M152** **The bridge reads and writes where a bookmark points** —
-  [#361](https://github.com/utyagi24/klarpdf/issues/361) (FR-001). *Bridge.* After M151.
-- [ ] **M153** **Zoom and resize keep the page you are reading** —
-  [#357](https://github.com/utyagi24/klarpdf/issues/357) (zoom out and in drifts a page),
-  [#359](https://github.com/utyagi24/klarpdf/issues/359) (narrowing a Fit Width window loses the
-  page). *App.*
-- [ ] **M154** **Web links open in the browser** —
-  [#333](https://github.com/utyagi24/klarpdf/issues/333). Reverses M33/M46's copy-only rule.
-  *App.*
-- [ ] **M155** **A slow page costs only while it is on screen** —
-  [#360](https://github.com/utyagi24/klarpdf/issues/360), causes 2 and 3. *App.*
-- [ ] **M156** **Pages are drawn in the background** —
-  [#360](https://github.com/utyagi24/klarpdf/issues/360), causes 1 and 4; the 1.0 gate's Item E.
-  *App.*
+- [ ] **M149** **Small app fixes** — *App.*
+  - [#332](https://github.com/utyagi24/klarpdf/issues/332) an empty file crashes the open;
+  - [#374](https://github.com/utyagi24/klarpdf/issues/374) a launch that opens no window stays
+    running with none;
+  - [#358](https://github.com/utyagi24/klarpdf/issues/358) the window has no minimum size;
+  - [#333](https://github.com/utyagi24/klarpdf/issues/333) web links do not open in the browser
+    (reverses M33/M46's copy-only rule).
+- [ ] **M150** **Links and bookmarks keep and use their position on the page**
+  - [ ] **M150.1** [#362](https://github.com/utyagi24/klarpdf/issues/362) a link lands on its page's
+    top; [#373](https://github.com/utyagi24/klarpdf/issues/373) a page move drops or shifts a
+    bookmark's position. *Core + app; the bridge's page-move tools through the core.*
+  - [ ] **M150.2** [#361](https://github.com/utyagi24/klarpdf/issues/361) the bridge reads and
+    writes a bookmark's position (FR-001). *Bridge.*
+- [ ] **M151** **Zoom and resize keep the page you are reading** —
+  [#357](https://github.com/utyagi24/klarpdf/issues/357) zoom out and in drifts a page;
+  [#359](https://github.com/utyagi24/klarpdf/issues/359) narrowing a Fit Width window loses the
+  page. *App.*
+- [ ] **M152** **A slow page does not freeze the window** —
+  [#360](https://github.com/utyagi24/klarpdf/issues/360). *App.*
+  - [ ] **M152.1** The two small causes: a page touching the view's edge is drawn in full, and every
+    resize step redraws.
+  - [ ] **M152.2** Pages are drawn in the background — the 1.0 gate's Item E.
 
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 
