@@ -933,6 +933,43 @@ def test_a_stranded_title_starts_a_new_table_rather_than_continuing_one(tmp_path
     assert second["continues_from"] is None
 
 
+def _on_page_three(path: str, pages: list[int]) -> dict:
+    return next(t for t in tables.tables(path, pages=pages)["tables"] if t["page"] == 3)
+
+
+def test_a_stranded_title_reaches_the_next_page_only_and_never_across_a_skipped_one(tmp_path):
+    """The previous page *asked for* stood in for the page before, so a request that skipped a page
+    gave its table a caption stranded two pages up (#366)."""
+    doc = fitz.open()
+    first = doc.new_page()
+    _statement(first, 40, ASSETS)
+    first.insert_text((60, 40 + len(ASSETS) * PITCH + 30), "Headphone cable connected", fontsize=FONT)
+    doc.new_page().insert_text((72, 100), "A page with no table on it.", fontsize=11)
+    _statement(doc.new_page(), 40, ASSETS)
+    path = _save(doc, tmp_path, "gap.pdf")
+    for pages in ([1, 2, 3], [1, 3]):
+        third = _on_page_three(path, pages)
+        assert third["title"] is None, pages
+        assert third["title_from_previous_page"] is False, pages
+
+
+def test_continuation_is_checked_against_the_page_before_and_only_that_page(tmp_path):
+    """``continuation_checked`` says whether the page before was read: true when it was, even with no
+    table on it, and false when the request skipped it — where it had said the opposite of both, and a
+    table could be flagged as continuing one two pages up (#366)."""
+    doc = fitz.open()
+    _statement(doc.new_page(), 40, ASSETS)
+    doc.new_page().insert_text((72, 100), "A page with no table on it.", fontsize=11)
+    _statement(doc.new_page(), 40, ASSETS)
+    path = _save(doc, tmp_path, "gap.pdf")
+    read_through = _on_page_three(path, [1, 2, 3])
+    assert read_through["continuation_checked"] is True
+    assert read_through["continues_from"] is None
+    skipped = _on_page_three(path, [1, 3])
+    assert skipped["continuation_checked"] is False
+    assert skipped["continues_from"] is None
+
+
 def test_extract_text_names_the_pages_worth_calling_get_tables_on(statement_pdf, tmp_path):
     doc = fitz.open()
     doc.insert_pdf(fitz.open(statement_pdf))

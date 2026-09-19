@@ -1494,6 +1494,26 @@ def _orphan_title(blocks: list[tuple[fitz.Rect, str]], last_box: fitz.Rect | Non
     return None
 
 
+def titles_after(read: PageRead, before: PageRead | None) -> list[tuple[str | None, bool]]:
+    """Each table's title on a page, and whether it came from the foot of the page before.
+
+    ``before`` is the page before this one, read in the same request, or ``None``. It is never the
+    previous page *asked for*: a request that skips a page made that an earlier page, and a caption
+    stranded two pages up titled a table it has nothing to do with (#366). The corpus checker calls
+    this too, so the titles it compares are the ones the tool returns.
+    """
+    carried = None
+    if before is not None and before.tables:
+        carried = _orphan_title(before.blocks, before.tables[-1]["bbox"])
+    out: list[tuple[str | None, bool]] = []
+    for position, table in enumerate(read.tables):
+        if position == 0 and carried and not table["title"]:
+            out.append((carried, True))
+        else:
+            out.append((table["title"], False))
+    return out
+
+
 def _continues_from(entry: dict, previous: dict | None, page_height: float) -> int | None:
     """Whether ``entry`` may continue the previous page's last table — flagged, never merged.
 
@@ -1556,39 +1576,37 @@ def tables(
         indices = resolve_pages(vdoc, pages)
         found: list[dict] = []
         unread: list[dict] = []
-        carried: str | None = None
-        previous: dict | None = None
+        last: tuple[int, PageRead] | None = None
 
         for index0 in indices:
             page = _page_of(vdoc, index0)
             result = read_page(page)
             unread.extend(_public(u) for u in result.unread)
-            if not result.tables:
-                carried, previous = None, None
-                continue
-            for position, table in enumerate(result.tables):
+            # Only the page before can hand this one a caption or a table to continue. The one read
+            # before it is that page only when the request did not skip it (#366).
+            before = last[1] if last is not None and last[0] == index0 - 1 else None
+            previous = found[-1] if before is not None and before.tables else None
+            titles = titles_after(result, before)
+            for position, (table, (title, carried)) in enumerate(zip(result.tables, titles)):
                 entry = {
                     "page": index0 + 1,
                     "bbox": _to_unrotated(page, table["bbox"]),
                     "rows": table["rows"],
                     "header": table["header"],
-                    "title": table["title"],
-                    "title_from_previous_page": False,
+                    "title": title,
+                    "title_from_previous_page": carried,
                     "row_count": len(table["rows"]),
                     "col_count": max(len(row) for row in table["rows"]),
                     "_box": table["bbox"],
                     "_columns": table["columns"],
                 }
-                if position == 0 and carried and not entry["title"]:
-                    entry["title"] = carried
-                    entry["title_from_previous_page"] = True
                 entry["continues_from"] = (
                     _continues_from(entry, previous, page.rect.height) if position == 0 else None
                 )
-                entry["continuation_checked"] = not (position == 0 and previous is None and index0 > 0)
+                # Checked when there is no page before, or it was read — with or without a table.
+                entry["continuation_checked"] = position > 0 or index0 == 0 or before is not None
                 found.append(entry)
-            carried = _orphan_title(result.blocks, result.tables[-1]["bbox"])
-            previous = found[-1]
+            last = (index0, result)
 
         total = len(found)
         batch: list[dict] = []
