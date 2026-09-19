@@ -121,7 +121,9 @@ open is almost entirely in that category. The gate, all small and all concrete:
   presumably been failing at that rate for a while and was absorbed as noise, because a re-run cleared
   it. Fixed as **M130**; the inventory is honest again. The lesson is about the *counting*, not the
   bug: a flake that a re-run hides is not observed, so "we have one" only ever meant "we have written
-  one down." `test_single_instance` remains the sole item here.
+  one down." `test_single_instance` remains the sole item here. **2026-09-19: a second one, seen on
+  CI** — `test_incremental_save.py::test_saving_twice_from_one_model_does_not_stack_revisions`, once on
+  the `windows` job (§Open follow-ups).
 - [ ] **Item E — background rendering** (`PLAN.md` §Deferred): 1–3 s of frozen UI per page per zoom
   on image-heavy documents. Its gate is already met; this is scheduling, not justification.
 - **Code signing** stays deferred (needs a certificate) — it is the one gate item that may never be
@@ -5231,6 +5233,17 @@ it on this side of the line.
   **gitignored**, so it drifts per-machine and never gets re-vendored by a `git pull`. CI is unaffected
   (it fetches fresh). Fix by re-running `build.ps1` **without** `-Offline` once, then re-running with
   it. Worth a guard in `build.ps1` that diffs the cache against the lock before an offline build.
+- **Flaky test: `test_incremental_save.py::test_saving_twice_from_one_model_does_not_stack_revisions`**
+  (seen 2026-09-19, on [#367](https://github.com/utyagi24/klarpdf/pull/367)). The `windows` CI job
+  failed `assert len(first) == len(second)`: two saves of the same edits came out 2,518 and 2,517
+  bytes. It is a flake, not that PR's doing: the same code passed that job one push earlier
+  (`50d7c8a`; the failing push, `9596621`, changed only `PROGRESS.md`), a re-run of the failed job
+  passed, and the PR touches nothing under `klarpdf/model/`. Locally (WSL), 12 of 12 pairs saved a
+  second apart came out 2,518 bytes each, and the annotation carries no modification date there, so
+  the first guess, a timestamp compressing to a different length, is not what happened. Not
+  diagnosed: which byte differs. The test's docstring promises only that nothing grows and no third
+  `%%EOF` appears, which is weaker than equal lengths. Decision owed: diagnose from the two files the
+  next time it fires, or assert what the docstring promises.
 - **Flaky test: `test_single_instance.py::test_handoff_opens_window_in_resident_instance`.** Failed
   once, passed on rerun (timing-sensitive Windows IPC: a race between the resident instance binding its
   socket and the forwarding launch connecting). **Could not reproduce** — 5 isolated runs + several
