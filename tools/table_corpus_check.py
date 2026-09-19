@@ -22,10 +22,22 @@ Plan format::
     {"pages": [["Some-10Q.pdf", [4, 5]], ["small-form.pdf", null]],
      "anchors": [{"doc": "Some-10Q.pdf", "page": 4, "tables": 1, "shapes": [[28, 9]],
                   "rows": [["Net sales", "$", "109,417", "$", "94,036"]],
-                  "first_cell_prefix": ["Total assets"], "unread": ["side_by_side"]}]}
+                  "first_cell_prefix": ["Total assets"], "unread": ["side_by_side"],
+                  "titles": ["CONDENSED CONSOLIDATED STATEMENTS OF OPERATIONS (Unaudited)"]}]}
 
 ``null`` pages means every page, up to 30. ``unread`` lists reason codes (``tables._REASONS`` keys)
-that must appear. The exit status is non-zero when an expectation fails or the word check disagrees.
+that must appear. ``titles`` holds one entry per table on the page, in the order they are returned:
+the exact title, ``null`` for a table that must come back untitled, or a list of the answers that
+are all right (``null`` in the list accepts no title as well). A title is compared as ``get_tables``
+returns it when asked for all of the plan's pages of that document in one call, so a caption
+stranded at the foot of the page before counts when that page is in the plan. Each title in the key
+is one verified on a render.
+
+**A key the checker does not know is an error**, never a silence: an anchor holding a misspelt key
+or a wrong title used to pass, because this checker only ever read the keys it knew (``PLAN.md``
+§M145). ``note``, on the plan or on an anchor, is the one key nothing compares: a string recording
+why an expectation is what it is. The exit status is non-zero when the plan is malformed, an expectation fails, or the word
+check disagrees.
 """
 
 from __future__ import annotations
@@ -44,6 +56,19 @@ import pymupdf as fitz  # noqa: E402
 from klarpdf.mcp_bridge import tables  # noqa: E402
 
 PAGE_CAP = 30
+
+_ANCHOR_KEYS = {
+    "doc": str,
+    "page": int,
+    "tables": int,
+    "shapes": list,
+    "rows": list,
+    "first_cell_prefix": list,
+    "unread": list,
+    "titles": list,
+    "note": str,
+}
+_PLAN_KEYS = {"pages": list, "anchors": list, "note": str}
 
 
 def _displayed(page: fitz.Page, words: list) -> list[tuple]:
@@ -94,7 +119,56 @@ def word_check(page: fitz.Page, table: dict) -> tuple[dict, dict]:
     return dict(printed - returned), dict(returned - covered)
 
 
-def anchor_failures(anchor: dict, result: tables.PageRead) -> list[str]:
+def plan_problems(plan: dict) -> list[str]:
+    """What is wrong with the plan itself: a key nothing reads, or a value of the wrong kind."""
+    problems = []
+    for key, value in plan.items():
+        if key not in _PLAN_KEYS:
+            problems.append(f"plan: unknown key {key!r}, which nothing would read")
+        elif not isinstance(value, _PLAN_KEYS[key]):
+            problems.append(f"plan: {key!r} must be a {_PLAN_KEYS[key].__name__}")
+    if "pages" not in plan:
+        problems.append("plan: no 'pages'")
+    anchors = plan.get("anchors", [])
+    for number, anchor in enumerate(anchors if isinstance(anchors, list) else [], 1):
+        if not isinstance(anchor, dict):
+            problems.append(f"anchor {number}: must be an object, got {anchor!r}")
+            continue
+        where = f"anchor {number} ({anchor.get('doc')} p{anchor.get('page')})"
+        for key in ("doc", "page"):
+            if key not in anchor:
+                problems.append(f"{where}: no {key!r}")
+        for key, value in anchor.items():
+            kind = _ANCHOR_KEYS.get(key)
+            if kind is None:
+                problems.append(f"{where}: unknown key {key!r}, which nothing would check")
+            elif not isinstance(value, kind) or isinstance(value, bool):
+                problems.append(f"{where}: {key!r} must be a {kind.__name__}, got {value!r}")
+        for entry in anchor.get("titles", []) if isinstance(anchor.get("titles"), list) else []:
+            answers = entry if isinstance(entry, list) else [entry]
+            if not answers or not all(a is None or isinstance(a, str) for a in answers):
+                problems.append(f"{where}: a title is a string, null, or a list of those; got {entry!r}")
+    return problems
+
+
+def title_outcomes(anchor: dict, titles: list[str | None]) -> list[tuple[str, str]]:
+    """``(outcome, message)`` for each pinned title — ``right``, ``missing`` or ``wrong``."""
+    expected = anchor["titles"]
+    if len(expected) != len(titles):
+        return [("wrong", f"titles pinned for {len(expected)} tables, got {len(titles)}: {titles}")]
+    outcomes = []
+    for index, (want, have) in enumerate(zip(expected, titles), 1):
+        if have in (want if isinstance(want, list) else [want]):
+            outcomes.append(("right", ""))
+        else:
+            kind = "missing" if have is None else "wrong"
+            outcomes.append((kind, f"title of table {index} is {kind}: {have!r}, expected {want!r}"))
+    return outcomes
+
+
+def anchor_failures(anchor: dict, result: tables.PageRead, titles: list[str | None]) -> list[str]:
+    """What the page got wrong against ``anchor``. ``titles`` are the page's titles as the tool
+    returns them, which can differ from ``read_page``'s by a caption from the page before."""
     fails = []
     found = result.tables
     if "tables" in anchor and len(found) != anchor["tables"]:
@@ -112,14 +186,23 @@ def anchor_failures(anchor: dict, result: tables.PageRead) -> list[str]:
     for code in anchor.get("unread", []):
         if not any(u["_code"] == code for u in result.unread):
             fails.append(f"no unread region with reason {code}")
+    if "titles" in anchor:
+        fails.extend(message for outcome, message in title_outcomes(anchor, titles) if outcome != "right")
     return fails
 
 
 def run(plan_path: str, corpus: str, snapshot: str | None, snapshots: str) -> int:
     plan = json.load(open(plan_path, encoding="utf-8"))
+    malformed = plan_problems(plan)
+    if malformed:
+        print(f"the plan is malformed; nothing was read ({len(malformed)} problems)")
+        for problem in malformed:
+            print("  " + problem)
+        return 1
     anchors = plan.get("anchors", [])
     records, problems = [], []
     counts: collections.Counter = collections.Counter()
+    title_counts: collections.Counter = collections.Counter()
     evaluated: set[tuple[str, int]] = set()
     started = time.perf_counter()
     for name, pages in plan["pages"]:
@@ -131,19 +214,23 @@ def run(plan_path: str, corpus: str, snapshot: str | None, snapshots: str) -> in
         if doc.needs_pass:
             print(f"-- needs a password, skipped: {name}")
             continue
-        for number in pages or range(1, min(doc.page_count, PAGE_CAP) + 1):
+        before: tuple[int, tables.PageRead] | None = None
+        for number in sorted(set(pages)) if pages else range(1, min(doc.page_count, PAGE_CAP) + 1):
             page = doc[number - 1]
             result = tables.read_page(page)
+            previous = before[1] if before is not None and before[0] == number - 1 else None
+            titles = [title for title, _ in tables.titles_after(result, previous)]
+            before = (number, result)
             parts = []
             record = {"doc": name, "page": number, "tables": [], "unread": [
                 {k: u[k] for k in ("bbox", "_code", "_detail")} for u in result.unread
             ]}
-            for table in result.tables:
+            for table, title in zip(result.tables, titles):
                 counts[table["reader"]] += 1
                 missing, extra = word_check(page, table)
                 shape = [len(table["rows"]), max(len(r) for r in table["rows"])]
                 record["tables"].append({
-                    "reader": table["reader"], "shape": shape, "title": table["title"],
+                    "reader": table["reader"], "shape": shape, "title": title,
                     "bbox": [round(v, 1) for v in table["bbox"]], "rows": table["rows"],
                 })
                 flag = ""
@@ -157,13 +244,19 @@ def run(plan_path: str, corpus: str, snapshot: str | None, snapshots: str) -> in
             for anchor in anchors:
                 if anchor["doc"] == name and anchor["page"] == number:
                     evaluated.add((name, number))
-                    problems.extend(f"expectation {name} p{number}: {f}" for f in anchor_failures(anchor, result))
+                    failures = anchor_failures(anchor, result, titles)
+                    problems.extend(f"expectation {name} p{number}: {f}" for f in failures)
+                    if "titles" in anchor:
+                        title_counts.update(outcome for outcome, _ in title_outcomes(anchor, titles))
             records.append(record)
             print(f"{name[:40]:40} p{number:<4} " + " ".join(parts), flush=True)
     for anchor in anchors:
         if (anchor["doc"], anchor["page"]) not in evaluated:
             problems.append(f"expectation never evaluated (typo, or page not in the plan): {anchor['doc']} p{anchor['page']}")
     print(f"\n{dict(counts)} in {time.perf_counter() - started:.0f}s")
+    if title_counts:
+        print(f"titles pinned: {title_counts['right']} right, {title_counts['missing']} missing, "
+              f"{title_counts['wrong']} wrong")
     print(f"{len(anchors)} expectations, {len(problems)} problems")
     for problem in problems:
         print("  " + problem)
