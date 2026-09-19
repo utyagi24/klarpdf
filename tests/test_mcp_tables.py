@@ -464,6 +464,53 @@ def test_text_running_across_a_drawn_grids_border_declines(tmp_path):
     assert "grid_crossed" in _codes(result)
 
 
+def _bar_chart(page: fitz.Page) -> None:
+    """Bars with white outlines standing on gridlines inside a frame, each with its value printed
+    above it: how NADA's dealer report draws the chart on its p4 (#354)."""
+    left, right, top, bottom = 80, 320, 100, 300
+    for y in range(top, bottom + 1, 50):
+        page.draw_line((left, y), (right, y), color=(0.6, 0.6, 0.6), width=0.5)
+    for x in (left, right):
+        page.draw_line((x, top), (x, bottom), width=0.5)
+    for i, (bar_top, label) in enumerate([(90, "19.1%"), (130, "17.6%"), (160, "16.8%"), (75, "20.9%"), (230, "10.2%")]):
+        x = 90 + 45 * i
+        page.draw_rect(fitz.Rect(x, bar_top + 20, x + 30, bottom), color=(1, 1, 1), fill=(0.5, 0.7, 0.9), width=0.5)
+        page.insert_text((x + 2, bar_top + 16), label, fontsize=FONT)
+
+
+def test_a_bar_chart_drawn_over_its_gridlines_is_declined(tmp_path):
+    """The finder boxes the band between two gridlines and each bar top standing inside it, so its
+    cells overlap. A table's never do."""
+    doc = fitz.open()
+    _bar_chart(doc.new_page())
+    path = _save(doc, tmp_path, "bar_chart.pdf")
+    result = _read(path)
+    assert not result.tables
+    assert _codes(result) == ["overlapping_cells"]
+
+
+def test_a_merged_cell_is_not_an_overlap(tmp_path):
+    """A header cell spanning two columns is one drawn cell, not two overlapping ones."""
+    doc = fitz.open()
+    page = doc.new_page()
+    for y in (100, 120, 140, 160, 180):
+        page.draw_line((100, y), (400, y))
+    for x in (100, 200, 400):
+        page.draw_line((x, 100), (x, 180))
+    page.draw_line((300, 120), (300, 180))  # no line between the two figure columns in the header
+    page.insert_text((105, 114), "Segment", fontsize=FONT)
+    page.insert_text((265, 114), "Net sales", fontsize=FONT)
+    for i, (name, first, second) in enumerate([("Americas", "12", "14"), ("Europe", "8", "9"), ("Japan", "3", "4")]):
+        y = 134 + 20 * i
+        page.insert_text((105, y), name, fontsize=FONT)
+        page.insert_text((205, y), first, fontsize=FONT)
+        page.insert_text((305, y), second, fontsize=FONT)
+    path = _save(doc, tmp_path, "merged_header.pdf")
+    result = _read(path)
+    assert not result.unread
+    assert _rows(result) == [["Segment", "Net sales", ""], ["Americas", "12", "14"], ["Europe", "8", "9"], ["Japan", "3", "4"]]
+
+
 def test_a_rule_through_text_declines(tmp_path):
     """Gridlines drawn through labels are not row separators."""
     doc = fitz.open()
@@ -652,6 +699,18 @@ def test_the_grid_crossing_check_is_what_declines_a_chart(tmp_path, monkeypatch)
 
     monkeypatch.setattr(tables, "_read_grid", permissive)
     assert "grid_crossed" not in _codes(_read(path))
+
+
+def test_the_overlapping_cells_check_is_what_declines_a_bar_chart(tmp_path, monkeypatch):
+    """Blind the check and the chart comes back as a table with bar labels stacked in one cell, the
+    shape #354 reported."""
+    doc = fitz.open()
+    _bar_chart(doc.new_page())
+    path = _save(doc, tmp_path, "bar_chart.pdf")
+    monkeypatch.setattr(tables, "_overlapping", lambda cells: None)
+    table = _read(path).tables[0]
+    assert table["reader"] == "grid"
+    assert table["rows"][0][0] == "19.1%\n17.6%"
 
 
 def test_the_drawn_row_check_is_what_saves_a_banded_block(tmp_path, monkeypatch):

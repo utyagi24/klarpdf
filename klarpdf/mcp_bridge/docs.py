@@ -651,6 +651,7 @@ the layout. The reasons, in plain terms:
 | "this page has ruled lines or shaded bands, but…" | the drawn lines enclose nothing table-shaped |
 | "the ruled rows here each hold a single run of text" | columns exist only as spaces inside lines (a line-printer layout) |
 | "text here runs across the drawn cell borders" | a chart, or a form whose entries overflow their boxes |
+| "the lines drawn here box in areas that overlap" | a bar chart: its bars are drawn over its gridlines |
 | "a ruled line runs through text here" | lines that are not row separators — a chart's gridlines, or ruling that belongs to the text |
 | "two separate pieces of text share one column here" | a column boundary the page does not state; also text printed twice to simulate bold |
 | "several rows of text share one ruled band here" | the drawn lines do not say which line belongs to which row |

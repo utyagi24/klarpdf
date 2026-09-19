@@ -137,6 +137,10 @@ _REASONS = {
         "text here runs across the drawn cell borders, so the lines are not separating cells — "
         "this is usually a chart, or a form whose entries overflow their boxes"
     ),
+    "overlapping_cells": (
+        "the lines drawn here box in areas that overlap one another, so they are not the borders of "
+        "cells — this is usually a bar chart, whose bars are drawn over its gridlines"
+    ),
     "rule_through_text": (
         "a ruled line runs through text here, so the lines are not separating rows — a chart's "
         "gridlines do this, and so does ruling that belongs to the text rather than to a table"
@@ -641,9 +645,34 @@ def _read_grid(found: _Found, inventory: _Inventory, edges: list[tuple[float, fl
     columns = sorted({round(rect[0], 1) for _, _, rect in cells})
     if len(rows) < 2 or len(columns) < 2:
         raise _NotATable()
+    # The grid's other claim: its cells do not overlap, because every point of a table belongs to one
+    # cell. A bar chart drawn over its gridlines breaks it. The band between two gridlines is a cell,
+    # and so is each bar top standing inside that band, so the labels above the bars all fall in the
+    # band. NADA's dealer report p4 came back as a 2 × 13 table with four bar labels in one cell
+    # (#354). Checked last, so a region another check declines keeps that check's reason.
+    pair = _overlapping([rect for _, _, rect in cells])
+    if pair is not None:
+        first, second = (", ".join(f"{v:.1f}" for v in rect) for rect in pair)
+        raise _Decline("overlapping_cells", f"the drawn cells [{first}] and [{second}] overlap")
     edges = columns + [box.x1]
     spans = [[a, b] for a, b in zip(edges, edges[1:])]
     return {"bbox": reported, "rows": rows, "header": rows[0], "columns": columns, "spans": spans, "reader": "grid"}
+
+
+def _overlapping(cells: list[tuple[float, float, float, float]]) -> tuple | None:
+    """The first two cells sharing any area, or ``None`` when they tile the region as a grid's do.
+
+    Sorted by left edge, so each cell is compared only with those starting before its right edge:
+    a spreadsheet printed as one grid can hold thousands of cells.
+    """
+    ordered = sorted(cells)
+    for index, a in enumerate(ordered):
+        for b in ordered[index + 1:]:
+            if b[0] >= a[2] - _EPS:
+                break
+            if _overlap(a[0], a[2], b[0], b[2]) > _EPS and _overlap(a[1], a[3], b[1], b[3]) > _EPS:
+                return a, b
+    return None
 
 
 def _merge_pieces(pieces: list[_Line]) -> str:
