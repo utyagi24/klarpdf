@@ -697,8 +697,10 @@ twice reads it once.
   stepping over what qualifies a table rather than naming it (a line in brackets such as "(in
   millions)", a column heading left above the table) and over one paragraph introducing it. A title
   printed on two lines comes back whole, with the company's name when the page prints the two in one
-  heading. It is `null` rather than a guess wherever the page does not say: nothing stands out above
-  the table, a second paragraph or another table lies between, the line is a sentence (a form's
+  heading. Where nothing above names a drawn grid, its title can be its own first row, when the page
+  draws that row as one cell across the whole table ("Table 1 - Announcement XML"); the row stays in
+  `rows` as well. It is `null` rather than a guess wherever the page does not say: nothing stands out
+  above the table, a second paragraph or another table lies between, the line is a sentence (a form's
   instruction), or it is a chart's caption set under the chart. Two titles a reader would see come
   back `null` too: a heading set in the page's own type (a slide deck's letter-spaced headings, on a
   page set mostly in that type), and a title the page before prints word for word in the same place,

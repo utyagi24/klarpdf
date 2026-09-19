@@ -1077,6 +1077,112 @@ def test_a_line_naming_nothing_is_stepped_over(tmp_path):
     assert _titled(tmp_path, "year.pdf", heading) == "Deferred Revenue"
 
 
+BANNER_ROWS = [("Field", "Required"), ("AccruedInterest", "Y"), ("AdjustedPrice", "Y"), ("CUSIP", "N")]
+
+
+def _banner_grid(page: fitz.Page, top: float, banner=None) -> None:
+    """A grid whose first row is one drawn cell across it, as a Treasury specification heads its
+    tables. ``banner(page, x0, y0, x1)`` writes that row's text."""
+    x0, x1, split, height = 60, 360, 240, 20
+    page.draw_rect(fitz.Rect(x0, top, x1, top + height))
+    for i in range(len(BANNER_ROWS) + 1):
+        page.draw_line((x0, top + height * (i + 1)), (x1, top + height * (i + 1)))
+    for x in (x0, split, x1):
+        page.draw_line((x, top + height), (x, top + height * (len(BANNER_ROWS) + 1)))
+    if banner:
+        banner(page, x0, top, x1)
+    for i, row in enumerate(BANNER_ROWS, 1):
+        for x, text in zip((x0, split), row):
+            page.insert_text((x + 4, top + height * i + 14), text, fontsize=FONT)
+
+
+def _banner_titles(tmp_path, name: str, banner, above=None) -> list:
+    doc = fitz.open()
+    page = doc.new_page()
+    if above:
+        above(page)
+    _banner_grid(page, 200, banner)
+    return [t["title"] for t in _read(_save(doc, tmp_path, name)).tables]
+
+
+def _title_line(text: str):
+    return lambda page, x0, top, x1: _bold(page, x0 + 60, top + 14, text)
+
+
+def test_a_grids_banner_row_titles_it_when_nothing_above_does(tmp_path):
+    """The owner's rule (M145): a table can print its title inside, as a first row the page draws as
+    one cell across it. A fallback only: a title above the table comes first."""
+    banner = _title_line("Table 1 - Announcement XML")
+    assert _banner_titles(tmp_path, "banner.pdf", banner) == ["Table 1 - Announcement XML"]
+    above = lambda page: _bold(page, 60, 190, "Announcement Fields")  # noqa: E731
+    assert _banner_titles(tmp_path, "both.pdf", banner, above) == ["Announcement Fields"]
+
+
+def test_a_banner_holding_labels_side_by_side_is_a_header_band(tmp_path):
+    """The IPO prospectus draws a header row as one band, its column headings side by side in it."""
+    def band(page, x0, top, x1):
+        _bold(page, x0 + 4, top + 14, "Components")
+        _bold(page, x0 + 200, top + 14, "Length (in km)")
+    assert _banner_titles(tmp_path, "band.pdf", band) == [None]
+
+
+def test_a_banner_that_only_qualifies_is_no_title(tmp_path):
+    """A banner reading "(In millions)" is a units line, which names nothing."""
+    assert _banner_titles(tmp_path, "units.pdf", _title_line("(In millions)")) == [None]
+
+
+def test_a_banners_title_stays_inside_its_cell(tmp_path):
+    """The IPO prospectus sets the header row under its banner in the banner's own text block and
+    type; the title is the banner's, not "As at Fiscal 2024 Field Required". Rows 12 pt apart, the
+    spacing at which MuPDF puts the three lines in one block."""
+    x0, x1, split, height, top = 60, 360, 240, 12, 200
+    rows = [("AccruedInterest", "Y"), ("AdjustedPrice", "Y"), ("CUSIP", "N"), ("IssueDate", "N")]
+    doc = fitz.open()
+    page = doc.new_page()
+    page.draw_rect(fitz.Rect(x0, top, x1, top + height))
+    for i in range(len(rows) + 2):
+        page.draw_line((x0, top + height * (i + 1)), (x1, top + height * (i + 1)))
+    for x in (x0, split, x1):
+        page.draw_line((x, top + height), (x, top + height * (len(rows) + 2)))
+    writer = fitz.TextWriter(page.rect)
+    font = fitz.Font("hebo")
+    writer.append((x0 + 60, top + 9), "As at Fiscal 2024", font=font, fontsize=FONT)
+    writer.append((x0 + 4, top + 21), "Field", font=font, fontsize=FONT)
+    writer.append((split + 4, top + 21), "Required", font=font, fontsize=FONT)
+    writer.write_text(page)
+    for i, row in enumerate(rows, 2):
+        for x, text in zip((x0, split), row):
+            page.insert_text((x + 4, top + height * i + 9), text, fontsize=FONT)
+    assert [t["title"] for t in _read(_save(doc, tmp_path, "inside.pdf")).tables] == ["As at Fiscal 2024"]
+
+
+def test_a_caption_stranded_on_the_page_before_outranks_a_banner(tmp_path):
+    """The banner is for a table nothing above names, and a caption at the foot of the page before
+    is above it."""
+    doc = fitz.open()
+    first = doc.new_page()
+    _statement(first, 40, ASSETS)
+    first.insert_text((60, 40 + len(ASSETS) * PITCH + 30), "Headphone cable connected", fontsize=FONT, fontname="hebo")
+    _banner_grid(doc.new_page(), 40, _title_line("Table 2 - Results"))
+    path = _save(doc, tmp_path, "stranded_over_banner.pdf")
+    assert tables.tables(path, pages=[2])["tables"][0]["title"] == "Table 2 - Results"
+    carried = tables.tables(path, pages=[1, 2])["tables"][1]
+    assert (carried["title"], carried["title_from_previous_page"]) == ("Headphone cable connected", True)
+
+
+def test_a_ruled_tables_first_line_is_never_a_banner(tmp_path):
+    """Of the ruled tables measured, every first row holding one line held a column heading or a
+    units line ("Y/Y %", "(In millions)"); none held a title, so only a drawn grid has a banner."""
+    rows = [("", "", "")] + ASSETS
+    doc = fitz.open()
+    page = doc.new_page()
+    _statement(page, 200, rows)
+    _bold(page, 200, 211, "Quarterly Change")
+    result = _read(_save(doc, tmp_path, "ruled_first_line.pdf"))
+    assert result.tables[0]["reader"] == "ruled"
+    assert result.tables[0]["title"] is None
+
+
 # ---------------------------------------------------------------------------------------------
 # Rotation
 # ---------------------------------------------------------------------------------------------

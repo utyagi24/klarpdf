@@ -7749,6 +7749,34 @@ heading over every page, so the rule reads both as a running header, which it ha
 pages above. The key accepts `null` there, with a note on each anchor. The other two are Tesla's p5,
 where a slide's heading is set in the page's own type, and Amazon p13 (held out, the same repetition).
 
+The TIPS document costs more than its one keyed page shows: **13 of its 14 tables come back
+untitled**. The owner accepted that on 2026-09-19, once the heading turned out to be what a running
+header is, the same line in the same place on every page. A comparison that would have kept it was
+measured and set aside: the page before holds a table in the same place with the same columns, under
+the same line. That is true on every TIPS page and on none of the four running headers above, but a
+long notes table continued at the top of consecutive pages under a running header would pass it too,
+and it does not rescue Amazon's statement, whose pages set their columns out differently.
+
+**A table's own banner, as a fallback** (owner, 2026-09-19). A Treasury auction specification prints
+each table's title inside the table, as a first row the page draws as one cell across it (`Table 1 -
+Announcement XML`), with nothing above. That row is the title only when nothing above names the table:
+a title above, the title shared by a two-up list, and a caption stranded at the foot of the page
+before all come first. Only a drawn grid has a banner, and only where the page draws the first row as
+one cell across the whole table. Of the ruled tables in the judged sets whose first row held one line,
+all 16 held a column heading or a units line (`Y/Y %`, `(In millions)`, `Average`), never a title.
+The banner is held to what a title above is held to: its first line stands out, is readable, is not
+wholly in brackets and is not a sentence. A banner whose first line has another beside it is a header
+band (the IPO prospectus draws a header row as one band), and the title stays inside the drawn cell
+(the prospectus sets the header row below in the banner's own text block and type).
+
+Measured: 15 more titles in the public plan, now pinned (the Treasury document's 11, Tesla p6 and p7,
+and the prospectus's p29, whose two banners read `As at Fiscal 2025` and `As at Fiscal 2024`); one in
+the private plan; and 11 of the 91 held-out tables, each of which had come back untitled. No title that
+was already given changed. A scan of 124 grid tables on random pages of 32 documents found four more
+banners: Tesla's two, the prospectus's p29, and a GE page whose banner does not stand out and is left
+alone. Tesla p7 is the white-bordered table of `PROGRESS.md` §Open follow-ups: its title now comes
+back, though the row that prints it is still read as the table's first row.
+
 **The body is the page's, not the document's.** M140 measures the body over the whole document.
 Measured both ways on all 196 tables, neither gave a wrong title. The page's body found three more
 (Tesla's statement headings are the deck's body type, and still larger than the tables under them),
@@ -7770,8 +7798,8 @@ the bold lead-in of an infographic pass, split one line to a block as the survey
 use titles; `tools/heading_corpus_check.py` holds.
 
 **Verification.** `tests/test_mcp_tables.py` has a test for each rule, each a built page with a known
-answer, beside #354's three and #366's two. Each rule was then removed in turn, 16 breaks, and its
-test seen to fail. One test at first passed with its rule removed: the bracket lines in its heading
+answer, beside #354's three and #366's two. Each rule was then removed in turn, 22 breaks (6 of them
+the banner's), and its test seen to fail. One test at first passed with its rule removed: the bracket lines in its heading
 sat right of the label column, so the column-heading test stepped over them before the bracket rule
 could. The fixture was moved until only the bracket rule could. Both corpus plans: 0 problems.
 

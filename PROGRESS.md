@@ -943,7 +943,11 @@ it still comes after M145, for the reason above.
   steps over brackets, column headings and one introducing paragraph, and stops at more prose, a bold
   sentence, another table's text, a chart's caption or a running page header. Every rule has a test
   that fails without it. **[#355](https://github.com/utyagi24/klarpdf/issues/355) fixed**, all four
-  cases. **[#354](https://github.com/utyagi24/klarpdf/issues/354) fixed:** a grid whose drawn cells
+  cases. Where nothing above names a drawn grid, its title can be its own first row, when the page
+  draws that row as one cell across the table (the owner's rule: a Treasury specification titles every
+  table that way). Accepted, with the owner: a title the page before prints in the same place reads as
+  a running header, so 13 of the TIPS document's 14 tables come back untitled.
+  **[#354](https://github.com/utyagi24/klarpdf/issues/354) fixed:** a grid whose drawn cells
   overlap, as NADA's bar chart's do, is declined. **[#366](https://github.com/utyagi24/klarpdf/issues/366)
   fixed:** a request that skipped a page gave the next table a caption from two pages up. The table
   checker compares titles, and refuses a key it does not know. Not taken, with the owner's
@@ -4723,7 +4727,8 @@ it on this side of the line.
   with the company's name when the page prints the two in one block.
 - **A table border drawn in white takes the title in as the first row** (M141; found 2026-09-17
   while measuring M145). On Tesla's Q2 2026 update p7, `get_tables` returns *Installed Annual
-  Capacity* as the table's first row and `header`, with `title: null`. A reader sees a title above the
+  Capacity* as the table's first row and `header`, with `title: null`. (Since M145 the `title` comes
+  back too, read from that row as the table's banner; the row itself is still there.) A reader sees a title above the
   grey header band (title at y 135–157, band from y 162). But the file draws the table's border as
   **white** lines on the page's white background, and the top edge is at y 130, above the title. By
   the lines the page draws, the title is inside the table; by what a reader sees, it is not. The

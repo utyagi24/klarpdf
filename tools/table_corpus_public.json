@@ -16,9 +16,9 @@
   ["SpaceX-EUProspectus.pdf", [161, 251, 274]],
   ["WH-1000XM6.pdf", [29, 30]],
   ["Research Doc2_Market Research Report_6.25.19.pdf", [12, 13, 14, 15, 16, 22]],
-  ["TSLA-Q2-2026-Update.pdf", [23, 27, 28, 29]],
+  ["TSLA-Q2-2026-Update.pdf", [6, 7, 23, 27, 28, 29]],
   ["2025 NADA Data Full-Year Report.pdf", null],
-  ["dhariwal_ipo.pdf", [76, 77, 387, 388, 389]],
+  ["dhariwal_ipo.pdf", [29, 76, 77, 387, 388, 389]],
   ["2024219CA8.pdf", null],
   ["Q4 2025 Sacramento Multifamily Market Report.pdf", null],
   ["report_CA_06_california.pdf", null],
@@ -26,7 +26,8 @@
   ["pdf-example-bookmarks.pdf", [1, 2, 3, 4, 5]],
   ["f8949.pdf", null],
   ["ssa-1-bk.pdf", null],
-  ["CPI_20260911.pdf", [1, 2]]
+  ["CPI_20260911.pdf", [1, 2]],
+  ["auction-file-&-api-specification-changes.pdf", null]
  ],
  "anchors": [
   {"doc": "TEAM-2025-Annual-Report.pdf", "page": 69, "tables": 1,
@@ -164,6 +165,17 @@
   {"doc": "ssa-1-bk.pdf", "page": 8, "titles": ["RECEIPT FOR YOUR CLAIM FOR SOCIAL SECURITY RETIREMENT INSURANCE BENEFITS"]},
   {"doc": "CPI_20260911.pdf", "page": 1, "titles": [["TREASURY INFLATION-PROTECTED SECURITIES (TIPS) Ref CPI and Index Ratios for October 2026", "Ref CPI and Index Ratios for October 2026"]]},
   {"doc": "CPI_20260911.pdf", "page": 2, "titles": [["TREASURY INFLATION-PROTECTED SECURITIES (TIPS) Ref CPI and Index Ratios for October 2026", "Ref CPI and Index Ratios for October 2026", null]],
-   "note": "accepted miss: p1 prints this heading word for word in the same place, which reads as a running header (PLAN.md §M145)"}
+   "note": "accepted miss: p1 prints this heading word for word in the same place, which reads as a running header (PLAN.md §M145)"},
+  {"doc": "TSLA-Q2-2026-Update.pdf", "page": 6, "titles": ["Installed Annual Manufacturing Capacity"], "note": "the table's banner: its first row, drawn as one cell across it, with no title above (PLAN.md \u00a7M145)"},
+  {"doc": "TSLA-Q2-2026-Update.pdf", "page": 7, "titles": ["Installed Annual Capacity"]},
+  {"doc": "dhariwal_ipo.pdf", "page": 29, "titles": ["As at Fiscal 2025", "As at Fiscal 2024"], "note": "the table's banner: its first row, drawn as one cell across it, with no title above (PLAN.md \u00a7M145)"},
+  {"doc": "auction-file-&-api-specification-changes.pdf", "page": 2, "titles": ["Table 1 - Announcement XML"], "note": "the table's banner: its first row, drawn as one cell across it, with no title above (PLAN.md \u00a7M145)"},
+  {"doc": "auction-file-&-api-specification-changes.pdf", "page": 3, "titles": ["Table 1 - Announcement XML (Continued)"]},
+  {"doc": "auction-file-&-api-specification-changes.pdf", "page": 4, "titles": ["Table 2 - Competitive Results XML"]},
+  {"doc": "auction-file-&-api-specification-changes.pdf", "page": 5, "titles": ["Table 2 - Competitive Results XML (Continued)"]},
+  {"doc": "auction-file-&-api-specification-changes.pdf", "page": 6, "titles": ["Table 3 - Treasury CUSIP Release XML", "Table 4 - Consumer Price Index XML", "Table 5 - FRN Daily Indexes XML"]},
+  {"doc": "auction-file-&-api-specification-changes.pdf", "page": 7, "titles": ["Table 6 - U.S. Treasury Marketable Securities API"]},
+  {"doc": "auction-file-&-api-specification-changes.pdf", "page": 8, "titles": ["Table 6 - U.S. Treasury Marketable Securities API (Continued)"]},
+  {"doc": "auction-file-&-api-specification-changes.pdf", "page": 9, "titles": ["Table 7 - U.S. Treasury Marketable Securities API", "Table 8 - U.S. Treasury Marketable Securities API"]}
  ]
 }

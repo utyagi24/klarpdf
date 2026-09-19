@@ -656,10 +656,17 @@ def _read_grid(found: _Found, inventory: _Inventory, edges: list[tuple[float, fl
         [_merge_pieces(placed.get((r, c), [])) if rect else "" for c, rect in enumerate(row)]
         for r, row in enumerate(found.rows)
     ]
-    rows = [row for row in rows if any(cell for cell in row)]
+    kept = [r for r, row in enumerate(rows) if any(cell for cell in row)]
+    rows = [rows[r] for r in kept]
     columns = sorted({round(rect[0], 1) for _, _, rect in cells})
     if len(rows) < 2 or len(columns) < 2:
         raise _NotATable()
+    # A first row the page draws as one cell across the whole grid is a banner: where a table prints
+    # its own title when nothing above it does (see :func:`_banner_title`).
+    first = [rect for rect in found.rows[kept[0]] if rect]
+    banner = None
+    if len(first) == 1 and first[0][0] <= box.x0 + _SNAP and first[0][2] >= box.x1 - _SNAP:
+        banner = fitz.Rect(first[0])
     # The grid's other claim: its cells do not overlap, because every point of a table belongs to one
     # cell. A bar chart drawn over its gridlines breaks it. The band between two gridlines is a cell,
     # and so is each bar top standing inside that band, so the labels above the bars all fall in the
@@ -671,7 +678,10 @@ def _read_grid(found: _Found, inventory: _Inventory, edges: list[tuple[float, fl
         raise _Decline("overlapping_cells", f"the drawn cells [{first}] and [{second}] overlap")
     edges = columns + [box.x1]
     spans = [[a, b] for a, b in zip(edges, edges[1:])]
-    return {"bbox": reported, "rows": rows, "header": rows[0], "columns": columns, "spans": spans, "reader": "grid"}
+    return {
+        "bbox": reported, "rows": rows, "header": rows[0], "columns": columns, "spans": spans, "reader": "grid",
+        "_banner": banner,
+    }
 
 
 def _overlapping(cells: list[tuple[float, float, float, float]]) -> tuple | None:
@@ -1544,7 +1554,42 @@ def _title(page: fitz.Page, tables: list[dict], declined: list[fitz.Rect]) -> st
                 ):
                     table["title"] = other["title"]
                     break
+    # Only then the table's own banner (the owner's rule, 2026-09-19: a fallback, when no title stands
+    # above the table). A Treasury specification prints "Table 1 - Announcement XML" that way on every
+    # table, and nothing above them.
+    for table in tables:
+        if table["title"] is None and table.get("_banner") is not None:
+            table["title"] = _banner_title(table, texts, blocks, stands_out, headings._side_by_side)
+            table["_title_in_banner"] = table["title"] is not None
     return _stranded(tables[-1], texts, blocks, stands_out, headings._side_by_side)
+
+
+def _banner_title(
+    table: dict,
+    texts: list[_Text],
+    blocks: dict[int, list[_Text]],
+    stands_out: Callable[[_Text], bool],
+    side_by_side: Callable[[fitz.Rect, fitz.Rect], bool],
+) -> str | None:
+    """The title a grid prints in its first row, where the page draws that row as one cell across the
+    whole table. Held to what a title above is held to: its first line stands out, is readable, is not
+    wholly in brackets and is not a sentence. A row whose first line has another beside it is a header band instead, its column
+    headings set side by side in one drawn cell, as the IPO prospectus draws one. Only grids: of the
+    ruled tables measured, every first row holding one line held a column heading or a units line
+    ("Y/Y %", "(In millions)"), never a title."""
+    inside = [
+        t for t in texts
+        if t.owner is table and table["_banner"].contains(fitz.Point((t.rect.x0 + t.rect.x1) / 2, (t.rect.y0 + t.rect.y1) / 2))
+    ]
+    if not inside:
+        return None
+    inside.sort(key=lambda t: (t.rect.y0, t.rect.x0))
+    top = inside[0]
+    if any(side_by_side(other.rect, top.rect) for other in inside[1:]):
+        return None
+    if _unreadable(top.words) or _bracketed(top.words) or _sentence(top.words) or not stands_out(top):
+        return None
+    return _joined(_run(top, blocks, False, side_by_side, within=inside))
 
 
 def _title_style(line: _StyledLine) -> Style:
@@ -1595,12 +1640,21 @@ def _heads_a_column(text: _Text, table: dict, body: Style) -> bool:
 
 
 def _run(
-    text: _Text, blocks: dict[int, list[_Text]], upward: bool, side_by_side: Callable[[fitz.Rect, fitz.Rect], bool]
+    text: _Text,
+    blocks: dict[int, list[_Text]],
+    upward: bool,
+    side_by_side: Callable[[fitz.Rect, fitz.Rect], bool],
+    within: list[_Text] | None = None,
 ) -> list[_Text]:
     """The title's text: the line and the lines of its block stacked next to it in its style, top to
     bottom. Lines level with it are other labels, not more of the title: a brochure prints "FIRST
-    FLOOR" and "SECOND FLOOR" in one block, over two plans."""
-    members = [t for t in blocks[text.line.block] if t is text or not side_by_side(t.rect, text.rect)]
+    FLOOR" and "SECOND FLOOR" in one block, over two plans. ``within`` keeps a banner's title inside
+    its drawn cell: the IPO prospectus sets the header row under its banner in the banner's block and
+    type."""
+    members = [
+        t for t in blocks[text.line.block]
+        if (t is text or not side_by_side(t.rect, text.rect)) and (within is None or t in within)
+    ]
     style = _title_style(text.line)
     picked = [text]
     index = members.index(text) + (-1 if upward else 1)
@@ -1751,7 +1805,9 @@ def titles_after(read: PageRead, before: PageRead | None) -> list[tuple[str | No
     carried = before.stranded if before is not None else None
     out: list[tuple[str | None, bool]] = []
     for position, table in enumerate(read.tables):
-        if position == 0 and carried and not table["title"]:
+        # A caption stranded above the table, at the foot of the page before, outranks the table's
+        # own banner: the banner is the fallback for a table nothing above names.
+        if position == 0 and carried and (not table["title"] or table.get("_title_in_banner")):
             out.append((carried, True))
         else:
             out.append((table["title"], False))
