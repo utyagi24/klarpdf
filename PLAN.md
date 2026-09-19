@@ -7824,6 +7824,134 @@ return that hidden text, so should `get_tables` skip it? And the issue records t
 hidden copy makes p92 and p93 return prose as tables, so the fix needs a corpus run and a test
 round of its own.
 
+#### M148 — a table no longer starts at a link's underline *(2026-09-19, unplanned)*
+
+Fixes [#369](https://github.com/utyagi24/klarpdf/issues/369), which the owner filed with the cause
+measured and the fix left open.
+
+**What a caller saw.** `get_tables` on Cisco's 10-K p42 returned *Gross Margin by Segment* with
+the page's running header, six paragraphs, three headings and the table's caption in the first cell of
+its first row: 2,662 characters, and `title: null`. The printed table starts 360 pt lower. Some
+column headings were merged with the running header too (`"CISCO SYSTEMS, INC.\nAMOUNT"`).
+
+**The cause, reproduced.** Three terms first. A *region* is the area PyMuPDF's row-ruled finder
+locates. Its *bounds* are the heights of the drawn lines it found between rows. A *band* is the
+strip between two bounds, and the reader turns each band into one row.
+
+* The finder builds its vertical edges from words that line up, and PyMuPDF gives every one of them
+  the same extent, from the top of the highest cluster of words to the bottom of the lowest
+  (`words_to_edges_v`, `min_top` and `max_bottom`).
+* So any short horizontal line that two of those edges cross becomes the top or bottom of a cell.
+  On the 10-K, one such line is under the blue "Table of Contents" link at the top of every page
+  (64 pt wide, y 31.4). Another is under a run-in heading in the prose ("Financing Receivables", p48).
+* The band from that line down to the table's first rule holds one row of side-by-side text (the
+  column headings) and 25 lines standing alone. Step 6 of `_read_ruled` reads such a band as one
+  row, because that is the shape of a label wrapped onto a second line.
+* `_check_accounted` could not see it: the prose was inside the table's box *and* in its cells.
+
+**Measured before choosing.** Every ruled page of 84 corpus documents (2,743 pages) was read with
+`main` and with each candidate, and every page whose output changed was judged on its render. First,
+a count. Of 1,663 regions the finder locates, 46 hang from a top line and 60 stand on a bottom line
+that reaches fewer than two of the table's columns. They include the links on Broadcom's, salesforce's
+and the SpaceX prospectus's pages as well as Cisco's, and underlined headings. Many of the bottom lines
+are genuine: a total's underline drawn under one figure column (TSLA p27–p29, the IPO prospectus's
+*Total* rows).
+
+**The two fixes #369 proposed, both measured.**
+
+* *Check the row*: a band holding a line that stands alone and crosses a column gap is prose, so
+  decline the region and let `_recover` read it in parts. **Rejected.** It changed 214 pages and
+  lost the only table on 49 of them. At least a dozen of those had no cell longer than 120
+  characters, too short to hold a paragraph. A spanning heading, a units line or a wrapped label is
+  also a lone line across a gap: Broadcom p84's `(In millions)`, `Total Reportable` (a heading over
+  `Segments`) in both SpaceX prospectuses, a 54-row table on the SpaceX prospectus's p291 lost to
+  `Three Months Ended March 31,`, and a 32 × 19 table on the IPO prospectus's p99 lost to
+  `Promoter`. It is also the change that §Open follow-ups' stacked-tables entry records
+  as owed a decision.
+* *Check the line a region hangs from*: right on the pages it was proposed for. Alone, though, it
+  took the "Part I" row off two contents pages (Apple's 10-Q p3, Broadcom's 10-K p2), whose first
+  rule is the underline of the "Page" column heading, one column wide.
+
+**The rule: both comparisons, at a region's top and bottom** (`_trimmed`). A band leaves the region
+when
+
+1. its outer line reaches fewer than two of the columns the table's other bands state (the reader's
+   own whitespace columns, `_columns`), and
+2. a line of the band lies in the whitespace between those columns, outside every column by more than
+   the snap tolerance. A line belongs to the band its baseline sits in, as `_read_ruled` places it,
+   so the text a line underlines is not judged with the band under it.
+
+The next outer line is then judged the same way. A band that leaves is not deleted. Its rows can
+join the table the way any row outside it does (step 5 of `_read_ruled`), which is how p42's
+`AMOUNT`/`PERCENTAGE` headings come back while the prose above them does not.
+
+The first form of test 2 was *touches only one column*. Broadcom p63 disproved it: its introducing
+sentence starts in the label column and runs across most of the gap beside it without reaching the
+next column. Test 2 with `_fits` added, and both tests run on all the region's text rather than
+the text no other table has claimed, each changed no page of the corpus once the fallback below was
+in place. So the simpler forms were kept.
+
+**Only where a table remains.** `read_page` reads the trimmed region and keeps that reading only if
+it gives a table, directly or through `_recover`. Otherwise it reads the region as located, as
+before. A region that fails anyway has no columns worth comparing a band with. Measured with the
+final rule minus this fallback, table text fell outside the smaller declined box and into no region
+at all: the lower half of a declined table on Cisco's annual report p57 (17 percentages), a total on
+its p92, and the EBITDA rows of two tables in the SpaceX EU prospectus's translated summaries (p369,
+p394). The IPO prospectus p428 lost a table. (An earlier form of the rule also lost GE's refrigerator
+guide p24 its declined region, and gave the grid below a drawing's `Y` as its title. Placing lines by
+baseline, below, fixed that page on its own.)
+The per-region read became `_read_region`, which returns what it found without recording it, so a
+trimmed reading can be set aside.
+
+**Result: 23 of 2,743 pages change**, each judged on its render.
+
+* Fixed outright, with titles where the page gives one: Cisco p12 (*Information about our Executive
+  Officers*), p42 (*Gross Margin by Segment*) and p65, and Broadcom p62 (*Purchase Consideration*)
+  and p79 (*Future Principal Payments of Debt*). Their figures reconcile, for example
+  42,392 − 1,532 = 40,860 on p42 and 86,290 − 6,642 = 79,648 on Broadcom p62.
+* Tables that had been declined now come back: Cisco p69's *Disaggregation of Revenue* (9 × 7), and
+  p71's *Fiscal 2026 Acquisitions*. On `main` recovery had declined the second because the note's
+  heading, `4.` / `Acquisitions`, lay inside the region, pressed against it.
+* The top or bottom is fixed and prose remains in the middle: Cisco p46, p48 and p74, salesforce p19,
+  Broadcom p63 and p93, and nine pages of the SpaceX prospectus, five of which gain a correct title.
+  That prose lies between two tables in one region: the stacked-tables follow-up.
+* One declined region narrows. The Sacramento report's p6 chart region no longer covers the chart's
+  source note and a contact line under it, neither of which is table text.
+
+`tools/table_corpus_public.json` pins the fixed pages (Cisco p12, p42, p65, p69, p71; Broadcom p62,
+p79), which fail 18 expectations on `main`, and the `Part I` rows of Apple p3 and Broadcom p2, which
+fail on the first cut of the rule.
+
+**What it does not fix.**
+
+* Prose *between* two tables in one region, where the band is bounded by the tables' own rules
+  (Cisco p46, p48). §Open follow-ups, stacked tables.
+* A stray line the full width of the table. The SpaceX prospectus is a browser print whose page
+  frames draw full-width lines. Such a line reaches every column, so by test 1 it rules the table,
+  and p196's biographies stay in its last rows. `klarpdf://docs/get_tables` now says so.
+* Invisible rows. Broadcom p63's paragraphs below its table are drawn on white-filled rectangles,
+  which the reader takes as shaded bands (§Open follow-ups, white table borders).
+* A region whose table does not read without the band keeps its `main` reading, prose included (the
+  IPO prospectus p428). Declining it instead is a decision (§Open follow-ups).
+* A lone heading line above the first rule that spans several columns stays out of the table, as it
+  does for every table whose region starts at its own rule (`December 31,` on the SpaceX prospectus
+  p267). The title search steps over it as a column heading.
+* A one-row table's multi-line heading keeps only its lowest line ([#370](https://github.com/utyagi24/klarpdf/issues/370),
+  found here: p71's 2025 table on `main`, and now its 2026 table).
+* Cisco p16 and p63 hold no table and still report a declined region from the link down. Below the
+  link's band nothing in those regions stands side by side, so there are no columns to judge the
+  line against, and the band stays. The issue called this noise rather than a loss.
+
+**Verification.** Six tests in `tests/test_mcp_tables.py` build each shape and read it through the
+real finder. Each asserts first that PyMuPDF still locates the region the test is about. Every
+rule was removed in turn and its test seen to fail: the whole trim, the top and the bottom trims,
+test 1, test 2, lying inside a column (against touching one), baseline membership, and the fallback.
+Both corpus plans: 0 problems. The heading corpus check holds.
+
+**Surfaces.** Bridge only: `klarpdf/mcp_bridge/tables.py`. The app does not read tables.
+`get_heading_candidates` with `tables: true` marks lines through the same `read_page`, so its marks
+follow the tables on these pages.
+
 #### M142 — `extract_markdown`, and why it is ours rather than rented
 
 *Deferred by the owner on 2026-09-18 ("I want to put off export to markdown for now"). The design

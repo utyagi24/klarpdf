@@ -834,6 +834,85 @@ def _fits(row: list[_Line], columns: list[list[float]]) -> bool:
     return True
 
 
+def _trimmed(found: _Found, lines: list[_Line], edges: list[tuple[float, float, float]]) -> _Found:
+    """The region without a top or bottom band that the page does not show to be the table's (#369).
+
+    **Why a region can start far above its table.** The row-ruled finder builds its vertical edges
+    from the text, and PyMuPDF gives every one of them the same extent: from the top of the page's
+    highest words to the bottom of its lowest. So any short line drawn on the page becomes the top or
+    bottom of a cell once two of those edges cross it — the underline of a "Table of Contents" link,
+    or of a run-in heading in the prose — and the band it bounds runs from that line to the table's
+    own first or last rule. Everything in that band was read as one row: Cisco's 10-K p42 put its
+    running header, six paragraphs, three headings and a caption into the first cell of *Gross
+    Margin by Segment*, 2,662 characters in all.
+
+    **A band leaves the region only when two comparisons both say it is not the table's.**
+
+    * *Its line does not rule the table*: the line reaches fewer than two of the columns the table's
+      other rows state. A rule between rows runs under the cells of both; an underline runs under
+      one piece of text.
+    * *Its text is not in the table's columns*: a line of it lies in the whitespace between them,
+      where the table's own text never is. A line belongs to the band its baseline sits in, as
+      :func:`_read_ruled` places it, so the text a line underlines is not in the band below it: a
+      "Page" heading wider than the page numbers under it would otherwise judge its own table.
+
+    Neither is enough alone. A contents page's first rule is the underline of its "Page" heading,
+    which reaches one column, and the band under it holds the page's "Part I" row (Apple's 10-Q p3,
+    Broadcom's 10-K p2). A heading centred over a statement's figures lies across their whitespace,
+    under a rule that runs the table's width. And lying *in* a column is the test, not touching only
+    one: Broadcom's p63 introduces its table with a sentence that starts in the label column and runs
+    most of the way across the whitespace beside it, without reaching the next column.
+
+    A band that leaves is not discarded: its rows can join the table the way any row outside the
+    region can (step 5 of :func:`_read_ruled`), which is how p42's column headings, just above the
+    table's first rule, come back and the prose above them does not.
+
+    **It is an argument about a table, so it holds only where there is one.** :func:`read_page`
+    reads the region without the band and keeps that reading only when it gives a table; otherwise
+    the region is read as located, and what declines today declines over the same box. Measured
+    without that, a region that failed anyway was judged against columns it did not have, and table
+    text left the smaller declined box for no region at all: the lower half of a declined table on
+    Cisco's annual report p57 (17 percentages), a total on its p92, and the EBITDA rows of two tables
+    in the SpaceX EU prospectus's translated summaries (p369, p394). An IPO prospectus lost a table
+    outright (p428).
+    """
+    within = [l for l in lines if found.bbox.x0 - _SNAP <= l.x0 and l.x1 <= found.bbox.x1 + _SNAP]
+
+    def columns_between(top: float, bottom: float) -> list[list[float]]:
+        return _columns(_visual_rows([l for l in within if top - _EPS <= l.baseline <= bottom + _EPS]))[0]
+
+    def stray(outer: float, inner: float, columns: list[list[float]]) -> bool:
+        if len(columns) < 2:
+            return False
+        drawn = _covered([(x0, x1) for top, x0, x1 in edges if abs(top - outer) <= _SNAP])
+        reached = {i for a, z in drawn for i, (c0, c1) in enumerate(columns) if _overlap(a, z, c0, c1) > _EPS}
+        if len(reached) >= 2:
+            return False
+        top, bottom = min(outer, inner), max(outer, inner)
+        band = [
+            l for l in _touching(lines, fitz.Rect(found.bbox.x0, top, found.bbox.x1, bottom))
+            if top - _EPS <= l.baseline <= bottom + _EPS
+        ]
+        return any(not any(c0 - _SNAP <= l.x0 and l.x1 <= c1 + _SNAP for c0, c1 in columns) for l in band)
+
+    bounds = list(found.bounds)
+    while len(bounds) > 2 and stray(bounds[0], bounds[1], columns_between(bounds[1], bounds[-1])):
+        bounds.pop(0)
+    while len(bounds) > 2 and stray(bounds[-1], bounds[-2], columns_between(bounds[0], bounds[-2])):
+        bounds.pop()
+    if len(bounds) == len(found.bounds):
+        return found
+    rows = [
+        [c if c is not None and c[1] >= bounds[0] - _EPS and c[3] <= bounds[-1] + _EPS else None for c in row]
+        for row in found.rows
+    ]
+    rows = [row for row in rows if any(row)]
+    cells = [c for row in rows for c in row if c is not None]
+    x0 = min((c[0] for c in cells), default=found.bbox.x0)
+    x1 = max((c[2] for c in cells), default=found.bbox.x1)
+    return _Found(fitz.Rect(x0, bounds[0], x1, bounds[-1]), rows, bounds)
+
+
 def _read_ruled(
     found: _Found,
     inventory: _Inventory,
@@ -1293,6 +1372,59 @@ class PageRead:
     """A caption below the page's last table and nothing else, which titles the next page's first."""
 
 
+@dataclass
+class _Outcome:
+    """What reading one row-ruled region gives. Nothing is recorded until the caller takes it, so a
+    reading can be tried and set aside (see :func:`_trimmed`)."""
+
+    tables: list[dict] = field(default_factory=list)
+    refused: list[tuple[fitz.Rect, _Decline]] = field(default_factory=list)
+    claims: list[fitz.Rect] = field(default_factory=list)
+    single_run: fitz.Rect | None = None
+
+
+def _read_region(
+    found: _Found,
+    inventory: _Inventory,
+    edges: list[tuple[float, float, float]],
+    claimed: list[fitz.Rect],
+    later: list[fitz.Rect],
+) -> _Outcome:
+    """Read one region the row-ruled finder located: a table, a decline, or the parts of both that
+    :func:`_recover` finds in it."""
+    free = [l for l in inventory.lines if not _inside_any(l, claimed)]
+    inside = _touching(free, found.bbox)
+    # A region holding no side-by-side text is not a failed table. Beside a table this page did read,
+    # it is what is left of that table's region (a caption, a stray note) and reporting it would send
+    # a caller looking for nothing; on a page with no table at all it is the one thing worth saying
+    # about the page.
+    if not any(len(row) > 1 for row in _visual_rows(inside)):
+        return _Outcome(single_run=fitz.Rect(found.bbox) if len(inside) > 1 else None)
+    try:
+        table = _read_ruled(found, inventory, edges, claimed, later)
+        if any((table["bbox"] & c).get_area() > 0 for c in claimed if table["bbox"].intersects(c)):
+            raise _Decline("overlap", "grew into a region already read or declined")
+        _check_accounted(table, inventory)
+    except _NotATable:
+        return _Outcome(claims=[found.bbox])
+    except _Decline as decline:
+        # Several tables in one located region read as one only by accident. Offer the region to
+        # :func:`_recover`, which reads the parts its own prose divides it into; the region's own
+        # decline stands when that finds nothing, and a failure that names the drawn lines
+        # themselves is never offered (see `_RECOVERABLE`).
+        recovered: list[dict] = []
+        refused: list[tuple[fitz.Rect, _Decline]] = []
+        if decline.reason in _RECOVERABLE:
+            recovered, refused = _recover(found, inventory, edges, claimed, later)
+        if recovered:
+            # The parts and their refusals are claimed, the region itself is not: the captions that
+            # divide it stay free, and each part can be given the one above it. Claiming the whole
+            # region left Apple's p14 notes untitled.
+            return _Outcome(recovered, refused, [t["bbox"] for t in recovered] + [box for box, _ in refused])
+        return _Outcome(refused=[(fitz.Rect(found.bbox), decline)], claims=[found.bbox])
+    return _Outcome([table], claims=[table["bbox"]])
+
+
 def read_page(page: fitz.Page) -> PageRead:
     """Every table on one page that agrees with the page, and every region that does not."""
     inventory = _page_inventory(page)
@@ -1339,50 +1471,20 @@ def read_page(page: fitz.Page) -> PageRead:
             if not tables:
                 unread.append(_unread(page, page.rect, _Decline("reader_failed")))
         else:
-            for position, found in enumerate(ruled.found):
-                free = [l for l in inventory.lines if not _inside_any(l, claimed)]
-                inside = _touching(free, found.bbox)
-                # A region holding no side-by-side text is not a failed table. Beside a table this
-                # page did read, it is what is left of that table's region (a caption, a stray
-                # note) and reporting it would send a caller looking for nothing; on a page with
-                # no table at all it is the one thing worth saying about the page.
-                if not any(len(row) > 1 for row in _visual_rows(inside)):
-                    if len(inside) > 1:
-                        single_runs.append(found.bbox)
-                    continue
-                later = [f.bbox for f in ruled.found[position + 1:]]
-                try:
-                    table = _read_ruled(found, inventory, ruled.edges, claimed, later)
-                    if any((table["bbox"] & c).get_area() > 0 for c in claimed if table["bbox"].intersects(c)):
-                        raise _Decline("overlap", "grew into a region already read or declined")
-                    _check_accounted(table, inventory)
-                except _NotATable:
-                    claimed.append(found.bbox)
-                except _Decline as decline:
-                    # Several tables in one located region read as one only by accident. Offer the
-                    # region to :func:`_recover`, which reads the parts its own prose divides it
-                    # into; the region's own decline stands when that finds nothing, and a failure
-                    # that names the drawn lines themselves is never offered (see `_RECOVERABLE`).
-                    recovered: list[dict] = []
-                    refused: list[tuple[fitz.Rect, _Decline]] = []
-                    if decline.reason in _RECOVERABLE:
-                        recovered, refused = _recover(found, inventory, ruled.edges, claimed, later)
-                    if recovered:
-                        for part in recovered:
-                            tables.append(part)
-                            claimed.append(part["bbox"])
-                        for box, refusal in refused:
-                            unread.append(_unread(page, box, refusal))
-                            claimed.append(box)
-                        # The parts and their refusals are claimed, the region itself is not: the
-                        # captions that divide it stay free, and each part can be given the one
-                        # above it. Claiming the whole region left Apple's p14 notes untitled.
-                    else:
-                        unread.append(_unread(page, found.bbox, decline))
-                        claimed.append(found.bbox)
-                else:
-                    tables.append(table)
-                    claimed.append(table["bbox"])
+            # A region can hang from a line that is not the table's, or stand on one (#369). It is
+            # read without that band when what remains gives a table, and as located otherwise.
+            free = [l for l in inventory.lines if not _inside_any(l, claimed)]
+            regions = [_trimmed(found, free, ruled.edges) for found in ruled.found]
+            for position, (located, found) in enumerate(zip(ruled.found, regions)):
+                later = [f.bbox for f in regions[position + 1:]]
+                outcome = _read_region(found, inventory, ruled.edges, claimed, later)
+                if found is not located and not outcome.tables:
+                    outcome = _read_region(located, inventory, ruled.edges, claimed, later)
+                tables.extend(outcome.tables)
+                unread.extend(_unread(page, box, decline) for box, decline in outcome.refused)
+                claimed.extend(outcome.claims)
+                if outcome.single_run is not None:
+                    single_runs.append(outcome.single_run)
 
     # A grid left unclaimed above is reported here, unless something else has taken the region on
     # since: the reader that takes its rows from the drawn lines has had its turn, and either read
