@@ -676,6 +676,10 @@ twice reads it once.
   part of that heading. Where only a rule separates the tables, they can still come back as one
   table whose middle rows hold the heading or paragraph between them. Every value is then still in
   the right row and column, so read each row against the header row nearest above it.
+* **A paragraph can arrive as a table's first or last row** where the page draws a line the table's
+  full width just above or below it that is not the table's own: a filing printed from a web
+  browser draws one at every page break. A row that holds sentences is the page's prose, not table
+  data.
 * **Two values printed as one run stay in one cell.** The check for two pieces sharing a cell sees
   pieces the page prints apart; it cannot see values the page prints as a single run of text. A total
   row set tighter than the rows above it can come back with `"(3,027) $ 132,420"` in one cell and the

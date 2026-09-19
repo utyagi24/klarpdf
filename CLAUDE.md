@@ -347,8 +347,8 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   One trap underneath it: the SDK sends `fn.__doc__` **verbatim** (no `inspect.getdoc`), so a
   docstring's indentation is billed against the cap — ~1,800 chars across the tools — which is why
   `guarded` runs `cleandoc`. See `PLAN.md` §Architecture and §M105.
-- **PyMuPDF's `find_tables` locates tables; do not let it read them.** Three habits, all met in
-  M141. **On a page with `/Rotate` it measures the page as displayed**, while `get_text` reports the
+- **PyMuPDF's `find_tables` locates tables; do not let it read them.** Four habits, met in M141
+  and M148. **On a page with `/Rotate` it measures the page as displayed**, while `get_text` reports the
   page unrotated — carry words into the displayed orientation before comparing, and convert boxes back
   at the boundary, since `search`, `clip` and `redact_regions` all work unrotated. **It keeps the page's
   characters and edges in module-level lists and turns the process-wide `set_small_glyph_heights` on
@@ -357,7 +357,11 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   follow-ups). **Its own text page and `Table.extract()` both damage text**: the first breaks words on
   some documents (`'P'`, `'rcent'`), and the second puts each character in whichever cell its centre
   falls in, which cuts words at a column edge and once moved an address's underscore onto a line of
-  its own. Cells are built from the ordinary word extraction instead (`PLAN.md` §M141).
+  its own. Cells are built from the ordinary word extraction instead (`PLAN.md` §M141). **Every
+  vertical edge it builds from text runs the full height of the page's text**, so any short line
+  two of them cross becomes a cell border: the underline of a link at the top of every page started
+  Cisco's tables there, with the prose above them in their first row. A region's top and bottom
+  lines are judged against the table before its outer bands are trusted (`PLAN.md` §M148).
 - **A PDF can carry its text twice, with only one copy visible.** Some converters add a hidden copy
   of every line (render mode 3: no fill, no stroke) at slightly different sizes, and a scanner's OCR
   layer is the same thing with nothing visible above it. `get_text()` returns both, so reading code

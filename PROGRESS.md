@@ -579,7 +579,7 @@ items, which are independent of it.
   (**M128**); and row 10's own instructions not putting the lock in the bundle (**M129**). What
   remains is the tag, which is an owner action.
 
-## Roadmap — document structure for agents (M138–M142 and M145; M138–M141 and M145 done, M142 deferred)
+## Roadmap — document structure for agents (M138–M142, M145 and M148; M138–M141, M145 and M148 done, M142 deferred)
 
 Design in `PLAN.md` §M138–M140 — **not restated here**. Same conventions: **one PR per milestone**,
 tick the box here on merge. Scoped **2026-09-07** from a session comparing the bridge against a
@@ -956,6 +956,23 @@ it still comes after M145, for the reason above.
   agreement: a tool that lists charts. Not in it: [#352](https://github.com/utyagi24/klarpdf/issues/352).
   The answer key's rules, both held-out rounds and the four accepted misses are in `PLAN.md` §M145.
   Plan: *WSL* ([#356](https://github.com/utyagi24/klarpdf/pull/356)); build: *WSL* ([#367](https://github.com/utyagi24/klarpdf/pull/367)).
+
+- [x] **M148** *(unplanned)* **A table no longer starts at a link's underline** — 2026-09-19, fixes
+  [#369](https://github.com/utyagi24/klarpdf/issues/369). Every page of Cisco's 10-K has an
+  underlined "Table of Contents" link at the top. Where prose words happened to line up under it,
+  PyMuPDF's row finder started the table at that underline, and everything down to the table's
+  first rule became its first row: on p42 the running header and six paragraphs, 2,662 characters,
+  and no title. An underlined heading in the prose did the same at a table's foot. Now a band at a
+  table's top or bottom leaves the table when its line reaches fewer than two of the table's
+  columns *and* a line of its text lies in their whitespace. Its rows can still rejoin the way any
+  row outside a table does, and a region whose table does not read without the band is read as
+  before. Over every ruled page of 84 corpus documents (2,743 pages), 23 change, each judged on its
+  render: five tables fixed outright, with titles (Cisco p12, p42, p65; Broadcom p62, p79); two that
+  had been declined now returned (Cisco p69, p71); 15 that lose prose at their top or bottom but
+  keep some elsewhere, mostly between two tables (§Open follow-ups, stacked tables); and one declined
+  chart region that narrows. The row check #369 also proposed was measured and rejected: it lost the
+  only table on 49 pages. Found on the way: [#370](https://github.com/utyagi24/klarpdf/issues/370).
+  Design in `PLAN.md` §M148 — *WSL* ([#371](https://github.com/utyagi24/klarpdf/pull/371)).
 
 - [ ] **M142** **`extract_markdown`** — ***deferred by the owner, 2026-09-18; not scheduled.*** A Markdown rendering of a page range, built on M140 and M141
   with **no new dependency**. Prototyped before being scheduled: headings by weight/size, ruled
@@ -4670,6 +4687,15 @@ it on this side of the line.
   tables that read would risk cutting one below its header. Decision owed: extend the split to
   successful reads behind a stricter signal, or treat it as the title problem the owner reads it as
   (2026-09-16) and let the caption machinery claim those lines.
+  **That risk is now measured** (2026-09-19, M148, as the second fix #369 proposed). Applied to
+  every band of every ruled page in the corpus, the rule changed what 214 pages return and **lost
+  the only table on 49 of them**. Spanning headings, units lines and wrapped labels are lone lines
+  across a gap too: Broadcom p84's `(In millions)`, `Total Reportable` over `Segments` in both
+  SpaceX prospectuses, and a 54-row table on the SpaceX prospectus's p291. So the stricter signal is
+  still owed. The same round added cases. On Cisco's 10-K p46, p48 and p74 and salesforce p19,
+  the prose between two tables is split into rows by underlined run-in headings. And the SpaceX
+  prospectus, a browser print, shows the shape at a table's edge: its page frames are full-width
+  lines, so the biographies after p196's table stay in its last rows.
 - **Columns from what the page draws, not only from whitespace** (M141, measured 2026-09-16; owner's
   proposal). Where a table draws segments, the narrowest mark a column and a wider one with a heading
   above it marks a group — so Cisco p32's `$ 17,252` is one cell rather than two, and AMZN p7 is five
@@ -4739,6 +4765,17 @@ it on this side of the line.
   colour of what lies beneath it counts as a table edge. The check compares two colours the page
   states, but the background can be an image or a gradient, and the answer changes which regions
   every drawn grid finds. Not a title rule, so it stays out of M145.
+  **A second case** (found 2026-09-19, during M148): Broadcom's 10-K p63 draws each line of the
+  paragraphs under its purchase-price table on a white-filled rectangle. The reader takes those as
+  shaded bands, so three paragraphs come back as the table's last rows.
+- **A region whose table does not read without the band keeps its old reading** (M148,
+  2026-09-19). M148 reads a region without a top or bottom band that is not the table's only when
+  what remains gives a table; otherwise it reads the region as it did before. That protects declined
+  tables whose text would otherwise leave the declined box (Cisco's annual report p57), but it
+  also keeps one wrong reading. The IPO prospectus's p428 returns its lease table with a paragraph
+  in row 0, because without that band the table declines as stacked. Decision owed: decline such a
+  region over its whole located box, so no text leaves it, instead of returning the old reading. It
+  is one page of the corpus (found in two copies of the same document).
 - **A declined region can reach over a table that was returned** (noticed 2026-09-19, during M145).
   On the survey report's p16 (`Research Doc2_Market Research Report_6.25.19.pdf`), `get_tables`
   returns two grids starting at y 311 and declines a region as `stacked` that runs from y 191, over
