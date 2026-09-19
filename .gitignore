@@ -32,6 +32,11 @@ vendor/wheels/
 .env
 *.log
 
+# Snapshots from `tools/table_corpus_check.py --snapshot`, written to table_snapshots/ under whatever
+# directory the checker is run from. Run with the private plan, a snapshot holds the rows of private
+# documents, which must never reach this public repo (see the checker's docstring).
+table_snapshots/
+
 # OS cruft
 .DS_Store
 Thumbs.db
