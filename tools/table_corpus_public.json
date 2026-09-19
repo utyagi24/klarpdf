@@ -131,7 +131,8 @@
   {"doc": "Apple_10Q-Q3-2026-as-filed.pdf", "page": 13, "titles": ["Intangible Assets, Net"]},
   {"doc": "AMZN-Q2-2026-Earnings-Release.pdf", "page": 10, "titles": [["Consolidated Balance Sheets", "AMAZON.COM, INC. Consolidated Balance Sheets"]]},
   {"doc": "AMZN-Q2-2026-Earnings-Release.pdf", "page": 11, "titles": [["Supplemental Financial Information and Business Metrics", "AMAZON.COM, INC. Supplemental Financial Information and Business Metrics"]]},
-  {"doc": "AMZN-Q2-2026-Earnings-Release.pdf", "page": 12, "titles": [["Supplemental Financial Information and Business Metrics", "AMAZON.COM, INC. Supplemental Financial Information and Business Metrics"]]},
+  {"doc": "AMZN-Q2-2026-Earnings-Release.pdf", "page": 12, "titles": [["Supplemental Financial Information and Business Metrics", "AMAZON.COM, INC. Supplemental Financial Information and Business Metrics", null]],
+   "note": "accepted miss: p11 prints this title word for word in the same place, which reads as a running header (PLAN.md §M145)"},
   {"doc": "LLY_Proxy.pdf", "page": 56, "titles": [null]},
   {"doc": "SpaceX-EUProspectus.pdf", "page": 274, "titles": [null]},
   {"doc": "Research Doc2_Market Research Report_6.25.19.pdf", "page": 12, "titles": [["DC RESIDENCY", null], ["WARD REPRESENTATION", null]]},
@@ -162,6 +163,7 @@
   {"doc": "ssa-1-bk.pdf", "page": 7, "titles": [null]},
   {"doc": "ssa-1-bk.pdf", "page": 8, "titles": ["RECEIPT FOR YOUR CLAIM FOR SOCIAL SECURITY RETIREMENT INSURANCE BENEFITS"]},
   {"doc": "CPI_20260911.pdf", "page": 1, "titles": [["TREASURY INFLATION-PROTECTED SECURITIES (TIPS) Ref CPI and Index Ratios for October 2026", "Ref CPI and Index Ratios for October 2026"]]},
-  {"doc": "CPI_20260911.pdf", "page": 2, "titles": [["TREASURY INFLATION-PROTECTED SECURITIES (TIPS) Ref CPI and Index Ratios for October 2026", "Ref CPI and Index Ratios for October 2026"]]}
+  {"doc": "CPI_20260911.pdf", "page": 2, "titles": [["TREASURY INFLATION-PROTECTED SECURITIES (TIPS) Ref CPI and Index Ratios for October 2026", "Ref CPI and Index Ratios for October 2026", null]],
+   "note": "accepted miss: p1 prints this heading word for word in the same place, which reads as a running header (PLAN.md §M145)"}
  ]
 }

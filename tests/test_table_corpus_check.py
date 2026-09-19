@@ -33,14 +33,14 @@ def checker():
 @pytest.fixture
 def corpus(tmp_path) -> pathlib.Path:
     """Page 1: a statement under its title. Page 2: a statement with a caption stranded below it.
-    Page 3: the table that caption titles."""
+    Page 3: the table that caption titles. Titles are set in bold, as a title is set to be seen."""
     doc = fitz.open()
     titled = doc.new_page()
-    titled.insert_text((230, 90), "CONDENSED BALANCE SHEETS", fontsize=FONT)
+    titled.insert_text((230, 90), "CONDENSED BALANCE SHEETS", fontsize=FONT, fontname="hebo")
     _statement(titled, 100, ASSETS)
     stranded = doc.new_page()
     _statement(stranded, 40, ASSETS)
-    stranded.insert_text((60, 40 + len(ASSETS) * PITCH + 30), "Headphone cable connected", fontsize=FONT)
+    stranded.insert_text((60, 40 + len(ASSETS) * PITCH + 30), "Headphone cable connected", fontsize=FONT, fontname="hebo")
     _statement(doc.new_page(), 40, ASSETS)
     _save(doc, tmp_path, "doc.pdf")
     return tmp_path

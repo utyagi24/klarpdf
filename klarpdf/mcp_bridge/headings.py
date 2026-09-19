@@ -248,6 +248,20 @@ def _read_page_lines(page: fitz.Page, known: dict[tuple, Style] | None = None) -
     return _Page(lines, visible)
 
 
+def _weigh(lines: list[_Line], weights: Counter[Style]) -> None:
+    """Add each line's characters to the style they are set in."""
+    for line in lines:
+        for style, text, _ in line.styled:
+            weights[style] += len("".join(text.split()))
+
+
+def body_of(lines: list[_Line]) -> Style | None:
+    """The style carrying most of these lines' characters: the body, measured over what is given."""
+    weights: Counter[Style] = Counter()
+    _weigh(lines, weights)
+    return weights.most_common(1)[0][0] if weights else None
+
+
 @dataclass(eq=False)
 class _Candidate:
     page: int
@@ -424,9 +438,7 @@ def heading_candidates(
         known: dict[tuple, Style] = {}
         for index0 in range(vdoc.page_count):
             read = _read_page_lines(_page_of(vdoc, index0), known)
-            for line in read.lines:
-                for style, text, _ in line.styled:
-                    weights[style] += len("".join(text.split()))
+            _weigh(read.lines, weights)
             if index0 in in_scope:
                 kept[index0] = read
 

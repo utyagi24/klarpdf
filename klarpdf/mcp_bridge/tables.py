@@ -39,13 +39,21 @@ from __future__ import annotations
 import json
 import os
 import threading
+import unicodedata
 from collections import Counter
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import pymupdf as fitz
 from pymupdf import table as _pymupdf_table
 
 from klarpdf.mcp_bridge.queries import _page_of, open_document, resolve_pages
+
+if TYPE_CHECKING:  # headings imports this module, so at run time it is imported where it is used
+    from collections.abc import Callable
+
+    from klarpdf.mcp_bridge.headings import Style
+    from klarpdf.mcp_bridge.headings import _Line as _StyledLine
 
 # PyMuPDF prints a one-time suggestion to install `pymupdf_layout` the first time `find_tables` runs,
 # with a bare `print` — to stdout, which is this server's protocol stream. The SDK's stdio transport
@@ -91,12 +99,12 @@ than invented, wherever this module compares two measured positions."""
 _EPS = 0.01
 """Floating-point slack for "touches" versus "overlaps"; far below any printed distance."""
 
-_TITLE_MAX_CHARS = 70
-_TITLE_MAX_WORDS = 10
-_TITLE_MAX_DIGIT_RATIO = 0.25
-_TITLE_LEFT_TOLERANCE = 40.0
 _TITLE_LOOKBACK = 160.0
+"""How far above a table the title search looks at most (M141). It stops sooner at prose or at
+another object's text, so this bounds only the walk over a page that has neither."""
+
 _ORPHAN_GAP = 120.0
+"""How far below a page's last table a caption stranded for the next page may sit (M141)."""
 _CONTINUATION_TOLERANCE = 2.0
 _TOP_OF_PAGE = 0.15
 
@@ -560,6 +568,13 @@ def _to_unrotated(page: fitz.Page, rect: fitz.Rect) -> list[float]:
     box = fitz.Rect(rect) * page.derotation_matrix if page.rotation else fitz.Rect(rect)
     box.normalize()
     return [round(v, 1) for v in box]
+
+
+def _displayed(page: fitz.Page, bbox: list[float]) -> fitz.Rect:
+    """An unrotated box, as :func:`_to_unrotated` reports one, back in the page as displayed."""
+    box = fitz.Rect(bbox) * page.rotation_matrix if page.rotation else fitz.Rect(bbox)
+    box.normalize()
+    return box
 
 
 def _quote(text: str) -> str:
@@ -1264,17 +1279,18 @@ def _check_accounted(table: dict, inventory: _Inventory) -> None:
 class PageRead:
     tables: list[dict]
     unread: list[dict]
-    blocks: list[tuple[fitz.Rect, str]]
+    stranded: str | None
+    """A caption below the page's last table and nothing else, which titles the next page's first."""
 
 
 def read_page(page: fitz.Page) -> PageRead:
     """Every table on one page that agrees with the page, and every region that does not."""
     inventory = _page_inventory(page)
     if not inventory.lines and not inventory.angled:
-        return PageRead([], [_unread(page, page.rect, _Decline("no_text"))], [])
+        return PageRead([], [_unread(page, page.rect, _Decline("no_text"))], None)
     grid = _read_with(page, strategy="lines_strict")
     if grid is None:
-        return PageRead([], [_unread(page, page.rect, _Decline("reader_failed"))], [])
+        return PageRead([], [_unread(page, page.rect, _Decline("reader_failed"))], None)
 
     tables: list[dict] = []
     unread: list[dict] = []
@@ -1401,10 +1417,8 @@ def read_page(page: fitz.Page) -> PageRead:
             unread.append(_unread(page, where, _Decline("no_region" if ruled_page else "unruled")))
 
     tables.sort(key=lambda t: (t["bbox"].y0, t["bbox"].x0))
-    blocks = _free_blocks(page, claimed)
-    for table in tables:
-        table["title"] = _title_above(blocks, table["bbox"], table["spans"])
-    return PageRead(tables, unread, blocks)
+    declined = [_displayed(page, entry["bbox"]) for entry in unread]
+    return PageRead(tables, unread, _title(page, tables, declined))
 
 
 def _unread(page: fitz.Page, rect: fitz.Rect, decline: _Decline) -> dict:
@@ -1425,36 +1439,51 @@ def _unread(page: fitz.Page, rect: fitz.Rect, decline: _Decline) -> dict:
 # ---------------------------------------------------------------------------------------------
 
 
-def looks_like_title(text: str) -> bool:
-    """Whether a free text block reads as a caption: one line, short, not a sentence, not mostly
-    numbers. Measured against the rule it replaced ("the nearest block above"), which returned a
-    column header, a data row and a sentence on three real pages."""
-    if "\n" in text.strip():
-        return False
-    compact = " ".join(text.split())
-    if not compact or len(compact) > _TITLE_MAX_CHARS or len(compact.split()) > _TITLE_MAX_WORDS:
-        return False
-    if compact.endswith((".", ";", ":")) and not compact.endswith("..."):
-        return False
-    # A line wholly in brackets qualifies a title rather than being one — "(in millions)",
-    # "(Unaudited)". Taken as the caption it displaced the statement heading above it on QCOM's
-    # balance sheet; stepping over it lets the search reach that heading.
-    if compact.startswith("(") and compact.endswith(")"):
-        return False
-    numeric = sum(1 for ch in compact if ch.isdigit() or ch in "$€£₹,")
-    return numeric <= _TITLE_MAX_DIGIT_RATIO * len(compact)
+@dataclass(eq=False)
+class _Text:
+    """A styled line as the title search sees it: the object it lies in (a table on the page or a
+    declined region), whether a link covers it, and whether the page before prints it in the same
+    place."""
+
+    line: _StyledLine
+    owner: object | None
+    linked: bool
+    repeated: bool
+
+    @property
+    def rect(self) -> fitz.Rect:
+        return self.line.rect
+
+    @property
+    def words(self) -> str:
+        return self.line.text
 
 
-def _free_blocks(page: fitz.Page, boxes: list[fitz.Rect]) -> list[tuple[fitz.Rect, str]]:
-    """Text blocks outside every table and every declined region, top to bottom — in the page's
-    displayed orientation, like the boxes they are compared with.
+def _title(page: fitz.Page, tables: list[dict], declined: list[fitz.Rect]) -> str | None:
+    """Give each table on the page its title, and return the caption stranded below the last one.
 
-    **A block a link annotation covers is navigation, not a caption.** Every filing in the corpus
-    prints a "Table of Contents" link in its top margin, and it was being handed back as the title
-    of the statement below it on Cisco's cash-flow statement, Broadcom's balance sheet and
-    Salesforce's income statement alike (TC-039). The page says so itself: the caption of a table is
-    text, while that heading is a link to somewhere else.
+    What a title is, and the answer key every rule was measured against, are in ``PLAN.md`` §M145.
+    The search is :func:`_title_above`; what it compares a line with is gathered here, once a page:
+
+    * **The body**, the style most of the page's text is set in. A title stands out from it by the
+      comparisons ``get_heading_candidates`` makes (M140): larger, or bold or italic where the body is
+      not. The page's body, not the document's: measured both ways on 196 tables neither gave a wrong
+      title, and the page's found three more — Tesla sets its statements' headings in the deck's body
+      type, which is still larger than the tables under them — without reading a whole document to
+      title a table on one page.
+    * **Whose each line is.** A line of a table on this page or of a declined region is never a title
+      and stops the search. A link is navigation ("Table of Contents" in a filing's margin). A line
+      the page before prints word for word in the same place is a running header ("Notes to
+      Consolidated Financial Statements (Continued)"), and stops the search as well.
     """
+    if not tables:
+        return None
+    from klarpdf.mcp_bridge import headings  # headings imports this module
+
+    lines = headings._read_page_lines(page).lines
+    body = headings.body_of(lines)
+    if body is None:
+        return None
     links: list[fitz.Rect] = []
     for link in page.get_links():
         rect = fitz.Rect(link["from"])
@@ -1462,64 +1491,252 @@ def _free_blocks(page: fitz.Page, boxes: list[fitz.Rect]) -> list[tuple[fitz.Rec
             rect = rect * page.rotation_matrix
             rect.normalize()
         links.append(rect)
-    free: list[tuple[fitz.Rect, str]] = []
-    for block in page.get_text("blocks"):
-        rect = fitz.Rect(block[:4])
-        if page.rotation:
-            rect = rect * page.rotation_matrix
-            rect.normalize()
-        text = (block[4] or "").strip()
-        if not text:
-            continue
-        area = rect.get_area()
-        if area > 0 and any(box.intersects(rect) and (rect & box).get_area() > 0.5 * area for box in boxes):
-            continue
-        if area > 0 and any(link.intersects(rect) and (rect & link).get_area() > 0.5 * area for link in links):
-            continue
-        free.append((rect, text))
-    free.sort(key=lambda entry: entry[0].y0)
-    return free
+    owners: list[tuple[fitz.Rect, object]] = [(t["bbox"], t) for t in tables] + [(box, box) for box in declined]
+    before: dict[str, list[fitz.Rect]] = {}
+    if page.number > 0:
+        for other in headings._read_page_lines(page.parent[page.number - 1]).lines:
+            before.setdefault(other.text, []).append(other.rect)
+    texts: list[_Text] = []
+    for line in lines:
+        rect = line.rect
+        centre = fitz.Point((rect.x0 + rect.x1) / 2, (rect.y0 + rect.y1) / 2)
+        owner = next((who for box, who in owners if box.contains(centre)), None)
+        repeated = any(all(abs(a - b) <= _SNAP for a, b in zip(seen, rect)) for seen in before.get(line.text, ()))
+        texts.append(_Text(line, owner, any(link.contains(centre) for link in links), repeated))
+    blocks: dict[int, list[_Text]] = {}
+    for text in texts:
+        blocks.setdefault(text.line.block, []).append(text)
+    for members in blocks.values():
+        members.sort(key=lambda t: (t.rect.y0, t.rect.x0))
+
+    def stands_out(text: _Text) -> bool:
+        return headings._emphasised(_title_style(text.line), body)
+
+    drawn: list[fitz.Rect] | None = None
+
+    def graphics() -> list[fitz.Rect]:
+        """The page's drawings and pictures, read once, and only when a title is in view."""
+        nonlocal drawn
+        if drawn is None:
+            drawn = []
+            boxes = [fitz.Rect(d["rect"]) for d in page.get_drawings()]
+            boxes += [fitz.Rect(i["bbox"]) for i in page.get_image_info()]
+            for box in boxes:
+                if page.rotation:
+                    box = box * page.rotation_matrix
+                    box.normalize()
+                drawn.append(box)
+        return drawn
+
+    for table in tables:
+        table["title"] = _title_above(table, texts, blocks, body, stands_out, headings._side_by_side, graphics)
+    # The halves of a list printed two-up are one table, and its title is printed over the first half
+    # only: NADA's dealer report sets its state lists two and three across. A half that has no title
+    # of its own takes the one over a half level with it and headed the same.
+    for table in tables:
+        if table["title"] is None:
+            for other in tables:
+                if (
+                    other is not table
+                    and other["title"]
+                    and abs(other["bbox"].y0 - table["bbox"].y0) <= _SNAP
+                    and other["rows"][0] == table["rows"][0]
+                ):
+                    table["title"] = other["title"]
+                    break
+    return _stranded(tables[-1], texts, blocks, stands_out, headings._side_by_side)
 
 
-def _title_above(blocks: list[tuple[fitz.Rect, str]], box: fitz.Rect, spans: list[list[float]]) -> str | None:
-    """The nearest caption-like block above ``box``, stepping over an introductory paragraph.
+def _title_style(line: _StyledLine) -> Style:
+    """The style carrying most of the line's characters outside brackets. NADA's dealer report ends a
+    two-line title with "(in billions of dollars)" in small type, which by characters outweighs the
+    title's words on that line."""
+    weights: Counter = Counter()
+    for style, text, _ in line.styled:
+        if not _bracketed(text):
+            weights[style] += len("".join(text.split()))
+    return weights.most_common(1)[0][0] if weights else line.style
 
-    A caption either begins at the table's margin or is centred over the table. What is rejected is
-    text **over the figure columns and not over the label column**: a column heading (``Salary``), or
-    a piece of a multi-line header left above the table (``Six Months Ended``, ``September 27,``).
-    The first version accepted only captions at the margin, which passed over every centred statement
-    title and settled on page furniture — Cisco's and Broadcom's statements came back titled "Table of
-    Contents". Accepting anything centred then picked those header pieces instead, which cost two real
-    captions. ``spans`` are the table's column extents, the label column first.
+
+def _bracketed(text: str) -> bool:
+    """A line wholly in brackets qualifies a title rather than being one: "(in millions)", "(Unaudited)"."""
+    compact = " ".join(text.split())
+    return len(compact) > 1 and compact.startswith("(") and compact.endswith(")")
+
+
+def _unreadable(text: str) -> bool:
+    """Text a reader cannot read: control characters stand where letters were. A font without a
+    usable character map does this; GE's refrigerator guide encodes whole lines of a page that way,
+    so a line of prose there no longer ends in a full stop the sentence test could see."""
+    return any(unicodedata.category(ch) == "Cc" for ch in text)
+
+
+def _sentence(text: str) -> bool:
+    """Whether the text ends as a sentence does. A title does not; a form's instruction does."""
+    compact = " ".join(text.split())
+    return compact.endswith((".", ";", ":")) and not compact.endswith("...")
+
+
+def _heads_a_column(text: _Text, table: dict, body: Style) -> bool:
+    """Whether the line is a column heading the table's box left out ("Nine Months Ended",
+    "September 27, 2025"): it sits over the figure columns and not over the label column, and it is
+    either set smaller than the body or off the table's centre.
+
+    The last two are what tell a heading from a short title centred over the table: "Segment
+    Information" on Amazon's release does not reach its wide label column either, and neither does
+    the last line of CPI's three-line heading. Every column heading measured is small type or off to
+    one side; a centred title is neither.
     """
-    for rect, text in reversed(blocks):
-        if rect.y1 > box.y0 + 2:
+    spans, box, rect = table["spans"], table["bbox"], text.rect
+    if len(spans) < 2 or rect.x0 < spans[0][1] - _EPS:
+        return False
+    centre = (box.x0 + box.x1) / 2
+    return _title_style(text.line).size < body.size or not rect.x0 <= centre <= rect.x1
+
+
+def _run(
+    text: _Text, blocks: dict[int, list[_Text]], upward: bool, side_by_side: Callable[[fitz.Rect, fitz.Rect], bool]
+) -> list[_Text]:
+    """The title's text: the line and the lines of its block stacked next to it in its style, top to
+    bottom. Lines level with it are other labels, not more of the title: a brochure prints "FIRST
+    FLOOR" and "SECOND FLOOR" in one block, over two plans."""
+    members = [t for t in blocks[text.line.block] if t is text or not side_by_side(t.rect, text.rect)]
+    style = _title_style(text.line)
+    picked = [text]
+    index = members.index(text) + (-1 if upward else 1)
+    while 0 <= index < len(members) and _title_style(members[index].line) == style:
+        picked.append(members[index])
+        index += -1 if upward else 1
+    picked.sort(key=lambda t: (t.rect.y0, t.rect.x0))
+    return picked
+
+
+def _joined(lines: list[_Text]) -> str:
+    """The title's lines as one string, each line's spacing collapsed."""
+    return " ".join(" ".join(t.words.split()) for t in lines)
+
+
+def _title_above(
+    table: dict,
+    texts: list[_Text],
+    blocks: dict[int, list[_Text]],
+    body: Style,
+    stands_out: Callable[[_Text], bool],
+    side_by_side: Callable[[fitz.Rect, fitz.Rect], bool],
+    graphics: Callable[[], list[fitz.Rect]],
+) -> str | None:
+    """The table's title: walking up through the lines over the table, nearest first, the first that
+    stands out from the body.
+
+    On the way it steps over what qualifies a table rather than naming it: a line wholly in brackets,
+    a column heading the table's box left out (:func:`_heads_a_column`), a line naming nothing (a
+    year, a chart's figures), pieces side by side (a header row). It steps over **one block of body
+    text** too: the sentence or paragraph introducing the table under its heading, as Apple's notes
+    print it. It stops at anything else, with no title: a second block of prose, a sentence set in the
+    title's style (a form's instruction), text it cannot read, another object's text, a running
+    header. No title is a gap a caller can see; a wrong one it shows to a user.
+
+    The title is the line found and the lines of its block stacked above it in its style (a title
+    printed on two lines), unless it is a figure's caption (:func:`_hangs_from_a_drawing`).
+    """
+    box = table["bbox"]
+    above = [
+        t for t in texts
+        if t.owner is not table
+        and t.rect.y1 <= box.y0 + 2
+        and box.y0 - t.rect.y1 <= _TITLE_LOOKBACK
+        and _overlap(t.rect.x0, t.rect.x1, box.x0, box.x1) > _EPS
+    ]
+    above.sort(key=lambda t: (-t.rect.y1, t.rect.x0))
+    intro: int | None = None
+    floor = box.y0  # the top of what lies between the title and the table, the table included
+    for text in above:
+        if not any(ch.isalpha() for ch in text.words) or text.linked:
             continue
-        if box.y0 - rect.y1 > _TITLE_LOOKBACK:
+        if text.owner is not None or _unreadable(text.words):
             return None
-        at_margin = rect.x0 <= box.x0 + _TITLE_LEFT_TOLERANCE
-        centre = (rect.x0 + rect.x1) / 2
-        over_figures = any(_overlap(rect.x0, rect.x1, a, b) > _EPS for a, b in spans[1:])
-        over_labels = bool(spans) and _overlap(rect.x0, rect.x1, *spans[0]) > _EPS
-        if not at_margin and (not box.x0 <= centre <= box.x1 or (over_figures and not over_labels)):
+        if _bracketed(text.words) or _heads_a_column(text, table, body):
+            floor = min(floor, text.rect.y0)
             continue
-        if looks_like_title(text):
-            return " ".join(text.split())
+        if any(other is not text and side_by_side(other.rect, text.rect) for other in above):
+            floor = min(floor, text.rect.y0)
+            continue
+        if text.repeated:
+            return None
+        if stands_out(text):
+            if _sentence(text.words):
+                return None
+            run = _run(text, blocks, True, side_by_side)
+            return None if _hangs_from_a_drawing(run, floor, box, texts, graphics()) else _joined(run)
+        if intro is None:
+            intro = text.line.block
+        if text.line.block != intro:
+            return None
+        floor = min(floor, text.rect.y0)
     return None
 
 
-def _orphan_title(blocks: list[tuple[fitz.Rect, str]], last_box: fitz.Rect | None) -> str | None:
-    """A caption stranded below the last table on a page, which titles the next page's first
-    table — a product manual ends a page with one and starts the table on the next."""
-    if last_box is None:
-        return None
-    for rect, text in blocks:
-        if rect.y0 < last_box.y1 - 2:
+def _hangs_from_a_drawing(
+    run: list[_Text], floor: float, table_box: fitz.Rect, texts: list[_Text], graphics: list[fitz.Rect]
+) -> bool:
+    """Whether the title is a figure's caption: the nearest thing above it is a figure, and it sits
+    nearer that than the table below. Tesla's update sets a chart's title under the chart, and the next
+    thing down can be a table. Every test here is a comparison, so no distance is assumed:
+
+    * a caption goes with whichever it is nearer, the figure or the table;
+    * a figure is a drawing or picture taller than the line itself. A rule or a form's border is
+      thinner than the text it separates, and a form sets its section titles right under one;
+    * a title printed in a band of its own, one that holds it and not the table, is a heading band
+      whatever stands above it. GE's guide heads a table "Mythe ou réalité" in white on black, under
+      a boxed note. A page-wide background holds the table too, so it is no band.
+    """
+    top, bottom = run[0].rect, run[-1].rect
+    middle = fitz.Point((top.x0 + top.x1) / 2, (top.y0 + top.y1) / 2)
+    if any(g.contains(middle) and not g.contains(table_box) for g in graphics):
+        return False
+    over = lambda r: _overlap(r.x0, r.x1, top.x0, top.x1) > _EPS  # noqa: E731
+    text_gap = min(
+        (top.y0 - t.rect.y1 for t in texts if t not in run and t.rect.y1 <= top.y0 + _EPS and over(t.rect)), default=None
+    )
+    drawn_gap = min(
+        (top.y0 - g.y1 for g in graphics if g.y1 <= top.y0 + _EPS and over(g) and g.height > top.height), default=None
+    )
+    if drawn_gap is None or (text_gap is not None and text_gap <= drawn_gap):
+        return False
+    return drawn_gap < floor - bottom.y1
+
+
+def _stranded(
+    last: dict,
+    texts: list[_Text],
+    blocks: dict[int, list[_Text]],
+    stands_out: Callable[[_Text], bool],
+    side_by_side: Callable[[fitz.Rect, fitz.Rect], bool],
+) -> str | None:
+    """A caption stranded below the page's last table, which titles the next page's first table: a
+    product manual ends a page with one and starts the table on the next. Found as a title is, looking
+    down: the nearest line that stands out, over nothing but lines naming nothing or in brackets."""
+    box = last["bbox"]
+    below = [
+        t for t in texts
+        if t.owner is not last
+        and t.rect.y0 >= box.y1 - 2
+        and t.rect.y0 - box.y1 <= _ORPHAN_GAP
+        and _overlap(t.rect.x0, t.rect.x1, box.x0, box.x1) > _EPS
+    ]
+    below.sort(key=lambda t: (t.rect.y0, t.rect.x0))
+    for text in below:
+        if not any(ch.isalpha() for ch in text.words) or text.linked:
             continue
-        if rect.y0 - last_box.y1 > _ORPHAN_GAP:
+        if text.owner is not None or _unreadable(text.words):
             return None
-        if looks_like_title(text):
-            return " ".join(text.split())
+        if _bracketed(text.words):
+            continue
+        if text.repeated:
+            return None
+        if stands_out(text):
+            return None if _sentence(text.words) else _joined(_run(text, blocks, False, side_by_side))
+        return None
     return None
 
 
@@ -1531,9 +1748,7 @@ def titles_after(read: PageRead, before: PageRead | None) -> list[tuple[str | No
     stranded two pages up titled a table it has nothing to do with (#366). The corpus checker calls
     this too, so the titles it compares are the ones the tool returns.
     """
-    carried = None
-    if before is not None and before.tables:
-        carried = _orphan_title(before.blocks, before.tables[-1]["bbox"])
+    carried = before.stranded if before is not None else None
     out: list[tuple[str | None, bool]] = []
     for position, table in enumerate(read.tables):
         if position == 0 and carried and not table["title"]:
