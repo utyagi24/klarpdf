@@ -949,7 +949,7 @@ it still comes after M145, for the reason above.
   checker compares titles, and refuses a key it does not know. Not taken, with the owner's
   agreement: a tool that lists charts. Not in it: [#352](https://github.com/utyagi24/klarpdf/issues/352).
   The answer key's rules, both held-out rounds and the four accepted misses are in `PLAN.md` §M145.
-  Plan: *WSL* ([#356](https://github.com/utyagi24/klarpdf/pull/356)); build: *WSL* (PR_LINK).
+  Plan: *WSL* ([#356](https://github.com/utyagi24/klarpdf/pull/356)); build: *WSL* ([#367](https://github.com/utyagi24/klarpdf/pull/367)).
 
 - [ ] **M142** **`extract_markdown`** — ***deferred by the owner, 2026-09-18; not scheduled.*** A Markdown rendering of a page range, built on M140 and M141
   with **no new dependency**. Prototyped before being scheduled: headings by weight/size, ruled
