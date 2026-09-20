@@ -8539,6 +8539,229 @@ verifies the code needs verifying too*), not by observing them pass:
 `test_the_launcher_does_run_the_event_loop_for_a_document_that_opens` is the positive control for
 #374: without it, a `return 0` that fired unconditionally would satisfy both of that fix's tests.
 
+### M150.1 — links and bookmarks keep, and use, their position on the page (2026-09-20)
+
+[#362](https://github.com/utyagi24/klarpdf/issues/362) (a link lands on its page's top) and
+[#373](https://github.com/utyagi24/klarpdf/issues/373) (a page move drops or shifts a bookmark's
+position), as planned in §*The open issues, grouped*. One missing piece under both: **reading where
+on its page a destination points, and writing it back unchanged.**
+
+**Surfaces: the core, the app, and — through the core — the bridge's page-moving tools**
+(CLAUDE.md §*Two consumers share one core*). `klarpdf/model/destinations.py` is new;
+`toc_remap`, `links_remap`, `virtual_document` and `edit_engine` use it, and `PyMuPDFEngine.materialize`
+is the one save path `MainWindow` and `klarpdf/mcp_bridge/transforms.py` both reach, so `reorder`,
+`delete_pages`, `extract_pages`, `split` and `merge` inherit the fix. Tests on both sides:
+`tests/test_destinations.py` and `tests/test_mcp_transforms.py`.
+
+#### What a destination says, and what was surviving
+
+A PDF link or bookmark names a page *and*, usually, a spot on it: `/XYZ left top zoom`, `/FitH top`,
+`/FitR left bottom right top`. Counted over the 123-document corpus:
+
+| | Bookmarks | Internal links |
+|---|---|---|
+| carry a destination we can read | 1,032 of 1,052 | 3,854 of 3,862 |
+| …of those, name a spot on the page | **908** | **3,709** |
+
+The 20 + 8 that cannot be read are bare headings (18), destinations naming no page at all
+(`[null /XYZ …]`, 4), one empty name, and 5 links PyMuPDF synthesised with no object behind them.
+Each keeps the page-only behaviour that predates this milestone.
+
+#### Cause: both of PyMuPDF's destination writers corrupt a position, in different ways
+
+Measured on 1.27.2.3. The *reader* is right in every case below; it is the writers that are not.
+
+| Writer | Rotation 0 | 90 | 180 | **270** | Crop box not at 0,0 |
+|---|---|---|---|---|---|
+| `Document.set_toc` | exact | exact | exact | **swaps the page's width and height** | **origin ignored, every rotation** |
+| `Page.insert_link` | exact | **takes the point unrotated while `get_links` reports it rotated** | ″ | ″ | correct at 0°, ignored at 90/180/270 |
+
+The 270° error compounds: `get_toc` reads the misplaced point correctly, so the next save misplaces
+it again — 2 pt a side is not the shape of it, the bookmark walks across the page. #373 measured
+`/XYZ 100 600` becoming `/XYZ 280 420` and then `/XYZ 460 240`. **The crop-box half is new here** and
+#373 did not have it: it needs no rotation at all, so an offset-cropped page moves a bookmark on
+every save at 0°.
+
+Underneath both sits a larger loss. **Neither writer can emit anything but `/XYZ`**, and the reader
+does not report a position for anything else: `get_toc(simple=False)` gives `{'kind': 4, 'page': '3'}`
+for `/XYZ null 600` — position gone — and `{'view': 'FitH,192'}` / `{'viewrect': …}` for `/FitH` and
+`/FitR`, neither of which `set_toc` writes back. So `bake_dest` turned them into the top of the page.
+That is **467 of the corpus's 886 positioned bookmarks** and all 1,068 of its named links.
+
+#### The fix: carry the file's own bytes, and convert nothing on the way out
+
+`klarpdf/model/destinations.py` splits a destination into the part that moves and the part that must
+not change: the target page, and the **tail** — everything the destination says after naming that
+page, exactly as the file spells it (`"/XYZ 100 600 0"`, `"/FitH 192"`, `"/Fit"`). Writing it
+somewhere else is `[<new page> 0 R <tail>]`.
+
+**No coordinate arithmetic happens on the write side at all.** That is the whole design, and it is
+the *Compare, don't guess* rule applied to a transform rather than to a threshold: the alternative
+was to work out what PyMuPDF's 270° and crop-box code does and pre-compensate for it, which means
+re-deriving a bug, and breaks the day the bug is fixed. Carrying the bytes is exact at every
+rotation, every crop box and every destination form by construction, and stays exact either way.
+
+Three things had to be measured before it would work:
+
+* **`set_toc` still has to run.** It is the only way to build the outline *tree* — titles, levels,
+  nesting. So the save writes the tree first and then writes each bookmark's real destination over
+  the one `set_toc` guessed. The tail rides to that second pass **inside the dict `set_toc` is
+  handed** (`RAW_TAIL_KEY`), which it ignores; a parallel list would be a second thing to keep in
+  step with the page numbers, and this way one `remapped_toc()` call produces both. Items are written
+  in the list's depth-first order, which is the order they read back in, so row *i* is item *i*.
+* **A page does not see a link it was just given.** `get_links()` on the `Page` object that took the
+  `insert_link` returns nothing, and `doc[i]` hands back that same cached object — so the first
+  version of the link pass looked correct and wrote **nothing at all**, on every document.
+  `reload_page` does show it and **raised PyMuPDF's own `AssertionError: refs_old=3`** on a corpus
+  document, because live references to that page still existed. The annotation is found through the
+  page's `/Annots` array instead, which is written at once and needs no page object.
+* **Named destinations are resolved from the name tree directly**, not through
+  `Document.resolve_names()`, which returns the destination already parsed into a point and so cannot
+  tell `/XYZ null 749` from `/XYZ 0 749` — *keep the reader's horizontal scroll* against *scroll to
+  the left edge*. 452 bookmarks and 368 links in the corpus are the `null` form.
+
+#### What it costs
+
+Reading each destination out of the file is work the save did not do before, so it was measured
+rather than assumed — best of three, moving page 1 to the end and materialising:
+
+| | `main` | first version | with the name memo |
+|---|---|---|---|
+| Sony WH-1000XM6 manual (591 links over 73 names) | 304 ms | **501 ms** | 337 ms |
+| SpaceX prospectus (465 links) | 211 ms | 291 ms | 249 ms |
+| Cisco annual report (285 pp) | 725 ms | 753 ms | 687 ms |
+
+The first version re-read and re-parsed the whole name table for **every** link, which is quadratic
+in exactly the documents that lean on names. `_named_destination` now takes a per-document memo, and
+what is left is within the ±40 ms this measurement varies by. The memo is a cache of reads on a
+document nothing writes to, and the whole-corpus sweep is byte-identical with and without it.
+
+#### One defect found on the way, and fixed with it
+
+A link whose destination name PyMuPDF cannot resolve to a page was **dropped entirely** by the remap,
+because `internal_link_target` returned `None`. One corpus document — a Nature paper that spells all
+its destination names as UTF-16 hex strings — lost **all 81** of its internal links on every page
+move, silently, since its pages and outline came through perfectly. Reading the name tree directly
+still reaches them, so the remap now falls back to the reader's page when the library has no answer.
+The library stays the authority wherever it has one (it resolves 7 the reader cannot).
+
+#### The app: a link and a bookmark land where they point
+
+`PdfView.goto_destination(index, left, top)` puts the spot at the **top of the window**, which is what
+a PDF destination means. `left`/`top` are content coordinates — unrotated, crop-box relative, y down —
+and the point is mapped through `page_transform`, so a rotated page needs no rotation code here. A
+`None` `top` (`/Fit`, `/XYZ left null`) is exactly `goto_page`, the behaviour M33 shipped. A `None`
+`left` leaves the horizontal scroll alone, which is what the `null` means.
+
+**The two axes are not treated alike, and the asymmetry is the design.** Vertically the destination
+*commands* — a reader clicking a bookmark is asking to be moved, so the spot goes to the top of the
+window whether or not it was already visible. Horizontally it only *corrects*: the bar moves solely
+when the point is off screen.
+
+The literal reading — put `left` at the window's left edge, which is what the PDF spec says and what
+the first attempt did — is wrong whenever the page already fits sideways, because it then scrolls
+*page* off screen to obey a margin. Owner-reported on `SpaceX-EUProspectus-outlined.pdf`
+(2026-09-20): *"I set my view to fit width and clicking on any entry in the TOC throws my page off
+center."* All 101 of that file's bookmarks say `/XYZ 72 805.68`, and the mechanism is worth stating
+because it is not obvious — **the file has two landscape pages among its 400**, `_build_scene` sizes
+the scene to the *widest* row while Fit Width fits the *current* page, so every portrait page sits
+centred in a wider band with the bar resting at 191 of [0, 382]. Honouring `left` threw it to 344
+and cut 139 px off the page's left side, on every click.
+
+Correcting only when needed is the rule `ensure_box_visible` already uses for search hits, for the
+same stated reason: stepping between two things on the same screen must not shove the page around.
+It is pinned **from both sides** — a test fails if the bar moves when the point is already visible,
+and another fails if it does not move when the point is off screen.
+
+`content_point` is the **one** coordinate conversion this milestone performs, so it is pinned against
+PyMuPDF's own reader rather than against arithmetic written twice
+(`test_content_point_matches_the_library_at_every_rotation_and_crop`).
+
+**A point outside the page is pulled back onto it** — found by the owner's hands-on test of the first
+attempt (2026-09-20), reading Cisco's Items 9 / 9A / 9B / 9C. Their report was that all four land on
+the top of page 120, and *that part is the document*: all seven links to that page carry the **same**
+destination, `/XYZ 0 822`, and the four bookmarks say `/Fit`. Nothing in the file distinguishes them,
+so no viewer can. But `/XYZ 0 822` is the top-left corner of a **media** box whose crop box starts
+23.976 pt inside it, so the point is above anything the reader can see, and the first attempt scrolled
+there — into the gap above the page.
+
+It is not a corner case. Counted over the corpus, **283 of 4,617 positioned destinations name a spot
+their page does not contain**, three ways:
+
+| | Destinations | How far out |
+|---|---|---|
+| Cisco's 10-K — the media box's corner on a cropped page | 100 | 24 pt above the top |
+| NVIDIA's annual report | 47 | above the top |
+| Javadoc pages — negative PDF y | 37 + 37 | 130–160 pt *below* the bottom |
+| SpaceX prospectus | 21 | 36.75 pt above the top |
+
+A fourth group is not out of bounds but reads as though it were: the Sony manual's 591 links say
+`/XYZ 0 841.92` on an 841.92 pt page, landing a floating-point hair above the edge and leaving a
+sliver of gap showing.
+
+The clamp is to the page's **own displayed box**, so there is no number to tune, and a crop the
+reader applied is honoured because `_crop_origin` / `_unrotated_size` describe that frame rather than
+the file's. It lives in `goto_destination` and **not** in `content_point`, which stays honest about
+what the file says — where a destination points and where a viewer can go are two different
+questions, and M150.2's reading tools want the first.
+
+The positive control for it caught a bad test on the way: the first
+`test_a_destination_below_the_page_is_pulled_back_onto_it` aimed at page 3 of *five*, where the
+scrollbar's own maximum clamps the scroll to the same value whether this code clamps or not — it
+stayed green with the clamp reverted. It now aims at page 3 of twelve and asserts the fixture leaves
+room below.
+
+Two owner decisions, 2026-09-20:
+
+* **A destination's zoom is ignored.** `/XYZ … 2` asks for 200%, and `/FitH` / `/FitR` imply a
+  magnification; obeying any of them drops a reader out of the Fit mode they chose, and arriving
+  where you were going without being resized is the point of the feature. 12 corpus bookmarks ask.
+* **Links are in scope, not only bookmarks.** #373 is written about bookmarks, but `insert_link` has
+  the same class of bug, and #362 makes a link's position visible for the first time — so without it
+  the app would honour a point that the next Save moves.
+
+Why this reads as a *wrong page* rather than a wrong scroll position: Cisco's 10-K aims every contents
+entry at the foot of the page **before** its section (165 of its 221 positioned links point into the
+lower half of a page, 113 into the last 100 pt). *Risk Factors* points at the bottom of page 12 and the
+heading is on page 13, so honouring the point shows the section and ignoring it shows page 12 from the
+top — TC-020's report, and #362's.
+
+#### Verification
+
+**Whole-corpus sweep, old against new** (CLAUDE.md §*The thing that verifies the code needs verifying
+too*): every document moved page 1 to the end and materialised on `origin/main` and on the branch,
+then compared. 106 documents; **1,526 link positions and 689 bookmark positions preserved that
+`main` flattened**, plus the 81 recovered links. No page count changed, no bookmark's target page
+changed, and no link's target changed except in that one document, where 81 appeared.
+
+Round-tripping every destination form at every rotation, through the app's save and through the
+bridge's tools: 1,941 of 1,942 link tails and 517 of 520 bookmark tails come back byte-identical on
+the ten most link-dense corpus documents. The four that do not are the `[null /XYZ …]` destinations
+and the empty name, which name no page and are refused on the way in.
+
+**Each part broken in turn, and the failure read** — thirteen reversions, thirteen red suites:
+
+| Reverted | Tests that went red |
+|---|---|
+| the tail never reaches `set_toc`'s dict | 41 in `test_destinations.py` |
+| the save never applies the carried outline destinations | the same 41 |
+| the link tail is never written | 4 in `test_destinations.py` |
+| the new link looked for on the page instead of in `/Annots` | 3 in `test_destinations.py` |
+| the unresolvable-name fallback | `test_a_link_whose_name_pymupdf_cannot_resolve_survives_a_page_move` |
+| `content_point` ignoring the crop box | 4 in `test_destinations.py` |
+| the leading byte-order mark kept on a hex name | 2 in `test_destinations.py` |
+| an indirect `/A` no longer followed | `test_reads_the_three_spellings_of_a_destination` |
+| a link click back to `goto_page` | 5 in `test_link_nav.py` |
+| the outline entry back to `goto_page` | 4 in `test_outline_panel.py` |
+| the out-of-page clamp | 2 in `test_link_nav.py` |
+| the horizontal rule, back to always scrolling | `test_fit_width_is_not_thrown_off_centre_by_an_entrys_left` |
+| the horizontal rule, to never scrolling | `test_a_left_that_is_off_screen_is_brought_into_view` |
+
+Four of PyMuPDF's behaviours are pinned as tests of their own — the two `set_toc` bugs, the
+`insert_link` one, and the page that cannot see its own new link. **A failure there means PyMuPDF
+fixed something**, which is good news and requires no undoing: the carry-through never asks either
+writer for a position.
+
 ## The open issues, grouped — M149–M152 *(planned 2026-09-19)*
 
 Grouped at the owner's request (2026-09-19: *"plan milestones for all of the issues, except for 352

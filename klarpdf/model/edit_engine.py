@@ -422,7 +422,11 @@ class PyMuPDFEngine(EditEngine):
             # an append is *for*, and it is why M139 lands as a couple of kilobytes on the end of a
             # 2.7 MB manual rather than as a rewrite of it.
             if vdoc.outline_override is not None:
-                out.set_toc(vdoc.remapped_toc())
+                from klarpdf.model.destinations import apply_outline_destinations
+
+                authored = vdoc.remapped_toc()
+                out.set_toc(authored)
+                apply_outline_destinations(out, authored)
             out.save(out_path, **append_options())
         finally:
             out.close()
@@ -494,7 +498,11 @@ class PyMuPDFEngine(EditEngine):
         try:
             self._apply_page_edits(out, vdoc)
             if vdoc.outline_override is not None:
-                out.set_toc(vdoc.remapped_toc())
+                from klarpdf.model.destinations import apply_outline_destinations
+
+                authored = vdoc.remapped_toc()
+                out.set_toc(authored)
+                apply_outline_destinations(out, authored)
             # ...and only when the user actually edited the metadata (M114). `apply_metadata`'s
             # untouched branch copies the origin's Info dict and XMP packet onto the output — a pass
             # written for the *graft*, where `insert_pdf` copies neither store and they would
@@ -628,10 +636,18 @@ class PyMuPDFEngine(EditEngine):
             # Rebuild internal GoTo links + the outline against the new page order (M33 / M1):
             # insert_pdf drops cross-run internal links and never copies the outline, so both are
             # remapped here — surviving targets repointed to their new index, deleted ones dropped.
+            from klarpdf.model.destinations import apply_outline_destinations
             from klarpdf.model.links_remap import remap_internal_links
 
             remap_internal_links(out, vdoc)
-            out.set_toc(vdoc.remapped_toc())
+            # The outline goes out in two passes (M150): `set_toc` writes the tree — titles, levels,
+            # open state and a destination it understands — and `apply_outline_destinations` then
+            # writes each bookmark's *real* destination over the one it guessed, so a page move
+            # keeps the exact in-page position, verb and `null`s the file was authored with. The
+            # second pass cannot replace the first: `set_toc` is the only way to build the tree.
+            toc = vdoc.remapped_toc()
+            out.set_toc(toc)
+            apply_outline_destinations(out, toc)
 
             # Document metadata (M53): carry the origin's Info dict + XMP packet through (or the
             # user's edit / removal) — insert_pdf copies neither store, so without this every

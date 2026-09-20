@@ -2,14 +2,15 @@
 
 Clicking a GoTo or named-destination link jumps to the page its target currently sits on, following
 reorders/deletes live; hovering shows a pointing-hand cursor; non-link clicks fall through to text
-selection. Navigation is verified by spying on goto_page (the scroll itself is goto_page's job).
+selection. Navigation is verified by spying on goto_destination (the scroll itself is the view's job);
+where on the page a link lands has its own file, tests/test_destinations.py.
 """
 
 from __future__ import annotations
 
 import pymupdf as fitz
 import pytest
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPointF, Qt
 
 from app import PdfApp
 from store.settings import Settings
@@ -59,8 +60,16 @@ def _center_of(view, page_index, box):
 
 
 def _spy_goto(view, monkeypatch):
+    """Record which page a click navigates to.
+
+    Spies on ``goto_destination``, where every internal-link click lands since M150. That method
+    delegates to ``goto_page`` only when the destination names no in-page position, so a spy on
+    ``goto_page`` would see nothing at all for a positioned one — which is every link here except
+    the ``/Fit`` fixture below.
+    """
     calls: list[int] = []
-    monkeypatch.setattr(view, "goto_page", lambda index: calls.append(index))
+    monkeypatch.setattr(view, "goto_destination",
+                        lambda index, left, top: calls.append(index))
     return calls
 
 
@@ -366,3 +375,196 @@ def test_the_scheme_gate_in_isolation():
                     "ms-msdt:/id", "file:///C:/Windows/System32/calc.exe",
                     "www.example.org", "", "   ", "http s://x", "https://[oops"):
         assert openable_uri(refused) is None
+
+
+# ---- a link lands where it points, not on the page top (M150, #362) -----------
+
+
+def _top_of(view, index):
+    """The scroll value `goto_page` produces for a page — the strip position of its top edge."""
+    from viewer.pdf_view import _PAGE_GAP
+
+    return int(view._pages[index]["y"]) - _PAGE_GAP
+
+
+def _positioned_pdf(tmp_path, tail, rotate=0, name="pos.pdf") -> str:
+    """Five **Letter** pages, with a link on page 0 whose destination on page 3 is ``tail``.
+
+    The size is given explicitly because ``new_page()`` defaults to A4 (595 × 842), and a
+    destination's coordinates are measured from the page's own bottom edge — so a fixture that
+    writes ``/XYZ 0 792`` on an 842 pt page is naming a point 50 pt down, not the top.
+    """
+    path = str(tmp_path / name)
+    doc = fitz.open()
+    for i in range(5):
+        doc.new_page(width=612, height=792).insert_text((72, 72), f"PAGE {i}", fontsize=20)
+    if rotate:
+        doc[3].set_rotation(rotate)
+    annot = doc.get_new_xref()
+    x0, y0, x1, y1 = _GOTO_BOX
+    height = doc[0].rect.height
+    doc.update_object(
+        annot,
+        "<< /Type /Annot /Subtype /Link /Rect [%g %g %g %g] /Border [0 0 0] /Dest [%d 0 R %s] >>"
+        % (x0, height - y1, x1, height - y0, doc.page_xref(3), tail),
+    )
+    doc.xref_set_key(doc.page_xref(0), "Annots", "[%d 0 R]" % annot)
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def test_a_link_lands_on_the_spot_its_destination_names(app, tmp_path):
+    """#362, the owner's report: every internal link landed on the top of its target page.
+
+    ``/XYZ 18 57.75`` is the shape Cisco's 10-K uses on all 221 of its links — a point **57.75 pt
+    above the bottom edge**, in the margin below the last line. A viewer that honours it shows that
+    margin and then the next page, which is where the section actually starts; one that ignores it
+    shows the target page from the top, a page early.
+    """
+    win = app.open_document(_positioned_pdf(tmp_path, "/XYZ 18 57.75 0"))
+    win.view.links.navigate_at(_center_of(win.view, 0, _GOTO_BOX))
+    page = win.view._pages[3]
+    content_y = 792.0 - 57.75                       # PDF y up -> content y down
+    expected = int(page["y"] + content_y * win.view.scale) - 14   # _PAGE_GAP
+    assert win.view.verticalScrollBar().value() == pytest.approx(expected, abs=2)
+    assert win.view.verticalScrollBar().value() > _top_of(win.view, 3), \
+        "the spot is below the page top, so the view must be past it"
+
+
+def test_a_destination_with_no_position_still_lands_on_the_page_top(app, tmp_path):
+    """``/Fit`` names no spot, so M33's behaviour is the right one and must not change."""
+    win = app.open_document(_positioned_pdf(tmp_path, "/Fit"))
+    win.view.links.navigate_at(_center_of(win.view, 0, _GOTO_BOX))
+    assert win.view.verticalScrollBar().value() == _top_of(win.view, 3)
+
+
+def test_a_destination_whose_top_is_null_lands_on_the_page_top(app, tmp_path):
+    """``/XYZ 100 null`` gives a left and no top — half a position is not a position."""
+    win = app.open_document(_positioned_pdf(tmp_path, "/XYZ 100 null 0"))
+    win.view.links.navigate_at(_center_of(win.view, 0, _GOTO_BOX))
+    assert win.view.verticalScrollBar().value() == _top_of(win.view, 3)
+
+
+def test_a_destination_at_the_very_top_of_its_page_matches_goto_page(app, tmp_path):
+    """A point on the page's top edge and "the top of the page" must be the same scroll.
+
+    The two are computed differently — one through ``page_transform``, one from the strip layout —
+    so agreeing is a real check on the mapping rather than a restatement of it.
+    """
+    win = app.open_document(_positioned_pdf(tmp_path, "/XYZ 0 792 0"))
+    win.view.links.navigate_at(_center_of(win.view, 0, _GOTO_BOX))
+    assert win.view.verticalScrollBar().value() == _top_of(win.view, 3)
+
+
+@pytest.mark.parametrize("rotate", [90, 180, 270])
+def test_a_spot_on_a_rotated_page_is_mapped_through_the_rotation(app, tmp_path, rotate):
+    """The destination's coordinates are the page's unrotated ones; the view shows it spun.
+
+    Checked against the view's own box mapping, which every other overlay already trusts, rather
+    than against rotation arithmetic written a second time here.
+    """
+    win = app.open_document(_positioned_pdf(tmp_path, "/XYZ 100 600 0", rotate=rotate))
+    win.view.links.navigate_at(_center_of(win.view, 0, _GOTO_BOX))
+    # (100, 600) in PDF space is (100, 192) in content coords on a 792 pt page.
+    scene = win.view.scene_rect_for_box(3, (100.0, 192.0, 100.0, 192.0))
+    assert win.view.verticalScrollBar().value() == pytest.approx(int(scene.top()) - 14, abs=2)
+
+
+def test_the_contents_entry_that_pointed_a_page_early_now_shows_its_section(app, tmp_path):
+    """TC-020, end to end: *Risk Factors* points at the foot of the page **before** the heading.
+
+    The window must end up showing the section, not the top of the earlier page. Measured as
+    "where does the strip sit relative to the two pages", which is what the reader sees.
+    """
+    win = app.open_document(_positioned_pdf(tmp_path, "/XYZ 18 20 0"))   # 20 pt above the bottom
+    win.view.links.navigate_at(_center_of(win.view, 0, _GOTO_BOX))
+    value = win.view.verticalScrollBar().value()
+    assert value > _top_of(win.view, 3), "the view moved past the top of the target page"
+    assert value < _top_of(win.view, 4), "…but not past the start of the following one"
+
+
+def test_a_destination_above_the_page_is_pulled_back_onto_it(app, tmp_path):
+    """Cisco's 10-K, the owner's second report: Items 9, 9A, 9B and 9C all sit on page 120 and all
+    four links carry the **same** destination, ``/XYZ 0 822`` — the top-left corner of a *media*
+    box whose crop box starts 24 pt inside it. So the point is 24 pt above anything the reader can
+    see, and honouring it literally scrolls into the gap above the page.
+
+    283 of the corpus's 4,617 positioned destinations are outside their page like this.
+    """
+    path = str(tmp_path / "abovepage.pdf")
+    doc = fitz.open()
+    for i in range(5):
+        page = doc.new_page(width=612, height=792)
+        page.insert_text((72, 72), f"PAGE {i}", fontsize=20)
+    doc[3].set_cropbox(fitz.Rect(24, 24, 588, 768))
+    annot = doc.get_new_xref()
+    x0, y0, x1, y1 = _GOTO_BOX
+    height = doc[0].rect.height
+    doc.update_object(
+        annot,
+        "<< /Type /Annot /Subtype /Link /Rect [%g %g %g %g] /Dest [%d 0 R /XYZ 0 792 0] >>"
+        % (x0, height - y1, x1, height - y0, doc.page_xref(3)),
+    )
+    doc.xref_set_key(doc.page_xref(0), "Annots", "[%d 0 R]" % annot)
+    doc.save(path)
+    doc.close()
+
+    win = app.open_document(path)
+    win.view.links.navigate_at(_center_of(win.view, 0, _GOTO_BOX))
+    assert win.view.verticalScrollBar().value() == _top_of(win.view, 3)
+
+
+def test_a_destination_below_the_page_is_pulled_back_onto_it(app, tmp_path):
+    """The other direction: a negative PDF y, which one Javadoc set uses on 37 of its links to name
+    a point 130 pt below the page's bottom edge.
+
+    The target is page 3 of **twelve**, not of five, so there is document left below it. With only
+    a few pages the scrollbar's own maximum clamps the scroll to the same value whether this code
+    clamps or not, and the test passes either way — which is how the first version of it was
+    written, and it stayed green with the clamp reverted.
+    """
+    path = str(tmp_path / "belowpage.pdf")
+    doc = fitz.open()
+    for i in range(12):
+        doc.new_page(width=612, height=792).insert_text((72, 72), f"PAGE {i}", fontsize=20)
+    annot = doc.get_new_xref()
+    x0, y0, x1, y1 = _GOTO_BOX
+    height = doc[0].rect.height
+    doc.update_object(
+        annot,
+        "<< /Type /Annot /Subtype /Link /Rect [%g %g %g %g] /Dest [%d 0 R /XYZ 0 -130.5 0] >>"
+        % (x0, height - y1, x1, height - y0, doc.page_xref(3)),
+    )
+    doc.xref_set_key(doc.page_xref(0), "Annots", "[%d 0 R]" % annot)
+    doc.save(path)
+    doc.close()
+
+    win = app.open_document(path)
+    win.view.links.navigate_at(_center_of(win.view, 0, _GOTO_BOX))
+    bar = win.view.verticalScrollBar()
+    bottom = int(win.view._pages[3]["y"] + 792.0 * win.view.scale) - 14
+    assert bottom < bar.maximum(), "the fixture must leave room below, or the bar clamps for us"
+    assert bar.value() == pytest.approx(bottom, abs=2)
+
+
+def test_a_left_that_is_off_screen_is_brought_into_view(app, tmp_path):
+    """The other half of the horizontal rule: correcting when the point really is out of sight.
+
+    Zoomed in and scrolled to the right-hand edge, a destination pointing at the page's left margin
+    is off screen, and landing there with the text away to the left would be the complaint the
+    resting case avoids. So the bar moves — just far enough to put the point at the window's left
+    edge, not because the destination said so but because it was not visible.
+    """
+    win = app.open_document(_positioned_pdf(tmp_path, "/XYZ 40 600 0"))
+    win.resize(900, 700)
+    win.view.set_zoom(4.0)
+    bar = win.view.horizontalScrollBar()
+    assert bar.maximum() > 0, "no horizontal range — this fixture cannot show the defect"
+    bar.setValue(bar.maximum())
+
+    win.view.links.navigate_at(_center_of(win.view, 0, _GOTO_BOX))
+    assert bar.value() < bar.maximum(), "the off-screen point was not brought back"
+    scene_x = win.view.page_transform(3).map(QPointF(40.0, 192.0)).x()
+    visible = win.view.mapToScene(win.view.viewport().rect()).boundingRect()
+    assert visible.left() <= scene_x <= visible.right()

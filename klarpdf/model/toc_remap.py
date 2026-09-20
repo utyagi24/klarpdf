@@ -7,10 +7,13 @@ can orphan its children and leave a level jump that ``Document.set_toc`` rejects
 **repair the level sequence** (start at 1, never jump by more than +1) while preserving the
 relative nesting of the entries that remain.
 
-Pure functions over plain lists — no PyMuPDF dependency, so this is trivially unit-testable.
+Pure functions over plain lists — the one import is a string constant, so there is still no
+PyMuPDF dependency here and this stays trivially unit-testable.
 """
 
 from __future__ import annotations
+
+from klarpdf.model.destinations import RAW_TAIL_KEY
 
 TocEntry = list  # [level:int, title:str, page:int(1-based), dest:dict|None]
 
@@ -20,8 +23,16 @@ TocEntry = list  # [level:int, title:str, page:int(1-based), dest:dict|None]
 _LINK_GOTO = 1
 
 
-def bake_dest(dest: dict | None, new0: int) -> dict | None:
+def bake_dest(dest: dict | None, new0: int, tail: str | None = None) -> dict | None:
     """``dest`` re-pointed at output page ``new0`` (0-based), in a form ``set_toc`` can write.
+
+    ``tail`` is the destination as the **file** spells it, read by :mod:`model.destinations`. When
+    one is supplied it rides along in the returned dict under
+    :data:`~model.destinations.RAW_TAIL_KEY`, and the save writes it over whatever ``set_toc`` put
+    there (M150) — which is how a bookmark keeps its exact in-page position, its verb and its
+    ``null``s through a page move. Everything below still happens: ``set_toc`` needs a destination
+    it understands to write a *working* bookmark, and the tail is laid on top of that, so a route
+    that never applies it degrades to exactly the behaviour described here.
 
     **A destination that is not already a direct GoTo cannot survive a page move** (M138.4). The
     outline of a document produced by InDesign and friends is usually a stack of *named*
@@ -43,17 +54,21 @@ def bake_dest(dest: dict | None, new0: int) -> dict | None:
     A destination that is already a GoTo keeps its own ``to`` point, so an outline that aimed at a
     precise spot on the page still does.
     """
-    if dest is None:
+    if dest is None and tail is None:
         return None
-    if dest.get("kind") == _LINK_GOTO:
+    if dest is not None and dest.get("kind") == _LINK_GOTO:
         # Already direct: only the page moves. `xref` is the source document's and means nothing
         # in the output, so it goes rather than being carried along looking meaningful.
-        kept = {k: v for k, v in dest.items() if k != "xref"}
-        kept["page"] = new0
-        return kept
-    # `view: Fit` and its relatives carry no coordinates to preserve, so the baked destination is
-    # the top of the target page — which is what "fit this page" resolves to for a reader anyway.
-    return {"kind": _LINK_GOTO, "page": new0, "zoom": 0.0}
+        baked = {k: v for k, v in dest.items() if k != "xref"}
+        baked["page"] = new0
+    else:
+        # `view: Fit` and its relatives carry no coordinates to preserve, so the baked destination
+        # is the top of the target page — which is what "fit this page" resolves to for a reader
+        # anyway. With a `tail` this is only the scaffolding the real destination is written over.
+        baked = {"kind": _LINK_GOTO, "page": new0, "zoom": 0.0}
+    if tail is not None:
+        baked[RAW_TAIL_KEY] = tail
+    return baked
 
 
 def repair_levels(levels: list[int]) -> list[int]:
@@ -74,7 +89,9 @@ def repair_levels(levels: list[int]) -> list[int]:
     return out
 
 
-def remap_toc(toc: list[TocEntry], index_map: dict[int, int]) -> list[TocEntry]:
+def remap_toc(
+    toc: list[TocEntry], index_map: dict[int, int], dests: list | None = None
+) -> list[TocEntry]:
     """Remap an outline to new page indices, dropping dangling entries.
 
     ``toc`` is the output of ``Document.get_toc(simple=False)``: each entry is
@@ -82,17 +99,29 @@ def remap_toc(toc: list[TocEntry], index_map: dict[int, int]) -> list[TocEntry]:
     document's **0-based** page index to its **0-based** index in the materialised output;
     pages absent from the map were deleted. Returns a new outline ready for
     ``Document.set_toc``.
+
+    ``dests`` is the same outline as :func:`~model.destinations.read_outline_destinations` reads
+    it — one entry per row, in the same order — and carries each bookmark's destination through
+    the move verbatim (M150). It is optional, and an empty or short list simply means no row gets
+    a tail, so a caller that has not read them behaves as this function did before.
     """
     kept: list[TocEntry] = []
     orig_levels: list[int] = []
-    for entry in toc:
+    for position, entry in enumerate(toc):
         level, title, page = entry[0], entry[1], entry[2]
         dest = entry[3] if len(entry) > 3 else None
         old0 = page - 1
         new0 = index_map.get(old0)
         if new0 is None:
             continue  # target page was deleted — drop this bookmark (no dangling/-1)
-        baked = bake_dest(dest, new0)          # dest carries a 0-based page
+        carried = dests[position] if dests and position < len(dests) else None
+        # A destination whose own target page was deleted is dropped rather than carried onto
+        # whatever page ends up at that index: `page` above already followed the move, and a tail
+        # pointing somewhere else would silently disagree with it.
+        tail = None
+        if carried is not None and index_map.get(carried.page) == new0:
+            tail = carried.tail
+        baked = bake_dest(dest, new0, tail)    # dest carries a 0-based page
         if baked is not None:
             kept.append([level, title, new0 + 1, baked])
         else:

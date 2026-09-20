@@ -2692,6 +2692,92 @@ class PdfView(QGraphicsView):
         self.verticalScrollBar().setValue(int(p["y"]) - _PAGE_GAP)
         self._render_visible()
 
+    def goto_destination(self, index: int, left: float | None, top: float | None) -> None:
+        """Go to page ``index`` and land on the spot its destination names (M150, #362).
+
+        ``left`` / ``top`` are in the page's **content coordinates** — unrotated, crop-box
+        relative, y down — as :func:`~model.destinations.content_point` returns them, and either
+        may be ``None``. A ``None`` ``top`` means the destination states no vertical position
+        (``/Fit`` and its relatives, or ``/XYZ left null``), and this is then exactly
+        :meth:`goto_page`: the top of the page, which is what the app did for every destination
+        before this milestone. A ``None`` ``left`` is the publisher asking the viewer to **keep the
+        reader's horizontal scroll**, which 452 of the corpus's bookmarks and 368 of its links do,
+        so the horizontal bar is left alone rather than reset.
+
+        **The two axes are not treated alike, and that asymmetry is the point.** Vertically the
+        destination *commands* — a reader who clicks a bookmark is asking to be moved, so the spot
+        goes to the top of the window whether or not it was already visible. Horizontally it only
+        *corrects*: the bar moves solely when the point is off screen, and is left exactly where
+        the reader had it otherwise.
+
+        The literal reading — put ``left`` at the window's left edge, which is what the PDF spec
+        says and what the first attempt did — is wrong whenever the page already fits sideways,
+        because it then scrolls *page* off screen to obey a margin. Owner-reported on
+        `SpaceX-EUProspectus-outlined.pdf` (2026-09-20), whose 101 bookmarks all say
+        ``/XYZ 72 805.68``: at **Fit Width** the strip is wider than the viewport, so the bar rests
+        centred at 191 of [0, 382], and honouring ``left`` threw it to 344 — cutting 139 px off the
+        page's left side on every click. Correcting only when needed is the rule
+        :meth:`ensure_box_visible` already uses for search hits, and for the same reason: stepping
+        between two things on the same screen must not shove the page around.
+
+        The spot goes at the **top of the window**, which is what a PDF destination means and what
+        other viewers do — and the reason Cisco's contents entries land a page early today: every
+        one of them points at the foot of the page *before* its section, so honouring the point
+        shows that page's bottom margin and then the section, while ignoring it shows the wrong
+        page from the top.
+
+        **The zoom a destination may also ask for is deliberately ignored** (owner's call,
+        2026-09-20). ``/XYZ left top 2`` means "at 200%", and ``/FitH`` / ``/FitR`` imply a
+        magnification of their own; obeying any of them would drop a reader out of the Fit mode
+        they chose, and the whole point of an in-page position is to arrive where you were going
+        without being resized on the way.
+
+        The point is mapped through :meth:`page_transform`, so a rotated page — or one the reader
+        has spun — lands correctly without this method knowing anything about rotation. On a page
+        turned 90° or 270° a content *line* is a vertical line on screen, so a destination that
+        gives no ``left`` is read at the content's left edge; there is no single scene y otherwise.
+
+        **A point outside the page is pulled back onto it**, which is what a reader means by "go
+        there" and what other viewers do. This is not a corner case: **283** of the corpus's 4,617
+        positioned destinations name a spot the page does not contain, three ways — Cisco's 10-K
+        aims at the *media* box's top-left corner on pages whose crop box is 24 pt inside it (100),
+        the SpaceX prospectus overshoots the top by 36.75 pt (21), and a Javadoc set uses negative
+        PDF y to point 130 pt *below* the bottom (37). Unclamped, each scrolls past the page into
+        the gap around it. A fourth group is not out of bounds but reads as though it were: the
+        Sony manual's 591 links say ``/XYZ 0 841.92`` on an 841.92 pt page, which lands a
+        floating-point hair above the top edge and leaves a sliver of the gap showing.
+
+        The bounds are the page's own displayed box, so there is no number to tune, and a crop the
+        reader applied is honoured because :meth:`_crop_origin` and :meth:`_unrotated_size`
+        describe *that* frame rather than the file's.
+
+        The clamp lives here and not in :func:`~model.destinations.content_point`, which stays
+        honest about what the file says — where a destination points and where a viewer can go are
+        two different questions, and the bridge's reading tools want the first.
+        """
+        if not 0 <= index < len(self._pages):
+            return
+        if top is None:
+            self.goto_page(index)
+            return
+        self._park_coasting_wheel()
+        width, height = self._unrotated_size(index)
+        ox, oy = self._crop_origin(index)
+        top = min(max(top, oy), oy + height)
+        if left is not None:
+            left = min(max(left, ox), ox + width)
+        point = self.page_transform(index).map(QPointF(left or 0.0, top))
+        self.verticalScrollBar().setValue(int(point.y()) - _PAGE_GAP)
+        if left is not None:
+            visible = self.mapToScene(self.viewport().rect()).boundingRect()
+            if not visible.left() <= point.x() <= visible.right():
+                # Moved as a *delta* rather than assigned: a scrollbar value is only the scene x
+                # while the scene starts at 0, and the strip is centred in a wider scene at some
+                # zooms. The delta lands the point on the viewport's left edge either way.
+                bar = self.horizontalScrollBar()
+                bar.setValue(int(bar.value() + point.x() - visible.left()))
+        self._render_visible()
+
     # ---- persistence ------------------------------------------------------------
 
     def view_state(self) -> dict:

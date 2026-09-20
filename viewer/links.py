@@ -6,6 +6,14 @@ sits on; hovering one shows a pointing-hand cursor. The target is resolved with 
 navigation lands on the page exactly where Save would repoint the link — and it follows reorders /
 deletes live, since the map is rebuilt from ``ordered`` (and invalidated on every edit).
 
+**Since M150 (#362) the click also honours where on that page the link points.** A destination may
+name a spot, not just a page, and M33's contract stopped at the page — right for ``/Fit``, wrong
+for the 3,709 links in the corpus that state a position. It read as a link landing on the wrong
+*page*: Cisco's 10-K aims every contents entry at the foot of the page **before** its section, so
+"Risk Factors" pointed at the bottom of page 12 and the app showed the top of page 12, a page
+early. The spot is read by :mod:`model.destinations` and handed to
+:meth:`~viewer.pdf_view.PdfView.goto_destination`, which puts it at the top of the window.
+
 Hit-testing reuses the view's rotation-aware box mapping (``page_and_local_at`` /
 ``scene_rect_for_box``), the same one the text-selection and annotation overlays use, so link rects
 land correctly on rotated pages too.
@@ -24,6 +32,7 @@ from urllib.parse import urlsplit
 
 import pymupdf as fitz
 
+from klarpdf.model.destinations import content_point, page_index_map, read_destination
 from klarpdf.model.links_remap import internal_link_target, link_target_map
 
 #: Link schemes a click may hand to the system browser (M149, #333; owner's call).
@@ -61,10 +70,15 @@ def openable_uri(uri: str) -> str | None:
 class LinkNavigator:
     def __init__(self, view) -> None:
         self._view = view
-        self._links: dict[int, list[tuple[tuple, int]]] = {}  # display page -> [(box, target display)]
+        # display page -> [(box, target display index, target left, target top)]. The two
+        # coordinates are the destination's spot on the *target* page in content coords (M150),
+        # either or both None when it names none.
+        self._links: dict[int, list[tuple]] = {}
         self._uris: dict[int, list[tuple[tuple, str]]] = {}   # display page -> [(box, URI)]
+        self._page_maps: dict[str, dict] = {}                 # source id -> page xref -> index
+        self._name_memos: dict[str, dict] = {}                # source id -> resolved dest names
 
-    def _links_for(self, page_index: int) -> list[tuple[tuple, int]]:
+    def _links_for(self, page_index: int) -> list[tuple]:
         if page_index not in self._links:
             self._build(page_index)
         return self._links[page_index]
@@ -78,9 +92,15 @@ class LinkNavigator:
         """One ``get_links`` scan fills both caches: internal (navigable) and URI (copy-only)."""
         vdoc = self._view._vdoc
         ref = vdoc.ordered[page_index]
-        page = vdoc.sources[ref.source_id][ref.source_page_index]
+        source = vdoc.sources[ref.source_id]
+        page = source[ref.source_page_index]
         target_map = link_target_map(vdoc.ordered)
-        boxes: list[tuple[tuple, int]] = []
+        if ref.source_id not in self._page_maps:
+            self._page_maps[ref.source_id] = page_index_map(source)
+            self._name_memos[ref.source_id] = {}
+        page_of_xref = self._page_maps[ref.source_id]
+        names = self._name_memos[ref.source_id]
+        boxes: list[tuple] = []
         uris: list[tuple[tuple, str]] = []
         for link in page.get_links():
             r = link["from"]
@@ -88,13 +108,29 @@ class LinkNavigator:
             if link.get("kind") == fitz.LINK_URI and link.get("uri"):
                 uris.append((box, link["uri"]))
                 continue
+            # The destination is read from the file rather than from ``link["to"]``, which
+            # PyMuPDF reports in the *displayed* frame and leaves out entirely for every form but
+            # ``/XYZ left top`` — 368 of the corpus's internal links are ``/XYZ null top``, whose
+            # position it drops (M150).
+            target = (
+                read_destination(source, link["xref"], page_of_xref, names)
+                if link.get("xref") else None
+            )
             target_src = internal_link_target(link)
             if target_src is None:
-                continue
+                if target is None:
+                    continue
+                target_src = target.page
             dest = target_map.get((ref.source_id, target_src))
             if dest is None:
                 continue  # target page isn't in the current document (deleted)
-            boxes.append((box, dest))
+            left = top = None
+            if target is not None and target.page == target_src:
+                dest_ref = vdoc.ordered[dest]
+                left, top = content_point(
+                    vdoc.sources[dest_ref.source_id][dest_ref.source_page_index], target
+                )
+            boxes.append((box, dest, left, top))
         self._links[page_index] = boxes
         self._uris[page_index] = uris
 
@@ -102,13 +138,22 @@ class LinkNavigator:
         page_index, _ = self._view.page_and_local_at(scene_pt)
         if page_index is None:
             return None
-        for box, payload in entries_for(page_index):
+        for box, *payload in entries_for(page_index):
             if self._view.scene_rect_for_box(page_index, box).contains(scene_pt):
-                return payload
+                return payload[0] if len(payload) == 1 else tuple(payload)
         return None
 
     def link_at(self, scene_pt) -> int | None:
         """The target **display index** of the internal link under ``scene_pt``, else ``None``."""
+        target = self.target_at(scene_pt)
+        return None if target is None else target[0]
+
+    def target_at(self, scene_pt) -> tuple | None:
+        """``(display index, left, top)`` for the internal link under ``scene_pt``, else ``None``.
+
+        The two coordinates are where on the target page the destination points, in content
+        coords, and are ``None`` when it names no such position — what
+        :meth:`~viewer.pdf_view.PdfView.goto_destination` takes."""
         return self._hit(scene_pt, self._links_for)
 
     def uri_at(self, scene_pt) -> str | None:
@@ -131,13 +176,15 @@ class LinkNavigator:
     def navigate_at(self, scene_pt) -> bool:
         """If an internal link is under ``scene_pt``, jump to its target page. Returns True if it
         consumed the click. Internal links only — an external one is the view's to hand on."""
-        dest = self.link_at(scene_pt)
-        if dest is None:
+        target = self.target_at(scene_pt)
+        if target is None:
             return False
-        self._view.goto_page(dest)
+        self._view.goto_destination(*target)
         return True
 
     def invalidate(self) -> None:
         """Drop the cached per-page link boxes — after an edit remaps page indices / targets."""
         self._links.clear()
         self._uris.clear()
+        self._page_maps.clear()
+        self._name_memos.clear()

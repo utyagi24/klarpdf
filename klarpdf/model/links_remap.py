@@ -26,6 +26,8 @@ Model-layer (uses PyMuPDF, no GUI) and headless-testable.
 
 from __future__ import annotations
 
+import re
+
 import pymupdf as fitz
 
 # Link kinds that name a page inside the document (so they follow the page through an edit).
@@ -88,6 +90,15 @@ def _pdf_string_escape(text: str) -> str:
     return text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
 
 
+def _annot_xrefs(doc: fitz.Document, page_xref: int) -> list[int]:
+    """The page's ``/Annots`` entries, in file order — which ``insert_link`` appends to at once,
+    where the ``Page`` object it was called on does not notice its own new annotation."""
+    annots = doc.xref_get_key(page_xref, "Annots")
+    if annots[0] != "array":
+        return []
+    return [int(x) for x in re.findall(r"(\d+)\s+\d+\s+R", annots[1])]
+
+
 def _uri_key(link: dict) -> tuple:
     """Identity of a URI link for the dropped-link check: its text + its (rounded) rect —
     rounding absorbs the float noise a copy introduces."""
@@ -110,19 +121,50 @@ def remap_internal_links(out_doc: fitz.Document, vdoc) -> None:
     the text pre-escaped. A URI link that copied fine is left exactly as ``insert_pdf`` wrote it,
     so a well-formed document's output is unchanged.
     """
+    from klarpdf.model.destinations import page_index_map, read_destination, write_destination
+
     target_map = link_target_map(vdoc.ordered)
+    source_dest_maps: dict[str, dict] = {}
+    source_name_memos: dict[str, dict] = {}   # per source: resolved destination names
     for out_index, ref in enumerate(vdoc.ordered):
         out_page = out_doc[out_index]
         out_links = out_page.get_links()  # read once, before the deletes below
         for link in out_links:
             if link.get("kind") in _INTERNAL_KINDS:
                 out_page.delete_link(link)
-        source_page = vdoc.sources[ref.source_id][ref.source_page_index]
+        source = vdoc.sources[ref.source_id]
+        source_page = source[ref.source_page_index]
         source_links = source_page.get_links()
+        if ref.source_id not in source_dest_maps:
+            source_dest_maps[ref.source_id] = page_index_map(source)
+            source_name_memos[ref.source_id] = {}
+        page_of_xref = source_dest_maps[ref.source_id]
+        names = source_name_memos[ref.source_id]
+        # The tails are collected while inserting and written afterwards (M150), because
+        # `insert_link` gives no way to say "leave this destination alone": it re-derives the point
+        # from `to`, in a space that does not match the one `get_links` reported it in, and so
+        # shifts every point on a rotated or offset-cropped page. What it *is* still needed for is
+        # building the annotation — its rect, its border, its place in `/Annots`.
+        seen_annots = set(_annot_xrefs(out_doc, out_page.xref))
         for link in source_links:
+            # Only an internal link has a destination to carry; a URI or Launch link would cost
+            # two object reads per link to be told so.
+            dest = (
+                read_destination(source, link["xref"], page_of_xref, names)
+                if link.get("kind") in _INTERNAL_KINDS and link.get("xref") else None
+            )
             target_src = internal_link_target(link)
             if target_src is None:
-                continue
+                # PyMuPDF could not resolve the destination to a page, and until M150 that meant
+                # the link was dropped. Reading the file directly can still get there: measured on
+                # the corpus, one Nature paper spells all **81** of its internal destinations as
+                # UTF-16 hex-string names, and every one of them vanished on every page move —
+                # silently, since the pages and the outline came through fine. The library stays
+                # the authority wherever it has an answer (it resolves 7 the reader cannot); this
+                # only fills in where it has none.
+                if dest is None:
+                    continue
+                target_src = dest.page
             new_index = target_map.get((ref.source_id, target_src))
             if new_index is None:
                 continue  # target page was deleted — drop the link (no dangling)
@@ -134,6 +176,26 @@ def remap_internal_links(out_doc: fitz.Document, vdoc) -> None:
                     "to": link.get("to", fitz.Point(0, 0)),
                 }
             )
+            # A link whose destination names a page other than the one that was resolved, or a
+            # page that was deleted, keeps the plain page jump above rather than a tail that would
+            # disagree with it.
+            keep = dest is not None and target_map.get((ref.source_id, dest.page)) == new_index
+            if not keep:
+                continue
+
+            # **The annotation this call just made is found through `/Annots`, not through the
+            # page.** Measured on 1.27.2.3, `get_links()` on the `Page` object that took the
+            # `insert_link` still reports zero — the annotation is in the file but not in the
+            # object, and asking `out_doc[i]` again hands back the same cached page. Reloading the
+            # page does show it, and **breaks**: on one corpus document it raised PyMuPDF's own
+            # ``AssertionError: refs_old=3`` from inside the reload, because live references to
+            # that page still existed. The `/Annots` array is written immediately, needs no page
+            # object, and names the new annotation last.
+            fresh = _annot_xrefs(out_doc, out_page.xref)
+            if not fresh or fresh[-1] in seen_annots:
+                continue  # not where we expected it — leave the plain page jump alone
+            seen_annots.add(fresh[-1])
+            write_destination(out_doc, fresh[-1], out_doc.page_xref(new_index), dest.tail)
         copied_uris = {_uri_key(l) for l in out_links if l.get("kind") == fitz.LINK_URI}
         for link in source_links:
             if link.get("kind") != fitz.LINK_URI or not link.get("uri"):
