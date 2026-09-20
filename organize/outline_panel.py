@@ -15,7 +15,6 @@ from __future__ import annotations
 from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtWidgets import QTreeWidget, QTreeWidgetItem
 
-from klarpdf.model.destinations import RAW_TAIL_KEY, Destination, content_point
 from klarpdf.model.virtual_document import VirtualDocument
 from organize.thumbnail_panel import _SIDEBAR_W  # one default width for both sidebar tabs
 
@@ -84,24 +83,18 @@ class OutlinePanel(QTreeWidget):
         self._syncing = False
         self.set_current(self._current_page)  # restore the you-are-here highlight
 
-    def _spot_of(self, entry, page0: int) -> "float | None":
-        """How far down page ``page0`` this entry points, or ``None`` when it names no height.
+    def _spot_of(self, entry, _page0: int) -> "float | None":
+        """How far down its page this entry points, or ``None`` when it names no height.
 
         The measurement is in that page's own points, from the top of its visible area. A bookmark
         may also name a left edge; it is read and discarded, because a click must not move the page
         sideways (owner's rule, 2026-09-20).
 
-        The bookmark's destination rides in the entry under
-        :data:`~model.destinations.RAW_TAIL_KEY`, put there by the same remap that renumbered the
-        page, so the spot and the page can never disagree about which bookmark they describe.
+        The bookmark's destination rides in the entry itself, put there by the same remap that
+        renumbered the page, so the spot and the page can never disagree about which bookmark they
+        describe.
         """
-        dest = entry[3] if len(entry) > 3 else None
-        tail = dest.get(RAW_TAIL_KEY) if isinstance(dest, dict) else None
-        if tail is None or not 0 <= page0 < len(self._vdoc.ordered):
-            return None
-        ref = self._vdoc.ordered[page0]
-        page = self._vdoc.sources[ref.source_id][ref.source_page_index]
-        return content_point(page, Destination(page0, tail))[1]
+        return self._vdoc.entry_top(entry)
 
     def _collapsed_paths(self) -> set[tuple]:
         collapsed = set()

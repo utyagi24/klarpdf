@@ -479,6 +479,47 @@ def read_outline_destinations(doc, toc_length: int) -> list[Destination | None]:
     return [read_destination(doc, item, page_of_xref, names) for item in items]
 
 
+def carried_tail(entry: list) -> str | None:
+    """The destination a :meth:`~model.virtual_document.VirtualDocument.remapped_toc` row carries.
+
+    ``None`` when the row names no spot on its page — a bookmark the document wrote as "open this
+    page", or one an agent authored without a height. Read by the save, by the app's Outline tab
+    and by the bridge's ``get_outline``, so it is one function rather than the same four lines
+    written three times.
+    """
+    dest = entry[3] if len(entry) > 3 else None
+    return dest.get(RAW_TAIL_KEY) if isinstance(dest, dict) else None
+
+
+def pdf_top(page, top: float) -> float:
+    """``top`` — how far **down** the visible page, in its own points — as a PDF ``y``.
+
+    The exact inverse of :func:`content_point`'s vertical half, and the one conversion the *write*
+    side needs: an agent measures a heading with ``get_heading_candidates`` or ``search``, both of
+    which report boxes in that frame, and hands the number straight to ``set_outline``.
+
+    A PDF measures upward from the bottom of the **paper**, while every box this project hands out
+    is measured downward from the top of the **visible** area — which on a cropped page is not the
+    same edge. Doing it in one place, next to the reader that undoes it, is what keeps the two from
+    drifting; ``tests/test_destinations.py`` round-trips them against each other.
+    """
+    return page.mediabox.y1 - (top + page.cropbox.y0)
+
+
+def xyz_tail(page, top: float) -> str:
+    """A destination that opens ``page`` at ``top``, as PDF syntax.
+
+    The left edge is written as ``null``, always — *keep whatever sideways position the reader
+    has*. That is the owner's rule of 2026-09-20 (a bookmark moves the page up and down only), the
+    same rule the viewer follows, and it is also the commonest thing real publishers write: 452 of
+    the corpus's 886 positioned bookmarks leave the left edge blank.
+
+    The magnification is written as ``0``, meaning *keep the reader's zoom* — the point of naming a
+    spot is to arrive at it without being resized on the way.
+    """
+    return f"/XYZ null {pdf_top(page, top):.6g} 0"
+
+
 def apply_outline_destinations(doc, toc: list) -> int:
     """Write each row's carried destination over the one ``set_toc`` just wrote. Returns how many.
 
@@ -491,10 +532,7 @@ def apply_outline_destinations(doc, toc: list) -> int:
     bookmark's destination navigates confidently to the wrong place, which is worse than the page
     top it would otherwise get.
     """
-    tails = [
-        entry[3].get(RAW_TAIL_KEY) if len(entry) > 3 and isinstance(entry[3], dict) else None
-        for entry in toc
-    ]
+    tails = [carried_tail(entry) for entry in toc]
     if not any(tails):
         return 0
     items = outline_item_xrefs(doc)

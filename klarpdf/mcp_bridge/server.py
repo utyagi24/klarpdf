@@ -382,11 +382,19 @@ def create_server(config: Config | None = None) -> MCPServer:
     @server.tool()
     @guarded
     def get_outline(path: str, password: str | None = None) -> dict:
-        """The document's outline (bookmarks) as `entries`, a flat list of `{level, title, page}` in
-        document order, with `level` giving the nesting depth (1 = top), plus a `count`.
+        """The document's outline (bookmarks) as `entries`, a flat list of
+        `{level, title, page, top}` in document order, with `level` giving the nesting depth
+        (1 = top), plus a `count`.
 
         The fastest way to find the section you want in a long structured document — cheaper and
         more reliable than searching for a heading. `count` is 0 if the PDF has no outline.
+
+        `top` is where on its page the bookmark lands: how far down it, in points from the top of
+        the page, or `null` when the bookmark names only the page. It is the same measurement
+        `search` and `get_heading_candidates` give in a `bbox`, and the same key `set_outline`
+        takes — so reading an outline, editing it and writing it back keeps every position, as
+        long as you send `top` back with the rest. Some documents name a spot outside their own
+        page; that is reported as the file has it, and a viewer pulls it back onto the page.
 
         With no outline, `get_links` often finds a printed contents page, and
         `get_heading_candidates` the lines set like headings; either feeds `set_outline`, which
@@ -406,17 +414,17 @@ def create_server(config: Config | None = None) -> MCPServer:
         offset: int = 0,
     ) -> dict:
         """Every link a PDF carries, as `links`: the `page` it sits on, its `rect`, its `kind`, the
-        `text` under it, and where it points — `target_page` for an internal jump, `uri` for a web
-        address, `file` for another document. Plus `kinds`, a count per kind over the whole scope.
+        `text` under it, and where it points — `target_page` and `target_top` for an internal jump,
+        `uri` for a web address, `file` for another document. Plus `kinds`, a count per kind.
 
         Two questions, both unanswerable any other way. **Where does this document point
         outwards** — its web addresses, `tel:` numbers and mail addresses, each with the words it is
         anchored on, which is a privacy question as much as a navigation one. And **what is its
         structure**, when `get_outline` returns nothing: a printed contents page is usually a stack
-        of links, each already carrying its title (`text`), its target (`target_page`) and its level
-        (the indent, `rect[0]`) — authored by the publisher, exact where a heading detector guesses.
-        Feed those entries to **`set_outline`**, which takes that shape and writes them into the
-        document as real bookmarks.
+        of links, each already carrying its title (`text`), its target (`target_page`, and
+        `target_top` for where on that page) and its level (the indent, `rect[0]`) — authored by
+        the publisher, exact where a heading detector guesses. Feed those entries to
+        **`set_outline`**, whose `page` and `top` take them directly.
 
         It reads **link annotations**. A URL merely typeset on the page carries none and is not
         here, though most viewers auto-linkify it so it looks clickable — for a privacy sweep, pair
@@ -914,33 +922,34 @@ def create_server(config: Config | None = None) -> MCPServer:
     ) -> dict:
         """Give a document bookmarks: write `entries` as its outline, into a new file.
 
-        `entries` is `[{level, title, page}]` — the exact shape `get_outline` returns, so an
+        `entries` is `[{level, title, page, top}]` — the exact shape `get_outline` returns, so an
         outline can be read, edited and written back unchanged in between. `level` is 1 for a
         top-level heading, 2 for a subsection; `page` is 1-based.
 
+        **`top` is optional and says where on the page to land**: how far down it, in points from
+        the top of the page — the same measurement `get_heading_candidates` and `search` give in a
+        `bbox`. Pass a heading's `bbox[1]` straight through and the bookmark opens at that heading
+        rather than at the top of the page, which matters when a page holds several sections. Leave
+        it out and you get exactly what this tool wrote before. Bookmarks never scroll sideways, so
+        there is no `left`.
+
         **Where the entries come from.** A document with no bookmarks usually still carries its
         structure: a printed contents page is built from real link annotations, so `get_links` on
-        those pages gives title, target page and — from `rect` x0 — the indent implying the level.
-        Exact, authored by the publisher; `klarpdf://docs/get_links` has the four rules for reading
-        it. Without one, `get_heading_candidates` lists the lines set like headings; your own
-        reading of a short document works too.
+        those pages gives title, target page, `target_top` and — from `rect` x0 — the indent
+        implying the level. Without one, `get_heading_candidates` lists the lines set like
+        headings.
 
-        **A page the document does not have is an error, and nothing is written.** The PDF layer
-        does not refuse one — it silently moves the bookmark to the nearest real page, or writes
-        one that navigates nowhere — so a miscount would come back as success with a
-        plausible-looking outline. Levels are the opposite: an outline must start at level 1 and
-        may not skip a level, so they are **repaired**, and the reply says what changed under
-        `levels_normalised`.
+        **A page the document does not have is an error and nothing is written**, because the PDF
+        layer does not refuse one: it silently moves the bookmark to the nearest real page, so a
+        miscount would come back as success. Levels are the opposite — they are repaired.
 
         **If the document already has an outline, this refuses** unless you pass
-        `replace_outline: true` — writing yours would discard all of it, and this tool never
-        merges. To *enrich* an existing outline (say it has chapters and you want sections under
-        them), call `get_outline`, weave your entries into the list it returns — the shapes are
-        identical, so keeping an entry is one `+` — and send the whole tree. Deciding what the
-        combined outline should say is a judgement only you can make.
+        `replace_outline: true`: writing yours would discard all of it, and this tool never merges.
+        To *enrich* one, call `get_outline`, weave your entries into the list it returns — the
+        shapes are identical — and send the whole tree. Carry `top` through, or those bookmarks
+        lose their positions.
 
-        The page set does not change, so the copy keeps everything: tags, encryption and
-        permissions, links. Full contract in `klarpdf://docs/set_outline`.
+        Read the reply and `klarpdf://docs/set_outline` for the rest.
         """
         return transforms.set_outline(
             check(path),

@@ -22,16 +22,23 @@ through a byte count, since a byte count that happened to match would hide a rew
 from __future__ import annotations
 
 import os
+import re
+from pathlib import Path
 
 import pymupdf as fitz
 import pytest
 
 from klarpdf.mcp_bridge import queries, transforms as T
 
+#: `top` is what a bookmark written with no position of its own reads back as: the PDF layer
+#: writes a real spot 36 pt below the page's top edge for "open this page", so the file says 36
+#: and `get_outline` reports what the file says (M150.2).
+_PAGE_TOP = 36.0
+
 ENTRIES = [
-    {"level": 1, "title": "Introduction", "page": 1},
-    {"level": 2, "title": "Background", "page": 3},
-    {"level": 1, "title": "Chapter Two", "page": 8},
+    {"level": 1, "title": "Introduction", "page": 1, "top": _PAGE_TOP},
+    {"level": 2, "title": "Background", "page": 3, "top": _PAGE_TOP},
+    {"level": 1, "title": "Chapter Two", "page": 8, "top": _PAGE_TOP},
 ]
 
 
@@ -80,9 +87,9 @@ def test_the_written_outline_is_a_real_goto_that_survives_a_later_reorder(tmp_pa
 
     reversed_out = T.reorder(written, list(range(10, 0, -1)), str(tmp_path / "r.pdf"))["out"]
     assert queries.outline(reversed_out) == [
-        {"level": 1, "title": "Introduction", "page": 10},
-        {"level": 2, "title": "Background", "page": 8},
-        {"level": 1, "title": "Chapter Two", "page": 3},
+        {"level": 1, "title": "Introduction", "page": 10, "top": _PAGE_TOP},
+        {"level": 2, "title": "Background", "page": 8, "top": _PAGE_TOP},
+        {"level": 1, "title": "Chapter Two", "page": 3, "top": _PAGE_TOP},
     ]
 
 
@@ -105,8 +112,8 @@ def test_an_existing_outline_is_not_replaced_without_being_asked(tmp_path):
         T.set_outline(src, ENTRIES, out)
     assert not os.path.exists(out)
     assert queries.outline(src) == [
-        {"level": 1, "title": "Old One", "page": 1},
-        {"level": 1, "title": "Old Two", "page": 5},
+        {"level": 1, "title": "Old One", "page": 1, "top": _PAGE_TOP},
+        {"level": 1, "title": "Old Two", "page": 5, "top": _PAGE_TOP},
     ]
 
 
@@ -152,10 +159,10 @@ def test_enriching_is_get_outline_plus_concatenation(tmp_path):
     out = T.set_outline(src, merged, str(tmp_path / "out.pdf"), replace_outline=True)["out"]
 
     assert queries.outline(out) == [
-        {"level": 1, "title": "Chapter One", "page": 1},
-        {"level": 2, "title": "Section 1.1", "page": 3},
-        {"level": 1, "title": "Chapter Two", "page": 6},
-        {"level": 2, "title": "Section 2.1", "page": 7},
+        {"level": 1, "title": "Chapter One", "page": 1, "top": _PAGE_TOP},
+        {"level": 2, "title": "Section 1.1", "page": 3, "top": _PAGE_TOP},
+        {"level": 1, "title": "Chapter Two", "page": 6, "top": _PAGE_TOP},
+        {"level": 2, "title": "Section 2.1", "page": 7, "top": _PAGE_TOP},
     ]
 
 
@@ -344,3 +351,239 @@ def test_the_source_is_never_touched(tmp_path):
 
     assert result["source_unchanged"] is True
     assert open(src, "rb").read() == before
+
+
+# ---- a bookmark that lands on its heading (M150.2, #361) -----------------------
+
+
+@pytest.fixture
+def src10(tmp_path) -> str:
+    """A plain ten-page document with no outline of its own."""
+    return _make(str(tmp_path / "src10.pdf"))
+
+
+def _tops(path) -> list:
+    """Each bookmark's `top`, as `get_outline` reports it."""
+    return [e["top"] for e in queries.outline(path)]
+
+
+def test_an_entry_with_a_top_lands_where_it_says(tmp_path, src10):
+    """FR-001: a reader zoomed in on a page with many short sections clicks the bookmark for one
+    near the bottom, and the view jumps to the top of the page, above what they were reading.
+
+    One report's 23-page agreement carried 104 bookmarks with 103 of them sharing a page; one page
+    held twelve, and all twelve opened in the same place.
+    """
+    out = str(tmp_path / "positioned.pdf")
+    T.set_outline(
+        src10,
+        [{"level": 1, "title": "Top of page 1", "page": 1, "top": 0.0},
+         {"level": 1, "title": "Part way down 2", "page": 2, "top": 400.0},
+         {"level": 2, "title": "Near the foot of 3", "page": 3, "top": 700.25}],
+        out,
+    )
+    assert _tops(out) == [0.0, 400.0, 700.25]
+
+
+def _raw_destinations(path) -> list[str]:
+    """Each bookmark's destination exactly as the file spells it."""
+    from klarpdf.model.destinations import outline_item_xrefs
+
+    doc = fitz.open(path)
+    try:
+        out = []
+        for xref in outline_item_xrefs(doc):
+            dest = doc.xref_get_key(xref, "Dest")
+            out.append(dest[1] if dest[0] != "null" else doc.xref_get_key(xref, "A")[1])
+        return out
+    finally:
+        doc.close()
+
+
+def _destination_tails(path) -> list[str]:
+    """Each bookmark's destination with the page reference stripped — what it says about *where*."""
+    return [re.sub(r"^\[\s*\d+\s+\d+\s+R\s*", "", d).rstrip("]").strip()
+            for d in _raw_destinations(path)]
+
+
+def test_leaving_top_out_writes_exactly_what_it_wrote_before(tmp_path, src10):
+    """#361's own condition: *"Omitted `top` writes exactly what is written today, so existing
+    callers are unaffected."*
+
+    Compared by the **destination bytes** rather than by the whole file, because two saves of the
+    same thing are never byte-identical: every PDF carries a pair of identifiers in its trailer and
+    a fresh one is drawn each time. The destination is the thing this claim is about, and it is
+    compared exactly.
+    """
+    entries = [{"level": 1, "title": "One", "page": 1}, {"level": 2, "title": "Two", "page": 4}]
+    without = str(tmp_path / "without.pdf")
+    explicit_none = str(tmp_path / "none.pdf")
+    T.set_outline(src10, entries, without)
+    T.set_outline(src10, [dict(e, top=None) for e in entries], explicit_none)
+
+    assert _raw_destinations(without) == _raw_destinations(explicit_none)
+    assert _tops(without) == _tops(explicit_none) == [_PAGE_TOP, _PAGE_TOP]
+
+
+def test_a_mixed_list_is_independent_entry_by_entry(tmp_path, src10):
+    out = str(tmp_path / "mixed.pdf")
+    T.set_outline(
+        src10,
+        [{"level": 1, "title": "Positioned", "page": 1, "top": 250.0},
+         {"level": 1, "title": "Not positioned", "page": 2},
+         {"level": 1, "title": "Positioned too", "page": 3, "top": 111.5}],
+        out,
+    )
+    assert _tops(out) == [250.0, _PAGE_TOP, 111.5]
+
+
+def test_a_top_that_is_not_a_number_is_refused_and_nothing_is_written(tmp_path, src10):
+    out = str(tmp_path / "bad.pdf")
+    for bad in ("abc", [1], {"y": 2}, True):
+        with pytest.raises(ValueError, match="top"):
+            T.set_outline(
+                src10, [{"level": 1, "title": "X", "page": 1, "top": bad}], out
+            )
+        assert not Path(out).exists()
+
+
+def test_a_top_outside_the_page_is_written_and_reported(tmp_path, src10):
+    """Owner's call, 2026-09-20: accept and warn rather than refuse.
+
+    Refusing would reject documents that already work — 51 bookmarks and 232 links across the
+    123-file corpus name a spot their own page does not contain, so `get_outline` → `set_outline`
+    would fail on them.
+    """
+    out = str(tmp_path / "outside.pdf")
+    result = T.set_outline(
+        src10,
+        [{"level": 1, "title": "Below the paper", "page": 1, "top": 5000.0},
+         {"level": 1, "title": "Above it", "page": 2, "top": -40.0},
+         {"level": 1, "title": "Fine", "page": 3, "top": 100.0}],
+        out,
+    )
+    assert [o["title"] for o in result["tops_outside_the_page"]] == ["Below the paper", "Above it"]
+    assert any("outside their page" in w for w in result["warnings"])
+    assert _tops(out) == [5000.0, -40.0, 100.0]      # written as asked, not clamped
+
+
+def test_a_round_trip_keeps_every_position(tmp_path, src10):
+    """Read it, send it straight back, read it again — the point of `get_outline` returning `top`."""
+    first = str(tmp_path / "first.pdf")
+    T.set_outline(
+        src10,
+        [{"level": 1, "title": "A", "page": 1, "top": 90.0},
+         {"level": 2, "title": "B", "page": 1, "top": 300.0},
+         {"level": 1, "title": "C", "page": 5, "top": 640.75}],
+        first,
+    )
+    entries = queries.outline(first)
+    second = str(tmp_path / "second.pdf")
+    T.set_outline(first, entries, second, replace_outline=True)
+    assert queries.outline(second) == entries
+
+
+def test_replacing_a_positioned_outline_without_tops_says_what_was_lost(tmp_path, src10):
+    """#361 item 4. The old reply said `replaced: 104` and nothing else, and one report watched 85
+    distinct positions collapse to 1 without a word."""
+    positioned = str(tmp_path / "positioned.pdf")
+    T.set_outline(
+        src10,
+        [{"level": 1, "title": "A", "page": 1, "top": 90.0},
+         {"level": 1, "title": "B", "page": 2, "top": 300.0}],
+        positioned,
+    )
+    out = str(tmp_path / "flattened.pdf")
+    result = T.set_outline(
+        positioned, [{"level": 1, "title": "Renamed", "page": 1}], out, replace_outline=True
+    )
+    assert result["positions_discarded"] == 2
+    assert any("name no `top`" in w for w in result["warnings"])
+
+
+def test_nothing_is_reported_as_lost_when_the_caller_is_setting_positions(tmp_path, src10):
+    """A caller steering the positions themselves does not need to be told what the old outline
+    happened to have — that is noise, not a warning."""
+    positioned = str(tmp_path / "positioned.pdf")
+    T.set_outline(
+        src10, [{"level": 1, "title": "A", "page": 1, "top": 90.0}], positioned
+    )
+    result = T.set_outline(
+        positioned, [{"level": 1, "title": "A", "page": 1, "top": 500.0}],
+        str(tmp_path / "out.pdf"), replace_outline=True,
+    )
+    assert "positions_discarded" not in result
+
+
+@pytest.mark.parametrize("rotation", [0, 90, 180, 270])
+def test_a_top_means_the_same_thing_on_a_rotated_page(tmp_path, rotation):
+    """#361 item 1 asks for a defined answer at every rotation.
+
+    `top` is measured on the page as it was authored, not as it is displayed — the same frame
+    `get_heading_candidates` reports a `bbox` in, so a heading's box feeds in unchanged whatever
+    the page's rotation.
+    """
+    src = str(tmp_path / f"rot{rotation}.pdf")
+    doc = fitz.open()
+    for _ in range(3):
+        doc.new_page(width=612, height=792)
+    if rotation:
+        doc[1].set_rotation(rotation)
+    doc.save(src)
+    doc.close()
+
+    out = str(tmp_path / f"out{rotation}.pdf")
+    T.set_outline(src, [{"level": 1, "title": "Spot", "page": 2, "top": 250.0}], out)
+    assert _tops(out) == [250.0]
+
+
+def test_a_top_on_a_page_whose_printed_area_is_inset_lands_on_the_page(tmp_path):
+    """#361 acceptance test 7. A page can be trimmed so its visible area starts inside the paper;
+    `top` is measured from the top of what the reader sees, not from the edge of the paper."""
+    src = str(tmp_path / "cropped.pdf")
+    doc = fitz.open()
+    for _ in range(3):
+        doc.new_page(width=612, height=792)
+    doc[1].set_cropbox(fitz.Rect(20, 30, 592, 762))
+    doc.save(src)
+    doc.close()
+
+    out = str(tmp_path / "out.pdf")
+    T.set_outline(src, [{"level": 1, "title": "Spot", "page": 2, "top": 100.0}], out)
+    assert _tops(out) == [100.0]
+
+
+def test_a_written_bookmark_never_names_a_left_edge(tmp_path, src10):
+    """Owner's rule, 2026-09-20: *"A bookmark or link should only control the vertical position
+    within a document, clicking on it should not result in horzontal scroll."*
+
+    A PDF destination can name a left edge beside a height, and a viewer that honours one slides
+    the page sideways under a reader who did not ask for it. So the written destination leaves the
+    left blank — the word `null` below is the file saying "keep whatever sideways position the
+    reader has". There is no `left` key on an entry, so a caller cannot ask for one either, and
+    this pins the value actually written rather than the absence of the argument.
+    """
+    out = str(tmp_path / "noleft.pdf")
+    T.set_outline(
+        src10,
+        [{"level": 1, "title": "A", "page": 1, "top": 90.0},
+         {"level": 1, "title": "B", "page": 2, "top": 250.5}],
+        out,
+    )
+    # Compared without the page reference in front, whose object number is the document's own
+    # business. `_make` builds A4 pages (842 pt tall), so a height of 90 from the top is 752 up
+    # from the bottom, which is how a PDF measures. The middle value is the one under test.
+    assert _destination_tails(out) == ["/XYZ null 752 0", "/XYZ null 591.5 0"]
+    assert _tops(out) == [90.0, 250.5]
+
+
+def test_an_entry_may_not_ask_for_a_left_edge(tmp_path, src10):
+    """The other half: `left` is not a key an entry has, and an unknown key is refused rather than
+    ignored — so a caller who tries gets told, instead of silently getting a bookmark that behaves
+    differently from the one they asked for."""
+    with pytest.raises(ValueError, match=r"unknown key\(s\) \['left'\]"):
+        T.set_outline(
+            src10, [{"level": 1, "title": "A", "page": 1, "top": 90.0, "left": 72.0}],
+            str(tmp_path / "left.pdf"),
+        )
+    assert not Path(tmp_path / "left.pdf").exists()

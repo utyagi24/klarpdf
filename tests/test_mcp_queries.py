@@ -129,10 +129,13 @@ def test_info_reports_an_unprotected_document_as_permitting_everything(a_pdf):
 
 
 def test_outline_preserves_nesting_and_1_based_pages(a_pdf):
+    # `top` is where on its page each bookmark lands (M150.2). This fixture's outline is written
+    # through `set_toc`, which gives a bookmark that names only a page a real spot 36 pt below the
+    # page's top edge — so 36.0 is the file speaking, not a default invented here.
     assert queries.outline(a_pdf) == [
-        {"level": 1, "title": "Chapter 1", "page": 1},
-        {"level": 2, "title": "Section 1.1", "page": 2},
-        {"level": 1, "title": "Chapter 2", "page": 3},
+        {"level": 1, "title": "Chapter 1", "page": 1, "top": 36.0},
+        {"level": 2, "title": "Section 1.1", "page": 2, "top": 36.0},
+        {"level": 1, "title": "Chapter 2", "page": 3, "top": 36.0},
     ]
 
 

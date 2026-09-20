@@ -786,3 +786,81 @@ def test_rows_per_target_separates_an_indexed_document_from_a_magazine_grid(tmp_
     # Three rows, one target: uneven, so *not* a grid — dedupe would collapse it to one entry.
     assert set(per_target.values()) != {2}
     assert len(rows) > len(per_target), "the collision dedupe-by-target would act on"
+
+
+# ---- where on the target page a link lands (M150.2, #361) ---------------------
+
+
+def _positioned_links_pdf(tmp_path) -> str:
+    """A contents page whose three links aim at different heights on their target pages."""
+    path = str(tmp_path / "contents.pdf")
+    doc = fitz.open()
+    for i in range(6):
+        doc.new_page(width=612, height=792).insert_text((72, 72), f"PAGE {i}", fontsize=11)
+    doc[4].set_cropbox(fitz.Rect(20, 30, 592, 762))   # the /FitH link's target, trimmed
+    aims = [(2, "/XYZ 72 700 0"), (4, "/FitH 300"), (5, "/Fit")]
+    annots = []
+    for n, (target, tail) in enumerate(aims):
+        xref = doc.get_new_xref()
+        doc.update_object(
+            xref,
+            "<< /Type /Annot /Subtype /Link /Rect [72 %g 300 %g] /Border [0 0 0] "
+            "/Dest [%d 0 R %s] >>" % (700 - n * 20, 716 - n * 20, doc.page_xref(target), tail),
+        )
+        annots.append(xref)
+    doc.xref_set_key(doc.page_xref(0), "Annots",
+                     "[" + " ".join(f"{x} 0 R" for x in annots) + "]")
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def test_an_internal_link_reports_where_on_its_target_page_it_lands(tmp_path):
+    """#361 item 3: the contents-page route carries the publisher's aim through to the outline.
+
+    Without it, a contents entry aimed at a heading part way down a page arrived as a bare page
+    number, and `set_outline` could only re-create a bookmark to the top of that page.
+    """
+    result = queries.links(_positioned_links_pdf(tmp_path), pages=[1])
+    got = [(l["target_page"], l["target_top"]) for l in result["links"]]
+    assert got == [
+        (3, 92.0),     # 700 up from the bottom of a 792 pt page is 92 down from its top
+        (5, 462.0),    # a page whose visible area starts 30 pt inside the paper
+        (6, None),     # names the page only, so there is no height to report
+    ]
+
+
+def test_a_link_to_another_document_reports_no_height(tmp_path):
+    """`target_page` is already null for those, because the page belongs to the other file — the
+    height has to follow it rather than describe a page of this one."""
+    path = str(tmp_path / "remote.pdf")
+    doc = fitz.open()
+    doc.new_page(width=612, height=792)
+    doc.new_page(width=612, height=792)
+    xref = doc.get_new_xref()
+    doc.update_object(
+        xref,
+        "<< /Type /Annot /Subtype /Link /Rect [72 700 300 716] "
+        "/A << /S /GoToR /F (other.pdf) /D [1 /XYZ 72 700 0] >> >>",
+    )
+    doc.xref_set_key(doc.page_xref(0), "Annots", f"[{xref} 0 R]")
+    doc.save(path)
+    doc.close()
+
+    (link,) = queries.links(path, pages=[1])["links"]
+    assert link["kind"] == "gotor"
+    assert link["target_page"] is None and link["target_top"] is None
+
+
+def test_a_uri_link_reports_no_height(tmp_path):
+    path = str(tmp_path / "web.pdf")
+    doc = fitz.open()
+    page = doc.new_page(width=612, height=792)
+    page.insert_link({"kind": fitz.LINK_URI, "from": fitz.Rect(72, 700, 300, 716),
+                      "uri": "https://example.org"})
+    doc.save(path)
+    doc.close()
+
+    (link,) = queries.links(path, pages=[1])["links"]
+    assert link["uri"] == "https://example.org"
+    assert link["target_top"] is None

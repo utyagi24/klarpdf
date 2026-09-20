@@ -1043,8 +1043,27 @@ tick the box here on merge. Build in number order.
       sideways. **Owner's rule: a bookmark or a link moves the page up and down only, never
       sideways.** The left edge is read from the file and not acted on, on both surfaces — the app
       here, and `set_outline` in M150.2. — [#380](https://github.com/utyagi24/klarpdf/pull/380)
-  - [ ] **M150.2** [#361](https://github.com/utyagi24/klarpdf/issues/361) the bridge reads and
-    writes a bookmark's position (FR-001). *Bridge.*
+  - [x] **M150.2** **A bookmark the bridge writes can land on its heading** —
+    [#361](https://github.com/utyagi24/klarpdf/issues/361) (FR-001). *Bridge, through the core.*
+    Design, the measurements and the three decisions in `PLAN.md` §M150.2. — *WSL (headless)* —
+    [#382](https://github.com/utyagi24/klarpdf/pull/382)
+    - `set_outline` takes an optional **`top`** per entry — how far down the page, the same
+      measurement `get_heading_candidates` and `search` give in a `bbox`, so a heading's box feeds
+      in unchanged. Leaving it out writes exactly what the tool wrote before;
+    - `get_outline` returns `top` and `get_links` returns `target_top`, so read → edit → write
+      keeps every position, and a printed contents page carries the publisher's own aim through to
+      a real outline;
+    - replacing a positioned outline with unpositioned entries now reports `positions_discarded`
+      instead of flattening silently — one report had 85 distinct positions become 1, with
+      `replaced: 104` as the only trace;
+    - **no left edge is ever written** (owner's rule: a bookmark moves the page up and down only),
+      and a `top` outside the page is written as asked with a warning rather than refused (owner's
+      call — 51 bookmarks and 232 links in the corpus are outside their page, so refusing would
+      break the round trip on documents that already work);
+    - **#361 item 5, publishing the entry shape in the schema, is not done** — both ways of typing
+      the parameter cost more than they give (a `TypedDict` silently drops an unknown key; a strict
+      model coerces `page: "3"` to `3`). Measured and argued in `PLAN.md` §M150.2 so it is not
+      re-derived.
 - [ ] **M151** **Zoom and resize keep the page you are reading** —
   [#357](https://github.com/utyagi24/klarpdf/issues/357) zoom out and in drifts a page;
   [#359](https://github.com/utyagi24/klarpdf/issues/359) narrowing a Fit Width window loses the
