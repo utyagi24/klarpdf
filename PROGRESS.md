@@ -1031,7 +1031,13 @@ tick the box here on merge. Build in number order.
       positions** that a save used to flatten;
     - **found while building:** a link whose destination name PyMuPDF cannot resolve was dropped
       outright by the remap — one corpus document lost **all 81** of its internal links on every
-      page move, silently. The remap now falls back to reading the name tree itself.
+      page move, silently. The remap now falls back to reading the name tree itself;
+    - **found by the owner's hands-on test** of the first attempt (2026-09-20, Cisco Items
+      9/9A/9B/9C): a destination pointing **outside** its page — the media box's corner on a
+      cropped page, or a negative PDF y — scrolled into the gap around it. It is clamped to the
+      page. **283 of the corpus's 4,617 positioned destinations** are outside their page. (Those
+      four items landing in the same place is the *document*: all seven links to that page carry
+      the identical `/XYZ 0 822`, and the bookmarks say `/Fit`.)
   - [ ] **M150.2** [#361](https://github.com/utyagi24/klarpdf/issues/361) the bridge reads and
     writes a bookmark's position (FR-001). *Bridge.*
 - [ ] **M151** **Zoom and resize keep the page you are reading** —

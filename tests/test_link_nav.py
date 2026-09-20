@@ -482,3 +482,67 @@ def test_the_contents_entry_that_pointed_a_page_early_now_shows_its_section(app,
     value = win.view.verticalScrollBar().value()
     assert value > _top_of(win.view, 3), "the view moved past the top of the target page"
     assert value < _top_of(win.view, 4), "…but not past the start of the following one"
+
+
+def test_a_destination_above_the_page_is_pulled_back_onto_it(app, tmp_path):
+    """Cisco's 10-K, the owner's second report: Items 9, 9A, 9B and 9C all sit on page 120 and all
+    four links carry the **same** destination, ``/XYZ 0 822`` — the top-left corner of a *media*
+    box whose crop box starts 24 pt inside it. So the point is 24 pt above anything the reader can
+    see, and honouring it literally scrolls into the gap above the page.
+
+    283 of the corpus's 4,617 positioned destinations are outside their page like this.
+    """
+    path = str(tmp_path / "abovepage.pdf")
+    doc = fitz.open()
+    for i in range(5):
+        page = doc.new_page(width=612, height=792)
+        page.insert_text((72, 72), f"PAGE {i}", fontsize=20)
+    doc[3].set_cropbox(fitz.Rect(24, 24, 588, 768))
+    annot = doc.get_new_xref()
+    x0, y0, x1, y1 = _GOTO_BOX
+    height = doc[0].rect.height
+    doc.update_object(
+        annot,
+        "<< /Type /Annot /Subtype /Link /Rect [%g %g %g %g] /Dest [%d 0 R /XYZ 0 792 0] >>"
+        % (x0, height - y1, x1, height - y0, doc.page_xref(3)),
+    )
+    doc.xref_set_key(doc.page_xref(0), "Annots", "[%d 0 R]" % annot)
+    doc.save(path)
+    doc.close()
+
+    win = app.open_document(path)
+    win.view.links.navigate_at(_center_of(win.view, 0, _GOTO_BOX))
+    assert win.view.verticalScrollBar().value() == _top_of(win.view, 3)
+
+
+def test_a_destination_below_the_page_is_pulled_back_onto_it(app, tmp_path):
+    """The other direction: a negative PDF y, which one Javadoc set uses on 37 of its links to name
+    a point 130 pt below the page's bottom edge.
+
+    The target is page 3 of **twelve**, not of five, so there is document left below it. With only
+    a few pages the scrollbar's own maximum clamps the scroll to the same value whether this code
+    clamps or not, and the test passes either way — which is how the first version of it was
+    written, and it stayed green with the clamp reverted.
+    """
+    path = str(tmp_path / "belowpage.pdf")
+    doc = fitz.open()
+    for i in range(12):
+        doc.new_page(width=612, height=792).insert_text((72, 72), f"PAGE {i}", fontsize=20)
+    annot = doc.get_new_xref()
+    x0, y0, x1, y1 = _GOTO_BOX
+    height = doc[0].rect.height
+    doc.update_object(
+        annot,
+        "<< /Type /Annot /Subtype /Link /Rect [%g %g %g %g] /Dest [%d 0 R /XYZ 0 -130.5 0] >>"
+        % (x0, height - y1, x1, height - y0, doc.page_xref(3)),
+    )
+    doc.xref_set_key(doc.page_xref(0), "Annots", "[%d 0 R]" % annot)
+    doc.save(path)
+    doc.close()
+
+    win = app.open_document(path)
+    win.view.links.navigate_at(_center_of(win.view, 0, _GOTO_BOX))
+    bar = win.view.verticalScrollBar()
+    bottom = int(win.view._pages[3]["y"] + 792.0 * win.view.scale) - 14
+    assert bottom < bar.maximum(), "the fixture must leave room below, or the bar clamps for us"
+    assert bar.value() == pytest.approx(bottom, abs=2)

@@ -2720,6 +2720,24 @@ class PdfView(QGraphicsView):
         has spun — lands correctly without this method knowing anything about rotation. On a page
         turned 90° or 270° a content *line* is a vertical line on screen, so a destination that
         gives no ``left`` is read at the content's left edge; there is no single scene y otherwise.
+
+        **A point outside the page is pulled back onto it**, which is what a reader means by "go
+        there" and what other viewers do. This is not a corner case: **283** of the corpus's 4,617
+        positioned destinations name a spot the page does not contain, three ways — Cisco's 10-K
+        aims at the *media* box's top-left corner on pages whose crop box is 24 pt inside it (100),
+        the SpaceX prospectus overshoots the top by 36.75 pt (21), and a Javadoc set uses negative
+        PDF y to point 130 pt *below* the bottom (37). Unclamped, each scrolls past the page into
+        the gap around it. A fourth group is not out of bounds but reads as though it were: the
+        Sony manual's 591 links say ``/XYZ 0 841.92`` on an 841.92 pt page, which lands a
+        floating-point hair above the top edge and leaves a sliver of the gap showing.
+
+        The bounds are the page's own displayed box, so there is no number to tune, and a crop the
+        reader applied is honoured because :meth:`_crop_origin` and :meth:`_unrotated_size`
+        describe *that* frame rather than the file's.
+
+        The clamp lives here and not in :func:`~model.destinations.content_point`, which stays
+        honest about what the file says — where a destination points and where a viewer can go are
+        two different questions, and the bridge's reading tools want the first.
         """
         if not 0 <= index < len(self._pages):
             return
@@ -2727,6 +2745,11 @@ class PdfView(QGraphicsView):
             self.goto_page(index)
             return
         self._park_coasting_wheel()
+        width, height = self._unrotated_size(index)
+        ox, oy = self._crop_origin(index)
+        top = min(max(top, oy), oy + height)
+        if left is not None:
+            left = min(max(left, ox), ox + width)
         point = self.page_transform(index).map(QPointF(left or 0.0, top))
         self.verticalScrollBar().setValue(int(point.y()) - _PAGE_GAP)
         if left is not None:

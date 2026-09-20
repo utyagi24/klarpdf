@@ -8657,6 +8657,40 @@ and the point is mapped through `page_transform`, so a rotated page needs no rot
 PyMuPDF's own reader rather than against arithmetic written twice
 (`test_content_point_matches_the_library_at_every_rotation_and_crop`).
 
+**A point outside the page is pulled back onto it** — found by the owner's hands-on test of the first
+attempt (2026-09-20), reading Cisco's Items 9 / 9A / 9B / 9C. Their report was that all four land on
+the top of page 120, and *that part is the document*: all seven links to that page carry the **same**
+destination, `/XYZ 0 822`, and the four bookmarks say `/Fit`. Nothing in the file distinguishes them,
+so no viewer can. But `/XYZ 0 822` is the top-left corner of a **media** box whose crop box starts
+23.976 pt inside it, so the point is above anything the reader can see, and the first attempt scrolled
+there — into the gap above the page.
+
+It is not a corner case. Counted over the corpus, **283 of 4,617 positioned destinations name a spot
+their page does not contain**, three ways:
+
+| | Destinations | How far out |
+|---|---|---|
+| Cisco's 10-K — the media box's corner on a cropped page | 100 | 24 pt above the top |
+| NVIDIA's annual report | 47 | above the top |
+| Javadoc pages — negative PDF y | 37 + 37 | 130–160 pt *below* the bottom |
+| SpaceX prospectus | 21 | 36.75 pt above the top |
+
+A fourth group is not out of bounds but reads as though it were: the Sony manual's 591 links say
+`/XYZ 0 841.92` on an 841.92 pt page, landing a floating-point hair above the edge and leaving a
+sliver of gap showing.
+
+The clamp is to the page's **own displayed box**, so there is no number to tune, and a crop the
+reader applied is honoured because `_crop_origin` / `_unrotated_size` describe that frame rather than
+the file's. It lives in `goto_destination` and **not** in `content_point`, which stays honest about
+what the file says — where a destination points and where a viewer can go are two different
+questions, and M150.2's reading tools want the first.
+
+The positive control for it caught a bad test on the way: the first
+`test_a_destination_below_the_page_is_pulled_back_onto_it` aimed at page 3 of *five*, where the
+scrollbar's own maximum clamps the scroll to the same value whether this code clamps or not — it
+stayed green with the clamp reverted. It now aims at page 3 of twelve and asserts the fixture leaves
+room below.
+
 Two owner decisions, 2026-09-20:
 
 * **A destination's zoom is ignored.** `/XYZ … 2` asks for 200%, and `/FitH` / `/FitR` imply a
@@ -8685,7 +8719,7 @@ bridge's tools: 1,941 of 1,942 link tails and 517 of 520 bookmark tails come bac
 the ten most link-dense corpus documents. The four that do not are the `[null /XYZ …]` destinations
 and the empty name, which name no page and are refused on the way in.
 
-**Each part broken in turn, and the failure read** — ten reversions, ten red suites:
+**Each part broken in turn, and the failure read** — eleven reversions, eleven red suites:
 
 | Reverted | Tests that went red |
 |---|---|
@@ -8699,6 +8733,7 @@ and the empty name, which name no page and are refused on the way in.
 | an indirect `/A` no longer followed | `test_reads_the_three_spellings_of_a_destination` |
 | a link click back to `goto_page` | 5 in `test_link_nav.py` |
 | the outline entry back to `goto_page` | 4 in `test_outline_panel.py` |
+| the out-of-page clamp | 2 in `test_link_nav.py` |
 
 Four of PyMuPDF's behaviours are pinned as tests of their own — the two `set_toc` bugs, the
 `insert_link` one, and the page that cannot see its own new link. **A failure there means PyMuPDF
