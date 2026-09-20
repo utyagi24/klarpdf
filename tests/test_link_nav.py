@@ -161,3 +161,120 @@ def test_a_string_spelled_destination_shows_the_pointing_hand(app, view_dest_pdf
     """The other half of "not clickable": the cursor is what tells a reader a link is there."""
     win = app.open_document(view_dest_pdf)
     assert win.view.links.link_at(_center_of(win.view, 0, _GOTO_BOX)) == 3
+
+
+# ---- external (web) links open in the browser (M149, #333) ---------------------
+
+
+_WEB_BOX = (72, 180, 200, 200)      # page 0 → https://example.org/docs
+_MAILTO_BOX = (72, 220, 200, 240)   # page 0 → mailto:support@example.org
+_JS_BOX = (72, 260, 200, 280)       # page 0 → javascript:… — never openable
+_WEB_URI = "https://example.org/docs"
+_MAILTO_URI = "mailto:support@example.org"
+_JS_URI = "javascript:alert(1)"
+
+
+@pytest.fixture
+def web_pdf(tmp_path) -> str:
+    """One page carrying three URI links: a web page, a contact address, and a script.
+
+    `file:` is deliberately absent. Measured on PyMuPDF 1.27.2.3, MuPDF reports a `file:` action as
+    `LINK_LAUNCH` with `uri: None` — whether MuPDF wrote the link itself or it was hand-crafted as a
+    `/URI` action — so such a link never reaches `uri_at` and there is nothing here to gate. The
+    schemes that *do* arrive as ordinary `LINK_URI` are `javascript:`, `data:`, `ftp:` and
+    `ms-msdt:`, which is what `OPENABLE_SCHEMES` exists to stop.
+    """
+    path = str(tmp_path / "web.pdf")
+    doc = fitz.open()
+    doc.new_page().insert_text((72, 72), "PAGE 0", fontsize=20)
+    for box, uri in ((_WEB_BOX, _WEB_URI), (_MAILTO_BOX, _MAILTO_URI), (_JS_BOX, _JS_URI)):
+        doc[0].insert_link({"kind": fitz.LINK_URI, "from": fitz.Rect(*box), "uri": uri})
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def _handed_to_browser(monkeypatch) -> list[str]:
+    """Capture what `ui.about._open_url` hands to `QDesktopServices` — the one place a URL leaves."""
+    handed: list[str] = []
+    monkeypatch.setattr("ui.about.QDesktopServices.openUrl", lambda url: handed.append(url.toString()))
+    return handed
+
+
+def _click(win, box):
+    """A real left press on the centre of ``box``, through the view's own handler."""
+    from PySide6.QtCore import QEvent, QPointF
+    from PySide6.QtGui import QMouseEvent
+
+    vp = QPointF(win.view.mapFromScene(_center_of(win.view, 0, box)))
+    event = QMouseEvent(QEvent.Type.MouseButtonPress, vp, vp, Qt.MouseButton.LeftButton,
+                        Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+    win.view.mousePressEvent(event)
+    return event
+
+
+def test_clicking_a_web_link_hands_it_to_the_browser(app, web_pdf, monkeypatch):
+    """#333, reversing M33/M46's copy-only rule. Two readers expected a click to work; it did
+    nothing at all."""
+    win = app.open_document(web_pdf)
+    handed = _handed_to_browser(monkeypatch)
+    event = _click(win, _WEB_BOX)
+    assert handed == [_WEB_URI]
+    assert event.isAccepted()  # consumed, so the click does not also start a text selection
+
+
+def test_clicking_a_mailto_link_hands_it_over_too(app, web_pdf, monkeypatch):
+    """The owner's call on schemes: a contact link in a manual is what `mailto:` is usually for."""
+    win = app.open_document(web_pdf)
+    handed = _handed_to_browser(monkeypatch)
+    _click(win, _MAILTO_BOX)
+    assert handed == [_MAILTO_URI]
+
+
+def test_a_script_link_is_never_handed_anywhere(app, web_pdf, monkeypatch):
+    """`QDesktopServices.openUrl` hands whatever it is given to the shell, so the gate is an
+    allowlist. A refused scheme stays exactly as it was before M149: copy-only."""
+    win = app.open_document(web_pdf)
+    handed = _handed_to_browser(monkeypatch)
+    center = _center_of(win.view, 0, _JS_BOX)
+    assert win.view.links.uri_at(center) == _JS_URI          # the document's link is still read...
+    assert win.view.links.openable_uri_at(center) is None    # ...and refused
+    _click(win, _JS_BOX)
+    assert handed == []
+
+
+def test_hover_over_a_web_link_shows_the_hand_and_the_url(app, web_pdf):
+    """A PDF shows the reader a link's *text*, never where it goes — so the URL is the tooltip."""
+    win = app.open_document(web_pdf)
+    win.view._update_hover_cursor(_center_of(win.view, 0, _WEB_BOX))
+    assert win.view.viewport().cursor().shape() == Qt.CursorShape.PointingHandCursor
+    assert win.view.viewport().toolTip() == _WEB_URI
+
+
+def test_the_url_tooltip_is_dropped_when_the_pointer_leaves(app, web_pdf):
+    """A stale URL under the pointer would say a link is there when it is not."""
+    win = app.open_document(web_pdf)
+    win.view._update_hover_cursor(_center_of(win.view, 0, _WEB_BOX))
+    assert win.view.viewport().toolTip() == _WEB_URI
+    win.view._update_hover_cursor(_center_of(win.view, 0, (300, 400, 360, 420)))
+    assert win.view.viewport().toolTip() == ""
+
+
+def test_a_refused_scheme_does_not_even_look_clickable(app, web_pdf):
+    win = app.open_document(web_pdf)
+    win.view._update_hover_cursor(_center_of(win.view, 0, _JS_BOX))
+    assert win.view.viewport().cursor().shape() != Qt.CursorShape.PointingHandCursor
+    assert win.view.viewport().toolTip() == ""
+
+
+def test_the_scheme_gate_in_isolation():
+    """The decision itself, with no document or window in the way."""
+    from viewer.links import openable_uri
+
+    for allowed in ("https://example.org", "http://example.org", "HTTPS://Example.org",
+                    "mailto:a@b.c", "  https://example.org/padded  "):
+        assert openable_uri(allowed) == allowed.strip()
+    for refused in ("javascript:alert(1)", "data:text/html,<b>x", "ftp://example.org",
+                    "ms-msdt:/id", "file:///C:/Windows/System32/calc.exe",
+                    "www.example.org", "", "   ", "http s://x", "https://[oops"):
+        assert openable_uri(refused) is None

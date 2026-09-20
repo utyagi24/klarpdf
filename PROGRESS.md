@@ -995,13 +995,22 @@ diagnosis and design happen in the session that builds it, and its open question
 the owner then. Same conventions: **one PR per milestone, or per part** where a milestone has parts;
 tick the box here on merge. Build in number order.
 
-- [ ] **M149** **Small app fixes** — *App.*
-  - [#332](https://github.com/utyagi24/klarpdf/issues/332) an empty file crashes the open;
+- [x] **M149** **Small app fixes** — *App only; the shared core is untouched.* Design, the
+  measurements and each fix's owner decision in `PLAN.md` §M149. — *WSL (headless)* — PR-LINK
+  - [#332](https://github.com/utyagi24/klarpdf/issues/332) an empty file crashes the open — a
+    0-byte, damaged, vanished or unreadable file now says so in a dialog and leaves the app running,
+    at a cold start as well as from File ▸ Open;
   - [#374](https://github.com/utyagi24/klarpdf/issues/374) a launch that opens no window stays
-    running with none;
-  - [#358](https://github.com/utyagi24/klarpdf/issues/358) the window has no minimum size;
-  - [#333](https://github.com/utyagi24/klarpdf/issues/333) web links do not open in the browser
-    (reverses M33/M46's copy-only rule).
+    running with none — it exits;
+  - [#358](https://github.com/utyagi24/klarpdf/issues/358) the window has no minimum size — it is
+    **400 × 300** (owner's call), the floor `_open_geometry` already used for the *opening* window,
+    now single-sourced;
+  - [#333](https://github.com/utyagi24/klarpdf/issues/333) web links do not open in the browser —
+    they do, on a click, with the URL shown on hover, for `http` / `https` / `mailto` only
+    (reverses M33/M46's copy-only rule; Copy Link Address stays);
+  - [#377](https://github.com/utyagi24/klarpdf/issues/377) the 25% zoom floor disappeared in a small
+    window — **folded in at the owner's request** while this was being built (2026-09-19). Only a
+    *fit* may go below 25% now; a step out holds, and a step in or a typed value lands on 25%.
 - [ ] **M150** **Links and bookmarks keep and use their position on the page**
   - [ ] **M150.1** [#362](https://github.com/utyagi24/klarpdf/issues/362) a link lands on its page's
     top; [#373](https://github.com/utyagi24/klarpdf/issues/373) a page move drops or shifts a

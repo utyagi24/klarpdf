@@ -58,7 +58,9 @@ Full release notes live on
 ## Features
 
 The macOS-Preview workflow, rebuilt for Windows — a fast viewer that is also a page editor.
-Everything here works **fully offline**: the app makes no network connection, ever.
+Everything here works **fully offline**: the app opens no network connection of its own. The only
+thing that ever reaches the network is a link *you click* — a web link in a document, or Help ▸ View
+Source / Donate… — which is handed to your own browser.
 
 **Read & navigate**
 - **Two-tier toolbar** — a calm reading bar at rest; the markup kit appears only when you summon it.
@@ -70,7 +72,7 @@ Everything here works **fully offline**: the app makes no network connection, ev
 - **Search** with highlighted hits, next/previous, **Match case** + **Whole words**, and **List All** — every match with its context line, click to jump.
 - **Pages sidebar** with live thumbnails — a 320-page file opens in ~150 ms.
 - **Outline** and **Annotations** tabs appear only when the document has them — a live bookmark tree and a list of every mark, both click-to-jump. Plus **Go to Page** (Ctrl+G).
-- **Clickable links** — jump internal links; copy an external link's address. **Right-click menus** everywhere fit whatever is under the cursor.
+- **Clickable links** — jump internal links; click a web link to open it in your browser (hover to see where it goes), or copy its address instead. **Right-click menus** everywhere fit whatever is under the cursor.
 - **Remembers where you were** — page, zoom, scroll and window — plus **Open Recent**; opens **password-protected** PDFs and follows the **Windows light/dark theme** live.
 
 **Organize pages** — the splice/split workflow

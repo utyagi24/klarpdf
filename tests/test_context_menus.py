@@ -1,9 +1,9 @@
 """Context menus everywhere (PLAN.md §GUI feature roadmap, M46). Offscreen GUI.
 
 The view's right-click menu is built by hit state — our annotation → Remove; a live text
-selection → Copy / Highlight Selection / Redact Selection; an internal link → Go to Page N; an
-external link → Copy Link Address (clipboard only — never navigated, the app stays offline); a
-bare page → the routed View-menu navigation QActions. The Pages sidebar menu grows Rotate
+selection → Copy / Highlight Selection / Redact Selection; an internal link → Go to Page N; a web
+link → Open Link + Copy Link Address (M149 — a link of any other scheme keeps only the copy, so the
+menu offers exactly what a click would do); a bare page → the routed View-menu navigation QActions. The Pages sidebar menu grows Rotate
 Left/Right. Menus are built unexec'd (`_view_context_menu` / `_build_page_context_menu`), so
 tests assert contents and trigger actions without popping UI.
 """
@@ -20,8 +20,15 @@ from store.settings import Settings
 from viewer.tools import ArmedTool
 
 _LINK_BOX = (72, 300, 200, 320)  # page 0 → page 4 (internal GoTo)
-_URI_BOX = (72, 340, 200, 360)   # page 0 → https://example.org/spec (external)
+_URI_BOX = (72, 340, 200, 360)   # page 0 → https://example.org/spec (external, openable)
 _URI = "https://example.org/spec"
+# A scheme a click must never open (M149). `javascript:` and not `file:` on purpose: measured on
+# PyMuPDF 1.27.2.3, MuPDF reports a `file:` action as LINK_LAUNCH with `uri: None` — whether *it*
+# wrote the link or it was hand-crafted as a `/URI` action — so a `file:` link never reaches
+# `uri_at` at all. `javascript:`, `data:`, `ftp:` and `ms-msdt:` arrive as ordinary LINK_URI, which
+# is what OPENABLE_SCHEMES is actually there to stop.
+_JS_BOX = (72, 380, 200, 400)
+_JS_URI = "javascript:alert(1)"
 
 
 @pytest.fixture(scope="session")
@@ -54,6 +61,7 @@ def menu_pdf(tmp_path) -> str:
     doc[0].insert_link({"kind": fitz.LINK_GOTO, "from": fitz.Rect(*_LINK_BOX), "page": 3,
                         "to": fitz.Point(0, 0)})
     doc[0].insert_link({"kind": fitz.LINK_URI, "from": fitz.Rect(*_URI_BOX), "uri": _URI})
+    doc[0].insert_link({"kind": fitz.LINK_URI, "from": fitz.Rect(*_JS_BOX), "uri": _JS_URI})
     doc.save(path)
     doc.close()
     return path
@@ -153,20 +161,39 @@ def test_internal_link_menu_goes_to_target(app, menu_pdf):
     assert win.view.current_page == 3
 
 
-def test_external_link_menu_copies_the_address(app, menu_pdf):
+def test_web_link_menu_opens_and_copies(app, menu_pdf):
+    """M149 (#333): a web link gains Open Link, and keeps Copy Link Address for staying put."""
     win = _win(app, menu_pdf)
     QGuiApplication.clipboard().setText("")  # a stale clipboard must not fake the assert
     menu = win._view_context_menu(win.view.scene_rect_for_box(0, _URI_BOX).center())
-    assert _titles(menu) == ["Copy Link Address"]
-    menu.actions()[0].trigger()
+    assert _titles(menu) == ["Open Link", "Copy Link Address"]
+    menu.actions()[1].trigger()
     assert QGuiApplication.clipboard().text() == _URI
 
 
-def test_external_link_is_still_not_click_navigable(app, menu_pdf):
+def test_web_link_menus_open_action_hands_the_url_to_the_browser(app, menu_pdf, monkeypatch):
+    win = _win(app, menu_pdf)
+    handed: list[str] = []
+    monkeypatch.setattr("ui.about.QDesktopServices.openUrl", lambda url: handed.append(url.toString()))
+    menu = win._view_context_menu(win.view.scene_rect_for_box(0, _URI_BOX).center())
+    menu.actions()[0].trigger()
+    assert handed == [_URI]
+
+
+def test_a_refused_scheme_keeps_only_the_copy(app, menu_pdf):
+    """The menu offers exactly what a click would do, so a scheme a click refuses has no Open Link."""
+    win = _win(app, menu_pdf)
+    center = win.view.scene_rect_for_box(0, _JS_BOX).center()
+    assert win.view.links.uri_at(center) == _JS_URI           # the document's link is found...
+    assert win.view.links.openable_uri_at(center) is None     # ...and refused
+    assert _titles(win._view_context_menu(center)) == ["Copy Link Address"]
+
+
+def test_a_web_link_is_not_an_internal_jump(app, menu_pdf):
     win = _win(app, menu_pdf)
     center = win.view.scene_rect_for_box(0, _URI_BOX).center()
     assert win.view.links.link_at(center) is None       # no jump target
-    assert win.view.links.navigate_at(center) is False  # a click does nothing (offline app)
+    assert win.view.links.navigate_at(center) is False  # the internal-link path does not claim it
 
 
 # ---- toolbar tools agree with the menu (select-then-click applies immediately) --

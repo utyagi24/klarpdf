@@ -58,7 +58,9 @@ _PREFETCH_TICK_MS = 16
 # floor of 10% drew a Letter page 62x80 px — a thumbnail, not a view — and the old 800% ceiling was
 # set when a page there cost 118 MB; at physical scale on a 1.75x panel the same ceiling would cost
 # ~670 MB for one page. Note these bound the *ask*, not every possible zoom: see _clamp_zoom, which
-# lets a Fit go below the floor, because a fit that does not fit is not a fit.
+# lets a Fit go below the floor, because a fit that does not fit is not a fit. Only a Fit — until
+# M149 the same lowered floor reached the buttons and the zoom field, so a small enough window let
+# a reader ask for 3% (#377).
 _MIN_ZOOM, _MAX_ZOOM = 0.25, 5.0
 _ZOOM_STEP = 1.25
 # One PDF point is 1/72", so a page is drawn at true physical size when one point maps to
@@ -156,6 +158,7 @@ class PdfView(QGraphicsView):
     foreignMoved = Signal(int, object, float, float)  # a foreign annotation was dragged — M67
     foreignAdopt = Signal(int, object)  # a foreign annotation was double-clicked — M68
     noteGlyphClicked = Signal(int, object)  # an on-page note badge was clicked: (page, mark) — M90.2
+    externalLinkClicked = Signal(str)  # a web link was clicked — MainWindow hands it to the browser (M149)
 
     def __init__(self, vdoc: VirtualDocument, parent=None) -> None:
         super().__init__(parent)
@@ -823,6 +826,16 @@ class PdfView(QGraphicsView):
                 if self.links is not None and self.links.navigate_at(scene_pt):
                     event.accept()
                     return
+                # Click a web link → the window hands it to the system browser (M149, #333). Emitted
+                # rather than opened here: `viewer/` imports nothing from `ui/`, and the one function
+                # that hands a URL to a browser stays `ui.about._open_url`. Only the schemes
+                # `links.openable_uri_at` allows get this far, so a `file:` link still just selects.
+                if self.links is not None:
+                    uri = self.links.openable_uri_at(scene_pt)
+                    if uri is not None:
+                        self.externalLinkClicked.emit(uri)
+                        event.accept()
+                        return
                 if self.selection is not None and self.selection.begin(scene_pt):
                     event.accept()
                     return
@@ -1644,14 +1657,21 @@ class PdfView(QGraphicsView):
         delta, anchor = self._zoom_pending, self._zoom_anchor
         self._zoom_pending, self._zoom_anchor = 0.0, None
         if delta:
-            self.set_zoom(self._zoom * (_ZOOM_STEP ** (delta / _WHEEL_NOTCH)), anchor_pos=anchor)
+            self.set_zoom(self._zoom * (_ZOOM_STEP ** (delta / _WHEEL_NOTCH)), anchor_pos=anchor,
+                          step=True)
 
     def _update_hover_cursor(self, scene_pt) -> None:
         """Show a pointing-hand over an internal link (SELECT — it's clickable) and a move cursor
         over a draggable mark — but never while a box is being edited (you're typing, not arranging),
         so the move cursor isn't left showing on the viewport, which the inline editor / formatting
         bar would inherit. In OBJECT mode (M59.6) the move cursor covers any drawn mark or text box,
-        since dragging one moves it / the group; links are inert there."""
+        since dragging one moves it / the group; links are inert there.
+
+        A web link also puts its URL in the viewport's **tooltip** (M149), because a PDF shows the
+        reader a link's *text* and never where it goes. It is cleared at the top of every pass, so it
+        can never be left showing the URL of a link the pointer has moved off — including the early
+        returns below, where a tool is armed or the mode is one links are inert in."""
+        self.viewport().setToolTip("")
         if self._armed is not None or self._mode not in (InteractionMode.SELECT, InteractionMode.OBJECT):
             return
         if self.annotations is not None and getattr(self.annotations, "editing", False):
@@ -1662,10 +1682,16 @@ class PdfView(QGraphicsView):
             if handle is not None:
                 self.viewport().setCursor(cursor_for(handle))
                 return
-        if self._mode == InteractionMode.SELECT and self.links is not None \
-                and self.links.link_at(scene_pt) is not None:
-            self.viewport().setCursor(Qt.CursorShape.PointingHandCursor)
-            return
+        if self._mode == InteractionMode.SELECT and self.links is not None:
+            # A web link gets the same pointing hand as an internal one (M149), plus its URL to
+            # hover. Qt shows the tooltip once the pointer *rests* — which is also when this stops
+            # being called, so the text standing here is the link under it.
+            uri = self.links.openable_uri_at(scene_pt)
+            if uri is not None:
+                self.viewport().setToolTip(uri)
+            if uri is not None or self.links.link_at(scene_pt) is not None:
+                self.viewport().setCursor(Qt.CursorShape.PointingHandCursor)
+                return
         over_mark = self.annotations is not None and (
             self.annotations.textbox_at(scene_pt) is not None
             or (self._mode == InteractionMode.OBJECT
@@ -2334,35 +2360,51 @@ class PdfView(QGraphicsView):
             vbar.setValue(round(vbar.value() + target.y() - now.y()))
         self._render_visible()
 
-    def _clamp_zoom(self, zoom: float) -> float:
-        """Hold ``zoom`` inside 25%–500% (M88.6) — except that **you can always zoom out until the
-        whole page fits**.
+    def _clamp_zoom(self, zoom: float, fit: bool = False, step: bool = False) -> float:
+        """Hold ``zoom`` inside 25%–500% (M88.6) — with **one** way out of the bottom: a fit.
 
-        A hard 25% floor breaks Fit Page on large-format sheets: an A0 in a 1100x850 window wants
-        ~17%, and clamping that to 25% overshoots the viewport in both portrait and landscape
-        (measured while building this). A "Fit Page" that does not fit the page is simply broken, so
-        the floor drops to the Fit Page zoom whenever that is the smaller number.
+        Three floors, because the three kinds of request mean different things (M149, #377; owner's
+        call). ``fit`` is a Fit Page / Fit Width zoom, ``step`` is a *relative* one — the zoom
+        buttons, Ctrl+±, Ctrl+wheel — and everything else is a reader naming a magnification: a
+        typed percentage or a preset.
 
-        Deriving the floor from *Fit Page* rather than from the current zoom is what keeps it a
-        floor instead of a trap. The first attempt held it at ``min(_MIN_ZOOM, self._zoom)`` — no
-        step may zoom you *in* — which is true but leaves a reader who zooms in from a 17% fit
-        unable to step back out to it, because by then the floor has followed them up. Fit Page is
-        the natural bottom of zooming out, it is the *smallest* fit (Fit Width is never smaller),
-        and it is computable at any moment, so one bound covers fits and manual steps alike with no
-        special case for either.
+        * **A fit may go as small as the page needs.** A hard 25% floor breaks Fit Page on a
+          large-format sheet: an A0 in a 1100x850 window wants ~17%, and clamping that to 25%
+          overshoots the viewport in both portrait and landscape (measured for M88.6). A "Fit Page"
+          that does not fit the page is simply broken.
+        * **A step outward never moves the reader in.** Below 25% — where only a fit can have put
+          them — zooming out is a no-op rather than a jump back up to the floor, because a control
+          labelled "zoom out" must never make the page bigger.
+        * **Everything else lands inside 25%–500%.** A step *inward* from below the floor arrives
+          exactly at 25% rather than at 1.25 x wherever the fit left off, and a typed 10% becomes
+          25% — the number the toolbar's dropdown has always advertised as the minimum.
+
+        This is what #377 got wrong: the floor was ``min(_MIN_ZOOM, fit_page_zoom)`` for *every*
+        path, and the Fit Page zoom falls with the **window** as well as rising with the **page**.
+        So a small window silently lowered the floor for the buttons and the zoom field too — at
+        400x300 an A4 fits at 19.2%, and typing 10% landed there. The exception was always meant to
+        be about a fit that has to fit, never about a licence to ask for less.
         """
-        return max(min(_MIN_ZOOM, self._fit_zoom(fit_height=True)), min(_MAX_ZOOM, zoom))
+        if fit:
+            floor = min(_MIN_ZOOM, self._fit_zoom(fit_height=True))
+        elif step and zoom < self._zoom:
+            floor = min(_MIN_ZOOM, self._zoom)   # already below it → stay, don't zoom them in
+        else:
+            floor = _MIN_ZOOM
+        return max(floor, min(_MAX_ZOOM, zoom))
 
     def set_zoom(self, zoom: float, keep_page: bool = True, fit: "str | None" = None,
-                 anchor_pos=None) -> None:
+                 anchor_pos=None, step: bool = False) -> None:
         # ``fit`` records the sticky fit-mode this zoom represents ("width" / "page"); it is re-applied
         # on a viewport resize so the fit follows the window (e.g. a Pages-sidebar toggle). A manual
         # zoom passes None, which cancels any sticky fit.
         # ``anchor_pos`` is the viewport point to hold fixed — the pointer, for the Ctrl+wheel
         # gesture (M80). None means the viewport centre, which is right for every zoom that has no
         # pointer behind it (menu, toolbar, typed percentage, Ctrl+±).
+        # ``step`` marks a *relative* zoom (the buttons, Ctrl+±, Ctrl+wheel) as against a named
+        # magnification, because the floor differs between them — see :meth:`_clamp_zoom`.
         self._fit_mode = fit
-        zoom = self._clamp_zoom(zoom)
+        zoom = self._clamp_zoom(zoom, fit=fit is not None, step=step)
         if abs(zoom - self._zoom) < 1e-6:
             return
         page_anchor = self._current
@@ -2381,10 +2423,10 @@ class PdfView(QGraphicsView):
         self.zoomChanged.emit(self._zoom)
 
     def zoom_in(self) -> None:
-        self.set_zoom(self._zoom * _ZOOM_STEP)
+        self.set_zoom(self._zoom * _ZOOM_STEP, step=True)
 
     def zoom_out(self) -> None:
-        self.set_zoom(self._zoom / _ZOOM_STEP)
+        self.set_zoom(self._zoom / _ZOOM_STEP, step=True)
 
     def actual_size(self) -> None:
         """Reset to 100% — the page at **true physical size** (M88.4).

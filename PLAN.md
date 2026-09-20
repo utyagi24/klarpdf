@@ -8308,6 +8308,177 @@ as before; its packages lose the three files. CI's bridge jobs, which run when a
 app still finds its license files through `sys._MEIPASS`, which the move does not touch; only a
 Windows build exercises that path.
 
+### M149 — small app fixes: a file that will not open, a launch with no window, a window that shrinks to a bar, web links, and a zoom floor that moved (2026-09-19)
+
+Five independent defects in the app, grouped because each is small and none touches the core:
+[#332](https://github.com/utyagi24/klarpdf/issues/332), [#374](https://github.com/utyagi24/klarpdf/issues/374),
+[#358](https://github.com/utyagi24/klarpdf/issues/358), [#333](https://github.com/utyagi24/klarpdf/issues/333)
+as planned in §*The open issues, grouped*, plus [#377](https://github.com/utyagi24/klarpdf/issues/377),
+which the owner found and asked to fold in while this was being built.
+
+**Surfaces: the app only.** Every change is in `app.py`, `launcher.py`, `main_window.py`,
+`viewer/links.py` or `viewer/pdf_view.py` — none of them in the wheel, none reachable from the MCP
+bridge (CLAUDE.md §*Two consumers share one core*). `klarpdf/model/` and `klarpdf/util/` are
+untouched, so no bridge test owes anything here.
+
+#### #332 — a file that cannot be opened says so
+
+`PdfApp.open_document` caught only `PasswordRequired`, so everything else propagated. Measured, three
+different exception families arrive from one line of `VirtualDocument.open_source`:
+
+| The file | Where it fails | What is raised |
+|---|---|---|
+| 0 bytes | `fitz.open(stream=…)` | `pymupdf.EmptyFileError` (a `FileDataError`, so a `RuntimeError`) |
+| not a PDF, or truncated | `fitz.open(stream=…)` | `pymupdf.FileDataError` — MuPDF does **not** try to repair a stream it cannot find a trailer in |
+| missing, a folder, unreadable | `Path.read_bytes` | `OSError` (`FileNotFoundError`, `IsADirectoryError`, `PermissionError`) |
+
+Two symptoms, because two entry points. Through `File ▸ Open` the traceback went to a console the
+reader does not have; at a **cold start** the exception left `launcher.main` and the process died
+before any window existed.
+
+The catch goes at `open_document` because that is the one chokepoint every route arrives at — the
+launcher's command line, `File ▸ Open`, `Open Recent`, and the path a second launch hands the
+resident instance. It is deliberately `(OSError, RuntimeError)` and not `Exception`: a `TypeError`
+from our own construction code is a defect in KlarPDF and must keep crashing loudly rather than being
+reported to the reader as a broken document. `unopenable_reason` maps the exception to one sentence
+per failure, with the exception's own text as the fallback arm so an unanticipated cause still
+reaches the reader as words. The dialog is parented to `activeWindow()`, which is `None` at a cold
+start — correct, because a parentless `QMessageBox` spins its own event loop and so works before
+`app.exec()` is ever entered.
+
+Nothing is recorded for a document that did not open: `add_recent` already sat after the
+construction, and `Settings.recent_files()` already prunes vanished paths, so a broken file leaves no
+trace in the MRU.
+
+#### #374 — a launch that opens no window exits
+
+`launcher.main` called `app.open_document(path)` and then `app.exec()` whatever came back. Qt quits
+when the **last window closes**; with none ever opened there was nothing to close. Reproduced: with
+the password prompt cancelled, the process sat inside `app.exec()` with `topLevelWidgets() == []`
+and only an injected timer got it out. It then becomes the resident instance the next launch hands
+its file to — which is why the leftover is easy to miss — and holds the mutex the Inno
+installer/uninstaller read as "KlarPDF is running".
+
+`open_document` already returned `None` for a cancelled password prompt and now returns it for #332's
+failures too, so the fix is to check it. The docstring says so where the caller reads it, and a test
+pins that wording: this is a contract between two files, and the next edit to either has to be able
+to see it.
+
+#### #358 — the window keeps a usable size
+
+`MainWindow` set no minimum of its own, so its floor was whatever the layout needed: **70 × 124** with
+the sidebar closed, 222 × 124 with it open, leaving a 54 × 68 page area at a 3.3% Fit Width.
+
+The report was WSLg-only, and the reason is *who stops the drag*: Windows keeps a window at least as
+wide as its own caption buttons, so the edge stays grabbable, while WSLg's compositor does not — the
+window becomes a bar with its resize edge underneath the title bar and cannot be dragged back out. A
+minimum on `MainWindow` is the portable answer and so is not OS-specific code (CLAUDE.md §*Keep
+OS-specific code quarantined*).
+
+The value is **400 × 300**, the owner's call, and it is not a new opinion: it is the floor
+`_open_geometry` has always clamped the *opening* window to (`w = max(400, …)`, `h = max(300, …)`),
+now single-sourced as `MIN_WINDOW_SIZE` so the two cannot drift. Measured, with a test pinning each:
+
+| Window | Page area, sidebar open | Fit Width | Reading bar |
+|---|---|---|---|
+| 222 × 124 (the old floor) | 54 × 68 | 3.3% | overflows to its `>>` chevron |
+| **400 × 300** | 168 × 244 | 18% | overflows to its `>>` chevron |
+| 560 × 400 | 328 × 344 | 28% | complete — 544 px is what it wants |
+| 640 × 480 | 408 × 424 | 35% | complete |
+
+400 × 300 was chosen over the roomier two because a minimum takes sizes away on **both** platforms,
+and on Windows nothing was broken — the owner wanted only the unusable sizes forbidden, not the
+merely cramped ones. The reading bar's overflow is not a loss: measured, a `QToolBar` shows its
+extension chevron below 544 px and every verb stays reachable through it (unlike M91.3, where a
+stretching widget pushed the zoom cluster off the end with no chevron at all).
+
+#### #333 — web links open in the browser
+
+Reverses M33/M46's copy-only rule, which the code documented as deliberate. It does not weaken the
+offline guarantee, because that guarantee is about what *the app* does: KlarPDF opens no socket of
+its own, and a URL leaves only because the reader clicked a link in the document in front of them —
+the same reasoning `Help ▸ View Source` and `Help ▸ Donate…` have always run on, and the same
+function, `ui.about._open_url`.
+
+Owner decisions, both taken before building:
+
+* **Open on click, with the URL on hover.** No confirmation dialog — Preview, Edge and Chrome all
+  open on the click — but a PDF shows the reader a link's *text* and never where it goes, so the URL
+  becomes the viewport's tooltip while the pointer is over the link. It is cleared at the top of
+  every hover pass, so it can never be left showing a URL for a link the pointer has moved off.
+* **`http`, `https` and `mailto` only** (`viewer.links.OPENABLE_SCHEMES`). A PDF can carry any URI
+  and `QDesktopServices.openUrl` hands whatever it is to the shell, so the gate is an allowlist. A
+  contact link in a manual is usually `mailto:` — one of the two documents in #333 is exactly that.
+  Everything else stays copy-only, which is what every URI was before.
+
+Measured while building, and the reason the test uses `javascript:` rather than the obvious `file:`:
+PyMuPDF 1.27.2.3 reports a `file:` action as **`LINK_LAUNCH` with `uri: None`** — whether MuPDF wrote
+the link itself or it was hand-crafted as a `/URI` action — so a `file:` link never reaches `uri_at`
+at all and there is nothing there to gate. The schemes that *do* arrive as an ordinary `LINK_URI` are
+`javascript:`, `data:`, `ftp:` and `ms-msdt:`. That is what the allowlist is for.
+
+The hand-off stays out of `viewer/`, which imports nothing from `ui/`: `LinkNavigator.openable_uri_at`
+answers *whether* a click may open a URI, `PdfView` emits `externalLinkClicked`, and `MainWindow`
+calls `_open_url`. So every URL this app hands to a browser still goes through the one function that
+has always done it. The context menu gains **Open Link** above **Copy Link Address**, and shows it
+only for a scheme a click would accept — the menu offers exactly what clicking does, so neither
+surface can open what the other refuses.
+
+`README.md`'s Features list changes with the behaviour, not with the release (CLAUDE.md), so this PR
+also softens "the app makes no network connection, ever" to the more precise claim the About dialog
+already makes, and says what a click on a web link does.
+
+#### #377 — the 25% zoom floor stopped depending on the window
+
+The owner's report: the zoom-out button and the zoom field stop at 25% normally, but in a small
+window `Fit Page` drops below 25% and the button and the field then follow it down.
+
+One cause for all three symptoms. `_clamp_zoom`'s floor was `min(_MIN_ZOOM, fit_page_zoom)` for
+*every* path. That exception is right and is M88.6's: an A0 in a 1100 × 850 window fits at ~17%, and
+clamping that to 25% overshoots the viewport, so a Fit Page that does not fit is not a fit. But the
+Fit Page zoom falls with the **window** as well as rising with the **page**, and `_clamp_zoom` is the
+one clamp every path shares. Measured on an A4: the floor is 25.0% at 1100 × 850 and at 700 × 500, and
+**19.2%** at 400 × 300, where typing `10` in the zoom field landed at 19.2%. Before #358's minimum it
+went to 3.3%. `ZoomWidget` has no floor of its own — it calls `set_zoom` and echoes the result — so
+"type 10, get 25%" and "type 10, get 19.2%" were the same line of code at two window sizes.
+
+The floor now depends on **what kind of request it is**, the owner's rule (2026-09-19):
+
+| Request | Floor | At a 19.2% fit |
+|---|---|---|
+| a **fit** (`Fit Page` / `Fit Width`) | `min(25%, fit-page zoom)` — unchanged, a fit must fit | lands at 19.2% |
+| a **step outward** (zoom-out button, Ctrl+−, Ctrl+wheel) | `min(25%, current)` | no-op — a control named "zoom out" must never make the page bigger |
+| anything else: a step **inward**, a typed percentage, a preset | `25%` | lands exactly on 25% |
+
+So below 25% is a place only a fit can put you, and the moment you name a magnification yourself you
+are back inside the range the toolbar's dropdown advertises. `set_zoom` grew a `step` flag to say
+which kind a caller is; the three relative paths pass it.
+
+**This gives up a property M88.6 built on purpose**, and the reason is recorded here because the
+argument was good: the floor used to be the Fit Page zoom for every path precisely so that a reader
+who zoomed in from a 17% A0 fit could walk all the way back out to it with the zoom-out button (the
+alternative, `min(_MIN_ZOOM, current)`, was rejected then as a trap, because the floor follows them
+up). What changed is that the same floor also follows the *window* down, which is #377. The recovery
+path is now `Fit Page` itself (Ctrl+2): one click, the same control that produced the fit, landing
+back on it exactly. `tests/test_zoom.py` carries both facts, so neither is re-derived.
+
+#### Verification
+
+Every fix was confirmed by reverting it and watching the tests go red (CLAUDE.md §*The thing that
+verifies the code needs verifying too*), not by observing them pass:
+
+| Reverted | Tests that went red |
+|---|---|
+| the `(OSError, RuntimeError)` catch and the launcher's `None` check | 5 in `test_open_failure.py` |
+| `setMinimumSize` | 3 in `test_min_window_size.py` |
+| `MIN_WINDOW_SIZE` changed while `_open_geometry` kept its literal | the drift guard, `test_the_opening_geometry_uses_the_same_floor` |
+| the click / cursor / tooltip wiring | 4 in `test_link_nav.py` |
+| `OPENABLE_SCHEMES` widened to include `javascript`, `file`, `data` | 3 in `test_link_nav.py` + 1 in `test_context_menus.py` |
+| the split zoom floor, back to the one shared floor | 4 in `test_zoom.py` |
+
+`test_the_launcher_does_run_the_event_loop_for_a_document_that_opens` is the positive control for
+#374: without it, a `return 0` that fired unconditionally would satisfy both of that fix's tests.
+
 ## The open issues, grouped — M149–M152 *(planned 2026-09-19)*
 
 Grouped at the owner's request (2026-09-19: *"plan milestones for all of the issues, except for 352
