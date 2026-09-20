@@ -996,7 +996,7 @@ the owner then. Same conventions: **one PR per milestone, or per part** where a 
 tick the box here on merge. Build in number order.
 
 - [x] **M149** **Small app fixes** — *App only; the shared core is untouched.* Design, the
-  measurements and each fix's owner decision in `PLAN.md` §M149. — *WSL (headless)* — PR-LINK
+  measurements and each fix's owner decision in `PLAN.md` §M149. — *WSL (headless)* — [#378](https://github.com/utyagi24/klarpdf/pull/378)
   - [#332](https://github.com/utyagi24/klarpdf/issues/332) an empty file crashes the open — a
     0-byte, damaged, vanished or unreadable file now says so in a dialog and leaves the app running,
     at a cold start as well as from File ▸ Open;
