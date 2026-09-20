@@ -419,6 +419,11 @@ def content_point(page, dest: Destination) -> tuple[float | None, float | None]:
     bottom-left. PyMuPDF reports ``page.cropbox`` with its y already flipped about the media box's
     top, so the conversion is a subtraction on each axis with no page-size arithmetic.
     """
+    # Both parts are returned, and **nothing acts on the left** (owner's rule, 2026-09-20: a
+    # bookmark or a link moves the page up and down only). The viewer reads it and discards it,
+    # and `set_outline` never writes one. It is kept here because this is the honest reading of
+    # what the file says, and because the test that pins this conversion against PyMuPDF's own
+    # reader is a stronger check for covering both axes.
     left, top = dest.left(), dest.top()
     box = page.cropbox
     x = None if left is None else left - box.x0

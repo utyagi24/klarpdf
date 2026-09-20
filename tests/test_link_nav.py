@@ -68,8 +68,7 @@ def _spy_goto(view, monkeypatch):
     the ``/Fit`` fixture below.
     """
     calls: list[int] = []
-    monkeypatch.setattr(view, "goto_destination",
-                        lambda index, left, top: calls.append(index))
+    monkeypatch.setattr(view, "goto_destination", lambda index, top: calls.append(index))
     return calls
 
 
@@ -466,9 +465,12 @@ def test_a_spot_on_a_rotated_page_is_mapped_through_the_rotation(app, tmp_path, 
     """
     win = app.open_document(_positioned_pdf(tmp_path, "/XYZ 100 600 0", rotate=rotate))
     win.view.links.navigate_at(_center_of(win.view, 0, _GOTO_BOX))
-    # (100, 600) in PDF space is (100, 192) in content coords on a 792 pt page.
-    scene = win.view.scene_rect_for_box(3, (100.0, 192.0, 100.0, 192.0))
-    assert win.view.verticalScrollBar().value() == pytest.approx(int(scene.top()) - 14, abs=2)
+    # A height of 600 up from the bottom of a 792 pt page is 192 down from its top. On a page
+    # turned a quarter turn that line runs down the screen, so the test compares against the
+    # **whole line** across the page and takes whichever end appears highest — which is what the
+    # view does, and is the part that differs between 90° and 270°.
+    line = win.view.scene_rect_for_box(3, (0.0, 192.0, 612.0, 192.0))
+    assert win.view.verticalScrollBar().value() == pytest.approx(int(line.top()) - 14, abs=2)
 
 
 def test_the_contents_entry_that_pointed_a_page_early_now_shows_its_section(app, tmp_path):
@@ -548,23 +550,25 @@ def test_a_destination_below_the_page_is_pulled_back_onto_it(app, tmp_path):
     assert bar.value() == pytest.approx(bottom, abs=2)
 
 
-def test_a_left_that_is_off_screen_is_brought_into_view(app, tmp_path):
-    """The other half of the horizontal rule: correcting when the point really is out of sight.
+def test_a_click_never_moves_the_page_sideways(app, tmp_path):
+    """Owner's rule (2026-09-20): *"A bookmark or link should only control the vertical position
+    within a document, clicking on it should not result in horzontal scroll."*
 
-    Zoomed in and scrolled to the right-hand edge, a destination pointing at the page's left margin
-    is off screen, and landing there with the text away to the left would be the complaint the
-    resting case avoids. So the bar moves — just far enough to put the point at the window's left
-    edge, not because the destination said so but because it was not visible.
+    Zoomed in, with the page scrolled hard to the right, clicking a link that names a spot at the
+    left margin must move the page **down** and leave it exactly where it was sideways. The zoom is
+    what makes this test able to fail: at Fit Width or Fit Page there is usually nothing to scroll
+    sideways, so the same click proves nothing.
     """
     win = app.open_document(_positioned_pdf(tmp_path, "/XYZ 40 600 0"))
     win.resize(900, 700)
     win.view.set_zoom(4.0)
-    bar = win.view.horizontalScrollBar()
-    assert bar.maximum() > 0, "no horizontal range — this fixture cannot show the defect"
-    bar.setValue(bar.maximum())
+    sideways = win.view.horizontalScrollBar()
+    assert sideways.maximum() > 0, "nothing to scroll sideways — this fixture cannot show the defect"
+    sideways.setValue(sideways.maximum())
+    parked = sideways.value()
+    down_before = win.view.verticalScrollBar().value()
 
     win.view.links.navigate_at(_center_of(win.view, 0, _GOTO_BOX))
-    assert bar.value() < bar.maximum(), "the off-screen point was not brought back"
-    scene_x = win.view.page_transform(3).map(QPointF(40.0, 192.0)).x()
-    visible = win.view.mapToScene(win.view.viewport().rect()).boundingRect()
-    assert visible.left() <= scene_x <= visible.right()
+
+    assert sideways.value() == parked, "the page moved sideways"
+    assert win.view.verticalScrollBar().value() != down_before, "…but it should still have moved down"

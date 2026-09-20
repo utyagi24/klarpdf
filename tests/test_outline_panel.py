@@ -392,13 +392,13 @@ def test_fit_width_is_not_thrown_off_centre_by_an_entrys_left(app, mixed_width_o
     """Owner-reported on `SpaceX-EUProspectus-outlined.pdf` (2026-09-20): *"I set my view to fit
     width and clicking on any entry in the TOC throws my page off center."*
 
-    All 101 of that file's bookmarks say ``/XYZ 72 805.68`` — a left of 72 pt, the page's own
-    margin. At Fit Width the strip sits in a wider scene, so the horizontal bar has range and rests
-    centred; putting that 72 pt at the window's left edge, which is the literal reading of the
-    destination, threw the bar from 191 to 344 and cut 139 px off the page's left side.
+    Every one of that file's 101 bookmarks names a left edge 72 pt in — the page's own margin — as
+    well as a height. Putting that left edge against the window's left side, which is the literal
+    reading, slid the page across and cut 139 px off it.
 
-    The precondition is asserted: with no horizontal range there is nothing to throw off centre,
-    and the test would pass whatever the code did.
+    The precondition is asserted: with nothing to scroll sideways there is nothing to throw off
+    centre, and the test would pass whatever the code did. That needs a document with one page
+    wider than the rest, which is why this fixture has a landscape page in it.
     """
     win = app.open_document(mixed_width_outline_pdf)
     win.view.fit_width()
