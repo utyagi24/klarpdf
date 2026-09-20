@@ -8375,6 +8375,35 @@ window becomes a bar with its resize edge underneath the title bar and cannot be
 minimum on `MainWindow` is the portable answer and so is not OS-specific code (CLAUDE.md §*Keep
 OS-specific code quarantined*).
 
+**`setMinimumSize` alone did not do it, and the owner's test is what said so.** With it in place they
+reported: *"on WSLg I am still able to resize the window to a single vertical bar almost. The only
+improvement is that now I am able to resize it back… On windows I can see the min size enforced."*
+Measured under WSLg afterwards, Qt had done everything it is asked to: the platform is **wayland**,
+`QWindow.minimumSize()` is 400 x 300, and Qt sends `xdg_toplevel.set_min_size`. The compositor ignores
+it. That is the whole gap — **Qt's minimum constrains Qt's own resizes and is a *hint* to the window
+system for everyone else's.** Windows honours the hint, which is why the floor looked enforced there
+and why the first half was not obviously incomplete. When the size arrives from the other direction —
+a Wayland configure — Qt applies it and the widget follows its window down. Reproduced with
+`QWindow.resize(120, 500)`, which takes the widget to 120 x 500 with the minimum still set to 400 x 300,
+and reproduced identically under the **offscreen** platform, so it is covered by the headless suite
+rather than by a hand test on one machine.
+
+So the floor is enforced twice: as the constraint Qt holds and passes on, and as a **snap-back** for a
+size that arrives anyway. `resizeEvent` notices a window short in either direction and starts a
+120 ms single-shot timer (`_MIN_SIZE_SNAP_MS`) that resizes it back up. Deferred and restarted per
+resize, for two reasons: resizing inside a resize handler is the same trap CLAUDE.md §Gotchas names
+for scene rebuilds, and a compositor that insisted on its own size would turn an immediate snap-back
+into a **spin** — with the debounce the worst case is a slow visible oscillation instead of a hang.
+`_smallest_allowed()` also bounds the floor by the screen's available size, so a display smaller than
+400 x 300 cannot start that fight at all. Measured under WSLg: every sub-floor size returns to at least
+400 x 300, a legitimate 900 x 700 passes through untouched, and a 25-step shrinking drag settles in
+0.7 s with no spin.
+
+One cheap lesson, recorded because the probe caught it and no amount of reading would have: the first
+version of the check asked whether *the floor* equalled the expanded size, which is true whenever the
+window is below the floor in **both** directions — so it snapped back 120 x 500 and silently skipped
+70 x 124 and 200 x 200, the very sizes the issue is about. A test now pins the one-short-side case.
+
 The value is **400 × 300**, the owner's call, and it is not a new opinion: it is the floor
 `_open_geometry` has always clamped the *opening* window to (`w = max(400, …)`, `h = max(300, …)`),
 now single-sourced as `MIN_WINDOW_SIZE` so the two cannot drift. Measured, with a test pinning each:
@@ -8471,6 +8500,7 @@ verifies the code needs verifying too*), not by observing them pass:
 |---|---|
 | the `(OSError, RuntimeError)` catch and the launcher's `None` check | 5 in `test_open_failure.py` |
 | `setMinimumSize` | 3 in `test_min_window_size.py` |
+| the `resizeEvent` snap-back | 2 more in `test_min_window_size.py`, both window-system-side |
 | `MIN_WINDOW_SIZE` changed while `_open_geometry` kept its literal | the drift guard, `test_the_opening_geometry_uses_the_same_floor` |
 | the click / cursor / tooltip wiring | 4 in `test_link_nav.py` |
 | `OPENABLE_SCHEMES` widened to include `javascript`, `file`, `data` | 3 in `test_link_nav.py` + 1 in `test_context_menus.py` |

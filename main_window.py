@@ -125,6 +125,24 @@ _MARK_STYLE_PREF = "mark_style"
 #: cramped.
 MIN_WINDOW_SIZE = (400, 300)
 
+#: How long a window that *arrived* smaller than :data:`MIN_WINDOW_SIZE` is left alone before being
+#: pushed back up (M149, #358).
+#:
+#: Qt's minimum is a constraint on **Qt's own** resizes plus a hint handed to the window system —
+#: measured under WSLg, ``QWindow.minimumSize()`` really is 400 x 300 and Qt really does send
+#: ``xdg_toplevel.set_min_size``. Windows honours the hint, so the drag simply stops and none of
+#: this runs. WSLg's compositor ignores it: the resize arrives as a configure, Qt applies it, and
+#: the widget follows its window down to a bar. So the floor has to be enforced where the size
+#: lands, not only where it is asked for.
+#:
+#: **Deferred rather than immediate**, and restarted by each resize, for two reasons. A resize
+#: inside a resize handler is the trap CLAUDE.md §Gotchas names for scene rebuilds — do not act
+#: inside the callback — and, more concretely, a compositor that insisted on its own size would
+#: turn an immediate snap-back into a spin. With a debounce the worst case is a slow visible
+#: oscillation instead of a hang, and the common case is that a drag runs freely and the window
+#: settles back the moment the pointer stops. 120 ms is short enough to read as a wall.
+_MIN_SIZE_SNAP_MS = 120
+
 # Press/hover feedback + spacing between functional groups, shared by both toolbars (M71).
 # Translucent grey reads on both light and dark themes, so this needs no per-theme rebuild. The
 # separator gains margin so grouped buttons sit close while groups are clearly divided.
@@ -169,6 +187,13 @@ def _ask_pdf_password(path: str, retry: bool) -> str | None:
 class MainWindow(QMainWindow):
     def __init__(self, app, path: str, settings: Settings) -> None:
         super().__init__()
+        # The window's own floor (#358), set before any child exists that could resize it. Two
+        # halves, because one of the two window systems we run on ignores the first: the constraint
+        # Qt holds and hands on, and a snap-back for a size that gets through anyway.
+        self.setMinimumSize(*MIN_WINDOW_SIZE)
+        self._min_size_timer = QTimer(self)   # parented: cancelled when the window is destroyed
+        self._min_size_timer.setSingleShot(True)
+        self._min_size_timer.timeout.connect(self._snap_to_minimum_size)
         self._app = app
         self._settings = settings
         self.path = path
@@ -291,8 +316,6 @@ class MainWindow(QMainWindow):
         self.view.context_menu_provider = self._view_context_menu
         self.setWindowTitle(f"{os.path.basename(path)} — KlarPDF[*]")
         self.setWindowIcon(icons.app_icon())
-        # Never smaller than a window the reader can still use — and still grab hold of (#358).
-        self.setMinimumSize(*MIN_WINDOW_SIZE)
         self._place_window()  # final size + position *before* show() → no post-show resize jump
 
     # ---- sidebar (Pages + optional Outline, M45) --------------------------------
@@ -3158,6 +3181,27 @@ class MainWindow(QMainWindow):
             self.resize(1000, 800)
             return
         self.setGeometry(self._open_geometry(screen.availableGeometry(), 1000, 16, 39, 31))
+
+    def resizeEvent(self, event) -> None:
+        """Catch a window the window system made too small, and schedule it back up (#358)."""
+        super().resizeEvent(event)
+        floor = self._smallest_allowed()
+        if self.size() != self.size().expandedTo(floor):  # short in either direction
+            self._min_size_timer.start(_MIN_SIZE_SNAP_MS)
+
+    def _smallest_allowed(self) -> QSize:
+        """:data:`MIN_WINDOW_SIZE`, never larger than the screen it is on.
+
+        A minimum bigger than the available area is a window that cannot satisfy it, and pushing it
+        back up forever is the one way this guard could misbehave on hardware nobody here has. The
+        clamp costs a line and removes that possibility.
+        """
+        floor = QSize(*MIN_WINDOW_SIZE)
+        screen = self.screen() or QGuiApplication.primaryScreen()
+        return floor.boundedTo(screen.availableSize()) if screen is not None else floor
+
+    def _snap_to_minimum_size(self) -> None:
+        self.resize(self.size().expandedTo(self._smallest_allowed()))
 
     def showEvent(self, event) -> None:
         super().showEvent(event)

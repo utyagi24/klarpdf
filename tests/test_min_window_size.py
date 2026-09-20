@@ -10,6 +10,15 @@ title bar, from which it cannot be dragged back.
 
 The fix is a size on the window, not OS-specific code, and the value is the floor
 ``_open_geometry`` has always clamped the *opening* window to, now single-sourced.
+
+**Two halves, because the first was not enough.** ``setMinimumSize`` constrains Qt's own
+resizes and is handed to the window system as a hint — measured under WSLg, ``QWindow.minimumSize()``
+really is 400 x 300 and Qt really does send ``xdg_toplevel.set_min_size``. Windows honours it and the
+drag stops. WSLg's compositor ignores it: the size arrives as a configure, Qt applies it, and the
+widget follows its window down to a bar. So the floor is also enforced where the size *lands*, by a
+debounced snap-back. The tests below cover both halves — a Qt-side resize (``win.resize``) and a
+window-system-side one (``win.windowHandle().resize``), which the offscreen platform reproduces
+exactly as WSLg does.
 """
 
 from __future__ import annotations
@@ -18,6 +27,7 @@ import pymupdf as fitz
 import pytest
 from PySide6.QtCore import QRect
 
+import main_window as main_window_module
 from app import PdfApp
 from main_window import MIN_WINDOW_SIZE, MainWindow
 from store.settings import Settings
@@ -105,3 +115,62 @@ def test_the_minimum_fits_a_small_screen():
     display anyone plausibly runs this on; the floor must sit well inside it."""
     assert MIN_WINDOW_SIZE[0] <= 1024 // 2
     assert MIN_WINDOW_SIZE[1] <= 768 // 2
+
+
+# ---- the window system's own resize, which ignores Qt's minimum ----------------
+
+
+@pytest.fixture
+def instant_snap(monkeypatch):
+    """Zero the snap-back debounce, so a test can assert on the next line.
+
+    The same arrangement ``conftest``'s ``_instant_search`` and ``_instant_zoom`` have with the
+    debounces they cover: the interval exists so a drag is not fought mid-gesture, which no test
+    here is exercising.
+    """
+    monkeypatch.setattr(main_window_module, "_MIN_SIZE_SNAP_MS", 0)
+
+
+def _force_from_window_system(app, win, width: int, height: int):
+    """Resize the way a compositor does — through the QWindow, around Qt's own constraint.
+
+    ``win.resize()`` is clamped by ``setMinimumSize`` before it reaches the platform, so it cannot
+    reproduce #358's remaining half; this is the path WSLg's configure event arrives on.
+    """
+    win.windowHandle().resize(width, height)
+    app.processEvents()
+    app.processEvents()
+    return win.width(), win.height()
+
+
+def test_a_resize_from_the_window_system_is_pushed_back_up(app, win, instant_snap):
+    """The WSLg report: *"I am still able to resize the window to a single vertical bar almost"*,
+    with Qt's minimum already in place and honoured on Windows."""
+    assert _force_from_window_system(app, win, 70, 124) == MIN_WINDOW_SIZE
+
+
+def test_only_the_short_side_is_pushed_back(app, win, instant_snap):
+    """A window that is short in one direction keeps its other dimension — a snap-back that also
+    resized the wide side would be moving the window for no reason.
+
+    This is the case that caught a wrong comparison while building: the first version asked whether
+    the *floor* equalled the expanded size, which is true whenever the window is below the floor in
+    **both** directions — so 70 x 124 and 200 x 200 were skipped and only 120 x 500 was caught.
+    """
+    assert _force_from_window_system(app, win, 120, 500) == (MIN_WINDOW_SIZE[0], 500)
+    assert _force_from_window_system(app, win, 900, 200) == (900, MIN_WINDOW_SIZE[1])
+
+
+def test_a_legitimate_size_from_the_window_system_is_left_alone(app, win, instant_snap):
+    """The control: the guard must not touch a window that is big enough, or every resize fights."""
+    assert _force_from_window_system(app, win, 900, 700) == (900, 700)
+
+
+def test_the_floor_never_exceeds_the_screen(app, win, monkeypatch):
+    """A minimum larger than the available area is a window that can never satisfy it, and pushing
+    it back up forever is the one way this guard could misbehave. The clamp removes that."""
+    monkeypatch.setattr(main_window_module, "MIN_WINDOW_SIZE", (100000, 100000))
+    allowed = win._smallest_allowed()
+    available = win.screen().availableSize()
+    assert allowed.width() <= available.width()
+    assert allowed.height() <= available.height()

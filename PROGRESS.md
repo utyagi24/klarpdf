@@ -1004,7 +1004,9 @@ tick the box here on merge. Build in number order.
     running with none — it exits;
   - [#358](https://github.com/utyagi24/klarpdf/issues/358) the window has no minimum size — it is
     **400 × 300** (owner's call), the floor `_open_geometry` already used for the *opening* window,
-    now single-sourced;
+    now single-sourced. Enforced **twice**: Qt's own constraint, which Windows honours and WSLg's
+    compositor ignores, plus a debounced snap-back for a size that arrives from the window system
+    anyway — found by the owner's hands-on test of the first attempt;
   - [#333](https://github.com/utyagi24/klarpdf/issues/333) web links do not open in the browser —
     they do, on a click, with the URL shown on hover, for `http` / `https` / `mailto` only
     (reverses M33/M46's copy-only rule; Copy Link Address stays);
