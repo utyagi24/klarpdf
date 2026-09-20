@@ -94,7 +94,7 @@ from viewer.markup_style import (
     OpacityButton,
     SwatchRowAction,
 )
-from viewer.links import LinkNavigator
+from viewer.links import LinkNavigator, openable_uri
 from viewer.pdf_view import PdfView
 from viewer.search import FindBar, SearchController, SearchResultsPanel
 from viewer.text_selection import TextSelection
@@ -105,6 +105,43 @@ from viewer.zoom_widget import ZoomWidget
 # Preference key for the sticky mark style. Style only — never the page range, whose stale value
 # would silently re-scope the next mark to a whole document (see ui.mark_dialog).
 _MARK_STYLE_PREF = "mark_style"
+
+#: The smallest window we allow, content size in device-independent pixels (M149, #358).
+#:
+#: The window had **no minimum of its own** — only whatever its layout needed, measured at
+#: **70 × 124** with the sidebar closed and 222 × 124 with it open, leaving a 54 × 68 page area at a
+#: 3.3% Fit Width. Who stopped the drag was then the window manager's business, and they disagree:
+#: Windows keeps a window at least as wide as its own caption buttons, so the edge stays grabbable,
+#: while WSLg's compositor does not — the window shrinks to a bar with its resize edge under the
+#: title bar, and cannot be dragged back out. This is the portable answer, so it is a size on the
+#: window and not OS-specific code (CLAUDE.md §Keep OS-specific code quarantined).
+#:
+#: **400 × 300 is not a new opinion** — it is the floor ``_open_geometry`` has always clamped the
+#: *opening* window to, now single-sourced from here so the two cannot drift. It leaves a 168 × 244
+#: page beside an open sidebar (Fit Width 18%), and it is deliberately the narrowest of the sizes
+#: considered (560 × 400 is where the reading bar stops overflowing into its ``>>`` chevron, 640 × 480
+#: is comfortable): a minimum takes window sizes away from the reader on *both* platforms, and the
+#: owner's call was to forbid only the sizes that are unusable rather than the ones that are merely
+#: cramped.
+MIN_WINDOW_SIZE = (400, 300)
+
+#: How long a window that *arrived* smaller than :data:`MIN_WINDOW_SIZE` is left alone before being
+#: pushed back up (M149, #358).
+#:
+#: Qt's minimum is a constraint on **Qt's own** resizes plus a hint handed to the window system —
+#: measured under WSLg, ``QWindow.minimumSize()`` really is 400 x 300 and Qt really does send
+#: ``xdg_toplevel.set_min_size``. Windows honours the hint, so the drag simply stops and none of
+#: this runs. WSLg's compositor ignores it: the resize arrives as a configure, Qt applies it, and
+#: the widget follows its window down to a bar. So the floor has to be enforced where the size
+#: lands, not only where it is asked for.
+#:
+#: **Deferred rather than immediate**, and restarted by each resize, for two reasons. A resize
+#: inside a resize handler is the trap CLAUDE.md §Gotchas names for scene rebuilds — do not act
+#: inside the callback — and, more concretely, a compositor that insisted on its own size would
+#: turn an immediate snap-back into a spin. With a debounce the worst case is a slow visible
+#: oscillation instead of a hang, and the common case is that a drag runs freely and the window
+#: settles back the moment the pointer stops. 120 ms is short enough to read as a wall.
+_MIN_SIZE_SNAP_MS = 120
 
 # Press/hover feedback + spacing between functional groups, shared by both toolbars (M71).
 # Translucent grey reads on both light and dark themes, so this needs no per-theme rebuild. The
@@ -150,6 +187,13 @@ def _ask_pdf_password(path: str, retry: bool) -> str | None:
 class MainWindow(QMainWindow):
     def __init__(self, app, path: str, settings: Settings) -> None:
         super().__init__()
+        # The window's own floor (#358), set before any child exists that could resize it. Two
+        # halves, because one of the two window systems we run on ignores the first: the constraint
+        # Qt holds and hands on, and a snap-back for a size that gets through anyway.
+        self.setMinimumSize(*MIN_WINDOW_SIZE)
+        self._min_size_timer = QTimer(self)   # parented: cancelled when the window is destroyed
+        self._min_size_timer.setSingleShot(True)
+        self._min_size_timer.timeout.connect(self._snap_to_minimum_size)
         self._app = app
         self._settings = settings
         self.path = path
@@ -176,7 +220,8 @@ class MainWindow(QMainWindow):
         self.view.selection = TextSelection(self.view)
         self.view.search = SearchController(self.view)
         self.view.form = FormFiller(self.view, self._set_field_value)
-        self.view.links = LinkNavigator(self.view)  # click internal links to jump (M33)
+        self.view.links = LinkNavigator(self.view)  # click links: internal jumps (M33), web opens (M149)
+        self.view.externalLinkClicked.connect(self._open_external_link)
         self.view.annotations = AnnotationOverlay(
             self.view, self._add_annotation, self._remove_annotation, self._replace_annotation,
             self._on_object_selected, self._replace_annotations_batch, self._remove_annotations_batch,
@@ -1098,6 +1143,18 @@ class MainWindow(QMainWindow):
         from ui.about import SOURCE_URL, _open_url
 
         _open_url(SOURCE_URL)
+
+    def _open_external_link(self, uri: str) -> None:
+        """Hand a web link the reader clicked *in the document* to the system browser (M149, #333).
+
+        Same policy as View Source and Donate…, and the same one function: the browser is handed a
+        URL only because the reader clicked, so the app still opens no socket of its own. Which URIs
+        get this far is ``viewer.links.OPENABLE_SCHEMES``' decision, made before the click — a
+        ``file:`` or ``javascript:`` link never reaches here.
+        """
+        from ui.about import _open_url
+
+        _open_url(uri)
 
     def _open_donate_url(self) -> None:
         """Open the sponsors page in the system browser (G6). Same policy as View Source: the browser
@@ -2661,7 +2718,12 @@ class MainWindow(QMainWindow):
                 return menu
             uri = self.view.links.uri_at(scene_pt)
             if uri is not None:
-                # External links are never click-navigable (offline app) — copy is the one verb.
+                # A web link now has two verbs (M149): open it, the way a click does, or copy the
+                # address and stay in the app. A URI of any other scheme keeps only the copy — the
+                # menu offers exactly what a click would do, so neither surface can open what the
+                # other refuses (``viewer.links.OPENABLE_SCHEMES``).
+                if openable_uri(uri) is not None:
+                    menu.addAction("Open Link", lambda: self._open_external_link(uri))
                 menu.addAction("Copy Link Address",
                                lambda: QGuiApplication.clipboard().setText(uri))
                 return menu
@@ -3093,8 +3155,9 @@ class MainWindow(QMainWindow):
         on-screen. ``frame_w`` / ``frame_h`` / ``title_bar`` are the window-decoration sizes — the
         content is shortened by the frame and dropped by the title-bar height, so the title bar sits
         at the top of the available area and the bottom border at the bottom."""
-        w = max(400, min(width, avail.width() - frame_w))
-        h = max(300, avail.height() - frame_h)
+        min_w, min_h = MIN_WINDOW_SIZE  # the same floor the window itself refuses to go below
+        w = max(min_w, min(width, avail.width() - frame_w))
+        h = max(min_h, avail.height() - frame_h)
         x = avail.x() + (avail.width() - w) // 2  # symmetric side borders → centring content centres the frame
         y = avail.y() + title_bar
         return QRect(x, y, w, h)
@@ -3118,6 +3181,27 @@ class MainWindow(QMainWindow):
             self.resize(1000, 800)
             return
         self.setGeometry(self._open_geometry(screen.availableGeometry(), 1000, 16, 39, 31))
+
+    def resizeEvent(self, event) -> None:
+        """Catch a window the window system made too small, and schedule it back up (#358)."""
+        super().resizeEvent(event)
+        floor = self._smallest_allowed()
+        if self.size() != self.size().expandedTo(floor):  # short in either direction
+            self._min_size_timer.start(_MIN_SIZE_SNAP_MS)
+
+    def _smallest_allowed(self) -> QSize:
+        """:data:`MIN_WINDOW_SIZE`, never larger than the screen it is on.
+
+        A minimum bigger than the available area is a window that cannot satisfy it, and pushing it
+        back up forever is the one way this guard could misbehave on hardware nobody here has. The
+        clamp costs a line and removes that possibility.
+        """
+        floor = QSize(*MIN_WINDOW_SIZE)
+        screen = self.screen() or QGuiApplication.primaryScreen()
+        return floor.boundedTo(screen.availableSize()) if screen is not None else floor
+
+    def _snap_to_minimum_size(self) -> None:
+        self.resize(self.size().expandedTo(self._smallest_allowed()))
 
     def showEvent(self, event) -> None:
         super().showEvent(event)

@@ -995,13 +995,24 @@ diagnosis and design happen in the session that builds it, and its open question
 the owner then. Same conventions: **one PR per milestone, or per part** where a milestone has parts;
 tick the box here on merge. Build in number order.
 
-- [ ] **M149** **Small app fixes** — *App.*
-  - [#332](https://github.com/utyagi24/klarpdf/issues/332) an empty file crashes the open;
+- [x] **M149** **Small app fixes** — *App only; the shared core is untouched.* Design, the
+  measurements and each fix's owner decision in `PLAN.md` §M149. — *WSL (headless)* — [#378](https://github.com/utyagi24/klarpdf/pull/378)
+  - [#332](https://github.com/utyagi24/klarpdf/issues/332) an empty file crashes the open — a
+    0-byte, damaged, vanished or unreadable file now says so in a dialog and leaves the app running,
+    at a cold start as well as from File ▸ Open;
   - [#374](https://github.com/utyagi24/klarpdf/issues/374) a launch that opens no window stays
-    running with none;
-  - [#358](https://github.com/utyagi24/klarpdf/issues/358) the window has no minimum size;
-  - [#333](https://github.com/utyagi24/klarpdf/issues/333) web links do not open in the browser
-    (reverses M33/M46's copy-only rule).
+    running with none — it exits;
+  - [#358](https://github.com/utyagi24/klarpdf/issues/358) the window has no minimum size — it is
+    **400 × 300** (owner's call), the floor `_open_geometry` already used for the *opening* window,
+    now single-sourced. Enforced **twice**: Qt's own constraint, which Windows honours and WSLg's
+    compositor ignores, plus a debounced snap-back for a size that arrives from the window system
+    anyway — found by the owner's hands-on test of the first attempt;
+  - [#333](https://github.com/utyagi24/klarpdf/issues/333) web links do not open in the browser —
+    they do, on a click, with the URL shown on hover, for `http` / `https` / `mailto` only
+    (reverses M33/M46's copy-only rule; Copy Link Address stays);
+  - [#377](https://github.com/utyagi24/klarpdf/issues/377) the 25% zoom floor disappeared in a small
+    window — **folded in at the owner's request** while this was being built (2026-09-19). Only a
+    *fit* may go below 25% now; a step out holds, and a step in or a typed value lands on 25%.
 - [ ] **M150** **Links and bookmarks keep and use their position on the page**
   - [ ] **M150.1** [#362](https://github.com/utyagi24/klarpdf/issues/362) a link lands on its page's
     top; [#373](https://github.com/utyagi24/klarpdf/issues/373) a page move drops or shifts a
@@ -4597,6 +4608,39 @@ released build or in the code on `main` that is unambiguous and readily reproduc
 the PR that fixes it. See `CLAUDE.md` §How we work for the split and why. Items already carried here
 were not migrated wholesale: each is listed because a decision is outstanding, which is what keeps
 it on this side of the line.
+
+- **The WSLg window-minimum snap-back is platform-motivated code sitting in cross-platform code**
+  (M149 / [#358](https://github.com/utyagi24/klarpdf/issues/358); raised **2026-09-20** by the owner,
+  who asked how it honours `CLAUDE.md` §*Keep OS-specific code quarantined*). **Kept for now**, owner's
+  call the same day (*"keep the workaround for now"*) — recorded so the argument is not re-run.
+
+  The facts. `MainWindow.resizeEvent`'s snap-back contains **no OS branch** — nothing in
+  `platform_integration.py`, no `sys.platform`, and the only mentions of WSLg are comments. But it can
+  only ever *fire* where the window system ignores Qt's minimum-size hint: on Windows the window
+  manager enforces the floor, so `resizeEvent` never sees a sub-floor size and the timer never starts.
+  It is dead code on the platform that ships. So it is platform-motivated code in a platform-neutral
+  shape, which is how OS-specific behaviour gets *past* that rule rather than through it. The issue's
+  own note — *"This is a size set on `MainWindow`, not OS-specific code"* — was written about
+  `setMinimumSize`, which genuinely is neutral, and does not cover the snap-back; it was carried over
+  without being re-tested against the new code.
+
+  **What is undecided:** whether the guard should move behind a named predicate in
+  `platform_integration.py` (say `window_minimum_is_advisory()`), so the seam is visible and the dead
+  Windows path is provable; or be dropped entirely, since WSL is a development environment and not a
+  product surface (`CLAUDE.md` §*Two consumers share one core*, closing paragraph), leaving #358 fixed
+  by `setMinimumSize` alone as it already is on Windows. The counter-argument for leaving it as a
+  general invariant: *"a window must never end up below its floor"* is true on any platform, and a
+  future one could behave like WSLg.
+
+  **One cheap experiment is outstanding and would settle it:** measured 2026-09-20, Qt declares the
+  minimum correctly on both paths — `xdg_toplevel.set_min_size(400, 300)` is sent under Wayland (seen
+  in a protocol trace; the compositor replies `configure(0, 0)` and does not enforce it), and
+  `WM_NORMAL_HINTS` carries `PMinSize = 400 x 300` under **xcb** (read back with
+  `XGetWMNormalHints`). Nobody has yet dragged an edge with `QT_QPA_PLATFORM=xcb`. If XWayland's window
+  manager honours the hint, the whole workaround becomes one environment variable in the dev docs. The
+  caveat to weigh if xcb were adopted as the standing WSLg default: the Qt xcb and Wayland plugins
+  differ in DPI handling and in the wheel/touchpad event stream, which is the most heavily tuned part
+  of this app (M91.4's coast-mute, M92's scroll distances).
 
 - **Several tables in one ruled region: solved where the region fails, open where it succeeds** (M141;
   raised 2026-09-13, half-closed 2026-09-16 by TC-039's fixes). A region that declines is now read in

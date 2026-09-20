@@ -381,13 +381,23 @@ def test_a_fit_may_go_below_the_floor_because_a_fit_must_fit(qapp, tmp_path):
         view.deleteLater()
 
 
-def test_below_the_floor_the_reader_can_still_get_back_to_the_fit(qapp, tmp_path):
-    """Why the floor is derived from Fit Page and not from the current zoom.
+def test_below_the_floor_a_step_out_holds_and_a_step_in_returns_to_the_floor(qapp, tmp_path):
+    """What below-the-floor means after M149 (#377; owner's decision, 2026-09-19).
 
-    The first attempt held the floor at ``min(_MIN_ZOOM, current)`` — "no step may zoom you *in*",
-    which is true but traps: zoom in one step from a 17% A0 fit and the floor follows you up to
-    21%, so stepping back out to the fit becomes impossible and the reader cannot recover the view
-    they started from. Zooming out must always be able to reach the whole page.
+    Below 25% is a place only a **fit** can put you. From there:
+
+    * **zooming out is a no-op** — a control labelled "zoom out" must never make the page bigger, so
+      the step floor is ``min(_MIN_ZOOM, current)``;
+    * **zooming in lands exactly on 25%**, not on 1.25 x wherever the fit left off, so one press puts
+      the reader back inside the range the toolbar advertises;
+    * and **once above it, 25% binds again** for good.
+
+    This deliberately gives up a property M88.6 built: the floor used to be the *Fit Page* zoom for
+    every path, so twenty zoom-outs walked back down to a 17% A0 fit. The reason it went is #377 —
+    that same floor falls with the **window**, so a small window unlocked sub-25% zooming for the
+    buttons and the zoom field, where the reader was told the minimum was 25%. The recovery path is
+    now Fit Page itself (Ctrl+2): one click, exactly the control that produced the fit, and it
+    returns to it precisely — which the last lines here check.
     """
     import pymupdf as fitz
 
@@ -412,11 +422,16 @@ def test_below_the_floor_the_reader_can_still_get_back_to_the_fit(qapp, tmp_path
         view.zoom_out()
         assert view.zoom == pytest.approx(fitted), "a zoom-out moved the page the wrong way"
 
-        view.zoom_in()                       # step in, then walk all the way back out
-        assert view.zoom > fitted
-        for _ in range(20):
+        view.zoom_in()
+        assert view.zoom == pytest.approx(_MIN_ZOOM), "a step in from below must land on the floor"
+
+        for _ in range(20):                  # and from here the floor holds, however hard you push
             view.zoom_out()
-        assert view.zoom == pytest.approx(fitted), "the reader cannot get back to the fit"
+        assert view.zoom == pytest.approx(_MIN_ZOOM)
+
+        view.fit_page()                      # the one way back — and it lands exactly where it did
+        qapp.processEvents()
+        assert view.zoom == pytest.approx(fitted)
         page = view._pages[view.current_page]
         assert page["h"] <= view.viewport().height() + 1   # and it really is the whole page
     finally:
@@ -460,3 +475,96 @@ def test_a_saved_zoom_outside_the_new_range_falls_back_cleanly(view):
     assert view.zoom == pytest.approx(1.0)
     view.apply_state({"page": 0, "zoom": 2.0, "rotation": 0})    # in range → honoured
     assert view.zoom == pytest.approx(2.0)
+
+
+# ---- the floor does not depend on the window (M149, #377) -----------------------
+
+
+@pytest.fixture
+def small_window_view(qapp, a_pdf):
+    """An ordinary A4 document in a window small enough that Fit Page needs less than 25%.
+
+    400 x 300 is the window's minimum size (#358, same milestone), so this is the *smallest* window
+    a reader can now produce — and Fit Page there still wants ~19%.
+    """
+    view = PdfView(VirtualDocument.from_path(a_pdf))
+    view.resize(400, 300)
+    view.show()
+    qapp.processEvents()
+    view.open_at({})
+    return view
+
+
+def test_a_small_window_does_not_unlock_a_typed_sub_floor_zoom(qapp, small_window_view):
+    """#377 as reported: *"if I reduce the window size to very small … it lets me use the zoom level
+    field to set values less than 25%"*. The floor had been `min(25%, Fit Page)` for every path, and
+    Fit Page falls with the window."""
+    view = small_window_view
+    try:
+        view.fit_page()
+        qapp.processEvents()
+        assert view.zoom < _MIN_ZOOM          # the fit itself must still fit — that part is right
+        view.set_zoom(0.10)                   # what the zoom field does with a typed "10"
+        assert view.zoom == pytest.approx(_MIN_ZOOM)
+    finally:
+        view.deleteLater()
+
+
+def test_a_small_window_does_not_unlock_the_zoom_out_button(qapp, small_window_view):
+    view = small_window_view
+    try:
+        view.set_zoom(0.50)
+        for _ in range(10):
+            view.zoom_out()
+        assert view.zoom == pytest.approx(_MIN_ZOOM)
+    finally:
+        view.deleteLater()
+
+
+def test_the_zoom_field_cannot_reach_below_the_floor_at_any_window_size(qapp, a_pdf):
+    """The same assertion across three window sizes: the number the toolbar advertises as the
+    minimum is the minimum, whatever the window is doing."""
+    for width, height in ((1100, 850), (700, 500), (400, 300)):
+        view = PdfView(VirtualDocument.from_path(a_pdf))
+        try:
+            view.resize(width, height)
+            view.show()
+            qapp.processEvents()
+            view.open_at({})
+            widget = ZoomWidget(view)
+            widget.lineEdit().setText("10%")
+            widget.lineEdit().editingFinished.emit()
+            assert view.zoom == pytest.approx(_MIN_ZOOM), f"at {width}x{height}"
+            assert widget.lineEdit().text() == "25%", f"at {width}x{height}"
+        finally:
+            view.deleteLater()
+
+
+def test_a_ctrl_wheel_out_below_the_floor_does_not_zoom_the_reader_in(qapp, small_window_view):
+    """The wheel is a step like the buttons: it holds, rather than snapping back up to 25%."""
+    view = small_window_view
+    try:
+        view.fit_page()
+        qapp.processEvents()
+        fitted = view.zoom
+        assert fitted < _MIN_ZOOM
+        _wheel(view, QPoint(view.viewport().width() // 2, view.viewport().height() // 2),
+               -_WHEEL_NOTCH)
+        qapp.processEvents()
+        assert view.zoom == pytest.approx(fitted)
+    finally:
+        view.deleteLater()
+
+
+def test_a_fit_in_a_small_window_still_fits(qapp, small_window_view):
+    """The other half of the rule, and the reason the exception exists at all: clamping the fit to
+    25% instead would overshoot the viewport."""
+    view = small_window_view
+    try:
+        view.fit_page()
+        qapp.processEvents()
+        page = view._pages[view.current_page]
+        assert page["h"] <= view.viewport().height() + 1
+        assert page["w"] <= view.viewport().width() + 1
+    finally:
+        view.deleteLater()

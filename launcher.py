@@ -5,7 +5,9 @@ Each launch:
  1. normalize ``%1`` and try to hand it to a resident instance (``QLocalSocket``);
  2. if one accepted it → exit with no UI (it raised/opened the window);
  3. otherwise become the resident instance (``QLocalServer.listen``) — re-trying a hand-off if we
-    lost a startup race — then open the document and run the event loop.
+    lost a startup race — then open the document and run the event loop;
+ 4. unless nothing opened (an unopenable file, a cancelled password prompt) — then exit, rather
+    than stay alive with no window (#374).
 
 Because the resident instance owns every document window, re-opening an already-open file just
 raises its window (one window per document) and the page clipboard spans all windows.
@@ -72,7 +74,14 @@ def main(argv: list[str]) -> int:
     if not path:
         return 0  # nothing to show
 
-    app.open_document(path)
+    # 4) A launch that opens no window must exit, not run an event loop with nothing in it (M149,
+    #    #374). `open_document` returns None when nothing opened — a cancelled password prompt, or
+    #    a file that could not be opened at all (#332) — and Qt only quits when the *last window
+    #    closes*, so with none ever opened there is nothing to close: the process would sit here
+    #    invisibly, become the resident instance that the next launch hands its file to, and keep
+    #    holding the mutex the Inno installer/uninstaller read as "KlarPDF is running".
+    if app.open_document(path) is None:
+        return 0  # nothing on screen → nothing to stay alive for
     return app.exec()
 
 

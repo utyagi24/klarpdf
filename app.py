@@ -10,16 +10,49 @@ page clipboard works across all document windows.
 
 from __future__ import annotations
 
+import os
 import time
 
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 import platform_integration
 from store.settings import Settings
 from klarpdf.util.paths import normalize_path
 
 _HANDOFF_TIMEOUT_MS = 400
+
+
+def unopenable_reason(exc: BaseException) -> str:
+    """One line saying why a document would not open — written for the reader, not for a log.
+
+    Each arm names a failure the open path genuinely produces, measured for M149 (#332):
+    ``Path.read_bytes`` in ``VirtualDocument.open_source`` raises ``OSError`` for a file that
+    cannot be read at all, and ``fitz.open`` then raises ``EmptyFileError`` for a 0-byte one and
+    ``FileDataError`` for bytes that are not a PDF — a **truncated** file included, since MuPDF
+    does not try to repair a stream it cannot find a trailer in. Anything unanticipated falls
+    through to the exception's own text, so a new cause still reaches the reader as words rather
+    than as a traceback on a console they never see.
+
+    ``pymupdf`` defines its own ``FileNotFoundError`` (a ``RuntimeError``, not the builtin), raised
+    when it opens **by path**; we open from a stream, so the builtin is the one that actually
+    arrives. Both are named, because which one appears is PyMuPDF's business, not the reader's.
+    """
+    import pymupdf as fitz
+
+    if isinstance(exc, fitz.EmptyFileError):
+        return "The file is empty — there is nothing in it to show."
+    if isinstance(exc, fitz.FileDataError):
+        return "It is damaged, or it is not a PDF."
+    if isinstance(exc, (FileNotFoundError, fitz.FileNotFoundError)):
+        return "The file is no longer there."
+    if isinstance(exc, IsADirectoryError):
+        return "That is a folder, not a file."
+    if isinstance(exc, PermissionError):
+        return "It could not be read — another program may have it open, or its permissions deny it."
+    if isinstance(exc, OSError) and exc.strerror:
+        return f"It could not be read: {exc.strerror}."
+    return str(exc) or exc.__class__.__name__
 
 
 def send_path_to_running_instance(name: str, path: str, retries: int = 1) -> bool:
@@ -144,7 +177,10 @@ class PdfApp(QApplication):
     def open_document(self, path: str):
         """Open ``path``, or raise its existing window if already open (no duplicate).
 
-        Returns ``None`` if an encrypted document's password prompt was cancelled — no window opens.
+        Returns ``None`` when **no window opened** — an encrypted document's password prompt was
+        cancelled, or the file could not be opened at all and the reader has been told so (M149).
+        Callers must check: ``launcher.main`` would otherwise run an event loop with no window in
+        it, a process alive with nothing on screen (#374).
         """
         key = normalize_path(path)
         existing = self._windows.get(key)
@@ -160,12 +196,40 @@ class PdfApp(QApplication):
             window = MainWindow(self, path, self.settings)
         except PasswordRequired:
             return None  # encrypted + the password prompt was cancelled → open nothing
+        except (OSError, RuntimeError) as exc:
+            # Every *other* way an open fails (M149, #332): a 0-byte, damaged, vanished or
+            # unreadable file used to let `pymupdf.EmptyFileError` & co. straight out of here —
+            # a traceback on a console nobody sees, and at a cold start the launch died before a
+            # window ever existed. Caught at this one chokepoint because every route into the app
+            # arrives here: the launcher's command line, File ▸ Open, Open Recent, and the path a
+            # second launch hands to this resident instance.
+            #
+            # Narrow on purpose. `OSError` is `read_bytes` failing and `RuntimeError` is every
+            # PyMuPDF error (`FileDataError` and friends subclass it); a `TypeError` or
+            # `AttributeError` from our own construction code is a bug in KlarPDF, and must keep
+            # crashing loudly instead of being reported to the reader as a broken document.
+            self._report_unopenable(path, exc)
+            return None
 
         self.settings.add_recent(path)  # record only a document we actually opened
         self._windows[key] = window
         window.show()
         self._raise(window)
         return window
+
+    def _report_unopenable(self, path: str, exc: BaseException) -> None:
+        """Tell the reader this document would not open, and stay running.
+
+        Parented to whatever window is in front, so the dialog belongs to the document they were
+        looking at. At a cold start there is no window yet and ``activeWindow()`` is ``None`` —
+        which is what we want: a parentless ``QMessageBox`` still shows, and still spins its own
+        event loop, so this works *before* ``app.exec()`` has been entered (#332's cold-start half).
+        """
+        QMessageBox.warning(
+            self.activeWindow(),
+            "Can't open document",
+            f"“{os.path.basename(path)}” can't be opened.\n\n{unopenable_reason(exc)}",
+        )
 
     def window_for_key(self, key: str | None):
         """Return the open window registered under a normalized identity key, or None.
