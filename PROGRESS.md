@@ -1016,7 +1016,7 @@ tick the box here on merge. Build in number order.
 - [ ] **M150** **Links and bookmarks keep and use their position on the page**
   - [x] **M150.1** **A destination is read and written exactly as the file spells it** — *Core +
     app, and the bridge's page-moving tools through the core.* Design, the measurements and the two
-    owner decisions in `PLAN.md` §M150.1. — *WSL (headless)* — PR pending
+    owner decisions in `PLAN.md` §M150.1. — *WSL (headless)* — [#379](https://github.com/utyagi24/klarpdf/pull/379)
     - [#362](https://github.com/utyagi24/klarpdf/issues/362) a link lands on its page's top — it
       lands on the spot the destination names, at the top of the window, and so does an **Outline**
       entry. A destination that names no spot (`/Fit`) still lands on the page top, and a
