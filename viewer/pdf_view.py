@@ -2692,6 +2692,47 @@ class PdfView(QGraphicsView):
         self.verticalScrollBar().setValue(int(p["y"]) - _PAGE_GAP)
         self._render_visible()
 
+    def goto_destination(self, index: int, left: float | None, top: float | None) -> None:
+        """Go to page ``index`` and land on the spot its destination names (M150, #362).
+
+        ``left`` / ``top`` are in the page's **content coordinates** — unrotated, crop-box
+        relative, y down — as :func:`~model.destinations.content_point` returns them, and either
+        may be ``None``. A ``None`` ``top`` means the destination states no vertical position
+        (``/Fit`` and its relatives, or ``/XYZ left null``), and this is then exactly
+        :meth:`goto_page`: the top of the page, which is what the app did for every destination
+        before this milestone. A ``None`` ``left`` is the publisher asking the viewer to **keep the
+        reader's horizontal scroll**, which 452 of the corpus's bookmarks and 368 of its links do,
+        so the horizontal bar is left alone rather than reset.
+
+        The spot goes at the **top of the window**, which is what a PDF destination means and what
+        other viewers do — and the reason Cisco's contents entries land a page early today: every
+        one of them points at the foot of the page *before* its section, so honouring the point
+        shows that page's bottom margin and then the section, while ignoring it shows the wrong
+        page from the top.
+
+        **The zoom a destination may also ask for is deliberately ignored** (owner's call,
+        2026-09-20). ``/XYZ left top 2`` means "at 200%", and ``/FitH`` / ``/FitR`` imply a
+        magnification of their own; obeying any of them would drop a reader out of the Fit mode
+        they chose, and the whole point of an in-page position is to arrive where you were going
+        without being resized on the way.
+
+        The point is mapped through :meth:`page_transform`, so a rotated page — or one the reader
+        has spun — lands correctly without this method knowing anything about rotation. On a page
+        turned 90° or 270° a content *line* is a vertical line on screen, so a destination that
+        gives no ``left`` is read at the content's left edge; there is no single scene y otherwise.
+        """
+        if not 0 <= index < len(self._pages):
+            return
+        if top is None:
+            self.goto_page(index)
+            return
+        self._park_coasting_wheel()
+        point = self.page_transform(index).map(QPointF(left or 0.0, top))
+        self.verticalScrollBar().setValue(int(point.y()) - _PAGE_GAP)
+        if left is not None:
+            self.horizontalScrollBar().setValue(int(point.x()))
+        self._render_visible()
+
     # ---- persistence ------------------------------------------------------------
 
     def view_state(self) -> dict:

@@ -380,7 +380,12 @@ def test_a_string_page_survives_a_reorder(linked_pdf, tmp_path):
         links = [l for i in range(out.page_count) for l in out[i].get_links()
                  if l["kind"] in (fitz.LINK_GOTO, fitz.LINK_NAMED)]
         assert len(links) == 1, "the link was dropped by the remap"
-        assert links[0]["page"] == 1, "the link survived but points at the wrong page"
+        # Through `internal_link_target`, not `links[0]["page"]`: the destination that comes out
+        # now is the source's own `/Fit` (M150 carries it verbatim rather than flattening it to a
+        # point), and MuPDF reports a `/Fit` as its `#page=N` URI — so the target reads back as the
+        # **1-based string** `'2'` where the old flattened `/XYZ` read back as the 0-based int `1`.
+        # Same page either way; only the spelling moved, and this is the function that knows both.
+        assert internal_link_target(links[0]) == 1, "the link survived but points at the wrong page"
     finally:
         out.close()
         vdoc.close()

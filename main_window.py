@@ -352,7 +352,7 @@ class MainWindow(QMainWindow):
             from organize.outline_panel import OutlinePanel  # lazy — TOC-less docs never pay it
 
             self.outline = OutlinePanel(self.vdoc)
-            self.outline.entryActivated.connect(self.view.goto_page)
+            self.outline.entryActivated.connect(self.view.goto_destination)
             self.view.currentPageChanged.connect(self.outline.set_current)
             self.outline.set_current(self.view.current_page)
             extra.append((self.outline, "Outline"))

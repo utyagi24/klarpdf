@@ -239,3 +239,118 @@ def test_goto_page_has_the_ctrl_g_shortcut(app, a_pdf):
     actions = [a for a in win.findChildren(QAction) if a.text() == "Go to &Page…"]
     assert len(actions) == 1
     assert actions[0].shortcut() == QKeySequence("Ctrl+G")
+
+
+# ---- an entry lands on its heading, not the page top (M150, #362) --------------
+
+
+@pytest.fixture
+def positioned_outline_pdf(tmp_path) -> str:
+    """Four Letter pages; the bookmarks state where on their page they point.
+
+    Written as raw outline objects rather than through ``set_toc``, which can only emit ``/XYZ``
+    and misplaces even that on a 270° page — the two reasons this milestone exists. ``new_page``'s
+    default is A4, so the size is given: a destination's y is measured from the page's own bottom
+    edge, and 792 on an 842 pt page is 50 pt down rather than the top.
+    """
+    path = str(tmp_path / "positioned.pdf")
+    doc = fitz.open()
+    for i in range(4):
+        doc.new_page(width=612, height=792).insert_text((72, 72), f"PAGE {i}", fontsize=11)
+    tails = ["/Fit", "/XYZ 40 600 0", "/FitH 200"]      # page 1, page 2 mid, page 3 low
+    items = [doc.get_new_xref() for _ in tails]
+    root = doc.get_new_xref()
+    for n, (item, tail) in enumerate(zip(items, tails)):
+        nxt = f"/Next {items[n + 1]} 0 R " if n + 1 < len(items) else ""
+        doc.update_object(
+            item,
+            f"<< /Title (Entry {n}) /Parent {root} 0 R {nxt}"
+            f"/Dest [{doc.page_xref(n)} 0 R {tail}] >>",
+        )
+    doc.update_object(
+        root,
+        f"<< /Type /Outlines /First {items[0]} 0 R /Last {items[-1]} 0 R /Count {len(items)} >>",
+    )
+    doc.xref_set_key(doc.pdf_catalog(), "Outlines", f"{root} 0 R")
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def _activate(win, row: int):
+    """Click the outline entry at preorder position ``row``."""
+    items = []
+
+    def walk(item):
+        items.append(item)
+        for i in range(item.childCount()):
+            walk(item.child(i))
+
+    for i in range(win.outline.topLevelItemCount()):
+        walk(win.outline.topLevelItem(i))
+    win.outline._on_item_clicked(items[row], 0)
+
+
+def _top_of(view, index: int) -> int:
+    from viewer.pdf_view import _PAGE_GAP
+
+    return int(view._pages[index]["y"]) - _PAGE_GAP
+
+
+def test_an_entry_with_no_position_lands_on_the_page_top(app, positioned_outline_pdf):
+    """``/Fit``: the behaviour M45 shipped, and the one that must not change."""
+    win = app.open_document(positioned_outline_pdf)
+    _activate(win, 0)
+    assert win.view.verticalScrollBar().value() == _top_of(win.view, 0)
+
+
+def test_an_entry_lands_on_the_spot_its_bookmark_names(app, positioned_outline_pdf):
+    """#362's second half: ``main_window`` wired ``entryActivated`` straight to ``goto_page``,
+    so a bookmark that named a spot was read for its page and nothing else."""
+    win = app.open_document(positioned_outline_pdf)
+    _activate(win, 1)                                    # /XYZ 40 600 on page 2
+    expected = int(win.view._pages[1]["y"] + (792.0 - 600.0) * win.view.scale) - 14
+    assert win.view.verticalScrollBar().value() == pytest.approx(expected, abs=2)
+    assert win.view.verticalScrollBar().value() > _top_of(win.view, 1)
+
+
+def test_a_fith_entry_uses_its_top(app, positioned_outline_pdf):
+    """``/FitH 200`` states a top and no left — a form ``get_toc`` reports as ``view: 'FitH,592'``
+    and ``set_toc`` cannot write at all, so before M150 it reached the panel as a bare page."""
+    win = app.open_document(positioned_outline_pdf)
+    _activate(win, 2)
+    expected = int(win.view._pages[2]["y"] + (792.0 - 200.0) * win.view.scale) - 14
+    assert win.view.verticalScrollBar().value() == pytest.approx(expected, abs=2)
+
+
+def test_the_spot_follows_a_reorder_with_its_page(app, positioned_outline_pdf):
+    """The spot rides in the same remapped entry as the page number, so the two cannot disagree
+    about which bookmark they belong to."""
+    win = app.open_document(positioned_outline_pdf)
+    win.vdoc.move_pages([1], 3)           # the /XYZ 40 600 target slides from index 1 to 2
+    win.view.reload()
+    win.outline.populate()
+    rows = _items(win)
+    assert ("Entry 1", 2) in rows         # it followed the move
+    _activate(win, rows.index(("Entry 1", 2)))
+    expected = int(win.view._pages[2]["y"] + (792.0 - 600.0) * win.view.scale) - 14
+    assert win.view.verticalScrollBar().value() == pytest.approx(expected, abs=2)
+
+
+def test_a_spot_near_the_end_of_the_document_scrolls_as_far_as_it_can(app, positioned_outline_pdf):
+    """There is nothing below the last page, so a spot low on it cannot reach the window's top.
+
+    Qt clamps the scroll, which is right — and worth pinning, because the obvious way to write the
+    test above is to move the target to the *end*, where the clamp silently makes a broken
+    implementation and a working one produce the same number.
+    """
+    win = app.open_document(positioned_outline_pdf)
+    win.vdoc.move_pages([1], 4)           # the /XYZ 40 600 target goes to the end
+    win.view.reload()
+    win.outline.populate()
+    rows = _items(win)
+    _activate(win, rows.index(("Entry 1", 3)))
+    bar = win.view.verticalScrollBar()
+    wanted = int(win.view._pages[3]["y"] + (792.0 - 600.0) * win.view.scale) - 14
+    assert wanted > bar.maximum()         # the fixture really does ask for more than there is
+    assert bar.value() == bar.maximum()

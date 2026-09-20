@@ -18,6 +18,7 @@ from typing import Iterable
 
 import pymupdf as fitz
 
+from klarpdf.model.destinations import read_outline_destinations
 from klarpdf.util.paths import normalize_path
 
 # A snapshot is the full mutable state captured for undo: the ordered list + dirty flag.
@@ -167,6 +168,10 @@ class VirtualDocument:
         # save (merged-in sources contribute no outline, matching insert_pdf's behaviour).
         self.origin_source_id: str | None = None
         self._origin_toc: list = []
+        # Each origin bookmark's destination exactly as the file spells it (M150), one per row of
+        # `_origin_toc`. Captured together with it, and for the same reason: read back off the live
+        # source it would be whatever the last save wrote, not what the reader opened.
+        self._origin_dests: list = []
         # Document metadata (M53): the origin's two stores as read (Info dict + raw XMP packet),
         # and the user's override — None = untouched (carry the origin's through at materialise),
         # a dict = edited values (both stores rewritten consistently), {} = removed (both stores
@@ -244,6 +249,7 @@ class VirtualDocument:
         vd.origin_source_id = source_id
         vd.path = path
         vd._origin_toc = vd.sources[source_id].get_toc(simple=False)
+        vd._origin_dests = read_outline_destinations(vd.sources[source_id], len(vd._origin_toc))
         vd._capture_origin_metadata(source_id)
         # Carry-through (M54): a document opened with a password saves back with that password
         # unless the user changes/removes it. None for an unencrypted original.
@@ -651,6 +657,21 @@ class VirtualDocument:
         source = self.sources.get(source_id)
         return source.get_toc(simple=False) if source is not None else []
 
+    def source_dests(self, source_id: str) -> list:
+        """``source_id``'s bookmark destinations, aligned with :meth:`source_toc`'s rows.
+
+        The origin's are the copy captured when it was opened, for the reason :meth:`source_toc`
+        gives. Every other source is read on demand. An empty list means *no tails for this
+        source* — a document with no outline, or one whose outline tree and ``get_toc`` disagree
+        — and every caller then falls back to the page-only behaviour that predates M150.
+        """
+        if source_id == self.origin_source_id:
+            return self._origin_dests
+        source = self.sources.get(source_id)
+        if source is None:
+            return []
+        return read_outline_destinations(source, len(source.get_toc(simple=False)))
+
     def remapped_toc(self) -> list:
         """The output's outline: **every** contributing source's bookmarks, each re-pointed.
 
@@ -687,7 +708,13 @@ class VirtualDocument:
         for source_id in self._sources_in_output_order():
             toc = self.source_toc(source_id)
             if toc:
-                entries.extend(remap_toc(toc, self.build_index_map(source_id)))
+                entries.extend(
+                    remap_toc(
+                        toc,
+                        self.build_index_map(source_id),
+                        self.source_dests(source_id),
+                    )
+                )
         return entries
 
     def subset(self, indices: Iterable[int]) -> "VirtualDocument":
@@ -705,6 +732,7 @@ class VirtualDocument:
         sub.ordered = [self.ordered[i] for i in sorted(set(indices))]
         sub.origin_source_id = self.origin_source_id
         sub._origin_toc = self._origin_toc
+        sub._origin_dests = self._origin_dests
         sub._form_values = dict(self._form_values)
         # The document-level metadata state rides along too (M53): the extract carries the
         # origin's stores — or the user's pending edit/removal — like a Save would.
@@ -1166,6 +1194,9 @@ class VirtualDocument:
         self.origin_source_id = source_id
         self.path = path
         self._origin_toc = self.sources[source_id].get_toc(simple=False)
+        self._origin_dests = read_outline_destinations(
+            self.sources[source_id], len(self._origin_toc)
+        )
         self._capture_origin_metadata(source_id)  # the saved file's stores are the new baseline
         self._metadata_override = None
         self.ordered = self._seed_ordered(source_id)  # re-read our annotations from the clean file

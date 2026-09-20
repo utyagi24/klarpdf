@@ -72,7 +72,7 @@ Source / Donate… — which is handed to your own browser.
 - **Search** with highlighted hits, next/previous, **Match case** + **Whole words**, and **List All** — every match with its context line, click to jump.
 - **Pages sidebar** with live thumbnails — a 320-page file opens in ~150 ms.
 - **Outline** and **Annotations** tabs appear only when the document has them — a live bookmark tree and a list of every mark, both click-to-jump. Plus **Go to Page** (Ctrl+G).
-- **Clickable links** — jump internal links; click a web link to open it in your browser (hover to see where it goes), or copy its address instead. **Right-click menus** everywhere fit whatever is under the cursor.
+- **Clickable links** — jump internal links, landing on the exact spot the link points at rather than the top of the page (bookmarks too); click a web link to open it in your browser (hover to see where it goes), or copy its address instead. **Right-click menus** everywhere fit whatever is under the cursor.
 - **Remembers where you were** — page, zoom, scroll and window — plus **Open Recent**; opens **password-protected** PDFs and follows the **Windows light/dark theme** live.
 
 **Organize pages** — the splice/split workflow
@@ -80,7 +80,7 @@ Source / Donate… — which is handed to your own browser.
 - **Merge** — drag a PDF in from Explorer to splice its pages in at any position.
 - **Crop** to hide (this / selected / all), with **Remove Crop** to restore — even a crop the file arrived with.
 - **Extract** pages to a new file; **cut / copy / paste** pages, even **between two open documents**.
-- **Lossless saves** — text layer, form fields, bookmarks and internal links all survive a reorder or delete.
+- **Lossless saves** — text layer, form fields, bookmarks and internal links all survive a reorder or delete, **each still pointing at the exact spot on the page it was authored for**.
 - **Your document comes back whole** — an edit that doesn't move pages (filling a form, annotating, redacting, rotating) also keeps the accessibility tags, the permissions, the encryption and the links exactly as they were. Reordering or deleting pages rebuilds the file and loses the tags.
 - **Pages you didn't touch are never rewritten** — highlighting one page of a 572-page report *appends* the mark, the way Edge and Acrobat do: the file's other 9 MB stay byte-for-byte where they were, and the save takes a tenth of a second. Text extracted by other tools reads in the same order it did before. (Anything that removes or changes what was already there — a redaction above all — rewrites the document properly instead.)
 - **…and neither are the marks you didn't touch** — adding one highlight to a page that already carries two hundred writes about a kilobyte, not a fresh copy of all 201. So a document you keep coming back to stops getting bigger every time you open it: six sittings of one highlight each on a heavily marked file used to add 693 KB, and now add 7.

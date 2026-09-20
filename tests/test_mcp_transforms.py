@@ -960,3 +960,107 @@ def test_merge_keeps_a_document_with_no_outline_out_of_the_way(outlined_pair, tm
     T.merge([plain, first], out)
     assert [(lvl, title, page) for lvl, title, page in _outline_of(out)] == [
         (1, "F-One", 3), (2, "F-One-a", 4), (1, "F-Two", 5)]
+
+
+# ---- a destination's in-page position survives the bridge's tools (M150, #373) ----
+
+
+@pytest.fixture
+def positioned_outline_pdf(tmp_path) -> str:
+    """Six Letter pages with three bookmarks, each naming a *spot* in a different form.
+
+    The forms are chosen for what they cost today: ``get_toc`` reports ``/XYZ null top`` with no
+    position at all and ``/FitH`` as an unwritable ``view`` string, so before M150 both came back
+    as the top of the page — 467 of the corpus's 886 positioned bookmarks between them.
+    """
+    path = str(tmp_path / "positioned.pdf")
+    doc = fitz.open()
+    for i in range(6):
+        doc.new_page(width=612, height=792).insert_text((72, 72), f"PAGE {i + 1}", fontsize=20)
+    spec = [("Exact", 1, "/XYZ 40 600 0"), ("NoLeft", 3, "/XYZ null 500 null"),
+            ("Band", 4, "/FitH 200")]
+    items = [(doc.get_new_xref(), title, target, tail) for title, target, tail in spec]
+    root = doc.get_new_xref()
+    for i, (xref, title, target, tail) in enumerate(items):
+        nxt = f"/Next {items[i + 1][0]} 0 R" if i + 1 < len(items) else ""
+        prv = f"/Prev {items[i - 1][0]} 0 R" if i else ""
+        doc.update_object(xref, f"<< /Title ({title}) /Parent {root} 0 R {prv} {nxt} "
+                                f"/Dest [ {doc.page_xref(target)} 0 R {tail} ] >>")
+    doc.update_object(root, f"<< /Type /Outlines /First {items[0][0]} 0 R "
+                            f"/Last {items[-1][0]} 0 R /Count {len(items)} >>")
+    doc.xref_set_key(doc.pdf_catalog(), "Outlines", f"{root} 0 R")
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def _destinations_of(path) -> dict:
+    """``{bookmark title: its destination tail}`` — what the file says, not what a reader guesses."""
+    from klarpdf.model.destinations import (
+        outline_item_xrefs, page_index_map, read_destination,
+    )
+
+    doc = fitz.open(path)
+    try:
+        pages = page_index_map(doc)
+        return {
+            doc.xref_get_key(x, "Title")[1]: (
+                lambda d: None if d is None else d.tail
+            )(read_destination(doc, x, pages))
+            for x in outline_item_xrefs(doc)
+        }
+    finally:
+        doc.close()
+
+
+def test_reorder_keeps_every_bookmarks_in_page_position(positioned_outline_pdf, tmp_path):
+    """#373 through the bridge: the app and the tools share one save path, so the fix has to be
+    checked at both surfaces rather than at whichever one the session had in hand."""
+    out = str(tmp_path / "reordered.pdf")
+    T.reorder(positioned_outline_pdf, [6, 5, 4, 3, 2, 1], out)
+    assert _destinations_of(out) == {
+        "Exact": "/XYZ 40 600 0", "NoLeft": "/XYZ null 500 null", "Band": "/FitH 200"}
+    assert {t: p for _l, t, p in _outline_of(out)} == {"Exact": 5, "NoLeft": 3, "Band": 2}
+
+
+def test_delete_pages_keeps_the_positions_of_the_bookmarks_that_remain(
+    positioned_outline_pdf, tmp_path
+):
+    out = str(tmp_path / "deleted.pdf")
+    T.delete_pages(positioned_outline_pdf, [1], out)
+    assert _destinations_of(out) == {
+        "Exact": "/XYZ 40 600 0", "NoLeft": "/XYZ null 500 null", "Band": "/FitH 200"}
+
+
+def test_extract_pages_keeps_the_position_of_what_it_took(positioned_outline_pdf, tmp_path):
+    out = str(tmp_path / "extracted.pdf")
+    T.extract_pages(positioned_outline_pdf, [2, 4], out)
+    assert _destinations_of(out) == {"Exact": "/XYZ 40 600 0", "NoLeft": "/XYZ null 500 null"}
+
+
+def test_merge_keeps_the_positions_of_both_documents(positioned_outline_pdf, a_pdf, tmp_path):
+    out = str(tmp_path / "merged.pdf")
+    T.merge([a_pdf, positioned_outline_pdf], out)
+    carried = _destinations_of(out)
+    assert carried["Exact"] == "/XYZ 40 600 0"
+    assert carried["Band"] == "/FitH 200"
+
+
+def test_a_bookmark_on_a_270_degree_page_does_not_drift_across_repeated_reorders(
+    positioned_outline_pdf, tmp_path
+):
+    """The half of #373 that compounds: ``set_toc`` misplaces a point on a 270° page, and the next
+    save reads the misplaced point and misplaces it again. Two rounds, so a drift of one step
+    would show even if the first happened to land somewhere plausible.
+    """
+    doc = fitz.open(positioned_outline_pdf)
+    doc[1].set_rotation(270)
+    spun = str(tmp_path / "spun.pdf")
+    doc.save(spun)
+    doc.close()
+
+    first, second = str(tmp_path / "r1.pdf"), str(tmp_path / "r2.pdf")
+    T.reorder(spun, [6, 5, 4, 3, 2, 1], first)
+    T.reorder(first, [6, 5, 4, 3, 2, 1], second)
+    assert _destinations_of(first)["Exact"] == "/XYZ 40 600 0"
+    assert _destinations_of(second)["Exact"] == "/XYZ 40 600 0"

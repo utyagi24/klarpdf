@@ -1014,9 +1014,24 @@ tick the box here on merge. Build in number order.
     window — **folded in at the owner's request** while this was being built (2026-09-19). Only a
     *fit* may go below 25% now; a step out holds, and a step in or a typed value lands on 25%.
 - [ ] **M150** **Links and bookmarks keep and use their position on the page**
-  - [ ] **M150.1** [#362](https://github.com/utyagi24/klarpdf/issues/362) a link lands on its page's
-    top; [#373](https://github.com/utyagi24/klarpdf/issues/373) a page move drops or shifts a
-    bookmark's position. *Core + app; the bridge's page-move tools through the core.*
+  - [x] **M150.1** **A destination is read and written exactly as the file spells it** — *Core +
+    app, and the bridge's page-moving tools through the core.* Design, the measurements and the two
+    owner decisions in `PLAN.md` §M150.1. — *WSL (headless)* — PR pending
+    - [#362](https://github.com/utyagi24/klarpdf/issues/362) a link lands on its page's top — it
+      lands on the spot the destination names, at the top of the window, and so does an **Outline**
+      entry. A destination that names no spot (`/Fit`) still lands on the page top, and a
+      destination's *zoom* is deliberately ignored (owner's call: a link must not drop the reader
+      out of their Fit mode);
+    - [#373](https://github.com/utyagi24/klarpdf/issues/373) a page move drops or shifts a
+      bookmark's position — every destination now survives byte-identical, at every rotation and on
+      a page whose boxes do not start at 0,0. Both of PyMuPDF's writers corrupt a position, so
+      neither is asked for one: `klarpdf/model/destinations.py` carries the file's own bytes and
+      converts nothing. **Widened to links** (owner's call), which `insert_link` shifts the same
+      way. Measured over the 123-document corpus: **1,526 link positions and 689 bookmark
+      positions** that a save used to flatten;
+    - **found while building:** a link whose destination name PyMuPDF cannot resolve was dropped
+      outright by the remap — one corpus document lost **all 81** of its internal links on every
+      page move, silently. The remap now falls back to reading the name tree itself.
   - [ ] **M150.2** [#361](https://github.com/utyagi24/klarpdf/issues/361) the bridge reads and
     writes a bookmark's position (FR-001). *Bridge.*
 - [ ] **M151** **Zoom and resize keep the page you are reading** —
