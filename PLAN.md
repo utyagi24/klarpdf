@@ -8653,6 +8653,26 @@ and the point is mapped through `page_transform`, so a rotated page needs no rot
 `None` `top` (`/Fit`, `/XYZ left null`) is exactly `goto_page`, the behaviour M33 shipped. A `None`
 `left` leaves the horizontal scroll alone, which is what the `null` means.
 
+**The two axes are not treated alike, and the asymmetry is the design.** Vertically the destination
+*commands* — a reader clicking a bookmark is asking to be moved, so the spot goes to the top of the
+window whether or not it was already visible. Horizontally it only *corrects*: the bar moves solely
+when the point is off screen.
+
+The literal reading — put `left` at the window's left edge, which is what the PDF spec says and what
+the first attempt did — is wrong whenever the page already fits sideways, because it then scrolls
+*page* off screen to obey a margin. Owner-reported on `SpaceX-EUProspectus-outlined.pdf`
+(2026-09-20): *"I set my view to fit width and clicking on any entry in the TOC throws my page off
+center."* All 101 of that file's bookmarks say `/XYZ 72 805.68`, and the mechanism is worth stating
+because it is not obvious — **the file has two landscape pages among its 400**, `_build_scene` sizes
+the scene to the *widest* row while Fit Width fits the *current* page, so every portrait page sits
+centred in a wider band with the bar resting at 191 of [0, 382]. Honouring `left` threw it to 344
+and cut 139 px off the page's left side, on every click.
+
+Correcting only when needed is the rule `ensure_box_visible` already uses for search hits, for the
+same stated reason: stepping between two things on the same screen must not shove the page around.
+It is pinned **from both sides** — a test fails if the bar moves when the point is already visible,
+and another fails if it does not move when the point is off screen.
+
 `content_point` is the **one** coordinate conversion this milestone performs, so it is pinned against
 PyMuPDF's own reader rather than against arithmetic written twice
 (`test_content_point_matches_the_library_at_every_rotation_and_crop`).
@@ -8719,7 +8739,7 @@ bridge's tools: 1,941 of 1,942 link tails and 517 of 520 bookmark tails come bac
 the ten most link-dense corpus documents. The four that do not are the `[null /XYZ …]` destinations
 and the empty name, which name no page and are refused on the way in.
 
-**Each part broken in turn, and the failure read** — eleven reversions, eleven red suites:
+**Each part broken in turn, and the failure read** — thirteen reversions, thirteen red suites:
 
 | Reverted | Tests that went red |
 |---|---|
@@ -8734,6 +8754,8 @@ and the empty name, which name no page and are refused on the way in.
 | a link click back to `goto_page` | 5 in `test_link_nav.py` |
 | the outline entry back to `goto_page` | 4 in `test_outline_panel.py` |
 | the out-of-page clamp | 2 in `test_link_nav.py` |
+| the horizontal rule, back to always scrolling | `test_fit_width_is_not_thrown_off_centre_by_an_entrys_left` |
+| the horizontal rule, to never scrolling | `test_a_left_that_is_off_screen_is_brought_into_view` |
 
 Four of PyMuPDF's behaviours are pinned as tests of their own — the two `set_toc` bugs, the
 `insert_link` one, and the page that cannot see its own new link. **A failure there means PyMuPDF

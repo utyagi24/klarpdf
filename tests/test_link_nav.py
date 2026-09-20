@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pymupdf as fitz
 import pytest
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPointF, Qt
 
 from app import PdfApp
 from store.settings import Settings
@@ -546,3 +546,25 @@ def test_a_destination_below_the_page_is_pulled_back_onto_it(app, tmp_path):
     bottom = int(win.view._pages[3]["y"] + 792.0 * win.view.scale) - 14
     assert bottom < bar.maximum(), "the fixture must leave room below, or the bar clamps for us"
     assert bar.value() == pytest.approx(bottom, abs=2)
+
+
+def test_a_left_that_is_off_screen_is_brought_into_view(app, tmp_path):
+    """The other half of the horizontal rule: correcting when the point really is out of sight.
+
+    Zoomed in and scrolled to the right-hand edge, a destination pointing at the page's left margin
+    is off screen, and landing there with the text away to the left would be the complaint the
+    resting case avoids. So the bar moves — just far enough to put the point at the window's left
+    edge, not because the destination said so but because it was not visible.
+    """
+    win = app.open_document(_positioned_pdf(tmp_path, "/XYZ 40 600 0"))
+    win.resize(900, 700)
+    win.view.set_zoom(4.0)
+    bar = win.view.horizontalScrollBar()
+    assert bar.maximum() > 0, "no horizontal range — this fixture cannot show the defect"
+    bar.setValue(bar.maximum())
+
+    win.view.links.navigate_at(_center_of(win.view, 0, _GOTO_BOX))
+    assert bar.value() < bar.maximum(), "the off-screen point was not brought back"
+    scene_x = win.view.page_transform(3).map(QPointF(40.0, 192.0)).x()
+    visible = win.view.mapToScene(win.view.viewport().rect()).boundingRect()
+    assert visible.left() <= scene_x <= visible.right()

@@ -2704,6 +2704,22 @@ class PdfView(QGraphicsView):
         reader's horizontal scroll**, which 452 of the corpus's bookmarks and 368 of its links do,
         so the horizontal bar is left alone rather than reset.
 
+        **The two axes are not treated alike, and that asymmetry is the point.** Vertically the
+        destination *commands* — a reader who clicks a bookmark is asking to be moved, so the spot
+        goes to the top of the window whether or not it was already visible. Horizontally it only
+        *corrects*: the bar moves solely when the point is off screen, and is left exactly where
+        the reader had it otherwise.
+
+        The literal reading — put ``left`` at the window's left edge, which is what the PDF spec
+        says and what the first attempt did — is wrong whenever the page already fits sideways,
+        because it then scrolls *page* off screen to obey a margin. Owner-reported on
+        `SpaceX-EUProspectus-outlined.pdf` (2026-09-20), whose 101 bookmarks all say
+        ``/XYZ 72 805.68``: at **Fit Width** the strip is wider than the viewport, so the bar rests
+        centred at 191 of [0, 382], and honouring ``left`` threw it to 344 — cutting 139 px off the
+        page's left side on every click. Correcting only when needed is the rule
+        :meth:`ensure_box_visible` already uses for search hits, and for the same reason: stepping
+        between two things on the same screen must not shove the page around.
+
         The spot goes at the **top of the window**, which is what a PDF destination means and what
         other viewers do — and the reason Cisco's contents entries land a page early today: every
         one of them points at the foot of the page *before* its section, so honouring the point
@@ -2753,7 +2769,13 @@ class PdfView(QGraphicsView):
         point = self.page_transform(index).map(QPointF(left or 0.0, top))
         self.verticalScrollBar().setValue(int(point.y()) - _PAGE_GAP)
         if left is not None:
-            self.horizontalScrollBar().setValue(int(point.x()))
+            visible = self.mapToScene(self.viewport().rect()).boundingRect()
+            if not visible.left() <= point.x() <= visible.right():
+                # Moved as a *delta* rather than assigned: a scrollbar value is only the scene x
+                # while the scene starts at 0, and the strip is centred in a wider scene at some
+                # zooms. The delta lands the point on the viewport's left edge either way.
+                bar = self.horizontalScrollBar()
+                bar.setValue(int(bar.value() + point.x() - visible.left()))
         self._render_visible()
 
     # ---- persistence ------------------------------------------------------------

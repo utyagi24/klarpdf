@@ -1037,7 +1037,11 @@ tick the box here on merge. Build in number order.
       cropped page, or a negative PDF y — scrolled into the gap around it. It is clamped to the
       page. **283 of the corpus's 4,617 positioned destinations** are outside their page. (Those
       four items landing in the same place is the *document*: all seven links to that page carry
-      the identical `/XYZ 0 822`, and the bookmarks say `/Fit`.)
+      the identical `/XYZ 0 822`, and the bookmarks say `/Fit`.);
+    - **and by their second test** (2026-09-20, `SpaceX-EUProspectus-outlined.pdf` at Fit Width):
+      honouring a destination's *left* literally threw the page off centre, because the page
+      already fitted sideways. The two axes are now deliberately different — vertically the
+      destination commands, horizontally it only corrects a point that is off screen.
   - [ ] **M150.2** [#361](https://github.com/utyagi24/klarpdf/issues/361) the bridge reads and
     writes a bookmark's position (FR-001). *Bridge.*
 - [ ] **M151** **Zoom and resize keep the page you are reading** —

@@ -354,3 +354,57 @@ def test_a_spot_near_the_end_of_the_document_scrolls_as_far_as_it_can(app, posit
     wanted = int(win.view._pages[3]["y"] + (792.0 - 600.0) * win.view.scale) - 14
     assert wanted > bar.maximum()         # the fixture really does ask for more than there is
     assert bar.value() == bar.maximum()
+
+
+@pytest.fixture
+def mixed_width_outline_pdf(tmp_path) -> str:
+    """Four portrait pages, **one landscape**, and bookmarks that name a left margin.
+
+    The landscape page is what gives the horizontal bar something to move: the scene is sized to
+    the *widest* row while Fit Width fits the *current* page, so every portrait page sits centred
+    in a wider band. `SpaceX-EUProspectus-outlined.pdf` is exactly this shape — 2 landscape pages
+    among 400, and 101 bookmarks all saying `/XYZ 72 805.68`.
+    """
+    path = str(tmp_path / "mixedwidth.pdf")
+    doc = fitz.open()
+    for i in range(4):
+        doc.new_page(width=612, height=792).insert_text((72, 72), f"PAGE {i}", fontsize=11)
+    doc.new_page(width=1224, height=792).insert_text((72, 72), "WIDE", fontsize=11)
+    items = [doc.get_new_xref() for _ in range(2)]
+    root = doc.get_new_xref()
+    for n, item in enumerate(items):
+        nxt = f"/Next {items[n + 1]} 0 R " if n + 1 < len(items) else ""
+        doc.update_object(
+            item,
+            f"<< /Title (Entry {n}) /Parent {root} 0 R {nxt}"
+            f"/Dest [{doc.page_xref(n)} 0 R /XYZ 40 600 0] >>",
+        )
+    doc.update_object(
+        root, f"<< /Type /Outlines /First {items[0]} 0 R /Last {items[-1]} 0 R /Count 2 >>"
+    )
+    doc.xref_set_key(doc.pdf_catalog(), "Outlines", f"{root} 0 R")
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def test_fit_width_is_not_thrown_off_centre_by_an_entrys_left(app, mixed_width_outline_pdf):
+    """Owner-reported on `SpaceX-EUProspectus-outlined.pdf` (2026-09-20): *"I set my view to fit
+    width and clicking on any entry in the TOC throws my page off center."*
+
+    All 101 of that file's bookmarks say ``/XYZ 72 805.68`` — a left of 72 pt, the page's own
+    margin. At Fit Width the strip sits in a wider scene, so the horizontal bar has range and rests
+    centred; putting that 72 pt at the window's left edge, which is the literal reading of the
+    destination, threw the bar from 191 to 344 and cut 139 px off the page's left side.
+
+    The precondition is asserted: with no horizontal range there is nothing to throw off centre,
+    and the test would pass whatever the code did.
+    """
+    win = app.open_document(mixed_width_outline_pdf)
+    win.view.fit_width()
+    bar = win.view.horizontalScrollBar()
+    assert bar.maximum() > 0, "no horizontal range — this fixture cannot show the defect"
+    resting = bar.value()
+    _activate(win, 1)                                    # /XYZ 40 600 — a left of 40 pt
+    assert bar.value() == resting
+    assert win.view.verticalScrollBar().value() > _top_of(win.view, 1), "…and it still moved down"
