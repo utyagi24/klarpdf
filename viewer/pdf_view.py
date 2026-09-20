@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
     QGraphicsRectItem,
     QGraphicsScene,
     QGraphicsView,
+    QToolTip,
 )
 
 from klarpdf.model.virtual_document import VirtualDocument
@@ -1660,6 +1661,43 @@ class PdfView(QGraphicsView):
             self.set_zoom(self._zoom * (_ZOOM_STEP ** (delta / _WHEEL_NOTCH)), anchor_pos=anchor,
                           step=True)
 
+    def viewportEvent(self, event) -> bool:
+        """Offer a hovered web link's URL as a tooltip — after the scene's items have had theirs.
+
+        This has to live here rather than in :meth:`_update_hover_cursor`, and the reason is a trap
+        worth naming: **a ``QGraphicsView``'s viewport tooltip is never shown.**
+        ``QGraphicsView.viewportEvent`` intercepts ``QEvent.ToolTip``, turns it into a
+        ``GraphicsSceneHelp`` event sent to the *scene*, and returns — so ``QWidget``'s handler,
+        the only thing that reads the viewport's ``toolTip`` property, never runs. Measured: with
+        ``viewport().setToolTip(url)`` set, a real ``QHelpEvent`` left ``QToolTip.isVisible()``
+        False. That is how M149 first shipped the URL-on-hover the owner had asked for, and how a
+        test asserting ``viewport().toolTip() == url`` passed while a reader saw nothing: the
+        property was set, and nothing ever read it.
+
+        The scene goes **first**, deliberately. A note badge carries its note as a
+        *``QGraphicsItem``* tooltip (``annotations.py`` — the one hover text in this view that has
+        always worked, because items are exactly what the scene offers the event to), and mouse
+        presses prefer an annotation over a link, so hover text should agree. ``isAccepted()`` after
+        the base call is Qt's own answer to "did an item take it": ``QGraphicsScene.helpEvent``
+        accepts only when it showed an item's tooltip.
+        """
+        handled = super().viewportEvent(event)
+        if event.type() == QEvent.Type.ToolTip and not event.isAccepted():
+            self._show_link_tooltip(event)
+            return True
+        return handled
+
+    def _show_link_tooltip(self, event) -> None:
+        """Show the URL under the pointer, or nothing. Gated on the same state as the pointing-hand
+        cursor: a link that this mode would not follow must not advertise itself either."""
+        uri = None
+        if self._armed is None and self._mode == InteractionMode.SELECT and self.links is not None:
+            uri = self.links.openable_uri_at(self.mapToScene(event.pos()))
+        if uri is None:
+            QToolTip.hideText()
+        else:
+            QToolTip.showText(event.globalPos(), uri, self.viewport())
+
     def _update_hover_cursor(self, scene_pt) -> None:
         """Show a pointing-hand over an internal link (SELECT — it's clickable) and a move cursor
         over a draggable mark — but never while a box is being edited (you're typing, not arranging),
@@ -1667,11 +1705,9 @@ class PdfView(QGraphicsView):
         bar would inherit. In OBJECT mode (M59.6) the move cursor covers any drawn mark or text box,
         since dragging one moves it / the group; links are inert there.
 
-        A web link also puts its URL in the viewport's **tooltip** (M149), because a PDF shows the
-        reader a link's *text* and never where it goes. It is cleared at the top of every pass, so it
-        can never be left showing the URL of a link the pointer has moved off — including the early
-        returns below, where a tool is armed or the mode is one links are inert in."""
-        self.viewport().setToolTip("")
+        The URL a web link points at is shown on hover too (M149), but **not from here** — see
+        :meth:`viewportEvent`, because on a ``QGraphicsView`` the viewport's own ``toolTip`` property
+        is never read."""
         if self._armed is not None or self._mode not in (InteractionMode.SELECT, InteractionMode.OBJECT):
             return
         if self.annotations is not None and getattr(self.annotations, "editing", False):
@@ -1683,12 +1719,8 @@ class PdfView(QGraphicsView):
                 self.viewport().setCursor(cursor_for(handle))
                 return
         if self._mode == InteractionMode.SELECT and self.links is not None:
-            # A web link gets the same pointing hand as an internal one (M149), plus its URL to
-            # hover. Qt shows the tooltip once the pointer *rests* — which is also when this stops
-            # being called, so the text standing here is the link under it.
+            # A web link gets the same pointing hand as an internal one (M149).
             uri = self.links.openable_uri_at(scene_pt)
-            if uri is not None:
-                self.viewport().setToolTip(uri)
             if uri is not None or self.links.link_at(scene_pt) is not None:
                 self.viewport().setCursor(Qt.CursorShape.PointingHandCursor)
                 return

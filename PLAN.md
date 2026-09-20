@@ -8449,7 +8449,36 @@ at all and there is nothing there to gate. The schemes that *do* arrive as an or
 The hand-off stays out of `viewer/`, which imports nothing from `ui/`: `LinkNavigator.openable_uri_at`
 answers *whether* a click may open a URI, `PdfView` emits `externalLinkClicked`, and `MainWindow`
 calls `_open_url`. So every URL this app hands to a browser still goes through the one function that
-has always done it. The context menu gains **Open Link** above **Copy Link Address**, and shows it
+has always done it.
+
+**The URL on hover shipped dead, and the test that should have caught it asserted the wrong thing**
+(owner-reported 2026-09-20: *"the weblinks open up now with a single click but there is no visible
+hover tooltip"*). The first version set `viewport().setToolTip(uri)` from the hover handler. That
+property is **never read on a `QGraphicsView`**: `QGraphicsView.viewportEvent` intercepts
+`QEvent.ToolTip`, converts it into a `GraphicsSceneHelp` event sent to the *scene* for its items, and
+returns — so `QWidget`'s handler, the only code that would read the viewport's `toolTip`, never runs.
+Measured: with the property set to the URL, a real `QHelpEvent` left `QToolTip.isVisible()` False and
+`QToolTip.text()` empty.
+
+The tell was in this repo all along: `viewer/annotations.py` puts a note badge's note on the
+**`QGraphicsItem`** (*"hover reads the note without opening anything"*), which is the one hover text
+in this view that has always worked — because an item is exactly what the scene offers the event to.
+
+So the tooltip now lives in `PdfView.viewportEvent`, which lets the base class run first and only
+offers the URL when `isAccepted()` is False — Qt's own answer to "did a scene item take this". Items
+therefore keep precedence, which is what mouse presses already do (an annotation is tested before a
+link), so a note badge sitting on a link still shows its note. It is gated on the same state as the
+pointing-hand cursor: no tooltip while a tool is armed or outside `SELECT`, because a link this mode
+will not follow must not advertise itself.
+
+**Why the original test could not fail.** It asserted `viewport().toolTip() == url` — which is the
+property the code had just set, and the whole of the behaviour it implemented. Setting a string and
+checking the string was one statement, and no reader was anywhere in it. The replacements send a real
+`QHelpEvent` through the view and assert on what reaches `QToolTip`, and they were confirmed by
+restoring the shipped code: the two that matter go red on it, where the old test passed. This is
+`CLAUDE.md` §*The thing that verifies the code needs verifying too* landing on a **test** rather than
+a CI job — a test can pass because it tests the wrong thing, and asserting the same expression the
+code assigns is the shape to watch for. The context menu gains **Open Link** above **Copy Link Address**, and shows it
 only for a scheme a click would accept — the menu offers exactly what clicking does, so neither
 surface can open what the other refuses.
 
@@ -8502,7 +8531,8 @@ verifies the code needs verifying too*), not by observing them pass:
 | `setMinimumSize` | 3 in `test_min_window_size.py` |
 | the `resizeEvent` snap-back | 2 more in `test_min_window_size.py`, both window-system-side |
 | `MIN_WINDOW_SIZE` changed while `_open_geometry` kept its literal | the drift guard, `test_the_opening_geometry_uses_the_same_floor` |
-| the click / cursor / tooltip wiring | 4 in `test_link_nav.py` |
+| the click / cursor wiring | 4 in `test_link_nav.py` |
+| the tooltip, back to the shipped `viewport().setToolTip` version | 2 in `test_link_nav.py` — which the *original* tooltip tests passed |
 | `OPENABLE_SCHEMES` widened to include `javascript`, `file`, `data` | 3 in `test_link_nav.py` + 1 in `test_context_menus.py` |
 | the split zoom floor, back to the one shared floor | 4 in `test_zoom.py` |
 

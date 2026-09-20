@@ -243,28 +243,116 @@ def test_a_script_link_is_never_handed_anywhere(app, web_pdf, monkeypatch):
     assert handed == []
 
 
-def test_hover_over_a_web_link_shows_the_hand_and_the_url(app, web_pdf):
-    """A PDF shows the reader a link's *text*, never where it goes — so the URL is the tooltip."""
+def test_hover_over_a_web_link_shows_the_pointing_hand(app, web_pdf):
     win = app.open_document(web_pdf)
     win.view._update_hover_cursor(_center_of(win.view, 0, _WEB_BOX))
     assert win.view.viewport().cursor().shape() == Qt.CursorShape.PointingHandCursor
-    assert win.view.viewport().toolTip() == _WEB_URI
-
-
-def test_the_url_tooltip_is_dropped_when_the_pointer_leaves(app, web_pdf):
-    """A stale URL under the pointer would say a link is there when it is not."""
-    win = app.open_document(web_pdf)
-    win.view._update_hover_cursor(_center_of(win.view, 0, _WEB_BOX))
-    assert win.view.viewport().toolTip() == _WEB_URI
-    win.view._update_hover_cursor(_center_of(win.view, 0, (300, 400, 360, 420)))
-    assert win.view.viewport().toolTip() == ""
 
 
 def test_a_refused_scheme_does_not_even_look_clickable(app, web_pdf):
     win = app.open_document(web_pdf)
     win.view._update_hover_cursor(_center_of(win.view, 0, _JS_BOX))
     assert win.view.viewport().cursor().shape() != Qt.CursorShape.PointingHandCursor
-    assert win.view.viewport().toolTip() == ""
+
+
+# ---- the URL on hover, asserted as a reader sees it -----------------------------
+#
+# The first version of these tests asserted `view.viewport().toolTip() == url`, which passed while
+# the reader saw **nothing**: a `QGraphicsView`'s viewport tooltip is never shown, because
+# `viewportEvent` intercepts `QEvent.ToolTip`, hands it to the *scene* for its items, and returns —
+# so `QWidget`'s handler, the only thing that reads that property, never runs. Setting the property
+# was the assertion and also the whole of the behaviour, so the test could not fail. These send a
+# real `QHelpEvent` through the view instead, and assert on what is handed to `QToolTip`.
+
+
+@pytest.fixture
+def tooltips(monkeypatch):
+    """Capture what reaches QToolTip: ``(shown_texts, hide_calls)``."""
+    from PySide6.QtWidgets import QToolTip
+
+    shown: list[str] = []
+    hidden: list[int] = []
+    monkeypatch.setattr(QToolTip, "showText",
+                        staticmethod(lambda pos, text, *a, **k: shown.append(text)))
+    monkeypatch.setattr(QToolTip, "hideText", staticmethod(lambda: hidden.append(1)))
+    return shown, hidden
+
+
+def _hover_for_tooltip(app, win, box):
+    """Ask the view for a tooltip at ``box``, the way Qt does when the pointer rests there.
+
+    Returns the event, whose ``isAccepted()`` is Qt's own answer to "did a scene **item** take
+    this": ``QGraphicsScene.helpEvent`` accepts only when it showed an item's tooltip.
+    """
+    from PySide6.QtCore import QEvent, QPoint
+    from PySide6.QtGui import QHelpEvent
+    from PySide6.QtWidgets import QApplication
+
+    pt = QPoint(win.view.mapFromScene(_center_of(win.view, 0, box)))
+    event = QHelpEvent(QEvent.Type.ToolTip, pt, win.view.viewport().mapToGlobal(pt))
+    QApplication.sendEvent(win.view.viewport(), event)
+    app.processEvents()
+    return event
+
+
+def test_resting_on_a_web_link_shows_its_url(app, web_pdf, tooltips):
+    """A PDF shows the reader a link's *text* and never where it goes, so the URL is the tooltip."""
+    shown, _ = tooltips
+    win = app.open_document(web_pdf)
+    event = _hover_for_tooltip(app, win, _WEB_BOX)
+    assert shown == [_WEB_URI]
+    assert not event.isAccepted()   # no item claimed it, which is why we were asked at all
+
+
+def test_resting_off_a_link_shows_nothing_and_clears_what_was_there(app, web_pdf, tooltips):
+    """A stale URL would claim a link is under the pointer when none is."""
+    shown, hidden = tooltips
+    win = app.open_document(web_pdf)
+    _hover_for_tooltip(app, win, _WEB_BOX)
+    _hover_for_tooltip(app, win, (300, 400, 360, 420))
+    assert shown == [_WEB_URI]      # nothing added for the bare page
+    assert hidden                   # and the previous one was actively dismissed
+
+
+def test_a_refused_scheme_offers_no_url(app, web_pdf, tooltips):
+    shown, _ = tooltips
+    win = app.open_document(web_pdf)
+    _hover_for_tooltip(app, win, _JS_BOX)
+    assert shown == []
+
+
+def test_an_armed_tool_offers_no_url(app, web_pdf, tooltips):
+    """Gated on the same state as the pointing hand: a link this mode will not follow must not
+    advertise itself either."""
+    from viewer.tools import ArmedTool
+
+    shown, _ = tooltips
+    win = app.open_document(web_pdf)
+    win.view.arm(ArmedTool.HIGHLIGHT)
+    _hover_for_tooltip(app, win, _WEB_BOX)
+    assert shown == []
+
+
+def test_a_scene_items_own_tooltip_still_wins(app, web_pdf, tooltips):
+    """The regression this interception could have caused.
+
+    A note badge carries its note as a **QGraphicsItem** tooltip (``annotations.py``) — the one hover
+    text in this view that always worked, because items are what the scene offers the event to. Mouse
+    presses prefer an annotation over a link, so hover text has to agree. Stand-in for the badge: a
+    tooltip on the page item under the link, which is the same mechanism.
+    """
+    shown, _ = tooltips
+    win = app.open_document(web_pdf)
+    centre = _center_of(win.view, 0, _WEB_BOX)
+    item = win.view.scene().items(centre)[0]
+    item.setToolTip("the item got there first")
+    event = _hover_for_tooltip(app, win, _WEB_BOX)
+    # The scene shows an item's tooltip from C++, which a Python patch of `QToolTip.showText`
+    # cannot observe — so the evidence is that Qt accepted the event and that we added nothing.
+    assert event.isAccepted(), "the scene did not take the event, so nothing shows the item's note"
+    assert shown == [], "the link's URL was offered over the top of an item's own tooltip"
+    # No cleanup: the scene rebuilds on its own deferred pass and takes this item with it (the
+    # tooltip is read during the synchronous `sendEvent`, before that pass, so the order is fixed).
 
 
 def test_the_scheme_gate_in_isolation():

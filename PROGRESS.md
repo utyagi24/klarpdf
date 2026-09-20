@@ -4609,6 +4609,39 @@ the PR that fixes it. See `CLAUDE.md` §How we work for the split and why. Items
 were not migrated wholesale: each is listed because a decision is outstanding, which is what keeps
 it on this side of the line.
 
+- **The WSLg window-minimum snap-back is platform-motivated code sitting in cross-platform code**
+  (M149 / [#358](https://github.com/utyagi24/klarpdf/issues/358); raised **2026-09-20** by the owner,
+  who asked how it honours `CLAUDE.md` §*Keep OS-specific code quarantined*). **Kept for now**, owner's
+  call the same day (*"keep the workaround for now"*) — recorded so the argument is not re-run.
+
+  The facts. `MainWindow.resizeEvent`'s snap-back contains **no OS branch** — nothing in
+  `platform_integration.py`, no `sys.platform`, and the only mentions of WSLg are comments. But it can
+  only ever *fire* where the window system ignores Qt's minimum-size hint: on Windows the window
+  manager enforces the floor, so `resizeEvent` never sees a sub-floor size and the timer never starts.
+  It is dead code on the platform that ships. So it is platform-motivated code in a platform-neutral
+  shape, which is how OS-specific behaviour gets *past* that rule rather than through it. The issue's
+  own note — *"This is a size set on `MainWindow`, not OS-specific code"* — was written about
+  `setMinimumSize`, which genuinely is neutral, and does not cover the snap-back; it was carried over
+  without being re-tested against the new code.
+
+  **What is undecided:** whether the guard should move behind a named predicate in
+  `platform_integration.py` (say `window_minimum_is_advisory()`), so the seam is visible and the dead
+  Windows path is provable; or be dropped entirely, since WSL is a development environment and not a
+  product surface (`CLAUDE.md` §*Two consumers share one core*, closing paragraph), leaving #358 fixed
+  by `setMinimumSize` alone as it already is on Windows. The counter-argument for leaving it as a
+  general invariant: *"a window must never end up below its floor"* is true on any platform, and a
+  future one could behave like WSLg.
+
+  **One cheap experiment is outstanding and would settle it:** measured 2026-09-20, Qt declares the
+  minimum correctly on both paths — `xdg_toplevel.set_min_size(400, 300)` is sent under Wayland (seen
+  in a protocol trace; the compositor replies `configure(0, 0)` and does not enforce it), and
+  `WM_NORMAL_HINTS` carries `PMinSize = 400 x 300` under **xcb** (read back with
+  `XGetWMNormalHints`). Nobody has yet dragged an edge with `QT_QPA_PLATFORM=xcb`. If XWayland's window
+  manager honours the hint, the whole workaround becomes one environment variable in the dev docs. The
+  caveat to weigh if xcb were adopted as the standing WSLg default: the Qt xcb and Wayland plugins
+  differ in DPI handling and in the wheel/touchpad event stream, which is the most heavily tuned part
+  of this app (M91.4's coast-mute, M92's scroll distances).
+
 - **Several tables in one ruled region: solved where the region fails, open where it succeeds** (M141;
   raised 2026-09-13, half-closed 2026-09-16 by TC-039's fixes). A region that declines is now read in
   the parts its prose divides it into, which returned Apple p14's three notes, p10's and p20's two
