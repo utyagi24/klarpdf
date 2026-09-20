@@ -5285,17 +5285,24 @@ it on this side of the line.
   **gitignored**, so it drifts per-machine and never gets re-vendored by a `git pull`. CI is unaffected
   (it fetches fresh). Fix by re-running `build.ps1` **without** `-Offline` once, then re-running with
   it. Worth a guard in `build.ps1` that diffs the cache against the lock before an offline build.
-- **Flaky test: `test_incremental_save.py::test_saving_twice_from_one_model_does_not_stack_revisions`**
-  (seen 2026-09-19, on [#367](https://github.com/utyagi24/klarpdf/pull/367)). The `windows` CI job
-  failed `assert len(first) == len(second)`: two saves of the same edits came out 2,518 and 2,517
-  bytes. It is a flake, not that PR's doing: the same code passed that job one push earlier
-  (`50d7c8a`; the failing push, `9596621`, changed only `PROGRESS.md`), a re-run of the failed job
-  passed, and the PR touches nothing under `klarpdf/model/`. Locally (WSL), 12 of 12 pairs saved a
-  second apart came out 2,518 bytes each, and the annotation carries no modification date there, so
-  the first guess, a timestamp compressing to a different length, is not what happened. Not
-  diagnosed: which byte differs. The test's docstring promises only that nothing grows and no third
-  `%%EOF` appears, which is weaker than equal lengths. Decision owed: diagnose from the two files the
-  next time it fires, or assert what the docstring promises.
+- ~~**Flaky test: `test_incremental_save.py::test_saving_twice_from_one_model_does_not_stack_revisions`**~~
+  — **diagnosed and fixed 2026-09-20**, on its second firing (the first was 2026-09-19 on
+  [#367](https://github.com/utyagi24/klarpdf/pull/367); it fired again on the `pytest` job of
+  [#380](https://github.com/utyagi24/klarpdf/pull/380), with the same 2,518 vs 2,517 bytes).
+
+  **The cause is the document identifier in the trailer, not the save.** Every PDF carries a pair
+  of them, and MuPDF draws a fresh second one on every save, writing it as hexadecimal or as a
+  quoted string — whichever is shorter for the random bytes it drew. So two saves of the very same
+  edits differ by a few bytes at random. Measured over 2,000 pairs: 32 of them, **1.6%**, differ in
+  length, by −4 to +4 bytes and **in both directions**. About one run in 62. The earlier guess, a
+  timestamp compressing differently, was wrong.
+
+  `assert len(first) == len(second)` could therefore never have been made reliable. It is now the
+  assertion that carries the meaning instead: both files are **byte-identical up to the start of
+  the appended revision**, and both hold exactly two revisions. Stacking a revision moves that
+  offset and adds a third `%%EOF`; a fresh identifier cannot touch either, because it is written
+  after the offset. Held 2,000 of 2,000 pairs, the 32 with differing lengths included, and a
+  deliberately stacked second save makes it fail. — [#381](https://github.com/utyagi24/klarpdf/pull/381)
 - **Flaky test: `test_single_instance.py::test_handoff_opens_window_in_resident_instance`.** Failed
   once, passed on rerun (timing-sensitive Windows IPC: a race between the resident instance binding its
   socket and the forwarding launch connecting). **Could not reproduce** — 5 isolated runs + several

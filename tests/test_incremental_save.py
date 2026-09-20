@@ -177,17 +177,43 @@ def test_an_appended_mark_reopens_as_an_editable_mark(plain_pdf, tmp_path):
     assert read_back.color == pytest.approx(_MARK.color, abs=1e-6)
 
 
+def _revision_offset(blob: bytes) -> int:
+    """Where the appended revision's cross-reference table begins — the file's final ``startxref``.
+
+    Everything before it is the document as the previous save left it; everything after it is the
+    new revision's own bookkeeping, which is where the one thing that legitimately varies lives.
+    """
+    return int(blob.rsplit(b"startxref", 1)[1].split(b"%%EOF")[0].strip())
+
+
 def test_saving_twice_from_one_model_does_not_stack_revisions(plain_pdf, tmp_path):
     """The append is against the *origin's* bytes, not against the last thing written, so a second
-    save of the same edits writes the same one revision rather than piling one on another. (The two
-    files are not byte-identical — an annotation carries a modification date and MuPDF writes a
-    fresh trailer ``/ID`` — but nothing may grow, and no third ``%%EOF`` may appear.)"""
+    save of the same edits writes the same one revision rather than piling one on another.
+
+    **Not compared by length, because length is not stable.** Every PDF carries a pair of
+    identifiers in its trailer, and MuPDF draws a fresh second one on every save. It writes that
+    value as hexadecimal or as a quoted string, whichever comes out shorter for the random bytes it
+    drew — so two saves of the very same edits differ by a few bytes at random. Measured over
+    **2,000 pairs**: 32 of them, **1.6%**, differ in length, by −4 to +4 bytes and in both
+    directions. About one run in 62, which is why ``assert len(first) == len(second)`` failed on CI
+    twice — 2026-09-19 on [#367](https://github.com/utyagi24/klarpdf/pull/367) and 2026-09-20 on
+    [#380](https://github.com/utyagi24/klarpdf/pull/380) — while passing every local run, and why
+    it could never have been made reliable.
+
+    So the comparison is the one that carries the meaning: both files must be **byte-identical up
+    to the start of the appended revision**, and must hold exactly two revisions. A second save
+    stacked on the first would push that offset out and add a third ``%%EOF``. A fresh identifier
+    cannot touch either, because it is written *after* the offset. Over the same 2,000 pairs this
+    held 2,000 times, the 32 with differing lengths included.
+    """
     vdoc = _marked(plain_pdf)
     first = pathlib.Path(_save(vdoc, tmp_path, "first.pdf")).read_bytes()
     second = pathlib.Path(_save(vdoc, tmp_path, "second.pdf")).read_bytes()
 
-    assert len(first) == len(second)
     assert first.count(b"%%EOF") == second.count(b"%%EOF") == 2
+    offset = _revision_offset(first)
+    assert _revision_offset(second) == offset
+    assert first[:offset] == second[:offset]
 
 
 def test_a_second_engine_reads_the_appended_file(plain_pdf, tmp_path):
