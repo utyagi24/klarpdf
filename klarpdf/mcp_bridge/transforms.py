@@ -525,7 +525,8 @@ def set_outline(
         )
     prepared = _outline_entries(entries)
     with open_document(path, password) as vdoc:
-        had = len(vdoc.remapped_toc())
+        existing = vdoc.remapped_toc()
+        had = len(existing)
         if had and not replace_outline:
             raise ValueError(
                 f"this document already has an outline of {had} bookmark(s), and writing yours "
@@ -536,7 +537,9 @@ def set_outline(
                 "say is a judgement only you can make. To discard the existing bookmarks "
                 "deliberately, pass replace_outline=true."
             )
-        authored = [[e["level"], e["title"], e["page"]] for e in prepared]
+        discarded = _positions_discarded(vdoc, existing, prepared)
+        outside = _tops_outside_their_page(vdoc, prepared)
+        authored = [[e["level"], e["title"], e["page"], e["top"]] for e in prepared]
         vdoc.set_outline_override(authored)
         written = vdoc.remapped_toc()
         _write(vdoc, target)
@@ -546,14 +549,80 @@ def set_outline(
             if entry[0] != authored[i][0]
         ]
         extra: dict = {"entries": len(written), "replaced": had}
+        warnings: list[str] = []
+        if discarded:
+            # Counted and named, never silently absorbed (#361 item 4). A caller who reads an
+            # outline, edits the titles and writes it back without carrying `top` through turns a
+            # document whose bookmarks land on their headings into one whose bookmarks all land on
+            # a page top — and the old reply said `replaced: 104` and nothing else.
+            extra["positions_discarded"] = discarded
+            warnings.append(
+                f"{discarded} of the {had} bookmark(s) replaced landed on a spot within their "
+                "page, and the entries you sent name no `top`, so those bookmarks now open at the "
+                "top of their page. `get_outline` returns `top` for exactly this reason — send it "
+                "back to keep them."
+            )
+        if outside:
+            extra["tops_outside_the_page"] = outside
+            warnings.append(
+                f"{len(outside)} entry/entries name a `top` outside their page, and it was written "
+                "as given. A viewer pulls such a spot back onto the page, so the bookmark opens at "
+                "the page's edge rather than where you asked. Check these if they were not "
+                "deliberate: " + ", ".join(
+                    f"entry {o['index']} ({o['title']!r}) top {o['top']:g} on a page "
+                    f"{o['page_height']:g} pt tall" for o in outside[:5]
+                ) + ("…" if len(outside) > 5 else "")
+            )
         if renumbered:
             extra["levels_normalised"] = renumbered
-            extra["warnings"] = [
+            warnings.append(
                 f"{len(renumbered)} entry level(s) were normalised: a PDF outline must start at "
                 "level 1 and may not skip a level, so the nesting was repaired while keeping the "
                 "relative depth you asked for. `entries` in the reply is what was written."
-            ]
+            )
+        if warnings:
+            extra["warnings"] = warnings
         return _result(target, vdoc, path, **extra)
+
+
+def _positions_discarded(vdoc, existing: list, prepared: list[dict]) -> int:
+    """How many replaced bookmarks landed on a spot that the new entries do not name.
+
+    Zero when the caller supplied any ``top`` at all: at that point they are steering the
+    positions themselves, and a count of what the old outline happened to have is noise rather
+    than a warning.
+    """
+    if any(e["top"] is not None for e in prepared):
+        return 0
+    return sum(1 for entry in existing if vdoc.entry_top(entry) is not None)
+
+
+def _tops_outside_their_page(vdoc, prepared: list[dict]) -> list[dict]:
+    """Entries whose ``top`` names a spot their page does not contain.
+
+    Reported, not refused (owner's call, 2026-09-20). Real documents do this constantly — 51
+    bookmarks and 232 links across the 123-file corpus — so refusing would break the read → edit →
+    write round trip on documents that already work today.
+    """
+    outside: list[dict] = []
+    for index, entry in enumerate(prepared):
+        top = entry["top"]
+        page0 = entry["page"] - 1
+        if top is None or not isinstance(top, (int, float)) or isinstance(top, bool):
+            continue
+        if not 0 <= page0 < len(vdoc.ordered):
+            continue
+        ref = vdoc.ordered[page0]
+        height = vdoc.sources[ref.source_id][ref.source_page_index].rect.height
+        if -0.5 <= top <= height + 0.5:
+            continue
+        outside.append({"index": index, "title": entry["title"], "top": float(top),
+                        "page": entry["page"], "page_height": round(height, 2)})
+    return outside
+
+
+#: The keys every entry must carry. ``top`` is optional and so is not in here.
+_REQUIRED = {"level", "title", "page"}
 
 
 def _outline_entries(entries: list) -> list[dict]:
@@ -568,8 +637,11 @@ def _outline_entries(entries: list) -> list[dict]:
     An unknown key is an error rather than an ignored extra, for the reason ``fill_form`` refuses
     an unknown field name: an agent that writes ``{"level", "text", "page"}`` from memory would
     otherwise get every title silently dropped and a success report counting the rows.
+
+    ``top`` is the one optional key (M150.2, #361): how far down the page the bookmark should land.
+    Left out, the bookmark opens at the top of its page, exactly as every entry did before.
     """
-    allowed = {"level", "title", "page"}
+    allowed = {"level", "title", "page", "top"}
     prepared: list[dict] = []
     for position, entry in enumerate(entries):
         if not isinstance(entry, dict):
@@ -583,13 +655,18 @@ def _outline_entries(entries: list) -> list[dict]:
                 f"entry {position} has unknown key(s) {unknown}; an entry is "
                 '{"level", "title", "page"} and nothing else. Nothing was written.'
             )
-        missing = sorted(allowed - set(entry))
+        missing = sorted(_REQUIRED - set(entry))
         if missing:
             raise ValueError(
                 f"entry {position} is missing {missing}; every entry needs level, title and page. "
                 "Nothing was written."
             )
-        prepared.append({"level": entry["level"], "title": entry["title"], "page": entry["page"]})
+        prepared.append({
+            "level": entry["level"],
+            "title": entry["title"],
+            "page": entry["page"],
+            "top": entry.get("top"),
+        })
     return prepared
 
 

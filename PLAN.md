@@ -8768,6 +8768,114 @@ Four of PyMuPDF's behaviours are pinned as tests of their own — the two `set_t
 fixed something**, which is good news and requires no undoing: the carry-through never asks either
 writer for a position.
 
+### M150.2 — a bookmark the bridge writes can land on its heading (2026-09-20)
+
+[#361](https://github.com/utyagi24/klarpdf/issues/361) (FR-001), the bridge's half of M150.
+
+**Surfaces: the bridge, through the core.** `set_outline`, `get_outline` and `get_links` change;
+`VirtualDocument.set_outline_override` learns to carry a height, and
+`klarpdf/model/destinations.py` gains the conversion back to PDF coordinates. The app reads the
+same core, so its **Outline** tab scrolls to a bookmark the bridge wrote, without any app change.
+
+#### What a reader saw
+
+A bookmark the bridge wrote opened at the **top of its page**, wherever on that page the section
+actually began. Fine for a chapter that starts a page; poor for anything denser. FR-001's 23-page
+agreement carries 104 bookmarks and **103 of them share a page with another** — one page holds
+twelve, and all twelve opened in the same place. A reader zoomed in on a page of short sections
+clicks the bookmark for one near the bottom and is thrown to the top of the page, above what they
+were already reading.
+
+And the documented way to enrich an outline — `get_outline`, edit, `set_outline` — **silently
+erased** any positions the publisher had authored. One report watched 85 distinct positions become
+1, with `replaced: 104` in the reply and nothing else.
+
+#### What it does now
+
+| | |
+|---|---|
+| `set_outline` | takes an optional `top` per entry: how far down the page, in points from the top of the page — the frame `search` and `get_heading_candidates` report a `bbox` in, so a heading's `bbox[1]` goes in as-is |
+| omitting it | writes exactly what the tool wrote before, pinned by comparing the destination bytes |
+| `get_outline` | returns `top`, so read → edit → write keeps every position |
+| `get_links` | returns `target_top` beside `target_page` |
+| replacing a positioned outline with unpositioned entries | `positions_discarded` in the reply, with a warning |
+
+#### Three decisions, and the evidence behind each
+
+**A bookmark never names a left edge** (owner's rule, 2026-09-20). #361 asked for an optional
+`left` defaulting to null. The owner's answer was broader: *"A bookmark or link should only control
+the vertical position within a document, clicking on it should not result in horzontal scroll."*
+So there is no `left` key, and the written destination leaves the left blank — which is also the
+commonest thing real publishers write (452 of the corpus's 886 positioned bookmarks). The same rule
+governs the viewer (§M150.1).
+
+**A `top` outside the page is written as asked, with a warning** (owner's call, 2026-09-20). #361
+asked for it to be refused, on the good argument that a wrong value otherwise looks like a working
+bookmark. But refusing contradicts the same issue's request for a lossless round trip: **51
+bookmarks and 232 links in the 123-file corpus name a spot their own page does not contain**, so
+`get_outline` → `set_outline` would fail on NVIDIA's annual report and `get_links` → `set_outline`
+on Cisco's and SpaceX's. The reply names each offending entry under `tops_outside_the_page`
+instead, and a viewer pulls the spot back onto the page (§M150.1).
+
+**#361 item 5 — publishing the entry shape in the schema — is not done, and the reason is
+measured.** The published schema for `entries` is `{"type": "object", "additionalProperties":
+true}` because the parameter is a plain `list[dict]`, and the MCP library derives the schema from
+the annotation with no override. Both ways of typing it cost more than the discoverability is
+worth:
+
+* a **`TypedDict`** publishes the key names and then **silently drops** an unknown key. Measured:
+  `{"level": 1, "title": "A", "page": 1, "text": "oops"}` validates and comes back without `text`.
+  That destroys the refusal `_outline_entries` exists for — an agent writing `text` from memory
+  would get a success report — and it would swallow a `left` rather than saying no to it;
+* a **Pydantic model with `extra="forbid"`** does refuse extras, but it also **coerces**:
+  `page: "3"` becomes `3`, where the core refuses a page that is not an integer on purpose. Its
+  refusal text is also generic (*"Extra inputs are not permitted"*) where the current one names the
+  allowed keys and says nothing was written.
+
+The shape is stated in the tool description and in full in `klarpdf://docs/set_outline`, which is
+where an agent reads it today. Recorded here so the argument is not re-run.
+
+#### One thing to expect on the way back
+
+A bookmark written **without** a `top` reads back from `get_outline` as `top: 36.0`, not `null`.
+That is honest rather than a default invented here: `set_toc` writes a real destination 36 pt below
+the page's top edge for a bookmark that names only a page, so the file genuinely says 36. Leaving
+`top` out has to write exactly what it wrote before (#361's own condition), so this is not
+something to fix — it is something to document, and `klarpdf://docs/set_outline` does.
+
+#### Verification
+
+Each part broken in turn, and the failure read — eight reversions, eight red suites:
+
+| Reverted | Tests that went red |
+|---|---|
+| the height never reaches the written destination | 2 in `test_mcp_set_outline.py` |
+| a left edge written after all | `test_a_written_bookmark_never_names_a_left_edge` |
+| the trimmed page's inset ignored on the way in | `test_a_top_on_a_page_whose_printed_area_is_inset_lands_on_the_page` |
+| `get_outline` stops reporting the height | 2 in `test_mcp_set_outline.py`, 1 in `test_mcp_queries.py` |
+| `get_links` stops reporting the height | `test_an_internal_link_reports_where_on_its_target_page_it_lands` |
+| nothing said about positions a replacement threw away | `test_replacing_a_positioned_outline_without_tops_says_what_was_lost` |
+| an out-of-page height no longer reported | `test_a_top_outside_the_page_is_written_and_reported` |
+| a non-numeric height accepted | `test_a_top_that_is_not_a_number_is_refused_and_nothing_is_written` |
+
+**The left-edge row is there because the first run did not have it.** Seven of the eight reversions
+went red and that one stayed green: the owner's rule had no test behind it at all. It has two now —
+one pinning the exact destination written, one checking that a caller who passes `left` is told
+rather than silently ignored.
+
+Two tests needed rewriting after they were written, both for reasons worth keeping:
+
+* the *"omitting `top` writes what it wrote before"* test compared the two output files byte for
+  byte, and failed — two saves are never byte-identical, because a fresh document identifier is
+  drawn each time (diagnosed in full at [#381](https://github.com/utyagi24/klarpdf/pull/381)). It
+  compares the **destination bytes** now, which is what the claim is about;
+* the no-left-edge test hard-coded the page object numbers in the destination, which are the
+  document's own business. It compares the destination with the page reference stripped.
+
+The tool descriptions were **rewritten, not extended**: `set_outline` had 22 characters of its
+1,900-character budget left and `get_links` 53, so documenting the new keys meant moving reference
+material into `klarpdf://docs/*`. `tests/test_mcp_docs.py` caught the first attempt at 331 over.
+
 ## The open issues, grouped — M149–M152 *(planned 2026-09-19)*
 
 Grouped at the owner's request (2026-09-19: *"plan milestones for all of the issues, except for 352

@@ -397,6 +397,15 @@ done in any of them reads back here.
   It is deliberately `null` for `gotor`, which does carry a page number: that number is a page in
   the *other* document, and reporting it here would say a link goes to your page 4 when it opens
   somebody else's.
+* **`target_top`** — where *on* that page an internal link lands: how far down it, in points from
+  the top of the page, and `null` when the link names only the page. It is the same measurement
+  `search` and `get_heading_candidates` report in a `bbox`, and the same key `set_outline` takes,
+  so a contents-page link feeds an outline entry whole. Worth having because publishers use it:
+  all 221 internal links in one 10-K carry a height, spread from 18 to 734 points down their
+  pages, and its *Risk Factors* entry lands 644.5 points down page 12 — a spot in the bottom
+  margin of the page **before** the heading, which is where that generator aims every contents
+  entry. Some documents name a spot outside their own page (232 links across a 123-file corpus);
+  it is reported as the file has it, and a viewer pulls it back onto the page.
 * **`uri`** — the address, for `uri` links only, exactly as the file spells it.
 * **`file`** — the other document, for `gotor` and `launch` only. Treat it as untrusted text: it is
   a path chosen by whoever made the PDF.
@@ -477,7 +486,8 @@ target has exactly two rows with half the anchors empty, it is a grid. Uneven co
 document, and dedupe must stay off.
 
 What to do with the entries once you have them: **`set_outline`** takes exactly this shape —
-`[{level, title, page}]`, where `page` is the link's `target_page` — and writes it into a copy of
+`[{level, title, page, top}]`, where `page` is the link's `target_page` and `top` its
+`target_top` — and writes it into a copy of
 the document as real bookmarks. Every viewer then has the contents page in its sidebar, and the
 navigation stops depending on a reader finding page 3. `set_outline` refuses a page the document
 does not have, so a rule you applied wrongly surfaces as an error rather than as a bookmark quietly
@@ -513,9 +523,10 @@ cheaper: `kinds: ["uri"]` on a prospectus cut 502 links to 37.
     "set_outline": """\
 ## The entry shape, and why it is the one `get_outline` returns
 
-An entry is `{"level": 1, "title": "Introduction", "page": 12}` and nothing else — an unknown key
-is an error, not an ignored extra, because an agent writing `text` instead of `title` from memory
-would otherwise get an outline of empty rows and a success report counting them.
+An entry is `{"level": 1, "title": "Introduction", "page": 12}`, optionally with `"top": 84.5`,
+and nothing else — an unknown key is an error, not an ignored extra, because an agent writing
+`text` instead of `title` from memory would otherwise get an outline of empty rows and a success
+report counting them.
 
 `level` is 1 for a top-level heading and 2 for a subsection under the entry above it. `page` is
 1-based, and it is the page the bookmark *lands on*, not the page the heading is printed on if
@@ -524,6 +535,55 @@ nearest preceding entry with a lower level.
 
 Because the shape is `get_outline`'s, a document's own outline round-trips through this tool
 unchanged, and the two compose: read, splice, write.
+
+## `top` — where on the page the bookmark lands
+
+Without it, a bookmark opens at the top of its page. That is fine for a chapter that starts a page
+and poor for anything denser: a 23-page agreement in one report carried 104 bookmarks, and 103 of
+them shared a page with another — one page held twelve. Every one of those twelve opened at the
+same place.
+
+`top` is **how far down the page**, in points, measured from the top of the page — the same
+measurement `search` and `get_heading_candidates` report in a `bbox`. So a heading's `bbox[1]`
+goes in as-is:
+
+```
+for h in get_heading_candidates(path)["candidates"]:
+    entries.append({"level": h["level"], "title": h["text"],
+                    "page": h["page"], "top": h["bbox"][1]})
+```
+
+Four things worth knowing.
+
+**Leaving it out writes exactly what this tool wrote before `top` existed.** Nothing about an
+existing caller changes, and a mixed list is fine — each entry is independent.
+
+**There is no `left`.** A bookmark moves the page up and down only; it never scrolls sideways.
+A PDF can express a sideways position, and this tool deliberately does not write one.
+
+**A `top` outside the page is written as asked, not refused.** Real documents do this constantly —
+51 bookmarks and 232 links across a 123-file corpus name a spot their own page does not contain —
+so refusing would break the read-edit-write round trip on documents that already work. The reply
+carries `tops_outside_the_page` naming each one, and a warning. A viewer pulls such a spot back
+onto the page, so the bookmark opens at the page's edge rather than where you asked.
+
+**A `top` that is not a number is an error and nothing is written**, like a bad `page`.
+
+**One thing to expect on the way back.** A bookmark written *without* a `top` reads back from
+`get_outline` with `top: 36.0`, not `null`. That is honest: the PDF layer writes a real position
+36 points below the top edge for a bookmark that names only a page, so the file genuinely says 36.
+
+## Replacing an outline that had positions
+
+If the bookmarks you are replacing landed on spots within their pages and your entries carry no
+`top`, every one of those positions is lost — the new bookmarks open at the tops of their pages.
+The reply says so: `positions_discarded` counts them, with a warning. It is not an error, because
+it is sometimes what you meant; it is counted because the old reply said `replaced: 104` and
+nothing else, and one report had 85 distinct positions collapse to 1 without a word.
+
+Carrying them through is sending back the key that arrived: `get_outline` returns `top`, so an
+entry you are keeping unchanged needs no thought, and one you are renaming keeps its `top` beside
+the new title.
 
 ## Pages are checked; levels are repaired
 

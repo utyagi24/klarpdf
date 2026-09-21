@@ -18,7 +18,7 @@ from typing import Iterable
 
 import pymupdf as fitz
 
-from klarpdf.model.destinations import read_outline_destinations
+from klarpdf.model.destinations import RAW_TAIL_KEY, read_outline_destinations, xyz_tail
 from klarpdf.util.paths import normalize_path
 
 # A snapshot is the full mutable state captured for undo: the ordered list + dirty flag.
@@ -717,6 +717,28 @@ class VirtualDocument:
                 )
         return entries
 
+    def entry_top(self, entry: list) -> "float | None":
+        """How far down its page a :meth:`remapped_toc` row lands, or ``None``.
+
+        Measured in the target page's own points, from the top of its visible area — the frame
+        every box this project hands out uses. ``None`` means the bookmark names no spot on its
+        page, only the page itself, which is what most outlines do.
+
+        Here rather than at either caller because both reach it: the bridge's ``get_outline``
+        reports the number, and the app's **Outline** tab scrolls to it. Two copies of this would
+        be two chances for the two surfaces to answer "where does this bookmark go" differently
+        (CLAUDE.md §*Two consumers share one core*).
+        """
+        from klarpdf.model.destinations import Destination, carried_tail, content_point
+
+        tail = carried_tail(entry)
+        page0 = entry[2] - 1
+        if tail is None or not 0 <= page0 < len(self.ordered):
+            return None
+        ref = self.ordered[page0]
+        page = self.sources[ref.source_id][ref.source_page_index]
+        return content_point(page, Destination(page0, tail))[1]
+
     def subset(self, indices: Iterable[int]) -> "VirtualDocument":
         """A throwaway extract view holding only the pages at ``indices``, in document order (M51
         Export ▸ Selected Pages as PDF…).
@@ -941,16 +963,33 @@ class VirtualDocument:
     def outline_override(self) -> "list | None":
         """The table of contents the caller authored, or ``None`` when the document's own is to be
         kept. Entries are ``[level, title, page]`` with ``page`` **1-based**, the shape
-        :meth:`remapped_toc` returns and ``Document.set_toc`` takes."""
+        :meth:`remapped_toc` returns and ``Document.set_toc`` takes. An entry that named a height
+        carries a fourth item: the destination :meth:`set_outline_override` built from it."""
         override = self._outline_override
         return None if override is None else [list(entry) for entry in override]
 
     def set_outline_override(self, entries: "list | None") -> None:
         """Author the outline a Save writes, or pass ``None`` to keep the document's own.
 
-        ``entries`` is ``[[level, title, page], ...]``, 1-based pages, and is validated **here**
-        rather than at the caller — this is the chokepoint both consumers reach, and the two
-        things being checked for are ones ``set_toc`` does not check for itself:
+        ``entries`` is ``[[level, title, page], ...]`` or ``[[level, title, page, top], ...]``,
+        1-based pages. ``top`` is **how far down that page the bookmark should land**, in the
+        page's own points measured from the top of its visible area — the frame
+        ``get_heading_candidates`` and ``search`` report boxes in, so a heading's box feeds
+        straight in (M150.2, #361). Omit it, or pass ``None``, and the bookmark opens at the top of
+        its page, which is what every authored outline did before.
+
+        **A left edge is never written**, at any caller's request: a bookmark moves the page up and
+        down only (owner's rule, 2026-09-20), the same rule the viewer follows.
+
+        **A ``top`` outside the page is converted and written, not refused** (owner's call,
+        2026-09-20). Real documents do it constantly — 51 bookmarks and 232 links in the 123-file
+        corpus name a spot their own page does not contain — so refusing would break the read →
+        edit → write round trip on documents that already work. The bridge reports it as a warning
+        instead, which is where a report belongs; a viewer pulls such a spot back onto the page.
+
+        Everything else is validated **here** rather than at the caller — this is the chokepoint
+        both consumers reach, and the things being checked for are ones ``set_toc`` does not check
+        for itself:
 
         * **A page outside the document is silently clamped, not refused.** Measured on 1.27.2.3
           against a 6-page document: ``page=99`` writes a bookmark to page 6, ``page=0`` writes one
@@ -1000,7 +1039,25 @@ class VirtualDocument:
                     f"entry {position} has no title ({title!r}). A bookmark with no text is a row "
                     "a reader cannot read or click meaningfully. Nothing was written."
                 )
-            cleaned.append([level, title, page])
+            top = entry[3] if len(entry) > 3 else None
+            if top is None:
+                cleaned.append([level, title, page])
+                continue
+            if isinstance(top, bool) or not isinstance(top, (int, float)):
+                raise ValueError(
+                    f"entry {position} ({title!r}) has top {top!r}; top is how far down the page "
+                    "to land, in points, as a number. Nothing was written."
+                )
+            ref = self.ordered[page - 1]
+            target = self.sources[ref.source_id][ref.source_page_index]
+            # Built here, where the page's own geometry is in hand, and carried to the save inside
+            # the dict `set_toc` is handed (M150.1): `set_toc` writes a bookmark it understands and
+            # `apply_outline_destinations` writes this over it.
+            cleaned.append([
+                level, title, page,
+                {"kind": 1, "page": page - 1, "zoom": 0.0,
+                 RAW_TAIL_KEY: xyz_tail(target, float(top))},
+            ])
         for entry, repaired in zip(cleaned, repair_levels([e[0] for e in cleaned])):
             entry[0] = repaired
         self._outline_override = cleaned

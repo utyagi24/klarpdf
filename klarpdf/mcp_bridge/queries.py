@@ -25,6 +25,7 @@ from contextlib import contextmanager
 
 import pymupdf as fitz
 
+from klarpdf.model.destinations import content_point, page_index_map, read_destination
 from klarpdf.model.links_remap import internal_link_target
 from klarpdf.model.page_text import PageText
 from klarpdf.model.virtual_document import PasswordRequired, VirtualDocument
@@ -194,18 +195,37 @@ def _page_sizes(vdoc: VirtualDocument) -> list[dict]:
 
 
 def outline(path: str, password: str | None = None) -> list[dict]:
-    """The document outline (bookmarks) as ``{level, title, page}``, nesting preserved.
+    """The document outline (bookmarks) as ``{level, title, page, top}``, nesting preserved.
 
     Read through ``remapped_toc`` rather than raw ``get_toc`` so the transform tools get the correct
     outline for free once they start reordering pages — the remap is what keeps a bookmark pointing
     at its own page after a move, and dropping it here would mean two different answers to
     "what is the outline" depending on which tool asked.
+
+    ``top`` is **how far down its page the bookmark lands**, in that page's own points measured
+    from the top of its visible area — the frame ``search`` and ``get_heading_candidates`` report
+    boxes in. ``null`` means the bookmark names only the page, which is what most outlines do.
+
+    It is here so that read → edit → write is lossless (M150.2, #361): the shape ``set_outline``
+    takes is the shape this returns, so carrying a position through is sending back the key that
+    arrived. Without it, a caller who renamed one bookmark flattened every other bookmark's
+    position to a page top and was told only ``replaced: N``.
+
+    **What the file says, not what a viewer will do with it.** 51 bookmarks in the corpus name a
+    spot outside their own page; the number is reported as written, and a viewer pulls it back onto
+    the page. Clamping here would make this tool disagree with the document it is describing.
     """
     with open_document(path, password) as vdoc:
         return [
-            {"level": entry[0], "title": entry[1], "page": entry[2]}
+            {"level": entry[0], "title": entry[1], "page": entry[2],
+             "top": _round(vdoc.entry_top(entry))}
             for entry in vdoc.remapped_toc()
         ]
+
+
+def _round(value: "float | None") -> "float | None":
+    """A measurement rounded for the reply, or ``None``. Two decimals, as every box here is."""
+    return None if value is None else round(value, 2)
 
 
 # ---- query: links (M138) -----------------------------------------------------
@@ -278,7 +298,8 @@ def _kind_name(link: dict) -> str:
 
 
 def _describe_link(
-    link: dict, page: fitz.Page, page_number: int, page_count: int, text: PageText
+    link: dict, page: fitz.Page, page_number: int, page_count: int, text: PageText,
+    vdoc: VirtualDocument | None = None, names: dict | None = None,
 ) -> dict:
     """One ``get_links()`` entry as the tool reports it, with its anchor text read off the page.
 
@@ -303,15 +324,44 @@ def _describe_link(
     box = tuple(link["from"] * page.derotation_matrix)
     kind = link.get("kind", fitz.LINK_NONE)
     anchor = text.word_text_under(box)
+    target_page = _target_page(link, page_count)
     return {
         "page": page_number,
         "rect": [round(v, 2) for v in box],
         "kind": _kind_name(link),
-        "target_page": _target_page(link, page_count),
+        "target_page": target_page,
+        "target_top": _round(_target_top(link, page, target_page, vdoc, names)),
         "uri": link.get("uri") if kind == fitz.LINK_URI else None,
         "file": link.get("file") if kind in _FILE_KINDS else None,
         "text": anchor or None,
     }
+
+
+def _target_top(
+    link: dict, page: fitz.Page, target_page: "int | None",
+    vdoc: "VirtualDocument | None", names: "dict | None",
+) -> "float | None":
+    """How far down its target page this link lands, or ``None`` when it names no spot.
+
+    Measured in the target page's own points from the top of its visible area — the frame
+    ``search`` and ``get_heading_candidates`` use, and the frame ``set_outline`` takes. That is the
+    whole point of returning it (M150.2, #361): for a large class of documents the printed contents
+    page *is* a stack of links, and the publisher already aimed each one at the right line. On
+    `Cisco_FORM10-K.pdf` all 221 internal links carry a height, spread from 18 to 734 pt down their
+    pages — *Risk Factors* lands 644.5 pt down page 12. Without this, the route from that contents
+    page to a real outline threw every one of those lines away and kept only the page number.
+
+    Read from the file rather than from ``get_links``'s own ``to``, which reports the spot in the
+    *displayed* frame and omits it entirely for every destination form but one — 368 of the
+    corpus's internal links name a spot it does not report at all (`PLAN.md` §M150.1).
+    """
+    xref = link.get("xref")
+    if vdoc is None or not xref or target_page is None:
+        return None
+    dest = read_destination(page.parent, xref, page_index_map(page.parent), names)
+    if dest is None:
+        return None
+    return content_point(_page_of(vdoc, target_page - 1), dest)[1]
 
 
 def _target_page(link: dict, page_count: int) -> int | None:
@@ -413,6 +463,7 @@ def links(
     with open_document(path, password) as vdoc:
         indices = resolve_pages(vdoc, pages)
         all_found: list[dict] = []
+        name_memos: dict[str, dict] = {}
         by_kind: Counter[str] = Counter()
         without_action = 0
         unresolved = 0
@@ -422,6 +473,10 @@ def links(
             # page has survived `kinds` — which is what makes a filtered call cheap as well as
             # small: all 502 links of a 320-page prospectus take 0.99 s, its 37 `uri` ones 0.06 s.
             text = None
+            # One cache of resolved destination names per page's source document. Without it every
+            # link re-parses the whole table, which is quadratic on the documents that lean on
+            # names (`PLAN.md` §M150.1 measured 197 ms on one manual).
+            names = name_memos.setdefault(vdoc.ordered[index0].source_id, {})
             raw = page.get_links()
             # `get_links()` silently omits a `/Link` annotation with no `/A` and no `/Dest` — a
             # dead hotspot a designer left behind. Excluding it from *where this document points*
@@ -439,7 +494,9 @@ def links(
                     continue
                 if text is None:
                     text = PageText(page)
-                entry = _describe_link(link, page, index0 + 1, vdoc.page_count, text)
+                entry = _describe_link(
+                    link, page, index0 + 1, vdoc.page_count, text, vdoc, names
+                )
                 if entry["target_page"] is None and entry["kind"] in ("goto", "named"):
                     unresolved += 1
                 all_found.append(entry)
