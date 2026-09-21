@@ -6,8 +6,8 @@ Shown as an **Outline** tab beside Pages — only for documents whose origin car
 ``remapped_toc()`` after every edit, so it always shows what a Save would write: entries follow
 reorders to their page's new position and entries whose target page was deleted disappear (and
 come back on undo). Clicking an entry jumps the view — **to the spot on the page the bookmark
-names, since M150 (#362)**, not merely to the page's top; scrolling the view highlights the entry
-of the page in view. Display-only — outline *editing* is a deferred enhancement (PLAN.md).
+names, since M150 (#362)**, not merely to the page's top, and only ever up or down; scrolling the
+view highlights the entry of the page in view. Display-only — outline *editing* is a deferred enhancement (PLAN.md).
 """
 
 from __future__ import annotations
@@ -20,18 +20,18 @@ from klarpdf.model.virtual_document import VirtualDocument
 from organize.thumbnail_panel import _SIDEBAR_W  # one default width for both sidebar tabs
 
 _PAGE_ROLE = Qt.ItemDataRole.UserRole  # item data slot holding the 0-based target page index
-#: Item data slot holding ``(left, top)`` — where on that page the bookmark points, in content
-#: coords, either part ``None`` when the destination names no such position (M150, #362).
+#: Item data slot holding how far **down** its page the bookmark points, in that page's own
+#: points from the top of its visible area — ``None`` when the bookmark names no height
+#: (M150, #362). Only the height is kept: a click never moves the page sideways.
 _SPOT_ROLE = Qt.ItemDataRole.UserRole + 1
 
 
 class OutlinePanel(QTreeWidget):
     """The outline tree: click / keyboard-select an entry to jump, tracks the visible page."""
 
-    #: 0-based target page, and where on it to land — ``(left, top)`` in content coords, either
-    #: part ``None`` when the destination names none. ``MainWindow`` hands all three to
-    #: ``PdfView.goto_destination``.
-    entryActivated = Signal(int, object, object)
+    #: 0-based target page, and how far down it to land (``None`` when the bookmark names no
+    #: height). ``MainWindow`` hands both to ``PdfView.goto_destination``.
+    entryActivated = Signal(int, object)
 
     def __init__(self, vdoc: VirtualDocument, parent=None) -> None:
         super().__init__(parent)
@@ -84,21 +84,24 @@ class OutlinePanel(QTreeWidget):
         self._syncing = False
         self.set_current(self._current_page)  # restore the you-are-here highlight
 
-    def _spot_of(self, entry, page0: int) -> tuple:
-        """Where on page ``page0`` this entry points, in content coords — ``(None, None)`` when it
-        names no position (M150, #362).
+    def _spot_of(self, entry, page0: int) -> "float | None":
+        """How far down page ``page0`` this entry points, or ``None`` when it names no height.
 
-        The destination rides in the entry's dest dict under
+        The measurement is in that page's own points, from the top of its visible area. A bookmark
+        may also name a left edge; it is read and discarded, because a click must not move the page
+        sideways (owner's rule, 2026-09-20).
+
+        The bookmark's destination rides in the entry under
         :data:`~model.destinations.RAW_TAIL_KEY`, put there by the same remap that renumbered the
         page, so the spot and the page can never disagree about which bookmark they describe.
         """
         dest = entry[3] if len(entry) > 3 else None
         tail = dest.get(RAW_TAIL_KEY) if isinstance(dest, dict) else None
         if tail is None or not 0 <= page0 < len(self._vdoc.ordered):
-            return (None, None)
+            return None
         ref = self._vdoc.ordered[page0]
         page = self._vdoc.sources[ref.source_id][ref.source_page_index]
-        return content_point(page, Destination(page0, tail))
+        return content_point(page, Destination(page0, tail))[1]
 
     def _collapsed_paths(self) -> set[tuple]:
         collapsed = set()
@@ -142,8 +145,7 @@ class OutlinePanel(QTreeWidget):
         self._activate(item)
 
     def _activate(self, item) -> None:
-        left, top = item.data(0, _SPOT_ROLE) or (None, None)
-        self.entryActivated.emit(item.data(0, _PAGE_ROLE), left, top)
+        self.entryActivated.emit(item.data(0, _PAGE_ROLE), item.data(0, _SPOT_ROLE))
 
     def set_current(self, page_index: int) -> None:
         """Highlight the entry the visible page falls under — the nearest entry at or before

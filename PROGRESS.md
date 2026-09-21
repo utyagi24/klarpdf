@@ -1039,9 +1039,10 @@ tick the box here on merge. Build in number order.
       four items landing in the same place is the *document*: all seven links to that page carry
       the identical `/XYZ 0 822`, and the bookmarks say `/Fit`.);
     - **and by their second test** (2026-09-20, `SpaceX-EUProspectus-outlined.pdf` at Fit Width):
-      honouring a destination's *left* literally threw the page off centre, because the page
-      already fitted sideways. The two axes are now deliberately different — vertically the
-      destination commands, horizontally it only corrects a point that is off screen.
+      a bookmark can name a left edge as well as a height, and acting on it slid the page
+      sideways. **Owner's rule: a bookmark or a link moves the page up and down only, never
+      sideways.** The left edge is read from the file and not acted on, on both surfaces — the app
+      here, and `set_outline` in M150.2. — [#380](https://github.com/utyagi24/klarpdf/pull/380)
   - [ ] **M150.2** [#361](https://github.com/utyagi24/klarpdf/issues/361) the bridge reads and
     writes a bookmark's position (FR-001). *Bridge.*
 - [ ] **M151** **Zoom and resize keep the page you are reading** —

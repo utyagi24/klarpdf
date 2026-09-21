@@ -8653,29 +8653,35 @@ and the point is mapped through `page_transform`, so a rotated page needs no rot
 `None` `top` (`/Fit`, `/XYZ left null`) is exactly `goto_page`, the behaviour M33 shipped. A `None`
 `left` leaves the horizontal scroll alone, which is what the `null` means.
 
-**The two axes are not treated alike, and the asymmetry is the design.** Vertically the destination
-*commands* — a reader clicking a bookmark is asking to be moved, so the spot goes to the top of the
-window whether or not it was already visible. Horizontally it only *corrects*: the bar moves solely
-when the point is off screen.
+**A bookmark or a link moves the page up and down only — never sideways** (owner's rule,
+2026-09-20, after testing the first attempt). A destination can name a left edge as well as a
+height. Acting on it went wrong twice:
 
-The literal reading — put `left` at the window's left edge, which is what the PDF spec says and what
-the first attempt did — is wrong whenever the page already fits sideways, because it then scrolls
-*page* off screen to obey a margin. Owner-reported on `SpaceX-EUProspectus-outlined.pdf`
-(2026-09-20): *"I set my view to fit width and clicking on any entry in the TOC throws my page off
-center."* All 101 of that file's bookmarks say `/XYZ 72 805.68`, and the mechanism is worth stating
-because it is not obvious — **the file has two landscape pages among its 400**, `_build_scene` sizes
-the scene to the *widest* row while Fit Width fits the *current* page, so every portrait page sits
-centred in a wider band with the bar resting at 191 of [0, 382]. Honouring `left` threw it to 344
-and cut 139 px off the page's left side, on every click.
+1. **Straight away, at Fit Width.** The owner reported on `SpaceX-EUProspectus-outlined.pdf`:
+   *"I set my view to fit width and clicking on any entry in the TOC throws my page off center."*
+   Every one of that file's 101 bookmarks names a left edge 72 pt in — the page's own margin.
+   Putting that against the window's left side slid the page across and cut 139 px off it.
 
-Correcting only when needed is the rule `ensure_box_visible` already uses for search hits, for the
-same stated reason: stepping between two things on the same screen must not shove the page around.
-It is pinned **from both sides** — a test fails if the bar moves when the point is already visible,
-and another fails if it does not move when the point is off screen.
+   The mechanism is worth writing down because it is not obvious. **The file has two landscape
+   pages among its 400.** `_build_scene` makes the scene as wide as the *widest* row, while Fit
+   Width sizes the zoom to the *current* page — so every portrait page sits centred in a wider
+   band, with room to slide. The sideways scrollbar rests at 191 of [0, 382]; honouring the left
+   edge threw it to 344.
 
-`content_point` is the **one** coordinate conversion this milestone performs, so it is pinned against
-PyMuPDF's own reader rather than against arithmetic written twice
-(`test_content_point_matches_the_library_at_every_rotation_and_crop`).
+2. **Still, after the first correction.** The first fix was *move sideways only when the spot is
+   off screen*, which fixed Fit Width (191 → 191) and left the zoomed-in case moving (400%:
+   1491 → 922). The owner's rule removes that too: a reader who has scrolled sideways put the page
+   where they wanted it, and a bookmark is not a request to move it back.
+
+So the left edge is read from the file and **not acted on**. Clicking a contents entry changes how
+far down the document you are, and nothing else. `set_outline` therefore never writes a left edge
+either (M150.2) — the same rule on the other surface.
+
+**On a page turned a quarter turn, both ends of the line are mapped and the higher one wins.** A
+line that runs across the paper runs *down* the screen once the page is rotated, so "how far down"
+stops having a single answer. Reading one fixed end is right at 90° and wrong at 270°, where that
+same end is the one nearest the bottom — caught by the positive control, not by the first run of
+the tests.
 
 **A point outside the page is pulled back onto it** — found by the owner's hands-on test of the first
 attempt (2026-09-20), reading Cisco's Items 9 / 9A / 9B / 9C. Their report was that all four land on
@@ -8754,8 +8760,8 @@ and the empty name, which name no page and are refused on the way in.
 | a link click back to `goto_page` | 5 in `test_link_nav.py` |
 | the outline entry back to `goto_page` | 4 in `test_outline_panel.py` |
 | the out-of-page clamp | 2 in `test_link_nav.py` |
-| the horizontal rule, back to always scrolling | `test_fit_width_is_not_thrown_off_centre_by_an_entrys_left` |
-| the horizontal rule, to never scrolling | `test_a_left_that_is_off_screen_is_brought_into_view` |
+| sideways scrolling put back | `test_a_click_never_moves_the_page_sideways` + `test_fit_width_is_not_thrown_off_centre_by_an_entrys_left` |
+| one fixed end of a rotated line, not the higher one | `test_a_spot_on_a_rotated_page_is_mapped_through_the_rotation[270]` |
 
 Four of PyMuPDF's behaviours are pinned as tests of their own — the two `set_toc` bugs, the
 `insert_link` one, and the page that cannot see its own new link. **A failure there means PyMuPDF

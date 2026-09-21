@@ -6,13 +6,17 @@ sits on; hovering one shows a pointing-hand cursor. The target is resolved with 
 navigation lands on the page exactly where Save would repoint the link — and it follows reorders /
 deletes live, since the map is rebuilt from ``ordered`` (and invalidated on every edit).
 
-**Since M150 (#362) the click also honours where on that page the link points.** A destination may
-name a spot, not just a page, and M33's contract stopped at the page — right for ``/Fit``, wrong
-for the 3,709 links in the corpus that state a position. It read as a link landing on the wrong
+**Since M150 (#362) a click also lands where on that page the link points.** A link can name a
+spot, not just a page, and M33's contract stopped at the page — right for a link that names no
+spot, wrong for the 3,709 in the corpus that name one. It read as a link landing on the wrong
 *page*: Cisco's 10-K aims every contents entry at the foot of the page **before** its section, so
-"Risk Factors" pointed at the bottom of page 12 and the app showed the top of page 12, a page
-early. The spot is read by :mod:`model.destinations` and handed to
+"Risk Factors" pointed at the bottom of page 12 while the heading is on page 13. The spot is read
+by :mod:`model.destinations` and handed to
 :meth:`~viewer.pdf_view.PdfView.goto_destination`, which puts it at the top of the window.
+
+**Only how far *down* the page is used.** A link can name a left edge too, and acting on it moves
+the page sideways under a reader who did not ask for that. The owner's rule (2026-09-20) is that a
+bookmark or a link changes how far down the document you are and nothing else.
 
 Hit-testing reuses the view's rotation-aware box mapping (``page_and_local_at`` /
 ``scene_rect_for_box``), the same one the text-selection and annotation overlays use, so link rects
@@ -70,9 +74,9 @@ def openable_uri(uri: str) -> str | None:
 class LinkNavigator:
     def __init__(self, view) -> None:
         self._view = view
-        # display page -> [(box, target display index, target left, target top)]. The two
-        # coordinates are the destination's spot on the *target* page in content coords (M150),
-        # either or both None when it names none.
+        # display page -> [(box, target display index, how far down the target page to land)].
+        # The distance is in the target page's own points, measured from the top of its visible
+        # area, and is None when the link names no height at all (M150).
         self._links: dict[int, list[tuple]] = {}
         self._uris: dict[int, list[tuple[tuple, str]]] = {}   # display page -> [(box, URI)]
         self._page_maps: dict[str, dict] = {}                 # source id -> page xref -> index
@@ -124,13 +128,17 @@ class LinkNavigator:
             dest = target_map.get((ref.source_id, target_src))
             if dest is None:
                 continue  # target page isn't in the current document (deleted)
-            left = top = None
+            top = None
             if target is not None and target.page == target_src:
                 dest_ref = vdoc.ordered[dest]
-                left, top = content_point(
+                # Only the height is kept. A destination may also name a left edge, and acting on
+                # it moves the page sideways under a reader who did not ask for that — the
+                # owner's rule is that a link changes how far down the document you are and
+                # nothing else (2026-09-20).
+                _left, top = content_point(
                     vdoc.sources[dest_ref.source_id][dest_ref.source_page_index], target
                 )
-            boxes.append((box, dest, left, top))
+            boxes.append((box, dest, top))
         self._links[page_index] = boxes
         self._uris[page_index] = uris
 
@@ -149,10 +157,10 @@ class LinkNavigator:
         return None if target is None else target[0]
 
     def target_at(self, scene_pt) -> tuple | None:
-        """``(display index, left, top)`` for the internal link under ``scene_pt``, else ``None``.
+        """``(display index, top)`` for the internal link under ``scene_pt``, else ``None``.
 
-        The two coordinates are where on the target page the destination points, in content
-        coords, and are ``None`` when it names no such position — what
+        ``top`` is how far down the target page the link points, in that page's own points from
+        the top of its visible area; ``None`` when the link names no height. What
         :meth:`~viewer.pdf_view.PdfView.goto_destination` takes."""
         return self._hit(scene_pt, self._links_for)
 
