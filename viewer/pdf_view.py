@@ -20,11 +20,11 @@ Text selection (M3) and drag-reorder (M4) build on the same scene later.
 from __future__ import annotations
 
 import time
-from bisect import bisect_right
+from bisect import bisect_left, bisect_right
 from contextlib import contextmanager
 
 import pymupdf as fitz
-from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QGuiApplication, QImage, QPen, QPixmap, QTransform
 from PySide6.QtWidgets import (
     QApplication,
@@ -295,6 +295,16 @@ class PdfView(QGraphicsView):
         # scene rebuild instead of N. ``_zoom_anchor`` is the pointer the flush anchors on.
         self._zoom_pending = 0.0
         self._zoom_anchor = None
+        # Where the view was last sent (M151): per axis, the scene coordinate meant for the
+        # viewport's top-left corner, the scroll value the view was left at, and whether an end of
+        # the document stopped it short. See :meth:`_scroll_to`.
+        self._sent: dict[str, tuple[float, int, bool]] = {}
+        self._sent_page = 0
+        # ...and the content point that placement held, with the spot it held it at ("centre" for
+        # the zoom buttons, "top" for a resize with a fit on), so the next step of the same kind
+        # starts from exactly that point. See :meth:`_kept_anchor`.
+        self._sent_axes: frozenset[str] = frozenset()
+        self._sent_anchor: "tuple[tuple[int, float, float], str] | None" = None
         self._zoom_timer = QTimer(self)
         self._zoom_timer.setSingleShot(True)
         self._zoom_timer.timeout.connect(self._flush_wheel_zoom)
@@ -506,6 +516,9 @@ class PdfView(QGraphicsView):
     def _build_scene(self) -> None:
         scene = self.scene()
         scene.clear()
+        # A new layout makes a remembered placement meaningless; every caller places the view
+        # again once the scene is built, and that placement is remembered afresh (M151).
+        self._sent, self._sent_anchor = {}, None
         self._pages.clear()
         self._page_tops.clear()
         self._painted.clear()   # scene.clear() destroyed the items, so nothing holds a pixmap
@@ -705,10 +718,12 @@ class PdfView(QGraphicsView):
         off_to_the_side = rect.left() < visible.left() or rect.right() > visible.right()
         if settled and not off_to_the_side:
             return
-        # centerOn clamps to the scroll range itself, so a hit near either end of the document
-        # simply lands as close to centred as the document allows.
-        x = rect.center().x() if off_to_the_side else visible.center().x()
-        self.centerOn(x, rect.center().y() if not settled else visible.center().y())
+        # A hit near either end of the document lands as close to centred as the document allows,
+        # and the view remembers the rest (M151), so the page marked current is the hit's page.
+        centre = self._centre()
+        with self._hold_render():
+            self._scroll_to(rect.center().x() - centre.x() if off_to_the_side else None,
+                            rect.center().y() - centre.y() if not settled else None, page_index)
 
     # ---- mouse → text selection -------------------------------------------------
 
@@ -1905,7 +1920,11 @@ class PdfView(QGraphicsView):
         return QPointF(d[0] * self.scale, d[1] * self.scale)
 
     def _visible_range(self) -> tuple[int, int]:
-        """The pages intersecting the viewport, found by **binary search** (M87.3).
+        """The pages intersecting the viewport — see :meth:`_pages_in`."""
+        return self._pages_in(self.mapToScene(self.viewport().rect()).boundingRect())
+
+    def _pages_in(self, view_rect: QRectF) -> tuple[int, int]:
+        """The pages intersecting ``view_rect``, found by **binary search** (M87.3).
 
         This used to scan every page in the document to find the handful on screen, which made a
         render pass cost O(document length) however few pages were visible — measured at ~6 ms per
@@ -1917,7 +1936,6 @@ class PdfView(QGraphicsView):
         reach ``top``, and the forward scan below stops at the first page past ``bottom`` — both
         bounded by the number of pages actually on screen.
         """
-        view_rect = self.mapToScene(self.viewport().rect()).boundingRect()
         top, bottom = view_rect.top(), view_rect.bottom()
         # The last page starting at or above `top` is the only one that can reach down into the
         # viewport from above — a preceding row ends a full gap before this row starts. Its facing
@@ -2128,7 +2146,7 @@ class PdfView(QGraphicsView):
         # Content marks ride the same band as the pixmaps, so a stamp scrolls in with its page.
         if self.annotations is not None:
             self.annotations._paint_visible_content()
-        self._update_current(first, last)
+        self._update_current()
 
     # ---- giving pixels back when nobody is reading this window (M87.2) ------------
 
@@ -2161,7 +2179,7 @@ class PdfView(QGraphicsView):
         """Re-render the band after a :meth:`release_pixmaps` that dropped the visible pages."""
         self._render_visible()
 
-    def _update_current(self, first: int, last: int) -> None:
+    def _update_current(self) -> None:
         """The current page is the one **occupying the most of the viewport**.
 
         Not the page under the viewport *centre* (M85): that names the page you are reading only
@@ -2176,14 +2194,32 @@ class PdfView(QGraphicsView):
         than the equally-visible one below it. The epsilon is what makes that tie *stable*: the two
         areas are computed from different scene coordinates and can differ by an ulp, which without
         it would let the later page win at random.
+
+        **The viewport measured is the one the view was sent to** (M151), which is the one on screen
+        except near an end of the document, where the view stops short. There the page on screen
+        and the page the reader was sent to can differ: zoomed out on the last page, the window
+        shows the last three pages whole and the tie went to the first of them, and a Fit Width
+        window narrowed on page 10 of 23 ended on page 1 once every page fitted (#359). Both are
+        the page the next zoom or resize starts from, so both have to be the reader's page.
+
+        Measuring the view as sent is not enough on its own: zoomed out on the last page, the
+        sent view still holds the page before it whole. So while the view is stopped short, a tie
+        goes to the page it was sent to rather than the earlier one. Anywhere else the earlier
+        page still wins, exactly as above.
         """
-        view_rect = self.mapToScene(self.viewport().rect()).boundingRect()
+        actual = self.mapToScene(self.viewport().rect()).boundingRect()
+        view_rect = actual.translated(self._intended_origin() - actual.topLeft())
+        first, last = self._pages_in(view_rect)
+        short = any(stopped for _want, _value, stopped in self._sent.values())
+        sent = self._sent_page if short else None
         current, most = first, -1.0
         for i in range(first, last + 1):
             p = self._pages[i]
             shown = view_rect.intersected(QRectF(p["x"], p["y"], p["w"], p["h"]))
             area = shown.width() * shown.height()
-            if area > most + 1.0:   # 1 px² — far below any difference a reader could mean
+            # 1 px² — far below any difference a reader could mean. A later page that only ties
+            # wins when it is the page the view was sent to and stopped short of.
+            if area > most + 1.0 or (i == sent and area > most - 1.0):
                 current, most = i, area
         if current != self._current:
             self._current = current
@@ -2209,11 +2245,18 @@ class PdfView(QGraphicsView):
             self._slide_row = self._row_of(self._current)
 
     def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
+        if self._fit_mode is None or not self._pages:
+            super().resizeEvent(event)
+            return
+        # A sticky Fit Width/Page follows the new viewport (e.g. a Pages-sidebar toggle), and the
+        # line at the top of the window stays there while the page is resized around it (M151).
+        # Read it **before** ``super()``, which is where Qt re-clamps the scrollbars to the new
+        # size: a clamp is not the reader moving, and reading after it would lose the place the
+        # view was sent to. The hold spans both, so a drag-resize costs one rasterise per step.
+        top = self._top_line_anchor()
         with self._hold_render():
-            # A sticky Fit Width/Page follows the new viewport (e.g. a Pages-sidebar toggle). Its
-            # set_zoom holds too, so a drag-resize costs one rasterise per step, not two.
-            self._reapply_fit()
+            super().resizeEvent(event)
+            self._reapply_fit(top)
 
     # ---- public API: zoom / fit / rotate / navigation ---------------------------
 
@@ -2351,46 +2394,173 @@ class PdfView(QGraphicsView):
         ``view_pos`` of ``None`` means the viewport centre — the right anchor for every zoom with
         no pointer behind it (menu, toolbar, typed percentage, Ctrl+±); the pointer case is the
         Ctrl+wheel gesture (M80).
+
+        **The two read different views** (M151, owner's calls, 2026-09-21). The centre is read
+        from the view as it was **sent**, so zooming out with the buttons and back in returns to
+        where you were even when an end of the document stopped the view short: on page 1 the
+        middle of a zoomed-out window sits on page 2, and before M151 the next zoom in went there
+        (#357). The pointer is read from the view **on screen**, because the reader can see what
+        they are pointing at: zoomed out from page 1 until page 2 is under the mouse, a wheel zoom
+        in goes to page 2, whether or not the mouse moved.
         """
         if not self._pages:
             return None
-        pt = self.mapToScene(self.viewport().rect().center() if view_pos is None else view_pos)
-        pi = self._current
-        for i, p in enumerate(self._pages):
-            if p["y"] <= pt.y() <= p["y"] + p["h"]:
-                pi = i
-                break
+        if view_pos is None:
+            return (self._kept_anchor("centre")
+                    or self._content_at(self._intended_origin() + self._centre()))
+        return self._content_at(self.mapToScene(view_pos))
+
+    def _top_line_anchor(self) -> "tuple[int, float, float]":
+        """The content at the **top line** of the view it was sent to — see :meth:`_top_line`."""
+        return (self._kept_anchor("top")
+                or self._content_at(self._intended_origin() + self._top_line()))
+
+    def _kept_anchor(self, spot: str) -> "tuple[int, float, float] | None":
+        """The content point the last placement held at ``spot``, while the reader has not scrolled
+        since — or ``None``, and the caller reads the view as it was sent.
+
+        Reading the point back from the view is not exact even then, because **the window changes
+        size under a placement**: a page grown wider than the window brings in a horizontal
+        scrollbar, the window loses its height, and its middle moves up by half of it. The first
+        build of M151 read the view back and so returned from 500% 10 px away from where it left.
+        Kept, the point is the one the reader was on, whatever the scrollbars did since.
+        """
+        self._intended_origin()     # forgets whichever axis the reader has scrolled
+        if self._sent_anchor is None or set(self._sent) != self._sent_axes:
+            return None
+        anchor, kept_at = self._sent_anchor
+        return anchor if kept_at == spot else None
+
+    def _content_at(self, pt: QPointF) -> "tuple[int, float, float]":
+        """Scene point ``pt`` as ``(page_index, fx, fy)`` — see :meth:`_anchor_at`. In a facing
+        row the point is measured against the row's first page, with ``fx`` past 1 on the right.
+
+        **A point in the grey gap between two rows is the top of the page below it** (M151). The
+        gap stays ``_PAGE_GAP`` pixels at every zoom while a page fraction grows with it, so a
+        fraction measured into the gap lands somewhere else after the zoom. And the page it was
+        measured against used to be the current page, which is itself worked out from the view:
+        narrowing a Fit Width window put the top line in the gap above page 10, the current page
+        turned to 11, and the next step measured from page 11 and drifted. A point past either end
+        of the document keeps its fraction — the first or last page, measured beyond its edge — as
+        that is where a placement stopped short meant it to be.
+        """
+        tops = self._page_tops
+        row = bisect_right(tops, pt.y()) - 1          # the last row starting at or above pt
+        if row < 0:
+            pi, snap = 0, False                         # above the first page
+        else:
+            pi = bisect_left(tops, tops[row])           # that row's first page
+            nxt = bisect_right(tops, tops[row])         # the next row's first page
+            height = max(self._pages[i]["h"] for i in range(pi, nxt))   # a row is its tallest page
+            below = pt.y() > self._pages[pi]["y"] + height
+            snap = below and nxt < len(self._pages)
+            if snap:
+                pi = nxt
         p = self._pages[pi]
         fx = (pt.x() - p["x"]) / p["w"] if p["w"] else 0.5
-        fy = (pt.y() - p["y"]) / p["h"] if p["h"] else 0.5
+        fy = 0.0 if snap else ((pt.y() - p["y"]) / p["h"] if p["h"] else 0.5)
         return pi, fx, fy
+
+    def _centre(self) -> QPointF:
+        """The viewport's centre, as the one point both :meth:`_anchor_at` and
+        :meth:`_restore_anchor` use, so a zoom puts back exactly the point it read."""
+        return QPointF(self.viewport().width() / 2.0, self.viewport().height() / 2.0)
+
+    def _top_line(self) -> QPointF:
+        """The point a resize holds still with a fit on (M151, owner's call): the reader's top
+        line. **Narrowing the window zooms out and shows more below it; widening zooms in and shows
+        less; the line stays where it is.**
+
+        It sits ``_PAGE_GAP`` below the window's top edge because that is where :meth:`goto_page`
+        puts a page's top edge, so right after a jump the top line is the page's first line. The
+        window's very top edge would instead sit in the grey gap above the page, and the gap does
+        not grow with the zoom, so the page would creep a few pixels at every step.
+        """
+        return QPointF(self.viewport().width() / 2.0, float(_PAGE_GAP))
 
     def _restore_anchor(self, anchor: "tuple[int, float, float]", view_pos=None) -> None:
         """Scroll so the ``(page_index, fx, fy)`` from :meth:`_anchor_at` sits back under
         ``view_pos`` — or under the viewport centre when it is ``None``.
 
-        The centre case uses ``centerOn``, which clamps to the scene bounds, and the view alignment
-        re-centres a page that now fits without scrollbars — so both zoom-out-to-fit and
-        zoom-in-past-edge land where the eye expects. The pointer case (Ctrl+wheel) can't use
-        ``centerOn``: it has to put the point back under a spot that is *not* the centre, so it
-        nudges the scrollbars by the scene delta directly. That is a pixel delta because the view
-        transform stays identity — zoom rebuilds the scene at the new page size rather than scaling
-        the view (see :meth:`_build_scene`). The scrollbars clamp on their own, which is the wanted
-        behaviour at the edges: as far toward the pointer as the document allows.
+        The position is set directly rather than by ``centerOn``. That is a pixel delta because the
+        view transform stays identity — zoom rebuilds the scene at the new page size rather than
+        scaling the view (see :meth:`_build_scene`). The scrollbars clamp on their own, and the
+        view alignment re-centres a page that now fits without scrollbars, which is the wanted
+        behaviour at the edges: as close to the anchor as the document allows — and
+        :meth:`_scroll_to` remembers the rest (M151).
         """
         pi, fx, fy = anchor
         if not (0 <= pi < len(self._pages)):
             return
         p = self._pages[pi]
-        target = QPointF(p["x"] + fx * p["w"], p["y"] + fy * p["h"])
-        if view_pos is None:
-            self.centerOn(target)
-        else:
-            now = self.mapToScene(view_pos)
-            hbar, vbar = self.horizontalScrollBar(), self.verticalScrollBar()
-            hbar.setValue(round(hbar.value() + target.x() - now.x()))
-            vbar.setValue(round(vbar.value() + target.y() - now.y()))
+        at = self._centre() if view_pos is None else QPointF(view_pos)
+        self._scroll_to(p["x"] + fx * p["w"] - at.x(), p["y"] + fy * p["h"] - at.y(), pi,
+                        (anchor, "centre" if view_pos is None else "pointer"))
         self._render_visible()
+
+    def _put_on_top_line(self, anchor: "tuple[int, float, float]") -> None:
+        """Scroll so ``anchor`` sits on :meth:`_top_line` again, moving up and down only (M151)."""
+        pi, _fx, fy = anchor
+        p = self._pages[pi]
+        self._scroll_to(None, p["y"] + fy * p["h"] - self._top_line().y(), pi, (anchor, "top"))
+
+    def _scroll_to(self, x: "float | None", y: "float | None", page: int,
+                   anchor: "tuple[tuple[int, float, float], str] | None" = None) -> None:
+        """Scroll so scene point ``(x, y)`` sits at the viewport's top-left corner, and **remember
+        it when the view cannot get there** (M151, #357, #359). ``None`` leaves that axis alone.
+        ``page`` is the page the placement is for, which :meth:`_update_current` prefers in a tie,
+        and ``anchor`` the content point it holds and where, for :meth:`_kept_anchor`.
+
+        Every placement goes through here: a page jump, a link, a search hit, a zoom, a resize.
+        Near an end of the document the view stops short — it cannot scroll above the first page
+        or below the last, and a document smaller than the window is centred in it. Before M151 the
+        next zoom or resize read the reading position back from what the window showed, which was
+        no longer where the reader had been sent, so each step moved them: the zoom buttons walked
+        from page 1 to page 2 (#357), and narrowing a Fit Width window walked from page 10 to page 1
+        (#359). So the place asked for is kept here, and :meth:`_intended_origin` hands it back
+        until the reader scrolls.
+
+        **The exact place is kept for every placement, not only one stopped short.** The scroll
+        value is a whole pixel, so the view misses by up to half a pixel even in the middle of the
+        document, and a zoom or resize that read the position back from the screen carried that
+        rounding into the next step. A drag-resize is hundreds of steps: the first build of M151
+        crept the top line down 3.5 px in fifteen. Read from here, each step starts from exactly
+        the point the last one placed. Whether the view *stopped short* — missed by more than that
+        half pixel — is kept beside it, because only then does :meth:`_update_current` prefer
+        ``page`` in a tie.
+
+        The scroll value is the scene coordinate of the viewport's edge because the scene starts
+        at (0, 0) and the view transform is identity (:meth:`_build_scene`).
+        """
+        self._sent, self._sent_page, self._sent_anchor = {}, page, anchor
+        self._sent_axes = frozenset(a for a, v in (("x", x), ("y", y)) if v is not None)
+        for axis, want, bar in (("x", x, self.horizontalScrollBar()),
+                                ("y", y, self.verticalScrollBar())):
+            if want is None:
+                continue
+            bar.setValue(round(want))
+            origin = self.mapToScene(QPoint(0, 0))
+            miss = want - (origin.x() if axis == "x" else origin.y())
+            self._sent[axis] = (want, bar.value(), abs(miss) > 0.5)
+
+    def _intended_origin(self) -> QPointF:
+        """The scene point at the viewport's top-left corner in the view as it was **sent** — see
+        :meth:`_scroll_to`. It is the view on screen, to the half pixel, except where an end of the
+        document stopped a placement short; and only until the reader moves the view: any scroll
+        since then changes the scroll value, and what the reader sees is then where they are."""
+        origin = QPointF(self.mapToScene(QPoint(0, 0)))
+        for axis, bar in (("x", self.horizontalScrollBar()), ("y", self.verticalScrollBar())):
+            sent = self._sent.get(axis)
+            if sent is None:
+                continue
+            want, value, _short = sent
+            if bar.value() != value:
+                del self._sent[axis]
+            elif axis == "x":
+                origin.setX(want)
+            else:
+                origin.setY(want)
+        return origin
 
     def _clamp_zoom(self, zoom: float, fit: bool = False, step: bool = False) -> float:
         """Hold ``zoom`` inside 25%–500% (M88.6) — with **one** way out of the bottom: a fit.
@@ -2503,14 +2673,23 @@ class PdfView(QGraphicsView):
         self.set_zoom(self._fit_zoom(fit_height=True), fit="page")
         self._center_horizontally()
 
-    def _reapply_fit(self) -> None:
-        """Re-run the active sticky fit against the current viewport (called on resize)."""
-        if self._fit_mode == "width":
-            self.set_zoom(self._fit_zoom(fit_height=False), fit="width")
-            self._center_horizontally()
-        elif self._fit_mode == "page":
-            self.set_zoom(self._fit_zoom(fit_height=True), fit="page")
-            self._center_horizontally()
+    def _reapply_fit(self, top: "tuple[int, float, float] | None" = None) -> None:
+        """Re-run the active sticky fit against the current viewport.
+
+        A resize passes ``top``, the content on the top line from :meth:`_top_line_anchor`, and
+        the page is re-fitted around it so that line stays where it is (M151, owner's call). This
+        runs even when the fit zoom has not changed: a window made taller at the end of the
+        document has to show more above, and made shorter again it should put the top line back.
+        Without ``top`` — a layout switch — the view lands on the current page's top, as a fit
+        always did before M151.
+        """
+        if self._fit_mode is None:
+            return
+        self.set_zoom(self._fit_zoom(fit_height=self._fit_mode == "page"), fit=self._fit_mode,
+                      keep_page=top is None)
+        if top is not None:
+            self._put_on_top_line(top)
+        self._center_horizontally()
 
     def _center_horizontally(self) -> None:
         """Centre the viewport on the scene's horizontal midline. Pages are laid out centred in the
@@ -2658,11 +2837,14 @@ class PdfView(QGraphicsView):
         # there the current-page anchor is the only sensible place to land.
         layout = self._layout_signature()
         offset = self.verticalScrollBar().value()
+        sent = (self._sent, self._sent_anchor)
         with self._hold_render():
             self._build_scene()
             structural = self._layout_signature() != layout
             if not structural:
                 self.verticalScrollBar().setValue(offset)
+                # The same layout, so where the view was sent still holds (M151).
+                self._sent, self._sent_anchor = sent
             else:
                 self.goto_page(self._current)
         return structural
@@ -2689,7 +2871,7 @@ class PdfView(QGraphicsView):
         # wheel for all of them (M91.4).
         self._park_coasting_wheel()
         p = self._pages[index]
-        self.verticalScrollBar().setValue(int(p["y"]) - _PAGE_GAP)
+        self._scroll_to(None, int(p["y"]) - _PAGE_GAP, index)
         self._render_visible()
 
     def goto_destination(self, index: int, top: float | None) -> None:
@@ -2755,7 +2937,7 @@ class PdfView(QGraphicsView):
         top = min(max(top, oy), oy + height)
         transform = self.page_transform(index)
         scene_y = min(transform.map(QPointF(x, top)).y() for x in (ox, ox + width))
-        self.verticalScrollBar().setValue(int(scene_y) - _PAGE_GAP)
+        self._scroll_to(None, int(scene_y) - _PAGE_GAP, index)
         self._render_visible()
 
     # ---- persistence ------------------------------------------------------------

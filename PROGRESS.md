@@ -1064,10 +1064,23 @@ tick the box here on merge. Build in number order.
       the parameter cost more than they give (a `TypedDict` silently drops an unknown key; a strict
       model coerces `page: "3"` to `3`). Measured and argued in `PLAN.md` §M150.2 so it is not
       re-derived.
-- [ ] **M151** **Zoom and resize keep the page you are reading** —
+- [x] **M151** **Zoom and resize keep the page you are reading** —
   [#357](https://github.com/utyagi24/klarpdf/issues/357) zoom out and in drifts a page;
   [#359](https://github.com/utyagi24/klarpdf/issues/359) narrowing a Fit Width window loses the
-  page. *App.*
+  page. *App.* Cause, the owner's three decisions and the measurements in `PLAN.md` §M151. —
+  *WSL (offscreen GUI)* — [#384](https://github.com/utyagi24/klarpdf/pull/384)
+  - near either end of the document the view stops short, and each zoom or resize step read the
+    reading position back from what the window showed. The view now remembers where it was sent,
+    until you scroll;
+  - **the zoom buttons and Ctrl+±** return to where you were: page 1 stays page 1, and the last
+    page stays the last;
+  - **Ctrl+wheel is unchanged** (owner's call): it zooms on whatever is under the mouse on
+    screen. The owner withdrew #357 for the wheel;
+  - **with a fit on, a resize keeps the top line where it is** (owner's call): narrowing zooms out
+    and shows more below it, widening zooms in and shows less. Before, every resize jumped to the
+    top of a page, at any window size. Opening the sidebar is a resize, so it keeps the line too;
+  - the page marked current is the page the view was sent to: a deck reopened on its last slide,
+    or a search hit on the last page, now marks that page and not the one before it.
 - [ ] **M152** **A slow page does not freeze the window** —
   [#360](https://github.com/utyagi24/klarpdf/issues/360). *App.*
   - [ ] **M152.1** The two small causes: a page touching the view's edge is drawn in full, and every
@@ -4653,6 +4666,15 @@ released build or in the code on `main` that is unambiguous and readily reproduc
 the PR that fixes it. See `CLAUDE.md` §How we work for the split and why. Items already carried here
 were not migrated wholesale: each is listed because a decision is outstanding, which is what keeps
 it on this side of the line.
+
+- **A resize with a zoom you chose yourself (no fit on) does not keep the top line at the end of
+  the document** (M151, found 2026-09-21). With a fit on, a resize keeps the line at the top of the
+  window where it is (owner's rule, `PLAN.md` §M151). With no fit, the view stays wherever Qt
+  leaves it. That keeps the top line everywhere except at the end of the document: there a taller
+  window has to show more above, which pushes the line down, and making it shorter again does not
+  bring the line back. Not reported by anyone. **Open question:** should the owner's rule cover a
+  zoom you chose as well? The same code would do it (`PdfView.resizeEvent` returns early when no
+  fit is on).
 
 - **The WSLg window-minimum snap-back is platform-motivated code sitting in cross-platform code**
   (M149 / [#358](https://github.com/utyagi24/klarpdf/issues/358); raised **2026-09-20** by the owner,

@@ -64,7 +64,7 @@ Source / Donate… — which is handed to your own browser.
 
 **Read & navigate**
 - **Two-tier toolbar** — a calm reading bar at rest; the markup kit appears only when you summon it.
-- **Continuous scroll** with zoom, a live readout, and sticky **Fit Width / Fit Page**.
+- **Continuous scroll** with zoom, a live readout, and sticky **Fit Width / Fit Page**. With a fit on, resizing the window keeps the line you are reading at the top. Zooming out and back in with the zoom buttons returns you to where you were.
 - **Scrolling that behaves** — a wheel click moves a defined distance that scales with zoom (not with your window size), eased over 200 ms; **Space / PgUp / PgDn** step a page from anywhere. Turn the easing off at **View ▸ Smooth Scrolling**.
 - **An editable page counter** on the toolbar — `[ 10 ] of 320`; type a number to jump.
 - **View modes** — **Full Screen** (F11), **Slideshow**, and a **Two-Page** facing layout.
