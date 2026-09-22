@@ -65,9 +65,9 @@ def passes(monkeypatch):
     n = {"count": 0}
     real = PdfView._update_current
 
-    def counting(self, first, last):
+    def counting(self):
         n["count"] += 1
-        return real(self, first, last)
+        return real(self)
 
     monkeypatch.setattr(PdfView, "_update_current", counting)
     return n

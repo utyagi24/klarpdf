@@ -8876,6 +8876,154 @@ The tool descriptions were **rewritten, not extended**: `set_outline` had 22 cha
 1,900-character budget left and `get_links` 53, so documenting the new keys meant moving reference
 material into `klarpdf://docs/*`. `tests/test_mcp_docs.py` caught the first attempt at 331 over.
 
+### M151 — zoom and resize keep the page you are reading (2026-09-21)
+
+[#357](https://github.com/utyagi24/klarpdf/issues/357) (zooming out and back in lands on another
+page near either end of a document) and [#359](https://github.com/utyagi24/klarpdf/issues/359)
+(narrowing a Fit Width window loses the page), as planned in §*The open issues, grouped*.
+
+**Surfaces: the app only.** Everything is in `viewer/pdf_view.py`. The bridge has no view, and no
+file in `klarpdf/` changed.
+
+#### What the reader saw
+
+* **#357.** On page 1 of `salesforce.pdf` at Fit Page, zoom all the way in, then all the way out,
+  then in again. The second trip to 500% landed on page 2, and the Pages sidebar moved between
+  pages on the way. On the last page it drifted to the page before.
+* **#359.** On page 10 of the 23-page NADA report at Fit Width, drag the window narrow and back.
+  The view ended on page 1.
+* **Found while building it.** With a fit on, *every* resize threw the reader to the top of a
+  page: the top of page 10 if they were halfway down it, or the top of page 11 if page 11 filled
+  more of the window. This happened at any window size, not only near the ends. Opening the sidebar
+  is a resize, so it did it too.
+
+#### Cause
+
+The view cannot scroll above the first page or below the last. A document smaller than the window
+is centred in it. So near either end, a placement stops short of where it was asked to go.
+
+Every zoom step and every resize step read the reading position back from the window. When the
+view had stopped short, the window showed something else. At 25% on page 1, the middle of the
+window is on page 2, so the next zoom in started from page 2 (#357). Narrowing on page 10, the
+current page was worked out again from a window already stopped at the end; once every page fitted,
+page 1 won the tie (#359). Nothing kept where the reader had been sent.
+
+Measuring the first build found three smaller causes of the same kind:
+
+* **The scroll position is a whole pixel.** Reading it back carried up to half a pixel into each
+  step. A drag-resize is hundreds of steps, and the top line crept down 3.5 px in fifteen.
+* **The window changes size under a placement.** When a page grows wider than the window, a
+  horizontal scrollbar appears and the window loses about 15 px of height, so its middle moves up
+  by half that. The trip back to 500% came back 10 px off.
+* **A point in the grey gap between two pages** was measured against the current page, which is
+  itself worked out from the window. Narrowing put the top line in the gap above page 10; the
+  current page turned to 11; the next step measured from page 11 and drifted.
+
+#### The owner's decisions (2026-09-21)
+
+1. **With a fit on, a resize keeps the top line where it is.** In the owner's words: *"as the
+   window is made smaller the document is zoomed out and more of the page(s) show towards the bottom
+   while the top line in the window remains fixed. Similarly when the window is made bigger the
+   document is zoomed in and less of the document is shown but the top line in the window remains
+   fixed."*
+2. **Ctrl+wheel does not change.** It zooms on whatever is under the mouse on screen, even when
+   the mouse has not moved. The owner withdrew #357 for the wheel: *"what matter is exactly where my
+   mouse pointer was placed when I start zooming in ... This seems to be how our app behaves
+   already."*
+3. **The zoom buttons and Ctrl+± return to where you were**, until you scroll. Nothing on screen
+   shows which spot the buttons zoom on, so the reader expects to come back where they started.
+
+#### The fix: the view remembers where it was sent, until you scroll
+
+Every placement now goes through one method, `PdfView._scroll_to`: a page jump, a link, a search
+hit, a zoom, a resize. It keeps five things:
+
+* the exact position asked for, to a fraction of a pixel;
+* the scroll value the view was left at;
+* whether the view stopped short, which means it missed by more than the half pixel rounding
+  explains;
+* the page the placement was for;
+* the content point it held, and where in the window it held it (the middle, the top line, or the
+  mouse).
+
+All of it is forgotten as soon as the scroll value changes, which is what any scroll by the reader
+does. From then on, what the window shows is where the reader is.
+
+What reads it:
+
+* **The zoom buttons** start from the kept point when the last step also held the middle; otherwise
+  from the middle of the view as it was sent (`_anchor_at(None)`, `_kept_anchor`).
+* **Ctrl+wheel** reads the screen under the mouse, as it always has (decision 2).
+* **A resize with a fit on** reads the top line before calling `super().resizeEvent`, re-fits, and
+  puts that line back on the top line. Reading first matters: `super()` is where Qt re-clamps the
+  scrollbars to the new size, and a clamp is not the reader moving. It runs even when the fit zoom
+  did not change, because a window made taller at the end of the document has to show more above,
+  and made shorter again should put the line back. The top line is `_PAGE_GAP` below the window's
+  top edge, where `goto_page` puts a page's top, so right after a jump it is the page's first line.
+* **The page marked current** (`_update_current`) is measured on the view as it was sent. While
+  the view is stopped short, a tie goes to the page it was sent to. Everywhere else the rule is
+  M85's, unchanged: the page showing the most, ties to the earlier page.
+* **A point in the gap between two pages** counts as the top of the page below it
+  (`_content_at`). A point past either end keeps its position beyond the first or last page,
+  because that is where a placement stopped short meant it to be.
+
+The Fit Width and Fit Page commands, and the two-page toggle, still land on the current page's top.
+Only a resize holds the top line.
+
+#### Other things this changes
+
+Each was checked, and each follows from the page marked current being the page the reader was sent
+to:
+
+* A deck reopened on its last slide, with the last two slides whole in the window, used to mark the
+  slide before it as current. It now marks the last slide.
+* A search hit on the last page, with the view stopped at the end, now marks the hit's page.
+* The same holds sideways. Zoom in on the left of a page, out until the page is centred, and back
+  in: you are on the left of the page again.
+
+#### Measured, before and after
+
+`salesforce.pdf` (72 pages), 1280 × 900, the #357 steps. Each cell gives two pages: the page
+marked current in the sidebar, then the page the next zoom with the buttons starts from. At 25% the
+middle of the window still shows the next page along on screen, before and after; what changed is
+that the next zoom no longer starts from it.
+
+| Step | Page 1, before | Page 1, after | Page 72, before | Page 72, after |
+|---|---|---|---|---|
+| 500% | 1, 1 | 1, 1 | 72, 72 | 72, 72 |
+| 25% | 1, **2** | 1, 1 | **70**, **71** | 72, 72 |
+| 500% again | **2**, **2** | 1, 1 | **71**, **71** | 72, 72 |
+
+The NADA report, page 10, Fit Width, narrowed 5 px at a time to 40 px and widened back: before, the
+view ended on **page 1**; after, on page 10 with its top on the top line.
+
+A drag probe: a reader 37% down page 10 at Fit Width, dragged 3 px at a time from 1000 px to 40 px
+and back, 640 resizes in all. The line on the top line after the drag is the one before it, to four
+decimal places of the page height, on both documents and at Fit Page too. On page 72 the page
+marked current never changed.
+
+#### Tests, and how they were checked
+
+`tests/test_reading_position.py`, 13 tests. On `main`'s code 10 of them fail. The other 3 guard
+new behaviour: two check that a scroll makes the view forget, and one checks that the wheel reads
+the screen. Each of those fails when its rule is broken on purpose.
+
+Each of the four smaller parts of the fix was then removed in turn, and each removal fails at least
+one test: the gap rule, the kept point, the tie going to the page sent to, and keeping the exact
+position. The tie rule was not caught at first. In a 700 px window the page before the last is never
+whole on screen, so there was no tie to break. The round-trip test now uses the report's own 900 px
+height.
+
+`tests/test_zoom_coalescing.py` counted render passes by wrapping `_update_current`, whose
+arguments are gone; the wrapper was updated to match.
+
+#### Not done
+
+* **A zoom you chose yourself (no fit) still leaves the view where Qt puts it on a resize.** At the
+  end of the document, a taller window pushes the top line down, and making it shorter again does
+  not bring the line back. Not reported, and the owner's rule was stated for a fit. Recorded in
+  `PROGRESS.md` §Open follow-ups.
+
 ## The open issues, grouped — M149–M152 *(planned 2026-09-19)*
 
 Grouped at the owner's request (2026-09-19: *"plan milestones for all of the issues, except for 352
