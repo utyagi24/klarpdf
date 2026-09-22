@@ -1068,7 +1068,7 @@ tick the box here on merge. Build in number order.
   [#357](https://github.com/utyagi24/klarpdf/issues/357) zoom out and in drifts a page;
   [#359](https://github.com/utyagi24/klarpdf/issues/359) narrowing a Fit Width window loses the
   page. *App.* Cause, the owner's three decisions and the measurements in `PLAN.md` §M151. —
-  *WSL (offscreen GUI)* — PR_LINK
+  *WSL (offscreen GUI)* — [#384](https://github.com/utyagi24/klarpdf/pull/384)
   - near either end of the document the view stops short, and each zoom or resize step read the
     reading position back from what the window showed. The view now remembers where it was sent,
     until you scroll;
