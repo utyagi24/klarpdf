@@ -1138,7 +1138,8 @@ tick the box here on merge. Build in number order.
   instead, which is why Esc worked. Every drop-down list in the app now closes its list the way Esc
   does, the other five included. The owner's hand check on WSL found no list left behind. Found on
   the way: opening the zoom list turns off Fit Page,
-  [#390](https://github.com/utyagi24/klarpdf/issues/390). Details in `PLAN.md` §M153 — *WSL*
+  [#390](https://github.com/utyagi24/klarpdf/issues/390). Details in `PLAN.md` §M153 — *WSL* —
+  [#391](https://github.com/utyagi24/klarpdf/pull/391)
 
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 
