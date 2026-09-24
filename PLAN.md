@@ -2632,7 +2632,8 @@ correct for an image-only PDF.
   conditional; the "only if still needed" gate has been met, and the open question is now scheduling,
   not justification.
   *(Scheduled as **M152.2**, 2026-09-19 — §The open issues, grouped. Diagnosis, measurements and
-  the proposed design: §M152, 2026-09-23.)*
+  the proposed design: §M152, 2026-09-23. Revised 2026-09-24: slow pages are drawn in pieces on
+  the window's thread, and a helper process is kept as the fallback.)*
 
 ### M92 — Mouse-wheel scrolling (owner-reported 2026-07-30)
 
@@ -9026,16 +9027,22 @@ arguments are gone; the wrapper was updated to match.
   not bring the line back. Not reported, and the owner's rule was stated for a fit. Recorded in
   `PROGRESS.md` §Open follow-ups.
 
-### M152 — a slow page does not freeze the window: diagnosis and plan (2026-09-23)
+### M152 — a slow page does not freeze the window: diagnosis and plan (2026-09-23, revised 2026-09-24)
 
 [#360](https://github.com/utyagi24/klarpdf/issues/360), with the two rounds of detail the owner
 added to it on 2026-09-23. This entry is the diagnosis and a proposed plan. The owner asked to see
 both before any fix is built, so **the plan waits on the owner's decisions**, listed at the end.
 Each part adds what it built to this entry when it lands.
 
+**The plan was revised on 2026-09-24 to meet the owner's criteria:** *"not very expensive in terms
+of run time resources and development cost but high on application agility and responsiveness. A
+single heavy page loading slow is okay, but app being in 'not responding' state is not okay. A low
+resolution image showing longer is okay but resizing action completely getting ignored is not
+okay."* The first plan drew pages in helper programs. It is kept below, under *Rejected on cost*,
+as the fallback.
+
 **Surfaces: the app only.** Pages are drawn in `viewer/pdf_view.py`, and the bridge has no view.
-The helper program in M152.2 is app code too, so it lives outside `klarpdf/`. It calls the core's
-existing functions to build edited copies of pages and changes none of them.
+No file in `klarpdf/` changes.
 
 #### What the reader sees
 
@@ -9060,6 +9067,9 @@ code was run with every draw timed and its caller recorded. A move onto a scaled
 simulated: the view was made to report a device pixel ratio of 1.75 and sent a
 `DevicePixelRatioChange`. The device pixel ratio is how many screen pixels make one logical pixel:
 1.75 on a screen set to 175%.
+
+Pieces were timed in one process, one after another, each run on a freshly opened document, so no
+photo was unpacked in advance. "A window on the middle" is 1384 × 944 px, centred on the page.
 
 #### Why the cover is slow
 
@@ -9124,46 +9134,81 @@ But the list stays after the draw has finished, so the freeze alone does not exp
 
 #### What was tried
 
+**Drawing a slow page in pieces, one at a time, on the window's own thread.** Between two pieces
+the window can handle clicks, moves and resizes, so the longest pause is the slowest single piece.
+
+| Page | Zoom | Piece size | Pieces for a window on the middle | All pieces | Slowest piece |
+|---|---|---|---|---|---|
+| NADA cover | 300% | 256 px | 30 | 3.02 s | 0.18 s |
+| NADA cover | 300% | 128 px | 99 | 2.98 s | 0.05 s |
+| NADA cover | 375% | 256 px | 30 | 3.57 s | 0.19 s |
+| NADA cover | 375% | 128 px | 108 | 3.55 s | 0.06 s |
+| `IAS_CaseStudy.pdf` page 6 | 100% | 128 px | 108 | 7.09 s | 1.70 s |
+| `IAS_CaseStudy.pdf` page 6 | 100% | 256 px | 30 | 4.02 s | 1.70 s |
+| `IAS_CaseStudy.pdf` page 6 | 100% | 512 px | 9 | 3.02 s | 2.08 s |
+| `IAS_CaseStudy.pdf` page 6 | 300% | 128 px | 96 | 19.86 s | 2.02 s |
+| `IAS_CaseStudy.pdf` page 6 | 300% | 256 px | 30 | 8.14 s | 2.35 s |
+| `IAS_CaseStudy.pdf` page 6 | 300% | 512 px | 9 | 4.06 s | 2.35 s |
+
+The two pages behave differently:
+
+* **The cover, slow from its effects, splits well.** Its time follows the area drawn, so small
+  pieces keep every pause short: 0.06 s at 128 px. Only the part on screen is drawn, so it is sharp
+  sooner than today: 3.6 s at 375%, against 10.2 s for the whole page.
+* **`IAS_CaseStudy.pdf` page 6, slow from its photos, does not split below one photo.** It is the
+  slowest page of that document (2.90 s whole at 100%) and holds six large JPEG 2000 photos, the
+  largest 3840 × 2160. Unpacking a photo the first time at a given detail is one step that no piece
+  size divides: about 2 s for the largest, 0.4–0.5 s for the others. Small pieces also cost more in
+  total on this page: 7.09 s at 128 px, against 3.02 s at 512 px and 2.90 s for the whole page. So
+  the piece size has to follow the page rather than be fixed.
+
+Other things tried:
+
 | Tried | Result | Verdict |
 |---|---|---|
-| Draw only the squares on screen, 512 × 512 px each | 375%, a 1384 × 944 window on the middle of the cover: 12 squares, 4.94 s. On the top-left corner: 6 squares, 0.92 s | Kept, M152.3 |
-| Draw the squares in several processes at once | The same 12 squares: 1.63 s with 4 processes, 1.12 s with 8. The whole cover at 375%: 9.05 s with 1, 2.74 s with 4, 1.78 s with 8 | Kept, M152.3 |
-| What each helper process costs | 61–66 MB of memory at its peak. Starting 8 took 0.16 s | The price of M152.3 |
+| Several helper programs drawing squares at once | 512 px squares for a window on the middle of the cover at 375%: 4.94 s with 1 process, 1.63 s with 4, 1.12 s with 8. The whole cover at 375%: 9.05 s with 1, 2.74 s with 4, 1.78 s with 8. Each process: 61–66 MB at its peak; starting 8 took 0.16 s | Rejected on cost, below |
 | A quick low-resolution picture | The whole cover at 25%: 0.10 s. At 50%: 0.18 s | Kept, M152.2 |
 | Less anti-aliasing (`set_aa_level` 8, 4, 0) | 7.18, 5.98 and 5.47 s at 300% | Rejected: little gain, jagged edges |
-| Drawing from a kept display list | 6.00 s, against 5.94 s for a second ordinary draw | Rejected: reading the page is not the cost |
-| A second thread in the app | PyMuPDF does not support threads (its documentation, recipes-multiprocessing) | A helper process instead |
+| Drawing from a kept display list | 6.00 s, against 5.94 s for a second ordinary draw. In pieces: 3.57 s, against 3.58 s without it | Rejected: reading the page is not the cost |
+| A second thread in the app | PyMuPDF does not support threads (its documentation, recipes-multiprocessing) | Not possible |
 
 Anti-aliasing is the smoothing of edges. A display list is PyMuPDF's parsed copy of a page's
 drawing instructions.
 
-#### The plan (proposed 2026-09-23)
+#### The plan (revised 2026-09-24)
 
 | Part | What the reader gets | Built in | Checked by hand on |
 |---|---|---|---|
-| **M152.1** Resizing follows the mouse | During a resize, a slow page's picture is stretched (see *What switches each part on*, below). It is redrawn once, when the edge has rested for about 200 ms. A page that only touches the view's edge is not drawn (cause 6). The one redraw still freezes the window: about 1 s on the cover, about 3 s at 175% | WSL | Windows and WSL |
-| **M152.2** A helper program draws the pages | No Not Responding. After a zoom, a resize, a move to another screen or a restore, the window waits a moment for the helper. A sharp picture that arrives in time shows at once, as today. A later one is preceded by the picture already there, stretched to the new size (§Deferred C), and replaces it when the helper returns it (§Deferred E). A page with no picture yet gets a quick low-resolution one first. A minimized window keeps a small copy. The sharp picture still takes as long as today | WSL, then a Windows session for the installed app | Windows, run from the code and installed, on both screens |
-| **M152.3** Sharp pictures sooner | At high zoom, the squares on screen are drawn first, then the ones around them, by several helpers at once. About 1.6 s for the cover at 375% with 4 helpers, against 10 s | WSL | Windows: speed and memory |
+| **M152.1** Resizing follows the mouse | During a resize, a slow page's picture is stretched. It is redrawn once, when the edge has rested for about 200 ms. A page that only touches the view's edge is not drawn (cause 6). Until M152.2 lands, that one redraw still freezes the window: about 1 s on the cover, about 3 s at 175% | WSL | Windows and WSL |
+| **M152.2** A slow page is drawn in pieces | No Not Responding. After a zoom, a resize, a move to another screen or a restore, a slow page shows at once: the picture already there, stretched to the new size (§Deferred C), or a quick low-resolution one when there is none. The pieces on screen then replace it, the middle of the window first, and the window handles clicks, moves and resizes between pieces. Pieces no longer needed are dropped. The drawing ahead of nearby pages goes piece by piece too (cause 6). No helper program | WSL | Windows, on both screens, and WSL |
 
 After M152.2 lands, the WSL zoom list (symptom 5) is tried again. If it is still there, it becomes
 its own issue and gets a WSL session.
 
-#### What switches each part on (proposed 2026-09-24)
+**What it costs.** No extra program and no extra memory. At high zoom it uses less memory than
+today, because only the pieces on screen and near it are drawn. Nothing changes in how the app is
+packaged.
+
+**Its limit.** The longest pause is the slowest single piece. On the documents measured, that is
+0.06 s on the NADA cover and about 2 s on `IAS_CaseStudy.pdf` page 6, while a large photo is
+unpacked. Windows says Not Responding after about 5 s. A document with a photo that takes longer
+than that to unpack would still reach it. None has been seen. If one is, the helper program below
+is the fix.
+
+#### What switches each part on (revised 2026-09-24)
 
 The owner asked whether these parts are on for every document, or only when a certain situation is
-found. **Proposed: nothing looks at what a document contains.** The app times each drawing as it
-happens, and the time and the size of the picture decide. A page that draws quickly looks and
-behaves exactly as today.
+found. **Nothing looks at what a document contains.** The app times each drawing as it happens, and
+the time decides. A page that draws quickly looks and behaves exactly as today.
 
 * **M152.1** stretches the picture during a resize only when the last drawing of the pages on
   screen took longer than a budget of about 30 ms, two screen refreshes. A quicker page is redrawn
   at every step, sharp, as today.
-* **M152.2** draws every page in the helper, so there is one way of drawing to test. The window
-  waits up to the same budget for the helper's picture. A picture that arrives in time shows at
-  once, as today. Only a later one is preceded by the stretched picture. The helper closes after
-  30 s with nothing to draw and starts again when it is needed; starting took 0.1 s here.
-* **M152.3** cuts a page into squares only when the page is bigger than the window, which means high
-  zoom. Extra helpers start only while squares are waiting, and close when idle.
+* **M152.2** draws in turns. Each turn draws pieces until about 30 ms have passed, then lets the
+  window handle whatever is waiting. A quick page is finished within one turn, so it appears at
+  once, exactly as today. A slow page takes several turns, and the window stays responsive between
+  them. After each piece, the next is made larger or smaller so that one piece takes about the
+  budget. That keeps the NADA cover's pieces small and a photo page's pieces large.
 
 **Why measure rather than recognise slow documents.** The cover is slow because of its fades. The
 next slow document will be slow for another reason: large scans, detailed maps, thousands of small
@@ -9174,57 +9219,69 @@ checked against the corpus when M152.1 is built.
 **Where a picture below full resolution can show** (asked by the owner, 2026-09-24). Today every
 picture on screen is drawn at full resolution for the zoom and the screen, and the window freezes
 on the old picture while a new one is drawn. After M152, a slow page can show a lower-resolution
-picture for a moment, and a quick page never does:
+picture for a while, and a quick page never does:
 
 * **M152.1:** a slow page while a window edge is being dragged. The picture is stretched, so it
   looks soft while the window grows. It is redrawn at full resolution once the edge rests.
 * **M152.2:** a slow page after a zoom step, a resize, a move to another screen or a restore, until
-  the helper's picture arrives. The picture already there is stretched. A page with no picture yet
-  gets a quick low-resolution one. A restored window shows the small copy it kept while minimized.
-* **M152.3** adds no new case. It shortens the M152.2 wait. But at high zoom the squares arrive one
-  by one, so for a moment a page can be sharp in some squares and still stretched in others.
-  Whether squares show as they arrive or all together is decision 5.
+  its pieces are drawn. The picture already there is stretched. A page with no picture yet gets a
+  quick low-resolution one. A restored window shows the small copy it kept while minimized. The
+  pieces arrive one at a time, so for a moment a page can be sharp in some parts and still stretched
+  in others. Whether pieces show as they arrive or all together is decision 3.
 
 **Why built in WSL and checked on Windows.** The code is the viewer, the same on both systems, and
 WSL is where it and its tests live. The two systems differ only in what they do while the app is
 stuck. Windows labels the window Not Responding, and WSL does not. Windows gives the two screens
-different scales, and WSL gives both the same. So a fix built in WSL fixes both. Only Windows can
-show that the crossing freeze is gone, and only a Windows session can build and test the installed
-app.
+different scales, and WSL gives both the same. So a fix built in WSL fixes both, but only Windows
+can show that the crossing freeze is gone. Nothing changes in how the app is packaged, so neither
+part needs a Windows build.
 
 **What the parts must keep.** Each of these is something the drawing code does today:
 
 * Some pages are drawn from an edited copy: with typed form values filled in, with KlarPDF's own
   saved marks stripped, or with a deleted or moved comment from another app taken out
-  (`_render_docs`, `_foreign_docs`). The helper must build the same copy from the same inputs with
-  the same `klarpdf.model` functions, or the page shows the wrong content.
-* Crop overrides, page and view rotation, night mode and the device pixel ratio are applied the
-  way `_render_pixmap` applies them.
-* A helper that cannot start falls back to drawing on the window's thread, as today. A packaging
-  fault then shows as the old slowness, not as blank pages.
-* The installed app can start helpers. That needs `multiprocessing.freeze_support()` in the entry
-  point, and a Windows check of both builds: the installer and the portable single `.exe`.
-* The store's limits from M87.2 apply to squares as they do to whole pages.
-* Tests that expect a page to be drawn the moment it is needed get a way to wait for the helper.
+  (`_render_docs`, `_foreign_docs`). Pieces are drawn from the same copies, so none of that changes.
+* Crop overrides, page and view rotation, night mode and the device pixel ratio are applied the way
+  `_render_pixmap` applies them. A crop already draws through a clip, and a piece is one more clip
+  inside it.
+* The store's limits from M87.2 apply to pieces as they do to whole pages.
+* The drawing ahead of nearby pages (M92.4) already runs one page per timer tick. Pieces can share
+  that timer and its queue, with the page on screen first.
+* Tests that expect a page to be drawn the moment it is needed get a way to wait for the queue to
+  empty.
 
-**One thing the helper adds.** A drawing that is no longer wanted must not hold up the next one. A
-whole-page drawing of the cover at 375% takes 10 s. If the zoom changes again meanwhile, the helper
-has to drop that drawing rather than finish it first.
+#### Rejected on cost (owner, 2026-09-24)
+
+The first plan (2026-09-23) moved the drawing into helper programs, the separate processes
+PyMuPDF's documentation recommends, and its M152.3 added several of them drawing squares at once.
+Both are rejected under the owner's criteria above. They are kept here so they are not worked out
+again:
+
+* **A helper program drawing every page** (the first M152.2). The window would never pause, even
+  while a photo is unpacked. But it costs a second program of about 60 MB while drawing, and more
+  to build: sending the document to the helper, building the edited copies again there, dropping a
+  drawing that is no longer wanted, and making the installed app able to start it
+  (`multiprocessing.freeze_support()`, checked in both Windows builds). A helper that failed to
+  start would need a fallback to drawing in the window, so the old way would have to stay anyway.
+* **Several helpers drawing squares at once** (the first M152.3). The cover's window at 375% in
+  1.6 s with 4 helpers, against 3.6 s in pieces, for about 250 MB more.
+
+**Condition for revisiting:** a real document where a single piece takes close to 5 s, so the
+window reaches Not Responding. Pieces cannot fix that case, and a helper can.
 
 #### Open decisions for the owner
 
-1. The three parts, in this order.
-2. How many helpers in M152.3. Recommended: at most 4, fewer on a computer with fewer processors,
-   each closing after 30 s with nothing to draw. 8 is faster and uses twice the memory. 1 uses the
-   least.
-3. What a minimized window keeps in M152.2. Recommended: a small low-resolution copy, so the window
+1. The two parts, in this order, with the helper programs rejected on cost.
+2. What a minimized window keeps in M152.2. Recommended: a small low-resolution copy, so the window
    comes back blurry for a moment. The other choice is the full pictures: sharp at once, but up to
    about 100 MB held for this cover at 300% on a 175% screen.
+3. How pieces appear in M152.2. Recommended: each one as it arrives, starting from the middle of the
+   window, so the part being looked at sharpens first. The other choice is to wait until every piece
+   on screen is ready and show them together. That avoids a page that is part sharp and part soft,
+   but keeps the whole page soft for longer.
 4. Symptom 4: does the freeze come at the minimize or at the restore?
-5. How squares appear in M152.3. Recommended: each one as it arrives, starting from the middle of
-   the window, so the part being looked at sharpens first. The other choice is to wait until every
-   square on screen is ready and show them together, which avoids a page that is part sharp, part
-   soft, but keeps the whole page soft for longer.
+5. Whether M152.2 closes the 1.0 gate's Item E. It keeps the window from freezing, which is what E
+   is for. It does not move the drawing off the window's thread, which is what E says.
 
 ## The open issues, grouped — M149–M152 *(planned 2026-09-19)*
 
@@ -9245,7 +9302,7 @@ in numbered parts, one PR per part, as M92 was.
 | **M149** Small app fixes | #332, #374, #358, #333 | Four small, independent changes to the app: a file that cannot be opened says so (#332), and a launch that opens no window exits (#374, what #332's fix would run into next at a cold start); the window keeps a usable size (#358); web links open in the browser (#333, which reverses M33/M46's copy-only rule) | app |
 | **M150** Links and bookmarks keep and use their position on the page | #362, #373, #361 | All three need the same missing piece: reading where on its page a destination points, and writing it back unchanged. **M150.1** builds it in the core and uses it in the app (#362: a link lands on its page's top; #373: a page move drops or shifts a bookmark's position). **M150.2** is the bridge's side (#361) | .1 core, app, and the bridge's page-move tools through the core; .2 bridge |
 | **M151** Zoom and resize keep the page you are reading | #357, #359 | One cause: the reading position is re-read from a view that is stopped at an end of the document | app |
-| **M152** A slow page does not freeze the window | #360 | **M152.1**: the two small causes (a page touching the view's edge is drawn in full; every resize step redraws). **M152.2**: drawing pages in the background, the 1.0 gate's Item E (§Deferred E). *Revised in M152's own session (2026-09-23): three parts, §M152* | app |
+| **M152** A slow page does not freeze the window | #360 | **M152.1**: the two small causes (a page touching the view's edge is drawn in full; every resize step redraws). **M152.2**: drawing pages in the background, the 1.0 gate's Item E (§Deferred E). *Revised in M152's own session: two parts, drawing a slow page in pieces on the window's thread (§M152, 2026-09-24)* | app |
 
 **The order is numeric**, with the parts in order inside each milestone: M150.1 before M150.2,
 because the app has to honour a bookmark's position before the bridge writes one (#362's closing
@@ -9258,7 +9315,8 @@ not its design):
   position for several destination forms and rotations; #373 has the measurements.
 * **M152.2:** PyMuPDF's documentation says it *"does not support running on multiple threads"*
   (recipes-multiprocessing) and recommends processes, so §Deferred E's "off the UI thread" may mean
-  a second process. The milestone decides. *(§M152 proposes a helper process, 2026-09-23.)*
+  a second process. The milestone decides. *(§M152 first proposed a helper process, 2026-09-23,
+  then pieces on the window's thread instead, 2026-09-24, keeping the helper as the fallback.)*
 
 ## Future enhancements (deferred beyond the roadmap)
 
