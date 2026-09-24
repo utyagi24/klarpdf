@@ -112,22 +112,30 @@ def _settle(qapp, view) -> None:
 
     With every page slow, the window's own first resizes start the wait, and a page is drawn in
     pieces over several turns."""
-    if view._settle_timer.isActive():
-        _rest(qapp, view)
     for _ in range(500):
+        if view._settle_timer.isActive():       # a late resize can start a new wait at any point
+            _rest(qapp, view)
         if not view._piece_timer.isActive() and not view._prefetch_timer.isActive():
-            return
+            if not view._settle_timer.isActive():
+                return
+            continue
         QTest.qWait(5)
     pytest.fail("the pieces never finished")
 
 
 def _rest(qapp, view) -> None:
-    """The edge rests: let the view's own timer run out, through its real connection."""
+    """The edge rests: let the view's own timer run out, through its real connection.
+
+    Rest again if a new wait has started meanwhile: Qt can deliver a late resize, when a scroll
+    bar comes or goes, and that starts a wait of its own."""
     assert view._settle_timer.isActive()
-    view._settle_timer.start(1)
-    QTest.qWait(30)
-    qapp.processEvents()
-    assert not view._settle_timer.isActive()
+    for _ in range(20):
+        view._settle_timer.start(1)
+        QTest.qWait(30)
+        qapp.processEvents()
+        if not view._settle_timer.isActive():
+            return
+    pytest.fail("the window never rested")
 
 
 def _step(qapp, view, dx: int = 40) -> None:

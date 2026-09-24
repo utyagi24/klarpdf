@@ -107,7 +107,9 @@ def drawings(monkeypatch):
 def _drain(qapp, view) -> None:
     """End any wait for an edge to rest, and let every turn run until nothing is left to draw."""
     for _ in range(3000):
-        if view._settle_timer.isActive():
+        # Shorten the wait once and let it run out. Restarting it on every pass kept it from ever
+        # firing: seen on Windows, where a resize after the page turned started the wait.
+        if view._settle_timer.isActive() and view._settle_timer.remainingTime() > 1:
             view._settle_timer.start(1)
         if (not view._settle_timer.isActive() and not view._piece_timer.isActive()
                 and not view._prefetch_timer.isActive()):

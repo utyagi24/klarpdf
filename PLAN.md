@@ -9531,6 +9531,14 @@ break-it runs undid 16 parts in turn. Three at first went unnoticed:
 
 The other 13 each failed a test.
 
+The first CI run failed on Windows only, in a test helper rather than in the app. After a page
+was turned, a resize started the wait for the edge to rest. The helper then restarted that wait's
+timer at 1 ms on every pass, just before waiting 1 ms, so it never fired. The Windows style's
+scroll bar width decides whether that resize happens. It was reproduced here by setting the scroll
+bars to 12 px. A second flaw of the same kind showed at that width: Qt can deliver a late resize,
+when a scroll bar comes or goes, and the helpers assumed one rest was enough. They now rest until
+no new wait starts. Both test files pass with scroll bars of every width from 10 to 24 px.
+
 ## The open issues, grouped — M149–M152 *(planned 2026-09-19)*
 
 Grouped at the owner's request (2026-09-19: *"plan milestones for all of the issues, except for 352
