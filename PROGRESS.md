@@ -1085,8 +1085,9 @@ tick the box here on merge. Build in number order.
   [#360](https://github.com/utyagi24/klarpdf/issues/360). *App.* Diagnosis, measurements and the
   proposed plan in `PLAN.md` §M152 (2026-09-23). **The owner's decisions are pending**; they are
   listed there. Each part is built in WSL and checked by hand on Windows.
-  - [ ] **M152.1** **Resizing follows the mouse**: the page picture is stretched during a resize
-    and redrawn once the edge rests, and a page that only touches the view's edge is not drawn.
+  - [ ] **M152.1** **Resizing follows the mouse**: a slow page's picture is stretched during a
+    resize and redrawn once the edge rests, and a page that only touches the view's edge is not
+    drawn.
   - [ ] **M152.2** **A helper program draws the pages**: the 1.0 gate's Item E, with §Deferred C's
     stretched picture shown until the sharp one arrives. The installed app is checked in a Windows
     session.

@@ -9141,12 +9141,35 @@ drawing instructions.
 
 | Part | What the reader gets | Built in | Checked by hand on |
 |---|---|---|---|
-| **M152.1** Resizing follows the mouse | During a resize, the page picture is stretched. It is redrawn once, when the edge has rested for about 200 ms. A page that only touches the view's edge is not drawn (cause 6). The one redraw still freezes the window: about 1 s on the cover, about 3 s at 175% | WSL | Windows and WSL |
-| **M152.2** A helper program draws the pages | No Not Responding. After a zoom, a resize, a move to another screen or a restore, the picture already there is shown at once, stretched to the new size (§Deferred C), and the sharp one replaces it when the helper returns it (§Deferred E). A page with no picture yet gets a quick low-resolution one first. A minimized window keeps a small copy. The sharp picture still takes as long as today | WSL, then a Windows session for the installed app | Windows, run from the code and installed, on both screens |
+| **M152.1** Resizing follows the mouse | During a resize, a slow page's picture is stretched (see *What switches each part on*, below). It is redrawn once, when the edge has rested for about 200 ms. A page that only touches the view's edge is not drawn (cause 6). The one redraw still freezes the window: about 1 s on the cover, about 3 s at 175% | WSL | Windows and WSL |
+| **M152.2** A helper program draws the pages | No Not Responding. After a zoom, a resize, a move to another screen or a restore, the window waits a moment for the helper. A sharp picture that arrives in time shows at once, as today. A later one is preceded by the picture already there, stretched to the new size (§Deferred C), and replaces it when the helper returns it (§Deferred E). A page with no picture yet gets a quick low-resolution one first. A minimized window keeps a small copy. The sharp picture still takes as long as today | WSL, then a Windows session for the installed app | Windows, run from the code and installed, on both screens |
 | **M152.3** Sharp pictures sooner | At high zoom, the squares on screen are drawn first, then the ones around them, by several helpers at once. About 1.6 s for the cover at 375% with 4 helpers, against 10 s | WSL | Windows: speed and memory |
 
 After M152.2 lands, the WSL zoom list (symptom 5) is tried again. If it is still there, it becomes
 its own issue and gets a WSL session.
+
+#### What switches each part on (proposed 2026-09-24)
+
+The owner asked whether these parts are on for every document, or only when a certain situation is
+found. **Proposed: nothing looks at what a document contains.** The app times each drawing as it
+happens, and the time and the size of the picture decide. A page that draws quickly looks and
+behaves exactly as today.
+
+* **M152.1** stretches the picture during a resize only when the last drawing of the pages on
+  screen took longer than a budget of about 30 ms, two screen refreshes. A quicker page is redrawn
+  at every step, sharp, as today.
+* **M152.2** draws every page in the helper, so there is one way of drawing to test. The window
+  waits up to the same budget for the helper's picture. A picture that arrives in time shows at
+  once, as today. Only a later one is preceded by the stretched picture. The helper closes after
+  30 s with nothing to draw and starts again when it is needed; starting took 0.1 s here.
+* **M152.3** cuts a page into squares only when the page is bigger than the window, which means high
+  zoom. Extra helpers start only while squares are waiting, and close when idle.
+
+**Why measure rather than recognise slow documents.** The cover is slow because of its fades. The
+next slow document will be slow for another reason: large scans, detailed maps, thousands of small
+shapes. A rule that looks for fades would catch this document and miss the next. A measured time
+catches them all (CLAUDE.md, *Compare, don't guess*). The budget is the one number, and it is
+checked against the corpus when M152.1 is built.
 
 **Why built in WSL and checked on Windows.** The code is the viewer, the same on both systems, and
 WSL is where it and its tests live. The two systems differ only in what they do while the app is
@@ -9169,6 +9192,10 @@ app.
   point, and a Windows check of both builds: the installer and the portable single `.exe`.
 * The store's limits from M87.2 apply to squares as they do to whole pages.
 * Tests that expect a page to be drawn the moment it is needed get a way to wait for the helper.
+
+**One thing the helper adds.** A drawing that is no longer wanted must not hold up the next one. A
+whole-page drawing of the cover at 375% takes 10 s. If the zoom changes again meanwhile, the helper
+has to drop that drawing rather than finish it first.
 
 #### Open decisions for the owner
 
