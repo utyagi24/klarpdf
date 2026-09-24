@@ -1082,10 +1082,18 @@ tick the box here on merge. Build in number order.
   - the page marked current is the page the view was sent to: a deck reopened on its last slide,
     or a search hit on the last page, now marks that page and not the one before it.
 - [ ] **M152** **A slow page does not freeze the window** —
-  [#360](https://github.com/utyagi24/klarpdf/issues/360). *App.*
-  - [ ] **M152.1** The two small causes: a page touching the view's edge is drawn in full, and every
-    resize step redraws.
-  - [ ] **M152.2** Pages are drawn in the background — the 1.0 gate's Item E.
+  [#360](https://github.com/utyagi24/klarpdf/issues/360). *App.* Diagnosis, measurements and the
+  proposed plan in `PLAN.md` §M152 (2026-09-23). **The owner's decisions are pending**; they are
+  listed there. Each part is built in WSL and checked by hand on Windows.
+  - [ ] **M152.1** **Resizing follows the mouse**: the page picture is stretched during a resize
+    and redrawn once the edge rests, and a page that only touches the view's edge is not drawn.
+  - [ ] **M152.2** **A helper program draws the pages**: the 1.0 gate's Item E, with §Deferred C's
+    stretched picture shown until the sharp one arrives. The installed app is checked in a Windows
+    session.
+  - [ ] **M152.3** **Sharp pictures sooner** *(added 2026-09-23)*: at high zoom, the squares on
+    screen are drawn first, by several helpers at once.
+  - [ ] After M152.2, try the WSL zoom list again (#360, second round: choosing 300% leaves the list
+    on the desktop). If it is still there, it gets its own issue.
 
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 
