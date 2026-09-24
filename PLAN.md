@@ -9384,7 +9384,9 @@ the wait. It got its own test. The rest of the suite counts every page as quick 
 would then find a stretched page at random. The oracle in `test_visible_band_walk.py` uses the
 whole-pixel rule too. One test in `test_pixmap_cache.py` needed pictures left over from the
 previous zoom, and had them only because the page touching the view's edge was drawn at once. It
-now waits for the drawing ahead first.
+now waits for the drawing ahead first. The helpers rest until no new wait starts, and a stretched
+picture may overhang the page by one stretched pixel. With those two, the tests pass with scroll
+bars of every width from 10 to 24 px; before, they failed at 13 px.
 
 ## The open issues, grouped — M149–M152 *(planned 2026-09-19)*
 

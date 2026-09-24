@@ -89,12 +89,18 @@ def drawings(monkeypatch):
 
 
 def _rest(qapp, view) -> None:
-    """The edge rests: let the view's own timer run out, through its real connection."""
+    """The edge rests: let the view's own timer run out, through its real connection.
+
+    Rest again if a new wait has started meanwhile: Qt can deliver a late resize, when a scroll
+    bar comes or goes, and that starts a wait of its own."""
     assert view._settle_timer.isActive()
-    view._settle_timer.start(1)
-    QTest.qWait(30)
-    qapp.processEvents()
-    assert not view._settle_timer.isActive()
+    for _ in range(20):
+        view._settle_timer.start(1)
+        QTest.qWait(30)
+        qapp.processEvents()
+        if not view._settle_timer.isActive():
+            return
+    pytest.fail("the window never rested")
 
 
 def _step(qapp, view, dx: int = 40) -> None:
@@ -103,13 +109,14 @@ def _step(qapp, view, dx: int = 40) -> None:
 
 
 def _stretched_to_fit(view, index: int) -> bool:
-    """Whether page ``index`` shows a picture drawn for another size, stretched over the page."""
+    """Whether page ``index`` shows a picture drawn for another size, stretched over the page.
+    Within one stretched pixel: the smaller picture's last pixel is rounded up, then stretched."""
     page = view._pages[index]
     item = page["pix"]
     shown = item.sceneBoundingRect()
     return (not item.pixmap().isNull() and item.scale() != 1.0
-            and shown.width() == pytest.approx(page["w"], abs=0.5)
-            and shown.height() == pytest.approx(page["h"], abs=0.5))
+            and shown.width() == pytest.approx(page["w"], abs=item.scale())
+            and shown.height() == pytest.approx(page["h"], abs=item.scale()))
 
 
 def _drawn_for_this_size(view, index: int) -> bool:
