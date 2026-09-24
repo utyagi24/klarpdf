@@ -9032,8 +9032,7 @@ arguments are gone; the wrapper was updated to match.
 [#360](https://github.com/utyagi24/klarpdf/issues/360), with the two rounds of detail the owner
 added to it on 2026-09-23. This entry is the diagnosis and a proposed plan. The owner asked to see
 both before any fix is built. **The owner accepted the plan on 2026-09-24**; their decisions are
-listed at the end, with the one still open. Each part adds what it built to this entry when it
-lands.
+listed at the end. Each part adds what it built to this entry when it lands.
 
 **The plan was revised on 2026-09-24 to meet the owner's criteria:** *"not very expensive in terms
 of run time resources and development cost but high on application agility and responsiveness. A
@@ -9182,7 +9181,7 @@ drawing instructions.
 | Part | What the reader gets | Built in | Checked by hand on |
 |---|---|---|---|
 | **M152.1** Resizing follows the mouse | During a resize, a slow page's picture is stretched. It is redrawn once, when the edge has rested for about 200 ms. A page that only touches the view's edge is not drawn (cause 6). Until M152.2 lands, that one redraw still freezes the window: about 1 s on the cover, about 3 s at 175% | WSL | Windows and WSL |
-| **M152.2** A slow page is drawn in pieces | No Not Responding. After a zoom, a resize, a move to another screen or a restore, a slow page shows at once: the picture already there, stretched to the new size (§Deferred C), or a quick low-resolution one when there is none. The pieces on screen then replace it, the middle of the window first, and the window handles clicks, moves and resizes between pieces. Pieces no longer needed are dropped. The drawing ahead of nearby pages goes piece by piece too (cause 6). No helper program | WSL | Windows, on both screens, and WSL |
+| **M152.2** A slow page is drawn in pieces | No Not Responding. After a zoom, a resize, a move to another screen or a restore, a slow page shows at once: the picture already there, stretched to the new size (§Deferred C), or a quick low-resolution one when there is none. The pieces on screen then replace it, the middle of the window first, and the window handles clicks, moves and resizes between pieces. Pieces no longer needed are dropped. The drawing ahead of nearby pages goes piece by piece too (cause 6). A minimized window keeps a small blurry copy of what it shows, so a restore has something to show at once. No helper program | WSL | Windows, on both screens, and WSL |
 
 After M152.2 lands, the WSL zoom list (symptom 5) is tried again. If it is still there, it becomes
 its own issue and gets a WSL session.
@@ -9227,8 +9226,8 @@ picture for a while, and a quick page never does:
   looks soft while the window grows. It is redrawn at full resolution once the edge rests.
 * **M152.2:** a slow page after a zoom step, a resize, a move to another screen or a restore, until
   its pieces are drawn. The picture already there is stretched. A page with no picture yet gets a
-  quick low-resolution one. A restored window shows the small copy it kept while minimized, if it
-  keeps one (still open, below). The
+  quick low-resolution one. A restored window shows the small copy it kept while minimized
+  (decision 5). The
   pieces arrive one at a time, so for a moment a page can be sharp in some parts and still stretched
   in others. They show as they arrive, the middle of the window first (the owner's decision 2).
 
@@ -9282,22 +9281,17 @@ window reaches Not Responding. Pieces cannot fix that case, and a helper can.
    brought back shows at once, but stays Not Responding for a few seconds. That is cause 5.
 4. **The 1.0 gate's Item E:** M152.2 is recorded as a potential fix for it (*"We can mention step 2
    as a potential fix for item E"*).
+5. **What a minimized window keeps:** a small blurry copy (*"yes lets keep a low res copy"*). It
+   is a quarter of the width and height of what the window shows, so it is at most about 1.3 MB a
+   window at any zoom: a full-screen window on the owner's laptop screen. The owner asked whether it is kept on every minimize or only past a
+   threshold. **Recommended: on every minimize.** On a quick page the sharp picture replaces it at
+   once, as today, so it is seen only on a slow page. A threshold would be one more rule to build
+   and test, to save about 1 MB at most.
 
-#### Still open
-
-**What a minimized window keeps** (M152.2). The owner asked what a small copy would help with. It
-decides what a window shows at the moment it is brought back:
-
-* **Nothing kept**, as today. The page stays empty until something is drawn. A quick blurry picture
-  takes 0.11 s for the NADA cover. For `IAS_CaseStudy.pdf` page 6 it takes 2.62 s if its photos are
-  no longer unpacked, because unpacking them is most of the cost at any size.
-* **A small blurry copy.** The page shows at once, blurry, and then sharpens piece by piece. It
-  costs under 1 MB per page on screen (0.22 MB for the cover at 25%), so minimizing still gives
-  back almost all the memory, as M87.2 intended.
-* **The sharp pictures.** The page is back sharp at once, with nothing to draw. But a minimized
-  window keeps about 40 MB for an ordinary document, the memory M87.2 chose to give back.
-
-Recommended: the small blurry copy.
+Without the copy, a window brought back shows an empty page until something is drawn. A quick
+blurry picture takes 0.11 s for the NADA cover, but 2.62 s for `IAS_CaseStudy.pdf` page 6 when its
+photos are no longer unpacked. Keeping the sharp pictures instead would hold about 40 MB for an
+ordinary document, the memory M87.2 chose to give back.
 
 ## The open issues, grouped — M149–M152 *(planned 2026-09-19)*
 

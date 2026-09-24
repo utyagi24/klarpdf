@@ -1086,15 +1086,16 @@ tick the box here on merge. Build in number order.
 - [ ] **M152** **A slow page does not freeze the window** —
   [#360](https://github.com/utyagi24/klarpdf/issues/360). *App.* Diagnosis, measurements and the
   proposed plan in `PLAN.md` §M152 (2026-09-23, revised 2026-09-24 to the owner's cost
-  criteria). **The owner accepted the plan on 2026-09-24**; one decision is still open, what a
-  minimized window keeps. Each part is built in WSL and checked by hand on Windows.
+  criteria). **The owner accepted the plan on 2026-09-24**, and made its decisions the same day.
+  Each part is built in WSL and checked by hand on Windows.
   - [ ] **M152.1** **Resizing follows the mouse**: a slow page's picture is stretched during a
     resize and redrawn once the edge rests, and a page that only touches the view's edge is not
     drawn.
   - [ ] **M152.2** **A slow page is drawn in pieces**: on the window's own thread, a few pieces at a
     time, with the window handling clicks, moves and resizes in between. §Deferred C's stretched
-    picture shows until the pieces replace it. No helper program: that plan was rejected on cost
-    (2026-09-24) and is kept in `PLAN.md` §M152 as the fallback.
+    picture shows until the pieces replace it, and a minimized window keeps a small blurry copy.
+    No helper program: that plan was rejected on cost (2026-09-24) and is kept in `PLAN.md` §M152
+    as the fallback.
   - [ ] After M152.2, try the WSL zoom list again (#360, second round: choosing 300% leaves the list
     on the desktop). If it is still there, it gets its own issue.
 
