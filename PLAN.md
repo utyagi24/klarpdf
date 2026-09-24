@@ -9171,6 +9171,20 @@ shapes. A rule that looks for fades would catch this document and miss the next.
 catches them all (CLAUDE.md, *Compare, don't guess*). The budget is the one number, and it is
 checked against the corpus when M152.1 is built.
 
+**Where a picture below full resolution can show** (asked by the owner, 2026-09-24). Today every
+picture on screen is drawn at full resolution for the zoom and the screen, and the window freezes
+on the old picture while a new one is drawn. After M152, a slow page can show a lower-resolution
+picture for a moment, and a quick page never does:
+
+* **M152.1:** a slow page while a window edge is being dragged. The picture is stretched, so it
+  looks soft while the window grows. It is redrawn at full resolution once the edge rests.
+* **M152.2:** a slow page after a zoom step, a resize, a move to another screen or a restore, until
+  the helper's picture arrives. The picture already there is stretched. A page with no picture yet
+  gets a quick low-resolution one. A restored window shows the small copy it kept while minimized.
+* **M152.3** adds no new case. It shortens the M152.2 wait. But at high zoom the squares arrive one
+  by one, so for a moment a page can be sharp in some squares and still stretched in others.
+  Whether squares show as they arrive or all together is decision 5.
+
 **Why built in WSL and checked on Windows.** The code is the viewer, the same on both systems, and
 WSL is where it and its tests live. The two systems differ only in what they do while the app is
 stuck. Windows labels the window Not Responding, and WSL does not. Windows gives the two screens
@@ -9207,6 +9221,10 @@ has to drop that drawing rather than finish it first.
    comes back blurry for a moment. The other choice is the full pictures: sharp at once, but up to
    about 100 MB held for this cover at 300% on a 175% screen.
 4. Symptom 4: does the freeze come at the minimize or at the restore?
+5. How squares appear in M152.3. Recommended: each one as it arrives, starting from the middle of
+   the window, so the part being looked at sharpens first. The other choice is to wait until every
+   square on screen is ready and show them together, which avoids a page that is part sharp, part
+   soft, but keeps the whole page soft for longer.
 
 ## The open issues, grouped — M149–M152 *(planned 2026-09-19)*
 
