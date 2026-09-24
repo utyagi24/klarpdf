@@ -9293,6 +9293,101 @@ blurry picture takes 0.11 s for the NADA cover, but 2.62 s for `IAS_CaseStudy.pd
 photos are no longer unpacked. Keeping the sharp pictures instead would hold about 40 MB for an
 ordinary document, the memory M87.2 chose to give back.
 
+#### M152.1 as built (2026-09-24)
+
+**What the reader sees.** On a page that is slow to draw, a drag of the window edge with a fit on
+now follows the mouse. The page is stretched to each new size, so it looks soft while the edge
+moves. It is drawn sharp once the edge has rested for 200 ms. Moving to page 2 of the NADA report
+no longer draws the cover. A page that draws quickly behaves as before.
+
+**Surfaces: the app only** (`viewer/pdf_view.py`, `viewer/pixmap_cache.py`).
+
+**What was built:**
+
+* **The view times every drawing.** `_render_pixmap` records how long each page took, from the
+  call to `get_pixmap` to the finished picture (`_draw_cost`). Building an edited copy of the
+  source is left out. It happens once per source, and a redraw does not repeat it. An edit clears
+  the times, because the page order may have changed.
+* **A resize step stretches when the pages on screen are slow.** `resizeEvent` adds up the last
+  drawing times of the pages on screen. If the total is over `_DRAW_BUDGET_S` (30 ms), it starts
+  a 200 ms wait (`_RESIZE_SETTLE_MS`). Each later step restarts the wait. While it runs,
+  `_render_visible` draws nothing. Each page on screen shows its picture for the new size if the
+  store has one. Otherwise it shows a picture drawn for another size, stretched to the page
+  (`_show_stretched`). When the wait ends, the same pass runs again and draws. A page never drawn
+  counts as quick, so the first step draws it and times it.
+* **Which picture is stretched.** Only one with the same rotation. Every other change to a page's
+  pixels empties the store: an edit, and night mode. Among several, the smallest one at least as
+  sharp as the new size is taken, and failing that the sharpest. The stretch is worked out from
+  the picture's own pixel ratio, so a picture drawn for the other screen fits too. Stretched
+  pictures are pinned with the band, so drawing in another window cannot evict one on screen.
+  They are painted with smoothing. A picture drawn for its own size is not, as before.
+* **The drawing ahead waits for the edge to rest**, as it already waits for a wheel glide. This
+  matters at Fit Page in a wide window. There the height sets the zoom, so a step does not rebuild
+  the pages, and the queue of pages to draw ahead survives it.
+* **Minimizing, an edit or night mode ends the wait.** Each empties the store, so there is
+  nothing left to stretch. After an edit or night mode the pages are drawn at once, as before. A
+  minimized window draws nothing until it is restored.
+* **A page counts as on screen only when at least one whole pixel of it is in view**
+  (`_pages_in`). Before, `y + h >= top` counted a page that ended exactly at the top of the view,
+  and a sliver thinner than a pixel. Both happen on every move to the next page. At Fit Page the
+  page above ends exactly at the top. At Fit Width the scroll bar rounds the page's top down and
+  leaves up to a pixel of the page above. The scroll bar moves in whole pixels, so a sliver
+  thinner than one is left by rounding, not scrolled to. The white page behind the picture fills
+  it until the page is drawn. The rule holds wherever `_pages_in` is used: the drawing band, the
+  overlays' band and the current page. For the current page nothing changes, because such a
+  sliver never has the largest area.
+
+**Measured** (WSL, headless, the NADA report):
+
+| | Before | After |
+|---|---|---|
+| One 8 px step of the right edge, Fit Page, 1000 × 1400 window (zoom 117%) | 0.99–1.04 s (cause 3) | 6–9 ms, over 10 steps |
+| The redraw once the edge rests | none: every step drew | 1.45 s, once |
+| Going to page 2 from page 10, Fit Width, 1000 × 830 window | 0.97 s: the cover drawn for a 0.18 px sliver | 5 ms: the cover is not drawn |
+| The same at Fit Page | 0.41 s: the cover drawn for 0 px | 3 ms |
+
+**The budget, checked against the corpus.** Every page of the 121 corpus documents that open
+without a password (5,461 pages) was drawn at the size Fit Page gives on the owner's two screens.
+The Dell was a 770 × 1246 view at a pixel ratio of 1.0. The laptop was 770 × 870 at 1.75. Each
+page was drawn twice: once fresh, and once 1% larger, which is what a resize step costs. Four
+processes ran at once on 8 logical processors, so the times are a little high.
+
+| | Dell, first drawing | Dell, a resize step | Laptop, first drawing | Laptop, a resize step |
+|---|---|---|---|---|
+| Median | 6.5 ms | 5.5 ms | 8.7 ms | 7.8 ms |
+| 90th percentile | 27.0 ms | 9.7 ms | 32.1 ms | 14.4 ms |
+| Pages over 30 ms | 8.9%, in 82 documents | 3.1%, in 24 documents | 10.8%, in 90 documents | 4.0%, in 28 documents |
+| Slowest | 3.99 s | 0.76 s, the NADA cover | 4.12 s | 1.73 s, the NADA cover |
+
+So on a resize step, 96–97% of pages still draw within the budget and are redrawn sharp at every
+step, as before. The 3–4% that are stretched come from 24–28 documents. Of the 220 on the laptop,
+145 hold at least half a million pixels of images, 36 hold 500 or more drawn shapes (6 of them
+both), and 45 hold neither. A first drawing is slower, because it loads the page's fonts and
+unpacks its images. The decision uses the last drawing, so a page that is slow
+only the first time is stretched on the first resize after it opens. The redraw once the edge
+rests times it again, and from then on it counts as quick. That costs one soft moment on one
+resize, so the budget stays at 30 ms.
+
+**Not done here, left to M152.2:**
+
+* The redraw once the edge rests still freezes the window while it draws: 1.45 s for the cover
+  above.
+* After a zoom, the drawing ahead still draws the cover when page 2 or 3 is current (cause 6).
+* In the two-page layout both pages of a row count as on screen, even when the view is zoomed so
+  far in that one of them is off to the side. M152.2 draws only the pieces on screen, which
+  covers it.
+
+**Tests:** `tests/test_resize_stretch.py`, 13 tests. Each part was undone in turn, 8 breaks in
+all, and a test failed for each. One break at first went unnoticed: a step that did not restart
+the wait. It got its own test. The rest of the suite counts every page as quick (conftest
+`_quick_pages`). A first drawing on a slow CI machine can pass 30 ms, and a resize test there
+would then find a stretched page at random. The oracle in `test_visible_band_walk.py` uses the
+whole-pixel rule too. One test in `test_pixmap_cache.py` needed pictures left over from the
+previous zoom, and had them only because the page touching the view's edge was drawn at once. It
+now waits for the drawing ahead first. The helpers rest until no new wait starts, and a stretched
+picture may overhang the page by one stretched pixel. With those two, the tests pass with scroll
+bars of every width from 10 to 24 px; before, they failed at 13 px.
+
 ## The open issues, grouped — M149–M152 *(planned 2026-09-19)*
 
 Grouped at the owner's request (2026-09-19: *"plan milestones for all of the issues, except for 352

@@ -54,6 +54,15 @@ _PREFETCH_BYTES = 48 * 1024 * 1024
 # band is ready again within a couple of frames of a gesture ending, slow enough that the event loop
 # gets a turn between two pages that may cost 91 ms each. See :meth:`PdfView._drain_prefetch`.
 _PREFETCH_TICK_MS = 16
+# How long drawing the pages on screen may take before a resize stops redrawing them at every step
+# (M152.1). About two screen refreshes. The view times every drawing, so this is the only number:
+# nothing looks at what a document contains. When the pages on screen last took longer than this,
+# a resize stretches their pictures and redraws them once the edge rests. A quicker page is redrawn
+# at every step, as before. Checked against the corpus in `PLAN.md` §M152.
+_DRAW_BUDGET_S = 0.030
+# How long a window edge must rest before a stretched page is redrawn (M152.1). A drag sends a
+# resize for every mouse move, so a pause this long means the reader has stopped.
+_RESIZE_SETTLE_MS = 200
 # The magnification a reader may *ask* for, 25%–500% (M88.6). Sequenced after M88.1 on purpose:
 # the DPI correction shifts every number, so choosing bounds before it meant choosing twice. The old
 # floor of 10% drew a Letter page 62x80 px — a thumbnail, not a view — and the old 800% ceiling was
@@ -203,6 +212,16 @@ class PdfView(QGraphicsView):
         self._prefetch_timer = QTimer(self)
         self._prefetch_timer.setInterval(_PREFETCH_TICK_MS)
         self._prefetch_timer.timeout.connect(self._drain_prefetch)
+        # A slow page is stretched while a window edge moves, and drawn once it rests (M152.1).
+        # ``_draw_cost`` is how long each page's last drawing took, in seconds, which is what
+        # decides "slow" (see _DRAW_BUDGET_S). ``_stand_ins`` are the painted pages showing a
+        # picture drawn for another size. The timer is the wait for the edge to rest; while it
+        # runs, nothing is drawn. Parented to the view, so it dies with it.
+        self._draw_cost: dict[int, float] = {}
+        self._stand_ins: set[int] = set()
+        self._settle_timer = QTimer(self)
+        self._settle_timer.setSingleShot(True)
+        self._settle_timer.timeout.connect(self._render_visible)
         self._current = 0
         # Overlay controllers (set by MainWindow): text selection + search (M3), form fill (M14),
         # annotations (M20). They own their items and expose repaint(), called after every rebuild.
@@ -522,6 +541,7 @@ class PdfView(QGraphicsView):
         self._pages.clear()
         self._page_tops.clear()
         self._painted.clear()   # scene.clear() destroyed the items, so nothing holds a pixmap
+        self._stand_ins.clear()
         # ...and the queued prefetch indices refer to pages that no longer exist (M92.4). A rebuild
         # can change the page *count* (an edit, a two-page toggle), so a stale index is not merely
         # wrong, it is out of range; the next render pass queues afresh against the new layout.
@@ -1869,6 +1889,9 @@ class PdfView(QGraphicsView):
                 )
             # Rasterise at **device** resolution (M88.2) — zoom × logicalDpi/72 × devicePixelRatio.
             ds = self.device_scale
+            # Timed from here, not from the top: building the render copy above happens once per
+            # source, and a redraw at another size costs only what follows (M152.1).
+            started = time.perf_counter()
             pm = page.get_pixmap(matrix=fitz.Matrix(ds, ds), clip=clip, alpha=False)
             img = QImage(pm.samples, pm.width, pm.height, pm.stride, QImage.Format.Format_RGB888)
             img = img.copy()  # detach from pm.samples buffer
@@ -1882,6 +1905,7 @@ class PdfView(QGraphicsView):
             pixmap = QPixmap.fromImage(img)
             if total:
                 pixmap = pixmap.transformed(QTransform().rotate(total))  # preserves the ratio
+            self._draw_cost[index] = time.perf_counter() - started
         except Exception:
             return None
         self._cache.put(key, pixmap)
@@ -1935,6 +1959,15 @@ class PdfView(QGraphicsView):
         two pages of a facing row share a y. So ``bisect_right`` lands on the first row that can
         reach ``top``, and the forward scan below stops at the first page past ``bottom`` — both
         bounded by the number of pages actually on screen.
+
+        **A page counts only when at least one whole pixel of it is in view** (M152.1, #360). The
+        test used to be ``y + h >= top``, so a page that ended exactly at the top of the view
+        counted, and so did a sliver thinner than a pixel. Both happen on every move to the next
+        page: at Fit Page the page above ends exactly at the top, and at Fit Width the scroll bar
+        rounds the page's top down and leaves up to a pixel of the page above. On the NADA report
+        that drew the whole cover, 0.4–1.0 s, to show 0 px or 0.18 px of it. The scroll bar moves
+        in whole pixels, so a part thinner than one is what rounding left, not what the reader
+        scrolled to. The white page behind the picture shows it the same until the page is drawn.
         """
         top, bottom = view_rect.top(), view_rect.bottom()
         # The last page starting at or above `top` is the only one that can reach down into the
@@ -1946,9 +1979,9 @@ class PdfView(QGraphicsView):
         first, last = None, None
         for i in range(start, len(self._pages)):
             page = self._pages[i]
-            if page["y"] > bottom:
+            if page["y"] > bottom - 1:
                 break
-            if page["y"] + page["h"] >= top:
+            if page["y"] + page["h"] >= top + 1:
                 first = i if first is None else first
                 last = i
         if first is None:  # nothing intersects (e.g. between renders) — fall back to current
@@ -2049,10 +2082,65 @@ class PdfView(QGraphicsView):
         """Rasterise page ``index`` (or take the cache hit) and hang it on its scene item."""
         pixmap = self._render_pixmap(index)
         if pixmap is not None:
-            page = self._pages[index]
-            page["pix"].setPixmap(pixmap)
-            page["pix"].setPos(self._pixmap_offset(index))  # inset only in the un-crop edge case
-            self._painted.add(index)
+            self._hang(index, pixmap)
+
+    def _hang(self, index: int, pixmap: QPixmap, stretch: "float | None" = None) -> None:
+        """Put ``pixmap`` on page ``index``'s scene item. ``stretch`` is given for a picture drawn
+        for another size, and is how much to stretch it (M152.1)."""
+        item = self._pages[index]["pix"]
+        item.setPixmap(pixmap)
+        item.setPos(self._pixmap_offset(index))  # inset only in the un-crop edge case
+        item.setScale(1.0 if stretch is None else stretch)
+        # Smooth only while stretched: a picture drawn for its own size maps pixel for pixel, and
+        # filtering it would only cost time.
+        item.setTransformationMode(Qt.TransformationMode.FastTransformation if stretch is None
+                                   else Qt.TransformationMode.SmoothTransformation)
+        self._painted.add(index)
+        if stretch is None:
+            self._stand_ins.discard(index)
+        else:
+            self._stand_ins.add(index)
+
+    def _show_stretched(self, index: int) -> "tuple | None":
+        """Show page ``index`` without drawing it: its picture for this size if the store has one,
+        else a picture drawn for another size, stretched to fit (M152.1). Returns the key of the
+        picture shown, or ``None`` when the store has none and the page is left blank.
+
+        Only a picture with the same rotation will do. Everything else that changes a page's
+        pixels empties the store: an edit (:meth:`reload`) and night mode. When there is a choice,
+        the smallest picture at least as sharp as this size is taken, and failing that the
+        sharpest. Stretching down loses less than stretching up, and a picture near the right size
+        loses the least.
+        """
+        key = self._pixmap_key(index)
+        exact = self._cache.get(key)
+        if exact is not None:
+            self._hang(index, exact)
+            return key
+        others = [k for k in self._cache.keys() if k[0] == index and k[2] == key[2]]
+        if not others:
+            return None
+        sharp_enough = [k for k in others if k[1] >= key[1]]
+        chosen = (min(sharp_enough, key=lambda k: k[1]) if sharp_enough
+                  else max(others, key=lambda k: k[1]))
+        pixmap = self._cache.get(chosen)
+        # The picture lays out at chosen[1] / its own pixel ratio scene units per point, and the
+        # page is now self.scale. Not the ratio of the two keys: a picture from the other screen
+        # carries that screen's ratio.
+        self._hang(index, pixmap, self.scale * pixmap.devicePixelRatio() / chosen[1])
+        return chosen
+
+    def _needs_drawing(self, index: int) -> bool:
+        """Whether page ``index`` lacks a picture drawn for this size — blank, or stretched."""
+        return index not in self._painted or index in self._stand_ins
+
+    def _visible_cost(self) -> float:
+        """How long the pages on screen took to draw, the last time each was drawn (M152.1).
+
+        A page not drawn yet counts as quick: the first resize step draws and times it.
+        """
+        first, last = self._visible_range()
+        return sum(self._draw_cost.get(i, 0.0) for i in range(first, last + 1))
 
     def _queue_prefetch(self, first: int, last: int, lo: int, hi: int) -> None:
         """Hand the prefetch margin to :meth:`_drain_prefetch` instead of rasterising it now (M92.4).
@@ -2088,7 +2176,7 @@ class PdfView(QGraphicsView):
         after = list(range(last + 1, hi + 1))            # nearest-first, ahead of the viewport
         before = list(range(first - 1, lo - 1, -1))      # nearest-first, behind it
         order = before + after if self._scroll_dir < 0 else after + before
-        self._prefetch_queue = [i for i in order if i not in self._painted]
+        self._prefetch_queue = [i for i in order if self._needs_drawing(i)]
         if self._prefetch_queue and not self._prefetch_timer.isActive():
             self._prefetch_timer.start()
 
@@ -2101,7 +2189,8 @@ class PdfView(QGraphicsView):
 
         Skipping while :attr:`_glide_timer` is active is what actually buys the smooth glide —
         prefetch is speculative, so it can always wait for the animation to finish. The tick keeps
-        firing meanwhile and finds its moment as soon as the motion settles.
+        firing meanwhile and finds its moment as soon as the motion settles. It waits for a
+        window edge to rest the same way (M152.1): the pages on screen are drawn first.
 
         **The honest limit** (recorded so it is not mistaken for a bug): a reader who scrolls fast
         enough to *outrun* the queue reaches a page it has not reached yet, and that page must be
@@ -2109,11 +2198,11 @@ class PdfView(QGraphicsView):
         genuinely outpacing prefetch rather than on every image page. Removing that case needs
         rendering off the UI thread (`PLAN.md` §Deferred, item **E**).
         """
-        if self._glide_timer.isActive():
-            return                          # the animation owns the frame; try again next tick
+        if self._glide_timer.isActive() or self._settle_timer.isActive():
+            return                          # the animation or a resize owns the frame (M152.1)
         while self._prefetch_queue:
             index = self._prefetch_queue.pop(0)
-            if 0 <= index < len(self._pages) and index not in self._painted:
+            if 0 <= index < len(self._pages) and self._needs_drawing(index):
                 self._paint_page(index)
                 break                       # exactly one page per tick
         if not self._prefetch_queue:
@@ -2131,18 +2220,29 @@ class PdfView(QGraphicsView):
         # pins the whole band the pass is about to populate, which is a superset and is what makes
         # "no thrash while scrolling" true by construction rather than by picking a large enough
         # budget: nothing rendered in this pass can be evicted by a later page of the same pass.
-        self._cache.pin(self._pixmap_key(i) for i in range(lo, hi + 1))
-        # **Only the pages the reader can actually see are rasterised here** (M92.4). The prefetch
-        # margin is queued instead — see :meth:`_queue_prefetch` for the measurement that moved it.
-        for i in range(first, last + 1):
-            self._paint_page(i)
-        self._queue_prefetch(first, last, lo, hi)
+        band = [self._pixmap_key(i) for i in range(lo, hi + 1)]
+        if self._settle_timer.isActive():
+            # **A slow page while a window edge moves** (M152.1): show what the store has,
+            # stretched, and draw nothing. The timer runs this pass again once the edge rests, and
+            # that pass draws. The stretched pictures are pinned with the band, or drawing in
+            # another window could evict the picture on screen.
+            shown = [self._show_stretched(i) for i in range(first, last + 1)]
+            self._cache.pin(band + [key for key in shown if key is not None])
+        else:
+            self._cache.pin(band)
+            # **Only the pages the reader can actually see are rasterised here** (M92.4). The
+            # prefetch margin is queued instead — see :meth:`_queue_prefetch` for the measurement
+            # that moved it.
+            for i in range(first, last + 1):
+                self._paint_page(i)
+            self._queue_prefetch(first, last, lo, hi)
         # Drop what scrolled off. This used to be the `else` arm of a loop over **every page in the
         # document**, asking each one whether it held a pixmap; tracking the answer costs a set
         # membership and makes the pass proportional to what is actually painted (M87.3).
         for i in [i for i in self._painted if not lo <= i <= hi]:
             self._pages[i]["pix"].setPixmap(QPixmap())
             self._painted.discard(i)
+            self._stand_ins.discard(i)
         # Content marks ride the same band as the pixmaps, so a stamp scrolls in with its page.
         if self.annotations is not None:
             self.annotations._paint_visible_content()
@@ -2170,6 +2270,9 @@ class PdfView(QGraphicsView):
             for i in self._painted:
                 self._pages[i]["pix"].setPixmap(QPixmap())
             self._painted.clear()
+            self._stand_ins.clear()
+            # A resize waiting to redraw would draw into a minimized window; the restore draws.
+            self._settle_timer.stop()
         # Whatever tier, stop speculating: this window is not the one being read, and a queue left
         # running would rasterise pages straight back into the store we just handed back (M92.4).
         self._prefetch_queue.clear()
@@ -2254,6 +2357,14 @@ class PdfView(QGraphicsView):
         # size: a clamp is not the reader moving, and reading after it would lose the place the
         # view was sent to. The hold spans both, so a drag-resize costs one rasterise per step.
         top = self._top_line_anchor()
+        # **A slow page is stretched, not redrawn, until the edge rests** (M152.1, #360). A drag
+        # sends a resize for every mouse move, and with a fit on each one changes the zoom. On the
+        # NADA cover each step drew the page again, about 1 s, and on Windows the drag was lost
+        # while it did. So when the pages on screen took longer than the budget to draw last time,
+        # this step and every step until the edge has rested show the pictures already drawn,
+        # stretched to the new size. Each step restarts the wait.
+        if self._settle_timer.isActive() or self._visible_cost() > _DRAW_BUDGET_S:
+            self._settle_timer.start(_RESIZE_SETTLE_MS)
         with self._hold_render():
             super().resizeEvent(event)
             self._reapply_fit(top)
@@ -2335,6 +2446,7 @@ class PdfView(QGraphicsView):
             return
         self._night = on
         self._cache.clear()
+        self._settle_timer.stop()   # the store is empty, so there is nothing to stretch (M152.1)
         brush = QBrush(QColor(0, 0, 0) if on else QColor(0xFF, 0xFF, 0xFF))
         for p in self._pages:
             p["bg"].setBrush(brush)
@@ -2822,6 +2934,10 @@ class PdfView(QGraphicsView):
         ``False`` for a content-only edit — the same distinction the scroll-anchor logic below draws,
         exposed so a caller can tell whether page-index-keyed state (e.g. search hits) is still valid."""
         self._cache.clear()
+        # The store is empty, so a resize waiting to redraw has nothing to stretch: draw now. And
+        # the drawing times belong to the old page order (M152.1).
+        self._settle_timer.stop()
+        self._draw_cost.clear()
         self._drop_render_docs()
         if self.selection is not None:
             self.selection.invalidate()

@@ -169,6 +169,11 @@ class _Owner:
     def pin(self, keys) -> None:
         self._cache.pin(self._id, keys)
 
+    def keys(self) -> list:
+        """The keys this owner holds, oldest first. The view looks through them for a picture of
+        a page at another size, to stretch while the page waits to be redrawn (M152.1)."""
+        return [entry[1] for entry in self._cache._entries if entry[0] == self._id]
+
     def clear(self, *, keep_pinned: bool = False) -> None:
         """Give this owner's pixels back. ``keep_pinned`` keeps the band it is currently painting,
         which is what a window that is merely no longer *focused* wants: the scrollback goes, the

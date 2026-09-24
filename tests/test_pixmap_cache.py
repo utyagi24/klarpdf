@@ -19,6 +19,7 @@ import pymupdf as fitz
 import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
+from PySide6.QtTest import QTest
 
 from app import PdfApp
 from store.settings import Settings
@@ -232,10 +233,15 @@ def test_losing_focus_drops_the_scrollback_but_not_the_visible_pages(qapp, tmp_p
     store.retain_pages, store.byte_ceiling = 48, 1 << 30   # room for a scrollback to exist at all
     win = qapp.open_document(_wide_pdf(tmp_path))
     qapp.processEvents()
+    # Let the pages ahead be drawn too. Since M152.1 a page touching the view's edge is not drawn
+    # at once, so without the wait the previous zoom could leave nothing behind.
+    while win.view._prefetch_timer.isActive():
+        QTest.qWait(20)
     win.view.set_zoom(win.view.zoom * 1.25)   # leave the previous zoom's pixmaps behind
     qapp.processEvents()
     before = len(store)
-    assert before > len(store._pinned.get(win.view._cache._id, ())), "no scrollback to drop"
+    pinned = store._pinned.get(win.view._cache._id, frozenset())
+    assert [key for key in win.view._cache.keys() if key not in pinned], "no scrollback to drop"
     win.view.release_pixmaps(keep_visible=True)
     assert len(store) < before, "nothing was released"
     assert len(store) > 0, "the visible band was dropped too"
