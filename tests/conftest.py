@@ -208,6 +208,22 @@ def _instant_zoom(monkeypatch):
     monkeypatch.setattr(viewer.pdf_view, "_ZOOM_COALESCE_MS", 0)
 
 
+@pytest.fixture(autouse=True)
+def _quick_pages(monkeypatch):
+    """Count every page as quick to draw, so a resize draws at once. In the app a resize stretches
+    the pictures of pages that took longer than ``_DRAW_BUDGET_S`` to draw, and draws them once the
+    edge rests (M152.1). The first drawing in a process pays for loading fonts, and on a slow CI
+    machine that can pass 30 ms, so tests that resize and then look for a picture would fail at
+    random. ``test_resize_stretch.py`` sets the budget itself to test the stretching.
+
+    Skipped when the toolkit is absent, for the same reason as ``_instant_search``."""
+    if not GUI_INSTALLED:
+        return
+    import viewer.pdf_view
+
+    monkeypatch.setattr(viewer.pdf_view, "_DRAW_BUDGET_S", float("inf"))
+
+
 def _build(path: str, texts: list[str], field_value: str) -> None:
     doc = fitz.open()
     for i, text in enumerate(texts):

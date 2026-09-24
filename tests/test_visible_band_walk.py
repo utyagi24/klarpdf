@@ -45,12 +45,13 @@ def _doc(tmp_path, sizes, name="doc.pdf") -> str:
 
 
 def _brute_force_range(view):
-    """What `_visible_range` did before M87.3, kept as the oracle."""
+    """What `_visible_range` did before M87.3, kept as the oracle. Since M152.1 a page counts only
+    when at least one whole pixel of it is in view, and the oracle asks the same."""
     view_rect = view.mapToScene(view.viewport().rect()).boundingRect()
     top, bottom = view_rect.top(), view_rect.bottom()
     first = last = None
     for i, p in enumerate(view._pages):
-        if p["y"] + p["h"] >= top and p["y"] <= bottom:
+        if p["y"] + p["h"] >= top + 1 and p["y"] <= bottom - 1:
             first = i if first is None else first
             last = i
     if first is None:

@@ -1088,9 +1088,15 @@ tick the box here on merge. Build in number order.
   proposed plan in `PLAN.md` §M152 (2026-09-23, revised 2026-09-24 to the owner's cost
   criteria). **The owner accepted the plan on 2026-09-24**, and made its decisions the same day.
   Each part is built in WSL and checked by hand on Windows.
-  - [ ] **M152.1** **Resizing follows the mouse**: a slow page's picture is stretched during a
-    resize and redrawn once the edge rests, and a page that only touches the view's edge is not
-    drawn.
+  - [x] **M152.1** **Resizing follows the mouse** — PR_LINK. On a page that is slow to draw, a
+    drag of the window edge stretches the page to each new size. It is drawn sharp once the edge
+    has rested for 200 ms. On the NADA cover a step now takes 6–9 ms instead of about 1 s. A page
+    counts as on screen only when at least one whole pixel of it shows, so moving to page 2 no
+    longer draws the cover. "Slow" means its last drawing took over 30 ms. On a resize step that
+    is 3–4% of the corpus's pages, in 24–28 of 121 documents; every other page is drawn at each
+    step, as before. The redraw after the rest still freezes the window, 1.45 s on the cover,
+    until M152.2. Details in `PLAN.md` §M152, *M152.1 as built*. **Still to check by hand on
+    Windows and WSL.**
   - [ ] **M152.2** **A slow page is drawn in pieces**: on the window's own thread, a few pieces at a
     time, with the window handling clicks, moves and resizes in between. §Deferred C's stretched
     picture shows until the pieces replace it, and a minimized window keeps a small blurry copy.
