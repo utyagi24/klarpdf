@@ -9031,8 +9031,9 @@ arguments are gone; the wrapper was updated to match.
 
 [#360](https://github.com/utyagi24/klarpdf/issues/360), with the two rounds of detail the owner
 added to it on 2026-09-23. This entry is the diagnosis and a proposed plan. The owner asked to see
-both before any fix is built, so **the plan waits on the owner's decisions**, listed at the end.
-Each part adds what it built to this entry when it lands.
+both before any fix is built. **The owner accepted the plan on 2026-09-24**; their decisions are
+listed at the end, with the one still open. Each part adds what it built to this entry when it
+lands.
 
 **The plan was revised on 2026-09-24 to meet the owner's criteria:** *"not very expensive in terms
 of run time resources and development cost but high on application agility and responsiveness. A
@@ -9055,8 +9056,9 @@ All on page 1, the cover, of `2025 NADA Data Full-Year Report.pdf`:
    is lost.
 3. On Windows, at 375% on the external monitor, dragging the window onto the laptop screen freezes
    it about half way, with Not Responding. It happens once per zoom level, and not on WSL.
-4. At 300%, minimizing shows Not Responding for a few seconds. Still open: whether the freeze comes
-   at the minimize or at the restore.
+4. At high zoom, bringing a minimized window back freezes it. At 400% the minimize itself happens
+   at once. The window brought back shows at once, but stays Not Responding for a few seconds
+   (owner, 2026-09-24).
 5. On WSL only, choosing 300% from the zoom list leaves the list painted on the desktop until the
    app quits.
 
@@ -9122,7 +9124,7 @@ crossing never redraws there.
 **5. Minimizing drops the pictures, and restoring redraws them** (symptom 4).
 `MainWindow.changeEvent` releases every picture on a minimize (`release_pixmaps(keep_visible=False)`,
 M87.2) and redraws on the restore (`restore_pixmaps`): **6.1 s** at 300%. The minimize itself drew
-nothing in the test.
+nothing in the test, and the owner's check on Windows agrees: the freeze comes at the restore.
 
 **6. The issue's own causes 3 and 4 stand.** A page that only touches the view's edge is drawn in
 full (`_pages_in` keeps a page when `y + h >= top`). The drawing ahead after a zoom includes the
@@ -9167,7 +9169,7 @@ Other things tried:
 | Tried | Result | Verdict |
 |---|---|---|
 | Several helper programs drawing squares at once | 512 px squares for a window on the middle of the cover at 375%: 4.94 s with 1 process, 1.63 s with 4, 1.12 s with 8. The whole cover at 375%: 9.05 s with 1, 2.74 s with 4, 1.78 s with 8. Each process: 61–66 MB at its peak; starting 8 took 0.16 s | Rejected on cost, below |
-| A quick low-resolution picture | The whole cover at 25%: 0.10 s. At 50%: 0.18 s | Kept, M152.2 |
+| A quick low-resolution picture | The whole cover at 25%: 0.10–0.11 s. At 50%: 0.18–0.21 s. `IAS_CaseStudy.pdf` page 6 with no photo unpacked yet: 2.62 s at 25% and 2.57 s at 50%, no quicker than sharp, because unpacking its photos is most of the cost at any size | Kept, M152.2. Quick only on a page slow from its drawing, not from its photos |
 | Less anti-aliasing (`set_aa_level` 8, 4, 0) | 7.18, 5.98 and 5.47 s at 300% | Rejected: little gain, jagged edges |
 | Drawing from a kept display list | 6.00 s, against 5.94 s for a second ordinary draw. In pieces: 3.57 s, against 3.58 s without it | Rejected: reading the page is not the cost |
 | A second thread in the app | PyMuPDF does not support threads (its documentation, recipes-multiprocessing) | Not possible |
@@ -9190,8 +9192,8 @@ today, because only the pieces on screen and near it are drawn. Nothing changes 
 packaged.
 
 **Its limit.** The longest pause is the slowest single piece. On the documents measured, that is
-0.06 s on the NADA cover and about 2 s on `IAS_CaseStudy.pdf` page 6, while a large photo is
-unpacked. Windows says Not Responding after about 5 s. A document with a photo that takes longer
+0.06 s on the NADA cover and about 2–2.6 s on `IAS_CaseStudy.pdf` page 6, while its photos are
+unpacked, whether the picture being drawn is blurry or sharp. Windows says Not Responding after about 5 s. A document with a photo that takes longer
 than that to unpack would still reach it. None has been seen. If one is, the helper program below
 is the fix.
 
@@ -9225,9 +9227,10 @@ picture for a while, and a quick page never does:
   looks soft while the window grows. It is redrawn at full resolution once the edge rests.
 * **M152.2:** a slow page after a zoom step, a resize, a move to another screen or a restore, until
   its pieces are drawn. The picture already there is stretched. A page with no picture yet gets a
-  quick low-resolution one. A restored window shows the small copy it kept while minimized. The
+  quick low-resolution one. A restored window shows the small copy it kept while minimized, if it
+  keeps one (still open, below). The
   pieces arrive one at a time, so for a moment a page can be sharp in some parts and still stretched
-  in others. Whether pieces show as they arrive or all together is decision 3.
+  in others. They show as they arrive, the middle of the window first (the owner's decision 2).
 
 **Why built in WSL and checked on Windows.** The code is the viewer, the same on both systems, and
 WSL is where it and its tests live. The two systems differ only in what they do while the app is
@@ -9269,19 +9272,32 @@ again:
 **Condition for revisiting:** a real document where a single piece takes close to 5 s, so the
 window reaches Not Responding. Pieces cannot fix that case, and a helper can.
 
-#### Open decisions for the owner
+#### The owner's decisions (2026-09-24)
 
-1. The two parts, in this order, with the helper programs rejected on cost.
-2. What a minimized window keeps in M152.2. Recommended: a small low-resolution copy, so the window
-   comes back blurry for a moment. The other choice is the full pictures: sharp at once, but up to
-   about 100 MB held for this cover at 300% on a 175% screen.
-3. How pieces appear in M152.2. Recommended: each one as it arrives, starting from the middle of the
-   window, so the part being looked at sharpens first. The other choice is to wait until every piece
-   on screen is ready and show them together. That avoids a page that is part sharp and part soft,
-   but keeps the whole page soft for longer.
-4. Symptom 4: does the freeze come at the minimize or at the restore?
-5. Whether M152.2 closes the 1.0 gate's Item E. It keeps the window from freezing, which is what E
-   is for. It does not move the drawing off the window's thread, which is what E says.
+1. **The two parts, in this order, with the helper programs rejected on cost:** accepted (*"Yes.
+   will merge the #385 after review."*).
+2. **How pieces appear:** each as it arrives, starting from the middle of the window (*"As they
+   arrive, starting from the middle"*).
+3. **Symptom 4 is the restore, not the minimize.** At 400% the minimize happens at once. The window
+   brought back shows at once, but stays Not Responding for a few seconds. That is cause 5.
+4. **The 1.0 gate's Item E:** M152.2 is recorded as a potential fix for it (*"We can mention step 2
+   as a potential fix for item E"*).
+
+#### Still open
+
+**What a minimized window keeps** (M152.2). The owner asked what a small copy would help with. It
+decides what a window shows at the moment it is brought back:
+
+* **Nothing kept**, as today. The page stays empty until something is drawn. A quick blurry picture
+  takes 0.11 s for the NADA cover. For `IAS_CaseStudy.pdf` page 6 it takes 2.62 s if its photos are
+  no longer unpacked, because unpacking them is most of the cost at any size.
+* **A small blurry copy.** The page shows at once, blurry, and then sharpens piece by piece. It
+  costs under 1 MB per page on screen (0.22 MB for the cover at 25%), so minimizing still gives
+  back almost all the memory, as M87.2 intended.
+* **The sharp pictures.** The page is back sharp at once, with nothing to draw. But a minimized
+  window keeps about 40 MB for an ordinary document, the memory M87.2 chose to give back.
+
+Recommended: the small blurry copy.
 
 ## The open issues, grouped — M149–M152 *(planned 2026-09-19)*
 

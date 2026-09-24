@@ -127,7 +127,8 @@ open is almost entirely in that category. The gate, all small and all concrete:
 - [ ] **Item E — background rendering** (`PLAN.md` §Deferred): 1–3 s of frozen UI per page per zoom
   on image-heavy documents. Its gate is already met; this is scheduling, not justification. **Scheduled as
   M152.2** (2026-09-19). Revised 2026-09-24: M152.2 now draws slow pages in pieces on the window's
-  thread, not off it. Whether that closes Item E is an open decision in `PLAN.md` §M152.
+  thread, not off it. The owner's call (2026-09-24): M152.2 is recorded as a potential fix for
+  Item E.
 - **Code signing** stays deferred (needs a certificate) — it is the one gate item that may never be
   purchasable, so it is explicitly *not* a blocker for 1.0.
 
@@ -1085,8 +1086,8 @@ tick the box here on merge. Build in number order.
 - [ ] **M152** **A slow page does not freeze the window** —
   [#360](https://github.com/utyagi24/klarpdf/issues/360). *App.* Diagnosis, measurements and the
   proposed plan in `PLAN.md` §M152 (2026-09-23, revised 2026-09-24 to the owner's cost
-  criteria). **The owner's decisions are pending**; they are listed there. Each part is built in
-  WSL and checked by hand on Windows.
+  criteria). **The owner accepted the plan on 2026-09-24**; one decision is still open, what a
+  minimized window keeps. Each part is built in WSL and checked by hand on Windows.
   - [ ] **M152.1** **Resizing follows the mouse**: a slow page's picture is stretched during a
     resize and redrawn once the edge rests, and a page that only touches the view's edge is not
     drawn.
