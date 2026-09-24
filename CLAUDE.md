@@ -287,6 +287,14 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   the same module disagree **and must stay that way**; a test pins each against the library, so a
   PyMuPDF upgrade that changes either fails there with the reason rather than silently resizing
   documents.
+- **`Page.get_pixmap` reads the whole page on every call, clip or not.** It builds a display list
+  internally each time, so a small clip saves the drawing but not the reading. On the NADA cover a
+  16 px piece took 44–64 ms, nearly all of it reading; from a kept `page.get_displaylist()` it took
+  3–4 ms (M152.2). Two consequences: draw repeated pieces of one page from a kept display list, and
+  a test that counts drawings by patching `Page.get_pixmap` and `DisplayList.get_pixmap` sees every
+  whole-page drawing twice unless it ignores the inner call. The whole-page measurement that
+  rejected display lists in the M152 plan was right for whole pages and wrong for pieces: measure
+  the operation you will actually repeat.
 - **A green Windows + WSL suite does not mean CI is green — and Qt failures are *segfaults*, not
   assertion failures.** M88.3 crashed the Ubuntu runner inside `QGraphicsView`'s constructor ~74%
   into the suite while both local platforms ran it green, because the fault was in Qt's C++ and

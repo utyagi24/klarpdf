@@ -2611,7 +2611,9 @@ correct for an image-only PDF.
   keeps the *page visible*. An earlier note here claiming E supersedes C had it backwards — under
   async rendering every new zoom is a miss whose pixels arrive later, so a gesture would show blank
   placeholders, and C is precisely what fills that gap. **E makes C more valuable.**
-  *(Proposed as part of **M152.1** and **M152.2**, 2026-09-23 — §M152.)*
+  *(Proposed as part of **M152.1** and **M152.2**, 2026-09-23 — §M152. **Built** in both,
+  2026-09-24: a slow page's picture is stretched during a resize, and after a zoom, a move to
+  another screen or a restore until its pieces arrive — §M152, *M152.1 as built* and *M152.2 as built*.)*
 - **D — quantise zoom to a `1.25^n` ladder.** Would restore cache hits cheaply, but buys that by
   giving back the smooth touchpad response M80 exists to deliver. Still recommended against —
   but **one of the two arguments against it has since been measured away**: it also said a ladder
@@ -2633,7 +2635,9 @@ correct for an image-only PDF.
   not justification.
   *(Scheduled as **M152.2**, 2026-09-19 — §The open issues, grouped. Diagnosis, measurements and
   the proposed design: §M152, 2026-09-23. Revised 2026-09-24: slow pages are drawn in pieces on
-  the window's thread, and a helper process is kept as the fallback.)*
+  the window's thread, and a helper process is kept as the fallback. **Built** as M152.2 on
+  2026-09-24 — §M152, *M152.2 as built*. Whether it closes the 1.0 gate's Item E is the owner's
+  call after the hand check on Windows.)*
 
 ### M92 — Mouse-wheel scrolling (owner-reported 2026-07-30)
 
@@ -9385,6 +9389,147 @@ would then find a stretched page at random. The oracle in `test_visible_band_wal
 whole-pixel rule too. One test in `test_pixmap_cache.py` needed pictures left over from the
 previous zoom, and had them only because the page touching the view's edge was drawn at once. It
 now waits for the drawing ahead first.
+
+#### M152.2 as built (2026-09-24)
+
+**What the reader sees.** A slow page no longer freezes the window after a zoom, a resize, a move
+to another screen or a restore. The page shows at once, soft: its old picture stretched to the new
+size, or a quick low-resolution one. Sharp pieces then replace it, from the middle of the window
+outward. Between pieces the window handles clicks, moves and resizes. A page that draws quickly
+behaves as before.
+
+**Surfaces: the app only** (`viewer/pdf_view.py`, and the new `viewer/pieces.py`).
+
+**What was built:**
+
+* **Which pages are drawn in pieces** (`_is_slow`). A page is drawn in pieces when its last
+  drawing, per pixel, says it would take more than the 30 ms budget at this size. A page never
+  drawn is taken as quick when it is no bigger than the window, and is drawn whole as before. That
+  is every page at Fit Page. A page never drawn and bigger than the window is taken as slow. Its
+  first piece is a window's worth, as much as a page no bigger than the window is drawn in one go.
+  If that piece shows the page is quick, the rest is drawn whole in the same turn. A smaller first
+  piece would be mostly the fixed cost of a piece, and would make a quick page look slow.
+* **Pieces are drawn from the page's display list** (`_dlists`), kept while the page is in the
+  band. This corrects the plan's rejection of display lists above, which was measured on whole
+  pages. For a piece, reading the page again is most of the cost. On the NADA cover a 16 px piece
+  took 44–64 ms read from the page, and 3–4 ms from the list. The cover's window at 375% in 128 px
+  pieces took 8.1 s from the page and 3.6 s from the list. A page that has a list is drawn whole
+  from it too.
+* **The tile grid** (`viewer/pieces.py`, `Tiles`). A page at one size is cut into squares of 128
+  device pixels. A piece is a rectangle of them. The next piece starts at the undrawn tile nearest
+  the middle of the window (the owner's decision 2). It grows one row or column at a time, toward
+  the middle, over undrawn tiles only.
+* **The size of a piece** (`Sizer`). A piece's time has a fixed part and a part that grows with its
+  area. The fixed part is fitted to the recent pieces with a robust line. The part per pixel is the
+  higher of two figures: the second highest of the recent pieces', and the average over every
+  piece of the page at this size but the slowest. When the fixed part is under half the budget, a
+  piece is sized to take the budget. When it is not, no piece can take the budget, so a piece is
+  sized so that the fixed part is half its time. A one-tile piece still over the budget, with the
+  fixed part not yet known, is followed by a piece of two tiles, which tells the two parts apart.
+  Three versions were measured on the cover and the photo page before this one:
+  * sized from the average of the recent pieces, pieces over the cover's blank margin grew to
+    11 × 7 tiles, and the next one, in the dense middle, took 1.7 s;
+  * sized from the highest recent piece, with no fixed part, every piece of `IAS_CaseStudy.pdf`
+    page 6 stayed one tile at 200 ms, and the window took 20 s to sharpen at 300%;
+  * with the fixed part but trying a four-times piece whenever pieces were one size, the cover got
+    pieces of up to 336 ms.
+* **Turns** (`_turn`). The render pass draws the first turn itself, so a page that turns out quick
+  is never blank. Later turns run from a timer, straight after the window's events while pieces on
+  screen remain, and every 16 ms for pieces ahead. Each turn draws at least one piece, and stops
+  once 30 ms have passed. Pieces ahead wait for a wheel glide to end, as the pages drawn ahead
+  whole do (M92.4). Nothing is drawn while a window edge moves (M152.1). The pages drawn ahead
+  whole wait while pieces on screen remain.
+* **Ahead** (`_ahead_rect`, `_trim_pieces`). A slow page's pieces are drawn within one window
+  height above and below the window, across the window's width. Pieces further away are dropped,
+  and their tiles are drawn again if the reader comes back. This is cause 6's second half: the
+  NADA cover is no longer drawn whole ahead when page 2 or 3 is current.
+* **A page whose tiles are all drawn becomes one picture** (`_finish_pieces`), which goes into the
+  store like any other. This happens when the page fits across the window and within the region
+  ahead, as at Fit Page or Fit Width. A page wider than the window stays in pieces.
+* **Pieces are drawn 2 px larger on each side, and the margin is cut off** (`_PIECE_MARGIN`).
+  MuPDF smooths an edge a little differently where a clip cuts through it. On the NADA cover at
+  111%, one row of the red shape's lower edge came out lighter on a 33-pixel stretch at a piece's
+  side, off by up to 160 of 255. With the cut 2 px away, no pixel there was off by more than 40.
+  Checked on a whole 984 × 684 window at 300% against the page drawn whole, 2,245 of its 673,056 pixels
+  were still off by more than 40. All of them are inside the chart photo, from resampling it, and
+  side by side the two cannot be told apart.
+* **Stand-ins** (`_show_stand_in`). Below, the store's best picture of the whole page drawn for
+  another size, stretched (M152.1). Above it, the picture carried from before, when that one is
+  sharper; it may cover only the part of the page that was on screen. With neither, a
+  low-resolution picture of the whole page at 25%, the smallest zoom a reader can ask for
+  (`_draw_low_res`). It is drawn only for a page timed before, whose photos are then already
+  unpacked, and only when it has at most a quarter of the page's pixels. With none of these the page
+  is white until its pieces arrive.
+* **Carried pictures** (`_carry`). Before the scene is rebuilt (a zoom, a rotation, a change of
+  layout, an edit), each page on screen with pieces has what it shows painted into one picture of
+  the part on screen. A page showing its own whole picture is kept as it is. A page showing only
+  stand-ins needs nothing: the store and the earlier carried picture still hold them. An edit that
+  moves pages drops the carried pictures, since they now show other pages. After a rotation they
+  no longer fit and are not used. Each page's layout entry records the rotation its pictures were
+  drawn with, because by the time an edit rebuilds the scene the document has already changed.
+* **A minimized window keeps a small blurry copy** (the owner's decision 5). Every page on screen is
+  painted at a quarter of the width and height. On the NADA cover at 400% that was 0.30 MB. The
+  restore shows it at once, and the pieces replace it.
+* **Night mode clears every picture on screen.** Found while testing: a slow page kept its old
+  light picture, stretched, until its pieces covered it. Before M152.2 every page on screen was
+  drawn again at once, so this could not happen.
+
+**Measured** (WSL, headless, a 1384 × 944 view unless given). "Before" is the code on `main`, run
+by the same script. The longest pause is the largest gap between ticks of a timer set to fire
+every 5 ms.
+
+| | Before | After |
+|---|---|---|
+| NADA cover, Fit Page to 300% | 7.45 s frozen | longest pause 0.10 s; window sharp after 2.9–3.2 s |
+| NADA cover, 300% to 375% | 10.48 s frozen | longest pause 0.10 s; sharp after 3.8–4.2 s |
+| NADA cover, back from 375% to 300% | 0.00 s: the whole page was in the store | longest pause 0.10 s; sharp after 3.3 s (see *Its limits*) |
+| NADA cover, 300% to 125% | 1.15 s frozen | longest pause 0.08 s; sharp after 1.3 s |
+| `IAS_CaseStudy.pdf` page 6, Fit Page to 100% | 2.99 s frozen | longest pause 2.3 s, unpacking its photos; sharp after 3.1 s |
+| `IAS_CaseStudy.pdf` page 6, 100% to 300% | 4.76 s frozen | longest pause 0.33 s; sharp after 1.6 s |
+| NADA cover at 400%, restore from minimized | 12.99 s frozen | longest pause 0.09 s; sharp after 4.0 s |
+| NADA cover at 300%, move onto a 1.75× screen | 22.33 s frozen | longest pause 0.11 s; sharp after 9.0 s |
+| NADA cover, a drag of 10 steps and a rest, 1000 × 1400 view | 1.45 s frozen at the rest (M152.1) | the 10 steps 0.08 s in all; longest pause 0.12 s; sharp 1.8 s after the drag began |
+
+On the cover, the first piece of a zoom takes about 0.1 s, sized from the page's whole drawing.
+The rest take 50–57 ms: one tile, which is the smallest piece, and which the dense middle of the
+cover cannot draw within 30 ms. The time until the window is sharp is close to the plan's estimate
+(3.6 s at 375%). Two runs differed by about 10%. Drawing ahead continues after that, a turn every 16 ms, for about 5 s more at
+375%.
+
+At 400% the cover's pieces held 16 MB, where the whole page at that zoom is 55 MB. The memory the
+display lists take was not measured: PyMuPDF does not report it.
+
+**Its limits:**
+
+* A page no bigger than the window is still drawn whole the first time it is met, as before. The
+  NADA cover took 0.6 s at open here, and 1.7 s at the Fit Page size of the owner's laptop screen
+  (§M152.1 as built). `IAS_CaseStudy.pdf` page 6 took 3.1 s.
+* Unpacking a photo the first time at a given detail is one step: 2.3–2.5 s on
+  `IAS_CaseStudy.pdf` page 6, whatever the piece.
+* No test pins the 2 px margin. A test page of slanted shapes, solid or see-through, drew the same
+  with and without it. It was measured on the NADA cover only (`PROGRESS.md` §Open follow-ups).
+* A page wider than the window stays in pieces and is not joined into one picture.
+* With Ctrl+wheel, each step of the zoom begins the pieces again. The window stays responsive, but
+  the pieces drawn between two steps are thrown away.
+* **Going back to a zoom already drawn is slower to sharpen.** A page in pieces is kept as one
+  picture in the store only once every tile is drawn, which needs the page to fit across the
+  window. So on the cover, 375% back to 300% was instant before, from the store, and now draws the
+  pieces again: responsive, and sharp after 3.3 s. Keeping the pieces of the last size or
+  two would bring it back, for their memory (`PROGRESS.md` §Open follow-ups).
+
+**Tests:** `tests/test_draw_in_pieces.py` (22 tests) and `tests/test_piece_sizer.py` (11, no Qt).
+M152.1's tests now count pieces as drawings, and let the pieces finish before each step. The
+break-it runs undid 16 parts in turn. Three at first went unnoticed:
+
+* a structural edit that kept the carried pictures: the test's zoom made every page quick after the
+  edit, so the pages were drawn again at once and the wrong picture never showed. The test now uses
+  a zoom where the pages stay slow;
+* no low-resolution picture: night mode left the old picture on screen, which passed for one. That
+  was the night-mode flaw above. The test now checks the picture's size and that it is dark;
+* night mode keeping the old pictures: the low-resolution picture covered them. A test at 40%,
+  where no low-resolution picture is drawn, catches it.
+
+The other 13 each failed a test.
 
 ## The open issues, grouped — M149–M152 *(planned 2026-09-19)*
 

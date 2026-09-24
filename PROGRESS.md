@@ -128,7 +128,8 @@ open is almost entirely in that category. The gate, all small and all concrete:
   on image-heavy documents. Its gate is already met; this is scheduling, not justification. **Scheduled as
   M152.2** (2026-09-19). Revised 2026-09-24: M152.2 now draws slow pages in pieces on the window's
   thread, not off it. The owner's call (2026-09-24): M152.2 is recorded as a potential fix for
-  Item E.
+  Item E. **M152.2 built** (PR_LINK, 2026-09-24): whether it closes Item E is the owner's call
+  after the hand check on Windows.
 - **Code signing** stays deferred (needs a certificate) — it is the one gate item that may never be
   purchasable, so it is explicitly *not* a blocker for 1.0.
 
@@ -1097,11 +1098,18 @@ tick the box here on merge. Build in number order.
     step, as before. The redraw after the rest still freezes the window, 1.45 s on the cover,
     until M152.2. Details in `PLAN.md` §M152, *M152.1 as built*. **Still to check by hand on
     Windows and WSL.**
-  - [ ] **M152.2** **A slow page is drawn in pieces**: on the window's own thread, a few pieces at a
-    time, with the window handling clicks, moves and resizes in between. §Deferred C's stretched
-    picture shows until the pieces replace it, and a minimized window keeps a small blurry copy.
-    No helper program: that plan was rejected on cost (2026-09-24) and is kept in `PLAN.md` §M152
-    as the fallback.
+  - [x] **M152.2** **A slow page is drawn in pieces** — PR_LINK, stacked on #386. After a zoom, a
+    resize, a move to another screen or a restore, a slow page shows at once: its old picture
+    stretched, or a quick low-resolution one. Sharp pieces replace it from the middle of the
+    window, and the window handles events between them. On the NADA cover the longest pause is now
+    about 0.1 s, where the same steps froze the window for 7.5 s (a zoom to 300%), 13 s (a restore
+    at 400%) and 22 s (a move onto a 1.75× screen). A minimized window keeps a quarter-size copy
+    (0.3 MB on the cover). Pieces are drawn from a kept display list, which the plan had rejected
+    on whole-page measurements: for a piece it cuts the cost from 45 ms to 3–4 ms. Limits: a photo
+    page still pauses once while its photos are unpacked (2.3 s on `IAS_CaseStudy.pdf` page 6),
+    and going back to a zoom already drawn now redraws the pieces (3.3 s to sharp on the cover)
+    where it used to be instant. Details in `PLAN.md` §M152, *M152.2 as built*. **Still to check
+    by hand on Windows, on both screens, and on WSL.**
   - [ ] After M152.2, try the WSL zoom list again (#360, second round: choosing 300% leaves the list
     on the desktop). If it is still there, it gets its own issue.
 
@@ -4684,6 +4692,26 @@ released build or in the code on `main` that is unambiguous and readily reproduc
 the PR that fixes it. See `CLAUDE.md` §How we work for the split and why. Items already carried here
 were not migrated wholesale: each is listed because a decision is outstanding, which is what keeps
 it on this side of the line.
+
+- **Going back to a zoom already drawn redraws a slow page's pieces** (M152.2, found 2026-09-24).
+  A page drawn in pieces is kept whole in the store only once every tile is drawn, which needs the
+  page to fit across the window. So on the NADA cover, 375% back to 300% was instant before and now
+  takes 3.3 s to sharpen, with the window responsive throughout. **Open question:** keep the
+  pieces of the last size or two, for their memory (about 16 MB for the cover's window at 400%),
+  or accept the redraw. `PLAN.md` §M152, *M152.2 as built*.
+
+- **No test pins the 2 px margin around each piece** (M152.2, 2026-09-24). Without it, MuPDF
+  smoothed one row of a shape's edge on the NADA cover differently where a piece's clip cut
+  through it. A test page of slanted shapes, solid or see-through, did not show the flaw, so the
+  margin is backed only by the measurement on the cover. **To do:** find a small page that shows
+  it, and make it a test.
+
+- **Whole-page redraws could keep a display list too** (M152.2, measured 2026-09-24). `Page.get_pixmap`
+  reads the page on every call. On some corpus pages that reading is most of the cost: page 14 of
+  `Patina-at-RiverSound-Brochure (reduced).pdf` took 217 ms to read and 190 ms to draw at 100%. M152.2 keeps a display list
+  only for pages drawn in pieces. **Open question:** keep one for every page in the band, so a
+  zoom or a resize redraws such pages in about half the time, for the memory the lists take, which
+  PyMuPDF does not report.
 
 - **A resize with a zoom you chose yourself (no fit on) does not keep the top line at the end of
   the document** (M151, found 2026-09-21). With a fit on, a resize keeps the line at the top of the
