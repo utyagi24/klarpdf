@@ -2669,9 +2669,11 @@ class PdfView(QGraphicsView):
 
         **The honest limit** (recorded so it is not mistaken for a bug): a reader who scrolls fast
         enough to *outrun* the queue reaches a page it has not reached yet, and that page must be
-        rasterised synchronously by :meth:`_render_visible` — a stall like the old one, but only on
-        genuinely outpacing prefetch rather than on every image page. Removing that case needs
-        rendering off the UI thread (`PLAN.md` §Deferred, item **E**).
+        drawn by :meth:`_render_visible` at once. Since M152.2 a page timed as slow is drawn there in
+        pieces, a turn at a time. A page met for the first time is still drawn whole,
+        or a window's worth of it — a stall like the old one, but only on genuinely outpacing
+        prefetch, and only once. The owner accepted that when Item E was called done (`PLAN.md`
+        §M152, *M152.2 as built*, *Its limits*).
         """
         if (self._glide_timer.isActive() or self._settle_timer.isActive()
                 or self._pieces_on_screen_pending()):

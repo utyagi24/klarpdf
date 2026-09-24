@@ -2636,8 +2636,10 @@ correct for an image-only PDF.
   *(Scheduled as **M152.2**, 2026-09-19 — §The open issues, grouped. Diagnosis, measurements and
   the proposed design: §M152, 2026-09-23. Revised 2026-09-24: slow pages are drawn in pieces on
   the window's thread, and a helper process is kept as the fallback. **Built** as M152.2 on
-  2026-09-24 — §M152, *M152.2 as built*. Whether it closes the 1.0 gate's Item E is the owner's
-  call after the hand check on Windows.)*
+  2026-09-24 — §M152, *M152.2 as built*. **The owner called the 1.0 gate's Item E done on it**
+  the same day, accepting the two pauses pieces do not remove: a page drawn whole the first time
+  it is met, and a page's photos unpacked in one step at a new level of detail (§M152, *Its
+  limits*; `PROGRESS.md` §Toward 1.0).)*
 
 ### M92 — Mouse-wheel scrolling (owner-reported 2026-07-30)
 
@@ -9284,7 +9286,8 @@ window reaches Not Responding. Pieces cannot fix that case, and a helper can.
 3. **Symptom 4 is the restore, not the minimize.** At 400% the minimize happens at once. The window
    brought back shows at once, but stays Not Responding for a few seconds. That is cause 5.
 4. **The 1.0 gate's Item E:** M152.2 is recorded as a potential fix for it (*"We can mention step 2
-   as a potential fix for item E"*).
+   as a potential fix for item E"*). Once it was built, the owner called Item E done on it
+   (2026-09-24, `PROGRESS.md` §Toward 1.0).
 5. **What a minimized window keeps:** a small blurry copy (*"yes lets keep a low res copy"*). It
    is a quarter of the width and height of what the window shows, so it is at most about 1.3 MB a
    window at any zoom: a full-screen window on the owner's laptop screen. The owner asked whether it is kept on every minimize or only past a
