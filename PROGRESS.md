@@ -128,7 +128,7 @@ open is almost entirely in that category. The gate, all small and all concrete:
   on image-heavy documents. Its gate is already met; this is scheduling, not justification. **Scheduled as
   M152.2** (2026-09-19). Revised 2026-09-24: M152.2 now draws slow pages in pieces on the window's
   thread, not off it. The owner's call (2026-09-24): M152.2 is recorded as a potential fix for
-  Item E. **M152.2 built** (PR_LINK, 2026-09-24): whether it closes Item E is the owner's call
+  Item E. **M152.2 built** ([#387](https://github.com/utyagi24/klarpdf/pull/387), 2026-09-24): whether it closes Item E is the owner's call
   after the hand check on Windows.
 - **Code signing** stays deferred (needs a certificate) — it is the one gate item that may never be
   purchasable, so it is explicitly *not* a blocker for 1.0.
@@ -1098,7 +1098,7 @@ tick the box here on merge. Build in number order.
     step, as before. The redraw after the rest still freezes the window, 1.45 s on the cover,
     until M152.2. Details in `PLAN.md` §M152, *M152.1 as built*. **Still to check by hand on
     Windows and WSL.**
-  - [x] **M152.2** **A slow page is drawn in pieces** — PR_LINK, stacked on #386. After a zoom, a
+  - [x] **M152.2** **A slow page is drawn in pieces** — [#387](https://github.com/utyagi24/klarpdf/pull/387), stacked on #386. After a zoom, a
     resize, a move to another screen or a restore, a slow page shows at once: its old picture
     stretched, or a quick low-resolution one. Sharp pieces replace it from the middle of the
     window, and the window handles events between them. On the NADA cover the longest pause is now
