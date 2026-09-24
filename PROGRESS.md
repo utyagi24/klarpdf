@@ -1088,7 +1088,7 @@ tick the box here on merge. Build in number order.
   proposed plan in `PLAN.md` §M152 (2026-09-23, revised 2026-09-24 to the owner's cost
   criteria). **The owner accepted the plan on 2026-09-24**, and made its decisions the same day.
   Each part is built in WSL and checked by hand on Windows.
-  - [x] **M152.1** **Resizing follows the mouse** — PR_LINK. On a page that is slow to draw, a
+  - [x] **M152.1** **Resizing follows the mouse** — [#386](https://github.com/utyagi24/klarpdf/pull/386). On a page that is slow to draw, a
     drag of the window edge stretches the page to each new size. It is drawn sharp once the edge
     has rested for 200 ms. On the NADA cover a step now takes 6–9 ms instead of about 1 s. A page
     counts as on screen only when at least one whole pixel of it shows, so moving to page 2 no
