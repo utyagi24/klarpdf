@@ -244,6 +244,9 @@ class PdfView(QGraphicsView):
         # two copies of one source page can differ. Value is (page, owning doc).
         self._foreign_docs: dict[int, tuple] = {}
         self._pages: list[dict] = []   # per page: {bg, pix, x, y, w, h}
+        # The scale the pages were laid out at. A zoom, or a screen with another DPI, changes
+        # :attr:`scale` before the scene is built again, and the old layout is read before that.
+        self._layout_scale = self.scale
         # Two indexes that keep the render pass O(visible band) instead of O(document length),
         # both maintained by _build_scene / _render_visible (M87.3):
         self._page_tops: list[float] = []   # each page's scene y, non-decreasing — binary-searched
@@ -619,6 +622,7 @@ class PdfView(QGraphicsView):
         # row, so pairs centre as a unit exactly as single pages centred alone.
         rows = self._layout_rows()
         z = self.scale   # scene units per point — zoom × logicalDpi/72, not the bare zoom (M88.1)
+        self._layout_scale = z
         sizes = {i: self._natural_size(i) for row in rows for i in row}
         row_width = {
             row: sum(sizes[i][0] for i in row) * z + (len(row) - 1) * _PAGE_GAP for row in rows
@@ -2242,7 +2246,11 @@ class PdfView(QGraphicsView):
             item.setTransformationMode(Qt.TransformationMode.SmoothTransformation)
         item.setPixmap(carried.pixmap)
         item.setPos(carried.rect.x() * self.scale, carried.rect.y() * self.scale)
-        item.setScale(carried.rect.width() * self.scale / max(1, carried.pixmap.width()))
+        # Its size without its pixel ratio: a page's own picture has the screen's, where a picture
+        # painted from the pieces has none. Counted as its pixels, it showed at half size on a
+        # screen with two pixels to a point.
+        width = carried.pixmap.deviceIndependentSize().width()
+        item.setScale(carried.rect.width() * self.scale / max(1e-9, width))
         self._painted.add(index)
         self._stand_ins.add(index)
 
@@ -2543,7 +2551,9 @@ class PdfView(QGraphicsView):
         page = self._pages[index]
         base = page["pix"]
         total = page["total"]   # from the layout, which may be older than the document (reload)
-        s = self.scale
+        # The layout's scale, not the one it is about to change to: a zoom has already set that
+        # when it rebuilds the scene, and measured with it, the picture came back at its old size.
+        s = self._layout_scale
         wip = self._wip.get(index)
         carry = page.get("carry")
         if factor == 1.0 and (wip is None or not wip.pieces):

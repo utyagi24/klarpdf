@@ -9519,7 +9519,8 @@ display lists take was not measured: PyMuPDF does not report it.
   pieces again: responsive, and sharp after 3.3 s. Keeping the pieces of the last size or
   two would bring it back, for their memory (`PROGRESS.md` §Open follow-ups).
 
-**Tests:** `tests/test_draw_in_pieces.py` (22 tests) and `tests/test_piece_sizer.py` (11, no Qt).
+**Tests:** `tests/test_draw_in_pieces.py` (32 tests, 10 of them added for the fault the owner
+found, below) and `tests/test_piece_sizer.py` (11, no Qt).
 M152.1's tests now count pieces as drawings, and let the pieces finish before each step. The
 break-it runs undid 16 parts in turn. Three at first went unnoticed:
 
@@ -9540,6 +9541,49 @@ scroll bar width decides whether that resize happens. It was reproduced here by 
 bars to 12 px. A second flaw of the same kind showed at that width: Qt can deliver a late resize,
 when a scroll bar comes or goes, and the helpers assumed one rest was enough. They now rest until
 no new wait starts. Both test files pass with scroll bars of every width from 10 to 24 px.
+
+**Found in the owner's hand check (2026-09-24): after a zoom, the old picture had the wrong
+size.** On the NADA cover, a zoom sharpened in tiles that stood out, while a restore from
+minimized showed a blurry picture that came into focus. The owner preferred the restore: *"I like
+that experience better than the tiled refresh."* Both run the same code: a stand-in at once, then
+pieces from the middle of the window. The stand-in was the difference, and two faults made the
+zoom's wrong.
+
+* **Its size was measured with the new zoom.** `_carry` turns the old picture's place on the
+  page into points by dividing by `scale`. A zoom sets the new zoom before it rebuilds the scene,
+  and a screen with another logical DPI sets the new DPI, so the old layout was divided by the new
+  scale. The picture came back at its old size in the top-left of the page. By the same wrong
+  measure it counted as sharper than the store's picture, correctly stretched, so it was shown
+  above it. After one zoom-in step from Fit Page (an 800 × 1280 view), the page was 946 × 1224 px
+  and the old picture 756 × 979. Each piece then replaced a different part of the page, which is
+  why the tiles stood out. The same happened on a zoom out from a zoom where the page was drawn
+  only in part, on Fit Width and Fit Page, and on a resize with one of them on. A drag in small
+  steps left the picture about 1% small: 944 px wide on a 957 px page. A restore does not change
+  the scale, so its copy was right.
+* **Its size on screen counted its pixels as points.** `_show_carried` divided by the picture's
+  width in pixels. A page's own picture has the screen's pixel ratio, so on a screen with more than
+  one pixel to a point it showed at a fraction of its size: at 1.75 (the owner's laptop), a zoom
+  in showed it at 432 × 559 px on a 946 × 1224 page. A picture painted from the pieces, as the
+  restore's copy is, has no pixel ratio, so it was right. Of M152.2's tests only one ran at two
+  pixels to a point, and it checks the store's picture, not the old one, which is how this went
+  unseen. The picture painted from the pieces was checked for the same fault: at two pixels to a
+  point on the cover, no sampled pixel of it was off by more than 40 of 255 from the page drawn
+  whole.
+
+The fix: the scene records the scale it was laid out at (`_layout_scale`), and `_carry` measures
+with that. `_show_carried` uses the picture's size without its pixel ratio. A zoom now looks like
+a restore: the old picture stretched to the new size, soft, then sharpened in place from the
+middle of the window. It starts sharper than the restore's copy, stretched by a quarter on one
+zoom step where the copy is stretched four times. On the cover the window was sharp after about
+1.1 s either way (WSL, an 800 × 1280 view).
+
+Ten tests were added: `test_the_old_picture_stands_in_over_the_whole_page`, after a zoom in, a
+wider window at Fit Width, a screen with another DPI and an edit, and
+`test_after_a_zoom_out_the_old_pieces_cover_the_part_of_the_page_they_showed`. Each runs at one and
+at two pixels to a point. Before the fix, 9 of the 10 failed. The one that passed is the edit at
+one pixel to a point, which neither fault touches. Undoing the fix's first half alone failed the
+8 cases that change the scale. Undoing its second half alone failed the 4 cases at two pixels to a
+point that keep a page's own picture.
 
 ## The open issues, grouped — M149–M152 *(planned 2026-09-19)*
 

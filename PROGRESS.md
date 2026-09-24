@@ -1108,8 +1108,12 @@ tick the box here on merge. Build in number order.
     on whole-page measurements: for a piece it cuts the cost from 45 ms to 3–4 ms. Limits: a photo
     page still pauses once while its photos are unpacked (2.3 s on `IAS_CaseStudy.pdf` page 6),
     and going back to a zoom already drawn now redraws the pieces (3.3 s to sharp on the cover)
-    where it used to be instant. Details in `PLAN.md` §M152, *M152.2 as built*. **Still to check
-    by hand on Windows, on both screens, and on WSL.**
+    where it used to be instant. The owner's first hand check (2026-09-24) found a zoom sharpening
+    in tiles that stood out, where a restore came into focus. The old picture shown after a zoom
+    kept its old size, in the top-left of the page. On the laptop's 1.75× screen it covered less
+    than half the page's width. Fixed in the same PR: a zoom now sharpens in place, like a
+    restore. Details in `PLAN.md` §M152, *M152.2 as built*. **Still to check by hand on Windows,
+    on both screens, and on WSL.**
   - [ ] After M152.2, try the WSL zoom list again (#360, second round: choosing 300% leaves the list
     on the desktop). If it is still there, it gets its own issue.
 

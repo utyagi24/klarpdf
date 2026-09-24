@@ -401,6 +401,81 @@ def test_an_edit_that_moves_pages_drops_the_old_pictures(view, qapp, slow):
     assert carry is None or carry.pixmap().isNull()
 
 
+def _part_shown(view, index: int, rect) -> tuple[float, float, float, float]:
+    """The part of page ``index`` that scene rectangle ``rect`` covers, as fractions of the page:
+    left, top, right, bottom."""
+    page = view._pages[index]["bg"].sceneBoundingRect()
+    return ((rect.left() - page.left()) / page.width(), (rect.top() - page.top()) / page.height(),
+            (rect.right() - page.left()) / page.width(), (rect.bottom() - page.top()) / page.height())
+
+
+def _assert_covers(view, index: int, item, part) -> None:
+    """``item`` covers ``part`` of page ``index`` (fractions, as :func:`_part_shown`), to a pixel."""
+    page = view._pages[index]["bg"].sceneBoundingRect()
+    got = item.sceneBoundingRect()
+    want = (page.left() + part[0] * page.width(), page.top() + part[1] * page.height(),
+            page.left() + part[2] * page.width(), page.top() + part[3] * page.height())
+    assert (got.left(), got.top(), got.right(), got.bottom()) == pytest.approx(want, abs=1)
+
+
+@pytest.mark.parametrize("dpr", [1.0, 2.0])
+@pytest.mark.parametrize("change", ["zoom in", "wider window at Fit Width", "screen with another DPI", "edit"])
+def test_the_old_picture_stands_in_over_the_whole_page(view, qapp, slow, change, dpr):
+    """While a page is drawn again, its old picture covers the whole page at the new size.
+
+    Two faults once put it elsewhere, both seen on the NADA cover. Its size in points was measured
+    after the scale had already changed, so a zoom in showed it at its old size in the top-left of
+    the page, and each piece then replaced a different part of the page. And its size on screen
+    counted its pixels as points, so with two pixels to a point it covered a quarter of the page.
+    """
+    view._dpr = dpr
+    view._apply_display_change("render")
+    if change == "wider window at Fit Width":
+        _drain(qapp, view)
+        view.fit_width()
+    else:
+        _zoom(qapp, view, 0.6)
+    _drain(qapp, view)
+    index = view.current_page
+    assert _has_own_picture(view, index)
+    view._cache.clear(keep_pinned=False)   # with nothing stored to stand in, the old picture does
+
+    if change == "zoom in":
+        view.set_zoom(0.75)
+    elif change == "wider window at Fit Width":
+        view.resize(800, 700)
+        qapp.processEvents()
+    elif change == "screen with another DPI":
+        view._logical_dpi = 120.0
+        view._apply_display_change("layout")
+    else:
+        view.reload()
+
+    carry = view._pages[index].get("carry")
+    assert carry is not None and not carry.pixmap().isNull()
+    _assert_covers(view, index, carry, (0.0, 0.0, 1.0, 1.0))
+
+
+@pytest.mark.parametrize("dpr", [1.0, 2.0])
+def test_after_a_zoom_out_the_old_pieces_cover_the_part_of_the_page_they_showed(view, qapp, slow, dpr):
+    """A page zoomed in this far is drawn in pieces, and is never drawn whole: only near the
+    window. What the window shows of it is kept as one picture, and after a zoom out it covers
+    that part of the page. (The pieces are not all drawn first: with two pixels to a point there
+    are too many for the test to wait for, and the picture is made the same way from one.)"""
+    view._dpr = dpr
+    view._apply_display_change("render")
+    _zoom(qapp, view, 2.0)
+    index = view.current_page
+    assert view._wip[index].pieces
+    part = _part_shown(view, index, view.mapToScene(view.viewport().rect()).boundingRect().intersected(
+        view._pages[index]["bg"].sceneBoundingRect()))
+    view._cache.clear(keep_pinned=False)
+
+    view.set_zoom(1.6)
+
+    _assert_covers(view, index, view._pages[index]["carry"], part)
+
+
 def test_a_slow_page_with_no_picture_gets_a_quick_low_resolution_one(view, qapp, slow):
     _zoom(qapp, view, 2.0)
     _drain(qapp, view)
