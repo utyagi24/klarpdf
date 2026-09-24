@@ -124,12 +124,18 @@ open is almost entirely in that category. The gate, all small and all concrete:
   one down." `test_single_instance` remains the sole item here. **2026-09-19: a second one, seen on
   CI** — `test_incremental_save.py::test_saving_twice_from_one_model_does_not_stack_revisions`, once on
   the `windows` job (§Open follow-ups).
-- [ ] **Item E — background rendering** (`PLAN.md` §Deferred): 1–3 s of frozen UI per page per zoom
+- [x] **Item E — background rendering** (`PLAN.md` §Deferred): 1–3 s of frozen UI per page per zoom
   on image-heavy documents. Its gate is already met; this is scheduling, not justification. **Scheduled as
   M152.2** (2026-09-19). Revised 2026-09-24: M152.2 now draws slow pages in pieces on the window's
   thread, not off it. The owner's call (2026-09-24): M152.2 is recorded as a potential fix for
-  Item E. **M152.2 merged** ([#387](https://github.com/utyagi24/klarpdf/pull/387), 2026-09-24): whether it closes Item E is the owner's call
-  after the hand check on Windows.
+  Item E. **M152.2 merged** ([#387](https://github.com/utyagi24/klarpdf/pull/387), 2026-09-24).
+  **Done** (owner, 2026-09-24: *"I am happy with the fix and so lets use #389 to call Item E as
+  done"*). M152 closes it: a slow page no longer freezes the window, because it is drawn in pieces
+  on the window's own thread rather than off it, as E first proposed. Two pauses remain, accepted
+  with it (`PLAN.md` §M152, *M152.2 as built*, *Its limits*). A page no bigger than the window is
+  drawn whole the first time it is met: 0.6–1.7 s on the NADA cover. And a page's photos are
+  unpacked in one step the first time at a new level of detail: 2.3 s on `IAS_CaseStudy.pdf`
+  page 6. If either ever needs removing, the helper program from M152's plan is the fallback.
 - **Code signing** stays deferred (needs a certificate) — it is the one gate item that may never be
   purchasable, so it is explicitly *not* a blocker for 1.0.
 
@@ -1090,7 +1096,9 @@ tick the box here on merge. Build in number order.
   criteria). **The owner accepted the plan on 2026-09-24**, and made its decisions the same day.
   Each part is built in WSL and checked by hand on Windows. **Both parts merged on 2026-09-24**
   (#386, #387), and #360 is closed as completed. The WSL zoom list it also reported is
-  [#388](https://github.com/utyagi24/klarpdf/issues/388).
+  [#388](https://github.com/utyagi24/klarpdf/issues/388). **The owner accepted M152 on
+  2026-09-24** (*"I am happy with the fix"*), and called the 1.0 gate's Item E done on it
+  (§Toward 1.0).
   - [x] **M152.1** **Resizing follows the mouse** — [#386](https://github.com/utyagi24/klarpdf/pull/386). On a page that is slow to draw, a
     drag of the window edge stretches the page to each new size. It is drawn sharp once the edge
     has rested for 200 ms. On the NADA cover a step now takes 6–9 ms instead of about 1 s. A page
@@ -1098,8 +1106,8 @@ tick the box here on merge. Build in number order.
     longer draws the cover. "Slow" means its last drawing took over 30 ms. On a resize step that
     is 3–4% of the corpus's pages, in 24–28 of 121 documents; every other page is drawn at each
     step, as before. The redraw after the rest still freezes the window, 1.45 s on the cover,
-    until M152.2. Details in `PLAN.md` §M152, *M152.1 as built*. **Still to check by hand on
-    Windows and WSL.**
+    until M152.2. Details in `PLAN.md` §M152, *M152.1 as built*. Accepted by the owner with
+    M152.2 on 2026-09-24.
   - [x] **M152.2** **A slow page is drawn in pieces** — [#387](https://github.com/utyagi24/klarpdf/pull/387), stacked on #386. After a zoom, a
     resize, a move to another screen or a restore, a slow page shows at once: its old picture
     stretched, or a quick low-resolution one. Sharp pieces replace it from the middle of the
@@ -1115,8 +1123,7 @@ tick the box here on merge. Build in number order.
     kept its old size, in the top-left of the page. On the laptop's 1.75× screen it covered less
     than half the page's width. Fixed in the same PR: a zoom now sharpens in place, like a
     restore. Details in `PLAN.md` §M152, *M152.2 as built*. The owner checked the zoom after the
-    fix (2026-09-24): zooming in and out feels much better. **The rest of the hand check is still
-    to do, on Windows, on both screens, and on WSL.**
+    fix (2026-09-24): zooming in and out feels much better. Accepted by the owner the same day.
   - [x] After M152.2, try the WSL zoom list again (#360, second round: choosing 300% leaves the list
     on the desktop). If it is still there, it gets its own issue. **Still there** (owner,
     2026-09-24), with any document and any zoom value, so the slow redraw was not the cause. Now
