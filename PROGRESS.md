@@ -1112,10 +1112,13 @@ tick the box here on merge. Build in number order.
     in tiles that stood out, where a restore came into focus. The old picture shown after a zoom
     kept its old size, in the top-left of the page. On the laptop's 1.75× screen it covered less
     than half the page's width. Fixed in the same PR: a zoom now sharpens in place, like a
-    restore. Details in `PLAN.md` §M152, *M152.2 as built*. **Still to check by hand on Windows,
-    on both screens, and on WSL.**
-  - [ ] After M152.2, try the WSL zoom list again (#360, second round: choosing 300% leaves the list
-    on the desktop). If it is still there, it gets its own issue.
+    restore. Details in `PLAN.md` §M152, *M152.2 as built*. The owner checked the zoom after the
+    fix (2026-09-24): zooming in and out feels much better. **The rest of the hand check is still
+    to do, on Windows, on both screens, and on WSL.**
+  - [x] After M152.2, try the WSL zoom list again (#360, second round: choosing 300% leaves the list
+    on the desktop). If it is still there, it gets its own issue. **Still there** (owner,
+    2026-09-24), with any document and any zoom value, so the slow redraw was not the cause. Now
+    [#388](https://github.com/utyagi24/klarpdf/issues/388).
 
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 
