@@ -126,7 +126,9 @@ open is almost entirely in that category. The gate, all small and all concrete:
   the `windows` job (§Open follow-ups).
 - [ ] **Item E — background rendering** (`PLAN.md` §Deferred): 1–3 s of frozen UI per page per zoom
   on image-heavy documents. Its gate is already met; this is scheduling, not justification. **Scheduled as
-  M152.2** (2026-09-19).
+  M152.2** (2026-09-19). Revised 2026-09-24: M152.2 now draws slow pages in pieces on the window's
+  thread, not off it. The owner's call (2026-09-24): M152.2 is recorded as a potential fix for
+  Item E.
 - **Code signing** stays deferred (needs a certificate) — it is the one gate item that may never be
   purchasable, so it is explicitly *not* a blocker for 1.0.
 
@@ -1082,10 +1084,20 @@ tick the box here on merge. Build in number order.
   - the page marked current is the page the view was sent to: a deck reopened on its last slide,
     or a search hit on the last page, now marks that page and not the one before it.
 - [ ] **M152** **A slow page does not freeze the window** —
-  [#360](https://github.com/utyagi24/klarpdf/issues/360). *App.*
-  - [ ] **M152.1** The two small causes: a page touching the view's edge is drawn in full, and every
-    resize step redraws.
-  - [ ] **M152.2** Pages are drawn in the background — the 1.0 gate's Item E.
+  [#360](https://github.com/utyagi24/klarpdf/issues/360). *App.* Diagnosis, measurements and the
+  proposed plan in `PLAN.md` §M152 (2026-09-23, revised 2026-09-24 to the owner's cost
+  criteria). **The owner accepted the plan on 2026-09-24**, and made its decisions the same day.
+  Each part is built in WSL and checked by hand on Windows.
+  - [ ] **M152.1** **Resizing follows the mouse**: a slow page's picture is stretched during a
+    resize and redrawn once the edge rests, and a page that only touches the view's edge is not
+    drawn.
+  - [ ] **M152.2** **A slow page is drawn in pieces**: on the window's own thread, a few pieces at a
+    time, with the window handling clicks, moves and resizes in between. §Deferred C's stretched
+    picture shows until the pieces replace it, and a minimized window keeps a small blurry copy.
+    No helper program: that plan was rejected on cost (2026-09-24) and is kept in `PLAN.md` §M152
+    as the fallback.
+  - [ ] After M152.2, try the WSL zoom list again (#360, second round: choosing 300% leaves the list
+    on the desktop). If it is still there, it gets its own issue.
 
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 
