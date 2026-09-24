@@ -3,7 +3,7 @@
 Click a fillable AcroForm field on the page and edit it in place:
 
 * **text** → a ``QLineEdit`` over the field; Enter / focus-out commits;
-* **combo / list** → a ``QComboBox`` of the field's choices;
+* **combo / list** → a ``ComboBox`` of the field's choices;
 * **checkbox** → a single click toggles it (no editor).
 
 Committing calls back into the MainWindow, which pushes a
@@ -18,9 +18,10 @@ from __future__ import annotations
 import pymupdf as fitz
 from PySide6.QtCore import QRect, Qt
 from PySide6.QtGui import QBrush, QColor
-from PySide6.QtWidgets import QComboBox, QGraphicsRectItem, QLineEdit
+from PySide6.QtWidgets import QGraphicsRectItem, QLineEdit
 
 from klarpdf.model.page_edits import read_form_fields
+from viewer.combo_box import ComboBox
 
 _FIELD_TINT = QColor(70, 130, 180, 40)  # faint steel-blue wash marking a fillable field
 _CHOICE_TYPES = {fitz.PDF_WIDGET_TYPE_COMBOBOX, fitz.PDF_WIDGET_TYPE_LISTBOX}
@@ -34,7 +35,7 @@ class FormFiller:
         self._on_edit = on_edit          # callback(field_name, value) -> pushes the undo command
         self._fields = read_form_fields(view._vdoc)
         self._items: list[QGraphicsRectItem] = []
-        self._editor = None              # the live inline QLineEdit/QComboBox, if any
+        self._editor = None              # the live inline QLineEdit/ComboBox, if any
         self._editor_field = None        # the field it edits — so it can follow zoom/scroll
 
     # ---- field lookup -----------------------------------------------------------
@@ -108,7 +109,7 @@ class FormFiller:
         editor.selectAll()
 
     def _open_combo(self, field) -> None:
-        editor = QComboBox(self._view.viewport())
+        editor = ComboBox(self._view.viewport())
         choices = list(field.choices or [])
         editor.addItems(choices)
         current = self._current_value(field)

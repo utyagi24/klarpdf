@@ -12,6 +12,8 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QComboBox
 
+from viewer.combo_box import ComboBox
+
 # Preset zoom factors offered in the dropdown (1.0 == 100%). Spans the full 25%–500% range the view
 # accepts (M88.6) — both ends included, so the reader can reach the limits from the list instead of
 # having to know to type them, and no preset silently clamps to a different number than the one on
@@ -19,7 +21,7 @@ from PySide6.QtWidgets import QComboBox
 _PRESETS = (0.25, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00, 3.00, 4.00, 5.00)
 
 
-class ZoomWidget(QComboBox):
+class ZoomWidget(ComboBox):  # its list closes rather than hides (M153)
     def __init__(self, view, parent=None) -> None:
         super().__init__(parent)
         self._view = view

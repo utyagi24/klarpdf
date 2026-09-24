@@ -1131,6 +1131,14 @@ tick the box here on merge. Build in number order.
     on the desktop). If it is still there, it gets its own issue. **Still there** (owner,
     2026-09-24), with any document and any zoom value, so the slow redraw was not the cause. Now
     [#388](https://github.com/utyagi24/klarpdf/issues/388).
+- [x] **M153** *(unplanned)* **A chosen zoom closes the zoom list on WSL** —
+  [#388](https://github.com/utyagi24/klarpdf/issues/388). *App.* On WSL, choosing a value from
+  the zoom list left the list's picture on the desktop until the app quit. Qt hides a list when a
+  value is chosen and keeps its surface, and WSLg keeps drawing that surface. Esc closes the list
+  instead, which is why Esc worked. Every drop-down list in the app now closes its list the way Esc
+  does, the other five included. The owner's hand check on WSL found no list left behind. Found on
+  the way: opening the zoom list turns off Fit Page,
+  [#390](https://github.com/utyagi24/klarpdf/issues/390). Details in `PLAN.md` §M153 — *WSL*
 
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 

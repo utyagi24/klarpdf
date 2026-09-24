@@ -16,7 +16,6 @@ other three types do not, for a control a checkbox usually replaces.
 from __future__ import annotations
 
 from PySide6.QtWidgets import (
-    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
@@ -27,6 +26,7 @@ from PySide6.QtWidgets import (
 )
 
 from klarpdf.model.form_fields import FIELD_KINDS, NewField, kind_label
+from viewer.combo_box import ComboBox
 
 
 class FieldDialog(QDialog):
@@ -37,7 +37,7 @@ class FieldDialog(QDialog):
         self.setWindowTitle("Add Form Field")
         self._existing = {name for name in existing_names}
 
-        self.kind = QComboBox()
+        self.kind = ComboBox()
         for value in FIELD_KINDS:
             self.kind.addItem(kind_label(value), value)
         self.kind.setCurrentIndex(max(0, FIELD_KINDS.index(kind) if kind in FIELD_KINDS else 0))

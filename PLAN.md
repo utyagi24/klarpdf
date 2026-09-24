@@ -9138,6 +9138,8 @@ cover when page 2 or 3 is current.
 **The WSL zoom list (symptom 5) is not diagnosed.** It starts as the list closes:
 `ZoomWidget.activated` applies the zoom at once, so the 7 s draw of the cover begins right then.
 But the list stays after the draw has finished, so the freeze alone does not explain it.
+*(Diagnosed and fixed in §M153: the list was hidden, not closed, and WSLg keeps drawing a hidden
+list.)*
 
 #### What was tried
 
@@ -9587,6 +9589,105 @@ at two pixels to a point. Before the fix, 9 of the 10 failed. The one that passe
 one pixel to a point, which neither fault touches. Undoing the fix's first half alone failed the
 8 cases that change the scale. Undoing its second half alone failed the 4 cases at two pixels to a
 point that keep a page's own picture.
+
+### M153 — a chosen zoom closes the zoom list on WSL *(unplanned)* (2026-09-24)
+
+[#388](https://github.com/utyagi24/klarpdf/issues/388). On WSL, choosing a value from the zoom list
+left the list's picture on the desktop until the app quit. It was the fifth symptom of #360
+(§M152). M152.2 removed the slow redraw after a zoom and the list still stayed, so it got its own
+issue.
+
+**Surfaces: the app only.** The change is in `viewer/` and `ui/`. No file in `klarpdf/` changes,
+and the bridge shows no lists.
+
+#### What the reader sees
+
+The owner's hand check on WSL, 2026-09-24, with the display messages logged:
+
+| What the owner did | What happened to the list |
+|---|---|
+| Chose 300% | It stayed on the desktop |
+| A click elsewhere after that | It still stayed |
+| Opened the list and pressed Esc | It closed |
+| View ▸ Zoom In from the menu bar | The menu closed |
+| Closed the app | Every leftover picture went |
+
+#### Cause
+
+Under WSLg the app runs on Wayland, the protocol it uses to talk to the display server. Each window
+is a *surface* there.
+
+Qt takes a list away in one of two ways:
+
+* **Esc closes the list.** Qt destroys its surface.
+* **Choosing a value, Enter, or a click outside the list hides it.** `QComboBox.hidePopup` calls
+  `hide()`. On Wayland, Qt 6.11 then removes the surface's role and attaches no picture to it. It
+  keeps the surface itself for the next time (`QWaylandWindow::setVisible(false)`).
+
+WSLg keeps drawing a surface that is hidden but still alive. The picture goes only when the surface
+is destroyed. That is why every leftover went when the app quit.
+
+The log (`WAYLAND_DEBUG=1`) showed this at every close:
+
+* Choosing a value: `xdg_popup.destroy`, `xdg_surface.destroy`, `attach(nil)`, `commit`. No
+  `wl_surface.destroy`.
+* Esc, the View menu and tooltips: the same four messages, then `wl_surface.destroy`.
+
+Menus and tooltips always close, which is why only the lists showed it. Every combo box in the app
+hides its list the same way: the zoom list, the list for filling a form's choice field, the Type
+list in Add Form Field, and the Preset, Place and Apply to lists in Add Stamp or Watermark.
+
+On Windows a hidden window is not drawn, so the list closed normally there.
+
+WSLg has open reports of popups that stay on screen
+([microsoft/wslg#857](https://github.com/microsoft/wslg/issues/857),
+[#1265](https://github.com/microsoft/wslg/issues/1265)). Whether they share this cause was not
+checked.
+
+#### The fix
+
+`viewer/combo_box.py` adds `ComboBox`. It closes its list after Qt hides it, so every way out ends
+the way Esc does. Every combo box in the app is now one.
+
+It is not code for WSL alone. Esc already closes the list on every platform, and the next open
+creates the list's window again.
+
+Rejected:
+
+* **Doing it only on WSL.** It would need a platform check, which belongs behind
+  `platform_integration.py` (`CLAUDE.md` §Gotchas), for a change that is harmless everywhere.
+* **Fixing only the zoom list.** The other five lists had the same fault.
+
+#### Tests
+
+`tests/test_combo_box.py`, six tests, headless. The offscreen platform draws nothing, so the tests
+watch for the list's surface being destroyed: Qt's `SurfaceAboutToBeDestroyed` event.
+
+* Choosing a value, Enter, and a click outside the list each destroy the surface once.
+* The list opens again after it was closed.
+* Choosing 300% from the zoom list zooms to 300% and destroys the surface.
+* A control: a plain `QComboBox` does not destroy it. If this test starts failing, Qt closes the
+  list by itself and `ComboBox` can go.
+* A scan fails on a plain `QComboBox` anywhere in the app's code.
+
+With the fix undone, 4 of the 6 failed: the four that expect the surface destroyed. Run over the
+files on `main`, the scan's pattern found all six old combo boxes.
+
+Two things the tests needed. Qt ignores a click on a list for 400 ms after it opens under the
+pointer, so the tests wait that long. A list not yet laid out reports its items wider than itself,
+so the tests click near an item's left edge.
+
+A popup cannot be opened from a script on WSLg. The display server needs a real click first, and
+Qt logs *"Failed to create grabbing popup"*. So the diagnosis and the check were done by hand.
+
+**Hand check** (owner, WSL, 2026-09-24): chose 300%, then 150%, then clicked on the page with the
+list open. No list stayed. The log showed `wl_surface.destroy` straight after each hide. Not
+checked by hand on Windows.
+
+#### Found on the way
+
+Opening the zoom list turns off Fit Page:
+[#390](https://github.com/utyagi24/klarpdf/issues/390). Filed, not fixed here.
 
 ## The open issues, grouped — M149–M152 *(planned 2026-09-19)*
 
