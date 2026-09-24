@@ -225,22 +225,6 @@ tells you *what* and *how severe*, and you do the bump yourself.
 gh run list --workflow=audit.yml --limit 3      # main must be green before you tag
 ```
 
-**Not a gate any more — Help ▸ Donate… (G6) already shipped.** This block used to say "confirm the
-Sponsors listing is live before the first release that includes it", and that release was **v0.10.0**.
-The menu item ships whether or not the listing exists, and a missing listing does **not** 404:
-`/sponsors/utyagi24` redirects to the plain profile, so a dead Donate link looks *exactly* like a
-working one — no test can tell them apart. The listing is still absent (`hasSponsorsListing` →
-**`false`**, re-checked 2026-08-27), so the gate never passed and every release since has sailed
-straight through a block phrased as though it could stop one.
-
-So it is recorded here as a **known dead link in the shipped app**, not a pre-release check to
-satisfy. It is tracked as a 1.0 gate item in `PROGRESS.md` (G6 Part 2 — enrol the account in GitHub
-Sponsors), which is where the decision lives; releases before 1.0 do not wait on it:
-```sh
-gh api graphql -f query='{user(login:"utyagi24"){hasSponsorsListing}}'   # false until G6 Part 2 lands
-```
-When it finally returns `true`, delete this block — its whole subject is gone at that point.
-
 1. **Version bump.** Edit `klarpdf/version.py` `__version__` (e.g. `0.9.3` → `0.9.4`). This single value
    feeds the PyInstaller exe metadata (`packaging/app/klarpdf.spec`), the Inno `AppVersion`
    (`packaging/app/installer.iss`), and the `v<version>` git tag. SemVer: **patch** = fixes / dependency

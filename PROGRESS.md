@@ -105,8 +105,11 @@ open is almost entirely in that category. The gate, all small and all concrete:
 - [ ] **Clean-machine install** — the one deferred M9 item: `klarpdf-setup-x64.exe` on Windows with
   **no Python and networking disabled**. It is the first thing a stranger does and has never been
   watched. (Win10 Home has no Sandbox → VirtualBox / spare machine / fresh local user.)
-- [ ] **The Donate link points at a Sponsors listing that does not exist** — and it *redirects*
-  rather than 404s, so no test can catch it. A dead link inside the app.
+- [x] **The Donate link points at a Sponsors listing that does not exist** — and it *redirects*
+  rather than 404s, so no test can catch it. A dead link inside the app. **Fixed** (owner,
+  2026-09-24): the account now has a public Sponsors listing, so the app's link lands on it.
+  Checked the same day: `hasSponsorsListing` is `true`, and `https://github.com/sponsors/utyagi24`
+  answers 200 with no redirect. Nothing in the app changed (G6 Part 2).
 - [ ] **One known flaky test** (`test_single_instance`) — down from two. **Re-measured
   2026-08-12 and the stakes were overstated:** both were only ever seen on *local Windows* runs,
   while the required `pytest` check runs on `ubuntu-latest` — and across 200 recorded `test.yml` runs
@@ -4511,8 +4514,9 @@ on the one above it. Every decision, every rejection and every measurement behin
 ## Public-Release Readiness — go open-source under AGPL-3.0 (planned)
 
 **The repo is public** as of **2026-07-17**, as an `AGPL-3.0-or-later` project — the flip (G8) is done.
-**G1–G5, G7 and G8 are complete; `G6 Part 2` (enrol in GitHub Sponsors) is the only item left**, and
-nothing depends on it. Independent of the v0.11.0 MCP roadmap — this track landed first. Full
+**G1–G5, G7 and G8 are complete, and so is `G6 Part 2` (enrol in GitHub Sponsors, 2026-09-24).**
+All that is left is to confirm the repository page shows its Sponsor button, and nothing depends
+on it. Independent of the v0.11.0 MCP roadmap — this track landed first. Full
 execution detail in `PLAN.md` §Public-release readiness (plan introduced in
 [#83](https://github.com/utyagi24/pdfproj/pull/83)). **One PR per item**; tick the box on merge and
 append the PR link. Steps were ordered — **G1 ran first, while the repo was still private**, and the
@@ -4597,7 +4601,7 @@ tree or history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI 
     via `QDesktopServices.openUrl` on **user click only, so the offline / no-telemetry guarantee holds**
     (the app opens no socket itself). A test asserts `FUNDING.yml` and `ui/about.py` name the *same*
     account — see the trap below. — *WSL + WSLg* — [#107](https://github.com/utyagi24/klarpdf/pull/107)
-  - [ ] **Part 2 — enrol the account in GitHub Sponsors (manual; the actual gate)** — Stripe +
+  - [x] **Part 2 — enrol the account in GitHub Sponsors (manual; the actual gate)** — Stripe +
     identity + GitHub review, so it takes **days**, not minutes: start it early. Verify with
     `gh api graphql -f query='{user(login:"utyagi24"){hasSponsorsListing}}'` → currently **`false`**.
     **The trap:** `https://github.com/sponsors/utyagi24` does **not** 404 without a listing — GitHub
@@ -4612,6 +4616,12 @@ tree or history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI 
       2026-07-17 — *and* the listing. So the listing is now the sole remaining blocker for it.
     Verify both once enrolled: `hasSponsorsListing` → `true`, and the Sponsor button renders on the
     repo page. — *GitHub account*
+    **Enrolled** (owner, 2026-09-24). `hasSponsorsListing` is now `true`, the listing is public, and
+    `https://github.com/sponsors/utyagi24` answers 200 with no redirect, so the in-app link works.
+    **The Sponsor button is not confirmed yet.** The repository page as GitHub served it on
+    2026-09-24 had no Sponsor button, only the README's own links. GitHub may add the button after
+    the page loads, so the owner confirms it on the page. If it is missing, it is the repository's
+    *Sponsorships* setting (Settings ▸ General ▸ Features).
 - [x] **G7** Lock-in identity, hygiene & branch rulesets — keeps the G1 scrub true, permanently. Three
   parts: repo-side (one PR), manual identity, and the ruleset. The ruleset was *decided and
   pre-authored* here and **completed at G8**, where its premise turned out to be wrong: G7 recorded
@@ -5468,7 +5478,9 @@ it on this side of the line.
   edits only KlarPDF's own author-tagged marks; foreign annotations are shown but not editable — a
   deliberate fidelity-safety boundary, see PLAN.md).
 
-- **Help ▸ Donate… points at a GitHub Sponsors listing that does not exist.**
+- ~~**Help ▸ Donate… points at a GitHub Sponsors listing that does not exist.**~~ — **closed
+  2026-09-24**: the owner enrolled the account in GitHub Sponsors. `hasSponsorsListing` is `true`,
+  the link answers 200 with no redirect, and the gate block is deleted from `RELEASE.md`.
   `gh api graphql -f query='{user(login:"utyagi24"){hasSponsorsListing}}'` returns **false**, and
   `/sponsors/utyagi24` **redirects to the plain profile** rather than 404ing — so the dead link is
   indistinguishable from a working one and no test can catch it. This is exactly the one-time gate
