@@ -76,16 +76,51 @@ def long_wait(monkeypatch):
 
 @pytest.fixture
 def drawings(monkeypatch):
-    """The source page numbers PyMuPDF was asked to draw, in order."""
+    """The source page numbers PyMuPDF was asked to draw, in order: whole pages, and since M152.2
+    pieces, which are drawn from the page's display list."""
     seen: list[int] = []
-    real = fitz.Page.get_pixmap
+    real_page, real_list, real_make = fitz.Page.get_pixmap, fitz.DisplayList.get_pixmap, fitz.Page.get_displaylist
 
-    def counting(self, *args, **kwargs):
+    inside = []   # PyMuPDF draws a whole page through a display list of its own
+
+    def page_drawn(self, *args, **kwargs):
         seen.append(self.number)
-        return real(self, *args, **kwargs)
+        inside.append(True)
+        try:
+            return real_page(self, *args, **kwargs)
+        finally:
+            inside.pop()
 
-    monkeypatch.setattr(fitz.Page, "get_pixmap", counting)
+    def list_made(self, *args, **kwargs):
+        dlist = real_make(self, *args, **kwargs)
+        dlist.page_number = self.number
+        return dlist
+
+    def piece_drawn(self, *args, **kwargs):
+        if not inside:
+            seen.append(self.page_number)
+        return real_list(self, *args, **kwargs)
+
+    monkeypatch.setattr(fitz.Page, "get_pixmap", page_drawn)
+    monkeypatch.setattr(fitz.Page, "get_displaylist", list_made)
+    monkeypatch.setattr(fitz.DisplayList, "get_pixmap", piece_drawn)
     return seen
+
+
+def _settle(qapp, view) -> None:
+    """End any wait for an edge to rest, and draw every piece still to draw (M152.2).
+
+    With every page slow, the window's own first resizes start the wait, and a page is drawn in
+    pieces over several turns."""
+    for _ in range(500):
+        if view._settle_timer.isActive():       # a late resize can start a new wait at any point
+            _rest(qapp, view)
+        if not view._piece_timer.isActive() and not view._prefetch_timer.isActive():
+            if not view._settle_timer.isActive():
+                return
+            continue
+        QTest.qWait(5)
+    pytest.fail("the pieces never finished")
 
 
 def _rest(qapp, view) -> None:
@@ -131,7 +166,7 @@ def _drawn_for_this_size(view, index: int) -> bool:
 
 def test_a_slow_page_is_stretched_while_the_edge_moves(view, qapp, slow, drawings):
     view.fit_width()
-    qapp.processEvents()
+    _settle(qapp, view)
     width_before = view._pages[0]["w"]
     drawings.clear()
 
@@ -145,7 +180,7 @@ def test_a_slow_page_is_stretched_while_the_edge_moves(view, qapp, slow, drawing
 
 def test_no_step_draws_until_the_edge_rests(view, qapp, slow, drawings):
     view.fit_width()
-    qapp.processEvents()
+    _settle(qapp, view)
     drawings.clear()
 
     for _ in range(5):
@@ -158,7 +193,7 @@ def test_no_step_draws_until_the_edge_rests(view, qapp, slow, drawings):
 def test_each_step_restarts_the_wait(view, qapp, slow):
     """The page is drawn once the edge has *rested*, not a fixed time after the drag began."""
     view.fit_width()
-    qapp.processEvents()
+    _settle(qapp, view)
     _step(qapp, view, 8)
     view._settle_timer.start(50)            # most of the wait has passed
 
@@ -167,19 +202,19 @@ def test_each_step_restarts_the_wait(view, qapp, slow):
     assert view._settle_timer.remainingTime() > 50
 
 
-def test_the_pages_on_screen_are_drawn_once_when_the_edge_rests(view, qapp, slow, drawings):
+def test_the_pages_on_screen_are_drawn_when_the_edge_rests(view, qapp, slow, drawings):
     view.fit_width()
-    qapp.processEvents()
+    _settle(qapp, view)
     for _ in range(3):
         _step(qapp, view, 8)
     first, last = view._visible_range()
     drawings.clear()
 
     _rest(qapp, view)
+    assert drawings and set(drawings) <= set(range(first - 2, last + 3))   # the pages on screen first
 
-    on_screen = list(range(first, last + 1))
-    assert drawings[:len(on_screen)] == on_screen      # each once, before any drawing ahead
-    for i in on_screen:
+    _settle(qapp, view)
+    for i in range(first, last + 1):
         assert _drawn_for_this_size(view, i)
     assert not view._stand_ins
 
@@ -205,8 +240,8 @@ def test_the_decision_follows_the_pages_on_screen(view, qapp, monkeypatch, drawi
     qapp.processEvents()
 
     def cover_is_slow():
-        view._draw_cost.update({i: 0.001 for i in range(8)})
-        view._draw_cost[0] = 1.0
+        view._draw_rate.update({i: 1e-12 for i in range(8)})
+        view._draw_rate[0] = 1e-3            # seconds a pixel: about 250 s for the page
 
     view.goto_page(5)
     qapp.processEvents()
@@ -226,7 +261,7 @@ def test_the_decision_follows_the_pages_on_screen(view, qapp, monkeypatch, drawi
 def test_a_size_already_drawn_shows_its_own_picture(view, qapp, slow, drawings):
     """Dragging back to where the drag began finds that size's picture in the store, sharp."""
     view.fit_width()
-    qapp.processEvents()
+    _settle(qapp, view)
     drawings.clear()
 
     _step(qapp, view, 40)
@@ -260,7 +295,7 @@ def test_the_drawing_ahead_waits_for_the_edge_to_rest(qapp, eight_pages, slow, d
 
 def test_a_minimized_window_does_not_draw_when_the_wait_ends(view, qapp, slow, drawings):
     view.fit_width()
-    qapp.processEvents()
+    _settle(qapp, view)
     _step(qapp, view)
 
     view.release_pixmaps(keep_visible=False)
@@ -270,9 +305,10 @@ def test_a_minimized_window_does_not_draw_when_the_wait_ends(view, qapp, slow, d
 
 
 def test_an_edit_while_waiting_draws_at_once(view, qapp, slow, drawings):
-    """An edit empties the store, so there is nothing left to stretch."""
+    """An edit empties the store, so there is nothing left to stretch: drawing starts at once,
+    with the picture from before the edit standing in (M152.2)."""
     view.fit_width()
-    qapp.processEvents()
+    _settle(qapp, view)
     _step(qapp, view)
     drawings.clear()
 
@@ -280,6 +316,7 @@ def test_an_edit_while_waiting_draws_at_once(view, qapp, slow, drawings):
 
     assert not view._settle_timer.isActive()
     assert 0 in drawings
+    _settle(qapp, view)
     assert _drawn_for_this_size(view, 0)
 
 

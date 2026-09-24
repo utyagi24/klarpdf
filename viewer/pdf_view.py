@@ -19,13 +19,14 @@ Text selection (M3) and drag-reorder (M4) build on the same scene later.
 
 from __future__ import annotations
 
+import math
 import time
 from bisect import bisect_left, bisect_right
 from contextlib import contextmanager
 
 import pymupdf as fitz
 from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import QBrush, QColor, QGuiApplication, QImage, QPen, QPixmap, QTransform
+from PySide6.QtGui import QBrush, QColor, QGuiApplication, QImage, QPainter, QPen, QPixmap, QTransform
 from PySide6.QtWidgets import (
     QApplication,
     QGraphicsPixmapItem,
@@ -37,6 +38,7 @@ from PySide6.QtWidgets import (
 
 from klarpdf.model.virtual_document import VirtualDocument
 from klarpdf.model.form_fields import NewField
+from viewer.pieces import TILE, Sizer, Tiles
 from viewer.pixmap_cache import pixmap_cache
 from viewer.resize_handles import cursor_for
 from viewer.tools import ArmedTool, InteractionMode
@@ -63,6 +65,14 @@ _DRAW_BUDGET_S = 0.030
 # How long a window edge must rest before a stretched page is redrawn (M152.1). A drag sends a
 # resize for every mouse move, so a pause this long means the reader has stopped.
 _RESIZE_SETTLE_MS = 200
+# Each piece is drawn this many device pixels larger on every side, and the margin is cut off
+# (M152.2). MuPDF smooths an edge a little differently where a clip cuts through it: on the NADA
+# cover one row of a shape's edge came out lighter on a 33-pixel stretch at a piece's side. With
+# the cut 2 px away, the pieces match the whole page there (measured in `PLAN.md` §M152).
+_PIECE_MARGIN = 2
+# A clip is shrunk by this much, in device pixels, so that MuPDF's rounding of it outward cannot
+# add a row or a column to a piece.
+_CLIP_INSET = 1e-3
 # The magnification a reader may *ask* for, 25%–500% (M88.6). Sequenced after M88.1 on purpose:
 # the DPI correction shifts every number, so choosing bounds before it meant choosing twice. The old
 # floor of 10% drew a Letter page 62x80 px — a thumbnail, not a view — and the old 800% ceiling was
@@ -157,6 +167,42 @@ _NUDGE_KEYS = {
 }
 
 
+class _Wip:
+    """One page being drawn in pieces at one size (M152.2).
+
+    ``page``, ``clip`` and ``total`` are what :meth:`PdfView._render_target` returned.
+    ``origin`` is the top-left of the whole picture in PyMuPDF's device pixels, and ``rendered``
+    its width and height before the extra spin. ``pieces`` are the pieces on screen, each with its
+    scene item. ``seconds`` and ``pixels`` add up what the pieces cost. ``stand_in`` is the store
+    key of the picture standing in below them.
+    """
+
+    __slots__ = ("key", "tiles", "sizer", "page", "clip", "total", "origin", "rendered", "pieces",
+                 "seconds", "pixels", "stand_in")
+
+    def __init__(self, key, tiles, sizer, page, clip, total, origin, rendered) -> None:
+        self.key, self.tiles, self.sizer = key, tiles, sizer
+        self.page, self.clip, self.total = page, clip, total
+        self.origin, self.rendered = origin, rendered
+        self.pieces: list = []
+        self.seconds = 0.0
+        self.pixels = 0
+        self.stand_in = None               # the store key of the picture standing in, to pin
+
+
+class _Carried:
+    """A picture of what a page showed, kept to stand in while the page is drawn again (M152.2).
+
+    ``rect`` is the part of the page it shows, in points of the page as displayed, so it can be
+    placed at any zoom. ``total`` is the spin it was drawn with: after a rotation it no longer fits.
+    """
+
+    __slots__ = ("pixmap", "rect", "total")
+
+    def __init__(self, pixmap: QPixmap, rect: QRectF, total: int) -> None:
+        self.pixmap, self.rect, self.total = pixmap, rect, total
+
+
 class PdfView(QGraphicsView):
     """Vertical continuous-scroll renderer over a VirtualDocument."""
 
@@ -198,6 +244,9 @@ class PdfView(QGraphicsView):
         # two copies of one source page can differ. Value is (page, owning doc).
         self._foreign_docs: dict[int, tuple] = {}
         self._pages: list[dict] = []   # per page: {bg, pix, x, y, w, h}
+        # The scale the pages were laid out at. A zoom, or a screen with another DPI, changes
+        # :attr:`scale` before the scene is built again, and the old layout is read before that.
+        self._layout_scale = self.scale
         # Two indexes that keep the render pass O(visible band) instead of O(document length),
         # both maintained by _build_scene / _render_visible (M87.3):
         self._page_tops: list[float] = []   # each page's scene y, non-decreasing — binary-searched
@@ -213,15 +262,27 @@ class PdfView(QGraphicsView):
         self._prefetch_timer.setInterval(_PREFETCH_TICK_MS)
         self._prefetch_timer.timeout.connect(self._drain_prefetch)
         # A slow page is stretched while a window edge moves, and drawn once it rests (M152.1).
-        # ``_draw_cost`` is how long each page's last drawing took, in seconds, which is what
-        # decides "slow" (see _DRAW_BUDGET_S). ``_stand_ins`` are the painted pages showing a
-        # picture drawn for another size. The timer is the wait for the edge to rest; while it
-        # runs, nothing is drawn. Parented to the view, so it dies with it.
-        self._draw_cost: dict[int, float] = {}
+        # ``_draw_rate`` is how long each page's last drawing took, in seconds per device pixel,
+        # which is what decides "slow" (see _DRAW_BUDGET_S). ``_stand_ins`` are the painted pages
+        # showing a picture drawn for another size. The timer is the wait for the edge to rest;
+        # while it runs, nothing is drawn. Parented to the view, so it dies with it.
+        self._draw_rate: dict[int, float] = {}
         self._stand_ins: set[int] = set()
         self._settle_timer = QTimer(self)
         self._settle_timer.setSingleShot(True)
         self._settle_timer.timeout.connect(self._render_visible)
+        # A slow page is drawn in pieces (M152.2). ``_wip`` holds each page being drawn that way at
+        # the current size: its tile grid, its piece sizer and the pieces on screen.
+        # ``_dlists`` keeps each such page's display list, so a piece does not read the page
+        # again: on the NADA cover that cost 45 ms a piece, against 3–4 ms from the list.
+        # ``_carried`` is a picture of what a page showed before a zoom, an edit or a minimize,
+        # kept to stand in while the page is drawn again. The timer runs the turns.
+        self._wip: dict[int, _Wip] = {}
+        self._dlists: dict[int, "fitz.DisplayList"] = {}
+        self._carried: dict[int, _Carried] = {}
+        self._piece_timer = QTimer(self)
+        self._piece_timer.setSingleShot(True)
+        self._piece_timer.timeout.connect(self._turn)
         self._current = 0
         # Overlay controllers (set by MainWindow): text selection + search (M3), form fill (M14),
         # annotations (M20). They own their items and expose repaint(), called after every rebuild.
@@ -534,7 +595,11 @@ class PdfView(QGraphicsView):
 
     def _build_scene(self) -> None:
         scene = self.scene()
+        # Keep a picture of what the pages on screen show, to stand in while they are drawn again
+        # at the new size (M152.2). Taken now, while the items still exist.
+        self._carry_visible()
         scene.clear()
+        self._wip.clear()       # their pieces died with the scene
         # A new layout makes a remembered placement meaningless; every caller places the view
         # again once the scene is built, and that placement is remembered afresh (M151).
         self._sent, self._sent_anchor = {}, None
@@ -557,6 +622,7 @@ class PdfView(QGraphicsView):
         # row, so pairs centre as a unit exactly as single pages centred alone.
         rows = self._layout_rows()
         z = self.scale   # scene units per point — zoom × logicalDpi/72, not the bare zoom (M88.1)
+        self._layout_scale = z
         sizes = {i: self._natural_size(i) for row in rows for i in row}
         row_width = {
             row: sum(sizes[i][0] for i in row) * z + (len(row) - 1) * _PAGE_GAP for row in rows
@@ -589,7 +655,10 @@ class PdfView(QGraphicsView):
             scene.addItem(bg)
             pix = QGraphicsPixmapItem(bg)  # child of bg → shares its position
             pix.setPos(0, 0)
-            self._pages.append({"bg": bg, "pix": pix, "x": x, "y": py, "w": w, "h": h})
+            # ``total`` is the spin its pictures are drawn with. A carried picture is checked
+            # against it after an edit has already changed the document (M152.2).
+            self._pages.append({"bg": bg, "pix": pix, "x": x, "y": py, "w": w, "h": h,
+                                "total": (self._page_extra(i) + self._rotation) % 360})
             self._page_tops.append(py)  # non-decreasing by construction — see _visible_range
 
         scene.setSceneRect(0, 0, widest + 2 * _PAGE_GAP, y)
@@ -1865,47 +1934,69 @@ class PdfView(QGraphicsView):
         return (index, round(self.device_scale, 4),
                 (self._page_extra(index) + self._rotation) % 360)
 
+    def _render_target(self, index: int) -> "tuple | None":
+        """What drawing page ``index`` means: ``(page, clip, total)``, or ``None`` when its crop
+        lies wholly outside what can be drawn.
+
+        ``page`` is the page object to draw: an edited copy when the page needs one (M14, M31,
+        M66), else the shared source. ``clip`` is the displayed part in the page's rotated space,
+        or ``None`` for the whole page. ``total`` is the extra spin applied after drawing: the
+        rotation override and the view rotation. Whole pages and pieces are drawn from the same
+        three (M152.2).
+        """
+        ref = self._vdoc.ordered[index]
+        # A pending foreign deletion needs the annotation gone from the *pixmap*, so it takes
+        # precedence over the shared per-source copy (M66).
+        render_page = self._deleted_foreign_page(index, ref) or self._render_source_page(ref)
+        page = render_page if render_page is not None else self._vdoc.sources[ref.source_id][ref.source_page_index]
+        clip = None
+        if ref.crop_override is not None:
+            visible = self._renderable_crop(index)
+            if visible is None:
+                return None  # the crop lies wholly outside the renderable area
+            # get_pixmap's clip is in the page's *rotated* space — spin the content-frame rect.
+            cropbox = page.cropbox
+            clip = fitz.Rect(
+                self._box_to_display(cropbox.width, cropbox.height, page.rotation, visible)
+            )
+        return page, clip, (self._page_extra(index) + self._rotation) % 360
+
+    def _to_pixmap(self, img: QImage, total: int) -> QPixmap:
+        """A drawn picture, ready to show: night mode, the device pixel ratio and the extra spin."""
+        if self._night:
+            img.invertPixels()  # M49: view-only — save/print/export render elsewhere
+        # Tell Qt these are device pixels *before* the QPixmap conversion, which inherits the
+        # ratio. Without it Qt reads the extra pixels as extra size and the page lays out 1.75×
+        # too big; with it the item occupies deviceIndependentSize() — exactly `scale` units,
+        # so the layout is byte-for-byte what it would be at DPR 1.0, only sharper.
+        img.setDevicePixelRatio(self._dpr)
+        pixmap = QPixmap.fromImage(img)
+        if total:
+            pixmap = pixmap.transformed(QTransform().rotate(total))  # preserves the ratio
+        return pixmap
+
     def _render_pixmap(self, index: int) -> QPixmap | None:
         key = self._pixmap_key(index)
-        total = key[2]
         hit = self._cache.get(key)
         if hit is not None:
             return hit
-        ref = self._vdoc.ordered[index]
         try:
-            # A pending foreign deletion needs the annotation gone from the *pixmap*, so it takes
-            # precedence over the shared per-source copy (M66).
-            render_page = self._deleted_foreign_page(index, ref) or self._render_source_page(ref)
-            page = render_page if render_page is not None else self._vdoc.sources[ref.source_id][ref.source_page_index]
-            clip = None
-            if ref.crop_override is not None:
-                visible = self._renderable_crop(index)
-                if visible is None:
-                    return None  # the crop lies wholly outside the renderable area
-                # get_pixmap's clip is in the page's *rotated* space — spin the content-frame rect.
-                cropbox = page.cropbox
-                clip = fitz.Rect(
-                    self._box_to_display(cropbox.width, cropbox.height, page.rotation, visible)
-                )
+            target = self._render_target(index)
+            if target is None:
+                return None
+            page, clip, total = target
+            # A page drawn in pieces keeps its display list, and a whole drawing from it skips
+            # reading the page again (M152.2).
+            source = self._dlists.get(index, page)
             # Rasterise at **device** resolution (M88.2) — zoom × logicalDpi/72 × devicePixelRatio.
             ds = self.device_scale
             # Timed from here, not from the top: building the render copy above happens once per
             # source, and a redraw at another size costs only what follows (M152.1).
             started = time.perf_counter()
-            pm = page.get_pixmap(matrix=fitz.Matrix(ds, ds), clip=clip, alpha=False)
+            pm = source.get_pixmap(matrix=fitz.Matrix(ds, ds), clip=clip, alpha=False)
             img = QImage(pm.samples, pm.width, pm.height, pm.stride, QImage.Format.Format_RGB888)
-            img = img.copy()  # detach from pm.samples buffer
-            if self._night:
-                img.invertPixels()  # M49: view-only — save/print/export render elsewhere
-            # Tell Qt these are device pixels *before* the QPixmap conversion, which inherits the
-            # ratio. Without it Qt reads the extra pixels as extra size and the page lays out 1.75×
-            # too big; with it the item occupies deviceIndependentSize() — exactly `scale` units,
-            # so the layout is byte-for-byte what it would be at DPR 1.0, only sharper.
-            img.setDevicePixelRatio(self._dpr)
-            pixmap = QPixmap.fromImage(img)
-            if total:
-                pixmap = pixmap.transformed(QTransform().rotate(total))  # preserves the ratio
-            self._draw_cost[index] = time.perf_counter() - started
+            pixmap = self._to_pixmap(img.copy(), total)  # the copy detaches from pm.samples
+            self._draw_rate[index] = (time.perf_counter() - started) / max(1, pm.width * pm.height)
         except Exception:
             return None
         self._cache.put(key, pixmap)
@@ -2086,7 +2177,8 @@ class PdfView(QGraphicsView):
 
     def _hang(self, index: int, pixmap: QPixmap, stretch: "float | None" = None) -> None:
         """Put ``pixmap`` on page ``index``'s scene item. ``stretch`` is given for a picture drawn
-        for another size, and is how much to stretch it (M152.1)."""
+        for another size, and is how much to stretch it (M152.1). A picture drawn for this size
+        finishes the page, so its pieces and any carried picture go (M152.2)."""
         item = self._pages[index]["pix"]
         item.setPixmap(pixmap)
         item.setPos(self._pixmap_offset(index))  # inset only in the un-crop edge case
@@ -2098,49 +2190,432 @@ class PdfView(QGraphicsView):
         self._painted.add(index)
         if stretch is None:
             self._stand_ins.discard(index)
+            self._drop_pieces(index)
+            self._drop_carried(index)
         else:
             self._stand_ins.add(index)
 
-    def _show_stretched(self, index: int) -> "tuple | None":
-        """Show page ``index`` without drawing it: its picture for this size if the store has one,
-        else a picture drawn for another size, stretched to fit (M152.1). Returns the key of the
-        picture shown, or ``None`` when the store has none and the page is left blank.
+    def _best_stored(self, index: int, key: tuple) -> "tuple | None":
+        """The key of the store's best picture of page ``index`` drawn for another size, or
+        ``None``. Only a picture with the same rotation will do: everything else that changes a
+        page's pixels empties the store (an edit, night mode). The smallest picture at least as
+        sharp as this size is taken, and failing that the sharpest. Stretching down loses less
+        than stretching up, and a picture near the right size loses the least."""
+        others = [k for k in self._cache.keys() if k[0] == index and k[2] == key[2] and k != key]
+        if not others:
+            return None
+        sharp_enough = [k for k in others if k[1] >= key[1]]
+        return (min(sharp_enough, key=lambda k: k[1]) if sharp_enough
+                else max(others, key=lambda k: k[1]))
 
-        Only a picture with the same rotation will do. Everything else that changes a page's
-        pixels empties the store: an edit (:meth:`reload`) and night mode. When there is a choice,
-        the smallest picture at least as sharp as this size is taken, and failing that the
-        sharpest. Stretching down loses less than stretching up, and a picture near the right size
-        loses the least.
+    def _show_stand_in(self, index: int) -> "tuple | None":
+        """Show page ``index`` without drawing it (M152.1, M152.2). Returns the store key of the
+        picture shown, to pin, or ``None``.
+
+        The page's picture for this size, if the store has one. Otherwise up to two pictures stand
+        in, one above the other. Below, the store's best picture of the whole page drawn for
+        another size, stretched. Above it, the picture carried from before a zoom, an edit or a
+        minimize, when that one is sharper: it may cover only the part of the page that was on
+        screen. With neither, the white page shows until pieces arrive.
         """
         key = self._pixmap_key(index)
         exact = self._cache.get(key)
         if exact is not None:
             self._hang(index, exact)
             return key
-        others = [k for k in self._cache.keys() if k[0] == index and k[2] == key[2]]
-        if not others:
-            return None
-        sharp_enough = [k for k in others if k[1] >= key[1]]
-        chosen = (min(sharp_enough, key=lambda k: k[1]) if sharp_enough
-                  else max(others, key=lambda k: k[1]))
-        pixmap = self._cache.get(chosen)
-        # The picture lays out at chosen[1] / its own pixel ratio scene units per point, and the
-        # page is now self.scale. Not the ratio of the two keys: a picture from the other screen
-        # carries that screen's ratio.
-        self._hang(index, pixmap, self.scale * pixmap.devicePixelRatio() / chosen[1])
+        chosen = self._best_stored(index, key)
+        if chosen is not None:
+            pixmap = self._cache.get(chosen)
+            # The picture lays out at chosen[1] / its own pixel ratio scene units per point, and
+            # the page is now self.scale. Not the ratio of the two keys: a picture from the other
+            # screen carries that screen's ratio.
+            self._hang(index, pixmap, self.scale * pixmap.devicePixelRatio() / chosen[1])
+        carried = self._carried.get(index)
+        if carried is not None and carried.total == key[2]:
+            sharpness = carried.pixmap.width() / max(1e-9, carried.rect.width())  # px per point
+            if chosen is None or sharpness > chosen[1]:
+                self._show_carried(index, carried)
         return chosen
+
+    def _show_carried(self, index: int, carried: _Carried) -> None:
+        page = self._pages[index]
+        item = page.get("carry")
+        if item is None:
+            item = page["carry"] = QGraphicsPixmapItem(page["bg"])
+            item.setZValue(1)          # above the store's stand-in, below the pieces
+            item.setTransformationMode(Qt.TransformationMode.SmoothTransformation)
+        item.setPixmap(carried.pixmap)
+        item.setPos(carried.rect.x() * self.scale, carried.rect.y() * self.scale)
+        # Its size without its pixel ratio: a page's own picture has the screen's, where a picture
+        # painted from the pieces has none. Counted as its pixels, it showed at half size on a
+        # screen with two pixels to a point.
+        width = carried.pixmap.deviceIndependentSize().width()
+        item.setScale(carried.rect.width() * self.scale / max(1e-9, width))
+        self._painted.add(index)
+        self._stand_ins.add(index)
+
+    def _drop_carried(self, index: int) -> None:
+        self._carried.pop(index, None)
+        if 0 <= index < len(self._pages):
+            item = self._pages[index].get("carry")
+            if item is not None:
+                item.setPixmap(QPixmap())
 
     def _needs_drawing(self, index: int) -> bool:
         """Whether page ``index`` lacks a picture drawn for this size — blank, or stretched."""
         return index not in self._painted or index in self._stand_ins
 
-    def _visible_cost(self) -> float:
-        """How long the pages on screen took to draw, the last time each was drawn (M152.1).
+    def _page_px(self, index: int) -> int:
+        """How many device pixels page ``index`` covers at this size."""
+        page = self._pages[index]
+        return int(int(page["w"]) * int(page["h"]) * self._dpr * self._dpr)
 
-        A page not drawn yet counts as quick: the first resize step draws and times it.
-        """
+    def _visible_cost(self) -> float:
+        """How long the pages on screen would take to draw at this size, from how long each took
+        per pixel the last time it was drawn (M152.1). A page not drawn yet counts as quick: the
+        first resize step draws and times it."""
         first, last = self._visible_range()
-        return sum(self._draw_cost.get(i, 0.0) for i in range(first, last + 1))
+        return sum(self._draw_rate.get(i, 0.0) * self._page_px(i) for i in range(first, last + 1))
+
+    def _is_slow(self, index: int) -> bool:
+        """Whether page ``index`` would take longer than the budget to draw whole (M152.2).
+
+        From how long it took per pixel last time. A page not drawn yet is taken as quick when it
+        is no bigger than the window, which is every page at Fit Page, and as slow when it is
+        bigger. So opening a document draws as before, and a page first met while zoomed in is
+        drawn in pieces until its first pieces are timed: drawn whole, the NADA cover at 375%
+        took 10 s.
+        """
+        rate = self._draw_rate.get(index)
+        if rate is not None:
+            cost = rate * self._page_px(index)
+        else:
+            window = self.viewport().width() * self.viewport().height() * self._dpr * self._dpr
+            cost = _DRAW_BUDGET_S if self._page_px(index) <= window else float("inf")
+        return cost > _DRAW_BUDGET_S
+
+    # ---- drawing a slow page in pieces (M152.2) ------------------------------------
+
+    def _display_list(self, index: int, page) -> "fitz.DisplayList | None":
+        dlist = self._dlists.get(index)
+        if dlist is None:
+            try:
+                dlist = self._dlists[index] = page.get_displaylist()
+            except Exception:
+                return None
+        return dlist
+
+    def _start_pieces(self, index: int) -> "_Wip | None":
+        """Begin drawing page ``index`` in pieces at this size, or carry on if already begun."""
+        key = self._pixmap_key(index)
+        wip = self._wip.get(index)
+        if wip is not None and wip.key == key:
+            return wip
+        if wip is not None:                 # pieces of another size: the screen moved (M88.3)
+            self._carry(index)
+            self._drop_pieces(index)
+        try:
+            target = self._render_target(index)
+        except Exception:                   # as _render_pixmap: a page that cannot be drawn stays blank
+            return None
+        if target is None:
+            return None
+        page, clip, total = target
+        if self._display_list(index, page) is None:
+            return None
+        rect = (clip if clip is not None else page.rect) * fitz.Matrix(self.device_scale, self.device_scale)
+        whole = rect.irect                  # exactly the picture get_pixmap would make
+        wide, high = whole.width, whole.height
+        shown = (high, wide) if total in (90, 270) else (wide, high)
+        # A page never drawn is drawn a window's worth at first, as much as a page no bigger than
+        # the window is drawn in one go. From that piece its cost is known, and a quick page is
+        # then drawn whole. A smaller first piece would be mostly the fixed part of a piece's cost,
+        # and would make a quick page look slow.
+        window = self.viewport().width() * self.viewport().height() * self._dpr * self._dpr
+        sizer = Sizer(_DRAW_BUDGET_S, self._draw_rate.get(index), first=max(1, window // (TILE * TILE)))
+        wip = self._wip[index] = _Wip(key, Tiles(*shown), sizer, page, clip, total,
+                                      (whole.x0, whole.y0), (wide, high))
+        return wip
+
+    def _drop_pieces(self, index: int) -> None:
+        wip = self._wip.pop(index, None)
+        if wip is None:
+            return
+        for _piece, item in wip.pieces:
+            if item.scene() is not None:
+                item.scene().removeItem(item)
+
+    def _local_rect(self, index: int, scene_rect: QRectF) -> "tuple | None":
+        """``scene_rect`` in device pixels of page ``index``'s picture, from its top-left."""
+        page = self._pages[index]
+        shown = scene_rect.intersected(QRectF(page["x"], page["y"], page["w"], page["h"]))
+        if shown.isEmpty():
+            return None
+        off = self._pixmap_offset(index)
+        x, y, d = page["x"] + off.x(), page["y"] + off.y(), self._dpr
+        return ((shown.left() - x) * d, (shown.top() - y) * d,
+                (shown.right() - x) * d, (shown.bottom() - y) * d)
+
+    def _local_point(self, index: int, point: QPointF) -> tuple[float, float]:
+        page = self._pages[index]
+        off = self._pixmap_offset(index)
+        return ((point.x() - page["x"] - off.x()) * self._dpr,
+                (point.y() - page["y"] - off.y()) * self._dpr)
+
+    def _ahead_rect(self, view: QRectF) -> QRectF:
+        """What is drawn ahead of a slow page: one window height above and below the window."""
+        return view.adjusted(0, -view.height(), 0, view.height())
+
+    def _next_piece(self, visible_only: bool, grow: bool = True) -> "tuple | None":
+        """The next piece to draw: ``(page, piece, ahead)``, or ``None`` when there is none.
+
+        Pieces on screen come first, nearest the middle of the window (the owner's decision 2).
+        Then pieces within a window height above and below, nearest first, with ``ahead`` set.
+        """
+        view = self.mapToScene(self.viewport().rect()).boundingRect()
+        centre = view.center()
+        for region, ahead in ((view, False), (self._ahead_rect(view), True)):
+            if ahead and visible_only:
+                break
+            best = None
+            for index, wip in self._wip.items():
+                local = self._local_rect(index, region)
+                if local is None:
+                    continue
+                wanted = wip.tiles.tiles_in(local)
+                point = self._local_point(index, centre)
+                hit = wip.tiles.nearest(wanted, point)
+                if hit is not None and (best is None or hit[1] < best[0]):
+                    best = (hit[1], index, hit[0], wanted, point)
+            if best is not None:
+                _d, index, seed, wanted, point = best
+                wip = self._wip[index]
+                piece = wip.tiles.grow(seed, wanted, point, wip.sizer.tiles()) if grow else None
+                return index, piece, ahead
+        return None
+
+    def _draw_piece(self, index: int, piece) -> None:
+        """Draw one piece of page ``index`` from its display list and put it on screen."""
+        wip = self._wip[index]
+        x0, y0, x1, y1 = wip.tiles.box(piece)
+        wide, high = wip.rendered
+        # The piece in the page as drawn, before the extra spin, then in PyMuPDF's pixels.
+        corners = [self._point_to_source(wide, high, wip.total, x, y) for x, y in ((x0, y0), (x1, y1))]
+        ox, oy = wip.origin
+        ax0, ax1 = (ox + round(v) for v in sorted(c[0] for c in corners))
+        ay0, ay1 = (oy + round(v) for v in sorted(c[1] for c in corners))
+        # Drawn with a margin that is cut off again: see _PIECE_MARGIN.
+        mx0, my0 = max(ox, ax0 - _PIECE_MARGIN), max(oy, ay0 - _PIECE_MARGIN)
+        mx1, my1 = min(ox + wide, ax1 + _PIECE_MARGIN), min(oy + high, ay1 + _PIECE_MARGIN)
+        ds = self.device_scale
+        clip = fitz.Rect((mx0 + _CLIP_INSET) / ds, (my0 + _CLIP_INSET) / ds,
+                         (mx1 - _CLIP_INSET) / ds, (my1 - _CLIP_INSET) / ds)
+        started = time.perf_counter()
+        try:
+            pm = self._dlists[index].get_pixmap(matrix=fitz.Matrix(ds, ds), clip=clip, alpha=False)
+            img = QImage(pm.samples, pm.width, pm.height, pm.stride, QImage.Format.Format_RGB888)
+            pixmap = self._to_pixmap(img.copy(ax0 - pm.x, ay0 - pm.y, ax1 - ax0, ay1 - ay0), wip.total)
+        except Exception:
+            self._drop_pieces(index)
+            return
+        seconds = time.perf_counter() - started
+        pixels = (x1 - x0) * (y1 - y0)
+        wip.sizer.record(pixels, seconds)
+        wip.seconds += seconds
+        wip.pixels += pixels
+        self._draw_rate[index] = wip.seconds / wip.pixels
+        item = QGraphicsPixmapItem(pixmap, self._pages[index]["bg"])
+        off = self._pixmap_offset(index)
+        item.setPos(off.x() + x0 / self._dpr, off.y() + y0 / self._dpr)
+        item.setZValue(2)                  # above both stand-ins
+        wip.pieces.append((piece, item))
+        wip.tiles.mark(piece)
+        if wip.tiles.complete():
+            self._finish_pieces(index)
+
+    def _finish_pieces(self, index: int) -> None:
+        """Every tile is drawn: join the pieces into one picture of the page, for the store."""
+        wip = self._wip[index]
+        whole = QPixmap(wip.tiles.width, wip.tiles.height)
+        whole.setDevicePixelRatio(self._dpr)
+        painter = QPainter(whole)
+        for piece, item in wip.pieces:
+            x0, y0, _x1, _y1 = wip.tiles.box(piece)
+            painter.drawPixmap(QPointF(x0 / self._dpr, y0 / self._dpr), item.pixmap())
+        painter.end()
+        self._cache.put(wip.key, whole)
+        self._hang(index, whole)           # drops the pieces and any carried picture
+
+    def _trim_pieces(self, lo: int, hi: int) -> None:
+        """Drop the pieces no longer needed: those of pages outside the band, and those further
+        than a window height from the window (M152.2)."""
+        region = self._ahead_rect(self.mapToScene(self.viewport().rect()).boundingRect())
+        for index in list(self._wip):
+            if not lo <= index <= hi:
+                self._drop_pieces(index)
+                self._dlists.pop(index, None)
+                continue
+            wip = self._wip[index]
+            local = self._local_rect(index, region)
+            keep = []
+            for piece, item in wip.pieces:
+                x0, y0, x1, y1 = wip.tiles.box(piece)
+                if local is not None and x0 < local[2] and local[0] < x1 and y0 < local[3] and local[1] < y1:
+                    keep.append((piece, item))
+                else:
+                    wip.tiles.mark(piece, drawn=False)
+                    if item.scene() is not None:
+                        item.scene().removeItem(item)
+            wip.pieces = keep
+        for index in [i for i in self._dlists if not lo <= i <= hi]:
+            del self._dlists[index]
+
+    def _turn(self, visible_only: bool = False) -> None:
+        """Draw pieces until the budget is spent, then let the window handle what is waiting.
+
+        A piece in view is drawn at once, and the next turn follows as soon as the window has
+        handled its events. A piece ahead waits for a wheel glide to end, like the pages drawn
+        ahead (M92.4), and nothing is drawn while a window edge moves (M152.1).
+        """
+        if self._settle_timer.isActive() or not self._wip or not self._shown_once:
+            return
+        started = time.perf_counter()
+        while True:                         # at least one piece a turn, then until the budget
+            job = self._next_piece(visible_only)
+            if job is None:
+                break
+            index, piece, ahead = job
+            if ahead and self._glide_timer.isActive():
+                break
+            self._draw_piece(index, piece)
+            # A page taken as slow before it was timed may turn out quick: then draw it whole.
+            if index in self._wip and not self._is_slow(index):
+                self._paint_page(index)
+            if time.perf_counter() - started >= _DRAW_BUDGET_S:
+                break
+        if not visible_only:
+            self._schedule_turn()
+
+    def _schedule_turn(self) -> None:
+        if self._settle_timer.isActive():
+            return                          # the end of the wait draws, and schedules again
+        job = self._next_piece(visible_only=False, grow=False)
+        if job is None:
+            self._piece_timer.stop()
+        else:
+            self._piece_timer.start(_PREFETCH_TICK_MS if job[2] else 0)
+
+    def _pieces_on_screen_pending(self) -> bool:
+        return self._piece_timer.isActive() and self._piece_timer.interval() == 0
+
+    def _draw_low_res(self, index: int) -> "tuple | None":
+        """A quick, low-resolution picture of the whole page, to stand in when nothing else can.
+
+        Drawn at the smallest zoom a reader can ask for, 25%. Only for a page timed before: its
+        images are then already unpacked, and the picture takes a small share of the page's time.
+        Not when that is hardly smaller than the page itself. Returns the store key, to pin.
+        """
+        if index not in self._draw_rate:
+            return None
+        low = round(_MIN_ZOOM * self._logical_dpi / 72.0 * self._dpr, 4)
+        if low * 2 > self.device_scale:
+            return None
+        key = (index, low, self._pixmap_key(index)[2])
+        pixmap = self._cache.get(key)
+        if pixmap is None:
+            try:
+                target = self._render_target(index)
+                if target is None:
+                    return None
+                page, clip, total = target
+                source = self._dlists.get(index, page)
+                pm = source.get_pixmap(matrix=fitz.Matrix(low, low), clip=clip, alpha=False)
+                img = QImage(pm.samples, pm.width, pm.height, pm.stride, QImage.Format.Format_RGB888)
+                pixmap = self._to_pixmap(img.copy(), total)
+            except Exception:
+                return None
+            self._cache.put(key, pixmap)
+        self._hang(index, pixmap, self.scale * pixmap.devicePixelRatio() / low)
+        return key
+
+    def _carry(self, index: int, factor: float = 1.0) -> None:
+        """Keep a picture of the part of page ``index`` on screen, to stand in while it is drawn
+        again (M152.2). ``factor`` shrinks it: a minimized window keeps a quarter of the width and
+        height (the owner's decision 5).
+
+        A page showing its own picture for this size, whole, is kept as it is. A page showing only
+        stand-ins needs nothing: the store and the carried picture still hold them, and painting
+        them again at every step of a drag would cost time for nothing. Otherwise what the page
+        shows is painted into one picture: the stand-ins and the pieces.
+        """
+        page = self._pages[index]
+        base = page["pix"]
+        total = page["total"]   # from the layout, which may be older than the document (reload)
+        # The layout's scale, not the one it is about to change to: a zoom has already set that
+        # when it rebuilds the scene, and measured with it, the picture came back at its old size.
+        s = self._layout_scale
+        wip = self._wip.get(index)
+        carry = page.get("carry")
+        if factor == 1.0 and (wip is None or not wip.pieces):
+            if index not in self._stand_ins and not base.pixmap().isNull():
+                rect = base.mapRectToParent(base.boundingRect())
+                self._carried[index] = _Carried(base.pixmap(), QRectF(
+                    rect.x() / s, rect.y() / s, rect.width() / s, rect.height() / s), total)
+            return
+        view = self.mapToScene(self.viewport().rect()).boundingRect()
+        shown = view.intersected(QRectF(page["x"], page["y"], page["w"], page["h"]))
+        if shown.isEmpty():
+            return
+        shown.translate(-page["x"], -page["y"])
+        layers = [base, carry] + ([item for _piece, item in wip.pieces] if wip is not None else [])
+        layers = [item for item in layers if item is not None and not item.pixmap().isNull()]
+        if not layers:
+            return
+        d = self._dpr * factor
+        picture = QPixmap(max(1, math.ceil(shown.width() * d)), max(1, math.ceil(shown.height() * d)))
+        picture.fill(QColor(0, 0, 0) if self._night else QColor(0xFF, 0xFF, 0xFF))
+        painter = QPainter(picture)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        painter.scale(picture.width() / shown.width(), picture.height() / shown.height())
+        painter.translate(-shown.x(), -shown.y())
+        for item in layers:
+            pm = item.pixmap()
+            painter.drawPixmap(item.mapRectToParent(item.boundingRect()), pm,
+                               QRectF(0, 0, pm.width(), pm.height()))
+        painter.end()
+        self._carried[index] = _Carried(picture, QRectF(shown.x() / s, shown.y() / s,
+                                                        shown.width() / s, shown.height() / s), total)
+
+    def _carry_visible(self, factor: float = 1.0) -> None:
+        if not self._pages or not self._shown_once:
+            return
+        first, last = self._visible_range()
+        for index in range(first, last + 1):
+            if index in self._painted or index in self._wip:
+                self._carry(index, factor)
+
+    def _begin_slow(self, index: int, on_screen: bool = True) -> "tuple | None":
+        """Show a slow page's stand-in and begin drawing it in pieces (M152.2). Returns the store
+        key of the stand-in, to pin.
+
+        A page on screen with no stand-in at all gets a quick low-resolution picture first. Pieces
+        begun at another size, after a move to another screen, are kept as a carried picture.
+        """
+        key = self._pixmap_key(index)
+        wip = self._wip.get(index)
+        if wip is not None:
+            if wip.key == key:
+                return wip.stand_in         # already begun at this size, stand-in on screen
+            self._carry(index)
+            self._drop_pieces(index)
+        shown = self._show_stand_in(index)
+        carried = self._carried.get(index)
+        if shown is None and on_screen and (carried is None or carried.total != key[2]):
+            shown = self._draw_low_res(index)
+        wip = self._start_pieces(index)
+        if wip is not None:
+            wip.stand_in = shown
+        return shown
 
     def _queue_prefetch(self, first: int, last: int, lo: int, hi: int) -> None:
         """Hand the prefetch margin to :meth:`_drain_prefetch` instead of rasterising it now (M92.4).
@@ -2176,7 +2651,7 @@ class PdfView(QGraphicsView):
         after = list(range(last + 1, hi + 1))            # nearest-first, ahead of the viewport
         before = list(range(first - 1, lo - 1, -1))      # nearest-first, behind it
         order = before + after if self._scroll_dir < 0 else after + before
-        self._prefetch_queue = [i for i in order if self._needs_drawing(i)]
+        self._prefetch_queue = [i for i in order if self._needs_drawing(i) and not self._is_slow(i)]
         if self._prefetch_queue and not self._prefetch_timer.isActive():
             self._prefetch_timer.start()
 
@@ -2198,11 +2673,13 @@ class PdfView(QGraphicsView):
         genuinely outpacing prefetch rather than on every image page. Removing that case needs
         rendering off the UI thread (`PLAN.md` §Deferred, item **E**).
         """
-        if self._glide_timer.isActive() or self._settle_timer.isActive():
-            return                          # the animation or a resize owns the frame (M152.1)
+        if (self._glide_timer.isActive() or self._settle_timer.isActive()
+                or self._pieces_on_screen_pending()):
+            return                          # the animation, a resize or the page on screen first
         while self._prefetch_queue:
             index = self._prefetch_queue.pop(0)
-            if 0 <= index < len(self._pages) and self._needs_drawing(index):
+            if (0 <= index < len(self._pages) and self._needs_drawing(index)
+                    and not self._is_slow(index)):
                 self._paint_page(index)
                 break                       # exactly one page per tick
         if not self._prefetch_queue:
@@ -2226,16 +2703,32 @@ class PdfView(QGraphicsView):
             # stretched, and draw nothing. The timer runs this pass again once the edge rests, and
             # that pass draws. The stretched pictures are pinned with the band, or drawing in
             # another window could evict the picture on screen.
-            shown = [self._show_stretched(i) for i in range(first, last + 1)]
+            shown = [self._show_stand_in(i) for i in range(first, last + 1)]
             self._cache.pin(band + [key for key in shown if key is not None])
         else:
             self._cache.pin(band)
             # **Only the pages the reader can actually see are rasterised here** (M92.4). The
             # prefetch margin is queued instead — see :meth:`_queue_prefetch` for the measurement
-            # that moved it.
+            # that moved it. **A slow page is drawn in pieces** (M152.2): it shows a stand-in at
+            # once, and the pieces follow in turns, so the window keeps handling events.
+            shown = []
             for i in range(first, last + 1):
-                self._paint_page(i)
+                if self._cache.get(band[i - lo]) is not None or not self._is_slow(i):
+                    self._paint_page(i)
+                else:
+                    shown.append(self._begin_slow(i))
+            # A slow page in the band near the window is begun too, so the pieces within a window
+            # height of the window are drawn ahead, as a quick page is drawn whole from the queue.
+            ahead = self._ahead_rect(self.mapToScene(self.viewport().rect()).boundingRect())
+            for i in list(range(lo, first)) + list(range(last + 1, hi + 1)):
+                if (self._needs_drawing(i) and self._is_slow(i)
+                        and self._local_rect(i, ahead) is not None):
+                    shown.append(self._begin_slow(i, on_screen=False))
+            self._cache.pin(band + [key for key in shown if key is not None])
             self._queue_prefetch(first, last, lo, hi)
+            self._trim_pieces(lo, hi)
+            self._turn(visible_only=True)   # the first turn now, so a quick page is never blank
+            self._schedule_turn()
         # Drop what scrolled off. This used to be the `else` arm of a loop over **every page in the
         # document**, asking each one whether it held a pixmap; tracking the answer costs a set
         # membership and makes the pass proportional to what is actually painted (M87.3).
@@ -2243,6 +2736,7 @@ class PdfView(QGraphicsView):
             self._pages[i]["pix"].setPixmap(QPixmap())
             self._painted.discard(i)
             self._stand_ins.discard(i)
+            self._drop_carried(i)
         # Content marks ride the same band as the pixmaps, so a stamp scrolls in with its page.
         if self.annotations is not None:
             self.annotations._paint_visible_content()
@@ -2265,14 +2759,31 @@ class PdfView(QGraphicsView):
           Everything goes, including the scene items' own references, which the store cannot reach.
           :meth:`restore_pixmaps` puts it back at ~6 ms/page for text.
         """
+        if not keep_visible:
+            # A small blurry copy of what the window shows, so a restore has something to show at
+            # once (M152.2, the owner's decision 5): a quarter of the width and height.
+            self._carry_visible(0.25)
         self._cache.clear(keep_pinned=keep_visible)
         if not keep_visible:
             for i in self._painted:
                 self._pages[i]["pix"].setPixmap(QPixmap())
+                item = self._pages[i].get("carry")
+                if item is not None:
+                    item.setPixmap(QPixmap())
             self._painted.clear()
             self._stand_ins.clear()
+            for i in list(self._wip):
+                self._drop_pieces(i)
+            self._dlists.clear()
+            self._piece_timer.stop()
             # A resize waiting to redraw would draw into a minimized window; the restore draws.
             self._settle_timer.stop()
+        else:
+            # The pieces of pages no longer on screen go with the scrollback.
+            first, last = self._visible_range()
+            for i in [i for i in self._wip if not first <= i <= last]:
+                self._drop_pieces(i)
+                self._dlists.pop(i, None)
         # Whatever tier, stop speculating: this window is not the one being read, and a queue left
         # running would rasterise pages straight back into the store we just handed back (M92.4).
         self._prefetch_queue.clear()
@@ -2447,6 +2958,17 @@ class PdfView(QGraphicsView):
         self._night = on
         self._cache.clear()
         self._settle_timer.stop()   # the store is empty, so there is nothing to stretch (M152.1)
+        # Every picture on screen was drawn in the other palette too (M152.2). A quick page was
+        # always drawn again at once below, but a slow one would show its old picture stretched
+        # until its pieces covered it, so everything goes.
+        for i in list(self._wip):
+            self._drop_pieces(i)
+        for i in list(self._carried):
+            self._drop_carried(i)
+        for i in self._painted:
+            self._pages[i]["pix"].setPixmap(QPixmap())
+        self._painted.clear()
+        self._stand_ins.clear()
         brush = QBrush(QColor(0, 0, 0) if on else QColor(0xFF, 0xFF, 0xFF))
         for p in self._pages:
             p["bg"].setBrush(brush)
@@ -2934,10 +3456,10 @@ class PdfView(QGraphicsView):
         ``False`` for a content-only edit — the same distinction the scroll-anchor logic below draws,
         exposed so a caller can tell whether page-index-keyed state (e.g. search hits) is still valid."""
         self._cache.clear()
-        # The store is empty, so a resize waiting to redraw has nothing to stretch: draw now. And
-        # the drawing times belong to the old page order (M152.1).
+        # The store is empty, so a resize waiting to redraw has nothing to stretch: draw now
+        # (M152.1). The display lists were read from the old pages (M152.2).
         self._settle_timer.stop()
-        self._draw_cost.clear()
+        self._dlists.clear()
         self._drop_render_docs()
         if self.selection is not None:
             self.selection.invalidate()
@@ -2962,6 +3484,12 @@ class PdfView(QGraphicsView):
                 # The same layout, so where the view was sent still holds (M151).
                 self._sent, self._sent_anchor = sent
             else:
+                # The pages may have moved, so the pictures carried from before the edit and the
+                # drawing times belong to other pages now (M152.2). After an edit that moves no
+                # page, the carried pictures stand in while the pages are drawn again.
+                for i in list(self._carried):
+                    self._drop_carried(i)
+                self._draw_rate.clear()
                 self.goto_page(self._current)
         return structural
 

@@ -287,6 +287,23 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   the same module disagree **and must stay that way**; a test pins each against the library, so a
   PyMuPDF upgrade that changes either fails there with the reason rather than silently resizing
   documents.
+- **`Page.get_pixmap` reads the whole page on every call, clip or not.** It builds a display list
+  internally each time, so a small clip saves the drawing but not the reading. On the NADA cover a
+  16 px piece took 44–64 ms, nearly all of it reading; from a kept `page.get_displaylist()` it took
+  3–4 ms (M152.2). Two consequences: draw repeated pieces of one page from a kept display list, and
+  a test that counts drawings by patching `Page.get_pixmap` and `DisplayList.get_pixmap` sees every
+  whole-page drawing twice unless it ignores the inner call. The whole-page measurement that
+  rejected display lists in the M152 plan was right for whole pages and wrong for pieces: measure
+  the operation you will actually repeat.
+- **A page picture's width in pixels is not its size on screen, and the tests cannot tell.** Every
+  page picture carries the screen's pixel ratio (M88.2): on the owner's 1.75× laptop, a picture
+  1,000 pixels wide covers 571 units of the scene. Size or place an item from
+  `pixmap.deviceIndependentSize()`, never from `pixmap.width()`. The offscreen suite runs at one
+  pixel to a point, where the two are equal, so the mistake passes every test that does not set
+  `view._dpr`. M152.2's PR had one until the owner's hand check: on the laptop, a picture kept
+  across a zoom showed at 57% of its size (432 px wide instead of 756). A test that checks where a
+  picture lands should also run at another ratio: set `view._dpr`, or use `_fake_dpr` in
+  `tests/test_dpi_scale.py`.
 - **A green Windows + WSL suite does not mean CI is green — and Qt failures are *segfaults*, not
   assertion failures.** M88.3 crashed the Ubuntu runner inside `QGraphicsView`'s constructor ~74%
   into the suite while both local platforms ran it green, because the fault was in Qt's C++ and
