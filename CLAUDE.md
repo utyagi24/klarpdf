@@ -113,7 +113,9 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   and leaves a one-line pointer behind, the way TC-007's items graduated into M99–M101. And **the
   fix still owes its `PLAN.md` entry and `PROGRESS.md` milestone** under the rules above: the issue
   records the *report* and the PR closes it with `Fixes #N`, but where the defect came from and what
-  the fix changed are design and status, and they live where design and status live.
+  the fix changed are design and status, and they live where design and status live. **A fix built
+  in parts closes its issue with its last part**: that PR says `Fixes #N`, and the earlier ones say
+  `Part of #N`. M152 said `Part of #360` in both of its PRs, so their merge left #360 open.
 
   **Every issue is labelled with its type and the part it lives in** (owner, 2026-09-18). It gets
   `bug` or `enhancement`, plus each of these that applies:

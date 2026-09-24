@@ -128,7 +128,7 @@ open is almost entirely in that category. The gate, all small and all concrete:
   on image-heavy documents. Its gate is already met; this is scheduling, not justification. **Scheduled as
   M152.2** (2026-09-19). Revised 2026-09-24: M152.2 now draws slow pages in pieces on the window's
   thread, not off it. The owner's call (2026-09-24): M152.2 is recorded as a potential fix for
-  Item E. **M152.2 built** ([#387](https://github.com/utyagi24/klarpdf/pull/387), 2026-09-24): whether it closes Item E is the owner's call
+  Item E. **M152.2 merged** ([#387](https://github.com/utyagi24/klarpdf/pull/387), 2026-09-24): whether it closes Item E is the owner's call
   after the hand check on Windows.
 - **Code signing** stays deferred (needs a certificate) — it is the one gate item that may never be
   purchasable, so it is explicitly *not* a blocker for 1.0.
@@ -1084,11 +1084,13 @@ tick the box here on merge. Build in number order.
     top of a page, at any window size. Opening the sidebar is a resize, so it keeps the line too;
   - the page marked current is the page the view was sent to: a deck reopened on its last slide,
     or a search hit on the last page, now marks that page and not the one before it.
-- [ ] **M152** **A slow page does not freeze the window** —
+- [x] **M152** **A slow page does not freeze the window** —
   [#360](https://github.com/utyagi24/klarpdf/issues/360). *App.* Diagnosis, measurements and the
   proposed plan in `PLAN.md` §M152 (2026-09-23, revised 2026-09-24 to the owner's cost
   criteria). **The owner accepted the plan on 2026-09-24**, and made its decisions the same day.
-  Each part is built in WSL and checked by hand on Windows.
+  Each part is built in WSL and checked by hand on Windows. **Both parts merged on 2026-09-24**
+  (#386, #387), and #360 is closed as completed. The WSL zoom list it also reported is
+  [#388](https://github.com/utyagi24/klarpdf/issues/388).
   - [x] **M152.1** **Resizing follows the mouse** — [#386](https://github.com/utyagi24/klarpdf/pull/386). On a page that is slow to draw, a
     drag of the window edge stretches the page to each new size. It is drawn sharp once the edge
     has rested for 200 ms. On the NADA cover a step now takes 6–9 ms instead of about 1 s. A page
