@@ -2120,16 +2120,19 @@ class MainWindow(QMainWindow):
         self._markup_button.setDefaultAction(self._armed_actions[ArmedTool.STRIKEOUT])
         self._apply_or_arm(ArmedTool.STRIKEOUT)
 
-    def _on_markup_style_changed(self, style) -> None:
+    def _on_markup_style_changed(self, style, changes: dict) -> None:
         """One of the three style buttons changed → update the sticky style for the next mark, and —
         mirroring the text-markup 'apply to the current selection' rule — restyle the selected drawn
         object(s) in place (undoable) if any are selected (a whole group in one undo step, M59.6).
+
+        The selection gets only ``changes``, the settings this edit set, not the whole ``style``
+        (M154, #392): the buttons show one style, and a group's members can each have their own.
 
         Also broadcast the new style back to all three buttons (M78.6): each button holds the whole
         style but edits only its slice, so they must be re-synced or the next edit on another button
         would drop this one's change. ``set_style`` doesn't re-emit, so there is no feedback loop."""
         self.view.annotations.set_markup_style(style)
-        self.view.annotations.restyle_selected_objects(style)
+        self.view.annotations.restyle_selected_objects(**changes)
         for style_button in self._markup_style_buttons:
             style_button.set_style(style)
 

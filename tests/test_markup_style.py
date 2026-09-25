@@ -209,9 +209,31 @@ def test_set_style_does_not_emit():
     """Loading a style into a button (wiring it up) must not look like a user edit."""
     for button in (LineStylingButton(), ColorsButton(), OpacityButton()):
         seen = []
-        button.styleChanged.connect(seen.append)
+        button.styleChanged.connect(lambda *args: seen.append(args))
         button.set_style(MarkupStyle(color=(0.0, 0.0, 1.0), opacity=0.5, width=4.0))
         assert seen == []
+
+
+def test_each_edit_reports_only_the_setting_it_set():
+    """M154 (#392): the signal carries the new style *and* what this edit set, because a selection
+    is restyled with the second. A setting the user did not touch must never be in it — that is
+    what spread one shape's border and fill across a whole group."""
+    edits = (
+        (LineStylingButton, "_set_width", 4.0, "width"),
+        (LineStylingButton, "_set_dashed", True, "dashed"),
+        (LineStylingButton, "_set_ends", (True, True), "line_ends"),
+        (ColorsButton, "_set_color", (0.0, 0.0, 1.0), "color"),
+        (ColorsButton, "_set_fill", None, "fill_color"),       # No Fill is a setting too
+        (OpacityButton, "_set_opacity", 0.5, "opacity"),
+    )
+    for cls, slot, value, field in edits:
+        button = cls()
+        seen = []
+        button.styleChanged.connect(lambda style, changes: seen.append((style, changes)))
+        getattr(button, slot)(value)
+        [(style, changes)] = seen
+        assert changes == {field: value}
+        assert getattr(style, field) == value
 
 
 # ---- the picker's output round-trips through a save --------------------------

@@ -173,14 +173,12 @@ def test_a_placed_stamp_deletes_like_any_object(win):
 
 def test_the_pen_style_picker_leaves_a_stamp_alone(win):
     """A stamp's style comes from its own dialog, so the pen & shapes picker must not touch it —
-    `restyle_mark` returning None for a content mark is what makes that automatic."""
-    from viewer.markup_style import MarkupStyle
-
+    `MarkupStyle.from_mark` returning None for a content mark is what makes that automatic."""
     _place(win, TEMPLATE)
     before = _stamps(win)[0]
     overlay = win.view.annotations
     overlay.select_object(0, before)
-    assert overlay.restyle_selected_objects(MarkupStyle(color=(0, 0, 1.0))) is False
+    assert overlay.restyle_selected_objects(color=(0, 0, 1.0)) is False
     assert _stamps(win)[0] == before
 
 
