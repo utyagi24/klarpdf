@@ -102,14 +102,18 @@ def send_path_to_running_instance(name: str, path: str, retries: int = 1) -> boo
 class PdfApp(QApplication):
     def __init__(self, argv: list[str]) -> None:
         super().__init__(argv)
+        # On WSL, drop Qt console lines known to be harmless. Does nothing elsewhere (M153).
+        platform_integration.quiet_harmless_qt_lines(self)
         # Set early: QStandardPaths.AppConfigLocation derives from the application name, so the
         # settings dir resolves to .config/klarpdf (Linux) / %LOCALAPPDATA%\klarpdf (Windows).
         self.setApplicationName("klarpdf")
         self.setOrganizationName("klarpdf")
         # App-level icon: taskbar grouping + the default for every window/dialog.
-        from ui import icons
+        from ui import icons, popup_closer
 
         self.setWindowIcon(icons.app_icon())
+        # A list or menu that Qt only hides would stay on a WSLg desktop; this closes it (M153).
+        popup_closer.install(self)
         self.settings = Settings()
         self._windows: dict[str, object] = {}
         # Page clipboard for cross-window cut/copy/paste (PLAN.md): each entry is

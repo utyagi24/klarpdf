@@ -12,6 +12,8 @@ The *only* place OS-specific app behaviours live, so ``app.py``/``launcher.py`` 
   association, so this is effectively unused there.
 - :func:`acquire_app_mutex` — a named Windows mutex the **installer and uninstaller** watch, so
   neither runs while the app is open. See :data:`APP_MUTEX_NAME`.
+- :func:`quiet_harmless_qt_lines` — on Wayland, stop Qt printing the console lines in
+  :data:`HARMLESS_WAYLAND_LINES`. Every other Qt message still prints.
 
 Windows impl now (focus shim) / Linux stub later — but written so today's WSLg path works.
 """
@@ -170,3 +172,53 @@ def register_file_association(exe_path: str | None = None) -> None:
     Packaging). It exists for a future Linux ``xdg-mime`` path and an optional dev convenience.
     """
     return None
+
+
+#: Qt console lines known to be harmless on Wayland. :func:`quiet_harmless_qt_lines` drops a
+#: message only when its whole text is one of these, so every other message still prints.
+#:
+#: * Clicking an open menu's title again makes Qt's menu bar ask to hold the mouse until the button
+#:   comes up, then let go. Qt's Wayland support allows that only for a popup, and the menu bar is
+#:   part of the main window, so each such click printed this line twice. The menus work normally
+#:   (``PLAN.md`` §M153).
+HARMLESS_WAYLAND_LINES = frozenset({
+    "This plugin supports grabbing the mouse only for popup windows",
+})
+
+# The message handler that was in place before ours. None is Qt's own printer.
+_passed_on = None
+
+
+def quiet_harmless_qt_lines(app) -> bool:
+    """On Wayland, stop Qt printing :data:`HARMLESS_WAYLAND_LINES`. No-op elsewhere.
+
+    Returns whether the filter is on. PySide takes Python's lock to run the filter, on whichever
+    thread printed the message. A Qt thread that printed while the main thread held that lock and
+    waited for it would stall both. So the filter stays off on Windows, where the app ships and
+    these lines never appear.
+    """
+    if not app.platformName().startswith("wayland"):
+        return False
+    _install_line_filter()
+    return True
+
+
+def _install_line_filter() -> None:
+    global _passed_on
+    from PySide6.QtCore import qInstallMessageHandler
+
+    previous = qInstallMessageHandler(_filter_qt_line)
+    if previous is not _filter_qt_line:  # a second install must not make it call itself
+        _passed_on = previous
+
+
+def _filter_qt_line(msg_type, context, message: str) -> None:
+    if message in HARMLESS_WAYLAND_LINES:
+        return
+    if _passed_on is not None:
+        _passed_on(msg_type, context, message)
+    elif sys.stderr is not None:
+        # What Qt's own printer does: format the line as Qt would, then write it.
+        from PySide6.QtCore import qFormatLogMessage
+
+        print(qFormatLogMessage(msg_type, context, message), file=sys.stderr, flush=True)
