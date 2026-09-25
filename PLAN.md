@@ -9138,6 +9138,8 @@ cover when page 2 or 3 is current.
 **The WSL zoom list (symptom 5) is not diagnosed.** It starts as the list closes:
 `ZoomWidget.activated` applies the zoom at once, so the 7 s draw of the cover begins right then.
 But the list stays after the draw has finished, so the freeze alone does not explain it.
+*(Diagnosed and fixed in §M153: the list was hidden, not closed, and WSLg keeps drawing a hidden
+list.)*
 
 #### What was tried
 
@@ -9587,6 +9589,189 @@ at two pixels to a point. Before the fix, 9 of the 10 failed. The one that passe
 one pixel to a point, which neither fault touches. Undoing the fix's first half alone failed the
 8 cases that change the scale. Undoing its second half alone failed the 4 cases at two pixels to a
 point that keep a page's own picture.
+
+### M153 — lists and menus leave the desktop on WSL *(unplanned)* (2026-09-24)
+
+[#388](https://github.com/utyagi24/klarpdf/issues/388) and
+[#396](https://github.com/utyagi24/klarpdf/issues/396). On WSL, two kinds of popup left their
+picture on the desktop until the app quit:
+
+* **The zoom list, after a zoom was chosen** (#388). It was the fifth symptom of #360 (§M152).
+  M152.2 removed the slow redraw after a zoom and the list still stayed, so it got its own issue.
+* **A menu bar menu, after its title was clicked again** (#396). The owner found it while checking
+  the first version of this fix.
+
+**Surfaces: the app only.** The change is in `app.py`, `platform_integration.py` and `ui/`. No
+file in `klarpdf/` changes, and the bridge shows no popups.
+
+#### What the reader sees
+
+The owner's hand check and later report on WSL, 2026-09-24, before the fix. Only the hand check
+had the display messages logged.
+
+| What the owner did | What happened |
+|---|---|
+| Chose 300% from the zoom list | The list stayed on the desktop |
+| A click elsewhere after that | It still stayed |
+| Opened the zoom list and pressed Esc | It closed |
+| Chose View ▸ Zoom In from the menu bar | The menu closed |
+| Opened File, Edit, View, Tools or Help, then clicked its title again | The menu stayed |
+| Opened a drop-down menu on the markup toolbar and closed it | It closed |
+| Closed the app | Every leftover picture went |
+
+#### Cause
+
+Under WSLg the app runs on Wayland, the protocol it uses to talk to the display server. Each window
+is a *surface* there.
+
+Qt takes a popup away in one of two ways:
+
+* **It closes it.** Qt destroys the surface.
+* **It hides it.** On Wayland, Qt 6.11 removes the surface's role and attaches no picture to it. It
+  keeps the surface itself for the next time (`QWaylandWindow::setVisible(false)`).
+
+WSLg keeps drawing a surface that is hidden but still alive. The picture goes only when the surface
+is destroyed. That is why every leftover went when the app quit.
+
+The log (`WAYLAND_DEBUG=1`) showed this:
+
+* Choosing a zoom: `xdg_popup.destroy`, `xdg_surface.destroy`, `attach(nil)`, `commit`. No
+  `wl_surface.destroy`.
+* Esc, choosing from the View menu, and tooltips: the same four messages, then `wl_surface.destroy`.
+
+Qt 6.11.1 hides rather than closes in two places:
+
+* **A combo box's list**, when a value is chosen, on Enter, or on a click outside the list
+  (`QComboBox::hidePopup`).
+* **A menu bar's menu**, when its title is clicked again (`qmenubar.cpp:983`). The same happens
+  when the menu bar leaves the open menu for another title or for none (`qmenubar.cpp:354`): the
+  pointer moving onto another title, an arrow key, or a click on an empty part of the bar.
+
+Everything else closes. Esc, choosing a menu item and a click away from a menu all go through
+`QMenuPrivate::hideMenu`, which calls `close()`. A toolbar button's menu only takes those paths,
+which is why the markup toolbar's menus never stayed. In the first hand check the View menu closed
+because an item was chosen from it. Clicking its title again was not tried then.
+
+On Windows a hidden window is not drawn, so none of this showed there.
+
+WSLg has open reports of popups that stay on screen
+([microsoft/wslg#857](https://github.com/microsoft/wslg/issues/857),
+[#1265](https://github.com/microsoft/wslg/issues/1265)). Whether they share this cause was not
+checked.
+
+#### The fix
+
+`ui/popup_closer.py` adds `PopupCloser`, and `PdfApp` installs it on the whole app. It sees every
+event. When a popup is hidden, it closes the popup one turn of the event loop later, if the popup
+is still hidden. Closing a popup that Qt already closed does nothing. The next time the popup
+opens, Qt makes a new surface.
+
+It also covers popups the app does not create. Qt builds the lists inside its own Open and Save
+window, and on WSL that window is Qt's own. The owner's hand check included its folder list.
+
+It adds 0.4 µs to each event in the app, measured on the development machine.
+
+It is not code for WSL alone. Esc already closes a popup on every platform.
+
+Rejected:
+
+* **A subclass for each kind of popup.** This was the first version of the fix: `ComboBox`, a
+  `QComboBox` that closed its list, used for every combo box in the app. The menu bar's menus were
+  a second report of the same fault. A subclass also cannot reach the lists Qt builds inside its
+  own dialogs. `CLAUDE.md` says to fix a class of bug once, so the closer replaced it, and the six
+  combo boxes are plain `QComboBox` again.
+* **Closing the popup during the hide.** The closer sees the hide before the popup's own code does,
+  and the menu bar opens the next menu straight after the hide. Closing then would run in the
+  middle of both. A turn later costs nothing visible: choosing a zoom returns in 2 to 7 ms, because
+  the page is drawn afterwards (measured offscreen, on a light page and on 12,000 lines of vector
+  drawing).
+* **Closing every hidden window, not only popups.** Closing a document window asks about unsaved
+  changes. Qt already closes a dialog when it finishes, since Qt 6.3 (`QDialogPrivate::close`).
+* **Doing it only on WSL.** It would need a platform check, which belongs behind
+  `platform_integration.py` (`CLAUDE.md` §Gotchas), for a change that is harmless everywhere.
+
+#### Tests
+
+`tests/test_popup_closer.py`, 12 tests, headless. The offscreen platform draws nothing, so the
+tests watch for the popup's surface being destroyed: Qt's `SurfaceAboutToBeDestroyed` event.
+
+* Lists: choosing a value, Enter, and a click outside the list each destroy the surface once. The
+  list opens again after it was closed. Choosing 300% from the zoom list zooms to 300%. The file
+  type list in Qt's own Open window closes too.
+* Menus: clicking an open menu's title again, and moving to the next menu with the pointer or an
+  arrow key, each destroy the surface once. A closed menu opens again and its item still works.
+  Every menu of a real document window closes when its title is clicked again.
+* A list hidden and shown again at once is left open.
+* A control: with the closer taken out, a combo box and a menu bar only hide their popups. If this
+  test starts failing, Qt closes them itself and the closer can go.
+
+With the closer not installed, 10 of the 12 failed. The two that passed check that the closer does
+not close too much. One of them failed when the closer stopped checking that the popup was still
+hidden.
+
+The tests needed three things:
+
+* Qt ignores a click on a list for 400 ms after it opens under the pointer, so the tests wait that
+  long.
+* A list not yet laid out reports its items wider than itself, so the tests click near an item's
+  left edge.
+* A menu reached through a temporary `action.menu()` could raise "already deleted", so the tests
+  find the menus as children of the menu bar.
+
+A popup cannot be opened from a script on WSLg. The display server needs a real click first, and
+Qt logs *"Failed to create grabbing popup"*. So the diagnosis and the checks were done by hand.
+
+**Hand checks** (owner, WSL, 2026-09-24):
+
+* First version (`ComboBox`): chose 300%, then 150%, then clicked on the page with the list open.
+  No list stayed.
+* This version: clicked each of File, Edit, View, Tools and Help twice. Moved the pointer along the
+  titles with a menu open. Moved through the menus with the arrow keys, then pressed Esc. Chose a
+  zoom. Picked a folder from the list in File ▸ Open. Nothing stayed. The log showed 44 popups
+  opened and 44 surfaces destroyed.
+
+Not checked by hand on Windows.
+
+#### Found on the way
+
+Opening the zoom list turns off Fit Page:
+[#390](https://github.com/utyagi24/klarpdf/issues/390). Filed, not fixed here.
+
+On WSL, clicking an open menu's title again printed two lines on the console: *"This plugin
+supports grabbing the mouse only for popup windows"*. They come from Qt's menu bar, not from this
+fix. After it hides the menu, the menu bar asks to hold the mouse until the button comes up, then
+lets go (`qmenubar.cpp:984` and `:1002`). Qt's Wayland support allows that only for a popup. The
+menu bar is part of the main window, so each request printed one line.
+
+* An offscreen run made the same two requests at the same step, with the closer and without it.
+* The menus still open and close normally.
+* Qt on Windows allows it for any window, and the Windows app has no console.
+
+The owner asked for these lines to go, and only these. `PdfApp` now calls
+`platform_integration.quiet_harmless_qt_lines`, which drops them on Wayland. It is a filter on
+Qt's console messages. It drops a message only when its whole text is in
+`HARMLESS_WAYLAND_LINES`, and prints every other message the way Qt would.
+
+* Qt's own switches cannot pick out this line. It has no category, and turning off warnings
+  without a category would silence many others.
+* The filter also hides this line when anything else asks to hold the mouse on WSL. If holding the
+  mouse seems not to work there, take the line off the list to see the warning.
+* PySide takes Python's lock to run the filter, on whichever thread printed the message
+  (`PySide6/glue/qtcore.cpp`). A Qt thread that printed while the main thread held that lock and
+  waited for it would stall both. So the filter is on only under Wayland, and the app that ships
+  on Windows keeps Qt's own printer.
+
+Rejected: stopping the menu bar from asking. The app would have to handle that click in place of
+Qt's menu bar, including the step that keeps the click from opening the menu again.
+
+`tests/test_quiet_qt_lines.py`, 8 tests: the line is dropped and other lines still print; only the
+whole line is dropped; other lines reach a filter that was installed before; a second install
+still prints a line once; the filter is on under Wayland and off elsewhere. Five ways of breaking
+the filter each made at least one of them fail.
+
+**Hand check** (owner, WSL, 2026-09-25): clicked File, then File again, and did the same with other
+menus. Every menu went away. The console log had none of these lines, where it used to have two
+per click. A test warning printed at startup came through.
 
 ### M154 — a style change on several shapes changes only that setting *(unplanned)* (2026-09-24)
 

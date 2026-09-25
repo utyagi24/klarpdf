@@ -1131,6 +1131,17 @@ tick the box here on merge. Build in number order.
     on the desktop). If it is still there, it gets its own issue. **Still there** (owner,
     2026-09-24), with any document and any zoom value, so the slow redraw was not the cause. Now
     [#388](https://github.com/utyagi24/klarpdf/issues/388).
+- [x] **M153** *(unplanned)* **Lists and menus leave the desktop on WSL** —
+  [#388](https://github.com/utyagi24/klarpdf/issues/388),
+  [#396](https://github.com/utyagi24/klarpdf/issues/396). *App.* On WSL, a chosen zoom left the
+  zoom list's picture on the desktop until the app quit. So did a menu bar menu closed by clicking
+  its title again. Qt hides these popups instead of closing them, and WSLg keeps drawing a hidden
+  window. The app now closes any popup that Qt only hid, including the lists in Qt's own Open and
+  Save window. On WSL it also stops a harmless Qt console line that a second click on a menu title
+  printed twice. The owner's hand checks on WSL found nothing left behind. Found on the way:
+  opening the zoom list turns off Fit Page,
+  [#390](https://github.com/utyagi24/klarpdf/issues/390). Details in `PLAN.md` §M153 — *WSL* —
+  [#391](https://github.com/utyagi24/klarpdf/pull/391)
 - [x] **M154** *(unplanned)* **A style change on several shapes changes only that setting** —
   [#392](https://github.com/utyagi24/klarpdf/issues/392). *App.* With several shapes selected, a
   change on any of the three style buttons gave every shape the whole style the buttons showed:
