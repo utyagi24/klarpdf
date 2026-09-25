@@ -372,7 +372,9 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   `PdfApp` installs, now closes any popup that Qt only hid. It does not touch other windows, so
   close a window of the app's own rather than hide it. To see what Qt sends the display server, run
   with `WAYLAND_DEBUG=1`. A script cannot open a popup on WSLg, because the display server needs a
-  real click first, so check popups by hand.
+  real click first, so check popups by hand. Two console lines, *"This plugin supports grabbing the
+  mouse only for popup windows"*, after a second click on a menu title are Qt's menu bar, not a
+  fault (`PLAN.md` §M153).
 - **Never rebuild the scene inside a Qt callback.** `scene.clear()` during `showEvent` /
   `paintEvent` / an event handler destroys every `QGraphicsItem` while Qt is still walking them.
   Defer to the event loop with a `QTimer` **parented to the view** (it is then cancelled on

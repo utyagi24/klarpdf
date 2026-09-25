@@ -9737,6 +9737,19 @@ Not checked by hand on Windows.
 Opening the zoom list turns off Fit Page:
 [#390](https://github.com/utyagi24/klarpdf/issues/390). Filed, not fixed here.
 
+On WSL, clicking an open menu's title again prints two lines on the console: *"This plugin
+supports grabbing the mouse only for popup windows"*. They come from Qt's menu bar, not from this
+fix. After it hides the menu, the menu bar asks to hold the mouse until the button comes up, then
+lets go (`qmenubar.cpp:984` and `:1002`). Qt's Wayland support allows that only for a popup. The
+menu bar is part of the main window, so each request prints one line.
+
+* An offscreen run made the same two requests at the same step, with the closer and without it.
+* The menus still open and close normally.
+* Qt on Windows allows it for any window, and the Windows app has no console.
+
+Nothing was changed for them. Hiding the lines would need a filter on all of Qt's console
+messages, and it would also hide this warning where it points at a real fault.
+
 ## The open issues, grouped — M149–M152 *(planned 2026-09-19)*
 
 Grouped at the owner's request (2026-09-19: *"plan milestones for all of the issues, except for 352
