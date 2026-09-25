@@ -9601,8 +9601,8 @@ picture on the desktop until the app quit:
 * **A menu bar menu, after its title was clicked again** (#396). The owner found it while checking
   the first version of this fix.
 
-**Surfaces: the app only.** The change is in `app.py` and `ui/`. No file in `klarpdf/` changes,
-and the bridge shows no popups.
+**Surfaces: the app only.** The change is in `app.py`, `platform_integration.py` and `ui/`. No
+file in `klarpdf/` changes, and the bridge shows no popups.
 
 #### What the reader sees
 
@@ -9737,18 +9737,41 @@ Not checked by hand on Windows.
 Opening the zoom list turns off Fit Page:
 [#390](https://github.com/utyagi24/klarpdf/issues/390). Filed, not fixed here.
 
-On WSL, clicking an open menu's title again prints two lines on the console: *"This plugin
+On WSL, clicking an open menu's title again printed two lines on the console: *"This plugin
 supports grabbing the mouse only for popup windows"*. They come from Qt's menu bar, not from this
 fix. After it hides the menu, the menu bar asks to hold the mouse until the button comes up, then
 lets go (`qmenubar.cpp:984` and `:1002`). Qt's Wayland support allows that only for a popup. The
-menu bar is part of the main window, so each request prints one line.
+menu bar is part of the main window, so each request printed one line.
 
 * An offscreen run made the same two requests at the same step, with the closer and without it.
 * The menus still open and close normally.
 * Qt on Windows allows it for any window, and the Windows app has no console.
 
-Nothing was changed for them. Hiding the lines would need a filter on all of Qt's console
-messages, and it would also hide this warning where it points at a real fault.
+The owner asked for these lines to go, and only these. `PdfApp` now calls
+`platform_integration.quiet_harmless_qt_lines`, which drops them on Wayland. It is a filter on
+Qt's console messages. It drops a message only when its whole text is in
+`HARMLESS_WAYLAND_LINES`, and prints every other message the way Qt would.
+
+* Qt's own switches cannot pick out this line. It has no category, and turning off warnings
+  without a category would silence many others.
+* The filter also hides this line when anything else asks to hold the mouse on WSL. If holding the
+  mouse seems not to work there, take the line off the list to see the warning.
+* PySide takes Python's lock to run the filter, on whichever thread printed the message
+  (`PySide6/glue/qtcore.cpp`). A Qt thread that printed while the main thread held that lock and
+  waited for it would stall both. So the filter is on only under Wayland, and the app that ships
+  on Windows keeps Qt's own printer.
+
+Rejected: stopping the menu bar from asking. The app would have to handle that click in place of
+Qt's menu bar, including the step that keeps the click from opening the menu again.
+
+`tests/test_quiet_qt_lines.py`, 8 tests: the line is dropped and other lines still print; only the
+whole line is dropped; other lines reach a filter that was installed before; a second install
+still prints a line once; the filter is on under Wayland and off elsewhere. Five ways of breaking
+the filter each made at least one of them fail.
+
+**Hand check** (owner, WSL, 2026-09-25): clicked File, then File again, and did the same with other
+menus. Every menu went away. The console log had none of these lines, where it used to have two
+per click. A test warning printed at startup came through.
 
 ## The open issues, grouped — M149–M152 *(planned 2026-09-19)*
 
