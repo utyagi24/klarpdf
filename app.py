@@ -107,9 +107,11 @@ class PdfApp(QApplication):
         self.setApplicationName("klarpdf")
         self.setOrganizationName("klarpdf")
         # App-level icon: taskbar grouping + the default for every window/dialog.
-        from ui import icons
+        from ui import icons, popup_closer
 
         self.setWindowIcon(icons.app_icon())
+        # A list or menu that Qt only hides would stay on a WSLg desktop; this closes it (M153).
+        popup_closer.install(self)
         self.settings = Settings()
         self._windows: dict[str, object] = {}
         # Page clipboard for cross-window cut/copy/paste (PLAN.md): each entry is

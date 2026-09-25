@@ -9590,26 +9590,33 @@ one pixel to a point, which neither fault touches. Undoing the fix's first half 
 8 cases that change the scale. Undoing its second half alone failed the 4 cases at two pixels to a
 point that keep a page's own picture.
 
-### M153 — a chosen zoom closes the zoom list on WSL *(unplanned)* (2026-09-24)
+### M153 — lists and menus leave the desktop on WSL *(unplanned)* (2026-09-24)
 
-[#388](https://github.com/utyagi24/klarpdf/issues/388). On WSL, choosing a value from the zoom list
-left the list's picture on the desktop until the app quit. It was the fifth symptom of #360
-(§M152). M152.2 removed the slow redraw after a zoom and the list still stayed, so it got its own
-issue.
+[#388](https://github.com/utyagi24/klarpdf/issues/388) and
+[#396](https://github.com/utyagi24/klarpdf/issues/396). On WSL, two kinds of popup left their
+picture on the desktop until the app quit:
 
-**Surfaces: the app only.** The change is in `viewer/` and `ui/`. No file in `klarpdf/` changes,
-and the bridge shows no lists.
+* **The zoom list, after a zoom was chosen** (#388). It was the fifth symptom of #360 (§M152).
+  M152.2 removed the slow redraw after a zoom and the list still stayed, so it got its own issue.
+* **A menu bar menu, after its title was clicked again** (#396). The owner found it while checking
+  the first version of this fix.
+
+**Surfaces: the app only.** The change is in `app.py` and `ui/`. No file in `klarpdf/` changes,
+and the bridge shows no popups.
 
 #### What the reader sees
 
-The owner's hand check on WSL, 2026-09-24, with the display messages logged:
+The owner's hand check and later report on WSL, 2026-09-24, before the fix. Only the hand check
+had the display messages logged.
 
-| What the owner did | What happened to the list |
+| What the owner did | What happened |
 |---|---|
-| Chose 300% | It stayed on the desktop |
+| Chose 300% from the zoom list | The list stayed on the desktop |
 | A click elsewhere after that | It still stayed |
-| Opened the list and pressed Esc | It closed |
-| View ▸ Zoom In from the menu bar | The menu closed |
+| Opened the zoom list and pressed Esc | It closed |
+| Chose View ▸ Zoom In from the menu bar | The menu closed |
+| Opened File, Edit, View, Tools or Help, then clicked its title again | The menu stayed |
+| Opened a drop-down menu on the markup toolbar and closed it | It closed |
 | Closed the app | Every leftover picture went |
 
 #### Cause
@@ -9617,27 +9624,35 @@ The owner's hand check on WSL, 2026-09-24, with the display messages logged:
 Under WSLg the app runs on Wayland, the protocol it uses to talk to the display server. Each window
 is a *surface* there.
 
-Qt takes a list away in one of two ways:
+Qt takes a popup away in one of two ways:
 
-* **Esc closes the list.** Qt destroys its surface.
-* **Choosing a value, Enter, or a click outside the list hides it.** `QComboBox.hidePopup` calls
-  `hide()`. On Wayland, Qt 6.11 then removes the surface's role and attaches no picture to it. It
+* **It closes it.** Qt destroys the surface.
+* **It hides it.** On Wayland, Qt 6.11 removes the surface's role and attaches no picture to it. It
   keeps the surface itself for the next time (`QWaylandWindow::setVisible(false)`).
 
 WSLg keeps drawing a surface that is hidden but still alive. The picture goes only when the surface
 is destroyed. That is why every leftover went when the app quit.
 
-The log (`WAYLAND_DEBUG=1`) showed this at every close:
+The log (`WAYLAND_DEBUG=1`) showed this:
 
-* Choosing a value: `xdg_popup.destroy`, `xdg_surface.destroy`, `attach(nil)`, `commit`. No
+* Choosing a zoom: `xdg_popup.destroy`, `xdg_surface.destroy`, `attach(nil)`, `commit`. No
   `wl_surface.destroy`.
-* Esc, the View menu and tooltips: the same four messages, then `wl_surface.destroy`.
+* Esc, choosing from the View menu, and tooltips: the same four messages, then `wl_surface.destroy`.
 
-Menus and tooltips always close, which is why only the lists showed it. Every combo box in the app
-hides its list the same way: the zoom list, the list for filling a form's choice field, the Type
-list in Add Form Field, and the Preset, Place and Apply to lists in Add Stamp or Watermark.
+Qt 6.11.1 hides rather than closes in two places:
 
-On Windows a hidden window is not drawn, so the list closed normally there.
+* **A combo box's list**, when a value is chosen, on Enter, or on a click outside the list
+  (`QComboBox::hidePopup`).
+* **A menu bar's menu**, when its title is clicked again (`qmenubar.cpp:983`). The same happens
+  when the menu bar leaves the open menu for another title or for none (`qmenubar.cpp:354`): the
+  pointer moving onto another title, an arrow key, or a click on an empty part of the bar.
+
+Everything else closes. Esc, choosing a menu item and a click away from a menu all go through
+`QMenuPrivate::hideMenu`, which calls `close()`. A toolbar button's menu only takes those paths,
+which is why the markup toolbar's menus never stayed. In the first hand check the View menu closed
+because an item was chosen from it. Clicking its title again was not tried then.
+
+On Windows a hidden window is not drawn, so none of this showed there.
 
 WSLg has open reports of popups that stay on screen
 ([microsoft/wslg#857](https://github.com/microsoft/wslg/issues/857),
@@ -9646,43 +9661,76 @@ checked.
 
 #### The fix
 
-`viewer/combo_box.py` adds `ComboBox`. It closes its list after Qt hides it, so every way out ends
-the way Esc does. Every combo box in the app is now one.
+`ui/popup_closer.py` adds `PopupCloser`, and `PdfApp` installs it on the whole app. It sees every
+event. When a popup is hidden, it closes the popup one turn of the event loop later, if the popup
+is still hidden. Closing a popup that Qt already closed does nothing. The next time the popup
+opens, Qt makes a new surface.
 
-It is not code for WSL alone. Esc already closes the list on every platform, and the next open
-creates the list's window again.
+It also covers popups the app does not create. Qt builds the lists inside its own Open and Save
+window, and on WSL that window is Qt's own. The owner's hand check included its folder list.
+
+It adds 0.4 µs to each event in the app, measured on the development machine.
+
+It is not code for WSL alone. Esc already closes a popup on every platform.
 
 Rejected:
 
+* **A subclass for each kind of popup.** This was the first version of the fix: `ComboBox`, a
+  `QComboBox` that closed its list, used for every combo box in the app. The menu bar's menus were
+  a second report of the same fault. A subclass also cannot reach the lists Qt builds inside its
+  own dialogs. `CLAUDE.md` says to fix a class of bug once, so the closer replaced it, and the six
+  combo boxes are plain `QComboBox` again.
+* **Closing the popup during the hide.** The closer sees the hide before the popup's own code does,
+  and the menu bar opens the next menu straight after the hide. Closing then would run in the
+  middle of both. A turn later costs nothing visible: choosing a zoom returns in 2 to 7 ms, because
+  the page is drawn afterwards (measured offscreen, on a light page and on 12,000 lines of vector
+  drawing).
+* **Closing every hidden window, not only popups.** Closing a document window asks about unsaved
+  changes. Qt already closes a dialog when it finishes, since Qt 6.3 (`QDialogPrivate::close`).
 * **Doing it only on WSL.** It would need a platform check, which belongs behind
   `platform_integration.py` (`CLAUDE.md` §Gotchas), for a change that is harmless everywhere.
-* **Fixing only the zoom list.** The other five lists had the same fault.
 
 #### Tests
 
-`tests/test_combo_box.py`, six tests, headless. The offscreen platform draws nothing, so the tests
-watch for the list's surface being destroyed: Qt's `SurfaceAboutToBeDestroyed` event.
+`tests/test_popup_closer.py`, 12 tests, headless. The offscreen platform draws nothing, so the
+tests watch for the popup's surface being destroyed: Qt's `SurfaceAboutToBeDestroyed` event.
 
-* Choosing a value, Enter, and a click outside the list each destroy the surface once.
-* The list opens again after it was closed.
-* Choosing 300% from the zoom list zooms to 300% and destroys the surface.
-* A control: a plain `QComboBox` does not destroy it. If this test starts failing, Qt closes the
-  list by itself and `ComboBox` can go.
-* A scan fails on a plain `QComboBox` anywhere in the app's code.
+* Lists: choosing a value, Enter, and a click outside the list each destroy the surface once. The
+  list opens again after it was closed. Choosing 300% from the zoom list zooms to 300%. The file
+  type list in Qt's own Open window closes too.
+* Menus: clicking an open menu's title again, and moving to the next menu with the pointer or an
+  arrow key, each destroy the surface once. A closed menu opens again and its item still works.
+  Every menu of a real document window closes when its title is clicked again.
+* A list hidden and shown again at once is left open.
+* A control: with the closer taken out, a combo box and a menu bar only hide their popups. If this
+  test starts failing, Qt closes them itself and the closer can go.
 
-With the fix undone, 4 of the 6 failed: the four that expect the surface destroyed. Run over the
-files on `main`, the scan's pattern found all six old combo boxes.
+With the closer not installed, 10 of the 12 failed. The two that passed check that the closer does
+not close too much. One of them failed when the closer stopped checking that the popup was still
+hidden.
 
-Two things the tests needed. Qt ignores a click on a list for 400 ms after it opens under the
-pointer, so the tests wait that long. A list not yet laid out reports its items wider than itself,
-so the tests click near an item's left edge.
+The tests needed three things:
+
+* Qt ignores a click on a list for 400 ms after it opens under the pointer, so the tests wait that
+  long.
+* A list not yet laid out reports its items wider than itself, so the tests click near an item's
+  left edge.
+* A menu reached through a temporary `action.menu()` could raise "already deleted", so the tests
+  find the menus as children of the menu bar.
 
 A popup cannot be opened from a script on WSLg. The display server needs a real click first, and
-Qt logs *"Failed to create grabbing popup"*. So the diagnosis and the check were done by hand.
+Qt logs *"Failed to create grabbing popup"*. So the diagnosis and the checks were done by hand.
 
-**Hand check** (owner, WSL, 2026-09-24): chose 300%, then 150%, then clicked on the page with the
-list open. No list stayed. The log showed `wl_surface.destroy` straight after each hide. Not
-checked by hand on Windows.
+**Hand checks** (owner, WSL, 2026-09-24):
+
+* First version (`ComboBox`): chose 300%, then 150%, then clicked on the page with the list open.
+  No list stayed.
+* This version: clicked each of File, Edit, View, Tools and Help twice. Moved the pointer along the
+  titles with a menu open. Moved through the menus with the arrow keys, then pressed Esc. Chose a
+  zoom. Picked a folder from the list in File ▸ Open. Nothing stayed. The log showed 44 popups
+  opened and 44 surfaces destroyed.
+
+Not checked by hand on Windows.
 
 #### Found on the way
 

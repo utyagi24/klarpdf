@@ -1131,15 +1131,15 @@ tick the box here on merge. Build in number order.
     on the desktop). If it is still there, it gets its own issue. **Still there** (owner,
     2026-09-24), with any document and any zoom value, so the slow redraw was not the cause. Now
     [#388](https://github.com/utyagi24/klarpdf/issues/388).
-- [x] **M153** *(unplanned)* **A chosen zoom closes the zoom list on WSL** —
-  [#388](https://github.com/utyagi24/klarpdf/issues/388). *App.* On WSL, choosing a value from
-  the zoom list left the list's picture on the desktop until the app quit. Qt hides a list when a
-  value is chosen and keeps its surface, and WSLg keeps drawing that surface. Esc closes the list
-  instead, which is why Esc worked. Every drop-down list in the app now closes its list the way Esc
-  does, the other five included. The owner's hand check on WSL found no list left behind. Found on
-  the way: opening the zoom list turns off Fit Page,
-  [#390](https://github.com/utyagi24/klarpdf/issues/390). Details in `PLAN.md` §M153 — *WSL* —
-  [#391](https://github.com/utyagi24/klarpdf/pull/391)
+- [x] **M153** *(unplanned)* **Lists and menus leave the desktop on WSL** —
+  [#388](https://github.com/utyagi24/klarpdf/issues/388),
+  [#396](https://github.com/utyagi24/klarpdf/issues/396). *App.* On WSL, a chosen zoom left the
+  zoom list's picture on the desktop until the app quit. So did a menu bar menu closed by clicking
+  its title again. Qt hides these popups instead of closing them, and WSLg keeps drawing a hidden
+  window. The app now closes any popup that Qt only hid, including the lists in Qt's own Open and
+  Save window. The owner's hand checks on WSL found nothing left behind. Found on the way: opening
+  the zoom list turns off Fit Page, [#390](https://github.com/utyagi24/klarpdf/issues/390). Details
+  in `PLAN.md` §M153 — *WSL* — [#391](https://github.com/utyagi24/klarpdf/pull/391)
 
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 

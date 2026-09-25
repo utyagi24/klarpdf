@@ -365,12 +365,14 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   failure mode is chrome that is simply **not there**, so grab the bar and look.
 - **On WSLg, a Qt window that is hidden rather than closed stays on the desktop.** On Wayland, Qt
   6.11 hides a window by removing its role and keeps its surface. WSLg keeps drawing that surface
-  until it is destroyed. `QComboBox` hides its list when a value is chosen, so every drop-down list
-  left its picture behind until the app quit ([#388](https://github.com/utyagi24/klarpdf/issues/388),
-  M153). Menus, tooltips and Esc close, so they were fine. Use `viewer/combo_box.py`'s `ComboBox`,
-  never a plain `QComboBox`; a test fails on one. Close any other popup rather than hide it. To see
-  what Qt sends the display server, run with `WAYLAND_DEBUG=1`. A script cannot open a popup on
-  WSLg, because the display server needs a real click first, so check popups by hand.
+  until it is destroyed. Qt hides some popups instead of closing them: a combo box's list after a
+  choice, and a menu bar's menu when its title is clicked again or another title opens. Both stayed
+  on the desktop until the app quit ([#388](https://github.com/utyagi24/klarpdf/issues/388),
+  [#396](https://github.com/utyagi24/klarpdf/issues/396), M153). `ui/popup_closer.py`, which
+  `PdfApp` installs, now closes any popup that Qt only hid. It does not touch other windows, so
+  close a window of the app's own rather than hide it. To see what Qt sends the display server, run
+  with `WAYLAND_DEBUG=1`. A script cannot open a popup on WSLg, because the display server needs a
+  real click first, so check popups by hand.
 - **Never rebuild the scene inside a Qt callback.** `scene.clear()` during `showEvent` /
   `paintEvent` / an event handler destroys every `QGraphicsItem` while Qt is still walking them.
   Defer to the event loop with a `QTimer` **parented to the view** (it is then cancelled on

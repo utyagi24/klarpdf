@@ -49,6 +49,7 @@ from PySide6.QtWidgets import (
     QAbstractSpinBox,
     QCheckBox,
     QColorDialog,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
@@ -65,7 +66,6 @@ from PySide6.QtWidgets import (
 
 from klarpdf.model.content_marks import MARK_PRESETS, WHOLE_PAGE_DEFAULTS, Stamp
 from klarpdf.util.page_range import PageRangeError, parse_page_range
-from viewer.combo_box import ComboBox
 from viewer.markup_style import swatch_icon
 
 CUSTOM = "Custom…"
@@ -139,7 +139,7 @@ class _PageRangeField(QWidget):
         self._current_page = current_page
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        self.scope = ComboBox()
+        self.scope = QComboBox()
         self.scope.addItems(["This page", "All pages", "Pages…"])
         self.text = QLineEdit()
         self.text.setPlaceholderText(f"e.g. 1-3, 7, 10-  (of {page_count})")
@@ -234,9 +234,9 @@ class MarkDialog(QDialog):
         self.setWindowTitle("Add Stamp or Watermark")
         form = QFormLayout()
 
-        self.presets = ComboBox()
+        self.presets = QComboBox()
         self.presets.addItems([*MARK_PRESETS, CUSTOM])
-        self.place = ComboBox()
+        self.place = QComboBox()
         self.place.addItems([PLACE_CLICK, PLACE_PAGE])
         self.place.setToolTip(
             "Stamp — compose it at a font size, then click where you want it on the page.\n"
