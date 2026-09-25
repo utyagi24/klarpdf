@@ -273,6 +273,31 @@ MODELED_KINDS = frozenset({
 # silently swap for Helvetica.
 _BASE14_DA = frozenset({"helv", "tiro", "cour"})
 
+# The kinds the model draws as a stroke: a pen stroke, a line, a rectangle and an ellipse. Their
+# descriptors hold a width, a dash and an opacity, but no comment.
+_DRAWN_KINDS = frozenset({
+    fitz.PDF_ANNOT_INK,
+    fitz.PDF_ANNOT_LINE,
+    fitz.PDF_ANNOT_SQUARE,
+    fitz.PDF_ANNOT_CIRCLE,
+})
+
+
+def _dash_pattern(annot: "fitz.Annot") -> list[float]:
+    """The annotation's dash pattern as the file spells it, or ``[]`` when it is solid.
+
+    Read from ``/BS /D`` directly where there is one, because PyMuPDF's ``annot.border`` rounds
+    each dash to a whole number (``[3.5 1.5]`` comes back as ``(4, 2)``). A file with no ``/BS``
+    can still dash through the older ``/Border`` array, which PyMuPDF reports only rounded.
+    """
+    kind, value = annot.parent.parent.xref_get_key(annot.xref, "BS/D")
+    if kind == "array":
+        try:
+            return [float(token) for token in value.strip("[]").split()]
+        except ValueError:
+            pass                    # not plain numbers: a damaged file; take PyMuPDF's reading
+    return [float(d) for d in (annot.border or {}).get("dashes") or ()]
+
 
 def is_adoptable(annot: "fitz.Annot") -> bool:
     """Can this foreign annotation be parsed into an editable model descriptor at all?"""
@@ -312,16 +337,30 @@ def degradations(annot: "fitz.Annot") -> list[str]:
     # markup kinds now *carry* it (`note` on Highlight/Underline/Strikeout) and a FreeText's
     # /Contents **is** its text, so for those five nothing is lost and nothing is said. The four
     # drawn kinds have no field to hold a comment, so there the loss is real — and must be said.
-    if kind in (fitz.PDF_ANNOT_INK, fitz.PDF_ANNOT_LINE,
-                fitz.PDF_ANNOT_SQUARE, fitz.PDF_ANNOT_CIRCLE) and has("Contents"):
+    if kind in _DRAWN_KINDS and has("Contents"):
         lost.append("its comment")
-    dash = doc.xref_get_key(annot.xref, "BS/D")
-    if dash[0] == "array" and dash[1].strip("[] "):
-        lost.append("its dashed border")
+    # The border (M155). Its colour, its width and whether it is dashed all come through: no
+    # border colour stays no border, and a width of 0 stays 0 (#395). Two things about it do not.
+    #
+    # A dashed line, pen stroke or shape stays dashed, but with our spacing (`_dash_array`), so
+    # only a different spacing is a loss. This used to say "its dashed border" for every dash,
+    # while the mark came back dashed. A text box cannot hold a dash, so for it the dash is lost.
+    pattern = _dash_pattern(annot)
+    if pattern:
+        if kind not in _DRAWN_KINDS:
+            lost.append("its dashed border")
+        else:
+            from klarpdf.model.page_edits import _border_width, _dash_array
+
+            if pattern != [float(d) for d in _dash_array(_border_width(annot))]:
+                lost.append("its dash spacing")
+    # A cloud edge (`/BE`), which MuPDF draws only above strength 0. The model has none, so an
+    # edit drew the plain border without saying so.
+    if (annot.border or {}).get("clouds", -1) > 0:
+        lost.append("its cloud-shaped edge")
     # Opacity: only the drawn types carry /CA in the model (M59.9); the text-markup descriptors and
     # TextBox have no opacity field, so a translucent one would come back solid.
-    if kind not in (fitz.PDF_ANNOT_INK, fitz.PDF_ANNOT_LINE,
-                    fitz.PDF_ANNOT_SQUARE, fitz.PDF_ANNOT_CIRCLE):
+    if kind not in _DRAWN_KINDS:
         try:
             opacity = float(annot.opacity)
         except (TypeError, ValueError):

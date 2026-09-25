@@ -1149,6 +1149,19 @@ tick the box here on merge. Build in number order.
   out the same. Each shape now keeps every setting except the one changed. The buttons now report
   which setting the user changed, and only that setting reaches the selection. Details in `PLAN.md`
   §M154 — *WSL (headless)* — [#393](https://github.com/utyagi24/klarpdf/pull/393)
+- [x] **M155** *(unplanned)* **Shapes can have no border** —
+  [#394](https://github.com/utyagi24/klarpdf/issues/394),
+  [#395](https://github.com/utyagi24/klarpdf/issues/395). *Core and app; the bridge through the
+  core.* A rectangle or ellipse can now have a fill and no border. The Colors menu's Border row ends
+  in a crossed-out dot, like the Fill row's. A shape keeps its border or its fill (owner's call), so
+  each crossed-out dot is greyed out while the other one is chosen. Editing another program's shape
+  keeps its border as the file has it: none stays none, and a hair-thin one stays hair-thin. A
+  width the file does not set reads as 1 pt, not 2 pt. The warning before that edit now names a
+  cloud-shaped edge. For a dashed mark it says "its dash spacing" instead of "its dashed border",
+  because the mark stays dashed. Found on the way:
+  [#398](https://github.com/utyagi24/klarpdf/issues/398),
+  [#399](https://github.com/utyagi24/klarpdf/issues/399). Details in `PLAN.md` §M155 — *WSL
+  (headless)* — PR link to follow
 
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 
