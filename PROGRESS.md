@@ -1160,7 +1160,8 @@ tick the box here on merge. Build in number order.
   cloud-shaped edge. For a dashed mark it says "its dash spacing" instead of "its dashed border",
   because the mark stays dashed. Found on the way:
   [#398](https://github.com/utyagi24/klarpdf/issues/398),
-  [#399](https://github.com/utyagi24/klarpdf/issues/399). Details in `PLAN.md` §M155 — *WSL
+  [#399](https://github.com/utyagi24/klarpdf/issues/399),
+  [#401](https://github.com/utyagi24/klarpdf/issues/401). Details in `PLAN.md` §M155 — *WSL
   (headless)* — [#400](https://github.com/utyagi24/klarpdf/pull/400)
 
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)

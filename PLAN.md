@@ -10001,6 +10001,9 @@ may have had none, and choosing a colour for its border gives it one.
 * [#399](https://github.com/utyagi24/klarpdf/issues/399): moving another program's annotation
   that touches the page's left or bottom edge stretches it. A number between -1 and 1 is misread
   when it is moved.
+* [#401](https://github.com/utyagi24/klarpdf/issues/401): a border thicker than 2 pt is saved
+  further inside the shape than KlarPDF's view shows it, by 1 pt at Thick (4 pt). PyMuPDF keeps
+  the border inside the shape's box, while the view centres it on the drawn edge.
 
 ## The open issues, grouped — M149–M152 *(planned 2026-09-19)*
 
