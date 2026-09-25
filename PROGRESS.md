@@ -1161,7 +1161,7 @@ tick the box here on merge. Build in number order.
   because the mark stays dashed. Found on the way:
   [#398](https://github.com/utyagi24/klarpdf/issues/398),
   [#399](https://github.com/utyagi24/klarpdf/issues/399). Details in `PLAN.md` §M155 — *WSL
-  (headless)* — PR link to follow
+  (headless)* — [#400](https://github.com/utyagi24/klarpdf/pull/400)
 
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 
