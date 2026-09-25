@@ -165,6 +165,112 @@ def test_group_move_keeps_the_group_selected(win):
     assert len(ov.selected_objects) == 2                    # the moved group stays selected
 
 
+# ---- a group restyle changes only the setting that was changed (M154, #392) ---------
+#
+# Each selected mark keeps everything the user did not touch. Before M154 a change on any of the
+# three style buttons applied the buttons' *whole* style to every member, so two shapes with
+# different fills and borders both came out with whichever style the buttons were showing.
+
+
+_RED, _GREEN, _BLUE = (0.86, 0.10, 0.10), (0.13, 0.60, 0.20), (0.13, 0.35, 0.85)
+_YELLOW_FILL, _PINK_FILL = (1.0, 0.94, 0.60), (0.98, 0.82, 0.88)
+
+
+def _two_styled_shapes(win):
+    """Two rectangles that differ in every setting the style buttons edit."""
+    win.vdoc.add_annotation(0, Shape("rect", (100.0, 100.0, 160.0, 140.0), color=_RED, width=1.0,
+                                     fill_color=_YELLOW_FILL, opacity=0.8))
+    win.vdoc.add_annotation(0, Shape("rect", (200.0, 100.0, 260.0, 140.0), color=_GREEN,
+                                     width=4.0, fill_color=_PINK_FILL, opacity=0.6, dashed=True))
+    win.view.reload()
+    return [a for a in win.vdoc.page_annotations(0) if isinstance(a, Shape)]
+
+
+def _by_left_edge(win):
+    return sorted((a for a in win.vdoc.page_annotations(0) if isinstance(a, Shape)),
+                  key=lambda a: a.rect[0])
+
+
+def _assert_kept(shape, color, width, fill, dashed):
+    assert shape.color == pytest.approx(color)
+    assert shape.width == width
+    assert shape.fill_color == pytest.approx(fill)
+    assert shape.dashed is dashed
+
+
+def test_group_opacity_change_keeps_each_shapes_own_style(win):
+    """The #392 report: two shapes, different fills and border widths, marquee-selected, opacity
+    moved — each keeps its own border, fill, width and dash; only the opacity changes."""
+    _two_styled_shapes(win)
+    win.view.annotations.select_in_rect(0, (90, 90, 270, 150))
+    win._opacity_button._slider.setValue(50)                 # what dragging the slider does
+    left, right = _by_left_edge(win)
+    assert left.opacity == pytest.approx(0.5) and right.opacity == pytest.approx(0.5)
+    _assert_kept(left, _RED, 1.0, _YELLOW_FILL, False)
+    _assert_kept(right, _GREEN, 4.0, _PINK_FILL, True)
+    assert win.undo_stack.undoText() == "Restyle 2 objects"
+
+
+def test_group_opacity_change_after_ctrl_click_keeps_the_second_shapes_style(win):
+    """Ctrl-click builds the group from a lone selection, which loads the *first* shape's style
+    into the buttons. That style must not spread to the second shape either."""
+    first, second = _two_styled_shapes(win)
+    ov = win.view.annotations
+    ov.select_object(0, first)
+    ov.toggle_object(0, second)
+    win._opacity_button._slider.setValue(30)
+    left, right = _by_left_edge(win)
+    assert left.opacity == pytest.approx(0.3) and right.opacity == pytest.approx(0.3)
+    _assert_kept(left, _RED, 1.0, _YELLOW_FILL, False)
+    _assert_kept(right, _GREEN, 4.0, _PINK_FILL, True)
+
+
+def test_group_width_change_keeps_each_shapes_colours(win):
+    _two_styled_shapes(win)
+    win.view.annotations.select_in_rect(0, (90, 90, 270, 150))
+    win._line_style_button._width_actions[2.0].trigger()     # Line Styling ▸ Medium
+    left, right = _by_left_edge(win)
+    assert left.width == 2.0 and right.width == 2.0
+    assert left.color == pytest.approx(_RED) and right.color == pytest.approx(_GREEN)
+    assert left.fill_color == pytest.approx(_YELLOW_FILL)
+    assert right.fill_color == pytest.approx(_PINK_FILL)
+    assert left.opacity == pytest.approx(0.8) and right.opacity == pytest.approx(0.6)
+    assert left.dashed is False and right.dashed is True
+
+
+def test_group_colour_change_keeps_each_marks_width_and_arrowheads(win):
+    """A mixed group — a shape, a line with arrowheads and a pen stroke — recoloured: every member
+    keeps its own width, dash, arrowheads and fill."""
+    win.vdoc.add_annotation(0, Shape("rect", (100.0, 100.0, 160.0, 140.0), color=_RED, width=1.0,
+                                     fill_color=_YELLOW_FILL))
+    win.vdoc.add_annotation(0, Line((200.0, 100.0), (260.0, 140.0), color=_GREEN, width=4.0,
+                                    arrow_start=True, arrow_end=True))
+    win.vdoc.add_annotation(0, InkStroke((((300.0, 100.0), (330.0, 140.0), (360.0, 100.0)),),
+                                         color=_RED, width=3.0, dashed=True))
+    win.view.reload()
+    win.view.annotations.select_in_rect(0, (90, 90, 370, 150))
+    win._colors_button._border_row.buttons["Blue"].click()
+    shape, line, ink = (next(a for a in win.vdoc.page_annotations(0) if isinstance(a, kind))
+                        for kind in (Shape, Line, InkStroke))
+    assert all(m.color == pytest.approx(_BLUE) for m in (shape, line, ink))
+    assert shape.width == 1.0 and shape.fill_color == pytest.approx(_YELLOW_FILL)
+    assert line.width == 4.0 and (line.arrow_start, line.arrow_end) == (True, True)
+    assert ink.width == 3.0 and ink.dashed is True
+
+
+def test_choosing_the_value_the_button_already_shows_still_applies_it(win):
+    """A group's members can differ from what the buttons show. Picking the colour the Colors
+    button already rings is still a choice, and it recolours every member to it."""
+    _two_styled_shapes(win)                                  # red and green
+    assert win._colors_button.style().color == pytest.approx(_RED)   # the default rings red
+    win.view.annotations.select_in_rect(0, (90, 90, 270, 150))
+    win._colors_button._border_row.buttons["Red"].click()
+    left, right = _by_left_edge(win)
+    assert left.color == pytest.approx(_RED) and right.color == pytest.approx(_RED)
+    assert right.fill_color == pytest.approx(_PINK_FILL)     # and nothing else moved
+    assert right.width == 4.0
+
+
 def test_restyle_skips_a_text_box_in_a_mixed_group(win):
     """A marquee can grab a text box too, but the stroke picker only restyles the drawn marks —
     the text box (its own format bar) rides along for move/delete, untouched by colour."""

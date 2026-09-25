@@ -9773,6 +9773,92 @@ the filter each made at least one of them fail.
 menus. Every menu went away. The console log had none of these lines, where it used to have two
 per click. A test warning printed at startup came through.
 
+### M154 — a style change on several shapes changes only that setting *(unplanned)* (2026-09-24)
+
+[#392](https://github.com/utyagi24/klarpdf/issues/392). The owner drew two shapes with different
+fills and border widths, selected both and changed the opacity. Both shapes then had the fill and
+border width of the shape selected last.
+
+**Surfaces: the app only.** The change is in `viewer/` and `main_window.py`. `restyle_mark` in
+`klarpdf/model/page_edits.py` is core, but it does not change, and the bridge never restyles a mark.
+
+#### What the reader sees
+
+Any change on the three style buttons (Line Styling, Colors, Opacity) did it, not only opacity.
+Every selected shape, line and pen stroke took the whole style the buttons showed: border colour,
+fill, width, dash, arrowheads and opacity. Which style that was depended on how the group was
+selected:
+
+* **A box dragged around the shapes:** the style the buttons were already showing. That is usually
+  the style of the shape drawn or changed last, which is what the report describes.
+* **Ctrl+click:** the style of the first shape clicked. The first click selects one shape, and
+  selecting one shape loads its style into the buttons.
+
+#### Cause
+
+The three buttons share one style. A change on any of them sent the whole style, and
+`restyle_selected_objects` applied all of it to every selected mark.
+
+With one mark selected this was harmless. Selecting a mark loads its style into the buttons
+(M59.5), so the whole style is the mark's own with one setting changed. M59.5 states the aim: *"a
+partial tweak leaves its other attributes alone"*. M59.6 let the same buttons restyle a group, but a
+group does not load a style into the buttons, so the aim was lost. The code said so:
+`_set_selection`'s docstring read *"a group keeps the picker as-is, so applying it restyles the
+whole group to one style"*. `PLAN.md` never recorded that as a decision.
+
+#### The fix
+
+The buttons' `styleChanged` signal now carries two things: the new style, and the settings the
+user just changed, such as `{"opacity": 0.5}`. The window uses them separately:
+
+* The **style** is still what the next new mark is drawn with, as before.
+* The **settings** are what the selection gets. `restyle_selected_objects(**changes)` starts each
+  mark from its own style (`MarkupStyle.from_mark`) and changes only those settings.
+
+A text box or a stamp has no style of this kind, so it is skipped, as before.
+
+Rejected:
+
+* **Working out the change in the window, by comparing the old style with the new one.** It fails
+  when the user picks the value a button already shows. Say the Colors button shows red and the
+  group has a red shape and a green one. Clicking Red asks for both to be red, but the two styles
+  are the same, so nothing would be applied. The button knows what was chosen, so it says so.
+* **Giving `restyle_mark` a way to say "keep this setting".** `fill_color=None` already means "no
+  fill", so "keep" would need a special value. Combining the mark's own style with the change in
+  the viewer leaves every file in `klarpdf/` unchanged.
+
+#### Tests
+
+In `tests/test_object_multiselect.py`, five tests restyle a group through the real controls: the
+opacity slider, the Line Styling width entry and a Border colour dot. The shapes differ in every
+setting.
+
+* An opacity change on a group selected with a box, and on one selected with Ctrl+click.
+* A width change.
+* A colour change on a shape, a line with arrowheads and a pen stroke together.
+* Choosing the colour the button already shows still applies it to the whole group.
+
+In `tests/test_markup_style.py`, one test changes each of the six settings in turn. Each change
+must report that setting and nothing else.
+
+On the code before the fix, the five group tests failed. With the fix undone a second way, the
+buttons reporting every setting as changed, all six new tests failed.
+
+Six existing tests changed with the signal:
+
+* Three listened with `list.append`, which cannot take two values. PySide6 prints the error and the
+  listener records nothing. One of them, `test_set_style_does_not_emit`, checks that nothing was
+  recorded, so it would have kept passing while checking nothing.
+* Two called the window's handler directly. They now use the button.
+* One calls `restyle_selected_objects` in its new form.
+
+#### Found on the way
+
+With a group selected, the buttons still show one style, not the group's. The opacity slider can
+show 100% while both shapes are at 60%. A change still sets only that setting. But choosing the
+value already shown does nothing on the slider, because the slider reports only a move. What the
+buttons should show for a group is undecided (`PROGRESS.md` §Open follow-ups).
+
 ## The open issues, grouped — M149–M152 *(planned 2026-09-19)*
 
 Grouped at the owner's request (2026-09-19: *"plan milestones for all of the issues, except for 352

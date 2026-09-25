@@ -1475,7 +1475,8 @@ class AnnotationOverlay:
     def _set_selection(self, entries: list) -> None:
         """Replace the selection with ``entries`` (``[(page_index, mark), …]``, all one page) and
         draw an outline per mark. Notifies the picker (style-load) only for a lone selection — a
-        group keeps the picker as-is, so applying it restyles the whole group to one style."""
+        group keeps the picker as-is, and a change on it sets only that one setting on every member
+        (M154; before, the picker's whole style was applied, #392)."""
         self._clear_selection_items()
         self._selection = list(entries)
         for page_index, mark in self._selection:
@@ -1589,11 +1590,16 @@ class AnnotationOverlay:
             self._remove_many(page_index, marks, f"Delete {len(marks)} objects")
         return True
 
-    def restyle_selected_objects(self, style) -> bool:
-        """Apply ``style`` (a :class:`~viewer.markup_style.MarkupStyle`) to every selected drawn
-        mark in place — the "same strategy as text markup" the owner asked for, now for a group:
-        one picker change restyles the whole selection (one undo step). Text boxes (own format bar)
-        and marks already at ``style`` are skipped. Returns True if anything changed.
+    def restyle_selected_objects(self, **changes) -> bool:
+        """Set ``changes`` (:class:`~viewer.markup_style.MarkupStyle` fields, e.g. ``opacity=0.5``)
+        on every selected drawn mark in place — the "same strategy as text markup" the owner asked
+        for, now for a group: one picker change restyles the whole selection (one undo step).
+        Text boxes and stamps (their own controls) and marks that already match are skipped.
+        Returns True if anything changed.
+
+        **Each mark keeps every setting not in** ``changes`` (M154, #392). It starts from its own
+        style, not the buttons': a group's members can each differ from what the buttons show, and
+        applying the buttons' whole style gave every member the same border, fill and width.
 
         The replace reloads the view, which clears the selection, so capture it first and re-select
         the updated marks afterwards (keeping unchanged members selected too)."""
@@ -1603,6 +1609,10 @@ class AnnotationOverlay:
         page_index = selection[0][0]
         pairs = []
         for _p, mark in selection:
+            own = MarkupStyle.from_mark(mark)
+            if own is None:
+                continue
+            style = replace(own, **changes)
             new = restyle_mark(mark, style.color, style.width, style.fill_color, style.opacity,
                                style.line_ends, style.dashed)
             if new is not None and new != mark:

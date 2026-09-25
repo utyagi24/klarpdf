@@ -1142,6 +1142,13 @@ tick the box here on merge. Build in number order.
   opening the zoom list turns off Fit Page,
   [#390](https://github.com/utyagi24/klarpdf/issues/390). Details in `PLAN.md` §M153 — *WSL* —
   [#391](https://github.com/utyagi24/klarpdf/pull/391)
+- [x] **M154** *(unplanned)* **A style change on several shapes changes only that setting** —
+  [#392](https://github.com/utyagi24/klarpdf/issues/392). *App.* With several shapes selected, a
+  change on any of the three style buttons gave every shape the whole style the buttons showed:
+  border colour, fill, width, dash, arrowheads and opacity. So two shapes with different fills came
+  out the same. Each shape now keeps every setting except the one changed. The buttons now report
+  which setting the user changed, and only that setting reaches the selection. Details in `PLAN.md`
+  §M154 — *WSL (headless)* — [#393](https://github.com/utyagi24/klarpdf/pull/393)
 
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 
@@ -4729,6 +4736,13 @@ released build or in the code on `main` that is unambiguous and readily reproduc
 the PR that fixes it. See `CLAUDE.md` §How we work for the split and why. Items already carried here
 were not migrated wholesale: each is listed because a decision is outstanding, which is what keeps
 it on this side of the line.
+
+- **With several shapes selected, the style buttons show one style, not the group's** (M154, found
+  2026-09-24). They show the first shape's style after Ctrl+click, or the style they already held
+  after a box selection. So the opacity slider can show 100% while both shapes are at 60%. A change
+  still sets only that setting on each shape (M154). But choosing the value the slider already
+  shows does nothing, because the slider reports only a move. **Open question:** should the
+  buttons show that the shapes differ, and what should the slider show then? `PLAN.md` §M154.
 
 - **Going back to a zoom already drawn redraws a slow page's pieces** (M152.2, found 2026-09-24).
   A page drawn in pieces is kept whole in the store only once every tile is drawn, which needs the

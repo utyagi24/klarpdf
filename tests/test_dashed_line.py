@@ -127,7 +127,7 @@ def test_selected_mark_restyles_to_dashed_one_undo_step(win):
     win.view.annotations.repaint()
     win.view.annotations.select_object(0, line)
     before = win.undo_stack.count()
-    win._on_markup_style_changed(MarkupStyle(dashed=True))
+    win._line_style_button._set_dashed(True)              # Line Styling ▸ Dashed
     got = _only(win, Line)
     assert got.dashed is True
     assert win.undo_stack.count() == before + 1
@@ -182,9 +182,9 @@ def test_line_style_menu_has_widths_and_dash_styles():
 def test_picking_dashed_emits_and_ticks():
     btn = LineStylingButton()
     seen = []
-    btn.styleChanged.connect(seen.append)
+    btn.styleChanged.connect(lambda style, changes: seen.append((style, changes)))
     btn._set_dashed(True)
-    assert seen and seen[-1].dashed is True
+    assert seen and seen[-1][0].dashed is True and seen[-1][1] == {"dashed": True}
     assert btn._dash_actions[True].isChecked()
     btn.set_style(MarkupStyle(dashed=False))  # load without emitting
     assert btn._dash_actions[False].isChecked()

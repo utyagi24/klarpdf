@@ -322,9 +322,13 @@ class _StyleButton(QToolButton):
 
     :meth:`set_style` loads a style into the controls + face **without** emitting (start-up and
     object-select), exactly as the old single button did.
+
+    :attr:`styleChanged` carries the new style **and the settings this edit set** (M154). The style
+    is what the next mark is drawn with; the settings are what a selection is restyled with, since a
+    group's members can each differ from the style the buttons show (#392).
     """
 
-    styleChanged = Signal(object)  # the new MarkupStyle
+    styleChanged = Signal(object, object)  # the new MarkupStyle, {field: value} this edit set
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -346,7 +350,7 @@ class _StyleButton(QToolButton):
     def _apply(self, **changes) -> None:
         self._style = replace(self._style, **changes)
         self._sync()
-        self.styleChanged.emit(self._style)
+        self.styleChanged.emit(self._style, changes)
 
     # ---- control slots (shared, so the one style is edited one way) --------------
 

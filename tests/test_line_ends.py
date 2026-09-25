@@ -106,7 +106,7 @@ def test_selected_lines_ends_restyle_in_place_one_undo_step(win):
     win.view.annotations.repaint()
     win.view.annotations.select_object(0, line)
     before = win.undo_stack.count()
-    win._on_markup_style_changed(MarkupStyle(line_ends=(True, True)))
+    win._line_style_button._set_ends((True, True))       # Line Styling ▸ Arrowheads ▸ Both
     marks = [a for a in win.vdoc.page_annotations(0) if isinstance(a, Line)]
     assert len(marks) == 1
     assert (marks[0].arrow_start, marks[0].arrow_end) == (True, True)
@@ -139,9 +139,10 @@ def test_picker_offers_the_four_ends_and_emits(qapp):
     labels = [a.text() for a in button._ends_menu.actions()]
     assert labels == ["None", "Start", "End", "Both"]
     seen = []
-    button.styleChanged.connect(seen.append)
+    button.styleChanged.connect(lambda style, changes: seen.append((style, changes)))
     button._set_ends((True, True))
-    assert seen and seen[-1].line_ends == (True, True)
+    assert seen and seen[-1][0].line_ends == (True, True)
+    assert seen[-1][1] == {"line_ends": (True, True)}
     button.set_style(MarkupStyle(line_ends=(False, True)))  # load without emitting
     assert button._ends_actions[(False, True)].isChecked()
     assert len(seen) == 1
