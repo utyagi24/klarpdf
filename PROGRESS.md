@@ -1137,7 +1137,7 @@ tick the box here on merge. Build in number order.
   border colour, fill, width, dash, arrowheads and opacity. So two shapes with different fills came
   out the same. Each shape now keeps every setting except the one changed. The buttons now report
   which setting the user changed, and only that setting reaches the selection. Details in `PLAN.md`
-  §M154 — *WSL (headless)*
+  §M154 — *WSL (headless)* — [#393](https://github.com/utyagi24/klarpdf/pull/393)
 
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 
