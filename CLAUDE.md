@@ -223,6 +223,28 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   §Gotchas' *"a green Windows + WSL suite does not mean CI is green"*, one level up: it applies to
   the tests as much as to the code.
 
+- **Run the tests for your change locally, and let CI run the full suite** (owner, 2026-09-25).
+  Before pushing, run the test files that cover the code you changed. Check that each new test
+  fails when the fix is broken on purpose, as the bullet above asks. Both take seconds, and the
+  second can only be done locally. Then push. CI runs the full suite on Linux (about 7 minutes) and
+  on Windows (about 9 minutes). Wait for it once in the background, not by polling, and report its
+  result.
+
+  Run the full suite locally too when a change reaches code that every test goes through: app
+  startup (`PdfApp`), `tests/conftest.py`, or the core in `klarpdf/model/` and `klarpdf/util/`.
+  There a CI failure costs a round trip of 10 minutes or more, and a local run finds it sooner. An
+  event filter on the whole app is one of these, because every test's events pass through it. A
+  filter that is off in the tests is not.
+
+  **Why:** the full suite takes about 5 minutes on WSL, and it repeats CI's Linux job. WSL cannot
+  run the Windows one. A local run costs few tokens when its output goes to a file and only the
+  last lines are read, so skipping it saves time, not context.
+
+  **Do not hand a test run to a separate agent.** It starts with none of the session's context, so
+  telling it what to run and reading its report cost more than the run itself. The exception is a
+  run with many failures that need digging through. Even then, `pytest -rf --tb=line`, one line per
+  failure, is usually cheaper.
+
 - **Compare, don't guess.** Before adding a rule that decides something about a document, ask
   whether it compares two things the page actually shows and answers yes or no, or guesses from what
   documents usually look like — a threshold, a tuned distance, a shape filter. Guesses get beaten by
