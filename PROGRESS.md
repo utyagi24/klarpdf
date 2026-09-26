@@ -4774,9 +4774,10 @@ it on this side of the line.
   `tests/`.** The fallback build was never made, and the reason for it ended on 2026-06-27
   (`e6117d8`), when the project chose AGPL-3.0-or-later. pypdf also has a second, separate job as
   an independent reader in the tests (`test_materialize`, `test_metadata`, `test_incremental_save`,
-  `test_mcp_transforms`), which is a real need but a dev-only one. **Open questions:** (1) Remove
-  `PyPdfEngine` and move pypdf from `requirements.in` to `requirements-dev.in`, so it stays a test
-  reader but no longer ships? (2) Should the other names be removed, or kept on purpose? (3) Should CI
+  `test_mcp_transforms`), which is a real need but a dev-only one. **Decided** (owner, 2026-09-26):
+  remove `PyPdfEngine` and make pypdf a dev-only test reader, which **graduated into M156**
+  ([#407](https://github.com/utyagi24/klarpdf/pull/407)). **Still open:** (2) Should the other
+  names be removed, or kept on purpose? (3) Should CI
   report coverage? `tests/test_mcp_no_qt.py` already fails on an unused *module* in the core
   (M147), but nothing checks functions. A `vulture` whitelist check would do that without a tuned
   percentage threshold. A coverage gate should first measure product code with the test-only
