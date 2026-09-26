@@ -10018,7 +10018,11 @@ Captured but not yet scheduled:
 - **Consciously rejected (owner, 2026-07 decision session)** — recorded so they aren't relitigated:
   **OCR** (needs a bundled Tesseract — breaks the pinned offline ship-set; if ever revisited, it's
   an optional add-on download, never a core dependency); **cryptographic digital signatures**
-  (crypto deps + certificate UX; M63's image signature covers the everyday tier);
+  (crypto deps + certificate UX; M63's image signature covers the everyday tier) — **reopened by
+  the owner on 2026-09-26** for both the app and the bridge, as
+  [#404](https://github.com/utyagi24/klarpdf/issues/404). Checking signatures
+  ([#403](https://github.com/utyagi24/klarpdf/issues/403)) brings in a cryptography library
+  anyway, which removes most of the first reason;
   **content-stream editing** of baked page content (a different product — redaction removes,
   overlays add); **measurement/dimension tools** (Bluebeam territory — scale-calibration UX is a
   separate large feature); **a "lite" edition** (see §GUI feature roadmap → Design budgets);
