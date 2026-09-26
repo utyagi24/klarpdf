@@ -4751,37 +4751,10 @@ the PR that fixes it. See `CLAUDE.md` §How we work for the split and why. Items
 were not migrated wholesale: each is listed because a decision is outstanding, which is what keeps
 it on this side of the line.
 
-- **Nothing measures coverage or dead code, and a coverage number would not catch the dead code we
-  have** (found 2026-09-26). No coverage tool is in `requirements-dev.txt`, `pyproject.toml` or
-  `.github/workflows/`. A one-off run (`coverage run --branch -m pytest` on Linux, 2,998 tests)
-  measured **92%** of the app and bridge, excluding `tests/`, `vendor/`, `packaging/`, `tools/` and
-  `tasks.py`: `klarpdf/model/` 94%, `klarpdf/mcp_bridge/` 94%, `viewer/` 92%, the top-level app
-  modules 87%. The lowest, `platform_integration.py` at 51%, is Windows-only code that Linux does
-  not run. The catch is that code which only the tests call counts as covered. `vulture` found
-  about 27 names that no product code calls. Most are called only by tests, such as
-  `VirtualDocument.delete_page`, `clear_annotations` and `import_pages`; `MoveCommand`;
-  `RotateCommand`; and `PdfView.apply_state`. A few are called by nothing at all:
-  `mcp_bridge/tables.py` `_intersect` and `ruled_pages`, `page_edits.MARKUP_TYPES`,
-  `VirtualDocument.ref_at` and `resize_handles.BOX_HANDLES`. The largest is **`PyPdfEngine`**
-  (`klarpdf/model/edit_engine.py`). No product code creates it; only `test_materialize.py`,
-  `test_encryption.py` and `test_mcp_no_qt.py` do. Yet **pypdf ships in the installer** and has
-  taken four security bumps, and the v0.17.1 notes above say those advisories were reachable
-  "through `PyPdfEngine`'s `PdfReader`". **Where it came from:** the first `PLAN.md` (`6961132`,
-  2026-06-13) planned it as a **licensing escape hatch**. PyMuPDF is AGPL, so a public `.exe`
-  would have had to publish its source, buy an Artifex licence, or "ship the pypdf-only fallback
-  build". M1 (`c8040f9`, 2026-06-15, committed straight to `main`, no PR) built the class. M54
-  (`5c36f65`) later made it refuse AES-256. **No commit in the history has ever created one outside
-  `tests/`.** The fallback build was never made, and the reason for it ended on 2026-06-27
-  (`e6117d8`), when the project chose AGPL-3.0-or-later. pypdf also has a second, separate job as
-  an independent reader in the tests (`test_materialize`, `test_metadata`, `test_incremental_save`,
-  `test_mcp_transforms`), which is a real need but a dev-only one. **Decided** (owner, 2026-09-26):
-  remove `PyPdfEngine` and make pypdf a dev-only test reader, which **graduated into M156**
-  ([#407](https://github.com/utyagi24/klarpdf/pull/407)). **Still open:** (2) Should the other
-  names be removed, or kept on purpose? (3) Should CI
-  report coverage? `tests/test_mcp_no_qt.py` already fails on an unused *module* in the core
-  (M147), but nothing checks functions. A `vulture` whitelist check would do that without a tuned
-  percentage threshold. A coverage gate should first measure product code with the test-only
-  helpers left out, or it will keep reading about 92% however much dead code builds up.
+- **Dead code and coverage** (found 2026-09-26) — graduated. The coverage gate was rejected and a
+  static dead-code check chosen instead, with today's findings to triage, in
+  [#409](https://github.com/utyagi24/klarpdf/issues/409). `PyPdfEngine` became M156
+  ([#407](https://github.com/utyagi24/klarpdf/pull/407)).
 
 - **With several shapes selected, the style buttons show one style, not the group's** (M154, found
   2026-09-24). They show the first shape's style after Ctrl+click, or the style they already held
