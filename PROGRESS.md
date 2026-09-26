@@ -1173,7 +1173,7 @@ tick the box here on merge. Build in number order.
   it again, and was seen failing three ways first. **Open: the Windows half** (owner, 2026-09-26):
   recompile `requirements-win.txt`, re-vendor, confirm the build has no `pypdf`, then pin the lock in
   the test. The box is ticked when that lands. Details in `PLAN.md` §M156 — *WSL (headless) +
-  Windows* — PR link below
+  Windows* — [#407](https://github.com/utyagi24/klarpdf/pull/407)
 
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 
