@@ -4751,6 +4751,29 @@ the PR that fixes it. See `CLAUDE.md` §How we work for the split and why. Items
 were not migrated wholesale: each is listed because a decision is outstanding, which is what keeps
 it on this side of the line.
 
+- **Nothing measures coverage or dead code, and a coverage number would not catch the dead code we
+  have** (found 2026-09-26). No coverage tool is in `requirements-dev.txt`, `pyproject.toml` or
+  `.github/workflows/`. A one-off run (`coverage run --branch -m pytest` on Linux, 2,998 tests)
+  measured **92%** of the app and bridge, excluding `tests/`, `vendor/`, `packaging/`, `tools/` and
+  `tasks.py`: `klarpdf/model/` 94%, `klarpdf/mcp_bridge/` 94%, `viewer/` 92%, the top-level app
+  modules 87%. The lowest, `platform_integration.py` at 51%, is Windows-only code that Linux does
+  not run. The catch is that code which only the tests call counts as covered. `vulture` found
+  about 27 names that no product code calls. Most are called only by tests, such as
+  `VirtualDocument.delete_page`, `clear_annotations` and `import_pages`; `MoveCommand`;
+  `RotateCommand`; and `PdfView.apply_state`. A few are called by nothing at all:
+  `mcp_bridge/tables.py` `_intersect` and `ruled_pages`, `page_edits.MARKUP_TYPES`,
+  `VirtualDocument.ref_at` and `resize_handles.BOX_HANDLES`. The largest is **`PyPdfEngine`**
+  (`klarpdf/model/edit_engine.py`). No product code creates it; only `test_materialize.py`,
+  `test_encryption.py` and `test_mcp_no_qt.py` do. Yet **pypdf ships in the installer** and has
+  taken four security bumps, and the v0.17.1 notes above say those advisories were reachable
+  "through `PyPdfEngine`'s `PdfReader`". **Open questions:** (1) Remove `PyPdfEngine`, or move it
+  into the tests as the second-engine cross-check it now is? Either way pypdf would leave
+  `requirements.in`. (2) Should the other names be removed, or kept on purpose? (3) Should CI
+  report coverage? `tests/test_mcp_no_qt.py` already fails on an unused *module* in the core
+  (M147), but nothing checks functions. A `vulture` whitelist check would do that without a tuned
+  percentage threshold. A coverage gate should first measure product code with the test-only
+  helpers left out, or it will keep reading about 92% however much dead code builds up.
+
 - **With several shapes selected, the style buttons show one style, not the group's** (M154, found
   2026-09-24). They show the first shape's style after Ctrl+click, or the style they already held
   after a box selection. So the opacity slider can show 100% while both shapes are at 60%. A change
