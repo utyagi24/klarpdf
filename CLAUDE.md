@@ -486,8 +486,9 @@ one. Shipping alongside: **M101** annotation, **M116/M117** incremental save (a 
 **M121** Insert Blank Page. **1.0 is still deliberately not taken** — the gate (clean-machine
 install, the dead Donate link, one flaky test, background rendering) is listed in `PROGRESS.md`.
 It supersedes **v0.17.1** — a **security patch plus the last M92 fix**. `pypdf` 6.14.2 → 6.15.0
-clears two Moderate parse-DoS advisories (GHSA-fwg2-594c-jp42, GHSA-fp3f-mc75-235c) reachable through
-`PyPdfEngine`'s `PdfReader`, so a crafted PDF is the attack surface; it was found by the weekly
+clears two Moderate parse-DoS advisories (GHSA-fwg2-594c-jp42, GHSA-fp3f-mc75-235c). They were
+thought reachable through `PyPdfEngine`'s `PdfReader`, but nothing in the app ever called it.
+M156 removed pypdf from the installer (`PLAN.md` §M156). The bump was found by the weekly
 `audit` job, not a person, and bumped by hand on Windows per `RELEASE.md` §2 — the episode also
 settled a month-old contradiction where Dependabot security-update PRs were enabled against a policy
 documenting them as off (`PROGRESS.md` §Open follow-ups). **M92.6** rides along, having merged after

@@ -466,8 +466,9 @@ cleanup. The sections below record the **design and rationale**; for what is don
   updates (all four are public-repo-gated and free), and **reconcile the `main` ruleset**. Status of
   each: `PROGRESS.md` G8.
 
-Escape hatches (only if closed-source is ever wanted) remain as in the AGPL note above: an Artifex
-commercial PyMuPDF license, or a pypdf-only fallback build.
+The escape hatch (only if closed-source is ever wanted) is the one in the AGPL note above: an
+Artifex commercial PyMuPDF license. The pypdf-only fallback build was never made. M156 removed its
+engine.
 
 ## Portability (Windows-first ship, Linux-ready seams)
 
@@ -10032,8 +10033,9 @@ source, buy an Artifex licence, **or "ship the pypdf-only fallback build"**. M1 
 
 The fallback build was never made, and nothing outside `tests/` ever constructed the engine:
 `git log -G "PyPdfEngine\("` over every non-test file finds only the class's own definition. The
-reason for it ended on 2026-06-27 (`e6117d8`), when the project chose AGPL-3.0-or-later and
-published its source.
+reason for it ended when the project chose AGPL-3.0-or-later. That plan was recorded on 2026-06-27
+(`e6117d8`). The licence landed on 2026-07-09 (`d8f2b86`). The repo went public on 2026-07-17
+(`PROGRESS.md` G8).
 
 #### What it cost while unused
 
@@ -10060,20 +10062,39 @@ published its source.
   encrypted save. Neither tested anything a user could reach.
 * **`THIRD_PARTY_LICENSES`, `DEPENDENCIES.md`, `SECURITY.md`, the README's licence paragraph and
   this document's spec lines** stop describing pypdf as shipped.
+* **`CLAUDE.md`'s v0.17.1 status line is corrected.** It repeated the claim above as fact.
+  `CLAUDE.md` holds the instructions every session reads, so unlike the records it does not stand
+  as written.
 
 #### The check that keeps it out
 
 CI installs `requirements-dev.txt`, which now has pypdf *only* for the tests. So a new
 `import pypdf` in shipped code would pass the whole suite and fail in the installed app, the same
 shape M115 found for the bridge. `tests/test_pypdf_is_dev_only.py` reads every shipped module's
-imports, including those inside function bodies, which is where the old engine kept its own. It
-chooses files by exclusion: everything except `tests/`, `tools/`, `packaging/`, `vendor/` and
-`tasks.py`, so a new package is covered the day it is added. A second test checks the scan found
-both surfaces, because a scan that finds nothing looks exactly like a clean one. A third checks
-that pypdf is required by the dev input and by neither shipped one. Each was seen failing before it
-was trusted: an `import pypdf` inside a function in `edit_engine.py`, pypdf put back in
-`requirements.in`, and the scan blinded to `klarpdf/`. `tests/test_mcp_no_qt.py` keeps its runtime
-check, now worded for this, since an import built at run time is invisible to a static read.
+imports, including those inside function bodies, which is where the old engine kept its own.
+
+**It reads the `.py` files git tracks**, except `tests/`, `tools/`, `packaging/`, `vendor/` and
+`tasks.py`. A new package is covered as soon as it is added to git. The first version walked the
+checkout instead. Review found that it would fail on both of the owner's machines. Builds leave
+copies of old code in `build/` and `dist/`, which git ignores. In WSL, `build/lib/` and
+`dist/mcpb-stage/` held the old `edit_engine.py`, with its `import pypdf`. On Windows,
+`build\venv` is the environment `build.ps1` makes. It had pypdf installed, which gave 31 false
+hits. `dist\mcpb-stage` gave one more. CI passed, because it starts from a clean checkout.
+
+**Two more checks.** One confirms that the scan found both surfaces, because a scan that finds
+nothing looks exactly like a clean one. The other confirms that the dev input requires pypdf and
+neither shipped input does. It follows `-r` lines, because both shipped inputs take PyMuPDF from
+`requirements-core.in` that way. The first version did not follow them. It now uses the
+requirements parser in `tests/test_mcp_packaging.py`. That parser used to read only `==` and `>=`
+lines, so it also skipped every line with extras, such as `pyjwt[crypto]==2.13.0` in the bridge's
+lock. It now reads every requirement line. The import scan is shared with the Qt check in the same
+file. It parses each file from its bytes, so a file saved with a byte-order mark cannot stop it.
+
+**Each check was seen failing before it was trusted**: an `import pypdf` inside a function in
+`edit_engine.py`; pypdf put back in `requirements.in`, and in `requirements-core.in`; and the scan
+blinded to `klarpdf/`. It was also run with the owner's old `build/` and `dist/` copied into the
+checkout, and passed. `tests/test_mcp_no_qt.py` keeps its runtime check, now worded for this. An
+import built at run time has no import statement for a static read to find.
 
 #### Left for the Windows session (owner, 2026-09-26)
 
@@ -10081,8 +10102,13 @@ The ship lock carries `win_amd64` hashes, so it is compiled on Windows (`RELEASE
 
 1. `invoke lock`: `requirements-win.txt` loses its `pypdf` block, and nothing else should move.
 2. `invoke vendor`: `vendor/wheels-sources.md` loses its `pypdf 6.17.0` entry.
-3. Build, and confirm `dist\` holds no `pypdf` directory. Removing the import already keeps
-   PyInstaller from bundling it; the lock change stops it being installed into the build venv.
+3. Build, and confirm that `build\pyi\klarpdf\PYZ-00.toc` lists no `pypdf` module
+   (`Select-String pypdf build\pyi\klarpdf\PYZ-00.toc`). `dist\` cannot answer this. PyInstaller
+   packs pure-Python libraries inside `klarpdf.exe`, so pypdf never shows there as a folder. Run
+   the same search on the old `PYZ-00.toc` before rebuilding. The owner's build of 2026-09-05
+   lists 53 pypdf modules there. Nothing in its `dist\klarpdf` is named pypdf. Removing the import
+   already keeps PyInstaller from bundling pypdf. The lock change stops it being installed into
+   the build venv.
 4. Add `assert "pypdf" not in` the shipped lock to `tests/test_pypdf_is_dev_only.py`, so the lock
    is held to it as well. It cannot land before step 1 without turning CI red.
 

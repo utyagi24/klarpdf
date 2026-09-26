@@ -16,10 +16,10 @@ there are no long-term-support branches. Please make sure you are on the newest 
 KlarPDF runs **fully offline** — it makes no network requests at install or runtime and collects **no
 telemetry** (see `PLAN.md` §Packaging, dependencies & installer). It opens no sockets of its own, so
 the realistic attack surface is **not** a network service. It is **malicious PDF (or image) input**
-handled by the underlying parser — **PyMuPDF (MuPDF)** — that KlarPDF drives
+handled by the underlying parser, **PyMuPDF (MuPDF)**, which KlarPDF drives
 to render, edit, and save documents. A crafted file that triggers memory corruption or a
 denial-of-service in that library is the most likely class of vulnerability. (pypdf was bundled
-too up to v0.19.0, for a fallback engine the app never used; it is now a test-only dependency.)
+too, up to v0.19.0, for a fallback engine the app never used. It is now a test-only dependency.)
 
 The dependencies are pinned with hashes, vendored for an auditable offline build, and continuously
 scanned for known advisories (`pip-audit` in CI + Dependabot alerts); upstream library fixes are

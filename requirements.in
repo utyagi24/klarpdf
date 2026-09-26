@@ -6,7 +6,7 @@
 # unused — we render via PyMuPDF, not QtPdf — so excluding it shrinks the bundle + audit surface.
 -r requirements-core.in   # PyMuPDF — the core's engine, shared with the bridge; pinned there (M115)
 PySide6-Essentials>=6.7
-# pypdf is NOT here, on purpose (M156). It was the engine of a pypdf-only fallback build planned in
-# M1 as the escape from PyMuPDF's AGPL; nothing outside the tests ever used it, and the project
-# chose the AGPL. It is now a dev-only second reader for the tests — see requirements-dev.in.
+# pypdf is NOT here, on purpose (M156). It was the engine of a pypdf-only fallback build, planned in
+# M1 as the escape from PyMuPDF's AGPL. Nothing outside the tests ever used it. The project chose
+# the AGPL. It is now a dev-only second reader for the tests (see requirements-dev.in).
 # tests/test_pypdf_is_dev_only.py fails if shipped code imports it again.

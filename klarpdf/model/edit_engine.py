@@ -652,4 +652,3 @@ class PyMuPDFEngine:
             for doc in fresh.values():
                 doc.close()
         return out
-

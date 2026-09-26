@@ -85,4 +85,3 @@ def test_rotation_override_is_absolute(a_pdf, tmp_path):
         assert doc[0].rotation == 270
     finally:
         doc.close()
-

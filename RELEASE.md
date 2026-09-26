@@ -60,8 +60,9 @@ pull a different version. Run `pip-compile` (pinned pip-tools, see `DEPENDENCIES
 because the ship/build locks carry `win_amd64` hashes.
 
 1. **Edit the floor pin** in the right `*.in` — the only file you hand-edit:
-   - runtime dep (PySide6 / PyMuPDF) → `requirements.in`
-   - test-only dep (pytest / pypdf — pypdf left the runtime in M156) → `requirements-dev.in`
+   - runtime dep (PySide6) → `requirements.in`
+   - PyMuPDF → `requirements-core.in`, as an exact pin, because the bridge shares it (M115)
+   - test-only dep (pytest / pypdf) → `requirements-dev.in`. pypdf left the runtime in M156.
    - build-only dep (PyInstaller) → `requirements-build.in`
 
 2. **Re-compile the affected lock(s).** A runtime change propagates to **both** the ship and dev

@@ -233,7 +233,6 @@ def test_encryption_rides_the_undo_stack(a_pdf):
     assert v.password is None                     # back to the unprotected origin
 
 
-
 # ---- the dialog --------------------------------------------------------------
 
 
