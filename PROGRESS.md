@@ -4766,9 +4766,17 @@ it on this side of the line.
   (`klarpdf/model/edit_engine.py`). No product code creates it; only `test_materialize.py`,
   `test_encryption.py` and `test_mcp_no_qt.py` do. Yet **pypdf ships in the installer** and has
   taken four security bumps, and the v0.17.1 notes above say those advisories were reachable
-  "through `PyPdfEngine`'s `PdfReader`". **Open questions:** (1) Remove `PyPdfEngine`, or move it
-  into the tests as the second-engine cross-check it now is? Either way pypdf would leave
-  `requirements.in`. (2) Should the other names be removed, or kept on purpose? (3) Should CI
+  "through `PyPdfEngine`'s `PdfReader`". **Where it came from:** the first `PLAN.md` (`6961132`,
+  2026-06-13) planned it as a **licensing escape hatch**. PyMuPDF is AGPL, so a public `.exe`
+  would have had to publish its source, buy an Artifex licence, or "ship the pypdf-only fallback
+  build". M1 (`c8040f9`, 2026-06-15, committed straight to `main`, no PR) built the class. M54
+  (`5c36f65`) later made it refuse AES-256. **No commit in the history has ever created one outside
+  `tests/`.** The fallback build was never made, and the reason for it ended on 2026-06-27
+  (`e6117d8`), when the project chose AGPL-3.0-or-later. pypdf also has a second, separate job as
+  an independent reader in the tests (`test_materialize`, `test_metadata`, `test_incremental_save`,
+  `test_mcp_transforms`), which is a real need but a dev-only one. **Open questions:** (1) Remove
+  `PyPdfEngine` and move pypdf from `requirements.in` to `requirements-dev.in`, so it stays a test
+  reader but no longer ships? (2) Should the other names be removed, or kept on purpose? (3) Should CI
   report coverage? `tests/test_mcp_no_qt.py` already fails on an unused *module* in the core
   (M147), but nothing checks functions. A `vulture` whitelist check would do that without a tuned
   percentage threshold. A coverage gate should first measure product code with the test-only
