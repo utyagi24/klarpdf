@@ -10013,8 +10013,9 @@ may have had none, and choosing a colour for its border gives it one.
 Found by the owner's question whether the suite measures coverage, and the concern behind it:
 dead code that nobody needs. A one-off coverage run said **92%**, which could not answer that
 question: code that only the tests call counts as covered. A `vulture` scan could, and its largest
-find was `PyPdfEngine`. The measurement and the other candidates are in `PROGRESS.md` §Open
-follow-ups; this milestone is the one the owner decided (2026-09-26).
+find was `PyPdfEngine`. The other findings, and the static dead-code check chosen over a coverage
+gate, are [#409](https://github.com/utyagi24/klarpdf/issues/409); this milestone is the part the owner
+decided first (2026-09-26).
 
 **Surfaces: the core, and the app's installer.** `klarpdf/model/edit_engine.py` is core, but no
 surface ever reached the removed code, so neither the app's nor the bridge's behaviour changes. What
