@@ -217,23 +217,29 @@ def test_set_style_does_not_emit():
 def test_each_edit_reports_only_the_setting_it_set():
     """M154 (#392): the signal carries the new style *and* what this edit set, because a selection
     is restyled with the second. A setting the user did not touch must never be in it — that is
-    what spread one shape's border and fill across a whole group."""
+    what spread one shape's border and fill across a whole group.
+
+    A Border colour sets two things (M155): the colour, and that there is a border. A shape in
+    the group may have had none, and choosing a colour for its border gives it one."""
+    blue = (0.0, 0.0, 1.0)
     edits = (
-        (LineStylingButton, "_set_width", 4.0, "width"),
-        (LineStylingButton, "_set_dashed", True, "dashed"),
-        (LineStylingButton, "_set_ends", (True, True), "line_ends"),
-        (ColorsButton, "_set_color", (0.0, 0.0, 1.0), "color"),
-        (ColorsButton, "_set_fill", None, "fill_color"),       # No Fill is a setting too
-        (OpacityButton, "_set_opacity", 0.5, "opacity"),
+        (LineStylingButton, "_set_width", 4.0, {"width": 4.0}),
+        (LineStylingButton, "_set_dashed", True, {"dashed": True}),
+        (LineStylingButton, "_set_ends", (True, True), {"line_ends": (True, True)}),
+        (ColorsButton, "_set_color", blue, {"color": blue, "border": True}),
+        (ColorsButton, "_set_color", None, {"border": False}),   # No Border (M155)
+        (ColorsButton, "_set_fill", None, {"fill_color": None}),  # No Fill is a setting too
+        (OpacityButton, "_set_opacity", 0.5, {"opacity": 0.5}),
     )
-    for cls, slot, value, field in edits:
+    for cls, slot, value, expected in edits:
         button = cls()
         seen = []
         button.styleChanged.connect(lambda style, changes: seen.append((style, changes)))
         getattr(button, slot)(value)
         [(style, changes)] = seen
-        assert changes == {field: value}
-        assert getattr(style, field) == value
+        assert changes == expected
+        for field, set_to in expected.items():
+            assert getattr(style, field) == set_to
 
 
 # ---- the picker's output round-trips through a save --------------------------

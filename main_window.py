@@ -2164,8 +2164,13 @@ class MainWindow(QMainWindow):
         """A free-placed mark was click-selected (M59.5): load a drawn mark's colour/width/fill into
         the picker (so a follow-up tweak edits *that* mark), like double-clicking a text box loads
         its style into the format bar. A text box keeps its own format bar, so it leaves the picker
-        untouched."""
+        untouched.
+
+        A shape with no border has no colour (M155), so the pen and the line keep the one they
+        were drawing with."""
         style = MarkupStyle.from_mark(mark)
+        if style is not None and not style.border:
+            style = replace(style, color=self.view.annotations.current_markup_style.color)
         if style is not None:
             for style_button in self._markup_style_buttons:
                 style_button.set_style(style)               # reflect it in all three (no emit)

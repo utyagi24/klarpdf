@@ -9859,6 +9859,152 @@ show 100% while both shapes are at 60%. A change still sets only that setting. B
 value already shown does nothing on the slider, because the slider reports only a move. What the
 buttons should show for a group is undecided (`PROGRESS.md` §Open follow-ups).
 
+### M155 — shapes without a border *(unplanned)* (2026-09-25)
+
+[#394](https://github.com/utyagi24/klarpdf/issues/394) and
+[#395](https://github.com/utyagi24/klarpdf/issues/395), fixed together at the owner's request
+(2026-09-25). They have one cause.
+
+**Surfaces: the core, the app, and the bridge through the core.** The shape model and the code
+that reads and writes it are in `klarpdf/model/page_edits.py`, and the warning before an edit is
+in `klarpdf/model/foreign_annots.py`. The controls are in `viewer/` and `main_window.py`. The bridge
+draws no shapes, but it re-saves ours: every bridge tool that writes reads the app's shapes back
+into the model and draws them again. So a borderless shape the app drew would have come back from
+a bridge save with a red border. The bridge has its own test (`tests/test_mcp_shape_borders.py`).
+
+#### What the reader saw
+
+* **#394.** A rectangle or ellipse always had a border. The Colors menu's Fill row ended in a
+  crossed-out dot for "no fill". The Border row had none.
+* **#395.** A shape made by another program with no border got one when it was edited. The one
+  with no border colour came back with a red 1 pt border. The one with a border width of 0 came
+  back with a black 2 pt border. No warning was shown.
+
+#### Cause
+
+The model could not hold "no border": `Shape.color` was always a colour. So the code that reads
+a shape filled the gap. `parse_annotation` gave a shape with no border colour the default red, and
+`_border_width` turned a width of 0 into 2 pt. `degradations()`, which lists what an edit will
+lose, did not look at the border.
+
+M59.5 (the colour, thickness and fill picker) and M78.6 (the three style buttons) gave the fill a
+"none" and not the border. Neither says why.
+
+#### Measured
+
+On PyMuPDF 1.27.2.3. "The drawing" below is the appearance stream: the drawing a PDF carries for
+each annotation, which every viewer shows as it is.
+
+* A shape with an empty border colour (`/C []`) is drawn as its fill alone. With no fill either,
+  it draws nothing.
+* Its box grows by the same 1 pt a side as a bordered shape, at every width. So the read-back
+  needs no new inset (`_SHAPE_RECT_GROWTH`, M120).
+* `set_colors(stroke=None)` leaves the colour as it is, and a new annotation's is red. "No border"
+  has to be written as `stroke=[]`.
+* A border width of 0 is drawn one pixel wide. The drawing says `0 w`, which PDF defines as the
+  thinnest line the screen can show, and Qt draws a pen of width 0 the same way. The PDF rules also
+  call a border width of 0 "no border", but that applies only to a viewer that makes its own
+  drawing.
+* A file that sets no width at all (no `/BS` and no `/Border`) is drawn 1 pt wide, the PDF's
+  default. PyMuPDF reports the width as -1, and KlarPDF turned it into 2 pt. This held for lines
+  and pen marks too.
+* A cloud-shaped edge (`/BE`) is drawn by MuPDF only when its strength is above 0.
+* PyMuPDF rounds each dash to a whole number: `/D [3.5 1.5]` comes back as `(4, 2)`.
+
+#### The fix
+
+**The model.** `Shape.color` can be `None`: no border, written as an empty border colour. The
+width stays, so a border turned back on comes back as thick as it was. `restyle_mark` takes
+`None` as "no border" for a shape. A line or a pen stroke keeps its own colour, the way it ignores
+a fill.
+
+**Reading a shape.** A shape with no border colour reads as `None`. `_border_width` keeps 0 as 0, and
+reads a width the file does not set as 1 pt. Keeping 0 keeps the hair-thin line: the edited shape
+is written with width 0 again and looks as it did, in every viewer. Reading 0 as "no border" was
+rejected, because it would remove a line the reader could see before the edit.
+
+**The warning before an edit** now covers the border:
+
+* A cloud-shaped edge is named: "its cloud-shaped edge". The model has none, so an edit drew a
+  plain border without saying so.
+* A dashed line, pen mark or shape stays dashed, but with our spacing (`_dash_array`). The warning
+  used to say "its dashed border" for any dash, which told the reader the dashes would go. It now
+  says "its dash spacing", and only when the file's spacing differs from ours. The file's own
+  numbers are compared, not PyMuPDF's rounded ones. If they are not plain numbers, which only a
+  damaged file does, PyMuPDF's reading is used. A text box has no dashes, so for a text box
+  "its dashed border" stays.
+
+**The Colors menu.** The Border row ends in a crossed-out dot, like the Fill row's. Its tooltip is
+"Remove border (rectangles and ellipses)". The pen and the line ignore it, as they ignore the
+fill, and keep drawing in the last colour chosen. That is why the style holds the colour and a
+separate `border` flag, rather than a colour of `None`. Any Border colour turns the border back
+on. While the border is off, the button shows the crossed-out dot.
+
+**A shape keeps its border or its fill** (owner, 2026-09-25). With neither, nothing of it shows.
+The owner chose this over letting the shape disappear. The rule is kept in three places:
+
+* The Colors menu greys out the No Border dot while the style has no fill, and the No Fill dot
+  while it has no border. The tooltip says what to choose first.
+* A change to a group skips a shape it would hide, and that shape keeps what it has. The menu
+  can only check the style it shows, and a group's members can differ from it (M154). A shape that
+  arrived hidden in a file still takes other changes.
+* A new shape with no fill always gets its border (`MarkupStyle.shape_border`). A style can hold
+  neither when it was loaded from a hidden shape in a file.
+
+**Drawing.** The drag now shows a shape's fill, not only its outline. For a shape with no border,
+the fill is all there is to see.
+
+**Selecting a shape with no border** loads its style into the buttons. The pen and the line keep
+the colour they were drawing with, because the shape has none to give.
+
+#### Tests
+
+`tests/test_borderless_shapes.py`, 32 tests:
+
+* The model writes "no border" as an empty border colour and reads it back. A width of 0 comes
+  back as 0. A shape with neither border nor fill comes back as it was.
+* A file that sets no width reads as 1 pt, for a rectangle, an ellipse, a line and a pen mark.
+* #395's two shapes, through the app's own edit path (`_adopt_foreign_annotation`) and a save:
+  they keep their borders, and no warning is shown.
+* The warning names a cloud edge at strength 1 and not at 0. It says "its dash spacing" for a
+  spacing other than ours, nothing for ours, and "its dashed border" for a text box. A dash of
+  3.4, which PyMuPDF rounds to our 3, still counts as different. A dash list that is not plain
+  numbers falls back to PyMuPDF's reading instead of raising an error.
+* The Colors menu's two crossed-out dots are greyed out and brought back as the rule says, and a
+  greyed-out dot does nothing.
+* Drawing: a shape drawn with no border saves with none. The pen and the line keep their colour.
+  A style with neither gives a new shape its border. The drag shows the fill with no outline, and
+  the page shows the shape with no outline.
+* Changing a selection: No Border and back keeps the width. In a group, a shape with no fill keeps
+  its border and a shape with no border keeps its fill. A hidden shape still takes a new opacity.
+  Selecting a shape with no border keeps the pen's colour.
+
+`tests/test_mcp_shape_borders.py`, 2 tests: a bridge `rotate` keeps a shape with no border and a
+shape with a width of 0, and `get_annotations` reports no border colour.
+
+Each part of the fix was undone on its own, 16 ways, and each time at least one new test failed.
+The parts: reading the colour and the width, writing no border, the menu's two greyed dots, the group rule,
+the new-shape rule, the drag's fill and its outline, the warning's dash wording, cloud check and
+unrounded dashes, the selection keeping the pen's colour, the page's outline, `restyle_mark` on a
+line, and a colour turning the border back on.
+
+One existing test changed. `test_each_edit_reports_only_the_setting_it_set` (M154) now expects a
+Border colour to report two settings: the colour, and that there is a border. A shape in a group
+may have had none, and choosing a colour for its border gives it one.
+
+#### Found on the way
+
+* [#398](https://github.com/utyagi24/klarpdf/issues/398): another program's mark with a grey,
+  CMYK or missing colour goes wrong when edited. A grey border stops the page's markup drawing,
+  and a line with no colour becomes red. The model holds only red-green-blue colours, so this
+  is a different cause.
+* [#399](https://github.com/utyagi24/klarpdf/issues/399): moving another program's annotation
+  that touches the page's left or bottom edge stretches it. A number between -1 and 1 is misread
+  when it is moved.
+* [#401](https://github.com/utyagi24/klarpdf/issues/401): a border thicker than 2 pt is saved
+  further inside the shape than KlarPDF's view shows it, by 1 pt at Thick (4 pt). PyMuPDF keeps
+  the border inside the shape's box, while the view centres it on the drawn edge.
+
 ## The open issues, grouped — M149–M152 *(planned 2026-09-19)*
 
 Grouped at the owner's request (2026-09-19: *"plan milestones for all of the issues, except for 352

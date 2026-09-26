@@ -150,6 +150,11 @@ _MARK_PIXMAP_CACHE = 48
 _CONTENT_MARK_SCALE = 2.0
 
 
+def _shows_nothing(mark) -> bool:
+    """A shape with neither a border nor a fill (M155): it is in the file, but nothing of it shows."""
+    return isinstance(mark, Shape) and mark.color is None and mark.fill_color is None
+
+
 def _dist_point_segment(px: float, py: float, ax: float, ay: float,
                         bx: float, by: float) -> float:
     """Shortest distance from point ``(px, py)`` to the segment ``(ax, ay)``–``(bx, by)`` (page
@@ -661,7 +666,10 @@ class AnnotationOverlay:
         the page transform (like text boxes), so the marks zoom and rotate with the page. The pen
         width is in page points — the transform scales it, matching the baked stroke."""
         transform = self._view.page_transform(page_index)
-        pen = self._drawn_pen(annot.color, annot.width, getattr(annot, "dashed", False))
+        if annot.color is None:                       # a shape with no border (M155)
+            pen = QPen(Qt.PenStyle.NoPen)
+        else:
+            pen = self._drawn_pen(annot.color, annot.width, getattr(annot, "dashed", False))
         if isinstance(annot, Shape):
             x0, y0, x1, y1 = annot.rect
             item_cls = QGraphicsRectItem if annot.kind == "rect" else QGraphicsEllipseItem
@@ -1601,6 +1609,11 @@ class AnnotationOverlay:
         style, not the buttons': a group's members can each differ from what the buttons show, and
         applying the buttons' whole style gave every member the same border, fill and width.
 
+        **A change never leaves a shape with neither border nor fill** (M155, owner). The Colors
+        menu greys out the choice for the style it shows, but a group's members can differ from
+        it, so a shape the change would hide keeps what it has. One that arrived hidden in the
+        file still takes other changes.
+
         The replace reloads the view, which clears the selection, so capture it first and re-select
         the updated marks afterwards (keeping unchanged members selected too)."""
         if not self._selection:
@@ -1613,8 +1626,10 @@ class AnnotationOverlay:
             if own is None:
                 continue
             style = replace(own, **changes)
-            new = restyle_mark(mark, style.color, style.width, style.fill_color, style.opacity,
-                               style.line_ends, style.dashed)
+            new = restyle_mark(mark, style.color if style.border else None, style.width,
+                               style.fill_color, style.opacity, style.line_ends, style.dashed)
+            if _shows_nothing(new) and not _shows_nothing(mark):
+                continue
             if new is not None and new != mark:
                 pairs.append((mark, new))
         if not pairs:
@@ -2027,9 +2042,16 @@ class AnnotationOverlay:
             else:
                 item.setPen(QPen(QColor(0, 120, 215), 1, Qt.PenStyle.DashLine))
         else:
-            item.setPen(self._drawn_pen(self._markup_style.color, self._markup_style.width,
-                                        self._markup_style.dashed))
-            item.setOpacity(self._markup_style.opacity)   # the live gesture previews its opacity too
+            style = self._markup_style
+            is_shape = tool in (ArmedTool.RECT, ArmedTool.ELLIPSE)
+            border = style.shape_border() if is_shape else style.color
+            item.setPen(self._drawn_pen(border, style.width, style.dashed) if border is not None
+                        else QPen(Qt.PenStyle.NoPen))
+            # A shape's drag shows its fill too (M155): for a shape with no border, the fill is
+            # all there is to see.
+            if is_shape and style.fill_color is not None:
+                item.setBrush(QColor.fromRgbF(*style.fill_color))
+            item.setOpacity(style.opacity)   # the live gesture previews its opacity too
         item.setTransform(self._view.page_transform(page_index))
         item.setZValue(11)
         self._view.scene().addItem(item)
@@ -2223,9 +2245,9 @@ class AnnotationOverlay:
             rect = (min(anchor[0], end[0]), min(anchor[1], end[1]),
                     max(anchor[0], end[0]), max(anchor[1], end[1]))
             kind = "rect" if tool is ArmedTool.RECT else "ellipse"
-            self._on_add(page_index, Shape(kind, rect, color=style.color, width=style.width,
-                                           fill_color=style.fill_color, opacity=style.opacity,
-                                           dashed=style.dashed))
+            self._on_add(page_index, Shape(kind, rect, color=style.shape_border(),
+                                           width=style.width, fill_color=style.fill_color,
+                                           opacity=style.opacity, dashed=style.dashed))
 
     def cancel_draw(self) -> None:
         """Drop an in-progress gesture without committing (Esc / disarm mid-drag)."""

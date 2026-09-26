@@ -317,11 +317,18 @@ class Line:
 @dataclass(frozen=True)
 class Shape:
     """A rectangle or ellipse (M57). ``kind`` is ``"rect"`` or ``"ellipse"``; ``fill_color``
-    ``None`` leaves the interior transparent (outline only)."""
+    ``None`` leaves the interior transparent (outline only).
+
+    ``color`` is the border's colour, and ``None`` means the shape has no border (M155). That is
+    how the file says it too: an empty border colour (``/C []``), which MuPDF draws as the fill
+    alone. ``width`` stays when the border goes, so a border turned back on comes back as thick as
+    it was. A ``width`` of 0 is a file's own zero width, kept as it came: MuPDF and Qt both draw it
+    one pixel wide.
+    """
 
     kind: str
     rect: tuple[float, float, float, float]
-    color: tuple[float, float, float] = (0.86, 0.10, 0.10)
+    color: tuple[float, float, float] | None = (0.86, 0.10, 0.10)
     width: float = 2.0
     fill_color: tuple[float, float, float] | None = None
     # Constant opacity for the whole mark (PDF ``/CA``), 0..1. PDF applies it to outline *and*
@@ -858,7 +865,7 @@ def scale_mark(mark, sx: float, sy: float, ox: float, oy: float):
     return None
 
 
-def restyle_mark(mark, color: tuple, width: float, fill_color: tuple | None,
+def restyle_mark(mark, color: tuple | None, width: float, fill_color: tuple | None,
                  opacity: float = 1.0, line_ends: tuple[bool, bool] | None = None,
                  dashed: bool | None = None):
     """A drawn mark re-coloured / re-widthed (and, for shapes, re-filled) in place — the M59.5
@@ -867,19 +874,24 @@ def restyle_mark(mark, color: tuple, width: float, fill_color: tuple | None,
     the format bar) or anything else returns ``None`` — nothing to restyle this way. ``fill_color``
     is ignored for the fill-less :class:`Line` / :class:`InkStroke`; ``line_ends`` (M74 —
     ``(arrow_start, arrow_end)``) applies to a :class:`Line` only; both ``line_ends`` and
-    ``dashed`` (the solid/dashed stroke) keep the mark's current value when ``None``."""
+    ``dashed`` (the solid/dashed stroke) keep the mark's current value when ``None``.
+
+    ``color`` ``None`` gives a :class:`Shape` no border (M155). A line or a pen stroke is nothing
+    but its stroke, so for those ``None`` keeps the mark's own colour, the way they ignore
+    ``fill_color``."""
     from dataclasses import replace
 
     dash = mark.dashed if dashed is None else dashed
     if isinstance(mark, Shape):
         return replace(mark, color=color, width=width, fill_color=fill_color, opacity=opacity,
                        dashed=dash)
+    stroke = mark.color if color is None else color
     if isinstance(mark, Line):
         ends = line_ends if line_ends is not None else (mark.arrow_start, mark.arrow_end)
-        return replace(mark, color=color, width=width, opacity=opacity,
+        return replace(mark, color=stroke, width=width, opacity=opacity,
                        arrow_start=ends[0], arrow_end=ends[1], dashed=dash)
     if isinstance(mark, InkStroke):
-        return replace(mark, color=color, width=width, opacity=opacity, dashed=dash)
+        return replace(mark, color=stroke, width=width, opacity=opacity, dashed=dash)
     return None
 
 
@@ -947,7 +959,10 @@ def apply_annotations(page: fitz.Page, annotations: tuple) -> None:
         elif isinstance(annotation, Shape):
             add = page.add_rect_annot if annotation.kind == "rect" else page.add_circle_annot
             annot = add(fitz.Rect(annotation.rect))
-            annot.set_colors(stroke=annotation.color, fill=annotation.fill_color)
+            # No border is an empty border colour (M155). Not `stroke=None`: PyMuPDF reads that as
+            # "leave it", and a new annotation's border is red.
+            stroke = annotation.color if annotation.color is not None else []
+            annot.set_colors(stroke=stroke, fill=annotation.fill_color)
             _set_stroke_border(annot, annotation.width, annotation.dashed)
             annot.set_opacity(annotation.opacity)
             annot.set_info(title=KLARPDF_AUTHOR)
@@ -1067,9 +1082,22 @@ def _opacity(annot) -> float:
 
 
 def _border_width(annot) -> float:
-    """An annot's border width, defaulting to the drawn-mark default when unset."""
+    """An annot's border width, as the file gives it (M155).
+
+    **A width of 0 stays 0.** The PDF rules call it "no border", but the annotation's own drawing
+    says ``0 w``, the thinnest line the screen can show, and MuPDF and Qt both draw it one pixel
+    wide. So keeping the number keeps the mark as it arrived, in every viewer. It used to become
+    2 pt, the drawn-mark default: a hair-thin border on another program's shape became a thick
+    black one on its first edit (#395).
+
+    **A file that sets no width gets 1 pt**, the PDF's own default and what every viewer draws.
+    PyMuPDF reports that case as -1. It also used to become 2 pt, doubling the line on an edit.
+    Our own marks always set a width, so this only ever reads another program's.
+    """
     width = (annot.border or {}).get("width")
-    return float(width) if width and width > 0 else 2.0
+    if width is None or width < 0:
+        return 1.0
+    return float(width)
 
 
 def _dashed(annot) -> bool:
@@ -1160,11 +1188,13 @@ def parse_annotation(annot: fitz.Annot):
         inset = _SHAPE_RECT_GROWTH
         rect = (r.x0 + inset, r.y0 + inset, r.x1 - inset, r.y1 - inset)
         fill = annot.colors.get("fill")
+        # No border colour means no border (M155), not the default red it used to become (#395).
+        stroke = annot.colors.get("stroke")
         result.append(
             Shape(
                 "rect" if kind == fitz.PDF_ANNOT_SQUARE else "ellipse",
                 rect,
-                color=_stroke_color(annot, Shape.color),
+                color=tuple(stroke) if stroke else None,
                 width=width,
                 fill_color=tuple(fill) if fill else None,
                 opacity=_opacity(annot),

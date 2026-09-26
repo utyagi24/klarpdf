@@ -13,8 +13,9 @@ restricting". This module closes that gap without touching the model or the file
 * :class:`LineStylingButton` · :class:`ColorsButton` · :class:`OpacityButton` — three markup-bar
   buttons over that one shared style (M78.6, splitting the former single ``MarkupStyleButton``):
   **Line Styling** (thickness · dash · arrowheads), **Colors** (a Border stroke row + a Fill row +
-  custom + No Fill), and **Opacity** (a slider showing/accepting an exact %). The window keeps the
-  three in sync by broadcasting the new style to all of them after any edit.
+  custom + No Fill, and No Border since M155), and **Opacity** (a slider showing/accepting an
+  exact %). The window keeps the three in sync by broadcasting the new style to all of them after
+  any edit.
 
 **Applicability follows the model, not the button** — a knob a tool doesn't have is simply ignored,
 the same way the text-box Fill only touches boxes:
@@ -22,6 +23,7 @@ the same way the text-box Fill only touches boxes:
 * **colour · opacity** → pen · line · rect · ellipse;
 * **width · dash style** → the draw tools (the "Line Style" sub-menu — thickness + solid/dashed);
 * **fill** → rect · ellipse only;
+* **no border** (M155) → rect · ellipse only; the pen and the line keep drawing in the colour;
 * **arrowheads** (M74) → lines only. Preview treats arrowheads as *line style*, and it is right:
   the Arrow tool is gone, and ``Line`` carries an ends attribute (none · start · end · both) set
   here — which is also what makes a **both-ended** arrow drawable for the first time.
@@ -116,15 +118,33 @@ class MarkupStyle:
     opacity: float = 1.0                                     # whole-mark alpha (PDF /CA), 0..1
     line_ends: tuple[bool, bool] = (False, False)            # lines only (M74): arrowheads
     dashed: bool = False                                     # dashed vs solid stroke
+    # Shapes only (M155): False draws a rectangle or ellipse with no border. A flag rather than a
+    # colour of None, because the pen and the line still draw with `color` while it is off.
+    border: bool = True
+
+    def shape_border(self) -> tuple[float, float, float] | None:
+        """The border a new rectangle or ellipse gets: ``color``, or ``None`` for no border.
+
+        A shape with no fill always gets its border (M155, owner). With neither, nothing of it
+        would show. The Colors menu does not offer that, but a style loaded from a shape that
+        arrived that way in a file could still ask for it.
+        """
+        return self.color if self.border or self.fill_color is None else None
 
     @classmethod
     def from_mark(cls, mark) -> "MarkupStyle | None":
         """The style of a selected drawn mark — loaded into the picker so a follow-up tweak edits
         *that* mark's colour/width/fill/ends/dash (M59.5, the twin of ``TextBoxStyle.from_textbox``).
-        Returns ``None`` for a text box (its own format bar owns its style) or a non-drawn mark."""
+        Returns ``None`` for a text box (its own format bar owns its style) or a non-drawn mark.
+
+        A shape with no border has no colour to load (M155), so its style keeps the default one,
+        and the caller decides what the pen and the line should draw with."""
         from klarpdf.model.page_edits import InkStroke, Line, Shape
 
         if isinstance(mark, Shape):
+            if mark.color is None:
+                return cls(width=mark.width, fill_color=mark.fill_color, opacity=mark.opacity,
+                           dashed=mark.dashed, border=False)
             return cls(mark.color, mark.width, mark.fill_color, mark.opacity, dashed=mark.dashed)
         if isinstance(mark, Line):
             return cls(mark.color, mark.width, None, mark.opacity,
@@ -297,6 +317,13 @@ class SwatchRowAction(QWidgetAction):
         if self.remove_button is not None:
             self.remove_button.setIcon(dot_icon(None, ring=active is None))
 
+    def set_remove_enabled(self, enabled: bool, tooltip: str) -> None:
+        """Grey the remove dot out, or bring it back, with ``tooltip`` saying why (M155).
+        The Colors menu uses it so a shape always keeps its border or its fill."""
+        if self.remove_button is not None:
+            self.remove_button.setEnabled(enabled)
+            self.remove_button.setToolTip(tooltip)
+
     @staticmethod
     def _dot(tooltip: str) -> QToolButton:
         button = QToolButton()
@@ -354,8 +381,14 @@ class _StyleButton(QToolButton):
 
     # ---- control slots (shared, so the one style is edited one way) --------------
 
-    def _set_color(self, color: tuple[float, float, float]) -> None:
-        self._apply(color=color)
+    def _set_color(self, color: tuple[float, float, float] | None) -> None:
+        """A Border dot. A colour also turns the border on, so it is part of what the selection
+        gets: a shape in the group may have had none. ``None`` is the crossed-out dot, no border
+        (M155), which keeps ``color`` for the pen and the line."""
+        if color is None:
+            self._apply(border=False)
+        else:
+            self._apply(color=color, border=True)
 
     def _set_width(self, width: float) -> None:
         self._apply(width=width)
@@ -375,7 +408,7 @@ class _StyleButton(QToolButton):
     def _pick_custom_color(self) -> None:
         color = QColorDialog.getColor(QColor.fromRgbF(*self._style.color), self, "Border colour")
         if color.isValid():
-            self._apply(color=_rgb(color))
+            self._set_color(_rgb(color))
 
     def _pick_custom_fill(self) -> None:
         start = self._style.fill_color or _FILL_PRESETS[0][1]
@@ -442,15 +475,20 @@ class ColorsButton(_StyleButton):
     """Colors (M78.6): a **Border** (stroke) swatch row + a **Fill** swatch row + custom pickers,
     clubbed under one menu (owner call). 'Border' is the pen/shape *stroke* — distinct from the
     text-markup colours, which live in the Markup ▾ menu (M78.5), a different domain. The Fill row's
-    slashed dot is 'No Fill'."""
+    slashed dot is 'No Fill'.
+
+    Since M155 the Border row ends in a slashed dot too: 'No Border', for rectangles and ellipses.
+    The pen and the line ignore it, as they ignore the fill, and keep drawing in ``color``. A shape
+    keeps its border or its fill (owner, 2026-09-25): with no fill the No Border dot is greyed out,
+    and with no border the No Fill dot is."""
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setToolTip("Colors — border (stroke) & fill for pen & shapes")
         menu = QMenu(self)
         self._border_row = SwatchRowAction(menu, "Border", _STROKE_PRESETS, self._style.color,
-                                           close_on_pick=True, include_remove=False)
-        self._border_row.picked.connect(self._set_color)
+                                           close_on_pick=True, include_remove=True)
+        self._border_row.picked.connect(self._set_color)  # the remove dot → None → No Border
         menu.addAction(self._border_row)
         custom_border = menu.addAction("Custom Border…")
         custom_border.triggered.connect(self._pick_custom_color)
@@ -465,9 +503,19 @@ class ColorsButton(_StyleButton):
         self._sync()
 
     def _sync(self) -> None:
-        self.setIcon(swatch_icon(self._style.color, 18))
-        self._border_row.set_active(self._style.color)
-        self._fill_row.set_active(self._style.fill_color)  # None → the No-Fill (remove) dot rings
+        style = self._style
+        # The face shows the border the Border row rings: its colour, or the slashed dot for none.
+        self.setIcon(swatch_icon(style.color, 18) if style.border else dot_icon(None, size=18))
+        self._border_row.set_active(style.color if style.border else None)
+        self._fill_row.set_active(style.fill_color)  # None → the No-Fill (remove) dot rings
+        self._border_row.set_remove_enabled(
+            style.fill_color is not None,
+            "Remove border (rectangles and ellipses)" if style.fill_color is not None
+            else "Remove border: choose a fill first, so the shape still shows")
+        self._fill_row.set_remove_enabled(
+            style.border,
+            "Remove fill" if style.border
+            else "Remove fill: choose a border colour first, so the shape still shows")
 
 
 class OpacityButton(_StyleButton):
