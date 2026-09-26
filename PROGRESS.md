@@ -4737,6 +4737,26 @@ the PR that fixes it. See `CLAUDE.md` §How we work for the split and why. Items
 were not migrated wholesale: each is listed because a decision is outstanding, which is what keeps
 it on this side of the line.
 
+- **A digitally signed PDF is not recognised, and most saves break its signature without a word**
+  (found 2026-09-25). A digital signature is a checksum of the file's bytes, sealed with the
+  signer's certificate. Neither surface looks for one. File ▸ Properties shows nothing, the bridge's
+  `get_info` reports nothing, and `get_form_fields` skips signature fields (`FILLABLE_TYPES` in
+  `klarpdf/model/page_edits.py`). Measured on a test file signed with pyHanko, and checked with
+  pyHanko after each save through `PyMuPDFEngine.materialize`:
+  * **No edit:** the file comes back byte-identical, and the signature is intact.
+  * **A highlight** (the append route, M116): the signed bytes are untouched, so the signature
+    still matches them. A checker reports that the file changed after signing. On a file whose
+    signer allowed no changes, that change breaks the signer's rule.
+  * **A metadata edit, a form fill, a rotation or a page move** (the rewrite routes): the signature
+    no longer matches the file. The file still carries it, so a reader such as Adobe Reader shows
+    the document as signed with an invalid signature.
+
+  The bridge saves through the same code (`transforms._write`), so its write tools do the same.
+  **Open question:** what the app and the bridge should do. Candidates: say the file is signed (in
+  Properties and in `get_info`); warn before a save that would break the signature; steer that
+  save to a new file. Also whether to check the signature or only report that one is present.
+  Checking it needs new code, and possibly a new library in the app's build.
+
 - **With several shapes selected, the style buttons show one style, not the group's** (M154, found
   2026-09-24). They show the first shape's style after Ctrl+click, or the style they already held
   after a box selection. So the opacity slider can show 100% while both shapes are at 60%. A change
