@@ -21,7 +21,6 @@ Summary
 | PyMuPDF              | 1.27.2.3  | AGPL-3.0 **or** Artifex commercial *        | AGPL-3.0          |
 | PySide6-Essentials   | 6.11.1    | `LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only` | LGPL-3.0-only |
 | shiboken6            | 6.11.1    | `LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only` | LGPL-3.0-only |
-| pypdf                | 6.13.3    | BSD-3-Clause                                | BSD-3-Clause      |
 
 * PyMuPDF is dual-licensed. KlarPDF uses it under the AGPL, which is why the whole
   project ships as AGPL-3.0-or-later (see README ▸ License and PLAN.md
@@ -30,8 +29,10 @@ Summary
 Provenance: the versions come from `requirements-win.txt`; the license strings are
 read from each installed wheel's own `dist-info` (`METADATA`, `COPYING`) at exactly
 those pinned versions, **not** from the projects' websites. Where a wheel ships no
-copyright year, none is stated below rather than guessed. pypdf's BSD-3-Clause text
-is reproduced verbatim, as that license requires.
+copyright year, none is stated below rather than guessed.
+
+pypdf (BSD-3-Clause) was bundled up to and including v0.19.0. It is no longer: it
+powered a fallback save engine the app never used, and is now a test-only dependency.
 
 
 --------------------------------------------------------------------------------
@@ -92,45 +93,3 @@ License text       : LGPL-3.0  https://www.gnu.org/licenses/lgpl-3.0.txt
                      GPL-3.0   https://www.gnu.org/licenses/gpl-3.0.txt
 
 Same licensing terms and source-offer as PySide6-Essentials above.
-
-
---------------------------------------------------------------------------------
-4. pypdf 6.13.3
---------------------------------------------------------------------------------
-
-Purpose in KlarPDF : pure-Python fallback edit engine
-License            : BSD 3-Clause "New" / "Revised" License (BSD-3-Clause)
-Upstream           : https://github.com/py-pdf/pypdf
-PyPI               : https://pypi.org/project/pypdf/6.13.3/
-
-Full license text (verbatim, from py-pdf/pypdf tag 6.13.3):
-
-    Copyright (c) 2006-2008, Mathieu Fenniak
-    Some contributions copyright (c) 2007, Ashish Kulkarni <kulkarni.ashish@gmail.com>
-    Some contributions copyright (c) 2014, Steve Witham <switham_github@mac-guyver.com>
-
-    All rights reserved.
-
-    Redistribution and use in source and binary forms, with or without
-    modification, are permitted provided that the following conditions are
-    met:
-
-    * Redistributions of source code must retain the above copyright notice,
-    this list of conditions and the following disclaimer.
-    * Redistributions in binary form must reproduce the above copyright notice,
-    this list of conditions and the following disclaimer in the documentation
-    and/or other materials provided with the distribution.
-    * The name of the author may not be used to endorse or promote products
-    derived from this software without specific prior written permission.
-
-    THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-    AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-    IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-    ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-    LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-    CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-    SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-    INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-    CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-    ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-    POSSIBILITY OF SUCH DAMAGE.

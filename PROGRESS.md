@@ -1163,6 +1163,17 @@ tick the box here on merge. Build in number order.
   [#399](https://github.com/utyagi24/klarpdf/issues/399),
   [#401](https://github.com/utyagi24/klarpdf/issues/401). Details in `PLAN.md` §M155 — *WSL
   (headless)* — [#400](https://github.com/utyagi24/klarpdf/pull/400)
+- [ ] **M156** *(unplanned)* **pypdf leaves the installer; the fallback engine it served is
+  removed** — *Core (no behaviour change) and the app's installer.* `PyPdfEngine` was planned on
+  2026-06-13 as the escape from PyMuPDF's AGPL and built in M1. Nothing outside the tests ever
+  constructed it, and the reason ended when the project chose the AGPL on 2026-06-27. Yet it kept
+  pypdf in the installer through four security bumps, each treating it as reachable. The engine and
+  its `EditEngine` interface are removed. pypdf moves to `requirements-dev.in`, where it stays as the
+  tests' independent second reader. `tests/test_pypdf_is_dev_only.py` fails if shipped code imports
+  it again, and was seen failing three ways first. **Open: the Windows half** (owner, 2026-09-26):
+  recompile `requirements-win.txt`, re-vendor, confirm the build has no `pypdf`, then pin the lock in
+  the test. The box is ticked when that lands. Details in `PLAN.md` §M156 — *WSL (headless) +
+  Windows* — [#407](https://github.com/utyagi24/klarpdf/pull/407)
 
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 

@@ -20,8 +20,9 @@
 # different MuPDF builds for three months. Both inputs now `-r requirements-core.in`, which is the
 # single place the version is written — see that file for why it is an exact pin rather than a floor.
 #
-# pypdf is absent on purpose — the bridge never uses PyPdfEngine, whose `import pypdf` sits inside
-# `PyMuPDFEngine`'s sibling method rather than at module level. `tests/test_mcp_no_qt.py` proves the
-# avoidance by running every tool in a fresh interpreter, the same way it proves Qt stays out.
+# pypdf is absent on purpose — since M156 no shipped code imports it; it is a dev-only second
+# reader for the tests (`requirements-dev.in`). `tests/test_pypdf_is_dev_only.py` checks that
+# statically, and `tests/test_mcp_no_qt.py` at run time, by running every tool in a fresh
+# interpreter the same way it proves Qt stays out.
 -r requirements-core.in
 mcp>=2,<3

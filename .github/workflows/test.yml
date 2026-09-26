@@ -273,9 +273,9 @@ jobs:
           pip install pytest        # the runner itself; deliberately not in the bridge's own lock
           python -c "import pymupdf; print('bridge engine ->', pymupdf.__doc__.splitlines()[0])"
 
-      # pypdf is absent from this lock on purpose (M115). Under the dev lock it is installed anyway,
-      # so a bridge path reaching PyPdfEngine passes there and fails on a user's machine; here that
-      # mistake is a red check, because the import genuinely is not available.
+      # pypdf is absent from this lock on purpose (M115; dev-only since M156). Under the dev lock it
+      # is installed anyway, so a bridge path importing it passes there and fails on a user's
+      # machine; here that mistake is a red check, because the import genuinely is not available.
       - name: Run the bridge suite against its own dependencies
         if: steps.gate.outputs.relevant != 'false'
         run: pytest -q tests/test_mcp_*.py

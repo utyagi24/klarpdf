@@ -25,7 +25,6 @@ the wheels, so target machines need no Python and no network.
 |---|---|---|---|---|
 | **PySide6-Essentials** | Qt6 GUI (QtCore/QtGui/QtWidgets/QtSvg) + `QtNetwork` IPC + `QtPrintSupport` printing | LGPL-3.0 | `>=6.7` | `6.11.1` |
 | **PyMuPDF** (`fitz`) | render pages/thumbnails + lossless object-level page editing | AGPL-3.0 (or Artifex commercial) | `>=1.25.5` | `1.27.2.3` |
-| **pypdf** | pure-Python fallback edit engine | BSD-3-Clause | `>=6.16.1` | `6.17.0` |
 | _shiboken6_ (transitive) | PySide6 C++/Python binding runtime | LGPL-3.0 | — | `6.11.1` |
 
 > **Why Essentials, not the full `PySide6` meta:** the app imports only QtCore/QtGui/QtWidgets/
@@ -43,6 +42,7 @@ the wheels, so target machines need no Python and no network.
 | **Python** | interpreter — 3.12.x exact, for **building the app**. The MCP bridge is a separate, optional component and installs on 3.11–3.14 (M132); this row is the frozen installer's build requirement, not a floor on the bridge. | Windows **3.12.10** (python.org); WSL 3.12.3 | — |
 | **pip-tools** (`pip-compile`) | generate the locked requirements | **7.5.3** | dev/build env |
 | **pytest** | headless model/save tests | see `requirements-dev.txt` | `requirements-dev.txt` |
+| **pypdf** | independent second reader: tests cross-check what PyMuPDF wrote. **Not shipped** since M156 — it was the runtime engine of a fallback nothing outside the tests used (`PLAN.md` §M156) | floor `>=6.16.1` (security), BSD-3-Clause | `requirements-dev.txt` |
 | **invoke** | task runner — `invoke <task>` orchestrates build steps (`tasks.py`; see `RELEASE.md`) | **3.0.3** | `requirements-dev.txt` |
 | **PyInstaller** | freeze the app (onedir + onefile) | **6.21.0** | `requirements-build-win.txt` (hashed) |
 | **Inno Setup** | build the Windows installer | **6.7.3** | here (native tool; `winget install JRSoftware.InnoSetup`, CI `choco install innosetup`) |

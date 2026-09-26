@@ -5,17 +5,15 @@ same-source runs object-level (never rasterise/flatten), apply absolute rotation
 rebuild the outline, then save. Object-level copies preserve the OCR text layer, annotations,
 and form fields by construction.
 
-Two engines behind one interface:
- * :class:`PyMuPDFEngine` — the default/authoritative engine (``fitz.insert_pdf``).
- * :class:`PyPdfEngine` — a pure-Python fallback (pypdf). Best-effort: handles page
-   order/rotation/outline; PyMuPDF is authoritative for duplicate form-field handling.
+One engine, :class:`PyMuPDFEngine` (``fitz.insert_pdf``). A pure-Python pypdf fallback lived
+beside it from M1 as the escape from PyMuPDF's AGPL; nothing outside the tests ever constructed it,
+and the project chose the AGPL itself, so M156 removed it (PLAN.md §M156).
 """
 
 from __future__ import annotations
 
 import os
 import tempfile
-from abc import ABC, abstractmethod
 from pathlib import Path
 
 import pymupdf as fitz
@@ -239,16 +237,8 @@ def _contiguous_runs(ordered) -> list[list]:
     return runs
 
 
-class EditEngine(ABC):
-    """Common interface so the viewer/Save path is engine-agnostic."""
-
-    @abstractmethod
-    def materialize(self, vdoc: VirtualDocument, out_path: str) -> None:
-        """Write ``vdoc``'s current ordered list to ``out_path`` as a new PDF."""
-
-
-class PyMuPDFEngine(EditEngine):
-    """Default engine. Lossless object-level page copy + outline rebuild via PyMuPDF."""
+class PyMuPDFEngine:
+    """The save engine. Lossless object-level page copy + outline rebuild via PyMuPDF."""
 
     def save_options(self, vdoc: VirtualDocument) -> dict:
         """The exact ``Document.save`` keywords :meth:`materialize` writes ``vdoc`` with (M110).
@@ -663,41 +653,3 @@ class PyMuPDFEngine(EditEngine):
                 doc.close()
         return out
 
-
-class PyPdfEngine(EditEngine):
-    """Pure-Python fallback (pypdf). Best-effort; PyMuPDF is the authoritative engine."""
-
-    def materialize(self, vdoc: VirtualDocument, out_path: str) -> None:
-        # M54: pypdf can't write AES without a dev-only `cryptography` extra (PLAN.md), and a
-        # weaker cipher or a silent unencrypted write would both betray the password promise.
-        if vdoc.password is not None:
-            raise NotImplementedError(
-                "PyPdfEngine cannot write AES-256 encryption; PyMuPDF is the ship engine"
-            )
-        from pypdf import PdfReader, PdfWriter
-
-        readers: dict[str, PdfReader] = {}
-
-        def reader_for(source_id: str) -> "PdfReader":
-            # Fallback reopens sources from their identity path (a real file path).
-            if source_id not in readers:
-                readers[source_id] = PdfReader(source_id)
-            return readers[source_id]
-
-        writer = PdfWriter()
-        for ref in vdoc.ordered:
-            page = reader_for(ref.source_id).pages[ref.source_page_index]
-            added = writer.add_page(page)
-            if ref.rotation_override is not None:
-                added.rotation = ref.rotation_override  # absolute
-
-        # Rebuild outline with proper nesting from the remapped, level-repaired TOC.
-        parents: dict[int, object] = {}
-        for entry in vdoc.remapped_toc():
-            level, title, page = entry[0], entry[1], entry[2]
-            parent = parents.get(level - 1)
-            item = writer.add_outline_item(title, page - 1, parent=parent)
-            parents[level] = item
-
-        with open(out_path, "wb") as fh:
-            writer.write(fh)

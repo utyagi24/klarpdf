@@ -23,6 +23,14 @@
 colorama>=0.4   # pytest's colour output on Windows; see above for why it is unmarkered
 -r requirements.in
 pytest>=8
+# pypdf is a TEST dependency since M156: an independent second reader that checks what PyMuPDF
+# wrote (test_materialize, test_metadata, test_incremental_save, test_mcp_transforms). It was a
+# runtime dependency until then, for a fallback engine nothing outside the tests ever constructed.
+# No shipped code may import it (tests/test_pypdf_is_dev_only.py). The floor is still the SECURITY
+# floor set 2026-09-05: pypdf 6.15.0 carries three crafted-PDF parse-DoS advisories
+# (CVE-2026-84309, fixed 6.16.0; CVE-2026-84310/84311, fixed 6.16.1), and the dev lock is audited
+# too. A floor, not a pin: `pip-compile` resolves it to the newest release satisfying it.
+pypdf>=6.16.1
 invoke>=3.0   # task runner — `invoke <task>` orchestrates build steps (tasks.py); see RELEASE.md
 # The MCP SDK is a *dev* dependency because tests/test_mcp_*.py are part of the headless suite and
 # CI installs only this lock — without it those files fail at collection and the required `pytest`

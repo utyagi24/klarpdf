@@ -1,15 +1,16 @@
 """Materialize-on-save preserves OCR text, remaps the outline, and keeps form fields.
 
 These are the M1 keystone correctness checks (PLAN.md, Verification). The default
-PyMuPDFEngine is authoritative; a lighter check covers the PyPdfEngine fallback. Where useful
-we cross-check the written file with a *different* engine (pypdf reader) than the writer.
+PyMuPDFEngine is the only engine (M156 removed the pypdf fallback). Where useful we cross-check
+the written file with a *different* engine (pypdf reader) than the writer; pypdf is a dev-only
+dependency for exactly that.
 """
 
 from __future__ import annotations
 
 import pymupdf as fitz
 
-from klarpdf.model.edit_engine import PyMuPDFEngine, PyPdfEngine
+from klarpdf.model.edit_engine import PyMuPDFEngine
 from klarpdf.model.virtual_document import PageRef, VirtualDocument
 from tests.conftest import A_TEXT, B_TEXT
 
@@ -85,22 +86,3 @@ def test_rotation_override_is_absolute(a_pdf, tmp_path):
     finally:
         doc.close()
 
-
-def test_pypdf_fallback_page_order_and_outline(a_pdf, tmp_path):
-    vd = VirtualDocument.from_path(a_pdf)
-    vd.move_page(2, 0)
-    vd.delete_page(2)  # drop what is now A1
-    out = str(tmp_path / "fallback.pdf")
-    PyPdfEngine().materialize(vd, out)
-
-    doc = fitz.open(out)
-    try:
-        assert doc.page_count == 2
-        assert A_TEXT[2] in doc[0].get_text("text")
-        assert A_TEXT[0] in doc[1].get_text("text")
-        toc = doc.get_toc(simple=True)
-    finally:
-        doc.close()
-    # Outline rebuilt; Section 1.1 (A1) dropped, survivors remapped.
-    assert [t[1] for t in toc] == ["Chapter 1", "Chapter 2"]
-    assert [t[2] for t in toc] == [2, 1]
