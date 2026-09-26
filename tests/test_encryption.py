@@ -16,7 +16,7 @@ from PySide6.QtGui import QUndoStack
 from app import PdfApp
 from main_window import MainWindow
 from edit_commands import SetEncryptionCommand
-from klarpdf.model.edit_engine import PyMuPDFEngine, PyPdfEngine
+from klarpdf.model.edit_engine import PyMuPDFEngine
 from klarpdf.model.virtual_document import VirtualDocument
 from store.settings import Settings
 from tests.conftest import A_TEXT
@@ -232,14 +232,6 @@ def test_encryption_rides_the_undo_stack(a_pdf):
     stack.undo()
     assert v.password is None                     # back to the unprotected origin
 
-
-def test_pypdf_fallback_refuses_an_encrypted_save(a_pdf, tmp_path):
-    """pypdf can't write AES without the dev-only cryptography extra — a weaker cipher or a
-    silent unencrypted write would betray the password promise, so the fallback refuses."""
-    v = VirtualDocument.from_path(a_pdf)
-    v.set_encryption("pw-F")
-    with pytest.raises(NotImplementedError):
-        PyPdfEngine().materialize(v, str(tmp_path / "nope.pdf"))
 
 
 # ---- the dialog --------------------------------------------------------------

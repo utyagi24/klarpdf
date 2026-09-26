@@ -60,8 +60,8 @@ pull a different version. Run `pip-compile` (pinned pip-tools, see `DEPENDENCIES
 because the ship/build locks carry `win_amd64` hashes.
 
 1. **Edit the floor pin** in the right `*.in` — the only file you hand-edit:
-   - runtime dep (PySide6 / PyMuPDF / pypdf) → `requirements.in`
-   - test-only dep → `requirements-dev.in`
+   - runtime dep (PySide6 / PyMuPDF) → `requirements.in`
+   - test-only dep (pytest / pypdf — pypdf left the runtime in M156) → `requirements-dev.in`
    - build-only dep (PyInstaller) → `requirements-build.in`
 
 2. **Re-compile the affected lock(s).** A runtime change propagates to **both** the ship and dev
@@ -89,6 +89,12 @@ because the ship/build locks carry `win_amd64` hashes.
    > other way: there a *false* marker dropped a line, here a *true* one adds an uninstallable one.)
    `--require-hashes` isn't shareable across platforms, which is why the dev lock is version-only
    (see `DEPENDENCIES.md`).
+
+   > **pip-tools 7.5.3 needs an older pip and click than a fresh venv installs** (found running this
+   > step in a clean venv, M156). With **pip 26** it does not start (`ImportError: cannot import
+   > name 'stdlib_pkgs'`). With **click ≥ 8.2** it compiles, but writes `--no-index` into the lock's
+   > header command, a flag nobody passed. So the diff shows a header change on every recompile. A
+   > venv with `pip-tools==7.5.3 "pip<26" "click<8.2"` reproduces the committed header exactly.
 
    > **A plain re-compile does NOT upgrade anything.** `pip-compile` reuses the pins already in the
    > output file whenever they still satisfy the `.in` constraints — so re-running it against an

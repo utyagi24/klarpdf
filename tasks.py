@@ -9,7 +9,7 @@ Thin orchestration only: each task shells out to the existing authoritative scri
     invoke --list                      # every task + its one-line description
     invoke test                        # headless suite
     invoke audit                       # scan the locks for known advisories
-    invoke lock --package pypdf==6.13.3 # recompile the locks (Windows)
+    invoke lock --package pymupdf==1.27.2.3 # recompile the locks (Windows)
     invoke vendor                      # re-fetch wheels + regenerate vendor/wheels-sources.md (Windows)
     invoke build                       # freeze + installer + portable (Windows)
     invoke tag --version 0.9.5         # pre-flight test+audit, then tag + push -> CI draft Release
@@ -90,7 +90,7 @@ def audit(c):
         shutil.rmtree(venv, ignore_errors=True)
 
 
-@task(help={"package": "re-pin only this package, e.g. pypdf==6.13.3 (optional)"})
+@task(help={"package": "re-pin only this package, e.g. pymupdf==1.27.2.3 (optional)"})
 def lock(c, package=None):
     """Recompile the two hashed win_amd64 locks from the *.in files (Windows).
 

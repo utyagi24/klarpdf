@@ -60,7 +60,9 @@ pinned/offline toolchain.)
 - **PyMuPDF / `fitz`** (MuPDF by Artifex, **AGPL** — see note), minimum **1.25.5**, pinned to an
   **exact** version in the lockfile — renders pages/thumbnails **and** does lossless object-level
   page editing.
-- **pypdf** (BSD, pure Python) — optional fallback edit engine behind a common interface.
+- **pypdf** (BSD, pure Python) — **test-only** since M156: an independent second reader the tests use
+  to cross-check what PyMuPDF wrote. It was planned here as an optional fallback edit engine; that
+  engine was built in M1, never used outside the tests, and removed (§M156).
 
 **Why PyMuPDF renders the viewer instead of Qt's `QPdfView`:** `QPdfView` renders, scrolls,
 zooms, and highlights search hits, but has **no interactive text selection/copy**. The user
@@ -74,7 +76,8 @@ corresponding source; the full source now lives in this **public** repo (since 2
 §Packaging → *Public-release readiness*), so shipping the installer with a pointer to the repo (and
 its exact tag/commit) satisfies that. This is no longer hypothetical: the obligation is **live**, and
 the About dialog's tagged corresponding-source link (G4) is what discharges it per release. The
-alternatives remain: an Artifex commercial license, or a pypdf-only fallback build.
+remaining alternative is an Artifex commercial license. (A pypdf-only fallback build was the other
+one; it was never built, and its engine was removed in M156.)
 
 ### Key design idea — Virtual-document / edit-list model
 
@@ -264,7 +267,7 @@ flowchart LR
 ```
 
 **1. Dependency pinning & integrity (versions never drift).**
-- `requirements.in` lists the few top-level libs (PySide6, PyMuPDF, pypdf). `pip-compile
+- `requirements.in` lists the few top-level libs (PySide6, PyMuPDF; pypdf until M156). `pip-compile
   --generate-hashes` (from **pip-tools**, itself pinned) produces `requirements-win.txt` with **exact
   `==` versions for the full transitive tree plus a `--hash=sha256:` for every wheel**.
 - All installs use `pip install --require-hashes --no-index --find-links vendor/wheels` — pip
@@ -517,7 +520,7 @@ klarpdf/
   viewer/search.py             # page.search_for highlighting + hit navigation
   organize/thumbnail_panel.py  # grid bound to ordered[]: drag-reorder, cross-window drag (QDrag MIME), cut/copy/paste, delete
   klarpdf/model/virtual_document.py    # VirtualDocument + PageRef; all list-edit ops, dirty tracking
-  klarpdf/model/edit_engine.py         # EditEngine interface; PyMuPDFEngine (default) + PyPdfEngine (fallback); materialize-on-save
+  klarpdf/model/edit_engine.py         # PyMuPDFEngine: materialize-on-save (the pypdf fallback was removed in M156)
   klarpdf/model/toc_remap.py           # outline snapshot + old->new page remap + drop-dangling
   store/settings.py            # per-document last page/zoom/geometry — JSON via QStandardPaths AppConfigLocation (%LOCALAPPDATA% on Windows, ~/.config on Linux)
   klarpdf/util/paths.py                # normalize_path() — SINGLE identity chokepoint (case-fold on Windows; one-line switch for Linux)
@@ -10004,6 +10007,86 @@ may have had none, and choosing a colour for its border gives it one.
 * [#401](https://github.com/utyagi24/klarpdf/issues/401): a border thicker than 2 pt is saved
   further inside the shape than KlarPDF's view shows it, by 1 pt at Thick (4 pt). PyMuPDF keeps
   the border inside the shape's box, while the view centres it on the drawn edge.
+
+### M156 — pypdf leaves the installer; the fallback engine it served is removed *(unplanned)* (2026-09-26)
+
+Found by the owner's question whether the suite measures coverage, and the concern behind it:
+dead code that nobody needs. A one-off coverage run said **92%**, which could not answer that
+question: code that only the tests call counts as covered. A `vulture` scan could, and its largest
+find was `PyPdfEngine`. The measurement and the other candidates are in `PROGRESS.md` §Open
+follow-ups; this milestone is the one the owner decided (2026-09-26).
+
+**Surfaces: the core, and the app's installer.** `klarpdf/model/edit_engine.py` is core, but no
+surface ever reached the removed code, so neither the app's nor the bridge's behaviour changes. What
+changes is what the **Windows installer carries**: pypdf and its licence notice. The bridge's lock
+never had pypdf (M115).
+
+#### Where it came from
+
+The first `PLAN.md` (2026-06-13) listed pypdf as an *"optional fallback edit engine behind a common
+interface"*, and its AGPL note gave the reason: a public `.exe` built on PyMuPDF must publish its
+source, buy an Artifex licence, **or "ship the pypdf-only fallback build"**. M1 (`c8040f9`,
+2026-06-15, committed to `main` before PRs were in use) built the `EditEngine` interface,
+`PyMuPDFEngine` and `PyPdfEngine`. M54 (`5c36f65`) made the fallback refuse an encrypted save.
+
+The fallback build was never made, and nothing outside `tests/` ever constructed the engine:
+`git log -G "PyPdfEngine\("` over every non-test file finds only the class's own definition. The
+reason for it ended on 2026-06-27 (`e6117d8`), when the project chose AGPL-3.0-or-later and
+published its source.
+
+#### What it cost while unused
+
+* **It was in the installer.** The engine imported pypdf inside `materialize`, not at module level,
+  but PyInstaller's analysis follows imports in function bodies too. So the build bundled pypdf, and
+  `THIRD_PARTY_LICENSES` reproduced its BSD licence as bundling requires.
+* **It took four security bumps**: 6.13.2 → 6.13.3 (v0.9.4), → 6.14.2 (#192), → 6.15.0 (v0.17.1,
+  #235) and → 6.17.0 (#324, the one that found M137). The v0.17.1 notes, M137 and `requirements.in`
+  each call a crafted PDF read through `PyPdfEngine`'s `PdfReader` the attack surface. **That was
+  never true of the running app**, because nothing reached that reader. The library was on disk,
+  not on any path a document could take. Those records stand as written, as `PLAN.md` and
+  `PROGRESS.md` are records, not instructions; this entry is the correction.
+
+#### What changed
+
+* **`PyPdfEngine` is removed, and so is `EditEngine`.** The abstract class existed so two engines
+  could share one interface, and nothing typed against it. `PyMuPDFEngine` is unchanged.
+* **pypdf moves from `requirements.in` to `requirements-dev.in`**, security floor and all. It keeps
+  a real job there: four test files use it as an **independent second reader** to check what PyMuPDF
+  wrote (`test_materialize`, `test_metadata`, `test_incremental_save`, `test_mcp_transforms`). A
+  writer checked only by its own reader can agree with its own mistakes. The dev lock is
+  recompiled, and differs by one comment: pypdf is now `via -r requirements-dev.in`.
+* **Two tests went with the engine**: the fallback's page-order check and its refusal of an
+  encrypted save. Neither tested anything a user could reach.
+* **`THIRD_PARTY_LICENSES`, `DEPENDENCIES.md`, `SECURITY.md`, the README's licence paragraph and
+  this document's spec lines** stop describing pypdf as shipped.
+
+#### The check that keeps it out
+
+CI installs `requirements-dev.txt`, which now has pypdf *only* for the tests. So a new
+`import pypdf` in shipped code would pass the whole suite and fail in the installed app, the same
+shape M115 found for the bridge. `tests/test_pypdf_is_dev_only.py` reads every shipped module's
+imports, including those inside function bodies, which is where the old engine kept its own. It
+chooses files by exclusion: everything except `tests/`, `tools/`, `packaging/`, `vendor/` and
+`tasks.py`, so a new package is covered the day it is added. A second test checks the scan found
+both surfaces, because a scan that finds nothing looks exactly like a clean one. A third checks
+that pypdf is required by the dev input and by neither shipped one. Each was seen failing before it
+was trusted: an `import pypdf` inside a function in `edit_engine.py`, pypdf put back in
+`requirements.in`, and the scan blinded to `klarpdf/`. `tests/test_mcp_no_qt.py` keeps its runtime
+check, now worded for this, since an import built at run time is invisible to a static read.
+
+#### Left for the Windows session (owner, 2026-09-26)
+
+The ship lock carries `win_amd64` hashes, so it is compiled on Windows (`RELEASE.md` §1):
+
+1. `invoke lock`: `requirements-win.txt` loses its `pypdf` block, and nothing else should move.
+2. `invoke vendor`: `vendor/wheels-sources.md` loses its `pypdf 6.17.0` entry.
+3. Build, and confirm `dist\` holds no `pypdf` directory. Removing the import already keeps
+   PyInstaller from bundling it; the lock change stops it being installed into the build venv.
+4. Add `assert "pypdf" not in` the shipped lock to `tests/test_pypdf_is_dev_only.py`, so the lock
+   is held to it as well. It cannot land before step 1 without turning CI red.
+
+Until then the committed ship lock still pins pypdf 6.17.0, so the `audit` job keeps scanning it.
+That is harmless, and step 1 ends it.
 
 ## The open issues, grouped — M149–M152 *(planned 2026-09-19)*
 

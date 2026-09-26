@@ -696,8 +696,8 @@ class VirtualDocument:
         *are* the answer, already expressed in output page numbers. Returning them from here rather
         than from a second method is what keeps the one guarantee M139 was scoped around: every
         route that writes an outline reads it from this method, so the graft route
-        (:meth:`~model.edit_engine.PyMuPDFEngine._graft_output`) and the pypdf fallback pick the
-        authored one up without knowing it exists.
+        (:meth:`~model.edit_engine.PyMuPDFEngine._graft_output`) picks the authored one up without
+        knowing it exists.
         """
         from klarpdf.model.toc_remap import remap_toc
 
