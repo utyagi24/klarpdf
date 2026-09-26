@@ -4751,6 +4751,11 @@ the PR that fixes it. See `CLAUDE.md` §How we work for the split and why. Items
 were not migrated wholesale: each is listed because a decision is outstanding, which is what keeps
 it on this side of the line.
 
+- **Dead code and coverage** (found 2026-09-26) — graduated. The coverage gate was rejected and a
+  static dead-code check chosen instead, with today's findings to triage, in
+  [#409](https://github.com/utyagi24/klarpdf/issues/409). `PyPdfEngine` became M156
+  ([#407](https://github.com/utyagi24/klarpdf/pull/407)).
+
 - **With several shapes selected, the style buttons show one style, not the group's** (M154, found
   2026-09-24). They show the first shape's style after Ctrl+click, or the style they already held
   after a box selection. So the opacity slider can show 100% while both shapes are at 60%. A change
