@@ -12,7 +12,7 @@
   Self-locates the repo root; run from anywhere:  pwsh packaging/app/build.ps1
 
 .PARAMETER Version
-  Installer version; defaults to version.py's __version__.
+  Installer version; defaults to klarpdf/version.py's __version__.
 
 .PARAMETER Offline
   Skip the wheel download and build strictly from the existing vendor/wheels (proves the
@@ -64,7 +64,7 @@ try {
     }
 
     if (-not $Version) {
-        $Version = (& $py @pyArgs -c "import version; print(version.__version__)").Trim()
+        $Version = (& $py @pyArgs -c "from klarpdf.version import __version__; print(__version__)").Trim()
     }
     Write-Host "==> Building KlarPDF $Version  (offline=$Offline)" -ForegroundColor Cyan
 

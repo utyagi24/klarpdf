@@ -83,3 +83,16 @@ def test_pypdf_is_declared_for_the_tests_and_nowhere_that_ships():
     assert "pypdf" in _input("requirements-dev.in")
     assert "pypdf" not in _input("requirements.in")
     assert "pypdf" not in _input("requirements-mcp.in")
+
+
+def test_the_ship_lock_does_not_pin_pypdf():
+    """The inputs above decide what a recompile writes, but the build installs from the committed
+    lock, and that is compiled by hand on Windows. It kept ``pypdf==6.17.0`` until M156's Windows
+    half recompiled it, so while it did, the build venv still installed pypdf."""
+    pinned = {
+        line.split("==")[0].strip().lower()
+        for line in (ROOT / "requirements-win.txt").read_text(encoding="utf-8").splitlines()
+        if "==" in line and not line.lstrip().startswith("#")
+    }
+    assert "pymupdf" in pinned  # the parse found the lock's pins at all
+    assert "pypdf" not in pinned
