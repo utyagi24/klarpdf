@@ -2952,6 +2952,15 @@ on the one above it. Every decision, every rejection and every measurement behin
 `PLAN.md` §M133–M136 — **not restated here**. The headline: the install goes from nine commands to
 `python install.py`, or to `uvx --from klarpdf klarpdf-mcp` for anyone who already has `uv`.
 
+- [x] **M157** *(unplanned)* **`pyjwt` 2.13.0 → 2.14.0** — 2026-09-29, found while preparing
+  v0.20.0: Dependabot flagged
+  [GHSA-w6j9-cwv2-h6wq](https://github.com/advisories/GHSA-w6j9-cwv2-h6wq) (Medium) the day it was
+  published. A malformed RSA key aborts parsing of a whole JWK Set. *Bridge only*; the Windows
+  installer never had PyJWT. It was not reachable: only `mcp`'s client-side OAuth code imports
+  `jwt`, and the bridge server never loads it. Bumped before the release anyway (owner's call),
+  because v0.20.0 publishes its exact pins to PyPI for good. Both locks move one line (compiled in
+  WSL, M137), and the pin block, the bundle's pyproject and its `uv.lock` follow. Design in
+  `PLAN.md` §M157 — *WSL* — [#411](https://github.com/utyagi24/klarpdf/pull/411)
 - [x] **M147** *(unplanned)* **The core's folders hold only the core** — 2026-09-18, the follow-up to
   M146. The three app-only files it listed as exceptions now sit beside their users:
   `edit_commands.py` at the top level beside `main_window.py`, `reveal.py` in `viewer/`,
