@@ -10115,6 +10115,29 @@ The ship lock carries `win_amd64` hashes, so it is compiled on Windows (`RELEASE
 Until then the committed ship lock still pins pypdf 6.17.0, so the `audit` job keeps scanning it.
 That is harmless, and step 1 ends it.
 
+#### The Windows half, as done (2026-09-29)
+
+All four steps, in the session that prepared v0.20.0:
+
+1. The lock lost the four lines of its `pypdf` block and nothing else: the header and
+   `requirements-build-win.txt` came out unchanged. Compiled from a throwaway venv with
+   `pip-tools==7.5.3 "pip<26" "click<8.2"`, because the repo `.venv` has pip 26, which pip-tools
+   7.5.3 cannot start under (`RELEASE.md` §1).
+2. `vendor/wheels-sources.md` lost the `pypdf 6.17.0` entry and nothing else.
+3. The 2026-09-05 `PYZ-00.toc` matched `pypdf` on **106** lines. The rebuild's matches on **0**,
+   while PyMuPDF still matches on 18, so the search itself works. `build\venv` has no pypdf
+   installed. The only mention of pypdf left in `dist\klarpdf` is the line in
+   `THIRD_PARTY_LICENSES` that says it is no longer bundled.
+4. `test_the_ship_lock_does_not_pin_pypdf` passes on the new lock and was seen failing on the old
+   one.
+
+**Found on the way: the local build had been broken since M134.** `build.ps1` read its default
+version with `import version`, the module M134 moved to `klarpdf/version.py`, so a build run
+without `-Version` stopped at once with `No module named 'version'`. CI never hit it, because
+`release.yml` passes `-Version` from the tag. It now imports `klarpdf.version`. This is M133's
+lesson again: a move repoints every path computed from the old location, and a grep for the
+module's new name cannot find a line that still uses the old one.
+
 ## The open issues, grouped — M149–M152 *(planned 2026-09-19)*
 
 Grouped at the owner's request (2026-09-19: *"plan milestones for all of the issues, except for 352

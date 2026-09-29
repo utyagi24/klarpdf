@@ -14,11 +14,6 @@ any wheel whose hash does not match.
 - sha256: `d20f68ef15195e073071dbc4ae7455257c7889af7584e39df490c0a92728526e`
 - source: https://files.pythonhosted.org/packages/44/47/5fb10fe73f96b31253a41647c362ea9e0380920bddf16028414a051247fc/pymupdf-1.27.2.3-cp310-abi3-win_amd64.whl
 
-## pypdf 6.17.0
-- wheel: `pypdf-6.17.0-py3-none-any.whl`
-- sha256: `5bd827266a21553b74d910e350131a6227b72f2ab4209bf372814b8195fa11c5`
-- source: https://files.pythonhosted.org/packages/c1/08/1e9731038124a9127e1d27848952b86fb32b2f45f8f1b94adc7f0817a6ac/pypdf-6.17.0-py3-none-any.whl
-
 ## PySide6_Essentials 6.11.1
 - wheel: `pyside6_essentials-6.11.1-cp310-abi3-win_amd64.whl`
 - sha256: `63311bd48e32c584599ab04b9ef7c324082374cd2c9fa533f978fb893bb47e40`

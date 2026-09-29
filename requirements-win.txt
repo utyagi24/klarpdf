@@ -15,10 +15,6 @@ pymupdf==1.27.2.3 \
     --hash=sha256:d20f68ef15195e073071dbc4ae7455257c7889af7584e39df490c0a92728526e \
     --hash=sha256:fc1bc3cae6e9e150b0dbb0a9221bdfd411d65f0db2fe359eaa22467d7cc2a05f
     # via -r requirements-core.in
-pypdf==6.17.0 \
-    --hash=sha256:097ad0d829778ec5b615aeaa5c6da4b6cac4992f8fd80b56f98a1a8c006573bb \
-    --hash=sha256:5bd827266a21553b74d910e350131a6227b72f2ab4209bf372814b8195fa11c5
-    # via -r requirements.in
 pyside6-essentials==6.11.1 \
     --hash=sha256:11253ea52aabecefe9febddbbe78b43a824129e3af1cec98431028fba7fa954f \
     --hash=sha256:228de53c2bc26b07e5021fbe3614fc44ca08e4dab9999af08c2b389d2c239957 \
