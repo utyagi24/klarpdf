@@ -467,7 +467,15 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   spare machine / a fresh local user with networking disabled.
 
 ## Status
-**Current: v0.19.0 shipped** — **the bridge you can actually install (M133–M136)**. Installing it
+**Current: v0.20.0 shipped** — **structure an agent can use, and a window that keeps up
+(M138–M157)**. The bridge grows from 19 tools to 23: `get_links`, `set_outline` (whose entries can
+now land on their heading), `get_heading_candidates` and `get_tables`, which declines a table the
+page contradicts rather than guessing. In the app, a slow page no longer freezes the window (M152,
+the 1.0 gate's Item E), links and bookmarks land on the spot they name and survive a page move
+(M150), and zoom and resize keep the page you are reading (M151). pypdf leaves the installer
+(M156), and `pyjwt` (M157) and `httpx2` (M144) are bumped for advisories the bridge could not
+reach. **1.0 is still deliberately not taken**: the clean-machine install and one flaky test remain.
+It supersedes **v0.19.0** — **the bridge you can actually install (M133–M136)**. Installing it
 was nine commands and the step that failed was the path; it is now `pipx install klarpdf`, or a
 single downloaded **`install.py`** that needs nothing but a supported Python — no clone, no `uv`, no
 `pipx`, no global `pip`. **`klarpdf` is on PyPI** with all 29 dependencies pinned exactly, so every
@@ -525,9 +533,9 @@ to the find bar, an **Annotations sidebar tab**, and **Full Screen / Slideshow /
 modes; and (M78.2–.6) adds arrow-key nudge, text-box reflow, HUS arming swatches and a split style
 button, with the sidebar (M79.1–.3) losing its title bar and showing optional tabs only on demand.
 **M0–M44 and R1–R6 are all complete**, the bridge included — its reserved v0.11.0 was long spent by
-the time it shipped, so it took **v0.18.0** at tag time. **M138–M140** (document structure for
-agents — `get_links`, `set_outline`, heading candidates) are scheduled but unstarted; the other
-named work is the **1.0 gate**. Both are in `PROGRESS.md`.
+the time it shipped, so it took **v0.18.0** at tag time. **M138–M157** shipped in v0.20.0, except
+**M142** (Markdown export), which the owner deferred. The named work left is the **1.0 gate**, in
+`PROGRESS.md`.
 For live status — shipped versions, per-release notes, release links, milestone ticks, and **Open
 follow-ups** — see `PROGRESS.md` (the single source of status; read it first). Design/spec, including
 §Future enhancements for what's next, lives in `PLAN.md`.

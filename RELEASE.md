@@ -208,6 +208,14 @@ tells you *what* and *how severe*, and you do the bump yourself.
 **Prereqs:** on an up-to-date `main`, working tree clean, headless suite green
 (`.\.venv\Scripts\python.exe -m pytest` — offscreen), **and the `audit` workflow green on `main`**:
 
+> **Expect 9 skips on Windows under PowerShell** (measured 2026-09-29, v0.20.0: `2991 passed, 9
+> skipped`). The two beyond the seven explained below are `tests/test_installer.py`'s `#!/bin/sh`
+> stand-in servers, which Windows `CreateProcess` cannot run, so they skip on Windows by design
+> (M136; `CLAUDE.md` §How we work, *a test that executes a fixture is POSIX-only*). They arrived on
+> 2026-09-06 and this count was not updated, so the v0.20.0 release run found 9 against a written 7.
+> By the same reasoning Git Bash should show **5**, but that has not been measured since they were
+> added. The rest of this note is the history of the 7.
+>
 > **Expect 7 skips on Windows, not 1.** This line used to say "1 expected skip = the Poppler
 > `pdftotext` cross-check" and had drifted: there are **four** Poppler-gated tests now, not one, plus
 > three platform-conditional ones. A releaser with the wrong baseline cannot tell a normal run from a
