@@ -8321,6 +8321,35 @@ as before; its packages lose the three files. CI's bridge jobs, which run when a
 app still finds its license files through `sys._MEIPASS`, which the move does not touch; only a
 Windows build exercises that path.
 
+### M157 — `pyjwt` 2.13.0 → 2.14.0: a malformed key aborts a JWK Set *(unplanned)* (2026-09-29)
+
+Placed beside M144 and M147, the other bridge dependency and packaging entries, rather than in
+number order. Found while preparing v0.20.0. Dependabot opened five alerts for
+[GHSA-w6j9-cwv2-h6wq](https://github.com/advisories/GHSA-w6j9-cwv2-h6wq) (Medium, CVSS 5.9) on the
+day it was published, one day after the last scheduled `audit` run passed. `PyJWKSet` skips a key
+it cannot use only when the key raises `PyJWTError`. An RSA key with `d` but no CRT parameters
+raises a plain `ValueError` instead, so one bad key aborts the whole set.
+
+**Surfaces: the bridge only.** PyJWT comes in through `mcp` (`requirements-mcp.txt`); the Windows
+installer never had it. **It is not reachable.** The only module in `mcp` that imports `jwt` is its
+client-side OAuth extension (`mcp/client/auth/extensions/client_credentials.py`). Importing
+`klarpdf.mcp_bridge.server` leaves `jwt` out of `sys.modules`, and the bridge talks over stdio with
+no authentication at all.
+
+**Why bump it anyway, and before the release** (owner, 2026-09-29): v0.20.0 publishes a wheel to
+PyPI that pins every dependency exactly, and a PyPI version cannot be replaced. Shipping it would
+put a flagged pin into a permanent release and turn the tag's `audit` run red, to be published over
+knowingly.
+
+**What changed.** The same five files as M144, by the same route. Both locks were compiled in WSL
+(M137) with `--upgrade-package pyjwt==2.14.0`, and each moves one line. 2.14.0 declares no `==` on
+a sibling package, so unlike `httpx2` nothing had to move with it (`RELEASE.md` §2). Then the root
+`pyproject.toml` pin block (`sync_pins.py`), the bundle's `pyproject.toml`
+(`build_mcpb.py --validate`) and its `uv.lock`, which records only the PyJWT change.
+
+**Afterwards:** alert #35 names `packaging/mcpb/uv.lock`, the path M133 moved. As with #31–#33 in
+M144, a commit cannot close it, so it is dismissed as *inaccurate* once this merges.
+
 ### M149 — small app fixes: a file that will not open, a launch with no window, a window that shrinks to a bar, web links, and a zoom floor that moved (2026-09-19)
 
 Five independent defects in the app, grouped because each is small and none touches the core:
