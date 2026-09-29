@@ -443,6 +443,17 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   `get_texttrace()` reports `type == 3`. `get_heading_candidates` skips such spans; `get_tables`
   does not yet and declines every table on that file
   ([#352](https://github.com/utyagi24/klarpdf/issues/352)); `extract_text` returns both copies.
+- **A cloud session commits as `Claude <noreply@anthropic.com>` unless told otherwise, and the
+  `emails` check rejects it.** The container's `~/.gitconfig` sets that identity, and
+  `.github/workflows/author-email-guard.yml` accepts only a GitHub no-reply address as author or
+  committer (G7). The fix belongs in the environment, not the repo, because a repo file would sign
+  collaborators' commits as the owner. So the environment's settings set `GIT_AUTHOR_NAME`,
+  `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME` and `GIT_COMMITTER_EMAIL`, which override every git
+  config file. **Before the first commit, check `git var GIT_AUTHOR_IDENT`.** If it says
+  `anthropic.com`, the variables are missing: stop and ask, rather than commit. Commits that were
+  already pushed have to be re-authored and force-pushed, which needs the owner's go-ahead. PRs
+  [#406](https://github.com/utyagi24/klarpdf/pull/406) and
+  [#407](https://github.com/utyagi24/klarpdf/pull/407) both failed the check this way (2026-09-26).
 - **Windows Python must be python.org 3.12.x**, not the Microsoft Store stub (which can't build).
   That is the **app's build** requirement and nothing else. The MCP bridge is `pip`-installed rather
   than frozen, so `requires-python` genuinely gates it, and since M132 it is `>=3.11,<3.15` — do not
