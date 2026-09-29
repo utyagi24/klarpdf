@@ -30,14 +30,14 @@ import pytest
 # something imported a Qt submodule by a path that dodged the PySide6 name.
 FORBIDDEN = ("PySide6", "shiboken6")
 
-# The *other* library the bridge's lock leaves out (M115). `requirements-mcp.in` says "the bridge
-# never uses PyPdfEngine" — true, and until now nothing checked it. The import sits inside
-# `PyPdfEngine.materialize` rather than at module level, so `model.edit_engine` loads fine without
-# it and a load-time check proves nothing; only reaching that method fails, with
-# `ModuleNotFoundError: pypdf`, on a user's machine and never in CI — because CI installs
-# `requirements-dev.txt`, which *has* pypdf. Same shape as the version drift M115 fixes: what CI
-# runs is not what the bridge ships. Cheap to close here, since this exerciser already runs every
-# tool in a clean interpreter.
+# The *other* library the bridge's lock leaves out (M115). Since M156 no shipped code imports pypdf
+# at all. It is a dev-only second reader for the tests. `tests/test_pypdf_is_dev_only.py` reads
+# every import statement in shipped code, including those inside functions. This is the runtime
+# half. An import built at run time, such as `importlib.import_module("pypdf")`, has no import
+# statement for that check to find. It would fail on a user's machine with
+# `ModuleNotFoundError: pypdf`. It would pass in the CI jobs that install `requirements-dev.txt`,
+# because that lock *has* pypdf. This exerciser already runs every tool in a clean interpreter, so
+# the check costs nothing extra.
 FORBIDDEN_LIB = "pypdf"
 
 _CHILD = textwrap.dedent(
@@ -192,15 +192,16 @@ def test_no_qt_reaches_the_server_path(child_result):
     assert child_result["leaked"] == []
 
 
-def test_the_bridge_never_reaches_the_pypdf_engine(child_result):
-    """``requirements-mcp.in`` leaves pypdf out because "the bridge never uses PyPdfEngine" — and
-    until M115 nothing checked that the claim stayed true.
+def test_the_bridge_never_reaches_pypdf(child_result):
+    """``requirements-mcp.in`` leaves pypdf out. Since M156 the app's input does too, because pypdf
+    is a dev-only second reader for the tests. M115 added this check. M156 removed the engine it was
+    written for.
 
-    It cannot be checked at load time: ``model/edit_engine.py`` imports pypdf *inside*
-    ``PyPdfEngine.materialize``, so the module loads without it and only reaching that method fails.
-    On a bridge user's machine that is ``ModuleNotFoundError: pypdf``; in CI it never fails at all,
-    because CI installs ``requirements-dev.txt``, which carries pypdf for the app. Running every
-    tool in a clean interpreter — which this exerciser already does — is the only honest check.
+    ``tests/test_pypdf_is_dev_only.py`` finds every ``import pypdf`` statement in shipped code,
+    including one inside a tool body. It cannot see an import built at run time. On a bridge user's
+    machine that import would fail with ``ModuleNotFoundError: pypdf``. The CI jobs that install
+    ``requirements-dev.txt`` have pypdf, so there it would pass. Running every tool in a clean
+    interpreter, which this exerciser already does, is the runtime check.
     """
     assert FORBIDDEN_LIB not in child_result["leaked"]
 

@@ -351,7 +351,7 @@ KlarPDF is licensed under the **GNU Affero General Public License v3.0 or later
 Why AGPL and not MIT/BSD: KlarPDF renders and edits PDFs with **PyMuPDF**, which is itself
 **AGPL-3.0** (or an Artifex commercial license). KlarPDF links it and is a derivative work, so the
 whole project must ship under the AGPL — it cannot be relicensed as MIT/BSD (see
-PLAN.md §Public-release readiness). The LGPL-3.0 (PySide6 / shiboken6) and BSD-3-Clause (pypdf) terms
+PLAN.md §Public-release readiness). The LGPL-3.0 (PySide6 / shiboken6) terms
 of the other bundled libraries are satisfied by the same source release. Per-dependency versions,
 license identifiers, and notices are in **[THIRD_PARTY_LICENSES](THIRD_PARTY_LICENSES)**
 (cross-referenced by [DEPENDENCIES.md](DEPENDENCIES.md)).

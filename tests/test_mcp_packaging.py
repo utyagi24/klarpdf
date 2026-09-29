@@ -184,6 +184,12 @@ def _requirements(text: str, base: Path | None = None) -> dict[str, tuple[str, s
     written: PyMuPDF lives in `requirements-core.in` and both `requirements.in` and
     `requirements-mcp.in` pull it in from there (M115), so a parser that stopped at the top level
     would report the shared engine as declared by nobody.
+
+    Every requirement line counts, whatever its operator. A bare name comes back as `("", "")`. A
+    line with two operators, such as `mcp>=2,<3`, keeps the first. Until M156 only `==` and `>=`
+    lines were read. That also skipped every line with extras, such as `pyjwt[crypto]==2.13.0` in
+    the bridge's lock. `tests/test_pypdf_is_dev_only.py` asks whether a name is required at all, so
+    it needs every line.
     """
     out = {}
     for line in text.splitlines():
@@ -196,9 +202,13 @@ def _requirements(text: str, base: Path | None = None) -> dict[str, tuple[str, s
             if nested.exists():
                 out.update(_requirements(nested.read_text("utf-8"), nested))
             continue
-        m = re.match(r"^([A-Za-z0-9_.\-]+)\s*(==|>=)\s*([0-9][^,\s]*)", line)
+        m = re.match(
+            r"^([A-Za-z0-9][A-Za-z0-9_.\-]*)\s*(?:\[[^\]]*\])?\s*"
+            r"(?:(===|==|~=|!=|>=|<=|>|<)\s*([^,;\s]+))?\s*(?:$|[,;@])",
+            line,
+        )
         if m:
-            out[m.group(1).lower()] = (m.group(2), m.group(3))
+            out[m.group(1).lower()] = (m.group(2) or "", m.group(3) or "")
     return out
 
 
@@ -342,6 +352,23 @@ def test_an_install_carries_the_core_but_not_the_gui():
         assert f'"{gui}"' not in packages, f"{gui} would drag Qt into a bridge install"
 
 
+def _imports(path: Path) -> list[tuple[str, int]]:
+    """Every absolute import in the file at `path`, as `(module, line)`.
+
+    Every import statement counts, including one inside a function, since that is where a lazy
+    import hides. The file is parsed from its bytes, the way Python reads it. Read as text, a file
+    that starts with a byte-order mark fails to parse, although Python runs it. Some Windows editors
+    write that mark. `tests/test_pypdf_is_dev_only.py` uses this too.
+    """
+    found = []
+    for node in ast.walk(ast.parse(path.read_bytes(), filename=str(path))):
+        if isinstance(node, ast.Import):
+            found += [(alias.name, node.lineno) for alias in node.names]
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            found.append((node.module, node.lineno))
+    return found
+
+
 def test_nothing_in_the_package_imports_qt():
     """The wheel and the `.mcpb` both ship `klarpdf/` whole, and neither installs PySide6, so a module
     in it that imports Qt would reach bridge users unable to load (M147).
@@ -352,17 +379,12 @@ def test_nothing_in_the_package_imports_qt():
     rather than by a list of exceptions. Every import counts, including one inside a function, since
     that is where a lazy import hides.
     """
-    offenders = []
-    for path in sorted((ROOT / "klarpdf").rglob("*.py")):
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            if isinstance(node, ast.Import):
-                names = [alias.name for alias in node.names]
-            elif isinstance(node, ast.ImportFrom) and node.module:
-                names = [node.module]
-            else:
-                continue
-            if any(name.split(".")[0] in ("PySide6", "shiboken6") for name in names):
-                offenders.append(f"{path.relative_to(ROOT).as_posix()}:{node.lineno}")
+    offenders = [
+        f"{path.relative_to(ROOT).as_posix()}:{line}"
+        for path in sorted((ROOT / "klarpdf").rglob("*.py"))
+        for module, line in _imports(path)
+        if module.split(".")[0] in ("PySide6", "shiboken6")
+    ]
     assert offenders == [], f"Qt imported inside klarpdf/, which the bridge ships: {offenders}"
 
 
