@@ -7,6 +7,8 @@ headings, links and tables, and write that back as bookmarks; transform it by sp
 reordering, rotating, deleting pages, filling forms and annotating; and redact it destructively
 with cross-engine verification.
 
+## Quick setup
+
 **Claude Code, on Linux or macOS:**
 
 ```bash
@@ -20,11 +22,44 @@ That is the whole install. **`--scope user` is the part worth not dropping** —
 command change: on Windows `where klarpdf-mcp` prints the path to use (and if it prints nothing, see
 [PATH](#if-those-say-command-not-found)), Codex CLI and Gemini CLI take their own `mcp add`, and
 [Claude Desktop](#claude-desktop) installs a bundle rather than a command.
-[Quick setup](https://github.com/utyagi24/klarpdf/blob/main/klarpdf/mcp_bridge/QUICKSTART.md) has
-each of those combinations written out.
+[The quick-setup guide](https://github.com/utyagi24/klarpdf/blob/main/klarpdf/mcp_bridge/QUICKSTART.md)
+has each of those combinations written out: every client, on every OS.
+
+## Contents
 
 Everything below is the reference — what each tool guarantees, how to restrict what the server may
-touch, and what redaction does and does not promise.
+touch, and what redaction does and does not promise. **Already set up, and here to use a tool?**
+Go straight to [The tools](#the-tools).
+
+**Setting it up**
+
+- [Quick setup](#quick-setup), above, and
+  [the quick-setup guide](https://github.com/utyagi24/klarpdf/blob/main/klarpdf/mcp_bridge/QUICKSTART.md)
+  for every client and OS
+- [What it is, and what it is not](#what-it-is-and-what-it-is-not)
+- [What you need](#what-you-need)
+- [Install](#install): [if it says `command not found`](#if-those-say-command-not-found) ·
+  [with neither `uv` nor `pipx`](#with-neither-uv-nor-pipx) ·
+  [from a clone](#from-a-clone-instead)
+- [Connect it to your client](#connect-it-to-your-client): [Claude Code](#claude-code) ·
+  [Claude Desktop](#claude-desktop) · [Codex CLI](#codex-cli) · [Gemini CLI](#gemini-cli) ·
+  [any other client](#any-other-client)
+- [Limiting what the server can do](#limiting-what-the-server-can-do)
+
+**Using the tools**
+
+- [The tools](#the-tools): every tool, grouped into read, transform and redact
+  - [What the write tools guarantee](#what-the-write-tools-guarantee)
+  - [Clipping to a region](#clipping-to-a-region)
+  - [Reading a document's structure](#reading-a-documents-structure): headings, links, tables,
+    and [writing the structure back as bookmarks](#writing-the-structure-back-as-bookmarks)
+  - [Marking up, and the review hand-off](#marking-up-and-the-review-hand-off)
+  - [What redaction guarantees, and where it stops](#what-redaction-guarantees-and-where-it-stops)
+- [Password-protected PDFs](#password-protected-pdfs)
+- [Reading a tool's full contract](#reading-a-tools-full-contract): the `klarpdf://docs/…`
+  reference pages
+
+## What it is, and what it is not
 
 **It is independent of the KlarPDF app** and needs no GUI components. It runs on macOS, Linux and
 Windows.
@@ -390,41 +425,6 @@ Writes are on by default because no write tool can destroy data by construction:
 explicit new output path, and in-place save is never exposed. `--read-only` is the cautious opt-out,
 not the recommended setting.
 
-## Password-protected PDFs
-
-Every tool takes an optional `password`. Call `get_info` first — it reports `needs_password: true`
-for a document that will not open without one, and reports the encryption and permissions of a
-document that opens but is restricted.
-
-A missing or wrong password fails the call with a message naming the file and telling you to call
-again with `password`. The server never prompts: there is nobody behind an MCP call to answer a
-prompt, so prompting would hang the client instead of asking anyone anything.
-
-## Reading a tool's full contract
-
-Each tool's description carries what you need **before** calling it. The reference half — the
-field-by-field catalogue for `redact_text`, the counting and scope rules, how to feed `search` hits
-to `redact_regions` — is published as an MCP resource instead, for the eight tools whose replies
-need it:
-
-```
-klarpdf://docs/redact_text
-klarpdf://docs/search
-klarpdf://docs/get_tables
-klarpdf://docs/get_heading_candidates
-klarpdf://docs/get_links
-klarpdf://docs/set_outline
-klarpdf://docs/annotate
-klarpdf://docs/get_annotations
-```
-
-This is not organisation for its own sake. Claude Code truncates a tool description at 2,048
-characters and appends `… [truncated]` with no error, so 69% of `redact_text`'s documentation used
-to be discarded in transit — and it was the half describing what the reply *means*. Resource reads
-are capped at 100,000 characters, so that material now has somewhere to live. The resource serves
-the tool's live registered description plus the appendix, so it can never drift from what the tool
-actually advertises.
-
 ## The tools
 
 Page numbers are **1-based** everywhere, matching what a reader sees. An out-of-range page is an
@@ -708,3 +708,38 @@ That case is why the reply carries two fields worth reading rather than just a s
   *gone*, and all of it is silent when a query removed far more than you meant. It is also the only
   warning you get, because destroyed content leaves no trace in the output — the only record it was
   ever there is the input, which is never modified.
+
+## Password-protected PDFs
+
+Every tool takes an optional `password`. Call `get_info` first — it reports `needs_password: true`
+for a document that will not open without one, and reports the encryption and permissions of a
+document that opens but is restricted.
+
+A missing or wrong password fails the call with a message naming the file and telling you to call
+again with `password`. The server never prompts: there is nobody behind an MCP call to answer a
+prompt, so prompting would hang the client instead of asking anyone anything.
+
+## Reading a tool's full contract
+
+Each tool's description carries what you need **before** calling it. The reference half — the
+field-by-field catalogue for `redact_text`, the counting and scope rules, how to feed `search` hits
+to `redact_regions` — is published as an MCP resource instead, for the eight tools whose replies
+need it:
+
+```
+klarpdf://docs/redact_text
+klarpdf://docs/search
+klarpdf://docs/get_tables
+klarpdf://docs/get_heading_candidates
+klarpdf://docs/get_links
+klarpdf://docs/set_outline
+klarpdf://docs/annotate
+klarpdf://docs/get_annotations
+```
+
+This is not organisation for its own sake. Claude Code truncates a tool description at 2,048
+characters and appends `… [truncated]` with no error, so 69% of `redact_text`'s documentation used
+to be discarded in transit — and it was the half describing what the reply *means*. Resource reads
+are capped at 100,000 characters, so that material now has somewhere to live. The resource serves
+the tool's live registered description plus the appendix, so it can never drift from what the tool
+actually advertises.
