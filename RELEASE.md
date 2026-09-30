@@ -278,6 +278,13 @@ gh run list --workflow=audit.yml --limit 3      # main must be green before you 
      inventory if the release adds or changes a user-facing feature.**
      This is the *only* doc a visitor to the public repo reads, so a stale version here is the most
      visible drift there is. It went unnoticed at v0.9.5 and v0.9.6 (README still claimed v0.9.4).
+   - **`klarpdf/mcp_bridge/README.md` and `pyproject.toml`'s `description`, when the bridge
+     changed.** They are the PyPI page, and `publish-pypi.yml` builds them from **the tag**, so
+     they must be right before step 3. Afterwards, fixing them means deleting the draft and moving
+     the tag, or spending a version. At v0.20.0 the page still said "Nineteen tools" with four new
+     ones merged, and had no `top` for M150.2, because each tool's PR updated the front-page README
+     and not this one. It was caught after the tag was pushed, which cost a re-tag. Check the tool count against the live server
+     (`create_server()` → `list_tools()`), not against the prose.
    - `DEPENDENCIES.md` — update the **Locked** column if a dependency version changed.
 
    Open this as a normal PR (branch from `origin/main`), review, and **merge to `main`**.
