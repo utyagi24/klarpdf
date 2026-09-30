@@ -7,6 +7,8 @@ headings, links and tables, and write that back as bookmarks; transform it by sp
 reordering, rotating, deleting pages, filling forms and annotating; and redact it destructively
 with cross-engine verification.
 
+## Quick setup
+
 **Claude Code, on Linux or macOS:**
 
 ```bash
@@ -20,33 +22,21 @@ That is the whole install. **`--scope user` is the part worth not dropping** —
 command change: on Windows `where klarpdf-mcp` prints the path to use (and if it prints nothing, see
 [PATH](#if-those-say-command-not-found)), Codex CLI and Gemini CLI take their own `mcp add`, and
 [Claude Desktop](#claude-desktop) installs a bundle rather than a command.
-[Quick setup](https://github.com/utyagi24/klarpdf/blob/main/klarpdf/mcp_bridge/QUICKSTART.md) has
-each of those combinations written out.
-
-Everything below is the reference — what each tool guarantees, how to restrict what the server may
-touch, and what redaction does and does not promise. **Already set up, and here to use a tool?**
-Go straight to [The tools](#the-tools); the [contents](#contents) list every section.
-
-**It is independent of the KlarPDF app** and needs no GUI components. It runs on macOS, Linux and
-Windows.
-
-**Your PDFs stay where they are.** An agent works on the file on your disk — nothing is uploaded and
-no third-party service sees it, which is the point of running the engine locally rather than sending
-documents somewhere to be processed. The server itself makes no network connections: stdio is the
-only transport and there is no listening port. What a tool *returns* — a page's text, a rendered
-image — goes back to your model like any other tool result, so the usual care about what you hand a
-hosted model still applies.
-
-**It does not understand your documents.** Every tool here is mechanical: `search` matches literal
-text rather than meaning, `extract_text` returns what is on the page rather than a summary, and
-`annotate` and the redactions take boxes and strings rather than questions. Working out what a
-clause means, which name matters, or what ought to be removed is the model's job — this server's job
-is to hand it accurate material and then do exactly what it is told.
+[The quick-setup guide](https://github.com/utyagi24/klarpdf/blob/main/klarpdf/mcp_bridge/QUICKSTART.md)
+has each of those combinations written out: every client, on every OS.
 
 ## Contents
 
+Everything below is the reference — what each tool guarantees, how to restrict what the server may
+touch, and what redaction does and does not promise. **Already set up, and here to use a tool?**
+Go straight to [The tools](#the-tools).
+
 **Setting it up**
 
+- [Quick setup](#quick-setup), above, and
+  [the quick-setup guide](https://github.com/utyagi24/klarpdf/blob/main/klarpdf/mcp_bridge/QUICKSTART.md)
+  for every client and OS
+- [What it is, and what it is not](#what-it-is-and-what-it-is-not)
 - [What you need](#what-you-need)
 - [Install](#install): [if it says `command not found`](#if-those-say-command-not-found) ·
   [with neither `uv` nor `pipx`](#with-neither-uv-nor-pipx) ·
@@ -68,6 +58,24 @@ is to hand it accurate material and then do exactly what it is told.
 - [Password-protected PDFs](#password-protected-pdfs)
 - [Reading a tool's full contract](#reading-a-tools-full-contract): the `klarpdf://docs/…`
   reference pages
+
+## What it is, and what it is not
+
+**It is independent of the KlarPDF app** and needs no GUI components. It runs on macOS, Linux and
+Windows.
+
+**Your PDFs stay where they are.** An agent works on the file on your disk — nothing is uploaded and
+no third-party service sees it, which is the point of running the engine locally rather than sending
+documents somewhere to be processed. The server itself makes no network connections: stdio is the
+only transport and there is no listening port. What a tool *returns* — a page's text, a rendered
+image — goes back to your model like any other tool result, so the usual care about what you hand a
+hosted model still applies.
+
+**It does not understand your documents.** Every tool here is mechanical: `search` matches literal
+text rather than meaning, `extract_text` returns what is on the page rather than a summary, and
+`annotate` and the redactions take boxes and strings rather than questions. Working out what a
+clause means, which name matters, or what ought to be removed is the model's job — this server's job
+is to hand it accurate material and then do exactly what it is told.
 
 ## What you need
 
