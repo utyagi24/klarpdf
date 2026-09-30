@@ -191,7 +191,10 @@ whose contents page only worked if you found page 3 gets a sidebar that works in
 page set does not change, so the copy keeps everything the original held, encryption and
 permissions included: a restricted published manual comes back restricted, with navigation. A page
 the document does not have is an **error** rather than a bookmark quietly pointing at the nearest
-real page, which is what the PDF layer would do on its own.
+real page, which is what the PDF layer would do on its own. Each entry can also carry a `top`, how
+far down its page to land, so a bookmark opens on its heading rather than the top of the page:
+a heading's box from `get_heading_candidates` or a link's `target_top` from `get_links` feeds in
+unchanged, and `get_outline` returns it, so the round trip keeps every position.
 
 It never merges, and it will not let you find that out afterwards: if the document already has
 bookmarks, the call is **refused** unless you pass `replace_outline`. To *enrich* an outline rather

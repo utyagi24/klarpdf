@@ -1,8 +1,9 @@
 # KlarPDF MCP bridge
 
 KlarPDF's PDF engine as [MCP](https://modelcontextprotocol.io) tools — for Claude Code, Claude
-Desktop, Codex CLI, Gemini CLI, and any other client that speaks MCP over stdio. Nineteen tools:
-read a document without pulling it whole into context; transform it by splitting, merging,
+Desktop, Codex CLI, Gemini CLI, and any other client that speaks MCP over stdio. Twenty-three
+tools: read a document without pulling it whole into context; work out its structure from its
+headings, links and tables, and write that back as bookmarks; transform it by splitting, merging,
 reordering, rotating, deleting pages, filling forms and annotating; and redact it destructively
 with cross-engine verification.
 
@@ -403,11 +404,18 @@ prompt, so prompting would hang the client instead of asking anyone anything.
 
 Each tool's description carries what you need **before** calling it. The reference half — the
 field-by-field catalogue for `redact_text`, the counting and scope rules, how to feed `search` hits
-to `redact_regions` — is published as an MCP resource instead:
+to `redact_regions` — is published as an MCP resource instead, for the eight tools whose replies
+need it:
 
 ```
 klarpdf://docs/redact_text
 klarpdf://docs/search
+klarpdf://docs/get_tables
+klarpdf://docs/get_heading_candidates
+klarpdf://docs/get_links
+klarpdf://docs/set_outline
+klarpdf://docs/annotate
+klarpdf://docs/get_annotations
 ```
 
 This is not organisation for its own sake. Claude Code truncates a tool description at 2,048
@@ -426,10 +434,10 @@ error, never a silent clamp. Every tool takes an optional `password` — see
 | Read | |
 |---|---|
 | `get_info` | Pages, size, page sizes, encryption + permissions, **has-text-layer**, outline. Call it first. |
-| `get_outline` | Bookmarks as `{level, title, page}`. |
+| `get_outline` | Bookmarks as `{level, title, page, top}`, where `top` is how far down its page the bookmark lands. |
 | `get_tables` | Tables on the pages you name, as `rows` with each table's `title`, `page` and `bbox` — plus `unread_regions`, naming every region that could not be read and why. Rows come only from what the page draws (a grid, or ruled lines and shaded bands), columns from the white space no text crosses, and every table is checked against its page before it is returned. `pages` is required: reading tables costs far more than `extract_text`. |
 | `get_heading_candidates` | Lines set to stand out from the document's body text — larger, bold, or italic, including a heading that opens a paragraph — with page, `bbox` and a `style` id, plus a table describing each style once. For building bookmarks with `set_outline` when a document has neither an outline nor a linked contents page, or to add sections under an outline that has only chapters. The agent decides what is a heading; `styles` narrows to the ones it chose, and `tables: true` marks lines inside a table `get_tables` returns. |
-| `get_links` | Every link: where it points (`target_page` / `uri` / `file`), its `rect`, and the words under it. The structure a document carries when it has no bookmarks. Link *annotations* only — a URL merely typeset on the page is not one, so pair it with `search` for a privacy sweep. |
+| `get_links` | Every link: where it points (`target_page` and `target_top` / `uri` / `file`), its `rect`, and the words under it. The structure a document carries when it has no bookmarks. Link *annotations* only — a URL merely typeset on the page is not one, so pair it with `search` for a privacy sweep. |
 | `search` | Hits with page, snippet, box, and whether the text is `invisible` on the page. `match_case`, `whole_words`. |
 | `extract_text` | Text of named pages. |
 | `render_page` | One page — or one `clip` region of it — as a PNG image block. |
@@ -442,7 +450,7 @@ error, never a silent clamp. Every tool takes an optional `password` — see
 | `delete_pages` · `reorder` · `rotate` | Page-set edits; bookmarks follow their pages. |
 | `split` · `merge` | Cut into several files by print-dialog ranges (`"1-3"`, `"5-"`) / concatenate; merge renames colliding fields. |
 | `fill_form` · `flatten` | Fill (still editable; checkboxes take `true` or their own export state, anything else is an error) / bake in (no longer editable). `fill_form` warns on an XFA form and on read-only fields. |
-| `set_outline` | Give a document bookmarks: write `[{level, title, page}]` as its outline — the shape `get_outline` returns, so an outline round-trips and enriching one is `get_outline` + concatenate. Refuses if the document already has an outline unless `replace_outline: true`; a page the document does not have is an error, levels are repaired. |
+| `set_outline` | Give a document bookmarks: write `[{level, title, page, top}]` as its outline — the shape `get_outline` returns, so an outline round-trips and enriching one is `get_outline` + concatenate. `top` is optional: give it and the bookmark lands on its heading rather than the top of the page. Refuses if the document already has an outline unless `replace_outline: true`; a page the document does not have is an error, levels are repaired. |
 | `export_images` | Rasterise pages — or one `clip` region of each — to png/jpg files. |
 | `annotate` | Write highlights / underlines / strike-throughs, each able to carry a note. Takes boxes, not queries; merges with markup already there rather than stacking. |
 
@@ -460,8 +468,8 @@ error, never a silent clamp. Every tool takes an optional `password` — see
 - **Nothing else is clobbered either.** An existing output is refused unless you pass
   `overwrite: true`.
 - **Lossless for content; for document structure, only if the page set is unchanged.** Text layer,
-  form fields, annotations and bookmarks always survive, and bookmarks are re-pointed at pages' new
-  positions rather than left dangling. But a tool that *moves* pages (`reorder`, `delete_pages`,
+  form fields, annotations and bookmarks always survive, and bookmarks and links are re-pointed at
+  pages' new positions rather than left dangling, still landing on the same spot on their page. But a tool that *moves* pages (`reorder`, `delete_pages`,
   `extract_pages`, `split`, `merge`) builds a new document, and the accessibility structure tree,
   `/Perms`, the `/Names` tree and encryption do not survive that — they are document-level, and
   copying pages does not copy them. A tool that leaves every page in place (`fill_form`, `flatten`,
@@ -522,6 +530,45 @@ happily intersect it and hand back a cropped pixmap; `render_page` returns an im
 reply has nowhere to say that it did. The error names the page's rect instead, so the fix is one
 step rather than a guess. `export_images` checks **every** page in the set before writing anything —
 page sizes vary within a document, and a clip that dies on page 7 must not leave six files behind.
+
+### Reading a document's structure
+
+`extract_text` gives an agent a page's words. These tools give it the structure around them: what
+the document's sections are and where each one starts, where it points, and what its tables hold.
+With that, an agent can work through an 800-page report by its parts instead of reading all of it,
+answer "what does section 4 say" by going to section 4, and quote a table as a table rather than as
+a run of numbers. All four are read tools, so they are available under `--read-only`.
+
+- **`get_outline`** returns the document's bookmarks, when it has them, as
+  `{level, title, page, top}`. It is the cheapest answer, and many documents do not have one.
+- **`get_links`** returns every link the document carries: where it points (a page in this file,
+  with `target_top` for where on that page, or a web address, or another file) and the words it is
+  anchored on. Two things follow from that. It answers *where does this document send me*, which is
+  a privacy question as much as a navigation one. And a printed contents page is usually a set of
+  links, each already carrying its title, its target page and, in its indent, its level: structure
+  the publisher wrote, not structure guessed from the page.
+- **`get_heading_candidates`** lists the lines set to stand out from the body text (larger, bold
+  or italic, including a heading that opens a paragraph), each with its page, its box and a style,
+  plus a short table describing each style once. It is for documents with neither bookmarks nor a
+  linked contents page, and for finding the sections inside a chapter. The agent decides which
+  styles are headings and at what level; the tool makes sure none is missed.
+- **`get_tables`** returns the tables on the pages you name as rows, each with its page, its box
+  and its caption. Every table is checked against its page before it is returned, and one that
+  cannot be read without guessing is declined by name, with the reason, rather than returned wrong.
+  `extract_text` reports `table_pages`, so an agent can tell which pages are worth asking about.
+
+#### Writing the structure back as bookmarks
+
+Once the structure is known, `set_outline` can give the document the bookmarks it never had, so a
+reader in any viewer gets a sidebar instead of scrolling. Send it `[{level, title, page, top}]`.
+Pass `top` (a heading's box top, or a link's `target_top`) and each bookmark lands on its heading
+rather than the top of its page, which matters when a page holds several sections. The page set does
+not change, so the copy keeps everything the original held, encryption and permissions included.
+
+`set_outline` never merges. If the document already has bookmarks, the call is refused unless you
+pass `replace_outline`. To add to an outline instead, read it with `get_outline`, add your entries
+to that list, and send the whole tree back. Keep each entry's `top`: the reply reports
+`positions_discarded` if you drop them.
 
 ### Marking up, and the review hand-off
 
