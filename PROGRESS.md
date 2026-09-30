@@ -36,7 +36,7 @@ instead of crashing, and the window has a minimum size (**M149**). A style chang
 changes only that setting (**M154**), and a filled shape can have no border (**M155**). On WSL,
 lists and menus no longer stay on the desktop after they close (**M153**).
 
-**(3) Dependencies.** In the bridge, `pyjwt` 2.13.0 → 2.14.0 (**M157**, GHSA-w6j9-cwv2-h6wq) and
+**(3) Dependencies.** In the bridge, `pyjwt` 2.13.0 → 2.14.0 (**M157**, which fixes ten advisories, one of them critical) and
 `httpx2` 2.10.0 → 2.12.0 (**M144**, three advisories). Neither was reachable, since the bridge
 talks over stdio and makes no HTTP request, but the wheel on PyPI pins its dependencies exactly.
 **pypdf leaves the installer** (**M156**): it served a fallback engine that nothing ever used.
@@ -3003,7 +3003,11 @@ on the one above it. Every decision, every rejection and every measurement behin
   `jwt`, and the bridge server never loads it. Bumped before the release anyway (owner's call),
   because v0.20.0 publishes its exact pins to PyPI for good. Both locks move one line (compiled in
   WSL, M137), and the pin block, the bundle's pyproject and its `uv.lock` follow. Design in
-  `PLAN.md` §M157 — *WSL* — [#411](https://github.com/utyagi24/klarpdf/pull/411)
+  `PLAN.md` §M157 — *WSL* — [#411](https://github.com/utyagi24/klarpdf/pull/411).
+  **2026-09-30: 2.14.0 fixes nine more advisories** published the same day, one critical and five
+  high. They arrived as alerts #39–#47, all on the phantom `packaging/mcpb/uv.lock`, since every
+  real file already pinned 2.14.0 (§Open follow-ups). None was reachable either. Detail in
+  `PLAN.md` §M157.
 - [x] **M147** *(unplanned)* **The core's folders hold only the core** — 2026-09-18, the follow-up to
   M146. The three app-only files it listed as exceptions now sit beside their users:
   `edit_commands.py` at the top level beside `main_window.py`, `reveal.py` in `viewer/`,
@@ -5142,11 +5146,28 @@ it on this side of the line.
   file on `main`. So Dependabot raises alerts against it that no commit can close, because there is
   no file left to change: M144's three advisories did exactly that, as #31–#33, which were
   dismissed by hand. **Until the entry goes, every future advisory against a bridge dependency will
-  do the same**; `RELEASE.md` §2 says how to recognise and dismiss those alerts. **Decision owed:**
-  keep dismissing them, ask GitHub Support to drop the entry, or turn the dependency graph off and
-  on to force a full rebuild. The last option is untested here and may discard the alert history,
-  which is why it has not been tried. Check whether the entry is still there:
+  do the same**; `RELEASE.md` §2 says how to recognise and dismiss those alerts. Check whether the
+  entry is still there:
   `gh api graphql -f query='{repository(owner:"utyagi24",name:"klarpdf"){dependencyGraphManifests(first:50){nodes{filename}}}}'`
+
+  **Cause, found 2026-09-30: an orphaned Dependabot snapshot.** A `uv.lock` does not reach the
+  graph by GitHub reading the file. Dependabot scans it in a "Dependency Graph" run (trigger
+  `dynamic`, on each push to `main`) and submits a snapshot. GitHub keeps only the newest snapshot
+  for each pair of **correlator** and **detector**, and the correlator is built from the directory:
+  today's is `dependabot-uv-packaging-mcp-mcpb` for `/packaging/mcp/mcpb` (read from run
+  36651550197's log). The snapshot from before M133 sits under the old directory's correlator,
+  presumably `dependabot-uv-packaging-mcpb`. Nothing scans that directory any more, so nothing
+  replaces it, and GitHub treats its `uv.lock` as current, frozen at whatever it held on
+  2026-09-05. The root files are unaffected: they share one correlator, `dependabot-pip`, which
+  every run refreshes.
+
+  **The fix that does not work:** replacing it with an empty snapshot under the old correlator,
+  through the dependency-submission API. GitHub refuses (HTTP 422, *"detector name 'dependabot' is
+  reserved for internal services"*), so only Dependabot can write that key. Nothing was changed.
+  **Waiting on GitHub Support** to drop the snapshot: that is the only fix that sticks. Until then,
+  dismiss as *inaccurate*. Done for #31–#33 (M144), #35 and #39–#47 (M157, 2026-09-30).
+  Turning the dependency graph off and on stays the last resort, since it may discard the alert
+  history. How to avoid a repeat is in `CLAUDE.md` §Gotchas.
 
 - **The dev lock and the bridge lock pin different `typing-inspection` versions** (0.4.3 vs 0.4.4) —
   noticed 2026-09-16 while doing M144, and already true on `main` before it. It is the only package

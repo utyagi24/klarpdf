@@ -8350,6 +8350,17 @@ a sibling package, so unlike `httpx2` nothing had to move with it (`RELEASE.md` 
 **Afterwards:** alert #35 names `packaging/mcpb/uv.lock`, the path M133 moved. As with #31–#33 in
 M144, a commit cannot close it, so it is dismissed as *inaccurate* once this merges.
 
+**2.14.0 turned out to fix ten advisories, not one** (found 2026-09-30). Nine more PyJWT
+advisories were published the same day and reached this repo overnight as alerts #39–#47. One is
+critical ([GHSA-ffc3-869f-jxw9](https://github.com/advisories/GHSA-ffc3-869f-jxw9): a public key
+whose PEM whitespace or line endings are altered skips the guard against HS/asymmetric key
+confusion), and five are high. Every one lists 2.14.0 as its fix, and every one landed only on the
+phantom `packaging/mcpb/uv.lock`, because every real file already pinned 2.14.0. The bridge still
+never loads `jwt`, so none was reachable. It does change what the choice to bump before the release
+avoided: v0.20.0 published on 2.13.0 would have put a pin with a critical advisory on PyPI for
+good. #35 and #39–#47 were dismissed as *inaccurate* on 2026-09-30. Why the phantom path keeps
+drawing alerts is in `PROGRESS.md` §Open follow-ups.
+
 ### M149 — small app fixes: a file that will not open, a launch with no window, a window that shrinks to a bar, web links, and a zoom floor that moved (2026-09-19)
 
 Five independent defects in the app, grouped because each is small and none touches the core:
