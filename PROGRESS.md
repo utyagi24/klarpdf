@@ -7,7 +7,46 @@ it merges, check the box here in the same PR and append the PR link.
 > release links, milestone ticks, and open follow-ups. `PLAN.md` (design/spec) and `CLAUDE.md`
 > (conventions) **link here, they don't restate it** — see CLAUDE.md §How we work → "Where things live".
 
-**Status:** ✅ **v0.19.0 shipped** — **the bridge you can actually install (M133–M136)**. Installing
+**Status:** ✅ **v0.20.0 shipped** — **structure an agent can use, and a window that keeps up**
+(M138–M157). A **minor** under `RELEASE.md` §3's SemVer rule: new tools and app features, no
+breaking change. Release: <https://github.com/utyagi24/klarpdf/releases/tag/v0.20.0>.
+
+**(1) The bridge reads a document's structure and writes it back: 19 tools become 23.**
+`get_links` (**M138**) returns every link a PDF carries. A document with no bookmarks often has a
+printed contents page made of links that already name each entry's title, page and level (591 of
+them on the owner's `WH-1000XM6.pdf`). `set_outline` (**M139**) writes that structure back as real
+bookmarks, and since **M150.2** each entry can carry a `top`, so a bookmark lands on its heading
+rather than the top of its page. `get_heading_candidates` (**M140**) lists the lines set to stand
+out from the body text, for documents with neither. `get_tables` (**M141**) returns tables checked
+against their page: a table the page contradicts is declined with the reason, not guessed at.
+**M145** makes a table's `title` the caption the page sets over it, or `null`: 0 wrong on 105
+tables judged by eye, where the old rule got 16 wrong. **M148** stops a link's underline starting a
+table. Testing them found outline defects in the page tools, fixed in **M138.1–M138.5**: `merge`
+now keeps every document's outline, not only the first one's (one report lost all 223 of its
+bookmarks), and bookmarks no longer come out of a page move pointing nowhere. **M143**: `install.py` asks which scope you meant instead
+of guessing.
+
+**(2) In the app.** Links and bookmarks land on the spot they name, not the top of the page. A page
+move now keeps every destination byte-identical; across the test corpus a save used to flatten
+1,526 link positions and 689 bookmark positions (**M150.1**). Zoom and resize keep the page you are
+reading (**M151**). **A slow page no longer freezes the window** (**M152**, the 1.0 gate's Item E):
+it is drawn in pieces, and on the NADA cover the longest pause is about 0.1 s, where a zoom to 300%
+froze the window for 7.5 s. Web links open in the browser, a file that cannot be opened says so
+instead of crashing, and the window has a minimum size (**M149**). A style change on several shapes
+changes only that setting (**M154**), and a filled shape can have no border (**M155**). On WSL,
+lists and menus no longer stay on the desktop after they close (**M153**).
+
+**(3) Dependencies.** In the bridge, `pyjwt` 2.13.0 → 2.14.0 (**M157**, GHSA-w6j9-cwv2-h6wq) and
+`httpx2` 2.10.0 → 2.12.0 (**M144**, three advisories). Neither was reachable, since the bridge
+talks over stdio and makes no HTTP request, but the wheel on PyPI pins its dependencies exactly.
+**pypdf leaves the installer** (**M156**): it served a fallback engine that nothing ever used.
+
+**1.0 is still deliberately not taken.** Item E and the Donate link are done; the clean-machine
+install and the flaky `test_single_instance` remain (§Toward 1.0, below).
+
+2,991 headless tests green on Windows (9 expected skips under PowerShell — see `RELEASE.md` §3).
+
+**v0.19.0** — **the bridge you can actually install (M133–M136)**. Installing
 it was nine commands: clone, check out a tag, make a virtualenv, activate it, two `pip` lines, then
 find the path by hand — and the step that failed was the path. It is now **one**:
 
@@ -1025,7 +1064,7 @@ tick the box here on merge. Build in number order.
   - [#377](https://github.com/utyagi24/klarpdf/issues/377) the 25% zoom floor disappeared in a small
     window — **folded in at the owner's request** while this was being built (2026-09-19). Only a
     *fit* may go below 25% now; a step out holds, and a step in or a typed value lands on 25%.
-- [ ] **M150** **Links and bookmarks keep and use their position on the page**
+- [x] **M150** **Links and bookmarks keep and use their position on the page**
   - [x] **M150.1** **A destination is read and written exactly as the file spells it** — *Core +
     app, and the bridge's page-moving tools through the core.* Design, the measurements and the two
     owner decisions in `PLAN.md` §M150.1. — *WSL (headless)* — [#379](https://github.com/utyagi24/klarpdf/pull/379)

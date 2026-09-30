@@ -43,14 +43,14 @@ the unit of audit; it ships as a pinned, fully offline Windows installer.
 <p align="center"><sub>The real app, captured from a real build — and it follows the Windows theme, so
 this screenshot follows your GitHub one.</sub></p>
 
-**Status: `v0.19.0` shipped** — [download the installer or portable exe](https://github.com/utyagi24/klarpdf/releases/latest).
-**New in v0.19.0 — the bridge you can actually install:** the MCP bridge is published on **PyPI**,
-so `uv tool install klarpdf` (or `pipx install klarpdf`) replaces the nine-command clone-and-build it
-took before — and for a machine with neither, a single downloadable **`install.py`** needs nothing
-but a supported Python. All 29 dependencies are pinned exactly in the published package, so an
-install gets the set our CI tests and our weekly audit scans. **The Windows app is unchanged**: same
-installer, same size, same offline hash-verified build, and nobody installing it gets any of this.
-See [Use it from an agent](#use-it-from-an-agent-mcp).
+**Status: `v0.20.0` shipped** — [download the installer or portable exe](https://github.com/utyagi24/klarpdf/releases/latest).
+**New in v0.20.0 — structure an agent can use, and a window that keeps up:** the MCP bridge grows
+from 19 tools to 23. An agent can read a document's links, its headings and its tables, and write
+what it finds back as real bookmarks that land on their headings (see
+[Use it from an agent](#use-it-from-an-agent-mcp)). In the app, a page that is slow to draw no
+longer freezes the window, links and bookmarks take you to the spot they name rather than the top
+of the page, zoom and resize keep your place, web links open in your browser, and a filled shape
+can have no border.
 Full release notes live on
 [GitHub Releases](https://github.com/utyagi24/klarpdf/releases); live status — milestones
 (**M0–M44 + R1–R6 complete**), per-release notes, open follow-ups — in [PROGRESS.md](PROGRESS.md).
