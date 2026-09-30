@@ -2,10 +2,10 @@
 
 KlarPDF's PDF engine as [MCP](https://modelcontextprotocol.io) tools — for Claude Code, Claude
 Desktop, Codex CLI, Gemini CLI, and any other client that speaks MCP over stdio. Twenty-three
-tools: read a document without pulling it whole into context, including its links, its headings
-and its tables; give it bookmarks it never had; transform it by splitting, merging, reordering,
-rotating, deleting pages, filling forms and annotating; and redact it destructively with
-cross-engine verification.
+tools: read a document without pulling it whole into context; work out its structure from its
+headings, links and tables, and write that back as bookmarks; transform it by splitting, merging,
+reordering, rotating, deleting pages, filling forms and annotating; and redact it destructively
+with cross-engine verification.
 
 **Claude Code, on Linux or macOS:**
 
@@ -531,31 +531,44 @@ reply has nowhere to say that it did. The error names the page's rect instead, s
 step rather than a guess. `export_images` checks **every** page in the set before writing anything —
 page sizes vary within a document, and a clip that dies on page 7 must not leave six files behind.
 
-### Giving a document bookmarks
+### Reading a document's structure
 
-Many PDFs have no bookmarks, so a reader can only scroll. Three read tools find the structure and
-`set_outline` writes it back as real bookmarks that work in every viewer.
+`extract_text` gives an agent a page's words. These tools give it the structure around them: what
+the document's sections are and where each one starts, where it points, and what its tables hold.
+With that, an agent can work through an 800-page report by its parts instead of reading all of it,
+answer "what does section 4 say" by going to section 4, and quote a table as a table rather than as
+a run of numbers. All four are read tools, so they are available under `--read-only`.
 
-1. **Read the links first.** A printed contents page is usually a set of links, each already
-   carrying its title, its target page and, in its indent, its level. `get_links` returns them,
-   with `target_top` for where on the page each one lands. This is structure the publisher wrote,
-   not structure inferred from the page.
-2. **No linked contents page? Read the typography.** `get_heading_candidates` lists the lines set
-   to stand out from the body text, each with its page, its box and a style. The agent decides
-   which styles are headings and at what level; the tool makes sure none is missed. Name a
-   chapter's pages to find the sections to add under an outline that has only chapters.
-3. **Write it.** Send `[{level, title, page, top}]` to `set_outline`. Pass `top` (a heading's box
-   top, or a link's `target_top`) and each bookmark lands on its heading rather than the top of its
-   page, which matters when a page holds several sections. The page set does not change, so the
-   copy keeps everything the original held, encryption and permissions included.
+- **`get_outline`** returns the document's bookmarks, when it has them, as
+  `{level, title, page, top}`. It is the cheapest answer, and many documents do not have one.
+- **`get_links`** returns every link the document carries: where it points (a page in this file,
+  with `target_top` for where on that page, or a web address, or another file) and the words it is
+  anchored on. Two things follow from that. It answers *where does this document send me*, which is
+  a privacy question as much as a navigation one. And a printed contents page is usually a set of
+  links, each already carrying its title, its target page and, in its indent, its level: structure
+  the publisher wrote, not structure guessed from the page.
+- **`get_heading_candidates`** lists the lines set to stand out from the body text (larger, bold
+  or italic, including a heading that opens a paragraph), each with its page, its box and a style,
+  plus a short table describing each style once. It is for documents with neither bookmarks nor a
+  linked contents page, and for finding the sections inside a chapter. The agent decides which
+  styles are headings and at what level; the tool makes sure none is missed.
+- **`get_tables`** returns the tables on the pages you name as rows, each with its page, its box
+  and its caption. Every table is checked against its page before it is returned, and one that
+  cannot be read without guessing is declined by name, with the reason, rather than returned wrong.
+  `extract_text` reports `table_pages`, so an agent can tell which pages are worth asking about.
+
+#### Writing the structure back as bookmarks
+
+Once the structure is known, `set_outline` can give the document the bookmarks it never had, so a
+reader in any viewer gets a sidebar instead of scrolling. Send it `[{level, title, page, top}]`.
+Pass `top` (a heading's box top, or a link's `target_top`) and each bookmark lands on its heading
+rather than the top of its page, which matters when a page holds several sections. The page set does
+not change, so the copy keeps everything the original held, encryption and permissions included.
 
 `set_outline` never merges. If the document already has bookmarks, the call is refused unless you
 pass `replace_outline`. To add to an outline instead, read it with `get_outline`, add your entries
 to that list, and send the whole tree back. Keep each entry's `top`: the reply reports
 `positions_discarded` if you drop them.
-
-`get_tables` works the same way for tables: it returns the tables on the pages you name as rows,
-with each table's caption, and declines by name any table it cannot read without guessing.
 
 ### Marking up, and the review hand-off
 

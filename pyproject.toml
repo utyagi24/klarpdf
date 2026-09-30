@@ -5,7 +5,7 @@ dynamic = ["version"]
 # editor" — described the app, which this distribution does not contain: an install is the MCP
 # bridge and the GUI-free core it stands on (see `[tool.setuptools] packages`). The Windows viewer
 # ships as a PyInstaller-frozen installer and is never pip-installed.
-description = "KlarPDF's PDF engine as MCP tools — read PDFs and their links, headings and tables, add bookmarks, transform, and verifiably redact. Local and offline."
+description = "KlarPDF's PDF engine as MCP tools — read PDFs and their structure (headings, links, tables), add bookmarks, transform, and verifiably redact. Local and offline."
 readme = "klarpdf/mcp_bridge/README.md"
 license = "AGPL-3.0-or-later"
 license-files = ["LICENSE", "THIRD_PARTY_LICENSES"]
