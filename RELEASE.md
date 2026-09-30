@@ -156,9 +156,10 @@ tells you *what* and *how severe*, and you do the bump yourself.
 
    **Check the alert's manifest path exists before acting on it.** GitHub's dependency graph still
    lists `packaging/mcpb/uv.lock`, which M133 moved to `packaging/mcp/mcpb/uv.lock`. An alert on the
-   old path cannot be closed by a commit, because the file is gone. Fix the real files as usual,
-   then dismiss the leftover alerts as *inaccurate* (`PROGRESS.md` §Open follow-ups has the
-   background; M144 did this for #31–#33):
+   old path cannot be closed by a commit, because the file is gone: the entry is an orphaned
+   Dependabot snapshot that only GitHub Support can remove, and the API refuses to overwrite it.
+   Fix the real files as usual, then dismiss the leftover alerts as *inaccurate* (`PROGRESS.md`
+   §Open follow-ups has the cause; M144 did this for #31–#33, M157 for #35 and #39–#47):
    ```sh
    gh api -X PATCH repos/utyagi24/klarpdf/dependabot/alerts/<N> -f state=dismissed \
      -f dismissed_reason=inaccurate -f dismissed_comment="stale path packaging/mcpb/uv.lock (moved in M133)"
@@ -281,10 +282,16 @@ gh run list --workflow=audit.yml --limit 3      # main must be green before you 
    - **`klarpdf/mcp_bridge/README.md` and `pyproject.toml`'s `description`, when the bridge
      changed.** They are the PyPI page, and `publish-pypi.yml` builds them from **the tag**, so
      they must be right before step 3. Afterwards, fixing them means deleting the draft and moving
-     the tag, or spending a version. At v0.20.0 the page still said "Nineteen tools" with four new
-     ones merged, and had no `top` for M150.2, because each tool's PR updated the front-page README
-     and not this one. It was caught after the tag was pushed, which cost a re-tag. Check the tool count against the live server
-     (`create_server()` → `list_tools()`), not against the prose.
+     the tag, or spending a version. **Moving a tag needs the owner**: the *Protect Tags* ruleset
+     forbids deleting or updating any tag, with no bypass, so the owner has to disable it in
+     Settings → Rules first and re-enable it afterwards. `gh release delete --cleanup-tag` deletes
+     the draft and then fails on the tag with HTTP 422, which leaves a tag with no release. At
+     v0.20.0 the page still said "Nineteen tools" with four new ones merged, and had no `top` for
+     M150.2, because each tool's PR updated the front-page README and not this one. It was caught
+     after the tag was pushed, which cost two re-tags. Check the tool count against the live
+     server (`create_server()` → `list_tools()`), not against the prose, and look at the rendered
+     page with a TestPyPI dry run (`publish-pypi.yml`, `repository: testpypi`, from a throwaway
+     branch with a `.devN` version, since TestPyPI never reuses a version either).
    - `DEPENDENCIES.md` — update the **Locked** column if a dependency version changed.
 
    Open this as a normal PR (branch from `origin/main`), review, and **merge to `main`**.

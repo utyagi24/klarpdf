@@ -454,6 +454,18 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   already pushed have to be re-authored and force-pushed, which needs the owner's go-ahead. PRs
   [#406](https://github.com/utyagi24/klarpdf/pull/406) and
   [#407](https://github.com/utyagi24/klarpdf/pull/407) both failed the check this way (2026-09-26).
+- **Moving a directory that holds a lock file outside the repo root leaves a phantom behind in
+  GitHub's dependency graph, and only GitHub Support can remove it.** Dependabot scans such a file
+  (today, `packaging/mcp/mcpb/uv.lock`) under a snapshot key built from its directory, and GitHub
+  keeps the newest snapshot per key. Move the directory and the old key is never refreshed, so the
+  file is reported as present on `main` forever, frozen at its old pins. Every later advisory
+  against those pins raises an alert that no commit can close: M133's move produced #31–#33, #35
+  and #39–#47, one critical among them. The dependency-submission API cannot clear it, because the
+  `dependabot` detector name is reserved (HTTP 422, measured 2026-09-30). So **do not move such a
+  directory without a reason worth the tail**. If one does move, write to GitHub Support in the
+  same PR, and note the old path in `RELEASE.md` §2 so its alerts are recognised and dismissed as
+  *inaccurate*. Files at the repo root are safe: they share one key that every scan refreshes
+  (`PROGRESS.md` §Open follow-ups).
 - **Windows Python must be python.org 3.12.x**, not the Microsoft Store stub (which can't build).
   That is the **app's build** requirement and nothing else. The MCP bridge is `pip`-installed rather
   than frozen, so `requires-python` genuinely gates it, and since M132 it is `>=3.11,<3.15` — do not
