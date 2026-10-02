@@ -3001,7 +3001,8 @@ on the one above it. Every decision, every rejection and every measurement behin
   one of their 29 shared packages that differed, and nothing broke. The dev lock is resynced, and
   `tests/test_mcp_packaging.py::test_the_bridge_is_tested_on_the_versions_it_ships` now fails on
   any shared pin that differs. Before the resync it failed, naming the package. *Neither surface*:
-  the bridge's lock, the wheel and the `.mcpb` are unchanged. Design in `PLAN.md` §M159 — *WSL*
+  the bridge's lock, the wheel and the `.mcpb` are unchanged. Design in `PLAN.md` §M159 — *WSL* —
+  [#418](https://github.com/utyagi24/klarpdf/pull/418).
 - [x] **M158** *(unplanned)* **`pyjwt` 2.14.0 → 2.15.1, `pypdf` 6.17.0 → 6.19.0** — 2026-10-02:
   Dependabot alerts #48–#61. PyJWT
   [GHSA-42vr-xj54-vc7v](https://github.com/advisories/GHSA-42vr-xj54-vc7v) (Medium, a
