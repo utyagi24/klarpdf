@@ -64,11 +64,11 @@ pydantic-core==2.46.4
     # via pydantic
 pygments==2.20.0
     # via pytest
-pyjwt[crypto]==2.14.0
+pyjwt[crypto]==2.15.1
     # via mcp
 pymupdf==1.27.2.3
     # via -r requirements-core.in
-pypdf==6.17.0
+pypdf==6.19.0
     # via -r requirements-dev.in
 pyside6-essentials==6.11.1
     # via -r requirements.in
