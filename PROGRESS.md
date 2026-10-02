@@ -2995,6 +2995,13 @@ on the one above it. Every decision, every rejection and every measurement behin
 `PLAN.md` §M133–M136 — **not restated here**. The headline: the install goes from nine commands to
 `python install.py`, or to `uvx --from klarpdf klarpdf-mcp` for anyone who already has `uv`.
 
+- [x] **M159** *(unplanned)* **The dev lock and the bridge's lock pin the same versions** —
+  2026-10-02, noticed during M158. `typing-inspection` had been 0.4.3 in `requirements-dev.txt` and
+  0.4.4 in `requirements-mcp.txt` since both were first compiled on 2026-08-12. That is the only
+  one of their 29 shared packages that differed, and nothing broke. The dev lock is resynced, and
+  `tests/test_mcp_packaging.py::test_the_bridge_is_tested_on_the_versions_it_ships` now fails on
+  any shared pin that differs. Before the resync it failed, naming the package. *Neither surface*:
+  the bridge's lock, the wheel and the `.mcpb` are unchanged. Design in `PLAN.md` §M159 — *WSL*
 - [x] **M158** *(unplanned)* **`pyjwt` 2.14.0 → 2.15.1, `pypdf` 6.17.0 → 6.19.0** — 2026-10-02:
   Dependabot alerts #48–#61. PyJWT
   [GHSA-42vr-xj54-vc7v](https://github.com/advisories/GHSA-42vr-xj54-vc7v) (Medium, a
@@ -5157,12 +5164,8 @@ it on this side of the line.
   `main` is fixed. M157 bumped *before* a release so that a flagged pin would not be published. No
   rule yet says whether a flag found *after* the release is worth a patch of its own or can wait
   for the next minor. Owner's call.
-- **The dev lock and the bridge lock disagree on `typing-inspection`** — noticed in M158
-  (2026-10-02): `requirements-mcp.txt` pins 0.4.4 and `requirements-dev.txt` 0.4.3, so CI tests the
-  bridge on a version its users do not get. Harmless today, and pre-existing: `pip-compile` keeps
-  an existing pin that still satisfies, so the two drift whenever only one is recompiled with
-  `--upgrade`. Deciding whether to add a check that the shared pins agree is open; the one-line fix
-  is `invoke lock-dev --package typing-inspection==0.4.4`.
+- ~~**The dev lock and the bridge lock disagree on `typing-inspection`**~~ — decided 2026-10-02:
+  resynced, with a test that keeps them in step. Graduated to **M159**.
 - **GitHub's dependency graph still lists `packaging/mcpb/uv.lock`, a file that no longer exists** —
   found 2026-09-17 after M144 merged. M133 (2026-09-05) moved the bundle to `packaging/mcp/mcpb/`,
   but the graph (`dependencyGraphManifests` in the GraphQL API) still reports the old path as a

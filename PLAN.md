@@ -8401,6 +8401,45 @@ follow-ups), so a commit cannot close them and they are dismissed as *inaccurate
 ([GHSA-gvp8-978c-rx2q](https://github.com/advisories/GHSA-gvp8-978c-rx2q)) covers 2.11.0–2.13.0
 and lists no fixed version, but no file has pinned that range since M157.
 
+### M159 — the dev lock and the bridge's lock pin the same versions *(unplanned)* (2026-10-02)
+
+Placed beside M158, where it was noticed. **The defect:** the two locks share all 29 of the
+bridge's packages, and one of them disagreed. `typing-inspection` was 0.4.3 in
+`requirements-dev.txt` and 0.4.4 in `requirements-mcp.txt`. It is a Pydantic helper that comes in
+through `pydantic` and `mcp`, and 0.4.4 only adds one constant, so nothing broke. **How it
+happened:** both locks first took the package on 2026-08-12. M39 added `mcp` to the dev lock and
+resolved to 0.4.3, and M42 created the bridge's lock a few hours later, after 0.4.4 was published.
+`pip-compile` keeps an existing pin that still satisfies, so no recompile since has moved either
+one.
+
+**What it cost, said accurately.** CI's `pytest` and `windows` jobs install the dev lock and run
+`tests/test_mcp_*.py`, so those runs tested the bridge on 0.4.3. The `bridge`, `bridge-windows` and
+`bridge-pyver` jobs install the bridge's own lock and run the same tests on 0.4.4, so what users
+install was tested all along. Those jobs were added after M115, when the two locks disagreed on
+PyMuPDF. The visible symptom was `pip check` in the WSL dev venv, where the editable klarpdf
+declares 0.4.4 and the dev lock installed 0.4.3.
+
+**Why a test and not only the resync.** M115's
+`test_the_bridge_and_the_app_never_ship_different_versions_of_a_shared_library` compares the
+bridge's lock with the shipped app's (`requirements-win.txt`) and leaves the dev lock out on
+purpose. Nothing compared the dev lock with the bridge's. The two are compiled separately, the dev
+lock only in WSL (M137), and `RELEASE.md` §2 bumps one lock at a time, so a one-sided bump is one
+missed step away. M157 and M158 both remembered to bump both; the test makes that a check rather
+than something to remember. It compares the two files and needs no tuned value (*Compare, don't
+guess*). It also asserts that every package in the bridge's lock is in the dev lock at all, since
+the `pytest` job could not import the bridge otherwise.
+
+**Left out on purpose:** the build lock (`requirements-build-win.txt`). It shares `setuptools`
+with the dev lock and disagrees (83.0.0 against 84.0.0), but the two copies do different jobs. One
+runs PyInstaller to build the installer, and the other builds the bridge's metadata in
+`tests/test_mcp_packaging.py`. Neither copy reaches a user. The ship lock agrees with the dev lock
+on all three packages they share, and nothing checks that either.
+
+**Surfaces:** neither. The change moves one line of the dev lock and adds a test. The bridge's
+lock, the wheel and the `.mcpb` are untouched. **Checked both ways:** the new test fails on `main`,
+naming `typing-inspection` (0.4.3, 0.4.4), and passes after `invoke lock-dev --package
+typing-inspection==0.4.4`, which moves that one line.
+
 ### M149 — small app fixes: a file that will not open, a launch with no window, a window that shrinks to a bar, web links, and a zoom floor that moved (2026-09-19)
 
 Five independent defects in the app, grouped because each is small and none touches the core:

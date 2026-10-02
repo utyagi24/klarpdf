@@ -296,6 +296,36 @@ def test_the_bridge_and_the_app_never_ship_different_versions_of_a_shared_librar
     )
 
 
+
+def test_the_bridge_is_tested_on_the_versions_it_ships():
+    """Every package the bridge's lock shares with the dev lock must be at the same version (M159).
+
+    The test above compares the bridge with the *shipped app*. This one compares it with
+    `requirements-dev.txt`, which CI's `pytest` and `windows` jobs install to run
+    `tests/test_mcp_*.py`. A version that differs there means those runs test the bridge on a
+    dependency its users never get. The `bridge` jobs install the bridge's own lock and would still
+    cover it, but nothing kept the two lists in step. `typing-inspection` sat at 0.4.3 in the dev
+    lock and 0.4.4 in the bridge's for seven weeks. Both locks were first compiled on 2026-08-12,
+    hours either side of the 0.4.4 release, and `pip-compile` keeps a pin that still satisfies, so
+    every later recompile left both versions where they were.
+
+    The two locks are compiled separately and by hand, and `RELEASE.md` §2 bumps them one at a time,
+    so a one-sided bump is easy to make. This turns it into a failure that names the package.
+    """
+    dev = _requirements((ROOT / "requirements-dev.txt").read_text("utf-8"))
+    bridge = _requirements(LOCK.read_text("utf-8"))
+    missing = sorted(set(bridge) - set(dev))
+    assert not missing, (
+        f"the dev lock does not carry {missing}, so CI's pytest job cannot import the bridge"
+    )
+    mismatched = {
+        name: (dev[name][1], bridge[name][1]) for name in bridge if dev[name][1] != bridge[name][1]
+    }
+    assert not mismatched, (
+        "the dev lock and the bridge's lock pin different versions (dev, bridge): "
+        f"{mismatched} - move the dev lock with `invoke lock-dev --package <name>==<version>` in WSL"
+    )
+
 def test_a_library_the_app_also_ships_is_pinned_in_the_bridge_input_not_floored():
     """The root cause, asserted directly: a **floor** cannot hold two locks together.
 
