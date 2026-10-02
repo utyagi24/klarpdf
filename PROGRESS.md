@@ -3004,7 +3004,8 @@ on the one above it. Every decision, every rejection and every measurement behin
   only the dev lock, since pypdf is test-only after M156, and the security floor in
   `requirements-dev.in` rises to 6.19.0. Compiled in WSL (M137). `pip-audit` reports 8 findings on
   `main`'s dev lock and 1 on its bridge lock, and none after the bump. #49–#51, on the phantom
-  path, are dismissed. Design in `PLAN.md` §M158 — *WSL*
+  path, are dismissed. Design in `PLAN.md` §M158 — *WSL* —
+  [#417](https://github.com/utyagi24/klarpdf/pull/417).
 - [x] **M157** *(unplanned)* **`pyjwt` 2.13.0 → 2.14.0** — 2026-09-29, found while preparing
   v0.20.0: Dependabot flagged
   [GHSA-w6j9-cwv2-h6wq](https://github.com/advisories/GHSA-w6j9-cwv2-h6wq) (Medium) the day it was
