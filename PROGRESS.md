@@ -2995,6 +2995,17 @@ on the one above it. Every decision, every rejection and every measurement behin
 `PLAN.md` §M133–M136 — **not restated here**. The headline: the install goes from nine commands to
 `python install.py`, or to `uvx --from klarpdf klarpdf-mcp` for anyone who already has `uv`.
 
+- [x] **M158** *(unplanned)* **`pyjwt` 2.14.0 → 2.15.1, `pypdf` 6.17.0 → 6.19.0** — 2026-10-02:
+  Dependabot alerts #48–#61. PyJWT
+  [GHSA-42vr-xj54-vc7v](https://github.com/advisories/GHSA-42vr-xj54-vc7v) (Medium, a
+  `RecursionError` on a nested payload) is *bridge only* and not reachable (the bridge server never
+  loads `jwt`). It is bumped because the PyPI wheel and the `.mcpb` bundle publish the pin. It goes
+  to 2.15.1 rather than the alert's 2.15.0 (owner's call). Seven High pypdf DoS advisories touch
+  only the dev lock, since pypdf is test-only after M156, and the security floor in
+  `requirements-dev.in` rises to 6.19.0. Compiled in WSL (M137). `pip-audit` reports 8 findings on
+  `main`'s dev lock and 1 on its bridge lock, and none after the bump. #49–#51, on the phantom
+  path, are dismissed. Design in `PLAN.md` §M158 — *WSL* —
+  [#417](https://github.com/utyagi24/klarpdf/pull/417).
 - [x] **M157** *(unplanned)* **`pyjwt` 2.13.0 → 2.14.0** — 2026-09-29, found while preparing
   v0.20.0: Dependabot flagged
   [GHSA-w6j9-cwv2-h6wq](https://github.com/advisories/GHSA-w6j9-cwv2-h6wq) (Medium) the day it was
@@ -5140,6 +5151,18 @@ it on this side of the line.
   what it claims. Nothing reached a user; each was caught by machinery already in the repo. Nothing
   carried.
 
+- **Does an unreachable advisory in a published bridge pin earn a patch release?** — open since
+  M158 (2026-10-02). v0.20.0 on PyPI and its `.mcpb` pin `pyjwt` 2.14.0, which
+  GHSA-42vr-xj54-vc7v (Medium) flags. The bridge never loads `jwt`, so no user is exposed, and
+  `main` is fixed. M157 bumped *before* a release so that a flagged pin would not be published. No
+  rule yet says whether a flag found *after* the release is worth a patch of its own or can wait
+  for the next minor. Owner's call.
+- **The dev lock and the bridge lock disagree on `typing-inspection`** — noticed in M158
+  (2026-10-02): `requirements-mcp.txt` pins 0.4.4 and `requirements-dev.txt` 0.4.3, so CI tests the
+  bridge on a version its users do not get. Harmless today, and pre-existing: `pip-compile` keeps
+  an existing pin that still satisfies, so the two drift whenever only one is recompiled with
+  `--upgrade`. Deciding whether to add a check that the shared pins agree is open; the one-line fix
+  is `invoke lock-dev --package typing-inspection==0.4.4`.
 - **GitHub's dependency graph still lists `packaging/mcpb/uv.lock`, a file that no longer exists** —
   found 2026-09-17 after M144 merged. M133 (2026-09-05) moved the bundle to `packaging/mcp/mcpb/`,
   but the graph (`dependencyGraphManifests` in the GraphQL API) still reports the old path as a
@@ -5165,7 +5188,8 @@ it on this side of the line.
   through the dependency-submission API. GitHub refuses (HTTP 422, *"detector name 'dependabot' is
   reserved for internal services"*), so only Dependabot can write that key. Nothing was changed.
   **Waiting on GitHub Support** to drop the snapshot: that is the only fix that sticks. Until then,
-  dismiss as *inaccurate*. Done for #31–#33 (M144), #35 and #39–#47 (M157, 2026-09-30).
+  dismiss as *inaccurate*. Done for #31–#33 (M144), #35 and #39–#47 (M157, 2026-09-30), #49–#51
+  (M158, 2026-10-02).
   Turning the dependency graph off and on stays the last resort, since it may discard the alert
   history. How to avoid a repeat is in `CLAUDE.md` §Gotchas.
 

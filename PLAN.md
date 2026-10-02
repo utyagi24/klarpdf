@@ -8361,6 +8361,46 @@ avoided: v0.20.0 published on 2.13.0 would have put a pin with a critical adviso
 good. #35 and #39–#47 were dismissed as *inaccurate* on 2026-09-30. Why the phantom path keeps
 drawing alerts is in `PROGRESS.md` §Open follow-ups.
 
+### M158 — `pyjwt` 2.14.0 → 2.15.1 and `pypdf` 6.17.0 → 6.19.0: crafted-input DoS advisories *(unplanned)* (2026-10-02)
+
+Placed beside M157, the last PyJWT bump, rather than in number order. Dependabot opened alerts
+#48–#61 overnight on 2026-10-02, for one PyJWT advisory and seven pypdf ones.
+
+**PyJWT.** [GHSA-42vr-xj54-vc7v](https://github.com/advisories/GHSA-42vr-xj54-vc7v) (Medium): a
+deeply nested payload raises a raw `RecursionError` before the signature is checked, in
+`PyJWKClient.get_signing_key_from_jwt` and in decoding with `verify_signature=False`. Fixed in
+2.15.0, which wraps it in `DecodeError`. **Surfaces: the bridge only**, as in M157: PyJWT comes in
+through `mcp`, and the Windows installer never had it. **It is not reachable**: importing
+`klarpdf.mcp_bridge.server` still leaves `jwt` out of `sys.modules` (checked again on 2.15.1), and
+the bridge talks over stdio with no authentication. Bumped anyway because the pin is published:
+the PyPI wheel and the `.mcpb` bundle both pin it exactly. **Why 2.15.1 and not 2.15.0, the
+alert's "first patched version"** (owner, 2026-10-02): 2.15.1 is the newest release and its only
+change is to accept trailing Base64URL `=` padding when decoding a JWS segment. There is nothing
+to gain by stopping one patch short of it. Like 2.14.0, it declares no `==` on a sibling package,
+so nothing moves with it.
+
+**pypdf.** Seven High advisories, all crafted-PDF runtime or memory blow-ups, fixed across 6.18.0
+([GHSA-5jq2-8x83-x246](https://github.com/advisories/GHSA-5jq2-8x83-x246)), 6.18.1
+(GHSA-fp3h-c4fm-7vvf, GHSA-g9cg-prrw-2r8q, GHSA-jw7q-gvrg-4vj3) and 6.19.0 (GHSA-w23x-9jrw-r45c,
+GHSA-php9-fj8v-98fj, GHSA-v247-6f48-mgcj). **Surfaces: neither.** Since M156 pypdf is a test
+dependency only (`tests/test_pypdf_is_dev_only.py`), so these touch `requirements-dev.txt` alone
+and reach no user. The dev lock is audited too, so the security floor in `requirements-dev.in`
+moves from 6.16.1 to 6.19.0, which keeps a later recompile from resolving back below it.
+
+**What changed.** M157's five files, plus the pypdf floor. Both locks were compiled in WSL (M137);
+`requirements-mcp.txt` moves the PyJWT line and `requirements-dev.txt` moves PyJWT and pypdf. Then
+the root `pyproject.toml` pin block (`sync_pins.py`), the bundle's `pyproject.toml`
+(`build_mcpb.py --validate`) and its `uv.lock`, which records only the PyJWT change. Checked both
+ways: `pip-audit --no-deps` reports 8 findings on `main`'s dev lock and 1 on its bridge lock, and
+none on either after the bump. A release is not needed for the dev lock. Whether the PyJWT pin
+earns a patch release before the next minor, given that it cannot be reached, is the owner's call
+(`PROGRESS.md` §Open follow-ups).
+
+**Afterwards:** alerts #49–#51 name the phantom `packaging/mcpb/uv.lock` (`PROGRESS.md` §Open
+follow-ups), so a commit cannot close them and they are dismissed as *inaccurate*. #51
+([GHSA-gvp8-978c-rx2q](https://github.com/advisories/GHSA-gvp8-978c-rx2q)) covers 2.11.0–2.13.0
+and lists no fixed version, but no file has pinned that range since M157.
+
 ### M149 — small app fixes: a file that will not open, a launch with no window, a window that shrinks to a bar, web links, and a zoom floor that moved (2026-09-19)
 
 Five independent defects in the app, grouped because each is small and none touches the core:
