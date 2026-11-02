@@ -10301,6 +10301,15 @@ height tried, 500–1100 px, in both fits. Opening the sidebar on the laptop evi
 view. The external monitor gives the same window a different size. That last step is inferred,
 since the laptop's window was not measured.
 
+**Two one-page Letter documents in the same window need not both hang, because the sidebar's width
+depends on the document.** The owner's settings ask for the Outline and Annotations tabs. A document
+with an outline gets the tab widget, 214 px wide offscreen, and one without gets the bare Pages
+panel, 210 px wide. The reported document has an outline. The owner's second one-page Letter PDF,
+which did not hang, has none. On `main`, at a window 700 px tall, opening the sidebar loops at
+widths 719–721, 723, 725 and 727 for the first and 715–717, 719, 721 and 723 for the second, so they
+share only three widths. With the sidebar hidden both loop at the same widths, 614–623 at 850 px
+tall. The fix removes every one of these loops.
+
 **This mechanism had been found once before, in the sidebar.** v0.9.5 (PR #80, `a776579`,
 2026-06-24) made the fits follow a resize. Two weeks later v0.9.6 fixed the same loop in the Pages
 sidebar (PR #87, `da91e7f`, 2026-07-08). On a short document with a narrow sidebar, the thumbnails
