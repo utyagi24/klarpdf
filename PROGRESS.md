@@ -1240,7 +1240,8 @@ tick the box here on merge. Build in number order.
   `render_page`. The document now gets `/ID [<> <>]`, which is the identifier its key was made
   from, when it is opened and again before an append. Every route then writes a file that opens,
   keeping its encryption and restrictions. AES-256 was never affected. The owner's own copy was
-  repaired by hand. Details in `PLAN.md` §M161 — *Windows (headless)* — PR link pending
+  repaired by hand. Details in `PLAN.md` §M161 — *Windows (headless)* —
+  [#423](https://github.com/utyagi24/klarpdf/pull/423)
 
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 
