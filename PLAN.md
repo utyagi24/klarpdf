@@ -10465,7 +10465,13 @@ existing behaviour for every owner-password file, not part of this defect.
 
 `tests/test_file_id.py` builds the shape with `write_idless_pdf` in `tests/conftest.py`: the key is
 made from a preset empty `/ID`, which is then blanked to the same length. The fixture checks itself,
-since one that quietly kept its `/ID` would pass every test it exists to fail. The tests run every
+since one that quietly kept its `/ID` would pass every test it exists to fail. **That check failed
+the PR's first Windows CI run, and it was right to.** MuPDF writes the random second `/ID` element
+as a literal string about once in 70 saves, and about once in 750 that string holds a raw `]`. The
+first version of the fixture cut at the first `]`, so it broke the trailer, and MuPDF repaired the
+file without its `/Encrypt`. The fixture now reads the array's two strings by the PDF grammar, and
+it checks `is_repaired` so a broken blank says so. 6,000 builds across the four algorithms met the
+literal form 84 times and failed none. The tests run every
 algorithm MuPDF writes through each save route, and check that the route taken is the one intended.
 They also check that `fresh_source`'s copy opens, that pypdf decrypts an appended RC4 file, and that
 the pin leaves alone a file it does not need to change. `tests/test_mcp_file_id.py` covers the

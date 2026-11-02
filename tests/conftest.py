@@ -262,6 +262,26 @@ def b_pdf(tmp_path) -> str:
     return path
 
 
+def _pdf_string_end(data: bytes, i: int) -> int:
+    """The index just past the PDF string that starts at ``data[i]``: hex ``<…>``, or literal
+    ``(…)``, whose parentheses nest and whose backslash escapes the byte after it."""
+    if data[i:i + 1] == b"<":
+        return data.index(b">", i) + 1
+    depth = 0
+    while True:
+        byte = data[i:i + 1]
+        if byte == b"\\":
+            i += 2
+            continue
+        if byte == b"(":
+            depth += 1
+        elif byte == b")":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+        i += 1
+
+
 def write_idless_pdf(path: str, texts: list[str], encryption: int | None = None) -> str:
     """Write a PDF whose trailer has **no** ``/ID`` — encrypted with an owner password only when
     ``encryption`` is given, keyed the way such a file from the field is (M161).
@@ -272,6 +292,12 @@ def write_idless_pdf(path: str, texts: list[str], encryption: int | None = None)
     and then blanked with spaces of the same length, so no offset in the file moves. The result is
     checked before it is handed back: a fixture that quietly kept its ``/ID`` would pass every test
     it exists to fail.
+
+    The blank has to find the end of the array by reading its two strings, not by looking for the
+    first ``]``. MuPDF writes the random second element as a hex string, and about once in 70 saves
+    as a literal one, which about once in 750 holds a ``]`` of its own. Cut there, the trailer broke,
+    MuPDF repaired the file without its ``/Encrypt``, and the self-check failed CI's Windows job
+    (M161).
     """
     doc = fitz.open()
     for text in texts:
@@ -285,11 +311,16 @@ def write_idless_pdf(path: str, texts: list[str], encryption: int | None = None)
     doc.close()
 
     data = pathlib.Path(path).read_bytes()
-    trailer = data.rindex(b"trailer")
-    start = data.index(b"/ID", trailer)
-    end = data.index(b"]", start) + 1
+    start = data.index(b"/ID", data.rindex(b"trailer"))
+    end = data.index(b"[", start) + 1
+    for _ in range(2):
+        while data[end:end + 1].isspace():
+            end += 1
+        end = _pdf_string_end(data, end)
+    end = data.index(b"]", end) + 1
     pathlib.Path(path).write_bytes(data[:start] + b" " * (end - start) + data[end:])
     with fitz.open(path) as check:
+        assert not check.is_repaired, "blanking the /ID broke the trailer"
         assert not check.needs_pass, "fixture is not openable without a password"
         assert check.xref_get_key(-1, "ID")[0] == "null", "fixture kept its /ID"
         assert bool(check.metadata["encryption"]) == (encryption is not None)
