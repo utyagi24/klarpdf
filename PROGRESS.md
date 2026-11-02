@@ -1229,7 +1229,7 @@ tick the box here on merge. Build in number order.
   sizes from the viewport without its scrollbars and never builds a page bigger than its space.
   Inside the Fit Width band, the page now gets a scrollbar's width of empty margin and no bar. A
   sweep that looped in 25 of its 26 runs now loops in none. Details in `PLAN.md` §M160 —
-  *Windows (headless)* — PR pending
+  *Windows (headless)* — [#421](https://github.com/utyagi24/klarpdf/pull/421)
 
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 
