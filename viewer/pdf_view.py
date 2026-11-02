@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
     QGraphicsRectItem,
     QGraphicsScene,
     QGraphicsView,
+    QStyle,
     QToolTip,
 )
 
@@ -247,6 +248,9 @@ class PdfView(QGraphicsView):
         # The scale the pages were laid out at. A zoom, or a screen with another DPI, changes
         # :attr:`scale` before the scene is built again, and the old layout is read before that.
         self._layout_scale = self.scale
+        # Every page's natural size, as the scene was last laid out with them (M160). A fit predicts
+        # the scene it will build from these instead of reading every page again on each resize.
+        self._laid_out: dict[int, tuple[float, float]] = {}
         # Two indexes that keep the render pass O(visible band) instead of O(document length),
         # both maintained by _build_scene / _render_visible (M87.3):
         self._page_tops: list[float] = []   # each page's scene y, non-decreasing — binary-searched
@@ -412,7 +416,12 @@ class PdfView(QGraphicsView):
         *logical* pixel (the view transform is identity — zoom rebuilds the scene rather than scaling
         the view), so at ``zoom = 1.0`` a 612 pt Letter page is 816 logical px = 8.5 real inches.
         """
-        return self._zoom * self._logical_dpi / 72.0
+        return self._scale_at(self._zoom)
+
+    def _scale_at(self, zoom: float) -> float:
+        """:attr:`scale` at ``zoom`` — the same arithmetic, so a fit can check the page it is about
+        to build down to the last bit (M160)."""
+        return zoom * self._logical_dpi / 72.0
 
     @property
     def device_scale(self) -> float:
@@ -593,7 +602,7 @@ class PdfView(QGraphicsView):
             return [tuple(i for i in (row, row + 1) if i < count) for row in range(0, count, 2)]
         return [(i,) for i in range(count)]
 
-    def _build_scene(self) -> None:
+    def _build_scene(self, sizes: "dict | None" = None) -> None:
         scene = self.scene()
         # Keep a picture of what the pages on screen show, to stand in while they are drawn again
         # at the new size (M152.2). Taken now, while the items still exist.
@@ -617,13 +626,50 @@ class PdfView(QGraphicsView):
         # so a page scrolling into view doesn't flash bright before its pixmap lands.
         page_brush = QBrush(QColor(0, 0, 0) if self._night else QColor(0xFF, 0xFF, 0xFF))
 
+        z = self.scale   # scene units per point — zoom × logicalDpi/72, not the bare zoom (M88.1)
+        self._layout_scale = z
+        self._laid_out = self._page_sizes() if sizes is None else sizes
+        placed, scene_w, scene_h = self._layout(z, self._laid_out)
+        for i in range(self._vdoc.page_count):
+            x, py, w, h = placed[i]
+            # Geometry goes in the item POSITION (local rect at origin), so the child pixmap —
+            # placed at the parent's (0,0) — inherits the page's scene position. Encoding x/y in
+            # the rect instead leaves the item at (0,0) and piles every pixmap at the origin.
+            bg = QGraphicsRectItem(QRectF(0, 0, w, h))
+            bg.setPos(x, py)
+            bg.setPen(page_pen)
+            bg.setBrush(page_brush)
+            scene.addItem(bg)
+            pix = QGraphicsPixmapItem(bg)  # child of bg → shares its position
+            pix.setPos(0, 0)
+            # ``total`` is the spin its pictures are drawn with. A carried picture is checked
+            # against it after an edit has already changed the document (M152.2).
+            self._pages.append({"bg": bg, "pix": pix, "x": x, "y": py, "w": w, "h": h,
+                                "total": (self._page_extra(i) + self._rotation) % 360})
+            self._page_tops.append(py)  # non-decreasing by construction — see _visible_range
+
+        scene.setSceneRect(0, 0, scene_w, scene_h)
+        self._render_visible()
+        # scene.clear() above discarded any overlay items; repaint them from logical state.
+        for overlay in (self.annotations, self.form, self.selection, self.search):
+            if overlay is not None:
+                overlay.repaint()
+        self._reposition_overlay_editors()  # an open inline editor follows the zoom
+
+    def _page_sizes(self) -> "dict[int, tuple[float, float]]":
+        """Every page's :meth:`_natural_size`, by index. Reading them is nearly all of a layout's
+        cost (2,000 pages: 41 ms of 41.5), which is why a fit does not read them itself (M160)."""
+        return {i: self._natural_size(i) for i in range(self._vdoc.page_count)}
+
+    def _layout(self, z: float, sizes: dict) -> "tuple[dict[int, tuple], float, float]":
+        """Where every page goes at ``z`` scene units per point, given :meth:`_page_sizes`:
+        ``{index: (x, y, w, h)}``, then the scene's width and height. :meth:`_build_scene` places
+        the pages with it, and a fit asks it how big the scene it is about to build will be (M160),
+        so the prediction and the build do the same arithmetic."""
         # Lay out by row: the single layout is one page per row; the facing layout (M78) sits a
         # pair side by side, the row taking the taller page's height. ``widest`` spans the widest
         # row, so pairs centre as a unit exactly as single pages centred alone.
         rows = self._layout_rows()
-        z = self.scale   # scene units per point — zoom × logicalDpi/72, not the bare zoom (M88.1)
-        self._layout_scale = z
-        sizes = {i: self._natural_size(i) for row in rows for i in row}
         row_width = {
             row: sum(sizes[i][0] for i in row) * z + (len(row) - 1) * _PAGE_GAP for row in rows
         }
@@ -643,31 +689,7 @@ class PdfView(QGraphicsView):
                 x += w + _PAGE_GAP
                 row_h = max(row_h, h)
             y += row_h + _PAGE_GAP
-        for i in range(self._vdoc.page_count):
-            x, py, w, h = placed[i]
-            # Geometry goes in the item POSITION (local rect at origin), so the child pixmap —
-            # placed at the parent's (0,0) — inherits the page's scene position. Encoding x/y in
-            # the rect instead leaves the item at (0,0) and piles every pixmap at the origin.
-            bg = QGraphicsRectItem(QRectF(0, 0, w, h))
-            bg.setPos(x, py)
-            bg.setPen(page_pen)
-            bg.setBrush(page_brush)
-            scene.addItem(bg)
-            pix = QGraphicsPixmapItem(bg)  # child of bg → shares its position
-            pix.setPos(0, 0)
-            # ``total`` is the spin its pictures are drawn with. A carried picture is checked
-            # against it after an edit has already changed the document (M152.2).
-            self._pages.append({"bg": bg, "pix": pix, "x": x, "y": py, "w": w, "h": h,
-                                "total": (self._page_extra(i) + self._rotation) % 360})
-            self._page_tops.append(py)  # non-decreasing by construction — see _visible_range
-
-        scene.setSceneRect(0, 0, widest + 2 * _PAGE_GAP, y)
-        self._render_visible()
-        # scene.clear() above discarded any overlay items; repaint them from logical state.
-        for overlay in (self.annotations, self.form, self.selection, self.search):
-            if overlay is not None:
-                overlay.repaint()
-        self._reposition_overlay_editors()  # an open inline editor follows the zoom
+        return placed, widest + 2 * _PAGE_GAP, y
 
     def _reposition_overlay_editors(self) -> None:
         """Move any open inline editor (form field / text box, and the M90 note popup the
@@ -3224,7 +3246,9 @@ class PdfView(QGraphicsView):
         be about a fit that has to fit, never about a licence to ask for less.
         """
         if fit:
-            floor = min(_MIN_ZOOM, self._fit_zoom(fit_height=True))
+            # A fit is its own floor. This was Fit Page's zoom, which no fit is below, so it never
+            # held one back, and reading it cost a second fit over every page (M160).
+            floor = min(_MIN_ZOOM, zoom)
         elif step and zoom < self._zoom:
             floor = min(_MIN_ZOOM, self._zoom)   # already below it → stay, don't zoom them in
         else:
@@ -3285,21 +3309,84 @@ class PdfView(QGraphicsView):
         return (sum(w for w, _h in sizes), max(h for _w, h in sizes),
                 float((len(row) - 1) * _PAGE_GAP))
 
-    def _fit_zoom(self, fit_height: bool) -> float:
-        """The **zoom** that fits the current row to the viewport.
+    def _fit_zoom(self, fit_height: bool, sizes: "dict | None" = None) -> float:
+        """The **zoom** that fits the current row to the viewport, leaving room for the scrollbars
+        that zoom will need. ``sizes`` is :meth:`_page_sizes`, when the caller has just read it.
+
+        **Measured without the scrollbars** (M160, #420). The fit used to size itself from the
+        viewport as it stood, whose width depends on whether a scrollbar is showing, and whether
+        one shows depends on the fit. On a one-page document the two chased each other: each fit
+        showed or hid a bar, each show or hide resized the viewport and fitted again, and the loop
+        doubled every 250 ms until the window stopped answering. It took a view close to the
+        page's own shape, which a sidebar toggle on a laptop produced. Sized from
+        ``maximumViewportSize()``, the zoom is a function of the window alone, so the resize a
+        scrollbar causes fits to the same zoom and goes no further.
+
+        The four arrangements are tried smallest change first: no bar, the vertical, the horizontal,
+        both. The first whose scene needs no bar it has not made room for wins, and the last always
+        does. When a page is too tall without the vertical bar and short enough with it, there is
+        no exact fit. It then gets the bar's width as empty margin, and no bar appears.
+
+        The other pages' sizes come from the last layout, not from the document. Reading 2,000
+        pages took 41 ms, and paying it on every resize step made a drag of the bottom edge 19
+        times slower. Those sizes are out of date only between an edit and the rebuild that
+        follows it, and every rebuild reads fresh ones. A fit in that gap can miss a scrollbar and
+        leave the page one bar's width off. It cannot start a loop, because the sizes it reads
+        change only when a rebuild reads the document again.
+        """
+        full = self.maximumViewportSize()
+        bar = self.style().pixelMetric(QStyle.PixelMetric.PM_ScrollBarExtent, None, self)
+        if sizes is None:
+            sizes = self._laid_out
+            if len(sizes) != self._vdoc.page_count:   # no layout yet, or pages added or removed
+                sizes = self._page_sizes()
+        for v, h in ((0, 0), (1, 0), (0, 1), (1, 1)):
+            zoom = self._fit_zoom_in(full.width() - v * bar, full.height() - h * bar, fit_height)
+            _placed, scene_w, scene_h = self._layout(self._scale_at(zoom), sizes)
+            need_v, need_h = self._scrollbars_for(scene_w, scene_h, full.width(), full.height(), bar)
+            if need_v <= v and need_h <= h:
+                break
+        return zoom
+
+    @staticmethod
+    def _scrollbars_for(scene_w: float, scene_h: float, width: int, height: int,
+                        bar: int) -> tuple[bool, bool]:
+        """``(vertical, horizontal)``: which scrollbars Qt gives a scene this size in a viewport of
+        at most ``width`` × ``height``. This is ``QGraphicsView::recalculateContentSize``'s rule,
+        where one bar takes room from the other, so a scene that overflows one way and nearly
+        fills the other gets both (M160)."""
+        horizontal = scene_w > width
+        vertical = scene_h > height
+        if horizontal and scene_h > height - bar:
+            vertical = True
+        if vertical and scene_w > width - bar:
+            horizontal = True
+        return vertical, horizontal
+
+    def _fit_zoom_in(self, width: int, height: int, fit_height: bool) -> float:
+        """The zoom that fits the current row to a ``width`` × ``height`` viewport.
 
         The division yields scene units per point; dividing by the DPI factor converts that back to
         a magnification, because :attr:`scale` multiplies it straight back in when the scene is
         built (M88.1). Skip that and Fit Page would overshoot the viewport by 1.333×.
+
+        **The page it builds is never a hair over** (M160). Multiplying back does not always undo
+        the division: at 410 of 1,200 widths a fitted Letter page came out 5e-13 px wider than the
+        space it was fitted to. Qt counts any excess as overflow, which is what took the M160
+        window into a loop in Fit Page, so the zoom steps down a float at a time until the page fits.
         """
         margin = 2 * _PAGE_GAP
         w_pt, h_pt, extra = self._fit_dims()
-        avail_w = max(1, self.viewport().width() - margin - extra)
+        avail_w = max(1, width - margin - extra)
+        avail_h = max(1, height - margin)
         scale = avail_w / w_pt
         if fit_height:
-            avail_h = max(1, self.viewport().height() - margin)
             scale = min(scale, avail_h / h_pt)
-        return scale / (self._logical_dpi / 72.0)
+        zoom = scale / (self._logical_dpi / 72.0)
+        while w_pt * self._scale_at(zoom) > avail_w or (
+                fit_height and h_pt * self._scale_at(zoom) > avail_h):
+            zoom = math.nextafter(zoom, 0.0)
+        return zoom
 
     def fit_width(self) -> None:
         self.set_zoom(self._fit_zoom(fit_height=False), fit="width")
@@ -3651,10 +3738,11 @@ class PdfView(QGraphicsView):
         # reason; this is the one rebuild that read the field back out afterwards.
         page = max(0, min(int(state.get("page", 0)), self._vdoc.page_count - 1))
         self._current = page                          # _fit_zoom sizes against *this* page's row
-        self._zoom = self._fit_zoom(fit_height=True)  # Fit Page, computed against the final viewport
+        sizes = self._page_sizes()                    # read once, for the fit and the build (M160)
+        self._zoom = self._fit_zoom(True, sizes)      # Fit Page, computed against the final viewport
         self._fit_mode = "page"                       # default view tracks Fit Page (re-fits on resize)
         with self._hold_render():                     # geometry + the first (and only) render
-            self._build_scene()
+            self._build_scene(sizes)
             self.goto_page(page)                      # resume the remembered page — the LOCAL, not
             self._center_horizontally()               # `self._current`: the hold happens to keep the
                                                       # field intact here, but the restore must not
