@@ -1218,6 +1218,18 @@ tick the box here on merge. Build in number order.
   saw it. Details in `PLAN.md` §M156 — *WSL (headless) + Windows* —
   [#407](https://github.com/utyagi24/klarpdf/pull/407) (code),
   [#410](https://github.com/utyagi24/klarpdf/pull/410) (the Windows half)
+- [x] **M160** *(unplanned)* **A fit never chases its own scrollbar** —
+  [#420](https://github.com/utyagi24/klarpdf/issues/420). *App.* On a one-page document, toggling
+  the sidebar hung the window when the space left had nearly the page's shape. The owner hit it on
+  the laptop, and not on the external monitor. A fit sized the page from the viewport as it stood,
+  and its width depends on the scrollbar the fit causes. So each fit showed or hid a bar, which
+  triggered another fit, and the loop doubled every 250 ms until the window hung. A document of
+  more than one page always has its bar, so it could not loop. Fit Width looped in a band about
+  18 px tall. Fit Page looped from rounding, which put the page 5e-13 px over its space. A fit now
+  sizes from the viewport without its scrollbars and never builds a page bigger than its space.
+  Inside the Fit Width band, the page now gets a scrollbar's width of empty margin and no bar. A
+  sweep that looped in 25 of its 26 runs now loops in none. Details in `PLAN.md` §M160 —
+  *Windows (headless)* — [#421](https://github.com/utyagi24/klarpdf/pull/421)
 
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 

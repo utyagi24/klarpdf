@@ -10257,6 +10257,129 @@ without `-Version` stopped at once with `No module named 'version'`. CI never hi
 lesson again: a move repoints every path computed from the old location, and a grep for the
 module's new name cannot find a line that still uses the old one.
 
+### M160 — a fit never chases its own scrollbar *(unplanned)* (2026-11-02)
+
+[#420](https://github.com/utyagi24/klarpdf/issues/420). The owner opened a one-page Letter PDF on
+the laptop (175%), clicked **Show/Hide the sidebar**, and the window stopped responding. It did not
+happen with the same document on the external monitor, or with other documents on the laptop.
+
+**Surfaces: the app only.** The change is in `viewer/pdf_view.py`. No file in `klarpdf/` changes,
+and the bridge has no viewport to fit.
+
+#### Cause
+
+A fit sized the page from `viewport()` as it stood. The viewport's width depends on whether the
+vertical scrollbar is showing, and whether it shows depends on the page. Every resize re-applies a
+sticky fit, which it has done since 2026-06-24 (`a776579`), so a fit that shows or hides a
+scrollbar resizes the viewport and fits again. Qt shows or hides a scrollbar through a queued
+connection, so the loop runs through the event loop rather than recursing, and it never ends.
+**It grows, too.** After one resize into it and no further input, the zoom changed 1,011 times in
+the first 250 ms, then 1,023, 2,047, 4,095 and so on, reaching 32,767 within two seconds. The likely
+reason it doubles is that a rebuild changes both scrollbars' ranges and Qt queues a relayout for
+each. That is why the window hung rather than flickered.
+
+There were two ways in, one per fit, measured offscreen (Fusion, 14 px scrollbars) on the
+reported document:
+
+* **Fit Width** has a band where neither state is stable: the page is too tall without the bar
+  and short enough beside it. In a viewport 698 × 878 px, the page fitted to the full 698 px makes
+  a scene 895.1 px tall, which needs the bar. Fitted to the 684 px beside the bar, it is 876.9 px
+  tall, which does not. The band is one scrollbar's width times the page's proportions, about 18 px of
+  height for Letter.
+* **Fit Page** should never need a scrollbar on one page, and loops anyway, from rounding. The
+  fit computes `scale / (dpi / 72)` and `scale` multiplies it back. That does not always undo
+  exactly: at **410 of 1,200** widths the fitted page came out up to 4.5e-13 px wider than the
+  space. `QGraphicsView::recalculateContentSize` compares without rounding, so a page that fits
+  exactly overflows. When the page is also within one scrollbar of the viewport's height, which
+  happens when the view has nearly the page's proportions, Qt counts both bars. The view refits
+  into the smaller space, the bars go, and the cycle repeats. At 800 px tall that is 624 px wide.
+
+**Why only this document, and only on the laptop.** A document of more than one page is always
+taller than the view, so its vertical bar is always showing and never switches. Only a one-page
+document can loop, and only when the view has a particular shape. A sweep found one at every
+height tried, 500–1100 px, in both fits. Opening the sidebar on the laptop evidently left such a
+view. The external monitor gives the same window a different size. That last step is inferred,
+since the laptop's window was not measured.
+
+**Two one-page Letter documents in the same window need not both hang, because the sidebar's width
+depends on the document.** The owner's settings ask for the Outline and Annotations tabs. A document
+with an outline gets the tab widget, 214 px wide offscreen, and one without gets the bare Pages
+panel, 210 px wide. The reported document has an outline. The owner's second one-page Letter PDF,
+which did not hang, has none. On `main`, at a window 700 px tall, opening the sidebar loops at
+widths 719–721, 723, 725 and 727 for the first and 715–717, 719, 721 and 723 for the second, so they
+share only three widths. With the sidebar hidden both loop at the same widths, 614–623 at 850 px
+tall. The fix removes every one of these loops.
+
+**This mechanism had been found once before, in the sidebar.** v0.9.5 (PR #80, `a776579`,
+2026-06-24) made the fits follow a resize. Two weeks later v0.9.6 fixed the same loop in the Pages
+sidebar (PR #87, `da91e7f`, 2026-07-08). On a short document with a narrow sidebar, the thumbnails
+flickered when the window's bottom edge met the last thumbnail. `_apply_thumb_size` sized them from
+`viewport().width()`: the bar appearing shrank them, they fitted, the bar went, and they grew back.
+That fix reserved the bar's width always (`contentsRect().width()` minus the bar). The page view's
+fit, added in the release before, had the same shape and was not checked. It hung rather than
+flickered, because each pass rebuilds the scene where the sidebar only resized an icon. Reserving
+the width always would have made every one-page document in Fit Width a scrollbar narrower than its
+window. M160 does that only inside the band. **Checked this time, after the fix:** the other reads
+of `viewport()` in `viewer/` and `organize/` place an editor, find what is on screen, or set a
+drawing budget. None of them sizes content, so none can switch a scrollbar.
+
+#### The fix
+
+**The zoom is a function of the window, not of the scrollbar it causes.** `_fit_zoom` sizes from
+`maximumViewportSize()`, the viewport with neither bar, and then makes room for the bars the fit
+will cause. It tries four arrangements, in order of how little space they take: no bar, the
+vertical bar, the horizontal bar, then both. The first whose scene needs no bar it has not made room
+for wins, and the last always does. The scene's size comes from `_layout`, which `_build_scene` now
+uses too, so the prediction and the build do the same arithmetic. Which bars a
+scene needs comes from `_scrollbars_for`, a copy of Qt's rule. **Neither has to be right for the
+loop to stay gone.** The resize a scrollbar causes leaves `maximumViewportSize()` unchanged, so it
+fits to the same zoom, and `set_zoom` returns before rebuilding anything. A wrong prediction would
+only misplace the page by a scrollbar's width.
+
+**And never a hair over.** `_fit_zoom_in` steps the zoom down one float at a time
+(`math.nextafter`) until the page it builds fits the space. The comparison uses `_scale_at`, the
+same arithmetic as `scale`. Float rounding is monotonic, so a page that fits keeps fitting after
+the gaps are added to it.
+
+**What it costs.** The old fit looked only at the current row. This one predicts the whole scene,
+which needs every page's size, and reading a page's size means loading the page: 41 ms for 2,000
+pages, nearly all of a layout's cost. Read on every resize step, that made a drag of the bottom
+edge in Fit Width 19 times slower on 2,000 pages (2.5 → 47 ms a step), because that drag used to
+leave the zoom alone and cost nothing. So the fit predicts from `_laid_out`, the sizes the scene
+was last laid out with. Every rebuild reads fresh ones, so what is drawn is always current, and
+open reads them once for the fit and the build. Those sizes are out of date only between an edit
+and the rebuild that follows it. A fit in that gap can miss a scrollbar, but it cannot loop,
+because those sizes change only when a rebuild reads the document again. `_clamp_zoom` read a
+second fit for every fit, as the floor for a fit. That floor was Fit Page's zoom, which no fit
+goes below, so it never held one back, and a fit is now its own floor. Measured on 2,000 pages
+against `main`: a step that changes the width costs 72 ms against 67, and a height-only step 5.1 ms
+against 2.6.
+
+**What the reader sees change:** inside the Fit Width band, the page is one scrollbar's width
+narrower than the view, with no scrollbar beside it. That is the only arrangement there that
+holds still. Everywhere else a fit lands where it did before. A long document still fits beside
+its bar, and a single page that fits in either direction still fills it.
+
+**Rejected:**
+
+* **Keep the vertical bar always on.** It would remove the band, at the cost of an empty
+  scrollbar beside every one-page document, which is dead chrome.
+* **Detect the oscillation and stop refitting.** That treats the symptom. It also needs a rule
+  for which of the two states to keep, and the right answer depends on which bar caused the
+  resize.
+
+#### Checks
+
+`tests/test_fit_scrollbar.py`. It sweeps Fit Width across the band and Fit Page across the shape
+that looped, and asserts that the zoom changes at most once per resize and that the settled state
+is right. The Fit Width sweep must pass through the band, so it cannot pass by missing it. It also
+checks, for 1,200 sizes, that a fitted page is never wider or taller than its space, and that an
+eight-page document still fits beside its bar in both fits. **Broken on purpose both ways:**
+without the float guard, four of the five tests fail, both loops among them. Measuring
+`viewport()` again (keeping the guard) fails the Fit Width loop and the eight-page Fit Width test.
+The reproduction sweep, 26 runs of 400 widths each on the reported document, looped in 25 runs
+before the fix and in none after it.
+
 ## The open issues, grouped — M149–M152 *(planned 2026-09-19)*
 
 Grouped at the owner's request (2026-09-19: *"plan milestones for all of the issues, except for 352
