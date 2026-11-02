@@ -10301,6 +10301,19 @@ height tried, 500–1100 px, in both fits. Opening the sidebar on the laptop evi
 view. The external monitor gives the same window a different size. That last step is inferred,
 since the laptop's window was not measured.
 
+**This mechanism had been found once before, in the sidebar.** v0.9.5 (PR #80, `a776579`,
+2026-06-24) made the fits follow a resize. Two weeks later v0.9.6 fixed the same loop in the Pages
+sidebar (PR #87, `da91e7f`, 2026-07-08). On a short document with a narrow sidebar, the thumbnails
+flickered when the window's bottom edge met the last thumbnail. `_apply_thumb_size` sized them from
+`viewport().width()`: the bar appearing shrank them, they fitted, the bar went, and they grew back.
+That fix reserved the bar's width always (`contentsRect().width()` minus the bar). The page view's
+fit, added in the release before, had the same shape and was not checked. It hung rather than
+flickered, because each pass rebuilds the scene where the sidebar only resized an icon. Reserving
+the width always would have made every one-page document in Fit Width a scrollbar narrower than its
+window. M160 does that only inside the band. **Checked this time, after the fix:** the other reads
+of `viewport()` in `viewer/` and `organize/` place an editor, find what is on screen, or set a
+drawing budget. None of them sizes content, so none can switch a scrollbar.
+
 #### The fix
 
 **The zoom is a function of the window, not of the scrollbar it causes.** `_fit_zoom` sizes from
