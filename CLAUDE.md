@@ -285,6 +285,14 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   False for a file that opened without a password — so an owner-password-restricted document reads
   as "not encrypted" and silently saves that way. Ask `doc.metadata["encryption"]` (or
   `doc.permissions != -4`), never `is_encrypted`, when the question is "was this file protected".
+- **MuPDF writes a new `/ID` on every save, and an RC4 or AES-128 key is made from the old one.**
+  A file encrypted with no `/ID` was keyed on the empty string. The spec requires one, but some
+  producers leave it out. `PDF_ENCRYPT_KEEP` keeps that key while MuPDF writes a fresh `/ID`, so
+  the output opens for nobody, and `fresh_source`'s round trip raises *document closed or
+  encrypted*. Every fixture PyMuPDF writes has an `/ID`, so the suite cannot see this unless it
+  builds the shape: `write_idless_pdf` in `tests/conftest.py`. `pin_file_id` is the fix (M161,
+  [#422](https://github.com/utyagi24/klarpdf/issues/422)), and any new path that opens an
+  encrypted file and writes it with `KEEP` needs it too.
 - **An incremental save is refused for exactly four reasons, and PyMuPDF's own default is one of
   them.** M116 appends to the file a document was opened from instead of rewriting it. Measured on
   1.27.2.3, `save(incremental=True)` raises for: any `garbage` level; a **stream-opened** document or

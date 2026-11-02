@@ -104,6 +104,31 @@ def _restrictions_of(doc: "fitz.Document") -> int:
     return -1 if permissions & _ALL_PERMISSIONS == _ALL_PERMISSIONS else permissions
 
 
+def pin_file_id(doc: "fitz.Document") -> None:
+    """Give an encrypted ``doc`` that has no file identifier the one its key was made from (M161).
+
+    RC4 and AES-128 encryption (revisions 2–4) derive the document's key from the password *and the
+    first element of the trailer's* ``/ID``, and a file with no ``/ID`` is read as if that element
+    were the empty string. The spec requires ``/ID`` whenever ``/Encrypt`` is present; some
+    producers leave it out anyway, and every reader copes. MuPDF does too, until it writes: on
+    **every** save it invents a fresh ``/ID``, while ``PDF_ENCRYPT_KEEP`` keeps the old key. The
+    output is keyed to one identifier and names another, so nothing can open it — not even with
+    the empty password it opened with. Measured on 1.27.2.3 against an owner-password RC4 document
+    from the field: an appended highlight, a full rewrite and a rewrite with no edits at all all
+    came back ``needs_pass``, and :meth:`VirtualDocument.fresh_source`, which reopens what it has
+    just written, raised *document closed or encrypted* — so every save that was not an append
+    failed outright, and the append wrote a file its owner could no longer open.
+
+    An empty first element is the identifier the key already uses, so this changes nothing a
+    reader computes, and MuPDF keeps a first element it finds and regenerates only the second.
+    AES-256 (revision 6) does not use ``/ID`` and is unaffected either way. A document with no
+    encryption, or with an identifier of its own, is left alone.
+    """
+    if doc.xref_get_key(-1, "Encrypt")[0] == "null" or doc.xref_get_key(-1, "ID")[0] != "null":
+        return
+    doc.xref_set_key(-1, "ID", "[<> <>]")
+
+
 @dataclass(frozen=True, slots=True)
 class PageRef:
     """A reference to one source page. Immutable so snapshots are cheap and safe.
@@ -353,6 +378,10 @@ class VirtualDocument:
                 # is still the encrypted one, so both facts read straight off it.
                 encryption = (doc.metadata or {}).get("encryption") or ""
                 restrictions = _restrictions_of(doc)
+                # …and it keeps that encryption through every copy made of it, so its key has to
+                # survive a write. The pin reaches `fresh_source` and so every route but the
+                # append, which reopens the file's own bytes and pins its own copy.
+                pin_file_id(doc)
             self._source_encryption[source_id] = encryption
             self._source_restrictions[source_id] = restrictions
             self.sources[source_id] = doc

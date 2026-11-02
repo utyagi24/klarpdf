@@ -1230,6 +1230,17 @@ tick the box here on merge. Build in number order.
   Inside the Fit Width band, the page now gets a scrollbar's width of empty margin and no bar. A
   sweep that looped in 25 of its 26 runs now loops in none. Details in `PLAN.md` §M160 —
   *Windows (headless)* — [#421](https://github.com/utyagi24/klarpdf/pull/421)
+- [x] **M161** *(unplanned)* **An encrypted file with no `/ID` still opens after a save** —
+  [#422](https://github.com/utyagi24/klarpdf/issues/422). *Core: the app and the bridge.* The
+  owner highlighted a line of an owner-password PDF and saved a copy, and the copy asked for a
+  password nobody had set. The file is RC4 40-bit with no `/ID` in its trailer, and an RC4 or
+  AES-128 key is made from that `/ID`. MuPDF invents a new one on every save while keeping the old
+  key, so the output opened for nobody. On such a file the append wrote that locked copy. The copy
+  and graft routes raised before writing anything, and so did Print, the exports and the bridge's
+  `render_page`. The document now gets `/ID [<> <>]`, which is the identifier its key was made
+  from, when it is opened and again before an append. Every route then writes a file that opens,
+  keeping its encryption and restrictions. AES-256 was never affected. The owner's own copy was
+  repaired by hand. Details in `PLAN.md` §M161 — *Windows (headless)* — PR link pending
 
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 
@@ -4849,6 +4860,13 @@ released build or in the code on `main` that is unambiguous and readily reproduc
 the PR that fixes it. See `CLAUDE.md` §How we work for the split and why. Items already carried here
 were not migrated wholesale: each is listed because a decision is outstanding, which is what keeps
 it on this side of the line.
+
+- **Report MuPDF's new `/ID` upstream?** (M161, found 2026-11-02). MuPDF writes a fresh `/ID` on
+  every save, even when `PDF_ENCRYPT_KEEP` keeps a key that was made from the file's missing one.
+  So any program saving such a file through MuPDF writes a copy nobody can open. `pin_file_id`
+  works around it here. **Open question:** report it to Artifex, and if they fix it, drop the pin
+  or keep it, since it costs nothing. The pin has to stay until whatever PyMuPDF build we pin
+  carries the fix. `PLAN.md` §M161.
 
 - **Dead code and coverage** (found 2026-09-26) — graduated. The coverage gate was rejected and a
   static dead-code check chosen instead, with today's findings to triage, in

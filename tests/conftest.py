@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import gc
 import os
+import pathlib
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")  # headless: no display needed
 # Headless printing: QPrinter's only Linux backend is the CUPS plugin, which enumerates print
@@ -258,6 +259,40 @@ def b_pdf(tmp_path) -> str:
     """2-page B.pdf with a colliding ``name`` form field. Returns the path."""
     path = str(tmp_path / "B.pdf")
     _build(path, B_TEXT, field_value="B-value")
+    return path
+
+
+def write_idless_pdf(path: str, texts: list[str], encryption: int | None = None) -> str:
+    """Write a PDF whose trailer has **no** ``/ID`` — encrypted with an owner password only when
+    ``encryption`` is given, keyed the way such a file from the field is (M161).
+
+    PyMuPDF always writes an ``/ID``, and an encrypted file's key is made from it, so the identifier
+    cannot simply be cut out afterwards. It is preset empty instead, which is what a reader assumes
+    for a file with none and so makes the key the one a producer that omits ``/ID`` would have made,
+    and then blanked with spaces of the same length, so no offset in the file moves. The result is
+    checked before it is handed back: a fixture that quietly kept its ``/ID`` would pass every test
+    it exists to fail.
+    """
+    doc = fitz.open()
+    for text in texts:
+        doc.new_page().insert_text((72, 72), text, fontsize=14)
+    doc.xref_set_key(-1, "ID", "[<> <>]")
+    if encryption is None:
+        doc.save(path)
+    else:
+        doc.save(path, encryption=encryption, owner_pw="owner",
+                 permissions=int(fitz.PDF_PERM_PRINT | fitz.PDF_PERM_ANNOTATE))
+    doc.close()
+
+    data = pathlib.Path(path).read_bytes()
+    trailer = data.rindex(b"trailer")
+    start = data.index(b"/ID", trailer)
+    end = data.index(b"]", start) + 1
+    pathlib.Path(path).write_bytes(data[:start] + b" " * (end - start) + data[end:])
+    with fitz.open(path) as check:
+        assert not check.needs_pass, "fixture is not openable without a password"
+        assert check.xref_get_key(-1, "ID")[0] == "null", "fixture kept its /ID"
+        assert bool(check.metadata["encryption"]) == (encryption is not None)
     return path
 
 

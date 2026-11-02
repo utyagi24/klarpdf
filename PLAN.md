@@ -10380,6 +10380,101 @@ without the float guard, four of the five tests fail, both loops among them. Mea
 The reproduction sweep, 26 runs of 400 widths each on the reported document, looped in 25 runs
 before the fix and in none after it.
 
+### M161 — an encrypted file with no `/ID` still opens after a save *(unplanned)* (2026-11-02)
+
+[#422](https://github.com/utyagi24/klarpdf/issues/422). The owner highlighted one line of an
+owner-password PDF, one that opens without a password and restricts what you may do with it, and
+used **Save As** to write a copy. The copy asked for a password. Nobody had ever set one, and the
+original still opened freely.
+
+**Surfaces: core, so the app and the bridge both.** The change is in `klarpdf/model/`. Every save
+in the app, and every write tool in the bridge, goes through `PyMuPDFEngine.materialize`, and every
+build of a document with edits starts from `VirtualDocument.fresh_source`. So did Print, the
+exports, the thumbnails of a document carrying our marks, and the bridge's `render_page`. That one
+is a read tool that draws from the same build a save writes.
+
+#### Cause
+
+The reported file uses RC4 40-bit (Standard security handler V1 R2) with an owner password and an
+empty user password, and its trailer has **no `/ID`**. The spec requires `/ID` whenever `/Encrypt`
+is present, but some producers leave it out. For revisions 2–4 (RC4 40 and 128, AES-128) the key is
+derived from the password, `/O`, `/P` **and the first element of `/ID`**. A reader takes a missing
+`/ID` as the empty string, and so does MuPDF on open. On every write, though, MuPDF invents a fresh
+`/ID`, while `PDF_ENCRYPT_KEEP` keeps the key and the `/Encrypt` dictionary as they were. The output
+is keyed to one identifier and names another, so the empty password no longer checks out and no
+reader can open it.
+
+Measured on PyMuPDF 1.27.2.3. The app's copy was the original's 54,585 bytes, untouched, plus a
+1,024-byte revision whose cross-reference stream carried a new `/ID[<7C4D…><1CD0…>]`. Overwriting
+those bytes with spaces, and nothing else, made the copy open again in PyMuPDF and in pypdf, with
+RC4, `/P` −44 and the highlight intact. So the save had done everything else right. On the same
+file, an incremental save with `KEEP`, a full rewrite with `KEEP`, and a full rewrite with no edits
+at all all came back `needs_pass`. Through the model, each route failed its own way:
+
+| Route | Taken by | Before the fix |
+|---|---|---|
+| Append (M116) | a save that only adds marks | writes a file that asks for a password |
+| Copy of the origin (M93) | rotate, crop, fill, redact on the same pages | raises `document closed or encrypted` |
+| Graft | reorder, delete, insert, merge | raises `document closed or encrypted` |
+
+The copy and the graft raise because `fresh_source` writes the source with `tobytes(KEEP)` and
+reopens the result, which is already locked. The append is the only route that writes anything,
+because it reopens the file's own bytes rather than a copy. **AES-256 (R6) is not affected**: its
+key does not use `/ID`.
+
+**Why the tests never saw it.** Every encrypted fixture in the suite is written by PyMuPDF, which
+always writes an `/ID`. MuPDF keeps an existing first element on every save and regenerates only
+the second, so a file that has an `/ID` keeps its key. `test_an_owner_password_document_keeps_its_encryption_through_an_append`
+was right, on the only shape of file the suite could produce.
+
+#### The fix
+
+`pin_file_id` (`klarpdf/model/virtual_document.py`) gives an encrypted document that has no `/ID`
+the trailer entry `/ID [<> <>]`. An empty first element is what the key was already made from, so it
+changes nothing a reader computes. Measured: given it, MuPDF keeps the empty first element and
+writes a fresh second one, `/ID[()<…>]`, on the append and on the full rewrite alike. Then the
+output opens with the empty password, its encryption and permissions unchanged, in PyMuPDF and in
+pypdf. A document without encryption, or with an `/ID` of its own, is left alone.
+
+It runs in two places, because there are two ways a document reaches a write:
+
+* **`open_source`**, on every source that opened without a password. That covers `fresh_source`,
+  and with it the copy route, the graft and everything that renders from them. A source that
+  needed a password is stored decrypted (M32) and has nothing to pin.
+* **`_append_to_origin`**, on the copy it reopens from the file's own bytes, which the first pin
+  never touched.
+
+The graft still writes such a file unencrypted, as it always has. A rebuild is a new document, and
+`_encryption_args` documents why it cannot carry an owner password it was never given. That is the
+existing behaviour for every owner-password file, not part of this defect.
+
+**Rejected:**
+
+* **Blank the new `/ID` after the write**, which is what repaired the owner's file. It edits a file
+  MuPDF has just finished, has to find the entry in a classic trailer or in a compressed
+  cross-reference stream's dictionary, and does nothing for `fresh_source`, which never writes to
+  disk.
+* **Re-key the document for the new identifier.** `/O` does not depend on `/ID` for R2–R4, so `/U`
+  could be recomputed without the owner password. But every string and stream would then need
+  encrypting again under the new key. `PDF_ENCRYPT_KEEP` does not do that, and an append exists
+  precisely not to rewrite what it did not change.
+* **Save such a file unencrypted, or refuse to save it.** The first lifts the restrictions without a
+  word, the defect M93 fixed. The second takes away an edit every other reader manages.
+
+#### Checks
+
+`tests/test_file_id.py` builds the shape with `write_idless_pdf` in `tests/conftest.py`: the key is
+made from a preset empty `/ID`, which is then blanked to the same length. The fixture checks itself,
+since one that quietly kept its `/ID` would pass every test it exists to fail. The tests run every
+algorithm MuPDF writes through each save route, and check that the route taken is the one intended.
+They also check that `fresh_source`'s copy opens, that pypdf decrypts an appended RC4 file, and that
+the pin leaves alone a file it does not need to change. `tests/test_mcp_file_id.py` covers the
+bridge: `annotate`, `rotate`, `reorder` and `render_page`. **Broken on purpose three ways:** without
+the `open_source` pin, the copy and graft cases, the `fresh_source` cases and the bridge's `rotate`,
+`reorder` and `render_page` tests fail. Without the append pin, the append cases, the pypdf check
+and `annotate` fail. Without either, all of them fail. The AES-256 cases pass throughout, as they
+should.
+
 ## The open issues, grouped — M149–M152 *(planned 2026-09-19)*
 
 Grouped at the owner's request (2026-09-19: *"plan milestones for all of the issues, except for 352

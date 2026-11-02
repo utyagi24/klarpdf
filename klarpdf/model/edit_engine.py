@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pymupdf as fitz
 
-from klarpdf.model.virtual_document import VirtualDocument
+from klarpdf.model.virtual_document import VirtualDocument, pin_file_id
 
 
 #: Object cleanup for the route that **copies the origin** — an unchanged page set (M110).
@@ -140,7 +140,9 @@ def append_options() -> dict:
     that is not belt-and-braces: PyMuPDF's default is ``PDF_ENCRYPT_NONE``, which MuPDF reads as a
     *request to change* the encryption and refuses outright — *"Can't do incremental writes when
     changing encryption"*, on a plain unprotected PDF. ``KEEP`` is how you say "leave it as it is",
-    which is also exactly the promise this route makes about everything else in the file.
+    which is also exactly the promise this route makes about everything else in the file. It keeps
+    the key and not, for a file that has none, the ``/ID`` the key was made from — see
+    :func:`~model.virtual_document.pin_file_id` (M161).
 
     ``clean`` stays :data:`CLEAN_COPIED` for the reason it is off on the copy route — this write
     did not rewrite any page's content — and here there is a second one: measured, ``clean=True``
@@ -212,6 +214,10 @@ def _keep_encryption(vdoc: VirtualDocument) -> dict:
     encrypted but never decrypted — i.e. it opened without a password. A document the user opened
     with a password, or whose password they have since removed, was decrypted at open and no longer
     reports encryption here, so a removed password stays removed.
+
+    What is kept is the key, and the key of an RC4 or AES-128 file is bound to its ``/ID``. When
+    the file has none, MuPDF writes a new one and the output opens for nobody; ``open_source`` pins
+    the identifier the key was made from before any copy is taken (M161).
     """
     if vdoc.password is None and vdoc.origin_carries_encryption():
         return {"encryption": fitz.PDF_ENCRYPT_KEEP}
@@ -404,6 +410,9 @@ class PyMuPDFEngine:
         Path(out_path).write_bytes(vdoc.origin_bytes())
         out = fitz.open(out_path)
         try:
+            # The seed is the file's own bytes, not the source `open_source` pinned, so an
+            # encrypted file with no `/ID` needs its pin here as well (M161).
+            pin_file_id(out)
             self._apply_page_edits(out, vdoc, appending=True)
             # An authored outline reaches this route only for a document that had none of its own
             # — :meth:`~model.virtual_document.VirtualDocument.edits_are_additive` refuses the
