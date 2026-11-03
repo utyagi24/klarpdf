@@ -278,6 +278,26 @@ def test_a_directory_given_as_a_document_is_reported_as_such(tmp_path):
         call(create_server(), "get_info", path=str(tmp_path))
 
 
+def test_a_failure_nobody_anticipated_still_reaches_the_caller(tmp_path):
+    """Since mcp 2.1 the SDK passes on the text of a `ToolError` only, and reports anything else
+    as a bare `Error executing tool <name>` (M162). The tests above cover the refusals we raise on
+    purpose. This one covers the rest: a file that is not a PDF fails inside PyMuPDF, and the agent
+    should hear PyMuPDF's reason. It compares that reason with the reply rather than spelling out
+    MuPDF's wording, which can change with any PyMuPDF release."""
+    path = tmp_path / "not-a.pdf"
+    path.write_bytes(b"this is not a PDF")
+
+    with pytest.raises(ToolError) as caught:
+        call(create_server(), "get_info", path=str(path))
+
+    # The SDK's ToolError, then ours, then what the tool raised.
+    raised = caught.value
+    while isinstance(raised, ToolError):
+        raised = raised.__cause__
+    assert raised is not None and str(raised)
+    assert str(raised) in str(caught.value)
+
+
 # ---- M119 / #294: the same mistake raises a different exception per platform ----
 #
 # The test above cannot catch this on its own, and that is the whole lesson. It opens a directory
