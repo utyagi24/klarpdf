@@ -8503,7 +8503,7 @@ build lock still to move, audited all four and exited 1, naming that lock.
 and 2.3.0 is a month of fixes on top. Its release notes list behaviour changes in the HTTP
 transports, header parameters and the client. The one that reaches a stdio server is that
 `initialize` no longer sends an empty `experimental` capability. The bridge's tests pass on 2.3.0,
-as above. Stopping at 2.2.0 would have needed the same code change and
+as above. Confirmed by the owner, 2026-11-02. Stopping at 2.2.0 would have needed the same code change and
 left 2.3's changes for the next bump. `mcp` pins `mcp-types` to its own version, so both are named
 in the compile, as `httpx2` and `httpcore2` were in M144. The security floors rise: `mcp>=2.2` in
 both `.in` files, and `pypdf>=6.21.4`.
