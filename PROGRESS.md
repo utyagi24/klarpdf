@@ -5211,7 +5211,9 @@ it on this side of the line.
   for the next minor. Owner's call. **M162 (2026-11-02) adds five more to the same question.**
   v0.20.0 also pins `mcp` 2.0.0 (four Medium, none reachable) and `opentelemetry-api` 1.44.0
   (GHSA-xcq7-p3pf-p88h, Medium), which is on the bridge's path but can only be triggered by the
-  client that launched it (`PLAN.md` §M162).
+  client that launched it (`PLAN.md` §M162). **Decided for these pins** (owner, 2026-11-02): no
+  patch release of their own. They ship with the next release of the app and the bridge, which is
+  due soon. The general rule is still open.
 - **Should the bridge stop the SDK logging a refused call's text?** — found 2026-11-02 in M162.
   Since `mcp` 2.1 the SDK writes one INFO line to the bridge's stderr for each refused tool call,
   with the refusal's text. For `redact_text` that text includes the string that was asked for. 2.0.0
