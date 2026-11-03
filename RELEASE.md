@@ -180,7 +180,8 @@ tells you *what* and *how severe*, and you do the bump yourself.
    **If the diff is empty, look for a sibling pinned in lockstep.** `httpx2` 2.12.0 requires
    `httpcore2==2.12.0` *exactly*, so `--upgrade-package httpx2` alone kept the existing
    `httpcore2==2.10.0` pin, and with it `httpx2` 2.10.0 — a successful compile with no diff and no
-   warning (M144). Read the fixed version's `Requires-Dist` for an `==` and name both:
+   warning (M144). `mcp` does the same with `mcp-types`, which it pins to its own version (M162).
+   Read the fixed version's `Requires-Dist` for an `==` and name both:
    ```sh
    curl -s https://pypi.org/pypi/httpx2/2.12.0/json | python -c "import json,sys; print(json.load(sys.stdin)['info']['requires_dist'])"
    pip-compile --upgrade-package httpx2==2.12.0 --upgrade-package httpcore2==2.12.0 -o requirements-mcp.txt requirements-mcp.in

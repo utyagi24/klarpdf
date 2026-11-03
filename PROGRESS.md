@@ -3019,6 +3019,19 @@ on the one above it. Every decision, every rejection and every measurement behin
 `PLAN.md` §M133–M136 — **not restated here**. The headline: the install goes from nine commands to
 `python install.py`, or to `uvx --from klarpdf klarpdf-mcp` for anyone who already has `uv`.
 
+- [x] **M162** *(unplanned)* **The weekly audit passes again, and the bridge keeps its error
+  messages on `mcp` 2.3** — [#419](https://github.com/utyagi24/klarpdf/issues/419), 2026-11-02.
+  24 advisories in three locks: `mcp` 2.0.0 → 2.3.0 (with `mcp-types`), `opentelemetry-api`
+  1.44.0 → 1.45.2, `pypdf` 6.19.0 → 6.21.4, `setuptools` → 84.2.1 in the dev and build locks. Two
+  defects were behind it. Since `mcp` 2.1 the SDK passes on only a `ToolError`'s text, so the bump
+  alone would have told the agent `Error executing tool <name>` for every refusal. `guarded` now
+  raises a `ToolError`, and the agent reads the same text on 2.0.0 and 2.3.0. And `audit.yml`
+  stopped at the first lock with findings, which kept the build and bridge locks unchecked from
+  19 October. Each lock is now audited every time. `invoke audit` in WSL skipped the bridge lock
+  and could never fail; it now matches `tools/audit-deps.ps1`. Only the `tracestate` advisory is on
+  the bridge's path, and only the client that launched it can send one. *The bridge*; the app is
+  untouched. Design in `PLAN.md` §M162 — *Windows + WSL* —
+  [#424](https://github.com/utyagi24/klarpdf/pull/424).
 - [x] **M159** *(unplanned)* **The dev lock and the bridge's lock pin the same versions** —
   2026-10-02, noticed during M158. `typing-inspection` had been 0.4.3 in `requirements-dev.txt` and
   0.4.4 in `requirements-mcp.txt` since both were first compiled on 2026-08-12. That is the only
@@ -5195,7 +5208,23 @@ it on this side of the line.
   GHSA-42vr-xj54-vc7v (Medium) flags. The bridge never loads `jwt`, so no user is exposed, and
   `main` is fixed. M157 bumped *before* a release so that a flagged pin would not be published. No
   rule yet says whether a flag found *after* the release is worth a patch of its own or can wait
-  for the next minor. Owner's call.
+  for the next minor. Owner's call. **M162 (2026-11-02) adds five more to the same question.**
+  v0.20.0 also pins `mcp` 2.0.0 (four Medium, none reachable) and `opentelemetry-api` 1.44.0
+  (GHSA-xcq7-p3pf-p88h, Medium), which is on the bridge's path but can only be triggered by the
+  client that launched it (`PLAN.md` §M162).
+- **Should the bridge stop the SDK logging a refused call's text?** — found 2026-11-02 in M162.
+  Since `mcp` 2.1 the SDK writes one INFO line to the bridge's stderr for each refused tool call,
+  with the refusal's text. For `redact_text` that text includes the string that was asked for. 2.0.0
+  wrote nothing. A client may keep a server's stderr in a log file, and the same text is already in
+  the conversation. Passing `log_level="WARNING"` to `MCPServer` would drop these lines, and the
+  SDK's other INFO lines with them. Not changed in M162, which kept to what the agent reads. Owner's
+  call.
+- **No audit scans the three platform-only packages in the bundle's `uv.lock`** — found 2026-11-02
+  in M162. The `.mcpb` lock agrees with `requirements-mcp.txt` on all 29 shared versions, and the
+  audit scans that file. But `uv lock` resolves for every platform, so it also pins `pywin32`,
+  `colorama` and `httpx2-jsfetch`, which a Linux compile of `requirements-mcp.txt` leaves out. All
+  three were clean on 2026-11-02. `pip-audit` cannot read a `uv.lock`; `uv export` can turn one
+  into a requirements file it can read. Decide whether the gap is worth a fifth audit step.
 - ~~**The dev lock and the bridge lock disagree on `typing-inspection`**~~ — decided 2026-10-02:
   resynced, with a test that keeps them in step. Graduated to **M159**.
 - **GitHub's dependency graph still lists `packaging/mcpb/uv.lock`, a file that no longer exists** —

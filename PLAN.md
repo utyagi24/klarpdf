@@ -8440,6 +8440,95 @@ lock, the wheel and the `.mcpb` are untouched. **Checked both ways:** the new te
 naming `typing-inspection` (0.4.3, 0.4.4), and passes after `invoke lock-dev --package
 typing-inspection==0.4.4`, which moves that one line.
 
+### M162 — the weekly audit passes again, and the bridge keeps its error messages on `mcp` 2.3 *(unplanned)* (2026-11-02)
+
+Placed beside M158 and M159, the last dependency entries, rather than in number order.
+[#419](https://github.com/utyagi24/klarpdf/issues/419): the weekly `audit` job failed on 19 and 26
+October. `pip-audit` found 24 advisories in three of the four locks, the same on 1 and 2 November:
+four in `mcp` 2.0.0 and one in `opentelemetry-api` 1.44.0 (the bridge and dev locks), eighteen in
+`pypdf` 6.19.0 (the dev lock), and one in `setuptools` (the dev and build locks). Building the fix
+found two defects behind it.
+
+**1. The bump would have silenced the bridge.** Since `mcp` 2.1.0, the SDK passes on the text of a
+`ToolError` only. Anything else counts as a crash: the agent gets `Error executing tool <name>`,
+and the server logs the traceback. 2.0.0 passed every exception's text on. The bridge relied on
+that: `guarded` re-raised `_explain(exc)`, which is a plain `ValueError` for our own refusals and
+the engine's exception otherwise. Measured on 2.3.0 with the old code, ten tests in
+`test_mcp_hardening.py` and `test_mcp_server.py` fail. Over a real stdio connection, a `redact_text`
+that matches nothing told the agent only `Error executing tool redact_text`. On 2.0.0 it said what
+was not found and to `search` first. Every 2.x version that fixes the advisories has the change.
+
+**The fix:** `guarded` raises `ToolError(str(_explain(exc)))`. Both SDKs put the same
+`Error executing tool <name>: ` prefix on a `ToolError`, so the agent reads the same text on 2.0.0
+and on 2.3.0. It wraps every exception, not only the types we raise on purpose. The SDK withholds a
+crash's text to keep a server's internals from a remote client. This server is local, and its only
+reader is an agent working for the person who owns the machine. For a file MuPDF cannot open,
+MuPDF's reason is the agent's only clue. A new test,
+`test_a_failure_nobody_anticipated_still_reaches_the_caller`, gives `get_info` a file that is not a
+PDF. It compares the reply with what the tool raised, so it does not depend on MuPDF's wording.
+**Checked both ways:** with the old line restored, 11 tests fail on 2.3.0. A narrower fix that
+wraps only `ValueError` and `PermissionError` fails the new test alone.
+
+**One thing 2.3.0 changes that the fix does not**, measured over stdio: each refused call writes
+one INFO line to the bridge's stderr, such as `Tool 'redact_text' failed: "… 'SECRET-123' was not
+found …"`. 2.0.0 wrote nothing. Without the fix it is an ERROR traceback carrying the same text, so
+every 2.1+ version logs it. A client may keep a server's stderr in a log file. The same text is
+already in the conversation. Whether the bridge should raise the SDK's log level is open
+(`PROGRESS.md` §Open follow-ups).
+
+**2. The audit stopped at the first lock with findings.** `audit.yml` audits the four locks in
+four steps, and a failed step skips the steps after it. So from 19 October the dev lock's findings
+kept the build and bridge locks from being checked at all. Each audit step now runs unless
+`pip-audit` failed to install, and the job still fails if any step did. `tools/audit-deps.ps1` has
+always worked this way. The WSL twin, `invoke audit` in `tasks.py`, was worse. It skipped
+`requirements-mcp.txt` and ran each lock with `warn=True`, so it could never fail, although
+`invoke tag` runs it before tagging. It now audits all four locks and exits non-zero, naming the
+ones with findings. **Seen going red on purpose:** the workflow was dispatched on this branch
+before the locks moved
+([run 41554330434](https://github.com/utyagi24/klarpdf/actions/runs/41554330434)). The ship lock
+passed, the other three failed, and all four ran. `invoke audit` from the branch, with only the
+build lock still to move, audited all four and exited 1, naming that lock.
+
+**The versions.** `mcp` and `mcp-types` 2.0.0 → 2.3.0, `opentelemetry-api` 1.44.0 → 1.45.2, `pypdf`
+6.19.0 → 6.21.4, and `setuptools` 84.2.1 in both the dev lock (from 84.0.0) and the build lock
+(from 83.0.0). Each is the newest release, as in M158. For `mcp`, 2.2.0 fixes all four advisories,
+and 2.3.0 is a month of fixes on top. Its release notes list behaviour changes in the HTTP
+transports, header parameters and the client. The one that reaches a stdio server is that
+`initialize` no longer sends an empty `experimental` capability. The bridge's tests pass on 2.3.0,
+as above. Stopping at 2.2.0 would have needed the same code change and
+left 2.3's changes for the next bump. `mcp` pins `mcp-types` to its own version, so both are named
+in the compile, as `httpx2` and `httpcore2` were in M144. The security floors rise: `mcp>=2.2` in
+both `.in` files, and `pypdf>=6.21.4`.
+
+**What was reachable**, checked against the bridge's code rather than the advisories' scores:
+
+* `mcp`: GHSA-84m7-p3x7-pcfv is in the Streamable HTTP server, GHSA-w4fh-qvv9-3v23 in the SDK's
+  HTTP bearer authentication, and GHSA-5h93-6whr-6q8j and GHSA-rwrf-2pqf-9j8j in client code. The
+  bridge serves stdio (`run("stdio")`), with no authentication, and is never a client. None is
+  reachable.
+* `opentelemetry-api`, GHSA-xcq7-p3pf-p88h: parsing a long `tracestate` takes quadratic time.
+  **This one is on the bridge's path.** The SDK calls `opentelemetry.propagate.extract` on every
+  request's `_meta`. But only the client that launched the bridge writes `_meta`; the model and
+  the documents cannot. At worst, a client stalls its own server.
+* `pypdf`: a test dependency only, since M156.
+* `setuptools`, GHSA-xmj3-9gf7-h52w: the legacy egg install of a wheel, on Windows. Neither lock's
+  copy does that. The build venv installs hashed wheels with pip, and the tests call
+  `setuptools.build_meta` only to build metadata.
+
+**Surfaces: the bridge.** `guarded` changes. The bridge's lock, the wheel's generated pins
+(`sync_pins.py`) and the `.mcpb` (`build_mcpb.py --validate`, and a `uv lock` that moves only the
+three packages) take `mcp` 2.3.0 and `opentelemetry-api` 1.45.2. The app is untouched. The ship lock
+has none of these packages and was clean throughout. The build lock's `setuptools` runs PyInstaller
+and is not bundled into the app. The issue noted that the audit does not scan `pyproject.toml` or
+the bundle's `uv.lock`. Both are generated from `requirements-mcp.txt`, which it does scan, and they
+agree with it on all 29 shared versions. `uv.lock` also carries three packages for other platforms
+(`pywin32`, `colorama`, `httpx2-jsfetch`) that no audit scans. All three are clean today
+(`PROGRESS.md` §Open follow-ups).
+
+**Afterwards:** Dependabot alerts #62–#79 are all on real files, none on the phantom path, so the
+merge should close them. v0.20.0 on PyPI still pins `mcp` 2.0.0 and `opentelemetry-api` 1.44.0.
+Whether that earns a patch release is the question M158 left open.
+
 ### M149 — small app fixes: a file that will not open, a launch with no window, a window that shrinks to a bar, web links, and a zoom floor that moved (2026-09-19)
 
 Five independent defects in the app, grouped because each is small and none touches the core:
