@@ -8469,12 +8469,20 @@ PDF. It compares the reply with what the tool raised, so it does not depend on M
 **Checked both ways:** with the old line restored, 11 tests fail on 2.3.0. A narrower fix that
 wraps only `ValueError` and `PermissionError` fails the new test alone.
 
-**One thing 2.3.0 changes that the fix does not**, measured over stdio: each refused call writes
-one INFO line to the bridge's stderr, such as `Tool 'redact_text' failed: "… 'SECRET-123' was not
-found …"`. 2.0.0 wrote nothing. Without the fix it is an ERROR traceback carrying the same text, so
-every 2.1+ version logs it. A client may keep a server's stderr in a log file. The same text is
-already in the conversation. Whether the bridge should raise the SDK's log level is open
-(`PROGRESS.md` §Open follow-ups).
+**The SDK now also logs the refusal, so the bridge runs at WARNING.** Measured over stdio for one
+session (connect, then a `redact_text` that matches nothing): on 2.0.0 the bridge writes nothing
+to stderr. On 2.3.0 it writes one INFO line, `Tool 'redact_text' failed: "… 'SECRET-123' was not
+found …"`, and nothing else. Without the fix the line is an ERROR traceback carrying the same text,
+so every 2.1+ version logs it. A client may keep a server's stderr in a file: Claude Desktop keeps
+one per server, and those are the files people attach to bug reports. For this refusal the text is
+the very string the user wanted removed. The conversation holds it too, but people do not usually
+attach a transcript to a bug report without reading it. **Decided** (owner, 2026-11-02):
+`create_server` passes `log_level="WARNING"`, so stderr is as empty as on 2.0.0, and warnings and
+errors still reach it. The level only takes effect through `logging.basicConfig`, which does
+nothing in a process that already has log handlers. So
+`test_a_refusal_reaches_the_agent_and_not_the_server_log` runs the bridge over a real stdio pipe,
+the way a client does. **Checked both ways:** without the setting it fails, finding the string in
+stderr.
 
 **2. The audit stopped at the first lock with findings.** `audit.yml` audits the four locks in
 four steps, and a failed step skips the steps after it. So from 19 October the dev lock's findings

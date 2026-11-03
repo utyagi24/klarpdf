@@ -11,13 +11,19 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import sys
+from pathlib import Path
 
 import pytest
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
 from mcp.server.mcpserver.exceptions import ToolError
 
 from klarpdf.mcp_bridge.config import Config, Limits, PathNotAllowed, PathPolicy
 from klarpdf.mcp_bridge.server import _explain, create_server, parse_args
 from tests.conftest import A_TEXT
+
+ROOT = Path(__file__).resolve().parents[1]
 
 READ_TOOLS = {
     "get_info",
@@ -296,6 +302,36 @@ def test_a_failure_nobody_anticipated_still_reaches_the_caller(tmp_path):
         raised = raised.__cause__
     assert raised is not None and str(raised)
     assert str(raised) in str(caught.value)
+
+
+def test_a_refusal_reaches_the_agent_and_not_the_server_log(a_pdf, tmp_path):
+    """Since mcp 2.1 the SDK logs each refused call at INFO on stderr, with the refusal's text, and a
+    client may keep a server's stderr in a file. For a `redact_text` that matched nothing, that text
+    is the string the user wanted removed, so the server runs at WARNING (M162).
+
+    It runs the bridge over a real stdio pipe, as a client does. The level is set through
+    `logging.basicConfig`, which does nothing in a process that already has log handlers, and
+    pytest's has."""
+    secret = "NOT-IN-THE-DOCUMENT-7731"
+    stderr = tmp_path / "stderr.log"
+    params = StdioServerParameters(
+        command=sys.executable, args=["-m", "klarpdf.mcp_bridge"], cwd=str(ROOT)
+    )
+
+    async def refused_call():
+        with stderr.open("w", encoding="utf-8") as errlog:
+            async with stdio_client(params, errlog=errlog) as (read, write):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    return await session.call_tool(
+                        "redact_text",
+                        {"path": a_pdf, "query": secret, "out": str(tmp_path / "out.pdf")},
+                    )
+
+    result = asyncio.run(refused_call())
+    assert result.is_error
+    assert secret in result.content[0].text
+    assert secret not in stderr.read_text(encoding="utf-8", errors="replace")
 
 
 # ---- M119 / #294: the same mistake raises a different exception per platform ----

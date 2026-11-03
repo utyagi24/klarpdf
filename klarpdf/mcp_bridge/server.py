@@ -241,6 +241,11 @@ def create_server(config: Config | None = None) -> MCPServer:
             if cfg.read_only
             else ""
         ),
+        # Since mcp 2.1 the SDK logs each refused call at INFO on stderr, with the refusal's text,
+        # and a client may keep a server's stderr in a file. For a `redact_text` that matched
+        # nothing, that text is the string the user wanted removed. At WARNING the bridge's stderr
+        # stays as empty as it was on 2.0.0 (M162, owner's call).
+        log_level="WARNING",
     )
     # Safe before a single tool is registered: `bind` stores the reference and nothing else, and
     # the schemas are not read until the first call arrives. Binding here rather than on the way

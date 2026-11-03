@@ -3025,7 +3025,9 @@ on the one above it. Every decision, every rejection and every measurement behin
   1.44.0 → 1.45.2, `pypdf` 6.19.0 → 6.21.4, `setuptools` → 84.2.1 in the dev and build locks. Two
   defects were behind it. Since `mcp` 2.1 the SDK passes on only a `ToolError`'s text, so the bump
   alone would have told the agent `Error executing tool <name>` for every refusal. `guarded` now
-  raises a `ToolError`, and the agent reads the same text on 2.0.0 and 2.3.0. And `audit.yml`
+  raises a `ToolError`, and the agent reads the same text on 2.0.0 and 2.3.0. The SDK also began
+  logging each refusal's text to stderr, which for `redact_text` is the string to be removed, so the
+  bridge now runs it at WARNING. And `audit.yml`
   stopped at the first lock with findings, which kept the build and bridge locks unchecked from
   19 October. Each lock is now audited every time. `invoke audit` in WSL skipped the bridge lock
   and could never fail; it now matches `tools/audit-deps.ps1`. Only the `tracestate` advisory is on
@@ -5214,13 +5216,9 @@ it on this side of the line.
   client that launched it (`PLAN.md` §M162). **Decided for these pins** (owner, 2026-11-02): no
   patch release of their own. They ship with the next release of the app and the bridge, which is
   due soon. The general rule is still open.
-- **Should the bridge stop the SDK logging a refused call's text?** — found 2026-11-02 in M162.
-  Since `mcp` 2.1 the SDK writes one INFO line to the bridge's stderr for each refused tool call,
-  with the refusal's text. For `redact_text` that text includes the string that was asked for. 2.0.0
-  wrote nothing. A client may keep a server's stderr in a log file, and the same text is already in
-  the conversation. Passing `log_level="WARNING"` to `MCPServer` would drop these lines, and the
-  SDK's other INFO lines with them. Not changed in M162, which kept to what the agent reads. Owner's
-  call.
+- ~~**Should the bridge stop the SDK logging a refused call's text?**~~ — decided 2026-11-02
+  (owner), in M162: yes. The bridge runs the SDK at WARNING, so its stderr stays as empty as on
+  2.0.0 (`PLAN.md` §M162).
 - ~~**No audit scans the three platform-only packages in the bundle's `uv.lock`**~~ — decided
   2026-11-02 (owner): kept as the limit `PLAN.md` §M129 already accepted. Dependabot watches those
   pins in that file, and only `pywin32` and `colorama` can reach a desktop.
