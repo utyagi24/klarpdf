@@ -8522,8 +8522,8 @@ has none of these packages and was clean throughout. The build lock's `setuptool
 and is not bundled into the app. The issue noted that the audit does not scan `pyproject.toml` or
 the bundle's `uv.lock`. Both are generated from `requirements-mcp.txt`, which it does scan, and they
 agree with it on all 29 shared versions. `uv.lock` also carries three packages for other platforms
-(`pywin32`, `colorama`, `httpx2-jsfetch`) that no audit scans. All three are clean today
-(`PROGRESS.md` §Open follow-ups).
+(`pywin32`, `colorama`, `httpx2-jsfetch`) that no audit scans, the limit M129 accepted. Dependabot
+watches them in that file, and all three were clean on 2026-11-02.
 
 **Afterwards:** Dependabot alerts #62–#79 are all on real files, none on the phantom path, so the
 merge should close them. v0.20.0 on PyPI still pins `mcp` 2.0.0 and `opentelemetry-api` 1.44.0.

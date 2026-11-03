@@ -5221,12 +5221,9 @@ it on this side of the line.
   the conversation. Passing `log_level="WARNING"` to `MCPServer` would drop these lines, and the
   SDK's other INFO lines with them. Not changed in M162, which kept to what the agent reads. Owner's
   call.
-- **No audit scans the three platform-only packages in the bundle's `uv.lock`** — found 2026-11-02
-  in M162. The `.mcpb` lock agrees with `requirements-mcp.txt` on all 29 shared versions, and the
-  audit scans that file. But `uv lock` resolves for every platform, so it also pins `pywin32`,
-  `colorama` and `httpx2-jsfetch`, which a Linux compile of `requirements-mcp.txt` leaves out. All
-  three were clean on 2026-11-02. `pip-audit` cannot read a `uv.lock`; `uv export` can turn one
-  into a requirements file it can read. Decide whether the gap is worth a fifth audit step.
+- ~~**No audit scans the three platform-only packages in the bundle's `uv.lock`**~~ — decided
+  2026-11-02 (owner): kept as the limit `PLAN.md` §M129 already accepted. Dependabot watches those
+  pins in that file, and only `pywin32` and `colorama` can reach a desktop.
 - ~~**The dev lock and the bridge lock disagree on `typing-inspection`**~~ — decided 2026-10-02:
   resynced, with a test that keeps them in step. Graduated to **M159**.
 - **GitHub's dependency graph still lists `packaging/mcpb/uv.lock`, a file that no longer exists** —
