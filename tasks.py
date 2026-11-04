@@ -84,8 +84,18 @@ def audit(c):
         c.run(f'"{sys.executable}" -m venv "{venv}"', echo=True)
         vpy = venv / "bin" / "python"
         c.run(f'"{vpy}" -m pip install --quiet --disable-pip-version-check pip-audit', echo=True)
-        for lock in ("requirements-win.txt", "requirements-dev.txt", "requirements-build-win.txt"):
-            c.run(f'"{vpy}" -m pip_audit -r {lock} --no-deps --desc', echo=True, warn=True)
+        # The same four locks as tools/audit-deps.ps1 and the CI job, and the same rule: audit them
+        # all, then fail if any had findings. This used to skip requirements-mcp.txt and never
+        # fail, so `invoke tag`, which runs this first, could not be stopped by it in WSL (M162).
+        locks = ("requirements-win.txt", "requirements-dev.txt", "requirements-build-win.txt",
+                 "requirements-mcp.txt")
+        failed = [
+            lock
+            for lock in locks
+            if c.run(f'"{vpy}" -m pip_audit -r {lock} --no-deps --desc', echo=True, warn=True).failed
+        ]
+        if failed:
+            sys.exit(f"pip-audit found advisories in: {', '.join(failed)}")
     finally:
         shutil.rmtree(venv, ignore_errors=True)
 

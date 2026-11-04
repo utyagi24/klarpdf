@@ -40,7 +40,7 @@ from mcp.server import MCPServer
 from mcp.server.context import CallNext, HandlerResult, ServerRequestContext
 from mcp.server.extension import Extension
 from mcp.server.mcpserver import Image
-from mcp.server.mcpserver.exceptions import ResourceError
+from mcp.server.mcpserver.exceptions import ResourceError, ToolError
 from mcp_types import CallToolRequestParams, CallToolResult, TextContent
 
 from klarpdf.mcp_bridge import annotations, docs, headings, queries, redaction, tables, transforms
@@ -100,7 +100,7 @@ def _is_directory_error(exc: OSError) -> bool:
 def _explain(exc: Exception) -> Exception:
     """Turn an internal failure into something an agent can act on.
 
-    The SDK wraps whatever a tool raises into a `ToolError` carrying its `str()`, so the message is
+    `guarded` hands the result to the SDK as a `ToolError` carrying its `str()`, so the message is
     the entire interface at that point. A bare `PasswordRequired('/path/x.pdf')` tells the model
     nothing about what to do next; the rewrite does.
     """
@@ -241,6 +241,11 @@ def create_server(config: Config | None = None) -> MCPServer:
             if cfg.read_only
             else ""
         ),
+        # Since mcp 2.1 the SDK logs each refused call at INFO on stderr, with the refusal's text,
+        # and a client may keep a server's stderr in a file. For a `redact_text` that matched
+        # nothing, that text is the string the user wanted removed. At WARNING the bridge's stderr
+        # stays as empty as it was on 2.0.0 (M162, owner's call).
+        log_level="WARNING",
     )
     # Safe before a single tool is registered: `bind` stores the reference and nothing else, and
     # the schemas are not read until the first call arrives. Binding here rather than on the way
@@ -267,6 +272,12 @@ def create_server(config: Config | None = None) -> MCPServer:
         was spending a tenth of the budget to say nothing. Cleaning it here fixes every tool at
         once and keeps the docstrings readable in the file, which is the only reason they are
         indented in the first place.
+
+        Every failure leaves as a ``ToolError``, because since mcp 2.1 that is the only exception
+        whose text the SDK passes on. Anything else counts as a crash and reaches the agent as a
+        bare ``Error executing tool <name>`` (M162). The SDK withholds that text to keep a server's
+        internals from a remote client. This server is local, and the text is the agent's only
+        clue, whether it is one of our refusals or MuPDF's own reason for not opening a file.
         """
 
         @functools.wraps(function)
@@ -274,7 +285,7 @@ def create_server(config: Config | None = None) -> MCPServer:
             try:
                 return function(*args, **kwargs)
             except Exception as exc:  # noqa: BLE001 — re-raised, possibly reworded
-                raise _explain(exc) from exc
+                raise ToolError(str(_explain(exc))) from exc
 
         wrapper.__signature__ = inspect.signature(function)
         if function.__doc__:

@@ -45,17 +45,26 @@ jobs:
           python-version: "3.12"
 
       - name: Install pip-audit (isolated via pipx)
+        id: install
         run: pipx install pip-audit
 
       # If an advisory is ever accepted as track-only, add --ignore-vuln <GHSA-id> to the runs below,
       # mirror it in tools/audit-deps.ps1, and record it in PROGRESS.md "Open follow-ups".
+      #
+      # Every lock is audited even when an earlier one has findings, and the job still fails if any
+      # did (M162). Without the `if:` the job stopped at the first red step, so from 2026-10-19 the
+      # dev lock's findings kept the build and bridge locks from being checked at all (issue #419).
+      # tools/audit-deps.ps1 has always worked this way.
       - name: Audit ship lock (requirements-win.txt)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: pip-audit -r requirements-win.txt --no-deps --desc
 
       - name: Audit dev lock (requirements-dev.txt)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: pip-audit -r requirements-dev.txt --no-deps --desc
 
       - name: Audit build lock (requirements-build-win.txt)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: pip-audit -r requirements-build-win.txt --no-deps --desc
 
       # The MCP bridge's own lock (M42). It brings `cryptography` and `starlette` into the repo —
@@ -67,4 +76,5 @@ jobs:
       # Desktop user actually gets is NOT this lock. Do not describe the audit as covering "the
       # bridge" without that qualification (PLAN.md §Dependencies & packaging).
       - name: Audit MCP bridge lock (requirements-mcp.txt)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: pip-audit -r requirements-mcp.txt --no-deps --desc

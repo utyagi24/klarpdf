@@ -25,4 +25,7 @@
 # reading the source. `tests/test_mcp_no_qt.py` checks it at run time, by running every tool in a
 # fresh interpreter the same way it proves Qt stays out.
 -r requirements-core.in
-mcp>=2,<3
+# 2.2 is a SECURITY floor: four medium advisories against 2.0.0 are fixed there (M162, issue
+# #419). Since 2.1 the SDK withholds the text of any exception but its own `ToolError`, which
+# `server.guarded` now raises so the agent still reads why a call failed (PLAN.md section M162).
+mcp>=2.2,<3
