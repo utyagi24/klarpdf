@@ -10673,7 +10673,11 @@ with the file through the baseline each line is placed at, never through pixels:
 
 The long-note tests count every line, not only the last one they see. A line wholly outside the
 clip is not extracted at all, so with a border the first version of the test took the 29th line
-for the last and passed without the fix. **Broken on purpose eight ways**: centring the text again,
+for the last and passed without the fix. **The editor test failed the PR's first Linux CI run**, by
+0.016 px over its 1 px allowance at 175%. The editor was placed by rounding the box's corner to a
+pixel and then its offset, and the test rounded its own target a third time. The corner is now
+rounded once, and the test holds it to the half pixel a whole-pixel widget can miss by, at four
+zooms. Putting the double rounding back fails it locally too. **Broken on purpose eight ways**: centring the text again,
 the old 2 pt inset, Qt's line spacing, dropping either height floor, dropping the editor's shift,
 the old wrap width and a wrong ratio. Each fails its own tests. Three existing tests pinned the old
 layout and now pin the file's: the June centring test in `tests/test_annotations_ui.py`, and the

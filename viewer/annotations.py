@@ -25,7 +25,7 @@ from collections import OrderedDict
 from dataclasses import replace
 
 import pymupdf as fitz
-from PySide6.QtCore import QRect, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QPoint, QRect, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QBrush,
     QColor,
@@ -1234,19 +1234,19 @@ class AnnotationOverlay:
                                                 self._style.border_width)))
         self._editor_rect = (x0, y0, x0 + min(w_pt, avail_w), y0 + h_pt)
         scene_rect = self._view.scene_rect_for_box(self._editor_page, self._editor_rect)
-        top_left = self._view.mapFromScene(scene_rect.topLeft())
         bottom_right = self._view.mapFromScene(scene_rect.bottomRight())
-        geom = QRect(top_left, bottom_right)
         # The editor's first line sits where the saved drawing will put it (#427), so the text does
         # not move when the edit commits. Its frame and margin come before the text, so the widget
         # reaches past the box's top-left by that chrome, less the drawing's own inset and baseline.
         # At 12 pt and 100% that is 5 px left and 6 px up; without it, every commit would move the
-        # text that far.
+        # text that far. The corner is rounded to a pixel once, at the end: rounding the box's
+        # corner and the offset separately missed by more than a pixel at 175% (CI, Linux).
         inset = _FREETEXT_INSET * self._style.border_width
         chrome = editor.frameWidth() + editor.document().documentMargin()
         dx = chrome - inset * z
         dy = chrome + fm.ascent() - (inset + _FREETEXT_BASELINE * self._editor_fontsize) * z
-        geom = geom.adjusted(-round(dx), -round(dy), 0, 0)
+        corner = self._view.viewportTransform().map(scene_rect.topLeft())
+        geom = QRect(QPoint(round(corner.x() - dx), round(corner.y() - dy)), bottom_right)
         editor.setGeometry(geom)
         self._position_format_bar(geom)
 

@@ -160,12 +160,16 @@ def test_a_long_note_typed_in_the_editor_keeps_its_last_line(win):
 # ---- the editor ---------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("zoom", [1.0, 1.75])
+@pytest.mark.parametrize("zoom", [1.0, 1.3, 1.75, 2.4])
 @pytest.mark.parametrize("border", [0.0, 2.0])
 def test_the_editor_shows_the_text_where_it_will_stay(win, zoom, border):
     """While typing, the first line sits where the committed box, and the file, will put it, so
     committing the edit does not move the text. It used to sit 6 pt lower and 5 pt further right
-    at 12 pt and 100%."""
+    at 12 pt and 100%.
+
+    A widget sits on whole pixels, so half a pixel is the most it can miss by. The first version
+    allowed a pixel and still failed at 175% on Linux, by 0.016 px. It rounded the box's corner and
+    its offset separately, and the test's own target a third time."""
     view = win.view
     view.set_zoom(zoom)
     view.arm(ArmedTool.TEXTBOX)
@@ -181,7 +185,7 @@ def test_the_editor_shows_the_text_where_it_will_stay(win, zoom, border):
     baseline = origin.y() + QFontMetricsF(editor.font()).ascent()
     x0, y0 = ov._editor_rect[0], ov._editor_rect[1]
     inset = _FREETEXT_INSET * border
-    want = view.mapFromScene(view.scene_rect_for_box(
+    want = view.viewportTransform().map(view.scene_rect_for_box(
         0, (x0 + inset, y0 + inset + _FREETEXT_BASELINE * 12.0, x0 + inset + 1, y0 + 30)).topLeft())
-    assert abs(origin.x() - want.x()) <= 1
-    assert abs(baseline - want.y()) <= 1
+    assert abs(origin.x() - want.x()) <= 0.5 + 1e-6
+    assert abs(baseline - want.y()) <= 0.5 + 1e-6
