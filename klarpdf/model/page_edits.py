@@ -356,6 +356,7 @@ class TextBox:
       be carried this way (it would need the richtext path — out of scope for M27, see PLAN.md §M27).
     * ``fontsize`` / ``color`` — point size + RGB text colour (baked into the annot's DA string).
     * ``fill_color`` — the box's background fill (annot ``/C``); ``None`` = no fill (transparent).
+      Read back only when the box's own drawing paints it (:func:`_freetext_fill`).
     * ``border_width`` — the box outline thickness in points (annot ``/BS /W``); ``0`` = no outline.
       A drawn outline is black — the simple FreeText path carries no separate border colour (setting
       ``border_color`` there raises; that, too, needs richtext).
@@ -1107,6 +1108,98 @@ def _dashed(annot) -> bool:
     return bool((annot.border or {}).get("dashes"))
 
 
+# The operators that paint the inside of a path (ISO 32000-1 Table 60), and `sh`, which paints a
+# shading into the clip. `S` and `s` only stroke, and `n` ends a clip path without painting it.
+_FILL_OPERATORS = frozenset({"f", "F", "f*", "B", "B*", "b", "b*", "sh"})
+_PDF_SPACE = frozenset(b"\x00\t\n\x0c\r ")
+_PDF_DELIMITER = frozenset(b"()<>[]{}/%")
+# An inline image's data runs from `ID` to the first `EI` that stands on its own.
+_INLINE_IMAGE_END = re.compile(rb"\sEI(?=\s|$)")
+
+
+def _content_operators(data: bytes):
+    """Each token of a content stream that is not a string or a name, with the last name before it,
+    so ``/Fm0 Do`` yields ``("Do", "Fm0")``. Numbers come through too; nothing asks for them.
+
+    Just enough lexing to tell an operator from what the stream draws: a string, a comment and an
+    inline image's data are skipped whole, so a text box that says ``a f b`` does not read as one
+    that paints a fill."""
+    i, n, name = 0, len(data), None
+    while i < n:
+        c = data[i]
+        if c in _PDF_SPACE or c in b")>[]{}":
+            i += 1
+        elif c == ord("%"):                         # a comment, to the end of its line
+            while i < n and data[i] not in b"\r\n":
+                i += 1
+        elif c == ord("("):                         # a string, whose parentheses balance
+            depth = 0
+            while i < n:
+                if data[i] == ord("\\"):
+                    i += 2
+                    continue
+                depth += {ord("("): 1, ord(")"): -1}.get(data[i], 0)
+                i += 1
+                if depth == 0:
+                    break
+        elif c == ord("<"):                         # a hex string, or `<<` opening a dictionary
+            if data[i + 1 : i + 2] == b"<":
+                i += 2
+            else:
+                end = data.find(b">", i)
+                i = n if end < 0 else end + 1
+        else:
+            start = i + 1 if c == ord("/") else i
+            i = start
+            while i < n and data[i] not in _PDF_SPACE and data[i] not in _PDF_DELIMITER:
+                i += 1
+            token = data[start:i].decode("latin-1")
+            if c == ord("/"):
+                name = token
+            elif token == "ID":
+                end = _INLINE_IMAGE_END.search(data, i)
+                i = n if end is None else end.end()
+            else:
+                yield token, name
+
+
+def _draws_fill(doc, xref: int, seen: set) -> bool:
+    """Whether the form XObject ``xref`` paints a fill, itself or through a form it draws."""
+    seen.add(xref)
+    for op, name in _content_operators(doc.xref_stream(xref) or b""):
+        if op in _FILL_OPERATORS:
+            return True
+        if op == "Do" and name is not None:
+            kind, value = doc.xref_get_key(xref, f"Resources/XObject/{name}")
+            if kind != "xref":
+                continue
+            inner = int(value.split()[0])
+            if (inner not in seen and doc.xref_get_key(inner, "Subtype")[1] == "/Form"
+                    and _draws_fill(doc, inner, seen)):
+                return True
+    return False
+
+
+def _freetext_fill(annot) -> tuple | None:
+    """A FreeText's background: its ``/C``, but only when the box's own drawing paints a fill (#426).
+
+    MuPDF reads a FreeText's ``/C`` as its background, and so does KlarPDF, which writes its fill
+    there. Other programs do not all agree. Microsoft Edge keeps our author tag when it moves one of
+    our boxes, adds ``/C [0 0 0]`` and draws the box with no background, and every viewer shows that
+    drawing, not ``/C``. Read as a fill, it made the box solid black under black text, in the view
+    and in every file a rewriting save wrote. So the check compares what the file claims with what
+    it draws. A box with no drawing at all keeps ``/C``, because MuPDF draws one from it.
+    """
+    fill = annot.colors.get("stroke")           # a FreeText's /C surfaces as 'stroke' in PyMuPDF
+    if not fill:
+        return None
+    doc = annot.parent.parent
+    kind, value = doc.xref_get_key(annot.xref, "AP/N")
+    if kind != "xref":
+        return tuple(fill)
+    return tuple(fill) if _draws_fill(doc, int(value.split()[0]), set()) else None
+
+
 def _quads_to_rects(vertices) -> tuple[tuple[float, float, float, float], ...]:
     """Group a highlight's quad-point list (4 points per marked span) into per-span bounding rects."""
     rects = []
@@ -1211,8 +1304,6 @@ def parse_annotation(annot: fitz.Annot):
         rect = (r.x0 + inset, r.y0 + inset, r.x1 - inset, r.y1 - inset)
         da = doc.xref_get_key(annot.xref, "DA")
         fontsize, color, fontname = _parse_freetext_da(da[1] if da[0] == "string" else "")
-        # A FreeText's /C (the box fill) surfaces as the 'stroke' colour in PyMuPDF.
-        fill = annot.colors.get("stroke")
         content = annot.info.get("content", "")
         result.append(
             TextBox(
@@ -1221,7 +1312,7 @@ def parse_annotation(annot: fitz.Annot):
                 fontsize=fontsize,
                 color=color,
                 fontname=fontname,
-                fill_color=tuple(fill) if fill else None,
+                fill_color=_freetext_fill(annot),
                 border_width=border_width,
                 auto_width=_textbox_fits_one_line(content, fontname, fontsize, rect),
             )

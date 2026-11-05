@@ -14,6 +14,7 @@ from __future__ import annotations
 import gc
 import os
 import pathlib
+import re
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")  # headless: no display needed
 # Headless printing: QPrinter's only Linux backend is the CUPS plugin, which enumerates print
@@ -324,6 +325,36 @@ def write_idless_pdf(path: str, texts: list[str], encryption: int | None = None)
         assert not check.needs_pass, "fixture is not openable without a password"
         assert check.xref_get_key(-1, "ID")[0] == "null", "fixture kept its /ID"
         assert bool(check.metadata["encryption"]) == (encryption is not None)
+    return path
+
+
+#: How PyMuPDF paints a text box's background in the box's drawing: a rectangle, filled
+#: (``… re\nf\n``). A test's own check, so it does not lean on the lexer it is testing.
+FILLED_RECT = re.compile(rb"\bre\s+f\b")
+
+
+def write_edge_moved_textbox(path: str, author: str = "klarpdf") -> str:
+    """Write one of our text boxes as Microsoft Edge saves it after moving it (M163, #426).
+
+    Edge keeps the author tag, adds ``/C [0 0 0]`` and draws the box with no background. The real
+    file holds personal data, so this makes the same change to a box PyMuPDF drew: ``/C`` is set
+    after the drawing, which therefore paints no fill. The result is checked before it is handed
+    back, since a fixture whose drawing did fill would pass the tests it exists to fail.
+    """
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 100), "Print Name: ______________________", fontsize=12)
+    box = page.add_freetext_annot(fitz.Rect(150, 82, 230, 102), "JANE DOE", fontsize=12,
+                                  fontname="helv", text_color=(0, 0, 0))
+    box.set_info(title=author)
+    box.update()
+    doc.xref_set_key(box.xref, "C", "[0 0 0]")
+    doc.save(path)
+    doc.close()
+    with fitz.open(path) as check:
+        annot = check[0].first_annot
+        assert check.xref_get_key(annot.xref, "C") == ("array", "[0 0 0]"), "fixture lost its /C"
+        assert not FILLED_RECT.search(annot._getAP()), "fixture's drawing paints a fill"
     return path
 
 

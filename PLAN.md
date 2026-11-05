@@ -10582,6 +10582,83 @@ the `open_source` pin, the copy and graft cases, the `fresh_source` cases and th
 and `annotate` fail. Without either, all of them fail. The AES-256 cases pass throughout, as they
 should.
 
+### M163 — a text box another program moved keeps its look *(unplanned)* (2026-11-04)
+
+[#426](https://github.com/utyagi24/klarpdf/issues/426). The owner signed a form in KlarPDF with a
+text box, moved the box a little in Microsoft Edge and saved it there. Reopened in KlarPDF, the box
+was a solid black rectangle with its black text unreadable. Edge, Brave and PyMuPDF all show the
+same file correctly.
+
+**Surfaces: core, so the app and the bridge both.** The change is in `parse_annotation`
+(`klarpdf/model/page_edits.py`), which reads our marks back into the model when either surface
+opens a file (`VirtualDocument._seed_ordered`), and reads a foreign mark the app adopts (M68). The
+issue says the bridge does not show the defect, which is true of `annotate` only, because it appends.
+**`rotate` wrote the black box**, measured: the output's box drew `0 0 0 rg … re f`. Every bridge
+tool that rewrites the page re-draws our marks from the model, as M155 found for shapes.
+
+#### Cause
+
+Edge keeps the box's author tag `/T (klarpdf)`, so the box reads back as one of ours. It also adds
+`/C [0 0 0]`, and draws the box with no background. `parse_annotation` took a FreeText's `/C` as the
+box's fill, which is how MuPDF reads it and how KlarPDF writes it: `add_freetext_annot(fill_color=…)`
+sets `/C` and paints `<C> rg … re f` in the box's drawing. Edge does not mean `/C` as a fill, and a
+viewer shows a box's drawing, not its `/C`. So the model held a black fill nobody had drawn. The view
+painted it, and any save that rewrites the page's marks wrote it into the file, where every viewer
+then shows it.
+
+Measured on PyMuPDF 1.27.2.3:
+
+* A box we write **with** a fill paints it: `1 1 0 rg … 150 740 80 20 re f`. A box **without** one
+  has no fill operator at all: the border is `re S` and the clip is `re W n`.
+* A box with `/C` set and **no drawing** (`/AP` removed) renders filled from `/C`: MuPDF draws one
+  from it, so for that box `/C` is the fill.
+* The Edge-shaped box (`/C [0 0 0]` added after its drawing was made) renders with no fill, and
+  read back as `fill_color=(0.0, 0.0, 0.0)` before the fix.
+
+#### The fix
+
+`_freetext_fill` compares what the file claims with what it draws: the fill is `/C` when the box's
+own drawing (`/AP /N`) paints a fill, and `None` when it does not. A box with no drawing keeps `/C`,
+for the reason above. "Paints a fill" means one of the path-filling operators `f F f* B B* b b*`, or
+`sh`, in the drawing or in a form it draws with `Do`. No tuned number decides it. A small lexer,
+`_content_operators`, tells an operator from what the drawing says: strings, comments and an inline
+image's data are skipped whole, because a box's own words are in its drawing, and `(a f b) Tj`
+holds an `f` that paints nothing.
+
+The colour still comes from `/C` and not from the drawing. Reading the fill's colour from the
+drawing would mean following the colour operators through every colour space a drawing can use.
+The drawing only has to answer whether the box is filled.
+
+**Rejected:**
+
+* **Recognise Edge's drawing** (its embedded Arial, its rewritten `/DA`) and ignore `/C` for it.
+  That guesses from what one producer writes today, and the next producer beats it.
+* **Treat a box another program redrew as foreign**, leaving it out of the round trip. Adoption
+  reads a foreign box with the same parser, so it would turn black on its first edit anyway.
+* **Drop `/C` for every FreeText.** It would lose the fill of every box KlarPDF and MuPDF wrote.
+
+**Not changed:** the bridge's `get_annotations` still reports a FreeText's `/C` as its `color`. It
+reports what the file stores, not what the model reads, which M155 kept for shapes too.
+
+#### Checks
+
+`write_edge_moved_textbox` (`tests/conftest.py`) makes Edge's change to a box PyMuPDF drew, since the
+owner's file holds personal data, and checks itself: a fixture whose drawing did fill would pass the
+tests it exists to fail. **The fixture's first check was wrong in this way.** It looked for `" f\n"`,
+and PyMuPDF writes the fill as `re\nf\n`, so the check and every save test passed whatever the code
+did. They now share `FILLED_RECT`. `tests/test_freetext_fill.py` reads the Edge box, a filled box
+of ours, a box with no drawing, a box whose text reads like operators, a fill drawn through a nested
+form, and an adopted Edge box. It then saves the Edge box moved and rotated through
+`PyMuPDFEngine.materialize`, which is what the app's save runs. `tests/test_mcp_freetext_fill.py`
+runs the bridge's `rotate`. **Broken on purpose four ways:** trusting `/C` always fails six cases on
+both surfaces (the Edge box read, adopted, moved, rotated and run through the bridge, and the
+operator case); lexing a string's contents fails the operator case; not following `Do`
+fails the nested-form case; and dropping `/C` for a box with no drawing fails that case. While those
+breaks were being made, one of them stopped the lexer advancing, which hung the run. So a seeded test
+now lexes 2,000 random byte strings to the end, since a lexer that hangs would hang opening a
+document. **Owed: a hand check with Edge itself.** The issue reports Edge's own file read back the
+same way as the fixture, but that file was not available here.
+
 ## The open issues, grouped — M149–M152 *(planned 2026-09-19)*
 
 Grouped at the owner's request (2026-09-19: *"plan milestones for all of the issues, except for 352
