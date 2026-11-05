@@ -1253,7 +1253,7 @@ tick the box here on merge. Build in number order.
   where the box will put it, so the text no longer moves when an edit commits. Box sizes are
   otherwise unchanged, by the owner's choice, so a bordered box now shows in KlarPDF the space
   under its text that saved files always had. Still owed: a hand check against Edge. Details in
-  `PLAN.md` §M164 — *Windows (headless)* — PR to follow
+  `PLAN.md` §M164 — *Windows (headless)* — [#429](https://github.com/utyagi24/klarpdf/pull/429)
 
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 
