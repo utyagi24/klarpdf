@@ -159,7 +159,9 @@ tells you *what* and *how severe*, and you do the bump yourself.
    old path cannot be closed by a commit, because the file is gone: the entry is an orphaned
    Dependabot snapshot that only GitHub Support can remove, and the API refuses to overwrite it.
    Fix the real files as usual, then dismiss the leftover alerts as *inaccurate* (`PROGRESS.md`
-   §Open follow-ups has the cause; M144 did this for #31–#33, M157 for #35 and #39–#47, M158 for #49–#51):
+   §Open follow-ups has the cause; M144 did this for #31–#33, M157 for #35 and #39–#47, M158 for
+   #49–#51, M162 for #92–#98). They may also turn up only after the fix merges, as M162's did, so
+   look again once it has:
    ```sh
    gh api -X PATCH repos/utyagi24/klarpdf/dependabot/alerts/<N> -f state=dismissed \
      -f dismissed_reason=inaccurate -f dismissed_comment="stale path packaging/mcpb/uv.lock (moved in M133)"

@@ -5250,7 +5250,9 @@ it on this side of the line.
   reserved for internal services"*), so only Dependabot can write that key. Nothing was changed.
   **Waiting on GitHub Support** to drop the snapshot: that is the only fix that sticks. Until then,
   dismiss as *inaccurate*. Done for #31–#33 (M144), #35 and #39–#47 (M157, 2026-09-30), #49–#51
-  (M158, 2026-10-02).
+  (M158, 2026-10-02), #92–#98 (M162, 2026-11-04). M162's arrived two minutes *after* the merge
+  that fixed the real files, not with the advisories, so check for new alerts once such a merge
+  lands.
   Turning the dependency graph off and on stays the last resort, since it may discard the alert
   history. How to avoid a repeat is in `CLAUDE.md` §Gotchas.
 

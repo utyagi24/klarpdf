@@ -8533,9 +8533,13 @@ agree with it on all 29 shared versions. `uv.lock` also carries three packages f
 (`pywin32`, `colorama`, `httpx2-jsfetch`) that no audit scans, the limit M129 accepted. Dependabot
 watches them in that file, and all three were clean on 2026-11-02.
 
-**Afterwards:** Dependabot alerts #62–#79 are all on real files, none on the phantom path, so the
-merge should close them. v0.20.0 on PyPI still pins `mcp` 2.0.0 and `opentelemetry-api` 1.44.0.
-Whether that earns a patch release is the question M158 left open.
+**Afterwards:** the merge closed alerts #62–#91, which were all on real files. Two minutes later
+Dependabot opened #92–#98 on the phantom `packaging/mcpb/uv.lock` (`PROGRESS.md` §Open
+follow-ups): the four `mcp` advisories, the `opentelemetry-api` one, and two for PyJWT at the
+2.13.0 that path is frozen at. None had been open before the merge, so this PR had said there
+would be nothing to dismiss. They were dismissed as *inaccurate* on 2026-11-04. v0.20.0 on PyPI
+still pins `mcp` 2.0.0 and `opentelemetry-api` 1.44.0. Those pins ship fixed in the next release,
+with no patch release of their own (owner, 2026-11-02).
 
 ### M149 — small app fixes: a file that will not open, a launch with no window, a window that shrinks to a bar, web links, and a zoom floor that moved (2026-09-19)
 
