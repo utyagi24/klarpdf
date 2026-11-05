@@ -73,7 +73,16 @@ from viewer.text_format_bar import TextBoxStyle, TextFormatBar, qt_font
 
 _TEXTBOX_DEFAULT = (200.0, 56.0)  # starting size for a new box, in page points (then auto-grows)
 _MIN_BOX_W, _MIN_BOX_H = 40.0, 20.0  # a text box never shrinks below this (page points)
-_TEXT_INSET = 2.0                 # horizontal gap between the box edge and its text (page points)
+# Where the saved drawing puts a text box's text (#427). PyMuPDF lays a FreeText out by fixed
+# ratios, not by the font's own metrics: measured on 1.27.2.3 for helv, tiro and cour at 8 to 24 pt
+# with borders 0 and 2, the text starts 1.5 border widths in from the left edge, the first baseline
+# is that inset plus 0.8 font sizes below the top, baselines are 1.2 font sizes apart, and a line
+# wraps at the box's width less the inset on both sides. The view lays a box out the same way, so
+# its text is where the file has it. `tests/test_textbox_layout.py` pins each number against the
+# library, so an upgrade that moves one fails there.
+_FREETEXT_INSET = 1.5             # the text's inset from each edge, in border widths
+_FREETEXT_BASELINE = 0.8          # the first baseline below the inset, in font sizes
+_FREETEXT_PITCH = 1.2             # baseline to baseline, in font sizes
 _MIN_REDACT = 3.0                 # ignore a redaction drag smaller than this (a stray click)
 _MIN_DRAW = 2.0                   # ignore a draw drag smaller than this (page points)
 _HIT_PAD = 3.0                    # grab slack around thin drawn marks (page points)
@@ -274,6 +283,19 @@ def mark_noun(mark) -> str:
 
 def _move_label(mark) -> str:
     return f"Move {mark_noun(mark)}"
+
+
+def _textbox_height(lines: int, fontsize: float, border_width: float) -> float:
+    """The least a text box may be to hold ``lines`` lines where the saved drawing puts them (#427):
+    the file's own line pitch for each, plus the inset above and below.
+
+    The drawing clips its text to the box, and Qt spaces lines closer than the file does (13.4 pt
+    against 14.4 at 12 pt), so a box sized from Qt's metrics alone lost the bottom of its last line
+    in every viewer: at 12 pt, from 5 lines for a box the width handle sized and from 13 for one
+    typed at 100%. The last baseline lands 0.4 font sizes plus the inset above the bottom here,
+    which holds the descenders of all three fonts. A box is otherwise sized as it always was; this
+    is a floor, not a fit."""
+    return lines * _FREETEXT_PITCH * fontsize + 2 * _FREETEXT_INSET * border_width
 
 
 class _TextBoxEditor(QPlainTextEdit):
@@ -835,9 +857,11 @@ class AnnotationOverlay:
         pw, ph = self._view._unrotated_size(page_index)
         x0, y0 = box.rect[0], box.rect[1]
         width_pt = max(_MIN_BOX_W, min(width_pt, pw - x0))
+        inset = _FREETEXT_INSET * box.border_width
         lines, fm = self._wrap_textbox_lines(box.text, box.fontname, box.fontsize,
-                                             max(1.0, width_pt - 2 * _TEXT_INSET))
-        height = min(ph - y0, max(_MIN_BOX_H, len(lines) * fm.lineSpacing() + 2.0))
+                                             max(1.0, width_pt - 2 * inset))
+        height = min(ph - y0, max(_MIN_BOX_H, len(lines) * fm.lineSpacing() + 2.0,
+                                  _textbox_height(len(lines), box.fontsize, box.border_width)))
         return (x0, y0, x0 + width_pt, y0 + height)
 
     def _paint_textbox(self, scene, page_index: int, annot: TextBox, z: float) -> None:
@@ -860,17 +884,19 @@ class AnnotationOverlay:
         # A fixed-width box (M78.3) wraps its text at the box width; an auto-width box shows the
         # verbatim text (its explicit newlines only) and hugs its longest line.
         font = qt_font(annot.fontname, annot.fontsize)
+        inset = _FREETEXT_INSET * annot.border_width
         if not annot.auto_width:
             lines, fm = self._wrap_textbox_lines(annot.text, annot.fontname, annot.fontsize,
-                                                 max(1.0, (x1 - x0) - 2 * _TEXT_INSET))
+                                                 max(1.0, (x1 - x0) - 2 * inset))
         else:
             lines, fm = annot.text.split("\n"), QFontMetricsF(font)
-        # Vertically centre the text within the box. The box auto-hugs the text, so a baked FreeText
-        # — which PyMuPDF top-aligns (no vertical-align on the simple appearance path) — lands in
-        # nearly the same place; centring here keeps the overlay tidy for any residual slack (e.g.
-        # the minimum box height). Horizontal inset stays a small fixed gap.
-        text_h = len(lines) * fm.lineSpacing()      # page points (font pixelSize == fontsize)
-        ty = y0 + max(1.0, (y1 - y0 - text_h) / 2.0)
+        # Each line goes where the saved drawing puts it (#427): top-aligned by PyMuPDF's fixed
+        # ratios (see `_FREETEXT_INSET`), not laid out by Qt's own metrics. An item draws its
+        # baseline its font's ascent below its top (measured on Windows to 0.05 pt), so it is placed
+        # that far above the baseline. The text used to be centred in the box and inset 2 pt, which
+        # put 12 pt text in a 20 pt box 4.5 pt lower and 2 pt further right than the file has it.
+        first = y0 + inset + _FREETEXT_BASELINE * annot.fontsize - fm.ascent()
+        pitch = _FREETEXT_PITCH * annot.fontsize
         brush = QColor.fromRgbF(*annot.color)
         # **One item per line, with each line's indent paid as an x offset** (M91.1).
         # `QGraphicsSimpleTextItem` *reserves* leading whitespace in its bounding rect but paints
@@ -893,7 +919,7 @@ class AnnotationOverlay:
             # scaling) and needs only its offset here.
             text.setParentItem(box)
             indent = fm.horizontalAdvance(line[: len(line) - len(body)])
-            text.setPos(x0 + 2 + indent, ty + row * fm.lineSpacing())
+            text.setPos(x0 + inset + indent, first + row * pitch)
 
     # ---- hit-testing ------------------------------------------------------------
 
@@ -1180,8 +1206,8 @@ class AnnotationOverlay:
         pad = 2 * editor.document().documentMargin() + 2 * editor.frameWidth() + fm.averageCharWidth() + 4
         # Height uses only the vertical chrome (frame + doc margin) — not the width pad's trailing
         # cursor room — so the box hugs the text vertically instead of sitting much taller than it
-        # (which left the text lopsided at the top). The overlay then centres the text in this tight
-        # box, and a top-aligned baked FreeText lands in nearly the same place.
+        # (which left the text lopsided at the top). It is never shorter than the saved drawing
+        # needs for the same lines (#427), which spaces them further apart than Qt does.
         v_pad = 2 * editor.document().documentMargin() + 2 * editor.frameWidth()
         line_h = fm.lineSpacing()
         lines = editor.toPlainText().split("\n") or [""]
@@ -1203,12 +1229,24 @@ class AnnotationOverlay:
             editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
             w_pt = max(_MIN_BOX_W, (longest_px + pad) / z)
             visual_lines = len(lines)
-        h_pt = min(avail_h, max(_MIN_BOX_H, (visual_lines * line_h + v_pad) / z))
+        h_pt = min(avail_h, max(_MIN_BOX_H, (visual_lines * line_h + v_pad) / z,
+                                _textbox_height(visual_lines, self._editor_fontsize,
+                                                self._style.border_width)))
         self._editor_rect = (x0, y0, x0 + min(w_pt, avail_w), y0 + h_pt)
         scene_rect = self._view.scene_rect_for_box(self._editor_page, self._editor_rect)
         top_left = self._view.mapFromScene(scene_rect.topLeft())
         bottom_right = self._view.mapFromScene(scene_rect.bottomRight())
         geom = QRect(top_left, bottom_right)
+        # The editor's first line sits where the saved drawing will put it (#427), so the text does
+        # not move when the edit commits. Its frame and margin come before the text, so the widget
+        # reaches past the box's top-left by that chrome, less the drawing's own inset and baseline.
+        # At 12 pt and 100% that is 5 px left and 6 px up; without it, every commit would move the
+        # text that far.
+        inset = _FREETEXT_INSET * self._style.border_width
+        chrome = editor.frameWidth() + editor.document().documentMargin()
+        dx = chrome - inset * z
+        dy = chrome + fm.ascent() - (inset + _FREETEXT_BASELINE * self._editor_fontsize) * z
+        geom = geom.adjusted(-round(dx), -round(dy), 0, 0)
         editor.setGeometry(geom)
         self._position_format_bar(geom)
 

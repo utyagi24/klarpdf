@@ -1242,6 +1242,18 @@ tick the box here on merge. Build in number order.
   keeping its encryption and restrictions. AES-256 was never affected. The owner's own copy was
   repaired by hand. Details in `PLAN.md` §M161 — *Windows (headless)* —
   [#423](https://github.com/utyagi24/klarpdf/pull/423)
+- [x] **M164** *(unplanned)* **A text box's text is saved where KlarPDF shows it** —
+  [#427](https://github.com/utyagi24/klarpdf/issues/427). *App.* A 12 pt text box placed just above
+  a form's underline saved 4.5 pt higher and 2 pt further left than KlarPDF showed it. The file has
+  always drawn the text at the top by fixed ratios: 0.8 font sizes to the first baseline, 1.2
+  between lines, 1.5 border widths in from the edge. The view centred the text and spaced it by
+  Qt's metrics. It now lays a box out by the file's ratios. The same cause cut off the last line of
+  a long note in the file, from 5 lines at 12 pt, so a box is now never shorter than its lines need.
+  It also wrapped a fixed-width box 4 pt narrower than the file. The inline editor shows its text
+  where the box will put it, so the text no longer moves when an edit commits. Box sizes are
+  otherwise unchanged, by the owner's choice, so a bordered box now shows in KlarPDF the space
+  under its text that saved files always had. Still owed: a hand check against Edge. Details in
+  `PLAN.md` §M164 — *Windows (headless)* — PR to follow
 
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 

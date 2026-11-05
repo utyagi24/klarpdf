@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 from PySide6.QtCore import QEvent, QPointF, Qt
-from PySide6.QtGui import QMouseEvent
+from PySide6.QtGui import QFontMetricsF, QMouseEvent
 from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsSimpleTextItem
 
 from app import PdfApp
@@ -194,10 +194,11 @@ def test_textbox_editor_autogrows_height_with_lines(win):
     assert tall_h > short_h  # height grew to fit more lines
 
 
-def test_textbox_text_is_vertically_centered_in_the_box(win):
-    """#2: the text sits at the box's vertical centre, not pinned to the top. A tall box with short
-    text would put a top-aligned label near the top (~43% of the box height off-centre); centred,
-    the text centre is within a fraction of the box centre."""
+def test_textbox_text_sits_at_the_top_where_the_saved_file_has_it(win):
+    """#427 undid the June centring ("#2" of that polish list, #53). The saved file has always drawn
+    a text box's text at the top, so centring it here showed it lower than it saves. In a tall box
+    with one short line, the baseline is 0.8 font sizes below the top. The exact comparison with the
+    file is in ``tests/test_textbox_layout.py``."""
     win.vdoc.add_annotation(0, TextBox((100, 100, 320, 220), "Hi"))  # 120pt-tall box, one short line
     ov = win.view.annotations
     ov.repaint()
@@ -206,9 +207,9 @@ def test_textbox_text_is_vertically_centered_in_the_box(win):
     # the box), hence it is reached through the frame rather than listed as a top-level item.
     texts = [c for it in boxes for c in it.childItems() if isinstance(c, QGraphicsSimpleTextItem)]
     assert boxes and texts
-    box_rect = boxes[-1].sceneBoundingRect()
-    text_center_y = texts[-1].sceneBoundingRect().center().y()
-    assert abs(text_center_y - box_rect.center().y()) < 0.2 * box_rect.height()
+    text = texts[-1]                       # its position is in page points, the box's own space
+    baseline = text.pos().y() + QFontMetricsF(text.font()).ascent()
+    assert baseline == pytest.approx(100 + 0.8 * 11.0, abs=0.01)
 
 
 def test_textbox_editor_autogrows_width_with_long_line(win):

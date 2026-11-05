@@ -95,22 +95,20 @@ def test_each_line_carries_its_own_indent(win):
     assert lines[2].pos().x() == pytest.approx(lines[0].pos().x())
 
 
-def test_the_lines_stack_by_the_font_line_spacing(win):
-    """Vertical centring switched from the single item's bounding rect to ``len(lines) *
-    lineSpacing()``, since no one item spans the box any more."""
+def test_the_lines_stack_by_the_saved_file_line_pitch(win):
+    """Lines are 1.2 font sizes apart, as the saved drawing spaces them (#427), not by the font's
+    own ``lineSpacing()``, which Qt puts 1 pt closer at 12 pt."""
     lines = _paint(win, "one\ntwo\nthree")
-    fm = QFontMetricsF(qt_font("helv", 11.0))
     gaps = [b.pos().y() - a.pos().y() for a, b in zip(lines, lines[1:])]
-    assert all(gap == pytest.approx(fm.lineSpacing(), abs=0.01) for gap in gaps)
+    assert all(gap == pytest.approx(1.2 * 11.0, abs=0.01) for gap in gaps)
 
 
 def test_a_blank_line_spaces_without_painting(win):
     """A blank line is vertical space, not an item: it still pushes the next line down by one line
     of spacing, but there is nothing to paint for it."""
     lines = _paint(win, "before\n\nafter")
-    fm = QFontMetricsF(qt_font("helv", 11.0))
     assert [it.text() for it in lines] == ["before", "after"]
-    assert lines[1].pos().y() - lines[0].pos().y() == pytest.approx(2 * fm.lineSpacing(), abs=0.01)
+    assert lines[1].pos().y() - lines[0].pos().y() == pytest.approx(2 * 1.2 * 11.0, abs=0.01)
 
 
 # ---- the wrap (M91.1) ----------------------------------------------------------
