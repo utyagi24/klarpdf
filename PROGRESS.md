@@ -1250,7 +1250,8 @@ tick the box here on merge. Build in number order.
   it black. So did the bridge's `rotate`; only `annotate`, which appends, left it alone. A text
   box's fill is now `/C` only when the box's own drawing paints a fill, or when it has no drawing,
   since MuPDF then draws one from `/C`. Boxes KlarPDF filled keep their fill. Still owed: a hand
-  check with Edge itself. Details in `PLAN.md` §M163 — *Windows (headless)* — PR to follow
+  check with Edge itself. Details in `PLAN.md` §M163 — *Windows (headless)* —
+  [#428](https://github.com/utyagi24/klarpdf/pull/428)
 
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 
