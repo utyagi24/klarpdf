@@ -420,6 +420,13 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   `paintEvent` / an event handler destroys every `QGraphicsItem` while Qt is still walking them.
   Defer to the event loop with a `QTimer` **parented to the view** (it is then cancelled on
   destruction, and a burst of events collapses into one pass).
+- **A drag keeps an item in the scene, and `_build_scene` ends every drag before it clears it.** A
+  new kind of drag needs its item dropped in `cancel_drags` (or `_end_drags`), or a zoom or an undo
+  mid-drag raises on a dead object at every mouse move. It does not crash, it only prints `Internal
+  C++ object … already deleted` to a console, and the drag is lost. So it hides: the editor's delayed
+  commit did this from M27 until the owner saw the console in M165. To test anything that depends on
+  focus, use `QTest.mousePress` on the viewport. Calling `view.mousePressEvent` directly skips the
+  focus change, which is the step this defect needed.
 - **An MCP tool description over ~2 KB is cut in half in transit, and nothing errors.** Claude Code
   truncates a tool description at **2,048** characters (`yfe` in the client binary) and appends
   `… [truncated]`; the *same* constant truncates the server's `instructions` block, so that is not

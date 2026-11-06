@@ -1264,6 +1264,15 @@ tick the box here on merge. Build in number order.
   zoom or on a misjudged line count. Boxes already saved stay where the file has them until they are
   edited. Hand-checked by the owner on 2026-11-06. Details in `PLAN.md` §M164 — *Windows (headless)* —
   [#429](https://github.com/utyagi24/klarpdf/pull/429)
+- [x] **M165** *(unplanned)* **A drag survives what the page does around it** —
+  [#431](https://github.com/utyagi24/klarpdf/issues/431). *App only.* Dragging a text box's handle
+  while its editor was open lost the drag, printed an error per mouse move, and later left a step in
+  Undo that changed nothing. The editor commits a tick after the press, and that commit rebuilt the
+  scene under the drag. A press now commits the editor first and then acts, so the drag works. A
+  scene rebuild now ends any drag cleanly, which closes the same failure for every kind of drag on a
+  zoom or an undo. Older than M163 and M164, and the document was never damaged. Still owed: a hand
+  check. Details in `PLAN.md` §M165 — *Windows (headless)* —
+  [#432](https://github.com/utyagi24/klarpdf/pull/432)
 
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 

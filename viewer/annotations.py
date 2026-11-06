@@ -1201,9 +1201,11 @@ class AnnotationOverlay:
         editor = self._editor
         QTimer.singleShot(0, lambda: self._commit_textbox() if self._editor is editor else None)
 
-    def _commit_textbox(self) -> None:
+    def _commit_textbox(self) -> "TextBox | None":
+        """Close the editor and commit what it holds. Returns the box now on the page, or ``None``
+        if there is none, which is also the answer when the commit was held back."""
         if self._editor is None or self._suppress_commit or self._bar_is_interacting():
-            return
+            return None
         raw = self._editor.toPlainText()
         text = raw.strip()  # only to decide empty-vs-not; the box keeps the verbatim text
         page_index, rect, style = self._editor_page, self._editor_rect, self._style
@@ -1214,16 +1216,39 @@ class AnnotationOverlay:
             _, old = editing
             if not text:
                 self.remove(page_index, old)  # emptied (only whitespace) → delete the box
-                return
+                return None
             # Re-commit only when the text or the style changed, which is also what grows the rect.
             # A re-open that touches nothing leaves the box exactly as it was: opening the editor
             # measures a box afresh, and that alone must not resize it, or move its text. The text
             # is stored verbatim — leading/trailing spaces and newlines are preserved.
             if raw != old.text or style != TextBoxStyle.from_textbox(old):
-                self._replace(page_index, old, self._textbox(rect, raw, style, auto_width),
-                              text="Edit text box")
-        elif text:
-            self._on_add(page_index, self._textbox(rect, raw, style, auto_width))
+                new = self._textbox(rect, raw, style, auto_width)
+                self._replace(page_index, old, new, text="Edit text box")
+                return new
+            return old
+        if text:
+            new = self._textbox(rect, raw, style, auto_width)
+            self._on_add(page_index, new)
+            return new
+        return None
+
+    def commit_before_press(self) -> None:
+        """Commit an open editor before a press on the page is acted on (#431).
+
+        The editor's own focus-out commits one tick after the press, which is too late: by then the
+        press has started a drag, and the commit replaces the box that drag holds and rebuilds the
+        scene under it. So a press commits first, and then acts on the page as it stands.
+
+        The rebuild clears the selection, so it is put back, or a handle the reader could see would
+        be gone from under the press. The box being edited is swapped for what replaced it."""
+        if self._editor is None:
+            return
+        kept = list(self._selection)
+        old = self._editing[1] if self._editing is not None else None
+        new = self._commit_textbox()
+        if self._editor is None and kept:
+            self._set_selection([(page, new if mark is old else mark) for page, mark in kept
+                                 if new is not None or mark is not old])
 
     @staticmethod
     def _textbox(rect: tuple, text: str, style: TextBoxStyle, auto_width: bool = True) -> TextBox:
@@ -1939,6 +1964,25 @@ class AnnotationOverlay:
         ghost, self._resize_ghost = self._resize_ghost, None
         if ghost is not None and ghost.scene() is self._view.scene():
             self._view.scene().removeItem(ghost)
+
+    def cancel_drags(self) -> None:
+        """End any drag in flight and apply nothing, because the scene is about to be rebuilt (#431).
+
+        A drag keeps an item in the scene, and ``scene.clear()`` destroys it, so every mouse event
+        after that raised on a dead object. Keeping the drag going is not an answer: a zoom moves
+        the scene points it holds, and an edit can replace the mark. Called while the items are
+        still alive, so they are simply taken out."""
+        self.cancel_draw()
+        self.cancel_resize()
+        scene = self._view.scene()
+        ghosts = [ghost for _m, _b, ghost in self._move_items]
+        for item in (*ghosts, self._marquee_item, self._redact_band):
+            if item is not None:
+                scene.removeItem(item)
+        self._move_items = []
+        self._foreign_move = self._move_anchor_local = self._move_grabbed = None
+        self._marquee_item = self._marquee_anchor = None
+        self._redact_band = self._redact_anchor = None
 
     # ---- redaction tool (rubber-band drag) --------------------------------------
 
