@@ -319,6 +319,10 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   the same module disagree **and must stay that way**; a test pins each against the library, so a
   PyMuPDF upgrade that changes either fails there with the reason rather than silently resizing
   documents.
+- **An annotation crashes once its page is gone.** `doc[0].first_annot` lets the page be collected,
+  and an annotation only holds a weak reference to it. Then `.rect` is a Windows access violation
+  that takes down the whole test run, and `.parent` is a `ReferenceError`. Keep the page in a
+  variable: `page = doc[0]`, then `page.first_annot`. Both happened in M163–M166's scripts and fixtures.
 - **PyMuPDF's FreeText drawing is a starting point, not a limit.** Its simple appearance has no
   vertical alignment: it puts the text at the top of the box, padded by 1.5 × the border, so an
   outline moves the text. #427 was first fixed by moving the view to match, which brought back the

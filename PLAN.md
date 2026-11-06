@@ -10948,6 +10948,100 @@ handle without clicking anywhere else. The box should resize, the text should st
 should take back one thing at a time, and the console should stay quiet. Then start a drag on any
 mark and zoom with Ctrl+wheel before letting go: the drag ends and the mark stays where it was.
 
+### M166 — a box narrower than its text keeps it on one line *(unplanned)* (2026-11-06)
+
+[#430](https://github.com/utyagi24/klarpdf/issues/430). A text box can be a point or two narrower
+than its own text. KlarPDF showed such a box's text on one line, and a save that drew it again put
+the last word on a second line, below the box, where no viewer shows it. "JANE DOE" saved as "JANE".
+
+**KlarPDF does not make these boxes, but Microsoft Edge does.** When it moves a box it shrinks it to
+fit the text, by its own font's widths, which can leave it short of ours. The owner's test form has
+four: one 79.88 pt wide holding 81.36 pt of text, whose second word was already gone from the file,
+and three 32.00 pt wide holding 32.79 pt, which looked fine and would have broken on the next rewrite.
+
+**Surfaces: core, so the app and the bridge both.** The change is in `parse_annotation`. The bridge
+creates no text boxes, but every tool that rewrites a page draws ours again from the model, so
+`rotate` lost the word just as a save did. `annotate` appends, so it left the box alone.
+
+#### Cause
+
+M164 made one layout decide a box's lines, for the view and the file. That assumed MuPDF would draw
+the lines it was given. It does not when a line is wider than the box: `textbox_lines` said one line,
+`add_freetext_annot` wrapped it anyway, and nothing grew the box to hold the new line.
+
+The issue blamed `_FIT_ONE_LINE_TOL`. M164 changed that since it was filed: the tolerance is now only
+reached when a drawing shows no ink, and `len(drawn) <= len(filled)` decides. The tolerance stays, and
+it was never the cause of what reaches a redraw.
+
+Measured on PyMuPDF 1.27.2.3:
+
+* MuPDF keeps a line whole exactly when the box is at least the text plus 3 × the border wide, with no
+  slack, across `helv`, `tiro` and `cour` at 9, 12 and 17.5 pt and borders of 0, 1 and 2.5.
+* The drawing clips to the box less half a border, so the room a line needs is where it starts plus
+  its width. A box wide enough not to wrap can still cut off the end of its text.
+* A trailing space does not wrap.
+* With no slack at all, 7,314 of 20,000 widths that should fit wrapped anyway, from 32-bit rounding.
+  With 0.001 pt, none did. `_WRAP_SLACK` is 0.01.
+
+#### The fix
+
+`_widened_to_its_lines` moves an auto-width box's right edge out when it is too narrow for its own
+lines, as they are read. It compares the box's width with what its lines need, so no number is tuned.
+The left edge and `TextBox.origin` do not change, so the text stays where it is. A box wide enough is
+returned as it was, so a box already saved does not move.
+
+It runs where these boxes enter the model, so the view, a selection and a save all see the same box
+from the moment the file opens. The file changes only when a box is drawn again: a save that redraws
+nothing leaves `/Rect` as it found it.
+
+**Rejected:**
+
+* **Widen at the save.** The view and the selection would disagree with the file until it was reopened.
+* **Draw in a wider box and put `/Rect` back.** The drawing's clip would cut off the end of the text.
+* **Remove the tolerance.** It no longer decides this.
+* **Read a box with a cut-off line as not wrapped on purpose.** See below.
+
+**Not changed:**
+
+* **A box whose second line is still partly visible stays wrapped.** The drawing shows two lines, so
+  it reads as wrapped on purpose (measured: a 20 pt box, as the issue's script leaves it). It cannot
+  be told from a deliberate wrap without guessing, and guessing wrong would turn a long wrapped note
+  into one line running off the page. Dragging the box's width handle repairs it, because a resize
+  sizes the box to its lines. The owner's boxes are 13.5 pt tall, so their second line is wholly
+  below the box and reads as one line.
+* **A box is repaired when it is drawn again**, not when the file is opened. The owner's page 7 box
+  needs a nudge and a save to get its word back.
+* **A widened box may pass the page edge.** Its text already ran there.
+
+Found alongside this and filed, because the cause and the code are different: a long line typed near
+the page edge ([#434](https://github.com/utyagi24/klarpdf/issues/434)), and a word wider than a
+fixed-width box ([#435](https://github.com/utyagi24/klarpdf/issues/435)), which the owner's form has.
+
+#### Checks
+
+`write_narrow_textbox` and `write_cut_off_textbox` (`tests/conftest.py`) build the two shapes and check
+themselves. `tests/test_textbox_narrow.py` covers the issue's steps, the word restored, the text and
+the left edge staying put, every font and border, text that starts further in, explicit lines and
+trailing spaces. It also covers what must not change: a wide box, a deliberate wrap, a save that
+redraws nothing, and repeated saves. A seeded test runs 60 narrow boxes. `tests/test_mcp_textbox_narrow.py`
+runs the bridge's `rotate`.
+
+**Broken on purpose 10 ways**, and each break failed its own tests. Two things went wrong on the way:
+
+* "Only the first line is measured" failed nothing, because the fixture measured the whole multi-line
+  string, so its box was never narrow. The fixture now measures the longest line.
+* A slip then left `conftest.py` unparsable, and the break script reported that as "0 fail", because it
+  counted failed tests and pytest had run none. So a break that fails nothing proves nothing until
+  its exit code says the tests ran.
+
+**On a copy of the owner's form**, with every box forced through a redraw (`rotate` there and back):
+the first box got its word back, six missing characters to none, and the three at risk grew 1.17 pt.
+Page 7 changed 1,032 pixels, all inside those four boxes (979, 17, 17 and 19) and none outside. Page 8
+changed none. The original file stayed byte-identical.
+
+**Owed: a hand check on Windows.** Open the form, nudge the first box on page 7 with an arrow key, save,
+and open the file in Edge. The whole text should show on one line.
+
 ## The open issues, grouped — M149–M152 *(planned 2026-09-19)*
 
 Grouped at the owner's request (2026-09-19: *"plan milestones for all of the issues, except for 352
