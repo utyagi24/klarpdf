@@ -10656,8 +10656,20 @@ operator case); lexing a string's contents fails the operator case; not followin
 fails the nested-form case; and dropping `/C` for a box with no drawing fails that case. While those
 breaks were being made, one of them stopped the lexer advancing, which hung the run. So a seeded test
 now lexes 2,000 random byte strings to the end, since a lexer that hangs would hang opening a
-document. **Owed: a hand check with Edge itself.** The issue reports Edge's own file read back the
-same way as the fixture, but that file was not available here.
+document.
+
+**With M164.** M164 merged first and meets this fix at both ends. A save now rewrites a box's drawing,
+and that drawing is what `_freetext_fill` reads. A box read back keeps where its drawing put the text,
+so M164's read-back now meets drawings PyMuPDF did not write. Three tests cover the two together: a
+filled box through three saves, the same through the bridge's `rotate`, and a box with no `cm` line,
+its own `Tm` and an unknown font in `/DA`, which moves exactly as far as its box and stays unfilled.
+**Broken on purpose four more ways:** trusting `/C` fails the unfilled case, a fill check that always
+says no fails both filled cases, a rewrite that drops what is drawn before the text fails all three,
+and forgetting where the drawing put the text fails the case that moves.
+
+**Owed: a hand check with Edge itself.** The issue reports Edge's own file read back the same way as
+the fixture, but that file was not available here. The owner's test form holds no box Edge
+moved, so it could not stand in. Its one filled box does read its fill.
 
 ### M164 — a text box looks even, and its text is saved where KlarPDF shows it *(unplanned)* (2026-11-04)
 
@@ -10841,7 +10853,7 @@ Before any of this, the view's baseline sat 4.7 pt below the file's and its text
 further right. **The first version's test suite was green too**, and its pixels matched. What it
 could not say was whether the result was any good, and only the owner's test on a real form could.
 
-**Owed: a hand check on Windows.** Add two boxes to a form's underline, turn the outline on for one,
+**A hand check on Windows, done by the owner on 2026-11-06.** Add two boxes to a form's underline, turn the outline on for one,
 narrow the other, save, and compare with Edge. The text should sit evenly in each box, and in the
 same place in KlarPDF and Edge. Then reopen a form saved by an earlier version: its boxes should not
 have moved.

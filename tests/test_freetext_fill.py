@@ -139,3 +139,68 @@ def test_rotating_the_page_saves_the_box_with_no_fill(edge_pdf, tmp_path):
     out = str(tmp_path / "rotated.pdf")
     PyMuPDFEngine().materialize(vdoc, out)
     assert not FILLED_RECT.search(_box_drawing(out))
+
+
+# ---- with M164's drawing ---------------------------------------------------------------------
+
+
+def _move_down(path: str, out: str) -> None:
+    """Move the box 3 pt down and save, which draws it again from the model."""
+    vdoc = VirtualDocument.from_path(path)
+    (old,) = vdoc.page_annotations(0)
+    x0, y0, x1, y1 = old.rect
+    vdoc.replace_annotation(0, old, dataclasses.replace(old, rect=(x0, y0 + 3, x1, y1 + 3)))
+    PyMuPDFEngine().materialize(vdoc, out)
+
+
+def _text_origin(path: str) -> tuple[float, float]:
+    """Where the one box in ``path`` starts its text, read from its drawing."""
+    with fitz.open(path) as doc:
+        page = doc[0]
+        (annot,) = [a for a in page.annots() if a.info.get("title") == KLARPDF_AUTHOR]
+        (line,) = [line for block in annot.get_text("rawdict")["blocks"]
+                   for line in block.get("lines", [])]
+        return line["spans"][0]["chars"][0]["origin"]
+
+
+def _draw_it_another_way(path: str, out: str) -> None:
+    """Give the box a drawing PyMuPDF did not write: no ``cm`` line, the text placed by its own
+    ``Tm``, and a font in ``/DA`` KlarPDF has no name for. Edge's own file holds personal data, so
+    this stands in for what the fixture leaves as PyMuPDF wrote it."""
+    with fitz.open(path) as doc:
+        page = doc[0]
+        annot = page.first_annot
+        drawing = int(doc.xref_get_key(annot.xref, "AP/N")[1].split()[0])
+        doc.update_stream(drawing, b"q\nBT\n/Helv 12 Tf\n0 g\n1 0 0 1 153 746.5 Tm\n"
+                                   b"(JANE DOE) Tj\nET\nQ\n")
+        doc.xref_set_key(annot.xref, "DA", "(0 g /Arial 12 Tf)")
+        doc.save(out)
+
+
+def test_a_box_we_filled_keeps_it_through_repeated_saves(tmp_path):
+    """A save rewrites the box's drawing to place its text (M164), and that drawing is what says
+    whether the box is filled. So a rewrite that lost the fill would lose it for good."""
+    path = str(tmp_path / "filled.pdf")
+    doc, _ = _one_box(TextBox((150, 82, 230, 102), "JANE DOE", fill_color=_YELLOW))
+    doc.save(path)
+    doc.close()
+    for save in range(3):
+        out = str(tmp_path / f"filled{save}.pdf")
+        _move_down(path, out)
+        assert FILLED_RECT.search(_box_drawing(out))
+        (box,) = VirtualDocument.from_path(out).page_annotations(0)
+        assert box.fill_color == pytest.approx(_YELLOW)
+        path = out
+
+
+def test_a_box_another_program_drew_moves_with_its_text_and_stays_unfilled(edge_pdf, tmp_path):
+    """A box read back keeps where its drawing put the text (M164), whoever drew it. Moving it
+    carries the text along, the same distance, with no fill."""
+    foreign = str(tmp_path / "foreign.pdf")
+    _draw_it_another_way(edge_pdf, foreign)
+    x, y = _text_origin(foreign)
+    assert (x, y) == pytest.approx((153, 842 - 746.5)), "fixture's text is not where it was put"
+    out = str(tmp_path / "moved.pdf")
+    _move_down(foreign, out)
+    assert not FILLED_RECT.search(_box_drawing(out))
+    assert _text_origin(out) == pytest.approx((x, y + 3), abs=0.01)

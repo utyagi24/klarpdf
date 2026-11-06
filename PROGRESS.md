@@ -1262,7 +1262,7 @@ tick the box here on merge. Build in number order.
   outline on no longer moves the text, a long note keeps its last line in the file, a fixed-width box
   breaks its lines where the file does, and a box's height depends only on its lines, not on the
   zoom or on a misjudged line count. Boxes already saved stay where the file has them until they are
-  edited. Still owed: a hand check against Edge. Details in `PLAN.md` §M164 — *Windows (headless)* —
+  edited. Hand-checked by the owner on 2026-11-06. Details in `PLAN.md` §M164 — *Windows (headless)* —
   [#429](https://github.com/utyagi24/klarpdf/pull/429)
 
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
