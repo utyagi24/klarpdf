@@ -10667,7 +10667,7 @@ its own `Tm` and an unknown font in `/DA`, which moves exactly as far as its box
 says no fails both filled cases, a rewrite that drops what is drawn before the text fails all three,
 and forgetting where the drawing put the text fails the case that moves.
 
-**Owed: a hand check with Edge itself.** The issue reports Edge's own file read back the same way as
+**A hand check with Edge itself, done by the owner on 2026-11-06.** The issue reports Edge's own file read back the same way as
 the fixture, but that file was not available here. The owner's test form holds no box Edge
 moved, so it could not stand in. Its one filled box does read its fill.
 
@@ -10943,7 +10943,7 @@ and every kind of drag left out of `cancel_drags` one at a time. Each break fail
 first pass found two gaps: `scene.clear()` hid a `cancel_drags` that left its items in the scene, and
 a foreign move was not tested at all. A stale one would have applied a cancelled drag on release.
 
-**Owed: a hand check on Windows.** Double-click a text box, change its text, then drag its right-edge
+**A hand check on Windows, done by the owner on 2026-11-06.** Double-click a text box, change its text, then drag its right-edge
 handle without clicking anywhere else. The box should resize, the text should stay changed, Undo
 should take back one thing at a time, and the console should stay quiet. Then start a drag on any
 mark and zoom with Ctrl+wheel before letting go: the drag ends and the mark stays where it was.
