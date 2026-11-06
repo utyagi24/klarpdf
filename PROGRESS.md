@@ -1242,6 +1242,16 @@ tick the box here on merge. Build in number order.
   keeping its encryption and restrictions. AES-256 was never affected. The owner's own copy was
   repaired by hand. Details in `PLAN.md` §M161 — *Windows (headless)* —
   [#423](https://github.com/utyagi24/klarpdf/pull/423)
+- [x] **M163** *(unplanned)* **A text box another program moved keeps its look** —
+  [#426](https://github.com/utyagi24/klarpdf/issues/426). *Core: the app and the bridge.* A text
+  box the owner signed with in KlarPDF and then moved in Microsoft Edge came back as a solid black
+  box. Edge keeps our author tag, adds `/C [0 0 0]` and draws the box with no background. KlarPDF
+  read `/C` as the box's fill, so the view showed it black and a save that rewrote the page wrote
+  it black. So did the bridge's `rotate`; only `annotate`, which appends, left it alone. A text
+  box's fill is now `/C` only when the box's own drawing paints a fill, or when it has no drawing,
+  since MuPDF then draws one from `/C`. Boxes KlarPDF filled keep their fill. Still owed: a hand
+  check with Edge itself. Details in `PLAN.md` §M163 — *Windows (headless)* —
+  [#428](https://github.com/utyagi24/klarpdf/pull/428)
 - [x] **M164** *(unplanned)* **A text box looks even, and its text is saved where KlarPDF shows it** —
   [#427](https://github.com/utyagi24/klarpdf/issues/427). *Core: the app and the bridge.* A 12 pt
   text box placed just above a form's underline saved 4.5 pt higher and 2 pt further left than
@@ -1252,7 +1262,7 @@ tick the box here on merge. Build in number order.
   outline on no longer moves the text, a long note keeps its last line in the file, a fixed-width box
   breaks its lines where the file does, and a box's height depends only on its lines, not on the
   zoom or on a misjudged line count. Boxes already saved stay where the file has them until they are
-  edited. Still owed: a hand check against Edge. Details in `PLAN.md` §M164 — *Windows (headless)* —
+  edited. Hand-checked by the owner on 2026-11-06. Details in `PLAN.md` §M164 — *Windows (headless)* —
   [#429](https://github.com/utyagi24/klarpdf/pull/429)
 
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
