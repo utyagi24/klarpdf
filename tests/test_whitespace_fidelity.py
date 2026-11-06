@@ -20,7 +20,7 @@ from PySide6.QtGui import QFontMetricsF
 from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsSimpleTextItem
 
 from app import PdfApp
-from klarpdf.model.page_edits import Highlight, TextBox
+from klarpdf.model.page_edits import Highlight, TextBox, wrap_text
 from store.settings import Settings
 from viewer.text_format_bar import qt_font
 
@@ -118,30 +118,26 @@ def test_the_wrap_keeps_a_paragraph_indent(win):
     """``"    a b".split(" ")`` yields empty tokens that the ``if current and …`` guard discarded, so
     the fixed-width path destroyed the indent of *every* paragraph — reached after a width-handle
     drag (M78.3) and for any reopened box whose text does not fit one line."""
-    ov = win.view.annotations
-    lines, _fm = ov._wrap_textbox_lines("    indented first\nflush second", "helv", 11.0, 400.0)
+    lines = wrap_text("    indented first\nflush second", "helv", 11.0, 400.0)
     assert lines == ["    indented first", "flush second"]
 
 
 def test_a_wrapped_indent_lands_on_the_first_line_only(win):
     """A continuation line is not separately indented — the indent belongs to the paragraph's first
     line, and it is charged against the available width there, so that line wraps earlier."""
-    ov = win.view.annotations
-    lines, fm = ov._wrap_textbox_lines("        alpha beta gamma delta epsilon", "helv", 11.0, 60.0)
+    lines = wrap_text("        alpha beta gamma delta epsilon", "helv", 11.0, 60.0)
     assert len(lines) > 1
     assert lines[0].startswith("        ")
     assert not any(line.startswith(" ") for line in lines[1:])
     assert " ".join(lines).split() == ["alpha", "beta", "gamma", "delta", "epsilon"]
-    assert fm.horizontalAdvance(lines[0].split()[0]) > 0           # the font measured something
 
 
 def test_a_width_dragged_box_keeps_its_indents(win):
     """The width handle reflows through the same wrap, so the indents survive the drag."""
-    ov = win.view.annotations
     box = TextBox((100.0, 100.0, 400.0, 160.0), "    indented and long enough to fold once or twice",
                   auto_width=False)
     win.vdoc.add_annotation(0, box)
-    lines, _fm = ov._wrap_textbox_lines(box.text, box.fontname, box.fontsize, 80.0)
+    lines = wrap_text(box.text, box.fontname, box.fontsize, 80.0)
     assert lines[0].startswith("    ")
     painted = _paint(win, "    indented and long enough to fold once or twice",
                      rect=(100.0, 200.0, 190.0, 280.0), auto_width=False)

@@ -319,6 +319,16 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   the same module disagree **and must stay that way**; a test pins each against the library, so a
   PyMuPDF upgrade that changes either fails there with the reason rather than silently resizing
   documents.
+- **PyMuPDF's FreeText drawing is a starting point, not a limit.** Its simple appearance has no
+  vertical alignment: it puts the text at the top of the box, padded by 1.5 × the border, so an
+  outline moves the text. #427 was first fixed by moving the view to match, which brought back the
+  top-heavy boxes and the owner rejected it. The file can follow the view instead: everything after
+  the drawing's one `cm` line is the text, so rewriting that line moves it alone
+  (`_place_textbox_text`, `PLAN.md` §M164). **Write straight to the objects, last**:
+  `annot.update()` redraws it, and `set_info` marks it for a redraw. `/RD` is no way round this,
+  because MuPDF folds it into the `/Rect` on update. A box read back keeps where its drawing put
+  the text (`TextBox.origin`), so nothing already saved moves. A test of a tiny shift should check
+  the number, not only pixels: a 0.005 pt move changed 752 pixels on one page and none on another.
 - **`Page.get_pixmap` reads the whole page on every call, clip or not.** It builds a display list
   internally each time, so a small clip saves the drawing but not the reading. On the NADA cover a
   16 px piece took 44–64 ms, nearly all of it reading; from a kept `page.get_displaylist()` it took

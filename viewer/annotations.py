@@ -57,11 +57,15 @@ from klarpdf.model.page_edits import (
     Shape,
     Strikeout,
     TextBox,
+    TEXTBOX_PITCH,
     Underline,
     mark_bounds,
     rects_of,
     restyle_mark,
     scale_mark,
+    textbox_height,
+    textbox_lines,
+    textbox_origin,
     translate_mark,
 )
 from viewer.blend import MultiplyPixmapItem, MultiplyRectItem
@@ -73,16 +77,6 @@ from viewer.text_format_bar import TextBoxStyle, TextFormatBar, qt_font
 
 _TEXTBOX_DEFAULT = (200.0, 56.0)  # starting size for a new box, in page points (then auto-grows)
 _MIN_BOX_W, _MIN_BOX_H = 40.0, 20.0  # a text box never shrinks below this (page points)
-# Where the saved drawing puts a text box's text (#427). PyMuPDF lays a FreeText out by fixed
-# ratios, not by the font's own metrics: measured on 1.27.2.3 for helv, tiro and cour at 8 to 24 pt
-# with borders 0 and 2, the text starts 1.5 border widths in from the left edge, the first baseline
-# is that inset plus 0.8 font sizes below the top, baselines are 1.2 font sizes apart, and a line
-# wraps at the box's width less the inset on both sides. The view lays a box out the same way, so
-# its text is where the file has it. `tests/test_textbox_layout.py` pins each number against the
-# library, so an upgrade that moves one fails there.
-_FREETEXT_INSET = 1.5             # the text's inset from each edge, in border widths
-_FREETEXT_BASELINE = 0.8          # the first baseline below the inset, in font sizes
-_FREETEXT_PITCH = 1.2             # baseline to baseline, in font sizes
 _MIN_REDACT = 3.0                 # ignore a redaction drag smaller than this (a stray click)
 _MIN_DRAW = 2.0                   # ignore a draw drag smaller than this (page points)
 _HIT_PAD = 3.0                    # grab slack around thin drawn marks (page points)
@@ -283,19 +277,6 @@ def mark_noun(mark) -> str:
 
 def _move_label(mark) -> str:
     return f"Move {mark_noun(mark)}"
-
-
-def _textbox_height(lines: int, fontsize: float, border_width: float) -> float:
-    """The least a text box may be to hold ``lines`` lines where the saved drawing puts them (#427):
-    the file's own line pitch for each, plus the inset above and below.
-
-    The drawing clips its text to the box, and Qt spaces lines closer than the file does (13.4 pt
-    against 14.4 at 12 pt), so a box sized from Qt's metrics alone lost the bottom of its last line
-    in every viewer: at 12 pt, from 5 lines for a box the width handle sized and from 13 for one
-    typed at 100%. The last baseline lands 0.4 font sizes plus the inset above the bottom here,
-    which holds the descenders of all three fonts. A box is otherwise sized as it always was; this
-    is a floor, not a fit."""
-    return lines * _FREETEXT_PITCH * fontsize + 2 * _FREETEXT_INSET * border_width
 
 
 class _TextBoxEditor(QPlainTextEdit):
@@ -820,48 +801,15 @@ class AnnotationOverlay:
             scene.addItem(item)
             self._items.append(item)
 
-    def _wrap_textbox_lines(self, text: str, fontname: str, fontsize: float, avail_pt: float):
-        """Greedy word-wrap ``text`` to ``avail_pt`` page points, honouring explicit newlines (each
-        paragraph wrapped on its own, blank lines kept). A single word wider than the box is left
-        unbroken — it overflows rather than being chopped mid-word. Returns ``(lines, metrics)``, so
-        callers reuse the same :class:`QFontMetricsF` for the line height. Page-point measurement:
-        the font's pixelSize is the point size, matching :meth:`_paint_textbox` and the round-trip
-        ``fitz.get_text_length`` inference — one wrap, one source of truth.
-
-        **A paragraph's leading whitespace is its indent, and the wrap keeps it** (M91.1). It is
-        held out of the word loop rather than passed through it: ``"    a b".split(" ")`` yields
-        four empty tokens that the ``if current and …`` guard discards, which is how the indent
-        used to be destroyed on *every* paragraph, not just a wrapped one. Only the first line of
-        the paragraph carries it — a continuation line is not separately indented — and it is
-        charged against ``avail_pt`` there, so an indented first line wraps earlier, as it must."""
-        fm = QFontMetricsF(qt_font(fontname, fontsize))
-        lines: list[str] = []
-        for para in text.split("\n"):
-            body = para.lstrip()
-            indent = para[: len(para) - len(body)]
-            current = ""
-            for word in body.split(" "):
-                trial = word if not current else current + " " + word
-                if current and fm.horizontalAdvance(indent + trial) > avail_pt:
-                    lines.append(indent + current)
-                    indent = ""                       # only the paragraph's own first line
-                    current = word
-                else:
-                    current = trial
-            lines.append(indent + current)
-        return lines, fm
-
     def _reflow_textbox_rect(self, box: TextBox, width_pt: float, page_index: int) -> tuple:
         """The rect a text box takes at a fixed ``width_pt`` (M78.3 width handle): left + top pinned,
         width set, height grown to fit the wrapped text — both clamped to the page."""
         pw, ph = self._view._unrotated_size(page_index)
         x0, y0 = box.rect[0], box.rect[1]
         width_pt = max(_MIN_BOX_W, min(width_pt, pw - x0))
-        inset = _FREETEXT_INSET * box.border_width
-        lines, fm = self._wrap_textbox_lines(box.text, box.fontname, box.fontsize,
-                                             max(1.0, width_pt - 2 * inset))
-        height = min(ph - y0, max(_MIN_BOX_H, len(lines) * fm.lineSpacing() + 2.0,
-                                  _textbox_height(len(lines), box.fontsize, box.border_width)))
+        lines = textbox_lines(replace(box, rect=(x0, y0, x0 + width_pt, y0), auto_width=False))
+        height = min(ph - y0, max(_MIN_BOX_H,
+                                  textbox_height(len(lines), box.fontsize, box.border_width)))
         return (x0, y0, x0 + width_pt, y0 + height)
 
     def _paint_textbox(self, scene, page_index: int, annot: TextBox, z: float) -> None:
@@ -881,22 +829,16 @@ class AnnotationOverlay:
         box.setZValue(z)
         scene.addItem(box)
         self._items.append(box)
-        # A fixed-width box (M78.3) wraps its text at the box width; an auto-width box shows the
-        # verbatim text (its explicit newlines only) and hugs its longest line.
+        # The lines and where they start come from the layout a save draws by, so the text is where
+        # the file has it (#427). The view adds no layout of its own: it used to, by Qt's metrics,
+        # and the two disagreed. An item draws its baseline its font's ascent below its top (measured
+        # on Windows to 0.05 pt), so it is placed that far above the baseline.
         font = qt_font(annot.fontname, annot.fontsize)
-        inset = _FREETEXT_INSET * annot.border_width
-        if not annot.auto_width:
-            lines, fm = self._wrap_textbox_lines(annot.text, annot.fontname, annot.fontsize,
-                                                 max(1.0, (x1 - x0) - 2 * inset))
-        else:
-            lines, fm = annot.text.split("\n"), QFontMetricsF(font)
-        # Each line goes where the saved drawing puts it (#427): top-aligned by PyMuPDF's fixed
-        # ratios (see `_FREETEXT_INSET`), not laid out by Qt's own metrics. An item draws its
-        # baseline its font's ascent below its top (measured on Windows to 0.05 pt), so it is placed
-        # that far above the baseline. The text used to be centred in the box and inset 2 pt, which
-        # put 12 pt text in a 20 pt box 4.5 pt lower and 2 pt further right than the file has it.
-        first = y0 + inset + _FREETEXT_BASELINE * annot.fontsize - fm.ascent()
-        pitch = _FREETEXT_PITCH * annot.fontsize
+        fm = QFontMetricsF(font)
+        lines = textbox_lines(annot)
+        left, baseline = textbox_origin(annot, len(lines))
+        first = baseline - fm.ascent()
+        pitch = TEXTBOX_PITCH * annot.fontsize
         brush = QColor.fromRgbF(*annot.color)
         # **One item per line, with each line's indent paid as an x offset** (M91.1).
         # `QGraphicsSimpleTextItem` *reserves* leading whitespace in its bounding rect but paints
@@ -919,7 +861,7 @@ class AnnotationOverlay:
             # scaling) and needs only its offset here.
             text.setParentItem(box)
             indent = fm.horizontalAdvance(line[: len(line) - len(body)])
-            text.setPos(x0 + inset + indent, first + row * pitch)
+            text.setPos(left + indent, first + row * pitch)
 
     # ---- hit-testing ------------------------------------------------------------
 
@@ -1204,22 +1146,20 @@ class AnnotationOverlay:
         avail_h = max(_MIN_BOX_H, ph - y0)
         fm = QFontMetricsF(font)
         pad = 2 * editor.document().documentMargin() + 2 * editor.frameWidth() + fm.averageCharWidth() + 4
-        # Height uses only the vertical chrome (frame + doc margin) — not the width pad's trailing
-        # cursor room — so the box hugs the text vertically instead of sitting much taller than it
-        # (which left the text lopsided at the top). It is never shorter than the saved drawing
-        # needs for the same lines (#427), which spaces them further apart than Qt does.
+        # The widget needs this much height for its own frame and margin. The box does not: its
+        # height comes from its lines alone, so it is the same at every zoom (#427).
         v_pad = 2 * editor.document().documentMargin() + 2 * editor.frameWidth()
         line_h = fm.lineSpacing()
-        lines = editor.toPlainText().split("\n") or [""]
+        raw = editor.toPlainText()
+        lines = raw.split("\n") or [""]
         longest_px = max((fm.horizontalAdvance(ln) for ln in lines), default=0.0)
         avail_px = avail_w * z - pad
         if not self._editor_auto_width:
             # Fixed-width box (M78.3): wrap at the box's own width; only the height grows.
             editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
             w_pt = min(self._editor_fixed_w, avail_w)
-            wrap_px = w_pt * z - pad
-            visual_lines = (sum(max(1, math.ceil(fm.horizontalAdvance(ln) / wrap_px)) for ln in lines)
-                            if wrap_px > 0 else len(lines))
+            visual_lines = len(textbox_lines(self._textbox((x0, y0, x0 + w_pt, y0), raw, self._style,
+                                                           auto_width=False)))
         elif avail_px > 0 and longest_px > avail_px:
             # Longer than the page allows → wrap to the page edge; height absorbs the extra lines.
             editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
@@ -1229,24 +1169,25 @@ class AnnotationOverlay:
             editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
             w_pt = max(_MIN_BOX_W, (longest_px + pad) / z)
             visual_lines = len(lines)
-        h_pt = min(avail_h, max(_MIN_BOX_H, (visual_lines * line_h + v_pad) / z,
-                                _textbox_height(visual_lines, self._editor_fontsize,
-                                                self._style.border_width)))
+        h_pt = min(avail_h, max(_MIN_BOX_H, textbox_height(visual_lines, self._editor_fontsize,
+                                                           self._style.border_width)))
         self._editor_rect = (x0, y0, x0 + min(w_pt, avail_w), y0 + h_pt)
         scene_rect = self._view.scene_rect_for_box(self._editor_page, self._editor_rect)
         bottom_right = self._view.mapFromScene(scene_rect.bottomRight())
-        # The editor's first line sits where the saved drawing will put it (#427), so the text does
-        # not move when the edit commits. Its frame and margin come before the text, so the widget
-        # reaches past the box's top-left by that chrome, less the drawing's own inset and baseline.
-        # At 12 pt and 100% that is 5 px left and 6 px up; without it, every commit would move the
-        # text that far. The corner is rounded to a pixel once, at the end: rounding the box's
+        # The editor's first line sits where the box will put it (#427), so the text does not move
+        # when the edit commits. Its frame and margin come before the text, so the widget reaches
+        # past the box by that chrome, less the layout's own gap, on both sides so that it wraps
+        # where the box does. The corner is rounded to a pixel once, at the end: rounding the box's
         # corner and the offset separately missed by more than a pixel at 175% (CI, Linux).
-        inset = _FREETEXT_INSET * self._style.border_width
+        left, baseline = textbox_origin(self._textbox(self._editor_rect, raw, self._style),
+                                        visual_lines)
         chrome = editor.frameWidth() + editor.document().documentMargin()
-        dx = chrome - inset * z
-        dy = chrome + fm.ascent() - (inset + _FREETEXT_BASELINE * self._editor_fontsize) * z
+        dx = chrome - (left - x0) * z
+        dy = chrome + fm.ascent() - (baseline - y0) * z
         corner = self._view.viewportTransform().map(scene_rect.topLeft())
-        geom = QRect(QPoint(round(corner.x() - dx), round(corner.y() - dy)), bottom_right)
+        top_left = QPoint(round(corner.x() - dx), round(corner.y() - dy))
+        bottom = max(bottom_right.y(), top_left.y() + math.ceil(visual_lines * line_h + v_pad))
+        geom = QRect(top_left, QPoint(bottom_right.x() + round(dx), bottom))
         editor.setGeometry(geom)
         self._position_format_bar(geom)
 
@@ -1274,12 +1215,13 @@ class AnnotationOverlay:
             if not text:
                 self.remove(page_index, old)  # emptied (only whitespace) → delete the box
                 return
-            # Re-commit when the text, the auto-grown rect, OR the style changed (a no-op re-open
-            # that touches nothing commits nothing). One descriptor compare covers all three. The
-            # text is stored verbatim — leading/trailing spaces and newlines are preserved.
-            new = self._textbox(rect, raw, style, auto_width)
-            if new != old:
-                self._replace(page_index, old, new, text="Edit text box")
+            # Re-commit only when the text or the style changed, which is also what grows the rect.
+            # A re-open that touches nothing leaves the box exactly as it was: opening the editor
+            # measures a box afresh, and that alone must not resize it, or move its text. The text
+            # is stored verbatim — leading/trailing spaces and newlines are preserved.
+            if raw != old.text or style != TextBoxStyle.from_textbox(old):
+                self._replace(page_index, old, self._textbox(rect, raw, style, auto_width),
+                              text="Edit text box")
         elif text:
             self._on_add(page_index, self._textbox(rect, raw, style, auto_width))
 
@@ -1945,7 +1887,7 @@ class AnnotationOverlay:
         if box_state is not None:
             # A text box's width was dragged (M78.3): commit the reflowed rect and pin auto_width off
             # so the rect width stays authoritative (the text keeps wrapping at it, here and on save).
-            new = replace(box_state, rect=rect, auto_width=False)
+            new = replace(box_state, rect=rect, auto_width=False, origin=None)
             if new == box_state:
                 return self._refresh_handles()
             self._replace(page_index, box_state, new, text="Resize text box")
