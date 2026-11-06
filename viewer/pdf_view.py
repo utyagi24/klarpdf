@@ -602,8 +602,15 @@ class PdfView(QGraphicsView):
             return [tuple(i for i in (row, row + 1) if i < count) for row in range(0, count, 2)]
         return [(i,) for i in range(count)]
 
+    def _end_drags(self) -> None:
+        """End any drag in flight, before :meth:`_build_scene` destroys the items it holds (#431)."""
+        self._cancel_crop_drag()
+        if self.annotations is not None:
+            self.annotations.cancel_drags()
+
     def _build_scene(self, sizes: "dict | None" = None) -> None:
         scene = self.scene()
+        self._end_drags()
         # Keep a picture of what the pages on screen show, to stand in while they are drawn again
         # at the new size (M152.2). Taken now, while the items still exist.
         self._carry_visible()
@@ -847,6 +854,13 @@ class PdfView(QGraphicsView):
             return
         if event.button() == Qt.MouseButton.LeftButton:
             scene_pt = self.mapToScene(event.position().toPoint())
+            # An open editor commits before anything below acts on the press (#431). The handle is
+            # read first, because the commit can move it: a shorter text pulls the right edge in,
+            # and the drag the reader started on that edge should still resize the box.
+            aimed_at = None
+            if self.annotations is not None and self.annotations.editing:
+                aimed_at = self.annotations.handle_at(scene_pt)
+                self.annotations.commit_before_press()
             # An armed one-shot tool takes the click first. TEXTBOX disarms once a box is placed;
             # a click off any page leaves it armed (a mis-click doesn't waste the arm). REDACT
             # disarms on release (after the drag commits).
@@ -894,7 +908,7 @@ class PdfView(QGraphicsView):
             # A press on a resize handle wins over everything below (it's the most specific
             # target) — in any mode, since the handles only exist while something is selected.
             if self.annotations is not None:
-                handle = self.annotations.handle_at(scene_pt)
+                handle = aimed_at or self.annotations.handle_at(scene_pt)
                 if handle is not None and self.annotations.begin_resize(handle, scene_pt):
                     event.accept()
                     return
@@ -2957,10 +2971,7 @@ class PdfView(QGraphicsView):
         self._redact_combined = False
         if self._armed is None:
             return
-        if self.cropping:  # Esc mid-drag: drop the band without emitting (nothing committed)
-            if self._crop_item.scene() is self.scene():
-                self.scene().removeItem(self._crop_item)
-            self._crop_item = self._crop_anchor = self._crop_page = None
+        self._cancel_crop_drag()  # Esc mid-drag
         if self.annotations is not None and self.annotations.drawing:
             self.annotations.cancel_draw()  # Esc mid-gesture: drop the preview, commit nothing
         self._armed = None
@@ -3022,6 +3033,14 @@ class PdfView(QGraphicsView):
         self.scene().addItem(item)
         self._crop_item = item
         return True
+
+    def _cancel_crop_drag(self) -> None:
+        """Drop the band without emitting, so nothing is committed."""
+        if not self.cropping:
+            return
+        if self._crop_item.scene() is self.scene():
+            self.scene().removeItem(self._crop_item)
+        self._crop_item = self._crop_anchor = self._crop_page = None
 
     def update_crop_drag(self, scene_pt) -> None:
         if self._crop_item is not None:
