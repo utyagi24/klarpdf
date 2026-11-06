@@ -23,7 +23,7 @@ All three are GUI-free and headless-testable.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import pymupdf as fitz
 
@@ -371,9 +371,15 @@ class TextBox:
     # M78.3: whether the box hugs its longest line (``True``, the default — a new box grows to fit
     # its text) or its ``rect`` **width is authoritative** and the text wraps inside it (``False`` —
     # set by dragging the right-edge width handle). Height always auto-fits the (wrapped) text. Not
-    # written to the PDF: on round-trip it is inferred from whether the text fits one line in the
-    # stored rect (see :func:`_textbox_fits_one_line`).
+    # written to the PDF: on round-trip it is inferred from whether the drawing wrapped the text
+    # (see :func:`parse_annotation`).
     auto_width: bool = True
+    # M164: where this box's drawing starts its first line, as ``(x, baseline)`` from the box's
+    # top-left. Set on a box read back from a file, so that text already saved stays where the file
+    # has it; ``None`` on a box being authored, which takes the layout in :func:`textbox_origin`.
+    # Not compared: it says where the text was drawn, not what the box is, so a box re-opened and
+    # left as it was is still the same box.
+    origin: tuple[float, float] | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True)
@@ -914,6 +920,120 @@ def _set_stroke_border(annot, width: float, dashed: bool) -> None:
         annot.set_border(width=width)
 
 
+# ---- where a text box's text goes (M164) ----
+#
+# One layout for the view and the saved drawing, so the two cannot disagree (#427). The text is
+# centred in the box, as the view has shown it since #53, and a save moves the text of PyMuPDF's
+# drawing there. Left alone, that drawing puts the text at the top of the box, and pads it by the
+# outline's width, so turning an outline on moved it.
+
+TEXTBOX_PAD = 2.0       # the gap between a box's edge and its text, in page points
+TEXTBOX_PITCH = 1.2     # baseline to baseline, in font sizes: the pitch PyMuPDF draws
+# How tall a capital is in each font, in font sizes (`CapHeight` in the base-14 font metrics). The
+# text is centred by its capitals, which is what the eye compares with the box's edges.
+_CAP_HEIGHT = {"helv": 0.718, "tiro": 0.662, "cour": 0.562}
+# Where PyMuPDF puts a FreeText's text, measured on 1.27.2.3 for helv, tiro and cour at 8 to 24 pt
+# with borders 0 and 2: this many border widths in from the box's edges, and the first baseline this
+# many font sizes below that. It wraps inside the same padding. `tests/test_textbox_layout.py` pins
+# both against the library, so an upgrade that moves one fails there.
+_FREETEXT_INSET = 1.5
+_FREETEXT_BASELINE = 0.8
+# The line of that drawing that places its text. The fill and the outline are drawn before it, so
+# changing it moves the text alone.
+_TEXT_MATRIX = re.compile(r"^(\S+ \S+ \S+ \S+) (\S+) (\S+) cm$", re.M)
+
+
+def textbox_pad(border_width: float) -> float:
+    """The gap between a box's edge and its text, the same with or without an outline, so turning
+    one on moves nothing. Only an outline too thick for it widens the gap, because PyMuPDF will not
+    wrap inside any less."""
+    return max(TEXTBOX_PAD, _FREETEXT_INSET * border_width)
+
+
+def wrap_text(text: str, fontname: str, fontsize: float, avail_pt: float) -> list[str]:
+    """Greedy word-wrap ``text`` to ``avail_pt`` page points, honouring explicit newlines (each
+    paragraph wrapped on its own, blank lines kept). A single word wider than the box is left
+    unbroken: it overflows rather than being chopped mid-word, as PyMuPDF leaves it too.
+
+    Measured with the widths PyMuPDF wraps by, so a line that fits here fits there. The view uses
+    these lines as well, so it breaks a line exactly where the saved drawing does.
+
+    **A paragraph's leading whitespace is its indent, and the wrap keeps it** (M91.1). It is held
+    out of the word loop rather than passed through it: ``"    a b".split(" ")`` yields four empty
+    tokens that the ``if current and …`` guard discards, which is how the indent used to be
+    destroyed on *every* paragraph, not just a wrapped one. Only the first line of the paragraph
+    carries it, and it is charged against ``avail_pt`` there, so an indented first line wraps
+    earlier, as it must."""
+    lines: list[str] = []
+    for para in text.split("\n"):
+        body = para.lstrip()
+        indent = para[: len(para) - len(body)]
+        current = ""
+        for word in body.split(" "):
+            trial = word if not current else current + " " + word
+            width = fitz.get_text_length(indent + trial, fontname=fontname, fontsize=fontsize)
+            if current and width > avail_pt:
+                lines.append(indent + current)
+                indent = ""                       # only the paragraph's own first line
+                current = word
+            else:
+                current = trial
+        lines.append(indent + current)
+    return lines
+
+
+def textbox_lines(box: TextBox) -> list[str]:
+    """The lines ``box`` shows, in the view and in the file: a fixed-width box (M78.3) wraps inside
+    its pad, and an auto-width box keeps its explicit lines and hugs the longest."""
+    if box.auto_width:
+        return box.text.split("\n")
+    width = box.rect[2] - box.rect[0] - 2 * textbox_pad(box.border_width)
+    return wrap_text(box.text, box.fontname, box.fontsize, max(1.0, width))
+
+
+def textbox_height(lines: int, fontsize: float, border_width: float) -> float:
+    """The least a box may be to hold ``lines`` lines: their pitch, and the pad above and below.
+
+    The drawing clips its text to the box, so a shorter box loses the bottom of its last line in
+    every viewer. A box used to take its height from Qt's line spacing, which is tighter than the
+    file's (13.4 pt against 14.4 at 12 pt), and that cut the last line off from 5 lines on."""
+    return lines * TEXTBOX_PITCH * fontsize + 2 * textbox_pad(border_width)
+
+
+def textbox_origin(box: TextBox, lines: int) -> tuple[float, float]:
+    """Where ``box``'s first line starts, as ``(x, baseline)`` in page points.
+
+    A box read back from a file keeps the place its drawing gave it (:attr:`TextBox.origin`). Any
+    other box has its ``lines`` lines centred by their capitals, and never starts higher than the
+    top of the box, so text too tall for its box runs off the bottom, as PyMuPDF's does."""
+    x0, y0, _x1, y1 = box.rect
+    if box.origin is not None:
+        return x0 + box.origin[0], y0 + box.origin[1]
+    cap = _CAP_HEIGHT.get(box.fontname, _CAP_HEIGHT["helv"]) * box.fontsize
+    block = (lines - 1) * TEXTBOX_PITCH * box.fontsize + cap
+    top = _FREETEXT_INSET * box.border_width + _FREETEXT_BASELINE * box.fontsize
+    return x0 + textbox_pad(box.border_width), y0 + max(top, (y1 - y0 - block) / 2 + cap)
+
+
+def _place_textbox_text(doc, annot, box: TextBox, lines: list[str]) -> None:
+    """Move the text of the FreeText PyMuPDF just drew to where :func:`textbox_origin` puts it, and
+    give it back ``box``'s own text if the drawing was handed the wrapped lines.
+
+    Written straight to the objects, because anything that goes through the annotation makes
+    MuPDF redraw it, which would undo both. The drawing has to be the last thing done to it."""
+    xref = int(doc.xref_get_key(annot.xref, "AP/N")[1].split()[0])
+    x, baseline = textbox_origin(box, len(lines))
+    inset = _FREETEXT_INSET * box.border_width
+    dx = x - (box.rect[0] + inset)
+    dy = baseline - (box.rect[1] + inset + _FREETEXT_BASELINE * box.fontsize)
+    drawing = doc.xref_stream(xref).decode("latin-1")
+    moved = _TEXT_MATRIX.sub(
+        lambda m: f"{m[1]} {float(m[2]) + dx:.5f} {float(m[3]) - dy:.5f} cm", drawing, count=1)
+    doc.update_stream(xref, moved.encode("latin-1"))
+    if "\n".join(lines) != box.text:
+        doc.xref_set_key(annot.xref, "Contents", fitz.get_pdf_str(box.text))
+
+
 def apply_annotations(page: fitz.Page, annotations: tuple) -> None:
     """Write a page's *non-destructive* annotation descriptors onto a materialised output page.
 
@@ -968,9 +1088,10 @@ def apply_annotations(page: fitz.Page, annotations: tuple) -> None:
             annot.set_info(title=KLARPDF_AUTHOR)
             annot.update()
         elif isinstance(annotation, TextBox):
+            lines = textbox_lines(annotation)
             annot = page.add_freetext_annot(
                 fitz.Rect(annotation.rect),
-                annotation.text,
+                "\n".join(lines),                      # wrapped here, so it breaks where the view does
                 fontsize=annotation.fontsize,
                 fontname=annotation.fontname,
                 text_color=annotation.color,
@@ -979,6 +1100,7 @@ def apply_annotations(page: fitz.Page, annotations: tuple) -> None:
             )
             annot.set_info(title=KLARPDF_AUTHOR)
             annot.update()
+            _place_textbox_text(page.parent, annot, annotation, lines)
 
 
 def apply_redactions(page: fitz.Page, annotations: tuple) -> None:
@@ -1025,13 +1147,31 @@ _FIT_ONE_LINE_TOL = 2.0
 
 def _textbox_fits_one_line(text: str, fontname: str, fontsize: float, rect: tuple) -> bool:
     """Whether ``text``'s longest line fits within ``rect``'s width — how a round-tripped FreeText
-    infers :attr:`TextBox.auto_width` (M78.3). Fits → the box was hugging its text (auto width);
-    overflows → its width was deliberately narrowed and the text wrapped, so the fold is preserved
-    on reopen. Explicit newlines are honoured (each paragraph measured on its own)."""
+    whose drawing shows no text infers :attr:`TextBox.auto_width` (M78.3). Fits → the box was
+    hugging its text (auto width); overflows → its width was deliberately narrowed and the text
+    wrapped, so the fold is preserved on reopen. Explicit newlines are honoured (each paragraph
+    measured on its own)."""
     width = rect[2] - rect[0]
     longest = max((fitz.get_text_length(line, fontname=fontname, fontsize=fontsize)
                    for line in text.split("\n")), default=0.0)
     return longest <= width + _FIT_ONE_LINE_TOL
+
+
+def _drawn_lines(annot) -> list[tuple[float, float]]:
+    """Where a FreeText's drawing starts each line that has ink, as ``(x, baseline)`` in unrotated
+    page points, top first.
+
+    Read from what MuPDF finds when it runs the drawing, so another program's drawing reads the
+    same way ours does. A line wholly outside the box is clipped away and does not appear. A line of
+    only spaces is left out, because MuPDF reports some of those and not others."""
+    starts: dict[float, tuple[float, float]] = {}
+    for block in annot.get_text("rawdict")["blocks"]:
+        for line in block.get("lines", []):
+            chars = [char for span in line["spans"] for char in span["chars"]]
+            if "".join(char["c"] for char in chars).strip():
+                point = fitz.Point(chars[0]["origin"]) * annot.parent.derotation_matrix
+                starts.setdefault(round(point.y, 2), (point.x, point.y))  # one baseline, one line
+    return [starts[y] for y in sorted(starts)]
 
 
 def _parse_freetext_da(da: str) -> tuple[float, tuple[float, float, float], str]:
@@ -1214,6 +1354,19 @@ def parse_annotation(annot: fitz.Annot):
         # A FreeText's /C (the box fill) surfaces as the 'stroke' colour in PyMuPDF.
         fill = annot.colors.get("stroke")
         content = annot.info.get("content", "")
+        # What the drawing shows decides both of these, not what the text's width suggests: more
+        # lines than the text has paragraphs means it wrapped, and the first line says where the
+        # text sits. Blank lines above that line are counted back, or a redraw would move it down.
+        drawn = _drawn_lines(annot)
+        paragraphs = content.split("\n")
+        filled = [row for row, line in enumerate(paragraphs) if line.strip()]
+        if drawn and filled:
+            auto_width = len(drawn) <= len(filled)
+            x, baseline = drawn[0]
+            origin = (x - rect[0], baseline - rect[1] - filled[0] * TEXTBOX_PITCH * fontsize)
+        else:
+            auto_width = _textbox_fits_one_line(content, fontname, fontsize, rect)
+            origin = None
         result.append(
             TextBox(
                 rect,
@@ -1223,7 +1376,8 @@ def parse_annotation(annot: fitz.Annot):
                 fontname=fontname,
                 fill_color=tuple(fill) if fill else None,
                 border_width=border_width,
-                auto_width=_textbox_fits_one_line(content, fontname, fontsize, rect),
+                auto_width=auto_width,
+                origin=origin,
             )
         )
     return result[0] if result else None
