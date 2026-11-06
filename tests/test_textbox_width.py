@@ -18,7 +18,7 @@ import pytest
 from app import PdfApp
 from main_window import MainWindow
 from klarpdf.model.edit_engine import PyMuPDFEngine
-from klarpdf.model.page_edits import TextBox, _textbox_fits_one_line
+from klarpdf.model.page_edits import TextBox, _textbox_fits_one_line, wrap_text
 from klarpdf.model.virtual_document import VirtualDocument
 from store.settings import Settings
 
@@ -161,7 +161,6 @@ def test_group_resize_leaves_a_text_box_unstretched(win):
 
 
 def test_wrap_helper_folds_a_long_line(win):
-    ov = win.view.annotations
-    lines, _fm = ov._wrap_textbox_lines("alpha beta gamma delta epsilon zeta", "helv", 11.0, 60.0)
+    lines = wrap_text("alpha beta gamma delta epsilon zeta", "helv", 11.0, 60.0)
     assert len(lines) > 1                              # a 60 pt width folds the phrase
     assert " ".join(lines).split() == "alpha beta gamma delta epsilon zeta".split()

@@ -328,6 +328,30 @@ def write_idless_pdf(path: str, texts: list[str], encryption: int | None = None)
     return path
 
 
+def write_top_aligned_textbox(path: str) -> str:
+    """Write one of our text boxes as every version up to v0.20.0 saved it (M164): drawn by PyMuPDF
+    alone, so its text sits at the top of the box. A box a person has already lined up against a
+    form must stay where this file has it. The result is checked, since a fixture that came out
+    centred would pass the tests it exists to fail.
+    """
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 100), "Print Name: ______________________", fontsize=12)
+    box = page.add_freetext_annot(fitz.Rect(150, 82, 230, 102), "JANE DOE", fontsize=12,
+                                  fontname="helv", text_color=(0, 0, 0))
+    box.set_info(title="klarpdf")
+    box.update()
+    doc.save(path)
+    doc.close()
+    with fitz.open(path) as check:
+        page = check[0]
+        (line,) = [line for block in page.first_annot.get_text("rawdict")["blocks"]
+                   for line in block.get("lines", [])]
+        assert line["spans"][0]["chars"][0]["origin"][1] == pytest.approx(82 + 9.6, abs=0.01), \
+            "fixture's text is not at the top of its box"
+    return path
+
+
 #: How PyMuPDF paints a text box's background in the box's drawing: a rectangle, filled
 #: (``… re\nf\n``). A test's own check, so it does not lean on the lexer it is testing.
 FILLED_RECT = re.compile(rb"\bre\s+f\b")

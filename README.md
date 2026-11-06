@@ -89,7 +89,7 @@ Source / Donate… — which is handed to your own browser.
 **Annotate & mark up**
 - **Highlight, underline, strike out** — armed once, mark passage after passage; re-marking **merges** instead of stacking a second layer.
 - **Draw** — pen, lines, arrows (any end, **dashed or solid**), rectangles, ellipses — with a shared colour · width · **opacity** · fill picker. A filled shape can have **no border**.
-- **Text boxes** — styled font, size, colour, fill and outline; drag the edge to reflow.
+- **Text boxes** — styled font, size, colour, fill and outline; drag the edge to reflow. Text sits centred in its box, and saves exactly where it shows.
 - **Edit what you drew** — select, move (or **nudge** with arrow keys), **resize**, restyle (on several marks at once, only the setting you change), re-order and group copy/paste; each action one undo step, all editable after reopening.
 - **Stamps, signatures & watermarks** — text or image, any angle, baked at save; **sign with a photo** and its white background keys out automatically.
 - **Change a mark in place** — right-click to recolour, or add and remove markup layers.

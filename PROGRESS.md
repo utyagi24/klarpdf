@@ -1252,6 +1252,18 @@ tick the box here on merge. Build in number order.
   since MuPDF then draws one from `/C`. Boxes KlarPDF filled keep their fill. Still owed: a hand
   check with Edge itself. Details in `PLAN.md` §M163 — *Windows (headless)* —
   [#428](https://github.com/utyagi24/klarpdf/pull/428)
+- [x] **M164** *(unplanned)* **A text box looks even, and its text is saved where KlarPDF shows it** —
+  [#427](https://github.com/utyagi24/klarpdf/issues/427). *Core: the app and the bridge.* A 12 pt
+  text box placed just above a form's underline saved 4.5 pt higher and 2 pt further left than
+  KlarPDF showed it: the view centred the text, and PyMuPDF's drawing puts it at the top. A save now
+  moves the text of that drawing to the middle of the box, and the view draws from the same layout,
+  so the two cannot disagree. The first version of this PR went the other way, moving the view to the
+  top, and the owner rejected it on testing. The same layout fixes four more things: turning an
+  outline on no longer moves the text, a long note keeps its last line in the file, a fixed-width box
+  breaks its lines where the file does, and a box's height depends only on its lines, not on the
+  zoom or on a misjudged line count. Boxes already saved stay where the file has them until they are
+  edited. Still owed: a hand check against Edge. Details in `PLAN.md` §M164 — *Windows (headless)* —
+  [#429](https://github.com/utyagi24/klarpdf/pull/429)
 
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 

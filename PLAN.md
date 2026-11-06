@@ -10659,6 +10659,193 @@ now lexes 2,000 random byte strings to the end, since a lexer that hangs would h
 document. **Owed: a hand check with Edge itself.** The issue reports Edge's own file read back the
 same way as the fixture, but that file was not available here.
 
+### M164 — a text box looks even, and its text is saved where KlarPDF shows it *(unplanned)* (2026-11-04)
+
+[#427](https://github.com/utyagi24/klarpdf/issues/427). The owner placed a 12 pt text box so its
+text sat just above a form's underline and saved. In Edge, in Brave and in print, the text sat about
+4.5 pt higher and 2 pt further left. The owner moved the box 3 pt down in Edge to fix it, which is
+how #426 came about.
+
+**Surfaces: core, so the app and the bridge both.** A save now writes a different drawing, so the
+change is in `klarpdf/model/page_edits.py`. The app's view draws from the same layout, and the
+bridge re-draws our boxes through the same code whenever a tool rewrites the page. #427 was filed
+`app` and is relabelled `core`.
+
+#### Cause
+
+PyMuPDF draws a FreeText's text by fixed ratios, whatever the font. Measured on 1.27.2.3 for `helv`,
+`tiro` and `cour` at 8, 11, 12 and 24 pt with borders 0 and 2, from the line origins of the baked
+drawing, every value to 0.001 pt:
+
+* the text starts **1.5 border widths** in from the left edge;
+* the first baseline is that inset plus **0.8 font sizes** below the top;
+* baselines are **1.2 font sizes** apart;
+* a line wraps at the box's width less the inset on both sides (with no border, the full width).
+
+The view laid the text out by Qt's metrics instead. It centred the text in the box, inset it 2 pt,
+and spaced lines by `lineSpacing()`. On Windows' font engine, 12 pt Helvetica's first baseline sat
+14.2 pt below a 20 pt box's top, against 9.6 in the file, and its lines were 13.39 pt apart, against
+14.4. The centring was the 2026-06-20 polish, #53, for text that "sat lopsided toward the top of the
+box". That commit made the box hug its text and said a saved box "lands in nearly the same place".
+A box never hugs a short line, though, because it is at least 20 pt tall.
+
+The same split produced three more defects:
+
+* **An outline moved the text, in the file.** PyMuPDF's padding follows the border, so a 1 pt
+  outline put the text 1.5 pt lower and 1.5 pt further right. Measured on the owner's own boxes.
+* **A long note lost its last line in the file.** The drawing clips its text to the box, and the
+  box's height came from Qt's line spacing, which is tighter than the file's. Measured at 12 pt, by
+  comparing the drawing with the same text in a taller box: a box sized by the width handle cut off
+  its last line from 5 lines on, and a box typed at 100% from 13.
+* **A fixed-width box broke its lines in different places** in the view and the file: the view
+  wrapped at the width less 4 pt with Qt's widths, the file at the full width with base-14 widths.
+
+A fourth was the editor's alone, and it is older than all of this. Reopening a fixed-width box, it
+estimated its lines from a width that included the trailing cursor room, so 60 pt of text in a 70 pt
+box counted as two lines and the box grew to 33 pt, at some zooms and not others: the same box got
+32.6 pt at 100% and 20 pt at 175%. It reproduces on `main`. That is not #430, where the box really
+is narrower than its text.
+
+#### The first fix, and why it was wrong
+
+The first version of this PR moved the **view** to the file: it drew the text at the top of the box,
+by PyMuPDF's ratios. The text and the file then agreed, to 0.2 pt. The owner tested it on a real
+form and rejected it, for three reasons: the boxes were top-heavy again, turning an outline on moved
+the text, and a narrowed box was taller than a wide one with the same text.
+
+The first two were the fix's own doing. The view stopped hiding what the file did, and what the file
+did was the problem. The mistake underneath was taking PyMuPDF's drawing as fixed, so the only
+question seemed to be which side should give way. When the choice went to the owner it was framed
+as a trade-off, and they asked what was wrong with today's sizing. That question was taken as a
+decision to accept top-aligned text, and the entry recorded it as the owner's choice. It was neither.
+**What the owner expected was an even box with the text saved where it shows**, which was always
+possible.
+
+#### The fix
+
+**One layout decides, and both sides follow it.** `textbox_lines` says what the lines are and
+`textbox_origin` says where the first one starts. The view draws from them and adds nothing of its
+own. A save draws from them too:
+
+* **The text is centred in the box, by its capitals**, which is what the eye compares with the
+  box's edges. `CapHeight` from the base-14 metrics gives that height. It never starts higher than
+  the top of the box, so text too tall for its box runs off the bottom, as PyMuPDF's does.
+* **PyMuPDF's drawing is then moved there.** Everything in it before one `cm` line is the fill, the
+  outline and the clip; everything after is the text. So rewriting that line's translation moves the
+  text alone (`_place_textbox_text`). Measured: it survives a render in the same session, a reopen,
+  and saves at every `garbage` level, and it reads back on pages rotated 90, 180 and 270. It has to
+  be written straight to the object and be the last thing done: anything that goes through the
+  annotation makes MuPDF redraw it.
+* **The gap beside the text is 2 pt with or without an outline** (`textbox_pad`), so turning one on
+  moves nothing. Only an outline too thick for it widens the gap, because PyMuPDF will not wrap
+  inside any less. The format bar's outline is 1 pt, and 1.5 × 1 pt is inside the 2 pt.
+* **Lines break where the view breaks them.** `wrap_text` moves to the core and measures with the
+  widths MuPDF wraps by. A save hands the drawing the wrapped lines, then puts the box's own text
+  back in `/Contents`, so what the box says is still what was typed.
+* **A box's height comes from its lines alone**: at least 20 pt, and 1.2 font sizes a line plus the
+  pad above and below. It no longer depends on the zoom it was typed at, and the editor's own frame
+  and margin go around the box rather than into it. A one-line 12 pt box is 20 pt at every zoom.
+* **Reopening a box and changing nothing changes nothing.** The editor measures a box afresh when
+  it opens, and that alone used to resize it on closing.
+* **The editor's text sits where the box will put it**, so committing moves nothing. The widget
+  reaches past the box by its frame and margin, less the layout's own gap, on both sides so that it
+  wraps where the box does.
+
+**A box already saved stays where the file has it.** This is the part that makes the rest safe.
+Earlier versions saved the text at the top of the box, and people have lined those boxes up against
+forms by what they saw in other viewers. Centring them on open would drop that text 4.5 pt, and a
+save would write it there. So `parse_annotation` reads where the drawing actually put the first line
+(`_drawn_lines`, by MuPDF's own text extraction, so another program's drawing reads the same way)
+and keeps it in `TextBox.origin`. The view shows the box there and a save redraws it there. Moving
+the box carries it along. Editing the text or the style, or dragging the width, drops it, and the box
+takes the even layout. The field is left out of comparisons, because it says where the text was drawn
+and not what the box is. A box this version saved reads back at the place the layout gave it, so the
+two cannot walk apart.
+
+`auto_width` is read the same way now, from whether the drawing has more lines than the text has
+paragraphs. Guessing it from the text's width disagreed with the new wrap for a box whose text fits
+the box but not the room inside its pad.
+
+**Rejected:**
+
+* **Move the view to the file.** The first version, above.
+* **Make the box hug its lines**, so that top-aligned text looks nearly even. It still leaves the
+  capitals against the top edge, and it costs a shorter click target. Centring needs neither.
+* **Write the whole text block of the drawing.** That needs a string encoder for what MuPDF writes,
+  which goes through WinAnsi with its own escapes. Moving its text keeps its encoding.
+* **`/RD`, an inner rectangle for the text.** It does not stay: MuPDF folds it into the `/Rect` on
+  update and resets it to 0, measured, so the saved box would change size on every save.
+* **Negative viewport margins on the editor.** They put the text in the right place to 0.5 px, but
+  the viewport then paints over the frame's top and left edges.
+
+**Not changed:** a box narrower than its own text still wraps when it is redrawn, and loses its second
+line ([#430](https://github.com/utyagi24/klarpdf/issues/430)). The owner's test document shows that
+this is not hypothetical: one of its boxes is 79.9 pt wide with 81.4 pt of text, and its second word
+is cut off in the file.
+
+#### Checks
+
+`tests/test_textbox_layout.py`. The headless platform has no real font, so it compares the view with
+the file through the baseline each line is placed at. The file is real, so the even look is measured
+from its rendered ink. It covers:
+
+* the library's ratios, for three fonts, three sizes and two borders;
+* as much space above the capitals as below them in the saved file, for three fonts and three sizes,
+  with and without an outline, at two box heights;
+* every painted line against the baked drawing's own, including a wrapped box and a thick border;
+* that an outline moves nothing: not the text in the file, not the text in the view, not the box;
+* the line breaks in the drawing, and the box's own text after a reopen;
+* a box's height: the same at every zoom, no line the text does not need, no change from reopening
+  it, and a long note's last line, from the width handle and from the editor;
+* a saved box: shown where the file has it, not moved by a redraw, carried along by a move, and given
+  the even layout by an edit or a width drag;
+* that saving again and again does not move the text, for seven shapes of box on three rotations;
+* the editor's first line at four zooms, with and without an outline.
+
+`tests/test_mcp_textbox_layout.py` runs the bridge's `rotate` on a top-aligned box, a centred box
+and a wrapped box. Three existing tests pinned the old layout: the line-spacing tests in
+`tests/test_whitespace_fidelity.py` now pin the file's pitch, and the wrap tests call the core.
+
+**Broken on purpose 17 ways**, each part of the fix in turn, and each break fails its own tests.
+Three of those tests passed against their break the first time, and were fixed:
+
+* With a border, a line wholly outside the clip is not extracted at all, so a long-note test took
+  the 29th line for the last. It now counts every line.
+* The editor's padding hid the gap at the default zoom, so that test runs at 200%.
+* The pixel test for a redrawn box passed with the rounding put back, because whether a 0.005 pt
+  shift changes a pixel depends on where it falls. It now checks the number as well.
+
+**The owner's own document found what the tests did not.** On a copy, a save that redraws every box
+left page 7 pixel-identical and changed 752 pixels of page 8. Reading the baseline back had rounded it
+to two decimals, which moved those boxes by up to 0.005 pt. It now reads back exact, and all 8 boxes
+on both pages redraw pixel-identical. Text from that document is in no test or record here.
+
+**In pixels, on Windows' own font engine**, which the suite cannot use. The view was grabbed without
+being shown, the saved file was rendered at the same scale, and the capitals were measured in both,
+to the quarter point that scale allows:
+
+| 12 pt text | | Above | Below | From the left |
+|---|---|---|---|---|
+| 20 pt box | view | 5.50 | 5.75 | 3.00 |
+| | file | 5.50 | 5.75 | 3.00 |
+| 20 pt box, outline | view | 5.50 | 5.75 | 3.00 |
+| | file | 5.50 | 5.75 | 3.00 |
+| 50 pt box, outline | view | 20.50 | 20.75 | 3.00 |
+| | file | 20.50 | 20.75 | 3.00 |
+| Times, 20 pt box | view | 6.00 | 6.00 | 2.25 |
+| | file | 6.00 | 6.00 | 2.25 |
+| Courier, 20 pt box | view | 6.25 | 6.75 | 2.75 |
+| | file | 6.50 | 6.75 | 2.75 |
+
+Before any of this, the view's baseline sat 4.7 pt below the file's and its text started 1.9 pt
+further right. **The first version's test suite was green too**, and its pixels matched. What it
+could not say was whether the result was any good, and only the owner's test on a real form could.
+
+**Owed: a hand check on Windows.** Add two boxes to a form's underline, turn the outline on for one,
+narrow the other, save, and compare with Edge. The text should sit evenly in each box, and in the
+same place in KlarPDF and Edge. Then reopen a form saved by an earlier version: its boxes should not
+have moved.
+
 ## The open issues, grouped — M149–M152 *(planned 2026-09-19)*
 
 Grouped at the owner's request (2026-09-19: *"plan milestones for all of the issues, except for 352
