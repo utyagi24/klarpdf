@@ -1271,7 +1271,8 @@ tick the box here on merge. Build in number order.
   scene under the drag. A press now commits the editor first and then acts, so the drag works. A
   scene rebuild now ends any drag cleanly, which closes the same failure for every kind of drag on a
   zoom or an undo. Older than M163 and M164, and the document was never damaged. Still owed: a hand
-  check. Details in `PLAN.md` §M165 — *Windows (headless)* — PR to follow
+  check. Details in `PLAN.md` §M165 — *Windows (headless)* —
+  [#432](https://github.com/utyagi24/klarpdf/pull/432)
 
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 
