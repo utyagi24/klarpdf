@@ -23,7 +23,7 @@ All three are GUI-free and headless-testable.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import pymupdf as fitz
 
@@ -1158,6 +1158,31 @@ def _textbox_fits_one_line(text: str, fontname: str, fontsize: float, rect: tupl
     return longest <= width + _FIT_ONE_LINE_TOL
 
 
+# MuPDF measures in 32-bit floats, so a box exactly as wide as its text can land a hair under it.
+_WRAP_SLACK = 0.01
+
+
+def _widened_to_its_lines(box: TextBox) -> TextBox:
+    """``box`` with its right edge moved out, if it is an auto-width box too narrow for its own
+    lines (#430). Its left edge and its text stay where they are.
+
+    Such a box shows its lines whole, and a redraw would not: MuPDF wraps any line wider than the
+    box less three borders, with no slack at all, and clips to the box less half a border, so the
+    new line falls below a one-line box and every viewer loses it. KlarPDF does not make these, but
+    Microsoft Edge shrinks a box to fit its text by its own font's widths when it moves one, which
+    can leave it a point or two short of ours. Done here, where they enter the model, so that the
+    view, a selection and a save all see the same box."""
+    if not box.auto_width:
+        return box
+    x0, y0, x1, y1 = box.rect
+    longest = max(fitz.get_text_length(line.rstrip(), fontname=box.fontname, fontsize=box.fontsize)
+                  for line in box.text.split("\n"))
+    left = textbox_origin(box, 1)[0] - x0
+    needed = longest + _WRAP_SLACK + max(left + box.border_width / 2,
+                                         2 * _FREETEXT_INSET * box.border_width)
+    return box if x1 - x0 >= needed else replace(box, rect=(x0, y0, x0 + needed, y1))
+
+
 def _drawn_lines(annot) -> list[tuple[float, float]]:
     """Where a FreeText's drawing starts each line that has ink, as ``(x, baseline)`` in unrotated
     page points, top first.
@@ -1459,7 +1484,7 @@ def parse_annotation(annot: fitz.Annot):
             auto_width = _textbox_fits_one_line(content, fontname, fontsize, rect)
             origin = None
         result.append(
-            TextBox(
+            _widened_to_its_lines(TextBox(
                 rect,
                 content,
                 fontsize=fontsize,
@@ -1469,7 +1494,7 @@ def parse_annotation(annot: fitz.Annot):
                 border_width=border_width,
                 auto_width=auto_width,
                 origin=origin,
-            )
+            ))
         )
     return result[0] if result else None
 

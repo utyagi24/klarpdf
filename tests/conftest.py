@@ -352,6 +352,56 @@ def write_top_aligned_textbox(path: str) -> str:
     return path
 
 
+def write_narrow_textbox(path: str, short_by: float = 0.5, text: str = "JANE DOE", **kwargs) -> str:
+    """Write one of our text boxes with its ``/Rect`` narrower than its text (M166, #430), as
+    another program can leave one. Its drawing was made wider, so it holds the text on one line, and
+    its ``/BBox`` is narrowed with the ``/Rect``, or a viewer would squeeze the text to fit. Checked,
+    since a box that came out wide enough would pass the tests it exists to fail."""
+    fontsize = kwargs.get("fontsize", 12)
+    fontname = kwargs.get("fontname", "helv")
+    width = max(fitz.get_text_length(line, fontname=fontname, fontsize=fontsize)
+                for line in text.split("\n"))
+    doc = fitz.open()
+    page = doc.new_page()
+    box = page.add_freetext_annot(fitz.Rect(150, 82, 400, 102), text, **{
+        "fontsize": fontsize, "fontname": fontname, **kwargs})
+    box.set_info(title="klarpdf")
+    box.update()
+    narrowed = f"[150 740 {150 + width - short_by:.3f} 760]"
+    doc.xref_set_key(box.xref, "Rect", narrowed)
+    doc.xref_set_key(int(doc.xref_get_key(box.xref, "AP/N")[1].split()[0]), "BBox", narrowed)
+    doc.save(path)
+    doc.close()
+    with fitz.open(path) as check:
+        page = check[0]                 # held: an annotation's .rect crashes once its page is gone
+        annot = page.first_annot
+        assert annot.rect.width < width, "fixture's box is not narrower than its text"
+        assert annot._getAP().count(b"Tj") == text.count("\n") + 1, "fixture's drawing wrapped"
+    return path
+
+
+def write_cut_off_textbox(path: str) -> str:
+    """Write a one-line box a save has already wrapped (M166, #430): 1.5 pt too narrow and 13.5 pt
+    tall, the size Edge left a box in the owner's form. Its drawing holds two lines, and the second
+    is wholly below the box, so no viewer shows it. ``/Contents`` still holds the whole text."""
+    text = "JANE DOE"
+    width = fitz.get_text_length(text, fontname="helv", fontsize=12)
+    doc = fitz.open()
+    page = doc.new_page()
+    box = page.add_freetext_annot(fitz.Rect(150, 82, 150 + width - 1.5, 95.5), text, fontsize=12,
+                                  fontname="helv")
+    box.set_info(title="klarpdf")
+    box.update()
+    doc.save(path)
+    doc.close()
+    with fitz.open(path) as check:
+        page = check[0]
+        annot = page.first_annot
+        assert annot._getAP().count(b"Tj") == 2, "fixture's drawing did not wrap"
+        assert "DOE" not in annot.get_text("text"), "fixture's second line is not cut off"
+    return path
+
+
 #: How PyMuPDF paints a text box's background in the box's drawing: a rectangle, filled
 #: (``… re\nf\n``). A test's own check, so it does not lean on the lexer it is testing.
 FILLED_RECT = re.compile(rb"\bre\s+f\b")
