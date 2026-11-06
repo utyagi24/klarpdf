@@ -1281,7 +1281,8 @@ tick the box here on merge. Build in number order.
   with its left edge and text left in place. On a copy of the owner's form the lost word came back,
   and three more boxes that would have broken next were saved. A box with a cut-off line that is
   still partly visible reads as wrapped on purpose and is not changed. Still owed: a hand check.
-  Details in `PLAN.md` §M166 — *Windows (headless)* — PR to follow
+  Details in `PLAN.md` §M166 — *Windows (headless)* —
+  [#436](https://github.com/utyagi24/klarpdf/pull/436)
 
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 
