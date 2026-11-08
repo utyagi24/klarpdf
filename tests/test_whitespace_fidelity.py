@@ -17,7 +17,9 @@ from __future__ import annotations
 
 import pytest
 from PySide6.QtGui import QFontMetricsF
-from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsSimpleTextItem
+from PySide6.QtWidgets import QGraphicsSimpleTextItem
+
+from viewer.annotations import _TextBoxFrame
 
 from app import PdfApp
 from klarpdf.model.page_edits import Highlight, TextBox, wrap_text
@@ -47,7 +49,7 @@ def _line_items(win) -> list:
     They are **children** of the box frame since M59.11 (so the text can never out-stack a mark
     covering the box), so they are reached through the frame rather than listed as top-level items.
     """
-    boxes = [it for it in win.view.annotations._items if type(it) is QGraphicsRectItem]
+    boxes = [it for it in win.view.annotations._items if isinstance(it, _TextBoxFrame)]
     assert boxes, "no text-box frame was painted"
     children = [c for c in boxes[-1].childItems() if isinstance(c, QGraphicsSimpleTextItem)]
     return sorted(children, key=lambda it: it.pos().y())

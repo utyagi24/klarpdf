@@ -11,6 +11,8 @@ from PySide6.QtCore import QEvent, QPointF, Qt
 from PySide6.QtGui import QFontMetricsF, QMouseEvent
 from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsSimpleTextItem
 
+from viewer.annotations import _TextBoxFrame
+
 from app import PdfApp
 from klarpdf.model.page_edits import Highlight, TextBox
 from store.settings import Settings
@@ -201,7 +203,7 @@ def test_textbox_text_is_vertically_centered_in_the_box(win):
     win.vdoc.add_annotation(0, TextBox((100, 100, 320, 220), "Hi"))  # 120pt-tall box, one short line
     ov = win.view.annotations
     ov.repaint()
-    boxes = [it for it in ov._items if type(it) is QGraphicsRectItem]
+    boxes = [it for it in ov._items if isinstance(it, _TextBoxFrame)]
     # The text is a **child** of its box since M59.11 (so it can never out-stack a mark covering
     # the box), hence it is reached through the frame rather than listed as a top-level item.
     texts = [c for it in boxes for c in it.childItems() if isinstance(c, QGraphicsSimpleTextItem)]
