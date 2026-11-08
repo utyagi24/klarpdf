@@ -11193,6 +11193,286 @@ not its design):
   a second process. The milestone decides. *(§M152 first proposed a helper process, 2026-09-23,
   then pieces on the window's thread instead, 2026-09-24, keeping the helper as the fallback.)*
 
+## Linting, dead code and type checking — strategy and roadmap (M167–M173) *(proposed 2026-11-08)*
+
+**Where this came from.** The owner asked whether the project uses a linter (2026-11-08). It does
+not. They asked for a strategy and a roadmap to review, *"not a quick band-aid"*, with the checks
+running routinely in CI, and with [#409](https://github.com/utyagi24/klarpdf/issues/409) (a
+dead-code check) folded in. **This is a proposal. Nothing in it is decided** until the owner answers
+§*Questions for the owner* at the end. The numbers M167–M173 are reserved here so that no other
+branch takes them (CLAUDE.md, *Every non-trivial change*).
+
+### What the code looks like to a checker (measured 2026-11-08)
+
+Measured on `main` at `2b32906` with Ruff 0.17.4, mypy 2.4.1, Pyright 1.1.414 and ty 0.0.99, run
+from a scratch directory on the Windows checkout. Nothing in the repository was changed to get them.
+
+**Nothing is configured.** There is no `[tool.ruff]` or `[tool.mypy]` in `pyproject.toml`, no
+linter config file, no linter in `requirements-dev.in`, and no CI step. Two traces show that Ruff
+has been run by hand: `.gitignore` lists `.ruff_cache/`, and the code holds 23 `# noqa` comments,
+most naming a Ruff code, the best of them with a reason (`# noqa: BLE001 — a malformed /AP is not
+worth failing a whole listing over`). Nothing checks them, and it shows. **10 of the 23 are already
+stale**: they suppress a finding that no longer occurs. `server.py:287` re-raises, so its `BLE001`
+never fires, and `make_icon.py`'s three `E402` and the corpus tools' four suppress nothing. **16 of
+the 23 give no reason.**
+
+**The rules that find bugs find almost nothing.** There are 250 tracked Python files and about
+83,000 lines. With every Ruff rule on, the counts look large: core 639, bridge 871, app 2,221, tests
+22,497, tooling 507. They are style. The tests' total is mostly 5,509 `assert` statements (`S101`),
+5,280 unannotated parameters and 1,613 accesses to private members. The pyflakes rules, which are
+the closest to "this is a bug", report **28 findings in the whole repository and none in
+`klarpdf/`**: 17 unused imports, 4 unused variables, 3 late imports, 2 f-strings without
+placeholders, one redefinition and one shadowed name. Every finding that could have been a defect
+was read, and none is live:
+
+* `B023` (a closure that captures a loop variable, the classic Qt `connect` bug) at
+  `klarpdf/mcp_bridge/tables.py:784`: the closure is called in the same pass of the loop that
+  defines it.
+* `B033` at `viewer/form_fill.py:28`: `{None, "", "Off", "off", False, 0}` lists `False` and `0`,
+  which are one member of a set. Redundant, not wrong.
+* `F841` at `packaging/mcp/installer/install.py:419`: `report()` builds a quoted path and never uses
+  it. Dead code.
+* `S110` (`except Exception: pass`) at three places in the app. Each is deliberate (interpreter
+  shutdown, a best-effort fallback), but none says so, where the core's equivalents carry a reason.
+
+**The project's own rules hold today, by habit alone.** No OS-specific call (`sys.platform`,
+`os.name`, `ctypes.windll` and the like) appears in the app or the core outside
+`platform_integration.py` (CLAUDE.md, *Keep OS-specific code quarantined*). The only `print` in
+`klarpdf/` writes to stderr on purpose, because stdout is the bridge's JSON-RPC stream
+(`klarpdf/mcp_bridge/server.py:1244`). The whole repository parses as Python 3.11, the wheel's
+floor (`requires-python`). No tracked source or document has a BOM or mis-decoded characters.
+
+**Lines are wrapped at 100 by habit.** 1,002 lines are longer than 100 characters, 98 are longer
+than 110, and 31 are longer than 120.
+
+**A formatter would rewrite most of the code.** `ruff format` at 100 columns would change 208 of the
+250 tracked files, about 10,300 lines. The code already uses double quotes. The churn comes from
+two habits: aligned trailing comments, which the formatter collapses to two spaces, and hanging
+indents on continuation lines, which it rewraps.
+
+**Type checkers, on the wheel's code** (`klarpdf/`, 32 files):
+
+| Checker | Errors | Of them, PyMuPDF constants missing from its type information |
+|---|---|---|
+| mypy 2.4.1, default settings, Python 3.11 | 128 | 86 |
+| Pyright 1.1.414, `standard` mode | 158 | 82 |
+| ty 0.0.99 | 118 | not split out; 98 are `unresolved-attribute` |
+
+The PyMuPDF share is names like `PDF_ANNOT_HIGHLIGHT`, `PDF_WIDGET_TYPE_TEXT` and
+`PDF_ENCRYPT_KEEP`. PyMuPDF ships a `py.typed` marker, but those names are not in what it declares.
+Of mypy's other 42, the possible `None` dereferences were read, and none is live. Each is an
+invariant the code keeps but its types do not state. `klarpdf/model/links_remap.py:198` is guarded by
+`keep = dest is not None and …`, and neither mypy nor Pyright follows a guard through a variable.
+`klarpdf/mcp_bridge/redaction.py:997` sets `page_invisible` whenever it sets `text`. The app (43
+files, Python 3.12) gives mypy 215 errors in 28 files, 75 of them the same constants. That count is
+at default settings, which skip the body of any function without annotations. The app has 364
+unannotated parameters, so the real number is higher.
+
+**What the numbers say.** There is no hidden backlog of bugs for a checker to clear. Review and a
+large test suite have kept the code clean. A checker earns its place here in three other ways:
+
+1. It **keeps** the code this clean, at a cost of seconds per change.
+2. It turns rules that exist only as prose in CLAUDE.md into checks that fail.
+3. Through types, it states the core's contract with its consumers (CLAUDE.md, *Two consumers share
+   one core*). A changed signature in `klarpdf/model/` is then checked against the bridge's calls.
+   It is checked against the app's calls only if the app is type-checked too (M173).
+
+### Principles
+
+1. **A rule is switched on only at zero findings, in the PR that gets it there.** No baseline file,
+   and no mass `ruff --add-noqa`. So the CI check cannot fail on a PR that did not cause the
+   finding, and the set of rules only grows. A baseline would plant hundreds of suppressions that
+   look like decisions and are not. The 10 stale comments above are what unchecked suppressions
+   become.
+2. **Every suppression is a decision with a reason**, in the form the core already uses:
+   `# noqa: CODE — reason`. Ruff enforces the first half: `PGH004` refuses a bare `# noqa`, and
+   `RUF100` refuses one that suppresses nothing. A small test enforces the reason. The same holds
+   for `# type: ignore[code]` and for #409's dead-code whitelist.
+3. **The project's rules come before a style guide's.** The first rules switched on are the ones
+   CLAUDE.md already states, and each error message names the CLAUDE.md rule it enforces.
+4. **One configuration, one pinned version, one answer.** The configuration lives in
+   `pyproject.toml`. Each tool is pinned in the dev lock, which `pip-audit` already audits
+   (`.github/workflows/audit.yml`), and goes into no shipped artifact. Ruff's `required-version`
+   makes a different Ruff (an editor's bundled copy, say) refuse to run rather than give a different
+   answer, and a test keeps it equal to the lock's pin.
+5. **No rule is checked twice.** The structural tests stay the authority for what they check,
+   because they see what a linter cannot: `tests/test_mcp_no_qt.py` (what the bridge loads at run
+   time, imports inside tool bodies included), `tests/test_pypdf_is_dev_only.py`,
+   `tests/test_mcp_packaging.py` (no Qt in `klarpdf/`) and `tests/test_mcp_docs.py` (the
+   tool-description budget). Ruff gets no second copy of them.
+6. **Each surface gets the strictness it can bear.** `klarpdf/` is the public wheel and is reached by
+   both consumers, so it is the strictest. The app comes next. Tests are meant to poke at internals
+   and to assert, so they get the rules that find bugs and not the ones that police style.
+7. **A check is not done until it has failed on purpose** (CLAUDE.md, *The thing that verifies the
+   code needs verifying too*). Every new CI job and test is seen failing on a planted finding before
+   it is kept.
+
+### Tools
+
+**Ruff for linting.** One binary wheel with no plugins, so one pin and one audit entry. It covers
+pyflakes, pycodestyle, bugbear, pyupgrade, import sorting and a banned-API list, and the existing
+`noqa` comments already use its codes. It checks the whole repository with every rule on in under
+half a second, so it never costs what a test run costs.
+
+**vulture for dead code**, as [#409](https://github.com/utyagi24/klarpdf/issues/409) specifies.
+Ruff sees dead code only inside one file: an unused import or local variable. It cannot tell that a
+function, class or constant nothing calls is dead, and that is #409's gap. #409 already records the
+owner's decisions: a static check, not a coverage gate, and code that only tests call counts as dead
+unless it is whitelisted with a reason. It also lists the findings to triage. This plan schedules
+#409 and does not reopen it.
+
+**mypy for types** (Question 2). It is pure Python, so it sits in the audited dev lock and gives the
+same answer in WSL, on Windows and in CI, and VS Code's mypy extension can run the pinned copy from
+the project's venv. Pyright is the alternative. Its strength is that Pylance, the language server
+VS Code's Python extension installs, is built on Pyright, so the editor and the check would agree.
+It has two costs. It is a Node.js program: its PyPI wheel carries the checker but runs it on
+whatever Node is on `PATH` (measured: it used a user-installed Node 24.19 here) or downloads one, and
+that runtime is outside the lock and outside `pip-audit`. And Pylance bundles its own Pyright, which
+agrees with a pinned one only when the versions happen to match. On this code, Pyright's narrowing
+gave no advantage: it flags `links_remap.py:198` too. ty is at 0.0.99, before 1.0. It is worth a
+look once it reaches 1.0.
+
+**Not adopted:**
+
+* **flake8 with plugins.** Every plugin is a separate pin, audit entry and upgrade, for a subset of
+  what Ruff covers.
+* **pylint.** It is slow, its useful rules are in Ruff's `PL` set, and the rest is noise on Qt code.
+* **The pre-commit framework.** It fetches its hooks from GitHub repositories when it installs them,
+  which is a second supply chain beside the audited lock, for a job `invoke lint` does.
+* **A coverage gate.** The owner rejected it in #409: a threshold is a tuned number, and code that
+  only tests call counts as covered.
+
+### Which rules, where
+
+| Rules | Decision | Why |
+|---|---|---|
+| `F`, `E4`, `E7`, `E9` (Ruff's default set) | On everywhere (M167) | Unused and undefined names, and syntax errors. 28 findings |
+| `PGH004`, `RUF100` | On everywhere (M168) | Suppressions stay decisions (principle 2) |
+| `TID251`, banning `sys.platform`, `os.name`, `platform.system`, `winreg`, `ctypes.windll` and `os.startfile` | On, except in `platform_integration.py`, `packaging/`, `tasks.py`, `tools/` and `tests/` (M168) | CLAUDE.md, *Keep OS-specific code quarantined*. Measured with this list: every use is in one of those exempt places |
+| `T20` (`print`) | On in `klarpdf/` only (M168) | stdout is the bridge's JSON-RPC stream. The one stderr `print` gets a `noqa` that says so |
+| `target-version = "py311"` | The whole repository (M168) | The wheel's floor. For `klarpdf/` this is earlier feedback, since the `bridge-pyver` job already tests 3.11. For the app it is new, and it matters: code moves from the app into the core when the bridge needs it (the markup palette in M101), and 3.12-only syntax would break the wheel the day it moved |
+| `B`, `BLE001`, `S110`, `S112`, `PLE`, `PLW` | On (M170) | Defects that hide: swallowed exceptions, a `zip` that truncates silently, closures over loop variables. 124 findings, each needing a judgement |
+| `I`, `UP`, `E741`, and `E501` at 120 columns | On (M171) | Consistency at a low cost. Most fixes are automatic |
+| `N` (naming) | Off | Qt's overrides and signals are camelCase by contract. All 41 `N802` and 20 `N815` findings in the app are names like `keyPressEvent`, `sizeHint` and `zoomChanged` |
+| `D` (docstring style) | Off | The docstrings here are prose that records measurements and reasons. `D401` alone flags 95 in the core |
+| `ANN` (annotations present) | Off | mypy's `disallow_untyped_defs` does this for `klarpdf/` (M172), and checks the types rather than only their presence |
+| `S`, apart from `S110` and `S112` | Off | `S101` is pytest's `assert`, and `S603` and `S607` are the installer's and the tools' deliberate subprocess calls |
+| `SLF001`, `ARG`, `PLR2004`, `INP001`, `FBT`, `COM812`, `CPY001` and the rest | Off | Measured noise with no class of defect behind it here. Tests reach into internals on purpose (1,613 `SLF001`), and Qt event handlers take arguments they do not use |
+
+**Checks Ruff cannot express** go in small tests beside the existing structural ones (M168). Ruff has
+no plugin system, so a project rule that needs more than a banned name is a test that reads the
+source with `ast`, the pattern `tests/test_pypdf_is_dev_only.py` set:
+
+* **No call to `get_textbox` in shipped code.** It clips and over-captures (the module docstring of
+  `klarpdf/model/page_text.py`, and §M138). Today it appears only in docstrings that explain why not.
+* **No `.connect` to a signal of `windowHandle()`** (CLAUDE.md, *Never connect a widget's slot to a
+  signal on a QObject that outlives it*). There are none today.
+* **No BOM and no mis-decoded text** (`Ã`, `â€`) in tracked source and documents. The code uses `—`,
+  `×` and `…` throughout, and a Windows PowerShell 5.1 rewrite once mis-decoded every one of them in
+  a file. There are none today.
+
+**Left as prose, on purpose.** Some CLAUDE.md gotchas have no static form that does not guess
+(CLAUDE.md, *Compare, don't guess*). `is_encrypted` is right for "does this need a password now" and
+wrong for "was this file protected", and only the question tells the two apart. Whether a scene is
+rebuilt inside a Qt callback, or a toolbar widget has a fixed size policy, depends on run-time
+context. These stay with the tests that cover them.
+
+### How the checks run: CI on every change, and locally before a push
+
+| Check | Where | When | Gate |
+|---|---|---|---|
+| Ruff | A new `lint` job in `test.yml` on Ubuntu, installing only Ruff at the dev lock's pin. It takes seconds | Every push and every PR, like the rest of `test.yml`, so also on `main` after each merge | Proposed as a required check (Question 3) |
+| Dead code (vulture) | A test in the suite, as #409 specifies, so it runs in the `pytest` (Linux) and `windows` jobs | Every push and every PR | Already required, through `pytest` |
+| mypy | A new `typecheck` job on Ubuntu, installing the bridge's lock and mypy | Every push and every PR, from M172 | Proposed as a required check (Question 3) |
+| Locally | `invoke lint` runs Ruff, and mypy from M172. The dead-code test runs with pytest | Before a push, beside the tests for the change (CLAUDE.md, *Run the tests for your change locally*) | None |
+
+* **One Linux job is enough for Ruff.** It reads source, and the operating system it runs on does
+  not change its answer. M167 confirms that the Windows checkout gives the same result as CI. mypy
+  is different: it treats `if sys.platform == "win32":` branches as dead on Linux. That does not
+  matter for `klarpdf/`, which has no such branch, but it does for the app's
+  `platform_integration.py`, so M173 has to choose the platform it checks.
+* **No matrix.** `test.yml:293` records why: a required check is matched by its exact name, and a
+  matrix renames it.
+* **No scheduled run.** A pinned linter run again over unchanged code can only repeat its last
+  answer. What changes without a commit is the tools themselves, and they change only through a
+  bump (below). The weekly `audit` job already covers what does change on its own: new advisories
+  against the pins.
+* **The editor.** VS Code's Ruff extension uses the project's pinned Ruff when it is set to
+  `"ruff.importStrategy": "fromEnvironment"`. Otherwise its bundled copy runs, and
+  `required-version` makes that copy report the mismatch rather than give different answers.
+* **Considered, not proposed: a Claude Code hook** that runs Ruff after every edit. It would report a
+  finding sooner than CI does. But a checked-in `.claude/settings.json` changes every collaborator's
+  sessions, and the CLAUDE.md line plus the CI gate catch the same findings before a merge. Worth
+  revisiting if `lint` failures in CI turn out to be common.
+
+### Dependencies
+
+* Ruff, vulture and mypy go in `requirements-dev.in` only: not in `requirements.in` (the installer),
+  and not in `pyproject.toml`'s `dependencies` (the wheel). They ship nowhere, and the dev lock's
+  `pip-audit` step covers them. The dev lock is recompiled off Windows (`invoke lock-dev`; see the
+  header of `requirements-dev.in` and M137). That is the one step that needs WSL; the rest runs
+  anywhere.
+* Ruff is at 0.x and changes its rules between minor releases. A Ruff bump is its own PR (RELEASE.md
+  §1), with any new findings fixed in that PR. `required-version` moves with the lock in the same
+  commit, and the test fails if the two disagree.
+* mypy depends on `typing-extensions`, which the bridge's lock also pins (4.16.0 in both today).
+  M159 requires the two locks to pin shared packages to the same version, so M172's lock change has
+  to keep them in step.
+
+### The roadmap
+
+| Milestone | What it switches on | Findings to clear (measured 2026-11-08 unless noted) | Surfaces |
+|---|---|---|---|
+| **M167** Ruff, pinned, on every change | Ruff in the dev lock. `[tool.ruff]` in `pyproject.toml`, with `required-version`. The `lint` job, seen failing on purpose. `invoke lint`. CLAUDE.md's conventions: run Ruff before a push, and the suppression form. Rules: `F`, `E4`, `E7` and `E9`, except `E741` | 28: 17 unused imports, 4 unused variables, 3 late imports, 2 empty f-strings, one redefinition, one shadowed name. None in `klarpdf/`; most are in tests | All. No behaviour change |
+| **M168** The project's rules, enforced | `TID251` for OS calls, `T20` in `klarpdf/`, `target-version = "py311"`, `PGH004` and `RUF100`. Tests for suppression reasons, `get_textbox`, `windowHandle()` signals and text encoding | The bans: none (the one stderr `print` gets its reason). Suppressions: the 10 stale ones removed, and reasons written for the 8 left without one and for the one `type: ignore` | All. No behaviour change |
+| **M169** Dead code: [#409](https://github.com/utyagi24/klarpdf/issues/409) | vulture pinned. `tests/test_no_dead_code.py` over the tracked shipped files, with a whitelist that gives reasons. Triage | #409's list: 46 lines on 2026-09-26, of which `PyPdfEngine` went in M156. Re-measured in M169's own session, not here (CLAUDE.md, *Investigate a defect once*) | Core, app and bridge. A deletion in the core is checked against both consumers |
+| **M170** Defects that hide | `B`, `BLE001`, `S110`, `S112`, `PLE` and `PLW` | 124: 45 `zip` calls without `strict=`, 25 blind `except` clauses, 11 `subprocess.run` calls without `check=`, 7 rebound loop variables, 7 needless lambdas, 6 `raise` without `from`, 5 closures over loop variables, 5 unused loop variables, 4 `except: pass`, 4 `global` statements and 5 single findings | Core, bridge, app and tests. **It changes behaviour** wherever `zip(strict=True)` or a narrower `except` is chosen. That policy is settled with the owner in M170's session |
+| **M171** Consistency | `I`, `UP`, `E741`, and `E501` at 120 columns. Or `ruff format`, if Question 1 says so | 71 import blocks, 142 syntax upgrades (111 of them quoted annotations), 50 ambiguous one-letter names such as `l`, and 31 long lines. Mostly automatic | All. No behaviour change |
+| **M172** Types for the wheel | mypy in the dev lock, `[tool.mypy]` for `klarpdf/` at Python 3.11, and the `typecheck` job. **M172.1**: the gate at default settings. **M172.2**: `disallow_untyped_defs` | M172.1: 128 errors. 86 are PyMuPDF constants, which one configuration decision handles; 42 to fix. M172.2: about 117 missing annotations (core 88, bridge 29) | Core and bridge. The app is untouched |
+| **M173** Types for the app: **go or no-go after M172** | mypy over the app, checked as Windows or on both platforms | 215 errors at default settings (75 PyMuPDF constants), and more once unannotated bodies are checked | App |
+
+**The order, and why.**
+
+* **M167 first.** Everything after it uses its pin, its CI job and its conventions.
+* **M168 next.** It gives the most value for the least work: its bans have nothing to fix, and they
+  lock in rules that hold today only by habit.
+* **M169 (dead code) before M170 and M172.** Those two make a judgement at every finding, and none
+  should be spent on code that is about to be deleted. The overlap is real: #409 lists names in
+  `page_edits.py` and `virtual_document.py`, which carry 40 and 12 of mypy's 128 errors.
+* **M170 before M171.** Defects come before tidiness. M171 is the one milestone that could be
+  skipped without losing a guarantee.
+* **M172 needs only M167**, and could be built alongside M170 and M171. It comes last because it
+  is the largest.
+* **M173 is a decision, not a schedule.** After M172, what types cost and what they caught are
+  known, and the app has 885 functions to the wheel's 499.
+
+### Questions for the owner
+
+**Q1. Adopt a formatter?** A formatter removes layout decisions for good, and gives outside
+contributors one obvious style. For a public repository that is a real gain. Its cost is paid at
+once. 208 of the 250 files and about 10,300 lines change in one commit. A
+`.git-blame-ignore-revs` entry, which GitHub honours, keeps that commit out of `git blame`. Every
+open branch conflicts with it, so it has to land when no other PR is open. And the aligned trailing
+comments, a deliberate habit here, are flattened. **Recommendation: not now.** Lint the two layout
+properties that cost something when they drift, import order and a 120-column ceiling (M171), and
+revisit when outside contributions make style a review cost. The reason is that the benefit is
+mostly in the future and the cost is now. That is a judgement, not a measurement.
+
+**Q2. mypy or Pyright, and is the app in scope?** **Recommendation: mypy**, for the reason in
+§*Tools*: it lives inside the audited lock, and Pyright's runtime does not. Choose Pyright if
+agreeing with VS Code's Pylance matters more to you than the lock. Whether to type-check the app is
+best decided after M172 (M173), when its cost is known.
+
+**Q3. Make `lint`, and later `typecheck`, required status checks?** **Recommendation: yes.** Because
+a rule is switched on only at zero findings, a required check cannot block a PR that did not cause
+its finding. A check that is not required can be merged over while it is red. The `audit` job was
+red at three releases before anyone noticed (RELEASE.md §3). The ruleset is a GitHub setting, so
+this change is the owner's to make.
+
+Questions that belong to a milestone's own session are settled there, with the owner, as
+§*The open issues, grouped* arranged for M149–M152: the `zip(strict=…)` policy (M170), how to treat
+PyMuPDF's missing constants (M172), and what goes in #409's whitelist (M169).
+
 ## Future enhancements (deferred beyond the roadmap)
 
 Captured but not yet scheduled:
