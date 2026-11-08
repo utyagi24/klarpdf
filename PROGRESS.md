@@ -1288,7 +1288,8 @@ tick the box here on merge. Build in number order.
   past it and was cut off in the file; it now breaks between its characters, the owner's choice,
   a box is never narrower than its widest character, and a box grows taller when a line would be
   clipped, down to the page bottom. Lines that still cannot fit are cut off in KlarPDF too, so the
-  screen never shows what the file does not hold (#435). Still owed: a hand check.
+  screen never shows what the file does not hold (#435). Hand-checked by the owner on
+  2026-11-08.
   Details in `PLAN.md` §M166 — *Windows (headless)* —
   [#436](https://github.com/utyagi24/klarpdf/pull/436)
 
