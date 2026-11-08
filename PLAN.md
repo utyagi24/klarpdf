@@ -11044,7 +11044,7 @@ the first box got its word back, six missing characters to none, and the three a
 Page 7 changed 1,032 pixels, all inside those four boxes (979, 17, 17 and 19) and none outside. Page 8
 changed none. The original file stayed byte-identical.
 
-**Owed: a hand check on Windows.** Open the form, nudge the first box on page 7 with an arrow key, save,
+**A hand check on Windows, done by the owner on 2026-11-08.** Open the form, nudge the first box on page 7 with an arrow key, save,
 and open the file in Edge. The whole text should show on one line.
 
 #### #434: a long line typed at the page edge
@@ -11153,7 +11153,7 @@ wide and 36 pt it already reaches the bottom of the page. A tall narrow box the 
 form grew to the page bottom and loses 7 letters there instead of 8 off its edge. No pixel changed
 outside a text box, and both files stayed byte-identical.
 
-**Owed: a hand check on Windows.** In a fixed-width box, type a word longer than the box is wide: it
+**A hand check on Windows, done by the owner on 2026-11-08.** In a fixed-width box, type a word longer than the box is wide: it
 breaks across lines, in KlarPDF and in Edge alike. Drag the box's width handle narrower: it stops at
 the widest letter. Open the owner's form and nudge the 28 pt box on page 7: all of its letters show in
 Edge, and the box is taller.
