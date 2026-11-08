@@ -1162,7 +1162,7 @@ def _textbox_fits_one_line(text: str, fontname: str, fontsize: float, rect: tupl
 _WRAP_SLACK = 0.01
 
 
-def _widened_to_its_lines(box: TextBox) -> TextBox:
+def widened_to_its_lines(box: TextBox) -> TextBox:
     """``box`` with its right edge moved out, if it is an auto-width box too narrow for its own
     lines (#430). Its left edge and its text stay where they are.
 
@@ -1170,8 +1170,9 @@ def _widened_to_its_lines(box: TextBox) -> TextBox:
     box less three borders, with no slack at all, and clips to the box less half a border, so the
     new line falls below a one-line box and every viewer loses it. KlarPDF does not make these, but
     Microsoft Edge shrinks a box to fit its text by its own font's widths when it moves one, which
-    can leave it a point or two short of ours. Done here, where they enter the model, so that the
-    view, a selection and a save all see the same box."""
+    can leave it a point or two short of ours. Applied where boxes enter the model, as a file is
+    read and as the editor commits (#434), so that the view, a selection and a save all see the same
+    box."""
     if not box.auto_width:
         return box
     x0, y0, x1, y1 = box.rect
@@ -1484,7 +1485,7 @@ def parse_annotation(annot: fitz.Annot):
             auto_width = _textbox_fits_one_line(content, fontname, fontsize, rect)
             origin = None
         result.append(
-            _widened_to_its_lines(TextBox(
+            widened_to_its_lines(TextBox(
                 rect,
                 content,
                 fontsize=fontsize,

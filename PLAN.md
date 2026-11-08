@@ -10948,7 +10948,10 @@ handle without clicking anywhere else. The box should resize, the text should st
 should take back one thing at a time, and the console should stay quiet. Then start a drag on any
 mark and zoom with Ctrl+wheel before letting go: the drag ends and the mark stays where it was.
 
-### M166 — a box narrower than its text keeps it on one line *(unplanned)* (2026-11-06)
+### M166 — a text box keeps all of its text, in KlarPDF and in the file *(unplanned)* (2026-11-06)
+
+Every text box fix of this round, in one PR at the owner's request (2026-11-07), so that anything found
+while testing it is either new or a fix that did not work: #430 here, and #434 below.
 
 [#430](https://github.com/utyagi24/klarpdf/issues/430). A text box can be a point or two narrower
 than its own text. KlarPDF showed such a box's text on one line, and a save that drew it again put
@@ -11013,8 +11016,8 @@ nothing leaves `/Rect` as it found it.
   needs a nudge and a save to get its word back.
 * **A widened box may pass the page edge.** Its text already ran there.
 
-Found alongside this and filed, because the cause and the code are different: a long line typed near
-the page edge ([#434](https://github.com/utyagi24/klarpdf/issues/434)), and a word wider than a
+Found alongside this: a long line typed near the page edge
+([#434](https://github.com/utyagi24/klarpdf/issues/434), fixed below), and a word wider than a
 fixed-width box ([#435](https://github.com/utyagi24/klarpdf/issues/435)), which the owner's form has.
 
 #### Checks
@@ -11041,6 +11044,37 @@ changed none. The original file stayed byte-identical.
 
 **Owed: a hand check on Windows.** Open the form, nudge the first box on page 7 with an arrow key, save,
 and open the file in Edge. The whole text should show on one line.
+
+#### #434: a long line typed at the page edge
+
+A line too long for the room left on the page wraps at the page's right edge as it is typed. The box
+was committed as an auto-width box, one that hugs a single line, so the view painted one line while
+the file held it wrapped, until the file was reopened. Measured through the real editor: a box at
+x = 450 on an A4 page with a 68-character line held `auto_width=True`, `textbox_lines` gave 1 line,
+and the saved drawing held 3.
+
+**Surfaces: app.** The editor is the app's. The core gains nothing new: `widened_to_its_lines` is
+the function #430 added, made public so that the editor can use it too.
+
+**The fix.** `AnnotationOverlay._fitted` gives the box the shape it will save in, as the editor
+commits it. An auto-width box too narrow for its lines is widened, exactly as one read from a file
+is, so a box the editor sized by Qt's widths cannot come out a hair short of MuPDF's either. One
+that would have to pass the page's right edge to hold its lines is committed at the edge as a
+fixed-width box instead, wrapped there as the editor showed it, and as tall as its lines. A box that
+cannot widen enough uses all the room to the edge before it wraps.
+
+**Checks.** `tests/test_textbox_page_edge.py` goes through the real editor: the long line saves the
+lines the view shows, is as tall as they are and reads back the same, a short line near the edge and
+a line in mid-page still hug their text, an edit into a long line wraps at the edge, and a box a hair
+too narrow is widened. **Broken on purpose 7 ways**, and each break failed its own tests. One passed
+at first, "not put at the edge", because the editor had already clamped every test's box there; a
+test now builds a box short of the edge.
+
+One thing went wrong on the way. The first tests committed by calling `_commit_textbox` directly,
+which hides the editor while it still holds focus. The next editor to open took that focus, the old
+one's focus-out then read the new editor as current, and committed it before the test could type.
+No reader can commit without moving focus first, since both ways to commit (the focus-out and the
+press of #431) start with focus already gone, so the tests now commit the way a reader does.
 
 ## The open issues, grouped — M149–M152 *(planned 2026-09-19)*
 

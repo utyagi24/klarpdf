@@ -1273,14 +1273,17 @@ tick the box here on merge. Build in number order.
   zoom or an undo. Older than M163 and M164, and the document was never damaged. Still owed: a hand
   check. Details in `PLAN.md` §M165 — *Windows (headless)* —
   [#432](https://github.com/utyagi24/klarpdf/pull/432)
-- [x] **M166** *(unplanned)* **A box narrower than its text keeps it on one line** —
-  [#430](https://github.com/utyagi24/klarpdf/issues/430). *Core: the app and the bridge.* Microsoft
+- [x] **M166** *(unplanned)* **A text box keeps all of its text, in KlarPDF and in the file** —
+  [#430](https://github.com/utyagi24/klarpdf/issues/430),
+  [#434](https://github.com/utyagi24/klarpdf/issues/434). *Core: the app and the bridge.* Microsoft
   Edge shrinks a text box to fit when it moves one, which can leave it a point or two narrower than
   our text. KlarPDF showed the text on one line, and a redraw wrapped it, so the last word fell below
   the box and no viewer showed it. An auto-width box is now widened to hold its lines as it is read,
   with its left edge and text left in place. On a copy of the owner's form the lost word came back,
   and three more boxes that would have broken next were saved. A box with a cut-off line that is
-  still partly visible reads as wrapped on purpose and is not changed. Still owed: a hand check.
+  still partly visible reads as wrapped on purpose and is not changed. A long line typed near the
+  page edge was one line in the view and wrapped in the file; the editor now commits it at the
+  edge as a fixed-width box, wrapped as it showed it (#434). Still owed: a hand check.
   Details in `PLAN.md` §M166 — *Windows (headless)* —
   [#436](https://github.com/utyagi24/klarpdf/pull/436)
 

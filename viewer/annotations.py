@@ -67,6 +67,7 @@ from klarpdf.model.page_edits import (
     textbox_lines,
     textbox_origin,
     translate_mark,
+    widened_to_its_lines,
 )
 from viewer.blend import MultiplyPixmapItem, MultiplyRectItem
 from viewer.markup_style import MarkupStyle
@@ -1222,15 +1223,34 @@ class AnnotationOverlay:
             # measures a box afresh, and that alone must not resize it, or move its text. The text
             # is stored verbatim — leading/trailing spaces and newlines are preserved.
             if raw != old.text or style != TextBoxStyle.from_textbox(old):
-                new = self._textbox(rect, raw, style, auto_width)
+                new = self._fitted(page_index, self._textbox(rect, raw, style, auto_width))
                 self._replace(page_index, old, new, text="Edit text box")
                 return new
             return old
         if text:
-            new = self._textbox(rect, raw, style, auto_width)
+            new = self._fitted(page_index, self._textbox(rect, raw, style, auto_width))
             self._on_add(page_index, new)
             return new
         return None
+
+    def _fitted(self, page_index: int, box: TextBox) -> TextBox:
+        """``box`` as it will save, so that the view shows the lines the file will (#434).
+
+        An auto-width box too narrow for its lines is widened, as one read from a file is (#430).
+        One that would have to pass the page's right edge to hold them is committed at the edge as
+        a fixed-width box instead, wrapped there as the editor showed it, and as tall as its lines.
+        Kept as an auto-width box, it was one line in the view and wrapped in the file."""
+        if not box.auto_width:
+            return box
+        wide = widened_to_its_lines(box)
+        pw, ph = self._view._unrotated_size(page_index)
+        if wide.rect[2] <= pw:
+            return wide
+        x0, y0 = box.rect[0], box.rect[1]
+        fixed = replace(box, rect=(x0, y0, pw, y0), auto_width=False)
+        height = max(_MIN_BOX_H, textbox_height(len(textbox_lines(fixed)), box.fontsize,
+                                                 box.border_width))
+        return replace(fixed, rect=(x0, y0, pw, min(ph, y0 + height)))
 
     def commit_before_press(self) -> None:
         """Commit an open editor before a press on the page is acted on (#431).
