@@ -11066,7 +11066,8 @@ cannot widen enough uses all the room to the edge before it wraps.
 **Checks.** `tests/test_textbox_page_edge.py` goes through the real editor: the long line saves the
 lines the view shows, is as tall as they are and reads back the same, a short line near the edge and
 a line in mid-page still hug their text, an edit into a long line wraps at the edge, and a box a hair
-too narrow is widened. **Broken on purpose 7 ways**, and each break failed its own tests. One passed
+too narrow is widened. At the owner's request it also raises the font of a box at the edge, to 18, 36
+and 72 pt, and of one already wrapped there, and the view and the file still agree. **Broken on purpose 7 ways**, and each break failed its own tests. One passed
 at first, "not put at the edge", because the editor had already clamped every test's box there; a
 test now builds a box short of the edge.
 

@@ -143,3 +143,43 @@ def test_a_box_that_cannot_widen_enough_wraps_at_the_edge_not_before_it(win):
     fitted = overlay._fitted(0, box)
     assert not fitted.auto_width
     assert fitted.rect[2] == pytest.approx(595)
+
+
+def _raise_font(win, box: TextBox, fontsize: float) -> TextBox:
+    """Open ``box``'s editor, raise its font in the format bar, and commit as a reader does."""
+    from dataclasses import replace
+
+    from viewer.text_format_bar import TextBoxStyle
+
+    overlay = win.view.annotations
+    x0, y0, _x1, y1 = box.rect
+    assert overlay.edit_textbox_at(win.view.scene_rect_for_box(0, (x0 + 2, (y0 + y1) / 2,
+                                                                   x0 + 2.01, (y0 + y1) / 2 + 0.01)).center())
+    QApplication.processEvents()
+    overlay._on_style_changed(replace(TextBoxStyle.from_textbox(box), fontsize=fontsize))
+    QApplication.processEvents()
+    _commit(win)
+    (after,) = win.vdoc.page_annotations(0)
+    return after
+
+
+@pytest.mark.parametrize("fontsize", [18.0, 36.0, 72.0])
+def test_raising_the_font_of_a_box_at_the_edge_keeps_the_view_and_the_file_together(win, tmp_path, fontsize):
+    """The owner's case: a short box near the edge that a bigger font pushes past it."""
+    box = _type_at(win, 450, 100, "Short line here")
+    assert box.auto_width
+    box = _raise_font(win, box, fontsize)
+    assert box.rect[2] <= 595 + 0.01
+    lines = textbox_lines(box)
+    assert _saved_lines(win, tmp_path) == len(lines)
+    need = textbox_height(len(lines), box.fontsize, box.border_width)
+    assert box.rect[3] - box.rect[1] >= min(need, 842 - box.rect[1]) - 0.01
+
+
+def test_raising_the_font_of_a_box_already_wrapped_at_the_edge(win, tmp_path):
+    box = _type_at(win, 450, 100, _LONG)
+    assert not box.auto_width
+    box = _raise_font(win, box, 24.0)
+    lines = textbox_lines(box)
+    assert _saved_lines(win, tmp_path) == len(lines)
+    assert box.rect[3] - box.rect[1] >= textbox_height(len(lines), box.fontsize, box.border_width) - 0.01
