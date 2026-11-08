@@ -1275,7 +1275,8 @@ tick the box here on merge. Build in number order.
   [#432](https://github.com/utyagi24/klarpdf/pull/432)
 - [x] **M166** *(unplanned)* **A text box keeps all of its text, in KlarPDF and in the file** —
   [#430](https://github.com/utyagi24/klarpdf/issues/430),
-  [#434](https://github.com/utyagi24/klarpdf/issues/434). *Core: the app and the bridge.* Microsoft
+  [#434](https://github.com/utyagi24/klarpdf/issues/434),
+  [#435](https://github.com/utyagi24/klarpdf/issues/435). *Core: the app and the bridge.* Microsoft
   Edge shrinks a text box to fit when it moves one, which can leave it a point or two narrower than
   our text. KlarPDF showed the text on one line, and a redraw wrapped it, so the last word fell below
   the box and no viewer showed it. An auto-width box is now widened to hold its lines as it is read,
@@ -1283,7 +1284,11 @@ tick the box here on merge. Build in number order.
   and three more boxes that would have broken next were saved. A box with a cut-off line that is
   still partly visible reads as wrapped on purpose and is not changed. A long line typed near the
   page edge was one line in the view and wrapped in the file; the editor now commits it at the
-  edge as a fixed-width box, wrapped as it showed it (#434). Still owed: a hand check.
+  edge as a fixed-width box, wrapped as it showed it (#434). A word wider than a fixed-width box ran
+  past it and was cut off in the file; it now breaks between its characters, the owner's choice,
+  a box is never narrower than its widest character, and a box grows taller when a line would be
+  clipped, down to the page bottom. Lines that still cannot fit are cut off in KlarPDF too, so the
+  screen never shows what the file does not hold (#435). Still owed: a hand check.
   Details in `PLAN.md` §M166 — *Windows (headless)* —
   [#436](https://github.com/utyagi24/klarpdf/pull/436)
 
@@ -4921,6 +4926,17 @@ the PR that fixes it. See `CLAUDE.md` §How we work for the split and why. Items
 were not migrated wholesale: each is listed because a decision is outstanding, which is what keeps
 it on this side of the line.
 
+- **Move a text box up at the bottom of the page, as Edge does?** (M166, deferred by the owner
+  2026-11-07). When a box gains lines at the bottom of the page, by narrowing it, typing or a
+  bigger font, it now grows only to the page edge, and lines that still do not fit are cut off,
+  in KlarPDF and in the file alike. Microsoft Edge moves the box up instead, so text is cut only
+  once the box is as tall as the page. That would lose no text in any realistic case, but moves a
+  box from where it was put, can cover what is above it, and would also move boxes in older files
+  when they are redrawn. Spilling onto the next page was ruled out: an annotation belongs to one
+  page, so the text would become two unrelated boxes. **The owner kept cutting off for now and will
+  revisit if it proves unacceptable in use.** The work would go in `fitted_to_its_lines` (move the
+  top up by the overflow, no higher than the page top), the editor's `reposition_editor` and the
+  width handle's `_reflow_textbox_rect` (`PLAN.md` §M166).
 - **Report MuPDF's new `/ID` upstream?** (M161, found 2026-11-02). MuPDF writes a fresh `/ID` on
   every save, even when `PDF_ENCRYPT_KEEP` keeps a key that was made from the file's missing one.
   So any program saving such a file through MuPDF writes a copy nobody can open. `pin_file_id`

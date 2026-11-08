@@ -36,3 +36,22 @@ def test_a_bridge_save_restores_a_word_a_save_cut_off(tmp_path):
     with fitz.open(out) as doc:
         page = doc[0]
         assert " ".join(_box(page).get_text("text").split()) == "JANE DOE"
+
+
+def test_a_bridge_save_keeps_every_letter_of_a_word_wider_than_its_box(tmp_path):
+    """#435: a word wider than a fixed-width box breaks across lines instead of being cut off."""
+    text = "ABCDEF ABCDEF ABCDEF"
+    doc = fitz.open()
+    page = doc.new_page()
+    annot = page.add_freetext_annot(fitz.Rect(150, 82, 177, 123), text, fontsize=12, fontname="helv",
+                                    border_width=1.0)
+    annot.set_info(title=KLARPDF_AUTHOR)
+    annot.update()
+    src = str(tmp_path / "old.pdf")
+    doc.save(src)
+    doc.close()
+    out = str(tmp_path / "rotated.pdf")
+    T.rotate(src, 90, out)
+    with fitz.open(out) as doc:
+        page = doc[0]
+        assert "".join(_box(page).get_text("text").split()) == "".join(text.split())

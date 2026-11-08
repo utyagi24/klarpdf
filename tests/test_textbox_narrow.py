@@ -22,6 +22,7 @@ from klarpdf.model.page_edits import (
     TextBox,
     apply_annotations,
     read_klarpdf_annotations,
+    textbox_height,
     textbox_lines,
 )
 from klarpdf.model.virtual_document import VirtualDocument
@@ -205,8 +206,10 @@ def test_a_box_wide_enough_is_left_as_it_is(tmp_path):
 
 
 def test_a_box_wrapped_on_purpose_is_left_as_it_is(tmp_path):
-    box = TextBox((150.0, 82.0, 210.0, 142.0), "a note wrapped at this width on purpose",
-                  fontsize=12, auto_width=False)
+    text = "a note wrapped at this width on purpose"
+    lines = textbox_lines(TextBox((150.0, 82.0, 210.0, 82.0), text, fontsize=12, auto_width=False))
+    height = textbox_height(len(lines), 12, 0.0)          # room for its lines, so nothing to fix
+    box = TextBox((150.0, 82.0, 210.0, 82.0 + height), text, fontsize=12, auto_width=False)
     doc = fitz.open()
     page = doc.new_page()
     apply_annotations(page, (box,))

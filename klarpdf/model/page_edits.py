@@ -938,6 +938,11 @@ _CAP_HEIGHT = {"helv": 0.718, "tiro": 0.662, "cour": 0.562}
 # many font sizes below that. It wraps inside the same padding. `tests/test_textbox_layout.py` pins
 # both against the library, so an upgrade that moves one fails there.
 _FREETEXT_INSET = 1.5
+# How far below the baseline a font's letters reach, as a fraction of the size: the deepest ink of
+# every printable Latin-1 character, measured on 1.27.2.3 with TEXT_ACCURATE_BBOXES (the `g` in
+# Helvetica, the `|` in Times and Courier). Not the font's own descender, which is its outer box
+# (0.299 for Helvetica) and would call a line clipped that is not. A test pins these.
+_DESCENT = {"helv": 0.220, "tiro": 0.249, "cour": 0.250}
 _FREETEXT_BASELINE = 0.8
 # The line of that drawing that places its text. The fill and the outline are drawn before it, so
 # changing it moves the text alone.
@@ -953,8 +958,10 @@ def textbox_pad(border_width: float) -> float:
 
 def wrap_text(text: str, fontname: str, fontsize: float, avail_pt: float) -> list[str]:
     """Greedy word-wrap ``text`` to ``avail_pt`` page points, honouring explicit newlines (each
-    paragraph wrapped on its own, blank lines kept). A single word wider than the box is left
-    unbroken: it overflows rather than being chopped mid-word, as PyMuPDF leaves it too.
+    paragraph wrapped on its own, blank lines kept). **A word wider than the box breaks between its
+    characters** (#435), each piece on its own line. Left whole, it ran past the box: the view showed
+    it, and the file's drawing, which is clipped to the box, cut it off in every viewer. A piece is
+    never less than one character, and :func:`textbox_min_width` keeps a box wide enough for one.
 
     Measured with the widths PyMuPDF wraps by, so a line that fits here fits there. The view uses
     these lines as well, so it breaks a line exactly where the saved drawing does.
@@ -979,6 +986,16 @@ def wrap_text(text: str, fontname: str, fontsize: float, avail_pt: float) -> lis
                 current = word
             else:
                 current = trial
+            # Only a lone word can be too wide here: a word that did not fit after others started
+            # a line of its own above. So break it, keeping the widest piece that fits each time.
+            while len(current) > 1 and fitz.get_text_length(
+                    indent + current, fontname=fontname, fontsize=fontsize) > avail_pt:
+                cut = max(1, max((k for k in range(1, len(current))
+                                  if fitz.get_text_length(indent + current[:k], fontname=fontname,
+                                                          fontsize=fontsize) <= avail_pt), default=1))
+                lines.append(indent + current[:cut])
+                indent = ""
+                current = current[cut:]
         lines.append(indent + current)
     return lines
 
@@ -1162,26 +1179,64 @@ def _textbox_fits_one_line(text: str, fontname: str, fontsize: float, rect: tupl
 _WRAP_SLACK = 0.01
 
 
-def widened_to_its_lines(box: TextBox) -> TextBox:
-    """``box`` with its right edge moved out, if it is an auto-width box too narrow for its own
-    lines (#430). Its left edge and its text stay where they are.
+def textbox_min_width(box: TextBox) -> float:
+    """The narrowest a fixed-width box may be (#435): its widest character, and the gap each side.
+    A word wider than the box breaks between characters, but a character cannot break."""
+    widest = max((fitz.get_text_length(ch, fontname=box.fontname, fontsize=box.fontsize)
+                  for ch in set(box.text) if not ch.isspace()), default=0.0)
+    return widest + 2 * textbox_pad(box.border_width) + _WRAP_SLACK
 
-    Such a box shows its lines whole, and a redraw would not: MuPDF wraps any line wider than the
-    box less three borders, with no slack at all, and clips to the box less half a border, so the
-    new line falls below a one-line box and every viewer loses it. KlarPDF does not make these, but
-    Microsoft Edge shrinks a box to fit its text by its own font's widths when it moves one, which
-    can leave it a point or two short of ours. Applied where boxes enter the model, as a file is
-    read and as the editor commits (#434), so that the view, a selection and a save all see the same
-    box."""
-    if not box.auto_width:
-        return box
+
+def fitted_to_its_lines(box: TextBox, page_height: float | None = None) -> TextBox:
+    """``box`` with room for the lines it shows: wider if a line would not fit, taller if one would
+    be clipped. Its left and top edges, and its text, stay where they are, and a box that already
+    has room is returned as it was.
+
+    The drawing is clipped to the box, so whatever does not fit is lost in every viewer while
+    KlarPDF still shows it. Three ways in, one rule:
+
+    * **An auto-width box narrower than its text** (#430). MuPDF wraps any line wider than the box
+      less three borders, with no slack at all, so the new line fell below the box. Microsoft Edge
+      leaves boxes like this when it moves one, shrunk to its own font's widths.
+    * **A word wider than a fixed-width box** (#435) breaks between its characters
+      (:func:`wrap_text`), so the box only has to hold its widest character.
+    * **A box shorter than its lines**, which a word broken into pieces makes of a box read back
+      from a file, and which a line cut off by an earlier save already is.
+
+    It grows no lower than ``page_height``, the bottom of the page, as the editor and the width
+    handle already stop there. Lines that still do not fit are cut off at the box, in the view as in
+    the file.
+
+    Applied where boxes enter the model, as a file is read and as the editor commits (#434), so that
+    the view, a selection and a save all see the same box."""
     x0, y0, x1, y1 = box.rect
-    longest = max(fitz.get_text_length(line.rstrip(), fontname=box.fontname, fontsize=box.fontsize)
-                  for line in box.text.split("\n"))
-    left = textbox_origin(box, 1)[0] - x0
-    needed = longest + _WRAP_SLACK + max(left + box.border_width / 2,
-                                         2 * _FREETEXT_INSET * box.border_width)
-    return box if x1 - x0 >= needed else replace(box, rect=(x0, y0, x0 + needed, y1))
+    if box.auto_width:
+        longest = max(fitz.get_text_length(line.rstrip(), fontname=box.fontname,
+                                           fontsize=box.fontsize)
+                      for line in box.text.split("\n"))
+        left = textbox_origin(box, 1)[0] - x0
+        needed = longest + _WRAP_SLACK + max(left + box.border_width / 2,
+                                             2 * _FREETEXT_INSET * box.border_width)
+    else:
+        needed = textbox_min_width(box)
+    if x1 - x0 < needed:
+        x1 = x0 + needed
+        box = replace(box, rect=(x0, y0, x1, y1))
+    lines = textbox_lines(box)
+    inked = [row for row, line in enumerate(lines) if line.strip()]
+    if not inked:
+        return box
+    _x, baseline = textbox_origin(box, len(lines))
+    bottom = (baseline + inked[-1] * TEXTBOX_PITCH * box.fontsize
+              + _DESCENT.get(box.fontname, _DESCENT["helv"]) * box.fontsize)
+    if bottom <= y1 - box.border_width / 2:
+        return box
+    # A box laid out afresh is centred, and textbox_height always holds centred lines. One read back
+    # keeps where its drawing put the text, so it grows to the last line and the gap below it.
+    height = (textbox_height(len(lines), box.fontsize, box.border_width) if box.origin is None
+              else bottom - y0 + textbox_pad(box.border_width))
+    lowest = y0 + height if page_height is None else min(y0 + height, max(page_height, y1))
+    return replace(box, rect=(x0, y0, x1, lowest))
 
 
 def _drawn_lines(annot) -> list[tuple[float, float]]:
@@ -1485,7 +1540,7 @@ def parse_annotation(annot: fitz.Annot):
             auto_width = _textbox_fits_one_line(content, fontname, fontsize, rect)
             origin = None
         result.append(
-            widened_to_its_lines(TextBox(
+            fitted_to_its_lines(TextBox(
                 rect,
                 content,
                 fontsize=fontsize,
@@ -1495,7 +1550,7 @@ def parse_annotation(annot: fitz.Annot):
                 border_width=border_width,
                 auto_width=auto_width,
                 origin=origin,
-            ))
+            ), page_height=(annot.parent.rect * annot.parent.derotation_matrix).height)
         )
     return result[0] if result else None
 

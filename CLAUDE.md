@@ -319,6 +319,11 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   the same module disagree **and must stay that way**; a test pins each against the library, so a
   PyMuPDF upgrade that changes either fails there with the reason rather than silently resizing
   documents.
+- **Text extraction reports a letter whose ink the clip cuts off.** `get_text` lists a character
+  if any of it is inside the drawing, so a test that compares extracted letters passes while the
+  bottom of a `g` or the end of a word is gone in every viewer (M166). To ask whether text is
+  clipped, read each character's ink with `flags=fitz.TEXT_ACCURATE_BBOXES` and compare it with
+  the clip, on text that has letters reaching below the line.
 - **An annotation crashes once its page is gone.** `doc[0].first_annot` lets the page be collected,
   and an annotation only holds a weak reference to it. Then `.rect` is a Windows access violation
   that takes down the whole test run, and `.parent` is a `ReferenceError`. Keep the page in a

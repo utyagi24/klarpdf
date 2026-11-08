@@ -27,6 +27,8 @@ import pytest
 from PySide6.QtGui import QFontMetricsF
 from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsSimpleTextItem
 
+from viewer.annotations import _TextBoxFrame
+
 from app import PdfApp
 from klarpdf.model.edit_engine import PyMuPDFEngine
 from klarpdf.model.page_edits import (
@@ -92,7 +94,7 @@ def _painted_lines(win, box: TextBox) -> list[tuple[float, float]]:
     """``(x, baseline)`` of each line the view paints for ``box``, top first, in page points."""
     win.vdoc.add_annotation(0, box)
     win.view.annotations.repaint()
-    frames = [it for it in win.view.annotations._items if type(it) is QGraphicsRectItem]
+    frames = [it for it in win.view.annotations._items if isinstance(it, _TextBoxFrame)]
     items = sorted((c for c in frames[-1].childItems() if isinstance(c, QGraphicsSimpleTextItem)),
                    key=lambda it: it.pos().y())
     return [(it.pos().x(), it.pos().y() + QFontMetricsF(it.font()).ascent()) for it in items]

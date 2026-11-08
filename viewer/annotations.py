@@ -39,6 +39,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QGraphicsEllipseItem,
+    QGraphicsItem,
     QGraphicsLineItem,
     QGraphicsPathItem,
     QGraphicsPixmapItem,
@@ -66,8 +67,9 @@ from klarpdf.model.page_edits import (
     textbox_height,
     textbox_lines,
     textbox_origin,
+    fitted_to_its_lines,
+    textbox_min_width,
     translate_mark,
-    widened_to_its_lines,
 )
 from viewer.blend import MultiplyPixmapItem, MultiplyRectItem
 from viewer.markup_style import MarkupStyle
@@ -286,6 +288,23 @@ class _TextBoxEditor(QPlainTextEdit):
     def focusOutEvent(self, event) -> None:
         super().focusOutEvent(event)
         self.committed.emit()
+
+
+class _TextBoxFrame(QGraphicsRectItem):
+    """A text box's fill and outline, which cuts its text off where the saved drawing does: at the
+    box less half its outline (#435). Lines that cannot fit, because the box has reached the bottom
+    of the page, are then cut off in the view as they are in the file, not shown in one and lost in
+    the other. The text items stay the box's own children, so only the shape changes."""
+
+    def __init__(self, rect: QRectF, inset: float) -> None:
+        super().__init__(rect)
+        self._clip = rect.adjusted(inset, inset, -inset, -inset)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemClipsChildrenToShape)
+
+    def shape(self) -> QPainterPath:
+        path = QPainterPath()
+        path.addRect(self._clip)
+        return path
 
 
 class AnnotationOverlay:
@@ -807,7 +826,8 @@ class AnnotationOverlay:
         width set, height grown to fit the wrapped text — both clamped to the page."""
         pw, ph = self._view._unrotated_size(page_index)
         x0, y0 = box.rect[0], box.rect[1]
-        width_pt = max(_MIN_BOX_W, min(width_pt, pw - x0))
+        # Never narrower than the box's widest character (#435): a word breaks, a character cannot.
+        width_pt = max(_MIN_BOX_W, textbox_min_width(box), min(width_pt, pw - x0))
         lines = textbox_lines(replace(box, rect=(x0, y0, x0 + width_pt, y0), auto_width=False))
         height = min(ph - y0, max(_MIN_BOX_H,
                                   textbox_height(len(lines), box.fontsize, box.border_width)))
@@ -821,7 +841,7 @@ class AnnotationOverlay:
         # fontsize (page points); the transform's zoom scales it to the rendered/saved on-screen size.
         x0, y0, x1, y1 = annot.rect
         transform = self._view.page_transform(page_index)
-        box = QGraphicsRectItem(QRectF(x0, y0, x1 - x0, y1 - y0))
+        box = _TextBoxFrame(QRectF(x0, y0, x1 - x0, y1 - y0), annot.border_width / 2)
         box.setTransform(transform)
         box.setBrush(QColor.fromRgbF(*annot.fill_color) if annot.fill_color is not None
                      else QBrush(Qt.BrushStyle.NoBrush))
@@ -1236,21 +1256,21 @@ class AnnotationOverlay:
     def _fitted(self, page_index: int, box: TextBox) -> TextBox:
         """``box`` as it will save, so that the view shows the lines the file will (#434).
 
-        An auto-width box too narrow for its lines is widened, as one read from a file is (#430).
-        One that would have to pass the page's right edge to hold them is committed at the edge as
+        Any box is given room for its lines, as one read from a file is (#430, #435). An auto-width
+        box that would have to pass the page's right edge to hold them is committed at the edge as
         a fixed-width box instead, wrapped there as the editor showed it, and as tall as its lines.
         Kept as an auto-width box, it was one line in the view and wrapped in the file."""
-        if not box.auto_width:
-            return box
-        wide = widened_to_its_lines(box)
         pw, ph = self._view._unrotated_size(page_index)
-        if wide.rect[2] <= pw:
-            return wide
+        fitted = fitted_to_its_lines(box, ph)
+        if not box.auto_width:
+            return fitted
+        if fitted.rect[2] <= pw:
+            return fitted
         x0, y0 = box.rect[0], box.rect[1]
-        fixed = replace(box, rect=(x0, y0, pw, y0), auto_width=False)
+        fixed = fitted_to_its_lines(replace(box, rect=(x0, y0, pw, y0), auto_width=False), ph)
         height = max(_MIN_BOX_H, textbox_height(len(textbox_lines(fixed)), box.fontsize,
                                                  box.border_width))
-        return replace(fixed, rect=(x0, y0, pw, min(ph, y0 + height)))
+        return replace(fixed, rect=(x0, y0, fixed.rect[2], min(ph, y0 + height)))
 
     def commit_before_press(self) -> None:
         """Commit an open editor before a press on the page is acted on (#431).

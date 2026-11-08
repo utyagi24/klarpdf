@@ -10951,7 +10951,7 @@ mark and zoom with Ctrl+wheel before letting go: the drag ends and the mark stay
 ### M166 — a text box keeps all of its text, in KlarPDF and in the file *(unplanned)* (2026-11-06)
 
 Every text box fix of this round, in one PR at the owner's request (2026-11-07), so that anything found
-while testing it is either new or a fix that did not work: #430 here, and #434 below.
+while testing it is either new or a fix that did not work: #430 here, #434 and #435 below.
 
 [#430](https://github.com/utyagi24/klarpdf/issues/430). A text box can be a point or two narrower
 than its own text. KlarPDF showed such a box's text on one line, and a save that drew it again put
@@ -10988,7 +10988,8 @@ Measured on PyMuPDF 1.27.2.3:
 
 #### The fix
 
-`_widened_to_its_lines` moves an auto-width box's right edge out when it is too narrow for its own
+`fitted_to_its_lines` (first written as `_widened_to_its_lines`, and widened by #435 below) moves
+an auto-width box's right edge out when it is too narrow for its own
 lines, as they are read. It compares the box's width with what its lines need, so no number is tuned.
 The left edge and `TextBox.origin` do not change, so the text stays where it is. A box wide enough is
 returned as it was, so a box already saved does not move.
@@ -11002,16 +11003,17 @@ nothing leaves `/Rect` as it found it.
 * **Widen at the save.** The view and the selection would disagree with the file until it was reopened.
 * **Draw in a wider box and put `/Rect` back.** The drawing's clip would cut off the end of the text.
 * **Remove the tolerance.** It no longer decides this.
-* **Read a box with a cut-off line as not wrapped on purpose.** See below.
+* **Read a box with a cut-off line as not wrapped on purpose.** It cannot be told from a deliberate
+  wrap without guessing; #435's height rule repairs the box instead (below).
 
 **Not changed:**
 
-* **A box whose second line is still partly visible stays wrapped.** The drawing shows two lines, so
-  it reads as wrapped on purpose (measured: a 20 pt box, as the issue's script leaves it). It cannot
-  be told from a deliberate wrap without guessing, and guessing wrong would turn a long wrapped note
-  into one line running off the page. Dragging the box's width handle repairs it, because a resize
-  sizes the box to its lines. The owner's boxes are 13.5 pt tall, so their second line is wholly
-  below the box and reads as one line.
+* **A box whose second line is still partly visible reads as wrapped.** The drawing shows two lines,
+  so it reads as wrapped on purpose (measured: a 20 pt box, as the issue's script leaves it). It
+  cannot be told from a deliberate wrap without guessing, and guessing wrong would turn a long note
+  into one line running off the page. *Superseded by #435:* its height rule now grows such a box to
+  show both lines. The owner's boxes are 13.5 pt tall, so their second line is wholly below the box
+  and reads as one line.
 * **A box is repaired when it is drawn again**, not when the file is opened. The owner's page 7 box
   needs a nudge and a save to get its word back.
 * **A widened box may pass the page edge.** Its text already ran there.
@@ -11053,7 +11055,7 @@ the file held it wrapped, until the file was reopened. Measured through the real
 x = 450 on an A4 page with a 68-character line held `auto_width=True`, `textbox_lines` gave 1 line,
 and the saved drawing held 3.
 
-**Surfaces: app.** The editor is the app's. The core gains nothing new: `widened_to_its_lines` is
+**Surfaces: app.** The editor is the app's. The core gains nothing new: `fitted_to_its_lines` is
 the function #430 added, made public so that the editor can use it too.
 
 **The fix.** `AnnotationOverlay._fitted` gives the box the shape it will save in, as the editor
@@ -11076,6 +11078,85 @@ which hides the editor while it still holds focus. The next editor to open took 
 one's focus-out then read the new editor as current, and committed it before the test could type.
 No reader can commit without moving focus first, since both ways to commit (the focus-out and the
 press of #431) start with focus already gone, so the tests now commit the way a reader does.
+
+#### #435: a word wider than a fixed-width box, and a box shorter than its lines
+
+A word wider than a fixed-width box was left whole, so it ran past the box. KlarPDF showed it, and
+the drawing, clipped to the box, cut it off in every viewer. The owner's form had a 27 pt box whose
+three words, 32.8 pt each, lost 3 letters, and the owner's test file a 105.7 pt box at 36 pt whose
+four longest words lost 7.
+
+**The owner's choice (2026-11-07): break the word.** Four ways were drawn on a form for the owner to
+compare: never narrower than the longest word, break the word at the edge, cut it off in KlarPDF too,
+or keep the width and let the word run past it inside a wider invisible box. Never narrower than the
+longest word was recommended first and withdrawn when the owner asked about the page edge, where a
+box cannot grow past the paper, so a second rule would have been needed there.
+
+**Surfaces: core, so the app and the bridge both,** with the width handle and the view in the app.
+
+**The fix.** One rule now holds for every box: it has room for the lines it shows.
+
+* **`wrap_text` breaks a word wider than the room between its characters.** Each piece keeps as many
+  characters as fit and never fewer than one, the indent stays on the first piece, and the next word
+  joins the last piece when it fits. MuPDF draws the pieces as given, because each fits the width it
+  wraps by, so the view and the file break in the same places.
+* **A box is never narrower than its widest character** (`textbox_min_width`), the owner's own rule:
+  a word breaks, a character cannot. It is the widest character of the box's own text, since
+  characters differ (at 36 pt a `W` is 34 pt and an `i` 8 pt). The width handle stops there, and a box
+  read back or committed narrower is widened.
+* **A box grows taller when a line would be clipped.** Breaking a word adds lines, so a box read back
+  from a file would have lost its bottom lines: the owner's 27 pt box holds 3 lines and needs 6. A
+  line counts when it has ink, and how far its letters reach below the baseline is measured: the
+  deepest ink of every printable Latin-1 character, 0.220 em in Helvetica and about 0.25 in Times and
+  Courier (`_DESCENT`). The fonts' own descenders are their outer boxes (0.299 for Helvetica) and would
+  have grown boxes that clip nothing. With the measured figures, `textbox_height` always holds a box
+  laid out afresh (a seeded test), so no box KlarPDF sized changes. One read back keeps where its
+  drawing put the text and grows to its last line and the gap below it.
+* **No lower than the page.** The editor and the width handle already stopped a box at the bottom of
+  the page, and growth does too. Lines that still cannot fit are cut off at the box, **and the view now
+  cuts them too** (`_TextBoxFrame` clips its text to the box less half its outline, where the drawing
+  clips). Before, KlarPDF showed text the file did not have; this follows the owner's rule that the
+  file holds what the screen shows.
+
+The height rule also settles two cases the #430 part above had left alone: a box whose cut-off second
+line is still partly visible now grows to show it, and so does a long note an earlier version saved
+too short for its last line.
+
+**Rejected:** cutting the word off in the file only, which is the defect. Growing past the page, which
+puts the text where no one can see it. Widening a box at the bottom of the page until its text fits,
+which would undo the width the owner chose. Spilling onto the next page: an annotation belongs to one
+page, so the text would become two boxes no viewer connects.
+
+**Deferred by the owner (2026-11-07): moving the box up, as Microsoft Edge does.** Edge keeps a box's
+bottom at the page edge and moves its top up as it gains lines, so text is cut only once the box is
+as tall as the page. It loses no text in any realistic case, but moves a box from where it was put
+and can cover what is above it, in older files too when they are redrawn. The owner kept cutting off
+for now and will revisit it in use; `PROGRESS.md` §Open follow-ups carries it.
+
+**Checks.** `tests/test_textbox_long_word.py` covers the breaking, the minimum width (and the width
+handle and a bigger font against it), the height rule with letters that reach below the line, a
+blank last line, repeated saves, the page bottom, the view's clip, and the measured descents against
+the fonts. `tests/test_mcp_textbox_narrow.py` runs a long word through `rotate`. **Broken on purpose 14
+ways**, and each break failed its own tests. Three weaknesses were found on the way:
+
+* **Text extraction reports a letter whose tail the clip cuts off**, so tests that compared extracted
+  letters passed when a box grew a point short. `_ink_inside` now checks each letter's ink, read with
+  `TEXT_ACCURATE_BBOXES`, against the clip, on text with g, j, p, q and y.
+* **The app's own 40 pt floor hid the width handle's new minimum** at 36 pt. The test uses 72 pt.
+* A run with the new code stashed reported no failures, because the tests could not import the names
+  they test and pytest stopped at collection. The breaks keep the names, and report by exit code.
+
+**On copies of the owner's two files**, every box forced through a redraw: the form's 27 pt box went
+from 3 letters lost to none and grew from 41 to 76.8 pt; the test file's page 1 box was unchanged in
+size and lost 72 of 79 letters where it had lost 69, now in KlarPDF as in the file, because at 43.7 pt
+wide and 36 pt it already reaches the bottom of the page. A tall narrow box the owner had added to the
+form grew to the page bottom and loses 7 letters there instead of 8 off its edge. No pixel changed
+outside a text box, and both files stayed byte-identical.
+
+**Owed: a hand check on Windows.** In a fixed-width box, type a word longer than the box is wide: it
+breaks across lines, in KlarPDF and in Edge alike. Drag the box's width handle narrower: it stops at
+the widest letter. Open the owner's form and nudge the 28 pt box on page 7: all of its letters show in
+Edge, and the box is taller.
 
 ## The open issues, grouped — M149–M152 *(planned 2026-09-19)*
 
