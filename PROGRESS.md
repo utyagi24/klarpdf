@@ -1249,8 +1249,8 @@ tick the box here on merge. Build in number order.
   read `/C` as the box's fill, so the view showed it black and a save that rewrote the page wrote
   it black. So did the bridge's `rotate`; only `annotate`, which appends, left it alone. A text
   box's fill is now `/C` only when the box's own drawing paints a fill, or when it has no drawing,
-  since MuPDF then draws one from `/C`. Boxes KlarPDF filled keep their fill. Still owed: a hand
-  check with Edge itself. Details in `PLAN.md` §M163 — *Windows (headless)* —
+  since MuPDF then draws one from `/C`. Boxes KlarPDF filled keep their fill. Hand-checked with
+  Edge itself by the owner on 2026-11-06. Details in `PLAN.md` §M163 — *Windows (headless)* —
   [#428](https://github.com/utyagi24/klarpdf/pull/428)
 - [x] **M164** *(unplanned)* **A text box looks even, and its text is saved where KlarPDF shows it** —
   [#427](https://github.com/utyagi24/klarpdf/issues/427). *Core: the app and the bridge.* A 12 pt
@@ -1270,8 +1270,8 @@ tick the box here on merge. Build in number order.
   Undo that changed nothing. The editor commits a tick after the press, and that commit rebuilt the
   scene under the drag. A press now commits the editor first and then acts, so the drag works. A
   scene rebuild now ends any drag cleanly, which closes the same failure for every kind of drag on a
-  zoom or an undo. Older than M163 and M164, and the document was never damaged. Still owed: a hand
-  check. Details in `PLAN.md` §M165 — *Windows (headless)* —
+  zoom or an undo. Older than M163 and M164, and the document was never damaged. Hand-checked by
+  the owner on 2026-11-06. Details in `PLAN.md` §M165 — *Windows (headless)* —
   [#432](https://github.com/utyagi24/klarpdf/pull/432)
 - [x] **M166** *(unplanned)* **A text box keeps all of its text, in KlarPDF and in the file** —
   [#430](https://github.com/utyagi24/klarpdf/issues/430),
