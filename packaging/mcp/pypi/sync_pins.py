@@ -98,7 +98,7 @@ def main() -> int:
         return 1
 
     PYPROJECT.write_text(text.replace(have, want), encoding="utf-8")
-    print(f"pyproject.toml dependencies rewritten from requirements-mcp.txt")
+    print("pyproject.toml dependencies rewritten from requirements-mcp.txt")
     return 0
 
 

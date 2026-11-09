@@ -16,7 +16,7 @@ discoverable. Rotation-0 only, like the other overlays (the geometry helpers it 
 from __future__ import annotations
 
 import pymupdf as fitz
-from PySide6.QtCore import QRect, Qt
+from PySide6.QtCore import QRect
 from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import QComboBox, QGraphicsRectItem, QLineEdit
 

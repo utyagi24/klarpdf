@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import pymupdf as fitz
 import pytest
-from PySide6.QtWidgets import QApplication
 
 from app import PdfApp
 from klarpdf.model.edit_engine import PyMuPDFEngine

@@ -15,7 +15,7 @@ from PySide6.QtGui import QUndoStack
 
 from edit_commands import SetFieldValueCommand
 from klarpdf.model.edit_engine import PyMuPDFEngine
-from klarpdf.model.page_edits import apply_form_values, read_form_fields
+from klarpdf.model.page_edits import read_form_fields
 from klarpdf.model.virtual_document import VirtualDocument
 
 

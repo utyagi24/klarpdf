@@ -93,7 +93,7 @@ def main() -> int:
     have, want = current_block(text), render_block()
 
     if have == want:
-        print(f"install.py is in step with version.py and pyproject.toml")
+        print("install.py is in step with version.py and pyproject.toml")
         return 0
     if args.check:
         print("install.py's baked-in constants are stale.", file=sys.stderr)

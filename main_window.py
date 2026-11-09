@@ -2544,9 +2544,9 @@ class MainWindow(QMainWindow):
             return
         before = self._insertion_index() if before_index is None else before_index
         refs = []
-        for source_id, doc, page_index, rotation, annotations, crop in payloads:
+        for source_id, doc, page_index, rotation, annots, crop in payloads:
             self.vdoc.register_source(source_id, doc)
-            refs.append(PageRef(source_id, page_index, rotation, annotations, crop))
+            refs.append(PageRef(source_id, page_index, rotation, annots, crop))
         self.undo_stack.push(InsertCommand(self.vdoc, before, refs, text="Paste pages"))
 
     def _insert_from_file(self) -> None:

@@ -119,7 +119,7 @@ def test_a_group_lives_on_one_page(win):
 
 
 def test_group_restyle_is_one_undo_step(win):
-    shapes = _shapes(win, (100, 100, 160, 140), (200, 100, 260, 140))
+    _shapes(win, (100, 100, 160, 140), (200, 100, 260, 140))
     ov = win.view.annotations
     ov.select_in_rect(0, (90, 90, 270, 150))
     win._colors_button._set_color((0.0, 0.0, 1.0))

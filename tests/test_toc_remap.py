@@ -1,8 +1,12 @@
-"""Pure-function tests for outline remap + level repair (no PyMuPDF needed)."""
+"""Tests for outline remap + level repair: pure functions first, then the destinations a page move
+cannot carry, which need PyMuPDF."""
 
 from __future__ import annotations
 
-from klarpdf.model.toc_remap import remap_toc, repair_levels
+import pymupdf as fitz
+import pytest
+
+from klarpdf.model.toc_remap import _LINK_GOTO, bake_dest, remap_toc, repair_levels
 
 
 def test_repair_levels_starts_at_one_and_no_jumps():
@@ -40,11 +44,6 @@ def test_remap_updates_explicit_destination_page():
 # destination at all — present in the outline, navigating nowhere. Counting entries finds 39 of 39
 # and looks correct, which is why this shipped; the count that matters is how many still point
 # somewhere.
-
-import pymupdf as fitz
-import pytest
-
-from klarpdf.model.toc_remap import _LINK_GOTO, bake_dest
 
 
 def test_the_goto_constant_matches_the_library():

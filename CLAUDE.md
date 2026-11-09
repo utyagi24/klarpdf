@@ -245,6 +245,18 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   run with many failures that need digging through. Even then, `pytest -rf --tb=line`, one line per
   failure, is usually cheaper.
 
+- **Run Ruff before a push, and give every suppression a reason** (M167). `invoke lint` runs the
+  pinned Ruff, with the same version and rules as the required `lint` check, and takes under a
+  second. A rule is switched on only once nothing breaks it, in the PR that clears its findings, so
+  a red `lint` is always the PR's own doing. When a finding is deliberate, suppress that one line and
+  say why, in the form the core already uses:
+  `# noqa: BLE001 — a malformed /AP is not worth failing a whole listing over`. A bare `# noqa` is a
+  decision nobody can review, and 10 of the 23 in the code on 2026-11-08 suppressed nothing at all.
+  M168 makes Ruff refuse both kinds. Ruff refuses to run at any version but the pinned one, so an
+  editor's bundled copy reports the mismatch instead of a different answer. Point VS Code's Ruff
+  extension at the venv with `"ruff.importStrategy": "fromEnvironment"`. A Ruff bump follows
+  `RELEASE.md` §1. Which rules are on, where, and why: `PLAN.md` §*Linting, dead code and type
+  checking*.
 - **Compare, don't guess.** Before adding a rule that decides something about a document, ask
   whether it compares two things the page actually shows and answers yes or no, or guesses from what
   documents usually look like — a threshold, a tuned distance, a shape filter. Guesses get beaten by

@@ -1302,10 +1302,15 @@ reasons are in `PLAN.md` §*Linting, dead code and type checking*, and are **not
 Same conventions as the other roadmaps: one PR per milestone, or per part where a milestone has
 parts, and the box here is ticked on merge. Build in number order, except that M172 needs only M167.
 
-- [ ] **M167** **Ruff, pinned and run on every change**: the `lint` CI job, `invoke lint`, and
-  Ruff's default rules. `lint` becomes a required check once this merges, after the ruleset mirror
-  is brought back into line with the live ruleset. *All surfaces; no behaviour change.* — *WSL, for
-  the dev lock*
+- [x] **M167** **Ruff, pinned and run on every change**: the `lint` CI job, `invoke lint`, and
+  Ruff's default rules. *All surfaces; no behaviour change.* Ruff 0.17.4 is pinned exactly in the dev
+  lock, and `required-version` makes any other Ruff refuse to run. The 28 findings are cleared, none
+  in `klarpdf/`. Reading them found a test building a document it then ignored, and an unused import
+  that was a deliberate re-export. The `lint` job went red on a planted finding before it was kept.
+  The ruleset mirror listed two of the five required checks. It now matches the live ruleset, and
+  `lint` is added. **`lint` becomes required when the owner runs the ruleset `PUT` after this
+  merges.** Details in `PLAN.md` §M167 — *Windows, and WSL for the dev lock* —
+  [#439](https://github.com/utyagi24/klarpdf/pull/439)
 - [ ] **M168** **The project's rules, enforced**: OS calls only in `platform_integration.py`, no
   `print` in `klarpdf/`, Python 3.11 syntax everywhere, and a reason on every suppression. *All
   surfaces; no behaviour change.*

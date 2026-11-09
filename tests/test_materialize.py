@@ -12,7 +12,7 @@ import pymupdf as fitz
 
 from klarpdf.model.edit_engine import PyMuPDFEngine
 from klarpdf.model.virtual_document import PageRef, VirtualDocument
-from tests.conftest import A_TEXT, B_TEXT
+from tests.conftest import A_TEXT
 
 
 def _field_names(path: str) -> list[str]:

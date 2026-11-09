@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import pymupdf as fitz
 import pytest
-from PySide6.QtCore import QEvent, QPointF, Qt
+from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QGuiApplication, QKeyEvent
 from PySide6.QtTest import QTest
 

@@ -32,7 +32,6 @@ from PySide6.QtGui import (
     QFontMetricsF,
     QGuiApplication,
     QImage,
-    QPainter,
     QPainterPath,
     QPen,
     QPixmap,

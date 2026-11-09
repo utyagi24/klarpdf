@@ -63,6 +63,10 @@ because the ship/build locks carry `win_amd64` hashes.
    - runtime dep (PySide6) → `requirements.in`
    - PyMuPDF → `requirements-core.in`, as an exact pin, because the bridge shares it (M115)
    - test-only dep (pytest / pypdf) → `requirements-dev.in`. pypdf left the runtime in M156.
+   - Ruff → `requirements-dev.in`, as an exact pin (M167). A Ruff bump is **its own PR**, because
+     Ruff is at 0.x and changes its rules between minor releases. In that PR, change
+     `required-version` in `pyproject.toml` to the same version (`tests/test_lint_config.py` fails
+     until you do), recompile the dev lock in WSL, run `invoke lint`, and fix any new findings there.
    - build-only dep (PyInstaller) → `requirements-build.in`
 
 2. **Re-compile the affected lock(s).** A runtime change propagates to **both** the ship and dev

@@ -51,3 +51,9 @@ mcp>=2.2,<3
 # written, while every dev machine passed on a setuptools left over from some earlier install.
 # Pinning it here also makes the backend under test deterministic instead of whatever is lying about.
 setuptools>=68   # keep in step with the floor in pyproject.toml's [build-system] requires
+# Ruff, the linter (M167). An EXACT pin, unlike the floors above. Ruff is at 0.x and adds or changes
+# rules between minor releases, so a floor would let a routine `pip-compile --upgrade` move it, and
+# the `lint` check would start failing on code nobody touched. A Ruff bump is its own PR (RELEASE.md
+# section 1). `required-version` in pyproject.toml moves with it in the same commit, and
+# tests/test_lint_config.py fails if the two disagree. Dev-only: it ships in nothing.
+ruff==0.17.4

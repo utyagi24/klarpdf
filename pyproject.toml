@@ -148,6 +148,23 @@ packages = ["klarpdf", "klarpdf.mcp_bridge", "klarpdf.model", "klarpdf.util"]
 [tool.setuptools.dynamic]
 version = { attr = "klarpdf.version.__version__" }
 
+# Ruff, the linter (M167). The strategy, which rules each part of the repository gets, and why, are in
+# PLAN.md §Linting, dead code and type checking. This block is only the configuration.
+[tool.ruff]
+# One version, one answer: any other Ruff (an editor's bundled copy, say) refuses to run rather than
+# report something CI does not. It must equal the pin in requirements-dev.txt, and
+# tests/test_lint_config.py checks that, so a bump changes both in one commit.
+required-version = "==0.17.4"
+# No `target-version` yet. Ruff reads 3.11 from `requires-python` above, and M168 states it here.
+
+[tool.ruff.lint]
+# Ruff's default set, written out so that later milestones add to a list rather than to a default. A
+# rule is switched on only at zero findings, in the PR that gets it there: no baseline file, and no
+# mass `noqa`. A suppression names its code and gives a reason: `# noqa: F401 — why`.
+select = ["E4", "E7", "E9", "F"]
+# E741 (a one-letter name such as `l`) comes with M171's consistency rules: 50 findings, none a defect.
+ignore = ["E741"]
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]

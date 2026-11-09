@@ -19,7 +19,7 @@ split across two objects and neither this file nor either ruleset would describe
 ```sh
 gh api -X PUT repos/utyagi24/klarpdf/rulesets/18233952 --input .github/rulesets/main.json
 
-# verify — enforcement must be "active" and both checks must be listed
+# verify — enforcement must be "active" and every required check must be listed
 gh api repos/utyagi24/klarpdf/rulesets --jq '.[] | {id, name, enforcement}'
 gh api repos/utyagi24/klarpdf/rulesets/18233952 --jq '.rules'
 ```
@@ -47,7 +47,7 @@ Full rationale: `PLAN.md` §Public-release readiness. In short:
 | `deletion` | ✅ | `main` should not be deletable by accident. |
 | `non_fast_forward` | ✅ | Blocks force-push. G1's history scrub and 15 rewritten tags are only permanent if history is. |
 | `pull_request`, **0 approvals** | ✅ | Requires every change to reach `main` through a PR, but does not require an approval — so the solo flow (open, self-merge) still works while direct pushes to `main` are blocked server-side. This is `CLAUDE.md`'s "never leave edits on `main`" convention, enforced rather than remembered. Note this is *required PR*, which is kept; *required review* is the separate thing dropped below. |
-| `required_status_checks`: `pytest`, `emails` | ✅ | Stops a red merge mechanically rather than by noticing a ❌. `emails` is the author-email guard — it is what keeps G1's scrub true. |
+| `required_status_checks`: `pytest`, `emails`, `bridge`, `windows`, `bridge-windows`, `lint` | ✅ | Stops a red merge mechanically rather than by noticing a ❌. `pytest` and `windows` run the suite on Linux and Windows (M123). `bridge` and `bridge-windows` run the bridge's tests against its own lock (M115.1, M126). `lint` runs Ruff (M167). `emails` is the author-email guard — it is what keeps G1's scrub true. The four added after G8 carry `integration_id` 15368, the GitHub Actions app, as the UI wrote them. |
 | Required **reviews** (`required_approving_review_count` > 0) | ❌ | Solo project: approving your own PRs protects against nobody (`PLAN.md` §Governance). Add it the moment a collaborator is. |
 | Linear history | ❌ | The project merges PRs with merge commits. This would break that to buy tidiness. |
 | Signed commits | ❌ | Commits are unsigned today; needs GPG/SSH signing set up for the no-reply identity first. A prerequisite, not a rule to flip. |
@@ -55,10 +55,11 @@ Full rationale: `PLAN.md` §Public-release readiness. In short:
 
 ## Gotchas
 
-- **Required checks are addressed by *job* name** — `pytest` (`test.yml`) and `emails`
-  (`author-email-guard.yml`), not by workflow name. Renaming either job silently un-enforces it: a
-  required check naming a job that no longer exists is simply never evaluated. Grep before renaming.
-- **Both checks must report on every PR, or PRs wedge.** A required check that never reports leaves a
+- **Required checks are addressed by *job* name** — `emails` is a job in `author-email-guard.yml`,
+  and the rest are jobs in `test.yml` — not by workflow name. Renaming a job silently un-enforces it:
+  a required check naming a job that no longer exists is simply never evaluated. Grep before
+  renaming. For the same reason a required job is never made a matrix, which renames its checks.
+- **Every required check must report on every PR, or PRs wedge.** A required check that never reports leaves a
   PR on *"Expected — waiting for status"* forever, because GitHub cannot distinguish "skipped as
   unnecessary" from "not finished yet". This is why `test.yml` has **no path filter** on its
   `pull_request` trigger and decides docs-only *inside* the job. Do not "optimise" that back into a
@@ -67,4 +68,7 @@ Full rationale: `PLAN.md` §Public-release readiness. In short:
   `main` before merging. On a solo repo that would just mean rebasing to satisfy a rule nobody needs.
 - **This file drifts silently.** Nothing reconciles it against the live ruleset. If you change rules in
   the UI, `PUT` this file or edit it to match in the same sitting — otherwise the next reader trusts a
-  fiction, which is exactly what the 403 story above cost.
+  fiction, which is exactly what the 403 story above cost. It happened: `bridge`, `windows` and
+  `bridge-windows` were made required in the UI and never written here, so until M167 this file
+  listed two of the five checks. A `PUT` of it then would have quietly dropped the other three.
+  Read the live ruleset before every `PUT`, and compare.

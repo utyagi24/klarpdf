@@ -527,7 +527,6 @@ def _draw_field(win, start=(100, 300), end=(300, 330)):
 
 
 def test_a_freshly_placed_field_is_selected(win, qapp):
-    from klarpdf.model.form_fields import NewField
 
     _draw_field(win)
     qapp.processEvents()
