@@ -434,7 +434,7 @@ cleanup. The sections below record the **design and rationale**; for what is don
   |---|---|---|
   | Block force pushes | ✅ | The one that matters. G1's scrub + 15 rewritten tags are only permanent if history is. Present in the ruleset since 2026-06-28, yet G1's force-push (weeks later) succeeded — consistent with the reading below that a private free repo's rulesets are *created but not enforced*. It is enforced now, which is what the rule is for. |
   | Restrict deletions | ✅ | `main` should not be deletable by accident. |
-  | Require status checks: **`pytest`**, **`emails`** | ✅ | **The only rule G8 actually added.** `pytest` stops a red merge mechanically instead of relying on noticing the ❌ comment `test.yml` posts. `emails` (the G7 author-email guard) is the layer that keeps the G1 scrub true — a personal address merged post-flip is public permanently. Both always report on every PR by construction; see below. |
+  | Require status checks: **`pytest`**, **`emails`** | ✅ | **The only rule G8 actually added.** `pytest` stops a red merge mechanically instead of relying on noticing the ❌ comment `test.yml` posts. `emails` (the G7 author-email guard) is the layer that keeps the G1 scrub true — a personal address merged post-flip is public permanently. Both always report on every PR by construction; see below. Since then `bridge` (M115.1), `windows` (M123), `bridge-windows` (M126) and `lint` (M167) have joined them. The mirror missed the first three until M167. |
   | Require a **PR** (0 approvals) | ✅ | Live since 2026-06-28, and kept at G8 — this is `CLAUDE.md`'s "never leave edits on `main`" convention enforced server-side rather than remembered. It is distinct from requiring a *review*: at `required_approving_review_count: 0` the solo open-then-self-merge flow is untouched, while a direct push to `main` is blocked. G7's table conflated the two under one ❌; only the review half was ever the thing being declined. |
   | Require a **review** (approvals > 0) | ❌ | Dropped while solo (§Governance): it would mean approving your own PRs to be protected from nobody. Re-enable the moment a collaborator is added — that is when it starts doing work. |
   | Require linear history | ❌ | The project merges PRs with merge commits; this would break the existing flow to buy tidiness. |
@@ -11491,6 +11491,62 @@ noticed (RELEASE.md §3). When and how each check is added is in §*How the chec
 Questions that belong to a milestone's own session are settled there, with the owner, as
 §*The open issues, grouped* arranged for M149–M152: the `zip(strict=…)` policy (M170), how to treat
 PyMuPDF's missing constants (M172), and what goes in #409's whitelist (M169).
+
+### M167 — Ruff, pinned and run on every change (built 2026-11-08)
+
+**Surfaces:** all, with no behaviour change. Nothing in `klarpdf/` changed, so neither consumer's
+behaviour moves, and the bridge suite needs nothing new.
+
+**What it adds.**
+
+* `ruff==0.17.4` in `requirements-dev.in`, as an **exact** pin where the file's other entries are
+  floors. A floor would let a routine `pip-compile --upgrade` move Ruff, and with it the rules, so
+  the check would go red on code nobody touched. The dev lock was compiled in WSL (M137), and the
+  only change in it is the new line.
+* `[tool.ruff]` in `pyproject.toml`: `required-version = "==0.17.4"`, and `select` written out as
+  Ruff's default set (`E4`, `E7`, `E9`, `F`) less `E741`, so that later milestones add to a list.
+  There is no `target-version` yet: Ruff already reads 3.11 from `requires-python`, and M168 states
+  it.
+* `tests/test_lint_config.py`: `required-version` equals the lock's pin, and the `.in` pins exactly.
+* The `lint` job in `test.yml`, and `invoke lint`. The job installs Ruff alone, reading the pin from
+  `requirements-dev.txt`, so the version is written in two places, not three. If those two disagree,
+  Ruff refuses to run and the job fails anyway. The job has no gate step, so it reports on every PR.
+* CLAUDE.md, *Run Ruff before a push, and give every suppression a reason*. RELEASE.md §1 says how
+  to bump Ruff, and DEPENDENCIES.md lists it.
+
+**The 28 findings, and what reading them found.** Exactly the 28 the plan measured, none in
+`klarpdf/`. Most were unused imports, but four needed a decision rather than `--fix`:
+
+* `viewer/markup_style.py` imports `HIGHLIGHT_COLORS` and `TEXT_LINE_COLORS` without using them. That
+  is a deliberate re-export from M101, and four test files import the names from there. Deleting it
+  would have broken them, so it keeps the names in the explicit `X as X` form, which Ruff and mypy
+  both read as a re-export.
+* `test_the_warning_says_the_output_is_disposable` built a document into `path`, then built it a
+  second time instead of using `path`. The test was right only because `page_with` happens to write
+  the same file both times. It uses `path` now.
+* `test_link_nav.py` was flagged twice for one name: `QPointF` unused at the top (F401) and imported
+  again inside a helper (F811). Applying both fixes would have deleted the import still in use, so
+  only the top one went.
+* `tests/test_toc_remap.py` imported halfway down the file. Moving the imports to the top would have
+  made its docstring false ("no PyMuPDF needed"), so the docstring changed too.
+
+**The ruleset mirror had drifted, as the plan found.** `.github/rulesets/main.json` listed two of
+the five required checks, and it lacked `require_extra_approval_for_unattributed_changes`, which the
+live ruleset sets. One commit makes the mirror equal to the live ruleset as `gh api` returned it on
+2026-11-08 (compared field by field), and the next adds `lint`. **The live ruleset does not change
+until the `PUT` in §*Branch rulesets* runs, after this merges**, and the owner runs it or gives the
+go-ahead. A branch made before the merge then has to merge `main` before it can be merged.
+
+**Verified by breaking it.**
+
+* `lint` went red on purpose: a `workflow_dispatch` probe branch with an unused import planted in
+  `klarpdf/version.py` failed the job on that line.
+* `tests/test_lint_config.py` fails with its reason when `required-version` is moved to 0.17.3, and
+  when the `.in` pin becomes `ruff>=0.17.4`.
+* Ruff 0.17.3, run against the config (`uvx ruff@0.17.3 check .`), refuses to start with
+  *Required version `==0.17.4` does not match the running version `0.17.3`*. That is what an
+  editor's bundled copy will do.
+* The Windows checkout, WSL and CI give the same answer, over the same 251 tracked files.
 
 ## Future enhancements (deferred beyond the roadmap)
 
