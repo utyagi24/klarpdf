@@ -1326,7 +1326,9 @@ parts, and the box here is ticked on merge. Build in number order, except that M
   with a reason. What only tests used was deleted, and those tests now use what the app runs (owner
   decision). The largest piece was a view rotation no release ever let a user reach. The check
   failed on a planted unused function, a missing whitelist entry and a stale one, and ignored a
-  stray module under `build/`. Details in `PLAN.md` §M169 — *Windows, and WSL for the dev lock* —
+  stray module under `build/`. Hand-checked by the owner on 2026-11-09: rotated pages and the
+  marks on them, reopening on the last page, the Redact tool, and the features that lost a
+  rotated-view guard. Details in `PLAN.md` §M169 — *Windows, and WSL for the dev lock* —
   [#442](https://github.com/utyagi24/klarpdf/pull/442)
 - [ ] **M170** **Defects that hide**: bugbear's rules, blind `except` clauses, and a `zip` that
   truncates silently. *Core, bridge and app; it changes behaviour wherever a stricter form is
