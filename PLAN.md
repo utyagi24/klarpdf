@@ -11440,7 +11440,7 @@ context. These stay with the tests that cover them.
 | **M167** Ruff, pinned, on every change | Ruff in the dev lock. `[tool.ruff]` in `pyproject.toml`, with `required-version`. The `lint` job, seen failing on purpose. `invoke lint`. CLAUDE.md's conventions: run Ruff before a push, and the suppression form. The ruleset mirror brought back into line, then `lint` added to it. Rules: `F`, `E4`, `E7` and `E9`, except `E741` | 28: 17 unused imports, 4 unused variables, 3 late imports, 2 empty f-strings, one redefinition, one shadowed name. None in `klarpdf/`; most are in tests | All. No behaviour change |
 | **M168** The project's rules, enforced | `TID251` for OS calls, `T20` in `klarpdf/`, `target-version = "py311"`, `PGH004` and `RUF100`. Tests for suppression reasons, `get_textbox`, `windowHandle()` signals and text encoding | The bans: none (the one stderr `print` gets its reason). Suppressions: the 10 stale ones removed, and reasons written for the 8 left without one and for the one `type: ignore` | All. No behaviour change |
 | **M169** Dead code: [#409](https://github.com/utyagi24/klarpdf/issues/409) | vulture pinned. `tests/test_no_dead_code.py` over the tracked shipped files, with a whitelist that gives reasons. Triage | #409's list: 46 lines on 2026-09-26, of which `PyPdfEngine` went in M156. Re-measured in M169's own session, not here (CLAUDE.md, *Investigate a defect once*) | Core, app and bridge. A deletion in the core is checked against both consumers |
-| **M170** Defects that hide | `B`, `BLE001`, `S110`, `S112`, `PLE` and `PLW` | 124: 45 `zip` calls without `strict=`, 25 blind `except` clauses, 11 `subprocess.run` calls without `check=`, 7 rebound loop variables, 7 needless lambdas, 6 `raise` without `from`, 5 closures over loop variables, 5 unused loop variables, 4 `except: pass`, 4 `global` statements and 5 single findings | Core, bridge, app and tests. **It changes behaviour** wherever `zip(strict=True)` or a narrower `except` is chosen. That policy is settled with the owner in M170's session |
+| **M170** Defects that hide | `B`, `BLE001`, `S110`, `S112`, `PLE` and `PLW` | 124: 45 `zip` calls without `strict=`, 25 blind `except` clauses, 11 `subprocess.run` calls without `check=`, 7 rebound loop variables, 7 needless lambdas, 6 `raise` without `from`, 5 closures over loop variables, 5 unused loop variables, 4 `except: pass`, 4 `global` statements and 5 single findings | Core, bridge, app and tests. **It changes behaviour** wherever `zip(strict=True)` or a narrower `except` is chosen. That policy is settled with the owner in M170's session. M170 also deletes `external = ["BLE001"]` from `pyproject.toml`, which M168 added so that RUF100 would keep the core's six reasoned `noqa: BLE001` comments; once `BLE001` is on, RUF100 sees a stale one again |
 | **M171** Consistency | `I`, `UP`, `E741`, and `E501` at 120 columns. No formatter (§*Decisions*) | 71 import blocks, 142 syntax upgrades (111 of them quoted annotations), 50 ambiguous one-letter names such as `l`, and 31 long lines. Mostly automatic | All. No behaviour change |
 | **M172** Types for the wheel | mypy in the dev lock, `[tool.mypy]` for `klarpdf/` at Python 3.11, and the `typecheck` job. **M172.1**: the gate at default settings, and `typecheck` added to the ruleset mirror. **M172.2**: `disallow_untyped_defs` | M172.1: 128 errors. 86 are PyMuPDF constants, which one configuration decision handles; 42 to fix. M172.2: about 117 missing annotations (core 88, bridge 29) | Core and bridge. The app is untouched |
 | **M173** Types for the app: **go or no-go after M172** | mypy over the app, checked as Windows or on both platforms | 215 errors at default settings (75 PyMuPDF constants), and more once unannotated bodies are checked | App |
@@ -11547,6 +11547,75 @@ go-ahead. A branch made before the merge then has to merge `main` before it can 
   *Required version `==0.17.4` does not match the running version `0.17.3`*. That is what an
   editor's bundled copy will do.
 * The Windows checkout, WSL and CI give the same answer, over the same 251 tracked files.
+
+### M168 — the project's rules, enforced (built 2026-11-08)
+
+**Surfaces:** all, with no behaviour change. In `klarpdf/` only comments changed.
+
+**What Ruff now refuses** (`[tool.ruff]` in `pyproject.toml`):
+
+* **An OS-specific call outside the quarantine** (`TID251`). The plan's list (`sys.platform`,
+  `os.name`, `platform.system`, `winreg`, `ctypes.windll`, `os.startfile`), plus `ctypes.WinDLL` and
+  `ctypes.wintypes`. Those two are as Windows-only as `ctypes.windll`, `platform_integration.py`
+  uses both, and nothing else does, so adding them cost no findings. Ruff reports a use as well as
+  an import, so `if sys.platform == "win32":` in `app.py` is caught. Exempt, as planned:
+  `platform_integration.py`, `packaging/`, `tasks.py`, `tools/` and `tests/`. All 21 uses are in
+  those places. The message names the CLAUDE.md rule.
+* **A `print` in `klarpdf/`** (`T20`), scoped by a negated per-file ignore (`"!klarpdf/**"`). The one
+  stderr `print` in `server.py` carries `# noqa: T201` and says why.
+* **Syntax newer than 3.11, anywhere** (`target-version = "py311"`). Ruff was already inferring 3.11
+  from `requires-python`, so this states it rather than changing it. A PEP 695 type parameter in
+  `app.py` is now a syntax error.
+* **A suppression with no code, or one that suppresses nothing** (`PGH004`, `RUF100`, and `PGH003`
+  for `# type: ignore` without a code). `PGH003` was not in the plan. It is `PGH004`'s twin, it had
+  no findings, and principle 2 covers `type: ignore` too.
+
+**`BLE001` is listed as `external` until M170.** The core has six `noqa: BLE001` comments, each with
+a good reason. `BLE001` is off until M170, so `RUF100` reported all six as suppressing a rule that
+is off. Deleting them would have thrown away the reasons M170 needs. Ruff's `external` setting keeps
+them, at a known cost: a stale `BLE001` goes unreported until M170 switches the rule on and deletes
+the setting (recorded in M170's row above). The one that was already stale, on an `except` in
+`server.py` that re-raises, was found with every rule on and removed by hand.
+
+**The suppressions.** 23 `noqa` comments and one `type: ignore` on `main`. Nine suppressed nothing
+even with every Ruff rule on: `make_icon.py`'s three `E402` and the corpus tools' four (`E402`
+already allows an import after an `os.environ` or `sys.path` change), one `F401` in
+`test_smoke.py`, and `server.py`'s `BLE001`. A tenth, `mark_dialog.py`'s `N802`, named a rule the
+project keeps off for good. All ten are gone. `test_smoke.py` now imports each package with
+`importlib`, which removes its other four. The rest gained reasons. Every suppression left says why.
+
+**Four tests that Ruff cannot express** (`tests/test_project_rules.py`):
+
+* **Every suppression gives a reason.** It reads comment tokens, so a docstring that mentions
+  `# noqa` is not checked. `type: ignore` needs a code and a reason after a second `#`, because mypy
+  ignores the comment otherwise.
+* **No `get_textbox` in shipped code**, as a call or a kept reference.
+* **No `.connect` to a `windowHandle()` signal in shipped code.** It finds the direct chain and a
+  handle kept in a name or attribute first. A handle passed through a function argument is not
+  seen, and the docstring says so.
+* **Tracked text is UTF-8, with no BOM and no mis-decoded characters.** Git decides what is text, so
+  a source file saved in the wrong code page is read and fails rather than being skipped as binary.
+
+**Comparing, not guessing, on the encoding test.** Its first version searched for the characters
+a misreading leaves, which fails PLAN.md, because PLAN.md names them. The second turned each run
+back into the bytes a cp1252 or Latin-1 reading came from and asked whether they were UTF-8. That
+passed PLAN.md's literal `` `Ã` ``, but it failed real text: a multiplication sign followed by an
+en dash is the bytes `D7 96`, which are valid UTF-8, and PLAN.md and PROGRESS.md write exactly that.
+The check now starts only from the four leads a misreading of this repository's text produces:
+`C2` and `C3` (Latin-1 letters and signs), `E2` (punctuation, arrows, maths) and `F0` (emoji).
+Measured over the tracked text, every non-ASCII character has one of those leads except six: two
+Greek letters, an Arabic digit, a subscript, and `U+FE0F` and `U+FEFF`. `U+FEFF` is not a stray BOM:
+XMP requires it in `<?xpacket begin="…"?>`, in `metadata.py` and its test. A misreading of a file
+holding only those six would go unseen. The failure this guards against garbles every non-ASCII
+character in a file, and nearly every file here has a dash or a `×`, so that gap is acceptable.
+
+**Verified by breaking it.** Each Ruff rule caught a planted breach, and the `print` planted in
+`app.py` was correctly not flagged. Each test failed on its own: an unexplained `noqa` and
+`type: ignore` in `viewer/blend.py`, a `get_textbox` call in `viewer/search.py`, a kept window
+handle connected in `viewer/links.py`, a BOM on `DEPENDENCIES.md`, a mis-decoded dash in
+`RELEASE.md`, and `tasks.py` saved as cp1252. That last probe found a defect in the first version of
+the suppression test: it crashed on the non-UTF-8 file before reaching the planted `noqa`. It now
+reads past a bad byte and leaves the encoding to the encoding test.
 
 ## Future enhancements (deferred beyond the roadmap)
 
