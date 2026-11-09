@@ -4,9 +4,11 @@ Expanded by the real model tests in M1 (test_virtual_document.py, test_materiali
 """
 
 
-def test_packages_importable():
-    import klarpdf.model  # noqa: F401
-    import organize  # noqa: F401
-    import store  # noqa: F401
-    import klarpdf.util  # noqa: F401
-    import viewer  # noqa: F401
+import importlib
+
+import pytest
+
+
+@pytest.mark.parametrize("package", ["klarpdf.model", "klarpdf.util", "organize", "store", "viewer"])
+def test_packages_importable(package):
+    importlib.import_module(package)

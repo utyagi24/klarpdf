@@ -51,9 +51,9 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import pymupdf as fitz  # noqa: E402
+import pymupdf as fitz
 
-from klarpdf.mcp_bridge import tables  # noqa: E402
+from klarpdf.mcp_bridge import tables
 
 PAGE_CAP = 30
 

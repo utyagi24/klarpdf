@@ -208,7 +208,7 @@ class _SliderField(QWidget):
     def setValue(self, value) -> None:
         self.box.setValue(int(value))
 
-    def setToolTip(self, text: str) -> None:      # noqa: N802 - Qt casing
+    def setToolTip(self, text: str) -> None:
         super().setToolTip(text)
         self.slider.setToolTip(text)
         self.box.setToolTip(text)
