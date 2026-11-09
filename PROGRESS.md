@@ -7,7 +7,43 @@ it merges, check the box here in the same PR and append the PR link.
 > release links, milestone ticks, and open follow-ups. `PLAN.md` (design/spec) and `CLAUDE.md`
 > (conventions) **link here, they don't restate it** — see CLAUDE.md §How we work → "Where things live".
 
-**Status:** ✅ **v0.20.0 shipped** — **structure an agent can use, and a window that keeps up**
+**Status:** ✅ **v0.21.0 shipped** — **files that open, text boxes that keep their look, and
+checks that keep the code clean** (M158–M169). Nothing here is a new feature, so `RELEASE.md` §3's
+SemVer rule would make it a patch; the owner chose a **minor** for the amount of change since
+v0.20.0. Release: <https://github.com/utyagi24/klarpdf/releases/tag/v0.21.0>.
+
+**(1) Fixes in the core, so in the app and the bridge alike.** An encrypted file with no `/ID` in
+its trailer could be saved into a copy that asked for a password nobody had set (**M161**). The key
+of an RC4 or AES-128 file is made from its `/ID`, and MuPDF wrote a new one on every save. Every
+route now writes a file that opens, keeping its encryption and restrictions. Text boxes: a box moved
+in Microsoft Edge kept KlarPDF's tag and came back as a solid black box (**M163**); a box's text
+saved 4.5 pt higher than KlarPDF showed it, and now saves where it shows (**M164**); and a box Edge
+had shrunk lost its last word below the edge, as did a long line typed near the page edge and a word
+wider than a fixed-width box (**M166**).
+
+**(2) In the app.** Toggling the sidebar on a one-page document could hang the window, because each
+fit showed or hid the scrollbar that set off the next fit (**M160**). Dragging a text box's handle
+while its editor was open lost the drag (**M165**).
+
+**(3) Dependencies.** In the bridge's lock, and so in the wheel on PyPI, which pins them exactly:
+`mcp` 2.0.0 → 2.3.0, `pyjwt` 2.14.0 → 2.15.1 and `opentelemetry-api` 1.44.0 → 1.45.2 (**M158**,
+**M162**). Since `mcp` 2.1 the SDK passes on only a `ToolError`'s text, so the bridge now raises one,
+and an agent reads the same refusal text it did on v0.20.0. The weekly `audit` job audits every lock
+again; it had stopped at the first lock with a finding (**M162**). The dev lock and the bridge's lock
+now pin the same versions, and a test keeps them so (**M159**).
+
+**(4) Checks on the code itself** (M167–M169). Ruff runs on every change as the required `lint`
+check, and the project's written rules are checks now: no OS call outside `platform_integration.py`,
+no `print` in `klarpdf/`, Python 3.11 syntax everywhere, and a reason on every suppression. A dead-code
+test removed what only the tests used, among it a view rotation no release ever let a user reach.
+No behaviour a user could reach changed; the owner hand-checked M169.
+
+**1.0 is still deliberately not taken**: the clean-machine install and the flaky
+`test_single_instance` remain (§Toward 1.0, below).
+
+3,261 headless tests green on Windows (9 expected skips under PowerShell — see `RELEASE.md` §3).
+
+**v0.20.0** — **structure an agent can use, and a window that keeps up**
 (M138–M157). A **minor** under `RELEASE.md` §3's SemVer rule: new tools and app features, no
 breaking change. Release: <https://github.com/utyagi24/klarpdf/releases/tag/v0.20.0>.
 
