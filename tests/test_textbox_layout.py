@@ -240,7 +240,7 @@ def test_an_outline_does_not_change_the_box(win, text):
     win.view.set_zoom(3.0)
     win.view.arm(ArmedTool.TEXTBOX)
     ov = win.view.annotations
-    ov.set_current_style(TextBoxStyle(fontsize=12.0))
+    ov._on_style_changed(TextBoxStyle(fontsize=12.0))
     ov.place_textbox(win.view.scene_rect_for_box(0, (100, 120, 120, 140)).center())
     ov._editor.setPlainText(text)
     before = ov._editor_rect
@@ -325,7 +325,7 @@ def test_a_box_is_the_same_height_at_every_zoom(win, zoom):
     win.view.set_zoom(zoom)
     win.view.arm(ArmedTool.TEXTBOX)
     ov = win.view.annotations
-    ov.set_current_style(TextBoxStyle(fontsize=12.0))
+    ov._on_style_changed(TextBoxStyle(fontsize=12.0))
     ov.place_textbox(win.view.scene_rect_for_box(0, (100, 120, 120, 140)).center())
     ov._editor.setPlainText("11/05/2026")
     assert ov._editor_rect[3] - ov._editor_rect[1] == pytest.approx(20.0)
@@ -365,7 +365,7 @@ def test_a_long_note_typed_in_the_editor_keeps_its_last_line(win):
     win.view.set_zoom(2.0)
     win.view.arm(ArmedTool.TEXTBOX)
     ov = win.view.annotations
-    ov.set_current_style(TextBoxStyle(fontsize=12.0))
+    ov._on_style_changed(TextBoxStyle(fontsize=12.0))
     ov.place_textbox(win.view.scene_rect_for_box(0, (60, 60, 80, 80)).center())
     ov._editor.setPlainText("\n".join(["gjpqy Jay"] * 40))
     rect = ov._editor_rect
@@ -511,7 +511,7 @@ def test_the_editor_shows_the_text_where_it_will_stay(win, zoom, border):
     view.set_zoom(zoom)
     view.arm(ArmedTool.TEXTBOX)
     ov = view.annotations
-    ov.set_current_style(TextBoxStyle(fontsize=12.0, border_width=border))
+    ov._on_style_changed(TextBoxStyle(fontsize=12.0, border_width=border))
     ov.place_textbox(view.scene_rect_for_box(0, (100, 120, 120, 140)).center())
     editor = ov._editor
     editor.setPlainText("JANE DOE")

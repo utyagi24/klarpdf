@@ -66,23 +66,3 @@ def _number(part: str, default, term: str) -> int:
     if value < 1:
         raise PageRangeError(f"Page numbers start at 1 ({term!r}).")
     return value
-
-
-def format_page_range(indices) -> str:
-    """0-based indices → the shortest equivalent 1-based string ("0,1,2,5" → ``"1-3, 5"``).
-
-    The inverse of :func:`parse_page_range` for the cases it can express, so a dialog can show back
-    what it holds rather than a bare list.
-    """
-    ordered = sorted(set(indices))
-    if not ordered:
-        return ""
-    spans: list[list[int]] = [[ordered[0], ordered[0]]]
-    for index in ordered[1:]:
-        if index == spans[-1][1] + 1:
-            spans[-1][1] = index
-        else:
-            spans.append([index, index])
-    return ", ".join(
-        str(a + 1) if a == b else f"{a + 1}-{b + 1}" for a, b in spans
-    )

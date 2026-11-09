@@ -8,9 +8,6 @@ is the M47 doc-wide hit list
 (page + snippet, click-to-jump) that appears only on List All — and is the reviewable-hit-list
 surface M64 (search & redact) later extends with checkboxes.
 
-Highlight placement uses the rotation-0 geometry helpers, so highlights are drawn only in an
-unrotated view; navigation still works regardless.
-
 The per-hit text lookups — the snippet, Whole words, and Match case's read of the text under a hit
 — all come from :class:`model.page_text.PageText`, which indexes a page once and is shared with the
 annotations list. Live typing is debounced (``SEARCH_DEBOUNCE_MS``); both are M78.7/M78.8, and that
@@ -78,13 +75,6 @@ def is_whole_word(words: list, box: tuple, tol: float = 0.5) -> bool:
     page should use that method directly — the controller below does.
     """
     return PageText(words=words).is_whole_word(box, tol)
-
-
-def _snippet_for(words: list, box: tuple) -> str:
-    """Context snippet for a hit ``box``: the words of its line, windowed to ±4 words
-    around the matched span, with ellipses marking a trimmed side. ``words`` is the page's
-    ``get_text("words")`` list (w = x0,y0,x1,y1,text,block,line,word)."""
-    return PageText(words=words).snippet(box)
 
 
 class SearchController:
@@ -204,8 +194,6 @@ class SearchController:
 
     def repaint(self) -> None:
         self._clear_items()
-        if self._view.rotation != 0:
-            return
         scene = self._view.scene()
         page_count = len(self._view._pages)
         for i, (page_index, boxes, _snippet) in enumerate(self._hits):

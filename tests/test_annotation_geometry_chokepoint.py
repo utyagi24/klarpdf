@@ -21,7 +21,7 @@ Two halves under test:
 
 * **M83.1** the hit-test survives — right-click still works after deleting, moving or adopting a
   foreign annotation, which is exactly the owner's repro;
-* **M83.2** it is structural rather than conventional — one ``rects_of`` / ``is_geometric``
+* **M83.2** it is structural rather than conventional — one ``rects_of``
   answering "does this describe a region of the page?", which every geometry site routes through.
   The load-bearing test is the one that invents a **brand-new** non-geometric descriptor: it fails
   for the *next* one, not just for the two that exist today.
@@ -50,7 +50,6 @@ from klarpdf.model.page_edits import (
     Strikeout,
     TextBox,
     Underline,
-    is_geometric,
     mark_bounds,
     rects_of,
 )
@@ -85,7 +84,6 @@ NON_GEOMETRIC = [
 def test_every_real_mark_reports_geometry(mark):
     boxes = rects_of(mark)
     assert boxes and all(len(box) == 4 for box in boxes)
-    assert is_geometric(mark) is True
 
 
 @pytest.mark.parametrize("mark", NON_GEOMETRIC, ids=lambda m: type(m).__name__)
@@ -93,7 +91,6 @@ def test_the_bookkeeping_descriptors_report_none(mark):
     """``()`` rather than a raise: the hit-tests then skip them by iterating zero times, instead of
     each site remembering to guard — which is the arrangement that failed."""
     assert rects_of(mark) == ()
-    assert is_geometric(mark) is False
 
 
 @dataclass(frozen=True)
@@ -111,7 +108,6 @@ class _FutureBookkeeping:
 
 def test_a_descriptor_type_nobody_listed_is_still_answered():
     assert rects_of(_FutureBookkeeping("fp:future")) == ()
-    assert is_geometric(_FutureBookkeeping("fp:future")) is False
 
 
 def test_rects_of_never_raises_on_anything_in_the_tuple():

@@ -441,15 +441,6 @@ def is_additive_mark(mark) -> bool:
     return isinstance(mark, ADDITIVE_MARK_TYPES)
 
 
-# The descriptors the object clipboard / move tools operate on (M58 move, M59 copy/paste):
-# free-placed geometry that stays meaningful anywhere on any page. The text-anchored marks
-# (highlight / underline / strikeout) and redactions are deliberately excluded — they belong to
-# the text under them; foreign annotations are excluded until M68. The R4 content marks (M61) join
-# the list: they are free-placed rects, so move / resize / copy come from the same primitives even
-# though they bake into page content rather than staying annotations.
-PLACEABLE_TYPES = ("TextBox", "InkStroke", "Line", "Shape", "Stamp", "ImageStamp", "NewField")
-
-
 def translate_mark(mark, dx: float, dy: float):
     """The same descriptor moved by ``(dx, dy)`` — the one move primitive for every free-placed
     geometry (M58 drag-move, M59 paste-with-offset). Frozen value objects in, new ones out."""
@@ -504,15 +495,6 @@ def rects_of(mark) -> tuple:
         return (mark.bounding_rect(),)
     rect = getattr(mark, "rect", None)
     return (rect,) if rect is not None else ()
-
-
-def is_geometric(mark) -> bool:
-    """Does ``mark`` describe any region of its page? False for the bookkeeping descriptors.
-
-    The predicate form of :func:`rects_of`, for the sites that ask the question without needing the
-    boxes. One implementation, so the two can never disagree.
-    """
-    return bool(rects_of(mark))
 
 
 def mark_bounds(mark) -> tuple:
@@ -595,8 +577,6 @@ def reorder_marks(annotations: tuple, marks, action: str) -> tuple:
 # independent layers and stay so — and runs at the granularity the marks are already stored in:
 # one unioned bar per text line (see MainWindow._selection_line_bars). So resolving an overlap is
 # 1-D interval arithmetic on x *within* a line band, not 2-D clipping.
-
-MARKUP_TYPES = (Highlight, Underline, Strikeout)
 
 # A surviving sliver narrower than this is whitespace, not a mark — dropped rather than left as a
 # hairline the user can see but not easily hit.

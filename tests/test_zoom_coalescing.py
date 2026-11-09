@@ -130,7 +130,7 @@ def test_fit_rotate_and_two_page_each_rasterise_once(view, qapp, passes):
     """Not just zoom — the same triple taxed every geometry change (M86.1 is pre-existing work)."""
     for label, act in (("fit_width", view.fit_width),
                        ("fit_page", view.fit_page),
-                       ("rotate", lambda: view.rotate_view(90)),
+                       ("rotate a page", lambda: (view._vdoc.rotate_pages([0], 90), view.reload())),
                        ("two-page", lambda: view.set_page_layout("facing"))):
         _quiesce(qapp)
         passes["count"] = 0

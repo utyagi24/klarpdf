@@ -122,7 +122,7 @@ def test_an_untouched_document_keeps_its_page_set(tagged_pdf):
 
 
 @pytest.mark.parametrize("mutate, why", [
-    (lambda v: v.delete_page(1), "a deleted page"),
+    (lambda v: v.delete_pages([1]), "a deleted page"),
     (lambda v: setattr(v, "ordered", list(reversed(v.ordered))), "a reorder"),
     (lambda v: setattr(v, "ordered", v.ordered + [v.ordered[0]]), "a duplicated page"),
 ])
@@ -244,7 +244,7 @@ def test_a_save_writes_with_the_level_it_reports(tagged_pdf, tmp_path):
     out_path = str(tmp_path / "out.pdf")
     engine = PyMuPDFEngine()
     v = VirtualDocument.from_path(tagged_pdf)
-    v.set_rotation(0, 90)
+    v.rotate_pages([0], 90)
     assert not engine.appends(v)
     reported = engine.save_options(v)
 

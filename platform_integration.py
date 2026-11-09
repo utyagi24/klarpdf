@@ -7,9 +7,6 @@ The *only* place OS-specific app behaviours live, so ``app.py``/``launcher.py`` 
 - :func:`activate_window` — raise/focus an existing window. Windows can refuse focus to a
   background process, so it also does the documented ``WindowStaysOnTopHint`` nudge + ``alert``;
   that branch is gated to Windows and is validated there in M7 (WSLg only smoke-tests the rest).
-- :func:`register_file_association` — a slot kept for a future Linux ``xdg-mime`` path and a
-  dev/source-run convenience. On Windows the Inno Setup installer writes the ``.pdf``/ProgID
-  association, so this is effectively unused there.
 - :func:`acquire_app_mutex` — a named Windows mutex the **installer and uninstaller** watch, so
   neither runs while the app is open. See :data:`APP_MUTEX_NAME`.
 - :func:`quiet_harmless_qt_lines` — on Wayland, stop Qt printing the console lines in
@@ -163,15 +160,6 @@ def allow_foreground_handoff() -> None:
         user32.AllowSetForegroundWindow(ASFW_ANY)
     except Exception:
         pass
-
-
-def register_file_association(exe_path: str | None = None) -> None:
-    """Register KlarPDF as a .pdf handler.
-
-    On Windows this is a no-op: the installer writes the HKCU ProgID + association (PLAN.md,
-    Packaging). It exists for a future Linux ``xdg-mime`` path and an optional dev convenience.
-    """
-    return None
 
 
 #: Qt console lines known to be harmless on Wayland. :func:`quiet_harmless_qt_lines` drops a

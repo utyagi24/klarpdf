@@ -101,7 +101,7 @@ def test_extract_remaps_internal_links(tmp_path):
 
 def test_extract_applies_per_page_edits(a_pdf, tmp_path):
     v = VirtualDocument.from_path(a_pdf)
-    v.set_rotation(0, 90)
+    v.rotate_pages([0], 90)
     v.add_annotation(0, TextBox((72, 200, 320, 240), "RIDES-ALONG"))
     out = str(tmp_path / "x.pdf")
     export_selected_pages(v, [0], out)
@@ -154,9 +154,9 @@ def test_page_visible_size_follows_rotation_and_crop(a_pdf):
     v = VirtualDocument.from_path(a_pdf)
     w, h = v.page_visible_size(0)
     assert (w, h) == (595.0, 842.0)                       # fitz's default page is A4
-    v.set_rotation(0, 90)
+    v.rotate_pages([0], 90)
     assert v.page_visible_size(0) == (842.0, 595.0)       # rotated frame swaps the sides
-    v.set_rotation(0, None)
+    v.rotate_pages([0], -90)
     v.set_crop([0], (10.0, 20.0, 110.0, 70.0))
     assert v.page_visible_size(0) == (100.0, 50.0)        # a crop shows only its own rect
 
@@ -331,7 +331,7 @@ def test_insert_blank_page_matches_the_preceding_pages_size(app, a_pdf):
 
 def test_duplicate_pages_action_carries_edits_and_undoes(app, a_pdf):
     win = MainWindow(app, a_pdf, app.settings)
-    win.vdoc.set_rotation(1, 180)
+    win.vdoc.rotate_pages([1], 180)
     win._duplicate_pages([1])
     assert win.vdoc.page_count == 4
     assert win.vdoc.ordered[2] == win.vdoc.ordered[1]      # the copy sits right after

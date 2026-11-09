@@ -76,19 +76,10 @@ def test_fit_width_sets_positive_zoom(qapp, vdoc):
     assert view.zoom > 0
 
 
-def test_rotate_swaps_page_dimensions(qapp, vdoc):
-    view = PdfView(vdoc)
-    w0, h0 = view._pages[0]["w"], view._pages[0]["h"]
-    view.rotate_view(90)
-    assert view.rotation == 90
-    w1, h1 = view._pages[0]["w"], view._pages[0]["h"]
-    assert (round(w1, 3), round(h1, 3)) == (round(h0, 3), round(w0, 3))
-
-
 def test_per_page_rotation_swaps_only_that_page(qapp, vdoc):
     view = PdfView(vdoc)
     (w0, h0), (w1, h1) = (view._pages[0]["w"], view._pages[0]["h"]), (view._pages[1]["w"], view._pages[1]["h"])
-    vdoc.set_rotation(0, 90)  # rotate page 0 only (a per-page override)
+    vdoc.rotate_pages([0], 90)  # rotate page 0 only (a per-page override)
     view.reload()
     assert (round(view._pages[0]["w"], 3), round(view._pages[0]["h"], 3)) == (round(h0, 3), round(w0, 3))
     assert (round(view._pages[1]["w"], 3), round(view._pages[1]["h"], 3)) == (round(w1, 3), round(h1, 3))
@@ -169,7 +160,7 @@ def test_overlay_box_maps_through_per_page_rotation(qapp, vdoc):
     # source point — even when the page carries a rotation override (highlight/form alignment).
     view = PdfView(vdoc)
     box = (72.0, 72.0, 172.0, 92.0)
-    vdoc.set_rotation(0, 90)
+    vdoc.rotate_pages([0], 90)
     view.reload()
     page_index, local = view.page_and_local_at(view.scene_rect_for_box(0, box).center())
     assert page_index == 0
@@ -208,18 +199,13 @@ def test_overlay_aligns_on_baked_in_rotation(qapp, tmp_path):
     assert local.y() == pytest.approx((box[1] + box[3]) / 2, abs=2)
 
 
-def test_view_state_roundtrip(qapp, vdoc):
+def test_view_state_saves_the_page_and_the_zoom(qapp, vdoc):
+    """What is written on close. The page resumes (open_at); the zoom is kept but not read back."""
     view = PdfView(vdoc)
     view.set_zoom(1.7)
-    view.rotate_view(180)
     state = view.view_state()
+    assert set(state) == {"page", "zoom"}
     assert state["zoom"] == pytest.approx(1.7)
-    assert state["rotation"] == 180
-
-    fresh = PdfView(VirtualDocument.from_path(vdoc.path))
-    fresh.apply_state(state)
-    assert fresh.zoom == pytest.approx(1.7)
-    assert fresh.rotation == 180
 
 
 def test_thumbnail_panel_jump_and_highlight(qapp, vdoc):

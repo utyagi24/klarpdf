@@ -25,8 +25,8 @@ from klarpdf.model.content_marks import (
     apply_content_marks,
     is_content_mark,
     natural_size,
+    WHOLE_PAGE_DEFAULTS,
     placement_size,
-    preset_mark,
     render_mark_document,
     size_for_page,
 )
@@ -74,6 +74,19 @@ def _materialize(vdoc, tmp_path, name="out.pdf") -> str:
 
 
 STAMP_RECT = (300.0, 400.0, 480.0, 460.0)
+PAGE_RECT = (0.0, 0.0, 595.0, 842.0)
+
+
+def _watermark(text: str, **overrides) -> Stamp:
+    """A whole-page mark, built as the stamp dialog builds one at OK with its whole-page defaults
+    (``MarkDialog.mark`` in ``ui/mark_dialog.py``): auto-fit, unframed, the defaults' ink, angle and
+    opacity."""
+    fields = dict(
+        color=WHOLE_PAGE_DEFAULTS["color"], fontsize=0.0, border_width=0.0,
+        angle=WHOLE_PAGE_DEFAULTS["angle"], opacity=WHOLE_PAGE_DEFAULTS["opacity"],
+    )
+    fields.update(overrides)
+    return Stamp(rect=PAGE_RECT, text=text, **fields)
 
 
 # ---- it is page content, not an annotation --------------------------------------
@@ -143,7 +156,7 @@ def test_watermark_paints_under_the_page_content(vdoc, tmp_path):
     Asked for explicitly: it is no longer the whole-page *default* (M69.5), because "behind the page
     content" means behind an opaque page background too, and most real PDFs have one — the mark bakes
     correctly and is invisible. The engine capability is unchanged, which is what this pins."""
-    vdoc.add_annotation(0, preset_mark("Draft", (0, 0, 595, 842), whole_page=True, under=True))
+    vdoc.add_annotation(0, _watermark("DRAFT", under=True))
     saved = fitz.open(_materialize(vdoc, tmp_path))
     try:
         assert _xobject_before_text(saved[0]) is True
@@ -182,7 +195,7 @@ def test_fontsize_auto_fits_the_placed_rect(vdoc, tmp_path):
     vdoc.add_annotation(0, Stamp((100, 400, 200, 440), "FIT"))
     small = _stamp_span_size(_materialize(vdoc, tmp_path, "small.pdf"), "FIT")
 
-    vdoc.clear_annotations(0)
+    vdoc.set_annotations(0, ())
     vdoc.add_annotation(0, Stamp((100, 400, 500, 560), "FIT"))
     large = _stamp_span_size(_materialize(vdoc, tmp_path, "large.pdf"), "FIT")
 
@@ -380,9 +393,9 @@ def test_baked_angle_is_counter_clockwise(vdoc, tmp_path, angle, climbs):
 
 
 def test_watermark_default_diagonal_bakes_bottom_left_to_top_right(vdoc, tmp_path):
-    """The near-universal watermark diagonal, end to end: the ``+45°`` default that
-    :func:`preset_mark` promises must be what actually lands in the file."""
-    vdoc.add_annotation(0, preset_mark("Confidential", (0, 0, 595, 842), whole_page=True))
+    """The near-universal watermark diagonal, end to end: the ``+45°`` whole-page default must be
+    what actually lands in the file."""
+    vdoc.add_annotation(0, _watermark("CONFIDENTIAL"))
     _dx, dy = _baked_text_direction(_materialize(vdoc, tmp_path, "wm.pdf"), "CONFIDENTIAL")
     assert dy < 0
 
@@ -405,7 +418,7 @@ def test_opacity_lightens_the_mark(vdoc, tmp_path):
     vdoc.add_annotation(0, Stamp(solid_rect, "BLOCK", fill_color=(0, 0, 0), opacity=1.0))
     opaque = _ink_at(_materialize(vdoc, tmp_path, "opaque.pdf"), centre)
 
-    vdoc.clear_annotations(0)
+    vdoc.set_annotations(0, ())
     vdoc.add_annotation(0, Stamp(solid_rect, "BLOCK", fill_color=(0, 0, 0), opacity=0.2))
     faint = _ink_at(_materialize(vdoc, tmp_path, "faint.pdf"), centre)
 
@@ -465,33 +478,14 @@ def test_image_opacity_is_carried_in_the_pixels(png):
 # ---- presets are prefilled custom stamps (Way 2) --------------------------------
 
 
-def test_preset_is_an_ordinary_stamp(vdoc):
-    """A preset yields the same descriptor the custom dialog builds — so it can be edited after
-    placing and there is no second code path to keep calibrated."""
-    stamp = preset_mark("Approved", STAMP_RECT)
-    assert isinstance(stamp, Stamp)
-    assert stamp.text == "APPROVED"
-    assert stamp.rect == STAMP_RECT
-
-
-def test_preset_overrides_win():
-    assert preset_mark("Approved", STAMP_RECT, angle=15.0).angle == 15.0
-
-
-def test_unknown_preset_falls_back_to_its_name():
-    """A caller can never end up with no stamp at all."""
-    assert preset_mark("shipped", STAMP_RECT).text == "SHIPPED"
-
-
-def test_watermark_preset_is_translucent_and_diagonal():
-    mark = preset_mark("Confidential", (0, 0, 595, 842), whole_page=True)
-    assert mark.text == "CONFIDENTIAL"
+def test_the_whole_page_defaults_are_translucent_and_diagonal():
+    """The watermark look the stamp dialog fills in when Place is the whole page."""
     # Over the content by default (M69.5) — under an opaque page background it would be invisible.
-    assert mark.under is False
+    assert WHOLE_PAGE_DEFAULTS["under"] is False
     # +45 = north-east, the maths convention (M69.9); it read -45 before the sign was corrected.
-    assert mark.angle == 45.0
-    assert 0.0 < mark.opacity < 0.5
-    assert mark.border_width == 0.0
+    assert WHOLE_PAGE_DEFAULTS["angle"] == 45.0
+    assert 0.0 < WHOLE_PAGE_DEFAULTS["opacity"] < 0.5
+    assert WHOLE_PAGE_DEFAULTS["border_width"] == 0.0
 
 
 # ---- the shared placement contract (rides the PageRef; moves; scales) -----------
@@ -507,7 +501,7 @@ def test_content_marks_ride_the_pageref(vdoc):
 def test_content_marks_follow_their_page_through_a_reorder(vdoc):
     stamp = Stamp(STAMP_RECT, "APPROVED")
     vdoc.add_annotation(0, stamp)
-    vdoc.move_page(0, 1)
+    vdoc.move_pages([0], 2)
     assert vdoc.page_annotations(1) == (stamp,)
     assert vdoc.page_annotations(0) == ()
 
@@ -609,7 +603,7 @@ def test_annotations_still_layer_above_a_stamp(vdoc, tmp_path):
     watermark reads exactly as it does on the page's own ink."""
     from klarpdf.model.page_edits import TextBox
 
-    vdoc.add_annotation(0, preset_mark("Draft", (0, 0, 595, 842), whole_page=True))
+    vdoc.add_annotation(0, _watermark("DRAFT"))
     vdoc.add_annotation(0, TextBox((100, 500, 300, 540), "note"))
     saved = fitz.open(_materialize(vdoc, tmp_path))
     try:
@@ -642,7 +636,7 @@ def test_apply_content_marks_ignores_annotation_descriptors(vdoc):
 def test_a_page_range_watermark_is_the_same_descriptor_on_each_page(vdoc, tmp_path):
     """'Watermark pages 1–2' is the model-level loop the UI runs — one descriptor, N pages. No
     page-range state in the model is the reason stamp and watermark are one feature."""
-    mark = preset_mark("Copy", (0, 0, 595, 842), whole_page=True)
+    mark = _watermark("COPY")
     for index in range(vdoc.page_count):
         vdoc.add_annotation(index, mark)
     saved = fitz.open(_materialize(vdoc, tmp_path))

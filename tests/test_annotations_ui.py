@@ -329,7 +329,7 @@ def test_page_transform_matches_scene_rect_for_box_when_rotated(win):
     on a per-page-rotated page — so the box (and its text) rotate with the page."""
     from PySide6.QtCore import QRectF
 
-    win.vdoc.set_rotation(0, 90)
+    win.vdoc.rotate_pages([0], 90)
     win.view.reload()
     rect = (100, 120, 260, 150)
     transform = win.view.page_transform(0)
@@ -350,7 +350,7 @@ def test_move_on_rotated_page_follows_cursor(win):
     """On a 90°-rotated page a downward screen-drag moves the box *down* on screen (not sideways) —
     the move delta is taken in the page's own frame, not raw scene axes."""
     win.vdoc.add_annotation(0, TextBox((100, 120, 260, 150), "r"))
-    win.vdoc.set_rotation(0, 90)
+    win.vdoc.rotate_pages([0], 90)
     win.view.reload()
     ov = win.view.annotations
     start = win.view.scene_rect_for_box(0, (100, 120, 260, 150)).center()
@@ -379,7 +379,8 @@ def _place_box(win, text, box=(100, 120, 300, 160)):
 
 
 def test_new_box_bakes_the_current_style(win):
-    win.view.annotations.set_current_style(_STYLED)
+    """The style the format bar last set (its `styleChanged` handler) is stamped on the next box."""
+    win.view.annotations._on_style_changed(_STYLED)
     _place_box(win, "styled")
     win.view.annotations._commit_textbox()
     box = next(a for a in win.vdoc.page_annotations(0) if isinstance(a, TextBox))

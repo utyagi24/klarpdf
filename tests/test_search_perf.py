@@ -170,7 +170,7 @@ def test_page_index_agrees_with_a_full_scan(dense_pdf):
         # was doing while `shares_line` was missing from both sides (M96).
         naive = [w for w in words if boxes_touch(w[:4], box) and shares_line(w[:4], box)]
         assert [w for _i, w in text.struck(box)] == naive
-        assert text.snippet(box) == search_mod._snippet_for(words, box)
+        assert text.snippet(box) == PageText(words=words).snippet(box)
         assert text.is_whole_word(box) == search_mod.is_whole_word(words, box)
     doc.close()
 

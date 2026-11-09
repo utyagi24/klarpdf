@@ -26,10 +26,9 @@ from klarpdf.model.edit_engine import PyMuPDFEngine
 from klarpdf.model.foreign_annots import (
     ForeignDeletion,
     annot_name,
-    apply_foreign_deletions,
+    apply_foreign_edits,
     fingerprint,
     is_foreign,
-    page_has_foreign_annotations,
     read_foreign_annotations,
 )
 from klarpdf.model.page_edits import KLARPDF_AUTHOR, Highlight
@@ -123,11 +122,6 @@ def test_our_own_marks_are_not_foreign(vdoc, tmp_path):
         assert len(read_foreign_annotations(saved[0])) == 3   # only the original three
     finally:
         saved.close()
-
-
-def test_page_has_foreign_annotations(vdoc):
-    assert page_has_foreign_annotations(_source_page(vdoc, 0)) is True
-    assert page_has_foreign_annotations(_source_page(vdoc, 1)) is False
 
 
 def test_label_names_the_type_and_author(vdoc):
@@ -382,14 +376,15 @@ def test_a_deletion_with_no_target_is_a_no_op(vdoc, tmp_path):
         saved.close()
 
 
-def test_apply_foreign_deletions_reports_its_count(vdoc):
+def test_a_deletion_applied_twice_deletes_once(vdoc):
     doc = fitz.open()
     page = doc.new_page()
     try:
         _add_foreign(page, "square", (10, 10, 60, 40), contents="x")
         found = read_foreign_annotations(page)
-        assert apply_foreign_deletions(page, (ForeignDeletion(found[0].fingerprint),)) == 1
-        assert apply_foreign_deletions(page, (ForeignDeletion(found[0].fingerprint),)) == 0
+        deletion = (ForeignDeletion(found[0].fingerprint),)
+        assert apply_foreign_edits(page, deletion) == (1, 0)
+        assert apply_foreign_edits(page, deletion) == (0, 0)
     finally:
         doc.close()
 
@@ -407,7 +402,7 @@ def test_deletion_rides_the_pageref_through_a_reorder(vdoc):
     target = read_foreign_annotations(_source_page(vdoc))[0]
     mark = ForeignDeletion(target.fingerprint)
     vdoc.add_annotation(0, mark)
-    vdoc.move_page(0, 1)
+    vdoc.move_pages([0], 2)
     assert vdoc.page_annotations(1) == (mark,)
 
 

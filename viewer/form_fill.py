@@ -10,7 +10,7 @@ Committing calls back into the MainWindow, which pushes a
 :class:`~edit_commands.SetFieldValueCommand` (so fills are undoable). The value itself is
 *displayed* by :class:`~viewer.pdf_view.PdfView`, which re-renders an edited page from a filled
 copy — this controller only drives editing and paints faint highlights so fillable fields are
-discoverable. Rotation-0 only, like the other overlays (the geometry helpers it uses are).
+discoverable.
 """
 
 from __future__ import annotations
@@ -44,9 +44,7 @@ class FormFiller:
         return field.current_value if v is None else v
 
     def field_at(self, scene_pt):
-        """The fillable field whose box contains ``scene_pt`` (rotation 0), else None."""
-        if self._view.rotation != 0:
-            return None
+        """The fillable field whose box contains ``scene_pt``, else None."""
         page_index, local = self._view.page_and_local_at(scene_pt)
         if page_index is None:
             return None
@@ -163,11 +161,9 @@ class FormFiller:
         self._items.clear()
 
     def repaint(self) -> None:
-        """Refresh field geometry + paint faint wash over each fillable field (rotation 0)."""
+        """Refresh field geometry + paint faint wash over each fillable field."""
         self._fields = read_form_fields(self._view._vdoc)  # page order may have changed
         self._clear_items()
-        if self._view.rotation != 0:
-            return
         scene = self._view.scene()
         brush = QBrush(_FIELD_TINT)
         for f in self._fields:

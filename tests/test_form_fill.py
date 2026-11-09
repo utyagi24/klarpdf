@@ -122,7 +122,7 @@ def test_undo_redo_restores_fills(vdoc):
 
 def test_value_for_deleted_fields_page_is_skipped(vdoc, tmp_path):
     vdoc.set_field_value("agree", True)  # agree is on page 1
-    vdoc.delete_page(1)                   # delete that page
+    vdoc.delete_pages([1])                   # delete that page
     out = _values(_materialize(vdoc, tmp_path))
     assert "agree" not in out             # gone, and no error raised
 

@@ -132,7 +132,7 @@ def test_thumbnail_width_stays_full_when_saved_rotated_page_is_rotated_back(qapp
     doc.save(path)
     doc.close()
     vdoc = VirtualDocument.from_path(path)
-    vdoc.set_rotation(0, 0)            # rotate page 0 back to portrait (absolute override 0)
+    vdoc.rotate_pages([0], -90)        # rotate page 0 back to portrait (from its own /Rotate 90)
     panel = ThumbnailPanel(vdoc)
     try:
         panel._ensure_rendered(0)
@@ -151,7 +151,7 @@ def test_edit_then_undo_returns_thumbnail_to_clean(win):
     win.vdoc.add_annotation(0, Redaction(((50, 50, 500, 700),)))
     win.thumbs.populate()
     assert _diff_fraction(clean, _thumb(win.thumbs, 0)) > 0.1
-    win.vdoc.clear_annotations(0)
+    win.vdoc.set_annotations(0, ())
     win.thumbs.populate()
     assert _diff_fraction(clean, _thumb(win.thumbs, 0)) < 0.02  # back to the clean render
 
@@ -221,5 +221,5 @@ def test_a_rotation_carries_nothing(win):
     panel = win.thumbs
     for row in range(panel.count()):
         panel._ensure_rendered(row)
-    win.vdoc.set_rotation(0, 90)
+    win.vdoc.rotate_pages([0], 90)
     assert panel._carryable_icons() == {}

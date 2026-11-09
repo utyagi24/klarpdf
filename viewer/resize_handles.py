@@ -15,8 +15,7 @@ Two shapes of handle set:
   be unusable — you re-aim a line by dragging an end).
 
 Handles are drawn in **scene units** (device pixels), not page points, so they stay a constant
-on-screen size at any zoom — the rect they surround is given in unrotated page points. Rotation-0
-only, like the other overlays.
+on-screen size at any zoom — the rect they surround is given in unrotated page points.
 """
 
 from __future__ import annotations
@@ -25,7 +24,6 @@ from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QPen
 from PySide6.QtWidgets import QGraphicsRectItem
 
-BOX_HANDLES = ("nw", "n", "ne", "e", "se", "s", "sw", "w")
 _SIZE = 8.0        # on-screen handle square, in scene units (== device px)
 _GRAB = 4.0        # extra slack around a handle when hit-testing (fat-finger margin)
 MIN_SIZE = 4.0     # a resized box never collapses below this, in page points

@@ -152,7 +152,7 @@ def test_reducing_does_not_return_a_bigger_file_than_saving(image_pdf, tmp_path)
 def test_reduce_is_edits_aware_and_leaves_the_original_untouched(image_pdf, tmp_path):
     original_size = os.path.getsize(image_pdf)
     v = VirtualDocument.from_path(image_pdf)
-    v.delete_page(1)
+    v.delete_pages([1])
     v.add_annotation(0, Redaction(((60, 50, 540, 70),)))  # covers page 0's text band
     out = str(tmp_path / "small.pdf")
     export_reduced_pdf(v, out, dpi=72, jpg_quality=30)

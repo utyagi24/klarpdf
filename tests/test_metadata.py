@@ -82,7 +82,7 @@ def test_save_carries_both_stores_through(meta_pdf, tmp_path):
 
 def test_save_carries_metadata_through_page_edits(meta_pdf, tmp_path):
     v = VirtualDocument.from_path(meta_pdf)
-    v.move_page(0, 1)
+    v.move_pages([0], 2)
     out = _saved(v, tmp_path)
     with fitz.open(out) as doc:
         assert doc.metadata["title"] == "Original Title"

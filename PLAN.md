@@ -484,10 +484,10 @@ as OS-specific code stays quarantined.
 2. A thin **`platform_integration.py`** seam holds the only OS-specific app behaviors —
    `single_instance_server_name()` and `activate_window(win)` (the `WindowStaysOnTopHint`/`alert`
    focus shims). `app.py`/`launcher.py` call the abstraction; no `WindowStaysOnTopHint` inline.
-   Windows impl now; Linux stub later. A `register_file_association()` slot also lives here, but on
-   **Windows it is effectively unused** — the Inno Setup installer writes the `.pdf`/ProgID
-   association (see Packaging); the function exists mainly for a future Linux `xdg-mime` path and an
-   optional dev/source-run convenience, so the two sections don't contradict.
+   Windows impl now; Linux stub later. The Inno Setup installer writes the `.pdf`/ProgID
+   association (see Packaging). An empty `register_file_association()` slot for a future Linux
+   `xdg-mime` path lived here until M169 removed it: the module is the seam, and the Linux work adds
+   the real function when it exists.
 3. **All OS coupling stays inside `packaging/` + `platform_integration.py`** — registry/`.iss`/
    `.ps1` never leak into `launcher.py`/`app.py`.
 4. `klarpdf/util/paths.py` `normalize_path()` stays the **single identity chokepoint** so the
@@ -512,7 +512,7 @@ as OS-specific code stays quarantined.
 klarpdf/
   launcher.py                  # entrypoint: single-instance guard, normalize %1, hand-off/become server
   app.py                       # PdfApp(QApplication): path->window dict, page clipboard, QLocalServer; raise/focus via platform_integration
-  platform_integration.py      # OS seam (portability hedge): single-instance name, activate_window() focus shims; register_file_association() slot (Windows uses the installer, so unused there; for future Linux xdg-mime). Windows now / Linux stub later
+  platform_integration.py      # OS seam (portability hedge): single-instance name, activate_window() focus shims (the installer writes the .pdf association). Windows now / Linux stub later
   main_window.py               # MainWindow: View + Organize modes, toolbar/menu, holds a VirtualDocument;
                                #   owns the QUndoStack (Ctrl+Z/Y) and the closeEvent save-on-close prompt
   edit_commands.py             # QUndoCommand subclasses (reorder/delete/insert/rotate/paste): snapshot+restore ordered[]

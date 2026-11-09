@@ -295,7 +295,7 @@ def test_fit_width_centres_current_page_when_another_page_is_rotated_wider(qapp,
     doc.save(path)
     doc.close()
     vdoc = VirtualDocument.from_path(path)
-    vdoc.set_rotation(0, 90)  # page 0 displays landscape (792 wide) — now the widest page
+    vdoc.rotate_pages([0], 90)  # page 0 displays landscape (792 wide) — now the widest page
 
     view = PdfView(vdoc)
     try:
@@ -462,19 +462,6 @@ def test_an_ordinary_page_still_stops_at_the_floor(qapp, tmp_path):
         assert view.zoom == pytest.approx(_MIN_ZOOM)
     finally:
         view.deleteLater()
-
-
-def test_a_saved_zoom_outside_the_new_range_falls_back_cleanly(view):
-    """State files predate M88.6 and can hold 10% or 800%. `apply_state` range-checks, so an
-    out-of-range value is ignored and the view keeps the zoom it had — no crash, no silent clamp
-    to a magnification the reader never chose."""
-    view.set_zoom(1.0)
-    view.apply_state({"page": 0, "zoom": 0.1, "rotation": 0})    # the old floor
-    assert view.zoom == pytest.approx(1.0)
-    view.apply_state({"page": 0, "zoom": 8.0, "rotation": 0})    # the old ceiling
-    assert view.zoom == pytest.approx(1.0)
-    view.apply_state({"page": 0, "zoom": 2.0, "rotation": 0})    # in range → honoured
-    assert view.zoom == pytest.approx(2.0)
 
 
 # ---- the floor does not depend on the window (M149, #377) -----------------------
