@@ -1308,8 +1308,8 @@ parts, and the box here is ticked on merge. Build in number order, except that M
   in `klarpdf/`. Reading them found a test building a document it then ignored, and an unused import
   that was a deliberate re-export. The `lint` job went red on a planted finding before it was kept.
   The ruleset mirror listed two of the five required checks. It now matches the live ruleset, and
-  `lint` is added. **`lint` becomes required when the owner runs the ruleset `PUT` after this
-  merges.** Details in `PLAN.md` §M167 — *Windows, and WSL for the dev lock* —
+  `lint` is added. The owner ran the ruleset `PUT` on 2026-11-08, so `lint` is now a required
+  check, and the live ruleset matches the mirror field by field. Details in `PLAN.md` §M167 — *Windows, and WSL for the dev lock* —
   [#439](https://github.com/utyagi24/klarpdf/pull/439)
 - [ ] **M168** **The project's rules, enforced**: OS calls only in `platform_integration.py`, no
   `print` in `klarpdf/`, Python 3.11 syntax everywhere, and a reason on every suppression. *All
