@@ -200,6 +200,34 @@ jobs:
             }
 
   # ---------------------------------------------------------------------------------------------
+  # M167 — Ruff, at the dev lock's pin, over the whole repository.
+  #
+  # One Linux job is enough: Ruff reads source, and the operating system it runs on does not change
+  # its answer (M167 checked Windows, WSL and this job agree). It installs Ruff alone, read from
+  # requirements-dev.txt rather than written here, so there is no third copy of the pin to drift. If
+  # the lock and pyproject.toml's `required-version` ever disagree, Ruff refuses to run and the job
+  # fails, which is the same check tests/test_lint_config.py makes locally.
+  #
+  # No gate step, unlike the jobs around it. The check takes seconds, and running it on every PR is
+  # what lets it be a required check (G7: a required check must report on every PR).
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install Ruff at the dev lock's pin, and nothing else
+        run: |
+          pin=$(grep -E '^ruff==' requirements-dev.txt) || { echo "requirements-dev.txt pins no ruff" >&2; exit 1; }
+          pip install "$pin"
+
+      - name: Ruff
+        run: ruff check --output-format=github .
+
+  # ---------------------------------------------------------------------------------------------
   # M115.1 — run the bridge's OWN lock, which nothing had ever executed.
   #
   # The `pytest` job above installs requirements-dev.txt, which tracks the **app**. So every

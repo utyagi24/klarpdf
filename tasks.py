@@ -8,6 +8,7 @@ Thin orchestration only: each task shells out to the existing authoritative scri
 
     invoke --list                      # every task + its one-line description
     invoke test                        # headless suite
+    invoke lint                        # Ruff, as the `lint` CI job runs it
     invoke audit                       # scan the locks for known advisories
     invoke lock --package pyside6-essentials==6.11.1 # recompile the locks (Windows)
     invoke vendor                      # re-fetch wheels + regenerate vendor/wheels-sources.md (Windows)
@@ -63,6 +64,17 @@ def test(c):
     who remember it.
     """
     c.run(f'"{PY}" -m pytest', echo=True)
+
+
+@task
+def lint(c):
+    """Run Ruff over the repository, as the `lint` CI job does (M167).
+
+    Ruff runs from the dev venv, at the version requirements-dev.txt pins. Any other Ruff refuses
+    to start, because pyproject.toml sets `required-version`. That keeps this, an editor and CI
+    giving one answer. PLAN.md §Linting, dead code and type checking says which rules are on and why.
+    """
+    c.run(f'"{PY}" -m ruff check .', echo=True)
 
 
 @task

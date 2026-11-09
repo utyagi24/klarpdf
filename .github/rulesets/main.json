@@ -35,7 +35,8 @@
           { "context": "emails" },
           { "context": "bridge", "integration_id": 15368 },
           { "context": "windows", "integration_id": 15368 },
-          { "context": "bridge-windows", "integration_id": 15368 }
+          { "context": "bridge-windows", "integration_id": 15368 },
+          { "context": "lint", "integration_id": 15368 }
         ]
       }
     }
