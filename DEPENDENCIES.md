@@ -42,7 +42,7 @@ the wheels, so target machines need no Python and no network.
 | **Python** | interpreter — 3.12.x exact, for **building the app**. The MCP bridge is a separate, optional component and installs on 3.11–3.14 (M132); this row is the frozen installer's build requirement, not a floor on the bridge. | Windows **3.12.10** (python.org); WSL 3.12.3 | — |
 | **pip-tools** (`pip-compile`) | generate the locked requirements | **7.5.3** | dev/build env |
 | **pytest** | headless model/save tests | see `requirements-dev.txt` | `requirements-dev.txt` |
-| **pypdf** | independent second reader: tests cross-check what PyMuPDF wrote. **Not shipped** since M156. It was the runtime engine of a fallback that nothing outside the tests used (`PLAN.md` §M156). | floor `>=6.16.1` (security), BSD-3-Clause | `requirements-dev.txt` |
+| **pypdf** | independent second reader: tests cross-check what PyMuPDF wrote. **Not shipped** since M156. It was the runtime engine of a fallback that nothing outside the tests used (`PLAN.md` §M156). | floor `>=6.21.4` (security, M162), BSD-3-Clause | `requirements-dev.txt` |
 | **Ruff** | linter: `invoke lint` and the required `lint` CI check (M167). An exact pin, and `required-version` in `pyproject.toml` must match it | **0.17.4** | `requirements-dev.txt` |
 | **vulture** | dead-code check: `tests/test_no_dead_code.py` (M169). An exact pin, for Ruff's reason | **2.16** | `requirements-dev.txt` |
 | **invoke** | task runner — `invoke <task>` orchestrates build steps (`tasks.py`; see `RELEASE.md`) | **3.0.3** | `requirements-dev.txt` |

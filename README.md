@@ -43,14 +43,13 @@ the unit of audit; it ships as a pinned, fully offline Windows installer.
 <p align="center"><sub>The real app, captured from a real build — and it follows the Windows theme, so
 this screenshot follows your GitHub one.</sub></p>
 
-**Status: `v0.20.0` shipped** — [download the installer or portable exe](https://github.com/utyagi24/klarpdf/releases/latest).
-**New in v0.20.0 — structure an agent can use, and a window that keeps up:** the MCP bridge grows
-from 19 tools to 23. An agent can read a document's links, its headings and its tables, and write
-what it finds back as real bookmarks that land on their headings (see
-[Use it from an agent](#use-it-from-an-agent-mcp)). In the app, a page that is slow to draw no
-longer freezes the window, links and bookmarks take you to the spot they name rather than the top
-of the page, zoom and resize keep your place, web links open in your browser, and a filled shape
-can have no border.
+**Status: `v0.21.0` shipped** — [download the installer or portable exe](https://github.com/utyagi24/klarpdf/releases/latest).
+**New in v0.21.0 — files that open, and text boxes that keep their look:** a password-protected
+file without a document ID (some PDF tools leave it out) could be saved into a copy that asked for
+a password nobody had set; it now saves into a copy that opens, still protected. A text box moved or shrunk in Microsoft Edge keeps its
+look and all of its words, and a box's text is saved exactly where KlarPDF shows it. Toggling the
+sidebar on a one-page document no longer hangs the window. The MCP bridge gets the same fixes, and
+newer pinned dependencies (see [Use it from an agent](#use-it-from-an-agent-mcp)).
 Full release notes live on
 [GitHub Releases](https://github.com/utyagi24/klarpdf/releases); live status — milestones
 (**M0–M44 + R1–R6 complete**), per-release notes, open follow-ups — in [PROGRESS.md](PROGRESS.md).

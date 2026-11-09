@@ -540,14 +540,22 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   spare machine / a fresh local user with networking disabled.
 
 ## Status
-**Current: v0.20.0 shipped** — **structure an agent can use, and a window that keeps up
+**Current: v0.21.0 shipped** — **files that open, text boxes that keep their look, and checks
+that keep the code clean (M158–M169)**. An encrypted file with no `/ID` no longer saves into a copy
+nobody can open (M161). Text boxes keep their look and all their words after Microsoft Edge moves or
+shrinks them, and save where KlarPDF shows them (M163, M164, M166). A fit no longer hangs the window
+by chasing its own scrollbar (M160), and a drag survives the editor's commit (M165). The bridge's
+pinned `mcp`, `pyjwt` and `opentelemetry-api` move up, and refusals keep their text on `mcp` 2.3
+(M158, M162). Underneath, Ruff is a required check, the project's rules are enforced, and a
+dead-code test runs with the suite (M167–M169). All fixes, but a minor by the owner's call.
+It supersedes **v0.20.0** — **structure an agent can use, and a window that keeps up
 (M138–M157)**. The bridge grows from 19 tools to 23: `get_links`, `set_outline` (whose entries can
 now land on their heading), `get_heading_candidates` and `get_tables`, which declines a table the
 page contradicts rather than guessing. In the app, a slow page no longer freezes the window (M152,
 the 1.0 gate's Item E), links and bookmarks land on the spot they name and survive a page move
 (M150), and zoom and resize keep the page you are reading (M151). pypdf leaves the installer
 (M156), and `pyjwt` (M157) and `httpx2` (M144) are bumped for advisories the bridge could not
-reach. **1.0 is still deliberately not taken**: the clean-machine install and one flaky test remain.
+reach.
 It supersedes **v0.19.0** — **the bridge you can actually install (M133–M136)**. Installing it
 was nine commands and the step that failed was the path; it is now `pipx install klarpdf`, or a
 single downloaded **`install.py`** that needs nothing but a supported Python — no clone, no `uv`, no

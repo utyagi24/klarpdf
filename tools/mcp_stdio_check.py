@@ -30,7 +30,11 @@ import pymupdf
 from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
-EXPECTED_TOOLS = 19          # pinned to the manifest by tests/test_mcp_packaging.py
+# The tools the .mcpb manifest lists, which tests/test_mcp_packaging.py keeps equal to the server's
+# registry. Read here rather than written as a number: a constant said 19 through v0.20.0, which has
+# 23, so this check failed for a release and nobody saw (found at v0.21.0).
+_MANIFEST = Path(__file__).resolve().parent.parent / "packaging" / "mcp" / "mcpb" / "manifest.json"
+EXPECTED_TOOLS = {tool["name"] for tool in json.loads(_MANIFEST.read_text("utf-8"))["tools"]}
 DESCRIPTION_CAP = 2048       # the client truncates past this, silently (M105)
 
 _passed = 0
@@ -104,7 +108,8 @@ async def run(server_path: str) -> int:
 
                 listed = await session.list_tools()
                 names = sorted(tool.name for tool in listed.tools)
-                check("list_tools", len(names) == EXPECTED_TOOLS, f"{len(names)} tools")
+                check("list_tools", set(names) == EXPECTED_TOOLS,
+                      f"{len(names)} tools; against the manifest: {sorted(set(names) ^ EXPECTED_TOOLS)}")
                 print(f"        {', '.join(names)}")
                 over = [t.name for t in listed.tools if len(t.description or "") > DESCRIPTION_CAP]
                 check(f"every description under the {DESCRIPTION_CAP}-char client cap", not over, str(over))
