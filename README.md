@@ -305,7 +305,9 @@ vendor/ · requirements-*   # the pinned + vendored offline dependency ship-set
 tests/                     # 1891 headless tests (offscreen Qt), run in CI on every PR
 ```
 
-## Develop (WSL)
+## Develop
+
+In WSL:
 
 ```bash
 # one-time: base Ubuntu python lacks ensurepip
@@ -316,6 +318,15 @@ pip install -r requirements-dev.txt
 invoke test                     # 1891 headless tests (offscreen Qt) — or run `pytest`
 invoke --list                   # all build/release tasks: test · audit · lock · build · tag · publish
 python launcher.py file.pdf     # run the GUI via WSLg
+```
+
+Or natively on Windows, with python.org 3.12 (the clone path must be short, or long paths enabled;
+[CONTRIBUTING.md](CONTRIBUTING.md#or-set-up-the-dev-venv-on-windows) says why):
+
+```powershell
+py -3.12 -m venv .venv
+.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.venv\Scripts\python.exe -m pytest
 ```
 
 The cross-platform code (`klarpdf/model/`, `viewer/`, `organize/`) + headless tests run in WSL; the GUI
@@ -363,7 +374,7 @@ Because the app is AGPL, public distribution must offer the corresponding source
 the exact release tag each installer is built from satisfies that. Building for **your own machines**
 is private use with no such obligation.
 
-**Build from source:** see [Develop (WSL)](#develop-wsl) to run it, and
+**Build from source:** see [Develop](#develop) to run it, and
 [Build the Windows installer](#build-the-windows-installer) to produce `klarpdf-setup-x64.exe` /
 `klarpdf-portable-x64.exe` yourself.
 

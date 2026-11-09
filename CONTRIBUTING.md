@@ -120,6 +120,37 @@ Notes:
   validation) needs **python.org 3.12.x** and Inno Setup 6 on a real Windows machine — see
   `README.md` §Build the Windows installer and `RELEASE.md`.
 
+### Or set up the dev venv on Windows
+
+WSL is not required to develop or run the tests. The same `requirements-dev.txt` installs on
+Windows, and CI's `windows` job runs the whole suite this way on every PR. Two tests (the
+single-instance mutex) run only here.
+
+```powershell
+# python.org 3.12.x — not the Microsoft Store stub, which cannot build
+py -3.12 -m venv .venv
+.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.venv\Scripts\python.exe -m pytest              # headless suite (offscreen Qt)
+.venv\Scripts\invoke.exe --list                 # the same tasks as in WSL; `invoke lint` runs Ruff
+.venv\Scripts\python.exe launcher.py file.pdf   # run the GUI natively
+```
+
+Notes:
+
+- **Keep the clone path short, or enable long paths.** PySide6 installs files about 180 characters
+  below the repo root, and Windows refuses a path over 260 characters unless long paths are on, so
+  a clone more than ~80 characters deep fails mid-install with `OSError: [Errno 2] No such file or
+  directory` and a hint about long paths. `C:\Users\<you>\pdfproj` is fine. Otherwise turn on
+  `LongPathsEnabled` (the hint's link says how) and reinstall.
+- The commands call `.venv\Scripts\python.exe` rather than activating the venv, because PowerShell's
+  default execution policy refuses to run `Activate.ps1`. Activating works too once the policy
+  allows it.
+- About nine tests are skipped, and the summary names each one with its reason. They are the
+  checks against Poppler's `pdftotext` (Windows has no Poppler) and the tests of POSIX behaviour
+  (symlinks, `/bin/sh` stand-ins). The Linux CI job runs them all.
+- Do not recompile the dev lock here. `invoke lock-dev` refuses to run on Windows, because the lock
+  is compiled on Linux (`RELEASE.md` §1).
+
 ### Run the test suite
 
 `invoke test` (or `pytest`) runs the full headless suite; it must be green before you open a PR. CI
