@@ -1293,18 +1293,19 @@ tick the box here on merge. Build in number order.
   Details in `PLAN.md` §M166 — *Windows (headless)* —
   [#436](https://github.com/utyagi24/klarpdf/pull/436)
 
-## Roadmap — linting, dead code and type checking (M167–M173; proposed 2026-11-08)
+## Roadmap — linting, dead code and type checking (M167–M173; planned 2026-11-08)
 
-**Proposed and awaiting the owner's review. Nothing here is decided yet.** The strategy, the
-measurements, the rules for each surface, how the checks run in CI, and the three questions for the
-owner are in `PLAN.md` §*Linting, dead code and type checking*, and are **not restated here**. M167,
-M168 and M169 do not depend on the questions. M171's shape depends on Question 1, and M172's tool
-on Question 2. Same conventions as the other roadmaps: one PR per milestone, or per part where a
-milestone has parts, and the box here is ticked on merge. Build in number order, except that M172
-needs only M167.
+**Planned 2026-11-08.** The owner answered the proposal's three questions the same day: no formatter
+for now, mypy for types, and `lint` and `typecheck` as required status checks. The strategy, the
+measurements, the rules for each surface, how the checks run in CI, and the decisions with their
+reasons are in `PLAN.md` §*Linting, dead code and type checking*, and are **not restated here**.
+Same conventions as the other roadmaps: one PR per milestone, or per part where a milestone has
+parts, and the box here is ticked on merge. Build in number order, except that M172 needs only M167.
 
 - [ ] **M167** **Ruff, pinned and run on every change**: the `lint` CI job, `invoke lint`, and
-  Ruff's default rules. *All surfaces; no behaviour change.* — *WSL, for the dev lock*
+  Ruff's default rules. `lint` becomes a required check once this merges, after the ruleset mirror
+  is brought back into line with the live ruleset. *All surfaces; no behaviour change.* — *WSL, for
+  the dev lock*
 - [ ] **M168** **The project's rules, enforced**: OS calls only in `platform_integration.py`, no
   `print` in `klarpdf/`, Python 3.11 syntax everywhere, and a reason on every suppression. *All
   surfaces; no behaviour change.*
@@ -1313,11 +1314,12 @@ needs only M167.
 - [ ] **M170** **Defects that hide**: bugbear's rules, blind `except` clauses, and a `zip` that
   truncates silently. *Core, bridge and app; it changes behaviour wherever a stricter form is
   chosen.*
-- [ ] **M171** **Consistency**: import order, syntax upgrades and a 120-column ceiling, or a
-  formatter if Question 1 says so. *All surfaces; no behaviour change.*
+- [ ] **M171** **Consistency**: import order, syntax upgrades and a 120-column ceiling, with no
+  formatter. *All surfaces; no behaviour change.*
 - [ ] **M172** **Types for the wheel** (`klarpdf/`): mypy and the `typecheck` CI job. *Core and
   bridge.* — *WSL, for the dev lock*
-  - [ ] **M172.1** The gate, at mypy's default settings
+  - [ ] **M172.1** The gate, at mypy's default settings. `typecheck` becomes a required check once
+    this merges
   - [ ] **M172.2** Every signature in `klarpdf/` annotated
 - [ ] **M173** **Types for the app**: go or no-go, decided after M172. *App.*
 
@@ -4976,7 +4978,7 @@ it on this side of the line.
 - **Dead code and coverage** (found 2026-09-26) — graduated. The coverage gate was rejected and a
   static dead-code check chosen instead, with today's findings to triage, in
   [#409](https://github.com/utyagi24/klarpdf/issues/409). `PyPdfEngine` became M156
-  ([#407](https://github.com/utyagi24/klarpdf/pull/407)). #409 is proposed as M169 in
+  ([#407](https://github.com/utyagi24/klarpdf/pull/407)). #409 is planned as M169 in
   §*Roadmap — linting, dead code and type checking* (2026-11-08).
 
 - **With several shapes selected, the style buttons show one style, not the group's** (M154, found

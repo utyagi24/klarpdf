@@ -11193,14 +11193,15 @@ not its design):
   a second process. The milestone decides. *(§M152 first proposed a helper process, 2026-09-23,
   then pieces on the window's thread instead, 2026-09-24, keeping the helper as the fallback.)*
 
-## Linting, dead code and type checking — strategy and roadmap (M167–M173) *(proposed 2026-11-08)*
+## Linting, dead code and type checking — strategy and roadmap (M167–M173) *(planned 2026-11-08)*
 
 **Where this came from.** The owner asked whether the project uses a linter (2026-11-08). It does
 not. They asked for a strategy and a roadmap to review, *"not a quick band-aid"*, with the checks
 running routinely in CI, and with [#409](https://github.com/utyagi24/klarpdf/issues/409) (a
-dead-code check) folded in. **This is a proposal. Nothing in it is decided** until the owner answers
-§*Questions for the owner* at the end. The numbers M167–M173 are reserved here so that no other
-branch takes them (CLAUDE.md, *Every non-trivial change*).
+dead-code check) folded in. The proposal put three questions to the owner, who answered them the
+same day: **no formatter for now, mypy for types, and `lint` and `typecheck` as required checks**.
+The answers and their reasons are in §*Decisions* at the end. The numbers M167–M173 are reserved
+here so that no other branch takes them (CLAUDE.md, *Every non-trivial change*).
 
 ### What the code looks like to a checker (measured 2026-11-08)
 
@@ -11321,11 +11322,11 @@ owner's decisions: a static check, not a coverage gate, and code that only tests
 unless it is whitelisted with a reason. It also lists the findings to triage. This plan schedules
 #409 and does not reopen it.
 
-**mypy for types** (Question 2). It is pure Python, so it sits in the audited dev lock and gives the
-same answer in WSL, on Windows and in CI, and VS Code's mypy extension can run the pinned copy from
-the project's venv. Pyright is the alternative. Its strength is that Pylance, the language server
-VS Code's Python extension installs, is built on Pyright, so the editor and the check would agree.
-It has two costs. It is a Node.js program: its PyPI wheel carries the checker but runs it on
+**mypy for types** (decided, §*Decisions*). It is pure Python, so it sits in the audited dev lock
+and gives the same answer in WSL, on Windows and in CI, and VS Code's mypy extension can run the
+pinned copy from the project's venv. Pyright was the alternative. Its strength is that Pylance, the
+language server VS Code's Python extension installs, is built on Pyright, so the editor and the
+check would agree. It has two costs. It is a Node.js program: its PyPI wheel carries the checker but runs it on
 whatever Node is on `PATH` (measured: it used a user-installed Node 24.19 here) or downloads one, and
 that runtime is outside the lock and outside `pip-audit`. And Pylance bundles its own Pyright, which
 agrees with a pinned one only when the versions happen to match. On this code, Pyright's narrowing
@@ -11381,9 +11382,9 @@ context. These stay with the tests that cover them.
 
 | Check | Where | When | Gate |
 |---|---|---|---|
-| Ruff | A new `lint` job in `test.yml` on Ubuntu, installing only Ruff at the dev lock's pin. It takes seconds | Every push and every PR, like the rest of `test.yml`, so also on `main` after each merge | Proposed as a required check (Question 3) |
-| Dead code (vulture) | A test in the suite, as #409 specifies, so it runs in the `pytest` (Linux) and `windows` jobs | Every push and every PR | Already required, through `pytest` |
-| mypy | A new `typecheck` job on Ubuntu, installing the bridge's lock and mypy | Every push and every PR, from M172 | Proposed as a required check (Question 3) |
+| Ruff | A new `lint` job in `test.yml` on Ubuntu, installing only Ruff at the dev lock's pin. It takes seconds | Every push and every PR, like the rest of `test.yml`, so also on `main` after each merge | Required, once M167 has merged (below) |
+| Dead code (vulture) | A test in the suite, as #409 specifies, so it runs in the `pytest` (Linux) and `windows` jobs | Every push and every PR | Already required, through `pytest` and `windows` |
+| mypy | A new `typecheck` job on Ubuntu, installing the bridge's lock and mypy | Every push and every PR, from M172 | Required, once M172.1 has merged (below) |
 | Locally | `invoke lint` runs Ruff, and mypy from M172. The dead-code test runs with pytest | Before a push, beside the tests for the change (CLAUDE.md, *Run the tests for your change locally*) | None |
 
 * **One Linux job is enough for Ruff.** It reads source, and the operating system it runs on does
@@ -11393,6 +11394,19 @@ context. These stay with the tests that cover them.
   `platform_integration.py`, so M173 has to choose the platform it checks.
 * **No matrix.** `test.yml:293` records why: a required check is matched by its exact name, and a
   matrix renames it.
+* **Making a check required, in order.** A branch made before a job existed never reports that job,
+  and a ruleset cannot tell a check that is not coming from one that has not finished, so the PR
+  would wait on *"Expected"* forever (§*Branch rulesets*, *Why the required checks are safe*). So a
+  check goes into the ruleset only once its job is on `main`: `lint` after M167 merges, and
+  `typecheck` after M172.1. Any branch older than that must merge `main` before it can be merged.
+  The change goes through the mirror, `.github/rulesets/main.json`, and the `PUT` that
+  §*Branch rulesets* gives. The ruleset is a GitHub setting, so the owner runs the `PUT`, or gives
+  the go-ahead for it.
+* **The mirror has drifted, and a `PUT` of it would weaken the gate.** It lists `pytest` and
+  `emails`, but the live ruleset also requires `bridge`, `windows` and `bridge-windows` (read with
+  `gh api` on 2026-11-08). Adding `lint` to the mirror as it stands and running the `PUT` would
+  quietly drop those three. So M167 first makes the mirror match the live ruleset, and then adds
+  `lint`.
 * **No scheduled run.** A pinned linter run again over unchanged code can only repeat its last
   answer. What changes without a commit is the tools themselves, and they change only through a
   bump (below). The weekly `audit` job already covers what does change on its own: new advisories
@@ -11423,12 +11437,12 @@ context. These stay with the tests that cover them.
 
 | Milestone | What it switches on | Findings to clear (measured 2026-11-08 unless noted) | Surfaces |
 |---|---|---|---|
-| **M167** Ruff, pinned, on every change | Ruff in the dev lock. `[tool.ruff]` in `pyproject.toml`, with `required-version`. The `lint` job, seen failing on purpose. `invoke lint`. CLAUDE.md's conventions: run Ruff before a push, and the suppression form. Rules: `F`, `E4`, `E7` and `E9`, except `E741` | 28: 17 unused imports, 4 unused variables, 3 late imports, 2 empty f-strings, one redefinition, one shadowed name. None in `klarpdf/`; most are in tests | All. No behaviour change |
+| **M167** Ruff, pinned, on every change | Ruff in the dev lock. `[tool.ruff]` in `pyproject.toml`, with `required-version`. The `lint` job, seen failing on purpose. `invoke lint`. CLAUDE.md's conventions: run Ruff before a push, and the suppression form. The ruleset mirror brought back into line, then `lint` added to it. Rules: `F`, `E4`, `E7` and `E9`, except `E741` | 28: 17 unused imports, 4 unused variables, 3 late imports, 2 empty f-strings, one redefinition, one shadowed name. None in `klarpdf/`; most are in tests | All. No behaviour change |
 | **M168** The project's rules, enforced | `TID251` for OS calls, `T20` in `klarpdf/`, `target-version = "py311"`, `PGH004` and `RUF100`. Tests for suppression reasons, `get_textbox`, `windowHandle()` signals and text encoding | The bans: none (the one stderr `print` gets its reason). Suppressions: the 10 stale ones removed, and reasons written for the 8 left without one and for the one `type: ignore` | All. No behaviour change |
 | **M169** Dead code: [#409](https://github.com/utyagi24/klarpdf/issues/409) | vulture pinned. `tests/test_no_dead_code.py` over the tracked shipped files, with a whitelist that gives reasons. Triage | #409's list: 46 lines on 2026-09-26, of which `PyPdfEngine` went in M156. Re-measured in M169's own session, not here (CLAUDE.md, *Investigate a defect once*) | Core, app and bridge. A deletion in the core is checked against both consumers |
 | **M170** Defects that hide | `B`, `BLE001`, `S110`, `S112`, `PLE` and `PLW` | 124: 45 `zip` calls without `strict=`, 25 blind `except` clauses, 11 `subprocess.run` calls without `check=`, 7 rebound loop variables, 7 needless lambdas, 6 `raise` without `from`, 5 closures over loop variables, 5 unused loop variables, 4 `except: pass`, 4 `global` statements and 5 single findings | Core, bridge, app and tests. **It changes behaviour** wherever `zip(strict=True)` or a narrower `except` is chosen. That policy is settled with the owner in M170's session |
-| **M171** Consistency | `I`, `UP`, `E741`, and `E501` at 120 columns. Or `ruff format`, if Question 1 says so | 71 import blocks, 142 syntax upgrades (111 of them quoted annotations), 50 ambiguous one-letter names such as `l`, and 31 long lines. Mostly automatic | All. No behaviour change |
-| **M172** Types for the wheel | mypy in the dev lock, `[tool.mypy]` for `klarpdf/` at Python 3.11, and the `typecheck` job. **M172.1**: the gate at default settings. **M172.2**: `disallow_untyped_defs` | M172.1: 128 errors. 86 are PyMuPDF constants, which one configuration decision handles; 42 to fix. M172.2: about 117 missing annotations (core 88, bridge 29) | Core and bridge. The app is untouched |
+| **M171** Consistency | `I`, `UP`, `E741`, and `E501` at 120 columns. No formatter (§*Decisions*) | 71 import blocks, 142 syntax upgrades (111 of them quoted annotations), 50 ambiguous one-letter names such as `l`, and 31 long lines. Mostly automatic | All. No behaviour change |
+| **M172** Types for the wheel | mypy in the dev lock, `[tool.mypy]` for `klarpdf/` at Python 3.11, and the `typecheck` job. **M172.1**: the gate at default settings, and `typecheck` added to the ruleset mirror. **M172.2**: `disallow_untyped_defs` | M172.1: 128 errors. 86 are PyMuPDF constants, which one configuration decision handles; 42 to fix. M172.2: about 117 missing annotations (core 88, bridge 29) | Core and bridge. The app is untouched |
 | **M173** Types for the app: **go or no-go after M172** | mypy over the app, checked as Windows or on both platforms | 215 errors at default settings (75 PyMuPDF constants), and more once unannotated bodies are checked | App |
 
 **The order, and why.**
@@ -11446,28 +11460,33 @@ context. These stay with the tests that cover them.
 * **M173 is a decision, not a schedule.** After M172, what types cost and what they caught are
   known, and the app has 885 functions to the wheel's 499.
 
-### Questions for the owner
+### Decisions (owner, 2026-11-08)
 
-**Q1. Adopt a formatter?** A formatter removes layout decisions for good, and gives outside
-contributors one obvious style. For a public repository that is a real gain. Its cost is paid at
-once. 208 of the 250 files and about 10,300 lines change in one commit. A
-`.git-blame-ignore-revs` entry, which GitHub honours, keeps that commit out of `git blame`. Every
-open branch conflicts with it, so it has to land when no other PR is open. And the aligned trailing
-comments, a deliberate habit here, are flattened. **Recommendation: not now.** Lint the two layout
-properties that cost something when they drift, import order and a 120-column ceiling (M171), and
-revisit when outside contributions make style a review cost. The reason is that the benefit is
-mostly in the future and the cost is now. That is a judgement, not a measurement.
+The proposal asked the owner three questions, and they answered all three the same day. Each answer
+keeps the reasoning it was made on, so that a later session does not argue it again (CLAUDE.md,
+*Capture the follow-up*).
 
-**Q2. mypy or Pyright, and is the app in scope?** **Recommendation: mypy**, for the reason in
-§*Tools*: it lives inside the audited lock, and Pyright's runtime does not. Choose Pyright if
-agreeing with VS Code's Pylance matters more to you than the lock. Whether to type-check the app is
-best decided after M172 (M173), when its cost is known.
+**1. No formatter, for now.** A formatter removes layout decisions for good and gives outside
+contributors one obvious style, which is a real gain for a public repository. Its cost comes all at
+once. 208 of the 250 files and about 10,300 lines change in one commit. Every open branch conflicts
+with it, so it has to land when no other PR is open. A `.git-blame-ignore-revs` entry, which GitHub
+honours, would keep that commit out of `git blame`. And the aligned trailing comments, a deliberate
+habit here, would be flattened. Instead, M171 lints the two layout properties that cost something
+when they drift: import order and a 120-column ceiling. **Revisit when** outside contributions make
+style a review cost. The benefit is mostly in the future and the cost is now, and that is a
+judgement, not a measurement.
 
-**Q3. Make `lint`, and later `typecheck`, required status checks?** **Recommendation: yes.** Because
-a rule is switched on only at zero findings, a required check cannot block a PR that did not cause
-its finding. A check that is not required can be merged over while it is red. The `audit` job was
-red at three releases before anyone noticed (RELEASE.md §3). The ruleset is a GitHub setting, so
-this change is the owner's to make.
+**2. mypy, not Pyright.** mypy sits inside the audited lock, and Pyright's Node.js runtime does not
+(§*Tools*). The cost accepted with it is that VS Code's Pylance, which is built on Pyright, can
+disagree with the CI check. VS Code's mypy extension can run the pinned copy from the venv, so the
+editor can still show CI's answer. The question also asked whether the app is in scope, and the
+answer did not cover that, so it stays M173's go or no-go, decided after M172 when its cost is
+known.
+
+**3. `lint` and `typecheck` become required status checks.** A rule is switched on only at zero
+findings, so a required check cannot block a PR that did not cause its finding. A check that is not
+required can be merged over while it is red. The `audit` job was red at three releases before anyone
+noticed (RELEASE.md §3). When and how each check is added is in §*How the checks run*.
 
 Questions that belong to a milestone's own session are settled there, with the owner, as
 §*The open issues, grouped* arranged for M149–M152: the `zip(strict=…)` policy (M170), how to treat
