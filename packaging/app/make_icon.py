@@ -19,9 +19,9 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")  # headless render, no display needed
 
-from PySide6.QtCore import QBuffer, QByteArray, QRectF, Qt  # noqa: E402
-from PySide6.QtGui import QGuiApplication, QImage, QPainter  # noqa: E402
-from PySide6.QtSvg import QSvgRenderer  # noqa: E402
+from PySide6.QtCore import QBuffer, QByteArray, QRectF, Qt
+from PySide6.QtGui import QGuiApplication, QImage, QPainter
+from PySide6.QtSvg import QSvgRenderer
 
 ROOT = Path(__file__).resolve().parent.parent.parent  # packaging/app/ -> repo root
 

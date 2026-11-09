@@ -175,4 +175,4 @@ def test_descriptors_are_hashable_and_frozen():
     """They ride frozen PageRefs and undo snapshots — same contract as the older descriptors."""
     assert {_INK, _LINE, _RECT, _ELLIPSE}                 # hashable set members
     with pytest.raises(Exception):
-        _LINE.width = 9  # type: ignore[misc]
+        _LINE.width = 9  # type: ignore[misc]  # frozen: assigning must raise, which is the check

@@ -44,9 +44,9 @@ import unicodedata
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import pymupdf as fitz  # noqa: E402
+import pymupdf as fitz
 
-from klarpdf.mcp_bridge import headings  # noqa: E402
+from klarpdf.mcp_bridge import headings
 
 _EVERYTHING = {"max_candidates": 10**9, "max_chars": 10**12}
 

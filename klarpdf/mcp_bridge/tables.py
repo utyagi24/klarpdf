@@ -1850,7 +1850,7 @@ def _hangs_from_a_drawing(
     middle = fitz.Point((top.x0 + top.x1) / 2, (top.y0 + top.y1) / 2)
     if any(g.contains(middle) and not g.contains(table_box) for g in graphics):
         return False
-    over = lambda r: _overlap(r.x0, r.x1, top.x0, top.x1) > _EPS  # noqa: E731
+    over = lambda r: _overlap(r.x0, r.x1, top.x0, top.x1) > _EPS  # noqa: E731 — one expression closing over `top`, read inline below
     text_gap = min(
         (top.y0 - t.rect.y1 for t in texts if t not in run and t.rect.y1 <= top.y0 + _EPS and over(t.rect)), default=None
     )

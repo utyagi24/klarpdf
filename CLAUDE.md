@@ -250,9 +250,11 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   second. A rule is switched on only once nothing breaks it, in the PR that clears its findings, so
   a red `lint` is always the PR's own doing. When a finding is deliberate, suppress that one line and
   say why, in the form the core already uses:
-  `# noqa: BLE001 — a malformed /AP is not worth failing a whole listing over`. A bare `# noqa` is a
-  decision nobody can review, and 10 of the 23 in the code on 2026-11-08 suppressed nothing at all.
-  M168 makes Ruff refuse both kinds. Ruff refuses to run at any version but the pinned one, so an
+  `# noqa: BLE001 — a malformed /AP is not worth failing a whole listing over`, or
+  `# type: ignore[code]  # why` (mypy needs the second `#`). A bare `# noqa` is a decision nobody
+  can review, and 10 of the 23 in the code on 2026-11-08 suppressed nothing at all. Since M168, Ruff
+  refuses a suppression with no code or one that suppresses nothing, and
+  `tests/test_project_rules.py` refuses one with no reason. Ruff refuses to run at any version but the pinned one, so an
   editor's bundled copy reports the mismatch instead of a different answer. Point VS Code's Ruff
   extension at the venv with `"ruff.importStrategy": "fromEnvironment"`. A Ruff bump follows
   `RELEASE.md` §1. Which rules are on, where, and why: `PLAN.md` §*Linting, dead code and type
@@ -393,6 +395,8 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   receiver is destroyed (measured), so the slot is later invoked on freed memory: a crash, not an
   exception. Prefer the **widget events** Qt delivers to the widget itself (e.g.
   `QEvent.Type.DevicePixelRatioChange`, `ScreenChangeInternal`), which die with it.
+  `tests/test_project_rules.py` fails on a `.connect` to a `windowHandle()` signal in shipped code
+  (M168).
 - **A key routed "through the view" never arrives if a child widget accepted it — and
   `QAbstractItemView` accepts `Space`.** Qt walks a key up the parent chain only while it stays
   *unaccepted*, so M89.2's `Space` was simply gone whenever focus sat in a sidebar panel, and the
@@ -521,6 +525,10 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   hashes pinned in `requirements-win.txt`). The hashed/offline lock is the **Windows ship** artifact only.
 - **Keep OS-specific code quarantined** behind `platform_integration.py` and `packaging/` — never
   inline in `app.py`/`launcher.py`. `klarpdf/util/paths.py:normalize_path()` is the single identity chokepoint.
+  Ruff enforces it (M168): `sys.platform`, `os.name`, `platform.system`, `os.startfile`, `winreg`
+  and `ctypes`'s Windows names are banned everywhere except `platform_integration.py`,
+  `packaging/`, `tasks.py`, `tools/` and `tests/` (`[tool.ruff.lint.flake8-tidy-imports]` in
+  `pyproject.toml`).
 - **Win10 Home has no Windows Sandbox** — the clean-machine install test (M9) uses VirtualBox / a
   spare machine / a fresh local user with networking disabled.
 

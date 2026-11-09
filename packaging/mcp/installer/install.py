@@ -118,7 +118,7 @@ def check_python() -> None:
 def check_venv_module() -> None:
     """Debian and Ubuntu split `ensurepip` into a separate package, and the failure is opaque."""
     try:
-        import ensurepip  # noqa: F401
+        import ensurepip  # noqa: F401 — imported only to learn whether it exists
     except ImportError:
         raise InstallError(
             "This Python has no `ensurepip`, so it cannot create a virtual environment with pip.\n"

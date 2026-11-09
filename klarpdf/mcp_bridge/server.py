@@ -284,7 +284,7 @@ def create_server(config: Config | None = None) -> MCPServer:
         def wrapper(*args, **kwargs):
             try:
                 return function(*args, **kwargs)
-            except Exception as exc:  # noqa: BLE001 — re-raised, possibly reworded
+            except Exception as exc:  # re-raised, possibly reworded
                 raise ToolError(str(_explain(exc))) from exc
 
         wrapper.__signature__ = inspect.signature(function)
@@ -1243,7 +1243,7 @@ def main(argv: list[str] | None = None) -> None:
     config = parse_args(argv)
     # stderr, never stdout: stdout is the JSON-RPC stream and a stray line breaks the session.
     if config.read_only or config.policy.restricted:
-        print(
+        print(  # noqa: T201 — to stderr, never stdout, which is the JSON-RPC stream
             f"klarpdf-mcp {__version__}: "
             f"{'read-only, ' if config.read_only else ''}"
             f"{'roots=' + os.pathsep.join(config.policy.roots) if config.policy.restricted else 'unrestricted paths'}",

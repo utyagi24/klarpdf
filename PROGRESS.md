@@ -1311,9 +1311,15 @@ parts, and the box here is ticked on merge. Build in number order, except that M
   `lint` is added. The owner ran the ruleset `PUT` on 2026-11-08, so `lint` is now a required
   check, and the live ruleset matches the mirror field by field. Details in `PLAN.md` §M167 — *Windows, and WSL for the dev lock* —
   [#439](https://github.com/utyagi24/klarpdf/pull/439)
-- [ ] **M168** **The project's rules, enforced**: OS calls only in `platform_integration.py`, no
+- [x] **M168** **The project's rules, enforced**: OS calls only in `platform_integration.py`, no
   `print` in `klarpdf/`, Python 3.11 syntax everywhere, and a reason on every suppression. *All
-  surfaces; no behaviour change.*
+  surfaces; no behaviour change.* Ruff now refuses each of these, plus a suppression with no code
+  or one that suppresses nothing. Four tests check what Ruff cannot: a reason on every
+  suppression, no `get_textbox` in shipped code, no connection to a `windowHandle()` signal, and
+  tracked text that is UTF-8 with no BOM or mis-decoded characters. Ten suppressions that did
+  nothing are gone, and every one left says why. Each rule and test failed on a planted breach
+  before it was kept. Details in `PLAN.md` §M168 —
+  [#441](https://github.com/utyagi24/klarpdf/pull/441)
 - [ ] **M169** **Dead code**: [#409](https://github.com/utyagi24/klarpdf/issues/409), which this
   milestone closes. *Core, app and bridge.* — *WSL, for the dev lock*
 - [ ] **M170** **Defects that hide**: bugbear's rules, blind `except` clauses, and a `zip` that

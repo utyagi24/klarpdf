@@ -39,7 +39,7 @@ def wash(color, factor: float = 0.28) -> QColor:
     that underline / strikeout use.
     """
     r, g, b = (max(0.0, min(1.0, c)) for c in color[:3])
-    mix = lambda c: int(round(255 * (c * factor + (1.0 - factor))))  # noqa: E731
+    mix = lambda c: int(round(255 * (c * factor + (1.0 - factor))))  # noqa: E731 — one expression, applied to each channel
     return QColor(mix(r), mix(g), mix(b))
 
 

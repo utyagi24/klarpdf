@@ -1309,7 +1309,7 @@ def test_a_grids_banner_row_titles_it_when_nothing_above_does(tmp_path):
     one cell across it. A fallback only: a title above the table comes first."""
     banner = _title_line("Table 1 - Announcement XML")
     assert _banner_titles(tmp_path, "banner.pdf", banner) == ["Table 1 - Announcement XML"]
-    above = lambda page: _bold(page, 60, 190, "Announcement Fields")  # noqa: E731
+    above = lambda page: _bold(page, 60, 190, "Announcement Fields")  # noqa: E731 — a one-line callback
     assert _banner_titles(tmp_path, "both.pdf", banner, above) == ["Announcement Fields"]
 
 
