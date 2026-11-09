@@ -12,8 +12,8 @@ def test_get_missing_returns_empty(tmp_path):
 
 def test_set_then_get_roundtrip(tmp_path, a_pdf):
     s = Settings(tmp_path / "view_state.json")
-    s.set_doc_state(a_pdf, {"page": 2, "zoom": 1.5, "rotation": 90})
-    assert s.get_doc_state(a_pdf) == {"page": 2, "zoom": 1.5, "rotation": 90}
+    s.set_doc_state(a_pdf, {"page": 2, "zoom": 1.5})
+    assert s.get_doc_state(a_pdf) == {"page": 2, "zoom": 1.5}
 
 
 def test_persists_across_instances(tmp_path, a_pdf):

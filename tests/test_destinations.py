@@ -495,7 +495,7 @@ def test_a_bookmark_whose_target_page_was_deleted_keeps_no_tail(tmp_path):
     doc.close()
 
     vdoc = VirtualDocument.from_path(str(src))
-    vdoc.delete_page(2)
+    vdoc.delete_pages([2])
     assert vdoc.remapped_toc() == []
     out = tmp_path / "out.pdf"
     PyMuPDFEngine().materialize(vdoc, str(out))

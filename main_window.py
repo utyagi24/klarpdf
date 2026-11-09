@@ -606,7 +606,7 @@ class MainWindow(QMainWindow):
         act("Delete Pages", lambda: self._delete_rows(self.thumbs.selected_rows()), icon="delete", to_menu=edit_menu)
         # Rotate sits with the other page operations (owner call, R1 review): it is a real,
         # undoable, *saved* edit on the selected/current page — its old View placement read as a
-        # view-only spin that wouldn't touch the file. PdfView.rotate_view remains the view-only one.
+        # view-only spin that wouldn't touch the file. There is no view-only rotation (M169 removed it).
         a_rotl = self._a_rotl = act("Rotate Left", lambda: self._rotate_pages(-90), "Ctrl+L", icon="rotate-left", to_menu=edit_menu)
         # Rotate Right stays a real, menu-reachable page op (Edit + sidebar right-click), but the
         # reading bar carries only the left button now — see the reading_groups note (M71/Preview).

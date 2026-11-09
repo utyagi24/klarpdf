@@ -80,7 +80,7 @@ def test_print_honours_rotation_override(qapp, vdoc):
     so the print reflects what the viewer shows."""
     with PyMuPDFEngine().render_output(vdoc) as rendered:
         upright = _page_image(rendered, 0, zoom=1.0)
-    vdoc.set_rotation(0, 90)  # rotate page 0 a quarter turn
+    vdoc.rotate_pages([0], 90)  # rotate page 0 a quarter turn
     with PyMuPDFEngine().render_output(vdoc) as rendered:
         rotated = _page_image(rendered, 0, zoom=1.0)
     assert (rotated.width(), rotated.height()) == (upright.height(), upright.width())
@@ -97,7 +97,7 @@ def test_render_output_applies_edits(qapp, vdoc):
     word = vdoc.sources[vdoc.ordered[0].source_id][0].get_text("words")[0]  # (x0,y0,x1,y1,text,..)
     vdoc.add_annotation(0, Redaction((tuple(word[:4]),)))  # destroy page 0's first word
     vdoc.add_annotation(1, Highlight((tuple(word[:4]),)))  # highlight (non-destructive) on page 1
-    vdoc.delete_page(2)
+    vdoc.delete_pages([2])
 
     with PyMuPDFEngine().render_output(vdoc) as rendered:
         assert rendered.page_count == 2  # the delete is reflected
@@ -107,7 +107,7 @@ def test_render_output_applies_edits(qapp, vdoc):
 
 def test_print_reflects_deleted_page(qapp, vdoc, tmp_path):
     """render_to_printer prints the edits-applied render, not the raw source pages."""
-    vdoc.delete_page(1)  # 3 -> 2 pages
+    vdoc.delete_pages([1])  # 3 -> 2 pages
     out = str(tmp_path / "edited.pdf")
     printer = _pdf_printer(out)
     assert render_to_printer(printer, vdoc, current_page=0) is True

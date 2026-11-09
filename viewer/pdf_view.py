@@ -4,8 +4,7 @@ A ``QGraphicsView``/``QGraphicsScene`` lays every page of the ``VirtualDocument`
 single vertical strip. Page *geometry* is cheap (from ``page.rect``, no rendering), so the whole
 strip is laid out up front; page *pixels* are rendered lazily — only pages intersecting the
 viewport (plus a small prefetch) get a PyMuPDF pixmap, cached in a bounded LRU keyed by
-``(index, device_scale, rotation)``. Zoom (incl. fit-width/fit-page) and 90° view rotation are
-scalar re-layouts.
+``(index, device_scale, rotation)``. Zoom (incl. fit-width/fit-page) is a scalar re-layout.
 
 **Three scales, not one** (M88). ``zoom`` is the magnification the reader asks for, where 1.0 means
 true physical size; ``scale`` (= ``zoom × logicalDpi/72``) is what the *layout* uses, scene units
@@ -227,7 +226,6 @@ class PdfView(QGraphicsView):
         self._zoom = 1.0
         self._logical_dpi = _FALLBACK_LOGICAL_DPI  # this screen's logical DPI (M88.1)
         self._dpr = 1.0                            # this screen's devicePixelRatio (M88.2)
-        self._rotation = 0  # view rotation in degrees: 0/90/180/270
         # This view's handle on the **process-global** pixmap store (M87.2). Formerly a private
         # OrderedDict bounded at 48 entries — which bounded pages, not bytes, and so let one
         # Ctrl+wheel sweep reach 4.3 GB. See viewer/pixmap_cache.py for the budgets and why there
@@ -554,14 +552,14 @@ class PdfView(QGraphicsView):
 
     def _display_rotation(self, index: int) -> int:
         """**Absolute** rotation of the displayed page vs its MediaBox: the per-page override if
-        set, else the source page's own ``/Rotate`` — plus the view rotation. Overlays rotate
-        boxes by this so they align whether the rotation is an in-session override or baked in."""
+        set, else the source page's own ``/Rotate``. Overlays rotate boxes by this so they align
+        whether the rotation is an in-session override or baked in."""
         ref = self._vdoc.ordered[index]
         if ref.rotation_override is not None:
             base = ref.rotation_override
         else:
             base = self._vdoc.sources[ref.source_id][ref.source_page_index].rotation
-        return (base + self._rotation) % 360
+        return base % 360
 
     def _natural_size(self, index: int) -> tuple[float, float]:
         """Unscaled displayed page size in points (MediaBox with rotation axis swaps)."""
@@ -652,7 +650,7 @@ class PdfView(QGraphicsView):
             # ``total`` is the spin its pictures are drawn with. A carried picture is checked
             # against it after an edit has already changed the document (M152.2).
             self._pages.append({"bg": bg, "pix": pix, "x": x, "y": py, "w": w, "h": h,
-                                "total": (self._page_extra(i) + self._rotation) % 360})
+                                "total": self._page_extra(i) % 360})
             self._page_tops.append(py)  # non-decreasing by construction — see _visible_range
 
         scene.setSceneRect(0, 0, scene_w, scene_h)
@@ -775,7 +773,7 @@ class PdfView(QGraphicsView):
 
     def page_transform(self, page_index: int) -> QTransform:
         """The affine that maps a page's **unrotated** point coords → scene coords (origin offset +
-        zoom + per-page/view rotation). Lets an overlay item authored in page points (a text box and
+        zoom + per-page rotation). Lets an overlay item authored in page points (a text box and
         its text) render rotated *with* the page, instead of axis-aligned in scene space."""
         p = self._pages[page_index]
         w, h = self._unrotated_size(page_index)
@@ -877,14 +875,12 @@ class PdfView(QGraphicsView):
                 # selection tint, the release path and the one-shot disarm are exactly the
                 # explicit tools' — nothing downstream knows the combined slot exists. A press
                 # off any page stays armed and unresolved (a mis-click neither wastes the arm
-                # nor locks in a gesture); a rotated view resolves to the block gesture, since
-                # text selection is disabled there (see TextSelection).
+                # nor locks in a gesture).
                 page_index, _local = self.page_and_local_at(scene_pt)
                 if page_index is None:
                     event.accept()
                     return
-                on_text = (self._rotation == 0 and self.selection is not None
-                           and self.selection.has_word_at(scene_pt))
+                on_text = self.selection is not None and self.selection.has_word_at(scene_pt)
                 resolved = ArmedTool.REDACT_TEXT if on_text else ArmedTool.REDACT_REGION
                 self._armed = resolved
                 self._redact_combined = True  # release restores REDACT if nothing commits
@@ -1960,7 +1956,7 @@ class PdfView(QGraphicsView):
 
     def _pixmap_key(self, index: int) -> tuple:
         """What identifies a rendered page in the store: the page and everything that changes its
-        pixels. ``_page_extra`` is the per-page rotation override, ``_rotation`` the view spin.
+        pixels. ``_page_extra`` is the per-page rotation override.
 
         Keyed on :attr:`device_scale`, not :attr:`zoom` (M88.2): two screens of different DPR render
         the *same* zoom at different resolutions, and the store is process-global (M87.2), so a zoom
@@ -1968,7 +1964,7 @@ class PdfView(QGraphicsView):
         fixing, cached.
         """
         return (index, round(self.device_scale, 4),
-                (self._page_extra(index) + self._rotation) % 360)
+                self._page_extra(index) % 360)
 
     def _render_target(self, index: int) -> "tuple | None":
         """What drawing page ``index`` means: ``(page, clip, total)``, or ``None`` when its crop
@@ -1977,7 +1973,7 @@ class PdfView(QGraphicsView):
         ``page`` is the page object to draw: an edited copy when the page needs one (M14, M31,
         M66), else the shared source. ``clip`` is the displayed part in the page's rotated space,
         or ``None`` for the whole page. ``total`` is the extra spin applied after drawing: the
-        rotation override and the view rotation. Whole pages and pieces are drawn from the same
+        rotation override. Whole pages and pieces are drawn from the same
         three (M152.2).
         """
         ref = self._vdoc.ordered[index]
@@ -1995,7 +1991,7 @@ class PdfView(QGraphicsView):
             clip = fitz.Rect(
                 self._box_to_display(cropbox.width, cropbox.height, page.rotation, visible)
             )
-        return page, clip, (self._page_extra(index) + self._rotation) % 360
+        return page, clip, self._page_extra(index) % 360
 
     def _to_pixmap(self, img: QImage, total: int) -> QPixmap:
         """A drawn picture, ready to show: night mode, the device pixel ratio and the extra spin."""
@@ -2925,10 +2921,6 @@ class PdfView(QGraphicsView):
         return self._zoom
 
     @property
-    def rotation(self) -> int:
-        return self._rotation
-
-    @property
     def current_page(self) -> int:
         return self._current
 
@@ -3443,14 +3435,6 @@ class PdfView(QGraphicsView):
         hbar = self.horizontalScrollBar()
         hbar.setValue((hbar.minimum() + hbar.maximum()) // 2)
 
-    def rotate_view(self, delta: int) -> None:
-        """Rotate the whole view by ``delta`` degrees (a multiple of 90)."""
-        self._rotation = (self._rotation + delta) % 360
-        anchor = self._current
-        with self._hold_render():
-            self._build_scene()
-            self.goto_page(anchor)
-
     # ---- page layout (M78) ------------------------------------------------------
 
     @property
@@ -3695,7 +3679,7 @@ class PdfView(QGraphicsView):
     # ---- persistence ------------------------------------------------------------
 
     def view_state(self) -> dict:
-        """The per-document state saved on close. **Page and rotation resume; zoom does not.**
+        """The per-document state saved on close. **The page resumes; zoom does not.**
 
         ``zoom`` is written on purpose even though nothing reads it back. A document opens at
         **Fit Page** — an owner decision from v0.9.1 (PR #61: "Default zoom is Fit Page — the whole
@@ -3708,33 +3692,10 @@ class PdfView(QGraphicsView):
         So a reader reporting "the zoom isn't remembered" is describing the design, not a bug — see
         :meth:`open_at`, and `PLAN.md` §Future enhancements for what restoring it would take.
         """
-        return {"page": self._current, "zoom": self._zoom, "rotation": self._rotation}
-
-    def apply_state(self, state: dict) -> None:
-        """Restore page + rotation + **zoom** into an already-shown view.
-
-        The one path that honours a saved zoom — and the app does not currently call it: opening is
-        :meth:`open_at`'s job, and that lands at Fit Page by the decision recorded in
-        :meth:`view_state`. Kept as the seam a future "restore my last magnification" would use
-        (and exercised by the state round-trip tests), not dead-by-accident.
-        """
-        if not state:
-            return
-        self._fit_mode = None  # a restored, explicit zoom is manual — not a sticky fit
-        rotation = int(state.get("rotation", 0)) % 360
-        if rotation in (0, 90, 180, 270):
-            self._rotation = rotation
-        zoom = state.get("zoom")
-        if isinstance(zoom, (int, float)) and _MIN_ZOOM <= zoom <= _MAX_ZOOM:
-            self._zoom = float(zoom)
-        with self._hold_render():
-            self._build_scene()
-            self.goto_page(int(state.get("page", 0)))
-        # apply_state sets _zoom directly (bypassing set_zoom), so announce it for the indicator.
-        self.zoomChanged.emit(self._zoom)
+        return {"page": self._current, "zoom": self._zoom}
 
     def open_at(self, state: dict) -> None:
-        """First show: restore the remembered page + rotation, open at **Fit Page**, and do the
+        """First show: restore the remembered page, open at **Fit Page**, and do the
         first pixmap render — once, at the now-final viewport size. Rendering was suppressed until
         here (``_shown_once``), so the page paints exactly once at the fit zoom — no zoom-1.0 frame,
         no re-render after a remembered zoom, no flicker.
@@ -3745,16 +3706,12 @@ class PdfView(QGraphicsView):
         """
         self._shown_once = True
         state = state or {}
-        rotation = int(state.get("rotation", 0)) % 360
-        if rotation in (0, 90, 180, 270):
-            self._rotation = rotation
         # Hold the remembered page in a LOCAL across the rebuild. `_build_scene` renders at the end
         # of its work, and that render re-derives the current page from the viewport — which is
         # still scrolled to the top, so it resets `_current` to 0. Passing `self._current` to
         # `goto_page` below therefore asked for page 0 and the remembered page was silently never
-        # restored (measured: a document saved on page 3 reopened on page 1). `rotate_view` and
-        # `set_page_layout` already take a local `anchor` across their rebuilds for this exact
-        # reason; this is the one rebuild that read the field back out afterwards.
+        # restored (measured: a document saved on page 3 reopened on page 1). `set_page_layout`
+        # already takes a local `anchor` across its rebuild for this exact reason; this is the one rebuild that read the field back out afterwards.
         page = max(0, min(int(state.get("page", 0)), self._vdoc.page_count - 1))
         self._current = page                          # _fit_zoom sizes against *this* page's row
         sizes = self._page_sizes()                    # read once, for the fit and the build (M160)

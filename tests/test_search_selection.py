@@ -138,13 +138,6 @@ def test_copy_with_no_selection_is_noop(qapp, text_pdf):
     assert view.selection.copy() is False
 
 
-def test_selection_disabled_when_rotated(qapp, text_pdf):
-    view = _view(qapp, text_pdf)
-    center = _scene_center(view, 0, "world")  # compute before rotating (geometry is rot-0)
-    view.rotate_view(90)
-    assert view.selection.begin(center) is False
-
-
 def test_selection_highlights_rescale_on_zoom(qapp, text_pdf):
     view = _view(qapp, text_pdf)
     _drag(view, _word_point(view, 0, "Hello", 0.2), _word_point(view, 0, "foo", 0.8))

@@ -14,8 +14,6 @@ text for text-boxes, opaque fill bars for redactions — the same pattern as ``t
   removes the box.
 * **Redaction** (one-shot armed): a left-drag rubber-bands a rectangle, committed as a
   single-rect ``Redaction``.
-
-Rotation-0 only, like the other overlays.
 """
 
 from __future__ import annotations
@@ -123,9 +121,8 @@ _DRAWN_TYPES = (InkStroke, Line, Shape)
 # It used to keep its own hand-written copy of the list, which silently went stale when the content
 # marks joined — stamps then selected, moved and copied by keyboard but had no Copy/Cut on the menu.
 #
-# `NewField` (M69) is here for the same reason and was missed the same way (M69.14): the model has
-# always listed it in `PLACEABLE_TYPES` and both `translate_mark` and `scale_mark` handle it, and its
-# `bounding_rect` is documented as existing "so the viewer's shared hit-test / outline helpers work
+# `NewField` (M69) is here for the same reason and was missed the same way (M69.14): both
+# `translate_mark` and `scale_mark` have always handled it, and its `bounding_rect` is documented as existing "so the viewer's shared hit-test / outline helpers work
 # on it unchanged" — but it was never added here, so a placed field could not be selected, moved,
 # resized or marqueed. A created field is a free-placed rect like any other; it is drawn by the form
 # overlay rather than this one, which is what let the omission go unnoticed.
@@ -469,8 +466,6 @@ class AnnotationOverlay:
         Incremental rather than a full :meth:`repaint`, because repaint drops the object selection —
         scrolling must not deselect what the user is working on.
         """
-        if self._view.rotation != 0:
-            return
         scene = self._view.scene()
         vdoc = self._view._vdoc
         # Walk the band, not the document (M87.3). The old loop asked every page in the file
@@ -510,8 +505,6 @@ class AnnotationOverlay:
         self._selection = []
         self._selection_items = []
         self._handles.hide()
-        if self._view.rotation != 0:
-            return
         scene = self._view.scene()
         vdoc = self._view._vdoc
         band = self._view.content_band()   # derived once, not once per page (M87.3)
@@ -834,7 +827,7 @@ class AnnotationOverlay:
 
     def _paint_textbox(self, scene, page_index: int, annot: TextBox, z: float) -> None:
         # Author both the box and its text in **unrotated page points**, then apply the page's
-        # transform so they rotate *with* the page (zoom + per-page/view rotation all in one matrix).
+        # transform so they rotate *with* the page (zoom + per-page rotation in one matrix).
         # WYSIWYG: the box shows exactly the fill + outline that bake at save — and nothing when
         # neither is set (just the text, still hit-testable by its rect). The font uses pixelSize ==
         # fontsize (page points); the transform's zoom scales it to the rendered/saved on-screen size.
@@ -964,8 +957,6 @@ class AnnotationOverlay:
         their attention. :meth:`covers_page` exists because a grabbable full-page watermark caused
         the same symptom for our own marks; this is that lesson generalised.
         """
-        if self._view.rotation != 0:
-            return False
         hit = self.foreign_annotation_at(scene_pt, free_placed_only=True)
         if hit is None:
             return False
@@ -1078,8 +1069,6 @@ class AnnotationOverlay:
         """One-shot place: open an inline editor for a *new* box at ``scene_pt``. Returns True if it
         consumed the click — i.e. the point was on a page **and inside its bounds** (a click in the
         page margin is rejected, so boxes can't land off-page)."""
-        if self._view.rotation != 0:
-            return False
         page_index, local = self._view.page_and_local_at(scene_pt)
         if page_index is None:
             return False
@@ -1097,8 +1086,6 @@ class AnnotationOverlay:
     def edit_textbox_at(self, scene_pt) -> bool:
         """Double-click: reopen the editor on the text box under ``scene_pt`` (pre-filled). Returns
         True if it consumed the event."""
-        if self._view.rotation != 0:
-            return False
         hit = self.textbox_at(scene_pt)
         if hit is None:
             return False
@@ -1301,12 +1288,6 @@ class AnnotationOverlay:
     @property
     def current_style(self) -> TextBoxStyle:
         return self._style
-
-    def set_current_style(self, style: TextBoxStyle) -> None:
-        """Set the sticky style stamped on the next new box (and reflect it in the bar)."""
-        self._style = style
-        if self._format_bar is not None:
-            self._format_bar.set_style(style)
 
     @property
     def current_markup_style(self) -> MarkupStyle:
@@ -1577,14 +1558,6 @@ class AnnotationOverlay:
         edit's reload cleared it (M59.8 reorder)."""
         self._set_selection([(page_index, mark) for mark in marks])
 
-    def select_object_at(self, scene_pt) -> bool:
-        """Select the free-placed mark under ``scene_pt`` (text box or drawn mark), if any."""
-        hit = self.textbox_at(scene_pt) or self.drawn_mark_at(scene_pt)
-        if hit is None:
-            return False
-        self.select_object(*hit)
-        return True
-
     def toggle_object(self, page_index: int, mark) -> None:
         """Ctrl+click: add/remove ``mark`` from the group (M59.6). One page per group — a mark on a
         different page starts a fresh selection."""
@@ -1691,8 +1664,6 @@ class AnnotationOverlay:
         """Press on a text box **or a drawn mark** → start a move (M58 single; M59.6 group). If the
         grabbed mark is part of a live multi-selection on this page, the whole group moves together;
         otherwise just this mark. Returns True if it grabbed something."""
-        if self._view.rotation != 0:
-            return False
         hit = self.textbox_at(scene_pt) or self.drawn_mark_at(scene_pt)
         if hit is None:
             return False
@@ -1777,8 +1748,8 @@ class AnnotationOverlay:
         """Move the whole object selection by ``(dx, dy)`` page points (arrow keys: 1 pt, Shift =
         10 pt), clamped to the page — a group shifts as one, keeping its arrangement. The undo step
         is *mergeable*: a held key's auto-repeat coalesces into one step (``auto_repeat=True``), each
-        discrete tap is its own. Rotation-0 only, like move/resize. Returns True if it moved."""
-        if not self._selection or self._view.rotation != 0:
+        discrete tap is its own. Returns True if it moved."""
+        if not self._selection:
             return False
         page_index = self._selection[0][0]
         marks = [m for _p, m in self._selection]
@@ -1810,9 +1781,7 @@ class AnnotationOverlay:
 
     def begin_marquee(self, scene_pt, add: bool = False) -> bool:
         """Objects-mode press on empty page → start a selection rubber-band. Returns True if the
-        point was on a page. Rotation-0 only, like the other overlays."""
-        if self._view.rotation != 0:
-            return False
+        point was on a page."""
         page_index, _ = self._view.page_and_local_at(scene_pt)
         if page_index is None:
             return False
@@ -1859,7 +1828,7 @@ class AnnotationOverlay:
         line's ``p0``/``p1`` handles re-aim that endpoint; a lone text box's ``e`` handle sets its
         wrap width (M78.3); every other handle scales the selection's bounding box. Returns True if
         it took the press."""
-        if self._view.rotation != 0 or not self._selection:
+        if not self._selection:
             return False
         page_index = self._selection[0][0]
         marks = [mark for _p, mark in self._selection]
@@ -2032,9 +2001,7 @@ class AnnotationOverlay:
 
     def begin_redaction(self, scene_pt) -> bool:
         """Armed-redact press: start a rubber-band on the page under ``scene_pt``. Returns True if
-        it consumed the press (i.e. the point was on a page). Rotation-0 only, like the overlays."""
-        if self._view.rotation != 0:
-            return False
+        it consumed the press (i.e. the point was on a page)."""
         page_index, _ = self._view.page_and_local_at(scene_pt)
         if page_index is None:
             return False
@@ -2078,9 +2045,7 @@ class AnnotationOverlay:
     def begin_draw(self, tool, scene_pt) -> bool:
         """Armed draw-tool press: start the gesture on the page under ``scene_pt``. Returns True
         if it consumed the press (point on a page, inside its bounds); off-page presses leave the
-        tool armed, like the other one-shots. Rotation-0 only, like the overlays."""
-        if self._view.rotation != 0:
-            return False
+        tool armed, like the other one-shots."""
         page_index, local = self._view.page_and_local_at(scene_pt)
         if page_index is None:
             return False

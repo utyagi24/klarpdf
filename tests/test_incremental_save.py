@@ -276,15 +276,15 @@ def test_a_redaction_is_never_appended(plain_pdf, tmp_path):
 @pytest.mark.parametrize(
     "name, edit",
     [
-        ("rotation", lambda v: v.set_rotation(0, 90)),
+        ("rotation", lambda v: v.rotate_pages([0], 90)),
         ("crop", lambda v: v.set_crop([0], (10, 10, 200, 200))),
         ("form fill", lambda v: v.set_field_value("name", "typed")),
         ("metadata edited", lambda v: v.set_metadata_override({"title": "new"})),
         ("metadata removed", lambda v: v.set_metadata_override({})),
         ("encryption staged", lambda v: v.set_encryption("secret")),
         ("password removed", lambda v: v.set_encryption(None)),
-        ("page deleted", lambda v: v.delete_page(1)),
-        ("pages reordered", lambda v: v.move_page(0, 2)),
+        ("page deleted", lambda v: v.delete_pages([1])),
+        ("pages reordered", lambda v: v.move_pages([0], 3)),
         ("page duplicated", lambda v: v.append_pages([v.ordered[0]])),
         ("redaction", lambda v: v.add_annotation(0, Redaction(((72, 60, 200, 80),)))),
         ("stamp", lambda v: v.add_annotation(0, Stamp((72, 60, 200, 80), "DRAFT"))),
@@ -416,7 +416,7 @@ def test_removing_a_mark_the_file_arrived_with_is_not_an_append(already_marked_p
     "deleted" mark would still be in there — a text box the user emptied and saved would still
     carry its old wording. Removing anything is a rewrite."""
     vdoc = VirtualDocument.from_path(already_marked_pdf)
-    vdoc.clear_annotations(0)
+    vdoc.set_annotations(0, ())
 
     assert not PyMuPDFEngine().appends(vdoc)
 
@@ -507,7 +507,9 @@ def test_a_page_from_a_second_document_is_refused(plain_pdf, b_pdf, tmp_path):
     """The page set changed, so there is no file to append *to*: the output has to be assembled."""
     vdoc = VirtualDocument.from_path(plain_pdf)
     other = VirtualDocument.from_path(b_pdf)
-    vdoc.import_pages(1, other, [0])
+    ref = other.ordered[0]                    # what MainWindow does on a cross-window paste
+    vdoc.register_source(ref.source_id, other.sources[ref.source_id])
+    vdoc.insert_pages(1, [ref])
 
     assert not PyMuPDFEngine().appends(vdoc)
 
@@ -758,7 +760,9 @@ def test_the_baseline_only_speaks_for_the_origins_own_page(plain_pdf, b_pdf, tmp
     assert vdoc.marks_to_append(0) == (_MARK,)
 
     other = VirtualDocument.from_path(b_pdf)
-    vdoc.import_pages(0, other, [0])
+    ref = other.ordered[0]                    # what MainWindow does on a cross-window paste
+    vdoc.register_source(ref.source_id, other.sources[ref.source_id])
+    vdoc.insert_pages(0, [ref])
     assert vdoc.marks_to_append(0) is None, "a page from a second document"
     assert vdoc.marks_to_append(2) is None, "the origin's own page, at the wrong index"
 

@@ -179,7 +179,7 @@ def test_crop_survives_save_and_reopen_then_reset(vdoc, tmp_path):
 
 def test_crop_composes_with_rotation(vdoc, tmp_path):
     out = str(tmp_path / "out.pdf")
-    vdoc.set_rotation(0, 90)
+    vdoc.rotate_pages([0], 90)
     vdoc.set_crop([0], _CROP)
     PyMuPDFEngine().materialize(vdoc, out)
     with _reopen(out) as doc:

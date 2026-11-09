@@ -172,22 +172,6 @@ WHOLE_PAGE_DEFAULTS: dict = {
 }
 
 
-def preset_mark(name: str, rect: tuple[float, float, float, float],
-                whole_page: bool = False, **overrides) -> Stamp:
-    """The :class:`Stamp` for preset ``name`` at ``rect``.
-
-    ``whole_page`` layers on :data:`WHOLE_PAGE_DEFAULTS` — the watermark look — under the preset's
-    own text and colour. Unknown names fall back to the name itself as the text, so a caller can
-    never end up with no mark at all.
-    """
-    fields = dict(WHOLE_PAGE_DEFAULTS) if whole_page else {}
-    fields.update(MARK_PRESETS.get(name, {"text": name.upper()}))
-    if whole_page:
-        fields["color"] = WHOLE_PAGE_DEFAULTS["color"]   # the preset supplies the word, not the ink
-    fields.update(overrides)
-    return Stamp(rect=rect, **fields)
-
-
 # ---- rendering ------------------------------------------------------------------
 
 

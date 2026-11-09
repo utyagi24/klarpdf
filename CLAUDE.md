@@ -259,6 +259,13 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   extension at the venv with `"ruff.importStrategy": "fromEnvironment"`. A Ruff bump follows
   `RELEASE.md` §1. Which rules are on, where, and why: `PLAN.md` §*Linting, dead code and type
   checking*.
+- **Shipped code that nothing in shipped code uses is dead, and a test says so** (M169, #409).
+  `tests/test_no_dead_code.py` runs vulture over the shipped files git tracks, with the rest of the
+  suite. When it names your code, delete the code, or have its tests use the path the app runs:
+  a test of a helper the app never calls checks nothing a user does. Whitelist it in
+  `tests/dead_code_whitelist.py`, with the reason, only when something vulture cannot see calls it
+  (Qt by name, the MCP SDK), or when it is a read-only accessor the tests observe state through.
+  An MCP tool needs no entry. A deletion often frees something else: run the test again.
 - **Compare, don't guess.** Before adding a rule that decides something about a document, ask
   whether it compares two things the page actually shows and answers yes or no, or guesses from what
   documents usually look like — a threshold, a tuned distance, a shape filter. Guesses get beaten by

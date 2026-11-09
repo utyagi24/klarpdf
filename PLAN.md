@@ -484,10 +484,10 @@ as OS-specific code stays quarantined.
 2. A thin **`platform_integration.py`** seam holds the only OS-specific app behaviors —
    `single_instance_server_name()` and `activate_window(win)` (the `WindowStaysOnTopHint`/`alert`
    focus shims). `app.py`/`launcher.py` call the abstraction; no `WindowStaysOnTopHint` inline.
-   Windows impl now; Linux stub later. A `register_file_association()` slot also lives here, but on
-   **Windows it is effectively unused** — the Inno Setup installer writes the `.pdf`/ProgID
-   association (see Packaging); the function exists mainly for a future Linux `xdg-mime` path and an
-   optional dev/source-run convenience, so the two sections don't contradict.
+   Windows impl now; Linux stub later. The Inno Setup installer writes the `.pdf`/ProgID
+   association (see Packaging). An empty `register_file_association()` slot for a future Linux
+   `xdg-mime` path lived here until M169 removed it: the module is the seam, and the Linux work adds
+   the real function when it exists.
 3. **All OS coupling stays inside `packaging/` + `platform_integration.py`** — registry/`.iss`/
    `.ps1` never leak into `launcher.py`/`app.py`.
 4. `klarpdf/util/paths.py` `normalize_path()` stays the **single identity chokepoint** so the
@@ -512,7 +512,7 @@ as OS-specific code stays quarantined.
 klarpdf/
   launcher.py                  # entrypoint: single-instance guard, normalize %1, hand-off/become server
   app.py                       # PdfApp(QApplication): path->window dict, page clipboard, QLocalServer; raise/focus via platform_integration
-  platform_integration.py      # OS seam (portability hedge): single-instance name, activate_window() focus shims; register_file_association() slot (Windows uses the installer, so unused there; for future Linux xdg-mime). Windows now / Linux stub later
+  platform_integration.py      # OS seam (portability hedge): single-instance name, activate_window() focus shims (the installer writes the .pdf association). Windows now / Linux stub later
   main_window.py               # MainWindow: View + Organize modes, toolbar/menu, holds a VirtualDocument;
                                #   owns the QUndoStack (Ctrl+Z/Y) and the closeEvent save-on-close prompt
   edit_commands.py             # QUndoCommand subclasses (reorder/delete/insert/rotate/paste): snapshot+restore ordered[]
@@ -11616,6 +11616,101 @@ handle connected in `viewer/links.py`, a BOM on `DEPENDENCIES.md`, a mis-decoded
 `RELEASE.md`, and `tasks.py` saved as cp1252. That last probe found a defect in the first version of
 the suppression test: it crashed on the non-UTF-8 file before reaching the planted `noqa`. It now
 reads past a bad byte and leaves the encoding to the encoding test.
+
+### M169 — dead code, found and kept out (built 2026-11-09, closes [#409](https://github.com/utyagi24/klarpdf/issues/409))
+
+**Surfaces:** core, app and bridge. Every deletion in `klarpdf/model/` and `klarpdf/util/` was code
+neither consumer called, so the bridge's behaviour does not change and its suite needed nothing new.
+The app loses no feature a user could reach.
+
+**The check.** `tests/test_no_dead_code.py` runs vulture 2.16 (pinned exactly in the dev lock, for
+Ruff's reason) at `--min-confidence 60` over the shipped files git tracks, through
+`_shipped_modules`. It fails on any finding not in `tests/dead_code_whitelist.py`, and on a
+whitelist entry vulture no longer reports, so the list can neither hide new dead code nor outlive
+what it names. Every entry gives a reason, and entries are keyed by `(path, name)`, so a name is
+kept in its one file only. MCP tools are covered by ignoring `@server.tool`, so a new tool needs no
+entry. It runs in the `pytest` and `windows` jobs, as #409 asked, rather than in a job of its own.
+`assets/` joined `NOT_SHIPPED`: its one Python file is the brand artwork's one-shot generator, and
+nothing in `assets/` is frozen or packed. #409's own command named its directories and never scanned
+it, which is where the first run's one new finding came from.
+
+**The findings, re-measured.** 46 on `main` at `3cd5155`: #409's 45 (its 46th, `PyPdfEngine`, went in
+M156) and `gen-lockup.py`'s `ROOT`. Every name with a hit elsewhere in shipped code was read; each
+hit was a comment, a docstring or the definition itself.
+
+**The owner's decisions, in this session.** #409 had settled that code only tests call is dead
+unless a reason is written down. Four calls were left:
+
+1. **Read-only accessors the tests observe state through are kept**, whitelisted (`night_mode`,
+   `page_layout`, `total_bytes`, `is_read_only`, `current_style`, `selected_object`,
+   `metadata_is_removed`, plus `_a_objects` and `DOC_ICON`, which are the same kind of seam).
+   Deleting one would only send the tests to the private attribute behind it.
+2. **The view rotation is removed** (below).
+3. **The empty `register_file_association` stub is deleted.** No issue or milestone named the Linux
+   work it waited for, and the module itself is the seam.
+4. **Behaviour only tests ran is deleted, and its tests use what the app runs.**
+
+**Deleted, called by nothing at all:** `tables._intersect` and `ruled_pages`,
+`page_edits.MARKUP_TYPES`, `VirtualDocument.ref_at`, `resize_handles.BOX_HANDLES`,
+`field_dialog._options_row`.
+
+**Deleted, called only by tests**, with the live path each test moved to:
+
+| Deleted | What the tests use now |
+|---|---|
+| `VirtualDocument.delete_page(i)` | `delete_pages([i])` |
+| `VirtualDocument.clear_annotations(i)` | `set_annotations(i, ())`, which also leaves the document clean when nothing changes |
+| `VirtualDocument.import_pages` | `register_source` then `insert_pages`, the two steps a cross-window paste or drop takes |
+| `MoveCommand`, then `VirtualDocument.move_page` | `MovePagesCommand`, `move_pages` |
+| `RotateCommand`, then `VirtualDocument.set_rotation` | `RotatePagesCommand`, `rotate_pages` |
+| `content_marks.preset_mark` | a `Stamp` built as `MarkDialog.mark` builds one. `preset_mark` was not what the dialog does: it fell back to the uppercased name for an unknown preset and forced the watermark ink on a whole-page mark |
+| `foreign_annots.apply_foreign_deletions` | `apply_foreign_edits`, keeping the one check the old test made that no other did: a deletion applied twice deletes once |
+| `page_edits.is_geometric` | nothing: it was `bool(rects_of(mark))`, and the tests already check `rects_of` |
+| `annotations.select_object_at` | a plain click, `begin_move` then `finish_move`, which is what selects a mark in the app |
+| `annotations.set_current_style` | the format bar's `styleChanged` handler, `_on_style_changed` |
+| `search._snippet_for` | `PageText(words=...).snippet`, the line it wrapped |
+
+Tests that existed only to exercise a deleted helper went with it: `test_clear_annotations`,
+`test_page_has_foreign_annotations`, three tests of `preset_mark`, and the test of
+`format_page_range`. `page_has_foreign_annotations` and `format_page_range` were deleted the same
+way. `page_edits.PLACEABLE_TYPES` was a second, hand-kept copy of the viewer's live `OBJECT_TYPES`,
+the pattern the comment above `OBJECT_TYPES` already warns about. It went, and the three comments
+that cited it as evidence now cite what is live.
+
+**The cascade.** Deleting `MoveCommand` and `RotateCommand` left `VirtualDocument.move_page` and
+`set_rotation` with no live caller, so they went too: 7 and 24 test calls moved to `move_pages` and
+`rotate_pages`. `set_rotation` set an absolute angle, while `rotate_pages` turns from the page's
+current one. On an unrotated page the two agree. Four calls depended on the absolute form, and each
+was converted by hand: a turn back from a page saved at `/Rotate 90`, a reset, the
+non-multiple-of-90 refusal, and `test_rotation_override_is_absolute`, which now checks that two
+turns save as one angle.
+
+**The view rotation no release could reach.** `PdfView` could rotate the whole view, on top of each
+page's own rotation, and saved that view angle with the document. The menu stopped calling
+`rotate_view` in M7 (2026-06-16), when Rotate became a saved page edit, and v0.1.0 already had that
+change. So no release ever let a user rotate the view, the saved angle was always 0, and every
+branch that handled a rotated view was unreachable. Vulture saw one name, `rotate_view`, and not the
+layer behind it. Removed: `rotate_view`; `apply_state`, which restored a saved zoom and rotation and
+has had no caller since v0.9.1 opened documents at Fit Page; the `rotation` key in `view_state`; the
+view spin in five page-rotation sums in `pdf_view.py`; and 18 guards in `annotations.py`,
+`form_fill.py`, `search.py` and `text_selection.py` that refused work in a rotated view. Page
+rotation, the live feature, is untouched. A `rotation` key in an old state file is read past, as
+`zoom` is. Tests that rotated the view to check a guard went with the guard. The ones that used it
+as one of several scene rebuilds now rotate a page the way the app does (`_rotate_pages`, or
+`rotate_pages` and `reload`), and the "rotated view" case of
+`test_pieces_join_up_exactly_however_the_page_is_shown` was dropped beside its "rotated page" case.
+
+**Verified by breaking it.** An unused function planted in `viewer/blend.py` failed the test, which
+named it and its line. Removing `night_mode`'s whitelist entry failed it. A stale entry for the
+deleted `rotate_view` failed `test_every_whitelist_entry_is_still_needed`. An untracked stray module
+under `build/` was ignored: this Windows checkout has a real `build/` of old build output, and the
+check passed with it present. The test also runs its own planted-function case on every run, so a
+vulture that silently finds nothing fails there.
+
+**Seen in passing, not M169's:** `tests/test_printing.py` prints Python's fault-handler dump for
+`Windows fatal exception: code 0x80040155` (a COM interface not registered, which Qt handles) when
+it makes a `QPrinter`. The tests pass, and unchanged `main` prints the same dump 34 times, so it
+predates M169.
 
 ## Future enhancements (deferred beyond the roadmap)
 

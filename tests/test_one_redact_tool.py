@@ -129,18 +129,6 @@ def test_no_commit_click_on_text_restores_the_combined_arm(win):
     assert win.vdoc.page_annotations(0) == ()
 
 
-def test_rotated_view_resolves_to_block(win):
-    """Text selection is disabled in a rotated view, so the text gesture can't run there — a
-    press over what was text must fall back to the block gesture, not dead-end."""
-    win.view.rotate_view(90)
-    win.view.arm(ArmedTool.REDACT)
-    rect = win.view.scene_rect_for_box(0, _first_word(win)[:4])
-    _press(win.view, QPointF(win.view.mapFromScene(rect.center())))
-    assert win.view.armed is ArmedTool.REDACT_REGION
-    win.view.disarm()
-    win.view.rotate_view(-90)
-
-
 # ---- the toolbar slot --------------------------------------------------------
 
 

@@ -18,7 +18,7 @@ from app import PdfApp
 from main_window import MainWindow
 from klarpdf.model.content_marks import ImageStamp, Stamp
 from store.settings import Settings
-from klarpdf.util.page_range import PageRangeError, format_page_range, parse_page_range
+from klarpdf.util.page_range import PageRangeError, parse_page_range
 from ui.mark_dialog import PLACE_CLICK, PLACE_PAGE
 from viewer.tools import ArmedTool
 
@@ -136,7 +136,8 @@ def test_an_image_stamp_places_the_same_way(win, tmp_path):
 def test_a_placed_stamp_is_hit_testable_and_selectable(win):
     _place(win, TEMPLATE, start=(100, 300), end=(300, 360))
     overlay = win.view.annotations
-    assert overlay.select_object_at(_scene(win, 200, 330)) is True
+    assert overlay.begin_move(_scene(win, 200, 330)) is True   # a plain click: press …
+    overlay.finish_move()                                       # … and release selects it
     page_index, mark = overlay.selected_object
     assert (page_index, mark) == (0, _stamps(win)[0])
 
@@ -681,11 +682,6 @@ def test_bad_page_range_raises(text):
         parse_page_range(text, 5)
 
 
-def test_format_page_range_collapses_runs():
-    assert format_page_range([0, 1, 2, 4]) == "1-3, 5"
-    assert format_page_range([]) == ""
-
-
 # ---- content marks are painted lazily, by viewport band (M69.4) ------------------
 #
 # Every other overlay is a handful of cheap Qt items, but a content mark is *rasterised* through the
@@ -702,11 +698,14 @@ def _content_items(win):
 
 
 def _stamp_every_page(win):
-    from klarpdf.model.content_marks import preset_mark
+    from klarpdf.model.content_marks import WHOLE_PAGE_DEFAULTS, Stamp
 
     for index in range(win.vdoc.page_count):
         width, height = win.view._unrotated_size(index)
-        win.vdoc.add_annotation(index, preset_mark("Draft", (0, 0, width, height), whole_page=True))
+        win.vdoc.add_annotation(index, Stamp(
+            (0, 0, width, height), "DRAFT", color=WHOLE_PAGE_DEFAULTS["color"], border_width=0.0,
+            angle=WHOLE_PAGE_DEFAULTS["angle"], opacity=WHOLE_PAGE_DEFAULTS["opacity"],
+        ))
 
 
 def test_only_marks_near_the_viewport_are_rasterised(win, monkeypatch):
@@ -1082,7 +1081,7 @@ def test_a_moved_mark_is_not_served_its_old_image(win, tmp_path):
     overlay = win.view.annotations
     overlay.repaint()
     keys_before = set(overlay._mark_pixmaps)
-    win.vdoc.clear_annotations(0)
+    win.vdoc.set_annotations(0, ())
     win.vdoc.add_annotation(0, ImageStamp(rect=(300, 400, 500, 490), image_path=path))
     overlay.repaint()
     assert set(overlay._mark_pixmaps) - keys_before, "the moved mark reused the old cache entry"
@@ -1095,7 +1094,7 @@ def test_the_mark_cache_is_bounded(win, tmp_path):
     path = _sig_path(tmp_path)
     overlay = win.view.annotations
     for index in range(_MARK_PIXMAP_CACHE + 12):
-        win.vdoc.clear_annotations(0)
+        win.vdoc.set_annotations(0, ())
         win.vdoc.add_annotation(0, ImageStamp(rect=(10 + index, 20, 210 + index, 110),
                                               image_path=path))
         overlay.repaint()

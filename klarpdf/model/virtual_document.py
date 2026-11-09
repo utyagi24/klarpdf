@@ -646,9 +646,6 @@ class VirtualDocument:
     def page_count(self) -> int:
         return len(self.ordered)
 
-    def ref_at(self, index: int) -> PageRef:
-        return self.ordered[index]
-
     def build_index_map(self, source_id: str | None = None) -> dict[int, int]:
         """Map a source's page index (0-based) -> output index (0-based) for surviving pages.
 
@@ -839,12 +836,6 @@ class VirtualDocument:
 
     # ---- list edits (each marks the document dirty) -----------------------------
 
-    def move_page(self, from_index: int, to_index: int) -> None:
-        """Move the page at ``from_index`` so it lands at ``to_index`` in the new order."""
-        ref = self.ordered.pop(from_index)
-        self.ordered.insert(to_index, ref)
-        self.dirty = True
-
     def move_pages(self, src_indices: Iterable[int], before_index: int) -> None:
         """Move pages ``src_indices`` so they sit just before ``before_index`` in the new order.
 
@@ -860,10 +851,6 @@ class VirtualDocument:
         pos = max(0, min(before_index - shift, len(remaining)))
         remaining[pos:pos] = refs
         self.ordered = remaining
-        self.dirty = True
-
-    def delete_page(self, index: int) -> None:
-        del self.ordered[index]
         self.dirty = True
 
     def delete_pages(self, indices: Iterable[int]) -> None:
@@ -882,11 +869,6 @@ class VirtualDocument:
 
     def append_pages(self, refs: Iterable[PageRef]) -> None:
         self.insert_pages(self.page_count, refs)
-
-    def set_rotation(self, index: int, angle: int | None) -> None:
-        """Set the **absolute** rotation override for the page at ``index``."""
-        self.ordered[index] = self.ordered[index].with_rotation(angle)
-        self.dirty = True
 
     def rotate_pages(self, indices: Iterable[int], delta: int) -> None:
         """Rotate each page in ``indices`` by ``delta`` degrees from its current angle.
@@ -1176,13 +1158,6 @@ class VirtualDocument:
             self.ordered[index] = ref.with_annotations(tuple(annotations))
             self.dirty = True
 
-    def clear_annotations(self, index: int) -> None:
-        """Remove all annotations from the page at ``index``."""
-        ref = self.ordered[index]
-        if ref.annotations:
-            self.ordered[index] = ref.with_annotations(())
-            self.dirty = True
-
     def remove_annotation(self, index: int, annotation) -> None:
         """Remove one specific annotation instance from the page at ``index``."""
         ref = self.ordered[index]
@@ -1211,23 +1186,6 @@ class VirtualDocument:
         if annotations != ref.annotations:
             self.ordered[index] = ref.with_annotations(annotations)
             self.dirty = True
-
-    # ---- cross-window move / copy -----------------------------------------------
-
-    def import_pages(
-        self, at_index: int, other: "VirtualDocument", indices: Iterable[int]
-    ) -> list[PageRef]:
-        """Copy pages ``indices`` from another virtual document in at ``at_index``.
-
-        Registers the other document's source(s) here (cross-window paste), then splices the
-        same PageRefs — the lossless object-level copy happens later, at materialize. Returns
-        the inserted refs so the caller (a move) can delete the originals from ``other``.
-        """
-        refs = [other.ordered[i] for i in indices]
-        for r in refs:
-            self.register_source(r.source_id, other.sources[r.source_id])
-        self.insert_pages(at_index, refs)
-        return refs
 
     # ---- reload (point-of-no-return after a destructive save) -------------------
 

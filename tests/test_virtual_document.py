@@ -7,8 +7,7 @@ from PySide6.QtGui import QUndoStack
 from edit_commands import (
     DeleteCommand,
     InsertCommand,
-    MoveCommand,
-    RotateCommand,
+    MovePagesCommand,
     RotatePagesCommand,
 )
 from klarpdf.model.virtual_document import PageRef, VirtualDocument
@@ -30,19 +29,19 @@ def test_from_path_seeds_ordered(a_pdf):
 
 def test_move_delete_insert_rotate(a_pdf):
     vd = VirtualDocument.from_path(a_pdf)
-    vd.move_page(0, 2)
+    vd.move_pages([0], 3)
     assert _indices(vd) == [1, 2, 0]
-    vd.delete_page(1)
+    vd.delete_pages([1])
     assert _indices(vd) == [1, 0]
-    vd.set_rotation(0, 90)
+    vd.rotate_pages([0], 90)
     assert vd.ordered[0].rotation_override == 90
     assert vd.dirty is True
 
 
-def test_set_rotation_rejects_non_multiples(a_pdf):
+def test_rotate_pages_rejects_non_multiples(a_pdf):
     vd = VirtualDocument.from_path(a_pdf)
     try:
-        vd.set_rotation(0, 45)
+        vd.rotate_pages([0], 45)
     except ValueError:
         pass
     else:
@@ -84,10 +83,13 @@ def test_merge_requires_registered_source(a_pdf, b_pdf):
         raise AssertionError("inserting an unregistered source should raise")
 
 
-def test_cross_window_copy_via_import(a_pdf, b_pdf):
+def test_cross_window_copy_registers_the_source_then_inserts(a_pdf, b_pdf):
+    """The two steps MainWindow takes for a page pasted or dropped from another window."""
     dst = VirtualDocument.from_path(a_pdf)
     src = VirtualDocument.from_path(b_pdf)
-    dst.import_pages(dst.page_count, src, [0])
+    ref = src.ordered[0]
+    dst.register_source(ref.source_id, src.sources[ref.source_id])
+    dst.insert_pages(dst.page_count, [ref])
     assert dst.page_count == 4
     assert dst.ordered[-1].source_id == normalize_path(b_pdf)
     # Copy leaves the source untouched.
@@ -97,12 +99,12 @@ def test_cross_window_copy_via_import(a_pdf, b_pdf):
 # ---- undo/redo via the real QUndoStack --------------------------------------
 
 
-def test_move_command_undo_redo(a_pdf):
+def test_move_pages_command_undo_redo(a_pdf):
     vd = VirtualDocument.from_path(a_pdf)
     stack = QUndoStack()
     before = vd.snapshot()
 
-    stack.push(MoveCommand(vd, 0, 2))
+    stack.push(MovePagesCommand(vd, [0], 3))   # page 1 to the end, as a drag does
     assert _indices(vd) == [1, 2, 0]
     assert vd.dirty is True
 
@@ -133,15 +135,11 @@ def test_delete_and_insert_command_undo_redo(a_pdf, b_pdf):
     assert _indices(vd) == [0, 1, 2]
 
 
-def test_rotate_command_label_and_roundtrip(a_pdf):
+def test_rotate_pages_command_labels(a_pdf):
+    """What the Undo menu says (the round trip is test_rotate_pages_command_roundtrip)."""
     vd = VirtualDocument.from_path(a_pdf)
-    stack = QUndoStack()
-    cmd = RotateCommand(vd, 1, 270)
-    assert cmd.text() == "Rotate page 2"
-    stack.push(cmd)
-    assert vd.ordered[1].rotation_override == 270
-    stack.undo()
-    assert vd.ordered[1].rotation_override is None
+    assert RotatePagesCommand(vd, [1], 270).text() == "Rotate page"
+    assert RotatePagesCommand(vd, [0, 1], 90).text() == "Rotate 2 pages"
 
 
 # ---- annotation edits: identity first, value as a safety net -----------------

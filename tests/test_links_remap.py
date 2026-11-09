@@ -98,7 +98,7 @@ def test_internal_links_follow_reorder(linked_pdf, tmp_path):
 
 def test_link_to_deleted_page_is_dropped(linked_pdf, tmp_path):
     v = VirtualDocument.from_path(linked_pdf)
-    v.delete_page(2)  # ordered [0,1,3]; src1's link target (src2) is gone
+    v.delete_pages([2])  # ordered [0,1,3]; src1's link target (src2) is gone
     out = _materialize(v, tmp_path)
     assert _goto_targets(out, 0) == [2]   # src0 → src3 (now out2)
     assert _goto_targets(out, 1) == []    # src1 → src2 (deleted) → dropped
@@ -195,7 +195,7 @@ def test_named_links_follow_reorder(named_pdf, tmp_path):
 
 def test_named_link_to_deleted_page_dropped(named_pdf, tmp_path):
     v = VirtualDocument.from_path(named_pdf)
-    v.delete_page(2)  # ordered [0,1,3]; page0's target (src2) is gone
+    v.delete_pages([2])  # ordered [0,1,3]; page0's target (src2) is gone
     out = _materialize(v, tmp_path)
     assert _goto_targets(out, 0) == []    # named target deleted → dropped
     assert _goto_targets(out, 1) == [2]   # page1 → named src3, now out2

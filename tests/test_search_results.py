@@ -12,7 +12,7 @@ import pytest
 
 from app import PdfApp
 from store.settings import Settings
-from viewer.search import _snippet_for
+from klarpdf.model.page_text import PageText
 
 
 @pytest.fixture(scope="session")
@@ -82,8 +82,8 @@ def test_long_line_snippet_is_windowed_with_ellipses(app, prose_pdf):
     assert "one two" not in long_snippet
 
 
-def test_snippet_for_empty_when_box_misses_all_words():
-    assert _snippet_for([(0, 0, 10, 10, "word", 0, 0, 0)], (500, 500, 520, 520)) == ""
+def test_snippet_is_empty_when_the_box_misses_every_word():
+    assert PageText(words=[(0, 0, 10, 10, "word", 0, 0, 0)]).snippet((500, 500, 520, 520)) == ""
 
 
 # ---- the results panel ----------------------------------------------------------

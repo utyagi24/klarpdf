@@ -57,3 +57,7 @@ setuptools>=68   # keep in step with the floor in pyproject.toml's [build-system
 # section 1). `required-version` in pyproject.toml moves with it in the same commit, and
 # tests/test_lint_config.py fails if the two disagree. Dev-only: it ships in nothing.
 ruff==0.17.4
+# vulture, the dead-code check (M169, #409): tests/test_no_dead_code.py runs it over the shipped
+# files git tracks. An EXACT pin, for Ruff's reason: a new release can report things the old one did
+# not, and the check would then fail on code nobody touched. No dependencies; MIT. Dev-only.
+vulture==2.16

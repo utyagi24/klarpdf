@@ -56,7 +56,6 @@ class FieldDialog(QDialog):
         form.addRow("Type", self.kind)
         form.addRow("Name", self.name)
         form.addRow("Default", self.value)
-        self._options_row = self.options
         form.addRow("Choices", self.options)
         self._form = form
 

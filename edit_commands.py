@@ -50,15 +50,6 @@ class _SnapshotCommand(QUndoCommand):
         self._vdoc.restore(self._before)
 
 
-class MoveCommand(_SnapshotCommand):
-    def __init__(self, vdoc: VirtualDocument, from_index: int, to_index: int) -> None:
-        super().__init__(vdoc, f"Move page {from_index + 1} → {to_index + 1}")
-        self._from, self._to = from_index, to_index
-
-    def _apply(self) -> None:
-        self._vdoc.move_page(self._from, self._to)
-
-
 class MovePagesCommand(_SnapshotCommand):
     """Drag-reorder of one or more selected pages to a drop position."""
 
@@ -97,15 +88,6 @@ class InsertCommand(_SnapshotCommand):
 
     def _apply(self) -> None:
         self._vdoc.insert_pages(self._at, self._refs)
-
-
-class RotateCommand(_SnapshotCommand):
-    def __init__(self, vdoc: VirtualDocument, index: int, angle: int | None) -> None:
-        super().__init__(vdoc, f"Rotate page {index + 1}")
-        self._index, self._angle = index, angle
-
-    def _apply(self) -> None:
-        self._vdoc.set_rotation(self._index, self._angle)
 
 
 class RotatePagesCommand(_SnapshotCommand):

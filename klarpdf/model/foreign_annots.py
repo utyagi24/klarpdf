@@ -149,8 +149,8 @@ class ForeignMove:
 #
 # A text markup's quads *describe text*: move it and it marks nothing — the reader is left with a
 # yellow bar floating beside the sentence it was drawn on. Our **own** Highlight / Underline /
-# Strikeout are deliberately undraggable for exactly that reason (they appear in neither
-# `viewer.annotations.OBJECT_TYPES` nor `model.page_edits.PLACEABLE_TYPES`), but the foreign path
+# Strikeout are deliberately undraggable for exactly that reason (they are not in
+# `viewer.annotations.OBJECT_TYPES`), but the foreign path
 # had no equivalent gate, so marks from another tool got a capability our identical ones are denied
 # — and, because the move is applied at materialise, the displacement became permanent in the file.
 #
@@ -240,11 +240,6 @@ def read_foreign_annotations(page: "fitz.Page") -> tuple[ForeignAnnot, ...]:
             )
         )
     return tuple(found)
-
-
-def page_has_foreign_annotations(page: "fitz.Page") -> bool:
-    """Cheap check used to decide whether a page needs the foreign-annotation machinery at all."""
-    return any(is_foreign(annot) for annot in page.annots())
 
 
 # ---- adopt-on-edit (M68) --------------------------------------------------------
@@ -450,10 +445,3 @@ def apply_foreign_edits(page: "fitz.Page", annotations: tuple) -> tuple[int, int
     for annot in to_delete:
         page.delete_annot(annot)
     return (len(to_delete), len(to_move))
-
-
-def apply_foreign_deletions(page: "fitz.Page", annotations: tuple) -> int:
-    """Deletions only — :func:`apply_foreign_edits` restricted to :class:`ForeignDeletion`."""
-    return apply_foreign_edits(
-        page, tuple(a for a in annotations if isinstance(a, ForeignDeletion))
-    )[0]

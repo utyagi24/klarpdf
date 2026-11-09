@@ -7,8 +7,7 @@ hit-tests to a cursor word; the selection is the inclusive range between them in
 Selected word boxes are painted as highlight rects; copy joins the words to the clipboard. The
 selected text is exactly the preserved OCR layer.
 
-Rotation 0 only (the geometry helpers it uses are rotation-0); selection is disabled in a rotated
-view. Cross-page selection falls out of the global (page, word) ordering and is supported
+Cross-page selection falls out of the global (page, word) ordering and is supported
 best-effort — single-page selection is the thoroughly tested path (PLAN.md flags cross-page in
 continuous scroll as a follow-up).
 """
@@ -127,8 +126,6 @@ class TextSelection:
     def begin(self, scene_pt) -> bool:
         """Handle a left-press. Clears any current selection (a click deselects, like Preview)
         and arms a potential drag. Returns True if it consumed the event."""
-        if self._view.rotation != 0:
-            return False
         self.clear()  # press always deselects; a drag below rebuilds the selection
         self.active = True
         self._press = scene_pt
@@ -162,8 +159,6 @@ class TextSelection:
     def select_word_at(self, scene_pt) -> bool:
         """Double-click: select the whole word under the point (Preview-style). Clicking off
         any word clears the selection. Returns True if it consumed the event."""
-        if self._view.rotation != 0:
-            return False
         hit = self._word_containing(scene_pt)
         self.clear()
         if hit is None:
@@ -197,8 +192,6 @@ class TextSelection:
         would select nothing at all. A document with no text layer anywhere selects nothing and
         does not error — Edge behaves identically, and it is the right answer for an image-only PDF.
         """
-        if self._view.rotation != 0:
-            return False       # selection is rotation-0 only, as elsewhere in this class
         pages = range(len(self._view._vdoc.ordered))
         first = next((p for p in pages if self._words_for(p)), None)
         self.clear()
@@ -342,9 +335,6 @@ class TextSelection:
         rect (:meth:`line_bars`), which takes roughly another order of magnitude off what remains.
         """
         self._clear_items()
-        if self._view.rotation != 0:
-            self._band = None
-            return
         scene = self._view.scene()
         brush = self._armed_brush()
         # Only a highlight preview multiplies. A plain selection is a *selection indicator*, not a

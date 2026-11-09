@@ -145,13 +145,6 @@ def test_the_ends_skip_pages_with_no_words(qapp, tmp_path):
         v.deleteLater()
 
 
-def test_select_all_is_inert_in_a_rotated_view(view):
-    """Selection is rotation-0 only throughout this class; Ctrl+A does not become the exception."""
-    view.rotate_view(90)
-    assert view.selection.select_all() is False
-    assert view.selection.selected_words() == []
-
-
 def test_ctrl_a_does_not_hijack_a_focused_editor(qapp, a_pdf, tmp_path):
     """Why this is a view key and not a window `QAction`: with focus in the inline field editor — a
     child of this viewport — Ctrl+A must mean select-all-*in-this-field*."""

@@ -54,7 +54,7 @@ def test_set_password_round_trips_on_both_open_paths(a_pdf, tmp_path):
 
 def test_set_password_keeps_edits_metadata_and_outline(a_pdf, tmp_path):
     v = VirtualDocument.from_path(a_pdf)
-    v.set_rotation(0, 90)
+    v.rotate_pages([0], 90)
     values = v.effective_metadata()
     values["title"] = "Locked Title"
     v.set_metadata_override(values)

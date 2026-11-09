@@ -114,7 +114,7 @@ def test_reopening_restores_the_remembered_page(qapp, a_pdf, settings):
     rebuild and that render re-derives the current page from a viewport still scrolled to the top,
     resetting the field to 0. So the remembered page was read, stored, immediately overwritten, and
     the view opened on page 1 every time. `open_at` now carries the page in a local across the
-    rebuild, the way `rotate_view` and `set_page_layout` already do.
+    rebuild, the way `set_page_layout` already does.
     """
     win = qapp.open_document(a_pdf)
     qapp.processEvents()
@@ -193,12 +193,11 @@ def test_zoom_is_saved_but_a_document_opens_at_fit_page(qapp, a_pdf, settings):
     again.close()
 
 
-def test_page_and_rotation_do_resume(qapp, a_pdf, settings):
-    """The other half of the same decision: page and rotation are what resume."""
+def test_the_page_does_resume(qapp, a_pdf, settings):
+    """The other half of the same decision: the page is what resumes."""
     win = qapp.open_document(a_pdf)
     qapp.processEvents()
     win.view.goto_page(1)
-    win.view.rotate_view(90)
     qapp.processEvents()
     win.undo_stack.setClean()
     win.close()
@@ -206,5 +205,4 @@ def test_page_and_rotation_do_resume(qapp, a_pdf, settings):
     again = qapp.open_document(a_pdf)
     qapp.processEvents()
     assert again.view.current_page == 1
-    assert again.view.rotation == 90
     again.close()

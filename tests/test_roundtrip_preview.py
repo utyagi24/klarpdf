@@ -162,7 +162,7 @@ def test_source_and_doc_annotation_flags(baked_pdf):
     assert v.has_baked_klarpdf_annotations() is True
     # Removing the model annotations does NOT clear the source-bytes flag — the marks are still
     # baked into the on-disk source, so the render must stay on the strip path.
-    v.clear_annotations(0)
+    v.set_annotations(0, ())
     assert v.has_baked_klarpdf_annotations() is True
 
 
@@ -181,7 +181,7 @@ def test_thumbnail_stays_baked_after_removing_last_annotation(qapp, baked_pdf, t
     win = qapp.open_document(baked_pdf)
     try:
         assert win.thumbs._edited_render() is not None     # reopened-with-marks → baked path
-        win.vdoc.clear_annotations(0)                       # remove the round-tripped marks
+        win.vdoc.set_annotations(0, ())                       # remove the round-tripped marks
         baked = win.thumbs._edited_render()
         assert baked is not None                            # still baked path (source bytes have them)
         baked.close()

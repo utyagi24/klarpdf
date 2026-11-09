@@ -103,7 +103,7 @@ def test_redaction_snapshot_roundtrips(vdoc):
     r = Redaction((_word_box(vdoc, 0, SECRET),))
     vdoc.add_annotation(0, r)
     snap = vdoc.snapshot()
-    vdoc.clear_annotations(0)
+    vdoc.set_annotations(0, ())
     vdoc.restore(snap)
     assert vdoc.page_annotations(0) == (r,)
 

@@ -116,6 +116,8 @@ typing-inspection==0.4.4
     #   pydantic
 uvicorn==0.52.1
     # via mcp
+vulture==2.16
+    # via -r requirements-dev.in
 
 # The following packages are considered to be unsafe in a requirements file:
 setuptools==84.2.1

@@ -133,12 +133,13 @@ def test_the_page_tops_index_stays_sorted_through_every_relayout(qapp, tmp_path,
         win.view.set_zoom(zoom)
         qapp.processEvents()
         check(f"zoom {zoom}")
-    win.view.rotate_view(90)
+    win._rotate_pages(90)                  # Rotate Left/Right: the current page, as a command
     qapp.processEvents()
-    check("rotated")
+    check("rotated page")
     win.view.set_page_layout("facing")
     qapp.processEvents()
     check("facing")
+    win.undo_stack.setClean()              # the page rotation is a real edit; close without asking
     win.close()
 
 

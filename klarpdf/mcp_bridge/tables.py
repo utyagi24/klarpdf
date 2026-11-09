@@ -503,16 +503,6 @@ def _covered(spans: list[tuple[float, float]]) -> list[list[float]]:
     return merged
 
 
-def _intersect(a: list[list[float]], b: list[list[float]]) -> list[list[float]]:
-    out = []
-    for a0, a1 in a:
-        for b0, b1 in b:
-            lo, hi = max(a0, b0), min(a1, b1)
-            if hi - lo > _EPS:
-                out.append([lo, hi])
-    return out
-
-
 def _columns_touched(line: _Line, columns: list[list[float]]) -> list[int]:
     return [i for i, (a, b) in enumerate(columns) if _overlap(line.x0, line.x1, a, b) > _EPS]
 
@@ -1938,13 +1928,6 @@ def _continues_from(entry: dict, previous: dict | None, page_height: float) -> i
 # ---------------------------------------------------------------------------------------------
 # The tool
 # ---------------------------------------------------------------------------------------------
-
-
-def ruled_pages(path: str, pages: list[int] | None = None, password: str | None = None) -> list[int]:
-    """Pages in scope carrying enough ruling or shading that ``get_tables`` may return rows for them."""
-    with open_document(path, password) as vdoc:
-        indices = resolve_pages(vdoc, pages)
-        return [i + 1 for i in indices if horizontal_rules(_page_of(vdoc, i)) >= MIN_RULES]
 
 
 def _public(entry: dict) -> dict:

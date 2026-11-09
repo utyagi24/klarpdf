@@ -100,12 +100,6 @@ def test_undo_redo_restores_annotation(vdoc):
     assert vdoc.page_annotations(0) == (h,)
 
 
-def test_clear_annotations(vdoc):
-    vdoc.add_annotation(0, TextBox((72, 150, 300, 180), "x"))
-    vdoc.clear_annotations(0)
-    assert vdoc.page_annotations(0) == ()
-
-
 def test_remove_annotation_removes_only_that_one(vdoc):
     a = TextBox((72, 150, 300, 180), "a")
     b = TextBox((72, 200, 300, 230), "b")
@@ -131,7 +125,7 @@ def test_snapshot_roundtrips_annotations(vdoc):
     h = Highlight(_word_rects(vdoc, 0))
     vdoc.add_annotation(0, h)
     snap = vdoc.snapshot()
-    vdoc.clear_annotations(0)
+    vdoc.set_annotations(0, ())
     vdoc.restore(snap)
     assert vdoc.page_annotations(0) == (h,)
 
@@ -169,7 +163,7 @@ def test_textbox_on_rotated_page_materializes(vdoc, tmp_path):
     """A text box on a per-page-rotated page bakes in and the page keeps its rotation — so PDF
     /Rotate rotates the annotation with the page (the in-app preview rotation mirrors this)."""
     vdoc.add_annotation(0, TextBox((72, 150, 320, 180), "rot"))
-    vdoc.set_rotation(0, 90)
+    vdoc.rotate_pages([0], 90)
     out = _materialize(vdoc, tmp_path)
     assert ("FreeText", "rot") in _annots(out, 0)
     with fitz.open(out) as doc:
@@ -254,7 +248,7 @@ def test_textbox_fill_makes_the_box_far_more_inked_than_unfilled(vdoc, tmp_path)
     rect = (200, 300, 380, 360)
     vdoc.add_annotation(0, TextBox(rect, "x", fill_color=(0.2, 0.4, 0.9)))
     filled = _ink(_materialize(vdoc, tmp_path), rect)
-    vdoc.clear_annotations(0)
+    vdoc.set_annotations(0, ())
     vdoc.add_annotation(0, TextBox(rect, "x"))          # same box, no fill
     nofill = str(tmp_path / "nofill.pdf")
     PyMuPDFEngine().materialize(vdoc, nofill)
@@ -276,7 +270,7 @@ def test_styled_textbox_roundtrips_through_snapshot(vdoc):
                   fontname="cour", fill_color=(1, 1, 0), border_width=1.5)
     vdoc.add_annotation(0, box)
     snap = vdoc.snapshot()
-    vdoc.clear_annotations(0)
+    vdoc.set_annotations(0, ())
     vdoc.restore(snap)
     assert vdoc.page_annotations(0) == (box,)           # frozen descriptor restored intact
 

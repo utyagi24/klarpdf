@@ -202,11 +202,9 @@ def test_a_page_whose_pieces_are_all_drawn_becomes_one_picture(view, qapp, slow)
     assert _image(view._pages[0]["pix"].pixmap()) == _drawn_whole(view, 0)
 
 
-@pytest.mark.parametrize("setup", ["rotated view", "rotated page", "cropped page", "night mode"])
+@pytest.mark.parametrize("setup", ["rotated page", "cropped page", "night mode"])
 def test_pieces_join_up_exactly_however_the_page_is_shown(view, qapp, slow, setup):
-    if setup == "rotated view":
-        view.rotate_view(90)
-    elif setup == "rotated page":
+    if setup == "rotated page":
         view._vdoc.rotate_pages([0], 270)
         view.reload()
     elif setup == "cropped page":
@@ -393,7 +391,7 @@ def test_an_edit_that_moves_pages_drops_the_old_pictures(view, qapp, slow):
     _zoom(qapp, view, 2.0)
     _drain(qapp, view)
 
-    view._vdoc.delete_page(0)
+    view._vdoc.delete_pages([0])
     view.reload()
 
     assert not view._carried

@@ -145,7 +145,7 @@ def test_a_new_field_rides_the_pageref(vdoc):
 
 def test_a_new_field_follows_a_reorder(vdoc, tmp_path):
     vdoc.add_annotation(0, NewField(RECT, "moved", "text"))
-    vdoc.move_page(0, 1)
+    vdoc.move_pages([0], 2)
     out = _materialize(vdoc, tmp_path)
     assert _widgets(out, 0) == []
     assert [n for n, *_ in _widgets(out, 1)] == ["moved"]
@@ -396,7 +396,7 @@ def test_radio_groups_are_not_offered():
 # ---- a created field is an ordinary object (M69.14) ------------------------------
 #
 # Owner-reported: a placed field could not be moved, even before saving. The model had always been
-# ready — `PLACEABLE_TYPES` lists NewField, `translate_mark` and `scale_mark` both handle it, and
+# ready — `translate_mark` and `scale_mark` both handle NewField, and
 # its `bounding_rect` docstring says it exists "so the viewer's shared hit-test / outline helpers
 # work on it unchanged" — but the viewer's OBJECT_TYPES tuple was never told, so the field was
 # invisible to select / move / resize / marquee. It is drawn by the *form* overlay rather than the
@@ -430,7 +430,8 @@ def test_a_placed_field_is_hit_testable(win):
 def test_a_placed_field_selects_and_moves(win):
     _field_win(win)
     overlay = win.view.annotations
-    assert overlay.select_object_at(_at(win, 200, 315)) is True
+    assert overlay.begin_move(_at(win, 200, 315)) is True     # a plain click: press …
+    overlay.finish_move()                                       # … and release selects it
     assert overlay.begin_move(_at(win, 200, 315)) is True
     overlay.update_move(_at(win, 250, 360))
     overlay.finish_move()

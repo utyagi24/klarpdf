@@ -24,7 +24,7 @@ def _field_names(path: str) -> list[str]:
 
 def test_text_survives_reorder(a_pdf, tmp_path):
     vd = VirtualDocument.from_path(a_pdf)
-    vd.move_page(2, 0)  # A2 to the front
+    vd.move_pages([2], 0)  # A2 to the front
     out = str(tmp_path / "out.pdf")
     PyMuPDFEngine().materialize(vd, out)
 
@@ -39,7 +39,7 @@ def test_text_survives_reorder(a_pdf, tmp_path):
 
 def test_outline_remaps_and_drops_dangling(a_pdf, tmp_path):
     vd = VirtualDocument.from_path(a_pdf)
-    vd.delete_page(1)  # deletes A1 — the "Section 1.1" bookmark target
+    vd.delete_pages([1])  # deletes A1 — the "Section 1.1" bookmark target
     out = str(tmp_path / "out.pdf")
     PyMuPDFEngine().materialize(vd, out)
 
@@ -73,10 +73,10 @@ def test_merge_preserves_both_form_fields_dedup(a_pdf, b_pdf, tmp_path):
     assert fields is not None and len(fields) == 2
 
 
-def test_rotation_override_is_absolute(a_pdf, tmp_path):
+def test_two_turns_save_as_one_absolute_rotation(a_pdf, tmp_path):
     vd = VirtualDocument.from_path(a_pdf)
-    vd.set_rotation(0, 90)
-    vd.set_rotation(0, 270)  # absolute: final angle wins, not 90+270
+    vd.rotate_pages([0], 90)
+    vd.rotate_pages([0], 180)  # turns combine into one stored angle: 90 + 180
     out = str(tmp_path / "rot.pdf")
     PyMuPDFEngine().materialize(vd, out)
 

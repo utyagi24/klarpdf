@@ -104,7 +104,7 @@ def test_navigation_follows_a_reorder(app, linked_pdf, monkeypatch):
 
 def test_link_to_deleted_target_is_not_clickable(app, linked_pdf, monkeypatch):
     win = app.open_document(linked_pdf)
-    win.vdoc.delete_page(3)  # the GoTo target is gone
+    win.vdoc.delete_pages([3])  # the GoTo target is gone
     win.view.reload()
     calls = _spy_goto(win.view, monkeypatch)
     assert win.view.links.navigate_at(_center_of(win.view, 0, _GOTO_BOX)) is False
