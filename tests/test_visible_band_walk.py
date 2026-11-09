@@ -139,6 +139,7 @@ def test_the_page_tops_index_stays_sorted_through_every_relayout(qapp, tmp_path,
     win.view.set_page_layout("facing")
     qapp.processEvents()
     check("facing")
+    win.undo_stack.setClean()              # the page rotation is a real edit; close without asking
     win.close()
 
 
