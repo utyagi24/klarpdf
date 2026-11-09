@@ -155,15 +155,52 @@ version = { attr = "klarpdf.version.__version__" }
 # report something CI does not. It must equal the pin in requirements-dev.txt, and
 # tests/test_lint_config.py checks that, so a bump changes both in one commit.
 required-version = "==0.17.4"
-# No `target-version` yet. Ruff reads 3.11 from `requires-python` above, and M168 states it here.
+# The wheel's floor (`requires-python`), for the whole repository, the app included (M168). Code moves
+# from the app into klarpdf/ when the bridge needs it (the markup palette did in M101), so syntax newer
+# than 3.11 in the app would break the wheel on the day it moved.
+target-version = "py311"
 
 [tool.ruff.lint]
-# Ruff's default set, written out so that later milestones add to a list rather than to a default. A
-# rule is switched on only at zero findings, in the PR that gets it there: no baseline file, and no
-# mass `noqa`. A suppression names its code and gives a reason: `# noqa: F401 — why`.
-select = ["E4", "E7", "E9", "F"]
+# A rule is switched on only at zero findings, in the PR that gets it there: no baseline file, and no
+# mass `noqa`. A suppression names its code and gives a reason: `# noqa: F401 — why`, or
+# `# type: ignore[code]  # why`. tests/test_project_rules.py checks the reason.
+select = [
+    "E4", "E7", "E9", "F",  # Ruff's default set (M167)
+    "PGH003", "PGH004",     # no blanket `# type: ignore` or `# noqa`: name the code (M168)
+    "RUF100",               # no `noqa` that suppresses nothing (M168)
+    "T20",                  # no `print` in klarpdf/ (see per-file-ignores) (M168)
+    "TID251",               # the banned APIs below (M168)
+]
 # E741 (a one-letter name such as `l`) comes with M171's consistency rules: 50 findings, none a defect.
 ignore = ["E741"]
+# Six `noqa: BLE001` comments in klarpdf/ carry their reasons for M170, which switches BLE001 on.
+# Until then RUF100 would call them suppressions of a rule that is off. Listing the code here keeps
+# them, at the cost that a stale one goes unreported until M170 deletes this line.
+external = ["BLE001"]
+
+[tool.ruff.lint.per-file-ignores]
+# stdout is the bridge's JSON-RPC stream, so `print` is banned in klarpdf/ only. The app, the tools
+# and the tests print on purpose.
+"!klarpdf/**" = ["T20"]
+# The OS quarantine itself, and the places whose job is the OS: the installer and build scripts, the
+# task runner, the dev tools, and the tests that check each platform's branch.
+"platform_integration.py" = ["TID251"]
+"packaging/**" = ["TID251"]
+"tasks.py" = ["TID251"]
+"tools/**" = ["TID251"]
+"tests/**" = ["TID251"]
+
+# OS-specific calls, banned outside the quarantine (CLAUDE.md, Keep OS-specific code quarantined).
+# Ruff reports an import of one of these and a use of it, so `sys.platform` in an `if` is caught too.
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"sys.platform".msg = "is OS-specific: it belongs in platform_integration.py (CLAUDE.md, Keep OS-specific code quarantined)"
+"os.name".msg = "is OS-specific: it belongs in platform_integration.py (CLAUDE.md, Keep OS-specific code quarantined)"
+"platform.system".msg = "is OS-specific: it belongs in platform_integration.py (CLAUDE.md, Keep OS-specific code quarantined)"
+"os.startfile".msg = "is OS-specific: it belongs in platform_integration.py (CLAUDE.md, Keep OS-specific code quarantined)"
+"winreg".msg = "is OS-specific: it belongs in platform_integration.py (CLAUDE.md, Keep OS-specific code quarantined)"
+"ctypes.windll".msg = "is OS-specific: it belongs in platform_integration.py (CLAUDE.md, Keep OS-specific code quarantined)"
+"ctypes.WinDLL".msg = "is OS-specific: it belongs in platform_integration.py (CLAUDE.md, Keep OS-specific code quarantined)"
+"ctypes.wintypes".msg = "is OS-specific: it belongs in platform_integration.py (CLAUDE.md, Keep OS-specific code quarantined)"
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
