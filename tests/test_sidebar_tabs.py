@@ -12,7 +12,6 @@ Three owner calls from the R6 test pass, all about the sidebar being *quieter*:
 
 from __future__ import annotations
 
-import pymupdf as fitz
 import pytest
 from PySide6.QtWidgets import QStyleOptionToolButton, QTabWidget
 

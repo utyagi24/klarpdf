@@ -13,7 +13,6 @@ import pymupdf as fitz
 import pytest
 from PySide6.QtGui import QUndoStack
 
-import main_window as mw
 from app import PdfApp
 from main_window import MainWindow
 from edit_commands import SetMetadataCommand

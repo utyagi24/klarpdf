@@ -14,7 +14,7 @@ import pymupdf as fitz
 import pytest
 
 from app import PdfApp
-from edit_commands import CropPagesCommand, ResetCropCommand
+from edit_commands import CropPagesCommand
 from klarpdf.model.edit_engine import PyMuPDFEngine
 from klarpdf.model.virtual_document import PageRef, VirtualDocument
 from store.settings import Settings

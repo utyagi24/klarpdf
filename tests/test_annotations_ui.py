@@ -244,7 +244,6 @@ def test_arming_lights_button_toggles_and_disarms_on_mode_switch(win):
 def _drag_over_first_word(win):
     """Press-drag across page 0's first word via real mouse events; returns nothing (side effects
     apply the armed tool on release)."""
-    box = _first_word_center(win)  # scene center of the first word
     ref = win.vdoc.ordered[0]
     page = win.vdoc.sources[ref.source_id][ref.source_page_index]
     rect = win.view.scene_rect_for_box(0, page.get_text("words")[0][:4])

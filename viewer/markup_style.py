@@ -56,7 +56,8 @@ from PySide6.QtWidgets import (
 
 # Re-exported under their old names, so every existing importer is unaffected. The swatches
 # themselves moved to `model/markup_palette.py` at M101 — see the note at their former site below.
-from klarpdf.model.markup_palette import HIGHLIGHT_COLORS, TEXT_LINE_COLORS
+from klarpdf.model.markup_palette import HIGHLIGHT_COLORS as HIGHLIGHT_COLORS
+from klarpdf.model.markup_palette import TEXT_LINE_COLORS as TEXT_LINE_COLORS
 
 # Stroke presets — the redline red default first, then a small spread that reads on white paper.
 _STROKE_PRESETS = (

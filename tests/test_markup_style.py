@@ -9,7 +9,6 @@ style. Highlight (translucent yellow) and redaction (opaque black) stay out of t
 
 from __future__ import annotations
 
-import pymupdf as fitz
 import pytest
 from PySide6.QtCore import Qt
 

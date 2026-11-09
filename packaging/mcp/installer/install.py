@@ -416,7 +416,6 @@ def client_command(client: str, script: Path) -> str:
 
 
 def report(install_dir: Path, script: Path, version: str, configured: bool) -> None:
-    quoted = f'"{script}"' if " " in str(script) else str(script)
     print(f"""
 KlarPDF MCP {version} is installed.
 

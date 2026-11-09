@@ -76,7 +76,7 @@ def test_the_warning_says_the_output_is_disposable(page_with, out):
     """The same remedy the over-redaction guard gives: the input is untouched, so the fix is to
     discard this output rather than to repair it."""
     path = page_with("SEEMA Female Married")
-    warning = partial_warning(redact(page_with("SEEMA Female Married"), out, query="Male"))
+    warning = partial_warning(redact(path, out, query="Male"))
     assert "whole_words" in warning and "discarded" in warning
 
 

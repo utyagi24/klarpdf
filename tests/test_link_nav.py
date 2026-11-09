@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pymupdf as fitz
 import pytest
-from PySide6.QtCore import QPointF, Qt
+from PySide6.QtCore import Qt
 
 from app import PdfApp
 from store.settings import Settings

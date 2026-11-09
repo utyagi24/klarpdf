@@ -21,7 +21,6 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from klarpdf.mcp_bridge.config import Config, Limits, PathNotAllowed, PathPolicy
 from klarpdf.mcp_bridge.server import _explain, create_server, parse_args
-from tests.conftest import A_TEXT
 
 ROOT = Path(__file__).resolve().parents[1]
 
