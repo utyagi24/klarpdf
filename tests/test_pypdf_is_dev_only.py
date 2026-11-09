@@ -24,10 +24,13 @@ from tests.test_mcp_packaging import _imports, _input
 
 ROOT = Path(__file__).resolve().parent.parent
 
-#: Top-level entries that are not shipped: the suite itself, dev scripts, build scripts, and the
-#: vendored-wheel record. Everything else with Python in it ships, in the app or the bridge, so a
-#: new package is covered the day it is added to git rather than when someone remembers to list it.
-NOT_SHIPPED = {"tests", "tools", "packaging", "vendor", "tasks.py"}
+#: Top-level entries that are not shipped: the suite itself, dev scripts, build scripts, the
+#: vendored-wheel record, and the brand artwork's one-shot generator (``assets/brand/gen-lockup.py``,
+#: added in M169: nothing in ``assets/`` is frozen into the app or packed in the wheel). Everything
+#: else with Python in it ships, in the app or the bridge, so a new package is covered the day it is
+#: added to git rather than when someone remembers to list it. ``tests/test_no_dead_code.py`` uses
+#: this too.
+NOT_SHIPPED = {"tests", "tools", "packaging", "vendor", "assets", "tasks.py"}
 
 needs_git = pytest.mark.skipif(shutil.which("git") is None, reason="needs git to list tracked files")
 
