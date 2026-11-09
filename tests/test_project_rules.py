@@ -97,7 +97,11 @@ def test_every_suppression_gives_a_reason():
     offenders = [
         f"{name}:{line}: {comment}"
         for name in _tracked("*.py")
-        for line, comment in _unexplained_suppressions((ROOT / name).read_text("utf-8"))
+        # `replace`: a file that is not UTF-8 is the encoding test's finding, not a reason to stop
+        # reading suppressions.
+        for line, comment in _unexplained_suppressions(
+            (ROOT / name).read_text("utf-8", errors="replace")
+        )
     ]
     assert offenders == [], (
         "a suppression is a decision, and a decision needs its reason (CLAUDE.md, Run Ruff before a "

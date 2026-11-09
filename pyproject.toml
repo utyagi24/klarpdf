@@ -193,14 +193,14 @@ external = ["BLE001"]
 # OS-specific calls, banned outside the quarantine (CLAUDE.md, Keep OS-specific code quarantined).
 # Ruff reports an import of one of these and a use of it, so `sys.platform` in an `if` is caught too.
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
-"sys.platform".msg = "is OS-specific: it belongs in platform_integration.py (CLAUDE.md, Keep OS-specific code quarantined)"
-"os.name".msg = "is OS-specific: it belongs in platform_integration.py (CLAUDE.md, Keep OS-specific code quarantined)"
-"platform.system".msg = "is OS-specific: it belongs in platform_integration.py (CLAUDE.md, Keep OS-specific code quarantined)"
-"os.startfile".msg = "is OS-specific: it belongs in platform_integration.py (CLAUDE.md, Keep OS-specific code quarantined)"
-"winreg".msg = "is OS-specific: it belongs in platform_integration.py (CLAUDE.md, Keep OS-specific code quarantined)"
-"ctypes.windll".msg = "is OS-specific: it belongs in platform_integration.py (CLAUDE.md, Keep OS-specific code quarantined)"
-"ctypes.WinDLL".msg = "is OS-specific: it belongs in platform_integration.py (CLAUDE.md, Keep OS-specific code quarantined)"
-"ctypes.wintypes".msg = "is OS-specific: it belongs in platform_integration.py (CLAUDE.md, Keep OS-specific code quarantined)"
+"sys.platform".msg = "OS-specific code belongs in platform_integration.py (CLAUDE.md, Keep OS-specific code quarantined)"
+"os.name".msg = "OS-specific code belongs in platform_integration.py (CLAUDE.md, Keep OS-specific code quarantined)"
+"platform.system".msg = "OS-specific code belongs in platform_integration.py (CLAUDE.md, Keep OS-specific code quarantined)"
+"os.startfile".msg = "OS-specific code belongs in platform_integration.py (CLAUDE.md, Keep OS-specific code quarantined)"
+"winreg".msg = "OS-specific code belongs in platform_integration.py (CLAUDE.md, Keep OS-specific code quarantined)"
+"ctypes.windll".msg = "OS-specific code belongs in platform_integration.py (CLAUDE.md, Keep OS-specific code quarantined)"
+"ctypes.WinDLL".msg = "OS-specific code belongs in platform_integration.py (CLAUDE.md, Keep OS-specific code quarantined)"
+"ctypes.wintypes".msg = "OS-specific code belongs in platform_integration.py (CLAUDE.md, Keep OS-specific code quarantined)"
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
