@@ -43,6 +43,16 @@ No behaviour a user could reach changed; the owner hand-checked M169.
 
 3,261 headless tests green on Windows (9 expected skips under PowerShell — see `RELEASE.md` §3).
 
+**Verified at release (2026-11-09).** The draft's four checksums match, `install.py` and the `.mcpb`
+both carry 0.21.0, and the tag's `audit` run is green. The owner smoke-tested the installer and ran
+`RELEASE.md` §4 row 9 in Claude Desktop through the one-click `.mcpb`: 23 tools, `get_info`,
+`redact_text` leaving its input byte-identical, and a refusal arriving as readable text on `mcp` 2.3.
+**Row 9's config-file route (Option B) was not checked this time.** Row 8's stdio check had failed
+since v0.20.0, because it expected 19 tools; it was fixed in the release PR and passed 13 of 13. The
+PyPI upload succeeded. Also found: `SHA256SUMS` has Windows line endings, so `sha256sum -c` fails on
+Linux and macOS, and v0.20.0's did too
+([#446](https://github.com/utyagi24/klarpdf/issues/446)).
+
 **v0.20.0** — **structure an agent can use, and a window that keeps up**
 (M138–M157). A **minor** under `RELEASE.md` §3's SemVer rule: new tools and app features, no
 breaking change. Release: <https://github.com/utyagi24/klarpdf/releases/tag/v0.20.0>.

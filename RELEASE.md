@@ -545,10 +545,11 @@ Needs Node (for `npx @anthropic-ai/mcpb`) and, on the *installing* machine,
 [`uv`](https://docs.astral.sh/uv/) on PATH. Then:
 
 1. Open the `.mcpb`. Claude Desktop should offer to install it.
-2. Confirm the tool list matches `packaging/mcp/mcpb/manifest.json` — **19** as of v0.17.1. Count it
-   from the manifest rather than from here: a test pins the manifest to what the server registers,
-   so the manifest cannot go stale and this line can (it said 16 for three tools longer than it was
-   true).
+2. Confirm the tool list matches `packaging/mcp/mcpb/manifest.json`. Count it from the manifest:
+   a test pins the manifest to what the server registers, so the manifest cannot go stale, while a
+   number written here can. This line said 16 for three tools longer than it was true, then 19 from
+   v0.17.1 to v0.21.0, through a release that had 23. Row 8's stdio check had the same fault until
+   v0.21.0 (`tools/mcp_stdio_check.py` now reads the manifest).
 3. Call `get_info` on a real PDF, then `redact_text` on a throwaway copy, and check the reply
    carries `cross_engine_verified` (`true` only if Poppler is installed on that machine).
 4. Confirm the input file is **byte-identical** afterwards. Hash it before and after rather than
