@@ -14,11 +14,11 @@ import pytest
 from PySide6.QtGui import QUndoStack
 
 from app import PdfApp
-from main_window import MainWindow
 from edit_commands import SetMetadataCommand
 from klarpdf.model.edit_engine import PyMuPDFEngine
 from klarpdf.model.export import export_selected_pages
 from klarpdf.model.virtual_document import VirtualDocument
+from main_window import MainWindow
 from store.settings import Settings
 from ui.properties_dialog import PropertiesDialog, pdf_date_display
 
@@ -116,7 +116,7 @@ def test_edit_writes_both_stores_consistently(meta_pdf, tmp_path):
         assert _XMP_MARKER not in xmp                        # the stale packet is replaced
         assert doc.metadata["producer"] == "OriginLib 1.0"   # untouched provenance carries
 
-    from pypdf import PdfReader                              # independent engine
+    from pypdf import PdfReader  # independent engine
 
     reader = PdfReader(out)
     assert reader.metadata.title == "Edited Title"

@@ -14,7 +14,7 @@ documented limitation: undoing the paste in A does not restore the page in B.
 
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 
 from PySide6.QtGui import QUndoCommand
 
@@ -134,7 +134,7 @@ class SetMetadataCommand(_SnapshotCommand):
     ``{}`` (remove all — both stores cleared at materialise), or ``None`` (revert to the
     origin's). Snapshot-based, so undo restores the prior state exactly."""
 
-    def __init__(self, vdoc: VirtualDocument, override: "dict | None") -> None:
+    def __init__(self, vdoc: VirtualDocument, override: dict | None) -> None:
         label = "Remove document metadata" if override == {} else "Edit document properties"
         super().__init__(vdoc, label)
         self._override = override
@@ -148,7 +148,7 @@ class SetEncryptionCommand(_SnapshotCommand):
     edit: nothing is written until materialise, so undoing a pending password change is safe —
     the password lives only in memory either way."""
 
-    def __init__(self, vdoc: VirtualDocument, password: "str | None", permissions: int = -1) -> None:
+    def __init__(self, vdoc: VirtualDocument, password: str | None, permissions: int = -1) -> None:
         if password is None:
             label = "Remove password"
         elif vdoc.password is None:

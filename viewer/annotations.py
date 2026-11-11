@@ -48,6 +48,7 @@ from PySide6.QtWidgets import (
 from klarpdf.model.content_marks import CONTENT_MARK_TYPES, render_mark_document
 from klarpdf.model.form_fields import NewField
 from klarpdf.model.page_edits import (
+    TEXTBOX_PITCH,
     Highlight,
     InkStroke,
     Line,
@@ -55,25 +56,24 @@ from klarpdf.model.page_edits import (
     Shape,
     Strikeout,
     TextBox,
-    TEXTBOX_PITCH,
     Underline,
+    fitted_to_its_lines,
     mark_bounds,
     rects_of,
     restyle_mark,
     scale_mark,
     textbox_height,
     textbox_lines,
-    textbox_origin,
-    fitted_to_its_lines,
     textbox_min_width,
+    textbox_origin,
     translate_mark,
 )
 from viewer.blend import MultiplyPixmapItem, MultiplyRectItem
 from viewer.markup_style import MarkupStyle
 from viewer.note_editor import NoteEditor, wash
 from viewer.resize_handles import ResizeHandles, resized_rect
-from viewer.tools import ArmedTool
 from viewer.text_format_bar import TextBoxStyle, TextFormatBar, qt_font
+from viewer.tools import ArmedTool
 
 _TEXTBOX_DEFAULT = (200.0, 56.0)  # starting size for a new box, in page points (then auto-grows)
 _MIN_BOX_W, _MIN_BOX_H = 40.0, 20.0  # a text box never shrinks below this (page points)
@@ -122,10 +122,11 @@ _DRAWN_TYPES = (InkStroke, Line, Shape)
 # marks joined — stamps then selected, moved and copied by keyboard but had no Copy/Cut on the menu.
 #
 # `NewField` (M69) is here for the same reason and was missed the same way (M69.14): both
-# `translate_mark` and `scale_mark` have always handled it, and its `bounding_rect` is documented as existing "so the viewer's shared hit-test / outline helpers work
-# on it unchanged" — but it was never added here, so a placed field could not be selected, moved,
-# resized or marqueed. A created field is a free-placed rect like any other; it is drawn by the form
-# overlay rather than this one, which is what let the omission go unnoticed.
+# `translate_mark` and `scale_mark` have always handled it, and its `bounding_rect` is documented
+# as existing "so the viewer's shared hit-test / outline helpers work on it unchanged" — but it was
+# never added here, so a placed field could not be selected, moved, resized or marqueed. A created
+# field is a free-placed rect like any other; it is drawn by the form overlay rather than this one,
+# which is what let the omission go unnoticed.
 OBJECT_TYPES = _DRAWN_TYPES + CONTENT_MARK_TYPES + (NewField,)
 
 # Scene z for the marks. Every annotation lives in ``[_ANNOT_Z_BASE, _ANNOT_Z_BASE + 1)``, spread
@@ -352,7 +353,7 @@ class AnnotationOverlay:
         # Rasterised content-mark artwork, keyed by (mark, on-screen width). The descriptors are
         # frozen dataclasses, so a moved or restyled mark is a *different* key and can never collide
         # with the stale image of its previous self — the cache needs no explicit invalidation.
-        self._mark_pixmaps: "OrderedDict[tuple, QPixmap]" = OrderedDict()
+        self._mark_pixmaps: OrderedDict[tuple, QPixmap] = OrderedDict()
         # The form field (M69) a properties dialog has composed, waiting for its box.
         self.pending_field = None
         # The foreign annotation being dragged (M67), as (page_index, ForeignAnnot). It
@@ -760,7 +761,7 @@ class AnnotationOverlay:
         scene.addItem(item)
         self._items.append(item)
 
-    def _content_mark_pixmap(self, annot, scene_rect) -> "QPixmap | None":
+    def _content_mark_pixmap(self, annot, scene_rect) -> QPixmap | None:
         """Rasterise ``annot``'s artwork through the **same generator that bakes at save**.
 
         Resolution only — the placement maths lives in the caller. Returns None if the artwork could
@@ -1208,7 +1209,7 @@ class AnnotationOverlay:
         editor = self._editor
         QTimer.singleShot(0, lambda: self._commit_textbox() if self._editor is editor else None)
 
-    def _commit_textbox(self) -> "TextBox | None":
+    def _commit_textbox(self) -> TextBox | None:
         """Close the editor and commit what it holds. Returns the box now on the page, or ``None``
         if there is none, which is also the answer when the commit was held back."""
         if self._editor is None or self._suppress_commit or self._bar_is_interacting():
@@ -1482,7 +1483,7 @@ class AnnotationOverlay:
         return list(self._selection)
 
     @property
-    def selected_object(self) -> "tuple | None":
+    def selected_object(self) -> tuple | None:
         """The single selected ``(page_index, mark)`` when exactly one is selected, else None — the
         single-object seam (clipboard copy/cut, style-load) that predates the group (M59)."""
         return self._selection[0] if len(self._selection) == 1 else None
@@ -1545,7 +1546,7 @@ class AnnotationOverlay:
                 return
         self._handles.show_box(page_index, self.selection_bounds())
 
-    def handle_at(self, scene_pt) -> "str | None":
+    def handle_at(self, scene_pt) -> str | None:
         """The resize handle under ``scene_pt``, else None — checked before move / marquee."""
         return self._handles.handle_at(scene_pt)
 

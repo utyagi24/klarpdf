@@ -33,9 +33,9 @@ from __future__ import annotations
 import os
 import tempfile
 
+from klarpdf.mcp_bridge.queries import open_document, resolve_pages
 from klarpdf.model.edit_engine import PyMuPDFEngine
 from klarpdf.model.virtual_document import PageRef, VirtualDocument
-from klarpdf.mcp_bridge.queries import open_document, resolve_pages
 from klarpdf.util.atomic import atomic_replace
 from klarpdf.util.paths import normalize_path
 

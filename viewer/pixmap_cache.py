@@ -64,7 +64,7 @@ class PixmapCache:
     """An LRU over ``(owner, key) -> QPixmap`` bounded by both entry count and total bytes."""
 
     def __init__(self, retain_pages: int = RETAIN_PAGES, byte_ceiling: int = BYTE_CEILING) -> None:
-        self._entries: "OrderedDict[tuple, object]" = OrderedDict()  # (owner_id, key) -> QPixmap
+        self._entries: OrderedDict[tuple, object] = OrderedDict()  # (owner_id, key) -> QPixmap
         self._bytes = 0
         self._pinned: dict[int, frozenset] = {}   # owner_id -> the keys it is painting right now
         self._tokens = itertools.count(1)
@@ -73,7 +73,7 @@ class PixmapCache:
 
     # ---- owners -----------------------------------------------------------------
 
-    def owner(self) -> "_Owner":
+    def owner(self) -> _Owner:
         """A handle a view holds instead of its own dict. Identity is a fresh integer token, not
         ``id(view)``, which CPython reuses after a view is collected — a reused id would let a new
         window inherit a dead one's entries."""

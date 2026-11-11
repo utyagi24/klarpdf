@@ -243,8 +243,8 @@ def test_the_app_export_still_pads_to_the_request(tmp_path):
     """The same helper serves the app's Export, where the user typed the filename and picked the
     pages. A width derived from a page count they never mentioned would be the surprising choice,
     so only the bridge path (`number_all`) changed."""
-    from klarpdf.model.export import export_page_images
     from klarpdf.mcp_bridge.queries import open_document
+    from klarpdf.model.export import export_page_images
 
     source = _blank(tmp_path, 200)
     with open_document(source, None) as vdoc:

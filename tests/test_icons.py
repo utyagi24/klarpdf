@@ -11,7 +11,7 @@ import struct
 from pathlib import Path
 
 import pytest
-from PySide6.QtCore import Qt, QSize
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication
 
@@ -133,8 +133,8 @@ def test_the_two_rotate_glyphs_are_mirror_images(qapp):
     if the two ever drift apart, the Edit menu's pair stops reading as a pair. Compared as rasters
     rather than as path data, since that is what the user sees, and the mirror is what the eye
     checks: a hand-edited coordinate would show up here and nowhere else."""
-    from PySide6.QtSvg import QSvgRenderer
     from PySide6.QtGui import QImage, QPainter
+    from PySide6.QtSvg import QSvgRenderer
 
     def raster(name, size=48):
         image = QImage(size, size, QImage.Format.Format_ARGB32)

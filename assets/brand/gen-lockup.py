@@ -104,7 +104,9 @@ def build(cache: Path, width, height, radius, wm_size, tag_size, ink="#FFFFFF", 
     # gradient's stops and 120° direction are untouched — see BRAND.md §Usage rules.
     scrim_svg = (f'  <rect width="{width}" height="{height}" rx="{radius}" fill="#0B1220" opacity="0.28"/>\n'
                  if scrim else "")
-    return f"""<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}" fill="none" role="img" aria-label="KlarPDF — PDF viewer + editor">
+    svg_open = (f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
+                f'viewBox="0 0 {width} {height}" fill="none" role="img" aria-label="KlarPDF — PDF viewer + editor">')
+    return f"""{svg_open}
   <defs>
     <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="{TEAL}"/><stop offset="1" stop-color="{BLUE}"/>

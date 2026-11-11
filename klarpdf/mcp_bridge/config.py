@@ -136,7 +136,7 @@ class PathPolicy:
     roots: tuple[str, ...] = ()
 
     @classmethod
-    def from_args(cls, roots: list[str] | None) -> "PathPolicy":
+    def from_args(cls, roots: list[str] | None) -> PathPolicy:
         raw = list(roots or [])
         if not raw and os.environ.get(ENV_ALLOW_ROOTS):
             raw = [part for part in os.environ[ENV_ALLOW_ROOTS].split(os.pathsep) if part]
@@ -200,7 +200,7 @@ class Config:
     read_only: bool = False
 
     @classmethod
-    def from_env(cls) -> "Config":
+    def from_env(cls) -> Config:
         return cls(
             policy=PathPolicy.from_args(None),
             read_only=os.environ.get(ENV_READ_ONLY, "").lower() in {"1", "true", "yes"},

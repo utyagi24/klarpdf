@@ -594,10 +594,10 @@ def create_server(config: Config | None = None) -> MCPServer:
 
         `header` is the first row of a drawn grid and null otherwise; a ruled table's header lines,
         when they could be read, are its first rows. `title` is the caption set over the table, or in
-        a first row drawn across it, and null where the page does not say. `continues_from` flags a table that *may* continue one on the page
-        before — **flagged, never merged** — and `continuation_checked` says whether that page was
-        looked at. Figures are what the page prints: a sign shown only as a coloured arrow is not in
-        the text.
+        a first row drawn across it, and null where the page does not say. `continues_from` flags a
+        table that *may* continue one on the page before — **flagged, never merged** — and
+        `continuation_checked` says whether that page was looked at. Figures are what the page
+        prints: a sign shown only as a coloured arrow is not in the text.
 
         The reply paginates: when `more_available` is true, call again with `offset` set to
         `offset + count`. Field contract and known limits in `klarpdf://docs/get_tables`.
@@ -1173,8 +1173,8 @@ def create_server(config: Config | None = None) -> MCPServer:
         `regions` is a list of `{"page": 1, "box": [x0, y0, x1, y1]}` in page points — the same
         coordinate space `search` and `get_form_fields` report boxes in. A region may carry
         `boxes` (a list) instead of `box`, which is the shape a `search` hit already has, so a hit
-        can be handed straight back as one region without being taken apart. Use this when you know *where* rather than *what*: a signature
-        block, a letterhead, a photo, a table cell.
+        can be handed straight back as one region without being taken apart. Use this when you know
+        *where* rather than *what*: a signature block, a letterhead, a photo, a table cell.
 
         Content is physically deleted, the written file is re-read and verified (PyMuPDF, plus
         Poppler when installed), and the output is deleted if anything survives. Images and vector

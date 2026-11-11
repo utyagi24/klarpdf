@@ -20,12 +20,12 @@ import pytest
 
 from klarpdf.model.content_marks import (
     CONTENT_MARK_TYPES,
+    WHOLE_PAGE_DEFAULTS,
     ImageStamp,
     Stamp,
     apply_content_marks,
     is_content_mark,
     natural_size,
-    WHOLE_PAGE_DEFAULTS,
     placement_size,
     render_mark_document,
     size_for_page,

@@ -22,9 +22,9 @@ import pymupdf as fitz
 import pytest
 
 from app import PdfApp
-from main_window import MainWindow
 from klarpdf.model.edit_engine import PyMuPDFEngine
 from klarpdf.model.page_edits import Redaction
+from main_window import MainWindow
 from store.settings import Settings
 from ui.redact_matches_dialog import RedactMatchesDialog, image_only_pages
 

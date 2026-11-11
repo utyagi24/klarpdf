@@ -12,9 +12,9 @@ This module is GUI-free and headless-testable (no Qt). The undo/redo wiring live
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Iterable
 
 import pymupdf as fitz
 
@@ -39,8 +39,8 @@ class PasswordRequired(Exception):
 
 
 def _authenticate_and_decrypt(
-    doc: "fitz.Document", path: str, password_provider
-) -> "tuple[fitz.Document, str, str, int]":
+    doc: fitz.Document, path: str, password_provider
+) -> tuple[fitz.Document, str, str, int]:
     """Authenticate an encrypted ``doc`` (prompting via ``password_provider``), then return a fresh
     **decrypted** in-memory copy plus the password that worked (M32; M54 records the password) and
     the two facts the decrypt is about to erase: the algorithm label and the permission flags.
@@ -90,7 +90,7 @@ _ALL_PERMISSIONS = (
 )
 
 
-def _restrictions_of(doc: "fitz.Document") -> int:
+def _restrictions_of(doc: fitz.Document) -> int:
     """A document's advisory permission flags, normalised to the model's ``-1 = unrestricted``.
 
     PyMuPDF answers ``-4`` for a document that restricts nothing — the raw ``/P`` value with only
@@ -104,7 +104,7 @@ def _restrictions_of(doc: "fitz.Document") -> int:
     return -1 if permissions & _ALL_PERMISSIONS == _ALL_PERMISSIONS else permissions
 
 
-def pin_file_id(doc: "fitz.Document") -> None:
+def pin_file_id(doc: fitz.Document) -> None:
     """Give an encrypted ``doc`` that has no file identifier the one its key was made from (M161).
 
     RC4 and AES-128 encryption (revisions 2–4) derive the document's key from the password *and the
@@ -158,17 +158,17 @@ class PageRef:
     annotations: tuple = ()
     crop_override: tuple | None = None
 
-    def with_rotation(self, angle: int | None) -> "PageRef":
+    def with_rotation(self, angle: int | None) -> PageRef:
         if angle is not None:
             angle %= 360
             if angle % 90 != 0:
                 raise ValueError(f"rotation must be a multiple of 90, got {angle}")
         return replace(self, rotation_override=angle)
 
-    def with_annotations(self, annotations: tuple) -> "PageRef":
+    def with_annotations(self, annotations: tuple) -> PageRef:
         return replace(self, annotations=tuple(annotations))
 
-    def with_crop(self, rect: "tuple | None") -> "PageRef":
+    def with_crop(self, rect: tuple | None) -> PageRef:
         if rect is not None:
             x0, y0, x1, y1 = (float(v) for v in rect)
             if x1 <= x0 or y1 <= y0:
@@ -263,7 +263,7 @@ class VirtualDocument:
     # ---- construction / sources -------------------------------------------------
 
     @classmethod
-    def from_path(cls, path: str, password_provider=None) -> "VirtualDocument":
+    def from_path(cls, path: str, password_provider=None) -> VirtualDocument:
         """Open ``path`` as the origin document and seed ``ordered`` with all its pages.
 
         ``password_provider`` (``(path, retry) -> str | None``) is consulted if the document is
@@ -530,7 +530,7 @@ class VirtualDocument:
                 return False
         return True
 
-    def marks_to_append(self, page_index: int) -> "tuple | None":
+    def marks_to_append(self, page_index: int) -> tuple | None:
         """The marks on page ``page_index`` an appending save still has to **draw** — the ones the
         origin's file does not already carry (M117). ``None`` when it has to draw them all.
 
@@ -572,7 +572,7 @@ class VirtualDocument:
             return None
         return ref.annotations[len(arrived) :]
 
-    def origin_bytes(self) -> "bytes | None":
+    def origin_bytes(self) -> bytes | None:
         """The origin's file exactly as it was read from disk — the seed an appending save writes
         out before appending to it (M116). ``None`` when there is no such thing to hand back.
 
@@ -743,7 +743,7 @@ class VirtualDocument:
                 )
         return entries
 
-    def entry_top(self, entry: list) -> "float | None":
+    def entry_top(self, entry: list) -> float | None:
         """How far down its page a :meth:`remapped_toc` row lands, or ``None``.
 
         Measured in the target page's own points, from the top of its visible area — the frame
@@ -765,7 +765,7 @@ class VirtualDocument:
         page = self.sources[ref.source_id][ref.source_page_index]
         return content_point(page, Destination(page0, tail))[1]
 
-    def subset(self, indices: Iterable[int]) -> "VirtualDocument":
+    def subset(self, indices: Iterable[int]) -> VirtualDocument:
         """A throwaway extract view holding only the pages at ``indices``, in document order (M51
         Export ▸ Selected Pages as PDF…).
 
@@ -893,7 +893,7 @@ class VirtualDocument:
         cropbox = self.sources[ref.source_id][ref.source_page_index].cropbox
         return (0.0, 0.0, float(cropbox.width), float(cropbox.height))
 
-    def set_crop(self, indices: Iterable[int], rect: "tuple | None") -> None:
+    def set_crop(self, indices: Iterable[int], rect: tuple | None) -> None:
         """Set (or clear, with ``None``) the absolute crop on each page, clamped to that page's
         frame. A page where the clamped rect has no area (the drag lies wholly off that page's
         frame — possible when one rect is applied to differently-sized pages) is left unchanged."""
@@ -947,7 +947,7 @@ class VirtualDocument:
         return self._origin_xmp
 
     @property
-    def metadata_override(self) -> "dict | None":
+    def metadata_override(self) -> dict | None:
         """The user's metadata verb: ``None`` untouched, a dict = edited, ``{}`` = removed."""
         override = self._metadata_override
         return None if override is None else dict(override)
@@ -959,7 +959,7 @@ class VirtualDocument:
             return dict(self._metadata_override)
         return dict(self._origin_info)
 
-    def set_metadata_override(self, values: "dict | None") -> None:
+    def set_metadata_override(self, values: dict | None) -> None:
         """Set the metadata verb: a dict of Info fields (edit), ``{}`` (remove all — both stores
         cleared at materialise), or ``None`` (revert to the origin's)."""
         self._metadata_override = None if values is None else dict(values)
@@ -971,7 +971,7 @@ class VirtualDocument:
     # ---- authored outline (M139; a save-path capability) ------------------------
 
     @property
-    def outline_override(self) -> "list | None":
+    def outline_override(self) -> list | None:
         """The table of contents the caller authored, or ``None`` when the document's own is to be
         kept. Entries are ``[level, title, page]`` with ``page`` **1-based**, the shape
         :meth:`remapped_toc` returns and ``Document.set_toc`` takes. An entry that named a height
@@ -979,7 +979,7 @@ class VirtualDocument:
         override = self._outline_override
         return None if override is None else [list(entry) for entry in override]
 
-    def set_outline_override(self, entries: "list | None") -> None:
+    def set_outline_override(self, entries: list | None) -> None:
         """Author the outline a Save writes, or pass ``None`` to keep the document's own.
 
         ``entries`` is ``[[level, title, page], ...]`` or ``[[level, title, page, top], ...]``,
@@ -1077,7 +1077,7 @@ class VirtualDocument:
     # ---- document encryption (M54; a save-path capability) ----------------------
 
     @property
-    def password(self) -> "str | None":
+    def password(self) -> str | None:
         """The password a Save applies (AES-256), or ``None`` to save unencrypted. In memory
         only — never persisted anywhere but the encrypted output itself."""
         return self._password
@@ -1092,7 +1092,7 @@ class VirtualDocument:
         so the value round-trips exactly (verified: -1052 in, -1052 out)."""
         return self._permissions
 
-    def set_encryption(self, password: "str | None", permissions: int = -1) -> None:
+    def set_encryption(self, password: str | None, permissions: int = -1) -> None:
         """Set / change / remove the password the next Save applies (+ advisory flags).
 
         Removing the password (``None``) resets the flags too: PDF permission bits live inside

@@ -257,7 +257,7 @@ def test_the_misdecoding_check_finds_the_symptom_and_not_its_name():
     for good in ("—", "×", "…", "é", "→", "°", "\U0001f680"):
         misread = good.encode("utf-8").decode("cp1252")
         assert _misdecoded(misread) == [misread], good
-    misread = "é".encode("utf-8").decode("latin-1")
+    misread = "é".encode().decode("latin-1")
     assert _misdecoded(misread) == [misread]
     # Real text: PLAN.md names the symptom, and writes the multiplication sign before dashes.
     assert _misdecoded("No mis-decoded text (`\u00c3`, `\u00e2\u20ac`) — café, naïve, 3 × 4…") == []

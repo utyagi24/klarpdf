@@ -22,8 +22,8 @@ from PySide6.QtCore import QEvent, QRect, QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QActionGroup, QCursor, QGuiApplication, QKeySequence, QUndoStack
 from PySide6.QtWidgets import (
     QApplication,
-    QDockWidget,
     QDialog,
+    QDockWidget,
     QFileDialog,
     QInputDialog,
     QLineEdit,
@@ -54,6 +54,9 @@ from edit_commands import (
     SetFieldValueCommand,
     SetMetadataCommand,
 )
+from klarpdf.model.content_marks import ImageStamp, is_content_mark
+from klarpdf.model.edit_engine import PyMuPDFEngine
+from klarpdf.model.form_fields import FIELD_KINDS, kind_label
 from klarpdf.model.page_edits import (
     Highlight,
     Redaction,
@@ -68,16 +71,13 @@ from klarpdf.model.page_edits import (
     resolve_note_host,
     translate_mark,
 )
-from klarpdf.model.edit_engine import PyMuPDFEngine
 from klarpdf.model.virtual_document import IMAGE_EXTENSIONS, PageRef, VirtualDocument
+from klarpdf.util.atomic import atomic_replace
+from klarpdf.util.paths import normalize_path
 from organize.thumbnail_panel import ThumbnailPanel
 from store.file_watch import FileWatcher
 from store.settings import Settings
 from ui import icons
-from klarpdf.util.atomic import atomic_replace
-from klarpdf.util.paths import normalize_path
-from klarpdf.model.content_marks import ImageStamp, is_content_mark
-from klarpdf.model.form_fields import FIELD_KINDS, kind_label
 from viewer.annotations import (
     FOREIGN_NOTE_GREY,
     OBJECT_TYPES,
@@ -85,6 +85,7 @@ from viewer.annotations import (
     mark_noun,
 )
 from viewer.form_fill import FormFiller
+from viewer.links import LinkNavigator, openable_uri
 from viewer.markup_style import (
     HIGHLIGHT_COLORS,
     TEXT_LINE_COLORS,
@@ -94,12 +95,11 @@ from viewer.markup_style import (
     OpacityButton,
     SwatchRowAction,
 )
-from viewer.links import LinkNavigator, openable_uri
+from viewer.page_widget import PageWidget
 from viewer.pdf_view import PdfView
 from viewer.search import FindBar, SearchController, SearchResultsPanel
 from viewer.text_selection import TextSelection
 from viewer.tools import REDACT_TOOLS, ArmedTool, InteractionMode
-from viewer.page_widget import PageWidget
 from viewer.zoom_widget import ZoomWidget
 
 # Preference key for the sticky mark style. Style only — never the page range, whose stale value
@@ -613,10 +613,12 @@ class MainWindow(QMainWindow):
         # Rotate sits with the other page operations (owner call, R1 review): it is a real,
         # undoable, *saved* edit on the selected/current page — its old View placement read as a
         # view-only spin that wouldn't touch the file. There is no view-only rotation (M169 removed it).
-        a_rotl = self._a_rotl = act("Rotate Left", lambda: self._rotate_pages(-90), "Ctrl+L", icon="rotate-left", to_menu=edit_menu)
+        a_rotl = self._a_rotl = act("Rotate Left", lambda: self._rotate_pages(-90), "Ctrl+L", icon="rotate-left",
+                                    to_menu=edit_menu)
         # Rotate Right stays a real, menu-reachable page op (Edit + sidebar right-click), but the
         # reading bar carries only the left button now — see the reading_groups note (M71/Preview).
-        self._a_rotr = act("Rotate Right", lambda: self._rotate_pages(90), "Ctrl+R", icon="rotate-right", to_menu=edit_menu)
+        self._a_rotr = act("Rotate Right", lambda: self._rotate_pages(90), "Ctrl+R", icon="rotate-right",
+                           to_menu=edit_menu)
         act("Insert Pages from File…", self._insert_from_file, icon="insert", to_menu=edit_menu)
         # M51: a fresh empty page / copies of the selection — both plain PageRef inserts on the
         # undo stack, grouped with the other page operations. Menu-only (one-shot commands stay
@@ -652,7 +654,8 @@ class MainWindow(QMainWindow):
         self.find_bar.visibilityChanged.connect(self._on_find_visibility)
 
         # View
-        a_zout = act("Zoom Out", self.view.zoom_out, QKeySequence.StandardKey.ZoomOut, icon="zoom-out", to_menu=view_menu)
+        a_zout = act("Zoom Out", self.view.zoom_out, QKeySequence.StandardKey.ZoomOut, icon="zoom-out",
+                     to_menu=view_menu)
         # Qt's StandardKey.ZoomIn resolves to `Ctrl++` — and on a US layout `+` *is* Shift+`=`, so
         # that sequence physically demands Ctrl+Shift+=, and plain Ctrl+= matched nothing. Zoom Out
         # needed no alias: `Ctrl+-` is an unshifted key, which is why Zoom Out worked and Zoom In
@@ -1811,9 +1814,8 @@ class MainWindow(QMainWindow):
         The result is an ordinary AcroForm field at save, so filling, printing and flattening work
         on it by construction rather than by anything written here.
         """
-        from ui.field_dialog import FieldDialog
-
         from klarpdf.model.page_edits import read_form_fields
+        from ui.field_dialog import FieldDialog
 
         existing = {field.name for field in read_form_fields(self.vdoc)}
         dialog = FieldDialog(self, kind, existing)
@@ -2626,7 +2628,7 @@ class MainWindow(QMainWindow):
             label = "Insert dropped file" if len(paths) == 1 else f"Insert {len(paths)} dropped files"
             self.undo_stack.push(InsertCommand(self.vdoc, before_index, refs, text=label))
 
-    def _view_context_menu(self, scene_pt) -> "QMenu | None":
+    def _view_context_menu(self, scene_pt) -> QMenu | None:
         """Build the view's right-click menu from the hit state under the cursor (M46): the verbs
         for our annotation / the live text selection / the link at ``scene_pt``, else the bare-page
         navigation set. Exec'd by ``PdfView.contextMenuEvent``; returned unexec'd so tests can

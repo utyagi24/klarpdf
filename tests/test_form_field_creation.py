@@ -15,12 +15,12 @@ import pymupdf as fitz
 import pytest
 
 from app import PdfApp
-from main_window import MainWindow
 from klarpdf.model.edit_engine import PyMuPDFEngine
 from klarpdf.model.export import export_flattened_pdf
 from klarpdf.model.form_fields import FIELD_KINDS, NewField, apply_new_fields, kind_label
 from klarpdf.model.page_edits import read_form_fields
 from klarpdf.model.virtual_document import VirtualDocument
+from main_window import MainWindow
 from store.settings import Settings
 from viewer.tools import ArmedTool
 
@@ -469,7 +469,8 @@ def test_clicking_a_created_field_in_select_mode_grabs_it(win, qapp):
     """Revised at M69.16 to the text-box contract: a press *moves* a field you created, a
     double-click types into it. Before, a press anywhere on it reached the form overlay, so the only
     way to grab one in Select mode was to hit its border — "hit and miss most of the times"."""
-    from PySide6.QtCore import QEvent, QPointF, Qt as _Qt
+    from PySide6.QtCore import QEvent, QPointF
+    from PySide6.QtCore import Qt as _Qt
     from PySide6.QtGui import QMouseEvent
 
     from edit_commands import AddAnnotationCommand
@@ -497,7 +498,8 @@ def test_clicking_a_created_field_in_select_mode_grabs_it(win, qapp):
 
 
 def _send(win, kind, x, y):
-    from PySide6.QtCore import QEvent, QPointF, Qt as _Qt
+    from PySide6.QtCore import QEvent, QPointF
+    from PySide6.QtCore import Qt as _Qt
     from PySide6.QtGui import QMouseEvent
 
     scene = win.view.scene_rect_for_box(0, (x, y, x + 0.01, y + 0.01)).center()

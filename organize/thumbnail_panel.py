@@ -12,7 +12,14 @@ import os
 
 import pymupdf as fitz
 from PySide6.QtCore import (
-    QByteArray, QItemSelectionModel, QMimeData, QPoint, QRectF, QSize, Qt, Signal,
+    QByteArray,
+    QItemSelectionModel,
+    QMimeData,
+    QPoint,
+    QRectF,
+    QSize,
+    Qt,
+    Signal,
 )
 from PySide6.QtGui import (
     QColor,
@@ -376,7 +383,7 @@ class ThumbnailPanel(QListWidget):
         if index.row() >= 0 and index.row() == self._row_at_press:
             self.pageActivated.emit(index.row())
 
-    def _edited_render(self) -> "fitz.Document | None":
+    def _edited_render(self) -> fitz.Document | None:
         """The edits-applied output document (rotation + redactions + annotations + form fills baked
         in) when the document has **any** page edit, else ``None`` so clean pages render straight from
         the source — the fast path. Shares the ``render_output`` path that print / save use (M25), so

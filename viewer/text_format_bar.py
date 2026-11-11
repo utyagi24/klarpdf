@@ -51,7 +51,7 @@ class TextBoxStyle:
     border_width: float = 0.0
 
     @classmethod
-    def from_textbox(cls, box) -> "TextBoxStyle":
+    def from_textbox(cls, box) -> TextBoxStyle:
         return cls(box.fontname, box.fontsize, box.color, box.fill_color, box.border_width)
 
 

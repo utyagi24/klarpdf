@@ -31,7 +31,7 @@ from PySide6.QtTest import QTest
 from app import PdfApp
 from klarpdf.model.virtual_document import VirtualDocument
 from store.settings import Settings
-from viewer.pdf_view import PdfView, _PREFETCH
+from viewer.pdf_view import _PREFETCH, PdfView
 from viewer.text_selection import TextSelection
 from viewer.tools import ArmedTool
 

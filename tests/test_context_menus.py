@@ -3,9 +3,10 @@
 The view's right-click menu is built by hit state — our annotation → Remove; a live text
 selection → Copy / Highlight Selection / Redact Selection; an internal link → Go to Page N; a web
 link → Open Link + Copy Link Address (M149 — a link of any other scheme keeps only the copy, so the
-menu offers exactly what a click would do); a bare page → the routed View-menu navigation QActions. The Pages sidebar menu grows Rotate
-Left/Right. Menus are built unexec'd (`_view_context_menu` / `_build_page_context_menu`), so
-tests assert contents and trigger actions without popping UI.
+menu offers exactly what a click would do); a bare page → the routed View-menu navigation
+QActions. The Pages sidebar menu grows Rotate Left/Right. Menus are built unexec'd
+(`_view_context_menu` / `_build_page_context_menu`), so tests assert contents and trigger actions
+without popping UI.
 """
 
 from __future__ import annotations

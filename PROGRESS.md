@@ -1387,8 +1387,15 @@ parts, and the box here is ticked on merge. Build in number order, except that M
   named. Ruff's own fix for four menu lambdas would have made Paste Pages paste before page 1, so
   they stay, with the reason. Details in `PLAN.md` §M170 —
   [#448](https://github.com/utyagi24/klarpdf/pull/448)
-- [ ] **M171** **Consistency**: import order, syntax upgrades and a 120-column ceiling, with no
-  formatter. *All surfaces; no behaviour change.*
+- [x] **M171** **Consistency**: import order, syntax upgrades and a 120-column ceiling, with no
+  formatter. *All surfaces; no behaviour change.* Ruff now refuses imports out of order, older
+  forms that Python 3.11 replaces (quotes around type hints, `%` formatting), a one-letter name
+  such as `l`, and lines over 120 characters. Of 293 findings, Ruff fixed 183 and the rest were
+  fixed by hand. `klarpdf/mcp_bridge/docs.py` is exempt from the line limit, because its Markdown
+  tables are served to agents as written. Checked unchanged: the bridge's tool descriptions (same
+  words, same length), the PDF objects the tests build, and what the installer script and the SVG
+  script write. `invoke lint --fix` runs Ruff's safe fixes. Each rule failed on a planted breach.
+  Details in `PLAN.md` §M171 — [#450](https://github.com/utyagi24/klarpdf/pull/450)
 - [ ] **M172** **Types for the wheel** (`klarpdf/`): mypy and the `typecheck` CI job. *Core and
   bridge.* — *WSL, for the dev lock*
   - [ ] **M172.1** The gate, at mypy's default settings. `typecheck` becomes a required check once

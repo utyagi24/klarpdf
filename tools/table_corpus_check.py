@@ -36,8 +36,8 @@ is one verified on a render.
 **A key the checker does not know is an error**, never a silence: an anchor holding a misspelt key
 or a wrong title used to pass, because this checker only ever read the keys it knew (``PLAN.md``
 §M145). ``note``, on the plan or on an anchor, is the one key nothing compares: a string recording
-why an expectation is what it is. The exit status is non-zero when the plan is malformed, an expectation fails, or the word
-check disagrees.
+why an expectation is what it is. The exit status is non-zero when the plan is malformed, an
+expectation fails, or the word check disagrees.
 """
 
 from __future__ import annotations
@@ -254,7 +254,9 @@ def run(plan_path: str, corpus: str, snapshot: str | None, snapshots: str) -> in
             print(f"{name[:40]:40} p{number:<4} " + " ".join(parts), flush=True)
     for anchor in anchors:
         if (anchor["doc"], anchor["page"]) not in evaluated:
-            problems.append(f"expectation never evaluated (typo, or page not in the plan): {anchor['doc']} p{anchor['page']}")
+            problems.append(
+                f"expectation never evaluated (typo, or page not in the plan): {anchor['doc']} p{anchor['page']}"
+            )
     print(f"\n{dict(counts)} in {time.perf_counter() - started:.0f}s")
     if title_counts:
         print(f"titles pinned: {title_counts['right']} right, {title_counts['missing']} missing, "

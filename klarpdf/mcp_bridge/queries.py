@@ -223,7 +223,7 @@ def outline(path: str, password: str | None = None) -> list[dict]:
         ]
 
 
-def _round(value: "float | None") -> "float | None":
+def _round(value: float | None) -> float | None:
     """A measurement rounded for the reply, or ``None``. Two decimals, as every box here is."""
     return None if value is None else round(value, 2)
 
@@ -338,9 +338,9 @@ def _describe_link(
 
 
 def _target_top(
-    link: dict, page: fitz.Page, target_page: "int | None",
-    vdoc: "VirtualDocument | None", names: "dict | None",
-) -> "float | None":
+    link: dict, page: fitz.Page, target_page: int | None,
+    vdoc: VirtualDocument | None, names: dict | None,
+) -> float | None:
     """How far down its target page this link lands, or ``None`` when it names no spot.
 
     Measured in the target page's own points from the top of its visible area — the frame

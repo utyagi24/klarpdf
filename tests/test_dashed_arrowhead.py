@@ -15,12 +15,11 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QGraphicsPathItem
 
 from app import PdfApp
-from main_window import MainWindow
 from klarpdf.model.page_edits import Line
+from main_window import MainWindow
 from store.settings import Settings
 from viewer.annotations import _arrowheads_path, _line_shaft_path
 from viewer.tools import ArmedTool
-
 
 # ---- the geometry split (pure) -----------------------------------------------
 

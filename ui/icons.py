@@ -19,7 +19,7 @@ headless-test caller.
 from __future__ import annotations
 
 import sys
-from functools import lru_cache
+from functools import cache
 from pathlib import Path
 
 from PySide6.QtCore import QRectF, Qt
@@ -88,14 +88,14 @@ def _render(name: str, tint: bool) -> QIcon:
     return result
 
 
-@lru_cache(maxsize=None)
+@cache
 def icon(name: str) -> QIcon:
     """A monochrome action icon as a multi-resolution ``QIcon``, tinted to the theme's text
     colour (empty ``QIcon`` if the SVG is missing)."""
     return _render(name, tint=True)
 
 
-@lru_cache(maxsize=None)
+@cache
 def app_icon() -> QIcon:
     """The OS application icon — taskbar, title bar, Alt-Tab, Task Manager. Never tinted.
 
@@ -106,7 +106,7 @@ def app_icon() -> QIcon:
     return _render(APP_ICON, tint=False)
 
 
-@lru_cache(maxsize=None)
+@cache
 def brand_mark() -> QIcon:
     """The free-standing fanned-sheets mark, for in-app use on our own background. Never tinted."""
     return _render(BRAND_MARK, tint=False)

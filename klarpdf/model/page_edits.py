@@ -179,7 +179,7 @@ _XFA_PACKET = re.compile(r"\((?P<name>[^()]*)\)\s*(?P<xref>\d+)\s+0\s+R")
 _DYNAMIC_RENDER = re.compile(r"<dynamicRender[^>]*>\s*([^<\s]*)")
 
 
-def describe_xfa(doc: "fitz.Document") -> dict | None:
+def describe_xfa(doc: fitz.Document) -> dict | None:
     """Describe ``doc``'s XFA form, or ``None`` if it has none.
 
     Returns ``{"packets": [...], "dynamic": bool}``. ``dynamic`` is conservative in the direction
@@ -200,7 +200,7 @@ def describe_xfa(doc: "fitz.Document") -> dict | None:
     return {"packets": sorted(packets), "dynamic": _is_dynamic(doc, packets.get("config"))}
 
 
-def _is_dynamic(doc: "fitz.Document", config_xref: int | None) -> bool:
+def _is_dynamic(doc: fitz.Document, config_xref: int | None) -> bool:
     """Does the ``config`` packet ask for dynamic rendering?"""
     if not config_xref:
         return False

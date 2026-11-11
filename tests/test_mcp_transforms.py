@@ -21,7 +21,8 @@ import os
 import pymupdf as fitz
 import pytest
 
-from klarpdf.mcp_bridge import queries, transforms as T
+from klarpdf.mcp_bridge import queries
+from klarpdf.mcp_bridge import transforms as T
 from tests.conftest import A_TEXT, B_TEXT
 
 
@@ -751,8 +752,8 @@ def test_the_app_export_keeps_the_filename_the_user_typed(a_pdf, tmp_path):
     """The model function is shared with Export ▸ Images, where the name comes from a save dialog.
     Turning `report.png` into `report-1.png` behind the user would be its own small betrayal, so
     `number_all` defaults off and only the bridge passes it."""
-    from klarpdf.model.export import export_page_images
     from klarpdf.mcp_bridge.queries import open_document
+    from klarpdf.model.export import export_page_images
 
     target = str(tmp_path / "report.png")
     with open_document(a_pdf) as vdoc:
@@ -997,7 +998,9 @@ def positioned_outline_pdf(tmp_path) -> str:
 def _destinations_of(path) -> dict:
     """``{bookmark title: its destination tail}`` — what the file says, not what a reader guesses."""
     from klarpdf.model.destinations import (
-        outline_item_xrefs, page_index_map, read_destination,
+        outline_item_xrefs,
+        page_index_map,
+        read_destination,
     )
 
     doc = fitz.open(path)

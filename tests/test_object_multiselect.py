@@ -13,8 +13,8 @@ import pytest
 from PySide6.QtCore import Qt
 
 from app import PdfApp
-from main_window import MainWindow
 from klarpdf.model.page_edits import InkStroke, Line, Shape
+from main_window import MainWindow
 from store.settings import Settings
 from viewer.tools import InteractionMode
 
@@ -346,8 +346,8 @@ def test_object_mode_press_on_empty_starts_a_marquee(win):
     _shapes(win, (100, 100, 160, 140))
     win.view.set_mode(InteractionMode.OBJECT)
     # A press far from any mark begins the rubber-band (routed by PdfView in object mode).
+    from PySide6.QtCore import QEvent, QPointF
     from PySide6.QtGui import QMouseEvent
-    from PySide6.QtCore import QPointF, QEvent
 
     pos = QPointF(win.view.mapFromScene(_scene(win, 40, 40)))
     glob = QPointF(win.view.viewport().mapToGlobal(pos.toPoint()))

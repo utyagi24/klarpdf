@@ -13,8 +13,8 @@ import pytest
 from PySide6.QtCore import Qt
 
 from app import PdfApp
-from main_window import MainWindow
 from klarpdf.model.page_edits import InkStroke, Line, Shape
+from main_window import MainWindow
 from store.settings import Settings
 from viewer.tools import ArmedTool
 

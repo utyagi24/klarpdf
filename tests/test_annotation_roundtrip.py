@@ -16,12 +16,12 @@ import pytest
 
 from klarpdf.model.edit_engine import PyMuPDFEngine
 from klarpdf.model.page_edits import (
+    _SHAPE_RECT_GROWTH,
     KLARPDF_AUTHOR,
     Highlight,
     Redaction,
     Shape,
     TextBox,
-    _SHAPE_RECT_GROWTH,
     read_klarpdf_annotations,
     strip_klarpdf_annotations,
 )

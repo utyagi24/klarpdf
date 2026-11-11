@@ -142,7 +142,7 @@ class ResizeHandles:
                 pass  # already destroyed by scene.clear() during a rebuild (same as the overlay)
         self._items = {}
 
-    def handle_at(self, scene_pt) -> "str | None":
+    def handle_at(self, scene_pt) -> str | None:
         """The handle name under ``scene_pt`` (with a grab margin), else None."""
         for name, item in self._items.items():
             if item.rect().adjusted(-_GRAB, -_GRAB, _GRAB, _GRAB).contains(scene_pt):

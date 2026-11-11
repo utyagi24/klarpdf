@@ -387,7 +387,8 @@ def test_a_banded_block_drawn_as_a_box_is_read_from_its_bands_not_from_the_box(t
     bottom = 100 + len(ASSETS) * PITCH
     for i, (label, *figures) in enumerate(ASSETS):
         y = 100 + i * PITCH
-        page.draw_rect(fitz.Rect(240, y, 480, y + PITCH), color=None, fill=(0.8, 0.93, 1.0) if i % 2 == 0 else (1, 1, 1))
+        shade = (0.8, 0.93, 1.0) if i % 2 == 0 else (1, 1, 1)
+        page.draw_rect(fitz.Rect(240, y, 480, y + PITCH), color=None, fill=shade)
         page.insert_text((60, y + 11), label, fontsize=FONT)
         for x, figure in zip((355, 475), figures, strict=True):
             _right(page, x, y + 11, figure)
@@ -476,7 +477,8 @@ def _bar_chart(page: fitz.Page) -> None:
         page.draw_line((left, y), (right, y), color=(0.6, 0.6, 0.6), width=0.5)
     for x in (left, right):
         page.draw_line((x, top), (x, bottom), width=0.5)
-    for i, (bar_top, label) in enumerate([(90, "19.1%"), (130, "17.6%"), (160, "16.8%"), (75, "20.9%"), (230, "10.2%")]):
+    bars = [(90, "19.1%"), (130, "17.6%"), (160, "16.8%"), (75, "20.9%"), (230, "10.2%")]
+    for i, (bar_top, label) in enumerate(bars):
         x = 90 + 45 * i
         page.draw_rect(fitz.Rect(x, bar_top + 20, x + 30, bottom), color=(1, 1, 1), fill=(0.5, 0.7, 0.9), width=0.5)
         page.insert_text((x + 2, bar_top + 16), label, fontsize=FONT)
@@ -512,7 +514,9 @@ def test_a_merged_cell_is_not_an_overlap(tmp_path):
     path = _save(doc, tmp_path, "merged_header.pdf")
     result = _read(path)
     assert not result.unread
-    assert _rows(result) == [["Segment", "Net sales", ""], ["Americas", "12", "14"], ["Europe", "8", "9"], ["Japan", "3", "4"]]
+    assert _rows(result) == [
+        ["Segment", "Net sales", ""], ["Americas", "12", "14"], ["Europe", "8", "9"], ["Japan", "3", "4"],
+    ]
 
 
 def test_a_rule_through_text_declines(tmp_path):
@@ -578,7 +582,8 @@ def test_a_decline_with_no_region_points_at_the_text_rather_than_the_whole_page(
     doc = fitz.open()
     page = doc.new_page()
     for i in range(20):
-        page.insert_text((80, 120 + i * 14), f"An ordinary paragraph line {i}, with nothing tabular about it.", fontsize=FONT)
+        page.insert_text((80, 120 + i * 14), f"An ordinary paragraph line {i}, with nothing tabular about it.",
+                         fontsize=FONT)
     path = _save(doc, tmp_path, "prose_page.pdf")
 
     result = _read(path)
@@ -725,7 +730,8 @@ def test_the_drawn_row_check_is_what_saves_a_banded_block(tmp_path, monkeypatch)
     bottom = 100 + len(ASSETS) * PITCH
     for i, (label, *figures) in enumerate(ASSETS):
         y = 100 + i * PITCH
-        page.draw_rect(fitz.Rect(240, y, 480, y + PITCH), color=None, fill=(0.8, 0.93, 1.0) if i % 2 == 0 else (1, 1, 1))
+        shade = (0.8, 0.93, 1.0) if i % 2 == 0 else (1, 1, 1)
+        page.draw_rect(fitz.Rect(240, y, 480, y + PITCH), color=None, fill=shade)
         page.insert_text((60, y + 11), label, fontsize=FONT)
         for x, figure in zip((355, 475), figures, strict=True):
             _right(page, x, y + 11, figure)
@@ -1153,7 +1159,8 @@ def test_one_block_of_text_may_stand_between_a_heading_and_its_table(tmp_path):
 
 def test_a_sentence_set_in_bold_is_not_a_title(tmp_path):
     """A form sets its instructions in bold right above the part they govern (SSA-1)."""
-    assert _titled(tmp_path, "form.pdf", lambda p: _bold(p, 60, 185, "Answer this item only if you are now retired.")) is None
+    instruction = "Answer this item only if you are now retired."
+    assert _titled(tmp_path, "form.pdf", lambda p: _bold(p, 60, 185, instruction)) is None
 
 
 def test_the_search_stops_at_another_objects_text(tmp_path):

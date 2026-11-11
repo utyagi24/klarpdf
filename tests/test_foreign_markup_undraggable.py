@@ -34,12 +34,12 @@ from PySide6.QtCore import QEvent, QPointF, Qt
 from PySide6.QtGui import QMouseEvent
 
 from app import PdfApp
-from main_window import MainWindow
 from klarpdf.model.foreign_annots import (
     ForeignMove,
     is_free_placed,
     read_foreign_annotations,
 )
+from main_window import MainWindow
 from store.settings import Settings
 
 # The passage lives on one text line at y≈292–306; the sticky note sits well clear of it.

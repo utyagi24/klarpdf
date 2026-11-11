@@ -15,8 +15,8 @@ from __future__ import annotations
 import pytest
 
 from app import PdfApp
-from main_window import MainWindow
 from klarpdf.model.page_edits import InkStroke, Line, Shape, TextBox, scale_mark
+from main_window import MainWindow
 from store.settings import Settings
 from viewer.resize_handles import MIN_SIZE, resized_rect
 

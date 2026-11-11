@@ -69,7 +69,7 @@ def _strength_for(white_threshold: float) -> int:
 class SignatureDialog(QDialog):
     """Choose an image, tune its background removal, and get back an :class:`ImageStamp` template."""
 
-    def __init__(self, parent, recent: list[str], settings: "dict | None" = None) -> None:
+    def __init__(self, parent, recent: list[str], settings: dict | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Place Signature or Image")
         self._path: str | None = None

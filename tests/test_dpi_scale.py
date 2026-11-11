@@ -30,9 +30,9 @@ import pymupdf as fitz
 import pytest
 
 from app import PdfApp
+from klarpdf.model.virtual_document import VirtualDocument
 from store.settings import Settings
 from viewer.pdf_view import PdfView
-from klarpdf.model.virtual_document import VirtualDocument
 
 LETTER_W, LETTER_H = 612.0, 792.0   # US Letter in PDF points = 8.5" x 11"
 

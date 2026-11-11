@@ -19,7 +19,6 @@ import pymupdf as fitz
 import pytest
 
 from app import PdfApp
-from main_window import MainWindow
 from klarpdf.model.edit_engine import PyMuPDFEngine
 from klarpdf.model.foreign_annots import (
     adopt_annotation,
@@ -30,6 +29,7 @@ from klarpdf.model.foreign_annots import (
 )
 from klarpdf.model.page_edits import KLARPDF_AUTHOR, Shape, TextBox
 from klarpdf.model.virtual_document import VirtualDocument
+from main_window import MainWindow
 from store.settings import Settings
 
 

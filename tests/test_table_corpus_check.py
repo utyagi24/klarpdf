@@ -40,7 +40,8 @@ def corpus(tmp_path) -> pathlib.Path:
     _statement(titled, 100, ASSETS)
     stranded = doc.new_page()
     _statement(stranded, 40, ASSETS)
-    stranded.insert_text((60, 40 + len(ASSETS) * PITCH + 30), "Headphone cable connected", fontsize=FONT, fontname="hebo")
+    stranded.insert_text((60, 40 + len(ASSETS) * PITCH + 30), "Headphone cable connected",
+                         fontsize=FONT, fontname="hebo")
     _statement(doc.new_page(), 40, ASSETS)
     _save(doc, tmp_path, "doc.pdf")
     return tmp_path

@@ -13,9 +13,9 @@ from PySide6.QtNetwork import QLocalServer
 from PySide6.QtWidgets import QMainWindow
 
 from app import PdfApp, send_path_to_running_instance
+from klarpdf.util.paths import normalize_path
 from platform_integration import activate_window, single_instance_server_name
 from store.settings import Settings
-from klarpdf.util.paths import normalize_path
 
 
 @pytest.fixture(scope="session")

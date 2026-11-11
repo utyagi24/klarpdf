@@ -133,7 +133,7 @@ class MarkupStyle:
         return self.color if self.border or self.fill_color is None else None
 
     @classmethod
-    def from_mark(cls, mark) -> "MarkupStyle | None":
+    def from_mark(cls, mark) -> MarkupStyle | None:
         """The style of a selected drawn mark — loaded into the picker so a follow-up tweak edits
         *that* mark's colour/width/fill/ends/dash (M59.5, the twin of ``TextBoxStyle.from_textbox``).
         Returns ``None`` for a text box (its own format bar owns its style) or a non-drawn mark.

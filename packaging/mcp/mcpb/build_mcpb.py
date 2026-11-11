@@ -10,9 +10,10 @@ installer. What *is* committed is this script, `manifest.json`, and the generate
 `pyproject.toml` beside it, so the inputs are reviewable and the output is reproducible.
 
 **What goes in.** `server/` holds the bridge and the GUI-free core it stands on — one `klarpdf/`
-package carrying `mcp_bridge/`, `model/`, `util/` and `version.py` (M134) — plus a `pyproject.toml` naming its dependencies and the `uv.lock`
-that pins and hashes them. Nothing else: no PySide6, no `viewer/`, no tests. It is the same package
-boundary `pyproject.toml`'s `[tool.setuptools] packages` draws, for the same reason.
+package carrying `mcp_bridge/`, `model/`, `util/` and `version.py` (M134) — plus a
+`pyproject.toml` naming its dependencies and the `uv.lock` that pins and hashes them. Nothing
+else: no PySide6, no `viewer/`, no tests. It is the same package boundary `pyproject.toml`'s
+`[tool.setuptools] packages` draws, for the same reason.
 
 **Why the lock ships (M129).** `uv run --directory` **honours a committed `uv.lock`** — measured by
 shipping one with `colorama` deliberately pinned a version back and watching that older version get

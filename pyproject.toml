@@ -159,6 +159,10 @@ required-version = "==0.17.4"
 # from the app into klarpdf/ when the bridge needs it (the markup palette did in M101), so syntax newer
 # than 3.11 in the app would break the wheel on the day it moved.
 target-version = "py311"
+# The ceiling E501 checks (M171). Ruff's own default is 88, the width its formatter wraps to. This
+# project has no formatter (PLAN.md §Linting, Decisions), and 120 is where only 34 lines stood over.
+# Ruff's import sorting also wraps to this width when it rewrites an import.
+line-length = 120
 
 [tool.ruff.lint]
 # A rule is switched on only at zero findings, in the PR that gets it there: no baseline file, and no
@@ -177,9 +181,10 @@ select = [
     # A list paired with itself one along is `itertools.pairwise`. Without this, B905 would push a
     # neighbour pair towards `zip(strict=True)`, which fails on every call (M170).
     "RUF007",
+    # Consistency (M171): imports in a fixed order; Python 3.11's syntax where older forms remain;
+    # and no line over `line-length`. E741, which refuses a one-letter name such as `l`, is in E7.
+    "I", "UP", "E501",
 ]
-# E741 (a one-letter name such as `l`) comes with M171's consistency rules: 50 findings, none a defect.
-ignore = ["E741"]
 
 [tool.ruff.lint.per-file-ignores]
 # stdout is the bridge's JSON-RPC stream, so `print` is banned in klarpdf/ only. The app, the tools
@@ -192,6 +197,9 @@ ignore = ["E741"]
 "tasks.py" = ["TID251"]
 "tools/**" = ["TID251"]
 "tests/**" = ["TID251"]
+# The bridge's reference text for agents: Markdown served exactly as written. A Markdown table row
+# must stay on one line, and seven of them are over 120 characters (M171).
+"klarpdf/mcp_bridge/docs.py" = ["E501"]
 
 # OS-specific calls, banned outside the quarantine (CLAUDE.md, Keep OS-specific code quarantined).
 # Ruff reports an import of one of these and a use of it, so `sys.platform` in an `if` is caught too.

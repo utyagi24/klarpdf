@@ -69,7 +69,7 @@ class NewField:
         return f"{kind_label(self.kind)} “{self.name}”" if self.name else kind_label(self.kind)
 
 
-def apply_new_fields(page: "fitz.Page", annotations: tuple) -> int:
+def apply_new_fields(page: fitz.Page, annotations: tuple) -> int:
     """Create this page's :class:`NewField` widgets on a materialised output page. Returns how many.
 
     Runs **before** :func:`model.page_edits.apply_form_values`, so a value the user typed into a

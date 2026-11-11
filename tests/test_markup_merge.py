@@ -12,7 +12,6 @@ from __future__ import annotations
 import pytest
 
 from app import PdfApp
-from main_window import MainWindow
 from klarpdf.model.page_edits import (
     Highlight,
     Redaction,
@@ -21,6 +20,7 @@ from klarpdf.model.page_edits import (
     Underline,
     merge_markup,
 )
+from main_window import MainWindow
 from store.settings import Settings
 
 YELLOW = (1.0, 0.86, 0.10)

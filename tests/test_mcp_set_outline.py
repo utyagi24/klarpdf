@@ -28,7 +28,8 @@ from pathlib import Path
 import pymupdf as fitz
 import pytest
 
-from klarpdf.mcp_bridge import queries, transforms as T
+from klarpdf.mcp_bridge import queries
+from klarpdf.mcp_bridge import transforms as T
 
 #: `top` is what a bookmark written with no position of its own reads back as: the PDF layer
 #: writes a real spot 36 pt below the page's top edge for "open this page", so the file says 36

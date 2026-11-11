@@ -203,7 +203,7 @@ class TextSelection:
         self.repaint()
         return True
 
-    def selected_words(self, band: "tuple[int, int] | None" = None) -> list[tuple[int, int, tuple]]:
+    def selected_words(self, band: tuple[int, int] | None = None) -> list[tuple[int, int, tuple]]:
         """``(page_index, order_index, word_tuple)`` for the inclusive selection.
 
         ``band`` clips the result to a range of page indices — what :meth:`repaint` passes so that
@@ -225,7 +225,7 @@ class TextSelection:
                 out.append((page_index, i, words[i]))
         return out
 
-    def line_bars(self, band: "tuple[int, int] | None" = None) -> dict[int, list[tuple]]:
+    def line_bars(self, band: tuple[int, int] | None = None) -> dict[int, list[tuple]]:
         """The selection as one unioned box **per line, per page** — ``{page_index: [box, …]}``,
         each box a ``(x0, y0, x1, y1)`` tuple in page coordinates.
 

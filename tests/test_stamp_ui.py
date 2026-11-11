@@ -15,10 +15,10 @@ import pytest
 from PySide6.QtCore import Qt
 
 from app import PdfApp
-from main_window import MainWindow
 from klarpdf.model.content_marks import ImageStamp, Stamp
-from store.settings import Settings
 from klarpdf.util.page_range import PageRangeError, parse_page_range
+from main_window import MainWindow
+from store.settings import Settings
 from ui.mark_dialog import PLACE_CLICK, PLACE_PAGE
 from viewer.tools import ArmedTool
 
@@ -752,8 +752,9 @@ def test_marks_are_all_painted_before_the_view_is_shown(win, monkeypatch):
 def test_the_fit_search_cache_does_not_change_the_answer():
     """The auto-fit search is memoised because it is pure and startlingly expensive. Pure is the
     load-bearing half: a cached fit must equal a freshly computed one."""
-    from klarpdf.model.content_marks import _fit_fontsize, _measure_free_height, _text_width
     import pymupdf as fitz
+
+    from klarpdf.model.content_marks import _fit_fontsize, _measure_free_height, _text_width
 
     box = fitz.Rect(0, 0, 260, 100)
     _measure_free_height.cache_clear()

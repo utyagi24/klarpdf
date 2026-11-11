@@ -149,8 +149,7 @@ def named_pdf(tmp_path) -> str:
     doc.xref_set_key(
         doc.pdf_catalog(),
         "Dests",
-        "<< /dA [ %d 0 R /XYZ 0 700 0 ] /dB [ %d 0 R /XYZ 0 500 0 ] >>"
-        % (doc.page_xref(2), doc.page_xref(3)),
+        f"<< /dA [ {doc.page_xref(2)} 0 R /XYZ 0 700 0 ] /dB [ {doc.page_xref(3)} 0 R /XYZ 0 500 0 ] >>",
     )
     doc[0].insert_link({"kind": fitz.LINK_NAMED, "from": fitz.Rect(72, 100, 200, 120), "nameddest": "dA"})
     doc[1].insert_link({"kind": fitz.LINK_NAMED, "from": fitz.Rect(72, 100, 200, 120), "nameddest": "dB"})
@@ -244,7 +243,7 @@ def paren_uri_pdf(tmp_path) -> str:
 def _uris(path, page_index) -> list[str]:
     doc = fitz.open(path)
     try:
-        return sorted(l["uri"] for l in doc[page_index].get_links() if l["kind"] == fitz.LINK_URI)
+        return sorted(ln["uri"] for ln in doc[page_index].get_links() if ln["kind"] == fitz.LINK_URI)
     finally:
         doc.close()
 
@@ -307,10 +306,10 @@ def _string_spelling_pdf(tmp_path) -> str:
     for _ in range(4):
         doc.new_page()
     annot, action = doc.get_new_xref(), doc.get_new_xref()
-    doc.update_object(action, "<< /S /GoTo /D [ %d 0 R /Fit ] >>" % doc.page_xref(2))
+    doc.update_object(action, f"<< /S /GoTo /D [ {doc.page_xref(2)} 0 R /Fit ] >>")
     doc.update_object(annot, "<< /Type/Annot /Subtype/Link /Rect [70 88 200 104] "
-                             "/Border[0 0 0] /A %d 0 R >>" % action)
-    doc.xref_set_key(doc.page_xref(0), "Annots", "[%d 0 R]" % annot)
+                             f"/Border[0 0 0] /A {action} 0 R >>")
+    doc.xref_set_key(doc.page_xref(0), "Annots", f"[{annot} 0 R]")
     doc.save(path)
     doc.close()
     return path
@@ -377,8 +376,8 @@ def test_a_string_page_survives_a_reorder(linked_pdf, tmp_path):
     vdoc.move_pages([0], 4)
     out = PyMuPDFEngine().render_output(vdoc)
     try:
-        links = [l for i in range(out.page_count) for l in out[i].get_links()
-                 if l["kind"] in (fitz.LINK_GOTO, fitz.LINK_NAMED)]
+        links = [ln for i in range(out.page_count) for ln in out[i].get_links()
+                 if ln["kind"] in (fitz.LINK_GOTO, fitz.LINK_NAMED)]
         assert len(links) == 1, "the link was dropped by the remap"
         # Through `internal_link_target`, not `links[0]["page"]`: the destination that comes out
         # now is the source's own `/Fit` (M150 carries it verbatim rather than flattening it to a

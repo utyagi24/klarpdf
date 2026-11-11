@@ -16,13 +16,13 @@ import pymupdf as fitz
 import pytest
 
 from app import PdfApp
-from main_window import MainWindow
 from klarpdf.model.page_edits import (
     Highlight,
     Shape,
     TextBox,
     apply_annotations,
 )
+from main_window import MainWindow
 from store.settings import Settings
 from viewer.annotations import _ANNOT_Z_BASE, _REDACTION_Z, AnnotationOverlay
 
