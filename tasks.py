@@ -8,7 +8,7 @@ Thin orchestration only: each task shells out to the existing authoritative scri
 
     invoke --list                      # every task + its one-line description
     invoke test                        # headless suite
-    invoke lint                        # Ruff, as the `lint` CI job runs it
+    invoke lint                        # Ruff and mypy, as the `lint` and `typecheck` CI jobs run them
     invoke audit                       # scan the locks for known advisories
     invoke lock --package pyside6-essentials==6.11.1 # recompile the locks (Windows)
     invoke vendor                      # re-fetch wheels + regenerate vendor/wheels-sources.md (Windows)
@@ -68,16 +68,24 @@ def test(c):
 
 @task
 def lint(c, fix=False):
-    """Run Ruff over the repository, as the `lint` CI job does (M167).
+    """Run Ruff over the repository and mypy over klarpdf/, as the `lint` and `typecheck` CI jobs do.
 
-    Ruff runs from the dev venv, at the version requirements-dev.txt pins. Any other Ruff refuses
+    Both run from the dev venv, at the versions requirements-dev.txt pins. Any other Ruff refuses
     to start, because pyproject.toml sets `required-version`. That keeps this, an editor and CI
     giving one answer. PLAN.md §Linting, dead code and type checking says which rules are on and why.
 
+    mypy (M172) checks klarpdf/ only, as `[tool.mypy]` in pyproject.toml says. Its first run takes a
+    few seconds. Later runs read `.mypy_cache/` and take well under one. Both checks always run, so
+    one failing does not hide the other.
+
     `invoke lint --fix` also makes the changes Ruff can make safely, such as sorting imports and
-    removing quotes from type hints (M171), and then reports what is left to fix by hand.
+    removing quotes from type hints (M171), and then reports what is left to fix by hand. mypy has
+    no fixes to make.
     """
-    c.run(f'"{PY}" -m ruff check{" --fix" if fix else ""} .', echo=True)
+    ruff = c.run(f'"{PY}" -m ruff check{" --fix" if fix else ""} .', echo=True, warn=True)
+    mypy = c.run(f'"{PY}" -m mypy', echo=True, warn=True)
+    if ruff.failed or mypy.failed:
+        sys.exit(1)
 
 
 @task

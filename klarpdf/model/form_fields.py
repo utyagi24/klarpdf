@@ -24,15 +24,17 @@ from dataclasses import dataclass
 
 import pymupdf as fitz
 
+from klarpdf.model.pymupdf_constants import PDF_WIDGET_TYPE_CHECKBOX, PDF_WIDGET_TYPE_COMBOBOX, PDF_WIDGET_TYPE_TEXT
+
 # The three creatable types, in the order the UI offers them. Keyed by a short stable token so a
 # descriptor never stores a PyMuPDF integer constant (which would bake a library detail into
 # something that snapshots and round-trips).
 FIELD_KINDS = ("text", "checkbox", "dropdown")
 
 _WIDGET_TYPES = {
-    "text": fitz.PDF_WIDGET_TYPE_TEXT,
-    "checkbox": fitz.PDF_WIDGET_TYPE_CHECKBOX,
-    "dropdown": fitz.PDF_WIDGET_TYPE_COMBOBOX,
+    "text": PDF_WIDGET_TYPE_TEXT,
+    "checkbox": PDF_WIDGET_TYPE_CHECKBOX,
+    "dropdown": PDF_WIDGET_TYPE_COMBOBOX,
 }
 
 _KIND_LABELS = {"text": "Text Field", "checkbox": "Checkbox", "dropdown": "Dropdown"}

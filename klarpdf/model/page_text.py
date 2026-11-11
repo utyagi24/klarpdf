@@ -27,6 +27,8 @@ that has already been subtly wrong once.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 import pymupdf as fitz
 
 _SNIPPET_WORDS = 4   # context words kept either side of a match in a snippet
@@ -356,7 +358,7 @@ class PageText:
         groups.extend((box,) for box in pending)           # never leave a box behind
         return groups
 
-    def snippet_for(self, boxes: list[tuple]) -> str:
+    def snippet_for(self, boxes: Iterable[tuple]) -> str:
         """Context snippet for a whole match: the per-line snippets joined when it wraps, so a
         reader sees the phrase rather than the half of it that fitted on the first line."""
         parts = [part for part in (self.snippet(box) for box in boxes) if part]

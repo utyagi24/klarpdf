@@ -61,3 +61,9 @@ ruff==0.17.4
 # files git tracks. An EXACT pin, for Ruff's reason: a new release can report things the old one did
 # not, and the check would then fail on code nobody touched. No dependencies; MIT. Dev-only.
 vulture==2.16
+# mypy, the type checker for klarpdf/ (M172): the `typecheck` CI job and `invoke lint` run it. An
+# EXACT pin, for Ruff's reason: a new release can report errors the old one did not, and the check
+# would then fail on code nobody touched. A mypy bump is its own PR (RELEASE.md section 1). It
+# shares `typing-extensions` with the bridge's lock, and tests/test_mcp_packaging.py keeps the two
+# locks on one version of it. Dev-only: it ships in nothing.
+mypy==2.4.1

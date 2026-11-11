@@ -422,7 +422,7 @@ def _drop_white(pix: fitz.Pixmap, threshold: float) -> fitz.Pixmap:
         # slice) — reading `gray.samples` whole would misalign the mask against the pixels.
         keyed = gray.samples[0:: gray.n].translate(table)
     finally:
-        gray = None
+        del gray
     if not pix.alpha:
         pix = fitz.Pixmap(pix, 1)
         pix.set_alpha(keyed, premultiply=0)
@@ -477,7 +477,7 @@ def _draw_image(page: fitz.Page, box: fitz.Rect, mark: ImageStamp) -> None:
             pix = _drop_white(pix, mark.white_threshold)
         page.insert_image(box, pixmap=_with_opacity(pix, mark.opacity), keep_proportion=True)
     finally:
-        pix = None
+        del pix
 
 
 def _draw_text(page: fitz.Page, box: fitz.Rect, mark: Stamp) -> None:

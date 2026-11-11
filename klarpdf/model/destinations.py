@@ -475,7 +475,8 @@ def read_outline_destinations(doc, toc_length: int) -> list[Destination | None]:
     items = outline_item_xrefs(doc)
     if len(items) != toc_length:
         return []
-    page_of_xref, names = page_index_map(doc), {}
+    page_of_xref = page_index_map(doc)
+    names: dict = {}
     return [read_destination(doc, item, page_of_xref, names) for item in items]
 
 

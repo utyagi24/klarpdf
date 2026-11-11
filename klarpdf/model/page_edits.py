@@ -23,18 +23,40 @@ All three are GUI-free and headless-testable.
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 
 import pymupdf as fitz
 
+from klarpdf.model.pymupdf_constants import (
+    PDF_ANNOT_CIRCLE,
+    PDF_ANNOT_FREE_TEXT,
+    PDF_ANNOT_HIGHLIGHT,
+    PDF_ANNOT_INK,
+    PDF_ANNOT_LE_NONE,
+    PDF_ANNOT_LE_OPEN_ARROW,
+    PDF_ANNOT_LINE,
+    PDF_ANNOT_SQUARE,
+    PDF_ANNOT_STRIKE_OUT,
+    PDF_ANNOT_UNDERLINE,
+    PDF_FIELD_IS_READ_ONLY,
+    PDF_FIELD_IS_REQUIRED,
+    PDF_TX_FIELD_IS_MULTILINE,
+    PDF_WIDGET_TYPE_CHECKBOX,
+    PDF_WIDGET_TYPE_COMBOBOX,
+    PDF_WIDGET_TYPE_LISTBOX,
+    PDF_WIDGET_TYPE_RADIOBUTTON,
+    PDF_WIDGET_TYPE_TEXT,
+)
+
 # Widget types we treat as fillable (text, the button family, and the choice family).
 FILLABLE_TYPES = frozenset(
     {
-        fitz.PDF_WIDGET_TYPE_TEXT,
-        fitz.PDF_WIDGET_TYPE_CHECKBOX,
-        fitz.PDF_WIDGET_TYPE_RADIOBUTTON,
-        fitz.PDF_WIDGET_TYPE_COMBOBOX,
-        fitz.PDF_WIDGET_TYPE_LISTBOX,
+        PDF_WIDGET_TYPE_TEXT,
+        PDF_WIDGET_TYPE_CHECKBOX,
+        PDF_WIDGET_TYPE_RADIOBUTTON,
+        PDF_WIDGET_TYPE_COMBOBOX,
+        PDF_WIDGET_TYPE_LISTBOX,
     }
 )
 
@@ -48,7 +70,7 @@ class FormField:
     """
 
     name: str
-    type: int                       # fitz.PDF_WIDGET_TYPE_*
+    type: int                       # a PDF_WIDGET_TYPE_* value
     type_string: str
     page_index: int                 # index into VirtualDocument.ordered (live page order)
     rect: tuple[float, float, float, float]  # widget box in unrotated page points
@@ -67,16 +89,16 @@ class FormField:
     # `edit` on a choice field and unused on a button, so it is read only where it means that.
     @property
     def read_only(self) -> bool:
-        return bool(self.flags & fitz.PDF_FIELD_IS_READ_ONLY)
+        return bool(self.flags & PDF_FIELD_IS_READ_ONLY)
 
     @property
     def required(self) -> bool:
-        return bool(self.flags & fitz.PDF_FIELD_IS_REQUIRED)
+        return bool(self.flags & PDF_FIELD_IS_REQUIRED)
 
     @property
     def multiline(self) -> bool:
-        return self.type == fitz.PDF_WIDGET_TYPE_TEXT and bool(
-            self.flags & fitz.PDF_TX_FIELD_IS_MULTILINE
+        return self.type == PDF_WIDGET_TYPE_TEXT and bool(
+            self.flags & PDF_TX_FIELD_IS_MULTILINE
         )
 
 
@@ -209,12 +231,12 @@ def _is_dynamic(doc: fitz.Document, config_xref: int | None) -> bool:
     except Exception:  # noqa: BLE001 — a packet we cannot read tells us nothing; assume static
         return False
     match = _DYNAMIC_RENDER.search(config)
-    return bool(match) and match.group(1).strip() == "required"
+    return match is not None and match.group(1).strip() == "required"
 
 
 # Text-like fields whose "empty" means cleared (vs a checkbox's Off / a radio's deselect).
 _TEXTLIKE = frozenset(
-    {fitz.PDF_WIDGET_TYPE_TEXT, fitz.PDF_WIDGET_TYPE_COMBOBOX, fitz.PDF_WIDGET_TYPE_LISTBOX}
+    {PDF_WIDGET_TYPE_TEXT, PDF_WIDGET_TYPE_COMBOBOX, PDF_WIDGET_TYPE_LISTBOX}
 )
 
 
@@ -610,7 +632,7 @@ _NOTE_JOIN = "\n\n"
 _SHAPE_RECT_GROWTH = 1.0
 
 
-def _same_line(a: tuple, b: tuple) -> bool:
+def _same_line(a: Sequence[float], b: Sequence[float]) -> bool:
     """Do two bars sit on the same text line? Midpoint-containment either way, rather than equal
     y-bounds: a partial selection can omit a tall word and shrink the band it produces."""
     a_mid, b_mid = (a[1] + a[3]) / 2, (b[1] + b[3]) / 2
@@ -645,7 +667,7 @@ def _union_bars(bars) -> tuple:
 def _subtract_bars(bars, cutters) -> tuple:
     """``bars`` with every ``cutters`` span cut out of it, per line. A cut through the middle
     leaves two runs (the mark splits around the new colour); a fully covered bar disappears."""
-    result = []
+    result: list[tuple] = []
     for bar in bars:
         pieces = [(bar[0], bar[2])]
         for cutter in cutters:
@@ -813,7 +835,7 @@ def scale_mark(mark, sx: float, sy: float, ox: float, oy: float):
     """
     from dataclasses import replace
 
-    from klarpdf.model.content_marks import CONTENT_MARK_TYPES
+    from klarpdf.model.content_marks import CONTENT_MARK_TYPES, Stamp
     from klarpdf.model.form_fields import NewField
 
     def point(x: float, y: float) -> tuple:
@@ -829,7 +851,7 @@ def scale_mark(mark, sx: float, sy: float, ox: float, oy: float):
         # sitting in a box the wrong shape for it, which reads as the stamp distorting. Instead the
         # drag sets the **size** — the smaller axis governs, so it never grows past what was asked
         # — and the box is re-derived from it, keeping the hug exact at every step.
-        if getattr(mark, "fontsize", 0.0):
+        if isinstance(mark, Stamp) and mark.fontsize:
             from klarpdf.model.content_marks import placement_size
 
             resized = replace(mark, fontsize=mark.fontsize * min(abs(sx), abs(sy)))
@@ -1066,8 +1088,8 @@ def apply_annotations(page: fitz.Page, annotations: tuple) -> None:
             annot = page.add_line_annot(fitz.Point(annotation.start), fitz.Point(annotation.end))
             if annotation.arrow_start or annotation.arrow_end:
                 annot.set_line_ends(
-                    fitz.PDF_ANNOT_LE_OPEN_ARROW if annotation.arrow_start else fitz.PDF_ANNOT_LE_NONE,
-                    fitz.PDF_ANNOT_LE_OPEN_ARROW if annotation.arrow_end else fitz.PDF_ANNOT_LE_NONE,
+                    PDF_ANNOT_LE_OPEN_ARROW if annotation.arrow_start else PDF_ANNOT_LE_NONE,
+                    PDF_ANNOT_LE_OPEN_ARROW if annotation.arrow_end else PDF_ANNOT_LE_NONE,
                 )
             annot.set_colors(stroke=annotation.color)
             _set_stroke_border(annot, annotation.width, annotation.dashed)
@@ -1075,8 +1097,8 @@ def apply_annotations(page: fitz.Page, annotations: tuple) -> None:
             annot.set_info(title=KLARPDF_AUTHOR)
             annot.update()
         elif isinstance(annotation, Shape):
-            add = page.add_rect_annot if annotation.kind == "rect" else page.add_circle_annot
-            annot = add(fitz.Rect(annotation.rect))
+            add_shape = page.add_rect_annot if annotation.kind == "rect" else page.add_circle_annot
+            annot = add_shape(fitz.Rect(annotation.rect))
             # No border is an empty border colour (M155). Not `stroke=None`: PyMuPDF reads that as
             # "leave it", and a new annotation's border is red.
             stroke = annotation.color if annotation.color is not None else []
@@ -1358,8 +1380,8 @@ def _content_operators(data: bytes):
             if c == ord("/"):
                 name = token
             elif token == "ID":
-                end = _INLINE_IMAGE_END.search(data, i)
-                i = n if end is None else end.end()
+                image_end = _INLINE_IMAGE_END.search(data, i)
+                i = n if image_end is None else image_end.end()
             else:
                 yield token, name
 
@@ -1442,38 +1464,38 @@ def parse_annotation(annot: fitz.Annot):
     doc = annot.parent.parent
     result: list = []
     kind = annot.type[0]
-    if kind == fitz.PDF_ANNOT_HIGHLIGHT:
+    if kind == PDF_ANNOT_HIGHLIGHT:
         stroke = annot.colors.get("stroke")
         color = tuple(stroke) if stroke else Highlight.color
         result.append(Highlight(_quads_to_rects(annot.vertices), color=color,
                                 note=annot.info.get("content", "")))
-    elif kind in (fitz.PDF_ANNOT_UNDERLINE, fitz.PDF_ANNOT_STRIKE_OUT):
-        cls = Underline if kind == fitz.PDF_ANNOT_UNDERLINE else Strikeout
+    elif kind in (PDF_ANNOT_UNDERLINE, PDF_ANNOT_STRIKE_OUT):
+        cls = Underline if kind == PDF_ANNOT_UNDERLINE else Strikeout
         stroke = annot.colors.get("stroke")
         color = tuple(stroke) if stroke else cls.color
         result.append(cls(_quads_to_rects(annot.vertices), color=color,
                           note=annot.info.get("content", "")))
-    elif kind == fitz.PDF_ANNOT_INK:
+    elif kind == PDF_ANNOT_INK:
         paths = tuple(tuple((p[0], p[1]) for p in path) for path in annot.vertices)
         result.append(InkStroke(paths, color=_stroke_color(annot, InkStroke.color),
                                 width=_border_width(annot), opacity=_opacity(annot),
                                 dashed=_dashed(annot)))
-    elif kind == fitz.PDF_ANNOT_LINE:
+    elif kind == PDF_ANNOT_LINE:
         start, end = annot.vertices[0], annot.vertices[1]
-        ends = annot.line_ends or (fitz.PDF_ANNOT_LE_NONE, fitz.PDF_ANNOT_LE_NONE)
+        ends = annot.line_ends or (PDF_ANNOT_LE_NONE, PDF_ANNOT_LE_NONE)
         result.append(
             Line(
                 (start[0], start[1]),
                 (end[0], end[1]),
                 color=_stroke_color(annot, Line.color),
                 width=_border_width(annot),
-                arrow_start=ends[0] != fitz.PDF_ANNOT_LE_NONE,
-                arrow_end=ends[1] != fitz.PDF_ANNOT_LE_NONE,
+                arrow_start=ends[0] != PDF_ANNOT_LE_NONE,
+                arrow_end=ends[1] != PDF_ANNOT_LE_NONE,
                 opacity=_opacity(annot),
                 dashed=_dashed(annot),
             )
         )
-    elif kind in (fitz.PDF_ANNOT_SQUARE, fitz.PDF_ANNOT_CIRCLE):
+    elif kind in (PDF_ANNOT_SQUARE, PDF_ANNOT_CIRCLE):
         # Undo the growth `add_rect_annot` / `add_circle_annot` applied when the appearance was
         # baked, to recover the authored shape box — see :data:`_SHAPE_RECT_GROWTH` for why that
         # is a constant rather than a function of the border width (#292).
@@ -1486,7 +1508,7 @@ def parse_annotation(annot: fitz.Annot):
         stroke = annot.colors.get("stroke")
         result.append(
             Shape(
-                "rect" if kind == fitz.PDF_ANNOT_SQUARE else "ellipse",
+                "rect" if kind == PDF_ANNOT_SQUARE else "ellipse",
                 rect,
                 color=tuple(stroke) if stroke else None,
                 width=width,
@@ -1495,7 +1517,7 @@ def parse_annotation(annot: fitz.Annot):
                 dashed=_dashed(annot),
             )
         )
-    elif kind == fitz.PDF_ANNOT_FREE_TEXT:
+    elif kind == PDF_ANNOT_FREE_TEXT:
         # PyMuPDF grows a FreeText /Rect by border_width/2 on each side when it bakes the
         # outline (RD stays zero), so inset by that to recover the authored box — otherwise the
         # box would creep outward by half the border on every save→reopen→save round-trip.
@@ -1577,7 +1599,7 @@ def apply_form_values(out_doc: fitz.Document, values: dict[str, object]) -> None
     """
     if not values:
         return
-    for page in out_doc:
+    for page in out_doc.pages():
         for widget in page.widgets() or []:
             name = widget.field_name
             if name not in values:

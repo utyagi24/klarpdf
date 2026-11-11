@@ -43,8 +43,6 @@ import json
 import os
 from collections import Counter
 
-import pymupdf as fitz
-
 from klarpdf.mcp_bridge.queries import _page_of, open_document, resolve_pages
 from klarpdf.mcp_bridge.transforms import _resolve_out, _write
 from klarpdf.model.markup_palette import (
@@ -64,6 +62,15 @@ from klarpdf.model.page_edits import (
     parse_annotation,
 )
 from klarpdf.model.page_text import PageText
+from klarpdf.model.pymupdf_constants import (
+    PDF_ANNOT_HIGHLIGHT,
+    PDF_ANNOT_POPUP,
+    PDF_ANNOT_SQUIGGLY,
+    PDF_ANNOT_STRIKE_OUT,
+    PDF_ANNOT_UNDERLINE,
+    PDF_ANNOT_WIDGET,
+    PDF_PERM_ANNOTATE,
+)
 
 # The three mark types this tool writes, by the name a caller uses. The model has six more —
 # ink, line, rect, ellipse, text box, stamp — and they are deliberately not here: they are drawing
@@ -71,7 +78,7 @@ from klarpdf.model.page_text import PageText
 # that offered all nine would spend its whole description cap listing them. The description says so
 # explicitly, because a model that guesses `"type": "rect"` should get an error naming the three
 # rather than a silent no-op (M106).
-MARK_TYPES: dict[str, type] = {
+MARK_TYPES: dict[str, type[Highlight] | type[Underline] | type[Strikeout]] = {
     "highlight": Highlight,
     "underline": Underline,
     "strikeout": Strikeout,
@@ -81,7 +88,7 @@ MARK_TYPES: dict[str, type] = {
 # fields — `get_form_fields` reports them properly, with their values, flags and export states,
 # which is far more than a rect and a colour. Popups are the floating window a sticky note opens
 # into, not a mark of their own: reporting one would double-count its parent.
-_NOT_MARKUP = {fitz.PDF_ANNOT_WIDGET, fitz.PDF_ANNOT_POPUP}
+_NOT_MARKUP = {PDF_ANNOT_WIDGET, PDF_ANNOT_POPUP}
 
 # Text markup stores its geometry as **quad points**, one quad per line covered, and its `/Rect` is
 # a padded bounding box around them — measured, ~5pt wider on each side than the quads it contains.
@@ -89,10 +96,10 @@ _NOT_MARKUP = {fitz.PDF_ANNOT_WIDGET, fitz.PDF_ANNOT_POPUP}
 # `redact_regions`, would delete a strip of whatever sits alongside. So markup is always read from
 # its quads; only the types that have no quads fall back to the rect.
 _QUAD_TYPES = {
-    fitz.PDF_ANNOT_HIGHLIGHT,
-    fitz.PDF_ANNOT_UNDERLINE,
-    fitz.PDF_ANNOT_STRIKE_OUT,
-    fitz.PDF_ANNOT_SQUIGGLY,
+    PDF_ANNOT_HIGHLIGHT,
+    PDF_ANNOT_UNDERLINE,
+    PDF_ANNOT_STRIKE_OUT,
+    PDF_ANNOT_SQUIGGLY,
 }
 
 # How many annotations one `get_annotations` reply may carry. A review copy of a long contract can
@@ -245,7 +252,7 @@ def _describe(annot, page1: int, text: PageText) -> dict:
         # which is what a mark made in this app carries and a mark made in Acrobat generally does
         # not. Both are null/false when the annotation stores no colour at all.
         "color_name": nearest_name(color, name) if color else None,
-        "color_exact": bool(color) and is_palette_color(color, name),
+        "color_exact": color is not None and is_palette_color(color, name),
         "note": info.get("content") or "",
         "author": author,
         # `mine` is the author tag this app writes; `editable` is whether the model can represent
@@ -358,14 +365,14 @@ def _resolve_color(raw, mark_type: str) -> tuple[float, float, float] | None:
         if len(raw) != 3:
             raise ValueError(f"color must be a name or [r, g, b]; got {list(raw)!r}")
         try:
-            rgb = tuple(float(c) for c in raw)
+            red, green, blue = (float(c) for c in raw)
         except (TypeError, ValueError):
             raise ValueError(f"color components must be numbers; got {list(raw)!r}") from None
-        if any(c < 0.0 or c > 1.0 for c in rgb):
+        if any(c < 0.0 or c > 1.0 for c in (red, green, blue)):
             raise ValueError(
                 f"color components are 0..1, not 0..255; got {list(raw)!r}"
             )
-        return rgb
+        return (red, green, blue)
     raise ValueError(f"color must be a palette name or [r, g, b]; got {raw!r}")
 
 
@@ -394,9 +401,9 @@ def _mark_boxes(mark: dict) -> list[tuple]:
 
 
 _KIND_TO_PDF_TYPE = {
-    "highlight": fitz.PDF_ANNOT_HIGHLIGHT,
-    "underline": fitz.PDF_ANNOT_UNDERLINE,
-    "strikeout": fitz.PDF_ANNOT_STRIKE_OUT,
+    "highlight": PDF_ANNOT_HIGHLIGHT,
+    "underline": PDF_ANNOT_UNDERLINE,
+    "strikeout": PDF_ANNOT_STRIKE_OUT,
 }
 
 
@@ -409,7 +416,7 @@ def _permission_warning(vdoc) -> str | None:
     (`model/edit_engine.py`), which an ordinary unencrypted document also reports, so that case must
     not trip this.
     """
-    if vdoc.permissions == -1 or vdoc.permissions & fitz.PDF_PERM_ANNOTATE:
+    if vdoc.permissions == -1 or vdoc.permissions & PDF_PERM_ANNOTATE:
         return None
     return (
         "this document's permissions ask readers not to annotate it (the ANNOTATE bit is unset). "
@@ -477,7 +484,7 @@ def annotate(
     target = _resolve_out(out, sources=[path], overwrite=overwrite)
     with open_document(path, password) as vdoc:
         touched: set[int] = set()
-        before = {}
+        before: dict[int, int] = {}
         requested_boxes: dict[tuple[int, str], list] = {}
         foreign_overlaps: list[str] = []
         for mark in marks:

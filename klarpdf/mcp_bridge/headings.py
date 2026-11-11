@@ -143,7 +143,7 @@ class _Line:
 
     @property
     def styled(self) -> list[tuple[Style, str, fitz.Rect]]:
-        return [span for span in self.spans if span[0] is not None]
+        return [(style, text, rect) for style, text, rect in self.spans if style is not None]
 
     @property
     def rect(self) -> fitz.Rect:
@@ -349,11 +349,16 @@ def _candidates(page_number: int, lines: list[_Line], body: Style) -> list[_Cand
     return found
 
 
+def _corners(rect: fitz.Rect) -> tuple[float, float, float, float]:
+    """A rect's four numbers. A ``Rect`` can be looped over, but PyMuPDF's types do not say so."""
+    return (rect.x0, rect.y0, rect.x1, rect.y1)
+
+
 def _unrotated(page: fitz.Page, rect: fitz.Rect) -> list[float]:
     """Displayed space back to the unrotated space ``search``, ``clip`` and the redactions use."""
     box = fitz.Rect(rect) * page.derotation_matrix if page.rotation else fitz.Rect(rect)
     box.normalize()
-    return [round(v, 1) for v in box]
+    return [round(v, 1) for v in _corners(box)]
 
 
 def _example(text: str) -> str:
@@ -464,8 +469,8 @@ def heading_candidates(
         style_table = _style_table(found, ids, marked if tables else None)
 
         if styles is not None:
-            known = set(ids.values())
-            unknown = [s for s in styles if s not in known]
+            offered_ids = set(ids.values())
+            unknown = [s for s in styles if s not in offered_ids]
             if unknown:
                 offered = ", ".join(entry["style"] for entry in style_table) or "none"
                 raise ValueError(

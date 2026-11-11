@@ -558,7 +558,7 @@ def _to_unrotated(page: fitz.Page, rect: fitz.Rect) -> list[float]:
     ``get_links``, ``clip``, ``redact_regions``) is unrotated. Converted at the boundary, once."""
     box = fitz.Rect(rect) * page.derotation_matrix if page.rotation else fitz.Rect(rect)
     box.normalize()
-    return [round(v, 1) for v in box]
+    return [round(v, 1) for v in (box.x0, box.y0, box.x1, box.y1)]
 
 
 def _displayed(page: fitz.Page, bbox: list[float]) -> fitz.Rect:
@@ -665,8 +665,8 @@ def _read_grid(found: _Found, inventory: _Inventory, edges: list[tuple[float, fl
     # (#354). Checked last, so a region another check declines keeps that check's reason.
     pair = _overlapping([rect for _, _, rect in cells])
     if pair is not None:
-        first, second = (", ".join(f"{v:.1f}" for v in rect) for rect in pair)
-        raise _Decline("overlapping_cells", f"the drawn cells [{first}] and [{second}] overlap")
+        one, other = (", ".join(f"{v:.1f}" for v in rect) for rect in pair)
+        raise _Decline("overlapping_cells", f"the drawn cells [{one}] and [{other}] overlap")
     edges = columns + [box.x1]
     spans = [[a, b] for a, b in pairwise(edges)]
     return {
@@ -1600,15 +1600,17 @@ def _title(page: fitz.Page, tables: list[dict], declined: list[fitz.Rect]) -> st
     owners: list[tuple[fitz.Rect, object]] = [(t["bbox"], t) for t in tables] + [(box, box) for box in declined]
     before: dict[str, list[fitz.Rect]] = {}
     if page.number > 0:
-        for other in headings._read_page_lines(page.parent[page.number - 1]).lines:
-            before.setdefault(other.text, []).append(other.rect)
+        for earlier in headings._read_page_lines(page.parent[page.number - 1]).lines:
+            before.setdefault(earlier.text, []).append(earlier.rect)
     texts: list[_Text] = []
     for line in lines:
         rect = line.rect
         centre = fitz.Point((rect.x0 + rect.x1) / 2, (rect.y0 + rect.y1) / 2)
         owner = next((who for box, who in owners if box.contains(centre)), None)
+        corners = headings._corners(rect)
         repeated = any(
-            all(abs(a - b) <= _SNAP for a, b in zip(seen, rect, strict=True)) for seen in before.get(line.text, ())
+            all(abs(a - b) <= _SNAP for a, b in zip(headings._corners(seen), corners, strict=True))
+            for seen in before.get(line.text, ())
         )
         texts.append(_Text(line, owner, any(link.contains(centre) for link in links), repeated))
     blocks: dict[int, list[_Text]] = {}
@@ -2012,7 +2014,7 @@ def tables(
             used += size
 
         more_available = offset + len(batch) < total
-        result = {
+        reply: dict[str, object] = {
             "count": len(batch),
             "total_tables": total,
             "offset": offset,
@@ -2023,8 +2025,8 @@ def tables(
             "more_available": more_available,
         }
         if more_available:
-            result["warnings"] = [
+            reply["warnings"] = [
                 f"{total} tables in scope; returned {len(batch)} starting at offset {offset}. "
                 f"Call again with offset: {offset + len(batch)} for the rest, or narrow `pages`."
             ]
-        return result
+        return reply

@@ -213,6 +213,17 @@ select = [
 "ctypes.WinDLL".msg = "OS-specific code belongs in platform_integration.py (CLAUDE.md, Keep OS-specific code quarantined)"
 "ctypes.wintypes".msg = "OS-specific code belongs in platform_integration.py (CLAUDE.md, Keep OS-specific code quarantined)"
 
+# mypy, the type checker (M172). It checks klarpdf/, the wheel that both the app and the bridge
+# stand on, and nothing else: whether the app is checked too is M173's decision. PLAN.md §M172 has
+# the reasons. Like Ruff, it reports nothing on `main`, so an error is always the PR's own doing.
+[tool.mypy]
+files = ["klarpdf"]
+# The wheel's floor (`requires-python`). mypy then refuses syntax and library calls newer than 3.11,
+# whichever Python runs it. tests/test_lint_config.py keeps this equal to the floor.
+python_version = "3.11"
+# A `# type: ignore[code]` that suppresses nothing is refused, as RUF100 refuses a stale `noqa`.
+warn_unused_ignores = true
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
