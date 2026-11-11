@@ -1385,7 +1385,8 @@ parts, and the box here is ticked on merge. Build in number order, except that M
   one defect a user could see: the bridge's `get_annotations` named a mid-grey highlight "Blue" and
   a cyan-ink underline "Red". Grey and CMYK colours are now converted as MuPDF draws them, then
   named. Ruff's own fix for four menu lambdas would have made Paste Pages paste before page 1, so
-  they stay, with the reason. Details in `PLAN.md` §M170 — PR_LINK
+  they stay, with the reason. Details in `PLAN.md` §M170 —
+  [#448](https://github.com/utyagi24/klarpdf/pull/448)
 - [ ] **M171** **Consistency**: import order, syntax upgrades and a 120-column ceiling, with no
   formatter. *All surfaces; no behaviour change.*
 - [ ] **M172** **Types for the wheel** (`klarpdf/`): mypy and the `typecheck` CI job. *Core and
