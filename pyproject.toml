@@ -170,13 +170,16 @@ select = [
     "RUF100",               # no `noqa` that suppresses nothing (M168)
     "T20",                  # no `print` in klarpdf/ (see per-file-ignores) (M168)
     "TID251",               # the banned APIs below (M168)
+    # Defects that hide (M170): bugbear, which includes a `zip` that stops at the shorter list; an
+    # `except` that catches every error, and one that drops it with `pass` or `continue`; and
+    # Pylint's errors and warnings.
+    "B", "BLE001", "S110", "S112", "PLE", "PLW",
+    # A list paired with itself one along is `itertools.pairwise`. Without this, B905 would push a
+    # neighbour pair towards `zip(strict=True)`, which fails on every call (M170).
+    "RUF007",
 ]
 # E741 (a one-letter name such as `l`) comes with M171's consistency rules: 50 findings, none a defect.
 ignore = ["E741"]
-# Six `noqa: BLE001` comments in klarpdf/ carry their reasons for M170, which switches BLE001 on.
-# Until then RUF100 would call them suppressions of a rule that is off. Listing the code here keeps
-# them, at the cost that a stale one goes unreported until M170 deletes this line.
-external = ["BLE001"]
 
 [tool.ruff.lint.per-file-ignores]
 # stdout is the bridge's JSON-RPC stream, so `print` is banned in klarpdf/ only. The app, the tools

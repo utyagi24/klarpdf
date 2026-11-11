@@ -78,7 +78,7 @@ def _statement(
             page.draw_line((rule[0], y), (rule[1], y))
         if label:
             page.insert_text((labels[i % len(labels)], y + 11), label, fontsize=FONT)
-        for x, figure in zip(columns, figures):
+        for x, figure in zip(columns, figures, strict=True):
             if figure:
                 _right(page, x, y + 11, figure)
     bottom = top + len(rows) * PITCH
@@ -389,7 +389,7 @@ def test_a_banded_block_drawn_as_a_box_is_read_from_its_bands_not_from_the_box(t
         y = 100 + i * PITCH
         page.draw_rect(fitz.Rect(240, y, 480, y + PITCH), color=None, fill=(0.8, 0.93, 1.0) if i % 2 == 0 else (1, 1, 1))
         page.insert_text((60, y + 11), label, fontsize=FONT)
-        for x, figure in zip((355, 475), figures):
+        for x, figure in zip((355, 475), figures, strict=True):
             _right(page, x, y + 11, figure)
     page.draw_rect(fitz.Rect(240, 100, 480, bottom), color=(0, 0, 0), fill=None)
     page.draw_line((240, 100 + 6 * PITCH), (480, 100 + 6 * PITCH))
@@ -416,7 +416,7 @@ def test_dot_leaders_are_not_read_into_cells(tmp_path):
             page.draw_line((55, y), (540, y))
             page.insert_text((60, y + 11), label, fontsize=FONT)
             page.insert_text((60 + fitz.get_text_length(label, fontsize=FONT) + gap, y + 11), "." * 40, fontsize=FONT)
-            for x, figure in zip((420, 520), figures):
+            for x, figure in zip((420, 520), figures, strict=True):
                 _right(page, x, y + 11, figure)
         page.draw_line((55, 100 + len(ASSETS) * PITCH), (540, 100 + len(ASSETS) * PITCH))
     path = _save(doc, tmp_path, "leaders.pdf")
@@ -727,7 +727,7 @@ def test_the_drawn_row_check_is_what_saves_a_banded_block(tmp_path, monkeypatch)
         y = 100 + i * PITCH
         page.draw_rect(fitz.Rect(240, y, 480, y + PITCH), color=None, fill=(0.8, 0.93, 1.0) if i % 2 == 0 else (1, 1, 1))
         page.insert_text((60, y + 11), label, fontsize=FONT)
-        for x, figure in zip((355, 475), figures):
+        for x, figure in zip((355, 475), figures, strict=True):
             _right(page, x, y + 11, figure)
     page.draw_rect(fitz.Rect(240, 100, 480, bottom), color=(0, 0, 0), fill=None)
     page.draw_line((240, 100 + 6 * PITCH), (480, 100 + 6 * PITCH))
@@ -757,7 +757,7 @@ def _two_notes(tmp_path, name: str, *, heading: str | None = None, segments=SEGM
     for label, *figures in ASSETS:
         page.draw_line((55, y), (540, y))
         page.insert_text((60, y + 11), label, fontsize=FONT)
-        for x, figure in zip((420, 520), figures):
+        for x, figure in zip((420, 520), figures, strict=True):
             _right(page, x, y + 11, figure)
         y += PITCH
     page.draw_line((55, y), (540, y))
@@ -1203,7 +1203,7 @@ def _grid(page: fitz.Page, x0: float, y0: float, rows: list[tuple[str, str]]) ->
     for x in xs:
         page.draw_line((x, y0), (x, y0 + len(rows) * height))
     for i, row in enumerate(rows):
-        for x, text in zip(xs, row):
+        for x, text in zip(xs[:-1], row, strict=True):  # each cell starts at a line; the last closes the grid
             page.insert_text((x + 4, y0 + i * height + 14), text, fontsize=FONT)
 
 
@@ -1287,7 +1287,7 @@ def _banner_grid(page: fitz.Page, top: float, banner=None) -> None:
     if banner:
         banner(page, x0, top, x1)
     for i, row in enumerate(BANNER_ROWS, 1):
-        for x, text in zip((x0, split), row):
+        for x, text in zip((x0, split), row, strict=True):
             page.insert_text((x + 4, top + height * i + 14), text, fontsize=FONT)
 
 
@@ -1346,7 +1346,7 @@ def test_a_banners_title_stays_inside_its_cell(tmp_path):
     writer.append((split + 4, top + 21), "Required", font=font, fontsize=FONT)
     writer.write_text(page)
     for i, row in enumerate(rows, 2):
-        for x, text in zip((x0, split), row):
+        for x, text in zip((x0, split), row, strict=True):
             page.insert_text((x + 4, top + height * i + 9), text, fontsize=FONT)
     assert [t["title"] for t in _read(_save(doc, tmp_path, "inside.pdf")).tables] == ["As at Fiscal 2024"]
 

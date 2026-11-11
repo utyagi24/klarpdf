@@ -195,7 +195,7 @@ class _Owner:
         """
         try:
             self._cache.release(self._id)
-        except Exception:       # interpreter shutdown: the store may already be torn down
+        except Exception:  # noqa: BLE001, S110 — interpreter shutdown: the store may already be gone
             pass
 
     def __len__(self) -> int:

@@ -62,7 +62,7 @@ def render_to_printer(printer: QPrinter, vdoc, current_page: int, parent=None) -
     False if the document could not be rendered or the job could not start."""
     try:
         rendered = PyMuPDFEngine().render_output(vdoc)
-    except Exception as exc:  # a malformed edit shouldn't crash the app mid-print
+    except Exception as exc:  # noqa: BLE001 — a malformed edit must not crash the app mid-print
         if parent is not None:
             QMessageBox.critical(parent, "Print", f"Could not render the document:\n{exc}")
         return False

@@ -45,7 +45,9 @@ def single_instance_server_name() -> str:
     """A stable, per-user IPC name so two users on one machine don't collide."""
     try:
         user = getpass.getuser()
-    except Exception:  # getuser can raise if the environment has no user info
+    except (OSError, ImportError, KeyError):
+        # No user in the environment. Python 3.13 raises OSError; 3.12, which the app is built
+        # with, fails its password lookup with ImportError on Windows and KeyError elsewhere.
         user = "default"
     return f"klarpdf-singleton-{user}"
 
@@ -66,7 +68,7 @@ def acquire_app_mutex(name: str = APP_MUTEX_NAME) -> bool:
     Never raises: a missing mutex degrades to today's behaviour (installer proceeds, files stay
     locked, config dir gets recreated). That is a bad outcome, not a crashed app.
     """
-    global _app_mutex_handle
+    global _app_mutex_handle  # noqa: PLW0603 — the handle must live as long as the process
     if sys.platform != "win32":
         return False
     if _app_mutex_handle is not None:
@@ -83,7 +85,7 @@ def acquire_app_mutex(name: str = APP_MUTEX_NAME) -> bool:
             return False
         _app_mutex_handle = handle
         return True
-    except Exception:  # pragma: no cover - ctypes/kernel32 unavailable
+    except Exception:  # noqa: BLE001 — no mutex is a bad outcome, not a crash  # pragma: no cover
         return False
 
 
@@ -127,7 +129,7 @@ def _raise_to_front_win32(window) -> None:
         flags = SWP_NOMOVE | SWP_NOSIZE
         user32.SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, flags)
         user32.SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, flags)
-    except Exception:
+    except Exception:  # noqa: BLE001, S110 — raising the window is best effort; it opens either way
         pass
 
 
@@ -158,7 +160,7 @@ def allow_foreground_handoff() -> None:
         user32.AllowSetForegroundWindow.argtypes = [wintypes.DWORD]
         user32.AllowSetForegroundWindow.restype = wintypes.BOOL
         user32.AllowSetForegroundWindow(ASFW_ANY)
-    except Exception:
+    except Exception:  # noqa: BLE001, S110 — best effort; without it the window only fails to come forward
         pass
 
 
@@ -192,7 +194,7 @@ def quiet_harmless_qt_lines(app) -> bool:
 
 
 def _install_line_filter() -> None:
-    global _passed_on
+    global _passed_on  # noqa: PLW0603 — Qt's message handler is process-wide, so the one it replaced is too
     from PySide6.QtCore import qInstallMessageHandler
 
     previous = qInstallMessageHandler(_filter_qt_line)

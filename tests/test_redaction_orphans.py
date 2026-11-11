@@ -68,7 +68,7 @@ def _image_objects(path: str) -> set[int]:
             try:
                 if doc.xref_get_key(xref, "Subtype")[1] == "/Image":
                     found.add(xref)
-            except Exception:  # a free or malformed xref slot is not an image
+            except fitz.mupdf.FzErrorBase:  # a malformed object is not an image (a free slot reads null)
                 continue
     return found
 

@@ -102,9 +102,11 @@ def word_check(page: fitz.Page, table: dict) -> tuple[dict, dict]:
     finally:
         fitz.TOOLS.set_small_glyph_heights(old)
     ordinary = _displayed(page, page.get_text("words"))
+    if len(ordinary) != len(tight):
+        ordinary = tight  # as tables._page_inventory does, so the two count the same words
     printed = collections.Counter(
         t[4]
-        for t, o in zip(tight, ordinary)
+        for t, o in zip(tight, ordinary, strict=True)
         if x0 <= (t[0] + t[2]) / 2 <= x1
         and y0 <= (t[1] + t[3]) / 2 <= y1
         and (o[3] - o[1]) >= 1.0
@@ -157,7 +159,7 @@ def title_outcomes(anchor: dict, titles: list[str | None]) -> list[tuple[str, st
     if len(expected) != len(titles):
         return [("wrong", f"titles pinned for {len(expected)} tables, got {len(titles)}: {titles}")]
     outcomes = []
-    for index, (want, have) in enumerate(zip(expected, titles), 1):
+    for index, (want, have) in enumerate(zip(expected, titles, strict=True), 1):
         if have in (want if isinstance(want, list) else [want]):
             outcomes.append(("right", ""))
         else:
@@ -225,7 +227,7 @@ def run(plan_path: str, corpus: str, snapshot: str | None, snapshots: str) -> in
             record = {"doc": name, "page": number, "tables": [], "unread": [
                 {k: u[k] for k in ("bbox", "_code", "_detail")} for u in result.unread
             ]}
-            for table, title in zip(result.tables, titles):
+            for table, title in zip(result.tables, titles, strict=True):
                 counts[table["reader"]] += 1
                 missing, extra = word_check(page, table)
                 shape = [len(table["rows"]), max(len(r) for r in table["rows"])]
@@ -288,10 +290,12 @@ def diff(old_path: str, new_path: str) -> int:
         changed += 1
         print(f"{key[0]} p{key[1]}: tables {[t[0] for t in tables_a]} -> {[t[0] for t in tables_b]}; "
               f"declines {codes_a} -> {codes_b}")
-        for (sa, ra, ta), (sb, rb, tb) in zip(tables_a, tables_b):
+        # The two runs may find different numbers of tables, and of rows in a table. The line above
+        # prints both lists in full, so the detail below covers only what both runs have.
+        for (_sa, ra, ta), (_sb, rb, tb) in zip(tables_a, tables_b, strict=False):
             if ta != tb:
                 print(f"    title {ta!r} -> {tb!r}")
-            for index, (x, y) in enumerate(zip(ra, rb)):
+            for index, (x, y) in enumerate(zip(ra, rb, strict=False)):
                 if x != y:
                     print(f"    row {index}: {x}\n          -> {y}")
                     break

@@ -49,7 +49,7 @@ def installer():
 def test_the_accepted_window_is_the_one_the_package_declares(installer):
     """`install.py` carries the bounds as literals — it runs where there is no repo to read. This is
     the check that keeps that fourth copy honest (M132's lesson, one file further on)."""
-    result = subprocess.run([sys.executable, str(SYNC), "--check"], capture_output=True, text=True)
+    result = subprocess.run([sys.executable, str(SYNC), "--check"], capture_output=True, text=True, check=False)
     assert result.returncode == 0, f"install.py's constants are stale:\n{result.stderr}"
 
 
@@ -189,7 +189,7 @@ def test_the_uninstaller_refuses_a_directory_that_is_not_ours(installer, tmp_pat
     """It deletes a whole tree, so pointing it at the wrong path must be refused rather than obeyed."""
     installer.write_uninstaller(tmp_path)
     result = subprocess.run([sys.executable, str(tmp_path / "uninstall.py")],
-                            capture_output=True, text=True, input="y\n")
+                            capture_output=True, text=True, input="y\n", check=False)
     assert result.returncode != 0
     assert "does not look like a KlarPDF MCP install" in (result.stdout + result.stderr)
 

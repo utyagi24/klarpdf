@@ -128,7 +128,7 @@ class PasswordDialog(QDialog):
         if all(box.isChecked() for box in self._flags) and self._original == -1:
             return -1  # nothing restricted, nothing was → the everything-allowed encryption
         bits = _BASE
-        for box, initial, (_label, group) in zip(self._flags, self._initial, FLAG_GROUPS):
+        for box, initial, (_label, group) in zip(self._flags, self._initial, FLAG_GROUPS, strict=True):
             if box.isChecked() == initial:
                 bits |= self._original & group      # untouched → whatever the document said
             elif box.isChecked():

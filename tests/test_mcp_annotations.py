@@ -747,6 +747,28 @@ def test_edge_default_yellow_reads_back_as_yellow(doc_path, out):
     assert found["color_exact"] is False                   # near our swatch, not equal to it
 
 
+@pytest.mark.parametrize(
+    ("stored", "expected"),
+    [((0.5,), None), ((0, 0, 1, 0), "Yellow")],
+    ids=["grey", "cmyk-yellow"],
+)
+def test_a_grey_or_ink_mark_is_named_as_it_is_drawn(doc_path, out, stored, expected):
+    """M170. A mark made in another program can store its colour as one grey value or four ink
+    values. A mid-grey highlight was named "Blue" before M170, because only its first value was
+    compared with the red channel."""
+    with fitz.open(doc_path) as doc:
+        page = doc[0]
+        annot = page.add_highlight_annot(fitz.Rect(*_find(doc_path, NAME)[0]))
+        annot.set_colors(stroke=stored)
+        annot.update()
+        doc.save(out)
+
+    (found,) = annotations.get_annotations(out)["annotations"]
+    assert found["color"] == list(stored)                  # reported as stored, not converted
+    assert found["color_name"] == expected
+    assert found["color_exact"] is False                   # the app writes only RGB
+
+
 # ---- M118: the boundaries M113 stopped one step short of --------------------
 
 

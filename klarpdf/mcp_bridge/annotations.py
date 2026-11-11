@@ -301,13 +301,13 @@ def get_annotations(
         total = len(all_found)
         found: list[dict] = []
         used = 0
-        for entry in all_found[offset:]:
+        for described in all_found[offset:]:
             if len(found) >= max_annotations:
                 break
             # A mark whose own note would blow the whole budget has the note cut rather than the
             # mark dropped (M118) — the batch must always yield at least one mark, and before this
             # that guarantee let one annotation set an unbounded floor on the reply's size.
-            entry = _fit(entry, max_chars)
+            entry = _fit(described, max_chars)
             size = len(json.dumps(entry))
             # Always take at least one entry: an empty batch with `more_available: true` is a
             # caller that pages forever.

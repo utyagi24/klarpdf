@@ -16,6 +16,7 @@ pins both the case that must name and the cases that must not.
 
 from __future__ import annotations
 
+import pymupdf as fitz
 import pytest
 
 from klarpdf.model.markup_palette import (
@@ -25,6 +26,7 @@ from klarpdf.model.markup_palette import (
     NAME_TOLERANCE,
     PALETTES,
     TEXT_LINE_COLORS,
+    _as_rgb,
     _distance,
     _perceptual_distance,
     is_palette_color,
@@ -152,3 +154,56 @@ def test_the_halo_is_purely_additive():
                     )
                     assert name == best_name
                     assert best <= NAME_MAX_DISTANCE
+
+
+# ---- M170: a colour that is not RGB ----------------------------------------------------------------
+#
+# A PDF colour has one value (grey), three (RGB) or four (CMYK, printing ink), and a mark made in
+# another program can carry any of them. The distances used to `zip` a grey's one value against
+# three channels, which stopped after the first, so only red was compared.
+
+
+def test_a_grey_is_not_named_from_its_first_value_alone():
+    """Mid-grey came back "Blue" before M170. Grey is named as the RGB it is drawn in."""
+    assert nearest_name((0.5,), "highlight") is None
+    assert nearest_name((0.5,)) == nearest_name((0.5, 0.5, 0.5))
+    assert nearest_name((0.0,), "underline") == "Black"
+
+
+def test_an_ink_colour_is_named_as_it_is_drawn():
+    assert nearest_name((0, 0, 1, 0), "highlight") == "Yellow"   # drawn as (1, 0.95, 0)
+    assert nearest_name((0, 1, 1, 0), "underline") == "Red"      # drawn as (0.93, 0.11, 0.14)
+    assert nearest_name((0, 1, 1, 0), "highlight") is None       # there is no red highlight
+
+
+@pytest.mark.parametrize(
+    "color", [(0.5,), (0.25,), (0, 1, 1, 0), (0, 0, 1, 0), (0.2, 0.5, 0.1, 0.3), (0, 0, 0, 0.5)]
+)
+def test_the_conversion_is_the_colour_the_page_is_drawn_in(color):
+    """Compared with a drawn page, not with a formula. PDF's simple ink formula gives 50% black as
+    (0.5, 0.5, 0.5); MuPDF manages colour by default and draws it as (0.58, 0.58, 0.59), 20 levels
+    away, so a conversion by formula fails here."""
+    doc = fitz.open()
+    page = doc.new_page(width=40, height=40)
+    mark = page.add_rect_annot(fitz.Rect(5, 5, 35, 35))
+    mark.set_colors(stroke=color, fill=color)
+    mark.update()
+    drawn = page.get_pixmap(alpha=False).pixel(20, 20)
+    converted = _as_rgb(color)
+    assert converted is not None
+    assert all(abs(c * 255 - d) <= 1.0 + 1e-9 for c, d in zip(converted, drawn, strict=True)), (
+        converted, drawn,
+    )
+
+
+def test_a_colour_that_is_not_rgb_is_never_an_exact_swatch():
+    """The app writes only RGB, so a grey or ink value cannot be one of its swatches."""
+    assert is_palette_color((0.0,), "underline") is False          # drawn exactly as line Black
+    assert is_palette_color((0, 0, 0, 1), "underline") is False
+    assert is_palette_color((0.0, 0.0, 0.0), "underline") is True
+
+
+def test_a_colour_of_no_kind_pdf_has_gets_no_name():
+    assert _as_rgb((0.5, 0.5)) is None
+    assert nearest_name((0.5, 0.5)) is None
+    assert is_palette_color((0.5, 0.5)) is False

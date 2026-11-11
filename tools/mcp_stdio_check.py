@@ -42,7 +42,7 @@ _failed = 0
 
 
 def check(label: str, condition: bool, detail: str = "") -> None:
-    global _passed, _failed
+    global _passed, _failed  # noqa: PLW0603 — the script's running tally, printed at the end
     tail = f" — {detail}" if detail else ""
     if condition:
         _passed += 1

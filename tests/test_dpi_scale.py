@@ -315,7 +315,7 @@ def test_a_screen_reporting_zero_dpi_does_not_collapse_the_layout(win):
         def logicalDotsPerInch(self):
             return 0.0
 
-    view.screen = lambda: _ZeroScreen()
+    view.screen = _ZeroScreen
     view._logical_dpi = 1.0               # force the comparison to see a change
     view._refresh_display()
     assert view._logical_dpi == pytest.approx(96.0)
@@ -332,7 +332,7 @@ def test_scene_and_page_coordinates_still_round_trip(win):
     view.set_zoom(1.0)
     box = (100.0, 150.0, 260.0, 190.0)
     back = view.local_box_from_scene_rect(0, view.scene_rect_for_box(0, box))
-    assert all(a == pytest.approx(b, abs=0.01) for a, b in zip(box, back))
+    assert all(a == pytest.approx(b, abs=0.01) for a, b in zip(box, back, strict=True))
 
 
 def test_a_scene_point_maps_to_the_page_point_under_it(win):

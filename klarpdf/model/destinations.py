@@ -539,7 +539,7 @@ def apply_outline_destinations(doc, toc: list) -> int:
     if len(items) != len(toc):
         return 0
     written = 0
-    for item, entry, tail in zip(items, toc, tails):
+    for item, entry, tail in zip(items, toc, tails, strict=True):
         page = entry[2] - 1
         if tail is None or not 0 <= page < doc.page_count:
             continue

@@ -774,7 +774,7 @@ class AnnotationOverlay:
             return hit
         try:
             art = render_mark_document(annot)
-        except Exception:
+        except Exception:  # noqa: BLE001 — a mark that cannot be drawn is left off the screen
             return None
         try:
             page = art[0]
@@ -783,7 +783,7 @@ class AnnotationOverlay:
             image = QImage(pix.samples, pix.width, pix.height, pix.stride,
                            QImage.Format.Format_RGBA8888)
             pixmap = QPixmap.fromImage(image.copy())  # copy: the pixmap outlives pix.samples
-        except Exception:
+        except Exception:  # noqa: BLE001 — as above
             return None
         finally:
             art.close()
@@ -910,11 +910,11 @@ class AnnotationOverlay:
             if annot.fingerprint in deleted:
                 continue
             shift = moved.get(annot.fingerprint)
-            if shift is not None:
-                x0, y0, x1, y1 = annot.rect
-                annot = replace(annot, rect=(x0 + shift.dx, y0 + shift.dy,
-                                             x1 + shift.dx, y1 + shift.dy))
-            live.append(annot)
+            if shift is None:
+                live.append(annot)
+                continue
+            x0, y0, x1, y1 = annot.rect
+            live.append(replace(annot, rect=(x0 + shift.dx, y0 + shift.dy, x1 + shift.dx, y1 + shift.dy)))
         return tuple(live)
 
     def foreign_annotation_at(self, scene_pt, *, free_placed_only: bool = False):

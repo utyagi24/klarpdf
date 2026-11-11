@@ -33,8 +33,8 @@ def parse_page_range(text: str, page_count: int) -> list[int]:
         return list(range(page_count))
 
     pages: set[int] = set()
-    for term in text.split(","):
-        term = term.strip()
+    for raw in text.split(","):
+        term = raw.strip()
         if not term:
             continue
         if "-" in term[1:] or term.startswith("-"):

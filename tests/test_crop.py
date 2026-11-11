@@ -204,7 +204,7 @@ def test_viewer_geometry_and_mapping_reflect_the_crop(app, pdf):
     # A content box round-trips through the scene mapping unchanged (within float noise).
     box = (60.0, 60.0, 120.0, 100.0)
     back = win.view.local_box_from_scene_rect(0, win.view.scene_rect_for_box(0, box))
-    assert all(abs(a - b) < 0.01 for a, b in zip(box, back))
+    assert all(abs(a - b) < 0.01 for a, b in zip(box, back, strict=True))
     # A point outside the crop maps outside the displayed page band.
     outside = win.view.scene_rect_for_box(0, (60.0, 480.0, 120.0, 520.0))
     page_band = win.view._pages[0]
@@ -238,7 +238,7 @@ def test_crop_drag_asks_scope_and_pushes_one_undo_step(app, pdf, monkeypatch):
     # The scene→content round-trip carries float noise; half a point is far below visibility.
     assert all(
         r.crop_override is not None
-        and all(abs(a - b) < 0.5 for a, b in zip(r.crop_override, _CROP))
+        and all(abs(a - b) < 0.5 for a, b in zip(r.crop_override, _CROP, strict=True))
         for r in win.vdoc.ordered
     )
     win.undo_stack.undo()  # one step reverts the whole scope

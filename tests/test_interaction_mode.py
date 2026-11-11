@@ -80,7 +80,7 @@ def test_armed_text_tool_paints_the_selection_in_its_target_colour(view):
     assert colour_after(lambda: view.arm(ArmedTool.HIGHLIGHT)) == QColor.fromRgbF(
         *_HIGHLIGHT_FALLBACK)                                              # fallback, full alpha
     assert colour_after(lambda: view.arm(ArmedTool.REDACT_TEXT)) == _REDACT_ARMED
-    assert colour_after(lambda: view.disarm()) == _SELECTION
+    assert colour_after(view.disarm) == _SELECTION
 
     # With a sticky colour wired, an armed Highlight previews *that* colour from the first drag —
     # the fix for the owner-reported yellow flash that only "converted" on release.

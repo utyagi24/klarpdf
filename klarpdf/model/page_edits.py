@@ -622,7 +622,7 @@ def _x_overlap(a: tuple, b: tuple) -> bool:
 
 
 def _same_color(a: tuple, b: tuple) -> bool:
-    return len(a) == len(b) and all(abs(x - y) <= _TOL for x, y in zip(a, b))
+    return len(a) == len(b) and all(abs(x - y) <= _TOL for x, y in zip(a, b, strict=True))
 
 
 def _union_bars(bars) -> tuple:

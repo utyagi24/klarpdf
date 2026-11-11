@@ -56,6 +56,17 @@ def test_server_name_is_stable_and_nonempty():
     assert single_instance_server_name() == single_instance_server_name()
 
 
+@pytest.mark.parametrize("error", [OSError, ImportError, KeyError])
+def test_server_name_falls_back_when_there_is_no_user(monkeypatch, error):
+    """M170 narrowed the catch to what ``getpass.getuser`` raises when the environment names no
+    user: OSError from Python 3.13, and on 3.12, which the app is built with, the password lookup's
+    ImportError (Windows) or KeyError (elsewhere)."""
+    def no_user():
+        raise error("no user")
+    monkeypatch.setattr("platform_integration.getpass.getuser", no_user)
+    assert single_instance_server_name() == "klarpdf-singleton-default"
+
+
 def test_handoff_opens_window_in_resident_instance(app, a_pdf):
     name = "klarpdf-test-handoff"
     QLocalServer.removeServer(name)

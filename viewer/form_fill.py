@@ -24,8 +24,9 @@ from klarpdf.model.page_edits import read_form_fields
 
 _FIELD_TINT = QColor(70, 130, 180, 40)  # faint steel-blue wash marking a fillable field
 _CHOICE_TYPES = {fitz.PDF_WIDGET_TYPE_COMBOBOX, fitz.PDF_WIDGET_TYPE_LISTBOX}
-# "Off"/False/empty all read as unchecked; anything else is checked.
-_UNCHECKED = {None, "", "Off", "off", False, 0}
+# "Off"/False/empty all read as unchecked; anything else is checked. 0 is in the set too, because
+# it equals False.
+_UNCHECKED = {None, "", "Off", "off", False}
 
 
 class FormFiller:

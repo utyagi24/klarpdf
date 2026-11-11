@@ -235,7 +235,7 @@ def test_a_row_reads_back_exactly_the_words_highlighted(crowded_win):
 
     rows = [panel.item(i).text() for i in range(panel.count())]
     assert len(rows) == len(words)
-    for row, w in zip(rows, words):
+    for row, w in zip(rows, words, strict=True):
         assert row == f"p. 1 · highlight · {w[4]}"
 
 

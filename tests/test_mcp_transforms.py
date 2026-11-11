@@ -494,7 +494,7 @@ ALL_TRANSFORMS = [
     ("reorder", lambda src, out: T.reorder(src, [3, 2, 1], out)),
     ("rotate", lambda src, out: T.rotate(src, 90, out)),
     ("fill_form", lambda src, out: T.fill_form(src, {"name": "x"}, out)),
-    ("flatten", lambda src, out: T.flatten(src, out)),
+    ("flatten", T.flatten),
 ]
 
 

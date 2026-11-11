@@ -220,7 +220,7 @@ class SignatureDialog(QDialog):
         mark = self.image_stamp((0, 0, _PREVIEW[0], _PREVIEW[1]))
         try:
             art = render_mark_document(mark)
-        except Exception:
+        except Exception:  # noqa: BLE001 — any image the library cannot read gets the same message
             self.preview.setText("Could not read that image.")
             self._set_ok_enabled(False)
             return

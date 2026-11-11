@@ -42,6 +42,7 @@ import threading
 import unicodedata
 from collections import Counter
 from dataclasses import dataclass, field
+from itertools import pairwise
 from typing import TYPE_CHECKING
 
 import pymupdf as fitz
@@ -321,7 +322,7 @@ def _page_inventory(page: fitz.Page) -> _Inventory:
         return rect
 
     grouped: dict[tuple[int, int], list[tuple]] = {}
-    for word, outer in zip(words, ordinary):
+    for word, outer in zip(words, ordinary, strict=True):
         grouped.setdefault((word[5], word[6]), []).append((word, outer))
 
     lines: list[_Line] = []
@@ -667,7 +668,7 @@ def _read_grid(found: _Found, inventory: _Inventory, edges: list[tuple[float, fl
         first, second = (", ".join(f"{v:.1f}" for v in rect) for rect in pair)
         raise _Decline("overlapping_cells", f"the drawn cells [{first}] and [{second}] overlap")
     edges = columns + [box.x1]
-    spans = [[a, b] for a, b in zip(edges, edges[1:])]
+    spans = [[a, b] for a, b in pairwise(edges)]
     return {
         "bbox": reported, "rows": rows, "header": rows[0], "columns": columns, "spans": spans, "reader": "grid",
         "_banner": banner,
@@ -770,7 +771,7 @@ def _divide(columns: list[list[float]], rows: list[list[_Line]], spanning: set[i
             continue
         subs = [[min(p[k].x0 for p in full), max(p[k].x1 for p in full)] for k in range(widest)]
 
-        def run(line: _Line) -> tuple[int, int]:
+        def run(line: _Line, subs: list[list[float]]) -> tuple[int, int]:
             touched = _columns_touched(line, subs)
             if touched:
                 return touched[0], touched[-1]
@@ -783,7 +784,7 @@ def _divide(columns: list[list[float]], rows: list[list[_Line]], spanning: set[i
                 continue
             last = -1
             for line in p:
-                first, final = run(line)
+                first, final = run(line, subs)
                 if first <= last:
                     fits = False
                     break
@@ -1051,7 +1052,7 @@ def _read_ruled(
     #    are spaced. A list ruled *under* each row has no line above its first row; a statement's
     #    first line often sits above the first band the finder used; a total is often set apart by a
     #    gap and a rule of its own.
-    pitch = max((b[0].baseline - a[0].baseline for a, b in zip(visual, visual[1:])), default=0.0) + _SNAP
+    pitch = max((b[0].baseline - a[0].baseline for a, b in pairwise(visual)), default=0.0) + _SNAP
     rules: list[float] = []
     for top in sorted(t for t, x0, x1 in edges if _overlap(x0, x1, box.x0, box.x1) > _EPS):
         if not rules or top - rules[-1] > _SNAP:
@@ -1148,7 +1149,7 @@ def _read_ruled(
 
     for row in extended_above:
         emit(row)
-    for band, (band_rows, side_by_side) in zip(banded, shapes):
+    for band, (band_rows, side_by_side) in zip(banded, shapes, strict=True):
         if not band:
             continue
         if len(side_by_side) <= 1:
@@ -1246,7 +1247,7 @@ def _recover(
 
     runs: list[list[float]] = []
     current: list[float] = []
-    for top, bottom in zip(found.bounds, found.bounds[1:]):
+    for top, bottom in pairwise(found.bounds):
         band = [line for line in inside if top - _EPS <= line.baseline <= bottom + _EPS]
         rows = _visual_rows(band)
         prose = len(rows) > 1 and any(
@@ -1310,7 +1311,7 @@ def _recover(
             box, first = demoted.get(near_table, (fitz.Rect(recovered[near_table]["bbox"]), line.text))
             demoted[near_table] = (box | line.outer, first)
     refused = [(grown[i], decline) for i, (_, decline) in enumerate(refused)]
-    for index, (box, first) in demoted.items():
+    for box, first in demoted.values():
         refused.append((box, _Decline("unaccounted", f"{_quote(first)} is pressed against a table and in none of its rows")))
     recovered = [table for i, table in enumerate(recovered) if i not in demoted]
     return recovered, refused
@@ -1465,7 +1466,7 @@ def read_page(page: fitz.Page) -> PageRead:
             # read without that band when what remains gives a table, and as located otherwise.
             free = [l for l in inventory.lines if not _inside_any(l, claimed)]
             regions = [_trimmed(found, free, ruled.edges) for found in ruled.found]
-            for position, (located, found) in enumerate(zip(ruled.found, regions)):
+            for position, (located, found) in enumerate(zip(ruled.found, regions, strict=True)):
                 later = [f.bbox for f in regions[position + 1:]]
                 outcome = _read_region(found, inventory, ruled.edges, claimed, later)
                 if found is not located and not outcome.tables:
@@ -1603,7 +1604,7 @@ def _title(page: fitz.Page, tables: list[dict], declined: list[fitz.Rect]) -> st
         rect = line.rect
         centre = fitz.Point((rect.x0 + rect.x1) / 2, (rect.y0 + rect.y1) / 2)
         owner = next((who for box, who in owners if box.contains(centre)), None)
-        repeated = any(all(abs(a - b) <= _SNAP for a, b in zip(seen, rect)) for seen in before.get(line.text, ()))
+        repeated = any(all(abs(a - b) <= _SNAP for a, b in zip(seen, rect, strict=True)) for seen in before.get(line.text, ()))
         texts.append(_Text(line, owner, any(link.contains(centre) for link in links), repeated))
     blocks: dict[int, list[_Text]] = {}
     for text in texts:
@@ -1624,10 +1625,7 @@ def _title(page: fitz.Page, tables: list[dict], declined: list[fitz.Rect]) -> st
             boxes = [fitz.Rect(d["rect"]) for d in page.get_drawings()]
             boxes += [fitz.Rect(i["bbox"]) for i in page.get_image_info()]
             for box in boxes:
-                if page.rotation:
-                    box = box * page.rotation_matrix
-                    box.normalize()
-                drawn.append(box)
+                drawn.append((box * page.rotation_matrix).normalize() if page.rotation else box)
         return drawn
 
     for table in tables:
@@ -1920,7 +1918,7 @@ def _continues_from(entry: dict, previous: dict | None, page_height: float) -> i
     mine, theirs = entry["_columns"], previous["_columns"]
     if len(mine) != len(theirs):
         return None
-    if any(abs(a - b) > _CONTINUATION_TOLERANCE for a, b in zip(mine, theirs)):
+    if any(abs(a - b) > _CONTINUATION_TOLERANCE for a, b in zip(mine, theirs, strict=True)):
         return None
     return previous["page"]
 
@@ -1972,7 +1970,7 @@ def tables(
             before = last[1] if last is not None and last[0] == index0 - 1 else None
             previous = found[-1] if before is not None and before.tables else None
             titles = titles_after(result, before)
-            for position, (table, (title, carried)) in enumerate(zip(result.tables, titles)):
+            for position, (table, (title, carried)) in enumerate(zip(result.tables, titles, strict=True)):
                 entry = {
                     "page": index0 + 1,
                     "bbox": _to_unrotated(page, table["bbox"]),

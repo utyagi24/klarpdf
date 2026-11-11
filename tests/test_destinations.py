@@ -102,7 +102,7 @@ def test_set_toc_writes_items_in_the_lists_depth_first_order():
     doc.set_toc(
         [
             [lv, t, (i % 6) + 1, {"kind": 1, "page": i % 6, "to": fitz.Point(0, 0), "zoom": 0.0}]
-            for i, (lv, t) in enumerate(zip(levels, titles))
+            for i, (lv, t) in enumerate(zip(levels, titles, strict=True))
         ]
     )
     written = [doc.xref_get_key(x, "Title")[1] for x in outline_item_xrefs(doc)]

@@ -128,6 +128,6 @@ def remap_toc(
             kept.append([level, title, new0 + 1])
         orig_levels.append(level)
 
-    for entry, fixed in zip(kept, repair_levels(orig_levels)):
+    for entry, fixed in zip(kept, repair_levels(orig_levels), strict=True):
         entry[0] = fixed
     return kept

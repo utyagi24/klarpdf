@@ -125,7 +125,7 @@ def check_venv_module() -> None:
             f"  On Debian/Ubuntu:  sudo apt install python{sys.version_info.major}."
             f"{sys.version_info.minor}-venv\n"
             "  Otherwise, use a complete Python distribution (python.org, pyenv, Homebrew)."
-        )
+        ) from None
 
 
 # --- the environment -----------------------------------------------------------------------------
@@ -141,7 +141,7 @@ def run(cmd: list, *, verbose: bool, timeout: int = 900, **kw) -> subprocess.Com
         print(f"  $ {' '.join(str(c) for c in cmd)}")
     return subprocess.run(
         [str(c) for c in cmd], shell=False, env=pip_env(), timeout=timeout,
-        capture_output=True, text=True, **kw
+        capture_output=True, text=True, check=False, **kw  # every caller reads returncode
     )
 
 
@@ -172,8 +172,8 @@ def make_venv(venv_dir: Path, *, reinstall: bool, verbose: bool) -> None:
     venv_dir.parent.mkdir(parents=True, exist_ok=True)
     try:
         venv.create(venv_dir, with_pip=True, clear=True)
-    except Exception as exc:  # subprocess failure inside ensurepip, permissions, full disk
-        raise InstallError(f"could not create the virtual environment at {venv_dir}: {exc}")
+    except Exception as exc:  # ensurepip, permissions, a full disk: each becomes the one message
+        raise InstallError(f"could not create the virtual environment at {venv_dir}: {exc}") from exc
 
 
 def install_package(venv_dir: Path, *, index_url: str | None, verbose: bool) -> None:
@@ -236,12 +236,13 @@ def validate(venv_dir: Path, *, verbose: bool) -> str:
         spoke = subprocess.run(
             [str(script)], shell=False, env=pip_env(), input=request,
             capture_output=True, text=True, timeout=120,
+            check=False,  # the reply on stdout is what is checked below, not how the server exits
         )
     except subprocess.TimeoutExpired:
-        raise InstallError(f"{script} started but never answered an MCP initialize within 120s.")
+        raise InstallError(f"{script} started but never answered an MCP initialize within 120s.") from None
 
-    for line in spoke.stdout.splitlines():
-        line = line.strip()
+    for raw in spoke.stdout.splitlines():
+        line = raw.strip()
         if not line:
             continue
         try:
@@ -250,7 +251,7 @@ def validate(venv_dir: Path, *, verbose: bool) -> str:
             raise InstallError(
                 f"{script} wrote something that is not JSON-RPC to stdout, which corrupts every\n"
                 f"  client session:\n  | {line[:200]}"
-            )
+            ) from None
         if isinstance(message, dict) and message.get("jsonrpc") == "2.0":
             return (message.get("result", {}).get("serverInfo", {}) or {}).get("version") or KLARPDF_VERSION
     raise InstallError(
@@ -547,7 +548,7 @@ if __name__ == "__main__":
         raise SystemExit(main())
     except InstallError as exc:
         print(f"\nerror: {exc}", file=sys.stderr)
-        raise SystemExit(1)
+        raise SystemExit(1) from None
     except KeyboardInterrupt:
         print("\ninterrupted", file=sys.stderr)
-        raise SystemExit(130)
+        raise SystemExit(130) from None

@@ -58,7 +58,7 @@ def annot_name(annot: "fitz.Annot") -> str:
     """
     try:
         kind, value = annot.parent.parent.xref_get_key(annot.xref, "NM")
-    except Exception:
+    except Exception:  # noqa: BLE001 — an /NM we cannot read is no /NM, and the hash identity takes over
         return ""
     return value.strip() if kind == "string" and value else ""
 

@@ -156,7 +156,8 @@ class Sizer:
             # one piece that also paid for unpacking a photo cannot tilt it.
             b = max(median(slopes), 0.0)
             a = median(t - b * p for p, t in self._seen)
-            self._fixed = min(max(0.0, a), min(t for _p, t in self._seen))
+            cheapest = min(t for _p, t in self._seen)
+            self._fixed = min(max(0.0, a), cheapest)
 
     def fixed(self) -> float:
         """The part of a piece's time that does not grow with its area, in seconds. Zero until
