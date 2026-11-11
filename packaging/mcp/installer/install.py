@@ -160,7 +160,7 @@ def make_venv(venv_dir: Path, *, reinstall: bool, verbose: bool) -> None:
             result = run([python, "-c", "import sys; print('%d.%d' % sys.version_info[:2])"],
                          verbose=verbose, timeout=60)
             found = result.stdout.strip()
-            want = "%d.%d" % sys.version_info[:2]
+            want = f"{sys.version_info.major}.{sys.version_info.minor}"
             if result.returncode != 0 or found != want:
                 raise InstallError(
                     f"{venv_dir} was built with Python {found or 'unknown'}, but you are running "
@@ -379,7 +379,7 @@ DESKTOP_CONFIG = {
 
 def desktop_instructions(script: Path) -> str:
     """The Desktop block, and — the part that was missing — where to put it."""
-    block = '{"mcpServers": {"klarpdf": {"command": %s}}}' % json.dumps(str(script))
+    block = json.dumps({"mcpServers": {"klarpdf": {"command": str(script)}}})
     path = DESKTOP_CONFIG.get(sys.platform)
     if path:
         where = f"  file:  {path}"

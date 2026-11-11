@@ -45,6 +45,8 @@ from collections import Counter
 
 import pymupdf as fitz
 
+from klarpdf.mcp_bridge.queries import _page_of, open_document, resolve_pages
+from klarpdf.mcp_bridge.transforms import _resolve_out, _write
 from klarpdf.model.markup_palette import (
     color_for_name,
     is_palette_color,
@@ -52,18 +54,16 @@ from klarpdf.model.markup_palette import (
     nearest_name,
 )
 from klarpdf.model.page_edits import (
+    _NOTE_JOIN,
     KLARPDF_AUTHOR,
     Highlight,
     Strikeout,
     Underline,
-    _NOTE_JOIN,
     _x_overlap,
     merge_markup,
     parse_annotation,
 )
 from klarpdf.model.page_text import PageText
-from klarpdf.mcp_bridge.queries import _page_of, open_document, resolve_pages
-from klarpdf.mcp_bridge.transforms import _resolve_out, _write
 
 # The three mark types this tool writes, by the name a caller uses. The model has six more —
 # ink, line, rect, ellipse, text box, stamp — and they are deliberately not here: they are drawing

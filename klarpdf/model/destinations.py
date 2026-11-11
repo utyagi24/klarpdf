@@ -221,7 +221,7 @@ def _pdf_text(token: str) -> str:
     return token
 
 
-def _unescape(match: "re.Match") -> str:
+def _unescape(match: re.Match) -> str:
     """One backslash escape inside a PDF literal string.
 
     The octal check is ``in "01234567"`` rather than ``isdigit()``, which accepts digits from other

@@ -19,9 +19,9 @@ import pytest
 
 from klarpdf.model.edit_engine import PyMuPDFEngine
 from klarpdf.model.page_edits import (
+    _DESCENT,
     KLARPDF_AUTHOR,
     TextBox,
-    _DESCENT,
     apply_annotations,
     fitted_to_its_lines,
     read_klarpdf_annotations,

@@ -186,7 +186,8 @@ def test_an_edit_does_not_blank_the_thumbnails_it_did_not_re_render(win):
     win.vdoc.add_annotation(0, Highlight(((50, 50, 200, 70),)))
     panel.populate()
 
-    assert not any(_is_blank_placeholder(panel, row) for row in range(panel.count())),         "an edit blanked a thumbnail instead of carrying its previous render"
+    assert not any(_is_blank_placeholder(panel, row) for row in range(panel.count())), \
+        "an edit blanked a thumbnail instead of carrying its previous render"
 
 
 def test_a_carried_thumbnail_is_still_due_a_real_render(win):

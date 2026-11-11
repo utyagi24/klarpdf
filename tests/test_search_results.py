@@ -11,8 +11,8 @@ import pymupdf as fitz
 import pytest
 
 from app import PdfApp
-from store.settings import Settings
 from klarpdf.model.page_text import PageText
+from store.settings import Settings
 
 
 @pytest.fixture(scope="session")

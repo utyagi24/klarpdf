@@ -14,10 +14,10 @@ import pytest
 from PySide6.QtGui import QUndoStack
 
 from app import PdfApp
-from main_window import MainWindow
 from edit_commands import SetEncryptionCommand
 from klarpdf.model.edit_engine import PyMuPDFEngine
 from klarpdf.model.virtual_document import VirtualDocument
+from main_window import MainWindow
 from store.settings import Settings
 from tests.conftest import A_TEXT
 from ui.encrypt_dialog import PasswordDialog

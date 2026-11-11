@@ -83,7 +83,7 @@ class OutlinePanel(QTreeWidget):
         self._syncing = False
         self.set_current(self._current_page)  # restore the you-are-here highlight
 
-    def _spot_of(self, entry, _page0: int) -> "float | None":
+    def _spot_of(self, entry, _page0: int) -> float | None:
         """How far down its page this entry points, or ``None`` when it names no height.
 
         The measurement is in that page's own points, from the top of its visible area. A bookmark

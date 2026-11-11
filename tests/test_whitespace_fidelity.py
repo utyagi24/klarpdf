@@ -21,11 +21,10 @@ import pytest
 from PySide6.QtGui import QFontMetricsF
 from PySide6.QtWidgets import QGraphicsSimpleTextItem
 
-from viewer.annotations import _TextBoxFrame
-
 from app import PdfApp
 from klarpdf.model.page_edits import Highlight, TextBox, wrap_text
 from store.settings import Settings
+from viewer.annotations import _TextBoxFrame
 from viewer.text_format_bar import qt_font
 
 

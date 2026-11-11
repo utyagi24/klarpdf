@@ -196,7 +196,7 @@ def remap_internal_links(out_doc: fitz.Document, vdoc) -> None:
                 continue  # not where we expected it — leave the plain page jump alone
             seen_annots.add(fresh[-1])
             write_destination(out_doc, fresh[-1], out_doc.page_xref(new_index), dest.tail)
-        copied_uris = {_uri_key(l) for l in out_links if l.get("kind") == fitz.LINK_URI}
+        copied_uris = {_uri_key(ln) for ln in out_links if ln.get("kind") == fitz.LINK_URI}
         for link in source_links:
             if link.get("kind") != fitz.LINK_URI or not link.get("uri"):
                 continue

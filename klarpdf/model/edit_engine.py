@@ -20,7 +20,6 @@ import pymupdf as fitz
 
 from klarpdf.model.virtual_document import VirtualDocument, pin_file_id
 
-
 #: Object cleanup for the route that **copies the origin** — an unchanged page set (M110).
 #: Drop objects nothing references and compact the xref, and stop there. Linear in the size of the
 #: document, so it costs nothing on any file.
@@ -156,7 +155,7 @@ def append_options() -> dict:
     }
 
 
-def _apply_crop(page: "fitz.Page", rect: tuple) -> None:
+def _apply_crop(page: fitz.Page, rect: tuple) -> None:
     """Apply a ``PageRef.crop_override`` to an output page via ``set_cropbox`` (M48).
 
     ``rect`` is in the page's unrotated **content** frame (origin = the current CropBox top-left,
@@ -333,7 +332,7 @@ class PyMuPDFEngine:
             and not _encryption_args(vdoc)
         )
 
-    def save_size(self, vdoc: VirtualDocument, built: "fitz.Document") -> int:
+    def save_size(self, vdoc: VirtualDocument, built: fitz.Document) -> int:
         """How many bytes a plain Save of ``vdoc`` would write — measured by writing one (M116).
 
         ``built`` is the caller's already-materialised output (:meth:`render_output`), used on the

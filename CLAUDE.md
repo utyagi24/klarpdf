@@ -247,7 +247,10 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
 
 - **Run Ruff before a push, and give every suppression a reason** (M167). `invoke lint` runs the
   pinned Ruff, with the same version and rules as the required `lint` check, and takes under a
-  second. A rule is switched on only once nothing breaks it, in the PR that clears its findings, so
+  second. `invoke lint --fix` also sorts imports and makes Ruff's other safe fixes. A line over 120
+  characters, a one-letter name such as `l`, and `%` formatting are fixed by hand (M171). There
+  is no formatter, so Ruff checks the layout but does not rewrite it. A rule is switched on only
+  once nothing breaks it, in the PR that clears its findings, so
   a red `lint` is always the PR's own doing. When a finding is deliberate, suppress that one line and
   say why, in the form the core already uses:
   `# noqa: BLE001 — a malformed /AP is not worth failing a whole listing over`, or

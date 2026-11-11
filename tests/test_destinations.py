@@ -12,7 +12,6 @@ Headless — PyMuPDF only, no Qt. Three kinds of test live here:
 
 from __future__ import annotations
 
-
 import pymupdf as fitz
 import pytest
 

@@ -75,8 +75,8 @@ def named_dest_pdf(tmp_path) -> str:
     # (measured). A catalog `/Dests` dictionary is the older, simpler of the two forms the spec
     # allows and MuPDF resolves it — which is the property under test.
     dests = doc.get_new_xref()
-    doc.update_object(dests, "<< /chapter-one [ %d 0 R /XYZ 0 792 0 ] >>" % doc.page_xref(2))
-    doc.xref_set_key(doc.pdf_catalog(), "Dests", "%d 0 R" % dests)
+    doc.update_object(dests, f"<< /chapter-one [ {doc.page_xref(2)} 0 R /XYZ 0 792 0 ] >>")
+    doc.xref_set_key(doc.pdf_catalog(), "Dests", f"{dests} 0 R")
     doc[0].insert_link({"kind": fitz.LINK_NAMED, "from": fitz.Rect(70, 88, 200, 104),
                         "name": "chapter-one", "page": 2, "to": fitz.Point(0, 0)})
     doc.save(path)
@@ -390,11 +390,10 @@ def view_dest_pdf(tmp_path) -> str:
     doc[0].insert_text((72, 100), "Letter to stockholders", fontsize=11)
     height = doc[0].rect.height
     annot, action = doc.get_new_xref(), doc.get_new_xref()
-    doc.update_object(action, "<< /S /GoTo /D [ %d 0 R /Fit ] >>" % doc.page_xref(2))
-    doc.update_object(annot, "<< /Type/Annot /Subtype/Link /Rect [70 %g 220 %g] "
-                             "/Border[0 0 0] /A %d 0 R >>"
-                             % (height - 104, height - 88, action))
-    doc.xref_set_key(doc.page_xref(0), "Annots", "[%d 0 R]" % annot)
+    doc.update_object(action, f"<< /S /GoTo /D [ {doc.page_xref(2)} 0 R /Fit ] >>")
+    doc.update_object(annot, f"<< /Type/Annot /Subtype/Link /Rect [70 {height - 104:g} 220 {height - 88:g}] "
+                             f"/Border[0 0 0] /A {action} 0 R >>")
+    doc.xref_set_key(doc.page_xref(0), "Annots", f"[{annot} 0 R]")
     doc.save(path)
     doc.close()
     return path
@@ -450,9 +449,9 @@ def test_a_target_past_the_last_page_is_not_reported_as_a_page(tmp_path):
     annot, action = doc.get_new_xref(), doc.get_new_xref()
     # A destination naming a page object that is not in this document's page tree.
     doc.update_object(action, "<< /S /GoTo /D [ 900 0 R /Fit ] >>")
-    doc.update_object(annot, "<< /Type/Annot /Subtype/Link /Rect [70 %g 220 %g] "
-                             "/Border[0 0 0] /A %d 0 R >>" % (height - 104, height - 88, action))
-    doc.xref_set_key(doc.page_xref(0), "Annots", "[%d 0 R]" % annot)
+    doc.update_object(annot, f"<< /Type/Annot /Subtype/Link /Rect [70 {height - 104:g} 220 {height - 88:g}] "
+                             f"/Border[0 0 0] /A {action} 0 R >>")
+    doc.xref_set_key(doc.page_xref(0), "Annots", f"[{annot} 0 R]")
     doc.save(path)
     doc.close()
 
@@ -574,8 +573,8 @@ def mixed_kinds_pdf(tmp_path) -> str:
     doc[0].insert_link({"kind": fitz.LINK_GOTO, "from": fitz.Rect(70, 88, 200, 104),
                         "page": 2, "to": fitz.Point(0, 0)})
     dests = doc.get_new_xref()
-    doc.update_object(dests, "<< /chap [ %d 0 R /XYZ 0 792 0 ] >>" % doc.page_xref(3))
-    doc.xref_set_key(doc.pdf_catalog(), "Dests", "%d 0 R" % dests)
+    doc.update_object(dests, f"<< /chap [ {doc.page_xref(3)} 0 R /XYZ 0 792 0 ] >>")
+    doc.xref_set_key(doc.pdf_catalog(), "Dests", f"{dests} 0 R")
     doc[0].insert_link({"kind": fitz.LINK_NAMED, "from": fitz.Rect(70, 118, 200, 134),
                         "name": "chap", "page": 3, "to": fitz.Point(0, 0)})
     doc.save(path)
@@ -804,8 +803,8 @@ def _positioned_links_pdf(tmp_path) -> str:
         xref = doc.get_new_xref()
         doc.update_object(
             xref,
-            "<< /Type /Annot /Subtype /Link /Rect [72 %g 300 %g] /Border [0 0 0] "
-            "/Dest [%d 0 R %s] >>" % (700 - n * 20, 716 - n * 20, doc.page_xref(target), tail),
+            f"<< /Type /Annot /Subtype /Link /Rect [72 {700 - n * 20:g} 300 {716 - n * 20:g}] /Border [0 0 0] "
+            f"/Dest [{doc.page_xref(target)} 0 R {tail}] >>",
         )
         annots.append(xref)
     doc.xref_set_key(doc.page_xref(0), "Annots",
@@ -822,7 +821,7 @@ def test_an_internal_link_reports_where_on_its_target_page_it_lands(tmp_path):
     number, and `set_outline` could only re-create a bookmark to the top of that page.
     """
     result = queries.links(_positioned_links_pdf(tmp_path), pages=[1])
-    got = [(l["target_page"], l["target_top"]) for l in result["links"]]
+    got = [(ln["target_page"], ln["target_top"]) for ln in result["links"]]
     assert got == [
         (3, 92.0),     # 700 up from the bottom of a 792 pt page is 92 down from its top
         (5, 462.0),    # a page whose visible area starts 30 pt inside the paper

@@ -12,11 +12,10 @@ from __future__ import annotations
 import pytest
 
 from app import PdfApp
-from main_window import MainWindow
 from klarpdf.model.page_edits import Line, Shape, reorder_marks
 from klarpdf.model.virtual_document import VirtualDocument
+from main_window import MainWindow
 from store.settings import Settings
-
 
 # ---- the reorder primitive (headless) ---------------------------------------
 

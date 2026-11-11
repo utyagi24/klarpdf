@@ -48,7 +48,7 @@ def _rect_key(rect) -> tuple:
     return tuple(round(value, _RECT_PRECISION) for value in (rect.x0, rect.y0, rect.x1, rect.y1))
 
 
-def annot_name(annot: "fitz.Annot") -> str:
+def annot_name(annot: fitz.Annot) -> str:
     """The annotation's ``/NM`` name, or ``""``.
 
     Read from the object dictionary, **not** from ``annot.info``: PyMuPDF's ``info`` dict exposes a
@@ -63,7 +63,7 @@ def annot_name(annot: "fitz.Annot") -> str:
     return value.strip() if kind == "string" and value else ""
 
 
-def fingerprint(annot: "fitz.Annot") -> str:
+def fingerprint(annot: fitz.Annot) -> str:
     """A stable identity for a foreign annotation, surviving ``insert_pdf``'s renumbering.
 
     Prefers the annotation's own ``/NM`` name; falls back to a hash of type + rect + contents. See
@@ -77,7 +77,7 @@ def fingerprint(annot: "fitz.Annot") -> str:
     return "fp:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:32]
 
 
-def is_foreign(annot: "fitz.Annot") -> bool:
+def is_foreign(annot: fitz.Annot) -> bool:
     """True for an annotation KlarPDF did not write.
 
     Our own marks are matched by author tag and round-trip into editable descriptors (M31), so they
@@ -203,7 +203,7 @@ def _shift_array(value: str, dx: float, dy: float) -> str:
     return _NUMBER.sub(replace, value)
 
 
-def _translate_annot(annot: "fitz.Annot", dx: float, dy: float) -> None:
+def _translate_annot(annot: fitz.Annot, dx: float, dy: float) -> None:
     """Move one annotation by editing its geometry keys directly.
 
     Deliberately **not** ``Annot.set_rect``: that raises outright on the quad-based text markup types
@@ -221,7 +221,7 @@ def _translate_annot(annot: "fitz.Annot", dx: float, dy: float) -> None:
             doc.xref_set_key(annot.xref, key, _shift_array(value, dx, dy))
 
 
-def read_foreign_annotations(page: "fitz.Page") -> tuple[ForeignAnnot, ...]:
+def read_foreign_annotations(page: fitz.Page) -> tuple[ForeignAnnot, ...]:
     """Every foreign annotation on ``page``, in the page's annotation order."""
     found = []
     for annot in page.annots():
@@ -278,7 +278,7 @@ _DRAWN_KINDS = frozenset({
 })
 
 
-def _dash_pattern(annot: "fitz.Annot") -> list[float]:
+def _dash_pattern(annot: fitz.Annot) -> list[float]:
     """The annotation's dash pattern as the file spells it, or ``[]`` when it is solid.
 
     Read from ``/BS /D`` directly where there is one, because PyMuPDF's ``annot.border`` rounds
@@ -294,12 +294,12 @@ def _dash_pattern(annot: "fitz.Annot") -> list[float]:
     return [float(d) for d in (annot.border or {}).get("dashes") or ()]
 
 
-def is_adoptable(annot: "fitz.Annot") -> bool:
+def is_adoptable(annot: fitz.Annot) -> bool:
     """Can this foreign annotation be parsed into an editable model descriptor at all?"""
     return annot.type[0] in MODELED_KINDS
 
 
-def degradations(annot: "fitz.Annot") -> list[str]:
+def degradations(annot: fitz.Annot) -> list[str]:
     """Features this annotation carries that adoption would **lose**, in plain words.
 
     Adoption re-creates the mark from our own descriptor, so anything the descriptor cannot hold is
@@ -379,7 +379,7 @@ def degradations(annot: "fitz.Annot") -> list[str]:
     return lost
 
 
-def adopt_annotation(annot: "fitz.Annot"):
+def adopt_annotation(annot: fitz.Annot):
     """Parse a foreign annotation into an editable model descriptor, or ``None``.
 
     Uses :func:`model.page_edits.parse_annotation` — the *same* parser the round-trip path uses on
@@ -392,7 +392,7 @@ def adopt_annotation(annot: "fitz.Annot"):
     return parse_annotation(annot)
 
 
-def find_annotation(page: "fitz.Page", target_fingerprint: str):
+def find_annotation(page: fitz.Page, target_fingerprint: str):
     """The foreign annotation on ``page`` matching ``target_fingerprint`` (the first), else None."""
     for annot in page.annots():
         if is_foreign(annot) and fingerprint(annot) == target_fingerprint:
@@ -400,7 +400,7 @@ def find_annotation(page: "fitz.Page", target_fingerprint: str):
     return None
 
 
-def apply_foreign_edits(page: "fitz.Page", annotations: tuple) -> tuple[int, int]:
+def apply_foreign_edits(page: fitz.Page, annotations: tuple) -> tuple[int, int]:
     """Apply this page's foreign-annotation deletions and moves. Returns ``(deleted, moved)``.
 
     Runs on the **materialised output page**, never a shared source.

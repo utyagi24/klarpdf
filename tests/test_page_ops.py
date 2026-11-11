@@ -16,12 +16,12 @@ import pytest
 
 import main_window as mw
 from app import PdfApp
-from main_window import MainWindow
 from edit_commands import RotatePagesCommand
 from klarpdf.model.edit_engine import PyMuPDFEngine
 from klarpdf.model.export import export_selected_pages
 from klarpdf.model.page_edits import Redaction, TextBox
 from klarpdf.model.virtual_document import VirtualDocument
+from main_window import MainWindow
 from store.settings import Settings
 from tests.conftest import A_TEXT
 
@@ -96,7 +96,7 @@ def test_extract_remaps_internal_links(tmp_path):
     with fitz.open(out) as doc:
         links = doc[0].get_links()
     # The surviving link is remapped to the extracted output index; the dangling one is dropped.
-    assert [l["page"] for l in links if l["kind"] == fitz.LINK_GOTO] == [1]
+    assert [ln["page"] for ln in links if ln["kind"] == fitz.LINK_GOTO] == [1]
 
 
 def test_extract_applies_per_page_edits(a_pdf, tmp_path):

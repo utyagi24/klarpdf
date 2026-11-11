@@ -132,8 +132,8 @@ class Settings:
     _SIGNATURE_SETTINGS_KEY = "signature_settings"
     _MAX_SIGNATURES = 6
 
-    def add_recent_signature(self, path: str, white_to_alpha: "bool | None" = None,
-                             white_threshold: "float | None" = None) -> None:
+    def add_recent_signature(self, path: str, white_to_alpha: bool | None = None,
+                             white_threshold: float | None = None) -> None:
         """Record ``path`` as the most recently used signature / stamp image.
 
         Given the transparency settings, they are remembered **for that image** (M63.1): how much
@@ -154,7 +154,7 @@ class Settings:
                           "white_threshold": float(white_threshold)}
         self._prune_signature_settings(updated, tuned)
 
-    def signature_settings(self, path: str) -> "dict | None":
+    def signature_settings(self, path: str) -> dict | None:
         """The transparency settings ``path`` was last placed with, or ``None`` if it has none."""
         entry = (self.get_pref(self._SIGNATURE_SETTINGS_KEY, {}) or {}).get(normalize_path(path))
         if not isinstance(entry, dict) or not isinstance(entry.get("white_threshold"), (int, float)):
@@ -171,7 +171,7 @@ class Settings:
             self._prune_signature_settings(present)
         return present
 
-    def _prune_signature_settings(self, kept_paths: list, tuned: "dict | None" = None) -> None:
+    def _prune_signature_settings(self, kept_paths: list, tuned: dict | None = None) -> None:
         """Drop remembered settings for images no longer on the list — a setting must not outlive
         the entry it belongs to (a file the user deleted to revoke it least of all)."""
         if tuned is None:

@@ -67,14 +67,17 @@ def test(c):
 
 
 @task
-def lint(c):
+def lint(c, fix=False):
     """Run Ruff over the repository, as the `lint` CI job does (M167).
 
     Ruff runs from the dev venv, at the version requirements-dev.txt pins. Any other Ruff refuses
     to start, because pyproject.toml sets `required-version`. That keeps this, an editor and CI
     giving one answer. PLAN.md §Linting, dead code and type checking says which rules are on and why.
+
+    `invoke lint --fix` also makes the changes Ruff can make safely, such as sorting imports and
+    removing quotes from type hints (M171), and then reports what is left to fix by hand.
     """
-    c.run(f'"{PY}" -m ruff check .', echo=True)
+    c.run(f'"{PY}" -m ruff check{" --fix" if fix else ""} .', echo=True)
 
 
 @task

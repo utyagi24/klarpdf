@@ -520,7 +520,7 @@ def _visual_rows(lines: list[_Line]) -> list[list[_Line]]:
     """Group lines that sit side by side. Two lines share a visual row when each one's middle lies
     within the other's letters — mutual, so a tall line cannot pull two printed rows together."""
     rows: list[list[_Line]] = []
-    for line in sorted(lines, key=lambda l: (l.middle, l.x0)):
+    for line in sorted(lines, key=lambda ln: (ln.middle, ln.x0)):
         for row in rows:
             if all(
                 other.top - _EPS <= line.middle <= other.baseline + _EPS
@@ -532,19 +532,19 @@ def _visual_rows(lines: list[_Line]) -> list[list[_Line]]:
         else:
             rows.append([line])
     for row in rows:
-        row.sort(key=lambda l: l.x0)
-    rows.sort(key=lambda row: min(l.middle for l in row))
+        row.sort(key=lambda ln: ln.x0)
+    rows.sort(key=lambda row: min(ln.middle for ln in row))
     return rows
 
 
 def _cell_text(lines: list[_Line]) -> str:
-    return "\n".join(" ".join(l.text for l in row) for row in _visual_rows(lines))
+    return "\n".join(" ".join(ln.text for ln in row) for row in _visual_rows(lines))
 
 
 def _touching(lines: list[_Line], rect: fitz.Rect) -> list[_Line]:
     return [
-        l for l in lines
-        if _overlap(l.x0, l.x1, rect.x0, rect.x1) > _EPS and _overlap(l.top, l.bottom, rect.y0, rect.y1) > _EPS
+        ln for ln in lines
+        if _overlap(ln.x0, ln.x1, rect.x0, rect.x1) > _EPS and _overlap(ln.top, ln.bottom, rect.y0, rect.y1) > _EPS
     ]
 
 
@@ -721,7 +721,7 @@ def _columns(rows: list[list[_Line]]) -> tuple[list[list[float]], set[int]]:
     spanning: set[int] = set()
 
     def bridges(line: _Line) -> bool:
-        others = _union([(l.x0, l.x1) for k, l in active.items() if k != id(line)])
+        others = _union([(ln.x0, ln.x1) for k, ln in active.items() if k != id(line)])
         return len(_columns_touched(line, others)) > 1
 
     changed = True
@@ -730,13 +730,13 @@ def _columns(rows: list[list[_Line]]) -> tuple[list[list[float]], set[int]]:
         for key, line in list(active.items()):
             if not bridges(line):
                 continue
-            mates = [l for l in rows[row_of[key]] if l is not line and id(l) in active]
+            mates = [ln for ln in rows[row_of[key]] if ln is not line and id(ln) in active]
             if all(bridges(mate) for mate in mates):
                 del active[key]
                 spanning.add(key)
                 changed = True
                 break
-    return _union([(l.x0, l.x1) for l in active.values()]), spanning
+    return _union([(ln.x0, ln.x1) for ln in active.values()]), spanning
 
 
 def _divide(columns: list[list[float]], rows: list[list[_Line]], spanning: set[int]) -> list[list[float]]:
@@ -756,11 +756,11 @@ def _divide(columns: list[list[float]], rows: list[list[_Line]], spanning: set[i
     page 10 holds two tables whose columns sit at different positions in one region, and it declines
     exactly there. Text printed twice to simulate bold overlaps itself and is never divided.
     """
-    placement = {id(l): _place(l, columns) for row in rows for l in row}
+    placement = {id(ln): _place(ln, columns) for row in rows for ln in row}
     divided: list[list[float]] = []
     for index, column in enumerate(columns):
         pieces = [
-            sorted((l for l in row if placement[id(l)] == index and id(l) not in spanning), key=lambda l: l.x0)
+            sorted((ln for ln in row if placement[id(ln)] == index and id(ln) not in spanning), key=lambda ln: ln.x0)
             for row in rows
         ]
         pieces = [p for p in pieces if p]
@@ -817,7 +817,7 @@ def _fits(row: list[_Line], columns: list[list[float]]) -> bool:
     if len(row) == 1:
         return len(_columns_touched(row[0], columns)) == 1
     last = -1
-    for line in sorted(row, key=lambda l: l.x0):
+    for line in sorted(row, key=lambda ln: ln.x0):
         touched = _columns_touched(line, columns)
         if not touched or touched[0] <= last:
             return False
@@ -867,10 +867,10 @@ def _trimmed(found: _Found, lines: list[_Line], edges: list[tuple[float, float, 
     in the SpaceX EU prospectus's translated summaries (p369, p394). An IPO prospectus lost a table
     outright (p428).
     """
-    within = [l for l in lines if found.bbox.x0 - _SNAP <= l.x0 and l.x1 <= found.bbox.x1 + _SNAP]
+    within = [ln for ln in lines if found.bbox.x0 - _SNAP <= ln.x0 and ln.x1 <= found.bbox.x1 + _SNAP]
 
     def columns_between(top: float, bottom: float) -> list[list[float]]:
-        return _columns(_visual_rows([l for l in within if top - _EPS <= l.baseline <= bottom + _EPS]))[0]
+        return _columns(_visual_rows([ln for ln in within if top - _EPS <= ln.baseline <= bottom + _EPS]))[0]
 
     def stray(outer: float, inner: float, columns: list[list[float]]) -> bool:
         if len(columns) < 2:
@@ -881,10 +881,10 @@ def _trimmed(found: _Found, lines: list[_Line], edges: list[tuple[float, float, 
             return False
         top, bottom = min(outer, inner), max(outer, inner)
         band = [
-            l for l in _touching(lines, fitz.Rect(found.bbox.x0, top, found.bbox.x1, bottom))
-            if top - _EPS <= l.baseline <= bottom + _EPS
+            ln for ln in _touching(lines, fitz.Rect(found.bbox.x0, top, found.bbox.x1, bottom))
+            if top - _EPS <= ln.baseline <= bottom + _EPS
         ]
-        return any(not any(c0 - _SNAP <= l.x0 and l.x1 <= c1 + _SNAP for c0, c1 in columns) for l in band)
+        return any(not any(c0 - _SNAP <= ln.x0 and ln.x1 <= c1 + _SNAP for c0, c1 in columns) for ln in band)
 
     bounds = list(found.bounds)
     while len(bounds) > 2 and stray(bounds[0], bounds[1], columns_between(bounds[1], bounds[-1])):
@@ -969,15 +969,15 @@ def _read_ruled(
     extra: list[_Line] = []
     for side in ("left", "right"):
         candidates = [
-            l for l in free
-            if l not in mine
-            and not _inside_any(l, others)
-            and bounds[0] - _EPS <= l.baseline <= bounds[-1] + _EPS
-            and (l.x1 <= box.x0 if side == "left" else l.x0 >= box.x1)
+            ln for ln in free
+            if ln not in mine
+            and not _inside_any(ln, others)
+            and bounds[0] - _EPS <= ln.baseline <= bounds[-1] + _EPS
+            and (ln.x1 <= box.x0 if side == "left" else ln.x0 >= box.x1)
         ]
         if candidates and all(
-            ruled_across(l) and not any(l.top + _EPS < b < l.baseline - _EPS for b in bounds)
-            for l in candidates
+            ruled_across(ln) and not any(ln.top + _EPS < b < ln.baseline - _EPS for b in bounds)
+            for ln in candidates
         ):
             extra.extend(candidates)
     if extra:
@@ -1027,15 +1027,15 @@ def _read_ruled(
     for side in ("left", "right"):
         data_rows = [row for row in visual if len(row) > 1]
         beside = [
-            l for l in free
-            if l not in mine
-            and not _inside_any(l, others)
-            and bands[0] - _EPS <= l.baseline <= bands[-1] + _EPS
-            and (l.x1 <= box.x0 if side == "left" else l.x0 >= box.x1)
+            ln for ln in free
+            if ln not in mine
+            and not _inside_any(ln, others)
+            and bands[0] - _EPS <= ln.baseline <= bands[-1] + _EPS
+            and (ln.x1 <= box.x0 if side == "left" else ln.x0 >= box.x1)
         ]
         if not beside or not data_rows:
             continue
-        if not all(any(_same_row(b, l) for b in beside for l in row) for row in data_rows):
+        if not all(any(_same_row(b, ln) for b in beside for ln in row) for row in data_rows):
             continue
         for line in beside:
             box |= line.rect
@@ -1059,26 +1059,26 @@ def _read_ruled(
             rules.append(top)
     extended_above: list[list[_Line]] = []
     extended_below: list[list[_Line]] = []
-    outside = [l for l in free if l not in mine and not _inside_any(l, others)]
+    outside = [ln for ln in free if ln not in mine and not _inside_any(ln, others)]
     for direction in ("above", "below"):
         edge_row = visual[0] if direction == "above" else visual[-1]
         while True:
             if direction == "above":
-                reference = min(l.top for l in edge_row)
-                candidates = [l for l in outside if l.baseline < min(l.baseline for l in edge_row) - _EPS]
+                reference = min(ln.top for ln in edge_row)
+                candidates = [ln for ln in outside if ln.baseline < min(ln.baseline for ln in edge_row) - _EPS]
             else:
-                reference = max(l.baseline for l in edge_row)
-                candidates = [l for l in outside if l.baseline > reference + _EPS]
-            candidates = [l for l in candidates if _overlap(l.x0, l.x1, box.x0, box.x1) > _EPS]
+                reference = max(ln.baseline for ln in edge_row)
+                candidates = [ln for ln in outside if ln.baseline > reference + _EPS]
+            candidates = [ln for ln in candidates if _overlap(ln.x0, ln.x1, box.x0, box.x1) > _EPS]
             if not candidates:
                 break
             rows_out = _visual_rows(candidates)
             nearest = rows_out[-1] if direction == "above" else rows_out[0]
-            top = min(l.top for l in nearest)
-            baseline = max(l.baseline for l in nearest)
+            top = min(ln.top for ln in nearest)
+            baseline = max(ln.baseline for ln in nearest)
             if direction == "above":
                 ruled = any(baseline - _SNAP <= t < reference for t in rules) and any(t <= top for t in rules)
-                distance = min(l.baseline for l in edge_row) - baseline
+                distance = min(ln.baseline for ln in edge_row) - baseline
             else:
                 ruled = any(reference < t <= top + _SNAP for t in rules) and any(t >= baseline for t in rules)
                 distance = baseline - reference
@@ -1091,15 +1091,15 @@ def _read_ruled(
                 # finder located, so both rows arrived with each `$` in a gap and were refused, and
                 # the first row was lost without a word. A piece bridging two columns still refuses
                 # the row, and a line alone on its row never adds a column.
-                gaps = [l for l in nearest if not _columns_touched(l, columns)]
-                widened = _union([(a, b) for a, b in columns] + [(l.x0, l.x1) for l in gaps])
+                gaps = [ln for ln in nearest if not _columns_touched(ln, columns)]
+                widened = _union([(a, b) for a, b in columns] + [(ln.x0, ln.x1) for ln in gaps])
                 if len(nearest) < 2 or not gaps or len(widened) != len(columns) + len(gaps):
                     break
                 if not _fits(nearest, widened):
                     break
                 columns = widened
             (extended_above if direction == "above" else extended_below).append(nearest)
-            outside = [l for l in outside if l not in nearest]
+            outside = [ln for ln in outside if ln not in nearest]
             edge_row = nearest
     # Only side-by-side text anchors an addition. A lone line fits a wide label column just as a
     # centred page title does — Cisco's cash-flow statement took in "CISCO SYSTEMS, INC." and its
@@ -1115,10 +1115,10 @@ def _read_ruled(
     for line in mine[1:]:
         core |= line.outer
     for added in (extended_above, extended_below):
-        while added and len({_place(l, columns) for l in added[-1]}) < 2:
+        while added and len({_place(ln, columns) for ln in added[-1]}) < 2:
             kept = fitz.Rect(core)
             for row in added[:-1]:
-                if len({_place(l, columns) for l in row}) > 1:
+                if len({_place(ln, columns) for ln in row}) > 1:
                     for line in row:
                         kept |= line.outer
             if any(kept.intersects(line.rect) for line in added[-1]):
@@ -1144,7 +1144,7 @@ def _read_ruled(
     shapes = []
     for band in banded:
         band_rows = _visual_rows(band) if band else []
-        shapes.append((band_rows, [r for r in band_rows if len({_place(l, columns) for l in r}) > 1]))
+        shapes.append((band_rows, [r for r in band_rows if len({_place(ln, columns) for ln in r}) > 1]))
     rows_are_ruled = any(len(side_by_side) == 1 for _, side_by_side in shapes)
 
     for row in extended_above:
@@ -1160,7 +1160,8 @@ def _read_ruled(
         elif not rows_are_ruled:
             raise _Decline(
                 "stacked",
-                f"no ruled band holds a single row; one holds {len(side_by_side)}, starting {_quote(side_by_side[0][0].text)}",
+                f"no ruled band holds a single row; one holds {len(side_by_side)}, "
+                f"starting {_quote(side_by_side[0][0].text)}",
             )
         else:
             lone = next(r for r in band_rows if r not in side_by_side)
@@ -1175,10 +1176,10 @@ def _read_ruled(
     for cells in table_rows:
         for index, cell in enumerate(cells):
             for visual_row in _visual_rows(cell):
-                if len(visual_row) > 1 and not all(id(l) in spanning for l in visual_row):
+                if len(visual_row) > 1 and not all(id(ln) in spanning for ln in visual_row):
                     raise _Decline(
                         "side_by_side",
-                        " and ".join(_quote(l.text) for l in visual_row[:2]) + f" share column {index + 1}",
+                        " and ".join(_quote(ln.text) for ln in visual_row[:2]) + f" share column {index + 1}",
                     )
     text_rows = [[_cell_text(cell) for cell in cells] for cells in table_rows]
     text_rows = [row for row in text_rows if any(row)]
@@ -1312,7 +1313,9 @@ def _recover(
             demoted[near_table] = (box | line.outer, first)
     refused = [(grown[i], decline) for i, (_, decline) in enumerate(refused)]
     for box, first in demoted.values():
-        refused.append((box, _Decline("unaccounted", f"{_quote(first)} is pressed against a table and in none of its rows")))
+        refused.append(
+            (box, _Decline("unaccounted", f"{_quote(first)} is pressed against a table and in none of its rows"))
+        )
     recovered = [table for i, table in enumerate(recovered) if i not in demoted]
     return recovered, refused
 
@@ -1383,7 +1386,7 @@ def _read_region(
 ) -> _Outcome:
     """Read one region the row-ruled finder located: a table, a decline, or the parts of both that
     :func:`_recover` finds in it."""
-    free = [l for l in inventory.lines if not _inside_any(l, claimed)]
+    free = [ln for ln in inventory.lines if not _inside_any(ln, claimed)]
     inside = _touching(free, found.bbox)
     # A region holding no side-by-side text is not a failed table. Beside a table this page did read,
     # it is what is left of that table's region (a caption, a stray note) and reporting it would send
@@ -1464,7 +1467,7 @@ def read_page(page: fitz.Page) -> PageRead:
         else:
             # A region can hang from a line that is not the table's, or stand on one (#369). It is
             # read without that band when what remains gives a table, and as located otherwise.
-            free = [l for l in inventory.lines if not _inside_any(l, claimed)]
+            free = [ln for ln in inventory.lines if not _inside_any(ln, claimed)]
             regions = [_trimmed(found, free, ruled.edges) for found in ruled.found]
             for position, (located, found) in enumerate(zip(ruled.found, regions, strict=True)):
                 later = [f.bbox for f in regions[position + 1:]]
@@ -1494,10 +1497,10 @@ def read_page(page: fitz.Page) -> PageRead:
         if table["reader"] != "ruled":
             continue
         box = table["bbox"]
-        members = [l for l in inventory.lines if box.contains(fitz.Point((l.x0 + l.x1) / 2, l.middle))]
-        level = [l for l in inventory.lines if not _inside_any(l, claimed) and box.y0 <= l.middle <= box.y1]
-        for side in ([l for l in level if l.x1 <= box.x0], [l for l in level if l.x0 >= box.x1]):
-            aligned = [l for l in side if any(_same_row(l, m) for m in members)]
+        members = [ln for ln in inventory.lines if box.contains(fitz.Point((ln.x0 + ln.x1) / 2, ln.middle))]
+        level = [ln for ln in inventory.lines if not _inside_any(ln, claimed) and box.y0 <= ln.middle <= box.y1]
+        for side in ([ln for ln in level if ln.x1 <= box.x0], [ln for ln in level if ln.x0 >= box.x1]):
+            aligned = [ln for ln in side if any(_same_row(ln, m) for m in members)]
             if not aligned:
                 continue
             region = fitz.Rect(side[0].outer)
@@ -1604,7 +1607,9 @@ def _title(page: fitz.Page, tables: list[dict], declined: list[fitz.Rect]) -> st
         rect = line.rect
         centre = fitz.Point((rect.x0 + rect.x1) / 2, (rect.y0 + rect.y1) / 2)
         owner = next((who for box, who in owners if box.contains(centre)), None)
-        repeated = any(all(abs(a - b) <= _SNAP for a, b in zip(seen, rect, strict=True)) for seen in before.get(line.text, ()))
+        repeated = any(
+            all(abs(a - b) <= _SNAP for a, b in zip(seen, rect, strict=True)) for seen in before.get(line.text, ())
+        )
         texts.append(_Text(line, owner, any(link.contains(centre) for link in links), repeated))
     blocks: dict[int, list[_Text]] = {}
     for text in texts:
@@ -1663,13 +1668,14 @@ def _banner_title(
 ) -> str | None:
     """The title a grid prints in its first row, where the page draws that row as one cell across the
     whole table. Held to what a title above is held to: its first line stands out, is readable, is not
-    wholly in brackets and is not a sentence. A row whose first line has another beside it is a header band instead, its column
-    headings set side by side in one drawn cell, as the IPO prospectus draws one. Only grids: of the
-    ruled tables measured, every first row holding one line held a column heading or a units line
-    ("Y/Y %", "(In millions)"), never a title."""
+    wholly in brackets and is not a sentence. A row whose first line has another beside it is a
+    header band instead, its column headings set side by side in one drawn cell, as the IPO
+    prospectus draws one. Only grids: of the ruled tables measured, every first row holding one line
+    held a column heading or a units line ("Y/Y %", "(In millions)"), never a title."""
     inside = [
         t for t in texts
-        if t.owner is table and table["_banner"].contains(fitz.Point((t.rect.x0 + t.rect.x1) / 2, (t.rect.y0 + t.rect.y1) / 2))
+        if t.owner is table
+        and table["_banner"].contains(fitz.Point((t.rect.x0 + t.rect.x1) / 2, (t.rect.y0 + t.rect.y1) / 2))
     ]
     if not inside:
         return None
@@ -1840,7 +1846,8 @@ def _hangs_from_a_drawing(
         return False
     over = lambda r: _overlap(r.x0, r.x1, top.x0, top.x1) > _EPS  # noqa: E731 — one expression closing over `top`, read inline below
     text_gap = min(
-        (top.y0 - t.rect.y1 for t in texts if t not in run and t.rect.y1 <= top.y0 + _EPS and over(t.rect)), default=None
+        (top.y0 - t.rect.y1 for t in texts if t not in run and t.rect.y1 <= top.y0 + _EPS and over(t.rect)),
+        default=None,
     )
     drawn_gap = min(
         (top.y0 - g.y1 for g in graphics if g.y1 <= top.y0 + _EPS and over(g) and g.height > top.height), default=None

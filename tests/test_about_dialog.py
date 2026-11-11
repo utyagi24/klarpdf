@@ -16,9 +16,9 @@ from pathlib import Path
 import pytest
 
 from app import PdfApp
+from klarpdf.version import __version__
 from store.settings import Settings
 from ui.resources import LICENSE_FILES, read_text_resource, resource_path, resource_root
-from klarpdf.version import __version__
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = ROOT / "packaging" / "app" / "klarpdf.spec"

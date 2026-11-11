@@ -21,7 +21,6 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QGraphicsRectItem
 
 from app import PdfApp
-from main_window import MainWindow
 from klarpdf.model.edit_engine import PyMuPDFEngine
 from klarpdf.model.foreign_annots import adopt_annotation, degradations
 from klarpdf.model.page_edits import (
@@ -35,6 +34,7 @@ from klarpdf.model.page_edits import (
     read_klarpdf_annotations,
     restyle_mark,
 )
+from main_window import MainWindow
 from store.settings import Settings
 from viewer.markup_style import ColorsButton, MarkupStyle
 from viewer.tools import ArmedTool

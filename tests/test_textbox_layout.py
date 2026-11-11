@@ -27,8 +27,6 @@ import pytest
 from PySide6.QtGui import QFontMetricsF
 from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsSimpleTextItem
 
-from viewer.annotations import _TextBoxFrame
-
 from app import PdfApp
 from klarpdf.model.edit_engine import PyMuPDFEngine
 from klarpdf.model.page_edits import (
@@ -49,6 +47,7 @@ from klarpdf.model.page_edits import (
 from klarpdf.model.virtual_document import VirtualDocument
 from store.settings import Settings
 from tests.conftest import write_top_aligned_textbox
+from viewer.annotations import _TextBoxFrame
 from viewer.text_format_bar import TextBoxStyle
 from viewer.tools import ArmedTool
 

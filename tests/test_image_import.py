@@ -63,8 +63,9 @@ def test_open_image_source_is_idempotent(a_pdf, tmp_path):
 
 
 def test_imported_image_page_survives_materialize(a_pdf, tmp_path):
-    from edit_commands import InsertCommand
     from PySide6.QtGui import QUndoStack
+
+    from edit_commands import InsertCommand
 
     img = _make_image(str(tmp_path / "pic.png"))
     v = VirtualDocument.from_path(a_pdf)

@@ -11353,7 +11353,7 @@ look once it reaches 1.0.
 | `T20` (`print`) | On in `klarpdf/` only (M168) | stdout is the bridge's JSON-RPC stream. The one stderr `print` gets a `noqa` that says so |
 | `target-version = "py311"` | The whole repository (M168) | The wheel's floor. For `klarpdf/` this is earlier feedback, since the `bridge-pyver` job already tests 3.11. For the app it is new, and it matters: code moves from the app into the core when the bridge needs it (the markup palette in M101), and 3.12-only syntax would break the wheel the day it moved |
 | `B`, `BLE001`, `S110`, `S112`, `PLE`, `PLW`, `RUF007` | On (M170) | Defects that hide: swallowed exceptions, a `zip` that truncates silently, closures over loop variables. 124 findings, each needing a judgement. `RUF007` (`itertools.pairwise`) keeps a neighbour pair from being given `strict=True` |
-| `I`, `UP`, `E741`, and `E501` at 120 columns | On (M171) | Consistency at a low cost. Most fixes are automatic |
+| `I`, `UP`, `E741`, and `E501` at 120 columns | On (M171), except `E501` in `klarpdf/mcp_bridge/docs.py` | Consistency at a low cost. Most fixes are automatic. `docs.py` is Markdown that the bridge serves as written, and a Markdown table row cannot be split across lines |
 | `N` (naming) | Off | Qt's overrides and signals are camelCase by contract. All 41 `N802` and 20 `N815` findings in the app are names like `keyPressEvent`, `sizeHint` and `zoomChanged` |
 | `D` (docstring style) | Off | The docstrings here are prose that records measurements and reasons. `D401` alone flags 95 in the core |
 | `ANN` (annotations present) | Off | mypy's `disallow_untyped_defs` does this for `klarpdf/` (M172), and checks the types rather than only their presence |
@@ -11852,6 +11852,85 @@ five are among the 25).
 without the `qapp` fixture, so they worked only after another test had made the Qt application.
 Run alone, with `-k`, Python aborted. Unchanged `main` aborts the same way. Each now asks for
 `qapp`, and each passes alone.
+
+### M171 — consistency (built 2026-11-11)
+
+**Surfaces:** core, bridge, app, tests, tools and packaging. Nothing a user sees changes. The
+checks that show this are listed below.
+
+**What Ruff now refuses** (`[tool.ruff.lint]` in `pyproject.toml`), as planned:
+
+* `I`: an import block out of order.
+* `UP`: an older form where Python 3.11 has a newer one, such as quotes around a type hint or `%`
+  string formatting.
+* `E741`: a one-letter name that looks like a digit (`l`, `O`, `I`). It is part of `E7`, so the
+  `ignore` line M167 added is gone.
+* `E501`: a line over 120 characters. `line-length = 120` is set in `[tool.ruff]`. Ruff's default
+  is 88, and its import sorting wraps to the same width, so the setting had to come before the
+  first `--fix`.
+
+There is still no formatter (§*Decisions*). `invoke lint --fix` now runs Ruff's safe fixes.
+
+**The findings.** The plan measured 294 on 2026-11-08. There were 293: 69 import blocks, 140 older
+forms, 50 one-letter names and 34 long lines. Ruff fixed 183 of them itself. The other 110 were
+fixed by hand, or by a small script for the names.
+
+* **Imports (69), by Ruff.** Each block is a run of imports with no other code between them, so a
+  reorder cannot change what runs first. Three lines of the form `from x import a, b as c` are now
+  two lines, which is Ruff's default. Its `combine-as-imports` option would keep them on one line,
+  but it would also merge the two re-export lines that M167 wrote in `viewer/markup_style.py` into
+  one line of 118 characters, so the default stays. One import in `tests/test_metadata.py` had a
+  comment aligned far to the right. The sorter puts such a comment two spaces after the code. It does
+  this only on import lines. Aligned comments elsewhere are untouched.
+* **Quotes around type hints (108), by Ruff.** Every file involved already has
+  `from __future__ import annotations`, so Python stores its hints as text and never evaluates them.
+  Removing the quotes changes only that stored text, and nothing in the code reads it. No bridge
+  tool's signature was among them. The MCP SDK does read those, to build each tool's input schema.
+* **Other older forms (6), by Ruff.** Three `lru_cache(maxsize=None)` became `functools.cache`,
+  which Python defines as exactly that. Two `typing.Iterable` imports now come from
+  `collections.abc`. One `.encode("utf-8")` became `.encode()`, whose default is UTF-8.
+* **`%` formatting (26), by hand.** 24 are in three link test files, which build PDF objects as
+  text. `%d` there always receives an object number, which is a whole number, so `{x}` writes the
+  same text. `%g` became `{x:g}`. The other two are in the installer script
+  (`packaging/mcp/installer/install.py`). The Claude Desktop block is now built with one
+  `json.dumps` of the whole object. The Python version is read from `sys.version_info.major` and
+  `.minor`.
+* **One-letter names (50), by a script.** All 50 were `l`, for a line of text, and 45 of them are in
+  `klarpdf/mcp_bridge/tables.py`. They are `ln` now, the name the code already used for the same
+  thing elsewhere. The script changed only Python names and left strings and comments untouched.
+  `tables.py` also uses the string `"l"`, which is a drawing's line operator, and it stayed.
+* **Long lines (34), by hand.**
+  * **7 are in `klarpdf/mcp_bridge/docs.py`, which is exempt from `E501`.** They are rows of
+    Markdown tables in the reference text agents read through `klarpdf://docs/{tool}`. A table row
+    cannot be split across lines, and shortening the text would change what agents read. The
+    exemption is in `per-file-ignores`, with this reason.
+  * **3 had a long run of spaces in the middle**, where a `\` line break had been lost
+    (`viewer/pdf_view.py`, twice, since M69.2 and M69.16, and `tests/test_live_thumbnails.py`).
+    The break is back, inside brackets.
+  * **2 are in bridge tool descriptions** (`get_tables` and `redact_regions`). Their paragraphs
+    are rewrapped. Only spaces became line breaks, and `cleandoc` removes the indent, so each
+    description keeps the same words and the same length.
+  * **1 is the opening `<svg>` tag in `assets/brand/gen-lockup.py`.** Wrapping it inside the
+    template would change the files the script writes. The tag is now built in its own variable, so
+    the output stays the same.
+  * **The other 21** are comments, docstrings, and code wrapped at a comma or an `and`.
+
+**How "nothing changes" was checked.**
+
+* **Bridge tool descriptions:** each of the 23, and the whole `docs.py` reference, was read from
+  the live server before and after the change. Only `get_tables` and `redact_regions` differ, and in
+  both the words are the same and the length is the same (1,861 and 1,557 characters).
+* **The PDF objects the link tests build:** every string written through `update_object` and
+  `xref_set_key` in the three files was recorded, before and after. All 196 writes are identical.
+* **The installer:** the old and new code print the same Desktop block, for a path with a space in
+  it and for one with a letter outside ASCII.
+* **The SVG script:** `build` gives the same text for all three images, before and after. The
+  script downloads its fonts, so the font steps were replaced by fixed stand-ins for the check.
+* **The suite** passes, run in full locally because the change reaches `klarpdf/model/`.
+
+**Each rule was seen failing.** A planted file with imports out of order, a quoted type hint,
+`l = 1` and `%` formatting got exactly one finding for each. A 133-character line failed in a bridge
+module and passed in `docs.py`, so the exemption covers that one file only.
 
 ## Future enhancements (deferred beyond the roadmap)
 

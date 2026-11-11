@@ -13,7 +13,6 @@ import pytest
 from PySide6.QtCore import Qt
 
 from app import PdfApp
-from main_window import MainWindow
 from klarpdf.model.edit_engine import PyMuPDFEngine
 from klarpdf.model.page_edits import (
     Highlight,
@@ -24,6 +23,7 @@ from klarpdf.model.page_edits import (
     Underline,
 )
 from klarpdf.model.virtual_document import VirtualDocument
+from main_window import MainWindow
 from store.settings import Settings
 from viewer.markup_style import (
     ColorsButton,

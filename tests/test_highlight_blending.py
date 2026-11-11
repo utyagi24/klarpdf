@@ -26,14 +26,14 @@ from __future__ import annotations
 
 import pymupdf as fitz
 import pytest
-from PySide6.QtCore import Qt, QRectF
+from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QImage, QPainter
 from PySide6.QtWidgets import QGraphicsRectItem
 
 from app import PdfApp
-from main_window import MainWindow
 from klarpdf.model.edit_engine import PyMuPDFEngine
 from klarpdf.model.page_edits import Highlight
+from main_window import MainWindow
 from store.settings import Settings
 from viewer.blend import MultiplyRectItem
 from viewer.markup_style import HIGHLIGHT_COLORS

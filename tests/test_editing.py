@@ -10,10 +10,10 @@ from PySide6.QtWidgets import QMessageBox
 
 import main_window as mw
 from app import PdfApp
+from klarpdf.util.paths import normalize_path
 from main_window import MainWindow
 from store.settings import Settings
 from tests.conftest import A_TEXT, B_TEXT
-from klarpdf.util.paths import normalize_path
 
 
 @pytest.fixture(scope="session")

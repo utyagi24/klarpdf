@@ -48,7 +48,7 @@ def linked_pdf(tmp_path) -> str:
     doc[0].insert_link({"kind": fitz.LINK_GOTO, "from": fitz.Rect(*_GOTO_BOX), "page": 3,
                         "to": fitz.Point(0, 0)})
     doc.xref_set_key(doc.pdf_catalog(), "Dests",
-                     "<< /sec4 [ %d 0 R /XYZ 0 700 0 ] >>" % doc.page_xref(4))
+                     f"<< /sec4 [ {doc.page_xref(4)} 0 R /XYZ 0 700 0 ] >>")
     doc[0].insert_link({"kind": fitz.LINK_NAMED, "from": fitz.Rect(*_NAMED_BOX), "nameddest": "sec4"})
     doc.save(path)
     doc.close()
@@ -142,11 +142,10 @@ def view_dest_pdf(tmp_path) -> str:
     height = doc[0].rect.height
     x0, y0, x1, y1 = _GOTO_BOX
     annot, action = doc.get_new_xref(), doc.get_new_xref()
-    doc.update_object(action, "<< /S /GoTo /D [ %d 0 R /Fit ] >>" % doc.page_xref(3))
-    doc.update_object(annot, "<< /Type/Annot /Subtype/Link /Rect [%g %g %g %g] "
-                             "/Border[0 0 0] /A %d 0 R >>"
-                             % (x0, height - y1, x1, height - y0, action))
-    doc.xref_set_key(doc.page_xref(0), "Annots", "[%d 0 R]" % annot)
+    doc.update_object(action, f"<< /S /GoTo /D [ {doc.page_xref(3)} 0 R /Fit ] >>")
+    doc.update_object(annot, f"<< /Type/Annot /Subtype/Link /Rect [{x0:g} {height - y1:g} {x1:g} {height - y0:g}] "
+                             f"/Border[0 0 0] /A {action} 0 R >>")
+    doc.xref_set_key(doc.page_xref(0), "Annots", f"[{annot} 0 R]")
     doc.save(path)
     doc.close()
     return path
@@ -404,10 +403,10 @@ def _positioned_pdf(tmp_path, tail, rotate=0, name="pos.pdf") -> str:
     height = doc[0].rect.height
     doc.update_object(
         annot,
-        "<< /Type /Annot /Subtype /Link /Rect [%g %g %g %g] /Border [0 0 0] /Dest [%d 0 R %s] >>"
-        % (x0, height - y1, x1, height - y0, doc.page_xref(3), tail),
+        f"<< /Type /Annot /Subtype /Link /Rect [{x0:g} {height - y1:g} {x1:g} {height - y0:g}] /Border [0 0 0] "
+        f"/Dest [{doc.page_xref(3)} 0 R {tail}] >>",
     )
-    doc.xref_set_key(doc.page_xref(0), "Annots", "[%d 0 R]" % annot)
+    doc.xref_set_key(doc.page_xref(0), "Annots", f"[{annot} 0 R]")
     doc.save(path)
     doc.close()
     return path
@@ -505,10 +504,10 @@ def test_a_destination_above_the_page_is_pulled_back_onto_it(app, tmp_path):
     height = doc[0].rect.height
     doc.update_object(
         annot,
-        "<< /Type /Annot /Subtype /Link /Rect [%g %g %g %g] /Dest [%d 0 R /XYZ 0 792 0] >>"
-        % (x0, height - y1, x1, height - y0, doc.page_xref(3)),
+        f"<< /Type /Annot /Subtype /Link /Rect [{x0:g} {height - y1:g} {x1:g} {height - y0:g}] "
+        f"/Dest [{doc.page_xref(3)} 0 R /XYZ 0 792 0] >>",
     )
-    doc.xref_set_key(doc.page_xref(0), "Annots", "[%d 0 R]" % annot)
+    doc.xref_set_key(doc.page_xref(0), "Annots", f"[{annot} 0 R]")
     doc.save(path)
     doc.close()
 
@@ -535,10 +534,10 @@ def test_a_destination_below_the_page_is_pulled_back_onto_it(app, tmp_path):
     height = doc[0].rect.height
     doc.update_object(
         annot,
-        "<< /Type /Annot /Subtype /Link /Rect [%g %g %g %g] /Dest [%d 0 R /XYZ 0 -130.5 0] >>"
-        % (x0, height - y1, x1, height - y0, doc.page_xref(3)),
+        f"<< /Type /Annot /Subtype /Link /Rect [{x0:g} {height - y1:g} {x1:g} {height - y0:g}] "
+        f"/Dest [{doc.page_xref(3)} 0 R /XYZ 0 -130.5 0] >>",
     )
-    doc.xref_set_key(doc.page_xref(0), "Annots", "[%d 0 R]" % annot)
+    doc.xref_set_key(doc.page_xref(0), "Annots", f"[{annot} 0 R]")
     doc.save(path)
     doc.close()
 

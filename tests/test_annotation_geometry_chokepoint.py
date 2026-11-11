@@ -37,7 +37,6 @@ import pymupdf as fitz
 import pytest
 
 from app import PdfApp
-from main_window import MainWindow
 from klarpdf.model.content_marks import Stamp
 from klarpdf.model.foreign_annots import ForeignDeletion, ForeignMove, read_foreign_annotations
 from klarpdf.model.form_fields import NewField
@@ -53,6 +52,7 @@ from klarpdf.model.page_edits import (
     mark_bounds,
     rects_of,
 )
+from main_window import MainWindow
 from store.settings import Settings
 
 BOX = (60.0, 292.0, 200.0, 306.0)

@@ -82,7 +82,7 @@ class Tiles:
         c, r = tile
         return math.hypot((c + 0.5) * TILE - centre[0], (r + 0.5) * TILE - centre[1])
 
-    def nearest(self, wanted, centre) -> "tuple[tuple[int, int], float] | None":
+    def nearest(self, wanted, centre) -> tuple[tuple[int, int], float] | None:
         """The undrawn tile of ``wanted`` nearest ``centre``, and how far it is, or ``None``."""
         best = None
         for tile in wanted:
@@ -136,13 +136,13 @@ class Sizer:
     and its first piece is ``first`` tiles.
     """
 
-    def __init__(self, budget: float, rate: "float | None" = None, first: int = 1) -> None:
+    def __init__(self, budget: float, rate: float | None = None, first: int = 1) -> None:
         self.budget = budget
         self.rate = rate
         self.first = first
         self._seen: list[tuple[int, float]] = []   # (pixels, seconds), oldest first, the recent ones
         self._all: list[tuple[int, float]] = []    # every piece at this size
-        self._fixed: "float | None" = None         # the fixed part, once two sizes have been seen
+        self._fixed: float | None = None         # the fixed part, once two sizes have been seen
 
     def record(self, pixels: int, seconds: float) -> None:
         self._seen.append((pixels, seconds))

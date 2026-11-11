@@ -11,11 +11,10 @@ from PySide6.QtCore import QEvent, QPointF, Qt
 from PySide6.QtGui import QFontMetricsF, QMouseEvent
 from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsSimpleTextItem
 
-from viewer.annotations import _TextBoxFrame
-
 from app import PdfApp
 from klarpdf.model.page_edits import Highlight, TextBox
 from store.settings import Settings
+from viewer.annotations import _TextBoxFrame
 from viewer.text_format_bar import TextBoxStyle, TextFormatBar
 from viewer.tools import ArmedTool, InteractionMode
 

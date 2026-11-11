@@ -109,7 +109,7 @@ class PropertiesDialog(QDialog):
     def _unstage_removal(self, _text: str) -> None:
         self._removed = False
 
-    def staged_override(self) -> "dict | None":
+    def staged_override(self) -> dict | None:
         """What OK staged: ``{}`` = remove all, a dict = edited values, ``None`` = no change."""
         if self._removed:
             return {}
