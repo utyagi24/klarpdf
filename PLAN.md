@@ -12065,6 +12065,10 @@ checking their bodies as they stand finds 3 more errors. That is M172.2's work.
   lock's pins, and mypy gave the same answer as in the dev venv.
 * The full suite passes locally (3,283 passed, and the two Windows-only tests skipped). It was run
   in full because the change reaches `klarpdf/model/`.
+* `typecheck` went red on purpose. A `workflow_dispatch` run on a probe branch with
+  `_planted: int = "a"` added to `klarpdf/version.py` failed the job on that line, about 20 seconds
+  after it started. Its log shows mypy and its four dependencies installed at the dev lock's pins.
+  `lint` passed in the same run, because the planted line breaks no Ruff rule.
 
 ## Future enhancements (deferred beyond the roadmap)
 
