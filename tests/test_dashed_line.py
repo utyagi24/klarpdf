@@ -14,7 +14,7 @@ import pytest
 
 from app import PdfApp
 from klarpdf.model.edit_engine import PyMuPDFEngine
-from klarpdf.model.page_edits import InkStroke, Line, Shape, restyle_mark
+from klarpdf.model.page_edits import Highlight, InkStroke, Line, Shape, TextBox, restyle_mark
 from klarpdf.model.virtual_document import VirtualDocument
 from store.settings import Settings
 from viewer.markup_style import LineStylingButton, MarkupStyle
@@ -118,6 +118,14 @@ def test_restyle_mark_toggles_dashed_and_none_keeps_it():
     assert kept.dashed is True
     shape = Shape("rect", (0, 0, 10, 10))
     assert restyle_mark(shape, shape.color, shape.width, None, 1.0, None, True).dashed is True
+
+
+def test_restyle_mark_answers_none_for_a_mark_it_does_not_restyle():
+    """Its docstring says so. With `dashed` left out it raised `AttributeError` instead, because
+    it read the mark's own `dashed` before asking what kind of mark it was (M172.2)."""
+    box = TextBox((0, 0, 100, 20), "note")
+    assert restyle_mark(box, (1.0, 0.0, 0.0), 2.0, None) is None
+    assert restyle_mark(Highlight(((0, 0, 10, 10),)), None, 2.0, None) is None
 
 
 def test_selected_mark_restyles_to_dashed_one_undo_step(win):

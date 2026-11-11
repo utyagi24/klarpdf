@@ -82,6 +82,16 @@ def test_long_line_snippet_is_windowed_with_ellipses(app, prose_pdf):
     assert "one two" not in long_snippet
 
 
+def test_page_text_with_neither_a_page_nor_words_says_what_it_needs():
+    with pytest.raises(ValueError, match="a page or a list of words"):
+        PageText()
+
+
+def test_text_built_from_words_alone_is_never_called_invisible():
+    """There is no page to draw, so there is nothing to measure contrast on."""
+    assert PageText(words=[(0, 0, 10, 10, "word", 0, 0, 0)])._rendered_contrast((0, 0, 10, 10)) == float("inf")
+
+
 def test_snippet_is_empty_when_the_box_misses_every_word():
     assert PageText(words=[(0, 0, 10, 10, "word", 0, 0, 0)]).snippet((500, 500, 520, 520)) == ""
 

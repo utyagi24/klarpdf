@@ -16,7 +16,13 @@ Model-layer (PyMuPDF only, no GUI) and headless-testable.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from xml.sax.saxutils import escape
+
+if TYPE_CHECKING:  # named in annotations only, so nothing more is imported when the code runs
+    import pymupdf as fitz
+
+    from klarpdf.model.virtual_document import VirtualDocument
 
 # The Info-dict keys ``set_metadata`` writes ('format' / 'encryption' in ``doc.metadata`` are
 # read-only pseudo-fields and must not be passed back in).
@@ -36,7 +42,7 @@ INFO_KEYS = (
 EDITABLE_KEYS = ("title", "author", "subject", "keywords")
 
 
-def read_info(doc) -> dict:
+def read_info(doc: fitz.Document) -> dict:
     """The writable Info-dict fields of ``doc`` as a plain ``{key: str}`` (blanks as ``""``)."""
     metadata = doc.metadata or {}
     return {key: (metadata.get(key) or "") for key in INFO_KEYS}
@@ -78,7 +84,7 @@ def build_xmp(values: dict) -> str:
     )
 
 
-def apply_metadata(out, vdoc) -> None:
+def apply_metadata(out: fitz.Document, vdoc: VirtualDocument) -> None:
     """Write the document metadata onto the materialised output (the M53 verbs).
 
     * untouched → **carry through** the origin's Info dict and XMP packet byte-for-byte

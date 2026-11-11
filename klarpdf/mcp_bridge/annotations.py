@@ -42,6 +42,9 @@ from __future__ import annotations
 import json
 import os
 from collections import Counter
+from collections.abc import Collection, Sequence
+
+import pymupdf as fitz
 
 from klarpdf.mcp_bridge.queries import _page_of, open_document, resolve_pages
 from klarpdf.mcp_bridge.transforms import _resolve_out, _write
@@ -56,6 +59,7 @@ from klarpdf.model.page_edits import (
     KLARPDF_AUTHOR,
     Highlight,
     Strikeout,
+    TextMarkup,
     Underline,
     _x_overlap,
     merge_markup,
@@ -71,6 +75,7 @@ from klarpdf.model.pymupdf_constants import (
     PDF_ANNOT_WIDGET,
     PDF_PERM_ANNOTATE,
 )
+from klarpdf.model.virtual_document import VirtualDocument
 
 # The three mark types this tool writes, by the name a caller uses. The model has six more —
 # ink, line, rect, ellipse, text box, stamp — and they are deliberately not here: they are drawing
@@ -78,7 +83,7 @@ from klarpdf.model.pymupdf_constants import (
 # that offered all nine would spend its whole description cap listing them. The description says so
 # explicitly, because a model that guesses `"type": "rect"` should get an error naming the three
 # rather than a silent no-op (M106).
-MARK_TYPES: dict[str, type[Highlight] | type[Underline] | type[Strikeout]] = {
+MARK_TYPES: dict[str, type[TextMarkup]] = {
     "highlight": Highlight,
     "underline": Underline,
     "strikeout": Strikeout,
@@ -161,7 +166,7 @@ def _fit(entry: dict, budget: int) -> dict:
     }
 
 
-def _quads_to_boxes(vertices) -> list[list[float]]:
+def _quads_to_boxes(vertices: Sequence[Sequence[float]]) -> list[list[float]]:
     """Quad points → one box per quad, in the order the annotation stores them.
 
     A quad is four ``(x, y)`` corners; ``vertices`` is a flat run of them. This mirrors
@@ -204,7 +209,7 @@ def _lines_of(boxes: list[tuple]) -> list[tuple]:
     return [tuple(line) for line in lines]
 
 
-def _describe(annot, page1: int, text: PageText) -> dict:
+def _describe(annot: fitz.Annot, page1: int, text: PageText) -> dict:
     """One raw annotation → the JSON an agent reads.
 
     ``boxes`` is the field that has to be right: it is in the same **unrotated page-point space**
@@ -341,7 +346,7 @@ def get_annotations(
         return result
 
 
-def _resolve_color(raw, mark_type: str) -> tuple[float, float, float] | None:
+def _resolve_color(raw: object, mark_type: str) -> tuple[float, float, float] | None:
     """A caller's ``color`` → RGB, or ``None`` to take the descriptor's own default.
 
     Accepts a swatch **name** from that type's palette, or a raw ``[r, g, b]`` triple of floats in
@@ -407,7 +412,7 @@ _KIND_TO_PDF_TYPE = {
 }
 
 
-def _permission_warning(vdoc) -> str | None:
+def _permission_warning(vdoc: VirtualDocument) -> str | None:
     """A warning naming the document's own no-annotate preference, or ``None`` (M113.3).
 
     The flag is advisory — enforced by nothing but the file's own encryption, which has nothing to
@@ -425,7 +430,7 @@ def _permission_warning(vdoc) -> str | None:
     )
 
 
-def _foreign_authors_over(page, kind: str, boxes) -> list[str]:
+def _foreign_authors_over(page: fitz.Page, kind: str, boxes: Collection[Sequence[float]]) -> list[str]:
     """Authors of existing non-KlarPDF marks of ``kind`` overlapping ``boxes`` on ``page`` (M113.5).
 
     A foreign mark never enters ``vdoc.page_annotations()`` — the model's own editable set is
@@ -592,7 +597,9 @@ def _already_present(existing: str, note: str) -> bool:
     )
 
 
-def _attach_note(annotations: tuple, mark_class, boxes, note: str) -> tuple:
+def _attach_note(
+    annotations: tuple, mark_class: type[TextMarkup], boxes: Collection[Sequence[float]], note: str
+) -> tuple:
     """``annotations`` with ``note`` set on the mark that ``merge_markup`` just produced.
 
     The survivor is the last mark of its type overlapping ``boxes`` — ``merge_markup`` inserts at

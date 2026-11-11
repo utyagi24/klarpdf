@@ -110,9 +110,13 @@ class PageText:
     hand — :meth:`text_under` is then empty, since characters can only come from a page.
     """
 
-    def __init__(self, page=None, words: list | None = None) -> None:
+    def __init__(self, page: fitz.Page | None = None, words: list | None = None) -> None:
         self._page = page
-        self.words: list = page.get_text("words") if words is None else words
+        if words is None:
+            if page is None:
+                raise ValueError("PageText needs a page or a list of words")
+            words = page.get_text("words")
+        self.words: list = words
         self._by_key: dict[tuple, list] = {}
         for i, w in enumerate(self.words):
             self._by_key.setdefault((w[5], w[6]), []).append((i, w))
@@ -268,6 +272,8 @@ class PageText:
         Rendered at 72 dpi — the glyphs only have to disturb the ground, not be readable, and a
         pale-text page costs one small pixmap per candidate box (measured: ~3 ms).
         """
+        if self._page is None:  # built from words alone: nothing to draw, so nothing to claim
+            return float("inf")
         try:
             pixmap = self._page.get_pixmap(clip=fitz.Rect(*box), alpha=False)
         except Exception:  # noqa: BLE001 — an unrenderable box is not a claim that it is invisible

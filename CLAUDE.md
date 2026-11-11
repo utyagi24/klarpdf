@@ -249,7 +249,10 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   `invoke lint` runs the pinned Ruff, with the same version and rules as the required `lint`
   check. It then runs the pinned mypy over `klarpdf/`, as the `typecheck` check does. Ruff takes
   under a second. mypy takes about 4 seconds the first time and well under one after that. mypy
-  checks the wheel only, not the app (`PLAN.md` §M172).
+  checks the wheel only, not the app (`PLAN.md` §M172). There, every function says what it takes
+  and what it returns, and mypy refuses one that does not (M172.2). Use the names the core has
+  for the kinds of mark (`TextMarkup`, `AdditiveMark`, `Mark` in `klarpdf/model/page_edits.py`),
+  and `object` only where a function is written to take anything.
   `invoke lint --fix` also sorts imports and makes Ruff's other safe fixes. A line over 120
   characters, a one-letter name such as `l`, and `%` formatting are fixed by hand (M171). There
   is no formatter, so Ruff checks the layout but does not rewrite it. A rule is switched on only

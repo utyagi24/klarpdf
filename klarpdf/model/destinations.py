@@ -37,7 +37,12 @@ Model-layer (uses PyMuPDF, no GUI) and headless-testable.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # named in annotations only, so nothing more is imported when the code runs
+    import pymupdf as fitz
 
 #: The destination verbs that state a vertical position, and where it sits in their argument list.
 #: ``/Fit``, ``/FitB``, ``/FitV`` and ``/FitBV`` are absent on purpose — they name no top, so a
@@ -134,7 +139,7 @@ def split_destination(text: str, page_of_xref: dict[int, int]) -> Destination | 
     return Destination(page, tail) if tail.startswith("/") else None
 
 
-def page_index_map(doc) -> dict[int, int]:
+def page_index_map(doc: fitz.Document) -> dict[int, int]:
     """``{page object xref: 0-based page index}`` for ``doc`` — how a destination names its page."""
     return {doc.page_xref(i): i for i in range(doc.page_count)}
 
@@ -234,7 +239,7 @@ def _unescape(match: re.Match) -> str:
     return {"n": "\n", "r": "\r", "t": "\t", "b": "\b", "f": "\f"}.get(body, body)
 
 
-def _pairs(text: str):
+def _pairs(text: str) -> Iterator[tuple[str, str]]:
     """``(decoded key, raw value)`` over a PDF dictionary body or a name array's ``/Names``."""
     i = 0
     stripped = text.lstrip()
@@ -252,7 +257,7 @@ def _pairs(text: str):
         yield _pdf_text(key), value
 
 
-def _resolve_value(doc, raw: str) -> str | None:
+def _resolve_value(doc: fitz.Document, raw: str) -> str | None:
     """A looked-up destination value reduced to a destination **array**.
 
     The value may already be one, or an indirect reference to one, or — the spelling the PDF spec
@@ -283,7 +288,7 @@ def _lookup(text: str, name: str) -> str | None:
     return None
 
 
-def _named_destination(doc, name: str, memo: dict | None = None) -> str | None:
+def _named_destination(doc: fitz.Document, name: str, memo: dict | None = None) -> str | None:
     """The raw destination array a destination *name* stands for, or ``None``.
 
     ``memo`` is a per-document ``{name: result}`` cache. Without it every link re-reads and
@@ -309,7 +314,7 @@ def _named_destination(doc, name: str, memo: dict | None = None) -> str | None:
     return found
 
 
-def _find_named(doc, name: str) -> str | None:
+def _find_named(doc: fitz.Document, name: str) -> str | None:
     catalog = doc.pdf_catalog()
     dests = doc.xref_get_key(catalog, "Dests")
     if dests[0] != "null":
@@ -325,7 +330,7 @@ def _find_named(doc, name: str) -> str | None:
     return None
 
 
-def _name_tree_lookup(doc, root: int, name: str, depth: int = 0) -> str | None:
+def _name_tree_lookup(doc: fitz.Document, root: int, name: str, depth: int = 0) -> str | None:
     """Walk a PDF name tree (``/Kids`` branches, ``/Names`` leaves) for ``name``.
 
     Deliberately **not** ``Document.resolve_names()``, which hands back the destination already
@@ -355,7 +360,7 @@ def _name_tree_lookup(doc, root: int, name: str, depth: int = 0) -> str | None:
 
 
 def read_destination(
-    doc, xref: int, page_of_xref: dict[int, int], names: dict | None = None
+    doc: fitz.Document, xref: int, page_of_xref: dict[int, int], names: dict | None = None
 ) -> Destination | None:
     """The destination of the outline item or link annotation at ``xref``, or ``None``.
 
@@ -394,7 +399,7 @@ def read_destination(
     return split_destination(text, page_of_xref) if text else None
 
 
-def write_destination(doc, xref: int, page_xref: int, tail: str) -> None:
+def write_destination(doc: fitz.Document, xref: int, page_xref: int, tail: str) -> None:
     """Point the outline item or link annotation at ``xref`` at ``page_xref``, keeping ``tail``.
 
     Written as ``/Dest``, and any ``/A`` on the object is cleared — a PDF reader prefers ``/A`` when
@@ -405,7 +410,7 @@ def write_destination(doc, xref: int, page_xref: int, tail: str) -> None:
     doc.xref_set_key(xref, "Dest", f"[{page_xref} 0 R {tail}]")
 
 
-def content_point(page, dest: Destination) -> tuple[float | None, float | None]:
+def content_point(page: fitz.Page, dest: Destination) -> tuple[float | None, float | None]:
     """``(left, top)`` of ``dest`` in ``page``'s **content coordinates**, either part ``None``.
 
     Content coordinates are the frame the rest of the app works in: unrotated, relative to the crop
@@ -440,7 +445,7 @@ def content_point(page, dest: Destination) -> tuple[float | None, float | None]:
 RAW_TAIL_KEY = "klarpdf_tail"
 
 
-def outline_item_xrefs(doc) -> list[int]:
+def outline_item_xrefs(doc: fitz.Document) -> list[int]:
     """The document's outline item objects, **depth-first** — the order ``get_toc`` reports them
     and ``set_toc`` writes them, which is what lets a row and an item be paired by position."""
     outlines = doc.xref_get_key(doc.pdf_catalog(), "Outlines")
@@ -463,7 +468,7 @@ def outline_item_xrefs(doc) -> list[int]:
     return found
 
 
-def read_outline_destinations(doc, toc_length: int) -> list[Destination | None]:
+def read_outline_destinations(doc: fitz.Document, toc_length: int) -> list[Destination | None]:
     """One :class:`Destination` (or ``None``) per row of ``doc.get_toc(simple=False)``.
 
     Paired with the outline by **position**, so it is returned only when the depth-first walk finds
@@ -492,7 +497,7 @@ def carried_tail(entry: list) -> str | None:
     return dest.get(RAW_TAIL_KEY) if isinstance(dest, dict) else None
 
 
-def pdf_top(page, top: float) -> float:
+def pdf_top(page: fitz.Page, top: float) -> float:
     """``top`` — how far **down** the visible page, in its own points — as a PDF ``y``.
 
     The exact inverse of :func:`content_point`'s vertical half, and the one conversion the *write*
@@ -507,7 +512,7 @@ def pdf_top(page, top: float) -> float:
     return page.mediabox.y1 - (top + page.cropbox.y0)
 
 
-def xyz_tail(page, top: float) -> str:
+def xyz_tail(page: fitz.Page, top: float) -> str:
     """A destination that opens ``page`` at ``top``, as PDF syntax.
 
     The left edge is written as ``null``, always — *keep whatever sideways position the reader
@@ -521,7 +526,7 @@ def xyz_tail(page, top: float) -> str:
     return f"/XYZ null {pdf_top(page, top):.6g} 0"
 
 
-def apply_outline_destinations(doc, toc: list) -> int:
+def apply_outline_destinations(doc: fitz.Document, toc: list) -> int:
     """Write each row's carried destination over the one ``set_toc`` just wrote. Returns how many.
 
     Called straight after ``Document.set_toc(toc)`` with the **same list**, so row *i* and outline

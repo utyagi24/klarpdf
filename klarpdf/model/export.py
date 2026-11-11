@@ -38,6 +38,7 @@ Headless and GUI-free; the ``File ▸ Export`` menu wiring lives in ``main_windo
 from __future__ import annotations
 
 import os
+from collections.abc import Iterable, Sequence
 
 import pymupdf as fitz
 
@@ -77,7 +78,7 @@ def export_flattened_pdf(vdoc: VirtualDocument, out_path: str) -> None:
         out.close()
 
 
-def export_selected_pages(vdoc: VirtualDocument, page_indices, out_path: str) -> None:
+def export_selected_pages(vdoc: VirtualDocument, page_indices: Iterable[int], out_path: str) -> None:
     """Write the pages at ``page_indices`` (indices into the live order, deduped, document order)
     to ``out_path`` as a new PDF — the object-level extract (M51).
 
@@ -149,7 +150,7 @@ def export_reduced_pdf(
 _CLIP_TOLERANCE = 0.01
 
 
-def resolve_clip(page: fitz.Page, clip) -> fitz.Rect | None:
+def resolve_clip(page: fitz.Page, clip: Sequence[float] | None) -> fitz.Rect | None:
     """Validate a ``[x0, y0, x1, y1]`` region against ``page``; ``None`` means the whole page (M99).
 
     Page points — the space ``search`` reports boxes in and ``redact_regions`` consumes them from,
@@ -216,11 +217,11 @@ def resolve_clip(page: fitz.Page, clip) -> fitz.Rect | None:
 
 def export_page_images(
     vdoc: VirtualDocument,
-    page_indices,
+    page_indices: Iterable[int],
     base_path: str,
     dpi: int = 150,
     jpg_quality: int = 90,
-    clip=None,
+    clip: Sequence[float] | None = None,
     number_all: bool = False,
 ) -> list[str]:
     """Export pages of the **edits-applied** output to image files — one file per page (M36).

@@ -11932,16 +11932,16 @@ fixed by hand, or by a small script for the names.
 `l = 1` and `%` formatting got exactly one finding for each. A 133-character line failed in a bridge
 module and passed in `docs.py`, so the exemption covers that one file only.
 
-### M172 — types for the wheel (M172.1 built 2026-11-11)
+### M172 — types for the wheel (built 2026-11-11)
 
 **Surfaces:** core and bridge. mypy checks `klarpdf/` only. The app's code is not checked, but it
 calls the core, so the changes to the core were run against both consumers: the full suite, which
 holds the app's tests and the bridge's. Nothing a user sees changes. Two cases that cannot be
 reached now raise an error that names the rule they break (below).
 
-M172 is built in two parts, each its own PR. **M172.1**, this entry, is the gate at mypy's default
-settings. **M172.2** annotates every signature in `klarpdf/` and switches on
-`disallow_untyped_defs`.
+M172 is built in two parts, each its own PR. **M172.1** is the gate at mypy's default settings.
+**M172.2** annotates every signature in `klarpdf/` and switches on `disallow_untyped_defs`. This
+entry covers M172.1 first, and M172.2 after it.
 
 **What M172.1 adds.**
 
@@ -12046,7 +12046,7 @@ Four of these fixes are worth knowing about:
 **What default settings do not check.** mypy skips the body of a function that has no annotations
 at all. So "no errors" in M172.1 covers the annotated functions only. Measured after the fixes:
 97 functions in `klarpdf/` lack an annotation (74 in the core, 22 in the bridge, one in `util`), and
-checking their bodies as they stand finds 3 more errors. That is M172.2's work.
+checking their bodies as they stand finds 3 more errors. That is M172.2's work, below.
 
 **Verified by breaking it** (M172.1).
 
@@ -12069,6 +12069,93 @@ checking their bodies as they stand finds 3 more errors. That is M172.2's work.
   `_planted: int = "a"` added to `klarpdf/version.py` failed the job on that line, about 20 seconds
   after it started. Its log shows mypy and its four dependencies installed at the dev lock's pins.
   `lint` passed in the same run, because the planted line breaks no Ruff rule.
+
+**M172.2: every signature annotated.** *Surfaces: core and bridge.* One thing changes for a
+caller, and no user could reach it: `restyle_mark` (below).
+
+**What it switches on** (`[tool.mypy]`).
+
+* `disallow_untyped_defs`, as planned. mypy refuses a function that does not say what it takes and
+  what it returns. With it, mypy checks the body of every function in `klarpdf/`.
+* `check_untyped_defs`, which the plan did not list. In `klarpdf/` it changes nothing, because
+  every function there is now annotated. It is on for what it does to PyMuPDF, most of which is not
+  annotated. With it, mypy reads the type of an attribute from the value PyMuPDF's own code gives
+  it. Measured: a rect's `x1` is a `float` and `Document.metadata` is a value or `None`, where both
+  were unknown before. It was switched on at two findings, both fixed here (below). **Not asked
+  for: the owner can take it out, and nothing else depends on it.**
+
+**The 97 signatures**, in 17 files: 74 in the core, 22 in the bridge and one in `util`. The plan
+estimated about 117, before M169 deleted code.
+
+* **PyMuPDF's own classes, and `VirtualDocument`,** for the 37 parameters named `doc`, `out_doc`,
+  `page`, `annot`, `widget` and `vdoc`.
+* **Names for the kinds of mark**, written once and used in the signatures:
+  * `TextMarkup`: `Highlight`, `Underline` or `Strikeout`. They share `rects`, `color` and `note`.
+  * `AdditiveMark`: a mark `parse_annotation` can read back from a file. The same classes as
+    `ADDITIVE_MARK_TYPES`.
+  * `ContentMark` (`klarpdf/model/content_marks.py`): `Stamp` or `ImageStamp`.
+  * `Mark`: every kind of mark a page can carry. It exists for the type checker only. Three of its
+    classes live in modules that import `page_edits.py`, so it cannot be built when the code runs.
+  * `PasswordProvider` (`klarpdf/model/virtual_document.py`): the function that is asked for a
+    password.
+* **`object`** where a function is written to take any entry of a page's annotations, and answers
+  for the ones it does not know: `rects_of`, `mark_bounds`, `is_additive_mark`, `is_content_mark`,
+  and `VirtualDocument.add_annotation` and its two siblings. A page's annotations also hold the
+  records of foreign annotations that were moved or deleted (M83.2), so a narrower type would be
+  wrong.
+* **A list that is read more than once is typed as one.** `resolve_clip`'s `clip` and the `boxes`
+  of the bridge's overlap check are read once per page or per annotation. They are typed
+  `Sequence` and `Collection`, which a generator is not.
+* **Nothing more is imported when the code runs.** Five modules name a type they never used at
+  run time (`destinations.py`, `metadata.py`, `links_remap.py`, `page_edits.py` and the bridge's
+  `transforms.py`). They import it under `if TYPE_CHECKING:`.
+
+**What checking the bodies found.** mypy had skipped these 97 bodies. Once they had types:
+
+* **`restyle_mark` raised where its docstring says it returns `None`.** It read the mark's own
+  `dashed` and `color` before asking what kind of mark it had. So a text box, or a highlight, with
+  `dashed` left out raised `AttributeError`. It now returns `None` for every mark it does not
+  restyle. The app's one call always passes `dashed`, and only for marks that have a style
+  (`viewer/annotations.py`), so no user met this. The bridge does not call it.
+  `tests/test_dashed_line.py` has the case, and it fails on the old code.
+* **`PageText()` with neither a page nor a list of words** raised `AttributeError` on `None`. It
+  now raises a `ValueError` that says what it needs. `_rendered_contrast`, on text built from words
+  alone, relied on its catch-all `except` to turn that same `AttributeError` into "not invisible".
+  It now says so before the `try`, and answers the same.
+* **`scale_mark` returns `None` for a mark it cannot scale**, and its return type now says so.
+* **Two findings from `check_untyped_defs`.** In `_read_grid`, the parameter `edges` (the ruled
+  lines) was reused for the column edges, which is M172.1's commonest kind of error. It was hidden
+  because a rect's `x1` was unknown to mypy. And `origin_carries_encryption` read
+  `Document.metadata` with `.get`; PyMuPDF leaves it `None` until a file is open, so the read now
+  allows for that.
+* **One suppression**, the only `# type: ignore` in `klarpdf/`. The bridge's `guarded` sets
+  `__signature__` on the wrapper it returns, which the SDK reads to build each tool's schema. A
+  function may carry that attribute, and its type does not declare it.
+
+**What is still not stated.** A bare `tuple`, `dict` or `list` is allowed, and `klarpdf/` has many:
+`annotations: tuple`, for one. mypy's `disallow_any_generics` would report 290 of them, and
+`--strict` 531 errors in all. Neither is planned.
+
+**Verified by breaking it** (M172.2).
+
+* mypy failed on a planted function with no annotations, on a `str` passed where a
+  `fitz.Document` is declared, and on a `str` passed to `translate_mark`.
+* `rect.x0 + "a"` on a `fitz.Rect` failed with `check_untyped_defs` on, and passed with it off. So
+  that setting is what catches it.
+* The two tests of changed behaviour fail on the code as it was.
+* The full suite passes locally, run in full because the change reaches `klarpdf/model/`.
+
+**What M172 cost and what it caught, for M173's decision.**
+
+* **Cost.** One dev dependency with four of its own. 82 uses of a PyMuPDF constant moved to one
+  module. 45 errors cleared at default settings, and 97 signatures annotated. One suppression. CI
+  gains a job of about 20 seconds.
+* **Caught.** No defect a user could see. One function that raised in a case its docstring
+  promised to handle (`restyle_mark`). Eight names used for two things. Three places that leaned
+  on an error from further in to report a missing origin or page.
+* **For the app** (M173): mypy reported 215 errors there at default settings on 2026-11-08, 75 of
+  them the same constants, and the app has 885 functions to the wheel's 499. `check_untyped_defs`
+  will add to that count, because the app's rect arithmetic is then checked.
 
 ## Future enhancements (deferred beyond the roadmap)
 

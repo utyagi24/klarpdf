@@ -34,6 +34,7 @@ import functools
 import inspect
 import os
 import sys
+from collections.abc import Callable
 from typing import Any
 
 from mcp.server import MCPServer
@@ -256,7 +257,7 @@ def create_server(config: Config | None = None) -> MCPServer:
 
     registered: set[str] = set()
 
-    def guarded(function):
+    def guarded(function: Callable[..., Any]) -> Callable[..., Any]:
         """Translate internal exceptions at the tool boundary, and normalise what the SDK reads.
 
         ``__signature__`` is copied explicitly, not just via ``functools.wraps``: the SDK builds
@@ -282,13 +283,14 @@ def create_server(config: Config | None = None) -> MCPServer:
         """
 
         @functools.wraps(function)
-        def wrapper(*args, **kwargs):
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
             try:
                 return function(*args, **kwargs)
             except Exception as exc:  # re-raised, possibly reworded
                 raise ToolError(str(_explain(exc))) from exc
 
-        wrapper.__signature__ = inspect.signature(function)
+        # `inspect` and the SDK read `__signature__` from a function that carries one.
+        wrapper.__signature__ = inspect.signature(function)  # type: ignore[attr-defined]  # its type omits it
         if function.__doc__:
             wrapper.__doc__ = inspect.cleandoc(function.__doc__)
         # Every tool is decorated with this, so it is the one place that sees the whole roster
