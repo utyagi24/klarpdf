@@ -226,11 +226,11 @@ def split(
                     )
             groups = [parse_page_range(spec, vdoc.page_count) for spec in ranges]
             labels = [spec.replace(" ", "").replace(",", "_") for spec in ranges]
-            for spec, group in zip(ranges, groups):
+            for spec, group in zip(ranges, groups, strict=True):
                 if not group:
                     raise ValueError(f"the range {spec!r} selects no pages")
         pad = max(2, len(str(len(groups))))
-        for n, (group, label) in enumerate(zip(groups, labels), start=1):
+        for n, (group, label) in enumerate(zip(groups, labels, strict=True), start=1):
             out = _resolve_out(
                 os.path.join(out_dir, f"{stem}-{n:0{pad}d}-p{label}.pdf"),
                 sources=[path],

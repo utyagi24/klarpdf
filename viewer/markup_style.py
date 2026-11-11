@@ -172,7 +172,7 @@ def swatch_icon(color: tuple[float, float, float] | None, size: int = 16) -> QIc
 def _close_colors(a: tuple, b: tuple) -> bool:
     """Tolerant colour equality — a save/reopen round-trips through PDF floats, so an exact ==
     against a palette tuple would miss (the same slack model-side merge uses)."""
-    return len(a) == len(b) and all(abs(x - y) <= 0.01 for x, y in zip(a, b))
+    return len(a) == len(b) and all(abs(x - y) <= 0.01 for x, y in zip(a, b, strict=True))
 
 
 def dot_icon(color: tuple[float, float, float] | None, ring: bool = False,

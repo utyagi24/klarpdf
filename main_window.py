@@ -600,9 +600,15 @@ class MainWindow(QMainWindow):
         # Page ops act on the thumbnail selection. No accelerators here: Ctrl+C is text Copy and
         # Delete is handled inside the panel; since M71 the menus + the sidebar context menu are
         # the paths (the page-op buttons left the toolbar, with no replacement strip — owner call).
-        act("Cut Pages", lambda: self._cut_pages(), icon="cut", to_menu=edit_menu)
-        act("Copy Pages", lambda: self._copy_pages(), icon="copy", to_menu=edit_menu)
-        act("Paste Pages", lambda: self._paste_pages(), icon="paste", to_menu=edit_menu)
+        # The lambdas are needed. `triggered` passes a `checked` flag, and these methods would take it
+        # as their first argument: Paste Pages would get `before_index=False`, which counts as 0, and
+        # paste before page 1 every time (M170).
+        act("Cut Pages", lambda: self._cut_pages(),  # noqa: PLW0108 — keeps triggered's flag out
+            icon="cut", to_menu=edit_menu)
+        act("Copy Pages", lambda: self._copy_pages(),  # noqa: PLW0108 — keeps triggered's flag out
+            icon="copy", to_menu=edit_menu)
+        act("Paste Pages", lambda: self._paste_pages(),  # noqa: PLW0108 — keeps triggered's flag out
+            icon="paste", to_menu=edit_menu)
         act("Delete Pages", lambda: self._delete_rows(self.thumbs.selected_rows()), icon="delete", to_menu=edit_menu)
         # Rotate sits with the other page operations (owner call, R1 review): it is a real,
         # undoable, *saved* edit on the selected/current page — its old View placement read as a
@@ -616,7 +622,8 @@ class MainWindow(QMainWindow):
         # undo stack, grouped with the other page operations. Menu-only (one-shot commands stay
         # off the toolbar — PLAN.md §GUI feature roadmap, UI budget).
         act("Insert Blank Page", self._insert_blank_page, to_menu=edit_menu)
-        act("Duplicate Pages", lambda: self._duplicate_pages(), to_menu=edit_menu)
+        act("Duplicate Pages", lambda: self._duplicate_pages(),  # noqa: PLW0108 — as Cut Pages
+            to_menu=edit_menu)
         edit_menu.addSeparator()
         # Focus-routed clipboard (M59): one Ctrl+C/X/V dispatcher decides text vs pages vs object
         # by focus + state (see _edit_copy/_edit_cut/_edit_paste). The menu's Copy is the router
@@ -2610,7 +2617,7 @@ class MainWindow(QMainWindow):
                     source_id = self.vdoc.open_image_source(path)  # raster image → 1-page PDF source
                 else:
                     source_id = self.vdoc.open_source(path)  # raises on a non-PDF / unreadable file
-            except Exception as exc:  # skip the bad file, keep going with the rest
+            except Exception as exc:  # noqa: BLE001 — report the bad file and go on with the rest
                 QMessageBox.warning(self, "Insert file", f"Could not open {os.path.basename(path)}:\n{exc}")
                 continue
             doc = self.vdoc.sources[source_id]
@@ -2850,7 +2857,7 @@ class MainWindow(QMainWindow):
         try:
             PyMuPDFEngine().materialize(self.vdoc, tmp)
             atomic_replace(tmp, target_path)
-        except Exception as exc:  # surface, don't crash; leave the original file intact
+        except Exception as exc:  # noqa: BLE001 — report any failure; the original file is left intact
             if os.path.exists(tmp):
                 os.remove(tmp)
             QMessageBox.critical(self, "Save failed", str(exc))
@@ -2895,7 +2902,7 @@ class MainWindow(QMainWindow):
         try:
             result = write(self.vdoc, tmp)
             atomic_replace(tmp, path)
-        except Exception as exc:  # surface, don't crash; leave any existing target intact
+        except Exception as exc:  # noqa: BLE001 — report any failure; an existing target is left intact
             if os.path.exists(tmp):
                 os.remove(tmp)
             QMessageBox.critical(self, "Export failed", str(exc))
@@ -3003,7 +3010,7 @@ class MainWindow(QMainWindow):
             from klarpdf.model.export import export_page_images
 
             written = export_page_images(self.vdoc, indices, path, dpi=dpi)
-        except Exception as exc:  # surface, don't crash
+        except Exception as exc:  # noqa: BLE001 — report any failure rather than lose the window
             QMessageBox.critical(self, "Export failed", str(exc))
             return
         if len(written) > 1:

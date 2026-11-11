@@ -22,6 +22,7 @@ import math
 import time
 from bisect import bisect_left, bisect_right
 from contextlib import contextmanager
+from itertools import pairwise
 
 import pymupdf as fitz
 from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, Qt, QTimer, Signal
@@ -1325,7 +1326,7 @@ class PdfView(QGraphicsView):
         edges.append(int(self._page_tops[after]) - _PAGE_GAP if after < len(self._page_tops)
                      else max(vbar.maximum(), edges[-1]))
         stops: list[int] = []
-        for lo, hi in zip(edges, edges[1:]):
+        for lo, hi in pairwise(edges):
             span = hi - lo
             if span <= 0:
                 stops.append(lo)                # a facing row's second page: same top, no segment
@@ -2029,7 +2030,7 @@ class PdfView(QGraphicsView):
             img = QImage(pm.samples, pm.width, pm.height, pm.stride, QImage.Format.Format_RGB888)
             pixmap = self._to_pixmap(img.copy(), total)  # the copy detaches from pm.samples
             self._draw_rate[index] = (time.perf_counter() - started) / max(1, pm.width * pm.height)
-        except Exception:
+        except Exception:  # noqa: BLE001 — a page that cannot be drawn stays blank
             return None
         self._cache.put(key, pixmap)
         return pixmap
@@ -2333,7 +2334,7 @@ class PdfView(QGraphicsView):
         if dlist is None:
             try:
                 dlist = self._dlists[index] = page.get_displaylist()
-            except Exception:
+            except Exception:  # noqa: BLE001 — as _render_pixmap: a page that cannot be read stays blank
                 return None
         return dlist
 
@@ -2348,7 +2349,7 @@ class PdfView(QGraphicsView):
             self._drop_pieces(index)
         try:
             target = self._render_target(index)
-        except Exception:                   # as _render_pixmap: a page that cannot be drawn stays blank
+        except Exception:  # noqa: BLE001 — as _render_pixmap: a page that cannot be drawn stays blank
             return None
         if target is None:
             return None
@@ -2447,7 +2448,7 @@ class PdfView(QGraphicsView):
             pm = self._dlists[index].get_pixmap(matrix=fitz.Matrix(ds, ds), clip=clip, alpha=False)
             img = QImage(pm.samples, pm.width, pm.height, pm.stride, QImage.Format.Format_RGB888)
             pixmap = self._to_pixmap(img.copy(ax0 - pm.x, ay0 - pm.y, ax1 - ax0, ay1 - ay0), wip.total)
-        except Exception:
+        except Exception:  # noqa: BLE001 — as _render_pixmap: a page that cannot be drawn stays blank
             self._drop_pieces(index)
             return
         seconds = time.perf_counter() - started
@@ -2564,7 +2565,7 @@ class PdfView(QGraphicsView):
                 pm = source.get_pixmap(matrix=fitz.Matrix(low, low), clip=clip, alpha=False)
                 img = QImage(pm.samples, pm.width, pm.height, pm.stride, QImage.Format.Format_RGB888)
                 pixmap = self._to_pixmap(img.copy(), total)
-            except Exception:
+            except Exception:  # noqa: BLE001 — as _render_pixmap: a page that cannot be drawn stays blank
                 return None
             self._cache.put(key, pixmap)
         self._hang(index, pixmap, self.scale * pixmap.devicePixelRatio() / low)

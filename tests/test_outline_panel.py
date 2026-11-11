@@ -260,7 +260,7 @@ def positioned_outline_pdf(tmp_path) -> str:
     tails = ["/Fit", "/XYZ 40 600 0", "/FitH 200"]      # page 1, page 2 mid, page 3 low
     items = [doc.get_new_xref() for _ in tails]
     root = doc.get_new_xref()
-    for n, (item, tail) in enumerate(zip(items, tails)):
+    for n, (item, tail) in enumerate(zip(items, tails, strict=True)):
         nxt = f"/Next {items[n + 1]} 0 R " if n + 1 < len(items) else ""
         doc.update_object(
             item,

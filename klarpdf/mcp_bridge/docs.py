@@ -332,13 +332,16 @@ empty — which is indistinguishable from a wrong box, and the one case this can
 
 ## Colour
 
-* **`color`** is the raw RGB as stored, `null` for an annotation that carries none.
+* **`color`** is the colour as stored, `null` for an annotation that carries none: three values
+  for RGB, one for grey, or four for CMYK (printing ink), which another program may write.
 * **`color_name`** is the nearest palette name and is **advisory** — near enough to be useful for
   filtering, never a claim about what was intended. It is `null` when nothing is close, rather than
   a misleading guess. Nearness is judged perceptually (luma-weighted), not by raw RGB distance, so
   another tool's default yellow is named `Yellow` rather than being pulled toward `Orange` by a
-  difference the eye reads as paleness rather than hue.
-* **`color_exact`** is `true` only when the colour *is* one of the app's **current** swatches. It is
+  difference the eye reads as paleness rather than hue. A grey or CMYK colour is named as the RGB
+  KlarPDF draws it in.
+* **`color_exact`** is `true` only when the colour *is* one of the app's **current** swatches, so
+  it is always `false` for grey or CMYK, which the app never writes. It is
   a fact about the stored value, not about who wrote the mark: a mark picked from KlarPDF's palette
   today is exact, one from Acrobat generally is not — but so is a KlarPDF mark written under an
   **older swatch set**, which reads `mine: true, color_exact: false`. Read it as "this is a palette

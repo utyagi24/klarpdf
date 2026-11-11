@@ -192,8 +192,8 @@ def _requirements(text: str, base: Path | None = None) -> dict[str, tuple[str, s
     it needs every line.
     """
     out = {}
-    for line in text.splitlines():
-        line = line.split("#")[0].strip().strip('",')
+    for raw in text.splitlines():
+        line = raw.split("#")[0].strip().strip('",')
         if not line:
             continue
         include = re.match(r"^-r\s+(\S+)$", line)

@@ -396,7 +396,7 @@ class ThumbnailPanel(QListWidget):
             return None
         try:
             return PyMuPDFEngine().render_output(self._vdoc)
-        except Exception:
+        except Exception:  # noqa: BLE001 — edits that cannot be applied fall back to the source pages
             return None
 
     def _thumbnail(self, index: int, baked=None) -> QIcon:
@@ -411,8 +411,8 @@ class ThumbnailPanel(QListWidget):
                 pm = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
                 img = QImage(pm.samples, pm.width, pm.height, pm.stride, QImage.Format.Format_RGB888)
                 return QIcon(QPixmap.fromImage(img.copy()))
-            except Exception:
-                pass  # fall through to a plain source render
+            except Exception:  # noqa: BLE001, S110 — fall through to a plain source render
+                pass
         page = self._vdoc.sources[ref.source_id][ref.source_page_index]
         # Size by the FINAL displayed width (after any rotation override), not the page's native
         # rotated width: the override is applied as a pixmap rotation below, so a page whose override
@@ -436,7 +436,7 @@ class ThumbnailPanel(QListWidget):
                 if extra:
                     pixmap = pixmap.transformed(QTransform().rotate(extra))
             return QIcon(pixmap)
-        except Exception:
+        except Exception:  # noqa: BLE001 — a page that cannot be drawn gets a blank thumbnail
             return QIcon()
 
     def _thumb_dims(self, index: int) -> tuple[int, int]:

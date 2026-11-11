@@ -101,7 +101,7 @@ class ReduceSizeDialog(QDialog):
         """The selected ``(target dpi, JPEG quality)`` — a preset's true values, or the knobs."""
         if self._custom.isChecked():
             return self._dpi.value(), self._quality.value()
-        for button, (_name, dpi, quality) in zip(self._preset_buttons, PRESETS):
+        for button, (_name, dpi, quality) in zip(self._preset_buttons, PRESETS, strict=True):
             if button.isChecked():
                 return dpi, quality
         return PRESETS[0][1], PRESETS[0][2]

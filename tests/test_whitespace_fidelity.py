@@ -15,6 +15,8 @@ indent.
 
 from __future__ import annotations
 
+from itertools import pairwise
+
 import pytest
 from PySide6.QtGui import QFontMetricsF
 from PySide6.QtWidgets import QGraphicsSimpleTextItem
@@ -101,7 +103,7 @@ def test_the_lines_stack_by_the_saved_file_line_pitch(win):
     """Lines are 1.2 font sizes apart, as the saved drawing spaces them (#427), not by the font's
     own ``lineSpacing()``, which Qt puts 1 pt closer at 12 pt."""
     lines = _paint(win, "one\ntwo\nthree")
-    gaps = [b.pos().y() - a.pos().y() for a, b in zip(lines, lines[1:])]
+    gaps = [b.pos().y() - a.pos().y() for a, b in pairwise(lines)]
     assert all(gap == pytest.approx(1.2 * 11.0, abs=0.01) for gap in gaps)
 
 

@@ -521,7 +521,7 @@ class VirtualDocument:
         arrived_with = self._source_marks.get(self.origin_source_id)
         if arrived_with is None or len(arrived_with) != len(self.ordered):
             return False
-        for ref, arrived in zip(self.ordered, arrived_with):
+        for ref, arrived in zip(self.ordered, arrived_with, strict=True):
             if ref.rotation_override is not None or ref.crop_override is not None:
                 return False
             if not all(is_additive_mark(mark) for mark in ref.annotations):
@@ -1069,7 +1069,7 @@ class VirtualDocument:
                 {"kind": 1, "page": page - 1, "zoom": 0.0,
                  RAW_TAIL_KEY: xyz_tail(target, float(top))},
             ])
-        for entry, repaired in zip(cleaned, repair_levels([e[0] for e in cleaned])):
+        for entry, repaired in zip(cleaned, repair_levels([e[0] for e in cleaned]), strict=True):
             entry[0] = repaired
         self._outline_override = cleaned
         self.dirty = True

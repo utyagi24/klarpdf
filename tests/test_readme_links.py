@@ -30,8 +30,8 @@ def _local_targets(text: str) -> set[str]:
     """Paths the README points at inside this repo — not the web, not in-page anchors."""
     found: set[str] = set()
     for pattern in (MARKDOWN_LINK, HTML_HREF, HTML_SRC):
-        for target in pattern.findall(text):
-            target = target.split("#", 1)[0].strip()
+        for link in pattern.findall(text):
+            target = link.split("#", 1)[0].strip()
             if not target or target.startswith(("http://", "https://", "mailto:", "#")):
                 continue
             found.add(target.lstrip("./"))

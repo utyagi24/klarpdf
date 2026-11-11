@@ -99,7 +99,10 @@ def _quiesce(qapp):
         qapp.processEvents()
 
 
-def _wheel(view, units, pos=QPoint(200, 200)):
+_CENTRE = QPoint(200, 200)
+
+
+def _wheel(view, units, pos=_CENTRE):
     pt = QPointF(pos)
     delta = QPoint(0, units)
     view.wheelEvent(QWheelEvent(pt, view.viewport().mapToGlobal(pt), delta, delta,

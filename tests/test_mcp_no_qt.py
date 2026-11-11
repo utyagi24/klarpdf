@@ -180,6 +180,7 @@ def child_result(a_pdf):
         text=True,
         timeout=180,
         cwd=".",
+        check=False,
     )
     assert proc.returncode == 0, f"child failed:\n{proc.stdout}\n{proc.stderr}"
     import json
@@ -268,6 +269,7 @@ def test_the_socket_guard_would_notice_a_connection(a_pdf):
         text=True,
         timeout=180,
         cwd=".",
+        check=False,
     )
     assert proc.returncode != 0
     assert "the MCP server path called socket.connect" in proc.stderr
@@ -312,6 +314,7 @@ def test_the_guard_would_notice_qt(a_pdf):
         text=True,
         timeout=180,
         cwd=".",
+        check=False,
     )
     assert proc.returncode == 0, proc.stderr
     import json
@@ -329,6 +332,7 @@ def test_the_guard_would_notice_app_code_that_needs_no_qt(a_pdf):
         text=True,
         timeout=180,
         cwd=".",
+        check=False,
     )
     assert proc.returncode == 0, proc.stderr
     import json

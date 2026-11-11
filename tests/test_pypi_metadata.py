@@ -116,7 +116,7 @@ def test_the_pinned_set_is_the_audited_lock(metadata):
 def test_the_generator_reports_staleness_rather_than_fixing_it_silently(tmp_path):
     """`--check` is what CI runs before a publish, so it has to fail on a stale block and say why."""
     result = subprocess.run(
-        [sys.executable, str(SYNC_PINS), "--check"], capture_output=True, text=True, cwd=ROOT
+        [sys.executable, str(SYNC_PINS), "--check"], capture_output=True, text=True, cwd=ROOT, check=False
     )
     assert result.returncode == 0, f"the committed pyproject.toml is already stale:\n{result.stderr}"
 

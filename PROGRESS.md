@@ -1376,9 +1376,16 @@ parts, and the box here is ticked on merge. Build in number order, except that M
   marks on them, reopening on the last page, the Redact tool, and the features that lost a
   rotated-view guard. Details in `PLAN.md` §M169 — *Windows, and WSL for the dev lock* —
   [#442](https://github.com/utyagi24/klarpdf/pull/442)
-- [ ] **M170** **Defects that hide**: bugbear's rules, blind `except` clauses, and a `zip` that
+- [x] **M170** **Defects that hide**: bugbear's rules, blind `except` clauses, and a `zip` that
   truncates silently. *Core, bridge and app; it changes behaviour wherever a stricter form is
-  chosen.*
+  chosen.* Ruff now refuses a `zip` with no `strict=`, an `except` that catches every error with no
+  reason, and Pylint's warnings, plus `RUF007` for a list paired with itself one along. Owner
+  decisions: lists that should match stop with an error when they do not (38 calls), and
+  catch-alls stay with a reason (23 kept, 2 narrowed where the errors are known). The rules found
+  one defect a user could see: the bridge's `get_annotations` named a mid-grey highlight "Blue" and
+  a cyan-ink underline "Red". Grey and CMYK colours are now converted as MuPDF draws them, then
+  named. Ruff's own fix for four menu lambdas would have made Paste Pages paste before page 1, so
+  they stay, with the reason. Details in `PLAN.md` §M170 — PR_LINK
 - [ ] **M171** **Consistency**: import order, syntax upgrades and a 120-column ceiling, with no
   formatter. *All surfaces; no behaviour change.*
 - [ ] **M172** **Types for the wheel** (`klarpdf/`): mypy and the `typecheck` CI job. *Core and

@@ -468,7 +468,7 @@ def _draw_image(page: fitz.Page, box: fitz.Rect, mark: ImageStamp) -> None:
     """
     try:
         pix = fitz.Pixmap(mark.image_path)
-    except Exception:
+    except Exception:  # noqa: BLE001 — an image that will not load draws nothing, and the save goes on
         return
     try:
         if pix.colorspace is not None and pix.colorspace.n > 3:   # CMYK → RGB for insert_image

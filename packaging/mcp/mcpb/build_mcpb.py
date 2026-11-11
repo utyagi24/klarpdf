@@ -202,6 +202,7 @@ def mcpb(*args: str) -> subprocess.CompletedProcess:
         [resolve_npx(), "--yes", f"@anthropic-ai/mcpb@{MCPB_CLI_VERSION}", *args],
         capture_output=True,
         text=True,
+        check=False,  # main() reports the CLI's own output and passes its returncode on
     )
 
 

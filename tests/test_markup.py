@@ -82,7 +82,7 @@ def test_save_reopen_save_does_not_drift(a_pdf, tmp_path):
     PyMuPDFEngine().materialize(second_doc, second)
     reread = VirtualDocument.from_path(second)
     (mark,) = [a for a in reread.page_annotations(0) if isinstance(a, Underline)]
-    for got, expected in zip(mark.rects, _BARS):
+    for got, expected in zip(mark.rects, _BARS, strict=True):
         assert got == pytest.approx(expected, abs=1.0)    # stable within a point
 
 

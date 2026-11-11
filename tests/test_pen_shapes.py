@@ -10,6 +10,8 @@ save→reopen→save without drift.
 
 from __future__ import annotations
 
+import dataclasses
+
 import pymupdf as fitz
 import pytest
 
@@ -45,7 +47,7 @@ _KINDS = {
 
 
 def _approx_pts(a, b, abs_tol=0.6):
-    for (ax, ay), (bx, by) in zip(a, b):
+    for (ax, ay), (bx, by) in zip(a, b, strict=True):
         assert ax == pytest.approx(bx, abs=abs_tol) and ay == pytest.approx(by, abs=abs_tol)
 
 
@@ -174,5 +176,5 @@ def test_bounding_rects():
 def test_descriptors_are_hashable_and_frozen():
     """They ride frozen PageRefs and undo snapshots — same contract as the older descriptors."""
     assert {_INK, _LINE, _RECT, _ELLIPSE}                 # hashable set members
-    with pytest.raises(Exception):
+    with pytest.raises(dataclasses.FrozenInstanceError):
         _LINE.width = 9  # type: ignore[misc]  # frozen: assigning must raise, which is the check

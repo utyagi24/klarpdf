@@ -21,6 +21,10 @@ remembered.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
+import pymupdf as fitz
+
 # Curated and small on purpose: these are the colours people actually reach for when marking up
 # text, and a short list is faster than a colour wheel. Two sets, because the two jobs differ —
 # a highlighter lays a translucent wash *behind* the words, while an underline / strikeout draws
@@ -87,7 +91,7 @@ def _distance(a: tuple, b: tuple) -> float:
     to recognise a swatch that round-tripped through a PDF — uniform float noise on every channel,
     where any metric agrees the answer is "basically zero" — not to model human vision. See
     :func:`_perceptual_distance` for the naming question, which is a different one."""
-    return sum((x - y) ** 2 for x, y in zip(a, b)) ** 0.5
+    return sum((x - y) ** 2 for x, y in zip(a, b, strict=True)) ** 0.5
 
 
 def _perceptual_distance(a: tuple, b: tuple) -> float:
@@ -104,7 +108,32 @@ def _perceptual_distance(a: tuple, b: tuple) -> float:
     Orange — reversed, and now the answer a person gives. :data:`NAME_TOLERANCE` is calibrated
     against this function, not :func:`_distance`.
     """
-    return sum(w * (x - y) ** 2 for w, x, y in zip(_LUMA_WEIGHTS, a, b)) ** 0.5
+    return sum(w * (x - y) ** 2 for w, x, y in zip(_LUMA_WEIGHTS, a, b, strict=True)) ** 0.5
+
+
+def _as_rgb(color: Sequence[float]) -> tuple[float, ...] | None:
+    """``color`` as the RGB KlarPDF draws it in, or ``None`` for a colour of no kind PDF has (M170).
+
+    A PDF colour has one value (grey), three (RGB) or four (CMYK, printing ink), and a mark made in
+    another program may carry any of them. Before M170 a grey reached the distances above as it
+    was: their ``zip`` stopped after its one value, so only the red channel was compared, and a
+    mid-grey highlight was named "Blue".
+
+    Grey and CMYK go through MuPDF's own colour conversion, the one that draws the page, so a name
+    describes what the reader sees. PDF's simple formula for ink (red = 1 − min(1, C + K)) would not:
+    MuPDF manages colour by default, and draws CMYK (0, 1, 1, 0) as (0.93, 0.11, 0.14), not the
+    (1, 0, 0) the formula gives. A one-pixel conversion agrees with a drawn page to within 1/255
+    (measured on PyMuPDF 1.27.2.3, and pinned by ``tests/test_markup_palette.py``).
+    """
+    values = tuple(float(c) for c in color)
+    if len(values) == 3:
+        return values
+    space = {1: fitz.csGRAY, 4: fitz.csCMYK}.get(len(values))
+    if space is None:
+        return None
+    pixel = fitz.Pixmap(space, fitz.IRect(0, 0, 1, 1), False)
+    pixel.set_pixel(0, 0, [round(min(max(c, 0.0), 1.0) * 255) for c in values])
+    return tuple(v / 255 for v in fitz.Pixmap(fitz.csRGB, pixel).pixel(0, 0))
 
 
 def color_for_name(name: str, mark_type: str) -> tuple[float, float, float] | None:
@@ -125,8 +154,11 @@ def names_for(mark_type: str) -> tuple[str, ...]:
     return tuple(name for name, _ in PALETTES.get(mark_type, ()))
 
 
-def nearest_name(rgb: tuple, mark_type: str | None = None) -> str | None:
-    """The palette name nearest ``rgb``, or ``None`` when no swatch is clearly the one it means.
+def nearest_name(color: Sequence[float], mark_type: str | None = None) -> str | None:
+    """The palette name nearest ``color``, or ``None`` when no swatch is clearly the one it means.
+
+    ``color`` may be grey, RGB or CMYK, as a PDF stores it: it is named as the RGB it is drawn in
+    (:func:`_as_rgb`).
 
     ``mark_type`` narrows the search to that type's palette; without it both are searched, which is
     what the read side wants — a foreign highlight may be any colour at all, including one only the
@@ -139,12 +171,15 @@ def nearest_name(rgb: tuple, mark_type: str | None = None) -> str | None:
     unnamed while one that is plainly a brighter version of a single swatch, like pure yellow
     against our muted marker Yellow, is named. Beyond that, nothing is named at all.
     """
+    rgb = _as_rgb(color)
+    if rgb is None:
+        return None
     if mark_type in PALETTES:
         candidates = PALETTES[mark_type]
     else:
         candidates = HIGHLIGHT_COLORS + TEXT_LINE_COLORS
     ranked = sorted(
-        (_perceptual_distance(tuple(rgb), value), name) for name, value in candidates
+        (_perceptual_distance(rgb, value), name) for name, value in candidates
     )
     if not ranked:
         return None
@@ -159,15 +194,18 @@ def nearest_name(rgb: tuple, mark_type: str | None = None) -> str | None:
     return best_name if runner_up / best >= NAME_MARGIN else None
 
 
-def is_palette_color(rgb: tuple, mark_type: str | None = None) -> bool:
-    """Whether ``rgb`` *is* one of the swatches, rather than merely nearest to one.
+def is_palette_color(color: Sequence[float], mark_type: str | None = None) -> bool:
+    """Whether ``color`` *is* one of the swatches, rather than merely nearest to one.
 
     The distinction matters on read: a mark this app made carries an exact palette value, so a
     caller filtering on colour can tell "the reviewer picked Orange from the menu" from "something
-    orange-ish arrived from Acrobat".
+    orange-ish arrived from Acrobat". The app writes only RGB, so a grey or CMYK colour is never
+    one (M170), however near its drawn colour comes.
     """
+    if len(color) != 3:
+        return False
     if mark_type in PALETTES:
         candidates = PALETTES[mark_type]
     else:
         candidates = HIGHLIGHT_COLORS + TEXT_LINE_COLORS
-    return any(_distance(tuple(rgb), value) <= EXACT_TOLERANCE for _name, value in candidates)
+    return any(_distance(tuple(color), value) <= EXACT_TOLERANCE for _name, value in candidates)

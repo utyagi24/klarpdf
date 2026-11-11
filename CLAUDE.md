@@ -435,6 +435,12 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   stretched to 627 px in an 1100 px window and pushed the whole zoom cluster *off the right-hand end*.
   Always `setSizePolicy(Fixed, …)` (or a fixed width, which is why `ZoomWidget` never showed it). The
   failure mode is chrome that is simply **not there**, so grab the bar and look.
+- **A menu item passes a flag to the method it calls.** `QAction.triggered` sends `checked`, a
+  `bool`, and PySide6 hands it to any method that can take an argument. So connecting
+  `self._paste_pages` directly calls `_paste_pages(False)`, and `False` counts as 0: Paste Pages
+  would paste before page 1 every time. Keep the `lambda:` that drops the flag. Ruff's `PLW0108`
+  calls such a lambda needless and suggests exactly this change, so each one carries a `noqa` that
+  says why (M170).
 - **On WSLg, a Qt window that is hidden rather than closed stays on the desktop.** On Wayland, Qt
   6.11 hides a window by removing its role and keeps its surface. WSLg keeps drawing that surface
   until it is destroyed. Qt hides some popups instead of closing them: a combo box's list after a

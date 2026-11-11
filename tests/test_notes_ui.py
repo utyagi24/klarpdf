@@ -683,7 +683,7 @@ def test_each_badge_wears_its_own_hosts_colour(win):
     """Which is what tells the two apart once they sit side by side (owner rule 3)."""
     _layered(win)
     fills = {}
-    for _p, mark, box in _glyphs(win):
+    for _p, mark, _box in _glyphs(win):
         item = next(i for i in win.view.annotations._items if i.toolTip() == mark.note)
         fills[type(mark).__name__] = item.brush().color()
     assert fills["Underline"] == wash(win._underline_color, 0.62)
@@ -696,7 +696,7 @@ def test_each_badge_opens_its_own_note(win):
     hit-test walks last-painted-first and both boxes contained the same points."""
     _layered(win)
     opened = []
-    for _p, mark, box in _glyphs(win):
+    for _p, _mark, box in _glyphs(win):
         point = QPointF(win.view.mapFromScene(box.center()))
         win.view.mousePressEvent(QMouseEvent(QEvent.Type.MouseButtonPress, point, point,
             Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier))

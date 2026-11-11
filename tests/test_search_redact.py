@@ -281,7 +281,7 @@ def test_no_leak_cross_engine(win, monkeypatch, tmp_path):
     could miss text its own writer hides from itself (the M21 discipline)."""
     _mark(win, monkeypatch, TARGET, whole_word=True)
     out = _materialize(win, tmp_path)
-    extracted = subprocess.run(["pdftotext", out, "-"], capture_output=True, text=True).stdout
+    extracted = subprocess.run(["pdftotext", out, "-"], capture_output=True, text=True, check=True).stdout
     assert "SMITH" not in extracted
     assert extracted.count(TARGET) == 1     # only the one inside "Smithsonian"
     assert KEEP in extracted

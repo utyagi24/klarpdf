@@ -184,7 +184,7 @@ def test_button_seeds_the_overlay_and_tracks_changes(win):
     assert win.view.annotations.current_markup_style.fill_color == pytest.approx((1.0, 0.94, 0.60))
 
 
-def test_the_three_buttons_split_the_style_controls():
+def test_the_three_buttons_split_the_style_controls(qapp):
     """M78.6: the single style swatch became three buttons — Line Styling (thickness · dash ·
     arrowheads), Colors (a Border row + a Fill row + custom), Opacity (a slider)."""
     line_button = LineStylingButton()
@@ -204,16 +204,16 @@ def test_the_three_buttons_split_the_style_controls():
     assert opacity_button.menu().findChild(QSlider) is not None    # a slider, not the old presets
 
 
-def test_set_style_does_not_emit():
+def test_set_style_does_not_emit(qapp):
     """Loading a style into a button (wiring it up) must not look like a user edit."""
     for button in (LineStylingButton(), ColorsButton(), OpacityButton()):
         seen = []
-        button.styleChanged.connect(lambda *args: seen.append(args))
+        button.styleChanged.connect(lambda *args, seen=seen: seen.append(args))
         button.set_style(MarkupStyle(color=(0.0, 0.0, 1.0), opacity=0.5, width=4.0))
         assert seen == []
 
 
-def test_each_edit_reports_only_the_setting_it_set():
+def test_each_edit_reports_only_the_setting_it_set(qapp):
     """M154 (#392): the signal carries the new style *and* what this edit set, because a selection
     is restyled with the second. A setting the user did not touch must never be in it — that is
     what spread one shape's border and fill across a whole group.
@@ -233,7 +233,7 @@ def test_each_edit_reports_only_the_setting_it_set():
     for cls, slot, value, expected in edits:
         button = cls()
         seen = []
-        button.styleChanged.connect(lambda style, changes: seen.append((style, changes)))
+        button.styleChanged.connect(lambda style, changes, *, seen=seen: seen.append((style, changes)))
         getattr(button, slot)(value)
         [(style, changes)] = seen
         assert changes == expected
