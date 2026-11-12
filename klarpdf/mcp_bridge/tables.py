@@ -43,18 +43,59 @@ import unicodedata
 from collections import Counter
 from dataclasses import dataclass, field
 from itertools import pairwise
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NotRequired, TypedDict
 
 import pymupdf as fitz
 from pymupdf import table as _pymupdf_table
 
 from klarpdf.mcp_bridge.queries import _page_of, open_document, resolve_pages
+from klarpdf.mcp_bridge.replies import UnreadRegion
 
 if TYPE_CHECKING:  # headings imports this module, so at run time it is imported where it is used
     from collections.abc import Callable
 
     from klarpdf.mcp_bridge.headings import Style
     from klarpdf.mcp_bridge.headings import _Line as _StyledLine
+    from klarpdf.mcp_bridge.replies import TableEntry, TablesReply
+    from klarpdf.model.tuples import Word
+
+
+class _Table(TypedDict):
+    """One table as a reader returns it. A key that starts with ``_`` never reaches an agent."""
+
+    bbox: fitz.Rect
+    rows: list[list[str]]
+    header: list[str] | None
+    columns: list[float]
+    spans: list[list[float]]
+    reader: str
+    _banner: NotRequired[fitz.Rect | None]
+    title: NotRequired[str | None]
+    _title_in_banner: NotRequired[bool]
+
+
+class _Unread(UnreadRegion):
+    """An unread region, with the reason's code and detail kept for the corpus tools and tests."""
+
+    _code: str
+    _detail: str
+
+
+class _TableFound(TypedDict):
+    """A table placed on its page and titled, before :func:`_public_table` makes it a reply."""
+
+    page: int
+    bbox: list[float]
+    rows: list[list[str]]
+    header: list[str] | None
+    title: str | None
+    title_from_previous_page: bool
+    row_count: int
+    col_count: int
+    _box: fitz.Rect
+    _columns: list[float]
+    continues_from: NotRequired[int | None]
+    continuation_checked: NotRequired[bool]
 
 # PyMuPDF prints a one-time suggestion to install `pymupdf_layout` the first time `find_tables` runs,
 # with a bare `print` — to stdout, which is this server's protocol stream. The SDK's stdio transport
@@ -321,7 +362,7 @@ def _page_inventory(page: fitz.Page) -> _Inventory:
             rect.normalize()
         return rect
 
-    grouped: dict[tuple[int, int], list[tuple]] = {}
+    grouped: dict[tuple[int, int], list[tuple[Word, Word]]] = {}
     for word, outer in zip(words, ordinary, strict=True):
         grouped.setdefault((word[5], word[6]), []).append((word, outer))
 
@@ -578,7 +619,7 @@ def _quote(text: str) -> str:
 # ---------------------------------------------------------------------------------------------
 
 
-def _read_grid(found: _Found, inventory: _Inventory, edges: list[tuple[float, float, float]]) -> dict:
+def _read_grid(found: _Found, inventory: _Inventory, edges: list[tuple[float, float, float]]) -> _Table:
     """Cells are the drawn cells; each word goes to the one cell its letters sit in.
 
     Words rather than lines, because a grid's cells are drawn and a text line may legitimately be
@@ -675,7 +716,9 @@ def _read_grid(found: _Found, inventory: _Inventory, edges: list[tuple[float, fl
     }
 
 
-def _overlapping(cells: list[tuple[float, float, float, float]]) -> tuple | None:
+def _overlapping(
+    cells: list[tuple[float, float, float, float]],
+) -> tuple[tuple[float, float, float, float], tuple[float, float, float, float]] | None:
     """The first two cells sharing any area, or ``None`` when they tile the region as a grid's do.
 
     Sorted by left edge, so each cell is compared only with those starting before its right edge:
@@ -910,7 +953,7 @@ def _read_ruled(
     edges: list[tuple[float, float, float]],
     claimed: list[fitz.Rect],
     others: list[fitz.Rect],
-) -> dict:
+) -> _Table:
     """Read one row-ruled region: rows from the drawn lines, columns from whitespace.
 
     ``claimed`` are boxes already read or declined on this page; ``others`` are the finder's other
@@ -1221,7 +1264,7 @@ def _recover(
     edges: list[tuple[float, float, float]],
     claimed: list[fitz.Rect],
     others: list[fitz.Rect],
-) -> tuple[list[dict], list[tuple[fitz.Rect, _Decline]]]:
+) -> tuple[list[_Table], list[tuple[fitz.Rect, _Decline]]]:
     """Read a region that failed as a whole in the parts its own prose divides it into.
 
     One located region often holds several tables: Apple's 10-Q p14 carries three notes, a
@@ -1267,7 +1310,7 @@ def _recover(
     if len(runs) < 2:
         return [], []
 
-    recovered: list[dict] = []
+    recovered: list[_Table] = []
     refused: list[tuple[fitz.Rect, _Decline]] = []
     for bounds in runs:
         part = _Found(fitz.Rect(found.bbox.x0, bounds[0], found.bbox.x1, bounds[-1]), [], bounds)
@@ -1327,7 +1370,7 @@ def _recover(
 # ---------------------------------------------------------------------------------------------
 
 
-def _check_accounted(table: dict, inventory: _Inventory) -> None:
+def _check_accounted(table: _Table, inventory: _Inventory) -> None:
     """Every word whose letters are centred inside the reported box is in the cells, exactly once —
     and the cells hold nothing else.
 
@@ -1362,8 +1405,8 @@ def _check_accounted(table: dict, inventory: _Inventory) -> None:
 
 @dataclass
 class PageRead:
-    tables: list[dict]
-    unread: list[dict]
+    tables: list[_Table]
+    unread: list[_Unread]
     stranded: str | None
     """A caption below the page's last table and nothing else, which titles the next page's first."""
 
@@ -1373,7 +1416,7 @@ class _Outcome:
     """What reading one row-ruled region gives. Nothing is recorded until the caller takes it, so a
     reading can be tried and set aside (see :func:`_trimmed`)."""
 
-    tables: list[dict] = field(default_factory=list)
+    tables: list[_Table] = field(default_factory=list)
     refused: list[tuple[fitz.Rect, _Decline]] = field(default_factory=list)
     claims: list[fitz.Rect] = field(default_factory=list)
     single_run: fitz.Rect | None = None
@@ -1408,7 +1451,7 @@ def _read_region(
         # :func:`_recover`, which reads the parts its own prose divides it into; the region's own
         # decline stands when that finds nothing, and a failure that names the drawn lines
         # themselves is never offered (see `_RECOVERABLE`).
-        recovered: list[dict] = []
+        recovered: list[_Table] = []
         refused: list[tuple[fitz.Rect, _Decline]] = []
         if decline.reason in _RECOVERABLE:
             recovered, refused = _recover(found, inventory, edges, claimed, later)
@@ -1430,11 +1473,11 @@ def read_page(page: fitz.Page) -> PageRead:
     if grid is None:
         return PageRead([], [_unread(page, page.rect, _Decline("reader_failed"))], None)
 
-    tables: list[dict] = []
-    unread: list[dict] = []
+    tables: list[_Table] = []
+    unread: list[_Unread] = []
     claimed: list[fitz.Rect] = []
     single_runs: list[fitz.Rect] = []
-    deferred: list[tuple[fitz.Rect, dict]] = []
+    deferred: list[tuple[fitz.Rect, _Unread]] = []
     edges = _horizontal_edges(page)
     for found in grid.found:
         try:
@@ -1529,7 +1572,7 @@ def read_page(page: fitz.Page) -> PageRead:
     return PageRead(tables, unread, _title(page, tables, declined))
 
 
-def _unread(page: fitz.Page, rect: fitz.Rect, decline: _Decline) -> dict:
+def _unread(page: fitz.Page, rect: fitz.Rect, decline: _Decline) -> _Unread:
     number = page.number + 1
     suggestion = _SUGGEST_IMAGE if decline.reason == "no_text" else _SUGGEST
     return {
@@ -1567,7 +1610,7 @@ class _Text:
         return self.line.text
 
 
-def _title(page: fitz.Page, tables: list[dict], declined: list[fitz.Rect]) -> str | None:
+def _title(page: fitz.Page, tables: list[_Table], declined: list[fitz.Rect]) -> str | None:
     """Give each table on the page its title, and return the caption stranded below the last one.
 
     What a title is, and the answer key every rule was measured against, are in ``PLAN.md`` §M145.
@@ -1664,7 +1707,7 @@ def _title(page: fitz.Page, tables: list[dict], declined: list[fitz.Rect]) -> st
 
 
 def _banner_title(
-    table: dict,
+    table: _Table,
     texts: list[_Text],
     blocks: dict[int, list[_Text]],
     stands_out: Callable[[_Text], bool],
@@ -1676,10 +1719,13 @@ def _banner_title(
     header band instead, its column headings set side by side in one drawn cell, as the IPO
     prospectus draws one. Only grids: of the ruled tables measured, every first row holding one line
     held a column heading or a units line ("Y/Y %", "(In millions)"), never a title."""
+    banner = table.get("_banner")
+    if banner is None:      # its one caller checks first
+        return None
     inside = [
         t for t in texts
         if t.owner is table
-        and table["_banner"].contains(fitz.Point((t.rect.x0 + t.rect.x1) / 2, (t.rect.y0 + t.rect.y1) / 2))
+        and banner.contains(fitz.Point((t.rect.x0 + t.rect.x1) / 2, (t.rect.y0 + t.rect.y1) / 2))
     ]
     if not inside:
         return None
@@ -1696,7 +1742,7 @@ def _title_style(line: _StyledLine) -> Style:
     """The style carrying most of the line's characters outside brackets. NADA's dealer report ends a
     two-line title with "(in billions of dollars)" in small type, which by characters outweighs the
     title's words on that line."""
-    weights: Counter = Counter()
+    weights: Counter[Style] = Counter()
     for style, text, _ in line.styled:
         if not _bracketed(text):
             weights[style] += len("".join(text.split()))
@@ -1722,7 +1768,7 @@ def _sentence(text: str) -> bool:
     return compact.endswith((".", ";", ":")) and not compact.endswith("...")
 
 
-def _heads_a_column(text: _Text, table: dict, body: Style) -> bool:
+def _heads_a_column(text: _Text, table: _Table, body: Style) -> bool:
     """Whether the line is a column heading the table's box left out ("Nine Months Ended",
     "September 27, 2025"): it sits over the figure columns and not over the label column, and it is
     either set smaller than the body or off the table's centre.
@@ -1771,7 +1817,7 @@ def _joined(lines: list[_Text]) -> str:
 
 
 def _title_above(
-    table: dict,
+    table: _Table,
     texts: list[_Text],
     blocks: dict[int, list[_Text]],
     body: Style,
@@ -1862,7 +1908,7 @@ def _hangs_from_a_drawing(
 
 
 def _stranded(
-    last: dict,
+    last: _Table,
     texts: list[_Text],
     blocks: dict[int, list[_Text]],
     stands_out: Callable[[_Text], bool],
@@ -1915,7 +1961,7 @@ def titles_after(read: PageRead, before: PageRead | None) -> list[tuple[str | No
     return out
 
 
-def _continues_from(entry: dict, previous: dict | None, page_height: float) -> int | None:
+def _continues_from(entry: _TableFound, previous: _TableFound | None, page_height: float) -> int | None:
     """Whether ``entry`` may continue the previous page's last table — flagged, never merged.
 
     Two different tables can share a header and every column position: a product manual's pages
@@ -1939,8 +1985,30 @@ def _continues_from(entry: dict, previous: dict | None, page_height: float) -> i
 # ---------------------------------------------------------------------------------------------
 
 
-def _public(entry: dict) -> dict:
-    return {k: v for k, v in entry.items() if not k.startswith("_")}
+def _public_table(entry: _TableFound) -> TableEntry:
+    """``entry`` as the reply carries it: without the keys that start with ``_``, in the same order."""
+    return {
+        "page": entry["page"],
+        "bbox": entry["bbox"],
+        "rows": entry["rows"],
+        "header": entry["header"],
+        "title": entry["title"],
+        "title_from_previous_page": entry["title_from_previous_page"],
+        "row_count": entry["row_count"],
+        "col_count": entry["col_count"],
+        "continues_from": entry["continues_from"],
+        "continuation_checked": entry["continuation_checked"],
+    }
+
+
+def _public_unread(entry: _Unread) -> UnreadRegion:
+    """``entry`` as the reply carries it: without its reason's code and detail."""
+    return {
+        "page": entry["page"],
+        "bbox": entry["bbox"],
+        "reason": entry["reason"],
+        "suggestion": entry["suggestion"],
+    }
 
 
 def tables(
@@ -1951,7 +2019,7 @@ def tables(
     max_tables: int = MAX_TABLES,
     max_chars: int = MAX_TABLE_CHARS,
     offset: int = 0,
-) -> dict:
+) -> TablesReply:
     """Every table on ``pages`` that agrees with its page, plus every region that does not.
 
     Every page asked for appears in ``tables`` or in ``unread_regions`` or both; a page is never
@@ -1968,21 +2036,21 @@ def tables(
 
     with open_document(path, password) as vdoc:
         indices = resolve_pages(vdoc, pages)
-        found: list[dict] = []
-        unread: list[dict] = []
+        found: list[_TableFound] = []
+        unread: list[UnreadRegion] = []
         last: tuple[int, PageRead] | None = None
 
         for index0 in indices:
             page = _page_of(vdoc, index0)
             result = read_page(page)
-            unread.extend(_public(u) for u in result.unread)
+            unread.extend(_public_unread(u) for u in result.unread)
             # Only the page before can hand this one a caption or a table to continue. The one read
             # before it is that page only when the request did not skip it (#366).
             before = last[1] if last is not None and last[0] == index0 - 1 else None
             previous = found[-1] if before is not None and before.tables else None
             titles = titles_after(result, before)
             for position, (table, (title, carried)) in enumerate(zip(result.tables, titles, strict=True)):
-                entry = {
+                entry: _TableFound = {
                     "page": index0 + 1,
                     "bbox": _to_unrotated(page, table["bbox"]),
                     "rows": table["rows"],
@@ -2003,12 +2071,12 @@ def tables(
             last = (index0, result)
 
         total = len(found)
-        batch: list[dict] = []
+        batch: list[TableEntry] = []
         used = 0
         for entry in found[offset:]:
             if len(batch) >= max_tables:
                 break
-            public = _public(entry)
+            public = _public_table(entry)
             size = len(json.dumps(public))
             if batch and used + size > max_chars:
                 break
@@ -2016,7 +2084,7 @@ def tables(
             used += size
 
         more_available = offset + len(batch) < total
-        reply: dict[str, object] = {
+        reply: TablesReply = {
             "count": len(batch),
             "total_tables": total,
             "offset": offset,

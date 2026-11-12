@@ -238,10 +238,10 @@ disallow_untyped_defs = true
 check_untyped_defs = true
 
 # A `tuple`, `dict` or `list` in a type says what it holds (M174). Without this, mypy checks nothing
-# done with what is taken out of one. On for the core so far: M174.2 adds the bridge, and M174.3
-# the app, which moves it up to the settings above.
+# done with what is taken out of one. On for klarpdf/ so far: M174.3 adds the app, which moves it up
+# to the settings above.
 [[tool.mypy.overrides]]
-module = ["klarpdf.model.*", "klarpdf.util.*"]
+module = ["klarpdf.*"]
 disallow_any_generics = true
 
 

@@ -220,6 +220,9 @@ def test_a_well_formed_outline_reports_no_normalisation(tmp_path):
         ([{"level": 1, "text": "X", "page": 1}], "unknown key"),
         ([{"level": 1, "title": "X"}], "missing"),
         ([{"level": 1, "title": "X", "page": True}], "must be an integer"),
+        # A page sent as text reached Python's own "unsupported operand" error first (M174.2).
+        ([{"level": 1, "title": "X", "page": "3"}], "page must be an integer"),
+        ([{"level": 1, "title": "X", "page": "3", "top": 10}], "page must be an integer"),
         (["Introduction"], "not an object"),
         ([], "empty"),
     ],

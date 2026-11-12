@@ -40,15 +40,47 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from typing import TYPE_CHECKING, TypedDict
 
 import pymupdf as fitz
 
-from klarpdf.mcp_bridge.queries import open_document, resolve_pages, search
+from klarpdf.mcp_bridge.queries import open_document, parse_box, resolve_pages, search
 from klarpdf.mcp_bridge.transforms import _resolve_out, _write
 from klarpdf.model.page_edits import Redaction
 from klarpdf.model.page_text import PageText
 from klarpdf.model.virtual_document import VirtualDocument
+
+if TYPE_CHECKING:  # named in annotations only
+    from klarpdf.mcp_bridge.replies import ImageRecoded, PartialWordMatch, RedactionReport
+    from klarpdf.model.tuples import Box
+
+#: An image's placement on a page, rounded, and its encoding with its size in bytes.
+_Images = dict[tuple[float, ...], tuple[str, int]]
+
+
+class _Expectation(TypedDict):
+    """What a redacted page is checked against: the words under its boxes, how often each was on the
+    page before, as each engine read it, and the images under the boxes."""
+
+    boxes: dict[str, int]
+    fitz_before: dict[str, int]
+    poppler_before: dict[str, int]
+    images: _Images
+
+
+class _Partial(TypedDict):
+    pages: set[int]
+    count: int
+
+
+class _QueryStats(TypedDict):
+    """One query's counts as ``redact_text`` finds its matches."""
+
+    matches: int
+    terms: dict[str, int]
+    phrase: int
+    partial: dict[tuple[str, str], _Partial]
 
 # Poppler's extractor. A *different* implementation from the PyMuPDF writer, which is the whole
 # point of running it — a bug that hid text from fitz would have to be present in both to slip past.
@@ -128,7 +160,7 @@ def _shortfall(
     )
 
 
-def _verify(out: str, expectations: dict[int, dict], password: str | None) -> dict:
+def _verify(out: str, expectations: dict[int, _Expectation], password: str | None) -> RedactionReport:
     """Confirm each redacted token lost at least as many occurrences as boxes covered it.
 
     **Counts, not presence** — and the difference is not pedantry. Redacting the standalone "Smith"
@@ -393,7 +425,7 @@ def _no_residual_match(
     whole_words: bool,
     scope: set[int],
     password: str | None,
-) -> dict:
+) -> RedactionReport:
     """Confirm ``query`` no longer matches the written output anywhere in scope.
 
     Three passes, because they fail for different reasons and only together are they worth much:
@@ -485,7 +517,7 @@ def _no_residual_match(
 
     survivors = order
     occurrences = sum(sum(pages.values()) for pages in per_form.values())
-    report: dict = {"residual_matches": 0, "residual_literal": occurrences}
+    report: RedactionReport = {"residual_matches": 0, "residual_literal": occurrences}
     if survivors:
         report["residual_literal_forms"] = [
             {
@@ -558,7 +590,7 @@ def _no_residual_match(
     return report
 
 
-def _covered_tokens(page: fitz.Page, boxes: list[tuple]) -> dict[str, int]:
+def _covered_tokens(page: fitz.Page, boxes: list[Box]) -> dict[str, int]:
     """How many times each checkable token is covered by ``boxes``, counting each one **once**.
 
     ``PageText`` indexes the page once and answers by character *centre* rather than by clipping,
@@ -600,7 +632,7 @@ def _covered_tokens(page: fitz.Page, boxes: list[tuple]) -> dict[str, int]:
     return counts
 
 
-def _boxes_touch(a: tuple, b: tuple) -> bool:
+def _boxes_touch(a: Sequence[float], b: Sequence[float]) -> bool:
     """Do two ``(x0, y0, x1, y1)`` rectangles overlap at all?"""
     return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
 
@@ -633,7 +665,7 @@ def _stream_encoding(doc: fitz.Document, xref: int) -> tuple[str, int] | None:
         return None
 
 
-def _images_under(page: fitz.Page, boxes: list[tuple]) -> dict[tuple, tuple[str, int]]:
+def _images_under(page: fitz.Page, boxes: list[Box]) -> _Images:
     """Every image *placement* a redaction box overlaps, keyed by its rectangle.
 
     Keyed by **placement**, not by xref, because that is what survives the write. A page that draws
@@ -644,7 +676,7 @@ def _images_under(page: fitz.Page, boxes: list[tuple]) -> dict[tuple, tuple[str,
     Rounded, because a rectangle that survives a save comes back with float noise in the last
     places and an exact tuple would never match.
     """
-    found: dict[tuple, tuple[str, int]] = {}
+    found: _Images = {}
     doc = page.parent
     for entry in page.get_images(full=True):
         xref = entry[0]
@@ -658,7 +690,7 @@ def _images_under(page: fitz.Page, boxes: list[tuple]) -> dict[tuple, tuple[str,
     return found
 
 
-def _recode_report(before: dict[int, dict], target: str) -> dict:
+def _recode_report(before: dict[int, _Images], target: str) -> RedactionReport:
     """Say which images the write had to re-encode, and what it cost (M109).
 
     **The behaviour is correct and the silence was the defect.** Erasing pixels inside an image
@@ -678,7 +710,7 @@ def _recode_report(before: dict[int, dict], target: str) -> dict:
     """
     if not before:
         return {}
-    recoded: list[dict] = []
+    recoded: list[ImageRecoded] = []
     with fitz.open(target) as doc:
         for page1, placements in sorted(before.items()):
             if page1 > doc.page_count:
@@ -697,16 +729,16 @@ def _recode_report(before: dict[int, dict], target: str) -> dict:
                 })
     if not recoded:
         return {}
-    was = sum(item["bytes_before"] for item in recoded)
-    now = sum(item["bytes_after"] for item in recoded)
+    total_before = sum(item["bytes_before"] for item in recoded)
+    total_after = sum(item["bytes_after"] for item in recoded)
     # Stated as measured, in whichever direction it went. Lossless is usually much larger for a
     # photograph and can be *smaller* for a flat graphic, and a warning that asserts growth would
     # be wrong on the second — which is the kind of detail that teaches a caller to stop reading
     # warnings.
     delta = (
-        f"grew from {was / 1024:,.0f} KB to {now / 1024:,.0f} KB"
-        if now > was
-        else f"went from {was / 1024:,.0f} KB to {now / 1024:,.0f} KB"
+        f"grew from {total_before / 1024:,.0f} KB to {total_after / 1024:,.0f} KB"
+        if total_after > total_before
+        else f"went from {total_before / 1024:,.0f} KB to {total_after / 1024:,.0f} KB"
     )
     return {
         "images_recoded": recoded,
@@ -720,14 +752,16 @@ def _recode_report(before: dict[int, dict], target: str) -> dict:
     }
 
 
-def _apply(vdoc: VirtualDocument, per_page: dict[int, list[tuple]], source: str, password: str | None) -> dict:
+def _apply(
+    vdoc: VirtualDocument, per_page: dict[int, list[Box]], source: str, password: str | None
+) -> dict[int, _Expectation]:
     """Attach a :class:`Redaction` per page and record what verification will expect afterwards.
 
     The "before" counts are read here, from the still-intact source, because after materialise
     there is nothing left to count. Both engines are measured, since each has its own idea of how a
     page's text runs together and comparing one engine's before to another's after would be noise.
     """
-    expectations: dict[int, dict] = {}
+    expectations: dict[int, _Expectation] = {}
     for index0, boxes in per_page.items():
         page1 = index0 + 1
         ref = vdoc.ordered[index0]
@@ -752,12 +786,12 @@ def _apply(vdoc: VirtualDocument, per_page: dict[int, list[tuple]], source: str,
 def _finish(
     vdoc: VirtualDocument,
     target: str,
-    expectations: dict,
+    expectations: dict[int, _Expectation],
     source: str,
     password: str | None,
-    residual: Callable[[str], dict] | None = None,
-    **extra: object,
-) -> dict:
+    residual: Callable[[str], RedactionReport] | None = None,
+    extra: RedactionReport | None = None,
+) -> RedactionReport:
     """Write, verify, and delete the output if any check fails.
 
     ``residual`` is the optional document-level check (:func:`_no_residual_match`), passed by
@@ -795,11 +829,11 @@ def _finish(
         },
         report,
         recoded,
-        extra,
+        extra or {},
     )
 
 
-def _merged(*parts: dict) -> dict:
+def _merged(*parts: RedactionReport) -> RedactionReport:
     """Combine result fragments, **concatenating** ``warnings`` instead of overwriting it.
 
     Two independent checks now emit warnings — the literal residual scan and the invisible-text
@@ -807,24 +841,23 @@ def _merged(*parts: dict) -> dict:
     word. On a tool whose job is to tell the caller what they cannot see for themselves, a silently
     discarded warning is the same class of defect as the one this milestone exists to fix.
     """
-    out: dict = {}
+    out: RedactionReport = {}
     for part in parts:
-        for key, value in part.items():
-            if key == "warnings" and key in out:
-                out[key] = out[key] + value
-            else:
-                out[key] = value
+        joined = out["warnings"] + part["warnings"] if "warnings" in out and "warnings" in part else None
+        out.update(part)            # keys already there keep their place; new ones go at the end
+        if joined is not None:
+            out["warnings"] = joined
     return out
 
 
 def redact_regions(
     path: str,
-    regions: list[dict],
+    regions: list[dict[str, object]],
     out: str,
     *,
     password: str | None = None,
     overwrite: bool = False,
-) -> dict:
+) -> RedactionReport:
     """Destructively remove rectangular regions and verify the removal.
 
     ``regions`` is a list of ``{"page": 1-based, "box": [x0, y0, x1, y1]}`` in page points — the
@@ -837,7 +870,7 @@ def redact_regions(
     """
     target = _resolve_out(out, sources=[path], overwrite=overwrite)
     with open_document(path, password) as vdoc:
-        per_page: dict[int, list[tuple]] = {}
+        per_page: dict[int, list[Box]] = {}
         for region in regions:
             if (not isinstance(region, dict) or "page" not in region
                     or not ("box" in region or "boxes" in region)):
@@ -845,16 +878,13 @@ def redact_regions(
             if "box" in region and "boxes" in region:
                 raise ValueError(f"each region needs 'box' or 'boxes', not both; got {region!r}")
             (index0,) = resolve_pages(vdoc, [region["page"]])
-            raw = [region["box"]] if "box" in region else list(region["boxes"])
-            if not raw:
+            given = [region["box"]] if "box" in region else region["boxes"]
+            if not isinstance(given, (list, tuple)):
+                raise ValueError(f"'boxes' must be a list of [x0, y0, x1, y1]; got {given!r}")
+            if not given:
                 raise ValueError(f"region {region!r} carries no boxes")
-            for entry in raw:
-                box = tuple(float(v) for v in entry)
-                if len(box) != 4:
-                    raise ValueError(f"box must be [x0, y0, x1, y1]; got {entry!r}")
-                if box[0] >= box[2] or box[1] >= box[3]:
-                    raise ValueError(f"box {list(box)} is empty or inverted")
-                per_page.setdefault(index0, []).append(box)
+            for entry in given:
+                per_page.setdefault(index0, []).append(parse_box(entry))
         if not per_page:
             raise ValueError("no regions given — redaction must remove something")
         expectations = _apply(vdoc, per_page, path, password)
@@ -864,8 +894,7 @@ def redact_regions(
             expectations,
             path,
             password,
-            regions=len(regions),
-            pages_redacted=sorted(expectations),
+            extra={"regions": len(regions), "pages_redacted": sorted(expectations)},
         )
 
 
@@ -903,7 +932,7 @@ def redact_text(
     pages: list[int] | None = None,
     password: str | None = None,
     overwrite: bool = False,
-) -> dict:
+) -> RedactionReport:
     """Find every occurrence of ``query`` — or of each of ``queries`` — remove it, then verify.
 
     Search semantics are the app's find bar exactly (see :func:`mcp_bridge.queries.search`), which
@@ -938,9 +967,9 @@ def redact_text(
     all_queries = _resolve_queries(query, queries)
     with open_document(path, password) as vdoc:
         scope = resolve_pages(vdoc, pages)
-        per_page: dict[int, list[tuple]] = {}
+        per_page: dict[int, list[Box]] = {}
         invisible: dict[int, list[str]] = {}
-        stats: dict[str, dict] = {
+        stats: dict[str, _QueryStats] = {
             q: {"matches": 0, "terms": {}, "phrase": 0, "partial": {}} for q in all_queries
         }
         for index0 in scope:
@@ -950,7 +979,7 @@ def redact_text(
             # Box-groups already added on this page, across **all** queries. Two queries matching
             # the same run of text is the normal case for overlapping identifiers, and each should
             # report its own `matches` — but the text is one piece and gets boxed once.
-            added: set = set()
+            added: set[tuple[tuple[float, ...], ...]] = set()
             for one in all_queries:
                 terms = [one] if whole_words else one.split()
                 per_term = [(term, [(r.x0, r.y0, r.x1, r.y1) for r in page.search_for(term)])
@@ -966,7 +995,7 @@ def redact_text(
                     # over-redaction legible — see `_term_report`.
                     phrase_boxes = [(r.x0, r.y0, r.x1, r.y1) for r in page.search_for(one)]
                     stat["phrase"] += len(text.group_matches(phrase_boxes, one))
-                seen: set = set()
+                seen: set[tuple[tuple[float, ...], ...]] = set()
                 for term, term_boxes in per_term:
                     # Grouped, so a match wrapping a line break is one occurrence — and **every** box
                     # it occupies is redacted. Clearing only the first is what left the tail of the
@@ -1021,16 +1050,21 @@ def redact_text(
                 flat=queries is None,
                 page_filtered=pages is not None,
             ),
-            matches=matches,
-            boxes_redacted=sum(len(boxes) for boxes in per_page.values()),
-            pages_redacted=sorted(expectations),
-            # What the residual scans actually read — *not* `pages_redacted`, which lists only where
-            # boxes landed and is a strictly smaller set (`[1]` for a call that scanned `[1, 2, 3]`).
-            # Without this the advisory zeros are bare, and "the scan found nothing" cannot be told
-            # apart from "the scan found nothing on the two pages it read" (M103, TC-007 Finding D).
-            residual_scope=sorted(page_scope),
-            **({"query": query} if queries is None else {}),
-            **_invisible_report(invisible),
+            extra=_merged(
+                {
+                    "matches": matches,
+                    "boxes_redacted": sum(len(boxes) for boxes in per_page.values()),
+                    "pages_redacted": sorted(expectations),
+                    # What the residual scans actually read — *not* `pages_redacted`, which lists only
+                    # where boxes landed and is a strictly smaller set (`[1]` for a call that scanned
+                    # `[1, 2, 3]`). Without this the advisory zeros are bare, and "the scan found
+                    # nothing" cannot be told apart from "the scan found nothing on the two pages it
+                    # read" (M103, TC-007 Finding D).
+                    "residual_scope": sorted(page_scope),
+                },
+                {"query": query} if queries is None else {},
+                _invisible_report(invisible),
+            ),
         )
 
 
@@ -1083,7 +1117,7 @@ def _zero_match_warning(
 def _query_reports(
     written: str,
     all_queries: list[str],
-    stats: dict[str, dict],
+    stats: dict[str, _QueryStats],
     *,
     match_case: bool,
     whole_words: bool,
@@ -1091,7 +1125,7 @@ def _query_reports(
     password: str | None,
     flat: bool,
     page_filtered: bool,
-) -> dict:
+) -> RedactionReport:
     """Verify every query against the written output and shape the per-query half of the reply.
 
     ``flat`` is **which parameter the caller used, not how many queries survived** — and the
@@ -1116,7 +1150,7 @@ def _query_reports(
     leaving the caller worse off than the warning does. Those misses are gathered and reported
     **once** rather than per query — see :func:`_zero_match_warning`.
     """
-    entries: list[dict] = []
+    entries: list[RedactionReport] = []
     warnings: list[str] = []
     missed: list[str] = []
     for one in all_queries:
@@ -1139,8 +1173,9 @@ def _query_reports(
         warnings.append(_zero_match_warning(missed, len(all_queries), whole_words=whole_words,
                                             scope=scope, page_filtered=page_filtered))
 
+    merged: RedactionReport
     if flat:
-        merged = dict(entries[0])
+        merged = entries[0].copy()
         merged.pop("query", None)
         merged.pop("matches", None)   # already reported at the top level
     else:
@@ -1173,7 +1208,7 @@ _OVER_REDACTION_FACTOR = 3
 
 def _term_report(
     terms: list[str], counts: dict[str, int], phrase_matches: int, *, whole_words: bool
-) -> dict:
+) -> RedactionReport:
     """Per-term match counts, and a warning when the word-list split did most of the deleting.
 
     **The counterweight to over-redaction**, which had none. Everything else here guards the
@@ -1192,7 +1227,7 @@ def _term_report(
     if len(terms) < 2 or not counts:
         return {}
     total = sum(counts.values())
-    report: dict[str, list] = {
+    report: RedactionReport = {
         "query_terms": [{"term": term, "matches": counts.get(term, 0)} for term in terms],
     }
     if not whole_words and phrase_matches and total >= phrase_matches * _OVER_REDACTION_FACTOR:
@@ -1208,7 +1243,9 @@ def _term_report(
     return report
 
 
-def _record_partial(bucket: dict, text: PageText, boxes: tuple, term: str, page: int) -> None:
+def _record_partial(
+    bucket: dict[tuple[str, str], _Partial], text: PageText, boxes: tuple[Box, ...], term: str, page: int
+) -> None:
     """Note that ``term`` was redacted from inside a longer word on ``page``.
 
     Keyed by (term, enclosing word) so five occurrences of ``Male`` inside ``Female`` report once
@@ -1240,7 +1277,7 @@ def _residue(word: str, term: str) -> str:
     return word if at < 0 else word[:at] + word[at + len(term):]
 
 
-def _partial_word_report(partial: dict, *, whole_words: bool) -> dict:
+def _partial_word_report(partial: dict[tuple[str, str], _Partial], *, whole_words: bool) -> RedactionReport:
     """Report the redactions that landed **inside** a longer word (M107).
 
     The other half of the over-redaction story, and the last of it. :func:`_term_report` catches the
@@ -1260,7 +1297,7 @@ def _partial_word_report(partial: dict, *, whole_words: bool) -> dict:
     """
     if whole_words or not partial:
         return {}
-    listed = [
+    listed: list[PartialWordMatch] = [
         {
             "term": term,
             "inside": word,
@@ -1289,7 +1326,7 @@ def _partial_word_report(partial: dict, *, whole_words: bool) -> dict:
     }
 
 
-def _invisible_report(invisible: dict[int, list[str]]) -> dict:
+def _invisible_report(invisible: dict[int, list[str]]) -> RedactionReport:
     """Report the occurrences that were removed but were never *visible* on the page.
 
     Good news that has to be said out loud, because it is unverifiable by the caller any other way.

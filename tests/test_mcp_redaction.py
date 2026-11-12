@@ -492,6 +492,21 @@ def test_a_region_cannot_carry_both_box_and_boxes(secret_pdf, out):
     assert not os.path.exists(out)
 
 
+# A box sent as text was read one character per number, and "1234" redacted the box (1, 2, 3, 4).
+# The other two came back as Python's own errors (M174.2).
+@pytest.mark.parametrize("box", ["1234", 5, ["a", 1, 2, 3]])
+def test_a_box_that_is_not_four_numbers_is_refused(secret_pdf, out, box):
+    with pytest.raises(ValueError, match="box must be four numbers"):
+        redaction.redact_regions(secret_pdf, [{"page": 1, "box": box}], out)
+    assert not os.path.exists(out)
+
+
+def test_boxes_that_are_not_a_list_are_refused(secret_pdf, out):
+    with pytest.raises(ValueError, match="'boxes' must be a list"):
+        redaction.redact_regions(secret_pdf, [{"page": 1, "boxes": "ab"}], out)
+    assert not os.path.exists(out)
+
+
 # ---- M95 / TC-003: the checks that can fail when the matcher is wrong ----------------
 #
 # The fixture is the shape TC-003 found in a real utility bill: the value appears twice as ordinary
