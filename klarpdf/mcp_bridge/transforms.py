@@ -32,12 +32,17 @@ from __future__ import annotations
 
 import os
 import tempfile
+from collections.abc import Callable, Iterable
+from typing import TYPE_CHECKING
 
 from klarpdf.mcp_bridge.queries import open_document, resolve_pages
 from klarpdf.model.edit_engine import PyMuPDFEngine
 from klarpdf.model.virtual_document import PageRef, VirtualDocument
 from klarpdf.util.atomic import atomic_replace
 from klarpdf.util.paths import normalize_path
+
+if TYPE_CHECKING:  # named in an annotation only; the module is imported where it is used
+    from klarpdf.model.page_edits import FormField
 
 # Rotation is stored as a multiple of 90 (PDF /Rotate); anything else is a caller mistake.
 _QUARTER_TURN = 90
@@ -68,7 +73,7 @@ def _resolve_out(out: str, *, sources: list[str], overwrite: bool) -> str:
     return absolute
 
 
-def _write(vdoc: VirtualDocument, out: str, writer=None) -> None:
+def _write(vdoc: VirtualDocument, out: str, writer: Callable[[VirtualDocument, str], object] | None = None) -> None:
     """Materialise ``vdoc`` to ``out`` via a sibling temp file, then rename it into place.
 
     ``writer(vdoc, tmp)`` overrides the default materialise for the derived exports (flatten).
@@ -93,7 +98,7 @@ def _write(vdoc: VirtualDocument, out: str, writer=None) -> None:
         raise
 
 
-def _result(out: str, vdoc: VirtualDocument, source: str, **extra) -> dict:
+def _result(out: str, vdoc: VirtualDocument, source: str, **extra: object) -> dict:
     """The shape every transform returns: what was written, and the promise about the input."""
     return {
         "out": out,
@@ -382,7 +387,7 @@ def fill_form(
 _BOOLEAN_WORDS = frozenset({"true", "false", "yes", "no", "on", "off"})
 
 
-def _check_button_values(fields, values: dict) -> None:
+def _check_button_values(fields: Iterable[FormField], values: dict) -> None:
     """Reject a checkbox/radio value that is neither a real export state nor a boolean.
 
     ``fill_form`` already refuses an unknown field *name* — "a typo that writes nothing and reports
@@ -585,7 +590,7 @@ def set_outline(
         return _result(target, vdoc, path, **extra)
 
 
-def _positions_discarded(vdoc, existing: list, prepared: list[dict]) -> int:
+def _positions_discarded(vdoc: VirtualDocument, existing: list, prepared: list[dict]) -> int:
     """How many replaced bookmarks landed on a spot that the new entries do not name.
 
     Zero when the caller supplied any ``top`` at all: at that point they are steering the
@@ -597,7 +602,7 @@ def _positions_discarded(vdoc, existing: list, prepared: list[dict]) -> int:
     return sum(1 for entry in existing if vdoc.entry_top(entry) is not None)
 
 
-def _tops_outside_their_page(vdoc, prepared: list[dict]) -> list[dict]:
+def _tops_outside_their_page(vdoc: VirtualDocument, prepared: list[dict]) -> list[dict]:
     """Entries whose ``top`` names a spot their page does not contain.
 
     Reported, not refused (owner's call, 2026-09-20). Real documents do this constantly — 51

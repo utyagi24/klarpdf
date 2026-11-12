@@ -223,6 +223,13 @@ files = ["klarpdf"]
 python_version = "3.11"
 # A `# type: ignore[code]` that suppresses nothing is refused, as RUF100 refuses a stale `noqa`.
 warn_unused_ignores = true
+# Every function says what it takes and what it returns (M172.2). Without this, mypy skips the
+# body of a function that has no annotations at all, and says nothing about it.
+disallow_untyped_defs = true
+# In klarpdf/ this changes nothing, because every function there is annotated. It is on for what it
+# does to PyMuPDF, most of which is not annotated: mypy then reads an attribute's type from the
+# value PyMuPDF's own code gives it. A rect's `x0` is a `float`, where it was unknown (M172.2).
+check_untyped_defs = true
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

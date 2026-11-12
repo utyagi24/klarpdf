@@ -12,7 +12,7 @@ This module is GUI-free and headless-testable (no Qt). The undo/redo wiring live
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -50,8 +50,13 @@ class PasswordRequired(Exception):
     error to surface)."""
 
 
+#: Asks for a document's password: ``provider(path, retry)`` returns it, or ``None`` to cancel.
+#: ``retry`` is True when the password just given was wrong.
+PasswordProvider = Callable[[str, bool], str | None]
+
+
 def _authenticate_and_decrypt(
-    doc: fitz.Document, path: str, password_provider
+    doc: fitz.Document, path: str, password_provider: PasswordProvider | None
 ) -> tuple[fitz.Document, str, str, int]:
     """Authenticate an encrypted ``doc`` (prompting via ``password_provider``), then return a fresh
     **decrypted** in-memory copy plus the password that worked (M32; M54 records the password) and
@@ -270,12 +275,12 @@ class VirtualDocument:
         # How to obtain a password for an encrypted source (set by from_path). Stored so a later
         # reload_from_file (Revert of an encrypted original) can re-prompt the same way. GUI-free:
         # callers inject a callable (the GUI's password dialog; a lambda in tests). None = no prompt.
-        self._password_provider = None
+        self._password_provider: PasswordProvider | None = None
 
     # ---- construction / sources -------------------------------------------------
 
     @classmethod
-    def from_path(cls, path: str, password_provider=None) -> VirtualDocument:
+    def from_path(cls, path: str, password_provider: PasswordProvider | None = None) -> VirtualDocument:
         """Open ``path`` as the origin document and seed ``ordered`` with all its pages.
 
         ``password_provider`` (``(path, retry) -> str | None``) is consulted if the document is
@@ -355,7 +360,7 @@ class VirtualDocument:
         """True if any registered source carries baked KlarPDF annotations (doc-level)."""
         return any(self.source_has_klarpdf_annotations(sid) for sid in self.sources)
 
-    def open_source(self, path: str, password_provider=None) -> str:
+    def open_source(self, path: str, password_provider: PasswordProvider | None = None) -> str:
         """Open and register a source by path (idempotent). Returns its source id.
 
         Opened from an **in-memory copy** of the file, never a live file handle: on Windows an open
@@ -635,7 +640,8 @@ class VirtualDocument:
         origin = self.origin_source_id
         if origin is None or origin not in self.sources:
             return False
-        return bool(self.sources[origin].metadata.get("encryption"))
+        metadata = self.sources[origin].metadata or {}  # PyMuPDF sets it to None until a file is open
+        return bool(metadata.get("encryption"))
 
     def source_encryption(self, source_id: str) -> str | None:
         """The encryption the source **file** carries, e.g. ``'Standard V4 R4 128-bit AES'``.
@@ -1122,7 +1128,7 @@ class VirtualDocument:
         """Current AcroForm fills (field name -> value)."""
         return dict(self._form_values)
 
-    def field_value(self, name: str):
+    def field_value(self, name: str) -> object:
         """The user-entered value for ``name``, or ``None`` if unset."""
         return self._form_values.get(name)
 
@@ -1151,13 +1157,13 @@ class VirtualDocument:
     # ones are interchangeable, so whichever is chosen the resulting page is identical.
 
     @staticmethod
-    def _first_equal_index(annotations: tuple, target) -> int:
+    def _first_equal_index(annotations: tuple, target: object) -> int:
         for i, annotation in enumerate(annotations):
             if annotation == target:
                 return i
         return -1
 
-    def add_annotation(self, index: int, annotation) -> None:
+    def add_annotation(self, index: int, annotation: object) -> None:
         """Append an annotation descriptor to the page at ``index``."""
         ref = self.ordered[index]
         self.ordered[index] = ref.with_annotations(ref.annotations + (annotation,))
@@ -1171,7 +1177,7 @@ class VirtualDocument:
             self.ordered[index] = ref.with_annotations(tuple(annotations))
             self.dirty = True
 
-    def remove_annotation(self, index: int, annotation) -> None:
+    def remove_annotation(self, index: int, annotation: object) -> None:
         """Remove one specific annotation instance from the page at ``index``."""
         ref = self.ordered[index]
         remaining = tuple(a for a in ref.annotations if a is not annotation)
@@ -1183,7 +1189,7 @@ class VirtualDocument:
             self.ordered[index] = ref.with_annotations(remaining)
             self.dirty = True
 
-    def replace_annotation(self, index: int, old, new) -> None:
+    def replace_annotation(self, index: int, old: object, new: object) -> None:
         """Swap ``old`` for ``new`` **in place** on the page at ``index`` (preserving z-order).
 
         Used when an annotation is mutated rather than added/removed — moving a text box or
@@ -1226,7 +1232,7 @@ class VirtualDocument:
         self._source_bytes = {}
         self._source_marks = {}
 
-        def known_then_prompt(path_, retry):
+        def known_then_prompt(path_: str, retry: bool) -> str | None:
             # A carry-through save (M54) wrote the file with the password we hold, so try it
             # silently first — a redaction commit / Revert on an encrypted document must not
             # re-prompt for a password we know. Fall back to the stored provider (an external

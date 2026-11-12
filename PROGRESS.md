@@ -1396,7 +1396,7 @@ parts, and the box here is ticked on merge. Build in number order, except that M
   words, same length), the PDF objects the tests build, and what the installer script and the SVG
   script write. `invoke lint --fix` runs Ruff's safe fixes. Each rule failed on a planted breach.
   Details in `PLAN.md` §M171 — [#450](https://github.com/utyagi24/klarpdf/pull/450)
-- [ ] **M172** **Types for the wheel** (`klarpdf/`): mypy and the `typecheck` CI job. *Core and
+- [x] **M172** **Types for the wheel** (`klarpdf/`): mypy and the `typecheck` CI job. *Core and
   bridge.* — *WSL, for the dev lock*
   - [x] **M172.1** **The gate, at mypy's default settings.** mypy 2.4.1 is pinned exactly in the
     dev lock. The `typecheck` CI job runs it over `klarpdf/` on every push and every PR, and
@@ -1407,7 +1407,15 @@ parts, and the box here is ticked on merge. Build in number order, except that M
     suppression. `typecheck` is in the ruleset mirror. **It becomes a required check when the
     owner runs the ruleset `PUT`, after this merges.** Details in `PLAN.md` §M172 —
     [#451](https://github.com/utyagi24/klarpdf/pull/451)
-  - [ ] **M172.2** Every signature in `klarpdf/` annotated
+  - [x] **M172.2** **Every signature in `klarpdf/` annotated.** mypy now refuses a function that
+    does not say what it takes and returns, so it checks every function body in `klarpdf/`. 97
+    signatures gained their types, in 17 files. The kinds of mark have names: `TextMarkup`,
+    `AdditiveMark`, `ContentMark` and `Mark`. Checking the bodies found one function that broke
+    its own docstring: `restyle_mark` raised for a text box when `dashed` was left out, where it
+    says it returns `None`. The app never calls it that way. `check_untyped_defs` is also on,
+    which the plan did not list: mypy then reads the types of PyMuPDF's attributes from
+    PyMuPDF's own code. Details, and what M172 cost and caught for M173's decision, in
+    `PLAN.md` §M172 — [#452](https://github.com/utyagi24/klarpdf/pull/452)
 - [ ] **M173** **Types for the app**: go or no-go, decided after M172. *App.*
 
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
@@ -5044,6 +5052,18 @@ the PR that fixes it. See `CLAUDE.md` §How we work for the split and why. Items
 were not migrated wholesale: each is listed because a decision is outstanding, which is what keeps
 it on this side of the line.
 
+- **Say what a bare `tuple`, `dict` or `list` holds?** (M172.2, measured 2026-11-11, not planned).
+  mypy accepts a type such as `annotations: tuple` or `-> dict`, which does not say what is
+  inside. Whatever is taken out of one is unknown to mypy, so nothing done with it is checked.
+  Its setting `disallow_any_generics` refuses such a type. Measured on M172.2's code, it reports
+  290, in 19 of the 33 files in `klarpdf/`: 154 `dict`, 85 `tuple`, 39 `list` and 12 others. 156
+  are in the bridge and 134 in the core. **Why it was left:** M172's plan did not include it, and
+  few are a one-word fix. 129 of the `dict`s are in the bridge, and 75 are what a function
+  returns, mostly a tool's reply. The honest type for those names each key. 17 of the `tuple`s
+  are a page's `annotations`, which would pay most: every use of a mark taken from one would
+  then be checked, and `Mark` already names what it holds (M172.2). **Open question:** whether to
+  do it, all of it or the `annotations` tuples alone, and when. It fits beside M173's decision,
+  because the app is the main user of those tuples. `PLAN.md` §M172.
 - **Move a text box up at the bottom of the page, as Edge does?** (M166, deferred by the owner
   2026-11-07). When a box gains lines at the bottom of the page, by narrowing it, typing or a
   bigger font, it now grows only to the page edge, and lines that still do not fit are cut off,

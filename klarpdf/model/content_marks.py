@@ -125,8 +125,11 @@ class ImageStamp:
 # (materialise ordering, the point-of-no-return check, the placement UI) tests against this.
 CONTENT_MARK_TYPES = (Stamp, ImageStamp)
 
+#: The same two classes, as a type.
+ContentMark = Stamp | ImageStamp
 
-def is_content_mark(mark) -> bool:
+
+def is_content_mark(mark: object) -> bool:
     """True for a descriptor this module bakes into page content (vs an annotation overlay)."""
     return isinstance(mark, CONTENT_MARK_TYPES)
 
@@ -248,7 +251,7 @@ def _text_padding(mark: Stamp) -> float:
     return max(mark.border_width, 0.0) + _TEXT_INSET
 
 
-def art_size(mark) -> tuple[float, float]:
+def art_size(mark: ContentMark) -> tuple[float, float]:
     """The size :func:`render_mark_document` builds ``mark``'s artwork at.
 
     For an **auto-fit** mark this is the rect: the box was dragged, and the artwork's whole job is
@@ -271,7 +274,7 @@ def rotated_extent(width: float, height: float, angle: float) -> tuple[float, fl
     return width * cos + height * sin, width * sin + height * cos
 
 
-def placement_size(mark) -> tuple[float, float]:
+def placement_size(mark: ContentMark) -> tuple[float, float]:
     """The rect a **pinned-size** mark must occupy to render at exactly that size.
 
     ``show_pdf_page`` fits a mark's *rotated* artwork inside its rect and centres it there, so the
@@ -286,7 +289,7 @@ def placement_size(mark) -> tuple[float, float]:
     return rotated_extent(*art_size(mark), mark.angle)
 
 
-def art_scale(mark) -> float:
+def art_scale(mark: ContentMark) -> float:
     """The factor the artwork is drawn at when placed into ``mark.rect`` (1.0 = its own size).
 
     ``show_pdf_page`` *fits* — it scales the rotated artwork to the rect in both directions, up as
@@ -308,7 +311,7 @@ def art_scale(mark) -> float:
     return scale
 
 
-def art_target_rect(mark) -> tuple[float, float, float, float]:
+def art_target_rect(mark: ContentMark) -> tuple[float, float, float, float]:
     """The sub-rect of ``mark.rect`` the artwork is actually placed into, centred within it.
 
     Handing ``show_pdf_page`` this instead of the whole rect is what makes :func:`art_scale`'s cap
@@ -436,7 +439,7 @@ def _drop_white(pix: fitz.Pixmap, threshold: float) -> fitz.Pixmap:
     return pix
 
 
-def render_mark_document(mark) -> fitz.Document:
+def render_mark_document(mark: ContentMark) -> fitz.Document:
     """A throwaway one-page PDF holding ``mark``'s artwork at its unrotated :func:`art_size`.
 
     The single generator behind stamps, signatures and watermarks — the caller places the result with

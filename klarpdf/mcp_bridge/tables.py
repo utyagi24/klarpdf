@@ -448,7 +448,7 @@ class _Reading:
     edges: list[tuple[float, float, float]]
 
 
-def _read_with(page: fitz.Page, **settings) -> _Reading | None:
+def _read_with(page: fitz.Page, **settings: object) -> _Reading | None:
     """Run one of PyMuPDF's finders and copy out the regions and the horizontal edges it used."""
     with _READ_LOCK:
         finder = page.find_tables(**settings)
@@ -667,8 +667,8 @@ def _read_grid(found: _Found, inventory: _Inventory, edges: list[tuple[float, fl
     if pair is not None:
         one, other = (", ".join(f"{v:.1f}" for v in rect) for rect in pair)
         raise _Decline("overlapping_cells", f"the drawn cells [{one}] and [{other}] overlap")
-    edges = columns + [box.x1]
-    spans = [[a, b] for a, b in pairwise(edges)]
+    column_edges = columns + [box.x1]
+    spans = [[a, b] for a, b in pairwise(column_edges)]
     return {
         "bbox": reported, "rows": rows, "header": rows[0], "columns": columns, "spans": spans, "reader": "grid",
         "_banner": banner,
@@ -986,7 +986,9 @@ def _read_ruled(
         mine = _touching(free, box)
 
     # 3. Rows: lines are placed in the ruled band their baseline sits in.
-    def layout(lines: list[_Line], frame: fitz.Rect):
+    def layout(
+        lines: list[_Line], frame: fitz.Rect
+    ) -> tuple[list[float], list[list[_Line]], list[list[_Line]], list[list[float]], set[int]]:
         bands = [min(bounds[0], frame.y0), *bounds[1:-1], max(bounds[-1], frame.y1)]
         for line in lines:
             for boundary in bands[1:-1]:

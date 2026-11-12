@@ -14,12 +14,13 @@ from __future__ import annotations
 
 import os
 import tempfile
+from collections.abc import Iterable
 from pathlib import Path
 
 import pymupdf as fitz
 
 from klarpdf.model.pymupdf_constants import PDF_ENCRYPT_AES_256, PDF_ENCRYPT_KEEP
-from klarpdf.model.virtual_document import VirtualDocument, pin_file_id
+from klarpdf.model.virtual_document import PageRef, VirtualDocument, pin_file_id
 
 #: Object cleanup for the route that **copies the origin** — an unchanged page set (M110).
 #: Drop objects nothing references and compact the xref, and stop there. Linear in the size of the
@@ -224,7 +225,7 @@ def _keep_encryption(vdoc: VirtualDocument) -> dict:
     return {}
 
 
-def _contiguous_runs(ordered) -> list[list]:
+def _contiguous_runs(ordered: Iterable[PageRef]) -> list[list]:
     """Collapse ``ordered`` into ``[source_id, from_page, to_page]`` runs of consecutive pages.
 
     A run extends while the next ref is the same source and exactly one page later, so each run

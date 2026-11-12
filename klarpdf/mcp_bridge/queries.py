@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import os
 from collections import Counter
+from collections.abc import Iterator
 from contextlib import contextmanager
 
 import pymupdf as fitz
@@ -39,7 +40,7 @@ from klarpdf.model.pymupdf_constants import (
     PDF_PERM_PRINT,
     PDF_PERM_PRINT_HQ,
 )
-from klarpdf.model.virtual_document import PasswordRequired, VirtualDocument
+from klarpdf.model.virtual_document import PasswordProvider, PasswordRequired, VirtualDocument
 
 # How many pages `document_info` samples before reporting `has_text_layer: false`. A text document
 # answers on page 1; the scan of an 800-page scanned file is what this bound exists to stop.
@@ -60,7 +61,7 @@ _PERMISSION_BITS = {
 }
 
 
-def _password_provider(password: str | None):
+def _password_provider(password: str | None) -> PasswordProvider | None:
     """Adapt a plain password string to the model's ``(path, retry) -> str | None`` provider.
 
     Returns ``None`` when no password was given, which is what makes an encrypted document raise
@@ -74,7 +75,7 @@ def _password_provider(password: str | None):
 
 
 @contextmanager
-def open_document(path: str | os.PathLike[str], password: str | None = None):
+def open_document(path: str | os.PathLike[str], password: str | None = None) -> Iterator[VirtualDocument]:
     """Open ``path`` as a :class:`VirtualDocument` and close it on the way out.
 
     Every tool goes through here so no code path can leak the in-memory source copies.

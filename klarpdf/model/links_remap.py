@@ -27,8 +27,13 @@ Model-layer (uses PyMuPDF, no GUI) and headless-testable.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
+from typing import TYPE_CHECKING
 
 import pymupdf as fitz
+
+if TYPE_CHECKING:  # named in annotations only, so nothing more is imported when the code runs
+    from klarpdf.model.virtual_document import PageRef, VirtualDocument
 
 # Link kinds that name a page inside the document (so they follow the page through an edit).
 _INTERNAL_KINDS = (fitz.LINK_GOTO, fitz.LINK_NAMED)
@@ -72,7 +77,7 @@ def internal_link_target(link: dict) -> int | None:
     return None
 
 
-def link_target_map(ordered) -> dict[tuple[str, int], int]:
+def link_target_map(ordered: Iterable[PageRef]) -> dict[tuple[str, int], int]:
     """Map ``(source_id, source_page_index)`` -> its **first** output index, over ``ordered``.
 
     A page absent from the map was deleted (links pointing at it are dropped); a duplicated page
@@ -106,7 +111,7 @@ def _uri_key(link: dict) -> tuple:
     return (link.get("uri"), round(r.x0, 2), round(r.y0, 2), round(r.x1, 2), round(r.y1, 2))
 
 
-def remap_internal_links(out_doc: fitz.Document, vdoc) -> None:
+def remap_internal_links(out_doc: fitz.Document, vdoc: VirtualDocument) -> None:
     """Rebuild internal links on the materialised ``out_doc`` (output page ``i`` == ``ordered[i]``)
     and restore any URI link ``insert_pdf`` dropped.
 

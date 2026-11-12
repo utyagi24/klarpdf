@@ -53,7 +53,7 @@ def parse_page_range(text: str, page_count: int) -> list[int]:
     return sorted(pages)
 
 
-def _number(part: str, default, term: str) -> int:
+def _number(part: str, default: int | None, term: str) -> int:
     part = part.strip()
     if not part:
         if default is None:

@@ -32,11 +32,12 @@ annotation type — including ones the model has no idea how to draw — and cos
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass
 
 import pymupdf as fitz
 
-from klarpdf.model.page_edits import KLARPDF_AUTHOR
+from klarpdf.model.page_edits import KLARPDF_AUTHOR, AdditiveMark
 from klarpdf.model.pymupdf_constants import (
     PDF_ANNOT_CIRCLE,
     PDF_ANNOT_FREE_TEXT,
@@ -55,7 +56,7 @@ from klarpdf.model.pymupdf_constants import (
 _RECT_PRECISION = 1
 
 
-def _rect_key(rect) -> tuple:
+def _rect_key(rect: fitz.Rect) -> tuple:
     return tuple(round(value, _RECT_PRECISION) for value in (rect.x0, rect.y0, rect.x1, rect.y1))
 
 
@@ -205,7 +206,7 @@ def _shift_array(value: str, dx: float, dy: float) -> str:
     """
     index = 0
 
-    def replace(match) -> str:
+    def replace(match: re.Match[str]) -> str:
         nonlocal index
         shifted = float(match.group()) + (dx if index % 2 == 0 else -dy)
         index += 1
@@ -390,7 +391,7 @@ def degradations(annot: fitz.Annot) -> list[str]:
     return lost
 
 
-def adopt_annotation(annot: fitz.Annot):
+def adopt_annotation(annot: fitz.Annot) -> AdditiveMark | None:
     """Parse a foreign annotation into an editable model descriptor, or ``None``.
 
     Uses :func:`model.page_edits.parse_annotation` — the *same* parser the round-trip path uses on
@@ -403,7 +404,7 @@ def adopt_annotation(annot: fitz.Annot):
     return parse_annotation(annot)
 
 
-def find_annotation(page: fitz.Page, target_fingerprint: str):
+def find_annotation(page: fitz.Page, target_fingerprint: str) -> fitz.Annot | None:
     """The foreign annotation on ``page`` matching ``target_fingerprint`` (the first), else None."""
     for annot in page.annots():
         if is_foreign(annot) and fingerprint(annot) == target_fingerprint:

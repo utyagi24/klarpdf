@@ -40,6 +40,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+from collections.abc import Callable
 
 import pymupdf as fitz
 
@@ -47,6 +48,7 @@ from klarpdf.mcp_bridge.queries import open_document, resolve_pages, search
 from klarpdf.mcp_bridge.transforms import _resolve_out, _write
 from klarpdf.model.page_edits import Redaction
 from klarpdf.model.page_text import PageText
+from klarpdf.model.virtual_document import VirtualDocument
 
 # Poppler's extractor. A *different* implementation from the PyMuPDF writer, which is the whole
 # point of running it — a bug that hid text from fitz would have to be present in both to slip past.
@@ -77,7 +79,7 @@ def _poppler_text(path: str, page1: int, password: str | None = None) -> str | N
     return result.stdout
 
 
-def _open_verified(path: str, password: str | None):
+def _open_verified(path: str, password: str | None) -> fitz.Document:
     """Open a written output for reading back, authenticating if we re-encrypted it.
 
     A redacted copy of an encrypted document is **still encrypted** (M54 carries the password
@@ -603,7 +605,7 @@ def _boxes_touch(a: tuple, b: tuple) -> bool:
     return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
 
 
-def _stream_encoding(doc, xref: int) -> tuple[str, int] | None:
+def _stream_encoding(doc: fitz.Document, xref: int) -> tuple[str, int] | None:
     """How the image at ``xref`` is **stored in the file**: its filter name and its stream length.
 
     Read from the object, not through ``Document.extract_image``. That helper returns a *portable*
@@ -631,7 +633,7 @@ def _stream_encoding(doc, xref: int) -> tuple[str, int] | None:
         return None
 
 
-def _images_under(page, boxes: list[tuple]) -> dict[tuple, tuple[str, int]]:
+def _images_under(page: fitz.Page, boxes: list[tuple]) -> dict[tuple, tuple[str, int]]:
     """Every image *placement* a redaction box overlaps, keyed by its rectangle.
 
     Keyed by **placement**, not by xref, because that is what survives the write. A page that draws
@@ -718,7 +720,7 @@ def _recode_report(before: dict[int, dict], target: str) -> dict:
     }
 
 
-def _apply(vdoc, per_page: dict[int, list[tuple]], source: str, password: str | None) -> dict:
+def _apply(vdoc: VirtualDocument, per_page: dict[int, list[tuple]], source: str, password: str | None) -> dict:
     """Attach a :class:`Redaction` per page and record what verification will expect afterwards.
 
     The "before" counts are read here, from the still-intact source, because after materialise
@@ -748,13 +750,13 @@ def _apply(vdoc, per_page: dict[int, list[tuple]], source: str, password: str | 
 
 
 def _finish(
-    vdoc,
+    vdoc: VirtualDocument,
     target: str,
     expectations: dict,
     source: str,
     password: str | None,
-    residual=None,
-    **extra,
+    residual: Callable[[str], dict] | None = None,
+    **extra: object,
 ) -> dict:
     """Write, verify, and delete the output if any check fails.
 
