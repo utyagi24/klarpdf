@@ -316,7 +316,7 @@ def test_editor_font_matches_box_and_fits_text(win):
     ov = win.view.annotations
     ov.place_textbox(win.view.scene_rect_for_box(0, (80, 100, 100, 120)).center())
     ov._editor.setPlainText("Some sample annotation text")
-    z = win.view.scale
+    z = win.view.scene_scale
     assert ov._editor.font().pixelSize() == max(1, round(11 * z))  # WYSIWYG: 11 pt × scale
     fm = QFontMetricsF(ov._editor.font())
     box_w_px = (ov._editor_rect[2] - ov._editor_rect[0]) * z
@@ -406,7 +406,7 @@ def test_bar_controls_update_overlay_style_and_editor(win):
     assert ov.current_style.fontname == "cour"
     assert ov.current_style.fontsize == 18.0
     assert ov.current_style.border_width == 1.0
-    assert ov._editor.font().pixelSize() == max(1, round(18 * win.view.scale))  # editor tracked size
+    assert ov._editor.font().pixelSize() == max(1, round(18 * win.view.scene_scale))  # editor tracked size
 
 
 def test_reedit_loads_the_box_style_into_the_bar(win):
@@ -418,7 +418,7 @@ def test_reedit_loads_the_box_style_into_the_bar(win):
     loaded = TextBoxStyle(fontname="tiro", fontsize=20.0, color=(0, 0, 1),
                           fill_color=(1, 1, 0), border_width=2.0)
     assert ov.current_style == loaded
-    assert ov._format_bar.style() == loaded
+    assert ov._format_bar.text_style() == loaded
 
 
 def test_style_only_change_on_reedit_is_committed(win):
@@ -475,7 +475,7 @@ def test_wysiwyg_preview_paints_fill_and_outline(win):
 def test_format_bar_roundtrips_style_through_controls(qapp):
     bar = TextFormatBar(None)
     bar.set_style(_STYLED)
-    assert bar.style() == _STYLED
+    assert bar.text_style() == _STYLED
     assert bar._build() == _STYLED          # controls reconstruct the same style (no dialog)
     bar.deleteLater()
 

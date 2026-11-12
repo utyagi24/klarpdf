@@ -23,6 +23,7 @@ import time
 from bisect import bisect_left, bisect_right
 from contextlib import contextmanager
 from itertools import pairwise
+from typing import TYPE_CHECKING
 
 import pymupdf as fitz
 from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, Qt, QTimer, Signal
@@ -44,6 +45,17 @@ from viewer.pixmap_cache import pixmap_cache
 from viewer.resize_handles import cursor_for
 from viewer.reveal import is_settled
 from viewer.tools import ArmedTool, InteractionMode
+
+if TYPE_CHECKING:  # named in annotations only: each of these modules imports this one
+    from collections.abc import Callable
+
+    from PySide6.QtWidgets import QMenu
+
+    from viewer.annotations import AnnotationOverlay
+    from viewer.form_fill import FormFiller
+    from viewer.links import LinkNavigator
+    from viewer.search import SearchController
+    from viewer.text_selection import TextSelection
 
 _PAGE_GAP = 14          # px between pages in the strip
 _PREFETCH = 2           # pages to render above/below the viewport, at ordinary page sizes
@@ -188,7 +200,7 @@ class _Wip:
         self.pieces: list = []
         self.seconds = 0.0
         self.pixels = 0
-        self.stand_in = None               # the store key of the picture standing in, to pin
+        self.stand_in: tuple | None = None  # the store key of the picture standing in, to pin
 
 
 class _Carried:
@@ -245,8 +257,8 @@ class PdfView(QGraphicsView):
         self._foreign_docs: dict[int, tuple] = {}
         self._pages: list[dict] = []   # per page: {bg, pix, x, y, w, h}
         # The scale the pages were laid out at. A zoom, or a screen with another DPI, changes
-        # :attr:`scale` before the scene is built again, and the old layout is read before that.
-        self._layout_scale = self.scale
+        # :attr:`scene_scale` before the scene is built again, and the old layout is read before that.
+        self._layout_scale = self.scene_scale
         # Every page's natural size, as the scene was last laid out with them (M160). A fit predicts
         # the scene it will build from these instead of reading every page again on each resize.
         self._laid_out: dict[int, tuple[float, float]] = {}
@@ -289,24 +301,24 @@ class PdfView(QGraphicsView):
         self._current = 0
         # Overlay controllers (set by MainWindow): text selection + search (M3), form fill (M14),
         # annotations (M20). They own their items and expose repaint(), called after every rebuild.
-        self.selection = None
-        self.search = None
-        self.form = None
-        self.annotations = None
-        self.links = None  # internal-link navigation (M33), set by MainWindow
+        self.selection: TextSelection | None = None
+        self.search: SearchController | None = None
+        self.form: FormFiller | None = None
+        self.annotations: AnnotationOverlay | None = None
+        self.links: LinkNavigator | None = None  # internal-link navigation (M33), set by MainWindow
         # The sticky Highlight colour, as an (r,g,b) tuple, kept in sync by MainWindow (M76.2) so
         # an armed Highlight previews the *chosen* colour under the drag — not a fixed yellow that
         # only "converts" to the real colour on release (owner report). None → the default yellow.
-        self.highlight_preview_color = None
+        self.highlight_preview_color: tuple[float, float, float] | None = None
         # Builds the right-click menu for a scene point (M46), set by MainWindow; None falls
         # through to the default QGraphicsView handling.
-        self.context_menu_provider = None
+        self.context_menu_provider: Callable[[QPointF], QMenu | None] | None = None
 
         self._mode = InteractionMode.SELECT  # SELECT (text/forms/move) vs GRAB (hand-pan) — M18
         # In-progress armed-CROP drag (M48): the anchor point, its page, and the dashed band item.
-        self._crop_anchor = None
+        self._crop_anchor: QPointF | None = None
         self._crop_page: int | None = None
-        self._crop_item = None
+        self._crop_item: QGraphicsRectItem | None = None
         # A one-shot armed insert tool (ArmedTool.TEXTBOX / .REDACT) — fires once then auto-reverts
         # to SELECT (M21). None means no tool is armed.
         self._armed: ArmedTool | None = None
@@ -407,7 +419,7 @@ class PdfView(QGraphicsView):
     # ---- display metrics: what a PDF point is worth on *this* screen (M88) ---------
 
     @property
-    def scale(self) -> float:
+    def scene_scale(self) -> float:
         """**Scene units per PDF point** — the layout scale, ``zoom × logicalDpi/72`` (M88.1).
 
         Everything that maps page points to scene coordinates uses this, not :attr:`zoom`: the page
@@ -418,7 +430,7 @@ class PdfView(QGraphicsView):
         return self._scale_at(self._zoom)
 
     def _scale_at(self, zoom: float) -> float:
-        """:attr:`scale` at ``zoom`` — the same arithmetic, so a fit can check the page it is about
+        """:attr:`scene_scale` at ``zoom`` — the same arithmetic, so a fit can check the page it is about
         to build down to the last bit (M160)."""
         return zoom * self._logical_dpi / 72.0
 
@@ -427,12 +439,12 @@ class PdfView(QGraphicsView):
         """**Device pixels per PDF point** — ``scale × devicePixelRatio`` (M88.2).
 
         The only thing this is for is rasterising: the PyMuPDF matrix and the cache key. Handing Qt
-        a pixmap rendered at :attr:`scale` on a 1.75× panel made the compositor upscale it 1.75×,
+        a pixmap rendered at :attr:`scene_scale` on a 1.75× panel made the compositor upscale it 1.75×,
         which is why text was blurry on the *higher*-resolution of the owner's two screens. Render
         here and set the same ratio on the pixmap and the geometry is untouched — Qt lays a DPR'd
-        pixmap out at its ``deviceIndependentSize()``, i.e. back at :attr:`scale`.
+        pixmap out at its ``deviceIndependentSize()``, i.e. back at :attr:`scene_scale`.
         """
-        return self.scale * self._dpr
+        return self.scene_scale * self._dpr
 
     def _refresh_display(self) -> str:
         """Re-read this view's screen metrics; name what changed (M88.3).
@@ -632,7 +644,7 @@ class PdfView(QGraphicsView):
         # so a page scrolling into view doesn't flash bright before its pixmap lands.
         page_brush = QBrush(QColor(0, 0, 0) if self._night else QColor(0xFF, 0xFF, 0xFF))
 
-        z = self.scale   # scene units per point — zoom × logicalDpi/72, not the bare zoom (M88.1)
+        z = self.scene_scale   # scene units per point — zoom × logicalDpi/72, not the bare zoom (M88.1)
         self._layout_scale = z
         self._laid_out = self._page_sizes() if sizes is None else sizes
         placed, scene_w, scene_h = self._layout(z, self._laid_out)
@@ -731,8 +743,8 @@ class PdfView(QGraphicsView):
                                   abs(scene_pt.x() - (c[1]["x"] + c[1]["w"])))),
         )
         i, p = chosen
-        dx = (scene_pt.x() - p["x"]) / self.scale
-        dy = (scene_pt.y() - p["y"]) / self.scale
+        dx = (scene_pt.x() - p["x"]) / self.scene_scale
+        dy = (scene_pt.y() - p["y"]) / self.scene_scale
         w, h = self._unrotated_size(i)
         lx, ly = self._point_to_source(w, h, self._display_rotation(i), dx, dy)
         ox, oy = self._crop_origin(i)  # displayed frame → content coords
@@ -743,7 +755,7 @@ class PdfView(QGraphicsView):
         per-page rotation so overlays align with the displayed (spun) page. ``box`` is in content
         coords; a crop override shifts the displayed frame, so its origin is subtracted first."""
         p = self._pages[page_index]
-        z = self.scale
+        z = self.scene_scale
         w, h = self._unrotated_size(page_index)
         ox, oy = self._crop_origin(page_index)
         box = (box[0] - ox, box[1] - oy, box[2] - ox, box[3] - oy)
@@ -756,7 +768,7 @@ class PdfView(QGraphicsView):
         the redaction rubber-band and the crop drag to record the marked region in the coordinate
         space the materialise pass works in."""
         p = self._pages[page_index]
-        z = self.scale
+        z = self.scene_scale
         w, h = self._unrotated_size(page_index)
         rot = self._display_rotation(page_index)
         ox, oy = self._crop_origin(page_index)
@@ -781,7 +793,7 @@ class PdfView(QGraphicsView):
         total = self._display_rotation(page_index)
         tr = QTransform()
         tr.translate(p["x"], p["y"])
-        tr.scale(self.scale, self.scale)
+        tr.scale(self.scene_scale, self.scene_scale)
         # Compose the same unrotated→display mapping as _box_to_display (Qt applies the last-added
         # op to the point first), so a point (x,y) lands exactly where scene_rect_for_box puts it.
         if total == 90:
@@ -802,8 +814,8 @@ class PdfView(QGraphicsView):
         clamped). Unlike :meth:`page_and_local_at` it targets a fixed page, so a drag that strays
         past the page edge still maps to that page's frame — used by the text-box move."""
         p = self._pages[page_index]
-        dx = (scene_pt.x() - p["x"]) / self.scale
-        dy = (scene_pt.y() - p["y"]) / self.scale
+        dx = (scene_pt.x() - p["x"]) / self.scene_scale
+        dy = (scene_pt.y() - p["y"]) / self.scene_scale
         w, h = self._unrotated_size(page_index)
         lx, ly = self._point_to_source(w, h, self._display_rotation(page_index), dx, dy)
         ox, oy = self._crop_origin(page_index)
@@ -1011,6 +1023,8 @@ class PdfView(QGraphicsView):
         * anything **already selected** — having selected a mark, dragging it should move it rather
           than fall through to whatever sits underneath.
         """
+        if self.annotations is None:  # no overlay wired: nothing of ours to grab
+            return False
         hit = self.annotations.drawn_mark_at(scene_pt)
         if hit is None:
             return False
@@ -1934,7 +1948,7 @@ class PdfView(QGraphicsView):
         values = self._vdoc.form_values
         has_fills = bool(values) and any(
             w.field_name in values
-            for page in self._vdoc.sources[source_id]
+            for page in self._vdoc.sources[source_id].pages()
             for w in (page.widgets() or [])
         )
         has_ours = self._vdoc.source_has_klarpdf_annotations(source_id)
@@ -1946,7 +1960,7 @@ class PdfView(QGraphicsView):
         if has_fills:
             apply_form_values(doc, values)
         if has_ours:
-            for page in doc:
+            for page in doc.pages():
                 strip_klarpdf_annotations(page)
         return doc
 
@@ -2067,7 +2081,7 @@ class PdfView(QGraphicsView):
         shifted = (visible[0] - crop[0], visible[1] - crop[1],
                    visible[2] - crop[0], visible[3] - crop[1])
         d = self._box_to_display(w, h, self._display_rotation(index), shifted)
-        return QPointF(d[0] * self.scale, d[1] * self.scale)
+        return QPointF(d[0] * self.scene_scale, d[1] * self.scene_scale)
 
     def _visible_range(self) -> tuple[int, int]:
         """The pages intersecting the viewport — see :meth:`_pages_in`."""
@@ -2102,7 +2116,8 @@ class PdfView(QGraphicsView):
         start = max(0, bisect_right(self._page_tops, top) - 1)
         while start > 0 and self._page_tops[start - 1] == self._page_tops[start]:
             start -= 1
-        first, last = None, None
+        first: int | None = None
+        last = start                     # set with `first`, and read only when it is
         for i in range(start, len(self._pages)):
             page = self._pages[i]
             if page["y"] > bottom - 1:
@@ -2262,9 +2277,9 @@ class PdfView(QGraphicsView):
         if chosen is not None:
             pixmap = self._cache.get(chosen)
             # The picture lays out at chosen[1] / its own pixel ratio scene units per point, and
-            # the page is now self.scale. Not the ratio of the two keys: a picture from the other
+            # the page is now self.scene_scale. Not the ratio of the two keys: a picture from the other
             # screen carries that screen's ratio.
-            self._hang(index, pixmap, self.scale * pixmap.devicePixelRatio() / chosen[1])
+            self._hang(index, pixmap, self.scene_scale * pixmap.devicePixelRatio() / chosen[1])
         carried = self._carried.get(index)
         if carried is not None and carried.total == key[2]:
             sharpness = carried.pixmap.width() / max(1e-9, carried.rect.width())  # px per point
@@ -2280,12 +2295,12 @@ class PdfView(QGraphicsView):
             item.setZValue(1)          # above the store's stand-in, below the pieces
             item.setTransformationMode(Qt.TransformationMode.SmoothTransformation)
         item.setPixmap(carried.pixmap)
-        item.setPos(carried.rect.x() * self.scale, carried.rect.y() * self.scale)
+        item.setPos(carried.rect.x() * self.scene_scale, carried.rect.y() * self.scene_scale)
         # Its size without its pixel ratio: a page's own picture has the screen's, where a picture
         # painted from the pieces has none. Counted as its pixels, it showed at half size on a
         # screen with two pixels to a point.
         width = carried.pixmap.deviceIndependentSize().width()
-        item.setScale(carried.rect.width() * self.scale / max(1e-9, width))
+        item.setScale(carried.rect.width() * self.scene_scale / max(1e-9, width))
         self._painted.add(index)
         self._stand_ins.add(index)
 
@@ -2367,7 +2382,7 @@ class PdfView(QGraphicsView):
         # then drawn whole. A smaller first piece would be mostly the fixed part of a piece's cost,
         # and would make a quick page look slow.
         window = self.viewport().width() * self.viewport().height() * self._dpr * self._dpr
-        sizer = Sizer(_DRAW_BUDGET_S, self._draw_rate.get(index), first=max(1, window // (TILE * TILE)))
+        sizer = Sizer(_DRAW_BUDGET_S, self._draw_rate.get(index), first=max(1, int(window // (TILE * TILE))))
         wip = self._wip[index] = _Wip(key, Tiles(*shown), sizer, page, clip, total,
                                       (whole.x0, whole.y0), (wide, high))
         return wip
@@ -2570,7 +2585,7 @@ class PdfView(QGraphicsView):
             except Exception:  # noqa: BLE001 — as _render_pixmap: a page that cannot be drawn stays blank
                 return None
             self._cache.put(key, pixmap)
-        self._hang(index, pixmap, self.scale * pixmap.devicePixelRatio() / low)
+        self._hang(index, pixmap, self.scene_scale * pixmap.devicePixelRatio() / low)
         return key
 
     def _carry(self, index: int, factor: float = 1.0) -> None:
@@ -3031,21 +3046,22 @@ class PdfView(QGraphicsView):
 
     def _cancel_crop_drag(self) -> None:
         """Drop the band without emitting, so nothing is committed."""
-        if not self.cropping:
+        item = self._crop_item
+        if item is None:                 # not cropping
             return
-        if self._crop_item.scene() is self.scene():
-            self.scene().removeItem(self._crop_item)
+        if item.scene() is self.scene():
+            self.scene().removeItem(item)
         self._crop_item = self._crop_anchor = self._crop_page = None
 
     def update_crop_drag(self, scene_pt) -> None:
-        if self._crop_item is not None:
+        if self._crop_item is not None and self._crop_anchor is not None:
             self._crop_item.setRect(QRectF(self._crop_anchor, scene_pt).normalized())
 
     def finish_crop_drag(self) -> None:
         """End the drag: drop the band and emit ``cropDragged`` with the kept area in content
         coords (clamped to the page by ``local_box_from_scene_rect``). A sub-8-point drag is
         discarded as accidental — an 8pt-tall page is not a plausible crop."""
-        if self._crop_item is None:
+        if self._crop_item is None or self._crop_page is None:   # set together, in begin_crop_drag
             return
         page_index, rect = self._crop_page, self._crop_item.rect()
         if self._crop_item.scene() is self.scene():
@@ -3310,7 +3326,7 @@ class PdfView(QGraphicsView):
         Ctrl+0 used to mean "1 PDF point per logical pixel", which drew a Letter page 6.375" wide
         and so made the menu item's name a lie. It now means what it says: hold a ruler to the
         screen and an 8.5" page measures 8.5". Nothing here changed — the re-basing is in
-        :attr:`scale`, which is the point of routing every magnification through one definition.
+        :attr:`scene_scale`, which is the point of routing every magnification through one definition.
         """
         self.set_zoom(1.0)
 
@@ -3381,7 +3397,7 @@ class PdfView(QGraphicsView):
         """The zoom that fits the current row to a ``width`` × ``height`` viewport.
 
         The division yields scene units per point; dividing by the DPI factor converts that back to
-        a magnification, because :attr:`scale` multiplies it straight back in when the scene is
+        a magnification, because :attr:`scene_scale` multiplies it straight back in when the scene is
         built (M88.1). Skip that and Fit Page would overshoot the viewport by 1.333×.
 
         **The page it builds is never a hair over** (M160). Multiplying back does not always undo

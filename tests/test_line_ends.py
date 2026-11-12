@@ -123,7 +123,7 @@ def test_selecting_a_line_loads_its_ends_into_the_picker(win):
     win.view.reload()
     win.view.annotations.repaint()
     win._on_object_selected(line)
-    assert win._line_style_button.style().line_ends == (True, True)
+    assert win._line_style_button.chosen_style().line_ends == (True, True)
 
 
 def test_from_mark_reads_line_ends():

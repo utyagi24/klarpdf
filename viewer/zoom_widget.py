@@ -24,23 +24,27 @@ class ZoomWidget(QComboBox):
         super().__init__(parent)
         self._view = view
         self.setEditable(True)
+        edit = self.lineEdit()
+        if edit is None:  # setEditable(True) has just made it
+            raise RuntimeError("an editable QComboBox has no line edit")
+        self._edit = edit
         self.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)  # typed values never grow the list
         self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self.setToolTip("Zoom level — pick a preset or type a percentage")
-        self.lineEdit().setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setFixedWidth(72)
         for factor in _PRESETS:
             self.addItem(f"{round(factor * 100)}%", factor)
 
         self.activated.connect(self._apply_index)              # user chose a preset
-        self.lineEdit().editingFinished.connect(self._apply_text)  # user typed a value
+        self._edit.editingFinished.connect(self._apply_text)  # user typed a value
         view.zoomChanged.connect(self.show_zoom)
         self.show_zoom(view.zoom)
 
     def show_zoom(self, zoom: float) -> None:
         """Reflect the view's current zoom in the edit field (no signal feedback)."""
         text = f"{round(zoom * 100)}%"
-        if self.lineEdit().text() != text:
+        if self._edit.text() != text:
             self.setEditText(text)
 
     def _apply_index(self, index: int) -> None:
@@ -49,7 +53,7 @@ class ZoomWidget(QComboBox):
             self._view.set_zoom(float(factor))
 
     def _apply_text(self) -> None:
-        raw = self.lineEdit().text().strip().rstrip("%").strip()
+        raw = self._edit.text().strip().rstrip("%").strip()
         try:
             percent = float(raw)
         except ValueError:

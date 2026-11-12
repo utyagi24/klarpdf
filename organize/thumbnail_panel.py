@@ -112,7 +112,7 @@ class ThumbnailPanel(QListWidget):
         # Lazy thumbnails: items get a cheap placeholder up front and their real page is rasterised
         # only when scrolled into view, so opening a many-page document doesn't render every page.
         self._rendered: set[int] = set()            # rows whose real thumbnail has been rendered
-        self._baked = None                          # edits-applied render doc, kept open for lazy use
+        self._baked: fitz.Document | None = None    # edits-applied render doc, kept open for lazy use
         self._layout_key: list = []                 # which page sits in which row (see _carryable_icons)
         self.verticalScrollBar().valueChanged.connect(self._render_visible_thumbs)
 

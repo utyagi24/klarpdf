@@ -424,7 +424,7 @@ def test_a_link_lands_on_the_spot_its_destination_names(app, tmp_path):
     win.view.links.navigate_at(_center_of(win.view, 0, _GOTO_BOX))
     page = win.view._pages[3]
     content_y = 792.0 - 57.75                       # PDF y up -> content y down
-    expected = int(page["y"] + content_y * win.view.scale) - 14   # _PAGE_GAP
+    expected = int(page["y"] + content_y * win.view.scene_scale) - 14   # _PAGE_GAP
     assert win.view.verticalScrollBar().value() == pytest.approx(expected, abs=2)
     assert win.view.verticalScrollBar().value() > _top_of(win.view, 3), \
         "the spot is below the page top, so the view must be past it"
@@ -544,7 +544,7 @@ def test_a_destination_below_the_page_is_pulled_back_onto_it(app, tmp_path):
     win = app.open_document(path)
     win.view.links.navigate_at(_center_of(win.view, 0, _GOTO_BOX))
     bar = win.view.verticalScrollBar()
-    bottom = int(win.view._pages[3]["y"] + 792.0 * win.view.scale) - 14
+    bottom = int(win.view._pages[3]["y"] + 792.0 * win.view.scene_scale) - 14
     assert bottom < bar.maximum(), "the fixture must leave room below, or the bar clamps for us"
     assert bar.value() == pytest.approx(bottom, abs=2)
 

@@ -25,6 +25,7 @@ not WSL-only code: closing a hidden popup is what Esc already does on every plat
 from __future__ import annotations
 
 from functools import partial
+from typing import cast
 
 from PySide6.QtCore import QEvent, QObject, Qt, QTimer
 from PySide6.QtWidgets import QApplication, QWidget
@@ -37,11 +38,12 @@ class PopupCloser(QObject):
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:
         # Every event in the app passes through here, so the cheapest test goes first. Measured:
         # this adds 0.4 µs to an event.
-        if event.type() == _HIDE and obj.isWidgetType() and obj.windowType() == _POPUP:
+        # `isWidgetType()` is cheaper than `isinstance`; mypy is told what it proved.
+        if event.type() == _HIDE and obj.isWidgetType() and cast(QWidget, obj).windowType() == _POPUP:
             # Not now: Qt is still hiding it, and the menu bar opens the next menu straight
             # after. The timer belongs to the popup, so it is dropped if the popup is deleted
             # first.
-            QTimer.singleShot(0, obj, partial(_close_if_hidden, obj))
+            QTimer.singleShot(0, obj, partial(_close_if_hidden, cast(QWidget, obj)))
         return False
 
 

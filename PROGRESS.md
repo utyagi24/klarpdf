@@ -1417,7 +1417,17 @@ parts, and the box here is ticked on merge. Build in number order, except that M
     which the plan did not list: mypy then reads the types of PyMuPDF's attributes from
     PyMuPDF's own code. Details, and what M172 cost and caught for M173's decision, in
     `PLAN.md` §M172 — [#452](https://github.com/utyagi24/klarpdf/pull/452)
-- [ ] **M173** **Types for the app**: go or no-go, decided after M172. *App.*
+- [ ] **M173** **Types for the app**: mypy over the app's code, as Windows and as Linux. *App.*
+  The owner decided go, both parts, on 2026-11-11.
+  - [x] **M173.1** **The app checked, every error cleared.** mypy now checks the app's 43 files
+    as well as `klarpdf/`, twice: as Windows and as Linux, because a few lines run on one only.
+    `invoke typecheck` runs both, and the `typecheck` CI job runs it. mypy reported 136 errors,
+    62 of them a part of a window that stays empty until the window is built. All are cleared,
+    with three suppressions where PySide6's types refuse a `None` that Qt accepts. Three names
+    hid one of Qt's own methods, and are renamed: the page view's `scale` is `scene_scale`, and
+    the style controls' `style()` is `chosen_style()` and `text_style()`. Nothing a user sees
+    changes. Details in `PLAN.md` §M173 — [#454](https://github.com/utyagi24/klarpdf/pull/454)
+  - [ ] **M173.2** Every function in the app states its types (297 functions)
 
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 
@@ -5063,8 +5073,10 @@ it on this side of the line.
   returns, mostly a tool's reply. The honest type for those names each key. 17 of the `tuple`s
   are a page's `annotations`, which would pay most: every use of a mark taken from one would
   then be checked, and `Mark` already names what it holds (M172.2). **Open question:** whether to
-  do it, all of it or the `annotations` tuples alone, and when. It fits beside M173's decision,
-  because the app is the main user of those tuples. `PLAN.md` §M172.
+  do it, all of it or the `annotations` tuples alone, and when. The owner chose to decide it after
+  M173.1, once the app's count was known (2026-11-11). Measured then: 150 in the app and 290 in
+  `klarpdf/`. The app's count is a floor, because M173.2 adds annotations. Only 2 of the app's
+  150 are a page's marks list. `PLAN.md` §M172, §M173.
 - **Move a text box up at the bottom of the page, as Edge does?** (M166, deferred by the owner
   2026-11-07). When a box gains lines at the bottom of the page, by narrowing it, typing or a
   bigger font, it now grows only to the page edge, and lines that still do not fit are cut off,

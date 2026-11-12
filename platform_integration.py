@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import getpass
 import sys
+from collections.abc import Callable
 
 #: Name of the Windows mutex held for the lifetime of a *running* KlarPDF.
 #:
@@ -117,6 +118,8 @@ def _raise_to_front_win32(window) -> None:
     nudge — no native-window recreation (hence no flicker). Best-effort: any failure (e.g. an
     offscreen window with no real HWND) is ignored, leaving the portable ``raise_``/``activateWindow``
     above as the result."""
+    if sys.platform != "win32":  # its one caller checks too; this lets a Linux type check skip it
+        return
     try:
         import ctypes
 
@@ -176,7 +179,7 @@ HARMLESS_WAYLAND_LINES = frozenset({
 })
 
 # The message handler that was in place before ours. None is Qt's own printer.
-_passed_on = None
+_passed_on: Callable[..., object] | None = None
 
 
 def quiet_harmless_qt_lines(app) -> bool:
@@ -199,7 +202,7 @@ def _install_line_filter() -> None:
 
     previous = qInstallMessageHandler(_filter_qt_line)
     if previous is not _filter_qt_line:  # a second install must not make it call itself
-        _passed_on = previous
+        _passed_on = previous if callable(previous) else None
 
 
 def _filter_qt_line(msg_type, context, message: str) -> None:

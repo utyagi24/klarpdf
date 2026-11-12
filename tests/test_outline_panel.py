@@ -309,7 +309,7 @@ def test_an_entry_lands_on_the_spot_its_bookmark_names(app, positioned_outline_p
     so a bookmark that named a spot was read for its page and nothing else."""
     win = app.open_document(positioned_outline_pdf)
     _activate(win, 1)                                    # /XYZ 40 600 on page 2
-    expected = int(win.view._pages[1]["y"] + (792.0 - 600.0) * win.view.scale) - 14
+    expected = int(win.view._pages[1]["y"] + (792.0 - 600.0) * win.view.scene_scale) - 14
     assert win.view.verticalScrollBar().value() == pytest.approx(expected, abs=2)
     assert win.view.verticalScrollBar().value() > _top_of(win.view, 1)
 
@@ -319,7 +319,7 @@ def test_a_fith_entry_uses_its_top(app, positioned_outline_pdf):
     and ``set_toc`` cannot write at all, so before M150 it reached the panel as a bare page."""
     win = app.open_document(positioned_outline_pdf)
     _activate(win, 2)
-    expected = int(win.view._pages[2]["y"] + (792.0 - 200.0) * win.view.scale) - 14
+    expected = int(win.view._pages[2]["y"] + (792.0 - 200.0) * win.view.scene_scale) - 14
     assert win.view.verticalScrollBar().value() == pytest.approx(expected, abs=2)
 
 
@@ -333,7 +333,7 @@ def test_the_spot_follows_a_reorder_with_its_page(app, positioned_outline_pdf):
     rows = _items(win)
     assert ("Entry 1", 2) in rows         # it followed the move
     _activate(win, rows.index(("Entry 1", 2)))
-    expected = int(win.view._pages[2]["y"] + (792.0 - 600.0) * win.view.scale) - 14
+    expected = int(win.view._pages[2]["y"] + (792.0 - 600.0) * win.view.scene_scale) - 14
     assert win.view.verticalScrollBar().value() == pytest.approx(expected, abs=2)
 
 
@@ -351,7 +351,7 @@ def test_a_spot_near_the_end_of_the_document_scrolls_as_far_as_it_can(app, posit
     rows = _items(win)
     _activate(win, rows.index(("Entry 1", 3)))
     bar = win.view.verticalScrollBar()
-    wanted = int(win.view._pages[3]["y"] + (792.0 - 600.0) * win.view.scale) - 14
+    wanted = int(win.view._pages[3]["y"] + (792.0 - 600.0) * win.view.scene_scale) - 14
     assert wanted > bar.maximum()         # the fixture really does ask for more than there is
     assert bar.value() == bar.maximum()
 

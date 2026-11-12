@@ -15,15 +15,20 @@ discoverable.
 
 from __future__ import annotations
 
-import pymupdf as fitz
 from PySide6.QtCore import QRect
 from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import QComboBox, QGraphicsRectItem, QLineEdit
 
 from klarpdf.model.page_edits import read_form_fields
+from klarpdf.model.pymupdf_constants import (
+    PDF_WIDGET_TYPE_CHECKBOX,
+    PDF_WIDGET_TYPE_COMBOBOX,
+    PDF_WIDGET_TYPE_LISTBOX,
+    PDF_WIDGET_TYPE_TEXT,
+)
 
 _FIELD_TINT = QColor(70, 130, 180, 40)  # faint steel-blue wash marking a fillable field
-_CHOICE_TYPES = {fitz.PDF_WIDGET_TYPE_COMBOBOX, fitz.PDF_WIDGET_TYPE_LISTBOX}
+_CHOICE_TYPES = {PDF_WIDGET_TYPE_COMBOBOX, PDF_WIDGET_TYPE_LISTBOX}
 # "Off"/False/empty all read as unchecked; anything else is checked. 0 is in the set too, because
 # it equals False.
 _UNCHECKED = {None, "", "Off", "off", False}
@@ -35,7 +40,7 @@ class FormFiller:
         self._on_edit = on_edit          # callback(field_name, value) -> pushes the undo command
         self._fields = read_form_fields(view._vdoc)
         self._items: list[QGraphicsRectItem] = []
-        self._editor = None              # the live inline QLineEdit/QComboBox, if any
+        self._editor: QLineEdit | QComboBox | None = None  # the live inline editor, if any
         self._editor_field = None        # the field it edits — so it can follow zoom/scroll
 
     # ---- field lookup -----------------------------------------------------------
@@ -65,12 +70,12 @@ class FormFiller:
         if field is None:
             return False
         self._close_editor()
-        if field.type == fitz.PDF_WIDGET_TYPE_CHECKBOX:
+        if field.type == PDF_WIDGET_TYPE_CHECKBOX:
             checked = self._current_value(field) not in _UNCHECKED
             self._on_edit(field.name, not checked)  # toggle
         elif field.type in _CHOICE_TYPES:
             self._open_combo(field)
-        elif field.type == fitz.PDF_WIDGET_TYPE_TEXT:
+        elif field.type == PDF_WIDGET_TYPE_TEXT:
             self._open_text(field)
         else:
             return False  # radio etc. — not inline-editable yet; let the view handle the click

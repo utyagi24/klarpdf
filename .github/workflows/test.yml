@@ -228,15 +228,15 @@ jobs:
         run: ruff check --output-format=github .
 
   # ---------------------------------------------------------------------------------------------
-  # M172 — mypy, at the dev lock's pin, over klarpdf/ (the wheel).
+  # M172, M173 — mypy, at the dev lock's pin, over klarpdf/ (the wheel) and the app.
   #
-  # mypy reads the packages klarpdf/ imports, so they have to be installed. They come from the
-  # BRIDGE's lock, because that is what a user of the wheel gets, and it carries no Qt. mypy is
-  # not in that lock (it ships in nothing), so it comes from the dev lock, like Ruff above.
+  # mypy reads the packages the code imports, so they have to be installed. The app needs Qt, so
+  # this installs the dev lock, which is what `invoke lint` uses locally. Until M173 it installed
+  # the bridge's lock, which has no Qt. For klarpdf/ the answer is the same: the two locks pin
+  # every package they share to one version (tests/test_mcp_packaging.py, M159).
   #
-  # One Linux job is enough for klarpdf/. mypy skips an `if sys.platform == "win32":` branch when it
-  # runs on Linux, but klarpdf/ may not have one: Ruff's TID251 bans `sys.platform` there. The
-  # app does have them, so M173 has to choose a platform if it goes ahead.
+  # One Linux job, though the app has Windows-only lines: `invoke typecheck` runs mypy twice, as
+  # Windows and as Linux. mypy does not run the code, so the machine it runs on does not matter.
   #
   # No gate step, for `lint`'s reason: this is to be a required check (PLAN.md §M172), and a
   # required check must report on every PR (G7). The whole job takes under a minute.
@@ -249,19 +249,12 @@ jobs:
         with:
           python-version: "3.12"
 
-      # mypy's own dependencies come at the dev lock's pins too, by using that lock as pip's
-      # constraints. pip refuses an extra in a constraints file, and the lock has one
-      # (`pyjwt[crypto]`), so the extras are taken off the copy pip reads.
-      - name: Install the bridge's lock, and mypy at the dev lock's pin
-        run: |
-          pin=$(grep -E '^mypy==' requirements-dev.txt) || { echo "requirements-dev.txt pins no mypy" >&2; exit 1; }
-          sed -E 's/\[[^]]+\]//' requirements-dev.txt > "$RUNNER_TEMP/dev-pins.txt"
-          pip install -r requirements-mcp.txt
-          pip install -c "$RUNNER_TEMP/dev-pins.txt" "$pin"
+      - name: Install the dev lock (mypy, Qt, and what klarpdf/ imports)
+        run: pip install -r requirements-dev.txt
 
-      # No arguments: `[tool.mypy]` in pyproject.toml names what is checked and how.
-      - name: mypy
-        run: mypy
+      # `[tool.mypy]` in pyproject.toml names what is checked and how; the task names the platforms.
+      - name: mypy, as Windows and as Linux
+        run: invoke typecheck
 
   # ---------------------------------------------------------------------------------------------
   # M115.1 — run the bridge's OWN lock, which nothing had ever executed.

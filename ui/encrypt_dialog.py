@@ -11,7 +11,6 @@ in widget memory only. Lazy-imported by ``main_window``.
 
 from __future__ import annotations
 
-import pymupdf as fitz
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -22,15 +21,26 @@ from PySide6.QtWidgets import (
     QRadioButton,
 )
 
+from klarpdf.model.pymupdf_constants import (
+    PDF_PERM_ACCESSIBILITY,
+    PDF_PERM_ANNOTATE,
+    PDF_PERM_ASSEMBLE,
+    PDF_PERM_COPY,
+    PDF_PERM_FORM,
+    PDF_PERM_MODIFY,
+    PDF_PERM_PRINT,
+    PDF_PERM_PRINT_HQ,
+)
+
 # The advisory flag groups. Accessibility extraction stays always-allowed (never a checkbox —
 # restricting screen readers hurts real people and stops no determined copier).
-_BASE = fitz.PDF_PERM_ACCESSIBILITY
+_BASE = PDF_PERM_ACCESSIBILITY
 FLAG_GROUPS = (
-    ("Allow printing", fitz.PDF_PERM_PRINT | fitz.PDF_PERM_PRINT_HQ),
-    ("Allow copying text and images", fitz.PDF_PERM_COPY),
+    ("Allow printing", PDF_PERM_PRINT | PDF_PERM_PRINT_HQ),
+    ("Allow copying text and images", PDF_PERM_COPY),
     (
         "Allow editing and form filling",
-        fitz.PDF_PERM_MODIFY | fitz.PDF_PERM_ANNOTATE | fitz.PDF_PERM_FORM | fitz.PDF_PERM_ASSEMBLE,
+        PDF_PERM_MODIFY | PDF_PERM_ANNOTATE | PDF_PERM_FORM | PDF_PERM_ASSEMBLE,
     ),
 )
 

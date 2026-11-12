@@ -32,8 +32,8 @@ class _SnapshotCommand(QUndoCommand):
     def __init__(self, vdoc: VirtualDocument, text: str) -> None:
         super().__init__(text)
         self._vdoc = vdoc
-        self._before = None
-        self._after = None
+        self._before: tuple | None = None   # both taken on the first redo, which the stack runs on push
+        self._after: tuple | None = None
 
     def _apply(self) -> None:  # pragma: no cover - overridden
         raise NotImplementedError
@@ -47,7 +47,8 @@ class _SnapshotCommand(QUndoCommand):
             self._vdoc.restore(self._after)
 
     def undo(self) -> None:
-        self._vdoc.restore(self._before)
+        if self._before is not None:
+            self._vdoc.restore(self._before)
 
 
 class MovePagesCommand(_SnapshotCommand):

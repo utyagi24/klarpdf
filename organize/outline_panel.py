@@ -155,7 +155,7 @@ class OutlinePanel(QTreeWidget):
         if best is not None and current is not None and current.data(0, _PAGE_ROLE) == best_page:
             return  # the highlighted entry (e.g. just clicked) already matches — don't reshuffle ties
         self._syncing = True
-        self.setCurrentItem(best)  # None clears the selection
+        self.setCurrentItem(best)  # type: ignore[arg-type]  # None clears it; PySide6's types leave None out
         if best is not None:
             self.scrollToItem(best)
         self._syncing = False

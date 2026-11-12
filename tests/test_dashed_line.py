@@ -149,7 +149,7 @@ def test_selecting_a_dashed_mark_loads_it_into_the_picker(win):
     win.view.reload()
     win.view.annotations.repaint()
     win._on_object_selected(line)
-    assert win._line_style_button.style().dashed is True
+    assert win._line_style_button.chosen_style().dashed is True
 
 
 def test_from_mark_reads_dashed():
@@ -204,5 +204,5 @@ def test_width_and_dash_are_independent_radio_groups():
     btn = LineStylingButton()
     btn._set_width(4.0)
     btn._set_dashed(True)
-    assert btn.style().width == 4.0 and btn.style().dashed is True
+    assert btn.chosen_style().width == 4.0 and btn.chosen_style().dashed is True
     assert btn._width_actions[4.0].isChecked() and btn._dash_actions[True].isChecked()

@@ -245,12 +245,14 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   run with many failures that need digging through. Even then, `pytest -rf --tb=line`, one line per
   failure, is usually cheaper.
 
-- **Run Ruff and mypy before a push, and give every suppression a reason** (M167, M172).
+- **Run Ruff and mypy before a push, and give every suppression a reason** (M167, M172, M173).
   `invoke lint` runs the pinned Ruff, with the same version and rules as the required `lint`
-  check. It then runs the pinned mypy over `klarpdf/`, as the `typecheck` check does. Ruff takes
-  under a second. mypy takes about 4 seconds the first time and well under one after that. mypy
-  checks the wheel only, not the app (`PLAN.md` §M172). There, every function says what it takes
-  and what it returns, and mypy refuses one that does not (M172.2). Use the names the core has
+  check. It then runs `invoke typecheck`, as the `typecheck` check does: the pinned mypy over
+  `klarpdf/` and the app, twice, as Windows and as Linux. A few lines of the app run on one
+  platform only, and mypy skips the other's. Ruff takes under a second. Each mypy run takes about
+  5 seconds the first time and well under one after that. In `klarpdf/`, every function says what
+  it takes and what it returns, and mypy refuses one that does not (M172.2). The app follows in
+  M173.2. Use the names the core has
   for the kinds of mark (`TextMarkup`, `AdditiveMark`, `Mark` in `klarpdf/model/page_edits.py`),
   and `object` only where a function is written to take anything.
   `invoke lint --fix` also sorts imports and makes Ruff's other safe fixes. A line over 120
@@ -358,10 +360,17 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   copies names such as `PDF_ANNOT_HIGHLIGHT` in with a loop when it is imported, so they exist
   when the code runs and are missing from its types. In `klarpdf/`, import them from
   `klarpdf/model/pymupdf_constants.py`, and add a line there for a new one. `fitz.PDF_…` fails
-  the `typecheck` check there. The app and the tests are not type-checked and still write
-  `fitz.PDF_…`. PyMuPDF's types have one more gap: a `Rect` and a `Document` can be looped
-  over, and mypy says they cannot. In `klarpdf/`, read a rect's four numbers by name and use
+  the `typecheck` check there and in the app (M173). Only the tests, which are not type-checked,
+  still write `fitz.PDF_…`. PyMuPDF's types have one more gap: a `Rect` and a `Document` can be
+  looped over, and mypy says they cannot. Read a rect's four numbers by name and use
   `doc.pages()` (`PLAN.md` §M172).
+- **A method or property named like one of Qt's own hides it.** The page view's `scale`
+  property hid `QGraphicsView.scale()`, and two style controls' `style()` hid `QWidget.style()`,
+  until M173 renamed them. Nothing called Qt's versions on those objects, so nothing broke, but
+  the next call would have. mypy reports it as `[override]`: pick another name rather than
+  suppress it. Check the new name with the dead-code test too. vulture matches names only, so a
+  name another class already uses counts as used, and the first new name for `style()` hid an
+  unused method that way (`PLAN.md` §M173).
 - **An annotation crashes once its page is gone.** `doc[0].first_annot` lets the page be collected,
   and an annotation only holds a weak reference to it. Then `.rect` is a Windows access violation
   that takes down the whole test run, and `.parent` is a `ReferenceError`. Keep the page in a

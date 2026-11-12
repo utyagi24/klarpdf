@@ -17,6 +17,7 @@ from __future__ import annotations
 import os
 import tempfile
 from dataclasses import replace
+from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QEvent, QRect, QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QActionGroup, QCursor, QGuiApplication, QKeySequence, QUndoStack
@@ -62,6 +63,7 @@ from klarpdf.model.page_edits import (
     Redaction,
     Strikeout,
     TextBox,
+    TextMarkup,
     Underline,
     mark_bounds,
     marks_over,
@@ -101,6 +103,10 @@ from viewer.search import FindBar, SearchController, SearchResultsPanel
 from viewer.text_selection import TextSelection
 from viewer.tools import REDACT_TOOLS, ArmedTool, InteractionMode
 from viewer.zoom_widget import ZoomWidget
+
+if TYPE_CHECKING:  # imported where they are built, so a document that needs neither never loads them
+    from organize.annotations_panel import AnnotationsPanel
+    from organize.outline_panel import OutlinePanel
 
 # Preference key for the sticky mark style. Style only — never the page range, whose stale value
 # would silently re-scope the next mark to a whole document (see ui.mark_dialog).
@@ -217,12 +223,13 @@ class MainWindow(QMainWindow):
         # the very first drag, before any colour menu is touched, is already the right colour.
         self.view.highlight_preview_color = self._highlight_color
         # Text selection + search overlays live on the view (M3); form-fill overlay (M14).
-        self.view.selection = TextSelection(self.view)
-        self.view.search = SearchController(self.view)
-        self.view.form = FormFiller(self.view, self._set_field_value)
-        self.view.links = LinkNavigator(self.view)  # click links: internal jumps (M33), web opens (M149)
+        self._text_selection = self.view.selection = TextSelection(self.view)
+        self._search = self.view.search = SearchController(self.view)
+        self._form_filler = self.view.form = FormFiller(self.view, self._set_field_value)
+        # Click a link: an internal one jumps (M33), a web one opens (M149).
+        self._link_nav = self.view.links = LinkNavigator(self.view)
         self.view.externalLinkClicked.connect(self._open_external_link)
-        self.view.annotations = AnnotationOverlay(
+        self._overlay = self.view.annotations = AnnotationOverlay(
             self.view, self._add_annotation, self._remove_annotation, self._replace_annotation,
             self._on_object_selected, self._replace_annotations_batch, self._remove_annotations_batch,
             self._nudge_annotations,
@@ -230,7 +237,7 @@ class MainWindow(QMainWindow):
         # PdfView built its scene in __init__ (before this overlay existed), and the first show's
         # fit/restore can early-return without a rebuild — so paint any annotations the document was
         # opened with (round-tripped from a prior save, M31) now that the overlay is wired.
-        self.view.annotations.repaint()
+        self._overlay.repaint()
         self.view.armedChanged.connect(self._on_armed_changed)
         self.view.applyTextTool.connect(self._apply_text_tool)
         self.view.cropDragged.connect(self._on_crop_dragged)
@@ -255,9 +262,9 @@ class MainWindow(QMainWindow):
 
         self.thumbs = ThumbnailPanel(self.vdoc)
         self.thumbs.source_key = normalize_path(path)  # identity for cross-window drag/drop
-        self.outline = None  # OutlinePanel — exists only while the document has an outline (M45)
+        self.outline: OutlinePanel | None = None  # exists only while the document has an outline (M45)
         # AnnotationsPanel (M77) — exists only while the document has marks (same owner rule).
-        self.annotations_panel = None
+        self.annotations_panel: AnnotationsPanel | None = None
         # Per-source-page "does it carry foreign annotations at all?" — scanned once, because the
         # in-memory sources are immutable in-session (foreign edits are descriptors on the refs).
         # Keyed by (source_id, source_page_index); cleared on _reset_to_file (fresh bytes).
@@ -360,7 +367,7 @@ class MainWindow(QMainWindow):
             from organize.annotations_panel import AnnotationsPanel  # lazy — clean docs never pay it
 
             self.annotations_panel = AnnotationsPanel(
-                self.vdoc, self.view.annotations.foreign_annotations)
+                self.vdoc, self._overlay.foreign_annotations)
             self.annotations_panel.markActivated.connect(self._goto_mark)
             self.annotations_panel.noteRequested.connect(self._note_from_sidebar)
             self._annotations_tab_shown = True   # this window is carrying it now
@@ -466,7 +473,8 @@ class MainWindow(QMainWindow):
         )
         button.style().unpolish(button)      # drop the cached ::menu-button rule…
         button.style().polish(button)
-        button.setMenu(None)                 # …then the cached sizeHint measured against it
+        # …then the cached sizeHint measured against it. Qt takes None; PySide6's types leave it out.
+        button.setMenu(None)  # type: ignore[arg-type]  # see above
         if offer:
             button.setMenu(self._sidebar_tab_menu)
 
@@ -489,7 +497,7 @@ class MainWindow(QMainWindow):
                 page = self.vdoc.sources[ref.source_id][ref.source_page_index]
                 self._foreign_presence[key] = bool(read_foreign_annotations(page))
             if self._foreign_presence[key] and any(
-                    is_listed_foreign(a) for a in self.view.annotations.foreign_annotations(page_index)):
+                    is_listed_foreign(a) for a in self._overlay.foreign_annotations(page_index)):
                 return True
         return False
 
@@ -502,13 +510,13 @@ class MainWindow(QMainWindow):
 
         self.view.ensure_box_visible(page_index, bounds)
         self.view.set_current_page(page_index)
-        if self.view.annotations is None:
+        if self._overlay is None:
             return
         if isinstance(mark, ForeignAnnot):
-            self.view.annotations.outline_foreign(page_index, mark)
+            self._overlay.outline_foreign(page_index, mark)
         elif (isinstance(mark, (TextBox,) + OBJECT_TYPES)
-              and not self.view.annotations.covers_page(page_index, mark)):
-            self.view.annotations.select_object(page_index, mark)
+              and not self._overlay.covers_page(page_index, mark)):
+            self._overlay.select_object(page_index, mark)
 
     # ---- actions / menus --------------------------------------------------------
 
@@ -816,7 +824,7 @@ class MainWindow(QMainWindow):
             self._a_z_actions[key] = a
         # The page range a composed stamp is waiting to be applied across (M62); None = just
         # the page it is dropped on.
-        self._pending_stamp_pages = None
+        self._pending_stamp_pages: list[int] | None = None
         self._armed_actions = {
             ArmedTool.TEXTBOX: a_textbox,
             ArmedTool.HIGHLIGHT: a_highlight,
@@ -921,7 +929,7 @@ class MainWindow(QMainWindow):
         self._opacity_button = OpacityButton()
         self._markup_style_buttons = (self._line_style_button, self._colors_button,
                                        self._opacity_button)
-        self.view.annotations.set_markup_style(self._colors_button.style())
+        self._overlay.set_markup_style(self._colors_button.chosen_style())
         for style_button in self._markup_style_buttons:
             style_button.styleChanged.connect(self._on_markup_style_changed)
         # Night reading mode (M49): view-only page inversion, independent of the OS theme the
@@ -1093,7 +1101,7 @@ class MainWindow(QMainWindow):
             # The Line Styling + Opacity faces are drawn in the theme's text colour (M78.6), so
             # re-sync them to redraw against the new palette (set_style doesn't re-emit).
             for style_button in getattr(self, "_markup_style_buttons", ()):
-                style_button.set_style(style_button.style())
+                style_button.set_style(style_button.chosen_style())
         elif event.type() == QEvent.Type.ActivationChange:
             if self.isActiveWindow():
                 # Returning to this window is when we surface an external change noticed in the
@@ -1176,12 +1184,12 @@ class MainWindow(QMainWindow):
     def _print(self) -> None:
         from viewer.printing import print_document
 
-        if self.view.form is not None:
-            self.view.form.commit_pending()  # print what's on screen, incl. a pending fill
+        if self._form_filler is not None:
+            self._form_filler.commit_pending()  # print what's on screen, incl. a pending fill
         print_document(self.vdoc, self.view.current_page, self)
 
     def _copy_selection(self) -> None:
-        self.view.selection.copy()
+        self._text_selection.copy()
 
     # ---- focus-routed clipboard (M59): text vs pages vs object -------------------
 
@@ -1199,7 +1207,7 @@ class MainWindow(QMainWindow):
             editor.copy()
         elif self.thumbs.hasFocus():
             self._copy_pages()
-        elif self.view.selection is not None and self.view.selection.selected_words():
+        elif self._text_selection is not None and self._text_selection.selected_words():
             self._copy_selection()
         else:
             self._copy_object()
@@ -1234,7 +1242,7 @@ class MainWindow(QMainWindow):
         that mark, which is what right-clicking an unselected mark means. A selection is always on
         one page (M59.6), so a single page index covers the set.
         """
-        selected = self.view.annotations.selected_objects if self.view.annotations else []
+        selected = self._overlay.selected_objects if self._overlay else []
         if hit is not None and not any(mark is hit[1] for _p, mark in selected):
             return hit[0], [hit[1]]
         if not selected:
@@ -1266,7 +1274,7 @@ class MainWindow(QMainWindow):
         if target is None or not self._copy_object(hit):
             return
         page_index, marks = target
-        self.view.annotations.clear_object_selection()
+        self._overlay.clear_object_selection()
         self._remove_annotations_batch(page_index, marks, self._object_label("Cut", len(marks)))
 
     def _paste_object(self, page_index: int | None = None, at_point: tuple | None = None) -> None:
@@ -1308,8 +1316,8 @@ class MainWindow(QMainWindow):
         # so its resize handles are up (M59.7). Without this the first drag on a pasted mark lands
         # on its body and *moves* it instead of resizing, which only *looks* like a broken resize.
         # After the push, not before: the add reloads the view, which clears any selection.
-        if self.view.annotations is not None:
-            self.view.annotations.select_objects(page, pasted)
+        if self._overlay is not None:
+            self._overlay.select_objects(page, pasted)
 
     def _show_find(self) -> None:
         self.find_bar.show_bar()
@@ -1513,7 +1521,7 @@ class MainWindow(QMainWindow):
         self._edited_page = index
 
     def _on_doc_changed(self, _index: int) -> None:
-        self.view.selection.clear()
+        self._text_selection.clear()
         # Reload first — it reports whether the edit was **structural**. A content-only edit
         # (annotation, form fill) leaves the body text, and therefore every search hit (keyed by
         # page index + box), exactly where it was, so the search survives and the results panel
@@ -1522,7 +1530,7 @@ class MainWindow(QMainWindow):
         # search dropped. (reload's _build_scene has already repainted the kept hits.)
         structural = self.view.reload()
         if structural:
-            self.view.search.clear()
+            self._search.clear()
             if self.search_results.isVisible():
                 self.search_results.refresh()  # stale page indices — no lingering rows
         # The counter's *total* is pushed from here rather than signalled: there is no
@@ -1639,7 +1647,7 @@ class MainWindow(QMainWindow):
         """Apply a drag-over-text tool to a **live** selection immediately (Preview-style, one undo
         step), else arm it for the next drag. The non-toggling core of :meth:`_arm_tool`, shared with
         the M78.5 colour-pick rows — which must *arm* the verb, never toggle it off."""
-        if tool.drags_text and self.view.selection is not None and self.view.selection.selected_words():
+        if tool.drags_text and self._text_selection is not None and self._text_selection.selected_words():
             self._apply_text_tool(tool)  # clears the selection as it applies — one undo step
             return
         self.view.arm(tool)
@@ -1654,7 +1662,7 @@ class MainWindow(QMainWindow):
         if self.view.armed in REDACT_TOOLS:
             self.view.disarm()
             return
-        if self.view.selection is not None and self.view.selection.selected_words():
+        if self._text_selection is not None and self._text_selection.selected_words():
             self._apply_text_tool(ArmedTool.REDACT_TEXT)
             return
         self.view.arm(ArmedTool.REDACT)
@@ -1673,7 +1681,7 @@ class MainWindow(QMainWindow):
         still happens on one page, because you have to point at *something* to say how big.
         """
         self._pending_stamp_pages = list(pages) if pages else None
-        self.view.annotations.pending_content_mark = mark
+        self._overlay.pending_content_mark = mark
         self.view.arm(ArmedTool.STAMP)
         self._a_select.setChecked(True)
 
@@ -1744,10 +1752,11 @@ class MainWindow(QMainWindow):
         recent = self._settings.recent_signatures()
         remembered = {path: self._settings.signature_settings(path) for path in recent}
         dialog = SignatureDialog(self, recent, remembered)
-        if dialog.exec() != QDialog.DialogCode.Accepted or not dialog.path():
+        path = dialog.path() if dialog.exec() == QDialog.DialogCode.Accepted else None
+        if not path:
             return
         stamp = dialog.image_stamp()
-        self._settings.add_recent_signature(dialog.path(),
+        self._settings.add_recent_signature(path,
                                             white_to_alpha=stamp.white_to_alpha,
                                             white_threshold=stamp.white_threshold)
         self._rebuild_signature_menu()
@@ -1821,7 +1830,7 @@ class MainWindow(QMainWindow):
         dialog = FieldDialog(self, kind, existing)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
-        self.view.annotations.pending_field = dialog.field()
+        self._overlay.pending_field = dialog.field()
         self.view.arm(ArmedTool.FIELD)
         self._a_select.setChecked(True)
 
@@ -1841,7 +1850,7 @@ class MainWindow(QMainWindow):
         dialog = RedactMatchesDialog(self, self.view)
         accepted = dialog.exec() == QDialog.DialogCode.Accepted
         hits = dialog.checked_hits() if accepted else []
-        self.view.search.clear()          # drop the dialog's highlights either way
+        self._search.clear()          # drop the dialog's highlights either way
         if self.find_bar.isVisible():
             self.find_bar.hide_bar()      # the find bar's own query is stale now
         if not hits:
@@ -1975,9 +1984,9 @@ class MainWindow(QMainWindow):
         paints the same bars — one implementation is what keeps what you drag and what you get the
         same picture.
         """
-        if self.view.selection is None:
+        if self._text_selection is None:
             return {}
-        return self.view.selection.line_bars()
+        return self._text_selection.line_bars()
 
     def _apply_selection_bars(self, make, label: str) -> None:
         """Apply a line-bar mark to the current text selection — one continuous bar per line, one
@@ -1990,7 +1999,7 @@ class MainWindow(QMainWindow):
         by_page = self._selection_line_bars()
         if not by_page:
             return
-        self.view.selection.clear()  # so the mark shows, not the blue selection over it
+        self._text_selection.clear()  # so the mark shows, not the blue selection over it
         self._note_edit_on(min(by_page))   # a selection can span pages — follow the first marked
         self.undo_stack.beginMacro(label)
         for page_index, rects in by_page.items():
@@ -2007,7 +2016,7 @@ class MainWindow(QMainWindow):
         by_page = self._selection_line_bars()
         if not by_page:
             return
-        self.view.selection.clear()  # so the mark shows, not the blue selection over it
+        self._text_selection.clear()  # so the mark shows, not the blue selection over it
         updates = []
         for page_index, rects in by_page.items():
             current = self.vdoc.ordered[page_index].annotations
@@ -2055,7 +2064,7 @@ class MainWindow(QMainWindow):
         under a second wording and is gone (owner report)."""
         rects = annot.rects
         current = self.vdoc.ordered[page_index].annotations
-        sections = (
+        sections: tuple[tuple[str, type[TextMarkup], tuple, str], ...] = (
             ("Highlight", Highlight, HIGHLIGHT_COLORS, "highlight"),
             ("Underline", Underline, TEXT_LINE_COLORS, "underline"),
             ("Strike Out", Strikeout, TEXT_LINE_COLORS, "strikeout"),
@@ -2100,8 +2109,8 @@ class MainWindow(QMainWindow):
         self._highlight_color = color
         self._highlight_color_row.set_active(color)  # the ring follows for the next menu open
         self.view.highlight_preview_color = color    # an armed drag previews this now (M76.2)
-        if self.view.selection is not None:
-            self.view.selection.repaint()            # re-tint a live selection immediately
+        if self._text_selection is not None:
+            self._text_selection.repaint()            # re-tint a live selection immediately
 
     def _set_underline_color(self, color) -> None:
         self._underline_color = color
@@ -2140,8 +2149,8 @@ class MainWindow(QMainWindow):
         Also broadcast the new style back to all three buttons (M78.6): each button holds the whole
         style but edits only its slice, so they must be re-synced or the next edit on another button
         would drop this one's change. ``set_style`` doesn't re-emit, so there is no feedback loop."""
-        self.view.annotations.set_markup_style(style)
-        self.view.annotations.restyle_selected_objects(**changes)
+        self._overlay.set_markup_style(style)
+        self._overlay.restyle_selected_objects(**changes)
         for style_button in self._markup_style_buttons:
             style_button.set_style(style)
 
@@ -2152,7 +2161,7 @@ class MainWindow(QMainWindow):
         the z-order, so this is a pure reorder — it moves what paints on top in the saved PDF and
         what a click hits, in step. The marks survive the edit, so the selection is restored onto
         them afterwards."""
-        selection = self.view.annotations.selected_objects if self.view.annotations else []
+        selection = self._overlay.selected_objects if self._overlay else []
         if not selection:
             return False
         page_index = selection[0][0]
@@ -2165,8 +2174,8 @@ class MainWindow(QMainWindow):
                  "backward": "Send backward", "back": "Send to back"}[action]
         self._note_edit_on(page_index)
         self.undo_stack.push(SetAnnotationsCommand(self.vdoc, page_index, reordered, label))
-        if self.view.annotations is not None:
-            self.view.annotations.select_objects(page_index, marks)  # the reload cleared it
+        if self._overlay is not None:
+            self._overlay.select_objects(page_index, marks)  # the reload cleared it
         return True
 
     def _on_object_selected(self, mark) -> None:
@@ -2179,11 +2188,11 @@ class MainWindow(QMainWindow):
         were drawing with."""
         style = MarkupStyle.from_mark(mark)
         if style is not None and not style.border:
-            style = replace(style, color=self.view.annotations.current_markup_style.color)
+            style = replace(style, color=self._overlay.current_markup_style.color)
         if style is not None:
             for style_button in self._markup_style_buttons:
                 style_button.set_style(style)               # reflect it in all three (no emit)
-            self.view.annotations.set_markup_style(style)   # …and as the sticky default
+            self._overlay.set_markup_style(style)   # …and as the sticky default
 
     def _highlight_selection(self) -> None:
         self._apply_markup(Highlight, self._highlight_color, "Highlight")  # curated wash (M59.9)
@@ -2223,7 +2232,7 @@ class MainWindow(QMainWindow):
         page_index = min(by_page)
         bars = tuple(by_page[page_index])
         host = resolve_note_host(self.vdoc.ordered[page_index].annotations, bars)
-        self.view.selection.clear()   # the popup is the feedback now, not the blue selection
+        self._text_selection.clear()   # the popup is the feedback now, not the blue selection
         self._open_note_editor(page_index, bars, host, by_page)
 
     def _note_mark(self, page_index: int, mark) -> None:
@@ -2245,7 +2254,7 @@ class MainWindow(QMainWindow):
         """
         from klarpdf.model.foreign_annots import ForeignAnnot
 
-        notes = self.view.annotations.notes
+        notes = self._overlay.notes
         if notes.target is mark or notes.consume_just_closed(notes.key_for(page_index, mark)):
             if notes.is_open:
                 notes.commit()
@@ -2264,7 +2273,7 @@ class MainWindow(QMainWindow):
         double-click adoption rather than anything new here. Adoption already carries the comment
         across (M81.3), so the note the reader was just shown is the note they then own.
         """
-        self.view.annotations.notes.open_on(
+        self._overlay.notes.open_on(
             page_index, annot.rect, annot.contents, FOREIGN_NOTE_GREY, read_only=True,
             placeholder="Double-click the mark to make it editable", target=annot,
         )
@@ -2292,7 +2301,7 @@ class MainWindow(QMainWindow):
         anchor = mark_bounds(host) if host is not None else (
             min(b[0] for b in bars), min(b[1] for b in bars),
             max(b[2] for b in bars), max(b[3] for b in bars))
-        self.view.annotations.notes.open_on(
+        self._overlay.notes.open_on(
             page_index, anchor,
             host.note if host is not None else "",
             host.color if host is not None else self._highlight_color,
@@ -2612,7 +2621,7 @@ class MainWindow(QMainWindow):
     def _on_files_dropped(self, paths, before_index: int) -> None:
         """PDF(s) and/or image(s) dragged from Explorer onto the Pages panel — insert at the drop
         slot. An image (M35) is converted to a one-page PDF source; a PDF opens as-is."""
-        refs = []
+        refs: list[PageRef] = []
         for path in paths:
             try:
                 if os.path.splitext(path)[1].lower() in IMAGE_EXTENSIONS:
@@ -2637,7 +2646,7 @@ class MainWindow(QMainWindow):
         menu = QMenu(self)
         # Our annotation under the cursor → Remove (pre-M46 behaviour, now routed here). First:
         # the most specific hit wins, and Remove must stay reachable over a selection.
-        hit = self.view.annotations.annotation_at(scene_pt) if self.view.annotations else None
+        hit = self._overlay.annotation_at(scene_pt) if self._overlay else None
         if hit is not None:
             page_index, annot = hit
             # Free-placed marks are copyable (M59); the text-anchored marks + redactions are not
@@ -2651,17 +2660,17 @@ class MainWindow(QMainWindow):
             # offering Copy / Cut / z-order on it would be chrome for verbs that do nothing. Its
             # right-click menu is just Remove — which is also its only removal path, the click that
             # would select it having been given back to text selection.
-            page_wide = self.view.annotations is not None and \
-                self.view.annotations.covers_page(page_index, annot)
+            page_wide = self._overlay is not None and \
+                self._overlay.covers_page(page_index, annot)
             if isinstance(annot, (TextBox,) + OBJECT_TYPES) and not page_wide:
                 # Right-clicking a free-placed mark selects it, so the verbs below (and the
                 # z-order shortcuts) have an unambiguous target and you can *see* what you're
                 # acting on. Right-clicking a member of a group leaves the group intact — that's
                 # how you raise several marks at once.
-                if self.view.annotations is not None and not any(
-                    mark is annot for _p, mark in self.view.annotations.selected_objects
+                if self._overlay is not None and not any(
+                    mark is annot for _p, mark in self._overlay.selected_objects
                 ):
-                    self.view.annotations.select_object(page_index, annot)
+                    self._overlay.select_object(page_index, annot)
                 # Copy/Cut act on the whole group when the clicked mark is part of it (M59.12),
                 # so the labels count what will actually move.
                 target = self._clipboard_target(hit)
@@ -2673,8 +2682,8 @@ class MainWindow(QMainWindow):
                 # menu is their discovery path). Each is disabled at the end it's already at, so
                 # the menu only offers what would actually change something.
                 current = self.vdoc.ordered[page_index].annotations
-                selected = [mark for _p, mark in self.view.annotations.selected_objects] \
-                    if self.view.annotations else [annot]
+                selected = [mark for _p, mark in self._overlay.selected_objects] \
+                    if self._overlay else [annot]
                 for key in ("front", "forward", "backward", "back"):
                     action = self._a_z_actions[key]
                     action.setEnabled(reorder_marks(current, selected, key) != current)
@@ -2702,16 +2711,16 @@ class MainWindow(QMainWindow):
                 "Strikeout": "Remove strikeout",
                 "Redaction": "Remove redaction",
             }.get(type(annot).__name__) or f"Remove {noun}"
-            menu.addAction(label, lambda: self.view.annotations.remove(page_index, annot))
+            menu.addAction(label, lambda: self._overlay.remove(page_index, annot))
             return menu
         # A **foreign** annotation — one another tool wrote (M66). Checked after our own marks, so
         # an editable mark the user just placed wins over a foreign one it happens to sit on, and
         # before the text-selection verbs, keeping the stated "most specific hit wins" rule.
-        foreign = (self.view.annotations.foreign_annotation_at(scene_pt)
-                   if self.view.annotations else None)
+        foreign = (self._overlay.foreign_annotation_at(scene_pt)
+                   if self._overlay else None)
         if foreign is not None:
             page_index, mark = foreign
-            self.view.annotations.outline_foreign(page_index, mark)  # show what will be deleted
+            self._overlay.outline_foreign(page_index, mark)  # show what will be deleted
             if mark.contents:
                 menu.addAction("Copy Comment Text",
                                lambda: QGuiApplication.clipboard().setText(mark.contents))
@@ -2720,7 +2729,7 @@ class MainWindow(QMainWindow):
             return menu
         # A live text selection → its verbs. Highlight/Redact Selection apply now to what is
         # selected — unlike the toolbar's armed one-shot tools, which select-then-apply.
-        if self.view.selection is not None and self.view.selection.selected_words():
+        if self._text_selection is not None and self._text_selection.selected_words():
             menu.addAction(self._a_copy_text)
             menu.addSeparator()
             menu.addAction("Highlight Selection", self._highlight_selection)
@@ -2728,12 +2737,12 @@ class MainWindow(QMainWindow):
             menu.addAction("Strike Out Selection", self._strikeout_selection)
             menu.addAction("Redact Selection", self._redact_selection)
             return menu
-        if self.view.links is not None:
-            dest = self.view.links.link_at(scene_pt)
+        if self._link_nav is not None:
+            dest = self._link_nav.link_at(scene_pt)
             if dest is not None:
                 menu.addAction(f"Go to Page {dest + 1}", lambda: self.view.goto_page(dest))
                 return menu
-            uri = self.view.links.uri_at(scene_pt)
+            uri = self._link_nav.uri_at(scene_pt)
             if uri is not None:
                 # A web link now has two verbs (M149): open it, the way a click does, or copy the
                 # address and stay in the app. A URI of any other scheme keeps only the copy — the
@@ -2748,9 +2757,8 @@ class MainWindow(QMainWindow):
         # routes the same QAction objects as the View menu, so shortcuts show alongside. Paste
         # Object (M59) leads — the one verb that acts *at the clicked spot* (the pasted mark is
         # centred on it); disabled while the object clipboard is empty.
-        page_hit = self.view.page_and_local_at(scene_pt)
-        if page_hit[0] is not None:
-            page_index, local = page_hit
+        page_index, local = self.view.page_and_local_at(scene_pt)
+        if page_index is not None and local is not None:   # both None in the gap between pages
             a_paste_obj = menu.addAction(
                 self._object_label("Paste", max(1, len(self._app.object_clipboard))),
                 lambda: self._paste_object(page_index, (local.x(), local.y())),
@@ -2803,8 +2811,8 @@ class MainWindow(QMainWindow):
     # ---- save (materialize-on-save) ---------------------------------------------
 
     def save(self) -> bool:
-        if self.view.form is not None:
-            self.view.form.commit_pending()  # flush an open inline field editor (toolbar Save)
+        if self._form_filler is not None:
+            self._form_filler.commit_pending()  # flush an open inline field editor (toolbar Save)
         if self.vdoc.path is None:
             return self.save_as()
         if self._watcher.has_changed():  # the file changed on disk since we opened/last synced it
@@ -2820,8 +2828,8 @@ class MainWindow(QMainWindow):
         return False
 
     def save_as(self) -> bool:
-        if self.view.form is not None:
-            self.view.form.commit_pending()
+        if self._form_filler is not None:
+            self._form_filler.commit_pending()
         path, _ = QFileDialog.getSaveFileName(self, "Save PDF As", self.vdoc.path or "", "PDF files (*.pdf)")
         if not path:
             return False
@@ -2885,8 +2893,8 @@ class MainWindow(QMainWindow):
         ``confirm(path)``, when given, runs after the target is chosen and vetoes the export by
         returning False (the reduced export's overwrite-the-original guard). Returns ``(path,
         write's result)`` on success, else ``None`` — so a caller can report on the written file."""
-        if self.view.form is not None:
-            self.view.form.commit_pending()  # flush an open inline field editor first
+        if self._form_filler is not None:
+            self._form_filler.commit_pending()  # flush an open inline field editor first
         default = self.vdoc.path or ""
         if default:
             base, _ext = os.path.splitext(default)
@@ -2988,8 +2996,8 @@ class MainWindow(QMainWindow):
         export (each image shows the annotations / fills / redactions a Save would write); a side
         artifact that leaves the working document untouched. To export every page, select all in the
         Pages sidebar (Ctrl+A) first."""
-        if self.view.form is not None:
-            self.view.form.commit_pending()
+        if self._form_filler is not None:
+            self._form_filler.commit_pending()
         indices = self.thumbs.selected_rows() or [self.view.current_page]
         dpi, ok = QInputDialog.getInt(self, "Export Image", "Resolution (DPI):", 150, 36, 600, 1)
         if not ok:
@@ -3061,8 +3069,8 @@ class MainWindow(QMainWindow):
         # the one shared place. Revert previously skipped this: reverting while the file had also
         # changed on disk loaded the current bytes yet kept nagging "changed on disk".
         self._watcher.record_current()
-        self.view.selection.clear()
-        self.view.search.clear()
+        self._text_selection.clear()
+        self._search.clear()
         if self.search_results.isVisible():
             self.search_results.refresh()  # cleared with the search — no stale rows
         self.view.reload()

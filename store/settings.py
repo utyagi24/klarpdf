@@ -84,7 +84,8 @@ class Settings:
                 return
             except PermissionError as exc:
                 last_error = exc
-        raise last_error
+        if last_error is not None:  # every attempt failed, and each one set it
+            raise last_error
 
     def get_doc_state(self, doc_path: str) -> dict:
         """Return the saved view state for ``doc_path`` (empty dict if none)."""

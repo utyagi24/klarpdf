@@ -305,21 +305,21 @@ def test_with_a_fill_no_border_is_offered_and_then_no_fill_is_not():
     assert border_dot.toolTip() == "Remove border (rectangles and ellipses)"
     border_dot.click()
     assert seen[-1] == {"border": False}
-    assert button.style().border is False
-    assert button.style().color == pytest.approx(_RED)  # kept for the pen and the line
+    assert button.chosen_style().border is False
+    assert button.chosen_style().color == pytest.approx(_RED)  # kept for the pen and the line
     fill_dot = button._fill_row.remove_button
     assert not fill_dot.isEnabled()
     assert "choose a border colour first" in fill_dot.toolTip()
     fill_dot.click()                                    # a greyed-out dot does nothing
-    assert len(seen) == 2 and button.style().fill_color == pytest.approx(_YELLOW_FILL)
+    assert len(seen) == 2 and button.chosen_style().fill_color == pytest.approx(_YELLOW_FILL)
 
 
 def test_a_border_colour_turns_the_border_back_on():
     button = ColorsButton()
     button.set_style(MarkupStyle(fill_color=_YELLOW_FILL, border=False))
     button._border_row.buttons["Blue"].click()
-    assert button.style().border is True
-    assert button.style().color == pytest.approx(_BLUE)
+    assert button.chosen_style().border is True
+    assert button.chosen_style().color == pytest.approx(_BLUE)
     assert button._fill_row.remove_button.isEnabled()
 
 
@@ -483,4 +483,4 @@ def test_selecting_a_shape_with_no_border_keeps_the_pens_colour(win):
     style = win.view.annotations.current_markup_style
     assert style.border is False
     assert style.color == pytest.approx(_BLUE)
-    assert win._colors_button.style() == style
+    assert win._colors_button.chosen_style() == style

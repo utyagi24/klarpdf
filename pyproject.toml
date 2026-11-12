@@ -217,7 +217,13 @@ select = [
 # stand on, and nothing else: whether the app is checked too is M173's decision. PLAN.md §M172 has
 # the reasons. Like Ruff, it reports nothing on `main`, so an error is always the PR's own doing.
 [tool.mypy]
-files = ["klarpdf"]
+# klarpdf/ is the wheel: the engine and the bridge. The rest is the desktop app's own code, the
+# part with windows in it (M173). tests/test_lint_config.py fails if a shipped file is left out.
+files = [
+    "klarpdf",
+    "app.py", "edit_commands.py", "launcher.py", "main_window.py", "platform_integration.py",
+    "organize", "store", "ui", "viewer",
+]
 # The wheel's floor (`requires-python`). mypy then refuses syntax and library calls newer than 3.11,
 # whichever Python runs it. tests/test_lint_config.py keeps this equal to the floor.
 python_version = "3.11"
@@ -230,6 +236,15 @@ disallow_untyped_defs = true
 # does to PyMuPDF, most of which is not annotated: mypy then reads an attribute's type from the
 # value PyMuPDF's own code gives it. A rect's `x0` is a `float`, where it was unknown (M172.2).
 check_untyped_defs = true
+
+# The app's own code is checked (M173.1), but its functions need not all state their types yet.
+# M173.2 annotates them and deletes this block.
+[[tool.mypy.overrides]]
+module = [
+    "app", "edit_commands", "launcher", "main_window", "platform_integration",
+    "organize", "organize.*", "store", "store.*", "ui", "ui.*", "viewer", "viewer.*",
+]
+disallow_untyped_defs = false
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
