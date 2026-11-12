@@ -215,6 +215,9 @@ _WHEEL_LINE_PX = 32.0
 _WHEEL_EASE_MS = 200.0
 
 _ZOOM_COALESCE_MS = 16  # one frame at 60 Hz — the Ctrl+wheel accumulator's flush interval (M86.2)
+# How long after a scroll or a rebuild the pointer is checked again, for a mouse that did not move
+# (M175). Longer than a glide's frame, so a glide checks once, when it stops, and not every frame.
+_HOVER_SETTLE_MS = 50
 
 # Arrow key → unit (dx, dy) direction for nudging an object selection (M78.2); page-y grows down.
 _NUDGE_KEYS: dict[int, tuple[float, float]] = {  # Qt.Key members are ints
@@ -374,10 +377,25 @@ class PdfView(QGraphicsView):
         # (M72) — a release that commits nothing then restores REDACT, so a stray click can't
         # leave the *resolved* gesture locked in for the next press.
         self._redact_combined = False
+        # Where the pointer rests over the page while no button is held, in viewport pixels, and a
+        # timer to check it again once a scroll or a rebuild has moved the page under a still
+        # mouse (M175). ``None`` while a button is down and once the pointer leaves the page area.
+        # Set before the scene, since any scroll from here on asks for them.
+        self._hover_pos: QPoint | None = None
+        self._hover_timer = QTimer(self)
+        self._hover_timer.setSingleShot(True)
+        self._hover_timer.setInterval(_HOVER_SETTLE_MS)
+        self._hover_timer.timeout.connect(self._recheck_hover)
         self.setScene(QGraphicsScene(self))
         self.setBackgroundBrush(QBrush(QColor(0x30, 0x30, 0x30)))
         # SELECT mode: left-drag selects text (M3), so no hand-drag panning; scroll via wheel/bars.
         self.setDragMode(QGraphicsView.DragMode.NoDrag)
+        # Hear about the mouse when no button is held, so the pointer can change before a click: a
+        # hand over a link, a resize arrow over a handle (#449, M175). Qt leaves this off, and
+        # ``mouseMoveEvent`` then runs only during a drag. A ``QGraphicsView`` turns it on by itself
+        # only when an item in its scene takes hover events or has a cursor of its own, and none
+        # here does, so the pointer stayed an arrow from M33 on.
+        self.viewport().setMouseTracking(True)
         # Centre the scene in the viewport. Qt only applies the alignment when the *whole* scene
         # fits with no scrollbars — i.e. a short / zoomed-out page — so this centres that page both
         # ways; a taller multi-page doc gets scrollbars and scrolls normally from the top, unaffected.
@@ -721,6 +739,23 @@ class PdfView(QGraphicsView):
             if overlay is not None:
                 overlay.repaint()
         self._reposition_overlay_editors()  # an open inline editor follows the zoom
+        self._settle_hover()   # a zoom or an edit can move a link onto, or off, a still pointer
+
+    def scrollContentsBy(self, dx: int, dy: int) -> None:
+        super().scrollContentsBy(dx, dy)
+        self._settle_hover()   # the page moved under the pointer, which did not move (M175)
+
+    def _settle_hover(self) -> None:
+        """Check the pointer again once the page stops moving under it (M175). Restarted by each
+        scroll and each rebuild, so a glide or a run of zoom steps checks once, at the end."""
+        if self._hover_pos is not None:
+            self._hover_timer.start()
+
+    def _recheck_hover(self) -> None:
+        """Set the pointer for whatever is now under it, with the mouse where it last rested. The
+        pointer has not moved, so its last place on the page area is where it still is."""
+        if self._hover_pos is not None:
+            self._update_hover_cursor(self.mapToScene(self._hover_pos))
 
     def _page_sizes(self) -> dict[int, tuple[float, float]]:
         """Every page's :meth:`_natural_size`, by index. Reading them is nearly all of a layout's
@@ -907,6 +942,9 @@ class PdfView(QGraphicsView):
     # ---- mouse → text selection -------------------------------------------------
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
+        # A held button is a drag, not a hover: a scroll during it must not change the pointer.
+        # The next move with no button held puts the pointer's place back (M175).
+        self._hover_pos = None
         # Slideshow (M78): a left click advances one slide — the projector gesture — and nothing
         # else in the view (selection, forms, links) is reachable until Esc exits.
         if self.slideshow and event.button() == Qt.MouseButton.LeftButton:
@@ -1120,6 +1158,14 @@ class PdfView(QGraphicsView):
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         scene_pt = self.mapToScene(event.position().toPoint())
+        if event.buttons() == Qt.MouseButton.NoButton:
+            # A hover (M175). The drags below never see one: until mouse tracking was turned on,
+            # no move reached them without a button held. That keeps a drag whose release went
+            # elsewhere from following a bare pointer; the next press starts afresh, as before.
+            self._hover_pos = event.position().toPoint()
+            self._update_hover_cursor(scene_pt)
+            super().mouseMoveEvent(event)
+            return
         if self.cropping:
             self.update_crop_drag(scene_pt)
             event.accept()
@@ -1883,8 +1929,12 @@ class PdfView(QGraphicsView):
         presses prefer an annotation over a link, so hover text should agree. ``isAccepted()`` after
         the base call is Qt's own answer to "did an item take it": ``QGraphicsScene.helpEvent``
         accepts only when it showed an item's tooltip.
+
+        It also forgets where the pointer rested once it leaves the page area (M175).
         """
         handled = super().viewportEvent(event)
+        if event.type() == QEvent.Type.Leave:
+            self._hover_pos = None   # off the page area, so a scroll has no pointer to check (M175)
         if event.type() == QEvent.Type.ToolTip and not event.isAccepted():
             self._show_link_tooltip(cast(QHelpEvent, event))   # a ToolTip event is a QHelpEvent
             return True
@@ -1910,7 +1960,11 @@ class PdfView(QGraphicsView):
 
         The URL a web link points at is shown on hover too (M149), but **not from here** — see
         :meth:`viewportEvent`, because on a ``QGraphicsView`` the viewport's own ``toolTip`` property
-        is never read."""
+        is never read.
+
+        This runs on every mouse move since M175, so what it asks has to stay cheap. Each hit test
+        maps the pointer into the page once; mapping every box onto the screen reads the page from
+        the file twice a box."""
         if self._armed is not None or self._mode not in (InteractionMode.SELECT, InteractionMode.OBJECT):
             return
         if self.annotations is not None and getattr(self.annotations, "editing", False):

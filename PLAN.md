@@ -11158,6 +11158,104 @@ breaks across lines, in KlarPDF and in Edge alike. Drag the box's width handle n
 the widest letter. Open the owner's form and nudge the 28 pt box on page 7: all of its letters show in
 Edge, and the box is taller.
 
+### M175 — the pointer changes before a click *(unplanned)* (2026-11-12)
+
+[#449](https://github.com/utyagi24/klarpdf/issues/449). Moving the pointer over a link left it an
+arrow, so nothing showed that a click would follow the link. The same was true over a resize handle
+and over a text box.
+
+**Surfaces: app only.** The change is in `viewer/`, which is outside the wheel. The bridge has no
+pointer, so there is no bridge test to write.
+
+#### Cause
+
+`PdfView._update_hover_cursor` picks the pointer's shape: a hand over a link a click would follow
+(M33, and M149 for web links), a resize arrow over a handle, and a move cross over a text box. It
+runs from `mouseMoveEvent`. Qt calls that with no button held only when the widget has *mouse
+tracking* on. Mouse tracking is a Qt setting, and it is off by default. A `QGraphicsView` turns it
+on by itself when an item in its scene takes hover events or has a cursor of its own. No item in
+KlarPDF's scene does. So the pointer code ran only during a drag, and there the drag code returns
+before it.
+
+The pointer has never changed on hover, from M33 on. Nothing in the history turns tracking on
+(`git log -S setMouseTracking` finds nothing). Measured: changing mode, arming a tool and zooming
+all leave it off.
+
+No test saw it because the tests called `_update_hover_cursor` directly. A direct call skips Qt's
+delivery of the move, which was the missing part. M165 met the same trap with presses.
+
+#### What turning tracking on reaches
+
+With tracking on, every mouse move reaches the view. Three things follow from that, and the fix
+answers each one.
+
+**The hit tests were slow.** `scene_rect_for_box` reads the page from the file twice, once for its
+size and once for its turn. The link test mapped every link on the page onto the screen this way,
+and it ran twice per move: once for links to pages, once for web links. Measured on the corpus,
+after the first move over the page:
+
+| Page | Links | Each move, before | Each move, after |
+|---|---|---|---|
+| NVIDIA annual report, page 21 | 91 | 16.0 ms | 0.66 ms |
+| Broadcom 10-K, page 2 | 76 | 6.0 ms | 0.35 ms |
+| Cisco annual report, page 70 | 58 | 6.3 ms | 0.38 ms |
+
+The link test and the text-box test now map the pointer into the page once, with
+`page_and_local_at`, and compare that point with each box. `page_and_local_at` is the exact inverse
+of `scene_rect_for_box`, so both find the same box. A test checks this on a turned and cropped page.
+
+The first move over a page still reads that page's links. That takes about 4 ms on the Cisco page,
+plus 10–15 ms once per document to map its pages. Before, the same cost fell on the first click or
+the first tooltip.
+
+**The drag code met moves it had never seen.** Before, every move that reached `mouseMoveEvent` had
+a button held. If a drag's release goes elsewhere, for example to another window, its state stays
+set. With tracking on, a bare pointer would then carry on that drag: extend a selection, or draw a
+pen stroke. So a move with no button held now goes only to the pointer code. The drag code sees
+exactly the moves it saw before, and the next press starts afresh, as it always did.
+
+**A still pointer went stale when the page moved under it.** A wheel scroll, a paging key or an
+undo moves the page without a mouse move. Measured: after a scroll, the pointer stayed a hand with
+no link under it. `QGraphicsView` does replay the last move after a scroll, but only to its own
+code, not to `mouseMoveEvent`. So the view now keeps where the pointer last rested, and checks it
+again 50 ms after the last scroll or scene rebuild. A glide's frames come faster than that, so a
+glide checks once, when it stops. The place is forgotten when a button is pressed and when the
+pointer leaves the page area, so nothing is checked during a drag or for a pointer that is
+elsewhere.
+
+**Rejected:**
+
+* **Keep each page's size and turn, so `scene_rect_for_box` reads nothing.** Every overlay would get
+  faster, not only the hover. But a kept size goes stale if a page changes without a rebuild, and
+  every overlay would then be drawn in the wrong place. The hover needs only its two hit tests
+  fixed. Drawing a whole page of selected text (763 words, Broadcom page 11) takes 6 ms, so the
+  overlays have no measured need for it.
+* **Check the pointer on every scroll frame.** It works, but costs about 0.5 ms a frame during a
+  glide, for a pointer nobody reads until the page stops.
+
+#### Checks
+
+`tests/test_hover_cursor.py` moves the mouse the way Qt delivers it: a move with no button held,
+sent with `QApplication.sendEvent`. Qt drops such a move when tracking is off, exactly as it does
+for a real mouse. It is not `QTest.mouseMove`, because QTest remembers a pressed button across tests
+and `tests/test_popup_closer.py` presses without releasing. Covered: the hand over a link to a page
+and over a web link; the arrow off them and over a `javascript:` link; a link on a page turned 90°,
+180° and 270° and cropped; the resize arrow over a handle; the move cross over a text box; a bare
+move during an unfinished drag; a scroll and an edit under a still pointer; and no check after a
+press or after the pointer leaves. Three tests in `tests/test_link_nav.py` called the pointer code
+directly. They are removed, and these replace them.
+
+**Broken on purpose 9 ways**, and each break failed its own tests: tracking left off (11 tests
+failed), the button check removed, no check after a scroll, no check after a rebuild, the place
+kept after a press, the place kept after the pointer leaves, and three wrong hit tests (x and y
+swapped in the link test and in the text-box test, and the link test offset by the crop).
+
+**A hand check on Windows, not yet done.** Open a report whose table of contents links to its pages.
+Rest the pointer on an entry: it turns into a hand. Move off it: it turns back into an arrow. Scroll
+with the wheel until an entry stops under the still pointer: it turns into a hand. Draw a rectangle,
+pick the **Objects** tool, drag a box around the rectangle to select it, and rest the pointer on a
+corner: it shows a resize arrow.
+
 ## The open issues, grouped — M149–M152 *(planned 2026-09-19)*
 
 Grouped at the owner's request (2026-09-19: *"plan milestones for all of the issues, except for 352

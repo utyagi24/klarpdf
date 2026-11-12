@@ -1338,6 +1338,17 @@ tick the box here on merge. Build in number order.
   2026-11-08.
   Details in `PLAN.md` §M166 — *Windows (headless)* —
   [#436](https://github.com/utyagi24/klarpdf/pull/436)
+- [x] **M175** *(unplanned)* **The pointer changes before a click** —
+  [#449](https://github.com/utyagi24/klarpdf/issues/449). *App only.* The pointer stayed an arrow
+  over a link, so nothing showed that a click would follow it. The same was true over a resize
+  handle and over a text box. The code that picks the pointer's shape has existed since M33, but Qt
+  only ran it during a drag, because mouse tracking was off on the page area. It is now on. Three
+  things follow from that, and each is handled. The link and text-box hit tests ran on every move
+  and took up to 16 ms on a page with 91 links; they now take under 1 ms. A move with no button
+  held no longer reaches the drag code, so a drag whose release went elsewhere cannot follow a bare
+  pointer. And after a scroll or an edit under a still pointer, the pointer is checked again once
+  the page stops. The old tests called the pointer code directly and passed; the new ones move the
+  mouse as Qt delivers it. Details in `PLAN.md` §M175 — *WSL (headless)*
 
 ## Roadmap — linting, dead code and type checking (M167–M174; planned 2026-11-08, M174 added 2026-11-11)
 
