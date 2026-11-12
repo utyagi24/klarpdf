@@ -11444,6 +11444,7 @@ context. These stay with the tests that cover them.
 | **M171** Consistency | `I`, `UP`, `E741`, and `E501` at 120 columns. No formatter (§*Decisions*) | 71 import blocks, 142 syntax upgrades (111 of them quoted annotations), 50 ambiguous one-letter names such as `l`, and 31 long lines. Mostly automatic | All. No behaviour change |
 | **M172** Types for the wheel | mypy in the dev lock, `[tool.mypy]` for `klarpdf/` at Python 3.11, and the `typecheck` job. **M172.1**: the gate at default settings, and `typecheck` added to the ruleset mirror. **M172.2**: `disallow_untyped_defs` | M172.1: 128 errors. 86 are PyMuPDF constants, which one configuration decision handles; 42 to fix. M172.2: about 117 missing annotations (core 88, bridge 29) | Core and bridge. The app is untouched |
 | **M173** Types for the app: **go or no-go after M172** | mypy over the app, checked as Windows or on both platforms | 215 errors at default settings (75 PyMuPDF constants), and more once unannotated bodies are checked | App |
+| **M174** Lists that say what they hold *(added 2026-11-11, owner)* | mypy's `disallow_any_generics`, over `klarpdf/` and the app: a `tuple`, `dict` or `list` in a type must say what it holds | 445, measured after M173.2: 290 in `klarpdf/` (on M172.2's code, 154 `dict`, 85 `tuple`, 39 `list` and 12 others) and 155 in the app (99 `tuple`, 28 `dict`, 25 `list` and 3 others). How it splits into parts is decided when it is built | Core, bridge and app |
 
 **The order, and why.**
 
@@ -11459,6 +11460,8 @@ context. These stay with the tests that cover them.
   is the largest.
 * **M173 is a decision, not a schedule.** After M172, what types cost and what they caught are
   known, and the app has 885 functions to the wheel's 499.
+* **M174 comes after M173**, because it states what lists hold in signatures M173 wrote. It was
+  not in the 2026-11-08 plan. The owner added it on 2026-11-11 (§*Decisions*).
 
 ### Decisions (owner, 2026-11-08)
 
@@ -11487,6 +11490,14 @@ known.
 findings, so a required check cannot block a PR that did not cause its finding. A check that is not
 required can be merged over while it is red. The `audit` job was red at three releases before anyone
 noticed (RELEASE.md §3). When and how each check is added is in §*How the checks run*.
+
+**4. Every list says what it holds: M174 (owner, 2026-11-11).** Asked after M173.2, with the count
+measured: 445 types say `tuple`, `dict` or `list` without saying what is inside, and mypy checks
+nothing done with what is taken out of one. The choices were: the marks lists alone, all 445, or
+none, with the reason recorded. M173.2 had just shown the cost of leaving them: a test that tells
+mypy a mark's kind did nothing, because the marks list it filters is bare (§M173). The owner
+chose all 445, as a new milestone. Most of the work is the bridge's replies, where the honest
+type names every key.
 
 Questions that belong to a milestone's own session are settled there, with the owner, as
 §*The open issues, grouped* arranged for M149–M152: the `zip(strict=…)` policy (M170), how to treat
