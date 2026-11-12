@@ -5076,7 +5076,8 @@ it on this side of the line.
   do it, all of it or the `annotations` tuples alone, and when. The owner chose to decide it after
   M173.1, once the app's count was known (2026-11-11). Measured then: 150 in the app and 290 in
   `klarpdf/`. The app's count is a floor, because M173.2 adds annotations. Only 2 of the app's
-  150 are a page's marks list. `PLAN.md` §M172, §M173.
+  150 are a page's marks list. Shown those numbers, the owner chose to decide after M173.2, when
+  the app's count is final (2026-11-11). `PLAN.md` §M172, §M173.
 - **Move a text box up at the bottom of the page, as Edge does?** (M166, deferred by the owner
   2026-11-07). When a box gains lines at the bottom of the page, by narrowing it, typing or a
   bigger font, it now grows only to the page edge, and lines that still do not fit are cut off,

@@ -12261,6 +12261,10 @@ bare. Only 2 of the app's 150 are a page's marks list (`annotations: tuple`).
 * The full suite passes locally (3,325 passed, and the two Windows-only tests skipped). It was run
   in full because the change reaches app startup and the event filter every test's events pass
   through.
+* `typecheck` went red on purpose. A `workflow_dispatch` run on a probe branch planted a type error
+  on a Windows-only line of `platform_integration.py`. The job runs on Linux. Its Windows run
+  failed on that line, its Linux run passed, and `invoke typecheck` named `win32`. Its log shows
+  the dev lock installed.
 * One thing to know when doing this by hand: mypy reuses its cached answer for a file whose size
   and time stamp have not changed. Two planted lines of the same length, written in the same
   second, got the first one's answer. That is a property of the cache, not of the check, and no
