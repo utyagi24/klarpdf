@@ -105,7 +105,8 @@ sudo apt install -y python3.12-venv
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements-dev.txt   # same pinned == versions as the ship lock, no hashes
 invoke test                           # headless suite (offscreen Qt) — or run `pytest` directly
-invoke --list                         # all build/release tasks: test · audit · lock · build · tag · publish
+invoke lint                           # Ruff, then mypy (see "Lint, type and dead-code checks" below)
+invoke --list                         # all build/release tasks: test · lint · audit · lock · build · tag · publish
 python launcher.py file.pdf           # run the GUI via WSLg
 ```
 
@@ -131,7 +132,7 @@ single-instance mutex) run only here.
 py -3.12 -m venv .venv
 .venv\Scripts\python.exe -m pip install -r requirements-dev.txt
 .venv\Scripts\python.exe -m pytest              # headless suite (offscreen Qt)
-.venv\Scripts\invoke.exe --list                 # the same tasks as in WSL; `invoke lint` runs Ruff
+.venv\Scripts\invoke.exe --list                 # the same tasks as in WSL; `invoke lint` runs Ruff and mypy
 .venv\Scripts\python.exe launcher.py file.pdf   # run the GUI natively
 ```
 
@@ -157,12 +158,40 @@ Notes:
 runs the same suite on every PR (`.github/workflows/test.yml`), plus a weekly dependency audit
 (`audit.yml`).
 
+### Lint, type and dead-code checks
+
+Three more checks run on every PR. Each tool is pinned to one exact version in
+[`requirements-dev.in`](requirements-dev.in), so your machine and CI give the same answer.
+
+| Check | What it reports | Configured in | CI job |
+|---|---|---|---|
+| **Ruff** | Lint findings across the whole repository: unused names, swallowed exceptions, import order, lines over 120 characters, and OS calls outside `platform_integration.py` | [`pyproject.toml`](pyproject.toml), the `[tool.ruff…]` sections | `lint` |
+| **mypy** | Type errors in `klarpdf/` and the app, checked once as Windows and once as Linux. Every function states its types, and every `tuple`, `dict` or `list` says what it holds | [`pyproject.toml`](pyproject.toml), `[tool.mypy]` | `typecheck` |
+| **vulture** | Shipped code that nothing in shipped code uses | [`tests/test_no_dead_code.py`](tests/test_no_dead_code.py). Code kept on purpose, each with its reason, is in [`tests/dead_code_whitelist.py`](tests/dead_code_whitelist.py) | `pytest`, as part of the suite |
+
+Run them before you push:
+
+```bash
+invoke lint                           # Ruff, then mypy as Windows and as Linux
+invoke lint --fix                     # the same, after Ruff fixes what it safely can (import order, say)
+pytest tests/test_no_dead_code.py     # vulture
+```
+
+A rule is switched on only once nothing breaks it, so a failing check is always caused by the change
+in hand. When a finding is deliberate, suppress that one line and give the reason:
+`# noqa: BLE001 — why`, or `# type: ignore[code]  # why`. `tests/test_project_rules.py` fails on a
+suppression with no reason.
+
+Which rules are on, which are off, and why: [`PLAN.md`](PLAN.md) §*Linting, dead code and type
+checking*, in the table *Which rules, where*. The working rules for writing code that passes are in
+[`CLAUDE.md`](CLAUDE.md) §How we work, under *Run Ruff and mypy before a push*.
+
 ## Branch, commit, and PR conventions (collaborators)
 
 - **Always branch from an up-to-date `main`.** `git fetch origin && git switch -c <name> origin/main`.
   Use a prefixed branch name: `feat/…`, `fix/…`, `docs/…`.
 - **One PR per logical unit.** Keep changes focused and reviewable.
-- **Keep the tests green.** Run `invoke test` before pushing.
+- **Keep the tests and checks green.** Run `invoke test` and `invoke lint` before pushing.
 - **Match where things live.** Status → `PROGRESS.md`; design/spec → `PLAN.md`; conventions →
   `CLAUDE.md`; the README is the shop window (see `CLAUDE.md` §How we work).
 - Open the PR against `main` and fill in the pull-request template.
