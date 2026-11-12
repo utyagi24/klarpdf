@@ -945,7 +945,6 @@ def redact_text(
             ref = vdoc.ordered[index0]
             page = vdoc.sources[ref.source_id][ref.source_page_index]
             text: PageText | None = None
-            page_invisible: list[str] | None = None
             # Box-groups already added on this page, across **all** queries. Two queries matching
             # the same run of text is the normal case for overlapping identifiers, and each should
             # report its own `matches` — but the text is one piece and gets boxed once.
@@ -958,7 +957,6 @@ def redact_text(
                     continue
                 if text is None:
                     text = PageText(page)
-                    page_invisible = invisible.setdefault(index0 + 1, [])
                 stat = stats[one]
                 if len(terms) > 1 and not whole_words:
                     # What the caller would have got had they meant the phrase. Costs one extra
@@ -994,7 +992,7 @@ def redact_text(
                         added.add(key)
                         per_page.setdefault(index0, []).extend(boxes)
                         if any(text.is_invisible(box) for box in boxes):
-                            page_invisible.append(text.snippet_for(boxes))
+                            invisible.setdefault(index0 + 1, []).append(text.snippet_for(boxes))
         if not per_page:
             listed = all_queries[0] if len(all_queries) == 1 else all_queries
             raise ValueError(
@@ -1192,7 +1190,7 @@ def _term_report(
     if len(terms) < 2 or not counts:
         return {}
     total = sum(counts.values())
-    report = {
+    report: dict[str, list] = {
         "query_terms": [{"term": term, "matches": counts.get(term, 0)} for term in terms],
     }
     if not whole_words and phrase_matches and total >= phrase_matches * _OVER_REDACTION_FACTOR:

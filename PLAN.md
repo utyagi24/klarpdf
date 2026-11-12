@@ -11932,6 +11932,144 @@ fixed by hand, or by a small script for the names.
 `l = 1` and `%` formatting got exactly one finding for each. A 133-character line failed in a bridge
 module and passed in `docs.py`, so the exemption covers that one file only.
 
+### M172 — types for the wheel (M172.1 built 2026-11-11)
+
+**Surfaces:** core and bridge. mypy checks `klarpdf/` only. The app's code is not checked, but it
+calls the core, so the changes to the core were run against both consumers: the full suite, which
+holds the app's tests and the bridge's. Nothing a user sees changes. Two cases that cannot be
+reached now raise an error that names the rule they break (below).
+
+M172 is built in two parts, each its own PR. **M172.1**, this entry, is the gate at mypy's default
+settings. **M172.2** annotates every signature in `klarpdf/` and switches on
+`disallow_untyped_defs`.
+
+**What M172.1 adds.**
+
+* `mypy==2.4.1` in `requirements-dev.in`, as an exact pin, for Ruff's reason: a new release can
+  report errors the old one did not. The dev lock was compiled in WSL (M137). It gains mypy and the
+  four packages mypy needs (`ast-serialize`, `librt`, `mypy-extensions`, `pathspec`), and nothing
+  else moves. `typing-extensions` stays at 4.16.0 in both locks (M159). All five have Windows wheels
+  for Python 3.12, which the `windows` job needs, because it installs the dev lock.
+* `[tool.mypy]` in `pyproject.toml`: `files = ["klarpdf"]`, `python_version = "3.11"`, and
+  `warn_unused_ignores`. Everything else is mypy's default.
+  * `python_version` is the wheel's floor. mypy then refuses a library call that 3.11 does not
+    have, whichever Python runs it. `itertools.batched`, new in 3.12, is refused.
+  * `warn_unused_ignores` is the one setting beyond the defaults. It refuses a
+    `# type: ignore[code]` that suppresses nothing, as `RUF100` refuses a stale `noqa`
+    (§*Principles*, 2). Ruff's `PGH003` already refuses one with no code, and
+    `tests/test_project_rules.py` one with no reason, so mypy gets no second copy of those.
+* The `typecheck` job in `test.yml`. It installs the bridge's lock, because that is what a user of
+  the wheel gets, and then mypy at the dev lock's pin. mypy's own dependencies come at the dev
+  lock's pins too: the job hands pip that lock as constraints, with the one extra in it
+  (`pyjwt[crypto]`) taken off, because pip refuses an extra in a constraints file. The job has no
+  gate step, so it reports on every PR.
+* `invoke lint` runs Ruff and then mypy. Both always run, so one failing does not hide the other.
+  mypy's first run takes about 4 seconds. Later runs read `.mypy_cache/` and take about 0.2.
+* `tests/test_lint_config.py`: the `.in` pins mypy exactly, and `python_version` equals the floor
+  of `requires-python`. mypy has no setting like Ruff's `required-version`, so its version is
+  written once, in the lock.
+* `typecheck` in the ruleset mirror, `.github/rulesets/main.json`. **The live ruleset does not
+  change until the `PUT` in §*Branch rulesets* runs, after this merges.** The owner runs it or gives
+  the go-ahead. A branch made before the merge then has to merge `main` before it can be merged.
+
+**What mypy reported.** 127 errors in 14 of the 32 files, on `main` at `974778f`. The plan measured
+128 on 2026-11-08, before M169–M171 changed the code. 81 were PyMuPDF constants, and 46 were in our
+own code.
+
+**The PyMuPDF constants (owner decision, 2026-11-11).** PyMuPDF does not define names such as
+`PDF_ANNOT_HIGHLIGHT` in its source. It copies them in from MuPDF's bindings with a `setattr` loop
+when it is imported (`pymupdf/__init__.py`, *Data*). They exist when the code runs, and mypy cannot
+see them. `klarpdf/` used 33 of these names in 82 places, in 7 files. Three ways to handle them
+were measured and put to the owner:
+
+| Option | What it costs | What mypy still checks |
+|---|---|---|
+| **One file of ours lists the names** (chosen) | A new module, and the 82 uses read from it | Everything |
+| Tell mypy to treat PyMuPDF as unknown (`follow_imports = skip`) | No code changes | Nothing that involves a PyMuPDF object. 84 functions in `klarpdf/` take or return one. Today mypy catches `page.get_txt()` on a `fitz.Page` and `doc.sav()` on a `fitz.Document`. With this setting it reported neither |
+| A `# type: ignore[attr-defined]` on each use | 82 comments that say one thing, and one more for every new use | Everything else |
+
+The module is `klarpdf/model/pymupdf_constants.py`. Each line reads one constant from PyMuPDF by
+name, through a helper that checks the value is an `int`, so the type mypy is told is true:
+`PDF_ANNOT_HIGHLIGHT: Final = _constant("PDF_ANNOT_HIGHLIGHT")`. A name PyMuPDF does not have
+fails when the module is imported, which every run and every test does. mypy refuses a name the
+module does not list, and suggests the nearest one. `tests/test_pymupdf_constants.py` checks that
+each name holds the value PyMuPDF gives that same name, because a line that defined
+`PDF_ANNOT_LINE` and read `PDF_ANNOT_LINK` would pass everything else. **So `klarpdf/` never writes
+`fitz.PDF_…`.** The app and the tests still do. They are not type-checked, and the value is the
+same.
+
+Two more ways were measured and not offered:
+
+* **Switching off the missing-attribute check for `klarpdf/`** (`disable_error_code = attr-defined`).
+  It also hides a misspelt attribute on our own classes, and five of the 46 errors in our own code
+  were of that kind.
+* **Reading the names from `pymupdf.mupdf`**, the bindings PyMuPDF copies them from. mypy can see
+  them there. But that module is PyMuPDF's lower layer and not the interface it documents, and
+  mypy types the values as unknown, not as `int`.
+
+Only 8 of the 46 errors in our own code came from PyMuPDF's type information. So that information
+is thin: 172 of the 1,250 functions in `pymupdf/__init__.py` carry any annotation. What it does give
+is the classes. A parameter declared `fitz.Page` is checked for the methods a page has.
+
+**The 46 errors in our own code, and what reading them found.** None was a live defect, as the plan
+expected. One went away with the constants: mypy had guessed a wrong type from a comparison with a
+name it could not see. The other 45 were cleared with no suppression:
+
+| Kind | Errors | The fix |
+|---|---|---|
+| One name used for two different things in a function | 15, from 7 names | The second use gets its own name. In `get_tables`, `result` was a page's reading and then the reply. In `_title`, `other` was a text line and then a table |
+| A check the code makes that mypy cannot follow | 12, in 9 places | The check is written in the form mypy follows. `keep = dest is not None and …; if not keep: continue` became one `if`. `getattr(mark, "fontsize", 0.0)` became `isinstance(mark, Stamp) and mark.fontsize`, the form `content_marks.py` already uses |
+| A type that was missing, or narrower than what the code passes | 9 | The type is written, or widened. `PageText.snippet_for` took a `list` and was given a `tuple`. It only loops, so it now takes any iterable |
+| PyMuPDF's types say less than PyMuPDF does | 4 | A `Rect` and a `Document` can be looped over, through `__getitem__`, which mypy does not count. The code now reads a rect's four numbers by name, and calls `Document.pages()` |
+| The module name `annotations` | 3 | `server.py` imported the bridge's `annotations` module under the name that `from __future__ import annotations` had already bound. It worked because the module import came second. The module is now imported as `annotation_tools` |
+| `x = None` to release a picture | 2 | `del x`, which releases it the same way |
+
+Four of these fixes are worth knowing about:
+
+* **Two cases that cannot be reached raise a clearer error** (`klarpdf/model/edit_engine.py`). The
+  appending save writes out the bytes the origin was opened from, and the save that edits a copy
+  of the origin copies the origin. Each route is taken only when its test has said the origin is
+  there (`appends`, `page_set_unchanged`), but that test is in another method, where mypy cannot
+  see it. Each route now checks for itself and raises a `ValueError` that says what is missing.
+  Before, the same case would have raised a `TypeError` or a `KeyError` from further in.
+* **`redact_text` keeps its list of invisible matches differently, and replies the same.** It made
+  an empty list for every page with a match, and filled it only where a match was invisible. It
+  now makes the list when the first invisible match is found. `_invisible_report` already skipped
+  the empty lists.
+* **`_Line.styled` in the heading reader builds new tuples.** `[span for span in spans if span[0]
+  is not None]` became `[(style, text, rect) for style, text, rect in spans if style is not None]`,
+  which is the form mypy can narrow. The values are equal, and nothing compares the tuples by
+  identity.
+* **The bridge's `MARK_TYPES` says which classes it holds.** It was `dict[str, type]`, so
+  `mark_class.color` was an attribute of an unknown class. It is now the three mark classes.
+
+**What default settings do not check.** mypy skips the body of a function that has no annotations
+at all. So "no errors" in M172.1 covers the annotated functions only. Measured after the fixes:
+97 functions in `klarpdf/` lack an annotation (74 in the core, 22 in the bridge, one in `util`), and
+checking their bodies as they stand finds 3 more errors. That is M172.2's work.
+
+**Verified by breaking it** (M172.1).
+
+* mypy failed on each of six planted errors, with the line and the reason: a wrong type; a
+  `fitz.PDF_ANNOT_LINK` written directly; a misspelt name imported from the new module, for which
+  it suggested the right one; a `# type: ignore` that suppresses nothing; `itertools.batched`,
+  which Python 3.11 does not have; and `page.get_txt()` on a `fitz.Page`.
+* Each new test failed when its subject was broken: the `.in` pin loosened to `mypy>=2.4.1`,
+  `python_version` moved to 3.12, a constant made to read another constant's name, and the `int`
+  check taken out of `_constant`. A constant given a name PyMuPDF does not have stopped the bridge
+  from starting, with an `AttributeError` that names it.
+* `invoke lint` exited non-zero when only mypy failed and when only Ruff failed, and ran both each
+  time.
+* The `typecheck` job's install steps were run in a clean virtual environment: the bridge's lock,
+  then mypy with the dev lock as constraints. mypy and its four dependencies arrived at the dev
+  lock's pins, and mypy gave the same answer as in the dev venv.
+* The full suite passes locally (3,283 passed, and the two Windows-only tests skipped). It was run
+  in full because the change reaches `klarpdf/model/`.
+* `typecheck` went red on purpose. A `workflow_dispatch` run on a probe branch with
+  `_planted: int = "a"` added to `klarpdf/version.py` failed the job on that line, about 20 seconds
+  after it started. Its log shows mypy and its four dependencies installed at the dev lock's pins.
+  `lint` passed in the same run, because the planted line breaks no Ruff rule.
+
 ## Future enhancements (deferred beyond the roadmap)
 
 Captured but not yet scheduled:

@@ -179,8 +179,7 @@ def remap_internal_links(out_doc: fitz.Document, vdoc) -> None:
             # A link whose destination names a page other than the one that was resolved, or a
             # page that was deleted, keeps the plain page jump above rather than a tail that would
             # disagree with it.
-            keep = dest is not None and target_map.get((ref.source_id, dest.page)) == new_index
-            if not keep:
+            if dest is None or target_map.get((ref.source_id, dest.page)) != new_index:
                 continue
 
             # **The annotation this call just made is found through `/Annots`, not through the

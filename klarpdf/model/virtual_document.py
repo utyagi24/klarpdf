@@ -19,6 +19,18 @@ from pathlib import Path
 import pymupdf as fitz
 
 from klarpdf.model.destinations import RAW_TAIL_KEY, read_outline_destinations, xyz_tail
+from klarpdf.model.pymupdf_constants import (
+    PDF_ENCRYPT_KEEP,
+    PDF_ENCRYPT_NONE,
+    PDF_PERM_ACCESSIBILITY,
+    PDF_PERM_ANNOTATE,
+    PDF_PERM_ASSEMBLE,
+    PDF_PERM_COPY,
+    PDF_PERM_FORM,
+    PDF_PERM_MODIFY,
+    PDF_PERM_PRINT,
+    PDF_PERM_PRINT_HQ,
+)
 from klarpdf.util.paths import normalize_path
 
 # A snapshot is the full mutable state captured for undo: the ordered list + dirty flag.
@@ -78,15 +90,15 @@ def _authenticate_and_decrypt(
         retry = True
     encryption = (doc.metadata or {}).get("encryption") or ""
     restrictions = _restrictions_of(doc)
-    decrypted = doc.tobytes(encryption=fitz.PDF_ENCRYPT_NONE)
+    decrypted = doc.tobytes(encryption=PDF_ENCRYPT_NONE)
     doc.close()
     return fitz.open(stream=decrypted, filetype="pdf"), password, encryption, restrictions
 
 
 _ALL_PERMISSIONS = (
-    fitz.PDF_PERM_PRINT | fitz.PDF_PERM_MODIFY | fitz.PDF_PERM_COPY | fitz.PDF_PERM_ANNOTATE
-    | fitz.PDF_PERM_FORM | fitz.PDF_PERM_ACCESSIBILITY | fitz.PDF_PERM_ASSEMBLE
-    | fitz.PDF_PERM_PRINT_HQ
+    PDF_PERM_PRINT | PDF_PERM_MODIFY | PDF_PERM_COPY | PDF_PERM_ANNOTATE
+    | PDF_PERM_FORM | PDF_PERM_ACCESSIBILITY | PDF_PERM_ASSEMBLE
+    | PDF_PERM_PRINT_HQ
 )
 
 
@@ -440,7 +452,7 @@ class VirtualDocument:
         AES-128, matching the source.
         """
         return fitz.open(
-            stream=self.sources[source_id].tobytes(encryption=fitz.PDF_ENCRYPT_KEEP),
+            stream=self.sources[source_id].tobytes(encryption=PDF_ENCRYPT_KEEP),
             filetype="pdf",
         )
 
@@ -518,7 +530,8 @@ class VirtualDocument:
             return False
         if self._outline_override is not None and self._origin_toc:
             return False
-        arrived_with = self._source_marks.get(self.origin_source_id)
+        origin = self.origin_source_id
+        arrived_with = None if origin is None else self._source_marks.get(origin)
         if arrived_with is None or len(arrived_with) != len(self.ordered):
             return False
         for ref, arrived in zip(self.ordered, arrived_with, strict=True):
@@ -669,7 +682,7 @@ class VirtualDocument:
         seen: dict[str, int] = {}
         for new_index, ref in enumerate(self.ordered):
             seen.setdefault(ref.source_id, new_index)
-        return sorted(seen, key=seen.get)
+        return sorted(seen, key=seen.__getitem__)
 
     def source_toc(self, source_id: str) -> list:
         """``source_id``'s own outline, as ``get_toc(simple=False)`` reports it.

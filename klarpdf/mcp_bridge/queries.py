@@ -28,6 +28,17 @@ import pymupdf as fitz
 from klarpdf.model.destinations import content_point, page_index_map, read_destination
 from klarpdf.model.links_remap import internal_link_target
 from klarpdf.model.page_text import PageText
+from klarpdf.model.pymupdf_constants import (
+    PDF_ANNOT_LINK,
+    PDF_PERM_ACCESSIBILITY,
+    PDF_PERM_ANNOTATE,
+    PDF_PERM_ASSEMBLE,
+    PDF_PERM_COPY,
+    PDF_PERM_FORM,
+    PDF_PERM_MODIFY,
+    PDF_PERM_PRINT,
+    PDF_PERM_PRINT_HQ,
+)
 from klarpdf.model.virtual_document import PasswordRequired, VirtualDocument
 
 # How many pages `document_info` samples before reporting `has_text_layer: false`. A text document
@@ -38,14 +49,14 @@ _TEXT_LAYER_SAMPLE_PAGES = 20
 # normalises "restricts nothing" to -1, which has every bit set, so an unrestricted document falls
 # out as all-true here with no special case.
 _PERMISSION_BITS = {
-    "print": fitz.PDF_PERM_PRINT,
-    "modify": fitz.PDF_PERM_MODIFY,
-    "copy": fitz.PDF_PERM_COPY,
-    "annotate": fitz.PDF_PERM_ANNOTATE,
-    "fill_forms": fitz.PDF_PERM_FORM,
-    "accessibility": fitz.PDF_PERM_ACCESSIBILITY,
-    "assemble": fitz.PDF_PERM_ASSEMBLE,
-    "print_high_quality": fitz.PDF_PERM_PRINT_HQ,
+    "print": PDF_PERM_PRINT,
+    "modify": PDF_PERM_MODIFY,
+    "copy": PDF_PERM_COPY,
+    "annotate": PDF_PERM_ANNOTATE,
+    "fill_forms": PDF_PERM_FORM,
+    "accessibility": PDF_PERM_ACCESSIBILITY,
+    "assemble": PDF_PERM_ASSEMBLE,
+    "print_high_quality": PDF_PERM_PRINT_HQ,
 }
 
 
@@ -485,7 +496,7 @@ def links(
             # FINDING 1). `annot_xrefs()` is a metadata read, measured at 0.03 s over 35 pages.
             without_action += sum(
                 1 for _xref, subtype, _name in page.annot_xrefs()
-                if subtype == fitz.PDF_ANNOT_LINK
+                if subtype == PDF_ANNOT_LINK
             ) - len(raw)
             for link in raw:
                 kind = _kind_name(link)

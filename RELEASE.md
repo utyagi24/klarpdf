@@ -69,6 +69,10 @@ because the ship/build locks carry `win_amd64` hashes.
      until you do), recompile the dev lock in WSL, run `invoke lint`, and fix any new findings there.
    - vulture → `requirements-dev.in`, as an exact pin (M169). A bump is its own PR, for the same
      reason. Run `pytest tests/test_no_dead_code.py` and triage any new finding in that PR.
+   - mypy → `requirements-dev.in`, as an exact pin (M172). A bump is its own PR, for the same
+     reason. Recompile the dev lock in WSL, run `invoke lint`, and fix any new error in that PR.
+     mypy shares `typing-extensions` with the bridge's lock. If the recompile moves it,
+     `tests/test_mcp_packaging.py` fails until the bridge's lock moves too (M159).
    - build-only dep (PyInstaller) → `requirements-build.in`
 
 2. **Re-compile the affected lock(s).** A runtime change propagates to **both** the ship and dev

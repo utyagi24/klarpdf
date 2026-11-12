@@ -43,7 +43,8 @@ from mcp.server.mcpserver import Image
 from mcp.server.mcpserver.exceptions import ResourceError, ToolError
 from mcp_types import CallToolRequestParams, CallToolResult, TextContent
 
-from klarpdf.mcp_bridge import annotations, docs, headings, queries, redaction, tables, transforms
+from klarpdf.mcp_bridge import annotations as annotation_tools
+from klarpdf.mcp_bridge import docs, headings, queries, redaction, tables, transforms
 from klarpdf.mcp_bridge.config import Config, PathNotAllowed, PathPolicy
 from klarpdf.mcp_bridge.strict_args import rejection_message, unknown_parameters
 from klarpdf.model.virtual_document import PasswordRequired
@@ -757,7 +758,7 @@ def create_server(config: Config | None = None) -> MCPServer:
         Form fields are not listed here — `get_form_fields` reports those.
         `klarpdf://docs/get_annotations` has the field contract.
         """
-        return annotations.get_annotations(
+        return annotation_tools.get_annotations(
             check(path),
             pages,
             password=password,
@@ -1095,7 +1096,7 @@ def create_server(config: Config | None = None) -> MCPServer:
 
         `klarpdf://docs/annotate` has the field contract and the review workflow.
         """
-        return annotations.annotate(
+        return annotation_tools.annotate(
             check(path), marks, check(out), password=password, overwrite=overwrite
         )
 

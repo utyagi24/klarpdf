@@ -245,9 +245,12 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   run with many failures that need digging through. Even then, `pytest -rf --tb=line`, one line per
   failure, is usually cheaper.
 
-- **Run Ruff before a push, and give every suppression a reason** (M167). `invoke lint` runs the
-  pinned Ruff, with the same version and rules as the required `lint` check, and takes under a
-  second. `invoke lint --fix` also sorts imports and makes Ruff's other safe fixes. A line over 120
+- **Run Ruff and mypy before a push, and give every suppression a reason** (M167, M172).
+  `invoke lint` runs the pinned Ruff, with the same version and rules as the required `lint`
+  check. It then runs the pinned mypy over `klarpdf/`, as the `typecheck` check does. Ruff takes
+  under a second. mypy takes about 4 seconds the first time and well under one after that. mypy
+  checks the wheel only, not the app (`PLAN.md` §M172).
+  `invoke lint --fix` also sorts imports and makes Ruff's other safe fixes. A line over 120
   characters, a one-letter name such as `l`, and `%` formatting are fixed by hand (M171). There
   is no formatter, so Ruff checks the layout but does not rewrite it. A rule is switched on only
   once nothing breaks it, in the PR that clears its findings, so
@@ -348,6 +351,14 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   bottom of a `g` or the end of a word is gone in every viewer (M166). To ask whether text is
   clipped, read each character's ink with `flags=fitz.TEXT_ACCURATE_BBOXES` and compare it with
   the clip, on text that has letters reaching below the line.
+- **mypy cannot see PyMuPDF's `PDF_` constants, so `klarpdf/` reads them from one file.** PyMuPDF
+  copies names such as `PDF_ANNOT_HIGHLIGHT` in with a loop when it is imported, so they exist
+  when the code runs and are missing from its types. In `klarpdf/`, import them from
+  `klarpdf/model/pymupdf_constants.py`, and add a line there for a new one. `fitz.PDF_…` fails
+  the `typecheck` check there. The app and the tests are not type-checked and still write
+  `fitz.PDF_…`. PyMuPDF's types have one more gap: a `Rect` and a `Document` can be looped
+  over, and mypy says they cannot. In `klarpdf/`, read a rect's four numbers by name and use
+  `doc.pages()` (`PLAN.md` §M172).
 - **An annotation crashes once its page is gone.** `doc[0].first_annot` lets the page be collected,
   and an annotation only holds a weak reference to it. Then `.rect` is a Windows access violation
   that takes down the whole test run, and `.parent` is a `ReferenceError`. Keep the page in a

@@ -1398,8 +1398,15 @@ parts, and the box here is ticked on merge. Build in number order, except that M
   Details in `PLAN.md` §M171 — [#450](https://github.com/utyagi24/klarpdf/pull/450)
 - [ ] **M172** **Types for the wheel** (`klarpdf/`): mypy and the `typecheck` CI job. *Core and
   bridge.* — *WSL, for the dev lock*
-  - [ ] **M172.1** The gate, at mypy's default settings. `typecheck` becomes a required check once
-    this merges
+  - [x] **M172.1** **The gate, at mypy's default settings.** mypy 2.4.1 is pinned exactly in the
+    dev lock. The `typecheck` CI job runs it over `klarpdf/` on every push and every PR, and
+    `invoke lint` runs it after Ruff. mypy reported 127 errors. 81 were PyMuPDF names it cannot
+    see, such as `PDF_ANNOT_HIGHLIGHT`. Owner decision: one file,
+    `klarpdf/model/pymupdf_constants.py`, lists the 33 names, and `klarpdf/` reads them from
+    there. The other 46 were in our own code. None was a live defect, and all are cleared with no
+    suppression. `typecheck` is in the ruleset mirror. **It becomes a required check when the
+    owner runs the ruleset `PUT`, after this merges.** Details in `PLAN.md` §M172 —
+    [#451](https://github.com/utyagi24/klarpdf/pull/451)
   - [ ] **M172.2** Every signature in `klarpdf/` annotated
 - [ ] **M173** **Types for the app**: go or no-go, decided after M172. *App.*
 

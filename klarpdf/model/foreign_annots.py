@@ -37,6 +37,17 @@ from dataclasses import dataclass
 import pymupdf as fitz
 
 from klarpdf.model.page_edits import KLARPDF_AUTHOR
+from klarpdf.model.pymupdf_constants import (
+    PDF_ANNOT_CIRCLE,
+    PDF_ANNOT_FREE_TEXT,
+    PDF_ANNOT_HIGHLIGHT,
+    PDF_ANNOT_INK,
+    PDF_ANNOT_LINE,
+    PDF_ANNOT_SQUARE,
+    PDF_ANNOT_SQUIGGLY,
+    PDF_ANNOT_STRIKE_OUT,
+    PDF_ANNOT_UNDERLINE,
+)
 
 # Rect rounding for the fallback fingerprint. Coordinates survive a copy but not bit-exactly (they
 # go out and back through PDF's decimal floats), so the hash must agree to within a hair. A tenth of
@@ -96,7 +107,7 @@ class ForeignAnnot:
     """
 
     fingerprint: str
-    kind: int                                    # fitz.PDF_ANNOT_*
+    kind: int                                    # a PDF_ANNOT_* value
     kind_name: str
     rect: tuple[float, float, float, float]
     contents: str
@@ -157,10 +168,10 @@ class ForeignMove:
 # Squiggly rides along: it is text markup by the same definition, even though it is not among
 # MODELED_KINDS and so cannot be adopted.
 TEXT_MARKUP_KINDS = frozenset({
-    fitz.PDF_ANNOT_HIGHLIGHT,
-    fitz.PDF_ANNOT_UNDERLINE,
-    fitz.PDF_ANNOT_STRIKE_OUT,
-    fitz.PDF_ANNOT_SQUIGGLY,
+    PDF_ANNOT_HIGHLIGHT,
+    PDF_ANNOT_UNDERLINE,
+    PDF_ANNOT_STRIKE_OUT,
+    PDF_ANNOT_SQUIGGLY,
 })
 
 
@@ -254,14 +265,14 @@ def read_foreign_annotations(page: fitz.Page) -> tuple[ForeignAnnot, ...]:
 # author-tagged — so an adopted mark round-trips from then on exactly like one we drew.
 
 MODELED_KINDS = frozenset({
-    fitz.PDF_ANNOT_HIGHLIGHT,
-    fitz.PDF_ANNOT_UNDERLINE,
-    fitz.PDF_ANNOT_STRIKE_OUT,
-    fitz.PDF_ANNOT_INK,
-    fitz.PDF_ANNOT_LINE,
-    fitz.PDF_ANNOT_SQUARE,
-    fitz.PDF_ANNOT_CIRCLE,
-    fitz.PDF_ANNOT_FREE_TEXT,
+    PDF_ANNOT_HIGHLIGHT,
+    PDF_ANNOT_UNDERLINE,
+    PDF_ANNOT_STRIKE_OUT,
+    PDF_ANNOT_INK,
+    PDF_ANNOT_LINE,
+    PDF_ANNOT_SQUARE,
+    PDF_ANNOT_CIRCLE,
+    PDF_ANNOT_FREE_TEXT,
 })
 
 # Base-14 DA font names the TextBox descriptor can represent. Anything else is a font we would
@@ -271,10 +282,10 @@ _BASE14_DA = frozenset({"helv", "tiro", "cour"})
 # The kinds the model draws as a stroke: a pen stroke, a line, a rectangle and an ellipse. Their
 # descriptors hold a width, a dash and an opacity, but no comment.
 _DRAWN_KINDS = frozenset({
-    fitz.PDF_ANNOT_INK,
-    fitz.PDF_ANNOT_LINE,
-    fitz.PDF_ANNOT_SQUARE,
-    fitz.PDF_ANNOT_CIRCLE,
+    PDF_ANNOT_INK,
+    PDF_ANNOT_LINE,
+    PDF_ANNOT_SQUARE,
+    PDF_ANNOT_CIRCLE,
 })
 
 
@@ -362,7 +373,7 @@ def degradations(annot: fitz.Annot) -> list[str]:
             opacity = 1.0
         if 0.0 <= opacity < 1.0:
             lost.append("its transparency")
-    if kind == fitz.PDF_ANNOT_FREE_TEXT:
+    if kind == PDF_ANNOT_FREE_TEXT:
         from klarpdf.model.page_edits import _parse_freetext_da
 
         da = doc.xref_get_key(annot.xref, "DA")

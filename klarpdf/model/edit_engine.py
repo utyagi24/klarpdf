@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pymupdf as fitz
 
+from klarpdf.model.pymupdf_constants import PDF_ENCRYPT_AES_256, PDF_ENCRYPT_KEEP
 from klarpdf.model.virtual_document import VirtualDocument, pin_file_id
 
 #: Object cleanup for the route that **copies the origin** — an unchanged page set (M110).
@@ -151,7 +152,7 @@ def append_options() -> dict:
     return {
         **write_options(GARBAGE_APPEND, clean=CLEAN_COPIED),
         "incremental": True,
-        "encryption": fitz.PDF_ENCRYPT_KEEP,
+        "encryption": PDF_ENCRYPT_KEEP,
     }
 
 
@@ -198,7 +199,7 @@ def _encryption_args(vdoc: VirtualDocument) -> dict:
 
         owner_pw = secrets.token_urlsafe(30)  # 40 chars — MuPDF's password length ceiling
     return {
-        "encryption": fitz.PDF_ENCRYPT_AES_256,
+        "encryption": PDF_ENCRYPT_AES_256,
         "user_pw": vdoc.password,
         "owner_pw": owner_pw,
         "permissions": vdoc.permissions,
@@ -219,7 +220,7 @@ def _keep_encryption(vdoc: VirtualDocument) -> dict:
     the identifier the key was made from before any copy is taken (M161).
     """
     if vdoc.password is None and vdoc.origin_carries_encryption():
-        return {"encryption": fitz.PDF_ENCRYPT_KEEP}
+        return {"encryption": PDF_ENCRYPT_KEEP}
     return {}
 
 
@@ -406,7 +407,10 @@ class PyMuPDFEngine:
         touched, so a document opened and saved with no edits at all appends **0 bytes** and comes
         back byte-identical.
         """
-        Path(out_path).write_bytes(vdoc.origin_bytes())
+        seed = vdoc.origin_bytes()
+        if seed is None:  # `appends` answers False for such a document, so this route is not taken
+            raise ValueError("an appending save needs the bytes the origin was opened from")
+        Path(out_path).write_bytes(seed)
         out = fitz.open(out_path)
         try:
             # The seed is the file's own bytes, not the source `open_source` pinned, so an
@@ -492,7 +496,10 @@ class PyMuPDFEngine:
         losing the old one is the point, and refusing to write it because the page set is unchanged
         would mean the route that preserves the most is the only one that cannot do this at all.
         """
-        out = vdoc.fresh_source(vdoc.origin_source_id)
+        origin = vdoc.origin_source_id
+        if origin is None:  # `page_set_unchanged` answers False then, so this route is not taken
+            raise ValueError("a save that edits a copy of the origin needs an origin")
+        out = vdoc.fresh_source(origin)
         try:
             self._apply_page_edits(out, vdoc)
             if vdoc.outline_override is not None:
