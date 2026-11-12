@@ -5052,6 +5052,18 @@ the PR that fixes it. See `CLAUDE.md` §How we work for the split and why. Items
 were not migrated wholesale: each is listed because a decision is outstanding, which is what keeps
 it on this side of the line.
 
+- **Say what a bare `tuple`, `dict` or `list` holds?** (M172.2, measured 2026-11-11, not planned).
+  mypy accepts a type such as `annotations: tuple` or `-> dict`, which does not say what is
+  inside. Whatever is taken out of one is unknown to mypy, so nothing done with it is checked.
+  Its setting `disallow_any_generics` refuses such a type. Measured on M172.2's code, it reports
+  290, in 19 of the 33 files in `klarpdf/`: 154 `dict`, 85 `tuple`, 39 `list` and 12 others. 156
+  are in the bridge and 134 in the core. **Why it was left:** M172's plan did not include it, and
+  few are a one-word fix. 129 of the `dict`s are in the bridge, and 75 are what a function
+  returns, mostly a tool's reply. The honest type for those names each key. 17 of the `tuple`s
+  are a page's `annotations`, which would pay most: every use of a mark taken from one would
+  then be checked, and `Mark` already names what it holds (M172.2). **Open question:** whether to
+  do it, all of it or the `annotations` tuples alone, and when. It fits beside M173's decision,
+  because the app is the main user of those tuples. `PLAN.md` §M172.
 - **Move a text box up at the bottom of the page, as Edge does?** (M166, deferred by the owner
   2026-11-07). When a box gains lines at the bottom of the page, by narrowing it, typing or a
   bigger font, it now grows only to the page edge, and lines that still do not fit are cut off,

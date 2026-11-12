@@ -12134,7 +12134,8 @@ estimated about 117, before M169 deleted code.
 
 **What is still not stated.** A bare `tuple`, `dict` or `list` is allowed, and `klarpdf/` has many:
 `annotations: tuple`, for one. mypy's `disallow_any_generics` would report 290 of them, and
-`--strict` 531 errors in all. Neither is planned.
+`--strict` 531 errors in all. Neither is planned. `PROGRESS.md` §Open follow-ups carries the
+question, with the counts by kind.
 
 **Verified by breaking it** (M172.2).
 
