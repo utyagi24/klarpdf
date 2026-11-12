@@ -1404,8 +1404,9 @@ parts, and the box here is ticked on merge. Build in number order, except that M
     see, such as `PDF_ANNOT_HIGHLIGHT`. Owner decision: one file,
     `klarpdf/model/pymupdf_constants.py`, lists the 33 names, and `klarpdf/` reads them from
     there. The other 46 were in our own code. None was a live defect, and all are cleared with no
-    suppression. `typecheck` is in the ruleset mirror. **It becomes a required check when the
-    owner runs the ruleset `PUT`, after this merges.** Details in `PLAN.md` §M172 —
+    suppression. `typecheck` is in the ruleset mirror. The owner ran the ruleset `PUT` on
+    2026-11-11, so `typecheck` is now a required check, and the live ruleset matches the mirror
+    field by field. Details in `PLAN.md` §M172 —
     [#451](https://github.com/utyagi24/klarpdf/pull/451)
   - [x] **M172.2** **Every signature in `klarpdf/` annotated.** mypy now refuses a function that
     does not say what it takes and returns, so it checks every function body in `klarpdf/`. 97
