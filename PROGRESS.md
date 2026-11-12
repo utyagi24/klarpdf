@@ -1339,7 +1339,7 @@ tick the box here on merge. Build in number order.
   Details in `PLAN.md` §M166 — *Windows (headless)* —
   [#436](https://github.com/utyagi24/klarpdf/pull/436)
 
-## Roadmap — linting, dead code and type checking (M167–M173; planned 2026-11-08)
+## Roadmap — linting, dead code and type checking (M167–M174; planned 2026-11-08, M174 added 2026-11-11)
 
 **Planned 2026-11-08.** The owner answered the proposal's three questions the same day: no formatter
 for now, mypy for types, and `lint` and `typecheck` as required status checks. The strategy, the
@@ -1433,6 +1433,10 @@ parts, and the box here is ticked on merge. Build in number order, except that M
     a declaration that contradicted its own comment, and parts that might be empty, now checked
     where they are used. One more suppression, for a `None` PySide6's types leave out. Details in
     `PLAN.md` §M173 — [#455](https://github.com/utyagi24/klarpdf/pull/455)
+- [ ] **M174** **Lists that say what they hold**: mypy refuses a `tuple`, `dict` or `list` in a
+  type that does not say what it holds. 445 to clear, 290 in `klarpdf/` and 155 in the app. Added by
+  the owner on 2026-11-11. *Core, bridge and app.* Scope and decision in `PLAN.md` §*The roadmap*
+  and §*Decisions*
 
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 
@@ -5068,23 +5072,8 @@ the PR that fixes it. See `CLAUDE.md` §How we work for the split and why. Items
 were not migrated wholesale: each is listed because a decision is outstanding, which is what keeps
 it on this side of the line.
 
-- **Say what a bare `tuple`, `dict` or `list` holds?** (M172.2, measured 2026-11-11, not planned).
-  mypy accepts a type such as `annotations: tuple` or `-> dict`, which does not say what is
-  inside. Whatever is taken out of one is unknown to mypy, so nothing done with it is checked.
-  Its setting `disallow_any_generics` refuses such a type. Measured on M172.2's code, it reports
-  290, in 19 of the 33 files in `klarpdf/`: 154 `dict`, 85 `tuple`, 39 `list` and 12 others. 156
-  are in the bridge and 134 in the core. **Why it was left:** M172's plan did not include it, and
-  few are a one-word fix. 129 of the `dict`s are in the bridge, and 75 are what a function
-  returns, mostly a tool's reply. The honest type for those names each key. 17 of the `tuple`s
-  are a page's `annotations`, which would pay most: every use of a mark taken from one would
-  then be checked, and `Mark` already names what it holds (M172.2). **Open question:** whether to
-  do it, all of it or the `annotations` tuples alone, and when. The owner chose to decide it after
-  M173.1, once the app's count was known (2026-11-11). Measured then: 150 in the app and 290 in
-  `klarpdf/`. The app's count is a floor, because M173.2 adds annotations. Only 2 of the app's
-  150 are a page's marks list. Shown those numbers, the owner chose to decide after M173.2, when
-  the app's count is final (2026-11-11). Measured after M173.2: 155 in the app and 290 in
-  `klarpdf/`, 445 in all. M173.2 also showed what it costs to leave them: a test that tells mypy
-  a mark's kind does nothing while the marks list it filters is bare. `PLAN.md` §M172, §M173.
+- **Say what a bare `tuple`, `dict` or `list` holds?** — graduated to **M174** (owner, 2026-11-11:
+  all 445, as a new milestone).
 - **Move a text box up at the bottom of the page, as Edge does?** (M166, deferred by the owner
   2026-11-07). When a box gains lines at the bottom of the page, by narrowing it, typing or a
   bigger font, it now grows only to the page edge, and lines that still do not fit are cut off,
