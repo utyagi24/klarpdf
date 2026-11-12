@@ -17,6 +17,7 @@ import json
 import os
 import time
 from pathlib import Path
+from typing import Any
 
 from PySide6.QtCore import QStandardPaths
 
@@ -187,11 +188,11 @@ class Settings:
 
     # ---- app-global preferences -------------------------------------------------
 
-    def get_pref(self, key: str, default=None):
+    def get_pref(self, key: str, default: object = None) -> Any:
         """An app-global preference (shared by all windows), e.g. ``"sidebar_visible"``."""
         return self._prefs.get(key, default)
 
-    def set_pref(self, key: str, value) -> None:
+    def set_pref(self, key: str, value: object) -> None:
         if self._prefs.get(key) == value:
             return  # unchanged — skip the write
         self._prefs[key] = value

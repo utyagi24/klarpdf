@@ -250,11 +250,12 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   check. It then runs `invoke typecheck`, as the `typecheck` check does: the pinned mypy over
   `klarpdf/` and the app, twice, as Windows and as Linux. A few lines of the app run on one
   platform only, and mypy skips the other's. Ruff takes under a second. Each mypy run takes about
-  5 seconds the first time and well under one after that. In `klarpdf/`, every function says what
-  it takes and what it returns, and mypy refuses one that does not (M172.2). The app follows in
-  M173.2. Use the names the core has
+  5 seconds the first time and well under one after that. Every function says what it takes and
+  what it returns, and mypy refuses one that does not (M172.2, M173.2). Use the names the core has
   for the kinds of mark (`TextMarkup`, `AdditiveMark`, `Mark` in `klarpdf/model/page_edits.py`),
-  and `object` only where a function is written to take anything.
+  and `object` only where a function is written to take anything. A module that loads no Qt
+  (`viewer/links.py`, `viewer/pixmap_cache.py`) imports its Qt names for type checking only,
+  under `if TYPE_CHECKING:`. `tests/test_mcp_no_qt.py` fails if `viewer/links.py` loads Qt.
   `invoke lint --fix` also sorts imports and makes Ruff's other safe fixes. A line over 120
   characters, a one-letter name such as `l`, and `%` formatting are fixed by hand (M171). There
   is no formatter, so Ruff checks the layout but does not rewrite it. A rule is switched on only

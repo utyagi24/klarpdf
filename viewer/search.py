@@ -16,8 +16,10 @@ module's docstring records why the obvious ``page.get_textbox`` is not used.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QBrush, QColor
+from PySide6.QtGui import QBrush, QColor, QHideEvent, QKeyEvent, QShowEvent
 from PySide6.QtWidgets import (
     QCheckBox,
     QGraphicsRectItem,
@@ -33,6 +35,11 @@ from PySide6.QtWidgets import (
 from klarpdf.model.page_text import PageText
 from klarpdf.model.pymupdf_constants import PDF_ANNOT_FREE_TEXT
 
+if TYPE_CHECKING:  # named in annotations only
+    import pymupdf as fitz
+
+    from viewer.pdf_view import PdfView
+
 _HIT = QColor(255, 235, 59, 90)        # all matches: translucent yellow
 _CURRENT = QColor(255, 138, 0, 150)    # current match: stronger orange
 
@@ -41,7 +48,7 @@ _CURRENT = QColor(255, 138, 0, 150)    # current match: stronger orange
 SEARCH_DEBOUNCE_MS = 250
 
 
-def _overlay_text_rects(page) -> list:
+def _overlay_text_rects(page: fitz.Page) -> list:
     """The page's **text-bearing overlays** — FreeText annotations (typed boxes, ours and foreign)
     and form-field widgets. Search excludes hits landing on these so it returns the page's printed
     *content-stream* text only, the way Preview and Edge do (PLAN §Future enhancements → Direction A):
@@ -78,7 +85,7 @@ def is_whole_word(words: list, box: tuple, tol: float = 0.5) -> bool:
 
 
 class SearchController:
-    def __init__(self, view) -> None:
+    def __init__(self, view: PdfView) -> None:
         self._view = view
         self._hits: list[tuple[int, tuple, str]] = []   # (page_index, box_pts, snippet)
         self._idx = -1
@@ -208,6 +215,15 @@ class SearchController:
                 self._items.append(item)
 
 
+def search_of(view: PdfView) -> SearchController:
+    """The view's search controller. MainWindow gives the view one before it builds the bar or the
+    results panel, so a missing one is a wiring mistake, and this says so rather than failing on
+    `None`."""
+    if view.search is None:
+        raise RuntimeError("the page view has no search controller; MainWindow sets it first")
+    return view.search
+
+
 class SearchResultsPanel(QListWidget):
     """The M47 doc-wide hit list: one row per hit — "p. N   …snippet…" — click to jump. Exists in
     the layout but stays hidden until the FindBar's List All toggle shows it (no dead chrome).
@@ -220,7 +236,7 @@ class SearchResultsPanel(QListWidget):
 
     _INDEX_ROLE = Qt.ItemDataRole.UserRole  # row payload: the hit's index in the controller
 
-    def __init__(self, view, parent=None, checkable: bool = False) -> None:
+    def __init__(self, view: PdfView, parent: QWidget | None = None, checkable: bool = False) -> None:
         super().__init__(parent)
         self._view = view
         self._checkable = checkable
@@ -232,8 +248,8 @@ class SearchResultsPanel(QListWidget):
     def refresh(self) -> None:
         """Rebuild the rows from the controller's current hits and mark the current one."""
         self.clear()
-        idx, _total = self._view.search.position()
-        for i, (page_index, _box, snippet) in enumerate(self._view.search.hits()):
+        idx, _total = search_of(self._view).position()
+        for i, (page_index, _box, snippet) in enumerate(search_of(self._view).hits()):
             item = QListWidgetItem(f"p. {page_index + 1}   {snippet}")
             item.setData(self._INDEX_ROLE, i)
             item.setToolTip(f"Page {page_index + 1}")
@@ -251,7 +267,7 @@ class SearchResultsPanel(QListWidget):
         on each, and redacting only the first is what leaves the tail of the phrase readable under
         a black box. A row is a match; redaction works in rectangles, so the rows are flattened.
         """
-        hits = self._view.search.hits()
+        hits = search_of(self._view).hits()
         chosen: list[tuple[int, tuple]] = []
         for row in range(self.count()):
             item = self.item(row)
@@ -268,8 +284,8 @@ class SearchResultsPanel(QListWidget):
         for row in range(self.count()):
             self.item(row).setCheckState(state)
 
-    def _on_item_clicked(self, item) -> None:
-        self._view.search.goto(item.data(self._INDEX_ROLE))
+    def _on_item_clicked(self, item: QListWidgetItem) -> None:
+        search_of(self._view).goto(item.data(self._INDEX_ROLE))
 
 
 class FindBar(QWidget):
@@ -296,7 +312,7 @@ class FindBar(QWidget):
 
     visibilityChanged = Signal(bool)
 
-    def __init__(self, view, parent=None) -> None:
+    def __init__(self, view: PdfView, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._view = view
         self.results_panel: SearchResultsPanel | None = None
@@ -351,25 +367,25 @@ class FindBar(QWidget):
         # dead state where only retyping revived the search. Re-run the kept query when the
         # controller is empty; a bar that is already live (Ctrl+F while open) keeps its current
         # hit position untouched.
-        if self._edit.text() and self._view.search.position()[1] == 0:
+        if self._edit.text() and search_of(self._view).position()[1] == 0:
             self._run_query()
 
     def hide_bar(self) -> None:
         self._pending.stop()   # a queued keystroke must not re-populate hits behind a closed bar
-        self._view.search.clear()
+        search_of(self._view).clear()
         self._list_btn.setChecked(False)  # also hides the results panel (toggled handler)
         self.hide()
         self._view.setFocus()
 
     def find_next(self) -> None:
         self.flush_pending_search()   # Enter mid-debounce searches what was typed, not the last run
-        self._view.search.next()
+        search_of(self._view).next()
         self._sync_results()
         self._update_label()
 
     def find_prev(self) -> None:
         self.flush_pending_search()
-        self._view.search.prev()
+        search_of(self._view).prev()
         self._sync_results()
         self._update_label()
 
@@ -393,7 +409,7 @@ class FindBar(QWidget):
             self._run_query()
 
     def _run_query(self) -> None:
-        self._view.search.search(self._edit.text(), case_sensitive=self._case_box.isChecked(),
+        search_of(self._view).search(self._edit.text(), case_sensitive=self._case_box.isChecked(),
                                  whole_word=self._word_box.isChecked())
         if self.results_panel is not None and self._list_btn.isChecked():
             self.results_panel.refresh()  # a live panel follows the query as it is typed
@@ -426,7 +442,7 @@ class FindBar(QWidget):
         when the document has one. The list panel goes with them: an empty band under the bar says
         nothing the "No results" label doesn't, and it returns (still listing) the moment the query
         matches again."""
-        _idx, total = self._view.search.position()
+        _idx, total = search_of(self._view).position()
         for button in (self._prev_btn, self._next_btn, self._list_btn):
             button.setEnabled(total > 0)
         if self.results_panel is not None:
@@ -435,19 +451,19 @@ class FindBar(QWidget):
     def _sync_results(self) -> None:
         """Keep the visible panel's current-row marker on the controller's current hit."""
         if self.results_panel is not None and self.results_panel.isVisible():
-            idx, _total = self._view.search.position()
+            idx, _total = search_of(self._view).position()
             if idx >= 0:
                 self.results_panel.setCurrentRow(idx)
 
     def _update_label(self) -> None:
-        idx, total = self._view.search.position()
+        idx, total = search_of(self._view).position()
         if total:
             self._label.setText(f"{idx + 1} of {total}")
         else:
             self._label.setText("No results" if self._edit.text() else "")
         self._sync_controls()
 
-    def keyPressEvent(self, event) -> None:
+    def keyPressEvent(self, event: QKeyEvent) -> None:
         if event.key() == Qt.Key.Key_Escape:
             self.hide_bar()
             return
@@ -458,10 +474,10 @@ class FindBar(QWidget):
     # document change, the fullscreen save/restore's direct setVisible), so emitting here — rather
     # than from each caller — is what lets the toolbar's Find toggle stay in sync no matter who
     # moved the bar. The emitted bool is redundant with isVisible(); the receiver reads it directly.
-    def showEvent(self, event) -> None:
+    def showEvent(self, event: QShowEvent) -> None:
         super().showEvent(event)
         self.visibilityChanged.emit(True)
 
-    def hideEvent(self, event) -> None:
+    def hideEvent(self, event: QHideEvent) -> None:
         super().hideEvent(event)
         self.visibilityChanged.emit(False)

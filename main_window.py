@@ -16,11 +16,24 @@ from __future__ import annotations
 
 import os
 import tempfile
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeVar, cast
 
-from PySide6.QtCore import QEvent, QRect, QSize, Qt, QTimer
-from PySide6.QtGui import QAction, QActionGroup, QCursor, QGuiApplication, QKeySequence, QUndoStack
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, QSize, Qt, QTimer
+from PySide6.QtGui import (
+    QAction,
+    QActionGroup,
+    QCloseEvent,
+    QCursor,
+    QGuiApplication,
+    QKeyEvent,
+    QKeySequence,
+    QResizeEvent,
+    QShowEvent,
+    QUndoStack,
+    QWindowStateChangeEvent,
+)
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -105,8 +118,16 @@ from viewer.tools import REDACT_TOOLS, ArmedTool, InteractionMode
 from viewer.zoom_widget import ZoomWidget
 
 if TYPE_CHECKING:  # imported where they are built, so a document that needs neither never loads them
+    from app import PdfApp
+    from klarpdf.model.content_marks import ContentMark
+    from klarpdf.model.foreign_annots import ForeignAnnot
+    from klarpdf.model.page_edits import Mark
     from organize.annotations_panel import AnnotationsPanel
     from organize.outline_panel import OutlinePanel
+    from ui.mark_dialog import MarkDialog
+
+#: Whatever an export's writer returns; `_export_pdf` hands it back beside the path.
+_Written = TypeVar("_Written")
 
 # Preference key for the sticky mark style. Style only — never the page range, whose stale value
 # would silently re-scope the next mark to a whole document (see ui.mark_dialog).
@@ -191,7 +212,7 @@ def _ask_pdf_password(path: str, retry: bool) -> str | None:
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, app, path: str, settings: Settings) -> None:
+    def __init__(self, app: PdfApp, path: str, settings: Settings) -> None:
         super().__init__()
         # The window's own floor (#358), set before any child exists that could resize it. Two
         # halves, because one of the two window systems we run on ignores the first: the constraint
@@ -501,7 +522,7 @@ class MainWindow(QMainWindow):
                 return True
         return False
 
-    def _goto_mark(self, page_index: int, mark, bounds: tuple) -> None:
+    def _goto_mark(self, page_index: int, mark: object, bounds: tuple) -> None:
         """An Annotations-tab row was clicked (M77): jump to the mark and select it — the M47
         click-to-jump pattern. Free-placed marks get the real object selection (handles and all);
         a foreign mark gets its outline; a text-anchored mark or a page-wide watermark just
@@ -546,7 +567,14 @@ class MainWindow(QMainWindow):
         # holds what never touches the file. R3's Markup/Draw and R4's Stamp land here too.
         tools_menu = menu.addMenu("&Tools")
 
-        def act(text, slot, shortcut=None, icon=None, to_menu=None, extra_shortcuts=()):
+        def act(
+            text: str,
+            slot: Callable[..., object],
+            shortcut: QKeySequence | QKeySequence.StandardKey | str | None = None,
+            icon: str | None = None,
+            to_menu: QMenu | None = None,
+            extra_shortcuts: Iterable[str] = (),
+        ) -> QAction:
             a = QAction(text, self)
             if shortcut:
                 a.setShortcut(shortcut if isinstance(shortcut, QKeySequence) else QKeySequence(shortcut))
@@ -791,7 +819,7 @@ class MainWindow(QMainWindow):
         # no such budget, so it keeps the toolbar's *sequence* but splits "add a mark" (stamps) from
         # "remove content permanently" (redact) — opposite intents that shouldn't sit undivided. Form
         # fields and Crop have no toolbar home and trail as the menu-only tail they already were.
-        tools_groups = (
+        tools_groups: tuple[list[QAction | QMenu], ...] = (
             [a_select, a_grab, a_objects],                    # modes  (toolbar group 1)
             [a_pen, a_line, a_rect, a_ellipse],               # draw   (toolbar group 2, minus style)
             [a_textbox, a_highlight, a_underline, a_strikeout, a_note],  # text markup (toolbar group 3)
@@ -846,7 +874,7 @@ class MainWindow(QMainWindow):
         for a in self._armed_actions.values():
             a.setCheckable(True)
 
-        def split_button(actions) -> QToolButton:
+        def split_button(actions: Sequence[QAction]) -> QToolButton:
             """A grouped split-button (PLAN.md §Design budgets — they keep the toolbar at ~10
             slots): the face is the sticky last-used tool, the arrow opens the group. The same
             QActions as the Tools menu, so shortcuts / checked-state stay single-sourced."""
@@ -1054,7 +1082,7 @@ class MainWindow(QMainWindow):
         # carries one, so this is the established pattern rather than a new kind of thing; and the
         # field *replaces* the Ctrl+G dialog trip for the common case instead of adding a verb.
         # Space was never the constraint — the bar uses 436 px of an 1100 px window — the budget was.
-        reading_groups = (
+        reading_groups: tuple[list[QAction | QWidget], ...] = (
             [self._sidebar_button],
             [a_save],
             [a_zout, self.zoom_widget, a_zin, a_fitw, a_fitp],
@@ -1067,21 +1095,21 @@ class MainWindow(QMainWindow):
         # style buttons that feed it (Line Styling · Colors · Opacity all restyle what Draw stamps —
         # M78.6); then the text/markup pair (Text Box · Markup ▾); then the content marks
         # (Stamp · Redact). Separators divide the four groups.
-        markup_groups = (
+        markup_groups: tuple[list[QAction | QWidget], ...] = (
             [a_select, a_grab, a_objects],
             [self._draw_button, self._line_style_button, self._colors_button, self._opacity_button],
             [a_textbox, self._markup_button],
             [self._stamp_button, a_redact],  # Redact: one slot, both gestures (M72)
         )
         for target, groups in ((bar, reading_groups), (self.markup_bar, markup_groups)):
-            for gi, group in enumerate(groups):
+            for gi, bar_group in enumerate(groups):
                 if gi:
                     target.addSeparator()
-                for item in group:
-                    if isinstance(item, QAction):
-                        target.addAction(item)
+                for entry in bar_group:
+                    if isinstance(entry, QAction):
+                        target.addAction(entry)
                     else:
-                        target.addWidget(item)  # e.g. the zoom % combo
+                        target.addWidget(entry)  # e.g. the zoom % combo
 
     def _retint_icons(self) -> None:
         """Re-fetch every action's icon so it matches the current theme's text colour."""
@@ -1090,7 +1118,7 @@ class MainWindow(QMainWindow):
             if name:
                 a.setIcon(icons.icon(name))
 
-    def changeEvent(self, event) -> None:
+    def changeEvent(self, event: QEvent) -> None:
         # A runtime OS light/dark switch reaches a window as a PaletteChange (its *effective* palette
         # changed) — the application also broadcasts ApplicationPaletteChange. Either way, re-tint the
         # toolbar glyphs so they don't vanish against the new background. (Qt delivers PaletteChange,
@@ -1116,7 +1144,7 @@ class MainWindow(QMainWindow):
             # ~40 MB/window drop M87.2 is sized around. Restoring re-renders it.
             if self.isMinimized():
                 self.view.release_pixmaps(keep_visible=False)
-            elif event.oldState() & Qt.WindowState.WindowMinimized:
+            elif cast(QWindowStateChangeEvent, event).oldState() & Qt.WindowState.WindowMinimized:
                 self.view.restore_pixmaps()
         super().changeEvent(event)
 
@@ -1193,7 +1221,7 @@ class MainWindow(QMainWindow):
 
     # ---- focus-routed clipboard (M59): text vs pages vs object -------------------
 
-    def _focused_text_editor(self):
+    def _focused_text_editor(self) -> QLineEdit | QPlainTextEdit | None:
         """The focused inline text-input widget, if any — a form-fill editor or the text-box
         editor. Their own clipboard must win, or Ctrl+V while typing would paste an *object*."""
         focus = QApplication.focusWidget()
@@ -1233,7 +1261,7 @@ class MainWindow(QMainWindow):
         elif self._app.object_clipboard:
             self._paste_object()
 
-    def _clipboard_target(self, hit=None):
+    def _clipboard_target(self, hit: tuple[int, Mark] | None = None) -> tuple[int, list[Mark]] | None:
         """The ``(page_index, [marks])`` the object-clipboard verbs act on, else ``None`` (M59.12).
 
         A **group** copies and cuts as a unit: if ``hit`` is part of the current multi-selection —
@@ -1254,7 +1282,7 @@ class MainWindow(QMainWindow):
         """"Copy Object" / "Copy 3 Objects" — the menu never claims to act on more than it will."""
         return f"{verb} Object" if count == 1 else f"{verb} {count} Objects"
 
-    def _copy_object(self, hit=None) -> bool:
+    def _copy_object(self, hit: tuple[int, Mark] | None = None) -> bool:
         """Copy free-placed marks — the given ``(page, mark)`` hit, or the whole selected group —
         onto the app-wide object clipboard. Any text boxes among them also land on the system
         clipboard as plain text (joined, in selection order). Returns True if anything was copied."""
@@ -1268,7 +1296,7 @@ class MainWindow(QMainWindow):
             QGuiApplication.clipboard().setText("\n".join(texts))  # text/plain rides along
         return True
 
-    def _cut_object(self, hit=None) -> None:
+    def _cut_object(self, hit: tuple[int, Mark] | None = None) -> None:
         """Cut = copy + undoable remove, the whole group in **one** undo step (M59.12)."""
         target = self._clipboard_target(hit)
         if target is None or not self._copy_object(hit):
@@ -1450,7 +1478,7 @@ class MainWindow(QMainWindow):
             else:
                 self.view.set_zoom(state["zoom"])
 
-    def keyPressEvent(self, event) -> None:
+    def keyPressEvent(self, event: QKeyEvent) -> None:
         # Esc leaves the chrome-free reading modes (M78). Reached via the view's key chain —
         # PdfView leaves Esc unconsumed when nothing is armed/selected, so it bubbles here.
         if event.key() == Qt.Key.Key_Escape and self._chrome_state is not None:
@@ -1582,10 +1610,10 @@ class MainWindow(QMainWindow):
         rows = self.thumbs.selected_rows()
         return rows[-1] + 1 if rows else self.vdoc.page_count
 
-    def _reorder(self, rows, before_index: int) -> None:
+    def _reorder(self, rows: Sequence[int], before_index: int) -> None:
         self.undo_stack.push(MovePagesCommand(self.vdoc, rows, before_index))
 
-    def _on_pages_dropped(self, source_key, rows, before_index: int) -> None:
+    def _on_pages_dropped(self, source_key: str | None, rows: Sequence[int], before_index: int) -> None:
         """A drag dropped onto this window's Pages panel.
 
         Same document → reorder (move). Another window → copy those pages in (a cross-window
@@ -1624,7 +1652,7 @@ class MainWindow(QMainWindow):
         if rows:
             self.undo_stack.push(RotatePagesCommand(self.vdoc, rows, delta))
 
-    def _set_field_value(self, name: str, value) -> None:
+    def _set_field_value(self, name: str, value: object) -> None:
         """Fill an AcroForm field (from the inline editor) as an undoable command."""
         self.undo_stack.push(SetFieldValueCommand(self.vdoc, name, value))
 
@@ -1674,7 +1702,7 @@ class MainWindow(QMainWindow):
     #   * a stamp / signature is *placed* — compose it, then drag the box it lands in;
     #   * a watermark covers whole pages — compose it and it applies at once, no drag.
 
-    def _arm_content_mark(self, mark, pages=None) -> None:
+    def _arm_content_mark(self, mark: ContentMark, pages: Iterable[int] | None = None) -> None:
         """Hand a composed content mark to the placement gesture (M62).
 
         ``pages`` (more than one) makes the next placement apply to that whole range — the drag
@@ -1713,7 +1741,7 @@ class MainWindow(QMainWindow):
         else:
             self._arm_content_mark(dialog.mark(), pages)
 
-    def _apply_page_mark(self, dialog, pages: list[int]) -> None:
+    def _apply_page_mark(self, dialog: MarkDialog, pages: list[int]) -> None:
         """Apply a whole-page mark across ``pages`` as one undo step — the watermark flow.
 
         Each page gets the mark sized to **its own** page box, so a document mixing page sizes is
@@ -1872,7 +1900,7 @@ class MainWindow(QMainWindow):
     # only). For these the bar is summoned on arm and an armed one is disarmed when the bar hides.
     _MARKUP_BAR_TOOLS = frozenset(ArmedTool) - {ArmedTool.CROP, ArmedTool.FIELD}
 
-    def _on_armed_changed(self, tool) -> None:
+    def _on_armed_changed(self, tool: ArmedTool | None) -> None:
         """Light the matching tool button while it's armed (None → all off). Arming a kit tool
         while the markup bar is hidden (a Tools-menu / shortcut arm) **summons the bar** (M71):
         the armed state must be visible on the lit button, and asking for a markup tool is asking
@@ -1894,7 +1922,7 @@ class MainWindow(QMainWindow):
         if not visible and self.view.armed in self._MARKUP_BAR_TOOLS:
             self.view.disarm()
 
-    def _apply_text_tool(self, tool) -> None:
+    def _apply_text_tool(self, tool: ArmedTool) -> None:
         """A drag-over-text armed tool was released on a selection → apply it (one undo)."""
         handler = {
             ArmedTool.HIGHLIGHT: self._highlight_selection,
@@ -1906,7 +1934,7 @@ class MainWindow(QMainWindow):
         if handler is not None:
             handler()
 
-    def _add_annotation(self, index: int, annotation) -> None:
+    def _add_annotation(self, index: int, annotation: object) -> None:
         """Add an annotation to a page (from the text-box / redact tools) as an undoable command.
 
         A stamp placed while a **page range** is pending (M62's "initials on every page") lands on
@@ -1920,7 +1948,7 @@ class MainWindow(QMainWindow):
         self._note_edit_on(index)
         self.undo_stack.push(AddAnnotationCommand(self.vdoc, index, annotation))
 
-    def _apply_to_pages(self, mark, pages) -> None:
+    def _apply_to_pages(self, mark: ContentMark, pages: Iterable[int]) -> None:
         """Add one content mark to each of ``pages`` as a single undo step (M62).
 
         The same descriptor object on every page: it is a frozen value, and the placement rect is in
@@ -1938,17 +1966,17 @@ class MainWindow(QMainWindow):
             self.undo_stack.push(AddAnnotationCommand(self.vdoc, page_index, mark))
         self.undo_stack.endMacro()
 
-    def _remove_annotation(self, index: int, annotation) -> None:
+    def _remove_annotation(self, index: int, annotation: object) -> None:
         """Remove an annotation (from the right-click menu) as an undoable command."""
         self._note_edit_on(index)
         self.undo_stack.push(RemoveAnnotationCommand(self.vdoc, index, annotation))
 
-    def _replace_annotation(self, index: int, old, new, text=None) -> None:
+    def _replace_annotation(self, index: int, old: object, new: object, text: str | None = None) -> None:
         """Swap an annotation for an updated one (moving / re-editing a text box) — one undo step."""
         self._note_edit_on(index)
         self.undo_stack.push(ReplaceAnnotationCommand(self.vdoc, index, old, new, text))
 
-    def _replace_annotations_batch(self, index: int, pairs, text: str) -> None:
+    def _replace_annotations_batch(self, index: int, pairs: Sequence[tuple[object, object]], text: str) -> None:
         """Swap several annotations on a page as **one** undo step (M59.6 group restyle / move)."""
         self._note_edit_on(index)
         self.undo_stack.beginMacro(text)
@@ -1956,7 +1984,7 @@ class MainWindow(QMainWindow):
             self.undo_stack.push(ReplaceAnnotationCommand(self.vdoc, index, old, new))
         self.undo_stack.endMacro()
 
-    def _remove_annotations_batch(self, index: int, marks, text: str) -> None:
+    def _remove_annotations_batch(self, index: int, marks: Sequence[object], text: str) -> None:
         """Remove several annotations on a page as **one** undo step (M59.6 group delete)."""
         self._note_edit_on(index)
         self.undo_stack.beginMacro(text)
@@ -1964,7 +1992,9 @@ class MainWindow(QMainWindow):
             self.undo_stack.push(RemoveAnnotationCommand(self.vdoc, index, mark))
         self.undo_stack.endMacro()
 
-    def _nudge_annotations(self, index: int, pairs, auto_repeat: bool, text: str) -> None:
+    def _nudge_annotations(
+        self, index: int, pairs: Sequence[tuple[object, object]], auto_repeat: bool, text: str,
+    ) -> None:
         """Arrow-key nudge of an object selection (M78.2): a mergeable command, so a held key's
         auto-repeat sweep is one undo step while each discrete tap is its own."""
         self._note_edit_on(index)
@@ -1988,7 +2018,7 @@ class MainWindow(QMainWindow):
             return {}
         return self._text_selection.line_bars()
 
-    def _apply_selection_bars(self, make, label: str) -> None:
+    def _apply_selection_bars(self, make: Callable[[tuple], object], label: str) -> None:
         """Apply a line-bar mark to the current text selection — one continuous bar per line, one
         undo step across the touched pages. ``make(rects)`` builds the descriptor.
 
@@ -2006,7 +2036,7 @@ class MainWindow(QMainWindow):
             self.undo_stack.push(AddAnnotationCommand(self.vdoc, page_index, make(tuple(rects))))
         self.undo_stack.endMacro()
 
-    def _apply_markup(self, mark_type, color: tuple, label: str) -> None:
+    def _apply_markup(self, mark_type: type[TextMarkup], color: tuple, label: str) -> None:
         """Paint the current text selection with a markup mark, **merging** with what is already
         there (M59.10) instead of stacking a second descriptor on top: same colour folds in, a
         different colour takes over the span it covers. See :func:`merge_markup` for the rules.
@@ -2031,7 +2061,14 @@ class MainWindow(QMainWindow):
             self.undo_stack.push(SetAnnotationsCommand(self.vdoc, page_index, merged, label))
         self.undo_stack.endMacro()
 
-    def _paint_markup_layer(self, page_index: int, rects, mark_type, color, label: str) -> None:
+    def _paint_markup_layer(
+        self,
+        page_index: int,
+        rects: Sequence[Sequence[float]],
+        mark_type: type[TextMarkup],
+        color: tuple[float, float, float],
+        label: str,
+    ) -> None:
         """Paint ``rects`` as ``mark_type`` in ``color`` through the M59.10 merge (M76: the
         context menu's recolour / add-layer verbs) — trim/absorb, never stacking; one
         ``SetAnnotationsCommand`` = one undo step; an identical repaint is a no-op."""
@@ -2042,7 +2079,9 @@ class MainWindow(QMainWindow):
         self._note_edit_on(page_index)
         self.undo_stack.push(SetAnnotationsCommand(self.vdoc, page_index, merged, label))
 
-    def _erase_markup_layer(self, page_index: int, rects, mark_type, label: str) -> None:
+    def _erase_markup_layer(
+        self, page_index: int, rects: Sequence[Sequence[float]], mark_type: type[TextMarkup], label: str,
+    ) -> None:
         """Erase ``mark_type`` over ``rects`` (M76: the context menu's remove-layer verbs) — the
         merge's removal half: covered marks trim by exactly the span, full coverage drops them.
         One command = one undo step; nothing overlapping = no-op."""
@@ -2053,7 +2092,7 @@ class MainWindow(QMainWindow):
         self._note_edit_on(page_index)
         self.undo_stack.push(SetAnnotationsCommand(self.vdoc, page_index, remaining, label))
 
-    def _markup_layer_menu(self, menu, page_index: int, annot) -> None:
+    def _markup_layer_menu(self, menu: QMenu, page_index: int, annot: TextMarkup) -> None:
         """The right-clicked-text-markup menu, Preview's layout (M76, reshaped to swatch rows at
         the owner's M78 test pass — M76.1): one section per layer — a header over a **horizontal
         row of colour dots** ending in the slashed remove dot — scoped to the clicked mark's
@@ -2080,7 +2119,7 @@ class MainWindow(QMainWindow):
                 self._on_layer_picked(page_index, rects, t, n, ex, value))
             menu.addAction(row)
 
-    def _note_menu_entries(self, menu, page_index: int, annot) -> None:
+    def _note_menu_entries(self, menu: QMenu, page_index: int, annot: TextMarkup) -> None:
         """Add / Edit / Remove Note under the M76 swatch rows (M90.1).
 
         The swatch rows above change *which layers* are on the words; a note is about the mark
@@ -2095,8 +2134,15 @@ class MainWindow(QMainWindow):
         if annot.note:
             menu.addAction("Remove Note", lambda: self._remove_note(page_index, annot))
 
-    def _on_layer_picked(self, page_index: int, rects, mark_type, noun: str,
-                         existed: bool, value) -> None:
+    def _on_layer_picked(
+        self,
+        page_index: int,
+        rects: Sequence[Sequence[float]],
+        mark_type: type[TextMarkup],
+        noun: str,
+        existed: bool,
+        value: tuple[float, float, float] | None,
+    ) -> None:
         """A swatch-row dot was clicked (M76.1): ``value`` is a colour → recolour/lay the layer
         through the merge, or ``None`` → erase it. Labels name what actually happens."""
         if value is None:
@@ -2105,40 +2151,40 @@ class MainWindow(QMainWindow):
             label = f"Recolour {noun}" if existed else noun.capitalize()
             self._paint_markup_layer(page_index, rects, mark_type, value, label)
 
-    def _set_highlight_color(self, color) -> None:
+    def _set_highlight_color(self, color: tuple[float, float, float]) -> None:
         self._highlight_color = color
         self._highlight_color_row.set_active(color)  # the ring follows for the next menu open
         self.view.highlight_preview_color = color    # an armed drag previews this now (M76.2)
         if self._text_selection is not None:
             self._text_selection.repaint()            # re-tint a live selection immediately
 
-    def _set_underline_color(self, color) -> None:
+    def _set_underline_color(self, color: tuple[float, float, float]) -> None:
         self._underline_color = color
         self._underline_color_row.set_active(color)
 
-    def _set_strike_color(self, color) -> None:
+    def _set_strike_color(self, color: tuple[float, float, float]) -> None:
         self._strike_color = color
         self._strike_color_row.set_active(color)
 
     # M78.5 — a colour pick both sets the verb's colour and arms it (applying to a live selection
     # at once), and makes the split-button face repeat that verb. The pure setters above stay the
     # colour-only seam (undo/redo repaint, tests).
-    def _pick_highlight_color(self, color) -> None:
+    def _pick_highlight_color(self, color: tuple[float, float, float]) -> None:
         self._set_highlight_color(color)
         self._markup_button.setDefaultAction(self._armed_actions[ArmedTool.HIGHLIGHT])
         self._apply_or_arm(ArmedTool.HIGHLIGHT)
 
-    def _pick_underline_color(self, color) -> None:
+    def _pick_underline_color(self, color: tuple[float, float, float]) -> None:
         self._set_underline_color(color)
         self._markup_button.setDefaultAction(self._armed_actions[ArmedTool.UNDERLINE])
         self._apply_or_arm(ArmedTool.UNDERLINE)
 
-    def _pick_strike_color(self, color) -> None:
+    def _pick_strike_color(self, color: tuple[float, float, float]) -> None:
         self._set_strike_color(color)
         self._markup_button.setDefaultAction(self._armed_actions[ArmedTool.STRIKEOUT])
         self._apply_or_arm(ArmedTool.STRIKEOUT)
 
-    def _on_markup_style_changed(self, style, changes: dict) -> None:
+    def _on_markup_style_changed(self, style: MarkupStyle, changes: dict) -> None:
         """One of the three style buttons changed → update the sticky style for the next mark, and —
         mirroring the text-markup 'apply to the current selection' rule — restyle the selected drawn
         object(s) in place (undoable) if any are selected (a whole group in one undo step, M59.6).
@@ -2178,7 +2224,7 @@ class MainWindow(QMainWindow):
             self._overlay.select_objects(page_index, marks)  # the reload cleared it
         return True
 
-    def _on_object_selected(self, mark) -> None:
+    def _on_object_selected(self, mark: object) -> None:
         """A free-placed mark was click-selected (M59.5): load a drawn mark's colour/width/fill into
         the picker (so a follow-up tweak edits *that* mark), like double-clicking a text box loads
         its style into the format bar. A text box keeps its own format bar, so it leaves the picker
@@ -2235,7 +2281,7 @@ class MainWindow(QMainWindow):
         self._text_selection.clear()   # the popup is the feedback now, not the blue selection
         self._open_note_editor(page_index, bars, host, by_page)
 
-    def _note_mark(self, page_index: int, mark) -> None:
+    def _note_mark(self, page_index: int, mark: TextMarkup | ForeignAnnot) -> None:
         """The context menu's Add / Edit Note on a right-clicked markup, and the M90.2 glyph's
         click — the host is not in question in either case, so it goes straight to the editor on
         that mark's own bars.
@@ -2264,7 +2310,7 @@ class MainWindow(QMainWindow):
             return
         self._open_note_editor(page_index, tuple(mark.rects), mark)
 
-    def _show_foreign_note(self, page_index: int, annot) -> None:
+    def _show_foreign_note(self, page_index: int, annot: ForeignAnnot) -> None:
         """Display another tool's comment (M90.4) — the same popup, read-only and grey.
 
         **The same popup on purpose**: a reader should not have to learn a second place remarks
@@ -2278,7 +2324,7 @@ class MainWindow(QMainWindow):
             placeholder="Double-click the mark to make it editable", target=annot,
         )
 
-    def _note_from_sidebar(self, page_index: int, mark) -> None:
+    def _note_from_sidebar(self, page_index: int, mark: TextMarkup) -> None:
         """An Annotations row was double-clicked (M90.3) → scroll the mark into view, then open
         **the same popup** the glyph and the context menu open.
 
@@ -2291,7 +2337,13 @@ class MainWindow(QMainWindow):
         self.view.set_current_page(page_index)
         self._note_mark(page_index, mark)
 
-    def _open_note_editor(self, page_index: int, bars: tuple, host, by_page=None) -> None:
+    def _open_note_editor(
+        self,
+        page_index: int,
+        bars: tuple,
+        host: TextMarkup | None,
+        by_page: Mapping[int, Sequence[tuple]] | None = None,
+    ) -> None:
         """Open the note popup over ``bars``, pre-filled from ``host`` (``None`` = nothing marked
         there yet, so the popup shows the colour of the highlight that would be created).
 
@@ -2309,7 +2361,14 @@ class MainWindow(QMainWindow):
             target=host,
         )
 
-    def _commit_note(self, page_index: int, bars: tuple, host, text: str, by_page=None) -> None:
+    def _commit_note(
+        self,
+        page_index: int,
+        bars: tuple,
+        host: TextMarkup | None,
+        text: str,
+        by_page: Mapping[int, Sequence[tuple]] | None = None,
+    ) -> None:
         """Write the typed note to its host, creating that host first if there wasn't one.
 
         One :class:`SetAnnotationsCommand` per touched page inside one macro, so "highlight this
@@ -2363,12 +2422,12 @@ class MainWindow(QMainWindow):
             self.undo_stack.push(SetAnnotationsCommand(self.vdoc, index, updated, label))
         self.undo_stack.endMacro()
 
-    def _remove_note(self, page_index: int, mark) -> None:
+    def _remove_note(self, page_index: int, mark: TextMarkup) -> None:
         """The context menu's Remove Note — the same write with empty text, so there is one path
         that clears a note and it cannot drift from what emptying the editor does."""
         self._commit_note(page_index, tuple(mark.rects), mark, "")
 
-    def _delete_foreign_annotation(self, page_index: int, mark) -> None:
+    def _delete_foreign_annotation(self, page_index: int, mark: ForeignAnnot) -> None:
         """Mark a foreign annotation for removal at save (M66) — undoable like any page edit.
 
         Nothing is removed from the shared source: a :class:`ForeignDeletion` rides the PageRef and
@@ -2384,7 +2443,7 @@ class MainWindow(QMainWindow):
                                  text=f"Delete {mark.label}")
         )
 
-    def _adopt_foreign_annotation(self, page_index: int, mark) -> bool:
+    def _adopt_foreign_annotation(self, page_index: int, mark: ForeignAnnot) -> bool:
         """Double-click a foreign mark → make it an editable KlarPDF mark (M68).
 
         Adoption re-creates the annotation from our own descriptor, so anything the descriptor
@@ -2443,7 +2502,7 @@ class MainWindow(QMainWindow):
         self.undo_stack.endMacro()
         return True
 
-    def _confirm_degrade(self, mark, lost) -> bool:
+    def _confirm_degrade(self, mark: ForeignAnnot, lost: Sequence[str]) -> bool:
         """Warn that editing will simplify this annotation. A separate seam so tests drive it."""
         listed = "\n".join(f"  • {item}" for item in lost)
         return (
@@ -2457,7 +2516,7 @@ class MainWindow(QMainWindow):
             == QMessageBox.StandardButton.Yes
         )
 
-    def _move_foreign_annotation(self, page_index: int, mark, dx: float, dy: float) -> None:
+    def _move_foreign_annotation(self, page_index: int, mark: ForeignAnnot, dx: float, dy: float) -> None:
         """A foreign annotation was dragged (M67) — record the translation, undoably.
 
         Moves **combine rather than stack**: dragging the same mark twice replaces its descriptor
@@ -2532,11 +2591,11 @@ class MainWindow(QMainWindow):
         if rows:
             self.undo_stack.push(ResetCropCommand(self.vdoc, rows))
 
-    def _delete_rows(self, rows) -> None:
+    def _delete_rows(self, rows: Sequence[int]) -> None:
         if rows:
             self.undo_stack.push(DeleteCommand(self.vdoc, rows))
 
-    def _copy_pages(self, rows=None) -> None:
+    def _copy_pages(self, rows: Sequence[int] | None = None) -> None:
         rows = rows if rows else self.thumbs.selected_rows()
         clipboard = []
         for i in rows:
@@ -2549,14 +2608,14 @@ class MainWindow(QMainWindow):
         if clipboard:
             self._app.page_clipboard = clipboard
 
-    def _cut_pages(self, rows=None) -> None:
+    def _cut_pages(self, rows: Sequence[int] | None = None) -> None:
         rows = rows if rows else self.thumbs.selected_rows()
         if not rows:
             return
         self._copy_pages(rows)
         self.undo_stack.push(DeleteCommand(self.vdoc, rows))
 
-    def _paste_pages(self, before_index=None) -> None:
+    def _paste_pages(self, before_index: int | None = None) -> None:
         payloads = self._app.page_clipboard
         if not payloads:
             return
@@ -2605,7 +2664,7 @@ class MainWindow(QMainWindow):
         )
         self.view.goto_page(at)
 
-    def _duplicate_pages(self, rows=None) -> None:
+    def _duplicate_pages(self, rows: Sequence[int] | None = None) -> None:
         """Edit ▸ Duplicate Pages (M51): copies of the selected pages — or the current page —
         spliced in right after the last of them. The copies are the same frozen PageRefs, so they
         carry the pages' per-page edits (rotation / crop / annotations); the object-level copy
@@ -2618,7 +2677,7 @@ class MainWindow(QMainWindow):
         label = "Duplicate page" if len(refs) == 1 else f"Duplicate {len(refs)} pages"
         self.undo_stack.push(InsertCommand(self.vdoc, rows[-1] + 1, refs, text=label))
 
-    def _on_files_dropped(self, paths, before_index: int) -> None:
+    def _on_files_dropped(self, paths: Sequence[str], before_index: int) -> None:
         """PDF(s) and/or image(s) dragged from Explorer onto the Pages panel — insert at the drop
         slot. An image (M35) is converted to a one-page PDF source; a PDF opens as-is."""
         refs: list[PageRef] = []
@@ -2637,7 +2696,7 @@ class MainWindow(QMainWindow):
             label = "Insert dropped file" if len(paths) == 1 else f"Insert {len(paths)} dropped files"
             self.undo_stack.push(InsertCommand(self.vdoc, before_index, refs, text=label))
 
-    def _view_context_menu(self, scene_pt) -> QMenu | None:
+    def _view_context_menu(self, scene_pt: QPointF) -> QMenu | None:
         """Build the view's right-click menu from the hit state under the cursor (M46): the verbs
         for our annotation / the live text selection / the link at ``scene_pt``, else the bare-page
         navigation set. Exec'd by ``PdfView.contextMenuEvent``; returned unexec'd so tests can
@@ -2757,11 +2816,12 @@ class MainWindow(QMainWindow):
         # routes the same QAction objects as the View menu, so shortcuts show alongside. Paste
         # Object (M59) leads — the one verb that acts *at the clicked spot* (the pasted mark is
         # centred on it); disabled while the object clipboard is empty.
-        page_index, local = self.view.page_and_local_at(scene_pt)
-        if page_index is not None and local is not None:   # both None in the gap between pages
+        paste_page, paste_at = self.view.page_and_local_at(scene_pt)
+        if paste_page is not None and paste_at is not None:   # both None in the gap between pages
+            point = (paste_at.x(), paste_at.y())
             a_paste_obj = menu.addAction(
                 self._object_label("Paste", max(1, len(self._app.object_clipboard))),
-                lambda: self._paste_object(page_index, (local.x(), local.y())),
+                lambda: self._paste_object(paste_page, point),
             )
             a_paste_obj.setEnabled(bool(self._app.object_clipboard))
             menu.addSeparator()
@@ -2780,7 +2840,7 @@ class MainWindow(QMainWindow):
         menu.addAction(self._a_twopage)
         return menu
 
-    def _build_page_context_menu(self, rows) -> QMenu:
+    def _build_page_context_menu(self, rows: Sequence[int]) -> QMenu:
         """The Pages-sidebar right-click menu for the selected ``rows`` (M46; M51 adds Duplicate +
         the extract). Built unexec'd so tests can assert contents and trigger actions."""
         menu = QMenu(self)
@@ -2805,7 +2865,7 @@ class MainWindow(QMainWindow):
         a_paste.setEnabled(bool(self._app.page_clipboard))
         return menu
 
-    def _page_context_menu(self, pos) -> None:
+    def _page_context_menu(self, pos: QPoint) -> None:
         self._build_page_context_menu(self.thumbs.selected_rows()).exec(self.thumbs.mapToGlobal(pos))
 
     # ---- save (materialize-on-save) ---------------------------------------------
@@ -2882,7 +2942,13 @@ class MainWindow(QMainWindow):
 
     # ---- export (a derived copy, not the editable document) ---------------------
 
-    def _export_pdf(self, title: str, default_tag: str, write, confirm=None):
+    def _export_pdf(
+        self,
+        title: str,
+        default_tag: str,
+        write: Callable[[VirtualDocument, str], _Written],
+        confirm: Callable[[str], bool] | None = None,
+    ) -> tuple[str, _Written] | None:
         """Shared plumbing for the PDF-writing exports: flush a pending inline form edit, ask for
         the target (default name = the document's, tagged ``default_tag``), then ``write(vdoc,
         tmp_path)`` to a same-directory temp file and atomically replace — never a partial export,
@@ -3207,7 +3273,7 @@ class MainWindow(QMainWindow):
             return
         self.setGeometry(self._open_geometry(screen.availableGeometry(), 1000, 16, 39, 31))
 
-    def resizeEvent(self, event) -> None:
+    def resizeEvent(self, event: QResizeEvent) -> None:
         """Catch a window the window system made too small, and schedule it back up (#358)."""
         super().resizeEvent(event)
         floor = self._smallest_allowed()
@@ -3228,7 +3294,7 @@ class MainWindow(QMainWindow):
     def _snap_to_minimum_size(self) -> None:
         self.resize(self.size().expandedTo(self._smallest_allowed()))
 
-    def showEvent(self, event) -> None:
+    def showEvent(self, event: QShowEvent) -> None:
         super().showEvent(event)
         if self._initialized:
             return
@@ -3243,7 +3309,7 @@ class MainWindow(QMainWindow):
         # rather than inventing one. This is that one marker, not a second copy of the highlight.
         self.thumbs.mark_open_page(self.view.current_page)
 
-    def _confirm_discard(self):
+    def _confirm_discard(self) -> QMessageBox.StandardButton:
         return QMessageBox.question(
             self,
             "Unsaved changes",
@@ -3252,7 +3318,7 @@ class MainWindow(QMainWindow):
             QMessageBox.StandardButton.Save,
         )
 
-    def closeEvent(self, event) -> None:
+    def closeEvent(self, event: QCloseEvent) -> None:
         if not self.undo_stack.isClean():
             choice = self._confirm_discard()
             if choice == QMessageBox.StandardButton.Save:

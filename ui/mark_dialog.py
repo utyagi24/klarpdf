@@ -105,7 +105,7 @@ class _ColorButton(QToolButton):
     """A swatch that opens the system colour picker. Shares :func:`swatch_icon` with the markup
     style button, so a colour reads the same everywhere in the app."""
 
-    def __init__(self, color: tuple[float, float, float], parent=None) -> None:
+    def __init__(self, color: tuple[float, float, float], parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._color = color
         self.setAutoRaise(True)
@@ -133,7 +133,7 @@ class _ColorButton(QToolButton):
 class _PageRangeField(QWidget):
     """"All pages" / a range box — the scope control, shared with M64's search-&-redact scope."""
 
-    def __init__(self, page_count: int, current_page: int, parent=None) -> None:
+    def __init__(self, page_count: int, current_page: int, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._page_count = page_count
         self._current_page = current_page
@@ -181,7 +181,7 @@ class _SliderField(QWidget):
     """
 
     def __init__(self, minimum: int, maximum: int, value: int, suffix: str,
-                 snap: int = 0, snap_within: int = 3, parent=None) -> None:
+                 snap: int = 0, snap_within: int = 3, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._snap, self._snap_within = snap, snap_within
         self.slider = QSlider(Qt.Orientation.Horizontal)
@@ -205,7 +205,7 @@ class _SliderField(QWidget):
     def value(self) -> int:
         return self.box.value()
 
-    def setValue(self, value) -> None:
+    def setValue(self, value: float) -> None:
         self.box.setValue(int(value))
 
     def setToolTip(self, text: str) -> None:
@@ -229,7 +229,7 @@ class _SliderField(QWidget):
 class MarkDialog(QDialog):
     """Compose a stamp or a watermark — one dialog, the Place control deciding which."""
 
-    def __init__(self, parent, page_count: int, current_page: int) -> None:
+    def __init__(self, parent: QWidget | None, page_count: int, current_page: int) -> None:
         super().__init__(parent)
         self.setWindowTitle("Add Stamp or Watermark")
         form = QFormLayout()

@@ -237,14 +237,6 @@ disallow_untyped_defs = true
 # value PyMuPDF's own code gives it. A rect's `x0` is a `float`, where it was unknown (M172.2).
 check_untyped_defs = true
 
-# The app's own code is checked (M173.1), but its functions need not all state their types yet.
-# M173.2 annotates them and deletes this block.
-[[tool.mypy.overrides]]
-module = [
-    "app", "edit_commands", "launcher", "main_window", "platform_integration",
-    "organize", "organize.*", "store", "store.*", "ui", "ui.*", "viewer", "viewer.*",
-]
-disallow_untyped_defs = false
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

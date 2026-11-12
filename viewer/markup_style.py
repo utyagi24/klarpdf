@@ -38,7 +38,9 @@ semantic) keeps its own colour and is out of every palette.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
+from typing import Any
 
 from PySide6.QtCore import QPointF, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QAction, QActionGroup, QColor, QGuiApplication, QIcon, QPainter, QPalette, QPen, QPixmap
@@ -133,7 +135,7 @@ class MarkupStyle:
         return self.color if self.border or self.fill_color is None else None
 
     @classmethod
-    def from_mark(cls, mark) -> MarkupStyle | None:
+    def from_mark(cls, mark: object) -> MarkupStyle | None:
         """The style of a selected drawn mark — loaded into the picker so a follow-up tweak edits
         *that* mark's colour/width/fill/ends/dash (M59.5, the twin of ``TextBoxStyle.from_textbox``).
         Returns ``None`` for a text box (its own format bar owns its style) or a non-drawn mark.
@@ -273,7 +275,8 @@ class SwatchRowAction(QWidgetAction):
 
     picked = Signal(object)  # (r, g, b) — or None from the remove dot, where one exists
 
-    def __init__(self, menu: QMenu, title: str, palette, active: tuple | None,
+    def __init__(self, menu: QMenu, title: str, palette: Sequence[tuple[str, tuple[float, float, float]]],
+                 active: tuple | None,
                  close_on_pick: bool = True, include_remove: bool = True,
                  show_title: bool = True) -> None:
         super().__init__(menu)
@@ -335,7 +338,7 @@ class SwatchRowAction(QWidgetAction):
         button.setCursor(Qt.CursorShape.PointingHandCursor)
         return button
 
-    def _pick(self, menu: QMenu, value) -> None:
+    def _pick(self, menu: QMenu, value: tuple[float, float, float] | None) -> None:
         if self._close_on_pick:
             menu.close()  # a widget click doesn't auto-close the menu the way an action does
         self.picked.emit(value)
@@ -358,7 +361,7 @@ class _StyleButton(QToolButton):
 
     styleChanged = Signal(object, object)  # the new MarkupStyle, {field: value} this edit set
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._style = MarkupStyle()
         self.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
@@ -375,7 +378,7 @@ class _StyleButton(QToolButton):
     def _sync(self) -> None:  # overridden — refresh this button's own controls + face
         pass
 
-    def _apply(self, **changes) -> None:
+    def _apply(self, **changes: Any) -> None:  # any of MarkupStyle's fields, for `replace`
         self._style = replace(self._style, **changes)
         self._sync()
         self.styleChanged.emit(self._style, changes)
@@ -422,7 +425,7 @@ class LineStylingButton(_StyleButton):
     """Line Styling (M78.6): thickness · dash · arrowheads. Applicability follows the model — a tool
     without ends (everything but Line) just ignores them, the same rule as width and fill."""
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setToolTip("Line styling — thickness, dash & arrowheads (pen & shapes)")
         menu = QMenu(self)
@@ -483,7 +486,7 @@ class ColorsButton(_StyleButton):
     keeps its border or its fill (owner, 2026-09-25): with no fill the No Border dot is greyed out,
     and with no border the No Fill dot is."""
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setToolTip("Colors — border (stroke) & fill for pen & shapes")
         menu = QMenu(self)
@@ -524,7 +527,7 @@ class OpacityButton(_StyleButton):
     25/50/75/100 presets. PDF's /CA is whole-annotation, so it fades outline + fill together — the
     answer to "my filled box hides the text", since annotations always paint above the page."""
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         menu = QMenu(self)
         box = QWidget()

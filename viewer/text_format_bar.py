@@ -16,7 +16,9 @@ font (with a style hint, so it substitutes sensibly where the named face is abse
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QAction, QActionGroup, QColor, QFont
@@ -27,6 +29,9 @@ from PySide6.QtWidgets import (
     QToolButton,
     QWidget,
 )
+
+if TYPE_CHECKING:  # named in annotations only
+    from klarpdf.model.page_edits import TextBox
 
 # base-14 family selector -> (Qt family, style hint, menu label). The hint drives substitution when
 # the exact face is missing (common on Linux/WSLg), so the on-screen preview stays sans/serif/mono.
@@ -51,7 +56,7 @@ class TextBoxStyle:
     border_width: float = 0.0
 
     @classmethod
-    def from_textbox(cls, box) -> TextBoxStyle:
+    def from_textbox(cls, box: TextBox) -> TextBoxStyle:
         return cls(box.fontname, box.fontsize, box.color, box.fill_color, box.border_width)
 
 
@@ -86,7 +91,10 @@ class TextFormatBar(QWidget):
 
     styleChanged = Signal(object)  # the new TextBoxStyle
 
-    def __init__(self, parent, before_modal=None, after_modal=None) -> None:
+    def __init__(
+        self, parent: QWidget | None, before_modal: Callable[[], object] | None = None,
+        after_modal: Callable[[], object] | None = None,
+    ) -> None:
         super().__init__(parent)
         self._before_modal = before_modal or (lambda: None)
         self._after_modal = after_modal or (lambda: None)

@@ -18,15 +18,20 @@ change the count without moving the current page, so ``MainWindow._on_doc_change
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QIntValidator
+from PySide6.QtGui import QIntValidator, QKeyEvent
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QSizePolicy, QWidget
+
+if TYPE_CHECKING:  # named in annotations only
+    from viewer.pdf_view import PdfView
 
 
 class PageField(QLineEdit):
     """The number itself — a `QLineEdit` that declines the keys it has no use for (M91.4)."""
 
-    def keyPressEvent(self, event) -> None:
+    def keyPressEvent(self, event: QKeyEvent) -> None:
         # **`Space` belongs to the document.** This field is integer-validated, so a space can never
         # be valid input here — but `QLineEdit` accepts the key anyway and the validator quietly
         # drops the character, so the press did *nothing at all*. A reader who had clicked the field
@@ -43,7 +48,7 @@ class PageField(QLineEdit):
 class PageWidget(QWidget):
     """``[ 10 ] of 320`` — the field jumps, the label counts."""
 
-    def __init__(self, view, parent=None) -> None:
+    def __init__(self, view: PdfView, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._view = view
         # **Fixed, or it eats the bar.** A plain ``QWidget`` handed to ``QToolBar.addWidget`` gets a

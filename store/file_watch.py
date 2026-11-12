@@ -63,7 +63,7 @@ class FileWatcher(QObject):
             self._watcher.addPath(self._path)
 
     @staticmethod
-    def _signature(path: str | None):
+    def _signature(path: str | None) -> tuple[int, int] | None:
         if not path:
             return None
         try:

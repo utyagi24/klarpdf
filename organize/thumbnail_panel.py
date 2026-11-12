@@ -15,6 +15,7 @@ from PySide6.QtCore import (
     QByteArray,
     QItemSelectionModel,
     QMimeData,
+    QModelIndex,
     QPoint,
     QRectF,
     QSize,
@@ -24,15 +25,25 @@ from PySide6.QtCore import (
 from PySide6.QtGui import (
     QColor,
     QDrag,
+    QDragEnterEvent,
+    QDragLeaveEvent,
+    QDragMoveEvent,
+    QDropEvent,
     QFont,
     QIcon,
     QImage,
+    QKeyEvent,
+    QMouseEvent,
     QPainter,
+    QPaintEvent,
     QPen,
     QPixmap,
+    QResizeEvent,
+    QShowEvent,
     QTransform,
+    QWheelEvent,
 )
-from PySide6.QtWidgets import QAbstractItemView, QListWidget, QListWidgetItem
+from PySide6.QtWidgets import QAbstractItemView, QListWidget, QListWidgetItem, QWidget
 
 from klarpdf.model.edit_engine import PyMuPDFEngine
 from klarpdf.model.virtual_document import IMAGE_EXTENSIONS, VirtualDocument
@@ -71,7 +82,7 @@ class ThumbnailPanel(QListWidget):
     filesDropped = Signal(object, int)          # (list[pdf/image paths], before-index) — from Explorer
     deleteRequested = Signal(object)            # (sorted rows)
 
-    def __init__(self, vdoc: VirtualDocument, parent=None) -> None:
+    def __init__(self, vdoc: VirtualDocument, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._vdoc = vdoc
         self._syncing = False  # guard against current→highlight→jump feedback loops
@@ -130,7 +141,7 @@ class ThumbnailPanel(QListWidget):
     def selected_rows(self) -> list[int]:
         return sorted(i.row() for i in self.selectedIndexes())
 
-    def _drop_before_index(self, event) -> int:
+    def _drop_before_index(self, event: QDropEvent) -> int:
         """Translate a drop position into an 'insert before this row' index.
 
         Thumbnails stack vertically, so the slot is chosen by the drop's *y*: insert before the
@@ -186,7 +197,7 @@ class ThumbnailPanel(QListWidget):
         painter.end()
         return canvas
 
-    def startDrag(self, supported_actions) -> None:
+    def startDrag(self, supported_actions: Qt.DropAction) -> None:
         # Build our own drag carrying (source_key, rows). We never call super().startDrag, so
         # QAbstractItemView never moves/removes items — the model command + repopulate own the
         # result. DragDrop mode + this explicit MIME also let the drop land in another window.
@@ -203,7 +214,7 @@ class ThumbnailPanel(QListWidget):
         drag.setHotSpot(QPoint(pixmap.width() // 2, 12))  # page hangs just below the cursor
         drag.exec(Qt.DropAction.MoveAction | Qt.DropAction.CopyAction, Qt.DropAction.MoveAction)
 
-    def _dropped_file_paths(self, mime) -> list[str]:
+    def _dropped_file_paths(self, mime: QMimeData) -> list[str]:
         """Local **PDF or image** files in a drag's URLs (e.g. dragged from Explorer), in URL order,
         else ``[]``. Images (M35) insert as a page just like a dropped PDF (converted at open)."""
         paths = []
@@ -215,16 +226,16 @@ class ThumbnailPanel(QListWidget):
                     paths.append(path)
         return paths
 
-    def _accepts(self, mime) -> bool:
+    def _accepts(self, mime: QMimeData) -> bool:
         return mime.hasFormat(_PAGES_MIME) or bool(self._dropped_file_paths(mime))
 
-    def dragEnterEvent(self, event) -> None:
+    def dragEnterEvent(self, event: QDragEnterEvent) -> None:
         if self._accepts(event.mimeData()):
             event.acceptProposedAction()
         else:
             super().dragEnterEvent(event)
 
-    def dragMoveEvent(self, event) -> None:
+    def dragMoveEvent(self, event: QDragMoveEvent) -> None:
         # Explicitly accept our payload (internal page drag OR an Explorer .pdf) on every move so
         # the cursor reads "droppable" instead of the blocked icon (the default view logic rejects
         # a non-item-model MIME), and track the slot so paintEvent shows where it will land.
@@ -234,7 +245,7 @@ class ThumbnailPanel(QListWidget):
         else:
             super().dragMoveEvent(event)
 
-    def dragLeaveEvent(self, event) -> None:
+    def dragLeaveEvent(self, event: QDragLeaveEvent) -> None:
         self._set_drop_row(None)
         super().dragLeaveEvent(event)
 
@@ -243,7 +254,7 @@ class ThumbnailPanel(QListWidget):
             self._drop_row = row
             self.viewport().update()  # repaint the insertion marker
 
-    def dropEvent(self, event) -> None:
+    def dropEvent(self, event: QDropEvent) -> None:
         md = event.mimeData()
         before = self._drop_before_index(event)
         self._set_drop_row(None)
@@ -285,7 +296,7 @@ class ThumbnailPanel(QListWidget):
             y = rect.top() - gap
         return y, rect.left(), rect.right()
 
-    def paintEvent(self, event) -> None:
+    def paintEvent(self, event: QPaintEvent) -> None:
         super().paintEvent(event)  # items first
         painter = QPainter(self.viewport())
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -294,7 +305,7 @@ class ThumbnailPanel(QListWidget):
         self._paint_drop_marker(painter)
         painter.end()
 
-    def _paint_selection_markers(self, painter) -> None:
+    def _paint_selection_markers(self, painter: QPainter) -> None:
         """A clear accent fill + border around **every** selected page. Qt's default multi-select
         highlight is too faint to tell which pages are in the selection; this makes it obvious. The
         current page is skipped here — its bolder ring (painted on top) keeps it distinct within a
@@ -313,7 +324,7 @@ class ThumbnailPanel(QListWidget):
             painter.setPen(pen)
             painter.drawRoundedRect(QRectF(rect), 5, 5)
 
-    def _paint_current_marker(self, painter) -> None:
+    def _paint_current_marker(self, painter: QPainter) -> None:
         """A bold accent ring + tinted fill around the current page — the default item-selection
         highlight is too faint to read at a glance in the sidebar."""
         row = self.currentRow()
@@ -328,7 +339,7 @@ class ThumbnailPanel(QListWidget):
         painter.setPen(pen)
         painter.drawRoundedRect(QRectF(rect), 5, 5)
 
-    def _paint_drop_marker(self, painter) -> None:
+    def _paint_drop_marker(self, painter: QPainter) -> None:
         line = self._drop_marker_line()
         if line is None:
             return
@@ -341,7 +352,7 @@ class ThumbnailPanel(QListWidget):
         painter.drawLine(x0, y - 4, x0, y + 4)  # end ticks for visibility
         painter.drawLine(x1, y - 4, x1, y + 4)
 
-    def keyPressEvent(self, event) -> None:
+    def keyPressEvent(self, event: QKeyEvent) -> None:
         if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
             rows = self.selected_rows()
             if rows:
@@ -362,13 +373,13 @@ class ThumbnailPanel(QListWidget):
             return
         super().keyPressEvent(event)
 
-    def mousePressEvent(self, event) -> None:
+    def mousePressEvent(self, event: QMouseEvent) -> None:
         # Which row was current *before* the press, so :meth:`_on_clicked` can tell a click that
         # moved the current row (already announced by `currentRowChanged`) from one that did not.
         self._row_at_press = self.currentRow()
         super().mousePressEvent(event)
 
-    def _on_clicked(self, index) -> None:
+    def _on_clicked(self, index: QModelIndex) -> None:
         """A click on the **already-current** thumbnail still jumps (M91.4).
 
         `currentRowChanged` fires only when the row *changes*, and the view drags the highlight
@@ -406,7 +417,7 @@ class ThumbnailPanel(QListWidget):
         except Exception:  # noqa: BLE001 — edits that cannot be applied fall back to the source pages
             return None
 
-    def _thumbnail(self, index: int, baked=None) -> QIcon:
+    def _thumbnail(self, index: int, baked: fitz.Document | None = None) -> QIcon:
         """Render page ``index`` to a thumbnail icon. ``baked`` is the edits-applied
         :meth:`_edited_render` document to take the (already rotation/edit-baked) page from; ``None``
         renders the raw source page, applying any rotation override via transform (the fast path)."""
@@ -567,7 +578,7 @@ class ThumbnailPanel(QListWidget):
         self._syncing = False
         self._render_visible_thumbs()  # render whatever is already on screen (nothing if not yet shown)
 
-    def showEvent(self, event) -> None:
+    def showEvent(self, event: QShowEvent) -> None:
         super().showEvent(event)
         self._apply_thumb_size()
         self._render_visible_thumbs()
@@ -595,7 +606,7 @@ class ThumbnailPanel(QListWidget):
         if self.iconSize().width() != w:
             self.setIconSize(QSize(w, round(w * 1.4)))
 
-    def resizeEvent(self, event) -> None:
+    def resizeEvent(self, event: QResizeEvent) -> None:
         super().resizeEvent(event)
         self._apply_thumb_size()  # thumbnails grow/shrink with the bar (Preview-style)
         self._render_visible_thumbs()
@@ -615,7 +626,7 @@ class ThumbnailPanel(QListWidget):
                 return pitch
         return self.iconSize().height() + self.spacing()
 
-    def wheelEvent(self, event) -> None:
+    def wheelEvent(self, event: QWheelEvent) -> None:
         """One wheel detent rolls the strip a **third of a thumbnail** (M92.6).
 
         Deliberately not Qt's path, which is ``wheelScrollLines × singleStep``, and which produced

@@ -22,6 +22,8 @@ keeps one destructive path in the app rather than a second one that would need i
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -31,15 +33,20 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QVBoxLayout,
+    QWidget,
 )
 
-from viewer.search import SearchResultsPanel
+from viewer.search import SearchResultsPanel, search_of
+
+if TYPE_CHECKING:  # named in annotations only
+    from klarpdf.model.virtual_document import VirtualDocument
+    from viewer.pdf_view import PdfView
 
 _LIMITS = ("Searches the page text layer only — not scanned images without OCR, and not form-field "
            "values. Each box is as wide as the text it covers, which hints at its length.")
 
 
-def image_only_pages(vdoc) -> list[int]:
+def image_only_pages(vdoc: VirtualDocument) -> list[int]:
     """Pages that carry images but **no text layer** — nothing here can find anything on them.
 
     The honest counterpart to a "0 matches" result: on a scanned document that is not a statement
@@ -58,7 +65,7 @@ def image_only_pages(vdoc) -> list[int]:
 class RedactMatchesDialog(QDialog):
     """Search the document, review the hits, and mark the checked ones for redaction."""
 
-    def __init__(self, parent, view) -> None:
+    def __init__(self, parent: QWidget | None, view: PdfView) -> None:
         super().__init__(parent)
         self.setWindowTitle("Find and Redact")
         self._view = view
@@ -115,7 +122,7 @@ class RedactMatchesDialog(QDialog):
 
     def _run_search(self) -> None:
         text = self.query.text()
-        count = self._view.search.search(
+        count = search_of(self._view).search(
             text,
             case_sensitive=self.case_sensitive.isChecked(),
             whole_word=self.whole_word.isChecked(),

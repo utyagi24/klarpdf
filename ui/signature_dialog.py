@@ -40,6 +40,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSlider,
     QVBoxLayout,
+    QWidget,
 )
 
 from klarpdf.model.content_marks import ImageStamp, render_mark_document
@@ -69,7 +70,7 @@ def _strength_for(white_threshold: float) -> int:
 class SignatureDialog(QDialog):
     """Choose an image, tune its background removal, and get back an :class:`ImageStamp` template."""
 
-    def __init__(self, parent, recent: list[str], settings: dict | None = None) -> None:
+    def __init__(self, parent: QWidget | None, recent: list[str], settings: dict | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Place Signature or Image")
         self._path: str | None = None
@@ -159,7 +160,7 @@ class SignatureDialog(QDialog):
     def _set_ok_enabled(self, enabled: bool) -> None:
         self.buttons.button(QDialogButtonBox.StandardButton.Ok).setEnabled(enabled)
 
-    def _on_recent_chosen(self, item) -> None:
+    def _on_recent_chosen(self, item: QListWidgetItem | None) -> None:
         if item is not None:
             self.set_path(item.data(Qt.ItemDataRole.UserRole))
 
@@ -239,7 +240,7 @@ class SignatureDialog(QDialog):
 
     # ---- result ---------------------------------------------------------------
 
-    def image_stamp(self, rect=(0.0, 0.0, 1.0, 1.0)) -> ImageStamp:
+    def image_stamp(self, rect: tuple[float, float, float, float] = (0.0, 0.0, 1.0, 1.0)) -> ImageStamp:
         """The composed descriptor. ``rect`` is a placeholder — the placement drag supplies the real
         one (the preview passes its own panel size to render at a sensible aspect)."""
         return ImageStamp(

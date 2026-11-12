@@ -15,6 +15,8 @@ other three types do not, for a control a checkbox usually replaces.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -24,6 +26,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPlainTextEdit,
     QVBoxLayout,
+    QWidget,
 )
 
 from klarpdf.model.form_fields import FIELD_KINDS, NewField, kind_label
@@ -32,7 +35,7 @@ from klarpdf.model.form_fields import FIELD_KINDS, NewField, kind_label
 class FieldDialog(QDialog):
     """Compose a :class:`NewField`; the caller then arms the placement drag."""
 
-    def __init__(self, parent, kind: str = "text", existing_names=()) -> None:
+    def __init__(self, parent: QWidget | None, kind: str = "text", existing_names: Iterable[str] = ()) -> None:
         super().__init__(parent)
         self.setWindowTitle("Add Form Field")
         self._existing = {name for name in existing_names}
@@ -101,7 +104,7 @@ class FieldDialog(QDialog):
         else:
             self.warning.setVisible(False)
 
-    def field(self, rect=(0.0, 0.0, 1.0, 1.0)) -> NewField:
+    def field(self, rect: tuple[float, float, float, float] = (0.0, 0.0, 1.0, 1.0)) -> NewField:
         """The composed descriptor at a placeholder rect — the placement drag supplies the real one.
 
         **The name is stripped, the value is not** (M91.1): a field name is an identifier — it is

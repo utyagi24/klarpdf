@@ -20,9 +20,15 @@ Two consequences of "collect text, hand it back" shape the widget:
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import TYPE_CHECKING
+
 from PySide6.QtCore import QRect, Qt, QTimer
-from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QPlainTextEdit
+from PySide6.QtGui import QColor, QFocusEvent, QKeyEvent
+from PySide6.QtWidgets import QPlainTextEdit, QWidget
+
+if TYPE_CHECKING:  # named in annotations only
+    from viewer.pdf_view import PdfView
 
 # Fixed viewport-pixel size: a note is a remark, not a document, and a popup that scaled with zoom
 # would be unreadable on a fit-page view and absurd at 400%.
@@ -30,7 +36,7 @@ _W, _H = 240, 96
 _GAP = 6            # between the passage and the popup, so the mark stays visible while typing
 
 
-def wash(color, factor: float = 0.28) -> QColor:
+def wash(color: tuple[float, float, float], factor: float = 0.28) -> QColor:
     """``color`` (an r,g,b float triple) mixed towards white — the popup's background.
 
     The host's own colour at full strength is a highlighter wash meant to sit *under* text; typed
@@ -56,12 +62,14 @@ class _NotePopup(QPlainTextEdit):
     editor; this is that guard, moved into the call.)
     """
 
-    def __init__(self, parent, on_commit, on_cancel) -> None:
+    def __init__(
+        self, parent: QWidget | None, on_commit: Callable[..., object], on_cancel: Callable[[_NotePopup], object]
+    ) -> None:
         super().__init__(parent)
         self._on_commit = on_commit
         self._on_cancel = on_cancel
 
-    def keyPressEvent(self, event) -> None:
+    def keyPressEvent(self, event: QKeyEvent) -> None:
         if event.key() == Qt.Key.Key_Escape:
             event.accept()
             self._on_cancel(self)
@@ -74,7 +82,7 @@ class _NotePopup(QPlainTextEdit):
             return
         super().keyPressEvent(event)
 
-    def focusOutEvent(self, event) -> None:
+    def focusOutEvent(self, event: QFocusEvent) -> None:
         super().focusOutEvent(event)
         self._on_commit(self, from_focus_out=True)
 
@@ -87,14 +95,14 @@ class NoteEditor:
     has the overlay has the notes UI without a second wiring seam.
     """
 
-    def __init__(self, view) -> None:
+    def __init__(self, view: PdfView) -> None:
         self._view = view
         self._popup: _NotePopup | None = None
         self._page = 0
         self._anchor: tuple = (0.0, 0.0, 0.0, 0.0)   # the marked passage, in page points
-        self._on_commit = None
+        self._on_commit: Callable[[str], object] | None = None
         self._committing = False    # re-entry guard: committing drops focus, which commits again
-        self._target = None         # the mark this popup belongs to, for the click-to-toggle check
+        self._target: object = None  # the mark this popup belongs to, for the click-to-toggle check
         # Where the popup that closed during the **current** event dispatch was anchored, as
         # ``(page_index, anchor)``. Clicking an open note's badge takes focus off the popup, so the
         # focus-out commit lands *before* the view's mousePressEvent (measured) — by the time the
@@ -124,12 +132,12 @@ class NoteEditor:
         return self._popup is not None and self._popup.isReadOnly()
 
     @property
-    def target(self):
+    def target(self) -> object:
         """The mark the open popup belongs to, or ``None``."""
         return self._target if self._popup is not None else None
 
     @staticmethod
-    def key_for(page_index: int, mark) -> tuple:
+    def key_for(page_index: int, mark: object) -> tuple:
         """The toggle key for a mark — see :attr:`_just_closed` for why it is this and not the
         object. Built here so the close side and the click side cannot derive it differently."""
         from klarpdf.model.page_edits import mark_bounds
@@ -161,8 +169,9 @@ class NoteEditor:
 
     # ---- open / close -----------------------------------------------------------
 
-    def open_on(self, page_index: int, anchor: tuple, text: str, color, on_commit=None,
-                *, read_only: bool = False, placeholder: str = "Note…", target=None) -> None:
+    def open_on(self, page_index: int, anchor: tuple, text: str, color: tuple[float, float, float],
+                on_commit: Callable[[str], object] | None = None, *, read_only: bool = False,
+                placeholder: str = "Note…", target: object = None) -> None:
         """Open the popup over the passage at ``anchor`` (page points), pre-filled with ``text``.
 
         ``on_commit(text)`` is called once, with the text as typed — including empty, which is how
@@ -199,7 +208,7 @@ class NoteEditor:
         popup.setFocus()
         popup.moveCursor(popup.textCursor().MoveOperation.End)
 
-    def close(self, popup=None, *, from_focus_out: bool = False) -> None:
+    def close(self, popup: _NotePopup | None = None, *, from_focus_out: bool = False) -> None:
         """Drop the popup without committing (Esc, or a caller tearing the view down).
 
         ``popup`` is the widget asking, when the ask came from a widget; a stale one is ignored.
@@ -231,7 +240,7 @@ class NoteEditor:
         """Save and close, as a focus-out would — the toggle-shut path."""
         self._commit()
 
-    def _commit(self, popup=None, *, from_focus_out: bool = False) -> None:
+    def _commit(self, popup: _NotePopup | None = None, *, from_focus_out: bool = False) -> None:
         text = self.text
         on_commit = self._on_commit
         if self._committing or on_commit is None:

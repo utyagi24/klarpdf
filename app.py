@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import time
+from typing import TYPE_CHECKING
 
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication, QMessageBox
@@ -19,6 +20,9 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 import platform_integration
 from klarpdf.util.paths import normalize_path
 from store.settings import Settings
+
+if TYPE_CHECKING:  # named in annotations only
+    from main_window import MainWindow
 
 _HANDOFF_TIMEOUT_MS = 400
 
@@ -115,7 +119,7 @@ class PdfApp(QApplication):
         # A list or menu that Qt only hides would stay on a WSLg desktop; this closes it (M153).
         popup_closer.install(self)
         self.settings = Settings()
-        self._windows: dict[str, object] = {}
+        self._windows: dict[str, MainWindow] = {}
         # Page clipboard for cross-window cut/copy/paste (PLAN.md): each entry is
         # (source_id, source fitz.Document, source_page_index, rotation_override, annotations,
         # crop_override) — the page plus its per-page edits. Holding the source doc lets the
@@ -178,7 +182,7 @@ class PdfApp(QApplication):
 
     # ---- window registry --------------------------------------------------------
 
-    def open_document(self, path: str):
+    def open_document(self, path: str) -> MainWindow | None:
         """Open ``path``, or raise its existing window if already open (no duplicate).
 
         Returns ``None`` when **no window opened** — an encrypted document's password prompt was
@@ -235,7 +239,7 @@ class PdfApp(QApplication):
             f"“{os.path.basename(path)}” can't be opened.\n\n{unopenable_reason(exc)}",
         )
 
-    def window_for_key(self, key: str | None):
+    def window_for_key(self, key: str | None) -> MainWindow | None:
         """Return the open window registered under a normalized identity key, or None.
 
         Used by cross-window drag/drop to resolve the source window from the dragged payload.
@@ -245,12 +249,12 @@ class PdfApp(QApplication):
     def forget_window(self, path: str) -> None:
         self._windows.pop(normalize_path(path), None)
 
-    def rename_window(self, old_path: str, new_path: str, window) -> None:
+    def rename_window(self, old_path: str, new_path: str, window: MainWindow) -> None:
         """Re-key a window after Save As, so one-window-per-document tracks the new identity."""
         self._windows.pop(normalize_path(old_path), None)
         self._windows[normalize_path(new_path)] = window
         self.settings.add_recent(new_path)  # the Save As target is now a recent document
 
     @staticmethod
-    def _raise(window) -> None:
+    def _raise(window: MainWindow) -> None:
         platform_integration.activate_window(window)

@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QTabWidget,
     QVBoxLayout,
+    QWidget,
 )
 
 from klarpdf.version import __version__
@@ -51,7 +52,7 @@ def _open_url(url: str) -> None:
 class AboutDialog(QDialog):
     """Name, mark, version, licence, no-warranty notice, and the corresponding-source link."""
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle(f"About {APP_NAME}")
         self.setMinimumWidth(430)
@@ -110,7 +111,7 @@ class AboutDialog(QDialog):
 class LicensesDialog(QDialog):
     """The bundled licence texts, one tab each, read offline from the app bundle."""
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Open-Source Licenses")
         self.resize(760, 560)

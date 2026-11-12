@@ -26,6 +26,7 @@ drawn so far and picks the next size from them:
 from __future__ import annotations
 
 import math
+from collections.abc import Collection, Iterable, Sequence
 from statistics import median
 
 #: The side of a tile, in device pixels: the smallest piece. On the slowest page measured, the NADA
@@ -52,7 +53,7 @@ class Tiles:
         self.rows = max(1, math.ceil(height / TILE))
         self.drawn: set[tuple[int, int]] = set()
 
-    def tiles_in(self, rect) -> set[tuple[int, int]]:
+    def tiles_in(self, rect: Sequence[float]) -> set[tuple[int, int]]:
         """The tiles that ``rect`` touches, with at least one whole pixel of it."""
         x0, y0, x1, y1 = rect
         c0, c1 = max(0, math.floor(x0 / TILE)), min(self.cols - 1, math.ceil(x1 / TILE) - 1)
@@ -61,7 +62,7 @@ class Tiles:
             return set()
         return {(c, r) for c in range(c0, c1 + 1) for r in range(r0, r1 + 1)}
 
-    def box(self, piece) -> tuple[int, int, int, int]:
+    def box(self, piece: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
         """The device-pixel rectangle a piece covers, cut to the page."""
         c0, r0, c1, r1 = piece
         return (c0 * TILE, r0 * TILE, min(self.width, (c1 + 1) * TILE),
@@ -70,7 +71,7 @@ class Tiles:
     def complete(self) -> bool:
         return len(self.drawn) == self.cols * self.rows
 
-    def mark(self, piece, drawn: bool = True) -> None:
+    def mark(self, piece: tuple[int, int, int, int], drawn: bool = True) -> None:
         c0, r0, c1, r1 = piece
         tiles = {(c, r) for c in range(c0, c1 + 1) for r in range(r0, r1 + 1)}
         if drawn:
@@ -78,11 +79,13 @@ class Tiles:
         else:
             self.drawn -= tiles
 
-    def _distance(self, tile, centre) -> float:
+    def _distance(self, tile: tuple[int, int], centre: tuple[float, float]) -> float:
         c, r = tile
         return math.hypot((c + 0.5) * TILE - centre[0], (r + 0.5) * TILE - centre[1])
 
-    def nearest(self, wanted, centre) -> tuple[tuple[int, int], float] | None:
+    def nearest(
+        self, wanted: Iterable[tuple[int, int]], centre: tuple[float, float]
+    ) -> tuple[tuple[int, int], float] | None:
         """The undrawn tile of ``wanted`` nearest ``centre``, and how far it is, or ``None``."""
         best = None
         for tile in wanted:
@@ -93,7 +96,9 @@ class Tiles:
                 best = (tile, d)
         return best
 
-    def grow(self, seed, wanted, centre, count: int) -> tuple[int, int, int, int]:
+    def grow(
+        self, seed: tuple[int, int], wanted: Collection[tuple[int, int]], centre: tuple[float, float], count: int
+    ) -> tuple[int, int, int, int]:
         """A piece of about ``count`` tiles around ``seed``, made only of undrawn ``wanted`` tiles.
 
         It grows one row or column at a time, toward whichever side is nearest ``centre``, so the
