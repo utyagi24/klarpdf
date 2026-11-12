@@ -15,14 +15,18 @@ engine the planned image-export feature reuses.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pymupdf as fitz
 from PySide6.QtCore import QRectF
 from PySide6.QtGui import QImage, QPainter
 from PySide6.QtPrintSupport import QAbstractPrintDialog, QPrintDialog, QPrinter
-from PySide6.QtWidgets import QDialog, QMessageBox
+from PySide6.QtWidgets import QDialog, QMessageBox, QWidget
 
 from klarpdf.model.edit_engine import PyMuPDFEngine
+
+if TYPE_CHECKING:  # named in annotations only
+    from klarpdf.model.virtual_document import VirtualDocument
 
 # Raster render cap: printers report 600–1200 dpi, but rasterising a full page at that is huge
 # (an A4 at 1200 dpi is ~70 MB) for no visible gain on a basic print. Render at most this, then let
@@ -30,7 +34,7 @@ from klarpdf.model.edit_engine import PyMuPDFEngine
 _MAX_RENDER_DPI = 300
 
 
-def print_document(vdoc, current_page: int, parent=None) -> bool:
+def print_document(vdoc: VirtualDocument, current_page: int, parent: QWidget | None = None) -> bool:
     """Show the system print dialog and print the chosen pages. Returns True if a job was sent,
     False if the user cancelled."""
     printer = QPrinter(QPrinter.PrinterMode.HighResolution)
@@ -57,7 +61,9 @@ def selected_pages(printer: QPrinter, page_count: int, current_page: int) -> lis
     return list(range(page_count))  # AllPages (and Selection, which we treat as all)
 
 
-def render_to_printer(printer: QPrinter, vdoc, current_page: int, parent=None) -> bool:
+def render_to_printer(
+    printer: QPrinter, vdoc: VirtualDocument, current_page: int, parent: QWidget | None = None
+) -> bool:
     """Paint the selected pages of ``vdoc`` (edits applied), fit to each printable page. Returns
     False if the document could not be rendered or the job could not start."""
     try:

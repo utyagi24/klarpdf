@@ -14,11 +14,17 @@ continuous scroll as a follow-up).
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+from PySide6.QtCore import QPointF
 from PySide6.QtGui import QBrush, QColor, QGuiApplication
 from PySide6.QtWidgets import QGraphicsRectItem
 
 from viewer.blend import MultiplyRectItem
 from viewer.tools import ArmedTool
+
+if TYPE_CHECKING:  # named in annotations only
+    from viewer.pdf_view import PdfView
 
 _SELECTION = QColor(0, 120, 215, 80)   # translucent selection blue (normal text selection)
 # While a drag-over-text tool is armed, the live selection is painted in the tool's *final* colour
@@ -37,21 +43,21 @@ _SELECTION = QColor(0, 120, 215, 80)   # translucent selection blue (normal text
 # `_highlight_preview_rgb` with the wired case instead, as raw RGB.
 _HIGHLIGHT_FALLBACK = (1.0, 0.86, 0.10)   # Highlight's own default, for when nothing is wired
 _REDACT_ARMED = QColor(0, 0, 0, 130)
-_ARMED_SELECTION_COLOUR = {
+_ARMED_SELECTION_COLOUR: dict[ArmedTool | None, QColor] = {
     ArmedTool.REDACT_TEXT: _REDACT_ARMED,
 }
 _DRAG_THRESHOLD = 4.0  # scene units the pointer must move before a drag counts as a selection
 
 
 class TextSelection:
-    def __init__(self, view) -> None:
+    def __init__(self, view: PdfView) -> None:
         self._view = view
         self._words: dict[int, list] = {}   # page_index -> words sorted in reading order
         self._items: list[QGraphicsRectItem] = []
         self._anchor: tuple[int, int] | None = None   # (page_index, word_order_index)
         self._cursor: tuple[int, int] | None = None
         self.active = False
-        self._press = None              # scene point where the press started
+        self._press: QPointF | None = None  # scene point where the press started
         self._pending_anchor: tuple[int, int] | None = None  # nearest word at press, promoted once dragging
         self._moved = False             # has the drag passed the threshold yet?
         self._band: tuple[int, int] | None = None   # page range the painted items cover (M89.6)
@@ -83,16 +89,16 @@ class TextSelection:
         form fill changes the extracted words — otherwise selection would hit stale word boxes."""
         self._words.clear()
 
-    def has_word_at(self, scene_pt) -> bool:
+    def has_word_at(self, scene_pt: QPointF) -> bool:
         """True when a word's box contains the point — the press-point test the combined Redact
         tool resolves its gesture on (M72). Exact containment, never nearest-snap: a press in the
         margin must mean *block*, not the closest line of text."""
         return self._word_containing(scene_pt) is not None
 
-    def _word_containing(self, scene_pt) -> tuple[int, int] | None:
+    def _word_containing(self, scene_pt: QPointF) -> tuple[int, int] | None:
         """Exact hit: the word whose box contains the point, else None (no nearest-snap)."""
         page_index, local = self._view.page_and_local_at(scene_pt)
-        if page_index is None:
+        if page_index is None or local is None:
             return None
         lx, ly = local.x(), local.y()
         for i, w in enumerate(self._words_for(page_index)):
@@ -100,9 +106,9 @@ class TextSelection:
                 return (page_index, i)
         return None
 
-    def _hit(self, scene_pt) -> tuple[int, int] | None:
+    def _hit(self, scene_pt: QPointF) -> tuple[int, int] | None:
         page_index, local = self._view.page_and_local_at(scene_pt)
-        if page_index is None:
+        if page_index is None or local is None:
             return None
         words = self._words_for(page_index)
         if not words:
@@ -123,7 +129,7 @@ class TextSelection:
 
     # ---- mouse-driven lifecycle -------------------------------------------------
 
-    def begin(self, scene_pt) -> bool:
+    def begin(self, scene_pt: QPointF) -> bool:
         """Handle a left-press. Clears any current selection (a click deselects, like Preview)
         and arms a potential drag. Returns True if it consumed the event."""
         self.clear()  # press always deselects; a drag below rebuilds the selection
@@ -133,7 +139,7 @@ class TextSelection:
         self._moved = False
         return True
 
-    def update_to(self, scene_pt) -> None:
+    def update_to(self, scene_pt: QPointF) -> None:
         if not self.active:
             return
         if not self._moved:
@@ -156,7 +162,7 @@ class TextSelection:
         # A press with no qualifying drag leaves anchor/cursor unset → nothing selected.
         self.active = False
 
-    def select_word_at(self, scene_pt) -> bool:
+    def select_word_at(self, scene_pt: QPointF) -> bool:
         """Double-click: select the whole word under the point (Preview-style). Clicking off
         any word clears the selection. Returns True if it consumed the event."""
         hit = self._word_containing(scene_pt)
@@ -284,7 +290,7 @@ class TextSelection:
                 pass  # already destroyed by scene.clear() during a rebuild
         self._items.clear()
 
-    def _highlight_preview_rgb(self):
+    def _highlight_preview_rgb(self) -> tuple[float, float, float] | None:
         """The sticky highlight colour when a Highlight drag is armed, else ``None``.
 
         Split out because the answer decides **two** things — the brush *and* the blend mode — and

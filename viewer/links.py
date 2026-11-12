@@ -32,12 +32,19 @@ in the document in front of them. The hand-off itself stays out of this module �
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
 import pymupdf as fitz
 
 from klarpdf.model.destinations import content_point, page_index_map, read_destination
 from klarpdf.model.links_remap import internal_link_target, link_target_map
+
+if TYPE_CHECKING:  # named in annotations only. This module loads no Qt (tests/test_mcp_no_qt.py)
+    from PySide6.QtCore import QPointF
+
+    from viewer.pdf_view import PdfView
 
 #: Link schemes a click may hand to the system browser (M149, #333; owner's call).
 #:
@@ -72,7 +79,7 @@ def openable_uri(uri: str) -> str | None:
 
 
 class LinkNavigator:
-    def __init__(self, view) -> None:
+    def __init__(self, view: PdfView) -> None:
         self._view = view
         # display page -> [(box, target display index, how far down the target page to land)].
         # The distance is in the target page's own points, measured from the top of its visible
@@ -142,7 +149,7 @@ class LinkNavigator:
         self._links[page_index] = boxes
         self._uris[page_index] = uris
 
-    def _hit(self, scene_pt, entries_for):
+    def _hit(self, scene_pt: QPointF, entries_for: Callable[[int], Iterable[tuple]]) -> Any:
         page_index, _ = self._view.page_and_local_at(scene_pt)
         if page_index is None:
             return None
@@ -151,12 +158,12 @@ class LinkNavigator:
                 return payload[0] if len(payload) == 1 else tuple(payload)
         return None
 
-    def link_at(self, scene_pt) -> int | None:
+    def link_at(self, scene_pt: QPointF) -> int | None:
         """The target **display index** of the internal link under ``scene_pt``, else ``None``."""
         target = self.target_at(scene_pt)
         return None if target is None else target[0]
 
-    def target_at(self, scene_pt) -> tuple | None:
+    def target_at(self, scene_pt: QPointF) -> tuple | None:
         """``(display index, top)`` for the internal link under ``scene_pt``, else ``None``.
 
         ``top`` is how far down the target page the link points, in that page's own points from
@@ -164,12 +171,12 @@ class LinkNavigator:
         :meth:`~viewer.pdf_view.PdfView.goto_destination` takes."""
         return self._hit(scene_pt, self._links_for)
 
-    def uri_at(self, scene_pt) -> str | None:
+    def uri_at(self, scene_pt: QPointF) -> str | None:
         """The URI of the external link under ``scene_pt``, else ``None`` — whatever the document
         says, openable or not. What the context menu's Copy Link Address copies."""
         return self._hit(scene_pt, self._uris_for)
 
-    def openable_uri_at(self, scene_pt) -> str | None:
+    def openable_uri_at(self, scene_pt: QPointF) -> str | None:
         """The URI under ``scene_pt`` **if a click may open it** (:func:`openable_uri`), else ``None``.
 
         What a click and the hover cursor ask, so a ``javascript:`` link neither looks clickable nor
@@ -181,7 +188,7 @@ class LinkNavigator:
         uri = self.uri_at(scene_pt)
         return openable_uri(uri) if uri else None
 
-    def navigate_at(self, scene_pt) -> bool:
+    def navigate_at(self, scene_pt: QPointF) -> bool:
         """If an internal link is under ``scene_pt``, jump to its target page. Returns True if it
         consumed the click. Internal links only — an external one is the view's to hand on."""
         target = self.target_at(scene_pt)

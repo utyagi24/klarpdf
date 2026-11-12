@@ -20,9 +20,14 @@ on-screen size at any zoom — the rect they surround is given in unrotated page
 
 from __future__ import annotations
 
-from PySide6.QtCore import QRectF, Qt
+from typing import TYPE_CHECKING
+
+from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QPen
 from PySide6.QtWidgets import QGraphicsRectItem
+
+if TYPE_CHECKING:  # named in annotations only
+    from viewer.pdf_view import PdfView
 
 _SIZE = 8.0        # on-screen handle square, in scene units (== device px)
 _GRAB = 4.0        # extra slack around a handle when hit-testing (fat-finger margin)
@@ -46,7 +51,7 @@ def box_handle_points(rect: tuple) -> dict:
     }
 
 
-def cursor_for(handle: str):
+def cursor_for(handle: str) -> Qt.CursorShape:
     """The resize cursor for a handle name (endpoint handles get a plain cross-hair-ish size-all)."""
     return _CURSORS.get(handle, Qt.CursorShape.SizeAllCursor)
 
@@ -97,7 +102,7 @@ def resized_rect(rect: tuple, handle: str, dx: float, dy: float,
 class ResizeHandles:
     """The handle items for one selection: draw, hit-test, clear."""
 
-    def __init__(self, view) -> None:
+    def __init__(self, view: PdfView) -> None:
         self._view = view
         self._items: dict = {}     # handle name -> QGraphicsRectItem (positioned in scene units)
         self._page = 0
@@ -142,7 +147,7 @@ class ResizeHandles:
                 pass  # already destroyed by scene.clear() during a rebuild (same as the overlay)
         self._items = {}
 
-    def handle_at(self, scene_pt) -> str | None:
+    def handle_at(self, scene_pt: QPointF) -> str | None:
         """The handle name under ``scene_pt`` (with a grab margin), else None."""
         for name, item in self._items.items():
             if item.rect().adjusted(-_GRAB, -_GRAB, _GRAB, _GRAB).contains(scene_pt):

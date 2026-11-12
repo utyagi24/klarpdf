@@ -15,7 +15,10 @@ discoverable.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QRect
+from collections.abc import Callable
+from typing import TYPE_CHECKING
+
+from PySide6.QtCore import QPointF, QRect
 from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import QComboBox, QGraphicsRectItem, QLineEdit
 
@@ -27,6 +30,10 @@ from klarpdf.model.pymupdf_constants import (
     PDF_WIDGET_TYPE_TEXT,
 )
 
+if TYPE_CHECKING:  # named in annotations only
+    from klarpdf.model.page_edits import FormField
+    from viewer.pdf_view import PdfView
+
 _FIELD_TINT = QColor(70, 130, 180, 40)  # faint steel-blue wash marking a fillable field
 _CHOICE_TYPES = {PDF_WIDGET_TYPE_COMBOBOX, PDF_WIDGET_TYPE_LISTBOX}
 # "Off"/False/empty all read as unchecked; anything else is checked. 0 is in the set too, because
@@ -35,24 +42,24 @@ _UNCHECKED = {None, "", "Off", "off", False}
 
 
 class FormFiller:
-    def __init__(self, view, on_edit) -> None:
+    def __init__(self, view: PdfView, on_edit: Callable[[str, object], object]) -> None:
         self._view = view
         self._on_edit = on_edit          # callback(field_name, value) -> pushes the undo command
         self._fields = read_form_fields(view._vdoc)
         self._items: list[QGraphicsRectItem] = []
         self._editor: QLineEdit | QComboBox | None = None  # the live inline editor, if any
-        self._editor_field = None        # the field it edits — so it can follow zoom/scroll
+        self._editor_field: FormField | None = None  # the field it edits — so it can follow zoom/scroll
 
     # ---- field lookup -----------------------------------------------------------
 
-    def _current_value(self, field):
+    def _current_value(self, field: FormField) -> object:
         v = self._view._vdoc.field_value(field.name)
         return field.current_value if v is None else v
 
-    def field_at(self, scene_pt):
+    def field_at(self, scene_pt: QPointF) -> FormField | None:
         """The fillable field whose box contains ``scene_pt``, else None."""
         page_index, local = self._view.page_and_local_at(scene_pt)
-        if page_index is None:
+        if page_index is None or local is None:
             return None
         lx, ly = local.x(), local.y()
         for f in self._fields:
@@ -64,7 +71,7 @@ class FormFiller:
 
     # ---- click handling ---------------------------------------------------------
 
-    def handle_press(self, scene_pt) -> bool:
+    def handle_press(self, scene_pt: QPointF) -> bool:
         """Begin editing the field under the press. Returns True if it consumed the event."""
         field = self.field_at(scene_pt)
         if field is None:
@@ -83,20 +90,20 @@ class FormFiller:
 
     # ---- inline editors ---------------------------------------------------------
 
-    def _editor_geometry(self, field) -> QRect:
+    def _editor_geometry(self, field: FormField) -> QRect:
         scene_rect = self._view.scene_rect_for_box(field.page_index, field.rect)
         top_left = self._view.mapFromScene(scene_rect.topLeft())
         bottom_right = self._view.mapFromScene(scene_rect.bottomRight())
         return QRect(top_left, bottom_right)
 
-    def _open_text(self, field) -> None:
+    def _open_text(self, field: FormField) -> None:
         editor = QLineEdit(self._view.viewport())
         value = self._current_value(field)
         editor.setText("" if value is None else str(value))
         editor.setGeometry(self._editor_geometry(field))
         committed = {"done": False}
 
-        def commit():
+        def commit() -> None:
             if committed["done"]:
                 return
             committed["done"] = True
@@ -111,7 +118,7 @@ class FormFiller:
         editor.setFocus()
         editor.selectAll()
 
-    def _open_combo(self, field) -> None:
+    def _open_combo(self, field: FormField) -> None:
         editor = QComboBox(self._view.viewport())
         choices = list(field.choices or [])
         editor.addItems(choices)
@@ -120,7 +127,7 @@ class FormFiller:
             editor.setCurrentIndex(choices.index(current))
         editor.setGeometry(self._editor_geometry(field))
 
-        def commit(index: int):
+        def commit(index: int) -> None:
             name, value = field.name, editor.itemText(index)
             self._close_editor()
             self._on_edit(name, value)

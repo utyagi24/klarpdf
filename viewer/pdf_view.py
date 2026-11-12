@@ -21,13 +21,30 @@ from __future__ import annotations
 import math
 import time
 from bisect import bisect_left, bisect_right
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from itertools import pairwise
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pymupdf as fitz
 from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import QBrush, QColor, QGuiApplication, QImage, QPainter, QPen, QPixmap, QTransform
+from PySide6.QtGui import (
+    QBrush,
+    QColor,
+    QContextMenuEvent,
+    QGuiApplication,
+    QHelpEvent,
+    QImage,
+    QKeyEvent,
+    QMouseEvent,
+    QPainter,
+    QPen,
+    QPixmap,
+    QResizeEvent,
+    QShowEvent,
+    QTransform,
+    QWheelEvent,
+)
 from PySide6.QtWidgets import (
     QApplication,
     QGraphicsPixmapItem,
@@ -36,6 +53,7 @@ from PySide6.QtWidgets import (
     QGraphicsView,
     QStyle,
     QToolTip,
+    QWidget,
 )
 
 from klarpdf.model.form_fields import NewField
@@ -51,6 +69,7 @@ if TYPE_CHECKING:  # named in annotations only: each of these modules imports th
 
     from PySide6.QtWidgets import QMenu
 
+    from klarpdf.model.virtual_document import PageRef
     from viewer.annotations import AnnotationOverlay
     from viewer.form_fill import FormFiller
     from viewer.links import LinkNavigator
@@ -172,7 +191,7 @@ _WHEEL_EASE_MS = 200.0
 _ZOOM_COALESCE_MS = 16  # one frame at 60 Hz — the Ctrl+wheel accumulator's flush interval (M86.2)
 
 # Arrow key → unit (dx, dy) direction for nudging an object selection (M78.2); page-y grows down.
-_NUDGE_KEYS = {
+_NUDGE_KEYS: dict[int, tuple[float, float]] = {  # Qt.Key members are ints
     Qt.Key.Key_Left: (-1.0, 0.0),
     Qt.Key.Key_Right: (1.0, 0.0),
     Qt.Key.Key_Up: (0.0, -1.0),
@@ -193,7 +212,10 @@ class _Wip:
     __slots__ = ("key", "tiles", "sizer", "page", "clip", "total", "origin", "rendered", "pieces",
                  "seconds", "pixels", "stand_in")
 
-    def __init__(self, key, tiles, sizer, page, clip, total, origin, rendered) -> None:
+    def __init__(
+        self, key: tuple, tiles: Tiles, sizer: Sizer, page: fitz.Page, clip: fitz.Rect | None, total: int,
+        origin: tuple[float, float], rendered: tuple[int, int],
+    ) -> None:
         self.key, self.tiles, self.sizer = key, tiles, sizer
         self.page, self.clip, self.total = page, clip, total
         self.origin, self.rendered = origin, rendered
@@ -229,7 +251,7 @@ class PdfView(QGraphicsView):
     noteGlyphClicked = Signal(int, object)  # an on-page note badge was clicked: (page, mark) — M90.2
     externalLinkClicked = Signal(str)  # a web link was clicked — MainWindow hands it to the browser (M149)
 
-    def __init__(self, vdoc: VirtualDocument, parent=None) -> None:
+    def __init__(self, vdoc: VirtualDocument, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._vdoc = vdoc
         # **Three numbers, not one** (M88). ``_zoom`` is the magnification the *reader* asks for and
@@ -250,7 +272,7 @@ class PdfView(QGraphicsView):
         # rebuilt after each edit (reload clears them). Kept separate from the shared read-only
         # sources, and NOT built via insert_pdf — repeated insert_pdf from one source drops widgets
         # after the first call, so we use a fresh source copy and apply values / strip on it.
-        self._render_docs: dict[str, fitz.Document] = {}
+        self._render_docs: dict[str, fitz.Document | None] = {}   # None: render the shared source
         # Per-*ordered-page* render copies carrying that page's pending foreign-annotation
         # deletions (M66). Keyed by page index, not source id: the deletion rides the PageRef, so
         # two copies of one source page can differ. Value is (page, owning doc).
@@ -389,7 +411,7 @@ class PdfView(QGraphicsView):
         # Ctrl+wheel deltas accumulate here and apply once a frame (M86.2), so a burst is one
         # scene rebuild instead of N. ``_zoom_anchor`` is the pointer the flush anchors on.
         self._zoom_pending = 0.0
-        self._zoom_anchor = None
+        self._zoom_anchor: QPoint | None = None
         # Where the view was last sent (M151): per axis, the scene coordinate meant for the
         # viewport's top-left corner, the scroll value the view was left at, and whether an end of
         # the document stopped it short. See :meth:`_scroll_to`.
@@ -472,7 +494,7 @@ class PdfView(QGraphicsView):
         self._logical_dpi, self._dpr = dpi, dpr
         return kind
 
-    def event(self, ev) -> bool:
+    def event(self, ev: QEvent) -> bool:
         """Notice a screen change through Qt's own **widget** events (M88.3).
 
         Deliberately not a ``QWindow.screenChanged`` connection, which is what this first shipped as
@@ -490,7 +512,7 @@ class PdfView(QGraphicsView):
             self._sync_display()
         return super().event(ev)
 
-    def showEvent(self, event) -> None:
+    def showEvent(self, event: QShowEvent) -> None:
         """Re-read the metrics once the widget is mapped — the construction-time read hit the
         primary screen, which is not necessarily the one this window opens on. It only *schedules*
         a response; the first build is :meth:`open_at`'s job and already uses the fresh numbers."""
@@ -719,7 +741,7 @@ class PdfView(QGraphicsView):
 
     # ---- overlay geometry helpers (used by selection + search) ------------------
 
-    def page_and_local_at(self, scene_pt) -> tuple[int | None, QPointF | None]:
+    def page_and_local_at(self, scene_pt: QPointF) -> tuple[int | None, QPointF | None]:
         """Map a scene point to ``(page_index, point in unrotated page points)``.
 
         Returns the page whose vertical band contains the point; when the facing layout (M78) puts
@@ -750,7 +772,7 @@ class PdfView(QGraphicsView):
         ox, oy = self._crop_origin(i)  # displayed frame → content coords
         return i, QPointF(lx + ox, ly + oy)
 
-    def scene_rect_for_box(self, page_index: int, box: tuple) -> QRectF:
+    def scene_rect_for_box(self, page_index: int, box: Sequence[float]) -> QRectF:
         """Map a box in unrotated page points (x0,y0,x1,y1) to its scene rect, accounting for any
         per-page rotation so overlays align with the displayed (spun) page. ``box`` is in content
         coords; a crop override shifts the displayed frame, so its origin is subtracted first."""
@@ -762,7 +784,7 @@ class PdfView(QGraphicsView):
         dx0, dy0, dx1, dy1 = self._box_to_display(w, h, self._display_rotation(page_index), box)
         return QRectF(p["x"] + dx0 * z, p["y"] + dy0 * z, (dx1 - dx0) * z, (dy1 - dy0) * z)
 
-    def local_box_from_scene_rect(self, page_index: int, scene_rect) -> tuple:
+    def local_box_from_scene_rect(self, page_index: int, scene_rect: QRectF) -> tuple:
         """Inverse of :meth:`scene_rect_for_box`: map a scene rect back to an unrotated page-local
         content box ``(x0,y0,x1,y1)``, clamped to the displayed (possibly cropped) frame. Used by
         the redaction rubber-band and the crop drag to record the marked region in the coordinate
@@ -809,7 +831,7 @@ class PdfView(QGraphicsView):
         tr.translate(-ox, -oy)  # last-added runs first: content coords → the displayed crop frame
         return tr
 
-    def local_point_on_page(self, page_index: int, scene_pt) -> QPointF:
+    def local_point_on_page(self, page_index: int, scene_pt: QPointF) -> QPointF:
         """Map a scene point to a specific page's **unrotated** point coords (rotation-aware, not
         clamped). Unlike :meth:`page_and_local_at` it targets a fixed page, so a drag that strays
         past the page edge still maps to that page's frame — used by the text-box move."""
@@ -856,7 +878,7 @@ class PdfView(QGraphicsView):
 
     # ---- mouse → text selection -------------------------------------------------
 
-    def mousePressEvent(self, event) -> None:
+    def mousePressEvent(self, event: QMouseEvent) -> None:
         # Slideshow (M78): a left click advances one slide — the projector gesture — and nothing
         # else in the view (selection, forms, links) is reachable until Esc exits.
         if self.slideshow and event.button() == Qt.MouseButton.LeftButton:
@@ -993,7 +1015,7 @@ class PdfView(QGraphicsView):
         # GRAB (and any unhandled click) → QGraphicsView; ScrollHandDrag pans in GRAB mode.
         super().mousePressEvent(event)
 
-    def contextMenuEvent(self, event) -> None:
+    def contextMenuEvent(self, event: QContextMenuEvent) -> None:
         if self.slideshow:
             event.accept()  # chrome-free reading (M78): no menus until Esc exits
             return
@@ -1008,7 +1030,7 @@ class PdfView(QGraphicsView):
                 return
         super().contextMenuEvent(event)
 
-    def _grabs_before_form(self, scene_pt) -> bool:
+    def _grabs_before_form(self, scene_pt: QPointF) -> bool:
         """Whether a Select-mode press on ``scene_pt`` should **move a mark** rather than reach the
         form overlay (M69.16).
 
@@ -1032,7 +1054,7 @@ class PdfView(QGraphicsView):
             return True
         return any(mark is hit[1] for _p, mark in self.annotations.selected_objects)
 
-    def mouseDoubleClickEvent(self, event) -> None:
+    def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
         # Clicking on impatiently turns every second press into a double-click, which the press
         # handler never sees — so half a fast click sequence used to vanish. In the slideshow a
         # double-click is simply the next slide (M78).
@@ -1058,9 +1080,9 @@ class PdfView(QGraphicsView):
             # Double-click a *foreign* mark → offer to adopt it into the editable model (M68).
             # After our own text boxes, so re-editing one still wins.
             if self.annotations is not None:
-                hit = self.annotations.foreign_annotation_at(scene_pt)
-                if hit is not None:
-                    self.foreignAdopt.emit(*hit)
+                foreign = self.annotations.foreign_annotation_at(scene_pt)
+                if foreign is not None:
+                    self.foreignAdopt.emit(*foreign)
                     event.accept()
                     return
             if self.selection is not None and self.selection.select_word_at(scene_pt):
@@ -1068,7 +1090,7 @@ class PdfView(QGraphicsView):
                 return
         super().mouseDoubleClickEvent(event)
 
-    def mouseMoveEvent(self, event) -> None:
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
         scene_pt = self.mapToScene(event.position().toPoint())
         if self.cropping:
             self.update_crop_drag(scene_pt)
@@ -1101,7 +1123,7 @@ class PdfView(QGraphicsView):
         self._update_hover_cursor(scene_pt)
         super().mouseMoveEvent(event)
 
-    def mouseReleaseEvent(self, event) -> None:
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if self.cropping:
             self.finish_crop_drag()
             if self._armed is ArmedTool.CROP:
@@ -1163,7 +1185,7 @@ class PdfView(QGraphicsView):
             return
         super().mouseReleaseEvent(event)
 
-    def keyPressEvent(self, event) -> None:
+    def keyPressEvent(self, event: QKeyEvent) -> None:
         # Slideshow (M78): whole-slide steps instead of smooth scrolling — arrows / Space /
         # PgUp/PgDn move one slide. Esc is deliberately NOT consumed here: with nothing armed it
         # falls through the QGraphicsView chain to MainWindow, which exits the mode.
@@ -1226,7 +1248,7 @@ class PdfView(QGraphicsView):
             return
         super().keyPressEvent(event)
 
-    def reading_key(self, event) -> bool:
+    def reading_key(self, event: QKeyEvent) -> bool:
         """Handle a paging key that reached the **window** because nothing with focus claimed it.
 
         The sidebar panels hand ``Space`` over rather than swallowing it (M91.4), and it arrives
@@ -1239,7 +1261,7 @@ class PdfView(QGraphicsView):
         """
         return False if self._slideshow else self._navigation_key(event)
 
-    def _navigation_key(self, event) -> bool:
+    def _navigation_key(self, event: QKeyEvent) -> bool:
         """``Home``/``End`` jump to the document's start/end (M89.1); ``Space``/``Shift+Space`` and
         ``PgDn``/``PgUp`` page down/up (M89.2, corrected by M91.4). Returns whether the key was ours.
 
@@ -1375,7 +1397,7 @@ class PdfView(QGraphicsView):
             reachable = [s for s in stops if value - screen <= s < value]
             vbar.setValue(min(reachable) if reachable else value - screen)
 
-    def wheelEvent(self, event) -> None:
+    def wheelEvent(self, event: QWheelEvent) -> None:
         """**Ctrl+wheel zooms** (M80), **Shift+wheel pans horizontally** (M89.3); in the slideshow
         the wheel steps whole slides (M78); everywhere else it scrolls.
 
@@ -1429,7 +1451,7 @@ class PdfView(QGraphicsView):
         finally:
             self._wheel_driving = False
 
-    def _mute_still_applies(self, event, elapsed: int) -> bool:
+    def _mute_still_applies(self, event: QWheelEvent, elapsed: int) -> bool:
         """Whether this wheel event is still part of the coast the mute was armed against (M92.3).
 
         Three ways out, and **the mute can never renew itself through any of them** — which is the
@@ -1462,7 +1484,7 @@ class PdfView(QGraphicsView):
                 return False                    # turned round — a hand, not a flywheel
         return True
 
-    def _apply_wheel(self, event) -> None:
+    def _apply_wheel(self, event: QWheelEvent) -> None:
         """The wheel's actual effect, once :meth:`wheelEvent` has decided it is not a coast."""
         if not self.slideshow:
             if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
@@ -1486,7 +1508,7 @@ class PdfView(QGraphicsView):
             self.step_slide(1)
         event.accept()
 
-    def _is_mouse_detent(self, event) -> bool:
+    def _is_mouse_detent(self, event: QWheelEvent) -> bool:
         """Whether this wheel event is a **discrete mouse-wheel detent** rather than a precision
         device (a touchpad, or a free-spinning hi-res wheel).
 
@@ -1542,7 +1564,7 @@ class PdfView(QGraphicsView):
         dy = event.angleDelta().y()
         return dy != 0 and dy % _WHEEL_NOTCH == 0
 
-    def _wheel_scroll(self, event) -> bool:
+    def _wheel_scroll(self, event: QWheelEvent) -> bool:
         """**One mouse-wheel detent moves a defined distance** (M92.1) — ``wheelScrollLines ×
         _WHEEL_LINE_PX × zoom``. Returns whether the gesture was ours.
 
@@ -1727,7 +1749,7 @@ class PdfView(QGraphicsView):
         if pos == round(self._glide_target):
             self.stop_glide()
 
-    def _wheel_pan(self, event) -> bool:
+    def _wheel_pan(self, event: QWheelEvent) -> bool:
         """``Shift+wheel`` pans **horizontally** across a page wider than the viewport (M89.3).
         Returns whether the gesture was ours.
 
@@ -1758,7 +1780,7 @@ class PdfView(QGraphicsView):
         event.accept()
         return True
 
-    def _wheel_zoom(self, event) -> None:
+    def _wheel_zoom(self, event: QWheelEvent) -> None:
         """Ctrl+wheel zoom, anchored on the pointer (M80) — the gesture every browser, Acrobat and
         Explorer share, and the one thing a reader reaches for that this view did not have.
 
@@ -1814,7 +1836,7 @@ class PdfView(QGraphicsView):
             self.set_zoom(self._zoom * (_ZOOM_STEP ** (delta / _WHEEL_NOTCH)), anchor_pos=anchor,
                           step=True)
 
-    def viewportEvent(self, event) -> bool:
+    def viewportEvent(self, event: QEvent) -> bool:
         """Offer a hovered web link's URL as a tooltip — after the scene's items have had theirs.
 
         This has to live here rather than in :meth:`_update_hover_cursor`, and the reason is a trap
@@ -1836,11 +1858,11 @@ class PdfView(QGraphicsView):
         """
         handled = super().viewportEvent(event)
         if event.type() == QEvent.Type.ToolTip and not event.isAccepted():
-            self._show_link_tooltip(event)
+            self._show_link_tooltip(cast(QHelpEvent, event))   # a ToolTip event is a QHelpEvent
             return True
         return handled
 
-    def _show_link_tooltip(self, event) -> None:
+    def _show_link_tooltip(self, event: QHelpEvent) -> None:
         """Show the URL under the pointer, or nothing. Gated on the same state as the pointing-hand
         cursor: a link that this mode would not follow must not advertise itself either."""
         uri = None
@@ -1851,7 +1873,7 @@ class PdfView(QGraphicsView):
         else:
             QToolTip.showText(event.globalPos(), uri, self.viewport())
 
-    def _update_hover_cursor(self, scene_pt) -> None:
+    def _update_hover_cursor(self, scene_pt: QPointF) -> None:
         """Show a pointing-hand over an internal link (SELECT — it's clickable) and a move cursor
         over a draggable mark — but never while a box is being edited (you're typing, not arranging),
         so the move cursor isn't left showing on the viewport, which the inline editor / formatting
@@ -1886,7 +1908,7 @@ class PdfView(QGraphicsView):
 
     # ---- rendering --------------------------------------------------------------
 
-    def _render_source_page(self, ref):
+    def _render_source_page(self, ref: PageRef) -> fitz.Page | None:
         """The source page to render for ``ref`` — a fresh per-source copy when this source needs a
         display fixup, else ``None`` (caller renders the shared source directly, the fast path).
 
@@ -1912,7 +1934,7 @@ class PdfView(QGraphicsView):
         doc = self._render_docs[source_id]
         return None if doc is None else doc[ref.source_page_index]
 
-    def _deleted_foreign_page(self, index: int, ref):
+    def _deleted_foreign_page(self, index: int, ref: PageRef) -> fitz.Page | None:
         """A one-page render copy with this page's pending foreign deletions applied (M66), or
         ``None`` when the page has none.
 
@@ -1942,7 +1964,7 @@ class PdfView(QGraphicsView):
             doc.close()
         self._foreign_docs.clear()
 
-    def _build_render_doc(self, source_id: str):
+    def _build_render_doc(self, source_id: str) -> fitz.Document | None:
         """Build the per-source render copy, or ``None`` when the source needs no fixup (the fast
         path). See :meth:`_render_source_page` for what the copy carries."""
         values = self._vdoc.form_values
@@ -2175,7 +2197,7 @@ class PdfView(QGraphicsView):
         return max(0, first - prefetch), min(len(self._pages) - 1, last + prefetch)
 
     @contextmanager
-    def _hold_render(self):
+    def _hold_render(self) -> Iterator[None]:
         """Defer rasterising until the whole geometry change has landed, then do it **once**.
 
         A single ``set_zoom`` used to rasterise the visible band three times (M86.1, profiler:
@@ -2274,10 +2296,10 @@ class PdfView(QGraphicsView):
             self._hang(index, exact)
             return key
         chosen = self._best_stored(index, key)
-        if chosen is not None:
-            pixmap = self._cache.get(chosen)
-            # The picture lays out at chosen[1] / its own pixel ratio scene units per point, and
-            # the page is now self.scene_scale. Not the ratio of the two keys: a picture from the other
+        pixmap = self._cache.get(chosen) if chosen is not None else None
+        if chosen is not None and pixmap is not None:   # `_best_stored` names a key the cache holds
+            # The picture lays out at chosen[1] / its own pixel ratio scene units per point, and the
+            # page is now self.scene_scale. Not the ratio of the two keys: a picture from the other
             # screen carries that screen's ratio.
             self._hang(index, pixmap, self.scene_scale * pixmap.devicePixelRatio() / chosen[1])
         carried = self._carried.get(index)
@@ -2346,7 +2368,7 @@ class PdfView(QGraphicsView):
 
     # ---- drawing a slow page in pieces (M152.2) ------------------------------------
 
-    def _display_list(self, index: int, page) -> fitz.DisplayList | None:
+    def _display_list(self, index: int, page: fitz.Page) -> fitz.DisplayList | None:
         dlist = self._dlists.get(index)
         if dlist is None:
             try:
@@ -2444,7 +2466,7 @@ class PdfView(QGraphicsView):
                 return index, piece, ahead
         return None
 
-    def _draw_piece(self, index: int, piece) -> None:
+    def _draw_piece(self, index: int, piece: tuple[int, int, int, int]) -> None:
         """Draw one piece of page ``index`` from its display list and put it on screen."""
         wip = self._wip[index]
         x0, y0, x1, y1 = wip.tiles.box(piece)
@@ -2910,7 +2932,7 @@ class PdfView(QGraphicsView):
             # next step continues from what is on screen. Steps of our own re-assert it afterwards.
             self._slide_row = self._row_of(self._current)
 
-    def resizeEvent(self, event) -> None:
+    def resizeEvent(self, event: QResizeEvent) -> None:
         if self._fit_mode is None or not self._pages:
             super().resizeEvent(event)
             return
@@ -3025,7 +3047,7 @@ class PdfView(QGraphicsView):
     def cropping(self) -> bool:
         return self._crop_item is not None
 
-    def begin_crop_drag(self, scene_pt) -> bool:
+    def begin_crop_drag(self, scene_pt: QPointF) -> bool:
         """Anchor a crop drag on the page under ``scene_pt`` (False off-page — the tool stays
         armed, a mis-click doesn't waste the arm). Shows a dashed keep-this-area band."""
         page_index, _local = self.page_and_local_at(scene_pt)
@@ -3053,7 +3075,7 @@ class PdfView(QGraphicsView):
             self.scene().removeItem(item)
         self._crop_item = self._crop_anchor = self._crop_page = None
 
-    def update_crop_drag(self, scene_pt) -> None:
+    def update_crop_drag(self, scene_pt: QPointF) -> None:
         if self._crop_item is not None and self._crop_anchor is not None:
             self._crop_item.setRect(QRectF(self._crop_anchor, scene_pt).normalized())
 
@@ -3073,7 +3095,7 @@ class PdfView(QGraphicsView):
         if box[2] - box[0] >= 8 and box[3] - box[1] >= 8:
             self.cropDragged.emit(page_index, box)
 
-    def _anchor_at(self, view_pos=None) -> tuple[int, float, float] | None:
+    def _anchor_at(self, view_pos: QPoint | None = None) -> tuple[int, float, float] | None:
         """The content point under viewport point ``view_pos`` as ``(page_index, fx, fy)``, where
         fx/fy are fractions of that page's scene rect. The rect scales uniformly with zoom, so the
         fractions are zoom-invariant — a handle that lets a zoom hold a chosen point fixed instead
@@ -3166,7 +3188,7 @@ class PdfView(QGraphicsView):
         """
         return QPointF(self.viewport().width() / 2.0, float(_PAGE_GAP))
 
-    def _restore_anchor(self, anchor: tuple[int, float, float], view_pos=None) -> None:
+    def _restore_anchor(self, anchor: tuple[int, float, float], view_pos: QPoint | None = None) -> None:
         """Scroll so the ``(page_index, fx, fy)`` from :meth:`_anchor_at` sits back under
         ``view_pos`` — or under the viewport centre when it is ``None``.
 
@@ -3286,7 +3308,7 @@ class PdfView(QGraphicsView):
         return max(floor, min(_MAX_ZOOM, zoom))
 
     def set_zoom(self, zoom: float, keep_page: bool = True, fit: str | None = None,
-                 anchor_pos=None, step: bool = False) -> None:
+                 anchor_pos: QPoint | None = None, step: bool = False) -> None:
         # ``fit`` records the sticky fit-mode this zoom represents ("width" / "page"); it is re-applied
         # on a viewport resize so the fit follows the window (e.g. a Pages-sidebar toggle). A manual
         # zoom passes None, which cancels any sticky fit.

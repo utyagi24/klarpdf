@@ -35,6 +35,11 @@ from __future__ import annotations
 
 import itertools
 from collections import OrderedDict
+from collections.abc import Hashable, Iterable
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # named in annotations only: this module loads no Qt
+    from PySide6.QtGui import QPixmap
 
 _MB = 1024 * 1024
 
@@ -50,7 +55,7 @@ RETAIN_PAGES = 24
 BYTE_CEILING = 1024 * _MB
 
 
-def pixmap_bytes(pixmap) -> int:
+def pixmap_bytes(pixmap: QPixmap) -> int:
     """What a ``QPixmap`` actually costs: ``w x h x bytes-per-pixel``.
 
     ``depth()`` is asked rather than assumed — Qt stores a pixmap in the display format, which is
@@ -64,7 +69,7 @@ class PixmapCache:
     """An LRU over ``(owner, key) -> QPixmap`` bounded by both entry count and total bytes."""
 
     def __init__(self, retain_pages: int = RETAIN_PAGES, byte_ceiling: int = BYTE_CEILING) -> None:
-        self._entries: OrderedDict[tuple, object] = OrderedDict()  # (owner_id, key) -> QPixmap
+        self._entries: OrderedDict[tuple, QPixmap] = OrderedDict()  # (owner_id, key) -> its picture
         self._bytes = 0
         self._pinned: dict[int, frozenset] = {}   # owner_id -> the keys it is painting right now
         self._tokens = itertools.count(1)
@@ -98,13 +103,13 @@ class PixmapCache:
 
     # ---- the store ---------------------------------------------------------------
 
-    def get(self, owner_id: int, key):
+    def get(self, owner_id: int, key: Hashable) -> QPixmap | None:
         hit = self._entries.get((owner_id, key))
         if hit is not None:
             self._entries.move_to_end((owner_id, key))
         return hit
 
-    def put(self, owner_id: int, key, pixmap) -> None:
+    def put(self, owner_id: int, key: Hashable, pixmap: QPixmap) -> None:
         entry = (owner_id, key)
         existing = self._entries.pop(entry, None)
         if existing is not None:
@@ -113,7 +118,7 @@ class PixmapCache:
         self._bytes += pixmap_bytes(pixmap)
         self._evict()
 
-    def pin(self, owner_id: int, keys) -> None:
+    def pin(self, owner_id: int, keys: Iterable[Hashable]) -> None:
         """Declare the keys this owner is painting. They survive every eviction pass until the
         owner pins something else."""
         self._pinned[owner_id] = frozenset(keys)
@@ -160,13 +165,13 @@ class _Owner:
         self._cache = cache
         self._id = owner_id
 
-    def get(self, key):
+    def get(self, key: Hashable) -> QPixmap | None:
         return self._cache.get(self._id, key)
 
-    def put(self, key, pixmap) -> None:
+    def put(self, key: Hashable, pixmap: QPixmap) -> None:
         self._cache.put(self._id, key, pixmap)
 
-    def pin(self, keys) -> None:
+    def pin(self, keys: Iterable[Hashable]) -> None:
         self._cache.pin(self._id, keys)
 
     def keys(self) -> list:
@@ -180,7 +185,7 @@ class _Owner:
         pixels the reader can still see stay."""
         self._cache._drop(self._id, keep_pinned=keep_pinned)
 
-    def release(self, *_args) -> None:
+    def release(self, *_args: object) -> None:
         """Drop everything, pin set included. Called explicitly when the window closes."""
         self._cache.release(self._id)
 

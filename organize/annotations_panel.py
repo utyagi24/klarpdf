@@ -24,13 +24,21 @@ outline panel — depends only on the model and the provider seam.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable, Sequence
+from typing import TYPE_CHECKING, TypeGuard
+
 from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtWidgets import QListWidget, QListWidgetItem
+from PySide6.QtGui import QKeyEvent
+from PySide6.QtWidgets import QListWidget, QListWidgetItem, QWidget
 
 from klarpdf.model.page_edits import Highlight, Strikeout, Underline
 from klarpdf.model.page_text import PageText
 from klarpdf.model.virtual_document import VirtualDocument
 from organize.thumbnail_panel import _SIDEBAR_W  # one default width for all sidebar tabs
+
+if TYPE_CHECKING:  # named in annotations only
+    from klarpdf.model.foreign_annots import ForeignAnnot
+    from klarpdf.model.page_edits import TextMarkup
 
 _ROLE = Qt.ItemDataRole.UserRole  # row payload: (page_index, mark, bounds)
 _SNIPPET_CHARS = 48
@@ -48,13 +56,13 @@ _LISTED = (Highlight, Underline, Strikeout)
 _LISTED_FOREIGN_KINDS = frozenset({"Highlight", "Underline", "StrikeOut", "Squiggly", "Text"})
 
 
-def is_listed(mark) -> bool:
+def is_listed(mark: object) -> TypeGuard[TextMarkup]:
     """Does this descriptor of ours belong in the list? (Bookkeeping descriptors — foreign
     deletions and moves — are not marks at all and fail this with everything else.)"""
     return isinstance(mark, _LISTED)
 
 
-def is_listed_foreign(annot) -> bool:
+def is_listed_foreign(annot: ForeignAnnot) -> bool:
     """Does this foreign annotation belong in the list?"""
     return annot.kind_name in _LISTED_FOREIGN_KINDS
 
@@ -64,7 +72,7 @@ def _clip(text: str, limit: int = _SNIPPET_CHARS) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
-def _union(rects) -> tuple:
+def _union(rects: Iterable[Sequence[float]]) -> tuple:
     xs0, ys0, xs1, ys1 = zip(*((r[0], r[1], r[2], r[3]) for r in rects), strict=True)
     return (min(xs0), min(ys0), max(xs1), max(ys1))
 
@@ -75,7 +83,10 @@ class AnnotationsPanel(QListWidget):
     markActivated = Signal(int, object, tuple)  # (page_index, mark | ForeignAnnot, bounds)
     noteRequested = Signal(int, object)         # double-clicked one of ours: write / edit its note
 
-    def __init__(self, vdoc: VirtualDocument, foreign_provider, parent=None) -> None:
+    def __init__(
+        self, vdoc: VirtualDocument, foreign_provider: Callable[[int], tuple[ForeignAnnot, ...]],
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         self._vdoc = vdoc
         self._foreign = foreign_provider
@@ -119,7 +130,7 @@ class AnnotationsPanel(QListWidget):
                 self._add_row(page_index, annot, self._describe_foreign(page_index, annot),
                               annot.rect, note=annot.contents)
 
-    def _add_row(self, page_index: int, mark, label: str, bounds: tuple,
+    def _add_row(self, page_index: int, mark: object, label: str, bounds: tuple,
                  note: str = "") -> None:
         item = QListWidgetItem(f"p. {page_index + 1} · {label}")
         item.setData(_ROLE, (page_index, mark, tuple(bounds)))
@@ -128,7 +139,7 @@ class AnnotationsPanel(QListWidget):
         item.setToolTip(note or f"Page {page_index + 1}")
         self.addItem(item)
 
-    def _describe(self, page_index: int, mark) -> str:
+    def _describe(self, page_index: int, mark: TextMarkup) -> str:
         from viewer.annotations import mark_noun  # lazy: one vocabulary, no import-time cycle
 
         noun = mark_noun(mark)
@@ -142,7 +153,7 @@ class AnnotationsPanel(QListWidget):
         note = _clip(getattr(mark, "note", ""), _NOTE_CHARS)
         return f"{row}{_NOTE_LEAD}{note}" if note else row
 
-    def _describe_foreign(self, page_index: int, annot) -> str:
+    def _describe_foreign(self, page_index: int, annot: ForeignAnnot) -> str:
         """A foreign row, in **the same shape as one of ours**: type · passage — comment (M90.4).
 
         Before this it read ``type · comment``, which put the *comment* in the slot our own rows
@@ -157,7 +168,7 @@ class AnnotationsPanel(QListWidget):
         comment = _clip(annot.contents, _NOTE_CHARS)
         return f"{row}{_NOTE_LEAD}{comment}" if comment else row
 
-    def _covered_text(self, page_index: int, rects) -> str:
+    def _covered_text(self, page_index: int, rects: Iterable[Sequence[float]]) -> str:
         """The page text under a text-anchored mark's bars — what a highlight row should read as.
 
         Read from the page's :class:`PageText` index rather than ``page.get_textbox(rect)``. That
@@ -181,12 +192,12 @@ class AnnotationsPanel(QListWidget):
         return text
 
     @staticmethod
-    def _bounds(mark) -> tuple:
+    def _bounds(mark: TextMarkup) -> tuple:
         return _union(mark.rects)   # text-anchored: the union of its bars
 
     # ---- activation -------------------------------------------------------------
 
-    def keyPressEvent(self, event) -> None:
+    def keyPressEvent(self, event: QKeyEvent) -> None:
         # `Space` pages the document, from this tab as much as from the Pages tab (M91.4) — the
         # rule and the reason live in MainWindow.keyPressEvent; leaving it unaccepted is what
         # carries it there. Everything else is the list's own.
@@ -195,11 +206,11 @@ class AnnotationsPanel(QListWidget):
             return
         super().keyPressEvent(event)
 
-    def _on_item_clicked(self, item) -> None:
+    def _on_item_clicked(self, item: QListWidgetItem) -> None:
         page_index, mark, bounds = item.data(_ROLE)
         self.markActivated.emit(page_index, mark, bounds)
 
-    def _on_item_double_clicked(self, item) -> None:
+    def _on_item_double_clicked(self, item: QListWidgetItem) -> None:
         """Double-click a row of **ours** → write or edit that mark's note (M90.3).
 
         The window answers this by jumping to the mark and opening the *same on-page popup* the

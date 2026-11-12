@@ -38,6 +38,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from functools import lru_cache
+from typing import TypeGuard
 
 import pymupdf as fitz
 
@@ -129,7 +130,7 @@ CONTENT_MARK_TYPES = (Stamp, ImageStamp)
 ContentMark = Stamp | ImageStamp
 
 
-def is_content_mark(mark: object) -> bool:
+def is_content_mark(mark: object) -> TypeGuard[ContentMark]:
     """True for a descriptor this module bakes into page content (vs an annotation overlay)."""
     return isinstance(mark, CONTENT_MARK_TYPES)
 

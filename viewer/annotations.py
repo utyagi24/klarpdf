@@ -20,13 +20,16 @@ from __future__ import annotations
 
 import math
 from collections import OrderedDict
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import replace
+from typing import TYPE_CHECKING, Any
 
 import pymupdf as fitz
 from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QBrush,
     QColor,
+    QFocusEvent,
     QFontMetricsF,
     QGuiApplication,
     QImage,
@@ -42,6 +45,7 @@ from PySide6.QtWidgets import (
     QGraphicsPathItem,
     QGraphicsPixmapItem,
     QGraphicsRectItem,
+    QGraphicsScene,
     QGraphicsSimpleTextItem,
     QPlainTextEdit,
 )
@@ -76,6 +80,10 @@ from viewer.note_editor import NoteEditor, wash
 from viewer.resize_handles import ResizeHandles, resized_rect
 from viewer.text_format_bar import TextBoxStyle, TextFormatBar, qt_font
 from viewer.tools import ArmedTool
+
+if TYPE_CHECKING:  # named in annotations only
+    from klarpdf.model.page_edits import Mark, TextMarkup
+    from viewer.pdf_view import PdfView
 
 _TEXTBOX_DEFAULT = (200.0, 56.0)  # starting size for a new box, in page points (then auto-grows)
 _MIN_BOX_W, _MIN_BOX_H = 40.0, 20.0  # a text box never shrinks below this (page points)
@@ -130,6 +138,8 @@ _DRAWN_TYPES = (InkStroke, Line, Shape)
 # field is a free-placed rect like any other; it is drawn by the form overlay rather than this one,
 # which is what let the omission go unnoticed.
 OBJECT_TYPES = _DRAWN_TYPES + CONTENT_MARK_TYPES + (NewField,)
+#: The same kinds, as a type. Each has `bounding_rect()`.
+ObjectMark = InkStroke | Line | Shape | ContentMark | NewField
 
 # Scene z for the marks. Every annotation lives in ``[_ANNOT_Z_BASE, _ANNOT_Z_BASE + 1)``, spread
 # by its index in the page's tuple (see :meth:`AnnotationOverlay._annot_z`), so paint order follows
@@ -155,7 +165,7 @@ _MARK_PIXMAP_CACHE = 48
 _CONTENT_MARK_SCALE = 2.0
 
 
-def _shows_nothing(mark) -> bool:
+def _shows_nothing(mark: object) -> bool:
     """A shape with neither a border nor a fill (M155): it is in the file, but nothing of it shows."""
     return isinstance(mark, Shape) and mark.color is None and mark.fill_color is None
 
@@ -214,7 +224,7 @@ def _arrowheads_path(start: tuple, end: tuple, arrow_start: bool, arrow_end: boo
 
 
 
-def _rotation_fit(mark) -> float:
+def _rotation_fit(mark: ContentMark) -> float:
     """The fraction of its rect's width that ``mark``'s artwork occupies once baked (1.0 = all of it).
 
     ``show_pdf_page`` scales a mark's artwork so its **rotated bounding box** fits the target rect,
@@ -271,20 +281,20 @@ def _note_bubble_path(box: QRectF) -> QPainterPath:
     return path.united(tail).simplified()
 
 
-def mark_noun(mark) -> str:
+def mark_noun(mark: object) -> str:
     """What to call a mark in an undo label. Falls back to the class name so a future descriptor
     gets a serviceable label instead of a KeyError in the middle of a drag."""
     return _MARK_NOUNS.get(type(mark).__name__, type(mark).__name__.lower())
 
 
-def _move_label(mark) -> str:
+def _move_label(mark: object) -> str:
     return f"Move {mark_noun(mark)}"
 
 
 class _TextBoxEditor(QPlainTextEdit):
     committed = Signal()
 
-    def focusOutEvent(self, event) -> None:
+    def focusOutEvent(self, event: QFocusEvent) -> None:
         super().focusOutEvent(event)
         self.committed.emit()
 
@@ -307,8 +317,17 @@ class _TextBoxFrame(QGraphicsRectItem):
 
 
 class AnnotationOverlay:
-    def __init__(self, view, on_add, on_remove=None, on_replace=None, on_select=None,
-                 on_replace_many=None, on_remove_many=None, on_nudge=None) -> None:
+    def __init__(
+        self,
+        view: PdfView,
+        on_add: Callable[[int, object], object],
+        on_remove: Callable[[int, object], object] | None = None,
+        on_replace: Callable[[int, object, object, str | None], object] | None = None,
+        on_select: Callable[[object], object] | None = None,
+        on_replace_many: Callable[[int, Sequence[tuple[object, object]], str], object] | None = None,
+        on_remove_many: Callable[[int, Sequence[object], str], object] | None = None,
+        on_nudge: Callable[[int, Sequence[tuple[object, object]], bool, str], object] | None = None,
+    ) -> None:
         self._view = view
         self._on_add = on_add               # on_add(page_index, annotation) — pushes Add command
         self._on_remove = on_remove         # on_remove(page_index, annotation)
@@ -382,7 +401,7 @@ class AnnotationOverlay:
         # coords), the grabbed mark, one entry per moved mark, and the shared group-clamped delta.
         self._move_page = 0
         self._move_anchor_local: QPointF | None = None  # grab point, unrotated page coords (rotation-safe)
-        self._move_grabbed = None           # the mark actually under the press (for a no-drag click)
+        self._move_grabbed: Mark | None = None  # the mark actually under the press (for a no-drag click)
         self._move_items: list = []         # [(mark, (x0, y0, x1, y1), ghost), …]
         self._move_delta: tuple = (0.0, 0.0)
         # Live marquee (M59.6 Objects mode): a rubber-band rect, its page, anchor, and whether Ctrl
@@ -444,7 +463,7 @@ class AnnotationOverlay:
         """
         return _ANNOT_Z_BASE + index / (count + 1)
 
-    def _content_band_contains(self, page_index: int, band=_UNSET) -> bool:
+    def _content_band_contains(self, page_index: int, band: Any = _UNSET) -> bool:
         """Whether ``page_index`` is close enough to the viewport to be worth rasterising a content
         mark for. Shares the view's own prefetch band, so marks appear with the page they sit on.
 
@@ -485,7 +504,7 @@ class AnnotationOverlay:
             self._paint_foreign_notes(scene, page_index)
             self._content_pages.add(page_index)
 
-    def _paint_foreign_notes(self, scene, page_index: int) -> None:
+    def _paint_foreign_notes(self, scene: QGraphicsScene, page_index: int) -> None:
         """Badge every commented foreign text markup on ``page_index`` (M90.4).
 
         **Lazy for the same reason content marks are**, and gated by the same page set: finding
@@ -556,7 +575,7 @@ class AnnotationOverlay:
                 self._paint_foreign_notes(scene, page_index)
                 self._content_pages.add(page_index)
 
-    def _paint_note_glyph(self, scene, page_index: int, annot) -> None:
+    def _paint_note_glyph(self, scene: QGraphicsScene, page_index: int, annot: TextMarkup) -> None:
         """A small speech bubble marking a noted mark (M90.2) — without one a note is invisible
         until the exact mark is right-clicked, which is no affordance at all.
 
@@ -578,7 +597,7 @@ class AnnotationOverlay:
         """
         self._note_badge(scene, page_index, annot.rects, annot.color, annot.note, annot)
 
-    def _paint_foreign_note_glyph(self, scene, page_index: int, annot) -> None:
+    def _paint_foreign_note_glyph(self, scene: QGraphicsScene, page_index: int, annot: ForeignAnnot) -> None:
         """The same badge for **another tool's** comment (M90.4), in grey.
 
         A foreign markup's ``/Contents`` *is* a note on that passage — what Acrobat, Preview and
@@ -590,7 +609,15 @@ class AnnotationOverlay:
         self._note_badge(scene, page_index, (annot.rect,), FOREIGN_NOTE_GREY,
                          annot.contents, annot)
 
-    def _note_badge(self, scene, page_index: int, bars, color, note: str, target) -> None:
+    def _note_badge(
+        self,
+        scene: QGraphicsScene,
+        page_index: int,
+        bars: Sequence[Sequence[float]],
+        color: tuple[float, float, float],
+        note: str,
+        target: object,
+    ) -> None:
         """Place one badge for ``note`` against the last of ``bars``, and record its hit box."""
         anchor = max(bars, key=lambda r: (r[3], r[2]))           # last bar: lowest, then rightmost
         bar = self._view.scene_rect_for_box(page_index, anchor)
@@ -635,7 +662,7 @@ class AnnotationOverlay:
             box.moveLeft(box.left() - step)
         return box
 
-    def note_glyph_at(self, scene_pt):
+    def note_glyph_at(self, scene_pt: QPointF) -> tuple[int, object] | None:
         """The ``(page_index, mark)`` whose note glyph contains ``scene_pt``, else ``None``.
 
         Walked **last-painted first** so the topmost badge wins where two overlap, matching every
@@ -647,7 +674,7 @@ class AnnotationOverlay:
                 return page_index, annot
         return None
 
-    def _paint_text_line(self, scene, page_index: int, annot, z: float) -> None:
+    def _paint_text_line(self, scene: QGraphicsScene, page_index: int, annot: Underline | Strikeout, z: float) -> None:
         """Underline / strikeout preview (M56): an opaque thin bar per line rect — along the
         bottom for an underline, through the vertical middle for a strikeout — matching where
         MuPDF draws the baked annotation, so the preview is WYSIWYG with the saved page."""
@@ -679,7 +706,7 @@ class AnnotationOverlay:
             pen.setDashPattern([3.0, 2.0])
         return pen
 
-    def _paint_drawn(self, scene, page_index: int, annot, z: float) -> None:
+    def _paint_drawn(self, scene: QGraphicsScene, page_index: int, annot: InkStroke | Line | Shape, z: float) -> None:
         """Ink / line / shape preview (M58): authored in unrotated page points and pushed through
         the page transform (like text boxes), so the marks zoom and rotate with the page. The pen
         width is in page points — the transform scales it, matching the baked stroke."""
@@ -725,7 +752,7 @@ class AnnotationOverlay:
                 scene.addItem(head_item)
                 self._items.append(head_item)
 
-    def _paint_content_mark(self, scene, page_index: int, annot) -> None:
+    def _paint_content_mark(self, scene: QGraphicsScene, page_index: int, annot: ContentMark) -> None:
         """Stamp / signature / watermark preview (M62): the mark's own artwork, rasterised.
 
         Rendered through the **same generator that bakes at save**
@@ -764,7 +791,7 @@ class AnnotationOverlay:
         scene.addItem(item)
         self._items.append(item)
 
-    def _content_mark_pixmap(self, annot, scene_rect) -> QPixmap | None:
+    def _content_mark_pixmap(self, annot: ContentMark, scene_rect: QRectF) -> QPixmap | None:
         """Rasterise ``annot``'s artwork through the **same generator that bakes at save**.
 
         Resolution only — the placement maths lives in the caller. Returns None if the artwork could
@@ -796,7 +823,7 @@ class AnnotationOverlay:
             self._mark_pixmaps.popitem(last=False)
         return pixmap
 
-    def _paint_redaction(self, scene, page_index: int, annot: Redaction) -> None:
+    def _paint_redaction(self, scene: QGraphicsScene, page_index: int, annot: Redaction) -> None:
         # WYSIWYG: the opaque fill boxes are exactly what bakes into the output at save. A thin red
         # border distinguishes a still-editable (undoable) pending redaction from a flat black box.
         #
@@ -829,7 +856,7 @@ class AnnotationOverlay:
                                   textbox_height(len(lines), box.fontsize, box.border_width)))
         return (x0, y0, x0 + width_pt, y0 + height)
 
-    def _paint_textbox(self, scene, page_index: int, annot: TextBox, z: float) -> None:
+    def _paint_textbox(self, scene: QGraphicsScene, page_index: int, annot: TextBox, z: float) -> None:
         # Author both the box and its text in **unrotated page points**, then apply the page's
         # transform so they rotate *with* the page (zoom + per-page rotation in one matrix).
         # WYSIWYG: the box shows exactly the fill + outline that bake at save — and nothing when
@@ -921,7 +948,9 @@ class AnnotationOverlay:
             live.append(replace(annot, rect=(x0 + shift.dx, y0 + shift.dy, x1 + shift.dx, y1 + shift.dy)))
         return tuple(live)
 
-    def foreign_annotation_at(self, scene_pt, *, free_placed_only: bool = False):
+    def foreign_annotation_at(
+        self, scene_pt: QPointF, *, free_placed_only: bool = False,
+    ) -> tuple[int, ForeignAnnot] | None:
         """The ``(page_index, ForeignAnnot)`` under ``scene_pt``, topmost first, else None.
 
         Deliberately consulted *after* our own marks everywhere it is used: an editable mark the user
@@ -934,7 +963,7 @@ class AnnotationOverlay:
         from klarpdf.model.foreign_annots import is_free_placed
 
         page_index, local = self._view.page_and_local_at(scene_pt)
-        if page_index is None:
+        if page_index is None or local is None:
             return None
         for annot in reversed(self.foreign_annotations(page_index)):
             if free_placed_only and not is_free_placed(annot):
@@ -945,7 +974,7 @@ class AnnotationOverlay:
                 return page_index, annot
         return None
 
-    def begin_foreign_move(self, scene_pt) -> bool:
+    def begin_foreign_move(self, scene_pt: QPointF) -> bool:
         """Press on a **free-placed** foreign annotation → start dragging it (M67). True if it
         grabbed one.
 
@@ -983,7 +1012,7 @@ class AnnotationOverlay:
     def moving_foreign(self) -> bool:
         return self._foreign_move is not None
 
-    def finish_foreign_move(self):
+    def finish_foreign_move(self) -> tuple[int, ForeignAnnot, float, float] | None:
         """Commit the drag as a ``(page_index, mark, dx, dy)`` for MainWindow to push, or None."""
         if self._foreign_move is None:
             return None
@@ -1001,14 +1030,14 @@ class AnnotationOverlay:
             return None
         return (page_index, mark, dx, dy)
 
-    def outline_foreign(self, page_index: int, annot) -> None:
+    def outline_foreign(self, page_index: int, annot: ForeignAnnot) -> None:
         """Draw the selection outline around a foreign annotation (cleared on the next repaint)."""
         self._clear_selection_items()
         self._handles.hide()
         self._selection = []                 # not an editable object — no handles, no group verbs
         self._selection_items.append(self._outline_for(page_index, annot))
 
-    def annotation_at(self, scene_pt):
+    def annotation_at(self, scene_pt: QPointF) -> tuple[int, Mark] | None:
         """The ``(page_index, annotation)`` whose painted area contains ``scene_pt``, else None.
         Topmost (most recently added) wins. Uses the rotation-aware scene mapping, so it works on
         rotated pages too.
@@ -1022,7 +1051,7 @@ class AnnotationOverlay:
         of the session (M83.1). This is the only caller of this hit-test, and it *is* the menu.
         """
         page_index, local = self._view.page_and_local_at(scene_pt)
-        if page_index is None:
+        if page_index is None or local is None:
             return None
         for annot in reversed(self._view._vdoc.ordered[page_index].annotations):
             # A pen stroke / line is hit by its actual geometry (not its box), so a loop drawn
@@ -1036,7 +1065,7 @@ class AnnotationOverlay:
                     return page_index, annot
         return None
 
-    def textbox_at(self, scene_pt):
+    def textbox_at(self, scene_pt: QPointF) -> tuple[int, TextBox] | None:
         """The ``(page_index, TextBox)`` under ``scene_pt`` (topmost), else None — for move / hover /
         re-edit. Only text boxes are interactive this way; highlights & redactions use right-click."""
         page_index, _ = self._view.page_and_local_at(scene_pt)
@@ -1047,11 +1076,11 @@ class AnnotationOverlay:
                 return page_index, annot
         return None
 
-    def remove(self, page_index: int, annotation) -> None:
+    def remove(self, page_index: int, annotation: object) -> None:
         if self._on_remove is not None:
             self._on_remove(page_index, annotation)
 
-    def _replace(self, page_index: int, old, new, text: str | None = None) -> None:
+    def _replace(self, page_index: int, old: object, new: object, text: str | None = None) -> None:
         if self._on_replace is not None:
             self._on_replace(page_index, old, new, text)
 
@@ -1069,12 +1098,12 @@ class AnnotationOverlay:
 
     # ---- text-box tool: place (new) / re-edit (existing) ------------------------
 
-    def place_textbox(self, scene_pt) -> bool:
+    def place_textbox(self, scene_pt: QPointF) -> bool:
         """One-shot place: open an inline editor for a *new* box at ``scene_pt``. Returns True if it
         consumed the click — i.e. the point was on a page **and inside its bounds** (a click in the
         page margin is rejected, so boxes can't land off-page)."""
         page_index, local = self._view.page_and_local_at(scene_pt)
-        if page_index is None:
+        if page_index is None or local is None:
             return False
         pw, ph = self._view._unrotated_size(page_index)
         if not (0 <= local.x() <= pw and 0 <= local.y() <= ph):
@@ -1087,7 +1116,7 @@ class AnnotationOverlay:
         self._open_editor(page_index, (x0, y0, min(x0 + w, pw), min(y0 + h, ph)), text="")
         return True
 
-    def edit_textbox_at(self, scene_pt) -> bool:
+    def edit_textbox_at(self, scene_pt: QPointF) -> bool:
         """Double-click: reopen the editor on the text box under ``scene_pt`` (pre-filled). Returns
         True if it consumed the event."""
         hit = self.textbox_at(scene_pt)
@@ -1410,13 +1439,13 @@ class AnnotationOverlay:
     def moving(self) -> bool:
         return bool(self._move_items)
 
-    def drawn_mark_at(self, scene_pt):
+    def drawn_mark_at(self, scene_pt: QPointF) -> tuple[int, ObjectMark] | None:
         """The ``(page_index, drawn mark)`` under ``scene_pt`` (topmost), else None — the
         move/select hit test. Pen strokes and lines hit by their **actual geometry** (proximity to
         the drawn line); shapes by their (padded) box, so a filled or hollow box stays clickable in
         its interior. This is what lets you reach a mark tucked inside a pen loop."""
         page_index, local = self._view.page_and_local_at(scene_pt)
-        if page_index is None:
+        if page_index is None or local is None:
             return None
         for annot in reversed(self._view._vdoc.ordered[page_index].annotations):
             if self.covers_page(page_index, annot):
@@ -1425,7 +1454,7 @@ class AnnotationOverlay:
                 return page_index, annot
         return None
 
-    def covers_page(self, page_index: int, mark) -> bool:
+    def covers_page(self, page_index: int, mark: object) -> bool:
         """Whether ``mark`` blankets page ``page_index`` — the full-page watermark case.
 
         Such a mark is **not an interaction target**. A click target that covers every point of the
@@ -1446,7 +1475,7 @@ class AnnotationOverlay:
         return (abs(x1 - x0) >= page_w * _PAGE_COVER
                 and abs(y1 - y0) >= page_h * _PAGE_COVER)
 
-    def _hit_tol(self, mark) -> float:
+    def _hit_tol(self, mark: object) -> float:
         """Click tolerance in page points for a thin mark: half the stroke width plus a fixed
         on-screen slack (converted to page points via the view scale), so the grab band feels the
         same ~6 px at any zoom and a thicker stroke is correspondingly easier to hit.
@@ -1455,7 +1484,7 @@ class AnnotationOverlay:
         units*, and after M88.1 those differ by the 1.333 DPI factor."""
         return getattr(mark, "width", 2.0) / 2.0 + 6.0 / max(self._view.scene_scale, 0.05)
 
-    def _drawn_hit(self, mark, lx: float, ly: float) -> bool:
+    def _drawn_hit(self, mark: ObjectMark, lx: float, ly: float) -> bool:
         """Whether the unrotated page point ``(lx, ly)`` hits ``mark``. Pen/line → near the drawn
         line; shape → inside its padded bounding box (interior stays clickable)."""
         if isinstance(mark, Line):
@@ -1472,7 +1501,7 @@ class AnnotationOverlay:
                                            path[i + 1][0], path[i + 1][1]) <= tol:
                         return True
             return False
-        x0, y0, x1, y1 = mark.bounding_rect()           # Shape: padded box (interior clickable)
+        x0, y0, x1, y1 = mark.bounding_rect()           # a box: padded (interior clickable)
         return (x0 - _HIT_PAD <= lx <= x1 + _HIT_PAD) and (y0 - _HIT_PAD <= ly <= y1 + _HIT_PAD)
 
     # ---- object selection (M59 single → M59.6 group) ----------------------------
@@ -1492,7 +1521,7 @@ class AnnotationOverlay:
         single-object seam (clipboard copy/cut, style-load) that predates the group (M59)."""
         return self._selection[0] if len(self._selection) == 1 else None
 
-    def _outline_for(self, page_index: int, mark) -> QGraphicsRectItem:
+    def _outline_for(self, page_index: int, mark: object) -> QGraphicsRectItem:
         x0, y0, x1, y1 = mark_bounds(mark)
         outline = QGraphicsRectItem(QRectF(x0 - _HIT_PAD, y0 - _HIT_PAD,
                                            (x1 - x0) + 2 * _HIT_PAD, (y1 - y0) + 2 * _HIT_PAD))
@@ -1550,20 +1579,20 @@ class AnnotationOverlay:
                 return
         self._handles.show_box(page_index, self.selection_bounds())
 
-    def handle_at(self, scene_pt) -> str | None:
+    def handle_at(self, scene_pt: QPointF) -> str | None:
         """The resize handle under ``scene_pt``, else None — checked before move / marquee."""
         return self._handles.handle_at(scene_pt)
 
-    def select_object(self, page_index: int, mark) -> None:
+    def select_object(self, page_index: int, mark: Mark) -> None:
         """Select a single free-placed mark, replacing any prior selection."""
         self._set_selection([(page_index, mark)])
 
-    def select_objects(self, page_index: int, marks) -> None:
+    def select_objects(self, page_index: int, marks: Iterable[Mark]) -> None:
         """Select several marks on one page — how a group op restores its selection after the
         edit's reload cleared it (M59.8 reorder)."""
         self._set_selection([(page_index, mark) for mark in marks])
 
-    def toggle_object(self, page_index: int, mark) -> None:
+    def toggle_object(self, page_index: int, mark: Mark) -> None:
         """Ctrl+click: add/remove ``mark`` from the group (M59.6). One page per group — a mark on a
         different page starts a fresh selection."""
         if self._selection and self._selection[0][0] != page_index:
@@ -1620,7 +1649,7 @@ class AnnotationOverlay:
             self._remove_many(page_index, marks, f"Delete {len(marks)} objects")
         return True
 
-    def restyle_selected_objects(self, **changes) -> bool:
+    def restyle_selected_objects(self, **changes: Any) -> bool:  # any of MarkupStyle's fields
         """Set ``changes`` (:class:`~viewer.markup_style.MarkupStyle` fields, e.g. ``opacity=0.5``)
         on every selected drawn mark in place — the "same strategy as text markup" the owner asked
         for, now for a group: one picker change restyles the whole selection (one undo step).
@@ -1665,7 +1694,7 @@ class AnnotationOverlay:
         self._set_selection([(page_index, new_by_old.get(mark, mark)) for _p, mark in selection])
         return True
 
-    def begin_move(self, scene_pt) -> bool:
+    def begin_move(self, scene_pt: QPointF) -> bool:
         """Press on a text box **or a drawn mark** → start a move (M58 single; M59.6 group). If the
         grabbed mark is part of a live multi-selection on this page, the whole group moves together;
         otherwise just this mark. Returns True if it grabbed something."""
@@ -1696,7 +1725,7 @@ class AnnotationOverlay:
             self._move_items.append((m, bounds, ghost))
         return True
 
-    def update_move(self, scene_pt) -> None:
+    def update_move(self, scene_pt: QPointF) -> None:
         anchor = self._move_anchor_local
         if not self._move_items or anchor is None:
             return
@@ -1746,7 +1775,8 @@ class AnnotationOverlay:
                 self._set_selection([(page_index, new) for _old, new in pairs])
         else:
             # A plain click, no drag → select just the grabbed mark (collapses a group to it).
-            self.select_object(page_index, grabbed)
+            if grabbed is not None:     # set with `_move_items`, in begin_move
+                self.select_object(page_index, grabbed)
 
     # ---- arrow-key nudge (M78.2): shift the object selection a step at a time ------
 
@@ -1785,7 +1815,7 @@ class AnnotationOverlay:
     def marqueeing(self) -> bool:
         return self._marquee_item is not None
 
-    def begin_marquee(self, scene_pt, add: bool = False) -> bool:
+    def begin_marquee(self, scene_pt: QPointF, add: bool = False) -> bool:
         """Objects-mode press on empty page → start a selection rubber-band. Returns True if the
         point was on a page."""
         page_index, _ = self._view.page_and_local_at(scene_pt)
@@ -1802,7 +1832,7 @@ class AnnotationOverlay:
         self._marquee_item = band
         return True
 
-    def update_marquee(self, scene_pt) -> None:
+    def update_marquee(self, scene_pt: QPointF) -> None:
         if self._marquee_item is not None and self._marquee_anchor is not None:
             self._marquee_item.setRect(QRectF(self._marquee_anchor, scene_pt).normalized())
 
@@ -1829,7 +1859,7 @@ class AnnotationOverlay:
         """True while a resize-handle drag is in progress."""
         return self._resize_handle is not None
 
-    def begin_resize(self, handle: str, scene_pt) -> bool:
+    def begin_resize(self, handle: str, scene_pt: QPointF) -> bool:
         """Press on a resize handle → start the drag, with a dashed ghost of the result. A lone
         line's ``p0``/``p1`` handles re-aim that endpoint; a lone text box's ``e`` handle sets its
         wrap width (M78.3); every other handle scales the selection's bounding box. Returns True if
@@ -1874,7 +1904,7 @@ class AnnotationOverlay:
         self._resize_ghost = ghost
         return True
 
-    def update_resize(self, scene_pt, modifiers=None) -> None:
+    def update_resize(self, scene_pt: QPointF, modifiers: Qt.KeyboardModifier | None = None) -> None:
         """Track the drag: Shift keeps a corner drag proportional. The result is clamped to the
         page, so a resize never pushes a mark off it."""
         anchor, ghost = self._resize_anchor_local, self._resize_ghost
@@ -2010,7 +2040,7 @@ class AnnotationOverlay:
         """True while a redaction rubber-band drag is in progress."""
         return self._redact_band is not None
 
-    def begin_redaction(self, scene_pt) -> bool:
+    def begin_redaction(self, scene_pt: QPointF) -> bool:
         """Armed-redact press: start a rubber-band on the page under ``scene_pt``. Returns True if
         it consumed the press (i.e. the point was on a page)."""
         page_index, _ = self._view.page_and_local_at(scene_pt)
@@ -2026,7 +2056,7 @@ class AnnotationOverlay:
         self._redact_band = band
         return True
 
-    def update_redaction(self, scene_pt) -> None:
+    def update_redaction(self, scene_pt: QPointF) -> None:
         """Resize the live rubber-band as the drag moves."""
         if self._redact_band is not None and self._redact_anchor is not None:
             self._redact_band.setRect(QRectF(self._redact_anchor, scene_pt).normalized())
@@ -2053,12 +2083,12 @@ class AnnotationOverlay:
         """True while a draw press-drag gesture is in progress."""
         return self._draw_item is not None
 
-    def begin_draw(self, tool, scene_pt) -> bool:
+    def begin_draw(self, tool: ArmedTool, scene_pt: QPointF) -> bool:
         """Armed draw-tool press: start the gesture on the page under ``scene_pt``. Returns True
         if it consumed the press (point on a page, inside its bounds); off-page presses leave the
         tool armed, like the other one-shots."""
         page_index, local = self._view.page_and_local_at(scene_pt)
-        if page_index is None:
+        if page_index is None or local is None:
             return False
         pw, ph = self._view._unrotated_size(page_index)
         if not (0 <= local.x() <= pw and 0 <= local.y() <= ph):
@@ -2109,7 +2139,7 @@ class AnnotationOverlay:
             self._draw_arrow_item = arrow
         return True
 
-    def update_draw(self, scene_pt, modifiers=None) -> None:
+    def update_draw(self, scene_pt: QPointF, modifiers: Qt.KeyboardModifier | None = None) -> None:
         """Extend the gesture: the pen appends a point, the others track the end point —
         Shift-constrained (square / circle / 45° line) when held. ``modifiers`` defaults to the
         live keyboard state; tests pass them explicitly."""
@@ -2184,7 +2214,7 @@ class AnnotationOverlay:
         return _arrowheads_path(self._draw_anchor, self._draw_end, start_head, end_head,
                                 self._markup_style.width)
 
-    def _click_placed(self, tool) -> bool:
+    def _click_placed(self, tool: ArmedTool) -> bool:
         """Whether ``tool``'s armed mark is placed by a click rather than sized by a drag — true for
         a text stamp carrying its own point size (M69.7), false for a signature or a form field,
         which still get their size from the box you drag."""
@@ -2193,7 +2223,9 @@ class AnnotationOverlay:
         pending = self.pending_content_mark
         return (tool.places_content and isinstance(pending, Stamp) and bool(pending.fontsize))
 
-    def _placed_mark(self, page_index: int, pending, anchor, end):
+    def _placed_mark(
+        self, page_index: int, pending: ContentMark | NewField, anchor: tuple[float, float], end: tuple[float, float],
+    ) -> ContentMark | NewField | None:
         """``pending`` positioned by the placement gesture, or ``None`` to drop the gesture.
 
         Two gestures, chosen by the mark itself rather than by a mode the user has to pick:

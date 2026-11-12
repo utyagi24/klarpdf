@@ -12158,7 +12158,7 @@ question, with the counts by kind.
   them the same constants, and the app has 885 functions to the wheel's 499. `check_untyped_defs`
   will add to that count, because the app's rect arithmetic is then checked.
 
-### M173 — types for the app (M173.1 built 2026-11-11)
+### M173 — types for the app (built 2026-11-11)
 
 **The decision (owner, 2026-11-11): go, both parts.** M172 left M173 as a go or no-go, to be
 decided once M172's cost was known. The owner chose both parts:
@@ -12269,6 +12269,79 @@ bare. Only 2 of the app's 150 are a page's marks list (`annotations: tuple`).
   and time stamp have not changed. Two planted lines of the same length, written in the same
   second, got the first one's answer. That is a property of the cache, not of the check, and no
   real edit is likely to meet it.
+
+**M173.2: every function in the app states its types.** *Surfaces: app, and one engine function's
+type information.* `is_content_mark` in `klarpdf/model/content_marks.py` now tells mypy which kind
+of mark it found. It returns the same answer as before. Nothing a user sees changes.
+
+**What it switches on.** The `[[tool.mypy.overrides]]` block from M173.1 is deleted, so
+`disallow_untyped_defs` and `check_untyped_defs` apply to the app as they do to `klarpdf/`. mypy now
+refuses an app function that does not say what it takes and what it returns.
+
+**The 297 functions**, with 366 parameters between them, in 33 files.
+
+* **By a script, from the parameter's name**, where the name means one thing everywhere: `event`
+  by the handler it is in (`mousePressEvent` takes a `QMouseEvent`, and so on), `scene_pt`,
+  `parent`, `painter`, `vdoc`, `scene`, `pixmap` and `view`. 151 annotations. mypy then checked
+  each against Qt's own types: a handler typed wrongly no longer matches the Qt method it
+  overrides, and mypy reports that.
+* **By hand, file by file**, for the rest. `annot`, for one, means a mark of ours in some places, a
+  saved annotation in others, and another program's annotation in others.
+* **Names for what recurs.** The marks overlay's `ObjectMark` names the kinds `OBJECT_TYPES` holds.
+  `search_of(view)` in `viewer/search.py` returns the view's search controller. `_Written` lets
+  `MainWindow._export_pdf` hand back its writer's own result type. Two tests became `TypeGuard`s,
+  so mypy learns the kind from them: the Annotations panel's `is_listed`, and the engine's
+  `is_content_mark`. Only the second does work today (below).
+
+**What checking the bodies found.** No defect a user could see. Typing the bodies uncovered more than
+40 errors, and these are the ones worth knowing:
+
+* **The page view's store of render copies was declared to hold only documents.** Its own comment
+  says it also holds `None`, meaning "no copy needed, draw the shared one". The loop that closes
+  them already allowed for that. The declaration now says so too.
+* **The search bar and the results list read the view's search controller, which can be empty.**
+  The main window always fills it before building them. `search_of` now says plainly that it is
+  missing, where the code would have failed on `None`.
+* **The page lookup returns a page and a point, or neither.** Eight callers checked only the page,
+  so mypy could not see the point was there. Each check now names both.
+* **Four names were reused for a second thing** in one function. They are renamed.
+* **One suppression:** `QGraphicsPixmapItem.paint`'s widget. Qt passes `None` when the scene is
+  drawn to a picture, and PySide6's types leave `None` out.
+
+**What changes when the code runs.** Each is a case nothing reaches today: the search widgets with
+no search controller, a move that ends with no grabbed mark, and a cached picture that has gone.
+Each now stops or says so instead of failing on `None`. Two modules that load no Qt still load
+none: their new Qt names are imported for type checking only. One more moves a read earlier with no
+change in value: the right-click menu's Paste Object reads the clicked point when the menu is built
+instead of when the item is chosen. The point is fixed for the life of that menu.
+
+**The bare-container count, measured again after M173.2** (the owner chose to decide then): 155 in
+the app, against 150 after M173.1, and 290 in `klarpdf/`. Most of the new annotations name what
+they hold, so the app's count barely grew. 2 of the app's 155 are a page's marks list.
+
+**Verified by breaking it** (M173.2).
+
+* mypy failed on a planted app function with no annotations, in both runs.
+* `is_content_mark` changed back to `-> bool` made mypy fail at its caller in the main window.
+* `is_listed` changed back to `-> bool` made **no** error. Its caller loops over a page's marks
+  list, which is a bare `tuple`, so mypy treats each entry as unknown and checks nothing done
+  with it. The `TypeGuard` is correct and costs nothing, but it does no work until that list
+  says what it holds. That is the bare-container question in one example.
+* `tests/test_mcp_no_qt.py` failed during the work, and rightly. The import script had given
+  `viewer/links.py` and `viewer/pixmap_cache.py` a top-level Qt import for an annotation. Both
+  load no Qt on purpose, and `viewer/links.py` is the test's own example of app code that needs
+  none. Their Qt names are now imported for type checking only, and the test passes.
+* The full suite passes locally. It was run in full because the change reaches the engine.
+
+**What M173 cost and what it caught.**
+
+* **Cost.** 136 errors in M173.1. In M173.2, 297 functions to annotate, and more than 40 errors
+  they uncovered. Four suppressions, each saying why. Three renames of names that hid Qt's methods. One
+  CI run grew from one mypy pass to two.
+* **Caught.** No defect a user could see, as in `klarpdf/`. Three names that would have broken the
+  next caller of Qt's own `scale()` or `style()`. One declaration that contradicted its own comment.
+  Names used for two things in one function. And a set of checks, all of a kind: a part that might be empty
+  is now checked where it is used.
 
 ## Future enhancements (deferred beyond the roadmap)
 

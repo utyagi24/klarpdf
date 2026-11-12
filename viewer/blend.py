@@ -22,15 +22,16 @@ lie about legibility.
 from __future__ import annotations
 
 from PySide6.QtGui import QPainter
-from PySide6.QtWidgets import QGraphicsPixmapItem, QGraphicsRectItem
+from PySide6.QtWidgets import QGraphicsPixmapItem, QGraphicsRectItem, QStyleOptionGraphicsItem, QWidget
 
 
 class MultiplyPixmapItem(QGraphicsPixmapItem):
     """A pixmap painted with multiply blending — the under-the-content watermark preview."""
 
-    def paint(self, painter, option, widget=None) -> None:
+    def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget: QWidget | None = None) -> None:
         painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Multiply)
-        super().paint(painter, option, widget)
+        # Qt passes None when the scene is drawn to a picture; PySide6's types leave None out here.
+        super().paint(painter, option, widget)  # type: ignore[arg-type]  # see above
 
 
 class MultiplyRectItem(QGraphicsRectItem):
@@ -41,6 +42,6 @@ class MultiplyRectItem(QGraphicsRectItem):
     alpha here would wash the colour a second time and bring the dullness straight back.
     """
 
-    def paint(self, painter, option, widget=None) -> None:
+    def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget: QWidget | None = None) -> None:
         painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Multiply)
         super().paint(painter, option, widget)

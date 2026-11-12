@@ -13,7 +13,8 @@ view highlights the entry of the page in view. Display-only — outline *editing
 from __future__ import annotations
 
 from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtWidgets import QTreeWidget, QTreeWidgetItem
+from PySide6.QtGui import QKeyEvent
+from PySide6.QtWidgets import QTreeWidget, QTreeWidgetItem, QWidget
 
 from klarpdf.model.virtual_document import VirtualDocument
 from organize.thumbnail_panel import _SIDEBAR_W  # one default width for both sidebar tabs
@@ -32,7 +33,7 @@ class OutlinePanel(QTreeWidget):
     #: height). ``MainWindow`` hands both to ``PdfView.goto_destination``.
     entryActivated = Signal(int, object)
 
-    def __init__(self, vdoc: VirtualDocument, parent=None) -> None:
+    def __init__(self, vdoc: VirtualDocument, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._vdoc = vdoc
         self._syncing = False   # guard against jump→highlight→jump feedback (as ThumbnailPanel)
@@ -83,7 +84,7 @@ class OutlinePanel(QTreeWidget):
         self._syncing = False
         self.set_current(self._current_page)  # restore the you-are-here highlight
 
-    def _spot_of(self, entry, _page0: int) -> float | None:
+    def _spot_of(self, entry: list, _page0: int) -> float | None:
         """How far down its page this entry points, or ``None`` when it names no height.
 
         The measurement is in that page's own points, from the top of its visible area. A bookmark
@@ -120,7 +121,7 @@ class OutlinePanel(QTreeWidget):
 
     # ---- navigation -------------------------------------------------------------
 
-    def keyPressEvent(self, event) -> None:
+    def keyPressEvent(self, event: QKeyEvent) -> None:
         # `Space` pages the document, from this tab as much as from the Pages tab (M91.4) — the
         # rule and the reason live in MainWindow.keyPressEvent; leaving it unaccepted is what
         # carries it there. Everything else is the tree's own.
@@ -129,15 +130,15 @@ class OutlinePanel(QTreeWidget):
             return
         super().keyPressEvent(event)
 
-    def _on_current_item_changed(self, item, _previous) -> None:
+    def _on_current_item_changed(self, item: QTreeWidgetItem | None, _previous: QTreeWidgetItem | None) -> None:
         # Fires for clicks *and* keyboard moves; suppressed while we highlight programmatically.
         if not self._syncing and item is not None:
             self._activate(item)
 
-    def _on_item_clicked(self, item, _column: int) -> None:
+    def _on_item_clicked(self, item: QTreeWidgetItem, _column: int) -> None:
         self._activate(item)
 
-    def _activate(self, item) -> None:
+    def _activate(self, item: QTreeWidgetItem) -> None:
         self.entryActivated.emit(item.data(0, _PAGE_ROLE), item.data(0, _SPOT_ROLE))
 
     def set_current(self, page_index: int) -> None:

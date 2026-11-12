@@ -11,6 +11,7 @@ Lazy-imported by ``main_window`` so no document pays for it on open.
 from __future__ import annotations
 
 import os
+from typing import TYPE_CHECKING
 
 from PySide6.QtWidgets import (
     QDialog,
@@ -19,9 +20,13 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QWidget,
 )
 
 from klarpdf.model.metadata import EDITABLE_KEYS
+
+if TYPE_CHECKING:  # named in annotations only
+    from klarpdf.model.virtual_document import VirtualDocument
 
 _FIELD_LABELS = {
     "title": "Title",
@@ -53,7 +58,7 @@ def _human_file_size(n: int) -> str:
 class PropertiesDialog(QDialog):
     """View / edit / remove-all over the document's effective metadata."""
 
-    def __init__(self, vdoc, parent=None) -> None:
+    def __init__(self, vdoc: VirtualDocument, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Document Properties")
         self._initial = vdoc.effective_metadata()

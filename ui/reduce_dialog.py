@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QRadioButton,
     QSpinBox,
     QVBoxLayout,
+    QWidget,
 )
 
 # (name, target dpi, JPEG quality) — the *real* values, shown verbatim in the labels.
@@ -49,7 +50,7 @@ def human_size(n: int) -> str:
 class ReduceSizeDialog(QDialog):
     """Choose the reduction: a true-value preset, or Custom's two real knobs."""
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Reduce File Size")
         col = QVBoxLayout(self)

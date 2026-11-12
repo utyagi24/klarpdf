@@ -11,6 +11,8 @@ in widget memory only. Lazy-imported by ``main_window``.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -19,6 +21,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QRadioButton,
+    QWidget,
 )
 
 from klarpdf.model.pymupdf_constants import (
@@ -31,6 +34,9 @@ from klarpdf.model.pymupdf_constants import (
     PDF_PERM_PRINT,
     PDF_PERM_PRINT_HQ,
 )
+
+if TYPE_CHECKING:  # named in annotations only
+    from klarpdf.model.virtual_document import VirtualDocument
 
 # The advisory flag groups. Accessibility extraction stays always-allowed (never a checkbox —
 # restricting screen readers hurts real people and stops no determined copier).
@@ -57,7 +63,7 @@ _FLAGS_HONESTY = (
 class PasswordDialog(QDialog):
     """Set (unprotected document) or Change / Remove (protected) the save password."""
 
-    def __init__(self, vdoc, parent=None) -> None:
+    def __init__(self, vdoc: VirtualDocument, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Password Protection")
         self._current_password = vdoc.password  # memory-only; compared, never displayed

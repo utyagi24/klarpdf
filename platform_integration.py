@@ -20,6 +20,12 @@ from __future__ import annotations
 import getpass
 import sys
 from collections.abc import Callable
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # named in annotations only
+    from PySide6.QtCore import QMessageLogContext, QtMsgType
+    from PySide6.QtGui import QGuiApplication
+    from PySide6.QtWidgets import QWidget
 
 #: Name of the Windows mutex held for the lifetime of a *running* KlarPDF.
 #:
@@ -90,7 +96,7 @@ def acquire_app_mutex(name: str = APP_MUTEX_NAME) -> bool:
         return False
 
 
-def activate_window(window) -> None:
+def activate_window(window: QWidget) -> None:
     """Bring ``window`` to the front and give it focus (one-window-per-document raise)."""
     if window.isMinimized():
         window.showNormal()
@@ -113,7 +119,7 @@ def activate_window(window) -> None:
         QApplication.alert(window)
 
 
-def _raise_to_front_win32(window) -> None:
+def _raise_to_front_win32(window: QWidget) -> None:
     """Raise ``window`` to the top of the z-order via the Win32 ``SetWindowPos`` TOPMOST→NOTOPMOST
     nudge — no native-window recreation (hence no flicker). Best-effort: any failure (e.g. an
     offscreen window with no real HWND) is ignored, leaving the portable ``raise_``/``activateWindow``
@@ -182,7 +188,7 @@ HARMLESS_WAYLAND_LINES = frozenset({
 _passed_on: Callable[..., object] | None = None
 
 
-def quiet_harmless_qt_lines(app) -> bool:
+def quiet_harmless_qt_lines(app: QGuiApplication) -> bool:
     """On Wayland, stop Qt printing :data:`HARMLESS_WAYLAND_LINES`. No-op elsewhere.
 
     Returns whether the filter is on. PySide takes Python's lock to run the filter, on whichever
@@ -205,7 +211,7 @@ def _install_line_filter() -> None:
         _passed_on = previous if callable(previous) else None
 
 
-def _filter_qt_line(msg_type, context, message: str) -> None:
+def _filter_qt_line(msg_type: QtMsgType, context: QMessageLogContext, message: str) -> None:
     if message in HARMLESS_WAYLAND_LINES:
         return
     if _passed_on is not None:
