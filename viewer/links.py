@@ -33,7 +33,7 @@ in the document in front of them. The hand-off itself stays out of this module â
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, TypeVar
 from urllib.parse import urlsplit
 
 import pymupdf as fitz
@@ -44,7 +44,11 @@ from klarpdf.model.links_remap import internal_link_target, link_target_map
 if TYPE_CHECKING:  # named in annotations only. This module loads no Qt (tests/test_mcp_no_qt.py)
     from PySide6.QtCore import QPointF
 
+    from klarpdf.model.tuples import Box
     from viewer.pdf_view import PdfView
+
+#: What a link points to: a display page and how far down it, or a URI.
+_Target = TypeVar("_Target")
 
 #: Link schemes a click may hand to the system browser (M149, #333; owner's call).
 #:
@@ -81,20 +85,20 @@ def openable_uri(uri: str) -> str | None:
 class LinkNavigator:
     def __init__(self, view: PdfView) -> None:
         self._view = view
-        # display page -> [(box, target display index, how far down the target page to land)].
+        # display page -> [(box, (target display index, how far down the target page to land))].
         # The distance is in the target page's own points, measured from the top of its visible
         # area, and is None when the link names no height at all (M150).
-        self._links: dict[int, list[tuple]] = {}
-        self._uris: dict[int, list[tuple[tuple, str]]] = {}   # display page -> [(box, URI)]
-        self._page_maps: dict[str, dict] = {}                 # source id -> page xref -> index
-        self._name_memos: dict[str, dict] = {}                # source id -> resolved dest names
+        self._links: dict[int, list[tuple[Box, tuple[int, float | None]]]] = {}
+        self._uris: dict[int, list[tuple[Box, str]]] = {}     # display page -> [(box, URI)]
+        self._page_maps: dict[str, dict[int, int]] = {}       # source id -> page xref -> index
+        self._name_memos: dict[str, dict[str, str | None]] = {}   # source id -> resolved dest names
 
-    def _links_for(self, page_index: int) -> list[tuple]:
+    def _links_for(self, page_index: int) -> list[tuple[Box, tuple[int, float | None]]]:
         if page_index not in self._links:
             self._build(page_index)
         return self._links[page_index]
 
-    def _uris_for(self, page_index: int) -> list[tuple[tuple, str]]:
+    def _uris_for(self, page_index: int) -> list[tuple[Box, str]]:
         if page_index not in self._uris:
             self._build(page_index)
         return self._uris[page_index]
@@ -111,8 +115,8 @@ class LinkNavigator:
             self._name_memos[ref.source_id] = {}
         page_of_xref = self._page_maps[ref.source_id]
         names = self._name_memos[ref.source_id]
-        boxes: list[tuple] = []
-        uris: list[tuple[tuple, str]] = []
+        boxes: list[tuple[Box, tuple[int, float | None]]] = []
+        uris: list[tuple[Box, str]] = []
         for link in page.get_links():
             r = link["from"]
             box = (r.x0, r.y0, r.x1, r.y1)
@@ -145,17 +149,19 @@ class LinkNavigator:
                 _left, top = content_point(
                     vdoc.sources[dest_ref.source_id][dest_ref.source_page_index], target
                 )
-            boxes.append((box, dest, top))
+            boxes.append((box, (dest, top)))
         self._links[page_index] = boxes
         self._uris[page_index] = uris
 
-    def _hit(self, scene_pt: QPointF, entries_for: Callable[[int], Iterable[tuple]]) -> Any:
+    def _hit(
+        self, scene_pt: QPointF, entries_for: Callable[[int], Iterable[tuple[Box, _Target]]],
+    ) -> _Target | None:
         page_index, _ = self._view.page_and_local_at(scene_pt)
         if page_index is None:
             return None
-        for box, *payload in entries_for(page_index):
+        for box, target in entries_for(page_index):
             if self._view.scene_rect_for_box(page_index, box).contains(scene_pt):
-                return payload[0] if len(payload) == 1 else tuple(payload)
+                return target
         return None
 
     def link_at(self, scene_pt: QPointF) -> int | None:
@@ -163,7 +169,7 @@ class LinkNavigator:
         target = self.target_at(scene_pt)
         return None if target is None else target[0]
 
-    def target_at(self, scene_pt: QPointF) -> tuple | None:
+    def target_at(self, scene_pt: QPointF) -> tuple[int, float | None] | None:
         """``(display index, top)`` for the internal link under ``scene_pt``, else ``None``.
 
         ``top`` is how far down the target page the link points, in that page's own points from

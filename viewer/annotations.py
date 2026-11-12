@@ -74,6 +74,7 @@ from klarpdf.model.page_edits import (
     textbox_origin,
     translate_mark,
 )
+from klarpdf.model.tuples import Box, Color, Point
 from viewer.blend import MultiplyPixmapItem, MultiplyRectItem
 from viewer.markup_style import MarkupStyle
 from viewer.note_editor import NoteEditor, wash
@@ -185,7 +186,7 @@ def _dist_point_segment(px: float, py: float, ax: float, ay: float,
     return math.hypot(px - (ax + t * dx), py - (ay + t * dy))
 
 
-def _line_shaft_path(start: tuple, end: tuple) -> QPainterPath:
+def _line_shaft_path(start: Point, end: Point) -> QPainterPath:
     """The line segment itself, in page points (no arrowheads)."""
     path = QPainterPath()
     path.moveTo(*start)
@@ -193,7 +194,7 @@ def _line_shaft_path(start: tuple, end: tuple) -> QPainterPath:
     return path
 
 
-def _arrowheads_path(start: tuple, end: tuple, arrow_start: bool, arrow_end: bool,
+def _arrowheads_path(start: Point, end: Point, arrow_start: bool, arrow_end: bool,
                      width: float) -> QPainterPath:
     """The open-arrow head strokes where flagged (empty if none), in page points.
 
@@ -343,10 +344,10 @@ class AnnotationOverlay:
         # Inline editor (placing a new box, or re-editing an existing one) + its formatting bar.
         self._editor: _TextBoxEditor | None = None
         self._editor_page = 0
-        self._editor_rect: tuple = (0, 0, 0, 0)
+        self._editor_rect: Box = (0.0, 0.0, 0.0, 0.0)
         self._editor_auto_width = True      # editor grows width to fit (M78.3); False = fixed + wrap
         self._editor_fixed_w: float | None = None
-        self._editing: tuple | None = None  # (page_index, existing TextBox) when re-editing, else None
+        self._editing: tuple[int, TextBox] | None = None  # (page_index, existing TextBox) when re-editing, else None
         # The style stamped on the next new box — sticky across boxes (the last-used font/colour/etc.
         # carries forward), and loaded from a box when it's re-edited. Edited via the format bar.
         self._style = TextBoxStyle()
@@ -374,7 +375,7 @@ class AnnotationOverlay:
         # Rasterised content-mark artwork, keyed by (mark, on-screen width). The descriptors are
         # frozen dataclasses, so a moved or restyled mark is a *different* key and can never collide
         # with the stale image of its previous self — the cache needs no explicit invalidation.
-        self._mark_pixmaps: OrderedDict[tuple, QPixmap] = OrderedDict()
+        self._mark_pixmaps: OrderedDict[tuple[ContentMark, int], QPixmap] = OrderedDict()
         # The form field (M69) a properties dialog has composed, waiting for its box.
         self.pending_field: NewField | None = None
         # The foreign annotation being dragged (M67), as (page_index, ForeignAnnot). It
@@ -387,23 +388,24 @@ class AnnotationOverlay:
         self._draw_page = 0
         self._draw_anchor: tuple[float, float] | None = None
         self._draw_end: tuple[float, float] | None = None
-        self._draw_points: list = []
+        self._draw_points: list[Point] = []
         self._draw_item: QGraphicsPathItem | None = None
         # A line's live-preview arrowheads, drawn solid on a separate item so a dashed shaft doesn't
         # dash them (matches the baked ending — the committed mark does the same split).
         self._draw_arrow_item: QGraphicsPathItem | None = None
         # The object selection (M59 single → M59.6 group): a list of (page_index, mark), all on one
         # page — what restyle / move / Delete act on — plus one dashed outline item per mark.
-        self._selection: list = []          # [(page_index, mark), …]
-        self._selection_items: list = []    # the dashed outlines, parallel to _selection
+        self._selection: list[tuple[int, Mark]] = []
+        self._selection_items: list[QGraphicsRectItem] = []  # the dashed outlines, parallel to _selection
         self._editor_fontsize = 11.0        # the box font the editor mirrors (WYSIWYG sizing)
         # Live object move (M58 single → M59.6 group): the page, the grab anchor (unrotated page
         # coords), the grabbed mark, one entry per moved mark, and the shared group-clamped delta.
         self._move_page = 0
         self._move_anchor_local: QPointF | None = None  # grab point, unrotated page coords (rotation-safe)
         self._move_grabbed: Mark | None = None  # the mark actually under the press (for a no-drag click)
-        self._move_items: list = []         # [(mark, (x0, y0, x1, y1), ghost), …]
-        self._move_delta: tuple = (0.0, 0.0)
+        self._move_marks: list[Mark] = []   # the marks moved; empty while a foreign annotation is dragged
+        self._move_items: list[tuple[Box, QGraphicsRectItem]] = []   # [(start bounds, ghost), …]
+        self._move_delta: Point = (0.0, 0.0)
         # Live marquee (M59.6 Objects mode): a rubber-band rect, its page, anchor, and whether Ctrl
         # extends the current group.
         self._marquee_item: QGraphicsRectItem | None = None
@@ -417,9 +419,9 @@ class AnnotationOverlay:
         self._resize_handle: str | None = None
         self._resize_page = 0
         self._resize_anchor_local: QPointF | None = None
-        self._resize_marks: list = []
-        self._resize_orig: tuple = (0.0, 0.0, 0.0, 0.0)
-        self._resize_rect: tuple = (0.0, 0.0, 0.0, 0.0)
+        self._resize_marks: list[Mark] = []
+        self._resize_orig: Box = (0.0, 0.0, 0.0, 0.0)
+        self._resize_rect: Box = (0.0, 0.0, 0.0, 0.0)
         self._resize_line: tuple[Line, str] | None = None  # (Line, moved_end) while dragging a line endpoint
         self._resize_textbox: TextBox | None = None  # the TextBox while dragging its width handle (M78.3)
         self._resize_ghost: QGraphicsRectItem | QGraphicsLineItem | None = None
@@ -430,7 +432,7 @@ class AnnotationOverlay:
         # Where each on-page note glyph landed (M90.2), as (page_index, mark, scene box). Recorded
         # at paint rather than re-derived at hit-test, so the badge you click is provably the badge
         # you can see — the placement clamps to the page, and a second derivation could disagree.
-        self._note_glyphs: list = []
+        self._note_glyphs: list[tuple[int, object, QRectF]] = []
 
     # ---- preview painting -------------------------------------------------------
 
@@ -694,7 +696,7 @@ class AnnotationOverlay:
             scene.addItem(item)
             self._items.append(item)
 
-    def _drawn_pen(self, color: tuple, width: float, dashed: bool = False) -> QPen:
+    def _drawn_pen(self, color: Color, width: float, dashed: bool = False) -> QPen:
         pen = QPen(QColor.fromRgbF(*color), width)
         pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
@@ -844,7 +846,7 @@ class AnnotationOverlay:
             scene.addItem(item)
             self._items.append(item)
 
-    def _reflow_textbox_rect(self, box: TextBox, width_pt: float, page_index: int) -> tuple:
+    def _reflow_textbox_rect(self, box: TextBox, width_pt: float, page_index: int) -> Box:
         """The rect a text box takes at a fixed ``width_pt`` (M78.3 width handle): left + top pinned,
         width set, height grown to fit the wrapped text — both clamped to the page."""
         pw, ph = self._view._unrotated_size(page_index)
@@ -916,7 +918,7 @@ class AnnotationOverlay:
     # a verb has an unambiguous target. Marks already deleted (pending, undoable) are excluded, since
     # the render has dropped them and an outline around nothing is worse than no outline.
 
-    def foreign_annotations(self, page_index: int) -> tuple:
+    def foreign_annotations(self, page_index: int) -> tuple[ForeignAnnot, ...]:
         """Live foreign annotations on ``page_index``, as the user currently sees them.
 
         Pending deletions are dropped and pending **moves are applied to the reported rect** (M67):
@@ -1005,7 +1007,7 @@ class AnnotationOverlay:
         ghost.setPen(QPen(QColor(0, 120, 215), 1, Qt.PenStyle.DashLine))
         ghost.setZValue(12)
         self._view.scene().addItem(ghost)
-        self._move_items = [(mark, mark.rect, ghost)]
+        self._move_items = [(mark.rect, ghost)]
         return True
 
     @property
@@ -1020,7 +1022,7 @@ class AnnotationOverlay:
         self._foreign_move = None
         items, self._move_items = self._move_items, []
         scene = self._view.scene()
-        for _m, _b, ghost in items:
+        for _b, ghost in items:
             if ghost.scene() is scene:
                 scene.removeItem(ghost)
         dx, dy = self._move_delta
@@ -1090,15 +1092,15 @@ class AnnotationOverlay:
         if self._on_replace is not None:
             self._on_replace(page_index, old, new, text)
 
-    def _replace_many(self, page_index: int, pairs: list, text: str) -> None:
+    def _replace_many(self, page_index: int, pairs: Sequence[tuple[object, PageEdit]], text: str) -> None:
         if self._on_replace_many is not None:
             self._on_replace_many(page_index, pairs, text)
 
-    def _remove_many(self, page_index: int, marks: list, text: str) -> None:
+    def _remove_many(self, page_index: int, marks: Sequence[object], text: str) -> None:
         if self._on_remove_many is not None:
             self._on_remove_many(page_index, marks, text)
 
-    def _nudge(self, page_index: int, pairs: list, auto_repeat: bool, text: str) -> None:
+    def _nudge(self, page_index: int, pairs: Sequence[tuple[object, PageEdit]], auto_repeat: bool, text: str) -> None:
         if self._on_nudge is not None:
             self._on_nudge(page_index, pairs, auto_repeat, text)
 
@@ -1136,7 +1138,7 @@ class AnnotationOverlay:
             self._editor.selectAll()
         return True
 
-    def _open_editor(self, page_index: int, rect: tuple, text: str,
+    def _open_editor(self, page_index: int, rect: Box, text: str,
                      style: TextBoxStyle | None = None, auto_width: bool = True) -> None:
         self._close_editor()
         if style is not None:           # re-edit loads the box's style; a new box keeps the sticky one
@@ -1201,10 +1203,11 @@ class AnnotationOverlay:
         lines = raw.split("\n") or [""]
         longest_px = max((fm.horizontalAdvance(ln) for ln in lines), default=0.0)
         avail_px = avail_w * z - pad
-        if not self._editor_auto_width:
+        fixed_w = self._editor_fixed_w      # set exactly when the box is not auto-width
+        if fixed_w is not None:
             # Fixed-width box (M78.3): wrap at the box's own width; only the height grows.
             editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
-            w_pt = min(self._editor_fixed_w, avail_w)
+            w_pt = min(fixed_w, avail_w)
             visual_lines = len(textbox_lines(self._textbox((x0, y0, x0 + w_pt, y0), raw, self._style,
                                                            auto_width=False)))
         elif avail_px > 0 and longest_px > avail_px:
@@ -1317,7 +1320,7 @@ class AnnotationOverlay:
                                  if new is not None or mark is not old])
 
     @staticmethod
-    def _textbox(rect: tuple, text: str, style: TextBoxStyle, auto_width: bool = True) -> TextBox:
+    def _textbox(rect: Box, text: str, style: TextBoxStyle, auto_width: bool = True) -> TextBox:
         """Build a :class:`TextBox` from a geometry + text + the current :class:`TextBoxStyle`."""
         return TextBox(rect, text, fontsize=style.fontsize, color=style.color,
                        fontname=style.fontname, fill_color=style.fill_color,
@@ -1517,12 +1520,12 @@ class AnnotationOverlay:
     # Ctrl+click (toggle a member). Each selected mark carries a dashed outline.
 
     @property
-    def selected_objects(self) -> list:
+    def selected_objects(self) -> list[tuple[int, Mark]]:
         """Every selected ``(page_index, mark)`` (M59.6 group); empty when nothing is selected."""
         return list(self._selection)
 
     @property
-    def selected_object(self) -> tuple | None:
+    def selected_object(self) -> tuple[int, Mark] | None:
         """The single selected ``(page_index, mark)`` when exactly one is selected, else None — the
         single-object seam (clipboard copy/cut, style-load) that predates the group (M59)."""
         return self._selection[0] if len(self._selection) == 1 else None
@@ -1545,7 +1548,7 @@ class AnnotationOverlay:
                 scene.removeItem(item)
         self._selection_items = []
 
-    def _set_selection(self, entries: list) -> None:
+    def _set_selection(self, entries: Iterable[tuple[int, Mark]]) -> None:
         """Replace the selection with ``entries`` (``[(page_index, mark), …]``, all one page) and
         draw an outline per mark. Notifies the picker (style-load) only for a lone selection — a
         group keeps the picker as-is, and a change on it sets only that one setting on every member
@@ -1558,7 +1561,7 @@ class AnnotationOverlay:
         if self._on_select is not None:
             self._on_select(self._selection[0][1] if len(self._selection) == 1 else None)
 
-    def selection_bounds(self) -> tuple:
+    def selection_bounds(self) -> Box:
         """The union bounds of the selection, in unrotated page points."""
         boxes = [mark_bounds(mark) for _p, mark in self._selection]
         return (min(b[0] for b in boxes), min(b[1] for b in boxes),
@@ -1612,12 +1615,12 @@ class AnnotationOverlay:
             entries.append(entry)
         self._set_selection(entries)
 
-    def select_in_rect(self, page_index: int, rect: tuple, add: bool = False) -> None:
+    def select_in_rect(self, page_index: int, rect: Box, add: bool = False) -> None:
         """Marquee (M59.6): select every free-placed mark on ``page_index`` whose (padded) bounds
         intersect ``rect`` (unrotated page points). ``add`` unions with the current same-page
         group; a thin/degenerate mark is padded so it can still be caught."""
         box = QRectF(rect[0], rect[1], rect[2] - rect[0], rect[3] - rect[1]).normalized()
-        hits: list = []
+        hits: list[tuple[int, Mark]] = []
         for mark in self._view._vdoc.ordered[page_index].annotations:
             if not isinstance(mark, (TextBox, *OBJECT_TYPES)):
                 continue
@@ -1718,6 +1721,7 @@ class AnnotationOverlay:
         # rects — on a rotated page a raw scene delta would swap axes. Ghosts ride the page transform.
         self._move_anchor_local = self._view.local_point_on_page(page_index, scene_pt)
         self._move_delta = (0.0, 0.0)
+        self._move_marks = move_marks
         self._move_items = []
         for m in move_marks:
             bounds = mark_bounds(m)
@@ -1728,7 +1732,7 @@ class AnnotationOverlay:
             ghost.setPen(QPen(QColor(0, 120, 215), 1, Qt.PenStyle.DashLine))
             ghost.setZValue(12)
             self._view.scene().addItem(ghost)
-            self._move_items.append((m, bounds, ghost))
+            self._move_items.append((bounds, ghost))
         return True
 
     def update_move(self, scene_pt: QPointF) -> None:
@@ -1740,17 +1744,17 @@ class AnnotationOverlay:
         dy = local.y() - anchor.y()
         # Clamp the whole group by its union bounds — one shared delta keeps the group's shape, and
         # no member leaves the page.
-        ux0 = min(b[0] for _m, b, _g in self._move_items)
-        uy0 = min(b[1] for _m, b, _g in self._move_items)
-        ux1 = max(b[2] for _m, b, _g in self._move_items)
-        uy1 = max(b[3] for _m, b, _g in self._move_items)
+        ux0 = min(b[0] for b, _g in self._move_items)
+        uy0 = min(b[1] for b, _g in self._move_items)
+        ux1 = max(b[2] for b, _g in self._move_items)
+        uy1 = max(b[3] for b, _g in self._move_items)
         pw, ph = self._view._unrotated_size(self._move_page)
         lo_x, hi_x = -ux0, pw - ux1
         lo_y, hi_y = -uy0, ph - uy1
         dx = min(max(dx, lo_x), max(lo_x, hi_x))
         dy = min(max(dy, lo_y), max(lo_y, hi_y))
         self._move_delta = (dx, dy)
-        for _m, (x0, y0, x1, y1), ghost in self._move_items:
+        for (x0, y0, x1, y1), ghost in self._move_items:
             ghost.setRect(QRectF(x0 + dx, y0 + dy, x1 - x0, y1 - y0))
 
     def finish_move(self) -> None:
@@ -1758,13 +1762,13 @@ class AnnotationOverlay:
             return
         items, self._move_items = self._move_items, []
         scene = self._view.scene()
-        for _m, _b, ghost in items:
+        for _b, ghost in items:
             if ghost.scene() is scene:
                 scene.removeItem(ghost)
         page_index, grabbed = self._move_page, self._move_grabbed
         dx, dy = self._move_delta
         self._move_anchor_local = self._move_grabbed = None
-        marks = [m for m, _b, _g in items]
+        marks, self._move_marks = self._move_marks, []
         if dx or dy:
             if len(marks) == 1:
                 label = _move_label(marks[0])
@@ -2030,11 +2034,11 @@ class AnnotationOverlay:
         self.cancel_draw()
         self.cancel_resize()
         scene = self._view.scene()
-        ghosts = [ghost for _m, _b, ghost in self._move_items]
+        ghosts = [ghost for _b, ghost in self._move_items]
         for item in (*ghosts, self._marquee_item, self._redact_band):
             if item is not None:
                 scene.removeItem(item)
-        self._move_items = []
+        self._move_items, self._move_marks = [], []
         self._foreign_move = self._move_anchor_local = self._move_grabbed = None
         self._marquee_item = self._marquee_anchor = None
         self._redact_band = self._redact_anchor = None
@@ -2170,7 +2174,7 @@ class AnnotationOverlay:
         if self._draw_arrow_item is not None:
             self._draw_arrow_item.setPath(self._gesture_arrowheads_path())
 
-    def _constrained_end(self, x: float, y: float) -> tuple:
+    def _constrained_end(self, x: float, y: float) -> Point:
         """The Shift constraint: lines/arrows snap to 45° steps; rect/ellipse drags square up."""
         if self._draw_anchor is None:  # no gesture in progress: nothing to constrain against
             return (x, y)

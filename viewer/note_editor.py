@@ -28,6 +28,7 @@ from PySide6.QtGui import QColor, QFocusEvent, QKeyEvent
 from PySide6.QtWidgets import QPlainTextEdit, QWidget
 
 if TYPE_CHECKING:  # named in annotations only
+    from klarpdf.model.tuples import Box, Color
     from viewer.pdf_view import PdfView
 
 # Fixed viewport-pixel size: a note is a remark, not a document, and a popup that scaled with zoom
@@ -99,7 +100,7 @@ class NoteEditor:
         self._view = view
         self._popup: _NotePopup | None = None
         self._page = 0
-        self._anchor: tuple = (0.0, 0.0, 0.0, 0.0)   # the marked passage, in page points
+        self._anchor: Box = (0.0, 0.0, 0.0, 0.0)   # the marked passage, in page points
         self._on_commit: Callable[[str], object] | None = None
         self._committing = False    # re-entry guard: committing drops focus, which commits again
         self._target: object = None  # the mark this popup belongs to, for the click-to-toggle check
@@ -119,7 +120,7 @@ class NoteEditor:
         # clicking one while the other was open closed it instead of switching. M59.10 scopes
         # merging per type, so one mark per type per span is an invariant, which makes the key
         # exact for our own marks.
-        self._just_closed: tuple | None = None
+        self._just_closed: tuple[int, Box, str] | None = None
 
     # ---- state ------------------------------------------------------------------
 
@@ -137,14 +138,14 @@ class NoteEditor:
         return self._target if self._popup is not None else None
 
     @staticmethod
-    def key_for(page_index: int, mark: object) -> tuple:
+    def key_for(page_index: int, mark: object) -> tuple[int, Box, str]:
         """The toggle key for a mark — see :attr:`_just_closed` for why it is this and not the
         object. Built here so the close side and the click side cannot derive it differently."""
         from klarpdf.model.page_edits import mark_bounds
 
-        return (page_index, tuple(mark_bounds(mark)), type(mark).__name__)
+        return (page_index, mark_bounds(mark), type(mark).__name__)
 
-    def consume_just_closed(self, key: tuple) -> bool:
+    def consume_just_closed(self, key: tuple[int, Box, str]) -> bool:
         """Did the popup identified by ``key`` close during *this* event dispatch?
         Answers once, then forgets.
 
@@ -169,7 +170,7 @@ class NoteEditor:
 
     # ---- open / close -----------------------------------------------------------
 
-    def open_on(self, page_index: int, anchor: tuple, text: str, color: tuple[float, float, float],
+    def open_on(self, page_index: int, anchor: Box, text: str, color: Color,
                 on_commit: Callable[[str], object] | None = None, *, read_only: bool = False,
                 placeholder: str = "Note…", target: object = None) -> None:
         """Open the popup over the passage at ``anchor`` (page points), pre-filled with ``text``.
@@ -184,7 +185,7 @@ class NoteEditor:
         """
         self.close()
         self._page = page_index
-        self._anchor = tuple(anchor)
+        self._anchor = anchor
         self._target = target
         self._on_commit = None if read_only else on_commit
         popup = _NotePopup(self._view.viewport(), self._commit, self.close)

@@ -19,7 +19,7 @@ Four properties, each answering one part of that defect:
   construction rather than by choosing a large enough number. It also means a single page bigger
   than the whole budget (an A0 poster at 500% is ~600 MB) still displays, temporarily putting the
   store over its nominal ceiling. That is the graceful behaviour, not a leak.
-* **An owner can give its pixels back** without being torn down — see :meth:`_Owner.clear`, which
+* **An owner can give its pixels back** without being torn down — see :meth:`Owner.clear`, which
   the window uses when it stops being the one the reader is looking at.
 
 **Two numbers, not one** (owner, 2026-07-27): *"I am okay to go up to 1 GB (global) only if we are
@@ -36,7 +36,7 @@ from __future__ import annotations
 import itertools
 from collections import OrderedDict
 from collections.abc import Hashable, Iterable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Generic, TypeVar, cast
 
 if TYPE_CHECKING:  # named in annotations only: this module loads no Qt
     from PySide6.QtGui import QPixmap
@@ -54,6 +54,9 @@ RETAIN_PAGES = 24
 # tighter of the two. Owner policy: 1 GB is the ceiling, not the target.
 BYTE_CEILING = 1024 * _MB
 
+#: What a view keys its pictures on. The store takes any key; each view uses one kind.
+_K = TypeVar("_K", bound=Hashable)
+
 
 def pixmap_bytes(pixmap: QPixmap) -> int:
     """What a ``QPixmap`` actually costs: ``w x h x bytes-per-pixel``.
@@ -69,20 +72,20 @@ class PixmapCache:
     """An LRU over ``(owner, key) -> QPixmap`` bounded by both entry count and total bytes."""
 
     def __init__(self, retain_pages: int = RETAIN_PAGES, byte_ceiling: int = BYTE_CEILING) -> None:
-        self._entries: OrderedDict[tuple, QPixmap] = OrderedDict()  # (owner_id, key) -> its picture
+        self._entries: OrderedDict[tuple[int, Hashable], QPixmap] = OrderedDict()  # (owner_id, key) -> its picture
         self._bytes = 0
-        self._pinned: dict[int, frozenset] = {}   # owner_id -> the keys it is painting right now
+        self._pinned: dict[int, frozenset[Hashable]] = {}   # owner_id -> the keys it is painting right now
         self._tokens = itertools.count(1)
         self.retain_pages = retain_pages
         self.byte_ceiling = byte_ceiling
 
     # ---- owners -----------------------------------------------------------------
 
-    def owner(self) -> _Owner:
+    def owner(self) -> Owner[_K]:
         """A handle a view holds instead of its own dict. Identity is a fresh integer token, not
         ``id(view)``, which CPython reuses after a view is collected — a reused id would let a new
         window inherit a dead one's entries."""
-        return _Owner(self, next(self._tokens))
+        return Owner(self, next(self._tokens))
 
     def release(self, owner_id: int) -> None:
         """Drop everything an owner holds. Called when a view is destroyed: with one shared store,
@@ -152,7 +155,7 @@ class PixmapCache:
         return len(self._entries)
 
 
-class _Owner:
+class Owner(Generic[_K]):
     """One view's view of the shared store — it never sees another owner's keys.
 
     Deliberately dict-shaped (``get`` / ``clear`` / ``len``) so the call sites that used to poke a
@@ -165,19 +168,21 @@ class _Owner:
         self._cache = cache
         self._id = owner_id
 
-    def get(self, key: Hashable) -> QPixmap | None:
+    def get(self, key: _K) -> QPixmap | None:
         return self._cache.get(self._id, key)
 
-    def put(self, key: Hashable, pixmap: QPixmap) -> None:
+    def put(self, key: _K, pixmap: QPixmap) -> None:
         self._cache.put(self._id, key, pixmap)
 
-    def pin(self, keys: Iterable[Hashable]) -> None:
+    def pin(self, keys: Iterable[_K]) -> None:
         self._cache.pin(self._id, keys)
 
-    def keys(self) -> list:
+    def keys(self) -> list[_K]:
         """The keys this owner holds, oldest first. The view looks through them for a picture of
-        a page at another size, to stretch while the page waits to be redrawn (M152.1)."""
-        return [entry[1] for entry in self._cache._entries if entry[0] == self._id]
+        a page at another size, to stretch while the page waits to be redrawn (M152.1).
+
+        Each is a key this owner put, so it is of the owner's kind, which the store does not record."""
+        return [cast("_K", entry[1]) for entry in self._cache._entries if entry[0] == self._id]
 
     def clear(self, *, keep_pinned: bool = False) -> None:
         """Give this owner's pixels back. ``keep_pinned`` keeps the band it is currently painting,

@@ -25,6 +25,8 @@ binding as a faxed one, and **not** a cryptographic digital signature. The dialo
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
+from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QImage, QPixmap
@@ -44,6 +46,9 @@ from PySide6.QtWidgets import (
 )
 
 from klarpdf.model.content_marks import ImageStamp, render_mark_document
+
+if TYPE_CHECKING:  # named in annotations only
+    from store.settings import SignatureSettings
 
 IMAGE_FILTER = "Images (*.png *.jpg *.jpeg *.bmp *.gif *.tif *.tiff)"
 
@@ -70,7 +75,10 @@ def _strength_for(white_threshold: float) -> int:
 class SignatureDialog(QDialog):
     """Choose an image, tune its background removal, and get back an :class:`ImageStamp` template."""
 
-    def __init__(self, parent: QWidget | None, recent: list[str], settings: dict | None = None) -> None:
+    def __init__(
+        self, parent: QWidget | None, recent: list[str],
+        settings: Mapping[str, SignatureSettings | None] | None = None,
+    ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Place Signature or Image")
         self._path: str | None = None

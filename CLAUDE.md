@@ -256,12 +256,13 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   and `PageEdit` for anything a page's marks list holds), and for a box, a point, a colour and a
   word (`Box`, `Point`, `Color`, `Word` in `klarpdf/model/tuples.py`). Use `object` only where a
   function is written to take anything. A `tuple`, `dict` or `list` in a type says what it holds,
-  and mypy refuses one that does not (M174; so far in `klarpdf/`). `Any` is for PyMuPDF's own
+  and mypy refuses one that does not (M174). `Any` is for PyMuPDF's own
   outline rows and link dicts, whose items change type, under the names `TocEntry` and `LinkDict`.
   A bridge reply names every field, in `klarpdf/mcp_bridge/replies.py`. A tool still says it returns
   `dict[str, Any]` and hands its reply over through `_sent`, because the MCP library builds each
   tool's reply schema from that type and drops it for a name it cannot resolve (M174.2). What an
-  agent sends is `object` until the code checks it. A module that loads no Qt
+  agent sends is `object` until the code checks it, and so is what the app's settings file holds,
+  which a person can edit (M174.3). A module that loads no Qt
   (`viewer/links.py`, `viewer/pixmap_cache.py`) imports its Qt names for type checking only,
   under `if TYPE_CHECKING:`. `tests/test_mcp_no_qt.py` fails if `viewer/links.py` loads Qt.
   `invoke lint --fix` also sorts imports and makes Ruff's other safe fixes. A line over 120

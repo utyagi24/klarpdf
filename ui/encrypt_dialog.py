@@ -67,7 +67,7 @@ class PasswordDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Password Protection")
         self._current_password = vdoc.password  # memory-only; compared, never displayed
-        self._staged: tuple | None = None
+        self._staged: tuple[str | None, int] | None = None
         form = QFormLayout(self)
 
         protected = self._current_password is not None
@@ -169,6 +169,6 @@ class PasswordDialog(QDialog):
         self._staged = (self._new.text(), self._permissions())
         self.accept()
 
-    def staged(self) -> tuple | None:
+    def staged(self) -> tuple[str | None, int] | None:
         """After an accepted exec: ``(password, permissions)`` — password ``None`` = remove."""
         return self._staged

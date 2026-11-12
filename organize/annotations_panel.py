@@ -73,7 +73,7 @@ def _clip(text: str, limit: int = _SNIPPET_CHARS) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
-def _union(rects: Iterable[Sequence[float]]) -> tuple:
+def _union(rects: Iterable[Sequence[float]]) -> Box:
     xs0, ys0, xs1, ys1 = zip(*((r[0], r[1], r[2], r[3]) for r in rects), strict=True)
     return (min(xs0), min(ys0), max(xs1), max(ys1))
 
@@ -131,7 +131,7 @@ class AnnotationsPanel(QListWidget):
                 self._add_row(page_index, annot, self._describe_foreign(page_index, annot),
                               annot.rect, note=annot.contents)
 
-    def _add_row(self, page_index: int, mark: object, label: str, bounds: tuple,
+    def _add_row(self, page_index: int, mark: object, label: str, bounds: Box,
                  note: str = "") -> None:
         item = QListWidgetItem(f"p. {page_index + 1} · {label}")
         item.setData(_ROLE, (page_index, mark, tuple(bounds)))
@@ -193,7 +193,7 @@ class AnnotationsPanel(QListWidget):
         return text
 
     @staticmethod
-    def _bounds(mark: TextMarkup) -> tuple:
+    def _bounds(mark: TextMarkup) -> Box:
         return _union(mark.rects)   # text-anchored: the union of its bars
 
     # ---- activation -------------------------------------------------------------

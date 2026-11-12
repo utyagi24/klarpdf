@@ -12,12 +12,17 @@ view highlights the entry of the page in view. Display-only — outline *editing
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QTreeWidget, QTreeWidgetItem, QWidget
 
 from klarpdf.model.virtual_document import VirtualDocument
 from organize.thumbnail_panel import _SIDEBAR_W  # one default width for both sidebar tabs
+
+if TYPE_CHECKING:  # named in annotations only
+    from klarpdf.model.toc_remap import TocEntry
 
 _PAGE_ROLE = Qt.ItemDataRole.UserRole  # item data slot holding the 0-based target page index
 #: Item data slot holding how far **down** its page the bookmark points, in that page's own
@@ -84,7 +89,7 @@ class OutlinePanel(QTreeWidget):
         self._syncing = False
         self.set_current(self._current_page)  # restore the you-are-here highlight
 
-    def _spot_of(self, entry: list, _page0: int) -> float | None:
+    def _spot_of(self, entry: TocEntry, _page0: int) -> float | None:
         """How far down its page this entry points, or ``None`` when it names no height.
 
         The measurement is in that page's own points, from the top of its visible area. A bookmark
@@ -97,14 +102,14 @@ class OutlinePanel(QTreeWidget):
         """
         return self._vdoc.entry_top(entry)
 
-    def _collapsed_paths(self) -> set[tuple]:
+    def _collapsed_paths(self) -> set[tuple[str, ...]]:
         collapsed = set()
         for _page, item in self._entries:
             if item.childCount() and not item.isExpanded():
                 collapsed.add(self._path_of(item))
         return collapsed
 
-    def _apply_collapsed_paths(self, collapsed: set[tuple]) -> None:
+    def _apply_collapsed_paths(self, collapsed: set[tuple[str, ...]]) -> None:
         if not collapsed:
             return
         for _page, item in self._entries:
@@ -112,7 +117,7 @@ class OutlinePanel(QTreeWidget):
                 item.setExpanded(False)
 
     @staticmethod
-    def _path_of(item: QTreeWidgetItem) -> tuple:
+    def _path_of(item: QTreeWidgetItem) -> tuple[str, ...]:
         path = []
         while item is not None:
             path.append(item.text(0))

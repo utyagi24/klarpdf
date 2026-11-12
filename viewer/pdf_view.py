@@ -21,10 +21,10 @@ from __future__ import annotations
 import math
 import time
 from bisect import bisect_left, bisect_right
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from itertools import pairwise
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, NotRequired, TypedDict, cast
 
 import pymupdf as fitz
 from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, Qt, QTimer, Signal
@@ -57,6 +57,7 @@ from PySide6.QtWidgets import (
 )
 
 from klarpdf.model.form_fields import NewField
+from klarpdf.model.tuples import Box, Point
 from klarpdf.model.virtual_document import VirtualDocument
 from viewer.pieces import TILE, Sizer, Tiles
 from viewer.pixmap_cache import pixmap_cache
@@ -73,8 +74,33 @@ if TYPE_CHECKING:  # named in annotations only: each of these modules imports th
     from viewer.annotations import AnnotationOverlay
     from viewer.form_fill import FormFiller
     from viewer.links import LinkNavigator
+    from viewer.pixmap_cache import Owner
     from viewer.search import SearchController
     from viewer.text_selection import TextSelection
+
+#: What identifies a page's picture in the store: the page, the device scale and the extra spin
+#: (:meth:`PdfView._pixmap_key`).
+_StoreKey = tuple[int, float, int]
+#: A piece of a page's picture, in tiles: first column, first row, last column, last row.
+_Piece = tuple[int, int, int, int]
+
+
+class _Page(TypedDict):
+    """One page in the scene: its two items, where it is, and the spin its pictures are drawn with.
+
+    ``x``, ``y``, ``w`` and ``h`` are scene units. ``carry`` is the item that shows the carried
+    picture, once there has been one (M152.2).
+    """
+
+    bg: QGraphicsRectItem
+    pix: QGraphicsPixmapItem
+    x: float
+    y: float
+    w: float
+    h: float
+    total: int
+    carry: NotRequired[QGraphicsPixmapItem]
+
 
 _PAGE_GAP = 14          # px between pages in the strip
 _PREFETCH = 2           # pages to render above/below the viewport, at ordinary page sizes
@@ -213,16 +239,16 @@ class _Wip:
                  "seconds", "pixels", "stand_in")
 
     def __init__(
-        self, key: tuple, tiles: Tiles, sizer: Sizer, page: fitz.Page, clip: fitz.Rect | None, total: int,
-        origin: tuple[float, float], rendered: tuple[int, int],
+        self, key: _StoreKey, tiles: Tiles, sizer: Sizer, page: fitz.Page, clip: fitz.Rect | None, total: int,
+        origin: tuple[int, int], rendered: tuple[int, int],
     ) -> None:
         self.key, self.tiles, self.sizer = key, tiles, sizer
         self.page, self.clip, self.total = page, clip, total
         self.origin, self.rendered = origin, rendered
-        self.pieces: list = []
+        self.pieces: list[tuple[_Piece, QGraphicsPixmapItem]] = []
         self.seconds = 0.0
         self.pixels = 0
-        self.stand_in: tuple | None = None  # the store key of the picture standing in, to pin
+        self.stand_in: _StoreKey | None = None  # the store key of the picture standing in, to pin
 
 
 class _Carried:
@@ -266,7 +292,7 @@ class PdfView(QGraphicsView):
         # Ctrl+wheel sweep reach 4.3 GB. See viewer/pixmap_cache.py for the budgets and why there
         # are two of them. Shared means a closed window must hand its entries back — closeEvent
         # does, and the handle releases on collection as a backstop.
-        self._cache = pixmap_cache.owner()
+        self._cache: Owner[_StoreKey] = pixmap_cache.owner()
         # Per-source fresh copies used to render edited pages: form fills applied (M14) and our
         # baked annotations stripped (M31 — they redraw as editable overlays). Keyed by source id;
         # rebuilt after each edit (reload clears them). Kept separate from the shared read-only
@@ -276,8 +302,8 @@ class PdfView(QGraphicsView):
         # Per-*ordered-page* render copies carrying that page's pending foreign-annotation
         # deletions (M66). Keyed by page index, not source id: the deletion rides the PageRef, so
         # two copies of one source page can differ. Value is (page, owning doc).
-        self._foreign_docs: dict[int, tuple] = {}
-        self._pages: list[dict] = []   # per page: {bg, pix, x, y, w, h}
+        self._foreign_docs: dict[int, tuple[fitz.Page, fitz.Document]] = {}
+        self._pages: list[_Page] = []
         # The scale the pages were laid out at. A zoom, or a screen with another DPI, changes
         # :attr:`scene_scale` before the scene is built again, and the old layout is read before that.
         self._layout_scale = self.scene_scale
@@ -602,7 +628,7 @@ class PdfView(QGraphicsView):
         return (h, w) if self._display_rotation(index) in (90, 270) else (w, h)
 
     @staticmethod
-    def _box_to_display(W: float, H: float, total: int, box: tuple) -> tuple:
+    def _box_to_display(W: float, H: float, total: int, box: Sequence[float]) -> Box:
         """Rotate a box (in unrotated WxH page points) into the displayed (spun) page space."""
         x0, y0, x1, y1 = box
         if total == 90:      # source (x,y) -> display (H - y, x)
@@ -617,7 +643,7 @@ class PdfView(QGraphicsView):
         return (min(ax0, ax1), min(ay0, ay1), max(ax0, ax1), max(ay0, ay1))
 
     @staticmethod
-    def _point_to_source(W: float, H: float, total: int, dx: float, dy: float) -> tuple:
+    def _point_to_source(W: float, H: float, total: int, dx: float, dy: float) -> Point:
         """Inverse of :meth:`_box_to_display` for a single display-space point."""
         if total == 90:
             return dy, H - dx
@@ -641,7 +667,7 @@ class PdfView(QGraphicsView):
         if self.annotations is not None:
             self.annotations.cancel_drags()
 
-    def _build_scene(self, sizes: dict | None = None) -> None:
+    def _build_scene(self, sizes: dict[int, tuple[float, float]] | None = None) -> None:
         scene = self.scene()
         self._end_drags()
         # Keep a picture of what the pages on screen show, to stand in while they are drawn again
@@ -701,7 +727,9 @@ class PdfView(QGraphicsView):
         cost (2,000 pages: 41 ms of 41.5), which is why a fit does not read them itself (M160)."""
         return {i: self._natural_size(i) for i in range(self._vdoc.page_count)}
 
-    def _layout(self, z: float, sizes: dict) -> tuple[dict[int, tuple], float, float]:
+    def _layout(
+        self, z: float, sizes: dict[int, tuple[float, float]],
+    ) -> tuple[dict[int, tuple[float, float, float, float]], float, float]:
         """Where every page goes at ``z`` scene units per point, given :meth:`_page_sizes`:
         ``{index: (x, y, w, h)}``, then the scene's width and height. :meth:`_build_scene` places
         the pages with it, and a fit asks it how big the scene it is about to build will be (M160),
@@ -715,7 +743,7 @@ class PdfView(QGraphicsView):
         }
         widest = max(row_width.values(), default=1.0)
         y = float(_PAGE_GAP)
-        placed: dict[int, tuple] = {}
+        placed: dict[int, tuple[float, float, float, float]] = {}
         for row in rows:
             # Centre each row within the scene's content band. The band is inset by _PAGE_GAP on
             # both sides (the sceneRect below is widest + 2*_PAGE_GAP), so the left inset must be
@@ -784,7 +812,7 @@ class PdfView(QGraphicsView):
         dx0, dy0, dx1, dy1 = self._box_to_display(w, h, self._display_rotation(page_index), box)
         return QRectF(p["x"] + dx0 * z, p["y"] + dy0 * z, (dx1 - dx0) * z, (dy1 - dy0) * z)
 
-    def local_box_from_scene_rect(self, page_index: int, scene_rect: QRectF) -> tuple:
+    def local_box_from_scene_rect(self, page_index: int, scene_rect: QRectF) -> Box:
         """Inverse of :meth:`scene_rect_for_box`: map a scene rect back to an unrotated page-local
         content box ``(x0,y0,x1,y1)``, clamped to the displayed (possibly cropped) frame. Used by
         the redaction rubber-band and the crop drag to record the marked region in the coordinate
@@ -843,7 +871,7 @@ class PdfView(QGraphicsView):
         ox, oy = self._crop_origin(page_index)
         return QPointF(lx + ox, ly + oy)
 
-    def ensure_box_visible(self, page_index: int, box: tuple) -> None:
+    def ensure_box_visible(self, page_index: int, box: Box) -> None:
         """Bring ``box`` into view and leave it somewhere a reader will actually look.
 
         Deliberately **not** ``ensureVisible``, which scrolls the *minimum* distance and so parks
@@ -1993,7 +2021,7 @@ class PdfView(QGraphicsView):
         self._render_docs.clear()
         self._drop_foreign_docs()
 
-    def _pixmap_key(self, index: int) -> tuple:
+    def _pixmap_key(self, index: int) -> _StoreKey:
         """What identifies a rendered page in the store: the page and everything that changes its
         pixels. ``_page_extra`` is the per-page rotation override.
 
@@ -2005,7 +2033,7 @@ class PdfView(QGraphicsView):
         return (index, round(self.device_scale, 4),
                 self._page_extra(index) % 360)
 
-    def _render_target(self, index: int) -> tuple | None:
+    def _render_target(self, index: int) -> tuple[fitz.Page, fitz.Rect | None, int] | None:
         """What drawing page ``index`` means: ``(page, clip, total)``, or ``None`` when its crop
         lies wholly outside what can be drawn.
 
@@ -2073,7 +2101,7 @@ class PdfView(QGraphicsView):
         self._cache.put(key, pixmap)
         return pixmap
 
-    def _renderable_crop(self, index: int) -> tuple | None:
+    def _renderable_crop(self, index: int) -> Box | None:
         """The part of the page's crop override the renderer can actually produce — the override
         intersected with the source CropBox frame — or ``None`` when nothing overlaps. Only a
         Remove Crop on a pre-cropped source extends beyond the frame (the model clamps drags);
@@ -2267,7 +2295,7 @@ class PdfView(QGraphicsView):
         else:
             self._stand_ins.add(index)
 
-    def _best_stored(self, index: int, key: tuple) -> tuple | None:
+    def _best_stored(self, index: int, key: _StoreKey) -> _StoreKey | None:
         """The key of the store's best picture of page ``index`` drawn for another size, or
         ``None``. Only a picture with the same rotation will do: everything else that changes a
         page's pixels empties the store (an edit, night mode). The smallest picture at least as
@@ -2280,7 +2308,7 @@ class PdfView(QGraphicsView):
         return (min(sharp_enough, key=lambda k: k[1]) if sharp_enough
                 else max(others, key=lambda k: k[1]))
 
-    def _show_stand_in(self, index: int) -> tuple | None:
+    def _show_stand_in(self, index: int) -> _StoreKey | None:
         """Show page ``index`` without drawing it (M152.1, M152.2). Returns the store key of the
         picture shown, to pin, or ``None``.
 
@@ -2417,7 +2445,7 @@ class PdfView(QGraphicsView):
             if item.scene() is not None:
                 item.scene().removeItem(item)
 
-    def _local_rect(self, index: int, scene_rect: QRectF) -> tuple | None:
+    def _local_rect(self, index: int, scene_rect: QRectF) -> Box | None:
         """``scene_rect`` in device pixels of page ``index``'s picture, from its top-left."""
         page = self._pages[index]
         shown = scene_rect.intersected(QRectF(page["x"], page["y"], page["w"], page["h"]))
@@ -2438,11 +2466,26 @@ class PdfView(QGraphicsView):
         """What is drawn ahead of a slow page: one window height above and below the window."""
         return view.adjusted(0, -view.height(), 0, view.height())
 
-    def _next_piece(self, visible_only: bool, grow: bool = True) -> tuple | None:
+    def _next_piece(self, visible_only: bool) -> tuple[int, _Piece, bool] | None:
         """The next piece to draw: ``(page, piece, ahead)``, or ``None`` when there is none.
 
-        Pieces on screen come first, nearest the middle of the window (the owner's decision 2).
-        Then pieces within a window height above and below, nearest first, with ``ahead`` set.
+        It grows from :meth:`_next_seed`'s tile."""
+        found = self._next_seed(visible_only)
+        if found is None:
+            return None
+        index, seed, wanted, point, ahead = found
+        wip = self._wip[index]
+        return index, wip.tiles.grow(seed, wanted, point, wip.sizer.tiles()), ahead
+
+    def _next_seed(
+        self, visible_only: bool,
+    ) -> tuple[int, tuple[int, int], set[tuple[int, int]], tuple[float, float], bool] | None:
+        """Where the next piece starts: ``(page, tile, wanted, centre, ahead)``, or ``None``.
+
+        ``tile`` is the undrawn tile nearest the middle of the window, among the ``wanted`` tiles of
+        the region it is in. Pieces on screen come first, nearest the middle of the window (the
+        owner's decision 2). Then pieces within a window height above and below, nearest first,
+        with ``ahead`` set.
         """
         view = self.mapToScene(self.viewport().rect()).boundingRect()
         centre = view.center()
@@ -2461,12 +2504,10 @@ class PdfView(QGraphicsView):
                     best = (hit[1], index, hit[0], wanted, point)
             if best is not None:
                 _d, index, seed, wanted, point = best
-                wip = self._wip[index]
-                piece = wip.tiles.grow(seed, wanted, point, wip.sizer.tiles()) if grow else None
-                return index, piece, ahead
+                return index, seed, wanted, point, ahead
         return None
 
-    def _draw_piece(self, index: int, piece: tuple[int, int, int, int]) -> None:
+    def _draw_piece(self, index: int, piece: _Piece) -> None:
         """Draw one piece of page ``index`` from its display list and put it on screen."""
         wip = self._wip[index]
         x0, y0, x1, y1 = wip.tiles.box(piece)
@@ -2571,16 +2612,16 @@ class PdfView(QGraphicsView):
     def _schedule_turn(self) -> None:
         if self._settle_timer.isActive():
             return                          # the end of the wait draws, and schedules again
-        job = self._next_piece(visible_only=False, grow=False)
-        if job is None:
+        found = self._next_seed(visible_only=False)
+        if found is None:
             self._piece_timer.stop()
         else:
-            self._piece_timer.start(_PREFETCH_TICK_MS if job[2] else 0)
+            self._piece_timer.start(_PREFETCH_TICK_MS if found[4] else 0)
 
     def _pieces_on_screen_pending(self) -> bool:
         return self._piece_timer.isActive() and self._piece_timer.interval() == 0
 
-    def _draw_low_res(self, index: int) -> tuple | None:
+    def _draw_low_res(self, index: int) -> _StoreKey | None:
         """A quick, low-resolution picture of the whole page, to stand in when nothing else can.
 
         Drawn at the smallest zoom a reader can ask for, 25%. Only for a page timed before: its
@@ -2639,8 +2680,8 @@ class PdfView(QGraphicsView):
         if shown.isEmpty():
             return
         shown.translate(-page["x"], -page["y"])
-        layers = [base, carry] + ([item for _piece, item in wip.pieces] if wip is not None else [])
-        layers = [item for item in layers if item is not None and not item.pixmap().isNull()]
+        stacked = [base, carry] + ([item for _piece, item in wip.pieces] if wip is not None else [])
+        layers = [item for item in stacked if item is not None and not item.pixmap().isNull()]
         if not layers:
             return
         d = self._dpr * factor
@@ -2666,7 +2707,7 @@ class PdfView(QGraphicsView):
             if index in self._painted or index in self._wip:
                 self._carry(index, factor)
 
-    def _begin_slow(self, index: int, on_screen: bool = True) -> tuple | None:
+    def _begin_slow(self, index: int, on_screen: bool = True) -> _StoreKey | None:
         """Show a slow page's stand-in and begin drawing it in pieces (M152.2). Returns the store
         key of the stand-in, to pin.
 
@@ -3361,7 +3402,7 @@ class PdfView(QGraphicsView):
         return (sum(w for w, _h in sizes), max(h for _w, h in sizes),
                 float((len(row) - 1) * _PAGE_GAP))
 
-    def _fit_zoom(self, fit_height: bool, sizes: dict | None = None) -> float:
+    def _fit_zoom(self, fit_height: bool, sizes: dict[int, tuple[float, float]] | None = None) -> float:
         """The **zoom** that fits the current row to the viewport, leaving room for the scrollbars
         that zoom will need. ``sizes`` is :meth:`_page_sizes`, when the caller has just read it.
 
@@ -3626,7 +3667,7 @@ class PdfView(QGraphicsView):
                 self.goto_page(self._current)
         return structural
 
-    def _layout_signature(self) -> tuple:
+    def _layout_signature(self) -> tuple[tuple[float, float, float, float], ...]:
         """The page geometry the scroll offset is meaningful against — unchanged by a content edit."""
         return tuple((p["x"], p["y"], p["w"], p["h"]) for p in self._pages)
 
@@ -3719,7 +3760,7 @@ class PdfView(QGraphicsView):
 
     # ---- persistence ------------------------------------------------------------
 
-    def view_state(self) -> dict:
+    def view_state(self) -> dict[str, object]:
         """The per-document state saved on close. **The page resumes; zoom does not.**
 
         ``zoom`` is written on purpose even though nothing reads it back. A document opens at
@@ -3735,7 +3776,7 @@ class PdfView(QGraphicsView):
         """
         return {"page": self._current, "zoom": self._zoom}
 
-    def open_at(self, state: dict) -> None:
+    def open_at(self, state: Mapping[str, object]) -> None:
         """First show: restore the remembered page, open at **Fit Page**, and do the
         first pixmap render — once, at the now-final viewport size. Rendering was suppressed until
         here (``_shown_once``), so the page paints exactly once at the fit zoom — no zoom-1.0 frame,
@@ -3754,7 +3795,10 @@ class PdfView(QGraphicsView):
         # restored (measured: a document saved on page 3 reopened on page 1). `set_page_layout`
         # already takes a local `anchor` across its rebuild for this exact reason; this is the one
         # rebuild that read the field back out afterwards.
-        page = max(0, min(int(state.get("page", 0)), self._vdoc.page_count - 1))
+        # The settings file can be edited by hand, so anything but a whole number opens page 1.
+        # Before M174.3, `int()` raised on it and the document did not open.
+        remembered = state.get("page", 0)
+        page = max(0, min(remembered if isinstance(remembered, int) else 0, self._vdoc.page_count - 1))
         self._current = page                          # _fit_zoom sizes against *this* page's row
         sizes = self._page_sizes()                    # read once, for the fit and the build (M160)
         self._zoom = self._fit_zoom(True, sizes)      # Fit Page, computed against the final viewport

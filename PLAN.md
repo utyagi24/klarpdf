@@ -12354,7 +12354,7 @@ they hold, so the app's count barely grew. 2 of the app's 155 are a page's marks
   Names used for two things in one function. And a set of checks, all of a kind: a part that might be empty
   is now checked where it is used.
 
-### M174 — lists that say what they hold (M174.1 and M174.2 built 2026-11-11)
+### M174 — lists that say what they hold (built 2026-11-11)
 
 **Three parts, one PR each (owner, 2026-11-11).**
 
@@ -12550,6 +12550,79 @@ already checks.
   suppression.
 * **Caught.** No defect in any reply. Three answers to malformed input, one of which redacted a box
   nobody asked for. And a name used for two things.
+
+**M174.3: the app (built 2026-11-11).** *Surfaces: app.* `disallow_any_generics` moves up to
+`[tool.mypy]`, and the override block is deleted. mypy now refuses a bare `tuple`, `dict` or `list`
+in everything it checks. 155 cleared, with no suppression. Both platforms reported the same 155.
+
+**What it adds.**
+
+* In `viewer/pdf_view.py`: `_StoreKey`, the key of a page's picture in the store (the page, the
+  device scale and the extra spin); `_Piece`, a piece of a page's picture in tiles; and `_Page`, one
+  page in the scene, as a `TypedDict`: its two items, where it is, its spin, and the item that shows
+  a carried picture.
+* The store's handle says what its keys are. The page view holds an `Owner[_StoreKey]`. The class
+  was `_Owner`, and is public now that the page view names it. The store itself takes any key, so the
+  one method that hands keys back says which kind they are, with a `cast`.
+* `_ChromeState` in `main_window.py`: what full screen and the slideshow put back. `SignatureSettings`
+  in `store/settings.py`: how a signature image was last placed. `_StampStyle` in
+  `ui/mark_dialog.py`. `PageClip` in `app.py`: one copied page. `_RowKey` in
+  `organize/thumbnail_panel.py`: which page a thumbnail row shows.
+* **What the settings file holds is `object` until the code checks it**, as with what an agent sends
+  (M174.2). The file is the app's own, but a person can edit it by hand.
+
+**What the types found: a remembered page that is not a whole number.** The settings file keeps the
+page each document was last read at. `PdfView.open_at` passed it to `int()` unchecked. A page of
+`"abc"`, `null`, a list or an object raised in the window's first show. Reproduced on the old code by
+launching the app as a double-click does, on a PDF whose remembered page was `"abc"`: the call that
+opens the document raised `ValueError`, before the event loop started, and the process exited with
+status 1. So the app did not start. The app writes a whole number there, so this needs a hand edit or
+a damaged file. Anything but a whole number now opens page 1, and the same launch opens the window.
+A new test covers the four values, and fails on the old code with all four.
+
+**Four places relied on something nothing stated.** None was wrong yet. Each now says it.
+
+* **The marks overlay kept the marks being dragged and their outlines in one list.** A drag of
+  another program's annotation put that annotation in the list too. The step that ends a drag of our
+  own marks read the marks from the list, and never met another program's only because that drag
+  ends in a different method. The marks now have their own list (`_move_marks`), and the outlines
+  theirs.
+* **The page view's next-piece helper returned no piece when asked not to grow one.** The drawing
+  loop relied on never asking. It is two methods now: `_next_seed`, where the next piece starts, and
+  `_next_piece`, which grows it.
+* **The text-box editor read its fixed width when a flag said the box had one.** The width is set
+  exactly then, so the editor now tests the width itself.
+* **`_Wip.origin` was declared as two decimal numbers.** It holds whole pixels, from PyMuPDF's
+  `IRect`, and `QImage.copy` takes whole numbers. It now says so.
+
+**And one helper that returned `Any`.** The link navigator's hit test served internal links, kept as
+`(box, page, top)`, and web links, kept as `(box, URI)`, so it could not say what it returned. Each
+entry is now a box and what it points to.
+
+**What changes in code that runs.** The fix above, the restructuring in the four places, and the
+link entries. Two copies made with `tuple(...)` are dropped, because the value is already a tuple:
+the note popup's anchor and its toggle key. A line bar is built from its four numbers instead of
+`tuple(bar)`. A stamp placed from the Recent Signatures menu is built in two branches, with and
+without remembered settings, because mypy cannot pass `**` an empty dict or the settings.
+
+**Verified by breaking it** (M174.3).
+
+* mypy failed on a bare `tuple` planted in `viewer/` and a bare `dict` planted in `main_window.py`.
+  With the setting back in the override block for `klarpdf/` only, the same plants passed.
+* The new test fails on the old code with all four values.
+* The full suite passes locally. It was run in full because the change reaches the page view and
+  the main window, which most tests go through.
+
+**What M174.3 cost and what it caught.**
+
+* **Cost.** 155 findings in 22 files, and 16 more errors at 6 places where a known type showed what
+  the code assumed. No suppression.
+* **Caught.** A damaged settings file stopping the app from starting. Four places that relied on
+  something nothing stated. And a helper whose two kinds of entry could not share a type.
+
+**What M174 cost and what it caught, all three parts.** 445 findings, no suppression. Two defects a
+user could see: #398's grey and printing-ink marks, and the damaged settings file. Three bad answers
+to malformed agent input, one of which redacted a box nobody asked for.
 
 ## Future enhancements (deferred beyond the roadmap)
 

@@ -18,7 +18,7 @@ import os
 import tempfile
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import replace
-from typing import TYPE_CHECKING, TypeVar, cast
+from typing import TYPE_CHECKING, TypedDict, TypeVar, cast
 
 from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, QSize, Qt, QTimer
 from PySide6.QtGui import (
@@ -122,12 +122,29 @@ if TYPE_CHECKING:  # imported where they are built, so a document that needs nei
     from klarpdf.model.content_marks import ContentMark
     from klarpdf.model.foreign_annots import ForeignAnnot
     from klarpdf.model.page_edits import Mark, PageEdit
+    from klarpdf.model.tuples import Box, Color, Point
     from organize.annotations_panel import AnnotationsPanel
     from organize.outline_panel import OutlinePanel
     from ui.mark_dialog import MarkDialog
 
 #: Whatever an export's writer returns; `_export_pdf` hands it back beside the path.
 _Written = TypeVar("_Written")
+
+
+class _ChromeState(TypedDict):
+    """What a chrome-free reading mode puts back on the way out (M78): which bars were up, the
+    window state, and the zoom or fit a slideshow's Fit Page replaced."""
+
+    maximized: bool
+    menubar: bool
+    toolbar: bool
+    markup: bool
+    sidebar: bool
+    findbar: bool
+    results: bool
+    zoom: float
+    fit: str | None
+    slideshow: bool
 
 # Preference key for the sticky mark style. Style only — never the page range, whose stale value
 # would silently re-scope the next mark to a whole document (see ui.mark_dialog).
@@ -289,9 +306,9 @@ class MainWindow(QMainWindow):
         # Per-source-page "does it carry foreign annotations at all?" — scanned once, because the
         # in-memory sources are immutable in-session (foreign edits are descriptors on the refs).
         # Keyed by (source_id, source_page_index); cleared on _reset_to_file (fresh bytes).
-        self._foreign_presence: dict[tuple, bool] = {}
+        self._foreign_presence: dict[tuple[str, int], bool] = {}
         # Chrome remembered while a chrome-free reading mode is up (M78); None = ordinary window.
-        self._chrome_state: dict | None = None
+        self._chrome_state: _ChromeState | None = None
         self.pages_dock = QDockWidget("Sidebar", self)
         # Closable (hide/show via View ▸ Sidebar) but NOT floatable or movable — it must stay
         # docked, never tear off into a separate window the user can lose (the inherited M2 bug).
@@ -307,7 +324,7 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.pages_dock)
         # Which optional tabs the reader has asked for (M79.1) — the sidebar button's ▾ menu writes
         # it; the menu itself is built in _build_actions, which runs after this first mount.
-        self._sidebar_tab_actions: dict = {}
+        self._sidebar_tab_actions: dict[str, QAction] = {}
         # Whether *this window* is carrying the Annotations tab (M79.3): set when it mounts, cleared
         # when the reader puts it away. Distinct from the stored ask, which is app-wide — that
         # difference is the whole point, since a preference carried in from another document is not
@@ -348,7 +365,7 @@ class MainWindow(QMainWindow):
 
     # ---- sidebar (Pages + optional Outline, M45) --------------------------------
 
-    def _sidebar_tabs_wanted(self) -> set:
+    def _sidebar_tabs_wanted(self) -> set[str]:
         """The optional tabs the reader has switched on, remembered app-wide (M79.1).
 
         **Pages only by default** (owner): the sidebar is the page organiser first, and a tab bar
@@ -375,7 +392,7 @@ class MainWindow(QMainWindow):
         self.annotations_panel = None  # dies with the retired container below
         old = self.pages_dock.widget()  # None at construction
         wanted = self._sidebar_tabs_wanted()
-        extra: list[tuple] = []  # (widget, tab label) beyond Pages
+        extra: list[tuple[QWidget, str]] = []  # (widget, tab label) beyond Pages
         if "outline" in wanted and self.vdoc.has_outline():
             from organize.outline_panel import OutlinePanel  # lazy — TOC-less docs never pay it
 
@@ -522,7 +539,7 @@ class MainWindow(QMainWindow):
                 return True
         return False
 
-    def _goto_mark(self, page_index: int, mark: object, bounds: tuple) -> None:
+    def _goto_mark(self, page_index: int, mark: object, bounds: Box) -> None:
         """An Annotations-tab row was clicked (M77): jump to the mark and select it — the M47
         click-to-jump pattern. Free-placed marks get the real object selection (handles and all);
         a foreign mark gets its outline; a text-anchored mark or a page-wide watermark just
@@ -1305,7 +1322,7 @@ class MainWindow(QMainWindow):
         self._overlay.clear_object_selection()
         self._remove_annotations_batch(page_index, marks, self._object_label("Cut", len(marks)))
 
-    def _paste_object(self, page_index: int | None = None, at_point: tuple | None = None) -> None:
+    def _paste_object(self, page_index: int | None = None, at_point: Point | None = None) -> None:
         """Paste the object clipboard as **one** undoable step: at ``at_point`` (page coords — the
         context menu's click spot, centred there), else onto the current page with a small offset
         from the original position.
@@ -1835,10 +1852,12 @@ class MainWindow(QMainWindow):
             return
         # signature_settings returns the ImageStamp keywords themselves, or nothing at all — an
         # image placed before M63.1 (or never tuned) falls through to the descriptor's own defaults.
-        remembered = self._settings.signature_settings(path) or {}
+        remembered = self._settings.signature_settings(path)
         self._settings.add_recent_signature(path)
         self._rebuild_signature_menu_later()
-        self._arm_content_mark(ImageStamp(rect=(0.0, 0.0, 1.0, 1.0), image_path=path, **remembered))
+        rect = (0.0, 0.0, 1.0, 1.0)
+        self._arm_content_mark(ImageStamp(rect=rect, image_path=path) if remembered is None
+                               else ImageStamp(rect=rect, image_path=path, **remembered))
 
     def _clear_recent_signatures(self) -> None:
         # Same hazard: "Clear List" lives in the menu the rebuild empties.
@@ -1883,7 +1902,7 @@ class MainWindow(QMainWindow):
             self.find_bar.hide_bar()      # the find bar's own query is stale now
         if not hits:
             return
-        by_page: dict[int, list[tuple]] = {}
+        by_page: dict[int, list[Box]] = {}
         for page_index, box in hits:
             by_page.setdefault(page_index, []).append(box)
         label = f"Redact {len(hits)} match{'es' if len(hits) != 1 else ''}"
@@ -2000,7 +2019,7 @@ class MainWindow(QMainWindow):
         self._note_edit_on(index)
         self.undo_stack.push(NudgeCommand(self.vdoc, index, pairs, auto_repeat, text))
 
-    def _selection_line_bars(self) -> dict[int, list[tuple]]:
+    def _selection_line_bars(self) -> dict[int, list[Box]]:
         """Group the current text selection's word boxes into one unioned bar **per line, per page**.
 
         A continuous strip (no inter-word gaps) is the natural look for a highlighter and, for
@@ -2018,7 +2037,7 @@ class MainWindow(QMainWindow):
             return {}
         return self._text_selection.line_bars()
 
-    def _apply_selection_bars(self, make: Callable[[tuple], PageEdit], label: str) -> None:
+    def _apply_selection_bars(self, make: Callable[[tuple[Box, ...]], PageEdit], label: str) -> None:
         """Apply a line-bar mark to the current text selection — one continuous bar per line, one
         undo step across the touched pages. ``make(rects)`` builds the descriptor.
 
@@ -2036,7 +2055,7 @@ class MainWindow(QMainWindow):
             self.undo_stack.push(AddAnnotationCommand(self.vdoc, page_index, make(tuple(rects))))
         self.undo_stack.endMacro()
 
-    def _apply_markup(self, mark_type: type[TextMarkup], color: tuple, label: str) -> None:
+    def _apply_markup(self, mark_type: type[TextMarkup], color: Color, label: str) -> None:
         """Paint the current text selection with a markup mark, **merging** with what is already
         there (M59.10) instead of stacking a second descriptor on top: same colour folds in, a
         different colour takes over the span it covers. See :func:`merge_markup` for the rules.
@@ -2103,7 +2122,7 @@ class MainWindow(QMainWindow):
         under a second wording and is gone (owner report)."""
         rects = annot.rects
         current = self.vdoc.ordered[page_index].annotations
-        sections: tuple[tuple[str, type[TextMarkup], tuple, str], ...] = (
+        sections: tuple[tuple[str, type[TextMarkup], tuple[tuple[str, Color], ...], str], ...] = (
             ("Highlight", Highlight, HIGHLIGHT_COLORS, "highlight"),
             ("Underline", Underline, TEXT_LINE_COLORS, "underline"),
             ("Strike Out", Strikeout, TEXT_LINE_COLORS, "strikeout"),
@@ -2184,7 +2203,7 @@ class MainWindow(QMainWindow):
         self._markup_button.setDefaultAction(self._armed_actions[ArmedTool.STRIKEOUT])
         self._apply_or_arm(ArmedTool.STRIKEOUT)
 
-    def _on_markup_style_changed(self, style: MarkupStyle, changes: dict) -> None:
+    def _on_markup_style_changed(self, style: MarkupStyle, changes: dict[str, object]) -> None:
         """One of the three style buttons changed → update the sticky style for the next mark, and —
         mirroring the text-markup 'apply to the current selection' rule — restyle the selected drawn
         object(s) in place (undoable) if any are selected (a whole group in one undo step, M59.6).
@@ -2340,9 +2359,9 @@ class MainWindow(QMainWindow):
     def _open_note_editor(
         self,
         page_index: int,
-        bars: tuple,
+        bars: tuple[Box, ...],
         host: TextMarkup | None,
-        by_page: Mapping[int, Sequence[tuple]] | None = None,
+        by_page: Mapping[int, Sequence[Box]] | None = None,
     ) -> None:
         """Open the note popup over ``bars``, pre-filled from ``host`` (``None`` = nothing marked
         there yet, so the popup shows the colour of the highlight that would be created).
@@ -2364,10 +2383,10 @@ class MainWindow(QMainWindow):
     def _commit_note(
         self,
         page_index: int,
-        bars: tuple,
+        bars: tuple[Box, ...],
         host: TextMarkup | None,
         text: str,
-        by_page: Mapping[int, Sequence[tuple]] | None = None,
+        by_page: Mapping[int, Sequence[Box]] | None = None,
     ) -> None:
         """Write the typed note to its host, creating that host first if there wasn't one.
 
@@ -2386,7 +2405,7 @@ class MainWindow(QMainWindow):
         text = text if stripped else ""
         if host is None and not text:
             return                     # nothing typed and nothing to attach to: leave no trace
-        updates: dict[int, tuple] = {}
+        updates: dict[int, tuple[PageEdit, ...]] = {}
         if host is None:
             # Rule 4's fallback. Painted through the M59.10 merge, so a note-created highlight is
             # the same mark "Highlight Selection" would have made — including how it folds into a
@@ -2545,7 +2564,7 @@ class MainWindow(QMainWindow):
                 self.vdoc, page_index, ForeignMove(mark.fingerprint, dx, dy, mark.label), text=label
             ))
 
-    def _on_crop_dragged(self, page_index: int, rect: tuple) -> None:
+    def _on_crop_dragged(self, page_index: int, rect: Box) -> None:
         """An armed-CROP drag finished (M48): ask the scope, then crop as one undo step."""
         indices = self._ask_crop_scope(page_index)
         if indices:

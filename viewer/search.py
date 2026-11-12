@@ -38,6 +38,7 @@ from klarpdf.model.pymupdf_constants import PDF_ANNOT_FREE_TEXT
 if TYPE_CHECKING:  # named in annotations only
     import pymupdf as fitz
 
+    from klarpdf.model.tuples import Box, Word
     from viewer.pdf_view import PdfView
 
 _HIT = QColor(255, 235, 59, 90)        # all matches: translucent yellow
@@ -48,7 +49,7 @@ _CURRENT = QColor(255, 138, 0, 150)    # current match: stronger orange
 SEARCH_DEBOUNCE_MS = 250
 
 
-def _overlay_text_rects(page: fitz.Page) -> list:
+def _overlay_text_rects(page: fitz.Page) -> list[fitz.Rect]:
     """The page's **text-bearing overlays** — FreeText annotations (typed boxes, ours and foreign)
     and form-field widgets. Search excludes hits landing on these so it returns the page's printed
     *content-stream* text only, the way Preview and Edge do (PLAN §Future enhancements → Direction A):
@@ -60,7 +61,7 @@ def _overlay_text_rects(page: fitz.Page) -> list:
     return rects
 
 
-def _center_in_any(box: tuple, rects: list) -> bool:
+def _center_in_any(box: Box, rects: list[fitz.Rect]) -> bool:
     """Is ``box``'s centre inside any of ``rects``? Centre rather than full containment because a
     FreeText / widget appearance often paints a hair above its ``/Rect`` (the hit box overhangs the
     top), so strict containment would miss it — and the centre is the same test :class:`PageText`
@@ -70,7 +71,7 @@ def _center_in_any(box: tuple, rects: list) -> bool:
     return any(r.x0 <= cx <= r.x1 and r.y0 <= cy <= r.y1 for r in rects)
 
 
-def is_whole_word(words: list, box: tuple, tol: float = 0.5) -> bool:
+def is_whole_word(words: list[Word], box: Box, tol: float = 0.5) -> bool:
     """Is the hit at ``box`` a whole word rather than part of a longer one? (M64)
 
     A hit is a whole word when the words it touches do not extend past it on either side. Searching
@@ -87,7 +88,7 @@ def is_whole_word(words: list, box: tuple, tol: float = 0.5) -> bool:
 class SearchController:
     def __init__(self, view: PdfView) -> None:
         self._view = view
-        self._hits: list[tuple[int, tuple, str]] = []   # (page_index, box_pts, snippet)
+        self._hits: list[tuple[int, tuple[Box, ...], str]] = []   # (page_index, boxes, snippet)
         self._idx = -1
         self._items: list[QGraphicsRectItem] = []
         self._query = ""
@@ -127,7 +128,7 @@ class SearchController:
                 if len(terms) > 1:   # one term already comes back in reading order
                     found.sort(key=lambda f: (round(f[0][0][1], 1), f[0][0][0]))
                 overlay_rects = _overlay_text_rects(page)  # typed boxes / fields — excluded below
-                seen: set = set()
+                seen: set[tuple[tuple[float, ...], ...]] = set()
                 for boxes, term in found:
                     key = tuple(tuple(round(v, 2) for v in box) for box in boxes)
                     if key in seen:
@@ -147,7 +148,7 @@ class SearchController:
             self._reveal()
         return len(self._hits)
 
-    def hits(self) -> list[tuple[int, tuple, str]]:
+    def hits(self) -> list[tuple[int, tuple[Box, ...], str]]:
         """Every hit as ``(page_index, boxes, snippet)`` in document order (M47 results panel).
 
         ``boxes`` is a tuple of one box per line the match occupies — normally one, and two when
@@ -260,7 +261,7 @@ class SearchResultsPanel(QListWidget):
         if idx >= 0:
             self.setCurrentRow(idx)
 
-    def checked_hits(self) -> list[tuple[int, tuple]]:
+    def checked_hits(self) -> list[tuple[int, Box]]:
         """``(page_index, box)`` for every ticked row — what a redaction would actually cover.
 
         One row can yield **more than one box**: a match wrapping a line break occupies a rectangle
@@ -268,7 +269,7 @@ class SearchResultsPanel(QListWidget):
         a black box. A row is a match; redaction works in rectangles, so the rows are flattened.
         """
         hits = search_of(self._view).hits()
-        chosen: list[tuple[int, tuple]] = []
+        chosen: list[tuple[int, Box]] = []
         for row in range(self.count()):
             item = self.item(row)
             if item.checkState() != Qt.CheckState.Checked:

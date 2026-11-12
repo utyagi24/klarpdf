@@ -1433,7 +1433,7 @@ parts, and the box here is ticked on merge. Build in number order, except that M
     a declaration that contradicted its own comment, and parts that might be empty, now checked
     where they are used. One more suppression, for a `None` PySide6's types leave out. Details in
     `PLAN.md` §M173 — [#455](https://github.com/utyagi24/klarpdf/pull/455)
-- [ ] **M174** **Lists that say what they hold**: mypy refuses a `tuple`, `dict` or `list` in a
+- [x] **M174** **Lists that say what they hold**: mypy refuses a `tuple`, `dict` or `list` in a
   type that does not say what it holds. 445 to clear, 290 in `klarpdf/` and 155 in the app. Added by
   the owner on 2026-11-11. *Core, bridge and app.* Three parts, one PR each (owner, 2026-11-11).
   Details in `PLAN.md` §M174
@@ -1455,7 +1455,11 @@ parts, and the box here is ticked on merge. Build in number order, except that M
     `redact_regions` with `box: 5` gave Python's own errors, and a box sent as `"1234"` was read as
     four numbers and redacted. *Bridge.* Details in `PLAN.md` §M174 —
     [#458](https://github.com/utyagi24/klarpdf/pull/458)
-  - [ ] **M174.3** **The app.** 155 findings, and the rule moves up to cover everything. *App*
+  - [x] **M174.3** **The app.** mypy refuses a bare `tuple`, `dict` or `list` in everything it
+    checks. 155 cleared, with no suppression. The types found one defect a user could see: a
+    remembered page in the settings file that was not a whole number, such as `"abc"`, stopped the
+    app from starting when launched on that document. It now opens at page 1. Four places that
+    relied on something nothing stated now say it. *App.* Details in `PLAN.md` §M174
 
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 

@@ -16,8 +16,9 @@ from __future__ import annotations
 import json
 import os
 import time
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 from PySide6.QtCore import QStandardPaths
 
@@ -26,6 +27,13 @@ from klarpdf.util.paths import normalize_path
 _STATE_FILENAME = "view_state.json"
 _APP_DIR_NAME = "klarpdf"
 _MAX_RECENT = 10  # cap the File ▸ Open Recent list
+
+
+class SignatureSettings(TypedDict):
+    """How a signature image was last placed (M63.1): the :class:`ImageStamp` keywords it takes."""
+
+    white_to_alpha: bool
+    white_threshold: float
 
 
 def _config_dir() -> Path:
@@ -46,9 +54,10 @@ class Settings:
 
     def __init__(self, path: Path | None = None) -> None:
         self._path = path or (_config_dir() / _STATE_FILENAME)
-        self._docs: dict[str, dict] = {}
+        # Read from a file that can be edited by hand, so a value is `object` until it is checked.
+        self._docs: dict[str, dict[str, object]] = {}
         self._recent: list[str] = []  # most-recent-first, original-case paths
-        self._prefs: dict = {}        # app-global preferences (e.g. sidebar visibility)
+        self._prefs: dict[str, object] = {}   # app-global preferences (e.g. sidebar visibility)
         self._load()
 
     def _load(self) -> None:
@@ -88,11 +97,11 @@ class Settings:
         if last_error is not None:  # every attempt failed, and each one set it
             raise last_error
 
-    def get_doc_state(self, doc_path: str) -> dict:
+    def get_doc_state(self, doc_path: str) -> dict[str, object]:
         """Return the saved view state for ``doc_path`` (empty dict if none)."""
         return dict(self._docs.get(normalize_path(doc_path), {}))
 
-    def set_doc_state(self, doc_path: str, state: dict) -> None:
+    def set_doc_state(self, doc_path: str, state: Mapping[str, object]) -> None:
         """Persist the view state for ``doc_path`` immediately."""
         self._docs[normalize_path(doc_path)] = dict(state)
         self._save()
@@ -156,7 +165,7 @@ class Settings:
                           "white_threshold": float(white_threshold)}
         self._prune_signature_settings(updated, tuned)
 
-    def signature_settings(self, path: str) -> dict | None:
+    def signature_settings(self, path: str) -> SignatureSettings | None:
         """The transparency settings ``path`` was last placed with, or ``None`` if it has none."""
         entry = (self.get_pref(self._SIGNATURE_SETTINGS_KEY, {}) or {}).get(normalize_path(path))
         if not isinstance(entry, dict) or not isinstance(entry.get("white_threshold"), (int, float)):
@@ -173,7 +182,7 @@ class Settings:
             self._prune_signature_settings(present)
         return present
 
-    def _prune_signature_settings(self, kept_paths: list, tuned: dict | None = None) -> None:
+    def _prune_signature_settings(self, kept_paths: list[str], tuned: dict[str, object] | None = None) -> None:
         """Drop remembered settings for images no longer on the list — a setting must not outlive
         the entry it belongs to (a file the user deleted to revoke it least of all)."""
         if tuned is None:

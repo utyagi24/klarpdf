@@ -27,6 +27,9 @@ from PySide6.QtGui import QBrush, QColor, QPen
 from PySide6.QtWidgets import QGraphicsRectItem
 
 if TYPE_CHECKING:  # named in annotations only
+    from collections.abc import Mapping
+
+    from klarpdf.model.tuples import Box, Point
     from viewer.pdf_view import PdfView
 
 _SIZE = 8.0        # on-screen handle square, in scene units (== device px)
@@ -41,7 +44,7 @@ _CURSORS = {
 }
 
 
-def box_handle_points(rect: tuple) -> dict:
+def box_handle_points(rect: Box) -> dict[str, Point]:
     """The eight handle anchor points for ``rect`` (unrotated page points)."""
     x0, y0, x1, y1 = rect
     mx, my = (x0 + x1) / 2.0, (y0 + y1) / 2.0
@@ -56,8 +59,8 @@ def cursor_for(handle: str) -> Qt.CursorShape:
     return _CURSORS.get(handle, Qt.CursorShape.SizeAllCursor)
 
 
-def resized_rect(rect: tuple, handle: str, dx: float, dy: float,
-                 keep_aspect: bool = False) -> tuple:
+def resized_rect(rect: Box, handle: str, dx: float, dy: float,
+                 keep_aspect: bool = False) -> Box:
     """``rect`` after dragging ``handle`` by ``(dx, dy)`` page points.
 
     Edge handles move one edge; corner handles move two. With ``keep_aspect`` (Shift held) a corner
@@ -104,7 +107,7 @@ class ResizeHandles:
 
     def __init__(self, view: PdfView) -> None:
         self._view = view
-        self._items: dict = {}     # handle name -> QGraphicsRectItem (positioned in scene units)
+        self._items: dict[str, QGraphicsRectItem] = {}   # handle name -> item (in scene units)
         self._page = 0
 
     @property
@@ -115,15 +118,15 @@ class ResizeHandles:
     def page(self) -> int:
         return self._page
 
-    def show_box(self, page_index: int, rect: tuple) -> None:
+    def show_box(self, page_index: int, rect: Box) -> None:
         """Eight handles around ``rect`` (page points)."""
         self._place(page_index, box_handle_points(rect))
 
-    def show_points(self, page_index: int, points: dict) -> None:
+    def show_points(self, page_index: int, points: Mapping[str, Point]) -> None:
         """Handles at arbitrary named page points — e.g. ``{"p0": start, "p1": end}`` for a line."""
         self._place(page_index, points)
 
-    def _place(self, page_index: int, points: dict) -> None:
+    def _place(self, page_index: int, points: Mapping[str, Point]) -> None:
         self.hide()
         self._page = page_index
         for name, (px, py) in points.items():
