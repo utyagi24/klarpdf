@@ -42,13 +42,13 @@ INFO_KEYS = (
 EDITABLE_KEYS = ("title", "author", "subject", "keywords")
 
 
-def read_info(doc: fitz.Document) -> dict:
+def read_info(doc: fitz.Document) -> dict[str, str]:
     """The writable Info-dict fields of ``doc`` as a plain ``{key: str}`` (blanks as ``""``)."""
     metadata = doc.metadata or {}
     return {key: (metadata.get(key) or "") for key in INFO_KEYS}
 
 
-def build_xmp(values: dict) -> str:
+def build_xmp(values: dict[str, str]) -> str:
     """A minimal, standard XMP packet holding ``values``' user-facing fields.
 
     Emitted whenever the user *edits* metadata, so the two stores agree: Dublin Core for

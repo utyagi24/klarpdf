@@ -12,9 +12,10 @@ This module is GUI-free and headless-testable (no Qt). The undo/redo wiring live
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pymupdf as fitz
 
@@ -31,11 +32,21 @@ from klarpdf.model.pymupdf_constants import (
     PDF_PERM_PRINT,
     PDF_PERM_PRINT_HQ,
 )
+from klarpdf.model.tuples import Box
 from klarpdf.util.paths import normalize_path
 
-# A snapshot is the full mutable state captured for undo: the ordered list + dirty flag.
-# PageRefs are frozen, so a shallow tuple copy is a safe, cheap point-in-time snapshot.
-State = tuple
+if TYPE_CHECKING:  # named in annotations only: these modules import this one
+    from klarpdf.model.destinations import Destination
+    from klarpdf.model.page_edits import PageEdit
+    from klarpdf.model.toc_remap import TocEntry
+
+# A snapshot is the full mutable state captured for undo: the pages in order, the form values,
+# the metadata override, the encryption choice (password, permissions, whether one was made) and
+# the dirty flag. PageRefs are frozen, so a shallow tuple copy is a safe, cheap point-in-time
+# snapshot.
+State = tuple[
+    tuple["PageRef", ...], dict[str, object], dict[str, str] | None, tuple[str | None, int, bool], bool
+]
 
 # Raster image formats we import as a one-page PDF page (M35). PyMuPDF opens each as a 1-page
 # document and converts it to PDF, after which it is just another read-only source.
@@ -172,8 +183,8 @@ class PageRef:
     source_id: str
     source_page_index: int
     rotation_override: int | None = None
-    annotations: tuple = ()
-    crop_override: tuple | None = None
+    annotations: tuple[PageEdit, ...] = ()
+    crop_override: Box | None = None
 
     def with_rotation(self, angle: int | None) -> PageRef:
         if angle is not None:
@@ -182,16 +193,16 @@ class PageRef:
                 raise ValueError(f"rotation must be a multiple of 90, got {angle}")
         return replace(self, rotation_override=angle)
 
-    def with_annotations(self, annotations: tuple) -> PageRef:
+    def with_annotations(self, annotations: Iterable[PageEdit]) -> PageRef:
         return replace(self, annotations=tuple(annotations))
 
-    def with_crop(self, rect: tuple | None) -> PageRef:
+    def with_crop(self, rect: Sequence[float] | None) -> PageRef:
         if rect is not None:
             x0, y0, x1, y1 = (float(v) for v in rect)
             if x1 <= x0 or y1 <= y0:
                 raise ValueError(f"crop rect must have positive area, got {rect}")
-            rect = (x0, y0, x1, y1)
-        return replace(self, crop_override=rect)
+            return replace(self, crop_override=(x0, y0, x1, y1))
+        return replace(self, crop_override=None)
 
 
 class VirtualDocument:
@@ -209,19 +220,19 @@ class VirtualDocument:
         # The document this virtual doc was opened from. Its outline is the one we rebuild on
         # save (merged-in sources contribute no outline, matching insert_pdf's behaviour).
         self.origin_source_id: str | None = None
-        self._origin_toc: list = []
+        self._origin_toc: list[TocEntry] = []
         # Each origin bookmark's destination exactly as the file spells it (M150), one per row of
         # `_origin_toc`. Captured together with it, and for the same reason: read back off the live
         # source it would be whatever the last save wrote, not what the reader opened.
-        self._origin_dests: list = []
+        self._origin_dests: list[Destination | None] = []
         # Document metadata (M53): the origin's two stores as read (Info dict + raw XMP packet),
         # and the user's override — None = untouched (carry the origin's through at materialise),
         # a dict = edited values (both stores rewritten consistently), {} = removed (both stores
         # cleared). Like _form_values it is document-level and part of the snapshot, so metadata
         # edits ride undo/redo. Merged-in sources contribute no metadata, matching the outline.
-        self._origin_info: dict = {}
+        self._origin_info: dict[str, str] = {}
         self._origin_xmp: str = ""
-        self._metadata_override: dict | None = None
+        self._metadata_override: dict[str, str] | None = None
         # A table of contents the caller has authored, to be written in place of whatever outline
         # the document arrived with (M139). ``None`` = untouched, so ``remapped_toc`` keeps doing
         # what it always did; a list of ``[level, title, page]`` = write exactly this.
@@ -236,7 +247,7 @@ class VirtualDocument:
         # defect, and it is why the override is also left out of `subset()` and of the undo
         # snapshot. A GUI outline editor has to either re-point it on every page edit or drop it;
         # `PROGRESS.md` §Open follow-ups carries the item.
-        self._outline_override: list | None = None
+        self._outline_override: list[TocEntry] | None = None
         # Document encryption (M54) — a save-path capability: the password a Save applies
         # (AES-256), or None to save unencrypted, plus the advisory permission flags (-1 = all
         # allowed). Held in memory only, never persisted anywhere but the encrypted output
@@ -271,7 +282,7 @@ class VirtualDocument:
         # same object, so this dict adds a pointer, not a copy. See :meth:`origin_bytes` and
         # :meth:`edits_are_additive`.
         self._source_bytes: dict[str, bytes] = {}
-        self._source_marks: dict[str, tuple[tuple, ...]] = {}
+        self._source_marks: dict[str, tuple[tuple[PageEdit, ...], ...]] = {}
         # How to obtain a password for an encrypted source (set by from_path). Stored so a later
         # reload_from_file (Revert of an encrypted original) can re-prompt the same way. GUI-free:
         # callers inject a callable (the GUI's password dialog; a lambda in tests). None = no prompt.
@@ -548,7 +559,7 @@ class VirtualDocument:
                 return False
         return True
 
-    def marks_to_append(self, page_index: int) -> tuple | None:
+    def marks_to_append(self, page_index: int) -> tuple[PageEdit, ...] | None:
         """The marks on page ``page_index`` an appending save still has to **draw** — the ones the
         origin's file does not already carry (M117). ``None`` when it has to draw them all.
 
@@ -690,7 +701,7 @@ class VirtualDocument:
             seen.setdefault(ref.source_id, new_index)
         return sorted(seen, key=seen.__getitem__)
 
-    def source_toc(self, source_id: str) -> list:
+    def source_toc(self, source_id: str) -> list[TocEntry]:
         """``source_id``'s own outline, as ``get_toc(simple=False)`` reports it.
 
         The origin's is the copy captured when it was opened — reading it back off the live source
@@ -702,7 +713,7 @@ class VirtualDocument:
         source = self.sources.get(source_id)
         return source.get_toc(simple=False) if source is not None else []
 
-    def source_dests(self, source_id: str) -> list:
+    def source_dests(self, source_id: str) -> list[Destination | None]:
         """``source_id``'s bookmark destinations, aligned with :meth:`source_toc`'s rows.
 
         The origin's are the copy captured when it was opened, for the reason :meth:`source_toc`
@@ -717,7 +728,7 @@ class VirtualDocument:
             return []
         return read_outline_destinations(source, len(source.get_toc(simple=False)))
 
-    def remapped_toc(self) -> list:
+    def remapped_toc(self) -> list[TocEntry]:
         """The output's outline: **every** contributing source's bookmarks, each re-pointed.
 
         **Not just the origin's** (M138.5). This used to remap `_origin_toc` alone, on the stated
@@ -749,7 +760,7 @@ class VirtualDocument:
         if self._outline_override is not None:
             return [list(entry) for entry in self._outline_override]
 
-        entries: list = []
+        entries: list[TocEntry] = []
         for source_id in self._sources_in_output_order():
             toc = self.source_toc(source_id)
             if toc:
@@ -762,7 +773,7 @@ class VirtualDocument:
                 )
         return entries
 
-    def entry_top(self, entry: list) -> float | None:
+    def entry_top(self, entry: TocEntry) -> float | None:
         """How far down its page a :meth:`remapped_toc` row lands, or ``None``.
 
         Measured in the target page's own points, from the top of its visible area — the frame
@@ -812,7 +823,7 @@ class VirtualDocument:
         # origin outline instead, which `remapped_toc` re-points correctly because it knows how.
         return sub
 
-    def page_visible_size(self, index: int) -> tuple:
+    def page_visible_size(self, index: int) -> tuple[float, float]:
         """The on-screen ``(width, height)`` of the page at ``index`` — its (cropped) content
         frame with the effective rotation applied. Sizes an inserted blank page to match the page
         it follows (M51)."""
@@ -905,14 +916,14 @@ class VirtualDocument:
 
     # ---- crop (M48; rides the PageRef like rotation, applied at materialise) ----
 
-    def page_base_rect(self, index: int) -> tuple:
+    def page_base_rect(self, index: int) -> Box:
         """The page's full visible frame ``(0, 0, w, h)`` in unrotated content coordinates — the
         space word boxes, annotations, and ``crop_override`` live in (the source CropBox frame)."""
         ref = self.ordered[index]
         cropbox = self.sources[ref.source_id][ref.source_page_index].cropbox
         return (0.0, 0.0, float(cropbox.width), float(cropbox.height))
 
-    def set_crop(self, indices: Iterable[int], rect: tuple | None) -> None:
+    def set_crop(self, indices: Iterable[int], rect: Box | None) -> None:
         """Set (or clear, with ``None``) the absolute crop on each page, clamped to that page's
         frame. A page where the clamped rect has no area (the drag lies wholly off that page's
         frame — possible when one rect is applied to differently-sized pages) is left unchanged."""
@@ -956,7 +967,7 @@ class VirtualDocument:
     # ---- document metadata (M53; document-level, applied at materialise) --------
 
     @property
-    def origin_metadata(self) -> dict:
+    def origin_metadata(self) -> dict[str, str]:
         """The origin file's Info-dict fields as read (what an untouched save carries through)."""
         return dict(self._origin_info)
 
@@ -966,19 +977,19 @@ class VirtualDocument:
         return self._origin_xmp
 
     @property
-    def metadata_override(self) -> dict | None:
+    def metadata_override(self) -> dict[str, str] | None:
         """The user's metadata verb: ``None`` untouched, a dict = edited, ``{}`` = removed."""
         override = self._metadata_override
         return None if override is None else dict(override)
 
-    def effective_metadata(self) -> dict:
+    def effective_metadata(self) -> dict[str, str]:
         """What the Properties dialog shows and a Save writes — the override when one is set,
         else the origin's fields."""
         if self._metadata_override is not None:
             return dict(self._metadata_override)
         return dict(self._origin_info)
 
-    def set_metadata_override(self, values: dict | None) -> None:
+    def set_metadata_override(self, values: dict[str, str] | None) -> None:
         """Set the metadata verb: a dict of Info fields (edit), ``{}`` (remove all — both stores
         cleared at materialise), or ``None`` (revert to the origin's)."""
         self._metadata_override = None if values is None else dict(values)
@@ -990,7 +1001,7 @@ class VirtualDocument:
     # ---- authored outline (M139; a save-path capability) ------------------------
 
     @property
-    def outline_override(self) -> list | None:
+    def outline_override(self) -> list[TocEntry] | None:
         """The table of contents the caller authored, or ``None`` when the document's own is to be
         kept. Entries are ``[level, title, page]`` with ``page`` **1-based**, the shape
         :meth:`remapped_toc` returns and ``Document.set_toc`` takes. An entry that named a height
@@ -998,7 +1009,7 @@ class VirtualDocument:
         override = self._outline_override
         return None if override is None else [list(entry) for entry in override]
 
-    def set_outline_override(self, entries: list | None) -> None:
+    def set_outline_override(self, entries: Sequence[Sequence[object]] | None) -> None:
         """Author the outline a Save writes, or pass ``None`` to keep the document's own.
 
         ``entries`` is ``[[level, title, page], ...]`` or ``[[level, title, page, top], ...]``,
@@ -1047,7 +1058,7 @@ class VirtualDocument:
             return
         from klarpdf.model.toc_remap import repair_levels
 
-        cleaned: list = []
+        cleaned: list[TocEntry] = []
         for position, entry in enumerate(entries):
             level, title, page = entry[0], entry[1], entry[2]
             if not isinstance(page, int) or isinstance(page, bool):
@@ -1142,7 +1153,7 @@ class VirtualDocument:
 
     # ---- per-page annotations (ride the PageRef; applied at materialise) ---------
 
-    def page_annotations(self, index: int) -> tuple:
+    def page_annotations(self, index: int) -> tuple[PageEdit, ...]:
         """The annotation descriptors on the page at ``index``."""
         return self.ordered[index].annotations
 
@@ -1157,19 +1168,19 @@ class VirtualDocument:
     # ones are interchangeable, so whichever is chosen the resulting page is identical.
 
     @staticmethod
-    def _first_equal_index(annotations: tuple, target: object) -> int:
+    def _first_equal_index(annotations: tuple[PageEdit, ...], target: object) -> int:
         for i, annotation in enumerate(annotations):
             if annotation == target:
                 return i
         return -1
 
-    def add_annotation(self, index: int, annotation: object) -> None:
+    def add_annotation(self, index: int, annotation: PageEdit) -> None:
         """Append an annotation descriptor to the page at ``index``."""
         ref = self.ordered[index]
         self.ordered[index] = ref.with_annotations(ref.annotations + (annotation,))
         self.dirty = True
 
-    def set_annotations(self, index: int, annotations: tuple) -> None:
+    def set_annotations(self, index: int, annotations: Iterable[PageEdit]) -> None:
         """Replace the page's whole annotation tuple — used by the z-order reorder (M59.8), where
         the *order* is the edit. Same contents in a new order still counts as dirty."""
         ref = self.ordered[index]
@@ -1189,7 +1200,7 @@ class VirtualDocument:
             self.ordered[index] = ref.with_annotations(remaining)
             self.dirty = True
 
-    def replace_annotation(self, index: int, old: object, new: object) -> None:
+    def replace_annotation(self, index: int, old: object, new: PageEdit) -> None:
         """Swap ``old`` for ``new`` **in place** on the page at ``index`` (preserving z-order).
 
         Used when an annotation is mutated rather than added/removed — moving a text box or

@@ -21,10 +21,14 @@ its page through a reorder, and is applied only to the materialised output.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import pymupdf as fitz
 
 from klarpdf.model.pymupdf_constants import PDF_WIDGET_TYPE_CHECKBOX, PDF_WIDGET_TYPE_COMBOBOX, PDF_WIDGET_TYPE_TEXT
+
+if TYPE_CHECKING:  # named in annotations only: page_edits imports this module
+    from klarpdf.model.page_edits import PageEdit
 
 # The three creatable types, in the order the UI offers them. Keyed by a short stable token so a
 # descriptor never stores a PyMuPDF integer constant (which would bake a library detail into
@@ -71,7 +75,7 @@ class NewField:
         return f"{kind_label(self.kind)} “{self.name}”" if self.name else kind_label(self.kind)
 
 
-def apply_new_fields(page: fitz.Page, annotations: tuple) -> int:
+def apply_new_fields(page: fitz.Page, annotations: tuple[PageEdit, ...]) -> int:
     """Create this page's :class:`NewField` widgets on a materialised output page. Returns how many.
 
     Runs **before** :func:`model.page_edits.apply_form_values`, so a value the user typed into a

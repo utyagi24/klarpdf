@@ -20,7 +20,12 @@ from pathlib import Path
 import pymupdf as fitz
 
 from klarpdf.model.pymupdf_constants import PDF_ENCRYPT_AES_256, PDF_ENCRYPT_KEEP
+from klarpdf.model.tuples import Box
 from klarpdf.model.virtual_document import PageRef, VirtualDocument, pin_file_id
+
+#: Keywords for ``Document.save``: cleanup levels and switches, and the passwords of an encrypted
+#: write (M174).
+SaveKeywords = dict[str, int | bool | str]
 
 #: Object cleanup for the route that **copies the origin** — an unchanged page set (M110).
 #: Drop objects nothing references and compact the xref, and stop there. Linear in the size of the
@@ -104,7 +109,7 @@ CLEAN_COPIED = False
 GARBAGE_APPEND = 0
 
 
-def write_options(garbage: int, clean: bool) -> dict:
+def write_options(garbage: int, clean: bool) -> SaveKeywords:
     """The ``Document.save`` keywords every PDF this project writes shares, at ``garbage`` level.
 
     **One named set on purpose.** These options were four copies of a literal across ``materialize``
@@ -131,7 +136,7 @@ def write_options(garbage: int, clean: bool) -> dict:
     return {"garbage": garbage, "deflate": True, "clean": clean, "use_objstms": 1}
 
 
-def append_options() -> dict:
+def append_options() -> SaveKeywords:
     """The ``Document.save`` keywords for a write that **appends to the file it was given** (M116).
 
     :func:`write_options` with the only cleanup level an incremental write allows
@@ -157,7 +162,7 @@ def append_options() -> dict:
     }
 
 
-def _apply_crop(page: fitz.Page, rect: tuple) -> None:
+def _apply_crop(page: fitz.Page, rect: Box) -> None:
     """Apply a ``PageRef.crop_override`` to an output page via ``set_cropbox`` (M48).
 
     ``rect`` is in the page's unrotated **content** frame (origin = the current CropBox top-left,
@@ -170,7 +175,7 @@ def _apply_crop(page: fitz.Page, rect: tuple) -> None:
     page.set_cropbox(target)
 
 
-def _encryption_args(vdoc: VirtualDocument) -> dict:
+def _encryption_args(vdoc: VirtualDocument) -> SaveKeywords:
     """The ``Document.save`` keywords that carry the document's encryption (M54); ``{}`` when it
     saves unencrypted.
 
@@ -207,7 +212,7 @@ def _encryption_args(vdoc: VirtualDocument) -> dict:
     }
 
 
-def _keep_encryption(vdoc: VirtualDocument) -> dict:
+def _keep_encryption(vdoc: VirtualDocument) -> SaveKeywords:
     """``{"encryption": PDF_ENCRYPT_KEEP}`` when the output should retain the encryption it has.
 
     Only meaningful on the unchanged-page-set route, where the output *is* a copy of the origin and
@@ -225,29 +230,29 @@ def _keep_encryption(vdoc: VirtualDocument) -> dict:
     return {}
 
 
-def _contiguous_runs(ordered: Iterable[PageRef]) -> list[list]:
-    """Collapse ``ordered`` into ``[source_id, from_page, to_page]`` runs of consecutive pages.
+def _contiguous_runs(ordered: Iterable[PageRef]) -> list[tuple[str, int, int]]:
+    """Collapse ``ordered`` into ``(source_id, from_page, to_page)`` runs of consecutive pages.
 
     A run extends while the next ref is the same source and exactly one page later, so each run
     becomes a single ``insert_pdf`` range copy.
     """
-    runs: list[list] = []
+    runs: list[tuple[str, int, int]] = []
     for ref in ordered:
         if (
             runs
             and ref.source_id == runs[-1][0]
             and ref.source_page_index == runs[-1][2] + 1
         ):
-            runs[-1][2] = ref.source_page_index
+            runs[-1] = (runs[-1][0], runs[-1][1], ref.source_page_index)
         else:
-            runs.append([ref.source_id, ref.source_page_index, ref.source_page_index])
+            runs.append((ref.source_id, ref.source_page_index, ref.source_page_index))
     return runs
 
 
 class PyMuPDFEngine:
     """The save engine. Lossless object-level page copy + outline rebuild via PyMuPDF."""
 
-    def save_options(self, vdoc: VirtualDocument) -> dict:
+    def save_options(self, vdoc: VirtualDocument) -> SaveKeywords:
         """The exact ``Document.save`` keywords :meth:`materialize` writes ``vdoc`` with (M110).
 
         Public because ``export_reduced_pdf`` reports a "before" size it promises is *what a plain
@@ -283,7 +288,7 @@ class PyMuPDFEngine:
             clean=CLEAN_REWRITTEN if rewrites_content else CLEAN_COPIED,
         )
 
-    def save_keywords(self, vdoc: VirtualDocument) -> dict:
+    def save_keywords(self, vdoc: VirtualDocument) -> SaveKeywords:
         """**Everything** :meth:`materialize` hands to ``Document.save`` — the option set above plus
         the encryption choice (M111).
 

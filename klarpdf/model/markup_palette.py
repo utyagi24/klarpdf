@@ -25,6 +25,8 @@ from collections.abc import Sequence
 
 import pymupdf as fitz
 
+from klarpdf.model.tuples import Color
+
 # Curated and small on purpose: these are the colours people actually reach for when marking up
 # text, and a short list is faster than a colour wheel. Two sets, because the two jobs differ —
 # a highlighter lays a translucent wash *behind* the words, while an underline / strikeout draws
@@ -86,7 +88,7 @@ NAME_MARGIN = 1.5
 _LUMA_WEIGHTS = (0.2126, 0.7152, 0.0722)
 
 
-def _distance(a: tuple, b: tuple) -> float:
+def _distance(a: Sequence[float], b: Sequence[float]) -> float:
     """Plain Euclidean distance in RGB. Not perceptually uniform, and deliberately not: the job is
     to recognise a swatch that round-tripped through a PDF — uniform float noise on every channel,
     where any metric agrees the answer is "basically zero" — not to model human vision. See
@@ -94,7 +96,7 @@ def _distance(a: tuple, b: tuple) -> float:
     return sum((x - y) ** 2 for x, y in zip(a, b, strict=True)) ** 0.5
 
 
-def _perceptual_distance(a: tuple, b: tuple) -> float:
+def _perceptual_distance(a: Sequence[float], b: Sequence[float]) -> float:
     """Luma-weighted Euclidean distance in RGB — for deciding what a person would *call* ``a``.
 
     Plain :func:`_distance` weights a blue-channel difference the same as a green one, and gets a
@@ -111,29 +113,35 @@ def _perceptual_distance(a: tuple, b: tuple) -> float:
     return sum(w * (x - y) ** 2 for w, x, y in zip(_LUMA_WEIGHTS, a, b, strict=True)) ** 0.5
 
 
-def _as_rgb(color: Sequence[float]) -> tuple[float, ...] | None:
+def as_rgb(color: Sequence[float]) -> Color | None:
     """``color`` as the RGB KlarPDF draws it in, or ``None`` for a colour of no kind PDF has (M170).
 
     A PDF colour has one value (grey), three (RGB) or four (CMYK, printing ink), and a mark made in
     another program may carry any of them. Before M170 a grey reached the distances above as it
     was: their ``zip`` stopped after its one value, so only the red channel was compared, and a
-    mid-grey highlight was named "Blue".
+    mid-grey highlight was named "Blue". The marks themselves hold RGB only, so the same conversion
+    is what a mark read from a file is given (M174.1, #398).
 
-    Grey and CMYK go through MuPDF's own colour conversion, the one that draws the page, so a name
-    describes what the reader sees. PDF's simple formula for ink (red = 1 − min(1, C + K)) would not:
-    MuPDF manages colour by default, and draws CMYK (0, 1, 1, 0) as (0.93, 0.11, 0.14), not the
-    (1, 0, 0) the formula gives. A one-pixel conversion agrees with a drawn page to within 1/255
-    (measured on PyMuPDF 1.27.2.3, and pinned by ``tests/test_markup_palette.py``).
+    A grey ``g`` is ``(g, g, g)``, exactly. MuPDF draws it as that, rounded down to a whole level
+    (measured: 0.5 is drawn as 127 of 255), so nothing is lost. CMYK goes through MuPDF's own colour
+    conversion, the one that draws the page, so a name describes what the reader sees. PDF's simple
+    formula for ink (red = 1 − min(1, C + K)) would not: MuPDF manages colour by default, and draws
+    CMYK (0, 1, 1, 0) as (0.93, 0.11, 0.14), not the (1, 0, 0) the formula gives. A one-pixel
+    conversion agrees with a drawn page to within 1/255 (measured on PyMuPDF 1.27.2.3, and pinned by
+    ``tests/test_markup_palette.py``). The ink value itself is lost, which is why adopting a mark in
+    an ink colour says so (``foreign_annots.degradations``).
     """
     values = tuple(float(c) for c in color)
     if len(values) == 3:
-        return values
-    space = {1: fitz.csGRAY, 4: fitz.csCMYK}.get(len(values))
-    if space is None:
+        return (values[0], values[1], values[2])
+    if len(values) == 1:
+        return (values[0], values[0], values[0])
+    if len(values) != 4:
         return None
-    pixel = fitz.Pixmap(space, fitz.IRect(0, 0, 1, 1), False)
+    pixel = fitz.Pixmap(fitz.csCMYK, fitz.IRect(0, 0, 1, 1), False)
     pixel.set_pixel(0, 0, [round(min(max(c, 0.0), 1.0) * 255) for c in values])
-    return tuple(v / 255 for v in fitz.Pixmap(fitz.csRGB, pixel).pixel(0, 0))
+    red, green, blue = (v / 255 for v in fitz.Pixmap(fitz.csRGB, pixel).pixel(0, 0))
+    return (red, green, blue)
 
 
 def color_for_name(name: str, mark_type: str) -> tuple[float, float, float] | None:
@@ -158,7 +166,7 @@ def nearest_name(color: Sequence[float], mark_type: str | None = None) -> str | 
     """The palette name nearest ``color``, or ``None`` when no swatch is clearly the one it means.
 
     ``color`` may be grey, RGB or CMYK, as a PDF stores it: it is named as the RGB it is drawn in
-    (:func:`_as_rgb`).
+    (:func:`as_rgb`).
 
     ``mark_type`` narrows the search to that type's palette; without it both are searched, which is
     what the read side wants — a foreign highlight may be any colour at all, including one only the
@@ -171,7 +179,7 @@ def nearest_name(color: Sequence[float], mark_type: str | None = None) -> str | 
     unnamed while one that is plainly a brighter version of a single swatch, like pure yellow
     against our muted marker Yellow, is named. Beyond that, nothing is named at all.
     """
-    rgb = _as_rgb(color)
+    rgb = as_rgb(color)
     if rgb is None:
         return None
     if mark_type in PALETTES:

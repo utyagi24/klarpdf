@@ -1435,8 +1435,19 @@ parts, and the box here is ticked on merge. Build in number order, except that M
     `PLAN.md` §M173 — [#455](https://github.com/utyagi24/klarpdf/pull/455)
 - [ ] **M174** **Lists that say what they hold**: mypy refuses a `tuple`, `dict` or `list` in a
   type that does not say what it holds. 445 to clear, 290 in `klarpdf/` and 155 in the app. Added by
-  the owner on 2026-11-11. *Core, bridge and app.* Scope and decision in `PLAN.md` §*The roadmap*
-  and §*Decisions*
+  the owner on 2026-11-11. *Core, bridge and app.* Three parts, one PR each (owner, 2026-11-11).
+  Details in `PLAN.md` §M174
+  - [ ] **M174.1** **The engine.** mypy refuses a bare `tuple`, `dict` or `list` in
+    `klarpdf/model/` and `klarpdf/util/`. 134 cleared, with no suppression. New names for a box, a
+    point, a colour, a word, and everything a page's marks list holds (`PageEdit`). The types found
+    [#398](https://github.com/utyagi24/klarpdf/issues/398), which this part closes: adopting
+    another program's grey mark stopped the page's marks drawing, and a printing-ink one turned
+    invisible. Owner decision: keep the colour you see, and warn. Adopted colours are now converted
+    to the RGB they are drawn in, and the Adopt warning lists a lost ink colour and a mark with no
+    colour. *Core, bridge and app.*
+  - [ ] **M174.2** **The bridge.** 156 findings. Every reply's fields named, and agents receive
+    exactly what they receive today (owner, 2026-11-11). *Bridge*
+  - [ ] **M174.3** **The app.** 155 findings, and the rule moves up to cover everything. *App*
 
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 

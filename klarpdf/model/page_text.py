@@ -28,10 +28,22 @@ that has already been subtly wrong once.
 from __future__ import annotations
 
 from collections.abc import Iterable
+from typing import TypeVar
 
 import pymupdf as fitz
 
+from klarpdf.model.tuples import Box, Word
+
 _SNIPPET_WORDS = 4   # context words kept either side of a match in a snippet
+
+#: One character of ``get_text("rawdict")``: its box and the character.
+Char = tuple[float, float, float, float, str]
+#: One span's paint, from ``get_text("dict")``: its box, its packed ``0xRRGGBB`` colour, its alpha.
+Span = tuple[Box, int, int]
+
+_T = TypeVar("_T")
+#: One line of an index: its top, its bottom, and its entries.
+_Line = tuple[float, float, list[_T]]
 
 # ---- invisible text (M95) ----------------------------------------------------
 #
@@ -58,11 +70,11 @@ def _luminance(color: int) -> float:
     return ((color >> 16 & 0xFF) * 299 + (color >> 8 & 0xFF) * 587 + (color & 0xFF) * 114) / 1000
 
 
-def boxes_touch(a: tuple, b: tuple) -> bool:
+def boxes_touch(a: Box, b: Box) -> bool:
     return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
 
 
-def shares_line(word: tuple, box: tuple) -> bool:
+def shares_line(word: Box, box: Box) -> bool:
     """Do ``word`` and ``box`` sit on the same line of text, rather than merely overlapping? (M96)
 
     A word's box is not the ink — it spans the font's full ascender-to-descender height, so on a
@@ -87,7 +99,7 @@ def shares_line(word: tuple, box: tuple) -> bool:
     return box[1] <= word_middle <= box[3] or word[1] <= box_middle <= word[3]
 
 
-def _centre_inside(char: tuple, box: tuple) -> bool:
+def _centre_inside(char: Box | Char, box: Box) -> bool:
     """Does ``char``'s centre fall inside ``box``? The rule the whole module answers by.
 
     A character belongs to *one* box — the one containing its midpoint — which is what makes
@@ -110,28 +122,28 @@ class PageText:
     hand — :meth:`text_under` is then empty, since characters can only come from a page.
     """
 
-    def __init__(self, page: fitz.Page | None = None, words: list | None = None) -> None:
+    def __init__(self, page: fitz.Page | None = None, words: list[Word] | None = None) -> None:
         self._page = page
         if words is None:
             if page is None:
                 raise ValueError("PageText needs a page or a list of words")
             words = page.get_text("words")
-        self.words: list = words
-        self._by_key: dict[tuple, list] = {}
+        self.words: list[Word] = words
+        self._by_key: dict[tuple[int, int], list[tuple[int, Word]]] = {}
         for i, w in enumerate(self.words):
             self._by_key.setdefault((w[5], w[6]), []).append((i, w))
         self._lines = [(min(w[1] for _, w in ws), max(w[3] for _, w in ws), ws)
                        for ws in self._by_key.values()]
-        self._chars: list | None = None
-        self._spans: list | None = None
+        self._chars: list[_Line[Char]] | None = None
+        self._spans: list[_Line[Span]] | None = None
 
     @staticmethod
-    def _band(lines: list, box: tuple) -> list:
+    def _band(lines: list[_Line[_T]], box: Box) -> list[_Line[_T]]:
         """The lines whose vertical band meets ``box``. A word can only touch the box if its own
         band does, and a line's band covers every word on it — so this narrows without dropping."""
         return [entry for entry in lines if entry[0] < box[3] and box[1] < entry[1]]
 
-    def struck(self, box: tuple) -> list:
+    def struck(self, box: Box) -> list[tuple[int, Word]]:
         """The page words ``box`` covers, as ``(index, word)`` in document order.
 
         Overlap alone is not the test — see :func:`shares_line`. A word from the neighbouring line
@@ -143,7 +155,7 @@ class PageText:
         found.sort(key=lambda t: t[0])
         return found
 
-    def words_under(self, box: tuple) -> list:
+    def words_under(self, box: Box) -> list[tuple[int, Word]]:
         """The page words whose **own centre** falls inside ``box``, as ``(index, word)`` in
         document order — the words the box *contains*, as against the ones it merely touches.
 
@@ -163,7 +175,7 @@ class PageText:
         found.sort(key=lambda t: t[0])
         return found
 
-    def word_text_under(self, box: tuple) -> str:
+    def word_text_under(self, box: Box) -> str:
         """The whole words inside ``box``, space-joined in reading order — its **anchor text**.
 
         The word-level counterpart of :meth:`text_under`, and what a caller wants from a rectangle
@@ -182,7 +194,7 @@ class PageText:
         """
         return " ".join(w[4] for _i, w in self.words_under(box))
 
-    def is_whole_word(self, box: tuple, tol: float = 0.5) -> bool:
+    def is_whole_word(self, box: Box, tol: float = 0.5) -> bool:
         """Is ``box`` a whole word rather than part of a longer one?
 
         Geometry first: when the words the box touches stop at its edges, nothing can contradict it
@@ -213,7 +225,7 @@ class PageText:
         return (self._edge_is_boundary(struck[0][1], box[0], right=False, tol=tol)
                 and self._edge_is_boundary(struck[-1][1], box[2], right=True, tol=tol))
 
-    def _edge_is_boundary(self, word: tuple, edge: float, *, right: bool, tol: float) -> bool:
+    def _edge_is_boundary(self, word: Word, edge: float, *, right: bool, tol: float) -> bool:
         """Does ``word`` stop at ``edge``, or is everything it puts past ``edge`` non-word text?
 
         Only ``word``'s **own** characters are considered, and that scoping is what makes the test
@@ -234,7 +246,7 @@ class PageText:
         overhang = [ch for cx, ch in centres if (cx > edge if right else cx < edge)]
         return not any(_is_word_char(ch) for ch in overhang)
 
-    def is_invisible(self, box: tuple) -> bool:
+    def is_invisible(self, box: Box) -> bool:
         """Is the text under ``box`` present in the file but absent from the page as drawn?
 
         The question a redaction caller cannot otherwise ask. White-on-white text reads back from
@@ -266,7 +278,7 @@ class PageText:
             return False        # ordinary ink on an ordinary ground; no render needed
         return self._rendered_contrast(box) < _INVISIBLE_CONTRAST
 
-    def _rendered_contrast(self, box: tuple) -> float:
+    def _rendered_contrast(self, box: Box) -> float:
         """Spread between the lightest and darkest pixel of ``box`` as the page actually draws it.
 
         Rendered at 72 dpi — the glyphs only have to disturb the ground, not be readable, and a
@@ -287,7 +299,7 @@ class PageText:
         ]
         return max(levels) - min(levels) if levels else float("inf")
 
-    def _spans_under(self, box: tuple) -> list:
+    def _spans_under(self, box: Box) -> list[Span]:
         """``(bbox, colour, alpha)`` for the spans ``box`` touches. Lazy, and a cheaper extraction
         than the character index: only the span's paint is wanted, not its glyphs."""
         if self._spans is None:
@@ -304,7 +316,7 @@ class PageText:
         return [entry for _ly0, _ly1, entries in self._band(self._spans, box)
                 for entry in entries if boxes_touch(entry[0], box)]
 
-    def matches_case(self, box: tuple, term: str) -> bool:
+    def matches_case(self, box: Box, term: str) -> bool:
         """Does the text under ``box`` match ``term`` case-sensitively?
 
         MuPDF's ``search_for`` is always case-insensitive, so this is how a case-sensitive search
@@ -318,7 +330,7 @@ class PageText:
         under = self.text_under(box).strip()
         return bool(under) and under in term
 
-    def snippet(self, box: tuple) -> str:
+    def snippet(self, box: Box) -> str:
         """Context snippet for ``box``: the words of its line, windowed to ±``_SNIPPET_WORDS``
         around the covered span, with ellipses marking a trimmed side."""
         struck = self.struck(box)
@@ -332,7 +344,7 @@ class PageText:
         text = " ".join(w[4] for w in line[lo:hi])
         return ("… " if lo > 0 else "") + text + (" …" if hi < len(line) else "")
 
-    def group_matches(self, boxes: list[tuple], term: str) -> list[tuple[tuple, ...]]:
+    def group_matches(self, boxes: list[Box], term: str) -> list[tuple[Box, ...]]:
         """Fold one term's hit boxes, in reading order, into one entry per **occurrence**.
 
         MuPDF returns a match that wraps a line break as one rect per line, so a phrase occurring
@@ -348,8 +360,8 @@ class PageText:
         ungrouped box costs a miscount while a missing one costs a leak.
         """
         wanted = " ".join(term.split()).casefold()
-        groups: list[tuple[tuple, ...]] = []
-        pending: list[tuple] = []
+        groups: list[tuple[Box, ...]] = []
+        pending: list[Box] = []
         acc = ""
         for box in boxes:
             piece = self.text_under(box).strip()
@@ -364,13 +376,13 @@ class PageText:
         groups.extend((box,) for box in pending)           # never leave a box behind
         return groups
 
-    def snippet_for(self, boxes: Iterable[tuple]) -> str:
+    def snippet_for(self, boxes: Iterable[Box]) -> str:
         """Context snippet for a whole match: the per-line snippets joined when it wraps, so a
         reader sees the phrase rather than the half of it that fitted on the first line."""
         parts = [part for part in (self.snippet(box) for box in boxes) if part]
         return " ".join(parts)
 
-    def _char_lines(self) -> list:
+    def _char_lines(self) -> list[_Line[Char]]:
         """Per-line char index ``(y0, y1, [(x0, y0, x1, y1, char), …])``, built on first use."""
         if self._chars is None:
             self._chars = []
@@ -385,26 +397,26 @@ class PageText:
                                                 max(c[3] for c in chars), chars))
         return self._chars
 
-    def _lines_under(self, box: tuple) -> list[list]:
+    def _lines_under(self, box: Box) -> list[list[Char]]:
         """The characters under ``box``, **grouped by the text line they sit on**, in reading order.
 
         The grouping is the whole point: a box tall enough to cover two lines covers the end of one
         and the start of the next, and those are not adjacent text. Flattening them first is what
         made :meth:`text_under` report ``'TYAGI1703'`` for a mailing block (M97 / TC-005).
         """
-        found: list[list] = []
+        found: list[list[Char]] = []
         for _ly0, _ly1, chars in self._band(self._char_lines(), box):
             inside = [c for c in chars if _centre_inside(c, box)]
             if inside:
                 found.append(inside)
         return found
 
-    def _chars_under(self, box: tuple) -> list:
+    def _chars_under(self, box: Box) -> list[Char]:
         """The character entries whose centres fall inside ``box``, in reading order. Empty for a
         words-only :class:`PageText`, which has no page to take characters from."""
         return [c for line in self._lines_under(box) for c in line]
 
-    def text_under(self, box: tuple) -> str:
+    def text_under(self, box: Box) -> str:
         """The text actually under ``box`` — every character whose centre falls inside it, in
         reading order. See the module docstring for why this is not ``page.get_textbox(box)``.
 
@@ -423,7 +435,7 @@ class PageText:
         """
         return "\n".join("".join(c[4] for c in line) for line in self._lines_under(box))
 
-    def text_under_all(self, boxes: list[tuple]) -> str:
+    def text_under_all(self, boxes: list[Box]) -> str:
         """The text under **any** of ``boxes``, each character counted **once**, lines separated.
 
         Not the same as joining :meth:`text_under` over the boxes, and the difference is the whole

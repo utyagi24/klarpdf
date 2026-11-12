@@ -121,7 +121,7 @@ if TYPE_CHECKING:  # imported where they are built, so a document that needs nei
     from app import PdfApp
     from klarpdf.model.content_marks import ContentMark
     from klarpdf.model.foreign_annots import ForeignAnnot
-    from klarpdf.model.page_edits import Mark
+    from klarpdf.model.page_edits import Mark, PageEdit
     from organize.annotations_panel import AnnotationsPanel
     from organize.outline_panel import OutlinePanel
     from ui.mark_dialog import MarkDialog
@@ -1934,7 +1934,7 @@ class MainWindow(QMainWindow):
         if handler is not None:
             handler()
 
-    def _add_annotation(self, index: int, annotation: object) -> None:
+    def _add_annotation(self, index: int, annotation: PageEdit) -> None:
         """Add an annotation to a page (from the text-box / redact tools) as an undoable command.
 
         A stamp placed while a **page range** is pending (M62's "initials on every page") lands on
@@ -1971,12 +1971,12 @@ class MainWindow(QMainWindow):
         self._note_edit_on(index)
         self.undo_stack.push(RemoveAnnotationCommand(self.vdoc, index, annotation))
 
-    def _replace_annotation(self, index: int, old: object, new: object, text: str | None = None) -> None:
+    def _replace_annotation(self, index: int, old: object, new: PageEdit, text: str | None = None) -> None:
         """Swap an annotation for an updated one (moving / re-editing a text box) — one undo step."""
         self._note_edit_on(index)
         self.undo_stack.push(ReplaceAnnotationCommand(self.vdoc, index, old, new, text))
 
-    def _replace_annotations_batch(self, index: int, pairs: Sequence[tuple[object, object]], text: str) -> None:
+    def _replace_annotations_batch(self, index: int, pairs: Sequence[tuple[object, PageEdit]], text: str) -> None:
         """Swap several annotations on a page as **one** undo step (M59.6 group restyle / move)."""
         self._note_edit_on(index)
         self.undo_stack.beginMacro(text)
@@ -1993,7 +1993,7 @@ class MainWindow(QMainWindow):
         self.undo_stack.endMacro()
 
     def _nudge_annotations(
-        self, index: int, pairs: Sequence[tuple[object, object]], auto_repeat: bool, text: str,
+        self, index: int, pairs: Sequence[tuple[object, PageEdit]], auto_repeat: bool, text: str,
     ) -> None:
         """Arrow-key nudge of an object selection (M78.2): a mergeable command, so a held key's
         auto-repeat sweep is one undo step while each discrete tap is its own."""
@@ -2018,7 +2018,7 @@ class MainWindow(QMainWindow):
             return {}
         return self._text_selection.line_bars()
 
-    def _apply_selection_bars(self, make: Callable[[tuple], object], label: str) -> None:
+    def _apply_selection_bars(self, make: Callable[[tuple], PageEdit], label: str) -> None:
         """Apply a line-bar mark to the current text selection — one continuous bar per line, one
         undo step across the touched pages. ``make(rects)`` builds the descriptor.
 

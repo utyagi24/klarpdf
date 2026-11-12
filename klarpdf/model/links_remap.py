@@ -33,13 +33,14 @@ from typing import TYPE_CHECKING
 import pymupdf as fitz
 
 if TYPE_CHECKING:  # named in annotations only, so nothing more is imported when the code runs
+    from klarpdf.model.destinations import LinkDict
     from klarpdf.model.virtual_document import PageRef, VirtualDocument
 
 # Link kinds that name a page inside the document (so they follow the page through an edit).
 _INTERNAL_KINDS = (fitz.LINK_GOTO, fitz.LINK_NAMED)
 
 
-def internal_link_target(link: dict) -> int | None:
+def internal_link_target(link: LinkDict) -> int | None:
     """The 0-based **source** page a GoTo / named-destination link points at, or ``None`` if the
     link isn't an internal one or its destination doesn't resolve to a page.
 
@@ -104,7 +105,7 @@ def _annot_xrefs(doc: fitz.Document, page_xref: int) -> list[int]:
     return [int(x) for x in re.findall(r"(\d+)\s+\d+\s+R", annots[1])]
 
 
-def _uri_key(link: dict) -> tuple:
+def _uri_key(link: LinkDict) -> tuple[str | None, float, float, float, float]:
     """Identity of a URI link for the dropped-link check: its text + its (rounded) rect —
     rounding absorbs the float noise a copy introduces."""
     r = link["from"]
@@ -129,8 +130,8 @@ def remap_internal_links(out_doc: fitz.Document, vdoc: VirtualDocument) -> None:
     from klarpdf.model.destinations import page_index_map, read_destination, write_destination
 
     target_map = link_target_map(vdoc.ordered)
-    source_dest_maps: dict[str, dict] = {}
-    source_name_memos: dict[str, dict] = {}   # per source: resolved destination names
+    source_dest_maps: dict[str, dict[int, int]] = {}
+    source_name_memos: dict[str, dict[str, str | None]] = {}   # per source: resolved destination names
     for out_index, ref in enumerate(vdoc.ordered):
         out_page = out_doc[out_index]
         out_links = out_page.get_links()  # read once, before the deletes below

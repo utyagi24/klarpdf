@@ -340,7 +340,7 @@ class MarkDialog(QDialog):
         self.angle.setValue(defaults["angle"])
         self.frame.setChecked(bool(defaults.get("frame", False)))
         if not whole_page:
-            self.fontsize.setValue(defaults["fontsize"])
+            self.fontsize.setValue(_STAMP_DEFAULTS["fontsize"])
         for widget in (self._size_label, self.fontsize, self._frame_filler, self.frame):
             widget.setVisible(not whole_page)
         if whole_page:

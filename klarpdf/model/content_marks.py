@@ -38,9 +38,14 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import TypeGuard
+from typing import TYPE_CHECKING, TypedDict, TypeGuard
 
 import pymupdf as fitz
+
+from klarpdf.model.tuples import Color
+
+if TYPE_CHECKING:  # named in annotations only: page_edits imports this module
+    from klarpdf.model.page_edits import PageEdit
 
 # Helvetica-Bold — the stamp face. A base-14 font, so it needs no embedding and renders identically
 # in every viewer (PLAN.md §R4: no cross-renderer calibration).
@@ -146,7 +151,14 @@ def is_content_mark(mark: object) -> TypeGuard[ContentMark]:
 # it prefills only text + colour; whether the mark is a stamp or a watermark is the visible Place
 # choice in the dialog. That is this module's own "Way 2" rule (a preset is a prefill, never a
 # separate code path) applied one level up.
-MARK_PRESETS: dict[str, dict] = {
+class MarkPreset(TypedDict):
+    """What a preset prefills: the mark's text and its colour."""
+
+    text: str
+    color: Color
+
+
+MARK_PRESETS: dict[str, MarkPreset] = {
     "Approved":     {"text": "APPROVED", "color": (0.05, 0.55, 0.20)},
     "Rejected":     {"text": "REJECTED", "color": (0.80, 0.10, 0.10)},
     "Reviewed":     {"text": "REVIEWED", "color": (0.10, 0.35, 0.75)},
@@ -160,7 +172,17 @@ MARK_PRESETS: dict[str, dict] = {
 # What "over the whole page" means as style: translucent, diagonal, unframed and *under* the
 # content. The watermark look, expressed as defaults on the one descriptor rather than as a second
 # kind of mark — which is the whole argument for one engine.
-WHOLE_PAGE_DEFAULTS: dict = {
+class WholePageStyle(TypedDict):
+    """The style fields a whole-page mark starts with."""
+
+    color: Color
+    border_width: float
+    angle: float
+    opacity: float
+    under: bool
+
+
+WHOLE_PAGE_DEFAULTS: WholePageStyle = {
     "color": (0.45, 0.45, 0.50),
     "border_width": 0.0,     # a frame around the page edge reads as a border, not a mark
     "angle": 45.0,     # north-east: counter-clockwise positive (M69.9)
@@ -520,7 +542,7 @@ def _draw_text(page: fitz.Page, box: fitz.Rect, mark: Stamp) -> None:
     )
 
 
-def apply_content_marks(page: fitz.Page, marks: tuple) -> None:
+def apply_content_marks(page: fitz.Page, marks: tuple[PageEdit, ...]) -> None:
     """Bake every content mark in ``marks`` into ``page``'s content stream (materialise + render).
 
     Runs **after** :func:`model.page_edits.apply_redactions` — a redaction rewrites the page content

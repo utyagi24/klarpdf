@@ -237,6 +237,13 @@ disallow_untyped_defs = true
 # value PyMuPDF's own code gives it. A rect's `x0` is a `float`, where it was unknown (M172.2).
 check_untyped_defs = true
 
+# A `tuple`, `dict` or `list` in a type says what it holds (M174). Without this, mypy checks nothing
+# done with what is taken out of one. On for the core so far: M174.2 adds the bridge, and M174.3
+# the app, which moves it up to the settings above.
+[[tool.mypy.overrides]]
+module = ["klarpdf.model.*", "klarpdf.util.*"]
+disallow_any_generics = true
+
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

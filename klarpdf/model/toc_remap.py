@@ -7,15 +7,24 @@ can orphan its children and leave a level jump that ``Document.set_toc`` rejects
 **repair the level sequence** (start at 1, never jump by more than +1) while preserving the
 relative nesting of the entries that remain.
 
-Pure functions over plain lists — the one import is a string constant, so there is still no
+Pure functions over plain lists — the one import from the engine is a string constant, so there is still no
 PyMuPDF dependency here and this stays trivially unit-testable.
 """
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
 from klarpdf.model.destinations import RAW_TAIL_KEY
 
-TocEntry = list  # [level:int, title:str, page:int(1-based), dest:dict|None]
+if TYPE_CHECKING:  # named in annotations only, so nothing more is imported when the code runs
+    from klarpdf.model.destinations import Destination, LinkDict
+
+#: One outline row, as ``get_toc(simple=False)`` gives it and ``set_toc`` takes it:
+#: ``[level, title, page, dest]``, with ``page`` 1-based and ``dest`` a :data:`LinkDict` or absent.
+#: Its items have different types, which a list type cannot name one by one, so they are ``Any``
+#: (M174).
+TocEntry = list[Any]
 
 # ``fitz.LINK_GOTO``, written as its value so this module keeps the no-PyMuPDF property its
 # docstring claims. A test pins it against the library, so a constant that ever stopped matching
@@ -23,7 +32,7 @@ TocEntry = list  # [level:int, title:str, page:int(1-based), dest:dict|None]
 _LINK_GOTO = 1
 
 
-def bake_dest(dest: dict | None, new0: int, tail: str | None = None) -> dict | None:
+def bake_dest(dest: LinkDict | None, new0: int, tail: str | None = None) -> LinkDict | None:
     """``dest`` re-pointed at output page ``new0`` (0-based), in a form ``set_toc`` can write.
 
     ``tail`` is the destination as the **file** spells it, read by :mod:`model.destinations`. When
@@ -90,7 +99,7 @@ def repair_levels(levels: list[int]) -> list[int]:
 
 
 def remap_toc(
-    toc: list[TocEntry], index_map: dict[int, int], dests: list | None = None
+    toc: list[TocEntry], index_map: dict[int, int], dests: list[Destination | None] | None = None
 ) -> list[TocEntry]:
     """Remap an outline to new page indices, dropping dangling entries.
 

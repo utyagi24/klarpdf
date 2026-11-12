@@ -34,6 +34,7 @@ from __future__ import annotations
 import hashlib
 import re
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import pymupdf as fitz
 
@@ -50,13 +51,17 @@ from klarpdf.model.pymupdf_constants import (
     PDF_ANNOT_UNDERLINE,
 )
 
+if TYPE_CHECKING:  # named in annotations only: PageEdit is a name for the type checker alone
+    from klarpdf.model.page_edits import PageEdit
+    from klarpdf.model.tuples import Color
+
 # Rect rounding for the fallback fingerprint. Coordinates survive a copy but not bit-exactly (they
 # go out and back through PDF's decimal floats), so the hash must agree to within a hair. A tenth of
 # a point is far below anything a user could place by hand and far above the round-trip noise.
 _RECT_PRECISION = 1
 
 
-def _rect_key(rect: fitz.Rect) -> tuple:
+def _rect_key(rect: fitz.Rect) -> tuple[float, ...]:
     return tuple(round(value, _RECT_PRECISION) for value in (rect.x0, rect.y0, rect.x1, rect.y1))
 
 
@@ -311,6 +316,26 @@ def is_adoptable(annot: fitz.Annot) -> bool:
     return annot.type[0] in MODELED_KINDS
 
 
+def _default_color_name(kind: int) -> str | None:
+    """The name of the colour a mark of ``kind`` is given when its file gives it none, or ``None``
+    for a kind whose model can hold no colour (a shape's border, a text box's fill)."""
+    from klarpdf.model.markup_palette import nearest_name
+    from klarpdf.model.page_edits import Highlight, InkStroke, Line, Strikeout, Underline
+
+    defaults: dict[int, tuple[Color, str | None]] = {
+        PDF_ANNOT_HIGHLIGHT: (Highlight.color, "highlight"),
+        PDF_ANNOT_UNDERLINE: (Underline.color, "underline"),
+        PDF_ANNOT_STRIKE_OUT: (Strikeout.color, "strikeout"),
+        PDF_ANNOT_INK: (InkStroke.color, None),
+        PDF_ANNOT_LINE: (Line.color, None),
+    }
+    if kind not in defaults:
+        return None
+    color, palette = defaults[kind]
+    name = nearest_name(color, palette)
+    return name.lower() if name else "the default colour"
+
+
 def degradations(annot: fitz.Annot) -> list[str]:
     """Features this annotation carries that adoption would **lose**, in plain words.
 
@@ -365,6 +390,18 @@ def degradations(annot: fitz.Annot) -> list[str]:
     # edit drew the plain border without saying so.
     if (annot.border or {}).get("clouds", -1) > 0:
         lost.append("its cloud-shaped edge")
+    # Colour (M174.1, #398). A mark holds RGB only. A grey comes through exactly, but a
+    # printing-ink (CMYK) colour becomes the RGB it is drawn in, and the ink value itself is lost.
+    # A text box can also give its text an ink colour, in `/DA`.
+    colors = annot.colors or {}
+    da_tokens = doc.xref_get_key(annot.xref, "DA")[1].split() if kind == PDF_ANNOT_FREE_TEXT else []
+    if any(len(colors.get(key) or ()) == 4 for key in ("stroke", "fill")) or "k" in da_tokens:
+        lost.append("its printing-ink colour (it will become the screen colour it is drawn in)")
+    # A mark of these kinds always has a colour in the model, so one with none gets the default.
+    # A shape with no border colour keeps having no border (M155), and a text box no fill.
+    default = _default_color_name(kind)
+    if default is not None and not colors.get("stroke"):
+        lost.append(f"its lack of colour (it will become {default})")
     # Opacity: only the drawn types carry /CA in the model (M59.9); the text-markup descriptors and
     # TextBox have no opacity field, so a translucent one would come back solid.
     if kind not in _DRAWN_KINDS:
@@ -412,7 +449,7 @@ def find_annotation(page: fitz.Page, target_fingerprint: str) -> fitz.Annot | No
     return None
 
 
-def apply_foreign_edits(page: fitz.Page, annotations: tuple) -> tuple[int, int]:
+def apply_foreign_edits(page: fitz.Page, annotations: tuple[PageEdit, ...]) -> tuple[int, int]:
     """Apply this page's foreign-annotation deletions and moves. Returns ``(deleted, moved)``.
 
     Runs on the **materialised output page**, never a shared source.
@@ -432,7 +469,7 @@ def apply_foreign_edits(page: fitz.Page, annotations: tuple) -> tuple[int, int]:
     drag/paste. Failing the save over a missing annotation would be much worse.
     """
     deletions: dict[str, int] = {}
-    moves: dict[str, list] = {}
+    moves: dict[str, list[ForeignMove]] = {}
     for mark in annotations:
         if isinstance(mark, ForeignDeletion):
             deletions[mark.fingerprint] = deletions.get(mark.fingerprint, 0) + 1

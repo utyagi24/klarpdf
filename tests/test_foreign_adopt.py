@@ -27,7 +27,8 @@ from klarpdf.model.foreign_annots import (
     is_adoptable,
     read_foreign_annotations,
 )
-from klarpdf.model.page_edits import KLARPDF_AUTHOR, Shape, TextBox
+from klarpdf.model.markup_palette import as_rgb
+from klarpdf.model.page_edits import KLARPDF_AUTHOR, Highlight, Shape, TextBox
 from klarpdf.model.virtual_document import VirtualDocument
 from main_window import MainWindow
 from store.settings import Settings
@@ -388,6 +389,131 @@ def test_a_freetext_adopts_as_an_editable_text_box(tmp_path, app):
         boxes = [a for a in window.vdoc.page_annotations(0) if isinstance(a, TextBox)]
         assert len(boxes) == 1
         assert boxes[0].text == "someone else's note"
+    finally:
+        window.undo_stack.setClean()
+        window.close()
+
+
+# ---- colours a mark cannot hold as they are (M174.1, #398) ----------------------
+#
+# A PDF colour has one value (grey), three (RGB) or four (printing ink), and a mark holds RGB only.
+# Kept as the file gave them, an adopted grey mark stopped every mark on its page drawing, and an
+# ink one was drawn see-through. A grey converts exactly; an ink colour becomes the RGB it is drawn
+# in, and the warning says so. A mark with no colour gets the default one, and the warning says so.
+
+_GREY = (0.5,)
+_INK_RED = (0.0, 1.0, 1.0, 0.0)
+
+
+def _coloured(kind, stroke=None, fill=None):
+    """A single foreign annotation of ``kind`` whose colours are set after it is drawn."""
+    doc, page, annot = _one(None, kind, (60, 292, 160, 306) if kind in ("highlight", "underline")
+                            else (60, 200, 160, 260))
+    if stroke is not None:
+        doc.xref_set_key(annot.xref, "C", "[" + " ".join(str(v) for v in stroke) + "]")
+    if fill is not None:
+        doc.xref_set_key(annot.xref, "IC", "[" + " ".join(str(v) for v in fill) + "]")
+    return doc, page, annot
+
+
+@pytest.mark.parametrize("kind", ["square", "highlight", "underline", "line", "ink"])
+def test_an_adopted_grey_keeps_its_grey_exactly_and_says_nothing(kind):
+    doc, page, annot = _coloured(kind, stroke=_GREY)
+    try:
+        assert adopt_annotation(annot).color == (0.5, 0.5, 0.5)
+        assert not any("colour" in item for item in degradations(annot))
+    finally:
+        doc.close()
+
+
+@pytest.mark.parametrize("kind", ["square", "highlight", "underline", "line", "ink"])
+def test_an_adopted_ink_colour_is_the_colour_it_is_drawn_in_and_is_reported(kind):
+    doc, page, annot = _coloured(kind, stroke=_INK_RED)
+    try:
+        assert adopt_annotation(annot).color == as_rgb(_INK_RED)
+        assert as_rgb(_INK_RED) == pytest.approx((0.93, 0.11, 0.14), abs=0.01)   # red, as drawn
+        assert ("its printing-ink colour (it will become the screen colour it is drawn in)"
+                in degradations(annot))
+    finally:
+        doc.close()
+
+
+def test_a_shapes_grey_or_ink_fill_is_converted():
+    doc, page, annot = _coloured("square", fill=_GREY)
+    try:
+        assert adopt_annotation(annot).fill_color == (0.5, 0.5, 0.5)
+    finally:
+        doc.close()
+    doc, page, annot = _coloured("square", fill=_INK_RED)
+    try:
+        assert adopt_annotation(annot).fill_color == as_rgb(_INK_RED)
+        assert any("printing-ink" in item for item in degradations(annot))
+    finally:
+        doc.close()
+
+
+def test_a_text_boxs_ink_text_colour_is_converted_and_reported():
+    """A text box gives its text a colour in ``/DA``, where ink is the ``k`` operator."""
+    doc, page, annot = _one(None, "freetext", (60, 200, 260, 260), "text")
+    try:
+        doc.xref_set_key(annot.xref, "DA", fitz.get_pdf_str("0 1 1 0 k /Helv 12 Tf"))
+        assert adopt_annotation(annot).color == as_rgb(_INK_RED)
+        assert any("printing-ink" in item for item in degradations(annot))
+    finally:
+        doc.close()
+
+
+def test_a_text_boxs_grey_fill_is_converted():
+    doc = fitz.open()
+    page = doc.new_page()
+    annot = page.add_freetext_annot(fitz.Rect(60, 200, 260, 260), "boxed", fill_color=(0.5, 0.5, 0.5))
+    annot.set_info(title="Alice")
+    annot.update()
+    try:
+        doc.xref_set_key(annot.xref, "C", "[0.5]")      # the drawing still paints the fill
+        assert adopt_annotation(annot).fill_color == (0.5, 0.5, 0.5)
+    finally:
+        doc.close()
+
+
+@pytest.mark.parametrize(("kind", "becomes"), [("highlight", "yellow"), ("underline", "red"),
+                                               ("line", "red"), ("ink", "red")])
+def test_a_mark_with_no_colour_is_reported(kind, becomes):
+    doc, page, annot = _coloured(kind, stroke=())
+    try:
+        assert f"its lack of colour (it will become {becomes})" in degradations(annot)
+    finally:
+        doc.close()
+
+
+def test_a_shape_with_no_border_colour_is_not_reported():
+    """It keeps having no border (M155), so nothing is lost."""
+    doc, page, annot = _coloured("square", stroke=())
+    try:
+        assert not any("colour" in item for item in degradations(annot))
+    finally:
+        doc.close()
+
+
+def test_adopting_a_grey_mark_keeps_the_page_drawing(tmp_path, app, monkeypatch):
+    """The defect a reader saw (#398): the page's marks stopped drawing after the adoption."""
+    path = str(tmp_path / "grey.pdf")
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((60, 300), "some text", fontsize=12)
+    annot = _foreign(page, "highlight", (60, 292, 160, 306))
+    doc.xref_set_key(annot.xref, "C", "[0.5]")
+    doc.save(path)
+    doc.close()
+
+    window = MainWindow(app, path, app.settings)
+    monkeypatch.setattr(MainWindow, "_confirm_degrade", lambda self, mark, lost: True)
+    try:
+        mark = window.view.annotations.foreign_annotations(0)[0]
+        assert window._adopt_foreign_annotation(0, mark) is True
+        window.view.reload()                  # raised on every redraw before the fix
+        highlights = [a for a in window.vdoc.page_annotations(0) if isinstance(a, Highlight)]
+        assert [h.color for h in highlights] == [(0.5, 0.5, 0.5)]
     finally:
         window.undo_stack.setClean()
         window.close()

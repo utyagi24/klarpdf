@@ -39,10 +39,17 @@ from __future__ import annotations
 import re
 from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:  # named in annotations only, so nothing more is imported when the code runs
     import pymupdf as fitz
+
+    from klarpdf.model.toc_remap import TocEntry
+
+#: A link, or a bookmark's destination, as PyMuPDF reports it: ``kind``, ``page``, ``to``, ``uri``
+#: and so on. What type a value has depends on its key and on the kind of link, and PyMuPDF does
+#: not say, so the values are ``Any`` (M174).
+LinkDict = dict[str, Any]
 
 #: The destination verbs that state a vertical position, and where it sits in their argument list.
 #: ``/Fit``, ``/FitB``, ``/FitV`` and ``/FitBV`` are absent on purpose — they name no top, so a
@@ -226,7 +233,7 @@ def _pdf_text(token: str) -> str:
     return token
 
 
-def _unescape(match: re.Match) -> str:
+def _unescape(match: re.Match[str]) -> str:
     """One backslash escape inside a PDF literal string.
 
     The octal check is ``in "01234567"`` rather than ``isdigit()``, which accepts digits from other
@@ -288,7 +295,7 @@ def _lookup(text: str, name: str) -> str | None:
     return None
 
 
-def _named_destination(doc: fitz.Document, name: str, memo: dict | None = None) -> str | None:
+def _named_destination(doc: fitz.Document, name: str, memo: dict[str, str | None] | None = None) -> str | None:
     """The raw destination array a destination *name* stands for, or ``None``.
 
     ``memo`` is a per-document ``{name: result}`` cache. Without it every link re-reads and
@@ -360,7 +367,7 @@ def _name_tree_lookup(doc: fitz.Document, root: int, name: str, depth: int = 0) 
 
 
 def read_destination(
-    doc: fitz.Document, xref: int, page_of_xref: dict[int, int], names: dict | None = None
+    doc: fitz.Document, xref: int, page_of_xref: dict[int, int], names: dict[str, str | None] | None = None
 ) -> Destination | None:
     """The destination of the outline item or link annotation at ``xref``, or ``None``.
 
@@ -481,11 +488,11 @@ def read_outline_destinations(doc: fitz.Document, toc_length: int) -> list[Desti
     if len(items) != toc_length:
         return []
     page_of_xref = page_index_map(doc)
-    names: dict = {}
+    names: dict[str, str | None] = {}
     return [read_destination(doc, item, page_of_xref, names) for item in items]
 
 
-def carried_tail(entry: list) -> str | None:
+def carried_tail(entry: TocEntry) -> str | None:
     """The destination a :meth:`~model.virtual_document.VirtualDocument.remapped_toc` row carries.
 
     ``None`` when the row names no spot on its page — a bookmark the document wrote as "open this
@@ -526,7 +533,7 @@ def xyz_tail(page: fitz.Page, top: float) -> str:
     return f"/XYZ null {pdf_top(page, top):.6g} 0"
 
 
-def apply_outline_destinations(doc: fitz.Document, toc: list) -> int:
+def apply_outline_destinations(doc: fitz.Document, toc: list[TocEntry]) -> int:
     """Write each row's carried destination over the one ``set_toc`` just wrote. Returns how many.
 
     Called straight after ``Document.set_toc(toc)`` with the **same list**, so row *i* and outline
