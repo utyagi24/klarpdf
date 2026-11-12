@@ -12354,7 +12354,7 @@ they hold, so the app's count barely grew. 2 of the app's 155 are a page's marks
   Names used for two things in one function. And a set of checks, all of a kind: a part that might be empty
   is now checked where it is used.
 
-### M174 — lists that say what they hold (M174.1 built 2026-11-11)
+### M174 — lists that say what they hold (M174.1 and M174.2 built 2026-11-11)
 
 **Three parts, one PR each (owner, 2026-11-11).**
 
@@ -12474,6 +12474,82 @@ which draws nothing and became red after an edit, with no warning.
 * **Caught.** #398, a defect a user could see, reported two months earlier. A check in the
   Annotations panel that did nothing until now. And the four places that took `object` for a page's
   marks, because there was no name for them.
+
+**M174.2: the bridge (built 2026-11-11).** *Surfaces: bridge.* mypy now refuses a bare `tuple`,
+`dict` or `list` in all of `klarpdf/`. 156 cleared, with no suppression. Agents receive exactly the
+replies they received before, measured below. Three answers to malformed input change.
+
+**What it adds.**
+
+* `klarpdf/mcp_bridge/replies.py` names every field of every reply, as `TypedDict`s: 23 tools, and
+  the entries their lists hold. A field sent only sometimes is `NotRequired`. It is imported for
+  type checking only.
+* **The redaction reply is the exception.** It is put together from parts (`_merged`): the write,
+  its verification, the residual scans, the image report and what the call adds. So one type,
+  `RedactionReport`, names every field any part holds, and all are optional. What it checks is that
+  no part writes a field that is not there, or of the wrong type. `_merged` itself is written with
+  `update`, which mypy can follow, and keeps the same key order and the joined warnings.
+* **The tools keep `-> dict[str, Any]`** and hand their reply over through `server._sent`, a
+  `cast` and nothing more. This is the decision of 2026-11-11 above: the MCP library builds the
+  reply schema from the tool's own type, and a `TypedDict` there would drop the schema and the
+  structured copy of every reply.
+* **What an agent sends is `object` until the code checks it.** `marks`, `regions`, `entries` and
+  `values` are `list[dict[str, object]]` and `dict[str, object]`, which give the same input schemas
+  as before. `resolve_pages` and `set_outline_override` already checked each value, and now say so
+  in their types.
+* Internal names: `_Table`, `_Unread` and `_TableFound` in `tables.py`, which keep the keys that
+  start with `_` out of a reply; `_Expectation`, `_QueryStats` and `_Partial` in `redaction.py`;
+  `_OutlineIn` in `transforms.py`; `_StyleKey` in `headings.py`.
+* `tests/test_no_dead_code.py` skips the fields of a `TypedDict`. Code reads a field by its key,
+  as a string, and vulture matches names only, so it reported all 80 as unused variables. A
+  `TypedDict` class nothing uses is still reported, because that finding is on the class.
+
+**What typing the agent's input found.** Three answers to malformed input. In each, nothing wrong
+was written, except the second, where a box nobody meant was redacted.
+
+* **`set_outline` with `page: "3"`** answered with Python's own *unsupported operand type(s) for -:
+  'str' and 'int'*. `_tops_outside_their_page` subtracted from the page before anything checked it.
+  It now skips a page that is not a whole number, and `set_outline_override` refuses it with its
+  own reason: *page must be an integer*.
+* **`redact_regions` with `box: "1234"`** read the string as four numbers, one per character, and
+  redacted the box `(1, 2, 3, 4)`. `annotate` did the same. `box: 5` and `box: ["a", 1, 2, 3]` got
+  Python's own errors from `redact_regions`.
+* **`boxes: "ab"`** was read as two boxes, one per character.
+
+Both tools now read a box through one function, `queries.parse_box`. It takes a list of four
+numbers and nothing else, and refuses with the message `annotate` already gave: *box must be four
+numbers*. `boxes` that is not a list is refused as such.
+
+**Two more changes in code that runs**, each with no change in what it does: `_recode_report` used
+`now` for an image's new encoding and then for the total of new sizes, and the totals are renamed;
+`_banner_title` reads the banner once and returns early if there is none, which its one caller
+already checks.
+
+**Verified by breaking it, and by comparison** (M174.2).
+
+* **The replies, over the corpus.** A script called every tool on the 114 corpus documents under
+  8 MB: the reads over pages 1-3, and the writes on 11 of them, with one `annotate` call that
+  sends a wrong mark type. It stored a hash of each reply, never its text, because the corpus holds private
+  documents. Before and after: the tool list (descriptions, input schemas, reply schemas) is
+  identical, and 1,407 of 1,408 replies are identical. The one that differs, a `delete_pages`
+  reply, also differed between two runs of the unchanged code.
+* mypy failed on a bare `list` and `dict` planted in `klarpdf/mcp_bridge/`, and on a reply with a
+  misspelt field (`Extra key "has_text_layr" for TypedDict "InfoReply"`).
+* The new tests for malformed input fail on the old code, except two: `annotate` already refused a
+  box of `5` and one holding a word.
+* The dead-code test's skip, turned off, fails both its planted check and the real scan. The
+  planted check shows what it still reports: an unused `TypedDict` class, an unused class attribute
+  and an unused variable.
+* The bridge's tests and the project's rule tests pass locally. The full suite was not run
+  locally: the change reaches no code in `klarpdf/model/`, `klarpdf/util/` or the app.
+
+**What M174.2 cost and what it caught.**
+
+* **Cost.** 156 findings in 7 files. One new module of types, and a rewrite of three helpers so
+  mypy can follow them (`_result`, `_merged`, `_public`). One skip in the dead-code test. No
+  suppression.
+* **Caught.** No defect in any reply. Three answers to malformed input, one of which redacted a box
+  nobody asked for. And a name used for two things.
 
 ## Future enhancements (deferred beyond the roadmap)
 

@@ -256,9 +256,12 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   and `PageEdit` for anything a page's marks list holds), and for a box, a point, a colour and a
   word (`Box`, `Point`, `Color`, `Word` in `klarpdf/model/tuples.py`). Use `object` only where a
   function is written to take anything. A `tuple`, `dict` or `list` in a type says what it holds,
-  and mypy refuses one that does not (M174; so far in `klarpdf/model/` and `klarpdf/util/`). `Any`
-  is for PyMuPDF's own outline rows and link dicts, whose items change type, under the names
-  `TocEntry` and `LinkDict`. A module that loads no Qt
+  and mypy refuses one that does not (M174; so far in `klarpdf/`). `Any` is for PyMuPDF's own
+  outline rows and link dicts, whose items change type, under the names `TocEntry` and `LinkDict`.
+  A bridge reply names every field, in `klarpdf/mcp_bridge/replies.py`. A tool still says it returns
+  `dict[str, Any]` and hands its reply over through `_sent`, because the MCP library builds each
+  tool's reply schema from that type and drops it for a name it cannot resolve (M174.2). What an
+  agent sends is `object` until the code checks it. A module that loads no Qt
   (`viewer/links.py`, `viewer/pixmap_cache.py`) imports its Qt names for type checking only,
   under `if TYPE_CHECKING:`. `tests/test_mcp_no_qt.py` fails if `viewer/links.py` loads Qt.
   `invoke lint --fix` also sorts imports and makes Ruff's other safe fixes. A line over 120
@@ -282,7 +285,9 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   a test of a helper the app never calls checks nothing a user does. Whitelist it in
   `tests/dead_code_whitelist.py`, with the reason, only when something vulture cannot see calls it
   (Qt by name, the MCP SDK), or when it is a read-only accessor the tests observe state through.
-  An MCP tool needs no entry. A deletion often frees something else: run the test again.
+  An MCP tool needs no entry, and neither does a field of a `TypedDict`: code reads it by its key,
+  which vulture cannot see, so the test skips it (M174.2). A deletion often frees something else:
+  run the test again.
 - **Compare, don't guess.** Before adding a rule that decides something about a document, ask
   whether it compares two things the page actually shows and answers yes or no, or guesses from what
   documents usually look like — a threshold, a tuned distance, a shape filter. Guesses get beaten by

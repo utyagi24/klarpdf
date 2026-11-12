@@ -43,10 +43,11 @@ import json
 import os
 from collections import Counter
 from collections.abc import Collection, Sequence
+from typing import TYPE_CHECKING
 
 import pymupdf as fitz
 
-from klarpdf.mcp_bridge.queries import _page_of, open_document, resolve_pages
+from klarpdf.mcp_bridge.queries import _page_of, open_document, parse_box, resolve_pages
 from klarpdf.mcp_bridge.transforms import _resolve_out, _write
 from klarpdf.model.markup_palette import (
     color_for_name,
@@ -76,6 +77,11 @@ from klarpdf.model.pymupdf_constants import (
     PDF_PERM_ANNOTATE,
 )
 from klarpdf.model.virtual_document import VirtualDocument
+
+if TYPE_CHECKING:  # named in annotations only
+    from klarpdf.mcp_bridge.replies import AnnotateReply, AnnotationEntry, AnnotationsReply
+    from klarpdf.model.page_edits import PageEdit
+    from klarpdf.model.tuples import Box
 
 # The three mark types this tool writes, by the name a caller uses. The model has six more —
 # ink, line, rect, ellipse, text box, stamp — and they are deliberately not here: they are drawing
@@ -141,7 +147,7 @@ _NOTE_BUDGET_SHARE = 0.5
 _NOTE_ELLIPSIS = " […]"
 
 
-def _fit(entry: dict, budget: int) -> dict:
+def _fit(entry: AnnotationEntry, budget: int) -> AnnotationEntry:
     """``entry`` with its ``note`` cut down if the entry alone would blow ``budget`` (M118).
 
     Returns the entry unchanged when it fits, which is the overwhelmingly common case. When it does
@@ -182,7 +188,7 @@ def _quads_to_boxes(vertices: Sequence[Sequence[float]]) -> list[list[float]]:
     return boxes
 
 
-def _lines_of(boxes: list[tuple]) -> list[tuple]:
+def _lines_of(boxes: list[Box]) -> list[Box]:
     """``boxes`` folded to one union box per text line (M118).
 
     Only for building a mark's ``snippet``. A mark's boxes are usually one per line, but they need
@@ -206,10 +212,10 @@ def _lines_of(boxes: list[tuple]) -> list[tuple]:
                 break
         else:
             lines.append(list(box))
-    return [tuple(line) for line in lines]
+    return [(line[0], line[1], line[2], line[3]) for line in lines]
 
 
-def _describe(annot: fitz.Annot, page1: int, text: PageText) -> dict:
+def _describe(annot: fitz.Annot, page1: int, text: PageText) -> AnnotationEntry:
     """One raw annotation → the JSON an agent reads.
 
     ``boxes`` is the field that has to be right: it is in the same **unrotated page-point space**
@@ -238,7 +244,7 @@ def _describe(annot: fitz.Annot, page1: int, text: PageText) -> dict:
     color = [round(float(c), 4) for c in stroke] if stroke else None
     info = annot.info or {}
     author = info.get("title") or ""
-    described = {
+    described: AnnotationEntry = {
         "page": page1,
         "type": name,
         "boxes": [[round(v, 2) for v in box] for box in boxes],
@@ -278,7 +284,7 @@ def get_annotations(
     max_annotations: int = MAX_ANNOTATIONS,
     max_chars: int = MAX_ANNOTATION_CHARS,
     offset: int = 0,
-) -> dict:
+) -> AnnotationsReply:
     """Every annotation on ``pages`` (default: all), in document order.
 
     Reports foreign marks alongside ours — a reviewer does not care who wrote a comment, and the
@@ -300,7 +306,7 @@ def get_annotations(
         indices = resolve_pages(vdoc, pages)
         # Every annotation in scope is described before either cap is applied — `total_annotations`
         # has to be an honest count of what is actually there, not merely "more than the cap".
-        all_found: list[dict] = []
+        all_found: list[AnnotationEntry] = []
         for index0 in indices:
             page = _page_of(vdoc, index0)
             text = None            # built lazily: most pages in a large scan carry no markup at all
@@ -311,7 +317,7 @@ def get_annotations(
                     text = PageText(page)
                 all_found.append(_describe(annot, index0 + 1, text))
         total = len(all_found)
-        found: list[dict] = []
+        found: list[AnnotationEntry] = []
         used = 0
         for described in all_found[offset:]:
             if len(found) >= max_annotations:
@@ -328,7 +334,7 @@ def get_annotations(
             found.append(entry)
             used += size
         more_available = offset + len(found) < total
-        result = {
+        result: AnnotationsReply = {
             "count": len(found),
             "total_annotations": total,
             "offset": offset,
@@ -381,28 +387,20 @@ def _resolve_color(raw: object, mark_type: str) -> tuple[float, float, float] | 
     raise ValueError(f"color must be a palette name or [r, g, b]; got {raw!r}")
 
 
-def _mark_boxes(mark: dict) -> list[tuple]:
+def _mark_boxes(mark: dict[str, object]) -> list[Box]:
     """The boxes of one requested mark, validated. Accepts ``box`` or ``boxes``, as
     ``redact_regions`` does — a ``search`` hit carries ``boxes`` and goes back in whole."""
     if "box" in mark and "boxes" in mark:
         raise ValueError(f"a mark takes 'box' or 'boxes', not both; got {mark!r}")
     if "box" not in mark and "boxes" not in mark:
         raise ValueError(f"each mark needs 'box' or 'boxes'; got {mark!r}")
-    raw = [mark["box"]] if "box" in mark else list(mark["boxes"])
+    given = [mark["box"]] if "box" in mark else mark["boxes"]
+    if not isinstance(given, (list, tuple)):
+        raise ValueError(f"'boxes' must be a list of [x0, y0, x1, y1]; got {given!r}")
+    raw = list(given)
     if not raw:
         raise ValueError(f"mark {mark!r} carries no boxes")
-    boxes = []
-    for entry in raw:
-        try:
-            box = tuple(float(v) for v in entry)
-        except (TypeError, ValueError):
-            raise ValueError(f"box must be four numbers; got {entry!r}") from None
-        if len(box) != 4:
-            raise ValueError(f"box must be [x0, y0, x1, y1]; got {list(entry)!r}")
-        if box[0] >= box[2] or box[1] >= box[3]:
-            raise ValueError(f"box {list(box)} is empty or inverted")
-        boxes.append(box)
-    return boxes
+    return [parse_box(entry) for entry in raw]
 
 
 _KIND_TO_PDF_TYPE = {
@@ -455,12 +453,12 @@ def _foreign_authors_over(page: fitz.Page, kind: str, boxes: Collection[Sequence
 
 def annotate(
     path: str,
-    marks: list[dict],
+    marks: list[dict[str, object]],
     out: str,
     *,
     password: str | None = None,
     overwrite: bool = False,
-) -> dict:
+) -> AnnotateReply:
     """Write text markup onto a copy of ``path``.
 
     Each mark is ``{"type", "page", "boxes"}`` plus an optional ``color`` and ``note``. Every mark
@@ -490,7 +488,7 @@ def annotate(
     with open_document(path, password) as vdoc:
         touched: set[int] = set()
         before: dict[int, int] = {}
-        requested_boxes: dict[tuple[int, str], list] = {}
+        requested_boxes: dict[tuple[int, str], list[Box]] = {}
         foreign_overlaps: list[str] = []
         for mark in marks:
             if not isinstance(mark, dict):
@@ -543,7 +541,7 @@ def annotate(
                 for other in a["boxes"]
             )
         ]
-        result = {
+        result: AnnotateReply = {
             "out": target,
             "source": os.path.abspath(path),
             "source_unchanged": True,
@@ -557,7 +555,7 @@ def annotate(
             "marks_added": sum(after[i] - before[i] for i in sorted(touched)),
             "annotations": touched_annotations,
         }
-        warnings = []
+        warnings: list[str] = []
         if permission_warning:
             warnings.append(permission_warning)
         if foreign_overlaps:
@@ -598,8 +596,8 @@ def _already_present(existing: str, note: str) -> bool:
 
 
 def _attach_note(
-    annotations: tuple, mark_class: type[TextMarkup], boxes: Collection[Sequence[float]], note: str
-) -> tuple:
+    annotations: tuple[PageEdit, ...], mark_class: type[TextMarkup], boxes: Collection[Sequence[float]], note: str
+) -> tuple[PageEdit, ...]:
     """``annotations`` with ``note`` set on the mark that ``merge_markup`` just produced.
 
     The survivor is the last mark of its type overlapping ``boxes`` — ``merge_markup`` inserts at

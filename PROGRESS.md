@@ -1446,8 +1446,14 @@ parts, and the box here is ticked on merge. Build in number order, except that M
     to the RGB they are drawn in, and the Adopt warning lists a lost ink colour and a mark with no
     colour. *Core, bridge and app.* Details in `PLAN.md` §M174 —
     [#457](https://github.com/utyagi24/klarpdf/pull/457)
-  - [ ] **M174.2** **The bridge.** 156 findings. Every reply's fields named, and agents receive
-    exactly what they receive today (owner, 2026-11-11). *Bridge*
+  - [x] **M174.2** **The bridge.** mypy refuses a bare `tuple`, `dict` or `list` in all of
+    `klarpdf/`. 156 cleared, with no suppression. Every field of every reply is named, in
+    `klarpdf/mcp_bridge/replies.py`, and agents receive exactly the replies they received before
+    (owner decision): over 114 corpus documents, the tool list and 1,407 of 1,408 replies are
+    identical, and the other one varies between runs of the same code. Typing what agents send found
+    three bad answers to malformed input, now fixed: `set_outline` with `page: "3"` and
+    `redact_regions` with `box: 5` gave Python's own errors, and a box sent as `"1234"` was read as
+    four numbers and redacted. *Bridge.* Details in `PLAN.md` §M174
   - [ ] **M174.3** **The app.** 155 findings, and the rule moves up to cover everything. *App*
 
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)

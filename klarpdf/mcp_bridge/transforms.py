@@ -33,7 +33,7 @@ from __future__ import annotations
 import os
 import tempfile
 from collections.abc import Callable, Iterable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict
 
 from klarpdf.mcp_bridge.queries import open_document, resolve_pages
 from klarpdf.model.edit_engine import PyMuPDFEngine
@@ -41,8 +41,44 @@ from klarpdf.model.virtual_document import PageRef, VirtualDocument
 from klarpdf.util.atomic import atomic_replace
 from klarpdf.util.paths import normalize_path
 
-if TYPE_CHECKING:  # named in an annotation only; the module is imported where it is used
+if TYPE_CHECKING:  # named in annotations only; the module is imported where it is used
+    from klarpdf.mcp_bridge.replies import (
+        DeleteReply,
+        ExportImagesReply,
+        ExtractPagesReply,
+        FillFormReply,
+        FlattenReply,
+        LevelChange,
+        MergeReply,
+        ReorderReply,
+        RotateReply,
+        SetOutlineReply,
+        SplitPart,
+        SplitReply,
+        TopOutsideItsPage,
+        WriteReply,
+        XfaInfo,
+    )
     from klarpdf.model.page_edits import FormField
+    from klarpdf.model.toc_remap import TocEntry
+
+
+class _OutlineIn(TypedDict):
+    """One entry of ``set_outline``'s ``entries``, with the keys checked and the values not.
+
+    The values are the agent's, as sent. ``set_outline_override`` checks each one, so they are
+    ``object`` until then: code that reads one first has to check it too (M174.2).
+    """
+
+    level: object
+    title: object
+    page: object
+    top: object
+
+
+class _XfaReport(TypedDict, total=False):
+    xfa: XfaInfo
+    warnings: list[str]
 
 # Rotation is stored as a multiple of 90 (PDF /Rotate); anything else is a caller mistake.
 _QUARTER_TURN = 90
@@ -98,15 +134,17 @@ def _write(vdoc: VirtualDocument, out: str, writer: Callable[[VirtualDocument, s
         raise
 
 
-def _result(out: str, vdoc: VirtualDocument, source: str, **extra: object) -> dict:
-    """The shape every transform returns: what was written, and the promise about the input."""
+def _result(out: str, vdoc: VirtualDocument, source: str) -> WriteReply:
+    """What every transform reports first: what was written, and the promise about the input.
+
+    Each transform adds its own fields after these: ``{**_result(...), "deleted": ...}``.
+    """
     return {
         "out": out,
         "pages": vdoc.page_count,
         "bytes": os.path.getsize(out),
         "source": os.path.abspath(source),
         "source_unchanged": True,
-        **extra,
     }
 
 
@@ -120,7 +158,7 @@ def delete_pages(
     *,
     password: str | None = None,
     overwrite: bool = False,
-) -> dict:
+) -> DeleteReply:
     """Write a copy of ``path`` without ``pages`` (1-based). Bookmarks to deleted pages are dropped
     and the survivors re-point at their new positions."""
     target = _resolve_out(out, sources=[path], overwrite=overwrite)
@@ -130,7 +168,8 @@ def delete_pages(
             raise ValueError("refusing to delete every page — the result would be an empty document")
         vdoc.delete_pages(indices)
         _write(vdoc, target)
-        return _result(target, vdoc, path, deleted=sorted(p for p in pages))
+        reply: DeleteReply = {**_result(target, vdoc, path), "deleted": sorted(p for p in pages)}
+        return reply
 
 
 def reorder(
@@ -140,7 +179,7 @@ def reorder(
     *,
     password: str | None = None,
     overwrite: bool = False,
-) -> dict:
+) -> ReorderReply:
     """Write ``path``'s pages in the sequence ``order`` (1-based, a full permutation).
 
     A full permutation rather than a move-this-there operation: it is the form an agent can state in
@@ -161,7 +200,8 @@ def reorder(
         vdoc.ordered = [vdoc.ordered[page - 1] for page in order]
         vdoc.dirty = True
         _write(vdoc, target)
-        return _result(target, vdoc, path, order=list(order))
+        reply: ReorderReply = {**_result(target, vdoc, path), "order": list(order)}
+        return reply
 
 
 def rotate(
@@ -172,7 +212,7 @@ def rotate(
     pages: list[int] | None = None,
     password: str | None = None,
     overwrite: bool = False,
-) -> dict:
+) -> RotateReply:
     """Turn ``pages`` (1-based; ``None`` = all) by ``degrees``, a multiple of 90.
 
     ``degrees`` is a **delta**, which is what the verb means: 90 turns a page a quarter turn
@@ -186,9 +226,10 @@ def rotate(
         indices = resolve_pages(vdoc, pages)
         vdoc.rotate_pages(indices, degrees)
         _write(vdoc, target)
-        return _result(
-            target, vdoc, path, rotated=[i + 1 for i in indices], degrees=degrees
-        )
+        reply: RotateReply = {
+            **_result(target, vdoc, path), "rotated": [i + 1 for i in indices], "degrees": degrees
+        }
+        return reply
 
 
 def split(
@@ -198,7 +239,7 @@ def split(
     ranges: list[str] | None = None,
     password: str | None = None,
     overwrite: bool = False,
-) -> dict:
+) -> SplitReply:
     """Split ``path`` into several PDFs in ``out_dir``. Returns the written paths in order.
 
     ``ranges`` are print-dialog page-range strings — ``["1-3", "4", "5-"]`` — one output file per
@@ -214,7 +255,7 @@ def split(
     if not os.path.isdir(out_dir):
         raise ValueError(f"the output directory {out_dir!r} does not exist")
     stem = os.path.splitext(os.path.basename(path))[0]
-    written: list[dict] = []
+    written: list[SplitPart] = []
     with open_document(path, password) as vdoc:
         if ranges is None:
             groups = [[i] for i in range(vdoc.page_count)]
@@ -261,7 +302,7 @@ def extract_pages(
     *,
     password: str | None = None,
     overwrite: bool = False,
-) -> dict:
+) -> ExtractPagesReply:
     """Write ``pages`` (1-based) to a single new PDF, in document order.
 
     The operation everybody actually asks for by name — "give me pages 10-20 as a file" — and the
@@ -293,7 +334,7 @@ def extract_pages(
         }
 
 
-def merge(paths: list[str], out: str, *, overwrite: bool = False) -> dict:
+def merge(paths: list[str], out: str, *, overwrite: bool = False) -> MergeReply:
     """Concatenate ``paths`` into one PDF, in the order given.
 
     Lossless in the way that matters on a merge: colliding AcroForm field names are **renamed rather
@@ -327,12 +368,12 @@ def merge(paths: list[str], out: str, *, overwrite: bool = False) -> dict:
 
 def fill_form(
     path: str,
-    values: dict,
+    values: dict[str, object],
     out: str,
     *,
     password: str | None = None,
     overwrite: bool = False,
-) -> dict:
+) -> FillFormReply:
     """Set AcroForm field values and write the filled copy. Fields stay **editable**.
 
     ``values`` maps field name to value; a field appearing on several pages is filled on all of
@@ -366,8 +407,8 @@ def fill_form(
             vdoc.set_field_value(name, value)
         _write(vdoc, target)
 
-        extra = _describe_xfa(vdoc)
-        warnings = list(extra.pop("warnings", []))
+        xfa = _describe_xfa(vdoc)
+        warnings = list(xfa.pop("warnings", []))
         written_read_only = sorted({f.name for f in fields if f.read_only and f.name in values})
         if written_read_only:
             warnings.append(
@@ -377,8 +418,9 @@ def fill_form(
                 "usually either plumbing or a signature line. Check this is what you meant."
             )
         if warnings:
-            extra["warnings"] = warnings
-        return _result(target, vdoc, path, filled=sorted(values), **extra)
+            xfa["warnings"] = warnings
+        reply: FillFormReply = {**_result(target, vdoc, path), "filled": sorted(values), **xfa}
+        return reply
 
 
 # Values a caller may reasonably write for a button instead of naming its export state. PyMuPDF
@@ -387,7 +429,7 @@ def fill_form(
 _BOOLEAN_WORDS = frozenset({"true", "false", "yes", "no", "on", "off"})
 
 
-def _check_button_values(fields: Iterable[FormField], values: dict) -> None:
+def _check_button_values(fields: Iterable[FormField], values: dict[str, object]) -> None:
     """Reject a checkbox/radio value that is neither a real export state nor a boolean.
 
     ``fill_form`` already refuses an unknown field *name* — "a typo that writes nothing and reports
@@ -422,7 +464,7 @@ def _check_button_values(fields: Iterable[FormField], values: dict) -> None:
         )
 
 
-def _describe_xfa(vdoc: VirtualDocument) -> dict:
+def _describe_xfa(vdoc: VirtualDocument) -> _XfaReport:
     """``{}`` for an ordinary AcroForm; an ``xfa`` block and a ``warnings`` list for an XFA one.
 
     An XFA form (LiveCycle Designer) keeps a second copy of itself as XML under ``/AcroForm/XFA``,
@@ -462,7 +504,7 @@ def _describe_xfa(vdoc: VirtualDocument) -> dict:
 
 def flatten(
     path: str, out: str, *, password: str | None = None, overwrite: bool = False
-) -> dict:
+) -> FlattenReply:
     """Write a copy whose annotations and form fields are **baked into the page content**.
 
     The text layer survives; what goes away is the ability to edit or un-fill any of it. This is the
@@ -474,18 +516,19 @@ def flatten(
     target = _resolve_out(out, sources=[path], overwrite=overwrite)
     with open_document(path, password) as vdoc:
         _write(vdoc, target, writer=export_flattened_pdf)
-        return _result(target, vdoc, path, flattened=True)
+        reply: FlattenReply = {**_result(target, vdoc, path), "flattened": True}
+        return reply
 
 
 def set_outline(
     path: str,
-    entries: list[dict],
+    entries: list[dict[str, object]],
     out: str,
     *,
     replace_outline: bool = False,
     password: str | None = None,
     overwrite: bool = False,
-) -> dict:
+) -> SetOutlineReply:
     """Write ``entries`` into a copy of ``path`` as its outline (bookmarks).
 
     ``entries`` is ``[{level, title, page}]`` — the shape ``get_outline`` returns, so a document's
@@ -548,19 +591,19 @@ def set_outline(
         vdoc.set_outline_override(authored)
         written = vdoc.remapped_toc()
         _write(vdoc, target)
-        renumbered = [
-            {"index": i, "title": entry[1], "from": authored[i][0], "to": entry[0]}
-            for i, entry in enumerate(written)
-            if entry[0] != authored[i][0]
-        ]
-        extra: dict = {"entries": len(written), "replaced": had}
+        renumbered: list[LevelChange] = []
+        for i, entry in enumerate(written):
+            level = authored[i][0]          # an int: `set_outline_override` refused anything else
+            if isinstance(level, int) and entry[0] != level:
+                renumbered.append({"index": i, "title": entry[1], "from": level, "to": entry[0]})
+        reply: SetOutlineReply = {**_result(target, vdoc, path), "entries": len(written), "replaced": had}
         warnings: list[str] = []
         if discarded:
             # Counted and named, never silently absorbed (#361 item 4). A caller who reads an
             # outline, edits the titles and writes it back without carrying `top` through turns a
             # document whose bookmarks land on their headings into one whose bookmarks all land on
             # a page top — and the old reply said `replaced: 104` and nothing else.
-            extra["positions_discarded"] = discarded
+            reply["positions_discarded"] = discarded
             warnings.append(
                 f"{discarded} of the {had} bookmark(s) replaced landed on a spot within their "
                 "page, and the entries you sent name no `top`, so those bookmarks now open at the "
@@ -568,7 +611,7 @@ def set_outline(
                 "back to keep them."
             )
         if outside:
-            extra["tops_outside_the_page"] = outside
+            reply["tops_outside_the_page"] = outside
             warnings.append(
                 f"{len(outside)} entry/entries name a `top` outside their page, and it was written "
                 "as given. A viewer pulls such a spot back onto the page, so the bookmark opens at "
@@ -579,18 +622,18 @@ def set_outline(
                 ) + ("…" if len(outside) > 5 else "")
             )
         if renumbered:
-            extra["levels_normalised"] = renumbered
+            reply["levels_normalised"] = renumbered
             warnings.append(
                 f"{len(renumbered)} entry level(s) were normalised: a PDF outline must start at "
                 "level 1 and may not skip a level, so the nesting was repaired while keeping the "
                 "relative depth you asked for. `entries` in the reply is what was written."
             )
         if warnings:
-            extra["warnings"] = warnings
-        return _result(target, vdoc, path, **extra)
+            reply["warnings"] = warnings
+        return reply
 
 
-def _positions_discarded(vdoc: VirtualDocument, existing: list, prepared: list[dict]) -> int:
+def _positions_discarded(vdoc: VirtualDocument, existing: list[TocEntry], prepared: list[_OutlineIn]) -> int:
     """How many replaced bookmarks landed on a spot that the new entries do not name.
 
     Zero when the caller supplied any ``top`` at all: at that point they are steering the
@@ -602,19 +645,24 @@ def _positions_discarded(vdoc: VirtualDocument, existing: list, prepared: list[d
     return sum(1 for entry in existing if vdoc.entry_top(entry) is not None)
 
 
-def _tops_outside_their_page(vdoc: VirtualDocument, prepared: list[dict]) -> list[dict]:
+def _tops_outside_their_page(vdoc: VirtualDocument, prepared: list[_OutlineIn]) -> list[TopOutsideItsPage]:
     """Entries whose ``top`` names a spot their page does not contain.
 
     Reported, not refused (owner's call, 2026-09-20). Real documents do this constantly — 51
     bookmarks and 232 links across the 123-file corpus — so refusing would break the read → edit →
     write round trip on documents that already work today.
     """
-    outside: list[dict] = []
+    outside: list[TopOutsideItsPage] = []
     for index, entry in enumerate(prepared):
-        top = entry["top"]
-        page0 = entry["page"] - 1
+        top, page = entry["top"], entry["page"]
         if top is None or not isinstance(top, (int, float)) or isinstance(top, bool):
             continue
+        # A page that is not a whole number is refused, with its reason, by `set_outline_override`.
+        # Subtracting from it here first answered `page: "3"` with Python's own complaint about
+        # `str` and `int` instead (M174.2).
+        if not isinstance(page, int) or isinstance(page, bool):
+            continue
+        page0 = page - 1
         if not 0 <= page0 < len(vdoc.ordered):
             continue
         ref = vdoc.ordered[page0]
@@ -622,7 +670,7 @@ def _tops_outside_their_page(vdoc: VirtualDocument, prepared: list[dict]) -> lis
         if -0.5 <= top <= height + 0.5:
             continue
         outside.append({"index": index, "title": entry["title"], "top": float(top),
-                        "page": entry["page"], "page_height": round(height, 2)})
+                        "page": page, "page_height": round(height, 2)})
     return outside
 
 
@@ -630,7 +678,7 @@ def _tops_outside_their_page(vdoc: VirtualDocument, prepared: list[dict]) -> lis
 _REQUIRED = {"level", "title", "page"}
 
 
-def _outline_entries(entries: list) -> list[dict]:
+def _outline_entries(entries: list[dict[str, object]]) -> list[_OutlineIn]:
     """Validate the caller's ``entries`` into ``[{level, title, page}]`` dicts, or refuse.
 
     Shape only — the *meaning* checks (a page the document does not have, a level below 1, a blank
@@ -647,7 +695,7 @@ def _outline_entries(entries: list) -> list[dict]:
     Left out, the bookmark opens at the top of its page, exactly as every entry did before.
     """
     allowed = {"level", "title", "page", "top"}
-    prepared: list[dict] = []
+    prepared: list[_OutlineIn] = []
     for position, entry in enumerate(entries):
         if not isinstance(entry, dict):
             raise ValueError(
@@ -686,7 +734,7 @@ def export_images(
     overwrite: bool = False,
     clip: list[float] | None = None,
     name: str | None = None,
-) -> dict:
+) -> ExportImagesReply:
     """Rasterise ``pages`` (1-based; ``None`` = all) to image files in ``out_dir``.
 
     Unlike ``render_page``, which hands one page back inline for the model to look at, this writes

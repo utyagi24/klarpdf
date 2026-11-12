@@ -43,11 +43,18 @@ import json
 import os
 from collections import Counter
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 import pymupdf as fitz
 
 from klarpdf.mcp_bridge.queries import _page_of, open_document, resolve_pages
 from klarpdf.mcp_bridge.tables import _READ_LOCK, MIN_TEXT_SIZE, read_page
+
+if TYPE_CHECKING:  # named in annotations only
+    from klarpdf.mcp_bridge.replies import HeadingCandidate, HeadingsReply, StyleEntry, StyleInfo
+
+#: How a span's style is looked up again: its font, its size, and the two sets of flags it has.
+_StyleKey = tuple[str, float, int, int]
 
 MAX_CANDIDATES = 500
 """How many candidates one reply carries — a mis-call bound beside the character cap, which is the one
@@ -83,11 +90,11 @@ class Style:
     bold: bool
     italic: bool
 
-    def rank(self) -> tuple:
+    def rank(self) -> tuple[float, bool, bool, str]:
         """Largest first, then bold, then italic — so a lower id is a louder style."""
         return (-self.size, not self.bold, not self.italic, self.font)
 
-    def describe(self) -> dict:
+    def describe(self) -> StyleInfo:
         return {"font": self.font, "size": self.size, "bold": self.bold, "italic": self.italic}
 
 
@@ -96,7 +103,7 @@ def _weight_part(font: str) -> str:
     return font[cut + 1:].lower() if cut >= 0 else ""
 
 
-def _style_of(span: dict, known: dict[tuple, Style] | None = None) -> Style:
+def _style_of(span: dict[str, Any], known: dict[_StyleKey, Style] | None = None) -> Style:
     """The span's style. ``known`` shares one object per distinct style across a document, because a
     whole-document call holds every line until the body style is known: on a 572-page prospectus the
     call peaked 10 MB lower with it (about 90 MB above the server's baseline in all)."""
@@ -208,7 +215,7 @@ class _Page:
     visible: bool
 
 
-def _read_page_lines(page: fitz.Page, known: dict[tuple, Style] | None = None) -> _Page:
+def _read_page_lines(page: fitz.Page, known: dict[_StyleKey, Style] | None = None) -> _Page:
     """The page's visible, horizontal text lines, as the page is displayed.
 
     **Under the table reader's lock.** ``find_tables`` switches PyMuPDF's process-wide small-glyph
@@ -367,7 +374,7 @@ def _example(text: str) -> str:
 
 def _style_table(
     found: list[_Candidate], ids: dict[Style, str], marked: dict[int, bool] | None
-) -> list[dict]:
+) -> list[StyleEntry]:
     """One row per style the candidates use, loudest first — what an agent classifies from.
 
     **Examples are texts that occur once.** A style's first lines are very often a running head —
@@ -386,7 +393,7 @@ def _style_table(
         ordered = list(texts)
         chosen = [text for text in ordered if texts[text] == 1][:_EXAMPLES]
         chosen += [text for text in ordered if text not in chosen][: _EXAMPLES - len(chosen)]
-        entry = {
+        entry: StyleEntry = {
             "style": ids[style],
             **style.describe(),
             "count": len(members),
@@ -410,7 +417,7 @@ def heading_candidates(
     max_candidates: int = MAX_CANDIDATES,
     max_chars: int = MAX_CANDIDATE_CHARS,
     offset: int = 0,
-) -> dict:
+) -> HeadingsReply:
     """Every line on ``pages`` (default: all) set to stand out from the document's body text.
 
     See the module docstring for what qualifies and why. The reply is paginated on two caps, as
@@ -440,7 +447,7 @@ def heading_candidates(
         in_scope = set(indices)
         weights: Counter[Style] = Counter()
         kept: dict[int, _Page] = {}
-        known: dict[tuple, Style] = {}
+        known: dict[_StyleKey, Style] = {}
         for index0 in range(vdoc.page_count):
             read = _read_page_lines(_page_of(vdoc, index0), known)
             _weigh(read.lines, weights)
@@ -481,8 +488,8 @@ def heading_candidates(
             wanted = set(styles)
             found = [c for c in found if ids[c.style] in wanted]
 
-        def describe(candidate: _Candidate) -> dict:
-            entry = {
+        def describe(candidate: _Candidate) -> HeadingCandidate:
+            entry: HeadingCandidate = {
                 "page": candidate.page,
                 "bbox": _unrotated(_page_of(vdoc, candidate.page - 1), candidate.rect),
                 "text": candidate.text,
@@ -494,7 +501,7 @@ def heading_candidates(
             return entry
 
         total = len(found)
-        batch: list[dict] = []
+        batch: list[HeadingCandidate] = []
         used = len(json.dumps(style_table))
         for candidate in found[offset:]:
             if len(batch) >= max_candidates:
@@ -508,7 +515,7 @@ def heading_candidates(
             used += size
         more_available = offset + len(batch) < total
 
-        result = {
+        result: HeadingsReply = {
             "count": len(batch),
             "total_candidates": total,
             "offset": offset,

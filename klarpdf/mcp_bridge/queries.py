@@ -21,8 +21,9 @@ from __future__ import annotations
 import json
 import os
 from collections import Counter
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
+from typing import TYPE_CHECKING
 
 import pymupdf as fitz
 
@@ -41,6 +42,22 @@ from klarpdf.model.pymupdf_constants import (
     PDF_PERM_PRINT_HQ,
 )
 from klarpdf.model.virtual_document import PasswordProvider, PasswordRequired, VirtualDocument
+
+if TYPE_CHECKING:  # named in annotations only, so nothing more is imported when the code runs
+    from klarpdf.mcp_bridge.replies import (
+        ExtractedPage,
+        ExtractTextReply,
+        FormFieldEntry,
+        InfoReply,
+        LinkEntry,
+        LinksReply,
+        OutlineEntry,
+        PageSize,
+        RenderedPage,
+        SearchHit,
+    )
+    from klarpdf.model.destinations import LinkDict
+    from klarpdf.model.tuples import Box
 
 # How many pages `document_info` samples before reporting `has_text_layer: false`. A text document
 # answers on page 1; the scan of an 800-page scanned file is what this bound exists to stop.
@@ -93,7 +110,7 @@ def _page_of(vdoc: VirtualDocument, index0: int) -> fitz.Page:
     return vdoc.sources[ref.source_id][ref.source_page_index]
 
 
-def resolve_pages(vdoc: VirtualDocument, pages: list[int] | None) -> list[int]:
+def resolve_pages(vdoc: VirtualDocument, pages: Sequence[object] | None) -> list[int]:
     """Turn a caller's 1-based page list into validated 0-based indices, in document order.
 
     ``None`` means the whole document. An out-of-range number is an error rather than a silent
@@ -114,10 +131,32 @@ def resolve_pages(vdoc: VirtualDocument, pages: list[int] | None) -> list[int]:
     return sorted(out)
 
 
+def parse_box(entry: object) -> Box:
+    """A caller's ``[x0, y0, x1, y1]`` as a box, or a ``ValueError`` saying what is wrong with it.
+
+    Shared by ``annotate`` and ``redact_regions``, which read a box the same way. It has to be a list,
+    not just anything that can be looped over: ``redact_regions`` read the string ``"1234"`` as four
+    numbers, one per character, and redacted the box ``(1, 2, 3, 4)``. It also answered ``5`` and
+    ``["a", 1, 2, 3]`` with Python's own error, where ``annotate`` said what a box is (M174.2).
+    """
+    if not isinstance(entry, (list, tuple)):
+        raise ValueError(f"box must be four numbers; got {entry!r}")
+    try:
+        values = [float(v) for v in entry]
+    except (TypeError, ValueError):
+        raise ValueError(f"box must be four numbers; got {entry!r}") from None
+    if len(values) != 4:
+        raise ValueError(f"box must be [x0, y0, x1, y1]; got {list(entry)!r}")
+    x0, y0, x1, y1 = values
+    if x0 >= x1 or y0 >= y1:
+        raise ValueError(f"box {values} is empty or inverted")
+    return (x0, y0, x1, y1)
+
+
 # ---- query/route: the cheap calls an agent makes before committing to content ----
 
 
-def document_info(path: str, password: str | None = None) -> dict:
+def document_info(path: str, password: str | None = None) -> InfoReply:
     """Size, page count, encryption, text layer, outline — the routing call.
 
     Answers *before* any content is loaded, which is the point: it is how an agent decides whether
@@ -182,7 +221,7 @@ def _first_page_with_text(vdoc: VirtualDocument) -> int | None:
     return None
 
 
-def _page_sizes(vdoc: VirtualDocument) -> list[dict]:
+def _page_sizes(vdoc: VirtualDocument) -> list[PageSize]:
     """Distinct page geometries with the pages holding each — a mixed-size document is worth
     knowing about before a split, and listing all 800 pages of a uniform one is noise.
 
@@ -193,7 +232,7 @@ def _page_sizes(vdoc: VirtualDocument) -> list[dict]:
     no way to know which convention it is in (TC-008). Reporting the angle is what lets them tell:
     a non-zero rotation means box coordinates are not in the space these dimensions describe.
     """
-    seen: dict[tuple, list[int]] = {}
+    seen: dict[tuple[float, float, int], list[int]] = {}
     for index0 in range(vdoc.page_count):
         width, height = vdoc.page_visible_size(index0)
         ref = vdoc.ordered[index0]
@@ -206,7 +245,7 @@ def _page_sizes(vdoc: VirtualDocument) -> list[dict]:
     ]
 
 
-def outline(path: str, password: str | None = None) -> list[dict]:
+def outline(path: str, password: str | None = None) -> list[OutlineEntry]:
     """The document outline (bookmarks) as ``{level, title, page, top}``, nesting preserved.
 
     Read through ``remapped_toc`` rather than raw ``get_toc`` so the transform tools get the correct
@@ -279,7 +318,7 @@ _LINK_KINDS = {
 _FILE_KINDS = (fitz.LINK_LAUNCH, fitz.LINK_GOTOR)
 
 
-def _kind_name(link: dict) -> str:
+def _kind_name(link: LinkDict) -> str:
     """``link``'s action type as a name — **what the document declares**, not how it parsed (M138.3).
 
     A kind PyMuPDF grows later reports as its own integer, in string form — honest about being
@@ -310,9 +349,9 @@ def _kind_name(link: dict) -> str:
 
 
 def _describe_link(
-    link: dict, page: fitz.Page, page_number: int, page_count: int, text: PageText,
-    vdoc: VirtualDocument | None = None, names: dict | None = None,
-) -> dict:
+    link: LinkDict, page: fitz.Page, page_number: int, page_count: int, text: PageText,
+    vdoc: VirtualDocument | None = None, names: dict[str, str | None] | None = None,
+) -> LinkEntry:
     """One ``get_links()`` entry as the tool reports it, with its anchor text read off the page.
 
     **The rect is derotated, and that is not cosmetic** (M138.1). ``page.get_links()`` reports a
@@ -350,8 +389,8 @@ def _describe_link(
 
 
 def _target_top(
-    link: dict, page: fitz.Page, target_page: int | None,
-    vdoc: VirtualDocument | None, names: dict | None,
+    link: LinkDict, page: fitz.Page, target_page: int | None,
+    vdoc: VirtualDocument | None, names: dict[str, str | None] | None,
 ) -> float | None:
     """How far down its target page this link lands, or ``None`` when it names no spot.
 
@@ -376,7 +415,7 @@ def _target_top(
     return content_point(_page_of(vdoc, target_page - 1), dest)[1]
 
 
-def _target_page(link: dict, page_count: int) -> int | None:
+def _target_page(link: LinkDict, page_count: int) -> int | None:
     """The **1-based** page an internal link jumps to, or ``None`` when it names none.
 
     The resolution itself is :func:`~model.links_remap.internal_link_target`, shared with the
@@ -430,7 +469,7 @@ def links(
     max_links: int = MAX_LINKS,
     max_chars: int = MAX_LINK_CHARS,
     offset: int = 0,
-) -> dict:
+) -> LinksReply:
     """Every link annotation on ``pages`` (default: all), in document order.
 
     The navigation structure a PDF already carries and nothing here could read. It is exact rather
@@ -474,8 +513,8 @@ def links(
     wanted = _resolve_kinds(kinds)
     with open_document(path, password) as vdoc:
         indices = resolve_pages(vdoc, pages)
-        all_found: list[dict] = []
-        name_memos: dict[str, dict] = {}
+        all_found: list[LinkEntry] = []
+        name_memos: dict[str, dict[str, str | None]] = {}
         by_kind: Counter[str] = Counter()
         without_action = 0
         unresolved = 0
@@ -513,7 +552,7 @@ def links(
                     unresolved += 1
                 all_found.append(entry)
         total = len(all_found)
-        found: list[dict] = []
+        found: list[LinkEntry] = []
         used = 0
         for entry in all_found[offset:]:
             if len(found) >= max_links:
@@ -525,7 +564,7 @@ def links(
             found.append(entry)
             used += size
         more_available = offset + len(found) < total
-        result = {
+        result: LinksReply = {
             "count": len(found),
             "total_links": total,
             "offset": offset,
@@ -565,7 +604,7 @@ def search(
     match_case: bool = False,
     whole_words: bool = False,
     password: str | None = None,
-) -> list[dict]:
+) -> list[SearchHit]:
     """Locate ``query`` and return one hit per **occurrence**: page, snippet, and boxes.
 
     The same semantics as the app's find bar (M75.1), because they are the same primitives — MuPDF's
@@ -601,7 +640,7 @@ def search(
     the flag can and cannot see.
     """
     terms = [query] if whole_words else query.split()
-    hits: list[dict] = []
+    hits: list[SearchHit] = []
     if not terms:
         return hits
     with open_document(path, password) as vdoc:
@@ -616,7 +655,7 @@ def search(
                      for boxes in text.group_matches(term_boxes, term)]
             if len(terms) > 1:  # one term already arrives in reading order
                 found.sort(key=lambda f: (round(f[0][0][1], 1), f[0][0][0]))
-            seen: set = set()
+            seen: set[tuple[tuple[float, ...], ...]] = set()
             for boxes, term in found:
                 key = tuple(tuple(round(v, 2) for v in box) for box in boxes)
                 if key in seen:
@@ -640,7 +679,7 @@ def search(
 # ---- query: content ----------------------------------------------------------
 
 
-def extract_text(path: str, pages: list[int] | None = None, password: str | None = None) -> dict:
+def extract_text(path: str, pages: list[int] | None = None, password: str | None = None) -> ExtractTextReply:
     """Text of ``pages`` (1-based; ``None`` = all), one entry per page, in document order.
 
     ``table_pages`` names the pages carrying ruled lines or shaded bands, where ``get_tables`` may
@@ -663,8 +702,8 @@ def extract_text(path: str, pages: list[int] | None = None, password: str | None
 
     with open_document(path, password) as vdoc:
         indices = resolve_pages(vdoc, pages)
-        rendered = []
-        ruled = []
+        rendered: list[ExtractedPage] = []
+        ruled: list[int] = []
         for i in indices:
             page = _page_of(vdoc, i)
             rendered.append({"page": i + 1, "text": page.get_text("text")})
@@ -679,7 +718,7 @@ def render_page(
     dpi: int = 150,
     password: str | None = None,
     clip: list[float] | None = None,
-) -> dict:
+) -> RenderedPage:
     """Rasterise one page — or one region of it — to PNG bytes, for what text cannot answer.
 
     Rendered from :meth:`PyMuPDFEngine.render_output`, the same in-memory build a Save would write,
@@ -722,7 +761,7 @@ def render_page(
             out.close()
 
 
-def form_fields(path: str, password: str | None = None) -> list[dict]:
+def form_fields(path: str, password: str | None = None) -> list[FormFieldEntry]:
     """Every fillable widget, in page order — the input ``fill_form`` (M40) takes.
 
     One entry per *occurrence*: a field appearing on three pages is three entries sharing a ``name``

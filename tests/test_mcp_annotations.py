@@ -472,6 +472,20 @@ def test_an_inverted_box_is_refused(doc_path, out):
         annotations.annotate(doc_path, [{"page": 1, "box": [200, 120, 72, 100]}], out)
 
 
+# A box sent as text was read one character per number, so "1234" became the box (1, 2, 3, 4)
+# (M174.2). The reason names what a box is, as it does for a list of the wrong things.
+@pytest.mark.parametrize("box", ["1234", 5, ["a", 1, 2, 3], {"0": 1, "1": 2, "2": 3, "3": 4}])
+def test_a_box_that_is_not_four_numbers_is_refused(doc_path, out, box):
+    with pytest.raises(ValueError, match="box must be four numbers"):
+        annotations.annotate(doc_path, [{"page": 1, "box": box}], out)
+    assert not os.path.exists(out)
+
+
+def test_boxes_that_are_not_a_list_are_refused(doc_path, out):
+    with pytest.raises(ValueError, match="'boxes' must be a list"):
+        annotations.annotate(doc_path, [{"page": 1, "boxes": "ab"}], out)
+
+
 def test_a_page_out_of_range_is_refused(doc_path, out):
     with pytest.raises(ValueError):
         annotations.annotate(doc_path, [{"page": 99, "box": [72, 100, 200, 120]}], out)

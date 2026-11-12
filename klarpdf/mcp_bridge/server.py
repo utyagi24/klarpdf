@@ -34,8 +34,8 @@ import functools
 import inspect
 import os
 import sys
-from collections.abc import Callable
-from typing import Any
+from collections.abc import Callable, Mapping
+from typing import TYPE_CHECKING, Any, cast
 
 from mcp.server import MCPServer
 from mcp.server.context import CallNext, HandlerResult, ServerRequestContext
@@ -50,6 +50,9 @@ from klarpdf.mcp_bridge.config import Config, PathNotAllowed, PathPolicy
 from klarpdf.mcp_bridge.strict_args import rejection_message, unknown_parameters
 from klarpdf.model.virtual_document import PasswordRequired
 from klarpdf.version import __version__
+
+if TYPE_CHECKING:  # named in annotations only
+    from klarpdf.mcp_bridge.replies import ExtractedPage, FormFieldsReply, OutlineReply, SearchReply
 
 INSTRUCTIONS = """\
 KlarPDF exposes a local, offline PDF engine: reading, page transforms, and verified redaction.
@@ -224,6 +227,18 @@ class StrictArguments(Extension):
         return CallToolResult(content=[TextContent(type="text", text=message)], is_error=True)
 
 
+def _sent(reply: Mapping[str, object]) -> dict[str, Any]:
+    """``reply`` as a tool hands it to the MCP library. It changes the type, not the value (M174.2).
+
+    A tool's return type has to stay ``dict[str, Any]``: the library reads it to build the reply
+    schema the tool advertises, and that one gives the schema the tools have always had. A reply's
+    own type, from :mod:`mcp_bridge.replies`, names its fields, and the library cannot resolve it,
+    so it would drop the schema and the structured copy of every reply. Every reply is a plain
+    ``dict`` when the code runs, so this is a ``cast`` and nothing more.
+    """
+    return cast("dict[str, Any]", reply)
+
+
 def create_server(config: Config | None = None) -> MCPServer:
     """Build a server with ``config``'s policies applied. See the module docstring for why."""
     cfg = config or Config()
@@ -366,7 +381,7 @@ def create_server(config: Config | None = None) -> MCPServer:
 
     @server.tool()
     @guarded
-    def get_info(path: str, password: str | None = None) -> dict:
+    def get_info(path: str, password: str | None = None) -> dict[str, Any]:
         """Summarise a PDF without loading its content: page count, file size, page sizes, whether
         it is encrypted and what it permits, whether it has an outline, and whether it has a text
         layer.
@@ -391,11 +406,11 @@ def create_server(config: Config | None = None) -> MCPServer:
         treat a `false` as what the document asks for rather than as a wall. Tell the user when
         they are about to act against one.
         """
-        return queries.document_info(check(path), password)
+        return _sent(queries.document_info(check(path), password))
 
     @server.tool()
     @guarded
-    def get_outline(path: str, password: str | None = None) -> dict:
+    def get_outline(path: str, password: str | None = None) -> dict[str, Any]:
         """The document's outline (bookmarks) as `entries`, a flat list of
         `{level, title, page, top}` in document order, with `level` giving the nesting depth
         (1 = top), plus a `count`.
@@ -416,7 +431,8 @@ def create_server(config: Config | None = None) -> MCPServer:
         `get_heading_candidates` with a chapter's pages.
         """
         entries = queries.outline(check(path), password)
-        return {"count": len(entries), "entries": entries}
+        reply: OutlineReply = {"count": len(entries), "entries": entries}
+        return _sent(reply)
 
     @server.tool()
     @guarded
@@ -426,7 +442,7 @@ def create_server(config: Config | None = None) -> MCPServer:
         kinds: list[str] | None = None,
         password: str | None = None,
         offset: int = 0,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Every link a PDF carries, as `links`: the `page` it sits on, its `rect`, its `kind`, the
         `text` under it, and where it points — `target_page` and `target_top` for an internal jump,
         `uri` for a web address, `file` for another document. Plus `kinds`, a count per kind.
@@ -454,7 +470,7 @@ def create_server(config: Config | None = None) -> MCPServer:
         again with `offset` set to this reply's `offset + count`. Never report "these are all the
         links" from a reply that says there are more. Field contract in `klarpdf://docs/get_links`.
         """
-        return queries.links(
+        return _sent(queries.links(
             check(path),
             pages,
             kinds=kinds,
@@ -462,7 +478,7 @@ def create_server(config: Config | None = None) -> MCPServer:
             max_links=limits.max_links,
             max_chars=limits.max_link_chars,
             offset=offset,
-        )
+        ))
 
     @server.tool()
     @guarded
@@ -472,7 +488,7 @@ def create_server(config: Config | None = None) -> MCPServer:
         match_case: bool = False,
         whole_words: bool = False,
         password: str | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Find text across the whole document. Returns a `count` and `hits` — one entry per
         occurrence with `page`, a `snippet` of the surrounding text, and `boxes`, the rectangles it
         occupies in page points.
@@ -512,7 +528,7 @@ def create_server(config: Config | None = None) -> MCPServer:
         )
         total = len(hits)
         capped = hits[: limits.max_search_hits]
-        result = {"count": len(capped), "hits": capped}
+        result: SearchReply = {"count": len(capped), "hits": capped}
         if total > len(capped):
             result["truncated"] = True
             result["total_matches"] = total
@@ -530,13 +546,13 @@ def create_server(config: Config | None = None) -> MCPServer:
                     "words."
                 )
             )
-        return result
+        return _sent(result)
 
     @server.tool()
     @guarded
     def extract_text(
         path: str, pages: list[int] | None = None, password: str | None = None
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Extract the text of specific pages (1-based). Omit `pages` for the whole document.
 
         Prefer naming the pages you need — that is the point of this server over reading the file
@@ -551,7 +567,7 @@ def create_server(config: Config | None = None) -> MCPServer:
         """
         result = queries.extract_text(check(path), pages, password)
         budget = limits.max_text_chars
-        kept: list[dict] = []
+        kept: list[ExtractedPage] = []
         used = 0
         for page in result["pages"]:
             if used + len(page["text"]) > budget:
@@ -567,7 +583,7 @@ def create_server(config: Config | None = None) -> MCPServer:
                 f"Pages {dropped[0]}-{dropped[-1]} were not returned — ask for them directly."
             )
             result["pages"] = kept
-        return result
+        return _sent(result)
 
     @server.tool()
     @guarded
@@ -576,7 +592,7 @@ def create_server(config: Config | None = None) -> MCPServer:
         pages: list[int],
         password: str | None = None,
         offset: int = 0,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Read the tables on specific pages as `tables` — each with `rows`, `header`, `title`,
         `page` and `bbox` — plus `unread_regions`, naming every region that could not be read with its
         `bbox`, a `reason` and what to try.
@@ -605,14 +621,14 @@ def create_server(config: Config | None = None) -> MCPServer:
         The reply paginates: when `more_available` is true, call again with `offset` set to
         `offset + count`. Field contract and known limits in `klarpdf://docs/get_tables`.
         """
-        return tables.tables(
+        return _sent(tables.tables(
             check(path),
             pages,
             password=password,
             max_tables=limits.max_tables,
             max_chars=limits.max_table_chars,
             offset=offset,
-        )
+        ))
 
     @server.tool()
     @guarded
@@ -623,7 +639,7 @@ def create_server(config: Config | None = None) -> MCPServer:
         tables: bool = False,  # the argument an agent sees; shadows the module only in this body
         password: str | None = None,
         offset: int = 0,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Lines set to look like headings — larger than the document's body text, bold where it
         is not, or italic — as `candidates` with `page`, `bbox`, `text` and a `style` id, for **you**
         to judge. Nothing is decided for you: table headers, bold labels and captions come back too,
@@ -651,7 +667,7 @@ def create_server(config: Config | None = None) -> MCPServer:
         The reply paginates: when `more_available` is true, call again with `offset` set to
         `offset + count`. Field contract in `klarpdf://docs/get_heading_candidates`.
         """
-        return headings.heading_candidates(
+        return _sent(headings.heading_candidates(
             check(path),
             pages,
             styles=styles,
@@ -660,7 +676,7 @@ def create_server(config: Config | None = None) -> MCPServer:
             max_candidates=limits.max_heading_candidates,
             max_chars=limits.max_heading_chars,
             offset=offset,
-        )
+        ))
 
     # `structured_output=False` because the return is an image block, not JSON. Without it the SDK
     # tries to build a pydantic output schema from the `-> Image` annotation and fails at import;
@@ -706,7 +722,7 @@ def create_server(config: Config | None = None) -> MCPServer:
 
     @server.tool()
     @guarded
-    def get_form_fields(path: str, password: str | None = None) -> dict:
+    def get_form_fields(path: str, password: str | None = None) -> dict[str, Any]:
         """List the fillable form fields as `fields`: `name`, `type`, the 1-based `page`, the widget
         `rect`, any `choices`, and the current `value`. Plus a `count`.
 
@@ -722,7 +738,8 @@ def create_server(config: Config | None = None) -> MCPServer:
         forms carry 3-pt slivers that are indistinguishable from real fields without it.
         """
         fields = queries.form_fields(check(path), password)
-        return {"count": len(fields), "fields": fields}
+        reply: FormFieldsReply = {"count": len(fields), "fields": fields}
+        return _sent(reply)
 
     @server.tool()
     @guarded
@@ -731,7 +748,7 @@ def create_server(config: Config | None = None) -> MCPServer:
         pages: list[int] | None = None,
         password: str | None = None,
         offset: int = 0,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """List the annotations a document carries — highlights, underlines, strike-throughs, sticky
         notes, shapes, text boxes — with their `note` text, colour and position.
 
@@ -760,14 +777,14 @@ def create_server(config: Config | None = None) -> MCPServer:
         Form fields are not listed here — `get_form_fields` reports those.
         `klarpdf://docs/get_annotations` has the field contract.
         """
-        return annotation_tools.get_annotations(
+        return _sent(annotation_tools.get_annotations(
             check(path),
             pages,
             password=password,
             max_annotations=limits.max_annotations,
             max_chars=limits.max_annotation_chars,
             offset=offset,
-        )
+        ))
 
     if cfg.read_only:
         publish_docs()
@@ -783,15 +800,15 @@ def create_server(config: Config | None = None) -> MCPServer:
         out: str,
         password: str | None = None,
         overwrite: bool = False,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Write a copy of the document with `pages` (1-based) removed.
 
         Bookmarks pointing at a deleted page are dropped and the survivors re-point at their new
         positions, so the outline stays correct rather than dangling. Refuses to delete every page.
         """
-        return transforms.delete_pages(
+        return _sent(transforms.delete_pages(
             check(path), pages, check(out), password=password, overwrite=overwrite
-        )
+        ))
 
     @server.tool()
     @guarded
@@ -801,15 +818,15 @@ def create_server(config: Config | None = None) -> MCPServer:
         out: str,
         password: str | None = None,
         overwrite: bool = False,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Write a copy with the pages in the sequence `order` — a full permutation of 1..N.
 
         `order: [3, 1, 2]` puts page 3 first. Every page must appear exactly once; to drop pages use
         `delete_pages` instead. Text, form fields and remapped bookmarks all survive the move.
         """
-        return transforms.reorder(
+        return _sent(transforms.reorder(
             check(path), order, check(out), password=password, overwrite=overwrite
-        )
+        ))
 
     @server.tool()
     @guarded
@@ -820,20 +837,20 @@ def create_server(config: Config | None = None) -> MCPServer:
         pages: list[int] | None = None,
         password: str | None = None,
         overwrite: bool = False,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Turn `pages` (1-based; omit for all) by `degrees` — a multiple of 90.
 
         `degrees` is a **delta** applied to each page's current rotation, so 90 is a quarter turn
         clockwise from wherever the page already sits and calling it twice gives 180.
         """
-        return transforms.rotate(
+        return _sent(transforms.rotate(
             check(path),
             degrees,
             check(out),
             pages=pages,
             password=password,
             overwrite=overwrite,
-        )
+        ))
 
     @server.tool()
     @guarded
@@ -843,16 +860,16 @@ def create_server(config: Config | None = None) -> MCPServer:
         ranges: list[str] | None = None,
         password: str | None = None,
         overwrite: bool = False,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Split the document into several PDFs written into `out_dir`.
 
         `ranges` are print-dialog page-range strings — `["1-3", "4", "5-"]` gives three files; `"5-"`
         means page 5 to the end. Omit `ranges` to write one file per page. Each part keeps its text
         layer, its form fields, and the bookmarks whose targets landed in it.
         """
-        return transforms.split(
+        return _sent(transforms.split(
             check(path), check(out_dir), ranges=ranges, password=password, overwrite=overwrite
-        )
+        ))
 
     @server.tool()
     @guarded
@@ -862,7 +879,7 @@ def create_server(config: Config | None = None) -> MCPServer:
         out: str,
         password: str | None = None,
         overwrite: bool = False,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Write `pages` (1-based) to a single new PDF — "give me pages 10-20 as a file".
 
         Use this whenever someone asks to **extract**, **pull out**, or **save a few pages as their
@@ -874,29 +891,29 @@ def create_server(config: Config | None = None) -> MCPServer:
         is what a PDF keeps at the document level: an extract of a tagged document is not tagged,
         and an extract of an encrypted one is not encrypted.
         """
-        return transforms.extract_pages(
+        return _sent(transforms.extract_pages(
             check(path), pages, check(out), password=password, overwrite=overwrite
-        )
+        ))
 
     @server.tool()
     @guarded
-    def merge(paths: list[str], out: str, overwrite: bool = False) -> dict:
+    def merge(paths: list[str], out: str, overwrite: bool = False) -> dict[str, Any]:
         """Concatenate two or more PDFs into one, in the order given.
 
         Form fields with colliding names are renamed rather than dropped, so merging two documents
         that both have a field called `name` leaves you with two working fields.
         """
-        return transforms.merge([check(p) for p in paths], check(out), overwrite=overwrite)
+        return _sent(transforms.merge([check(p) for p in paths], check(out), overwrite=overwrite))
 
     @server.tool()
     @guarded
     def fill_form(
         path: str,
-        values: dict,
+        values: dict[str, object],
         out: str,
         password: str | None = None,
         overwrite: bool = False,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Fill AcroForm fields and write the filled copy. The fields stay editable afterwards.
 
         `values` maps field name to value. Call `get_form_fields` first: an unknown field name is an
@@ -920,20 +937,20 @@ def create_server(config: Config | None = None) -> MCPServer:
         result then carries `warnings` and an `xfa` block saying so. Pass that on to the user —
         the page looks right, but a system that reads the XFA data will see an empty form.
         """
-        return transforms.fill_form(
+        return _sent(transforms.fill_form(
             check(path), values, check(out), password=password, overwrite=overwrite
-        )
+        ))
 
     @server.tool()
     @guarded
     def set_outline(
         path: str,
-        entries: list[dict],
+        entries: list[dict[str, object]],
         out: str,
         replace_outline: bool = False,
         password: str | None = None,
         overwrite: bool = False,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Give a document bookmarks: write `entries` as its outline, into a new file.
 
         `entries` is `[{level, title, page, top}]` — the exact shape `get_outline` returns, so an
@@ -965,28 +982,28 @@ def create_server(config: Config | None = None) -> MCPServer:
 
         Read the reply and `klarpdf://docs/set_outline` for the rest.
         """
-        return transforms.set_outline(
+        return _sent(transforms.set_outline(
             check(path),
             entries,
             check(out),
             replace_outline=replace_outline,
             password=password,
             overwrite=overwrite,
-        )
+        ))
 
     @server.tool()
     @guarded
     def flatten(
         path: str, out: str, password: str | None = None, overwrite: bool = False
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Write a copy with annotations and form fields baked into the page content.
 
         The text layer survives; what goes away is the ability to edit or un-fill any of it. Use it
         for a final copy — a filled form nobody can change back.
         """
-        return transforms.flatten(
+        return _sent(transforms.flatten(
             check(path), check(out), password=password, overwrite=overwrite
-        )
+        ))
 
     @server.tool()
     @guarded
@@ -1000,7 +1017,7 @@ def create_server(config: Config | None = None) -> MCPServer:
         overwrite: bool = False,
         clip: list[float] | None = None,
         name: str | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Rasterise `pages` (1-based; omit for all) to image files in `out_dir`, as png or jpg.
 
         Use `render_page` instead when you want to *look* at a page — that hands the image back
@@ -1056,17 +1073,17 @@ def create_server(config: Config | None = None) -> MCPServer:
                 f"{os.path.basename(files[0])} … {os.path.basename(files[-1])} — list the "
                 "directory for the rest."
             )
-        return result
+        return _sent(result)
 
     @server.tool()
     @guarded
     def annotate(
         path: str,
-        marks: list[dict],
+        marks: list[dict[str, object]],
         out: str,
         password: str | None = None,
         overwrite: bool = False,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Write highlights, underlines and strike-throughs onto a copy — each able to carry a note.
         Nothing is deleted and the text stays intact and selectable.
 
@@ -1098,9 +1115,9 @@ def create_server(config: Config | None = None) -> MCPServer:
 
         `klarpdf://docs/annotate` has the field contract and the review workflow.
         """
-        return annotation_tools.annotate(
+        return _sent(annotation_tools.annotate(
             check(path), marks, check(out), password=password, overwrite=overwrite
-        )
+        ))
 
     # ---- redaction: destructive, and verified before success is reported ----
 
@@ -1116,7 +1133,7 @@ def create_server(config: Config | None = None) -> MCPServer:
         pages: list[int] | None = None,
         password: str | None = None,
         overwrite: bool = False,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """**Destructively** remove every occurrence of `query` and write a verified copy: the text
         is removed, not covered by a black box.
 
@@ -1150,7 +1167,7 @@ def create_server(config: Config | None = None) -> MCPServer:
         **The full field contract** — `matches` vs `boxes_redacted`, `residual_scope`, the
         per-query shape, the text-layer limit — is `klarpdf://docs/redact_text`.
         """
-        return redaction.redact_text(
+        return _sent(redaction.redact_text(
             check(path),
             query,
             check(out),
@@ -1160,17 +1177,17 @@ def create_server(config: Config | None = None) -> MCPServer:
             pages=pages,
             password=password,
             overwrite=overwrite,
-        )
+        ))
 
     @server.tool()
     @guarded
     def redact_regions(
         path: str,
-        regions: list[dict],
+        regions: list[dict[str, object]],
         out: str,
         password: str | None = None,
         overwrite: bool = False,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """**Destructively** remove rectangular regions and write a verified copy.
 
         `regions` is a list of `{"page": 1, "box": [x0, y0, x1, y1]}` in page points — the same
@@ -1195,9 +1212,9 @@ def create_server(config: Config | None = None) -> MCPServer:
         file on, or use `redact_text`, which proves it removed every occurrence rather than every
         occurrence *here*.
         """
-        return redaction.redact_regions(
+        return _sent(redaction.redact_regions(
             check(path), regions, check(out), password=password, overwrite=overwrite
-        )
+        ))
 
     publish_docs()
     return server
