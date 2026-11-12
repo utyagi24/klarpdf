@@ -15,10 +15,14 @@ documented limitation: undoing the paste in A does not restore the page in B.
 from __future__ import annotations
 
 from collections.abc import Iterable
+from typing import TYPE_CHECKING
 
 from PySide6.QtGui import QUndoCommand
 
 from klarpdf.model.virtual_document import PageRef, VirtualDocument
+
+if TYPE_CHECKING:  # named in annotations only
+    from klarpdf.model.page_edits import PageEdit
 
 
 class _SnapshotCommand(QUndoCommand):
@@ -182,7 +186,7 @@ class AddAnnotationCommand(_SnapshotCommand):
     "Delete Sticky note" (M66).
     """
 
-    def __init__(self, vdoc: VirtualDocument, index: int, annotation: object, text: str | None = None) -> None:
+    def __init__(self, vdoc: VirtualDocument, index: int, annotation: PageEdit, text: str | None = None) -> None:
         super().__init__(vdoc, text or f"Add {type(annotation).__name__.lower()}")
         self._index, self._annotation = index, annotation
 
@@ -217,7 +221,7 @@ class ReplaceAnnotationCommand(_SnapshotCommand):
     """Swap one annotation descriptor for an updated one in place — moving a text box or editing
     its text (M21 follow-up). Snapshot-based, so it is one undo step and keeps z-order."""
 
-    def __init__(self, vdoc: VirtualDocument, index: int, old: object, new: object, text: str | None = None) -> None:
+    def __init__(self, vdoc: VirtualDocument, index: int, old: object, new: PageEdit, text: str | None = None) -> None:
         super().__init__(vdoc, text or f"Edit {type(old).__name__.lower()}")
         self._index, self._old, self._new = index, old, new
 
@@ -244,7 +248,7 @@ class NudgeCommand(_SnapshotCommand):
     them back to the origin on the first press of a held key.
     """
 
-    def __init__(self, vdoc: VirtualDocument, index: int, pairs: Iterable[tuple[object, object]], auto_repeat: bool,
+    def __init__(self, vdoc: VirtualDocument, index: int, pairs: Iterable[tuple[object, PageEdit]], auto_repeat: bool,
                  text: str) -> None:
         super().__init__(vdoc, text)
         self._index = index

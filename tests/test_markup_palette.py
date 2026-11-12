@@ -26,9 +26,9 @@ from klarpdf.model.markup_palette import (
     NAME_TOLERANCE,
     PALETTES,
     TEXT_LINE_COLORS,
-    _as_rgb,
     _distance,
     _perceptual_distance,
+    as_rgb,
     is_palette_color,
     nearest_name,
 )
@@ -189,7 +189,7 @@ def test_the_conversion_is_the_colour_the_page_is_drawn_in(color):
     mark.set_colors(stroke=color, fill=color)
     mark.update()
     drawn = page.get_pixmap(alpha=False).pixel(20, 20)
-    converted = _as_rgb(color)
+    converted = as_rgb(color)
     assert converted is not None
     assert all(abs(c * 255 - d) <= 1.0 + 1e-9 for c, d in zip(converted, drawn, strict=True)), (
         converted, drawn,
@@ -204,6 +204,6 @@ def test_a_colour_that_is_not_rgb_is_never_an_exact_swatch():
 
 
 def test_a_colour_of_no_kind_pdf_has_gets_no_name():
-    assert _as_rgb((0.5, 0.5)) is None
+    assert as_rgb((0.5, 0.5)) is None
     assert nearest_name((0.5, 0.5)) is None
     assert is_palette_color((0.5, 0.5)) is False

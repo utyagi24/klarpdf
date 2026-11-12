@@ -11444,7 +11444,7 @@ context. These stay with the tests that cover them.
 | **M171** Consistency | `I`, `UP`, `E741`, and `E501` at 120 columns. No formatter (§*Decisions*) | 71 import blocks, 142 syntax upgrades (111 of them quoted annotations), 50 ambiguous one-letter names such as `l`, and 31 long lines. Mostly automatic | All. No behaviour change |
 | **M172** Types for the wheel | mypy in the dev lock, `[tool.mypy]` for `klarpdf/` at Python 3.11, and the `typecheck` job. **M172.1**: the gate at default settings, and `typecheck` added to the ruleset mirror. **M172.2**: `disallow_untyped_defs` | M172.1: 128 errors. 86 are PyMuPDF constants, which one configuration decision handles; 42 to fix. M172.2: about 117 missing annotations (core 88, bridge 29) | Core and bridge. The app is untouched |
 | **M173** Types for the app: **go or no-go after M172** | mypy over the app, checked as Windows or on both platforms | 215 errors at default settings (75 PyMuPDF constants), and more once unannotated bodies are checked | App |
-| **M174** Lists that say what they hold *(added 2026-11-11, owner)* | mypy's `disallow_any_generics`, over `klarpdf/` and the app: a `tuple`, `dict` or `list` in a type must say what it holds | 445, measured after M173.2: 290 in `klarpdf/` (on M172.2's code, 154 `dict`, 85 `tuple`, 39 `list` and 12 others) and 155 in the app (99 `tuple`, 28 `dict`, 25 `list` and 3 others). How it splits into parts is decided when it is built | Core, bridge and app |
+| **M174** Lists that say what they hold *(added 2026-11-11, owner)* | mypy's `disallow_any_generics`, over `klarpdf/` and the app: a `tuple`, `dict` or `list` in a type must say what it holds | 445, measured after M173.2: 290 in `klarpdf/` (on M172.2's code, 154 `dict`, 85 `tuple`, 39 `list` and 12 others) and 155 in the app (99 `tuple`, 28 `dict`, 25 `list` and 3 others). Three parts (owner, 2026-11-11): **M174.1** the engine (134), **M174.2** the bridge (156), **M174.3** the app (155) | Core, bridge and app |
 
 **The order, and why.**
 
@@ -12353,6 +12353,127 @@ they hold, so the app's count barely grew. 2 of the app's 155 are a page's marks
   next caller of Qt's own `scale()` or `style()`. One declaration that contradicted its own comment.
   Names used for two things in one function. And a set of checks, all of a kind: a part that might be empty
   is now checked where it is used.
+
+### M174 — lists that say what they hold (M174.1 built 2026-11-11)
+
+**Three parts, one PR each (owner, 2026-11-11).**
+
+* **M174.1**, the engine: `klarpdf/model/` and `klarpdf/util/`. 134 findings.
+* **M174.2**, the bridge: `klarpdf/mcp_bridge/`. 156 findings.
+* **M174.3**, the app. 155 findings.
+
+The engine goes first, because the bridge and the app both use the names it adds. Each part
+switches mypy's `disallow_any_generics` on for its own files, in a `[[tool.mypy.overrides]]` block.
+M174.3 moves it up to `[tool.mypy]` and deletes the block.
+
+**The bridge's replies, for M174.2 (owner, 2026-11-11).** Every field of every reply is named, in a
+`TypedDict`, and agents receive exactly what they receive today. That needs care, because the MCP
+library reads each tool's return type to build the tool's reply schema, and checks every reply
+against it. Measured on mcp 2.0.0:
+
+* `server.py` writes its types as deferred text (`from __future__ import annotations`). Read that
+  way, `-> dict` and `-> dict[str, Any]` give the same schema, `{"result": {"type": "object"}}`,
+  and the same reply: the text, plus a second copy wrapped in `{"result": …}`. So
+  `dict[str, Any]` on a tool changes nothing.
+* A type the library cannot resolve, such as a `TypedDict` or a `Mapping` named in `server.py`,
+  makes it drop the schema and the second copy. It says so only in a log line.
+* A type it can resolve that names the fields would tell agents the fields, and a reply missing
+  one would fail with an error.
+* The inputs `marks`, `values`, `entries` and `regions` keep the same schemas when written as
+  `list[dict[str, Any]]` and `dict[str, Any]`.
+
+M174.2 compares the live server's tool list and replies before and after its change.
+**Considered, not taken:** telling agents each reply's fields. It changes what every agent
+receives, and a reply that drifted from its type would fail instead of arriving.
+
+**Surfaces:** core, bridge and app. The types reach both consumers. The colour fix below changes
+what the app shows and what a save writes, in the app and in the bridge, which reads our marks back
+through `VirtualDocument` before any write.
+
+**The names M174.1 adds.**
+
+* `klarpdf/model/tuples.py`: `Box` (`x0, y0, x1, y1`), `Point`, `Color` (red, green, blue) and
+  `Word` (one entry of `get_text("words")`).
+* `PageEdit` in `page_edits.py`, for the type checker only, as `Mark` is: everything a page's
+  `annotations` can hold, which is its marks and the records of another program's annotation moved
+  or deleted. `PageRef.annotations` is `tuple[PageEdit, ...]`.
+* `Char` and `Span` in `page_text.py`, for the entries of its index.
+* `MarkPreset` and `WholePageStyle` in `content_marks.py`: the stamp presets and the watermark
+  defaults, with their fields named.
+* `SaveKeywords` in `edit_engine.py`: the keywords handed to `Document.save`.
+* `TocEntry` in `toc_remap.py` (it existed, as a bare `list`) and `LinkDict` in `destinations.py`.
+
+**Where `Any` is honest.** An outline row is `[level, title, page, dest]`, a list whose items have
+different types. A link or a destination is a dict whose values change type with the key and the
+kind of link. Both are PyMuPDF's, and PyMuPDF types neither. So their values are `Any`, under a
+name that says what the data is. The bridge's replies are ours, which is why M174.2 names their
+fields.
+
+**What changes in code that runs.** Mostly types. These change a line of code:
+
+* `add_annotation` and `replace_annotation`, and the undo commands and main-window methods that
+  call them, take a `PageEdit` where they took `object`. They put it in a page's list, which is now
+  typed. M172.2 chose `object` because there was no name for that list's contents.
+* `_contiguous_runs` returns tuples instead of lists. Its one caller only unpacks them.
+* The marks overlay paints a note's glyph for a highlight, underline or strikeout with a note. It
+  tested `getattr(annot, "note", "")`. Only those three kinds have a note, so it now tests the kind.
+* The overlay's hit test skips the two foreign-annotation records by name. They have no boxes, so it
+  already skipped them. Naming them lets its return type say a hit is a mark.
+* Two callers wrote a box as `tuple(box)`. One passes the box it already has. The other, in the
+  bridge, builds it from four numbers.
+* The mark dialog reads a stamp's default size from the stamp defaults. In that branch it already
+  read those.
+
+**What the types found: #398.** Once a mark's colour was typed as three numbers, `_stroke_color`
+could not say so: it returned the colour as the file stores it. A PDF colour has one value (grey),
+three (RGB) or four (printing ink, CMYK). A mark holds RGB only, and the viewer draws every colour
+as red, green and blue. Reproduced in the real window on `main`:
+
+* Adopting another program's grey mark raised `TypeError: QColor.fromRgbF(): not enough arguments`
+  on every redraw, and the page's marks stopped drawing.
+* A CMYK mark was drawn as red, green, blue and see-through, so it vanished.
+* A saved file kept the colour as it came.
+
+#398 was filed on 2026-09-25 and was still open. It also lists a line or pen mark with no colour,
+which draws nothing and became red after an edit, with no warning.
+
+**The fix (owner, 2026-11-11: keep the colour you see, and warn).**
+
+* Every colour `parse_annotation` reads goes through `as_rgb` in `markup_palette.py`, which is
+  M170's converter, now public. That covers text marks, pen strokes, lines, shape borders and fills,
+  and a text box's fill. A grey `g` becomes `(g, g, g)`. MuPDF draws it as exactly that, rounded down
+  to a whole level (measured: 0.5 is drawn as 127 of 255). CMYK becomes the RGB MuPDF draws it in,
+  as M170 measured.
+* A text box gives its text a colour in `/DA`, where ink is the `k` operator. The parser read `rg`
+  and `g` only, so a CMYK text colour became black. It reads `k` now.
+* The Adopt warning lists two new losses. "Its printing-ink colour (it will become the screen
+  colour it is drawn in)". And, for a highlight, underline, strikeout, line or pen mark with no
+  colour, "its lack of colour (it will become red)", or yellow for a highlight. PyMuPDF draws a
+  highlight with no colour in black, and other programs may draw nothing, so the colour cannot be
+  kept as seen. A grey loses nothing and is not listed. A shape with no border colour keeps having
+  no border (M155), and is not listed either.
+* `as_rgb` itself changed for grey. It used MuPDF's one-pixel conversion, which gives 0.502 for 0.5,
+  one level away from the drawn page. It is now exact. No swatch name changes.
+
+**Verified by breaking it** (M174.1).
+
+* mypy failed on a bare `tuple` and `dict` planted in `klarpdf/model/`, and on one planted in
+  `klarpdf/util/`.
+* `is_listed` in the Annotations panel, changed back to `-> bool`, made mypy fail at both its uses.
+  M173.2 found that this change made no error, because the marks list it filters was bare. That was
+  the reason the owner gave for M174, and it now holds.
+* The 18 new colour tests in `tests/test_foreign_adopt.py` fail with the colour passed through as
+  the file gives it and the two warning lines taken out. The two in `tests/test_mcp_mark_colours.py`
+  fail with the first of those.
+* The full suite passes locally. It was run in full because the change reaches the engine.
+
+**What M174.1 cost and what it caught.**
+
+* **Cost.** 134 findings in 12 files, and 20 more errors the stricter types exposed where the bridge
+  and the app call the engine. No suppression.
+* **Caught.** #398, a defect a user could see, reported two months earlier. A check in the
+  Annotations panel that did nothing until now. And the four places that took `object` for a page's
+  marks, because there was no name for them.
 
 ## Future enhancements (deferred beyond the roadmap)
 

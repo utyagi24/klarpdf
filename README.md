@@ -99,7 +99,7 @@ Source / Donate… — which is handed to your own browser.
 - **Find and Redact** — search the whole document, review the hits, redact the ones you check in one undo step.
 
 **Foreign annotations** — marks left by another PDF tool
-- **Delete**, **move** (appearance preserved exactly), or **adopt** one into an ordinary editable KlarPDF mark.
+- **Delete**, **move** (appearance preserved exactly), or **adopt** one into an ordinary editable KlarPDF mark, in the colour you see. A warning first lists anything adopting would lose.
 - **Marks an agent made are ordinary marks** — highlights written through the MCP bridge open here editable, notes and all, so an agent can propose and you dispose. See [Use it from an agent](#use-it-from-an-agent-mcp).
 
 **Export, print & images**

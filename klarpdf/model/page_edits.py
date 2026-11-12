@@ -25,10 +25,11 @@ from __future__ import annotations
 import re
 from collections.abc import Collection, Iterable, Iterator, Sequence
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, Any, TypeAlias, TypeVar
 
 import pymupdf as fitz
 
+from klarpdf.model.markup_palette import as_rgb
 from klarpdf.model.pymupdf_constants import (
     PDF_ANNOT_CIRCLE,
     PDF_ANNOT_FREE_TEXT,
@@ -49,6 +50,7 @@ from klarpdf.model.pymupdf_constants import (
     PDF_WIDGET_TYPE_RADIOBUTTON,
     PDF_WIDGET_TYPE_TEXT,
 )
+from klarpdf.model.tuples import Box, Color, Point
 
 # Widget types we treat as fillable (text, the button family, and the choice family).
 FILLABLE_TYPES = frozenset(
@@ -202,7 +204,7 @@ _XFA_PACKET = re.compile(r"\((?P<name>[^()]*)\)\s*(?P<xref>\d+)\s+0\s+R")
 _DYNAMIC_RENDER = re.compile(r"<dynamicRender[^>]*>\s*([^<\s]*)")
 
 
-def describe_xfa(doc: fitz.Document) -> dict | None:
+def describe_xfa(doc: fitz.Document) -> dict[str, Any] | None:
     """Describe ``doc``'s XFA form, or ``None`` if it has none.
 
     Returns ``{"packets": [...], "dynamic": bool}``. ``dynamic`` is conservative in the direction
@@ -463,11 +465,16 @@ AdditiveMark = TextMarkup | InkStroke | Line | Shape | TextBox
 
 if TYPE_CHECKING:  # named in annotations only: these modules import this one
     from klarpdf.model.content_marks import ImageStamp, Stamp
+    from klarpdf.model.foreign_annots import ForeignDeletion, ForeignMove
     from klarpdf.model.form_fields import NewField
     from klarpdf.model.virtual_document import VirtualDocument
 
     #: Every kind of mark a page can carry.
     Mark = AdditiveMark | Redaction | Stamp | ImageStamp | NewField
+
+    #: Everything a page's ``annotations`` can hold: its marks, and the records of the file's own
+    #: annotations that were moved or deleted (M66, M67).
+    PageEdit: TypeAlias = Mark | ForeignDeletion | ForeignMove
 
 #: One kind of mark, the same on the way out as on the way in: a mark moved is the same kind of mark.
 _M = TypeVar("_M", bound="Mark")
@@ -521,7 +528,7 @@ def translate_mark(mark: _M, dx: float, dy: float) -> _M:
 # next non-geometric descriptor a no-op instead of a repeat of this bug.
 
 
-def rects_of(mark: object) -> tuple:
+def rects_of(mark: object) -> tuple[Box, ...]:
     """Every box ``mark`` paints, in unrotated page points — ``()`` if it paints none.
 
     The single source of "what geometry does this descriptor have". Text markup and redactions carry
@@ -538,7 +545,7 @@ def rects_of(mark: object) -> tuple:
     return (rect,) if rect is not None else ()
 
 
-def mark_bounds(mark: object) -> tuple:
+def mark_bounds(mark: object) -> Box:
     """A mark's single bounding rect — the union of :func:`rects_of`, so it shares one geometry
     source with the hit-tests rather than re-deriving it (a text box's own rect, a drawn mark's
     ``bounding_rect()``, and now also the union of a multi-line markup's bars).
@@ -561,11 +568,11 @@ def mark_bounds(mark: object) -> tuple:
 Z_ORDER_ACTIONS = ("front", "forward", "backward", "back")
 
 
-def _mark_positions(annotations: tuple, marks: Iterable[object]) -> list:
+def _mark_positions(annotations: tuple[PageEdit, ...], marks: Iterable[object]) -> list[int]:
     """Where each of ``marks`` sits in ``annotations`` — identity first, then the first unclaimed
     value-equal entry (frozen value objects can be handed back as equal-but-distinct copies), so a
     reorder never silently skips a mark. Unfound marks are dropped."""
-    used: set = set()
+    used: set[int] = set()
     found = []
     for mark in marks:
         position = next((i for i, a in enumerate(annotations) if i not in used and a is mark), -1)
@@ -577,7 +584,7 @@ def _mark_positions(annotations: tuple, marks: Iterable[object]) -> list:
     return found
 
 
-def reorder_marks(annotations: tuple, marks: Iterable[object], action: str) -> tuple:
+def reorder_marks(annotations: tuple[PageEdit, ...], marks: Iterable[object], action: str) -> tuple[PageEdit, ...]:
     """``annotations`` with ``marks`` moved in z-order (M59.8).
 
     ``front`` / ``back`` jump the whole set to the top / bottom, keeping the moved marks in their
@@ -658,20 +665,20 @@ def _same_line(a: Sequence[float], b: Sequence[float]) -> bool:
     return b[1] <= a_mid <= b[3] or a[1] <= b_mid <= a[3]
 
 
-def _x_overlap(a: tuple, b: tuple) -> bool:
+def _x_overlap(a: Sequence[float], b: Sequence[float]) -> bool:
     return _same_line(a, b) and a[0] < b[2] - _TOL and b[0] < a[2] - _TOL
 
 
-def _same_color(a: tuple, b: tuple) -> bool:
+def _same_color(a: Sequence[float], b: Sequence[float]) -> bool:
     return len(a) == len(b) and all(abs(x - y) <= _TOL for x, y in zip(a, b, strict=True))
 
 
-def _union_bars(bars: Iterable[Sequence[float]]) -> tuple:
+def _union_bars(bars: Iterable[Sequence[float]]) -> tuple[Box, ...]:
     """Fold bars into the fewest rects: same-line ones that overlap or touch become one, each
     taking the union y-band so a taller word in either pass keeps its coverage. Bars separated by
     a real gap stay separate rects **of the same mark** — the gap is whitespace the user did not
     select, and one mark is all it takes for one Remove to clear the lot."""
-    merged: list[list] = []
+    merged: list[list[float]] = []
     for bar in sorted(bars, key=lambda r: (r[1], r[0])):
         for other in merged:
             if _same_line(bar, other) and bar[0] <= other[2] + _TOL and other[0] <= bar[2] + _TOL:
@@ -680,13 +687,13 @@ def _union_bars(bars: Iterable[Sequence[float]]) -> tuple:
                 break
         else:
             merged.append(list(bar))
-    return tuple(tuple(bar) for bar in merged)
+    return tuple((bar[0], bar[1], bar[2], bar[3]) for bar in merged)
 
 
-def _subtract_bars(bars: Iterable[Sequence[float]], cutters: Collection[Sequence[float]]) -> tuple:
+def _subtract_bars(bars: Iterable[Sequence[float]], cutters: Collection[Sequence[float]]) -> tuple[Box, ...]:
     """``bars`` with every ``cutters`` span cut out of it, per line. A cut through the middle
     leaves two runs (the mark splits around the new colour); a fully covered bar disappears."""
-    result: list[tuple] = []
+    result: list[Box] = []
     for bar in bars:
         pieces = [(bar[0], bar[2])]
         for cutter in cutters:
@@ -707,8 +714,8 @@ def _subtract_bars(bars: Iterable[Sequence[float]], cutters: Collection[Sequence
 
 
 def merge_markup(
-    annotations: tuple, bars: Iterable[Sequence[float]], mark_type: type[TextMarkup], color: tuple
-) -> tuple:
+    annotations: tuple[PageEdit, ...], bars: Iterable[Sequence[float]], mark_type: type[TextMarkup], color: Color
+) -> tuple[PageEdit, ...]:
     """A page's annotations with ``bars`` painted on as ``mark_type`` in ``color`` (M59.10).
 
     Returns the whole new tuple (pushed as one :class:`SetAnnotationsCommand`), so a pass that
@@ -749,7 +756,7 @@ def merge_markup(
         return annotations
     absorbed = list(new_bars)      # grows as same-colour marks are folded in
     notes: list[str] = []          # …and so do their notes — a fold must not destroy typed text
-    result: list = []
+    result: list[PageEdit] = []
     insert_at = None
     for mark in annotations:
         if not isinstance(mark, mark_type) or not any(
@@ -778,7 +785,9 @@ def merge_markup(
     return tuple(result)
 
 
-def remove_markup(annotations: tuple, bars: Iterable[Sequence[float]], mark_type: type[TextMarkup]) -> tuple:
+def remove_markup(
+    annotations: tuple[PageEdit, ...], bars: Iterable[Sequence[float]], mark_type: type[TextMarkup]
+) -> tuple[PageEdit, ...]:
     """A page's annotations with ``mark_type`` **erased over** ``bars`` — the removal half of the
     M59.10 merge, for the M76 markup context menu ("remove one layer leaving the other").
 
@@ -793,7 +802,7 @@ def remove_markup(annotations: tuple, bars: Iterable[Sequence[float]], mark_type
     erase = tuple(tuple(bar) for bar in bars)
     if not erase:
         return annotations
-    result: list = []
+    result: list[PageEdit] = []
     for mark in annotations:
         if not isinstance(mark, mark_type) or not any(
             _x_overlap(bar, cutter) for bar in mark.rects for cutter in erase
@@ -807,7 +816,8 @@ def remove_markup(annotations: tuple, bars: Iterable[Sequence[float]], mark_type
 
 
 def marks_over(
-    annotations: tuple, bars: Iterable[Sequence[float]], mark_type: type[TextMarkup] | tuple[type[TextMarkup], ...]
+    annotations: tuple[PageEdit, ...], bars: Iterable[Sequence[float]],
+    mark_type: type[TextMarkup] | tuple[type[TextMarkup], ...],
 ) -> list[TextMarkup]:
     """The ``mark_type`` marks among ``annotations`` overlapping any of ``bars``, in z-order — the
     existence / tick-state query behind the M76 layer toggles (same overlap test the merge
@@ -822,7 +832,7 @@ def marks_over(
     ]
 
 
-def resolve_note_host(annotations: tuple, bars: Collection[Sequence[float]]) -> TextMarkup | None:
+def resolve_note_host(annotations: tuple[PageEdit, ...], bars: Collection[Sequence[float]]) -> TextMarkup | None:
     """The HUS mark a note applied to ``bars`` attaches to — or ``None`` when that span carries no
     text markup at all and the caller must create a Highlight for it (M90.1, owner rule 4).
 
@@ -861,7 +871,7 @@ def scale_mark(mark: Mark, sx: float, sy: float, ox: float, oy: float) -> Mark |
     from klarpdf.model.content_marks import CONTENT_MARK_TYPES, Stamp
     from klarpdf.model.form_fields import NewField
 
-    def point(x: float, y: float) -> tuple:
+    def point(x: float, y: float) -> Point:
         return (ox + (x - ox) * sx, oy + (y - oy) * sy)
 
     if isinstance(mark, (Shape, NewField) + CONTENT_MARK_TYPES):
@@ -897,7 +907,7 @@ def scale_mark(mark: Mark, sx: float, sy: float, ox: float, oy: float) -> Mark |
     return None
 
 
-def restyle_mark(mark: object, color: tuple | None, width: float, fill_color: tuple | None,
+def restyle_mark(mark: object, color: Color | None, width: float, fill_color: Color | None,
                  opacity: float = 1.0, line_ends: tuple[bool, bool] | None = None,
                  dashed: bool | None = None) -> Shape | Line | InkStroke | None:
     """A drawn mark re-coloured / re-widthed (and, for shapes, re-filled) in place — the M59.5
@@ -1077,7 +1087,7 @@ def _place_textbox_text(doc: fitz.Document, annot: fitz.Annot, box: TextBox, lin
         doc.xref_set_key(annot.xref, "Contents", fitz.get_pdf_str(box.text))
 
 
-def apply_annotations(page: fitz.Page, annotations: tuple) -> None:
+def apply_annotations(page: fitz.Page, annotations: tuple[PageEdit, ...]) -> None:
     """Write a page's *non-destructive* annotation descriptors onto a materialised output page.
 
     Redaction descriptors are deliberately skipped here — they are handled separately by
@@ -1146,7 +1156,7 @@ def apply_annotations(page: fitz.Page, annotations: tuple) -> None:
             _place_textbox_text(page.parent, annot, annotation, lines)
 
 
-def apply_redactions(page: fitz.Page, annotations: tuple) -> None:
+def apply_redactions(page: fitz.Page, annotations: tuple[PageEdit, ...]) -> None:
     """Destructively remove every :class:`Redaction`'s regions from a materialised output page.
 
     Adds a redaction annotation per rect (across all of the page's redactions), then commits them
@@ -1188,7 +1198,7 @@ _DA_FONT_TO_NAME = {"helv": "helv", "tiro": "tiro", "cour": "cour"}
 _FIT_ONE_LINE_TOL = 2.0
 
 
-def _textbox_fits_one_line(text: str, fontname: str, fontsize: float, rect: tuple) -> bool:
+def _textbox_fits_one_line(text: str, fontname: str, fontsize: float, rect: Box) -> bool:
     """Whether ``text``'s longest line fits within ``rect``'s width — how a round-tripped FreeText
     whose drawing shows no text infers :attr:`TextBox.auto_width` (M78.3). Fits → the box was
     hugging its text (auto width); overflows → its width was deliberately narrowed and the text
@@ -1284,9 +1294,10 @@ def _drawn_lines(annot: fitz.Annot) -> list[tuple[float, float]]:
 def _parse_freetext_da(da: str) -> tuple[float, tuple[float, float, float], str]:
     """Parse a FreeText DA string → ``(fontsize, text_color, fontname)``.
 
-    A simple-appearance DA looks like ``1 0 0 rg /TiRo 14.0 Tf`` (RGB text) or ``0 g /Helv 11 Tf``
-    (grey). Anything we can't read falls back to the :class:`TextBox` defaults (11 pt, black, helv),
-    so a hand-edited or foreign-but-tagged DA never raises.
+    A simple-appearance DA looks like ``1 0 0 rg /TiRo 14.0 Tf`` (RGB text), ``0 g /Helv 11 Tf``
+    (grey) or ``0 1 1 0 k /Helv 11 Tf`` (printing ink, which becomes the RGB it is drawn in — #398).
+    Anything we can't read falls back to the :class:`TextBox` defaults (11 pt, black, helv), so a
+    hand-edited or foreign-but-tagged DA never raises.
     """
     fontsize, color, fontname = 11.0, (0.0, 0.0, 0.0), "helv"
     tokens = da.split()
@@ -1302,6 +1313,13 @@ def _parse_freetext_da(da: str) -> tuple[float, tuple[float, float, float], str]
                 color = (gray, gray, gray)
             except ValueError:
                 pass
+        elif tok == "k" and i >= 4:
+            try:
+                ink = as_rgb([float(value) for value in tokens[i - 4:i]])
+            except ValueError:
+                ink = None
+            if ink is not None:
+                color = ink
         elif tok == "Tf" and i >= 2:
             try:
                 fontsize = float(tokens[i - 1])
@@ -1311,11 +1329,21 @@ def _parse_freetext_da(da: str) -> tuple[float, tuple[float, float, float], str]
     return fontsize, color, fontname
 
 
-def _stroke_color(annot: fitz.Annot, default: tuple) -> tuple:
-    """An annot's stroke colour as a plain tuple, or ``default`` when unset (M57 read-back —
-    style via ``annot.colors``, no DA parsing)."""
-    stroke = annot.colors.get("stroke")
-    return tuple(stroke) if stroke else default
+def _file_color(values: Sequence[float] | None) -> Color | None:
+    """A colour as a file stores it, as the RGB the page is drawn in, or ``None`` when it has none.
+
+    A PDF colour has one value (grey), three (RGB) or four (printing ink), and a mark holds RGB only:
+    the viewer draws every colour as red, green and blue. Kept as the file gave it, an adopted grey
+    mark stopped the page's marks drawing and an ink one was drawn see-through (#398). Found by
+    M174.1, once a mark's colour was typed. See :func:`~model.markup_palette.as_rgb`.
+    """
+    return as_rgb(values) if values else None
+
+
+def _stroke_color(annot: fitz.Annot, default: Color) -> Color:
+    """An annot's stroke colour, or ``default`` when unset (M57 read-back — style via
+    ``annot.colors``, no DA parsing)."""
+    return _file_color(annot.colors.get("stroke")) or default
 
 
 def _opacity(annot: fitz.Annot) -> float:
@@ -1409,7 +1437,7 @@ def _content_operators(data: bytes) -> Iterator[tuple[str, str | None]]:
                 yield token, name
 
 
-def _draws_fill(doc: fitz.Document, xref: int, seen: set) -> bool:
+def _draws_fill(doc: fitz.Document, xref: int, seen: set[int]) -> bool:
     """Whether the form XObject ``xref`` paints a fill, itself or through a form it draws."""
     seen.add(xref)
     for op, name in _content_operators(doc.xref_stream(xref) or b""):
@@ -1426,7 +1454,7 @@ def _draws_fill(doc: fitz.Document, xref: int, seen: set) -> bool:
     return False
 
 
-def _freetext_fill(annot: fitz.Annot) -> tuple | None:
+def _freetext_fill(annot: fitz.Annot) -> Color | None:
     """A FreeText's background: its ``/C``, but only when the box's own drawing paints a fill (#426).
 
     MuPDF reads a FreeText's ``/C`` as its background, and so does KlarPDF, which writes its fill
@@ -1436,14 +1464,14 @@ def _freetext_fill(annot: fitz.Annot) -> tuple | None:
     and in every file a rewriting save wrote. So the check compares what the file claims with what
     it draws. A box with no drawing at all keeps ``/C``, because MuPDF draws one from it.
     """
-    fill = annot.colors.get("stroke")           # a FreeText's /C surfaces as 'stroke' in PyMuPDF
-    if not fill:
+    fill = _file_color(annot.colors.get("stroke"))   # a FreeText's /C surfaces as 'stroke' in PyMuPDF
+    if fill is None:
         return None
     doc = annot.parent.parent
     kind, value = doc.xref_get_key(annot.xref, "AP/N")
     if kind != "xref":
-        return tuple(fill)
-    return tuple(fill) if _draws_fill(doc, int(value.split()[0]), set()) else None
+        return fill
+    return fill if _draws_fill(doc, int(value.split()[0]), set()) else None
 
 
 def _quads_to_rects(vertices: Sequence[Sequence[float]]) -> tuple[tuple[float, float, float, float], ...]:
@@ -1457,7 +1485,7 @@ def _quads_to_rects(vertices: Sequence[Sequence[float]]) -> tuple[tuple[float, f
     return tuple(rects)
 
 
-def read_klarpdf_annotations(page: fitz.Page) -> tuple:
+def read_klarpdf_annotations(page: fitz.Page) -> tuple[AdditiveMark, ...]:
     """Re-parse this page's KlarPDF-authored highlights / text-boxes into model descriptors.
 
     The inverse of :func:`apply_annotations`. Matches annotations by the :data:`KLARPDF_AUTHOR`
@@ -1485,17 +1513,15 @@ def parse_annotation(annot: fitz.Annot) -> AdditiveMark | None:
     apart.
     """
     doc = annot.parent.parent
-    result: list = []
+    result: list[AdditiveMark] = []
     kind = annot.type[0]
     if kind == PDF_ANNOT_HIGHLIGHT:
-        stroke = annot.colors.get("stroke")
-        color = tuple(stroke) if stroke else Highlight.color
+        color = _file_color(annot.colors.get("stroke")) or Highlight.color
         result.append(Highlight(_quads_to_rects(annot.vertices), color=color,
                                 note=annot.info.get("content", "")))
     elif kind in (PDF_ANNOT_UNDERLINE, PDF_ANNOT_STRIKE_OUT):
         cls = Underline if kind == PDF_ANNOT_UNDERLINE else Strikeout
-        stroke = annot.colors.get("stroke")
-        color = tuple(stroke) if stroke else cls.color
+        color = _file_color(annot.colors.get("stroke")) or cls.color
         result.append(cls(_quads_to_rects(annot.vertices), color=color,
                           note=annot.info.get("content", "")))
     elif kind == PDF_ANNOT_INK:
@@ -1526,16 +1552,16 @@ def parse_annotation(annot: fitz.Annot) -> AdditiveMark | None:
         r = annot.rect
         inset = _SHAPE_RECT_GROWTH
         rect = (r.x0 + inset, r.y0 + inset, r.x1 - inset, r.y1 - inset)
-        fill = annot.colors.get("fill")
+        fill = _file_color(annot.colors.get("fill"))
         # No border colour means no border (M155), not the default red it used to become (#395).
-        stroke = annot.colors.get("stroke")
+        stroke = _file_color(annot.colors.get("stroke"))
         result.append(
             Shape(
                 "rect" if kind == PDF_ANNOT_SQUARE else "ellipse",
                 rect,
-                color=tuple(stroke) if stroke else None,
+                color=stroke,
                 width=width,
-                fill_color=tuple(fill) if fill else None,
+                fill_color=fill,
                 opacity=_opacity(annot),
                 dashed=_dashed(annot),
             )

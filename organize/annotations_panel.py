@@ -33,6 +33,7 @@ from PySide6.QtWidgets import QListWidget, QListWidgetItem, QWidget
 
 from klarpdf.model.page_edits import Highlight, Strikeout, Underline
 from klarpdf.model.page_text import PageText
+from klarpdf.model.tuples import Box
 from klarpdf.model.virtual_document import VirtualDocument
 from organize.thumbnail_panel import _SIDEBAR_W  # one default width for all sidebar tabs
 
@@ -168,7 +169,7 @@ class AnnotationsPanel(QListWidget):
         comment = _clip(annot.contents, _NOTE_CHARS)
         return f"{row}{_NOTE_LEAD}{comment}" if comment else row
 
-    def _covered_text(self, page_index: int, rects: Iterable[Sequence[float]]) -> str:
+    def _covered_text(self, page_index: int, rects: Iterable[Box]) -> str:
         """The page text under a text-anchored mark's bars — what a highlight row should read as.
 
         Read from the page's :class:`PageText` index rather than ``page.get_textbox(rect)``. That
@@ -179,7 +180,7 @@ class AnnotationsPanel(QListWidget):
         and Class B" from the next column. The snippet is the row's whole value, so that was not a
         cosmetic fault. See :mod:`model.page_text`."""
         text = self._page_text_for(page_index)
-        parts = [" ".join(text.text_under(tuple(r)).split()) for r in rects]
+        parts = [" ".join(text.text_under(r).split()) for r in rects]
         return " ".join(p for p in parts if p)
 
     def _page_text_for(self, page_index: int) -> PageText:

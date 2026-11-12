@@ -51,7 +51,7 @@ from PySide6.QtWidgets import (
 )
 
 from klarpdf.model.content_marks import CONTENT_MARK_TYPES, ContentMark, render_mark_document
-from klarpdf.model.foreign_annots import ForeignAnnot
+from klarpdf.model.foreign_annots import ForeignAnnot, ForeignDeletion, ForeignMove
 from klarpdf.model.form_fields import NewField
 from klarpdf.model.page_edits import (
     TEXTBOX_PITCH,
@@ -82,7 +82,7 @@ from viewer.text_format_bar import TextBoxStyle, TextFormatBar, qt_font
 from viewer.tools import ArmedTool
 
 if TYPE_CHECKING:  # named in annotations only
-    from klarpdf.model.page_edits import Mark, TextMarkup
+    from klarpdf.model.page_edits import Mark, PageEdit, TextMarkup
     from viewer.pdf_view import PdfView
 
 _TEXTBOX_DEFAULT = (200.0, 56.0)  # starting size for a new box, in page points (then auto-grows)
@@ -320,13 +320,13 @@ class AnnotationOverlay:
     def __init__(
         self,
         view: PdfView,
-        on_add: Callable[[int, object], object],
+        on_add: Callable[[int, PageEdit], object],
         on_remove: Callable[[int, object], object] | None = None,
-        on_replace: Callable[[int, object, object, str | None], object] | None = None,
+        on_replace: Callable[[int, object, PageEdit, str | None], object] | None = None,
         on_select: Callable[[object], object] | None = None,
-        on_replace_many: Callable[[int, Sequence[tuple[object, object]], str], object] | None = None,
+        on_replace_many: Callable[[int, Sequence[tuple[object, PageEdit]], str], object] | None = None,
         on_remove_many: Callable[[int, Sequence[object], str], object] | None = None,
-        on_nudge: Callable[[int, Sequence[tuple[object, object]], bool, str], object] | None = None,
+        on_nudge: Callable[[int, Sequence[tuple[object, PageEdit]], bool, str], object] | None = None,
     ) -> None:
         self._view = view
         self._on_add = on_add               # on_add(page_index, annotation) — pushes Add command
@@ -566,7 +566,7 @@ class AnnotationOverlay:
                     self._paint_redaction(scene, page_index, annot)
                 # A note is a field of its host, not a mark of its own, so it is painted *after*
                 # the host rather than as another branch of this dispatch (M90.2).
-                if getattr(annot, "note", ""):
+                if isinstance(annot, (Highlight, Underline, Strikeout)) and annot.note:
                     self._paint_note_glyph(scene, page_index, annot)
             # Another tool's comments on this page (M90.4) — band-gated like the content marks
             # above, and tracked by the same page set, because finding them reads the page's
@@ -1049,11 +1049,17 @@ class AnnotationOverlay:
         on a ``ForeignDeletion``; Qt swallows exceptions from a Python override of one of its
         virtuals, so the app survived and the **context menu silently never appeared** for the rest
         of the session (M83.1). This is the only caller of this hit-test, and it *is* the menu.
+
+        The two records are skipped by name as well. That changes nothing when the code runs, since
+        ``rects_of`` answers ``()`` for them. It is there so the return type can say a hit is a mark
+        (M174).
         """
         page_index, local = self._view.page_and_local_at(scene_pt)
         if page_index is None or local is None:
             return None
         for annot in reversed(self._view._vdoc.ordered[page_index].annotations):
+            if isinstance(annot, (ForeignDeletion, ForeignMove)):
+                continue
             # A pen stroke / line is hit by its actual geometry (not its box), so a loop drawn
             # around other marks no longer swallows every click inside it (M59.6 follow-up).
             if isinstance(annot, OBJECT_TYPES):
@@ -1080,7 +1086,7 @@ class AnnotationOverlay:
         if self._on_remove is not None:
             self._on_remove(page_index, annotation)
 
-    def _replace(self, page_index: int, old: object, new: object, text: str | None = None) -> None:
+    def _replace(self, page_index: int, old: object, new: PageEdit, text: str | None = None) -> None:
         if self._on_replace is not None:
             self._on_replace(page_index, old, new, text)
 

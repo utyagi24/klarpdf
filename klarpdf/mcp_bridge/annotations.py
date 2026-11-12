@@ -233,7 +233,7 @@ def _describe(annot: fitz.Annot, page1: int, text: PageText) -> dict:
     else:
         r = annot.rect
         boxes = [[r.x0, r.y0, r.x1, r.y1]]
-    box_tuples = [tuple(box) for box in boxes]
+    box_tuples = [(box[0], box[1], box[2], box[3]) for box in boxes]
     stroke = (annot.colors or {}).get("stroke") or None
     color = [round(float(c), 4) for c in stroke] if stroke else None
     info = annot.info or {}
